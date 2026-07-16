@@ -81,6 +81,13 @@ impl CachedOrderValues {
     }
 
     fn push(&mut self, value: Option<Value>) {
+        // SQL NULL produced by an expression is represented as `Value::Null`,
+        // while a nullable stored slot is absent. Ordering and cursor
+        // boundaries must use one canonical missing-slot representation.
+        let value = match value {
+            Some(Value::Null) | None => None,
+            value => value,
+        };
         match self {
             Self::Inline { len, values } => {
                 debug_assert!(
@@ -654,14 +661,16 @@ fn order_value_from_row<'a, R>(
 where
     R: OrderReadableRow + ?Sized,
 {
-    match source {
+    let value = match source {
         ResolvedOrderValueSource::DirectField(slot) => row.read_order_slot_cow(*slot),
         ResolvedOrderValueSource::Expression(expr) => {
             eval_compiled_expr_with_value_reader(expr, &mut |slot| row.read_order_slot(slot))
                 .ok()
                 .map(Cow::Owned)
         }
-    }
+    };
+
+    value.filter(|value| !matches!(value.as_ref(), Value::Null))
 }
 
 // Compare two cached owned ordering values after key precomputation.

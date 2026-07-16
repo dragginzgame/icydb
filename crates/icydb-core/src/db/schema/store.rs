@@ -2083,7 +2083,7 @@ fn hash_accepted_field_kind(hasher: &mut sha2::Sha256, kind: &AcceptedFieldKind)
             target_entity_tag,
             target_store_path,
             key_kind,
-            strength,
+            enforcement,
         } => {
             write_hash_tag_u8(hasher, 28);
             write_hash_str_u32(hasher, target_path);
@@ -2091,7 +2091,7 @@ fn hash_accepted_field_kind(hasher: &mut sha2::Sha256, kind: &AcceptedFieldKind)
             write_hash_u64(hasher, target_entity_tag.value());
             write_hash_str_u32(hasher, target_store_path);
             hash_accepted_field_kind(hasher, key_kind);
-            write_hash_str_u32(hasher, accepted_relation_strength_name(*strength));
+            write_hash_str_u32(hasher, accepted_relation_enforcement_name(*enforcement));
         }
         AcceptedFieldKind::List(inner) => {
             write_hash_tag_u8(hasher, 29);
@@ -2147,12 +2147,12 @@ const fn persisted_expression_op_name(
     }
 }
 
-const fn accepted_relation_strength_name(
-    strength: crate::db::schema::AcceptedRelationStrength,
+const fn accepted_relation_enforcement_name(
+    enforcement: crate::db::schema::AcceptedRelationEnforcement,
 ) -> &'static str {
-    match strength {
-        crate::db::schema::AcceptedRelationStrength::Strong => "strong",
-        crate::db::schema::AcceptedRelationStrength::Weak => "weak",
+    match enforcement {
+        crate::db::schema::AcceptedRelationEnforcement::Enforced => "enforced",
+        crate::db::schema::AcceptedRelationEnforcement::Unchecked => "unchecked",
     }
 }
 

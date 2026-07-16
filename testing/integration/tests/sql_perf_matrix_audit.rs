@@ -3,18 +3,32 @@
 //! Does not own: production SQL semantics or shared scenario and verdict contracts.
 //! Boundary: renders declared scenarios, executes audit surfaces, and emits typed evidence reports.
 
+#[allow(
+    dead_code,
+    reason = "this performance target consumes only the rejection subset of the shared verdict"
+)]
 mod sql_harness;
+mod sql_perf_baseline;
+mod sql_perf_environment;
+mod sql_perf_instrumentation;
+mod sql_perf_p1_shard;
+mod sql_perf_p2;
+mod sql_perf_p2_confirmation;
+mod sql_perf_p2_shard;
+mod sql_perf_phase;
+mod sql_perf_profile;
+mod sql_perf_receipt;
+mod sql_perf_scale;
+mod sql_perf_scale_baseline;
+mod sql_perf_scale_shard;
 
 use std::{
     cmp::Reverse,
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, HashSet},
     env,
     fmt::Write as _,
-    fs,
-    io::Write as _,
+    fs, io,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
-    time::Instant,
 };
 
 use candid::CandidType;
@@ -23,77 +37,147 @@ use ic_testkit::pic::{
 };
 use icydb::{
     Error, ErrorOrigin,
-    db::{SqlQueryExecutionAttribution, sql::SqlQueryResult},
+    db::{EntitySchemaDescription, SqlQueryExecutionAttribution, sql::SqlQueryResult},
     diagnostic::{DiagnosticCode, ErrorClass},
 };
 use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildTarget, CanisterWasmProfile,
-    install_fixture_canister_with_options, install_fixture_canister_with_options_and_progress,
+    build_fixture_canister_wasm_bytes_with_options, install_prebuilt_fixture_canister,
     reset_icydb_fixtures,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::sql_harness::{
     CorrectnessObservation, CorrectnessScenario, CorrectnessVerdict, DiagnosticFact,
-    EligibleProvider, EvidenceStrength, ExpectedAcceptance, MutationKind, NormalizedCell,
-    NormalizedResult, NullabilityClass, ObservedOutcome, PredicateFamily, QueryShape,
-    RouteExpectation, RouteFact, RouteFamily, RouteObservation, RouteOutcome, RouteReason,
-    RowOrder, ScenarioMetadata, ScenarioSource, StatementFamily, ValueTypeFamily, WindowSpec,
-    correctness_verdict, select_stratified,
+    EligibleProvider, EvidenceStrength, ExpectedAcceptance, MutationKind, NullabilityClass,
+    ObservedOutcome, PredicateFamily, QueryShape, RouteExpectation, RouteFact, RouteFamily,
+    RouteObservation, RouteOutcome, RouteReason, RowOrder, ScenarioMetadata, StatementFamily,
+    ValueTypeFamily, WindowSpec, correctness_verdict,
+};
+use crate::sql_perf_baseline::{
+    P2BaselineVerdict, compare_performance_baseline, write_performance_baseline_comparison,
+};
+use crate::sql_perf_environment::{
+    PerfEnvironmentIdentity, capture_perf_environment, validate_perf_environment,
+};
+use crate::sql_perf_instrumentation::{
+    INSTRUMENTATION_SENTINEL_SCENARIO_ID, InstrumentationPathSample,
+    build_instrumentation_calibration_report, read_instrumentation_calibration_report,
+    write_instrumentation_calibration_report,
+};
+use crate::sql_perf_p1_shard::{
+    P1ShardArtifactError, P1ShardMergeError, P1ShardReport, build_p1_shard_report,
+    merge_p1_shard_reports, read_p1_shard_report, validate_p1_shard_artifact_size,
+    write_p1_shard_report,
+};
+use crate::sql_perf_p2::{
+    P2SelectionRequirements, read_p2_candidate_selection, select_p2_candidates,
+    write_p2_candidate_selection,
+};
+use crate::sql_perf_p2_confirmation::{
+    P2WarmNotApplicableReason, P2WarmSampleInput, build_p2_confirmation,
+};
+use crate::sql_perf_p2_shard::{
+    build_p2_shard_report, merge_p2_shard_reports, read_merged_p2_report, read_p2_shard_report,
+    write_merged_p2_report, write_p2_shard_report,
+};
+use crate::sql_perf_phase::{
+    PhaseOwnershipTable, PhaseReconciliation, current_phase_ownership, reconcile_phase,
+};
+use crate::sql_perf_profile::{PerformanceProfileError, SQL_PERFORMANCE_PROFILE};
+use crate::sql_perf_receipt::{
+    P1ReceiptError, P1ShardReceipt, build_p1_shard_receipts, p1_shard_receipt,
+    validate_p1_shard_receipts,
+};
+use crate::sql_perf_scale::{
+    ScaleEvidenceError, ScaleObservation, ScaleScenarioDeclaration, build_scale_observation,
+    scale_scenario_declarations,
+};
+use crate::sql_perf_scale_shard::{
+    MergedScaleShardReports, build_scale_shard_report, merge_scale_shard_reports,
+    read_merged_scale_report, read_scale_shard_report, write_merged_scale_report,
+    write_scale_shard_report,
 };
 
-const DEFAULT_MATRIX_LIMIT: usize = 300;
-const DEFAULT_RANDOM_CASE_COUNT: usize = 300;
-const DEFAULT_TOP_N: usize = 20;
-const DEFAULT_RANDOM_SEED: u64 = 0x1cdb_0182_0000_0001;
-const SQL_PERF_MATRIX_WASM_PROFILE_ENV: &str = "ICYDB_SQL_PERF_MATRIX_WASM_PROFILE";
-const SQL_PERF_MATRIX_INSTALL_PROGRESS_ENV: &str = "ICYDB_SQL_PERF_MATRIX_INSTALL_PROGRESS";
-const SQL_PERF_SQLITE_OUTPUT_STEM_ENV: &str = "ICYDB_SQL_PERF_SQLITE_OUTPUT_STEM";
-const SQL_PERF_SQLITE_REQUIRED_OUTPUT_STEM_ENV: &str = "ICYDB_SQL_PERF_SQLITE_REQUIRED_OUTPUT_STEM";
-const SQL_PERF_SQLITE_KEYS_ENV: &str = "ICYDB_SQL_PERF_SQLITE_KEYS";
-const SQL_PERF_SQLITE_STRICT_ENV: &str = "ICYDB_SQL_PERF_SQLITE_STRICT";
-const SQL_PERF_SQLITE3_ENV: &str = "ICYDB_SQLITE3";
-const SQL_PERF_SQLITE_TIMING_SAMPLES_ENV: &str = "ICYDB_SQL_PERF_SQLITE_TIMING_SAMPLES";
-const SQL_PERF_SQLITE_DIFF_OUTPUT_STEM_ENV: &str = "ICYDB_SQL_PERF_SQLITE_DIFF_OUTPUT_STEM";
-const SQL_PERF_SQLITE_DIFF_SEED_ENV: &str = "ICYDB_SQL_PERF_SQLITE_DIFF_SEED";
-const SQL_PERF_SQLITE_DIFF_CASES_ENV: &str = "ICYDB_SQL_PERF_SQLITE_DIFF_CASES";
-const SQL_PERF_SQLITE_MUTATION_DIFF_OUTPUT_STEM_ENV: &str =
-    "ICYDB_SQL_PERF_SQLITE_MUTATION_DIFF_OUTPUT_STEM";
-const SQL_PERF_SQLITE_MUTATION_DIFF_SEED_ENV: &str = "ICYDB_SQL_PERF_SQLITE_MUTATION_DIFF_SEED";
-const SQL_PERF_SQLITE_MUTATION_DIFF_CASES_ENV: &str = "ICYDB_SQL_PERF_SQLITE_MUTATION_DIFF_CASES";
-const DEFAULT_SQL_PERF_SQLITE_TIMING_SAMPLE_COUNT: usize = 0;
-const DEFAULT_SQL_PERF_SQLITE_OUTPUT_STEM: &str =
-    "/tmp/icydb-sqlite-comparison/sql_perf_audit_sqlite_comparison";
-const DEFAULT_SQL_PERF_SQLITE_REQUIRED_OUTPUT_STEM: &str =
-    "/tmp/icydb-sqlite-comparison/sql_perf_required_sqlite_comparison";
-const DEFAULT_SQL_PERF_SQLITE_DIFF_OUTPUT_STEM: &str =
-    "/tmp/icydb-sqlite-comparison/sql_perf_random_differential";
-const DEFAULT_SQL_PERF_SQLITE_MUTATION_DIFF_OUTPUT_STEM: &str =
-    "/tmp/icydb-sqlite-comparison/sql_perf_random_mutation_differential";
-const DEFAULT_SQL_PERF_SQLITE_DIFF_SEED: u64 = 0x1cdb_0196_0000_000f;
-const DEFAULT_SQL_PERF_SQLITE_DIFF_CASE_COUNT: usize = 300;
-const DEFAULT_SQL_PERF_SQLITE_MUTATION_DIFF_SEED: u64 = 0x1cdb_0196_0000_0010;
-const DEFAULT_SQL_PERF_SQLITE_MUTATION_DIFF_CASE_COUNT: usize = 40;
-const SQL_PERF_SQLITE_REQUIRED_COMPATIBLE_KEYS: &[&str] = &[
-    "user.select.pk.all.pk_asc.limit1",
-    "user.select.narrow.age_range.age_asc.limit3",
-    "user.select.narrow.lower_name_prefix.lower_name_asc.limit3",
-    "user.aggregate.count_active",
-    "user.aggregate.group_age_count",
-    "account.select.narrow.active_true.handle_asc.limit3",
-    "account.select.narrow.tier_gold_active.tier_handle_asc.limit3",
-    "account.sqlite_diff.tier_in_handle_order.limit3",
-    "blob.select.metadata.bucket_range.bucket_label_asc.limit3",
-    "blob.aggregate.count_bucket",
-    "token.collection_stage_id.branch_set.page_only.limit50",
-    "token.collection_stage_id.prefixed_stage_range.page_only.limit50",
-    "token.collection_id.sparse_in.count",
-];
+const SQL_PERF_P1_SHARD_INDEX_ENV: &str = "ICYDB_SQL_PERF_P1_SHARD_INDEX";
+const SQL_PERF_P1_SHARD_DIR_ENV: &str = "ICYDB_SQL_PERF_P1_SHARD_DIR";
+const SQL_PERF_P2_SELECTION_PATH_ENV: &str = "ICYDB_SQL_PERF_P2_SELECTION_PATH";
+const SQL_PERF_P2_SHARD_INDEX_ENV: &str = "ICYDB_SQL_PERF_P2_SHARD_INDEX";
+const SQL_PERF_P2_SHARD_DIR_ENV: &str = "ICYDB_SQL_PERF_P2_SHARD_DIR";
+const SQL_PERF_P2_REPORT_PATH_ENV: &str = "ICYDB_SQL_PERF_P2_REPORT_PATH";
+const SQL_PERF_BASELINE_PATH_ENV: &str = "ICYDB_SQL_PERF_BASELINE_PATH";
+const SQL_PERF_CURRENT_PATH_ENV: &str = "ICYDB_SQL_PERF_CURRENT_PATH";
+const SQL_PERF_COMPARISON_PATH_ENV: &str = "ICYDB_SQL_PERF_COMPARISON_PATH";
+const SQL_PERF_INSTRUMENTATION_REPORT_PATH_ENV: &str = "ICYDB_SQL_PERF_INSTRUMENTATION_REPORT_PATH";
+const SQL_PERF_SCALE_BASELINE_PATH_ENV: &str = "ICYDB_SQL_PERF_SCALE_BASELINE_PATH";
+const SQL_PERF_SCALE_CURRENT_PATH_ENV: &str = "ICYDB_SQL_PERF_SCALE_CURRENT_PATH";
+const SQL_PERF_SCALE_SHARD_INDEX_ENV: &str = "ICYDB_SQL_PERF_SCALE_SHARD_INDEX";
+const SQL_PERF_SCALE_SHARD_DIR_ENV: &str = "ICYDB_SQL_PERF_SCALE_SHARD_DIR";
+const SQL_PERF_SCALE_REPORT_PATH_ENV: &str = "ICYDB_SQL_PERF_SCALE_REPORT_PATH";
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 struct SqlQueryPerfResult {
     result: SqlQueryResult,
     attribution: SqlQueryExecutionAttribution,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct SqlTotalOnlyPerfResult {
+    result: SqlQueryResult,
+    instructions: u64,
+}
+
+///
+/// ScalePayloadProfile
+///
+/// Exact blob-payload distribution reported by the audit canister's scale loader.
+/// Owned by the scale fixture boundary and validated before query sampling.
+///
+
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ScalePayloadProfile {
+    /// The selected surface has no blob payload fields.
+    NotApplicable,
+
+    /// Thumbnail lengths cycle through 32/64/128/256 bytes and chunk lengths
+    /// cycle through 256/512/1,024/2,048 bytes.
+    BlobCycleV1,
+}
+
+///
+/// ScaleFixtureFacts
+///
+/// Realized deterministic distribution facts returned by one scale-fixture load.
+/// Owned by the audit canister and checked against each sentinel declaration.
+///
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ScaleFixtureFacts {
+    /// Current hard-cut scale-fixture format version.
+    profile_version: u32,
+
+    /// Stable audit surface name loaded into the otherwise-empty canister.
+    surface: String,
+
+    /// Exact number of rows constructed and inserted for the surface.
+    fixture_rows: u32,
+
+    /// Rows matching the surface's declared impossible predicate.
+    zero_match_rows: u32,
+
+    /// Rows matching the surface's declared exact-key predicate.
+    one_match_rows: u32,
+
+    /// Rows matching the surface's declared quarter-selectivity predicate.
+    quarter_match_rows: u32,
+
+    /// Rows matching the surface's declared all-row predicate.
+    all_match_rows: u32,
+
+    /// Exact blob payload distribution, or typed non-applicability.
+    payload_profile: ScalePayloadProfile,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -140,40 +224,36 @@ impl MatrixSurface {
         }
     }
 
-    const fn update_method(self) -> Option<&'static str> {
+    const fn warm_method(self) -> &'static str {
         match self {
-            Self::Account => Some("update_account_sql"),
-            Self::User => Some("update_user_sql"),
-            Self::Blob | Self::HeapUser | Self::JournaledUser | Self::Token => None,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum MatrixMode {
-    Deterministic,
-    Random,
-}
-
-impl MatrixMode {
-    const fn label(self) -> &'static str {
-        match self {
-            Self::Deterministic => "deterministic",
-            Self::Random => "random",
+            Self::Account => "warm_account_query_with_perf",
+            Self::Blob => "warm_blob_query_with_perf",
+            Self::HeapUser => "warm_heap_user_query_with_perf",
+            Self::JournaledUser => "warm_journaled_user_query_with_perf",
+            Self::Token => "warm_token_query_with_perf",
+            Self::User => "warm_user_query_with_perf",
         }
     }
 
-    const fn title(self) -> &'static str {
+    const fn scale_load_method(self) -> &'static str {
         match self {
-            Self::Deterministic => "SQL Perf Deterministic Matrix",
-            Self::Random => "SQL Perf Random Matrix",
+            Self::Account => "load_account_scale_fixture",
+            Self::Blob => "load_blob_scale_fixture",
+            Self::HeapUser => "load_heap_user_scale_fixture",
+            Self::JournaledUser => "load_journaled_user_scale_fixture",
+            Self::Token => "load_token_scale_fixture",
+            Self::User => "load_user_scale_fixture",
         }
     }
 
-    const fn default_report_stem(self) -> &'static str {
+    // This is the exact row cardinality loaded by the current SQL performance
+    // fixture for each surface. P2 normalization consumes the fact directly;
+    // it never infers fixture size from SQL text or returned rows.
+    const fn fixture_row_count(self) -> u64 {
         match self {
-            Self::Deterministic => "sql_perf_deterministic_matrix",
-            Self::Random => "sql_perf_random_matrix",
+            Self::Account | Self::Blob | Self::User => 6,
+            Self::HeapUser | Self::JournaledUser => 512,
+            Self::Token => 260,
         }
     }
 }
@@ -220,20 +300,6 @@ struct OrderFragment {
     key: &'static str,
     sql: &'static str,
     route: OrderRoute,
-}
-
-///
-/// RenderedPredicate
-///
-/// Fully rendered predicate SQL carrying forward its typed semantic and route facts.
-/// Owned by the performance matrix renderer and consumed during scenario construction.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct RenderedPredicate {
-    sql: String,
-    family: PredicateFamily,
-    route: PredicateRoute,
 }
 
 ///
@@ -285,19 +351,8 @@ enum OrderRoute {
 /// Performance-matrix scenario using the shared correctness scenario contract.
 type MatrixScenario = CorrectnessScenario<MatrixSurface>;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct SqliteMutationScenario {
-    key: String,
-    surface: MatrixSurface,
-    family: String,
-    sql: String,
-    mutation_signature_ordered: bool,
-    expected_mutation_signature: String,
-    post_read_sql: String,
-    expected_post_signature: String,
-}
-
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 struct MatrixOutcome {
     result_kind: String,
     entity: String,
@@ -305,6 +360,7 @@ struct MatrixOutcome {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 struct MatrixLimitStopAfter {
     possible: bool,
     returned_limit: Option<usize>,
@@ -315,12 +371,13 @@ struct MatrixLimitStopAfter {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 struct MatrixSample {
     key: String,
-    source: String,
     surface: String,
     family: String,
     sql: String,
+    fixture_row_count: u64,
     route_family: String,
     route_outcome: String,
     route_reason: Option<String>,
@@ -354,7 +411,9 @@ struct MatrixSample {
     planner_plan_build_local_instructions: u64,
     planner_cache_insert_local_instructions: u64,
     store_local_instructions: u64,
+    executor_invocation_local_instructions: u64,
     executor_local_instructions: u64,
+    response_finalization_local_instructions: u64,
     grouped_stream_local_instructions: u64,
     grouped_fold_local_instructions: u64,
     grouped_finalize_local_instructions: u64,
@@ -399,13 +458,18 @@ struct MatrixSample {
     shared_query_plan_hits: u64,
     shared_query_plan_misses: u64,
     total_local_instructions: u64,
+    total_phase_reconciliation: PhaseReconciliation,
+    compile_phase_reconciliation: PhaseReconciliation,
+    execute_phase_reconciliation: PhaseReconciliation,
+    planner_phase_reconciliation: PhaseReconciliation,
+    executor_invocation_phase_reconciliation: PhaseReconciliation,
     outcome: MatrixOutcome,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 struct MatrixFailure {
     key: String,
-    source: String,
     surface: String,
     family: String,
     sql: String,
@@ -421,310 +485,337 @@ struct MatrixFailure {
     correctness_mismatch_category: String,
 }
 
+///
+/// ScaleScenarioRunError
+///
+/// Typed failure while loading or sampling one isolated scale scenario.
+/// Owned by the scale runner and retained without collapsing product or evidence causes.
+///
+
+#[derive(Debug)]
+enum ScaleScenarioRunError {
+    /// The canister rejected its deterministic scale-fixture load.
+    FixtureLoad(Error),
+
+    /// SQL execution produced a typed product/correctness failure.
+    Query(Box<MatrixFailure>),
+
+    /// The live sample disagreed with the reviewed scale declaration.
+    Evidence(ScaleEvidenceError),
+}
+
+impl std::fmt::Display for ScaleScenarioRunError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::FixtureLoad(error) => write!(formatter, "scale fixture load failed: {error}"),
+            Self::Query(failure) => write!(
+                formatter,
+                "scale query {:?} failed with diagnostic {} ({})",
+                failure.key, failure.diagnostic_label, failure.diagnostic_code,
+            ),
+            Self::Evidence(error) => write!(formatter, "invalid scale evidence: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for ScaleScenarioRunError {}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 struct MatrixReport {
-    matrix_mode: String,
-    #[serde(default)]
+    performance_profile_version: u32,
+    expected_scenario_set_hash: String,
+    observed_scenario_set_hash: String,
+    broad_scan_complete: bool,
     canister_wasm_profile: String,
-    generated_scenario_count: usize,
-    executed_scenario_count: usize,
+    environment: PerfEnvironmentIdentity,
+    declared_scenario_count: usize,
+    successful_scenario_count: usize,
     failed_scenario_count: usize,
-    matrix_limit: usize,
-    scenario_key_filter: Option<String>,
-    random_seed: Option<u64>,
-    random_case_count: usize,
+    phase_ownership: PhaseOwnershipTable,
+    p1_shard_receipts: Vec<P1ShardReceipt>,
     samples: Vec<MatrixSample>,
     failures: Vec<MatrixFailure>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-struct SqliteAuditComparisonReport {
-    sqlite_version: String,
-    sqlite_path: String,
-    canister_wasm_profile: String,
-    generated_scenario_count: usize,
-    compared_scenario_count: usize,
-    common_success_count: usize,
-    icydb_failure_count: usize,
-    correctness_failure_count: usize,
-    sample_count: usize,
-    scenario_key_filter: Option<String>,
-    selected_surface_counts: BTreeMap<String, usize>,
-    selected_family_counts: BTreeMap<String, usize>,
-    successful_route_family_counts: BTreeMap<String, usize>,
-    successful_route_outcome_counts: BTreeMap<String, usize>,
-    successful_route_pair_counts: BTreeMap<String, usize>,
-    fairness_notes: Vec<String>,
-    scenarios: Vec<SqliteAuditComparisonScenario>,
-    failures: Vec<SqliteAuditComparisonFailure>,
+/// Typed failure when a matrix report is not complete current-profile evidence.
+#[derive(Debug)]
+enum MatrixReportValidationError {
+    /// The report names a performance profile version other than the current one.
+    ProfileVersion {
+        /// Current checked-in version.
+        expected: u32,
+        /// Reported version.
+        actual: u32,
+    },
+    /// One report scenario-set identity differs from the current profile.
+    ScenarioSetHash {
+        /// Identity field being validated.
+        field: &'static str,
+        /// Current checked-in hash.
+        expected: &'static str,
+        /// Reported hash.
+        actual: String,
+    },
+    /// The report does not claim a complete P1 broad scan.
+    IncompleteBroadScan,
+    /// The report was not measured with the required canister profile.
+    UnsupportedWasmProfile(String),
+    /// The complete captured performance environment is invalid.
+    InvalidEnvironment(crate::sql_perf_environment::PerfEnvironmentError),
+    /// The report's phase-ownership table differs from the current schema.
+    PhaseOwnershipDrift,
+    /// One sample's serialized reconciliation differs from its raw counters.
+    PhaseReconciliationDrift(String),
+    /// The report's declared scenario count differs from the profile.
+    DeclaredScenarioCount {
+        /// Current checked-in count.
+        expected: usize,
+        /// Reported count.
+        actual: usize,
+    },
+    /// The successful count does not match the serialized sample vector.
+    SuccessfulScenarioCount {
+        /// Serialized sample count.
+        expected: usize,
+        /// Reported successful count.
+        actual: usize,
+    },
+    /// The failed count does not match the serialized failure vector.
+    FailedScenarioCount {
+        /// Serialized failure count.
+        expected: usize,
+        /// Reported failed count.
+        actual: usize,
+    },
+    /// Serialized success and failure identities do not form the exact profile.
+    InvalidOutcomeScenarioSet(PerformanceProfileError),
+    /// Serialized P1 receipts do not form the exact eight-shard profile.
+    InvalidReceipts(P1ReceiptError),
+    /// Serialized receipts differ from receipts derived from serialized outcomes.
+    ReceiptOutcomeDrift,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-struct SqliteDifferentialReport {
-    sqlite_version: String,
-    sqlite_path: String,
-    canister_wasm_profile: String,
-    random_seed: u64,
-    generated_case_count: usize,
-    compatible_scenario_count: usize,
-    common_success_count: usize,
-    icydb_failure_count: usize,
-    correctness_failure_count: usize,
-    selected_surface_counts: BTreeMap<String, usize>,
-    selected_family_counts: BTreeMap<String, usize>,
-    successful_route_family_counts: BTreeMap<String, usize>,
-    successful_route_outcome_counts: BTreeMap<String, usize>,
-    successful_route_pair_counts: BTreeMap<String, usize>,
-    fairness_notes: Vec<String>,
-    scenarios: Vec<SqliteAuditComparisonScenario>,
-    failures: Vec<SqliteAuditComparisonFailure>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-struct SqliteMutationDifferentialReport {
-    sqlite_version: String,
-    sqlite_path: String,
-    canister_wasm_profile: String,
-    random_seed: u64,
-    generated_mutation_count: usize,
-    common_success_count: usize,
-    icydb_failure_count: usize,
-    sqlite_failure_count: usize,
-    mutation_signature_mismatch_count: usize,
-    post_state_mismatch_count: usize,
-    expected_mutation_mismatch_count: usize,
-    expected_post_state_mismatch_count: usize,
-    generated_surface_counts: BTreeMap<String, usize>,
-    generated_family_counts: BTreeMap<String, usize>,
-    generated_returning_compare_counts: BTreeMap<String, usize>,
-    fairness_notes: Vec<String>,
-    scenarios: Vec<SqliteMutationComparisonScenario>,
-    failures: Vec<SqliteMutationComparisonFailure>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-struct SqliteMutationComparisonScenario {
-    key: String,
-    surface: String,
-    family: String,
-    sql: String,
-    post_read_sql: String,
-    mutation_signature_ordered: bool,
-    expected_mutation_signature: String,
-    icydb_mutation_signature: String,
-    sqlite_mutation_signature: String,
-    mutation_signatures_match: bool,
-    expected_mutation_match: String,
-    expected_post_signature: String,
-    icydb_post_signature: String,
-    sqlite_post_signature: String,
-    post_signatures_match: bool,
-    expected_post_state_match: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-struct SqliteMutationComparisonFailure {
-    key: String,
-    surface: String,
-    family: String,
-    sql: String,
-    post_read_sql: String,
-    status: String,
-    diagnostic: String,
-    icydb_code: u16,
-    icydb_diagnostic_code: u16,
-    icydb_diagnostic_label: String,
-    icydb_class: String,
-    icydb_origin: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-struct SqliteAuditComparisonScenario {
-    key: String,
-    surface: String,
-    family: String,
-    sql: String,
-    route_family: String,
-    route_outcome: String,
-    route_reason: Option<String>,
-    limit_stop_after: MatrixLimitStopAfter,
-    icydb_signature: String,
-    sqlite_signature: String,
-    correctness_passed: bool,
-    correctness_failure_owner: Option<String>,
-    correctness_mismatch_category: Option<String>,
-    sqlite_explain_query_plan: Vec<String>,
-    sqlite_plan_summary: SqlitePlanSummary,
-    sqlite_plan_alignment: String,
-    icydb_total_local_instructions: u64,
-    icydb_execute_local_instructions: u64,
-    icydb_data_store_get_calls: u64,
-    icydb_index_store_range_scan_calls: u64,
-    icydb_index_store_entry_reads: u64,
-    sqlite_timing: SqliteTimingSummary,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-struct SqliteAuditComparisonFailure {
-    key: String,
-    surface: String,
-    family: String,
-    sql: String,
-    status: String,
-    icydb_code: u16,
-    icydb_diagnostic_code: u16,
-    icydb_diagnostic_label: String,
-    icydb_class: String,
-    icydb_origin: String,
-    correctness_failure_owner: String,
-    correctness_mismatch_category: String,
-    sqlite_signature: String,
-    sqlite_explain_query_plan: Vec<String>,
-    sqlite_plan_summary: SqlitePlanSummary,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
-struct SqlitePlanSummary {
-    features: BTreeSet<String>,
-    index_names: Vec<String>,
-}
-
-const SQLITE_PLAN_FEATURE_SCAN: &str = "scan";
-const SQLITE_PLAN_FEATURE_SEARCH: &str = "search";
-const SQLITE_PLAN_FEATURE_INDEX: &str = "index";
-const SQLITE_PLAN_FEATURE_COVERING_INDEX: &str = "covering_index";
-const SQLITE_PLAN_FEATURE_INTEGER_PRIMARY_KEY: &str = "integer_primary_key";
-const SQLITE_PLAN_FEATURE_TEMP_ORDER: &str = "temp_order";
-const SQLITE_PLAN_FEATURE_TEMP_GROUP: &str = "temp_group";
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-struct SqliteTimingSummary {
-    #[serde(rename = "samples_ns")]
-    samples: Vec<u128>,
-    #[serde(rename = "median_ns")]
-    median: u128,
-    #[serde(rename = "min_ns")]
-    min: u128,
-    #[serde(rename = "max_ns")]
-    max: u128,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
-struct MetricDelta {
-    before: Option<u64>,
-    after: Option<u64>,
-    delta: Option<i64>,
-    delta_percent_bp: Option<i64>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-struct MatrixDeltaRow {
-    key: String,
-    before_status: String,
-    after_status: String,
-    status_class: String,
-    total_local_instructions: MetricDelta,
-    compile_local_instructions: MetricDelta,
-    execute_local_instructions: MetricDelta,
-    planner_local_instructions: MetricDelta,
-    executor_local_instructions: MetricDelta,
-    store_local_instructions: MetricDelta,
-    data_store_get_calls: MetricDelta,
-    index_store_range_scan_calls: MetricDelta,
-    index_store_entry_reads: MetricDelta,
-    rows_returned: MetricDelta,
-    before_route_family: Option<String>,
-    after_route_family: Option<String>,
-    before_route_outcome: Option<String>,
-    after_route_outcome: Option<String>,
-    before_route_reason: Option<String>,
-    after_route_reason: Option<String>,
-    before_order_by_idx_hint: Option<String>,
-    after_order_by_idx_hint: Option<String>,
-    before_limit_stop_after: Option<MatrixLimitStopAfter>,
-    after_limit_stop_after: Option<MatrixLimitStopAfter>,
-    before_result_signature: Option<String>,
-    after_result_signature: Option<String>,
-    #[serde(flatten)]
-    signature_changes: MatrixDeltaSignatureChanges,
-    before_cursor_signature: Option<String>,
-    after_cursor_signature: Option<String>,
-    result_row_count_before: Option<usize>,
-    result_row_count_after: Option<usize>,
-    #[serde(flatten)]
-    target_flags: MatrixDeltaTargetFlags,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-struct MatrixDeltaSignatureChanges {
-    result_signature_changed: bool,
-    cursor_signature_changed: bool,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-struct MatrixDeltaTargetFlags {
-    focused_target: bool,
-    expected_to_improve: bool,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
-struct MatrixDeltaRouteAggregate {
-    route_family: Option<String>,
-    route_outcome: Option<String>,
-    scenario_count: usize,
-    total_delta: i64,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-struct MatrixDeltaReport {
-    baseline_path: String,
-    current_path: String,
-    baseline_canister_wasm_profile: String,
-    current_canister_wasm_profile: String,
-    baseline_scenario_count: usize,
-    current_scenario_count: usize,
-    union_scenario_count: usize,
-    common_successful_scenario_count: usize,
-    improved_scenario_count: usize,
-    regressed_scenario_count: usize,
-    neutral_scenario_count: usize,
-    new_failure_count: usize,
-    resolved_failure_count: usize,
-    common_failure_count: usize,
-    focused_target_count: usize,
-    expected_improvement_count: usize,
-    closeout_failures: Vec<String>,
-    route_family_aggregates: Vec<MatrixDeltaRouteAggregate>,
-    route_outcome_aggregates: Vec<MatrixDeltaRouteAggregate>,
-    route_pair_aggregates: Vec<MatrixDeltaRouteAggregate>,
-    rows: Vec<MatrixDeltaRow>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct Lcg {
-    state: u64,
-}
-
-impl Lcg {
-    const fn new(seed: u64) -> Self {
-        Self { state: seed }
+impl std::fmt::Display for MatrixReportValidationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ProfileVersion { expected, actual } => write!(
+                formatter,
+                "performance profile version drifted: expected {expected}, observed {actual}",
+            ),
+            Self::ScenarioSetHash {
+                field,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "{field} drifted: expected {expected}, observed {actual}",
+            ),
+            Self::IncompleteBroadScan => formatter.write_str("P1 broad scan is incomplete"),
+            Self::UnsupportedWasmProfile(profile) => {
+                write!(formatter, "unsupported canister wasm profile {profile:?}")
+            }
+            Self::InvalidEnvironment(error) => {
+                write!(formatter, "invalid matrix environment: {error}")
+            }
+            Self::PhaseOwnershipDrift => {
+                formatter.write_str("performance phase-ownership table drifted")
+            }
+            Self::PhaseReconciliationDrift(scenario_id) => write!(
+                formatter,
+                "performance phase reconciliation drifted for scenario {scenario_id:?}",
+            ),
+            Self::DeclaredScenarioCount { expected, actual } => write!(
+                formatter,
+                "declared P1 scenario count drifted: expected {expected}, observed {actual}",
+            ),
+            Self::SuccessfulScenarioCount { expected, actual } => write!(
+                formatter,
+                "successful P1 scenario count drifted: expected {expected}, observed {actual}",
+            ),
+            Self::FailedScenarioCount { expected, actual } => write!(
+                formatter,
+                "failed P1 scenario count drifted: expected {expected}, observed {actual}",
+            ),
+            Self::InvalidOutcomeScenarioSet(error) => {
+                write!(formatter, "invalid P1 outcome scenario set: {error}")
+            }
+            Self::InvalidReceipts(error) => write!(formatter, "invalid P1 receipts: {error}"),
+            Self::ReceiptOutcomeDrift => {
+                formatter.write_str("P1 receipts differ from the report's serialized outcomes")
+            }
+        }
     }
+}
 
-    const fn next(&mut self) -> u64 {
-        self.state = self
-            .state
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1);
-        self.state
+impl std::error::Error for MatrixReportValidationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::InvalidEnvironment(error) => Some(error),
+            Self::InvalidOutcomeScenarioSet(error) => Some(error),
+            Self::InvalidReceipts(error) => Some(error),
+            Self::ProfileVersion { .. }
+            | Self::ScenarioSetHash { .. }
+            | Self::IncompleteBroadScan
+            | Self::UnsupportedWasmProfile(_)
+            | Self::PhaseOwnershipDrift
+            | Self::PhaseReconciliationDrift(_)
+            | Self::DeclaredScenarioCount { .. }
+            | Self::SuccessfulScenarioCount { .. }
+            | Self::FailedScenarioCount { .. }
+            | Self::ReceiptOutcomeDrift => None,
+        }
     }
+}
 
-    fn index(&mut self, len: usize) -> usize {
-        let len = u64::try_from(len).expect("matrix option count should fit u64");
-        usize::try_from(self.next() % len).expect("matrix option index should fit usize")
+/// Typed failure while encoding or publishing one matrix report.
+#[derive(Debug)]
+enum MatrixReportArtifactError {
+    /// The in-memory report is not complete current-profile evidence.
+    InvalidReport(MatrixReportValidationError),
+    /// One artifact filesystem operation failed.
+    Io {
+        /// Artifact path.
+        path: PathBuf,
+        /// Stable operation description.
+        operation: &'static str,
+        /// Filesystem cause.
+        source: io::Error,
+    },
+    /// The artifact exceeds the checked-in byte budget.
+    TooLarge {
+        /// Artifact path.
+        path: PathBuf,
+        /// Observed bytes, capped at one byte beyond the limit.
+        observed_bytes: usize,
+        /// Checked-in maximum bytes.
+        max_bytes: usize,
+    },
+    /// The in-memory report could not be encoded as current JSON.
+    Encode {
+        /// Artifact path.
+        path: PathBuf,
+        /// JSON encoding cause.
+        source: serde_json::Error,
+    },
+}
+
+impl std::fmt::Display for MatrixReportArtifactError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidReport(error) => write!(formatter, "invalid matrix report: {error}"),
+            Self::Io {
+                path,
+                operation,
+                source,
+            } => write!(
+                formatter,
+                "matrix report {} could not be {operation}: {source}",
+                path.display(),
+            ),
+            Self::TooLarge {
+                path,
+                observed_bytes,
+                max_bytes,
+            } => write!(
+                formatter,
+                "matrix report {} exceeds its byte budget: observed at least {observed_bytes}, maximum {max_bytes}",
+                path.display(),
+            ),
+            Self::Encode { path, source } => write!(
+                formatter,
+                "matrix report {} could not be encoded: {source}",
+                path.display(),
+            ),
+        }
     }
+}
 
-    fn choose<'a, T>(&mut self, values: &'a [T]) -> &'a T {
-        &values[self.index(values.len())]
+impl std::error::Error for MatrixReportArtifactError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::InvalidReport(error) => Some(error),
+            Self::Io { source, .. } => Some(source),
+            Self::Encode { source, .. } => Some(source),
+            Self::TooLarge { .. } => None,
+        }
+    }
+}
+
+///
+/// PerfShardSelectionError
+///
+/// Typed failure while selecting one independently executable performance shard.
+/// Owned by the matrix runner and shared by its P1 and P2 command boundaries.
+///
+
+#[derive(Debug)]
+enum PerfShardSelectionError {
+    /// The required shard-index environment variable is absent or not Unicode.
+    Environment {
+        /// Required environment variable.
+        variable: &'static str,
+        /// Environment lookup cause.
+        source: std::env::VarError,
+    },
+
+    /// The shard-index value is not an unsigned eight-bit integer.
+    InvalidNumber {
+        /// Required environment variable.
+        variable: &'static str,
+        /// Invalid environment value.
+        value: String,
+        /// Integer parsing cause.
+        source: std::num::ParseIntError,
+    },
+
+    /// The parsed shard index is outside the checked-in range.
+    OutOfRange {
+        /// Stable performance stage label.
+        stage: &'static str,
+        /// Parsed zero-based shard index.
+        shard_index: u8,
+        /// Checked-in shard count.
+        shard_count: u8,
+    },
+}
+
+impl std::fmt::Display for PerfShardSelectionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Environment { variable, source } => {
+                write!(
+                    formatter,
+                    "{variable} must select one performance shard: {source}"
+                )
+            }
+            Self::InvalidNumber {
+                variable,
+                value,
+                source,
+            } => write!(
+                formatter,
+                "{variable} value {value:?} is not a shard index: {source}",
+            ),
+            Self::OutOfRange {
+                stage,
+                shard_index,
+                shard_count,
+            } => write!(
+                formatter,
+                "{stage} shard index {shard_index} is outside checked-in shard count {shard_count}",
+            ),
+        }
+    }
+}
+
+impl std::error::Error for PerfShardSelectionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Environment { source, .. } => Some(source),
+            Self::InvalidNumber { source, .. } => Some(source),
+            Self::OutOfRange { .. } => None,
+        }
     }
 }
 
@@ -1100,7 +1191,6 @@ fn select_matrix(
 
                     scenarios.push(MatrixScenario {
                         key,
-                        source: ScenarioSource::Deterministic,
                         surface,
                         family,
                         sql,
@@ -1831,9 +1921,9 @@ fn account_aggregate_scenarios() -> Vec<MatrixScenario> {
             ),
         ),
         scenario(
-            "account.sqlite_diff.tier_in_handle_order.limit3",
+            "account.select.tier_membership.handle_order.limit3",
             MatrixSurface::Account,
-            "sqlite_diff.order_limit",
+            "select.compound_order_limit",
             "SELECT id, handle FROM PerfAuditAccount WHERE tier IN ('gold', 'silver') AND active = true ORDER BY handle ASC, id ASC LIMIT 3",
             read_metadata(
                 &["select.scalar_rows"],
@@ -1924,7 +2014,6 @@ fn scenario(
 ) -> MatrixScenario {
     MatrixScenario {
         key: key.into(),
-        source: ScenarioSource::Deterministic,
         surface,
         family: family.into(),
         sql: sql.into(),
@@ -1932,1501 +2021,12 @@ fn scenario(
     }
 }
 
-fn random_matrix(seed: u64, case_count: usize) -> Vec<MatrixScenario> {
-    let mut rng = Lcg::new(seed);
-    (0..case_count)
-        .map(|index| random_scenario(&mut rng, seed, index))
-        .collect()
+const fn top_n() -> usize {
+    SQL_PERFORMANCE_PROFILE.confirmation_top_n_per_metric()
 }
 
-fn random_scenario(rng: &mut Lcg, seed: u64, index: usize) -> MatrixScenario {
-    let surface = *rng.choose(&[
-        MatrixSurface::User,
-        MatrixSurface::Account,
-        MatrixSurface::Blob,
-        MatrixSurface::Token,
-    ]);
-    let key = format!("random.{seed:016x}.{index:04}.{}", surface.label());
-
-    match surface {
-        MatrixSurface::Account => {
-            let predicate = random_account_predicate(rng);
-            random_select_scenario(
-                rng,
-                key,
-                generated_scenario_source(seed, index),
-                surface,
-                &account_projections(),
-                predicate,
-                &account_orders(),
-            )
-        }
-        MatrixSurface::Blob => {
-            let predicate = random_blob_predicate(rng);
-            random_select_scenario(
-                rng,
-                key,
-                generated_scenario_source(seed, index),
-                surface,
-                &blob_projections(),
-                predicate,
-                &blob_orders(),
-            )
-        }
-        MatrixSurface::HeapUser | MatrixSurface::JournaledUser => {
-            let predicate = random_storage_mirror_predicate(rng);
-            random_select_scenario(
-                rng,
-                key,
-                generated_scenario_source(seed, index),
-                surface,
-                &storage_mirror_projections(),
-                predicate,
-                &storage_mirror_orders(),
-            )
-        }
-        MatrixSurface::Token => random_token_route_hotspot_scenario(rng, key, seed, index),
-        MatrixSurface::User => {
-            let predicate = random_user_predicate(rng);
-            random_select_scenario(
-                rng,
-                key,
-                generated_scenario_source(seed, index),
-                surface,
-                &user_projections(),
-                predicate,
-                &user_orders(),
-            )
-        }
-    }
-}
-
-fn random_token_route_hotspot_scenario(
-    rng: &mut Lcg,
-    key: String,
-    seed: u64,
-    index: usize,
-) -> MatrixScenario {
-    let token_scenarios = token_branch_route_hotspot_matrix();
-    let mut scenario = rng.choose(&token_scenarios).clone();
-    scenario.key = key;
-    scenario.source = generated_scenario_source(seed, index);
-    scenario.family = format!("random.{}", scenario.family);
-    scenario
-}
-
-fn random_select_scenario(
-    rng: &mut Lcg,
-    key: String,
-    source: ScenarioSource,
-    surface: MatrixSurface,
-    projections: &[ProjectionFragment],
-    predicate: RenderedPredicate,
-    orders: &[OrderFragment],
-) -> MatrixScenario {
-    let projection = rng.choose(projections);
-    let order = rng.choose(orders);
-    let limit = *rng.choose(&[1, 2, 3, 5, 10]);
-    let sql = select_sql(
-        surface.table(),
-        projection.sql,
-        predicate.sql.as_str(),
-        order.sql,
-        limit,
-    );
-
-    MatrixScenario {
-        key,
-        source,
-        surface,
-        family: format!("random.{}.{}", projection.key, order.key),
-        sql,
-        metadata: scalar_select_metadata_from_facts(
-            surface,
-            projection.value_type,
-            projection.sqlite_eligible,
-            predicate.family,
-            predicate.route,
-            order,
-            usize::try_from(limit).unwrap_or(usize::MAX),
-        ),
-    }
-}
-
-fn generated_scenario_source(seed: u64, index: usize) -> ScenarioSource {
-    ScenarioSource::Generated {
-        root_seed: seed,
-        case_index: u64::try_from(index).unwrap_or(u64::MAX),
-    }
-}
-
-fn random_storage_mirror_predicate(rng: &mut Lcg) -> RenderedPredicate {
-    let choice = rng.index(4);
-    let sql = match choice {
-        0 => String::new(),
-        1 => format!("id >= {}", rng.choose(&[1, 2, 3, 4])),
-        2 => {
-            let low = *rng.choose(&[18, 24, 30, 35]);
-            let high = low + *rng.choose(&[5, 10, 20]);
-            format!("age >= {low} AND age < {high}")
-        }
-        _ => "name >= 'a'".to_string(),
-    };
-    let (family, route) = match choice {
-        0 => (PredicateFamily::None, PredicateRoute::All),
-        1 => (PredicateFamily::PrimaryKey, PredicateRoute::PrimaryKey),
-        2 => (PredicateFamily::Range, PredicateRoute::Age),
-        _ => (PredicateFamily::Range, PredicateRoute::Name),
-    };
-    RenderedPredicate { sql, family, route }
-}
-
-fn random_user_predicate(rng: &mut Lcg) -> RenderedPredicate {
-    let choice = rng.index(16);
-    let sql = match choice {
-        0 => String::new(),
-        1 => format!("id >= {}", rng.choose(&[1, 2, 3, 4])),
-        2 => {
-            let low = *rng.choose(&[18, 24, 30, 35]);
-            let high = low + *rng.choose(&[5, 10, 20]);
-            format!("age >= {low} AND age < {high}")
-        }
-        3 => format!("name LIKE '{}%'", rng.choose(&["A", "B", "C", "D"])),
-        4 => format!("LOWER(name) LIKE '{}%'", rng.choose(&["a", "b", "c", "d"])),
-        5 => format!("active = {}", rng.choose(&["true", "false"])),
-        6 => format!(
-            "age IN ({}, {}, {})",
-            rng.choose(&[18, 24, 30]),
-            rng.choose(&[31, 35, 40]),
-            rng.choose(&[43, 45, 50])
-        ),
-        7 => "age > rank".to_string(),
-        8 => {
-            let low = *rng.choose(&[18, 24, 27, 31]);
-            let high = low + *rng.choose(&[4, 8, 12]);
-            format!("active = true AND age >= {low} AND age < {high}")
-        }
-        9 => format!(
-            "name LIKE '{}%' OR name LIKE '{}%'",
-            rng.choose(&["A", "B", "C"]),
-            rng.choose(&["a", "b", "Z"])
-        ),
-        10 => format!(
-            "age IN ({}, {}) AND rank >= {}",
-            rng.choose(&[19, 24, 27]),
-            rng.choose(&[31, 43, 50]),
-            rng.choose(&[17, 25, 30])
-        ),
-        11 => format!(
-            "LOWER(name) >= '{}' AND LOWER(name) < '{}'",
-            rng.choose(&["a", "b", "c"]),
-            rng.choose(&["c", "d", "z"])
-        ),
-        12 => format!("active = false OR age < {}", rng.choose(&[20, 25, 32])),
-        13 => "age_nat >= rank".to_string(),
-        14 => format!(
-            "rank BETWEEN {} AND {}",
-            rng.choose(&[17, 24, 28]),
-            rng.choose(&[30, 43, 50])
-        ),
-        _ => format!(
-            "age NOT IN ({}, {}, {})",
-            rng.choose(&[18, 19, 24]),
-            rng.choose(&[27, 31, 35]),
-            rng.choose(&[40, 43, 50])
-        ),
-    };
-    let (family, route) = match choice {
-        0 => (PredicateFamily::None, PredicateRoute::All),
-        1 => (PredicateFamily::PrimaryKey, PredicateRoute::PrimaryKey),
-        2 | 14 => (PredicateFamily::Range, PredicateRoute::Age),
-        3 => (PredicateFamily::Prefix, PredicateRoute::Name),
-        4 => (PredicateFamily::CasefoldPrefix, PredicateRoute::LowerName),
-        5 => (PredicateFamily::Boolean, PredicateRoute::Active),
-        6 | 15 => (PredicateFamily::Membership, PredicateRoute::Age),
-        7 | 13 => (
-            PredicateFamily::FieldComparison,
-            PredicateRoute::FieldComparison,
-        ),
-        8 | 12 => (PredicateFamily::Compound, PredicateRoute::Active),
-        9 => (PredicateFamily::Compound, PredicateRoute::Name),
-        10 => (PredicateFamily::Compound, PredicateRoute::Age),
-        11 => (PredicateFamily::Range, PredicateRoute::LowerName),
-        _ => unreachable!("random user predicate choice is bounded"),
-    };
-    RenderedPredicate { sql, family, route }
-}
-
-fn random_account_predicate(rng: &mut Lcg) -> RenderedPredicate {
-    let choice = rng.index(13);
-    let sql = match choice {
-        0 => String::new(),
-        1 => "active = true".to_string(),
-        2 => format!(
-            "tier = '{}' AND active = true",
-            rng.choose(&["free", "gold", "pro"])
-        ),
-        3 => format!(
-            "handle LIKE '{}%' AND active = true",
-            rng.choose(&["a", "b", "c"])
-        ),
-        4 => format!(
-            "LOWER(handle) LIKE '{}%' AND active = true",
-            rng.choose(&["a", "b", "c"])
-        ),
-        5 => format!("score >= {}", rng.choose(&[10, 20, 30, 40])),
-        6 => format!(
-            "active = true AND score >= {}",
-            rng.choose(&[60, 70, 80, 90])
-        ),
-        7 => format!(
-            "tier IN ('{}', '{}') AND active = true",
-            rng.choose(&["gold", "silver", "bronze"]),
-            rng.choose(&["gold", "silver", "pro"])
-        ),
-        8 => format!(
-            "handle LIKE '{}%' OR handle LIKE '{}%'",
-            rng.choose(&["a", "b", "D"]),
-            rng.choose(&["a", "br", "z"])
-        ),
-        9 => format!(
-            "LOWER(handle) >= '{}' AND LOWER(handle) < '{}'",
-            rng.choose(&["a", "b", "c"]),
-            rng.choose(&["c", "d", "z"])
-        ),
-        10 => format!("active = false OR score < {}", rng.choose(&[65, 75, 85])),
-        11 => format!(
-            "score BETWEEN {} AND {}",
-            rng.choose(&[50, 60, 70]),
-            rng.choose(&[80, 90, 100])
-        ),
-        _ => format!(
-            "tier != '{}' AND score >= {}",
-            rng.choose(&["free", "gold", "bronze"]),
-            rng.choose(&[60, 70, 80])
-        ),
-    };
-    let (family, route) = match choice {
-        0 => (PredicateFamily::None, PredicateRoute::All),
-        1 => (PredicateFamily::Boolean, PredicateRoute::Active),
-        2 | 7 => (PredicateFamily::Compound, PredicateRoute::TierActive),
-        3 | 8 => (PredicateFamily::Compound, PredicateRoute::HandleActive),
-        4 => (PredicateFamily::Compound, PredicateRoute::LowerHandleActive),
-        5 | 11 => (PredicateFamily::Range, PredicateRoute::Score),
-        6 | 10 => (PredicateFamily::Compound, PredicateRoute::Active),
-        9 => (PredicateFamily::Range, PredicateRoute::LowerHandleActive),
-        12 => (PredicateFamily::Compound, PredicateRoute::Score),
-        _ => unreachable!("random account predicate choice is bounded"),
-    };
-    RenderedPredicate { sql, family, route }
-}
-
-fn random_blob_predicate(rng: &mut Lcg) -> RenderedPredicate {
-    let choice = rng.index(9);
-    let sql = match choice {
-        0 => String::new(),
-        1 => format!("bucket = {}", rng.choose(&[10, 20, 30, 40])),
-        2 => {
-            let low = *rng.choose(&[10, 20, 30]);
-            let high = low + *rng.choose(&[10, 20]);
-            format!("bucket >= {low} AND bucket < {high}")
-        }
-        3 => "label LIKE 'blob-%'".to_string(),
-        4 => format!(
-            "bucket IN ({}, {})",
-            rng.choose(&[10, 20, 30]),
-            rng.choose(&[20, 30, 40])
-        ),
-        5 => format!(
-            "label >= '{}' AND label < '{}'",
-            rng.choose(&["archive", "avatar", "blob"]),
-            rng.choose(&["avatar", "blob", "z"])
-        ),
-        6 => "bucket = 10 OR label LIKE 'archive-%'".to_string(),
-        7 => format!("bucket != {}", rng.choose(&[10, 20, 30])),
-        _ => format!(
-            "bucket BETWEEN {} AND {}",
-            rng.choose(&[10, 20]),
-            rng.choose(&[30, 40])
-        ),
-    };
-    let (family, route) = match choice {
-        0 => (PredicateFamily::None, PredicateRoute::All),
-        1 | 2 | 7 | 8 => (PredicateFamily::Range, PredicateRoute::Bucket),
-        3 => (PredicateFamily::Prefix, PredicateRoute::Label),
-        4 => (PredicateFamily::Membership, PredicateRoute::Bucket),
-        5 => (PredicateFamily::Range, PredicateRoute::Label),
-        6 => (PredicateFamily::Compound, PredicateRoute::Bucket),
-        _ => unreachable!("random blob predicate choice is bounded"),
-    };
-    RenderedPredicate { sql, family, route }
-}
-
-fn sqlite_mutation_differential_scenarios(
-    seed: u64,
-    case_count: usize,
-) -> Vec<SqliteMutationScenario> {
-    let mut rng = Lcg::new(seed);
-    let mut users = initial_sqlite_mutation_users();
-    let mut accounts = initial_sqlite_mutation_accounts();
-    let mut scenarios = Vec::with_capacity(case_count);
-
-    for index in 0..case_count {
-        let prefer_user = rng.index(2) == 0;
-        let scenario = if prefer_user {
-            random_user_mutation_scenario(&mut rng, seed, index, &mut users)
-        } else {
-            random_account_mutation_scenario(&mut rng, seed, index, &mut accounts)
-        };
-        scenarios.push(scenario);
-    }
-
-    scenarios
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct MutationUserRow {
-    id: i32,
-    name: String,
-    age: i32,
-    age_nat: u32,
-    rank: i32,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct MutationAccountRow {
-    id: i32,
-    handle: String,
-    tier: String,
-    score: i32,
-}
-
-fn initial_sqlite_mutation_users() -> Vec<MutationUserRow> {
-    vec![
-        mutation_user_row(1, "Alice", 31, 31, 28),
-        mutation_user_row(2, "bob", 24, 24, 25),
-        mutation_user_row(3, "Charlie", 43, 43, 43),
-        mutation_user_row(4, "amber", 27, 26, 29),
-        mutation_user_row(5, "Andrew", 31, 30, 30),
-        mutation_user_row(6, "Zelda", 19, 19, 17),
-    ]
-}
-
-fn initial_sqlite_mutation_accounts() -> Vec<MutationAccountRow> {
-    vec![
-        mutation_account_row(1, "Bravo", "gold", 91),
-        mutation_account_row(2, "alpha", "gold", 75),
-        mutation_account_row(3, "bravo", "silver", 78),
-        mutation_account_row(4, "Delta", "silver", 66),
-        mutation_account_row(5, "brick", "gold", 88),
-        mutation_account_row(6, "azure", "bronze", 63),
-    ]
-}
-
-fn mutation_user_row(id: i32, name: &str, age: i32, age_nat: u32, rank: i32) -> MutationUserRow {
-    MutationUserRow {
-        id,
-        name: name.to_string(),
-        age,
-        age_nat,
-        rank,
-    }
-}
-
-fn mutation_account_row(id: i32, handle: &str, tier: &str, score: i32) -> MutationAccountRow {
-    MutationAccountRow {
-        id,
-        handle: handle.to_string(),
-        tier: tier.to_string(),
-        score,
-    }
-}
-
-fn random_user_mutation_scenario(
-    rng: &mut Lcg,
-    seed: u64,
-    index: usize,
-    users: &mut Vec<MutationUserRow>,
-) -> SqliteMutationScenario {
-    let key_prefix = format!("mutation.random.{seed:016x}.{index:04}.user");
-
-    match index % 16 {
-        0 | 6 => insert_user_mutation_scenario(rng, index, users, &key_prefix),
-        1 => update_user_by_name_mutation_scenario(rng, index, users, &key_prefix),
-        2 if users.len() > 2 => delete_user_by_name_mutation_scenario(rng, users, &key_prefix),
-        3 => update_user_by_compound_predicate_mutation_scenario(rng, users, &key_prefix),
-        4 if users.len() > 2 => {
-            delete_user_by_compound_predicate_mutation_scenario(rng, users, &key_prefix)
-                .unwrap_or_else(|| delete_user_by_pk_mutation_scenario(rng, users, &key_prefix))
-        }
-        5 if users.len() > 2 => delete_user_by_pk_mutation_scenario(rng, users, &key_prefix),
-        7 => update_user_by_range_predicate_mutation_scenario(rng, users, &key_prefix),
-        8 if users.len() > 2 => {
-            delete_user_by_range_predicate_mutation_scenario(rng, users, &key_prefix)
-                .unwrap_or_else(|| delete_user_by_pk_mutation_scenario(rng, users, &key_prefix))
-        }
-        12 => update_user_no_match_name_mutation_scenario(index, users, &key_prefix),
-        13 => delete_user_no_match_name_mutation_scenario(index, users, &key_prefix),
-        14 => update_user_no_match_range_mutation_scenario(users, &key_prefix),
-        15 => delete_user_no_match_range_mutation_scenario(users, &key_prefix),
-        _ => update_user_by_pk_mutation_scenario(rng, index, users, &key_prefix),
-    }
-}
-
-fn insert_user_mutation_scenario(
-    rng: &mut Lcg,
-    index: usize,
-    users: &mut Vec<MutationUserRow>,
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    let id = next_mutation_user_id(users);
-    let name = format!("insert-user-{index:04}");
-    let age = *rng.choose(&[20, 24, 31, 37, 44, 52]);
-    let age_nat = u32::try_from(age).expect("mutation age should fit Nat32");
-    let rank = *rng.choose(&[17, 25, 28, 30, 43, 50]);
-    let active = *rng.choose(&["true", "false"]);
-    let inserted = MutationUserRow {
-        id,
-        name: name.clone(),
-        age,
-        age_nat,
-        rank,
-    };
-    users.push(inserted.clone());
-
-    user_mutation_scenario(
-        key_prefix,
-        "insert",
-        "mutation.insert",
-        format!(
-            "INSERT INTO PerfAuditUser (id, name, age, age_nat, rank, active) \
-             VALUES ({id}, '{}', {age}, {age_nat}, {rank}, {active}) \
-             RETURNING id, name, age, age_nat, rank",
-            sqlite_quote(&name),
-        ),
-        true,
-        user_mutation_row_signature(&inserted),
-        users,
-    )
-}
-
-fn user_mutation_scenario(
-    key_prefix: &str,
-    key_suffix: &str,
-    family: &str,
-    sql: String,
-    mutation_signature_ordered: bool,
-    expected_mutation_signature: String,
-    users: &[MutationUserRow],
-) -> SqliteMutationScenario {
-    SqliteMutationScenario {
-        key: format!("{key_prefix}.{key_suffix}"),
-        surface: MatrixSurface::User,
-        family: family.to_string(),
-        sql,
-        mutation_signature_ordered,
-        expected_mutation_signature,
-        post_read_sql: user_mutation_post_read_sql(),
-        expected_post_signature: user_mutation_post_signature(users),
-    }
-}
-
-fn next_mutation_user_id(users: &[MutationUserRow]) -> i32 {
-    users
-        .iter()
-        .map(|row| row.id)
-        .max()
-        .unwrap_or(0)
-        .saturating_add(1)
-}
-
-fn update_user_by_pk_mutation_scenario(
-    rng: &mut Lcg,
-    index: usize,
-    users: &mut [MutationUserRow],
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    let row_index = rng.index(users.len());
-    let id = users[row_index].id;
-    let set_clause = update_user_row_and_set_clause(rng, index, &mut users[row_index]);
-    let expected_mutation_signature = user_mutation_row_signature(&users[row_index]);
-
-    user_mutation_scenario(
-        key_prefix,
-        "update_pk",
-        "mutation.update_pk",
-        format!(
-            "UPDATE PerfAuditUser SET {set_clause} \
-             WHERE id = {id} RETURNING id, name, age, age_nat, rank"
-        ),
-        true,
-        expected_mutation_signature,
-        users,
-    )
-}
-
-fn update_user_by_name_mutation_scenario(
-    rng: &mut Lcg,
-    index: usize,
-    users: &mut [MutationUserRow],
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    let row_index = rng.index(users.len());
-    let old_name = users[row_index].name.clone();
-    let set_clause = update_user_row_and_set_clause(rng, index, &mut users[row_index]);
-    let expected_mutation_signature = user_mutation_row_signature(&users[row_index]);
-
-    user_mutation_scenario(
-        key_prefix,
-        "update_name_predicate",
-        "mutation.update_name_predicate",
-        format!(
-            "UPDATE PerfAuditUser SET {set_clause} \
-             WHERE name = '{}' RETURNING id, name, age, age_nat, rank",
-            sqlite_quote(&old_name),
-        ),
-        true,
-        expected_mutation_signature,
-        users,
-    )
-}
-
-fn update_user_by_compound_predicate_mutation_scenario(
-    rng: &mut Lcg,
-    users: &mut [MutationUserRow],
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    let row_index = rng.index(users.len());
-    let old_age = users[row_index].age;
-    let old_rank = users[row_index].rank;
-    let age = *rng.choose(&[20, 24, 31, 37, 44, 52]);
-    let age_nat = u32::try_from(age).expect("mutation age should fit Nat32");
-    let rank = *rng.choose(&[17, 25, 28, 30, 43, 50]);
-
-    let affected_rows = update_matching_rows(
-        users,
-        |row| row.age == old_age && row.rank == old_rank,
-        |row| {
-            row.age = age;
-            row.age_nat = age_nat;
-            row.rank = rank;
-        },
-    );
-    let expected_mutation_signature = user_mutation_rows_signature(&affected_rows, false);
-
-    user_mutation_scenario(
-        key_prefix,
-        "update_compound_predicate",
-        "mutation.update_compound_predicate",
-        format!(
-            "UPDATE PerfAuditUser SET age = {age}, age_nat = {age_nat}, rank = {rank} \
-             WHERE age = {old_age} AND rank = {old_rank} RETURNING id, name, age, age_nat, rank"
-        ),
-        false,
-        expected_mutation_signature,
-        users,
-    )
-}
-
-fn update_user_by_range_predicate_mutation_scenario(
-    rng: &mut Lcg,
-    users: &mut [MutationUserRow],
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    let row_index = rng.index(users.len());
-    let old_age = users[row_index].age;
-    let high_age = old_age.saturating_add(1);
-    let age = *rng.choose(&[20, 24, 31, 37, 44, 52]);
-    let age_nat = u32::try_from(age).expect("mutation age should fit Nat32");
-    let rank = *rng.choose(&[17, 25, 28, 30, 43, 50]);
-
-    let affected_rows = update_matching_rows(
-        users,
-        |row| row.age >= old_age && row.age < high_age,
-        |row| {
-            row.age = age;
-            row.age_nat = age_nat;
-            row.rank = rank;
-        },
-    );
-    let expected_mutation_signature = user_mutation_rows_signature(&affected_rows, false);
-
-    user_mutation_scenario(
-        key_prefix,
-        "update_range_predicate",
-        "mutation.update_range_predicate",
-        format!(
-            "UPDATE PerfAuditUser SET age = {age}, age_nat = {age_nat}, rank = {rank} \
-             WHERE age >= {old_age} AND age < {high_age} RETURNING id, name, age, age_nat, rank"
-        ),
-        false,
-        expected_mutation_signature,
-        users,
-    )
-}
-
-fn update_user_no_match_name_mutation_scenario(
-    index: usize,
-    users: &[MutationUserRow],
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    let name = format!("missing-user-{index:04}");
-    user_mutation_scenario(
-        key_prefix,
-        "update_no_match_name",
-        "mutation.update_no_match_name",
-        format!(
-            "UPDATE PerfAuditUser SET age = 52, age_nat = 52, rank = 17 \
-             WHERE name = '{}' RETURNING id, name, age, age_nat, rank",
-            sqlite_quote(&name),
-        ),
-        true,
-        String::new(),
-        users,
-    )
-}
-
-fn delete_user_no_match_name_mutation_scenario(
-    index: usize,
-    users: &[MutationUserRow],
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    let name = format!("missing-user-{index:04}");
-    user_mutation_scenario(
-        key_prefix,
-        "delete_no_match_name",
-        "mutation.delete_no_match_name",
-        format!(
-            "DELETE FROM PerfAuditUser WHERE name = '{}' RETURNING id, name, age, age_nat, rank",
-            sqlite_quote(&name),
-        ),
-        true,
-        String::new(),
-        users,
-    )
-}
-
-fn update_user_no_match_range_mutation_scenario(
-    users: &[MutationUserRow],
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    user_mutation_scenario(
-        key_prefix,
-        "update_no_match_range",
-        "mutation.update_no_match_range",
-        "UPDATE PerfAuditUser SET age = 52, age_nat = 52, rank = 17 \
-         WHERE age >= 5000 AND age < 5001 RETURNING id, name, age, age_nat, rank"
-            .to_string(),
-        false,
-        String::new(),
-        users,
-    )
-}
-
-fn delete_user_no_match_range_mutation_scenario(
-    users: &[MutationUserRow],
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    user_mutation_scenario(
-        key_prefix,
-        "delete_no_match_range",
-        "mutation.delete_no_match_range",
-        "DELETE FROM PerfAuditUser WHERE age >= 5000 AND age < 5001 \
-         RETURNING id, name, age, age_nat, rank"
-            .to_string(),
-        false,
-        String::new(),
-        users,
-    )
-}
-
-fn update_user_row_and_set_clause(
-    rng: &mut Lcg,
-    index: usize,
-    row: &mut MutationUserRow,
-) -> String {
-    let age = *rng.choose(&[20, 24, 31, 37, 44, 52]);
-    let age_nat = u32::try_from(age).expect("mutation age should fit Nat32");
-    let rank = *rng.choose(&[17, 25, 28, 30, 43, 50]);
-    row.age = age;
-    row.age_nat = age_nat;
-    row.rank = rank;
-    let mut set_clause = format!("age = {age}, age_nat = {age_nat}, rank = {rank}");
-    if rng.index(3) == 0 {
-        row.name = format!("diff-user-{index:04}");
-        write!(set_clause, ", name = '{}'", sqlite_quote(&row.name))
-            .expect("write to string should succeed");
-    }
-    set_clause
-}
-
-fn delete_user_by_pk_mutation_scenario(
-    rng: &mut Lcg,
-    users: &mut Vec<MutationUserRow>,
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    let row_index = rng.index(users.len());
-    let removed = users.remove(row_index);
-    let id = removed.id;
-
-    user_mutation_scenario(
-        key_prefix,
-        "delete_pk",
-        "mutation.delete_pk",
-        format!("DELETE FROM PerfAuditUser WHERE id = {id} RETURNING id, name, age, age_nat, rank"),
-        true,
-        user_mutation_row_signature(&removed),
-        users,
-    )
-}
-
-fn delete_user_by_name_mutation_scenario(
-    rng: &mut Lcg,
-    users: &mut Vec<MutationUserRow>,
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    let row_index = rng.index(users.len());
-    let removed = users.remove(row_index);
-    let name = removed.name.clone();
-
-    user_mutation_scenario(
-        key_prefix,
-        "delete_name_predicate",
-        "mutation.delete_name_predicate",
-        format!(
-            "DELETE FROM PerfAuditUser WHERE name = '{}' RETURNING id, name, age, age_nat, rank",
-            sqlite_quote(&name),
-        ),
-        true,
-        user_mutation_row_signature(&removed),
-        users,
-    )
-}
-
-fn delete_user_by_compound_predicate_mutation_scenario(
-    rng: &mut Lcg,
-    users: &mut Vec<MutationUserRow>,
-    key_prefix: &str,
-) -> Option<SqliteMutationScenario> {
-    let row_index = random_deletable_index(rng, users, |row| {
-        matching_row_count(users, |candidate| {
-            candidate.age == row.age && candidate.rank == row.rank
-        })
-    })?;
-    let old_age = users[row_index].age;
-    let old_rank = users[row_index].rank;
-    let removed_rows =
-        remove_matching_rows(users, |row| row.age == old_age && row.rank == old_rank);
-    let expected_mutation_signature = user_mutation_rows_signature(&removed_rows, false);
-
-    Some(user_mutation_scenario(
-        key_prefix,
-        "delete_compound_predicate",
-        "mutation.delete_compound_predicate",
-        format!(
-            "DELETE FROM PerfAuditUser \
-             WHERE age = {old_age} AND rank = {old_rank} RETURNING id, name, age, age_nat, rank"
-        ),
-        false,
-        expected_mutation_signature,
-        users,
-    ))
-}
-
-fn delete_user_by_range_predicate_mutation_scenario(
-    rng: &mut Lcg,
-    users: &mut Vec<MutationUserRow>,
-    key_prefix: &str,
-) -> Option<SqliteMutationScenario> {
-    let row_index = random_deletable_index(rng, users, |row| {
-        matching_row_count(users, |candidate| candidate.age == row.age)
-    })?;
-    let old_age = users[row_index].age;
-    let high_age = old_age.saturating_add(1);
-    let removed_rows = remove_matching_rows(users, |row| row.age >= old_age && row.age < high_age);
-    let expected_mutation_signature = user_mutation_rows_signature(&removed_rows, false);
-
-    Some(user_mutation_scenario(
-        key_prefix,
-        "delete_range_predicate",
-        "mutation.delete_range_predicate",
-        format!(
-            "DELETE FROM PerfAuditUser \
-             WHERE age >= {old_age} AND age < {high_age} RETURNING id, name, age, age_nat, rank"
-        ),
-        false,
-        expected_mutation_signature,
-        users,
-    ))
-}
-
-fn random_account_mutation_scenario(
-    rng: &mut Lcg,
-    seed: u64,
-    index: usize,
-    accounts: &mut Vec<MutationAccountRow>,
-) -> SqliteMutationScenario {
-    let key_prefix = format!("mutation.random.{seed:016x}.{index:04}.account");
-
-    match index % 16 {
-        0 | 6 => insert_account_mutation_scenario(rng, index, accounts, &key_prefix),
-        1 => update_account_by_handle_mutation_scenario(rng, index, accounts, &key_prefix),
-        2 if accounts.len() > 2 => {
-            delete_account_by_handle_mutation_scenario(rng, accounts, &key_prefix)
-        }
-        3 => update_account_by_compound_predicate_mutation_scenario(rng, accounts, &key_prefix),
-        4 if accounts.len() > 2 => {
-            delete_account_by_compound_predicate_mutation_scenario(rng, accounts, &key_prefix)
-                .unwrap_or_else(|| {
-                    delete_account_by_pk_mutation_scenario(rng, accounts, &key_prefix)
-                })
-        }
-        5 if accounts.len() > 2 => {
-            delete_account_by_pk_mutation_scenario(rng, accounts, &key_prefix)
-        }
-        7 => update_account_by_range_predicate_mutation_scenario(rng, accounts, &key_prefix),
-        8 if accounts.len() > 2 => {
-            delete_account_by_range_predicate_mutation_scenario(rng, accounts, &key_prefix)
-                .unwrap_or_else(|| {
-                    delete_account_by_pk_mutation_scenario(rng, accounts, &key_prefix)
-                })
-        }
-        12 => update_account_no_match_handle_mutation_scenario(index, accounts, &key_prefix),
-        13 => delete_account_no_match_handle_mutation_scenario(index, accounts, &key_prefix),
-        14 => update_account_no_match_range_mutation_scenario(accounts, &key_prefix),
-        15 => delete_account_no_match_range_mutation_scenario(accounts, &key_prefix),
-        _ => update_account_by_pk_mutation_scenario(rng, index, accounts, &key_prefix),
-    }
-}
-
-fn insert_account_mutation_scenario(
-    rng: &mut Lcg,
-    index: usize,
-    accounts: &mut Vec<MutationAccountRow>,
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    let id = next_mutation_account_id(accounts);
-    let handle = format!("insert-handle-{index:04}");
-    let tier = rng.choose(&["bronze", "gold", "silver"]);
-    let score = *rng.choose(&[61, 70, 79, 88, 95]);
-    let active = *rng.choose(&["true", "false"]);
-    let inserted = MutationAccountRow {
-        id,
-        handle: handle.clone(),
-        tier: (*tier).to_string(),
-        score,
-    };
-    accounts.push(inserted.clone());
-
-    account_mutation_scenario(
-        key_prefix,
-        "insert",
-        "mutation.insert",
-        format!(
-            "INSERT INTO PerfAuditAccount (id, handle, tier, active, score) \
-             VALUES ({id}, '{}', '{}', {active}, {score}) \
-             RETURNING id, handle, tier, score",
-            sqlite_quote(&handle),
-            sqlite_quote(tier),
-        ),
-        true,
-        account_mutation_row_signature(&inserted),
-        accounts,
-    )
-}
-
-fn account_mutation_scenario(
-    key_prefix: &str,
-    key_suffix: &str,
-    family: &str,
-    sql: String,
-    mutation_signature_ordered: bool,
-    expected_mutation_signature: String,
-    accounts: &[MutationAccountRow],
-) -> SqliteMutationScenario {
-    SqliteMutationScenario {
-        key: format!("{key_prefix}.{key_suffix}"),
-        surface: MatrixSurface::Account,
-        family: family.to_string(),
-        sql,
-        mutation_signature_ordered,
-        expected_mutation_signature,
-        post_read_sql: account_mutation_post_read_sql(),
-        expected_post_signature: account_mutation_post_signature(accounts),
-    }
-}
-
-fn next_mutation_account_id(accounts: &[MutationAccountRow]) -> i32 {
-    accounts
-        .iter()
-        .map(|row| row.id)
-        .max()
-        .unwrap_or(0)
-        .saturating_add(1)
-}
-
-fn update_account_by_pk_mutation_scenario(
-    rng: &mut Lcg,
-    index: usize,
-    accounts: &mut [MutationAccountRow],
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    let row_index = rng.index(accounts.len());
-    let id = accounts[row_index].id;
-    let set_clause = update_account_row_and_set_clause(rng, index, &mut accounts[row_index]);
-    let expected_mutation_signature = account_mutation_row_signature(&accounts[row_index]);
-
-    account_mutation_scenario(
-        key_prefix,
-        "update_pk",
-        "mutation.update_pk",
-        format!(
-            "UPDATE PerfAuditAccount SET {set_clause} \
-             WHERE id = {id} RETURNING id, handle, tier, score"
-        ),
-        true,
-        expected_mutation_signature,
-        accounts,
-    )
-}
-
-fn update_account_by_handle_mutation_scenario(
-    rng: &mut Lcg,
-    index: usize,
-    accounts: &mut [MutationAccountRow],
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    let row_index = rng.index(accounts.len());
-    let old_handle = accounts[row_index].handle.clone();
-    let set_clause = update_account_row_and_set_clause(rng, index, &mut accounts[row_index]);
-    let expected_mutation_signature = account_mutation_row_signature(&accounts[row_index]);
-
-    account_mutation_scenario(
-        key_prefix,
-        "update_handle_predicate",
-        "mutation.update_handle_predicate",
-        format!(
-            "UPDATE PerfAuditAccount SET {set_clause} \
-             WHERE handle = '{}' RETURNING id, handle, tier, score",
-            sqlite_quote(&old_handle),
-        ),
-        true,
-        expected_mutation_signature,
-        accounts,
-    )
-}
-
-fn update_account_by_compound_predicate_mutation_scenario(
-    rng: &mut Lcg,
-    accounts: &mut [MutationAccountRow],
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    let row_index = rng.index(accounts.len());
-    let old_tier = accounts[row_index].tier.clone();
-    let old_score = accounts[row_index].score;
-    let score = *rng.choose(&[61, 70, 79, 88, 95]);
-    let tier = rng.choose(&["bronze", "gold", "silver"]);
-
-    let affected_rows = update_matching_rows(
-        accounts,
-        |row| row.tier == old_tier && row.score == old_score,
-        |row| {
-            row.score = score;
-            row.tier = (*tier).to_string();
-        },
-    );
-    let expected_mutation_signature = account_mutation_rows_signature(&affected_rows, false);
-
-    account_mutation_scenario(
-        key_prefix,
-        "update_compound_predicate",
-        "mutation.update_compound_predicate",
-        format!(
-            "UPDATE PerfAuditAccount SET score = {score}, tier = '{}' \
-             WHERE tier = '{}' AND score = {old_score} RETURNING id, handle, tier, score",
-            sqlite_quote(tier),
-            sqlite_quote(&old_tier),
-        ),
-        false,
-        expected_mutation_signature,
-        accounts,
-    )
-}
-
-fn update_account_by_range_predicate_mutation_scenario(
-    rng: &mut Lcg,
-    accounts: &mut [MutationAccountRow],
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    let row_index = rng.index(accounts.len());
-    let old_score = accounts[row_index].score;
-    let high_score = old_score.saturating_add(1);
-    let score = *rng.choose(&[61, 70, 79, 88, 95]);
-    let tier = rng.choose(&["bronze", "gold", "silver"]);
-
-    let affected_rows = update_matching_rows(
-        accounts,
-        |row| row.score >= old_score && row.score < high_score,
-        |row| {
-            row.score = score;
-            row.tier = (*tier).to_string();
-        },
-    );
-    let expected_mutation_signature = account_mutation_rows_signature(&affected_rows, false);
-
-    account_mutation_scenario(
-        key_prefix,
-        "update_range_predicate",
-        "mutation.update_range_predicate",
-        format!(
-            "UPDATE PerfAuditAccount SET score = {score}, tier = '{}' \
-             WHERE score >= {old_score} AND score < {high_score} RETURNING id, handle, tier, score",
-            sqlite_quote(tier),
-        ),
-        false,
-        expected_mutation_signature,
-        accounts,
-    )
-}
-
-fn update_account_no_match_handle_mutation_scenario(
-    index: usize,
-    accounts: &[MutationAccountRow],
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    let handle = format!("missing-handle-{index:04}");
-    account_mutation_scenario(
-        key_prefix,
-        "update_no_match_handle",
-        "mutation.update_no_match_handle",
-        format!(
-            "UPDATE PerfAuditAccount SET score = 95, tier = 'gold' \
-             WHERE handle = '{}' RETURNING id, handle, tier, score",
-            sqlite_quote(&handle),
-        ),
-        true,
-        String::new(),
-        accounts,
-    )
-}
-
-fn delete_account_no_match_handle_mutation_scenario(
-    index: usize,
-    accounts: &[MutationAccountRow],
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    let handle = format!("missing-handle-{index:04}");
-    account_mutation_scenario(
-        key_prefix,
-        "delete_no_match_handle",
-        "mutation.delete_no_match_handle",
-        format!(
-            "DELETE FROM PerfAuditAccount WHERE handle = '{}' RETURNING id, handle, tier, score",
-            sqlite_quote(&handle),
-        ),
-        true,
-        String::new(),
-        accounts,
-    )
-}
-
-fn update_account_no_match_range_mutation_scenario(
-    accounts: &[MutationAccountRow],
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    account_mutation_scenario(
-        key_prefix,
-        "update_no_match_range",
-        "mutation.update_no_match_range",
-        "UPDATE PerfAuditAccount SET score = 95, tier = 'gold' \
-         WHERE score >= 5000 AND score < 5001 RETURNING id, handle, tier, score"
-            .to_string(),
-        false,
-        String::new(),
-        accounts,
-    )
-}
-
-fn delete_account_no_match_range_mutation_scenario(
-    accounts: &[MutationAccountRow],
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    account_mutation_scenario(
-        key_prefix,
-        "delete_no_match_range",
-        "mutation.delete_no_match_range",
-        "DELETE FROM PerfAuditAccount WHERE score >= 5000 AND score < 5001 \
-         RETURNING id, handle, tier, score"
-            .to_string(),
-        false,
-        String::new(),
-        accounts,
-    )
-}
-
-fn update_account_row_and_set_clause(
-    rng: &mut Lcg,
-    index: usize,
-    row: &mut MutationAccountRow,
-) -> String {
-    let score = *rng.choose(&[61, 70, 79, 88, 95]);
-    let tier = rng.choose(&["bronze", "gold", "silver"]);
-    row.score = score;
-    row.tier = (*tier).to_string();
-    let mut set_clause = format!("score = {score}, tier = '{}'", sqlite_quote(tier));
-    if rng.index(3) == 0 {
-        row.handle = format!("diff-handle-{index:04}");
-        write!(set_clause, ", handle = '{}'", sqlite_quote(&row.handle))
-            .expect("write to string should succeed");
-    }
-    set_clause
-}
-
-fn delete_account_by_pk_mutation_scenario(
-    rng: &mut Lcg,
-    accounts: &mut Vec<MutationAccountRow>,
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    let row_index = rng.index(accounts.len());
-    let removed = accounts.remove(row_index);
-    let id = removed.id;
-
-    account_mutation_scenario(
-        key_prefix,
-        "delete_pk",
-        "mutation.delete_pk",
-        format!("DELETE FROM PerfAuditAccount WHERE id = {id} RETURNING id, handle, tier, score"),
-        true,
-        account_mutation_row_signature(&removed),
-        accounts,
-    )
-}
-
-fn delete_account_by_handle_mutation_scenario(
-    rng: &mut Lcg,
-    accounts: &mut Vec<MutationAccountRow>,
-    key_prefix: &str,
-) -> SqliteMutationScenario {
-    let row_index = rng.index(accounts.len());
-    let removed = accounts.remove(row_index);
-    let handle = removed.handle.clone();
-
-    account_mutation_scenario(
-        key_prefix,
-        "delete_handle_predicate",
-        "mutation.delete_handle_predicate",
-        format!(
-            "DELETE FROM PerfAuditAccount WHERE handle = '{}' RETURNING id, handle, tier, score",
-            sqlite_quote(&handle),
-        ),
-        true,
-        account_mutation_row_signature(&removed),
-        accounts,
-    )
-}
-
-fn delete_account_by_compound_predicate_mutation_scenario(
-    rng: &mut Lcg,
-    accounts: &mut Vec<MutationAccountRow>,
-    key_prefix: &str,
-) -> Option<SqliteMutationScenario> {
-    let row_index = random_deletable_index(rng, accounts, |row| {
-        matching_row_count(accounts, |candidate| {
-            candidate.tier == row.tier && candidate.score == row.score
-        })
-    })?;
-    let old_tier = accounts[row_index].tier.clone();
-    let old_score = accounts[row_index].score;
-    let removed_rows = remove_matching_rows(accounts, |row| {
-        row.tier == old_tier && row.score == old_score
-    });
-    let expected_mutation_signature = account_mutation_rows_signature(&removed_rows, false);
-
-    Some(account_mutation_scenario(
-        key_prefix,
-        "delete_compound_predicate",
-        "mutation.delete_compound_predicate",
-        format!(
-            "DELETE FROM PerfAuditAccount \
-             WHERE tier = '{}' AND score = {old_score} RETURNING id, handle, tier, score",
-            sqlite_quote(&old_tier),
-        ),
-        false,
-        expected_mutation_signature,
-        accounts,
-    ))
-}
-
-fn delete_account_by_range_predicate_mutation_scenario(
-    rng: &mut Lcg,
-    accounts: &mut Vec<MutationAccountRow>,
-    key_prefix: &str,
-) -> Option<SqliteMutationScenario> {
-    let row_index = random_deletable_index(rng, accounts, |row| {
-        matching_row_count(accounts, |candidate| candidate.score == row.score)
-    })?;
-    let old_score = accounts[row_index].score;
-    let high_score = old_score.saturating_add(1);
-    let removed_rows = remove_matching_rows(accounts, |row| {
-        row.score >= old_score && row.score < high_score
-    });
-    let expected_mutation_signature = account_mutation_rows_signature(&removed_rows, false);
-
-    Some(account_mutation_scenario(
-        key_prefix,
-        "delete_range_predicate",
-        "mutation.delete_range_predicate",
-        format!(
-            "DELETE FROM PerfAuditAccount \
-             WHERE score >= {old_score} AND score < {high_score} RETURNING id, handle, tier, score"
-        ),
-        false,
-        expected_mutation_signature,
-        accounts,
-    ))
-}
-
-fn update_matching_rows<T, M, U>(rows: &mut [T], matches: M, mut update: U) -> Vec<T>
-where
-    T: Clone,
-    M: Fn(&T) -> bool,
-    U: FnMut(&mut T),
-{
-    let mut affected_rows = Vec::new();
-    for row in rows {
-        if matches(row) {
-            update(row);
-            affected_rows.push(row.clone());
-        }
-    }
-    affected_rows
-}
-
-fn remove_matching_rows<T, M>(rows: &mut Vec<T>, matches: M) -> Vec<T>
-where
-    M: Fn(&T) -> bool,
-{
-    let mut removed_rows = Vec::new();
-    let mut retained_rows = Vec::with_capacity(rows.len());
-    for row in rows.drain(..) {
-        if matches(&row) {
-            removed_rows.push(row);
-        } else {
-            retained_rows.push(row);
-        }
-    }
-    *rows = retained_rows;
-    removed_rows
-}
-
-fn random_deletable_index<T, M>(rng: &mut Lcg, rows: &[T], match_count: M) -> Option<usize>
-where
-    M: Fn(&T) -> usize,
-{
-    let max_removed_rows = rows.len().saturating_sub(2);
-    let candidates = rows
-        .iter()
-        .enumerate()
-        .filter(|(_, row)| match_count(row) <= max_removed_rows)
-        .map(|(index, _)| index)
-        .collect::<Vec<_>>();
-    if candidates.is_empty() {
-        return None;
-    }
-
-    candidates.get(rng.index(candidates.len())).copied()
-}
-
-fn matching_row_count<T, M>(rows: &[T], matches: M) -> usize
-where
-    M: Fn(&T) -> bool,
-{
-    rows.iter().filter(|row| matches(row)).count()
-}
-
-fn user_mutation_post_read_sql() -> String {
-    "SELECT id, name, age, age_nat, rank FROM PerfAuditUser ORDER BY id ASC".to_string()
-}
-
-fn account_mutation_post_read_sql() -> String {
-    "SELECT id, handle, tier, score FROM PerfAuditAccount ORDER BY id ASC".to_string()
-}
-
-fn user_mutation_post_signature(users: &[MutationUserRow]) -> String {
-    let mut rows = users.iter().collect::<Vec<_>>();
-    rows.sort_by_key(|row| row.id);
-    let row_strings = rows
-        .into_iter()
-        .map(user_mutation_row_signature)
-        .collect::<Vec<_>>();
-    rendered_signature_from_strings(&row_strings)
-}
-
-fn account_mutation_post_signature(accounts: &[MutationAccountRow]) -> String {
-    let mut rows = accounts.iter().collect::<Vec<_>>();
-    rows.sort_by_key(|row| row.id);
-    let row_strings = rows
-        .into_iter()
-        .map(account_mutation_row_signature)
-        .collect::<Vec<_>>();
-    rendered_signature_from_strings(&row_strings)
-}
-
-fn user_mutation_rows_signature(rows: &[MutationUserRow], ordered: bool) -> String {
-    let rows = rows
-        .iter()
-        .map(user_mutation_row_signature)
-        .collect::<Vec<_>>();
-    rendered_mutation_rows_signature(rows, ordered)
-}
-
-fn account_mutation_rows_signature(rows: &[MutationAccountRow], ordered: bool) -> String {
-    let rows = rows
-        .iter()
-        .map(account_mutation_row_signature)
-        .collect::<Vec<_>>();
-    rendered_mutation_rows_signature(rows, ordered)
-}
-
-fn rendered_mutation_rows_signature(mut rows: Vec<String>, ordered: bool) -> String {
-    if !ordered {
-        rows.sort_unstable();
-    }
-    rendered_signature_from_strings(&rows)
-}
-
-fn rendered_signature_from_strings(rows: &[String]) -> String {
-    rows.join("\n")
-}
-
-fn user_mutation_row_signature(row: &MutationUserRow) -> String {
-    format!(
-        "{}\t{}\t{}\t{}\t{}",
-        row.id, row.name, row.age, row.age_nat, row.rank
-    )
-}
-
-fn account_mutation_row_signature(row: &MutationAccountRow) -> String {
-    format!("{}\t{}\t{}\t{}", row.id, row.handle, row.tier, row.score)
-}
-
-fn generated_matrix(mode: MatrixMode) -> Vec<MatrixScenario> {
-    match mode {
-        MatrixMode::Deterministic => deterministic_matrix(),
-        MatrixMode::Random => random_matrix(random_seed(), random_case_count()),
-    }
-}
-
-fn filter_matrix_scenarios(
-    scenarios: Vec<MatrixScenario>,
-    scenario_key_filter: Option<&str>,
-) -> Vec<MatrixScenario> {
-    let Some(filter) = scenario_key_filter else {
-        return scenarios;
-    };
-    let requested_keys = filter
-        .split(',')
-        .map(str::trim)
-        .filter(|key| !key.is_empty())
-        .collect::<Vec<_>>();
-    assert!(
-        !requested_keys.is_empty(),
-        "ICYDB_SQL_PERF_MATRIX_KEYS should contain one or more comma-separated scenario keys",
-    );
-
-    let requested = requested_keys.iter().copied().collect::<HashSet<_>>();
-    let mut found = HashSet::new();
-    let selected = scenarios
-        .into_iter()
-        .filter(|scenario| {
-            let keep = requested.contains(scenario.key.as_str());
-            if keep {
-                found.insert(scenario.key.clone());
-            }
-            keep
-        })
-        .collect::<Vec<_>>();
-    let missing = requested_keys
-        .into_iter()
-        .filter(|key| !found.contains(*key))
-        .collect::<Vec<_>>();
-    assert!(
-        missing.is_empty(),
-        "ICYDB_SQL_PERF_MATRIX_KEYS contained unknown scenario key(s): {}",
-        missing.join(", "),
-    );
-
-    selected
-}
-
-fn matrix_limit(total: usize) -> usize {
-    match env::var("ICYDB_SQL_PERF_MATRIX_LIMIT") {
-        Ok(value) if value == "all" => total,
-        Ok(value) => value
-            .parse::<usize>()
-            .expect("ICYDB_SQL_PERF_MATRIX_LIMIT should be a positive integer or 'all'")
-            .min(total),
-        Err(_) => DEFAULT_MATRIX_LIMIT.min(total),
-    }
-}
-
-fn matrix_mode() -> MatrixMode {
-    if let Ok(value) = env::var("ICYDB_SQL_PERF_MATRIX_MODE") {
-        return parse_matrix_mode(&value);
-    }
-
-    assert!(
-        env::var_os("ICYDB_SQL_PERF_MATRIX_RANDOM_CASES").is_none()
-            && env::var_os("ICYDB_SQL_PERF_MATRIX_SEED").is_none(),
-        "set ICYDB_SQL_PERF_MATRIX_MODE=random before using random matrix controls"
-    );
-    MatrixMode::Deterministic
-}
-
-fn parse_matrix_mode(value: &str) -> MatrixMode {
-    match value {
-        "deterministic" => MatrixMode::Deterministic,
-        "random" => MatrixMode::Random,
-        other => panic!(
-            "ICYDB_SQL_PERF_MATRIX_MODE should be 'deterministic' or 'random', got '{other}'"
-        ),
-    }
-}
-
-fn random_case_count() -> usize {
-    env::var("ICYDB_SQL_PERF_MATRIX_RANDOM_CASES").map_or(DEFAULT_RANDOM_CASE_COUNT, |value| {
-        value
-            .parse::<usize>()
-            .expect("ICYDB_SQL_PERF_MATRIX_RANDOM_CASES should be a positive integer")
-    })
-}
-
-fn random_seed() -> u64 {
-    env::var("ICYDB_SQL_PERF_MATRIX_SEED").map_or(DEFAULT_RANDOM_SEED, |value| {
-        value
-            .parse::<u64>()
-            .expect("ICYDB_SQL_PERF_MATRIX_SEED should be an unsigned integer")
-    })
-}
-
-fn top_n() -> usize {
-    env::var("ICYDB_SQL_PERF_MATRIX_TOP").map_or(DEFAULT_TOP_N, |value| {
-        value
-            .parse::<usize>()
-            .expect("ICYDB_SQL_PERF_MATRIX_TOP should be a positive integer")
-    })
-}
-
-fn matrix_scenario_key_filter() -> Option<String> {
-    env::var("ICYDB_SQL_PERF_MATRIX_KEYS")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-}
-
-fn matrix_canister_wasm_profile() -> CanisterWasmProfile {
-    env::var(SQL_PERF_MATRIX_WASM_PROFILE_ENV).map_or(CanisterWasmProfile::Debug, |value| {
-        CanisterWasmProfile::parse(&value).unwrap_or_else(|err| panic!("{err}"))
-    })
+const fn matrix_canister_wasm_profile() -> CanisterWasmProfile {
+    CanisterWasmProfile::WasmRelease
 }
 
 fn matrix_canister_build_options() -> CanisterBuildOptions {
@@ -3434,1103 +2034,6 @@ fn matrix_canister_build_options() -> CanisterBuildOptions {
         profile: matrix_canister_wasm_profile(),
         build_target: CanisterBuildTarget::Local,
         ..CanisterBuildOptions::default()
-    }
-}
-
-fn sqlite_audit_comparison_scenarios() -> Vec<MatrixScenario> {
-    let scenarios = deterministic_matrix();
-    let Some(requested_keys) = sqlite_audit_comparison_keys() else {
-        return scenarios
-            .into_iter()
-            .filter(scenario_has_sqlite_reference)
-            .collect();
-    };
-
-    sqlite_audit_comparison_scenarios_for_keys(scenarios, &requested_keys)
-}
-
-fn sqlite_required_audit_comparison_scenarios() -> Vec<MatrixScenario> {
-    let requested_keys = SQL_PERF_SQLITE_REQUIRED_COMPATIBLE_KEYS
-        .iter()
-        .map(|key| (*key).to_string())
-        .collect::<Vec<_>>();
-    sqlite_audit_comparison_scenarios_for_keys(deterministic_matrix(), &requested_keys)
-}
-
-fn sqlite_differential_scenarios(seed: u64, case_count: usize) -> Vec<MatrixScenario> {
-    random_matrix(seed, case_count)
-        .into_iter()
-        .filter(scenario_has_sqlite_reference)
-        .collect()
-}
-
-fn sqlite_audit_comparison_scenarios_for_keys(
-    scenarios: Vec<MatrixScenario>,
-    requested_keys: &[String],
-) -> Vec<MatrixScenario> {
-    let generated = scenarios.len();
-    let requested = requested_keys
-        .iter()
-        .map(String::as_str)
-        .collect::<BTreeSet<_>>();
-    let mut found = BTreeSet::new();
-    let selected = scenarios
-        .into_iter()
-        .filter(|scenario| {
-            let keep = requested.contains(scenario.key.as_str());
-            if keep {
-                found.insert(scenario.key.clone());
-            }
-            keep
-        })
-        .collect::<Vec<_>>();
-    let missing = requested_keys
-        .iter()
-        .filter(|key| !found.contains(key.as_str()))
-        .cloned()
-        .collect::<Vec<_>>();
-    assert!(
-        missing.is_empty(),
-        "{SQL_PERF_SQLITE_KEYS_ENV} contained unknown scenario key(s) for {generated} generated scenarios: {}",
-        missing.join(", "),
-    );
-
-    selected
-}
-
-fn sqlite_audit_comparison_keys() -> Option<Vec<String>> {
-    env::var(SQL_PERF_SQLITE_KEYS_ENV).ok().map(|value| {
-        let keys = value
-            .split(',')
-            .map(str::trim)
-            .filter(|key| !key.is_empty())
-            .map(str::to_string)
-            .collect::<Vec<_>>();
-        assert!(
-            !keys.is_empty(),
-            "{SQL_PERF_SQLITE_KEYS_ENV} should contain one or more comma-separated scenario keys"
-        );
-        keys
-    })
-}
-
-fn scenario_has_sqlite_reference(scenario: &MatrixScenario) -> bool {
-    scenario.metadata.provider == EligibleProvider::SqliteReference
-}
-
-fn sqlite_timing_sample_count() -> usize {
-    env::var(SQL_PERF_SQLITE_TIMING_SAMPLES_ENV).map_or(
-        DEFAULT_SQL_PERF_SQLITE_TIMING_SAMPLE_COUNT,
-        |value| {
-            value
-                .parse::<usize>()
-                .expect("ICYDB_SQL_PERF_SQLITE_TIMING_SAMPLES should be a non-negative integer")
-        },
-    )
-}
-
-fn sqlite_differential_seed() -> u64 {
-    env::var(SQL_PERF_SQLITE_DIFF_SEED_ENV).map_or(DEFAULT_SQL_PERF_SQLITE_DIFF_SEED, |value| {
-        value
-            .parse::<u64>()
-            .expect("ICYDB_SQL_PERF_SQLITE_DIFF_SEED should be an unsigned integer")
-    })
-}
-
-fn sqlite_differential_case_count() -> usize {
-    env::var(SQL_PERF_SQLITE_DIFF_CASES_ENV).map_or(
-        DEFAULT_SQL_PERF_SQLITE_DIFF_CASE_COUNT,
-        |value| {
-            value
-                .parse::<usize>()
-                .expect("ICYDB_SQL_PERF_SQLITE_DIFF_CASES should be a positive integer")
-        },
-    )
-}
-
-fn sqlite_mutation_differential_seed() -> u64 {
-    env::var(SQL_PERF_SQLITE_MUTATION_DIFF_SEED_ENV).map_or(
-        DEFAULT_SQL_PERF_SQLITE_MUTATION_DIFF_SEED,
-        |value| {
-            value
-                .parse::<u64>()
-                .expect("ICYDB_SQL_PERF_SQLITE_MUTATION_DIFF_SEED should be an unsigned integer")
-        },
-    )
-}
-
-fn sqlite_mutation_differential_case_count() -> usize {
-    env::var(SQL_PERF_SQLITE_MUTATION_DIFF_CASES_ENV).map_or(
-        DEFAULT_SQL_PERF_SQLITE_MUTATION_DIFF_CASE_COUNT,
-        |value| {
-            value
-                .parse::<usize>()
-                .expect("ICYDB_SQL_PERF_SQLITE_MUTATION_DIFF_CASES should be a positive integer")
-        },
-    )
-}
-
-fn sqlite_strict_enabled() -> bool {
-    env::var(SQL_PERF_SQLITE_STRICT_ENV)
-        .is_ok_and(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
-}
-
-fn sqlite3_path() -> PathBuf {
-    env::var(SQL_PERF_SQLITE3_ENV).map_or_else(|_| PathBuf::from("sqlite3"), PathBuf::from)
-}
-
-fn sqlite_version(sqlite_path: &Path) -> Result<String, String> {
-    let output = Command::new(sqlite_path)
-        .arg("--version")
-        .output()
-        .map_err(|err| format!("failed to run `{}`: {err}", sqlite_path.display()))?;
-
-    if !output.status.success() {
-        return Err(format!(
-            "`{}` --version failed with status {:?}: {}",
-            sqlite_path.display(),
-            output.status.code(),
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
-
-fn sqlite_audit_db_path() -> PathBuf {
-    env::temp_dir()
-        .join("icydb-sqlite-comparison")
-        .join(format!("sql-perf-audit-{}.sqlite3", std::process::id()))
-}
-
-fn reset_sqlite_audit_database(db_path: &Path) {
-    if let Some(parent) = db_path.parent() {
-        fs::create_dir_all(parent).unwrap_or_else(|err| {
-            panic!(
-                "failed to create SQLite audit comparison directory `{}`: {err}",
-                parent.display()
-            )
-        });
-    }
-
-    for path in [
-        db_path.to_path_buf(),
-        db_path.with_extension("sqlite3-wal"),
-        db_path.with_extension("sqlite3-shm"),
-    ] {
-        match fs::remove_file(&path) {
-            Ok(()) => {}
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-            Err(err) => panic!(
-                "failed to remove stale SQLite audit comparison file `{}`: {err}",
-                path.display()
-            ),
-        }
-    }
-}
-
-fn setup_sqlite_audit_database(sqlite_path: &Path, db_path: &Path) -> Result<(), String> {
-    reset_sqlite_audit_database(db_path);
-    sqlite_output(
-        sqlite_path,
-        db_path,
-        sqlite_audit_schema_and_seed().as_str(),
-    )
-    .map(|_| ())
-}
-
-fn sqlite_audit_schema_and_seed() -> String {
-    let mut script = String::new();
-    script.push_str(
-        "PRAGMA journal_mode=WAL;\n\
-         PRAGMA synchronous=NORMAL;\n\
-         PRAGMA case_sensitive_like=ON;\n\
-         CREATE TABLE PerfAuditUser (\n\
-           id INTEGER PRIMARY KEY,\n\
-           name TEXT NOT NULL,\n\
-           age INTEGER NOT NULL,\n\
-           age_nat INTEGER NOT NULL,\n\
-           rank INTEGER NOT NULL,\n\
-           active INTEGER NOT NULL CHECK(active IN (0, 1))\n\
-         ) STRICT;\n\
-         CREATE INDEX perf_audit_user_name ON PerfAuditUser(name);\n\
-         CREATE INDEX perf_audit_user_age_id ON PerfAuditUser(age, id);\n\
-         CREATE INDEX perf_audit_user_lower_name ON PerfAuditUser(LOWER(name));\n\
-         CREATE TABLE PerfAuditAccount (\n\
-           id INTEGER PRIMARY KEY,\n\
-           handle TEXT NOT NULL,\n\
-           tier TEXT NOT NULL,\n\
-           active INTEGER NOT NULL CHECK(active IN (0, 1)),\n\
-           score INTEGER NOT NULL\n\
-         ) STRICT;\n\
-         CREATE INDEX perf_audit_account_handle_active ON PerfAuditAccount(handle) WHERE active = 1;\n\
-         CREATE INDEX perf_audit_account_lower_handle_active ON PerfAuditAccount(LOWER(handle)) WHERE active = 1;\n\
-         CREATE INDEX perf_audit_account_tier_handle_active ON PerfAuditAccount(tier, handle) WHERE active = 1;\n\
-         CREATE INDEX perf_audit_account_tier_lower_handle_active ON PerfAuditAccount(tier, LOWER(handle)) WHERE active = 1;\n\
-         CREATE TABLE PerfAuditBlob (\n\
-           id INTEGER PRIMARY KEY,\n\
-           label TEXT NOT NULL,\n\
-           bucket INTEGER NOT NULL,\n\
-           thumbnail BLOB NOT NULL,\n\
-           chunk BLOB NOT NULL\n\
-         ) STRICT;\n\
-         CREATE INDEX perf_audit_blob_bucket_label_id ON PerfAuditBlob(bucket, label, id);\n\
-         CREATE INDEX perf_audit_blob_label ON PerfAuditBlob(label);\n\
-         CREATE TABLE PerfAuditToken (\n\
-           id TEXT PRIMARY KEY,\n\
-           collection_id TEXT NOT NULL,\n\
-           stage TEXT NOT NULL,\n\
-           title TEXT NOT NULL\n\
-         ) STRICT;\n\
-         CREATE INDEX perf_audit_token_collection_stage_id ON PerfAuditToken(collection_id, stage, id);\n",
-    );
-
-    append_sqlite_perf_audit_user_rows(&mut script);
-    append_sqlite_perf_audit_account_rows(&mut script);
-    append_sqlite_perf_audit_blob_rows(&mut script);
-    append_sqlite_perf_audit_token_rows(&mut script);
-    script
-}
-
-fn append_sqlite_perf_audit_user_rows(script: &mut String) {
-    for (id, name, age, age_nat, rank, active) in [
-        (1, "Alice", 31, 31, 28, true),
-        (2, "bob", 24, 24, 25, true),
-        (3, "Charlie", 43, 43, 43, false),
-        (4, "amber", 27, 26, 29, true),
-        (5, "Andrew", 31, 30, 30, true),
-        (6, "Zelda", 19, 19, 17, false),
-    ] {
-        writeln!(
-            script,
-            "INSERT INTO PerfAuditUser(id, name, age, age_nat, rank, active) VALUES ({id}, '{}', {age}, {age_nat}, {rank}, {});",
-            sqlite_quote(name),
-            i32::from(active),
-        )
-        .expect("write to string should succeed");
-    }
-}
-
-fn append_sqlite_perf_audit_account_rows(script: &mut String) {
-    for (id, handle, tier, active, score) in [
-        (1, "Bravo", "gold", true, 91),
-        (2, "alpha", "gold", true, 75),
-        (3, "bravo", "silver", true, 78),
-        (4, "Delta", "silver", false, 66),
-        (5, "brick", "gold", true, 88),
-        (6, "azure", "bronze", true, 63),
-    ] {
-        writeln!(
-            script,
-            "INSERT INTO PerfAuditAccount(id, handle, tier, active, score) VALUES ({id}, '{}', '{}', {}, {score});",
-            sqlite_quote(handle),
-            sqlite_quote(tier),
-            i32::from(active),
-        )
-        .expect("write to string should succeed");
-    }
-}
-
-fn append_sqlite_perf_audit_blob_rows(script: &mut String) {
-    for (id, label, bucket, thumbnail_seed, thumbnail_len, chunk_seed, chunk_len) in [
-        (1, "avatar-a", 10, 11, 1_024, 31, 16_384),
-        (2, "avatar-b", 10, 12, 2_048, 32, 32_768),
-        (3, "avatar-c", 10, 13, 4_096, 33, 65_536),
-        (4, "archive-a", 20, 14, 1_024, 34, 16_384),
-        (5, "archive-b", 20, 15, 2_048, 35, 32_768),
-        (6, "archive-c", 30, 16, 4_096, 36, 65_536),
-    ] {
-        writeln!(
-            script,
-            "INSERT INTO PerfAuditBlob(id, label, bucket, thumbnail, chunk) VALUES ({id}, '{}', {bucket}, X'{}', X'{}');",
-            sqlite_quote(label),
-            sqlite_perf_blob_hex(thumbnail_seed, thumbnail_len),
-            sqlite_perf_blob_hex(chunk_seed, chunk_len),
-        )
-        .expect("write to string should succeed");
-    }
-}
-
-fn append_sqlite_perf_audit_token_rows(script: &mut String) {
-    let mut append_token = |id: u128, collection_id: &str, stage: &str, title: &str| {
-        writeln!(
-            script,
-            "INSERT INTO PerfAuditToken(id, collection_id, stage, title) VALUES ('{}', '{}', '{}', '{}');",
-            icydb::types::Ulid::from_bytes(id.to_be_bytes()),
-            sqlite_quote(collection_id),
-            sqlite_quote(stage),
-            sqlite_quote(title),
-        )
-        .expect("write to string should succeed");
-    };
-
-    for (id, collection_id, stage, title) in [
-        (9_090, TOKEN_TARGET_COLLECTION, "Draft", "draft-090"),
-        (9_095, TOKEN_TARGET_COLLECTION, "Review", "review-095"),
-        (9_100, TOKEN_TARGET_COLLECTION, "Review", "review-100"),
-        (9_105, TOKEN_TARGET_COLLECTION, "Draft", "draft-105"),
-        (9_110, TOKEN_TARGET_COLLECTION, "Published", "published-110"),
-        (
-            9_115,
-            "01KV5N439P1111111111111111",
-            "Draft",
-            "other-draft-115",
-        ),
-        (9_120, TOKEN_TARGET_COLLECTION, "Draft", "draft-120"),
-        (9_125, TOKEN_TARGET_COLLECTION, "Review", "review-125"),
-        (9_130, TOKEN_TARGET_COLLECTION, "Draft", "draft-130"),
-        (9_135, TOKEN_TARGET_COLLECTION, "Review", "review-135"),
-        (9_140, TOKEN_TARGET_COLLECTION, "Queued", "queued-140"),
-        (
-            9_145,
-            "01KV5N439P1111111111111111",
-            "Review",
-            "other-review-145",
-        ),
-        (9_150, TOKEN_TARGET_COLLECTION, "Draft", "draft-150"),
-        (9_155, TOKEN_TARGET_COLLECTION, "Review", "review-155"),
-        (9_160, TOKEN_TARGET_COLLECTION, "Archived", "archived-160"),
-        (
-            9_165,
-            "01KV5N439P1111111111111111",
-            "Draft",
-            "other-draft-165",
-        ),
-        (9_170, TOKEN_TARGET_COLLECTION, "Draft", "draft-170"),
-        (9_175, TOKEN_TARGET_COLLECTION, "Review", "review-175"),
-        (9_180, TOKEN_TARGET_COLLECTION, "Rejected", "rejected-180"),
-        (
-            9_185,
-            "01KV5N439P1111111111111111",
-            "Review",
-            "other-review-185",
-        ),
-    ] {
-        append_token(id, collection_id, stage, title);
-    }
-
-    for offset in 0..240u128 {
-        let stage = match offset % 4 {
-            0 => "Draft",
-            1 => "Queued",
-            2 => "Review",
-            _ => "Published",
-        };
-        let title = format!("{}-pressure-{offset:03}", stage.to_ascii_lowercase());
-        append_token(
-            10_000 + offset,
-            TOKEN_TARGET_COLLECTION,
-            stage,
-            title.as_str(),
-        );
-    }
-}
-
-fn sqlite_perf_blob_hex(seed: u8, len: usize) -> String {
-    let mut out = String::with_capacity(len.saturating_mul(2));
-    for value in (0u8..=250)
-        .cycle()
-        .take(len)
-        .map(|offset| seed.wrapping_add(offset))
-    {
-        write!(out, "{value:02x}").expect("write to string should succeed");
-    }
-    out
-}
-
-fn sqlite_quote(value: &str) -> String {
-    value.replace('\'', "''")
-}
-
-fn sqlite_output(sqlite_path: &Path, db_path: &Path, sql: &str) -> Result<String, String> {
-    let mut child = Command::new(sqlite_path)
-        .arg("-batch")
-        .arg("-noheader")
-        .arg("-cmd")
-        .arg(".mode tabs")
-        .arg("-cmd")
-        .arg(".nullvalue NULL")
-        .arg(db_path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|err| format!("failed to run `{}`: {err}", sqlite_path.display()))?;
-    child
-        .stdin
-        .as_mut()
-        .ok_or_else(|| format!("failed to open stdin for `{}`", sqlite_path.display()))?
-        .write_all(sql.as_bytes())
-        .map_err(|err| format!("failed to write SQL to `{}`: {err}", sqlite_path.display()))?;
-    let output = child
-        .wait_with_output()
-        .map_err(|err| format!("failed to wait for `{}`: {err}", sqlite_path.display()))?;
-
-    if !output.status.success() {
-        return Err(format!(
-            "`{}` failed with status {:?}: {}",
-            sqlite_path.display(),
-            output.status.code(),
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .trim_end_matches(['\n', '\r'])
-        .replace("\r\n", "\n"))
-}
-
-fn sqlite_query_signature(sqlite_path: &Path, db_path: &Path, sql: &str) -> Result<String, String> {
-    sqlite_output(
-        sqlite_path,
-        db_path,
-        format!("PRAGMA case_sensitive_like=ON;\n{sql};").as_str(),
-    )
-}
-
-fn sqlite_explain_query_plan(
-    sqlite_path: &Path,
-    db_path: &Path,
-    sql: &str,
-) -> Result<Vec<String>, String> {
-    let output = sqlite_output(
-        sqlite_path,
-        db_path,
-        format!("PRAGMA case_sensitive_like=ON;\nEXPLAIN QUERY PLAN {sql};").as_str(),
-    )?;
-
-    Ok(output.lines().map(str::to_string).collect())
-}
-
-fn sqlite_plan_summary(rows: &[String]) -> SqlitePlanSummary {
-    let mut summary = SqlitePlanSummary::default();
-    for detail in rows.iter().map(|row| sqlite_plan_detail(row)) {
-        if detail.starts_with("SCAN ") {
-            summary
-                .features
-                .insert(SQLITE_PLAN_FEATURE_SCAN.to_string());
-        }
-        if detail.starts_with("SEARCH ") {
-            summary
-                .features
-                .insert(SQLITE_PLAN_FEATURE_SEARCH.to_string());
-        }
-        if detail.contains("USING COVERING INDEX ") {
-            summary
-                .features
-                .insert(SQLITE_PLAN_FEATURE_COVERING_INDEX.to_string());
-            summary
-                .features
-                .insert(SQLITE_PLAN_FEATURE_INDEX.to_string());
-        }
-        if detail.contains("USING INTEGER PRIMARY KEY") {
-            summary
-                .features
-                .insert(SQLITE_PLAN_FEATURE_INTEGER_PRIMARY_KEY.to_string());
-            summary
-                .features
-                .insert(SQLITE_PLAN_FEATURE_INDEX.to_string());
-        }
-        if detail.contains("USING INDEX ") {
-            summary
-                .features
-                .insert(SQLITE_PLAN_FEATURE_INDEX.to_string());
-        }
-        if detail.contains("USE TEMP B-TREE") && detail.contains("ORDER BY") {
-            summary
-                .features
-                .insert(SQLITE_PLAN_FEATURE_TEMP_ORDER.to_string());
-        }
-        if detail.contains("USE TEMP B-TREE") && detail.contains("GROUP BY") {
-            summary
-                .features
-                .insert(SQLITE_PLAN_FEATURE_TEMP_GROUP.to_string());
-        }
-
-        if let Some(index_name) = sqlite_plan_index_name(detail) {
-            summary.index_names.push(index_name);
-        }
-    }
-
-    summary.index_names.sort();
-    summary.index_names.dedup();
-    summary
-}
-
-fn sqlite_plan_has(summary: &SqlitePlanSummary, feature: &str) -> bool {
-    summary.features.contains(feature)
-}
-
-fn sqlite_plan_detail(row: &str) -> &str {
-    let mut detail = row.rsplit('\t').next().unwrap_or(row).trim();
-    while let Some(stripped) = detail
-        .strip_prefix("|--")
-        .or_else(|| detail.strip_prefix("`--"))
-    {
-        detail = stripped.trim_start();
-    }
-    detail
-}
-
-fn sqlite_plan_index_name(detail: &str) -> Option<String> {
-    for prefix in ["USING COVERING INDEX ", "USING INDEX "] {
-        if let Some(suffix) = detail.split_once(prefix).map(|(_, suffix)| suffix) {
-            return Some(
-                suffix
-                    .split([' ', '('])
-                    .next()
-                    .unwrap_or(suffix)
-                    .to_string(),
-            );
-        }
-    }
-
-    detail
-        .contains("USING INTEGER PRIMARY KEY")
-        .then(|| "INTEGER_PRIMARY_KEY".to_string())
-}
-
-fn sqlite_plan_alignment(sample: &MatrixSample, summary: &SqlitePlanSummary) -> String {
-    match sample.route_outcome.as_str() {
-        "pushed" if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_TEMP_ORDER) => {
-            "review_icydb_pushed_sqlite_temp_order".to_string()
-        }
-        "pushed"
-            if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_INDEX)
-                || !sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_SCAN) =>
-        {
-            "aligned_bounded_access".to_string()
-        }
-        "pushed" if sample.route_family == "primary_order" => "aligned_ordered_access".to_string(),
-        "pushed" => "review_icydb_pushed_sqlite_scan".to_string(),
-        "materialized" if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_TEMP_ORDER) => {
-            "aligned_materialized_order".to_string()
-        }
-        "materialized"
-            if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_INDEX)
-                && !sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_TEMP_ORDER) =>
-        {
-            "sqlite_index_order_icydb_materialized".to_string()
-        }
-        "materialized" => "aligned_scan_or_materialized".to_string(),
-        _ => "not_comparable".to_string(),
-    }
-}
-
-fn sqlite_time_query(
-    sqlite_path: &Path,
-    db_path: &Path,
-    sql: &str,
-    expected_signature: &str,
-    sample_count: usize,
-) -> Result<SqliteTimingSummary, String> {
-    if sample_count == 0 {
-        return Ok(SqliteTimingSummary {
-            samples: Vec::new(),
-            median: 0,
-            min: 0,
-            max: 0,
-        });
-    }
-
-    let mut samples = Vec::with_capacity(sample_count);
-    for _ in 0..sample_count {
-        let start = Instant::now();
-        let signature = sqlite_query_signature(sqlite_path, db_path, sql)?;
-        let elapsed = start.elapsed().as_nanos();
-        if signature != expected_signature {
-            return Err(format!(
-                "SQLite result signature changed between timing samples for `{sql}`: expected `{expected_signature}`, got `{signature}`"
-            ));
-        }
-        samples.push(elapsed);
-    }
-    Ok(SqliteTimingSummary::from_samples(samples))
-}
-
-fn sqlite_audit_comparison_for_scenario(
-    fixture: &StandaloneCanisterFixture,
-    sqlite_path: &Path,
-    db_path: &Path,
-    scenario: &MatrixScenario,
-    timing_sample_count: usize,
-) -> Result<SqliteAuditComparisonScenario, Box<SqliteAuditComparisonFailure>> {
-    let sqlite_signature = sqlite_query_signature(sqlite_path, db_path, scenario.sql.as_str())
-        .unwrap_or_else(|err| {
-            panic!(
-                "SQLite query failed for comparison scenario `{}`: {err}",
-                scenario.key
-            )
-        });
-    let sqlite_explain_query_plan =
-        sqlite_explain_query_plan(sqlite_path, db_path, scenario.sql.as_str()).unwrap_or_else(
-            |err| {
-                panic!(
-                    "SQLite EXPLAIN QUERY PLAN failed for comparison scenario `{}`: {err}",
-                    scenario.key
-                )
-            },
-        );
-    let sqlite_plan_summary = sqlite_plan_summary(&sqlite_explain_query_plan);
-
-    let perf = match query_surface_with_perf(fixture, scenario) {
-        Ok(perf) => perf,
-        Err(err) => {
-            return Err(sqlite_audit_comparison_failure(
-                scenario,
-                err,
-                sqlite_signature,
-                sqlite_explain_query_plan,
-                sqlite_plan_summary,
-            ));
-        }
-    };
-    let sample = matrix_sample_from_perf(scenario, &perf);
-    let icydb_signature = sqlite_comparable_signature(&perf.result).unwrap_or_else(|| {
-        panic!(
-            "scenario `{}` did not produce a SQLite-comparable IcyDB result",
-            scenario.key
-        )
-    });
-    let correctness = sqlite_signature_correctness_verdict(
-        scenario,
-        icydb_signature.as_str(),
-        sqlite_signature.as_str(),
-        route_fact_for_scenario(scenario, &sample),
-    );
-    let (correctness_passed, correctness_failure_owner, correctness_mismatch_category) =
-        correctness_report_projection(&correctness);
-    let sqlite_plan_alignment = sqlite_plan_alignment(&sample, &sqlite_plan_summary);
-    let sqlite_timing = sqlite_time_query(
-        sqlite_path,
-        db_path,
-        scenario.sql.as_str(),
-        sqlite_signature.as_str(),
-        timing_sample_count,
-    )
-    .unwrap_or_else(|err| {
-        panic!(
-            "SQLite timing failed for comparison scenario `{}`: {err}",
-            scenario.key
-        )
-    });
-
-    Ok(SqliteAuditComparisonScenario {
-        key: scenario.key.clone(),
-        surface: scenario.surface.label().to_string(),
-        family: scenario.family.clone(),
-        sql: scenario.sql.clone(),
-        route_family: sample.route_family,
-        route_outcome: sample.route_outcome,
-        route_reason: sample.route_reason,
-        limit_stop_after: sample.limit_stop_after,
-        icydb_signature,
-        sqlite_signature,
-        correctness_passed,
-        correctness_failure_owner,
-        correctness_mismatch_category,
-        sqlite_explain_query_plan,
-        sqlite_plan_summary,
-        sqlite_plan_alignment,
-        icydb_total_local_instructions: sample.total_local_instructions,
-        icydb_execute_local_instructions: sample.execute_local_instructions,
-        icydb_data_store_get_calls: sample.data_store_get_calls,
-        icydb_index_store_range_scan_calls: sample.index_store_range_scan_calls,
-        icydb_index_store_entry_reads: sample.index_store_entry_reads,
-        sqlite_timing,
-    })
-}
-
-struct SqliteAuditComparisonRun<'a> {
-    fixture: &'a StandaloneCanisterFixture,
-    sqlite_path: &'a Path,
-    db_path: &'a Path,
-    sqlite_version: String,
-    generated_scenario_count: usize,
-    timing_sample_count: usize,
-    scenario_key_filter: Option<String>,
-}
-
-fn sqlite_audit_comparison_report_for_scenarios(
-    run: SqliteAuditComparisonRun<'_>,
-    scenarios: &[MatrixScenario],
-) -> SqliteAuditComparisonReport {
-    let mut comparisons = Vec::new();
-    let mut failures = Vec::new();
-    let verbose_progress = scenarios.len() <= 50;
-    for (index, scenario) in scenarios.iter().enumerate() {
-        if verbose_progress || index % 100 == 0 {
-            eprintln!(
-                "sql_perf_sqlite: comparing {}/{} {}",
-                index + 1,
-                scenarios.len(),
-                scenario.key,
-            );
-        }
-        match sqlite_audit_comparison_for_scenario(
-            run.fixture,
-            run.sqlite_path,
-            run.db_path,
-            scenario,
-            run.timing_sample_count,
-        ) {
-            Ok(comparison) => comparisons.push(comparison),
-            Err(failure) => failures.push(*failure),
-        }
-    }
-    let correctness_failure_count = comparisons
-        .iter()
-        .filter(|scenario| !scenario.correctness_passed)
-        .count();
-    let selected_surface_counts = matrix_scenario_surface_counts(scenarios);
-    let selected_family_counts = matrix_scenario_family_counts(scenarios);
-    let successful_route_family_counts = read_route_family_counts(&comparisons);
-    let successful_route_outcome_counts = read_route_outcome_counts(&comparisons);
-    let successful_route_pair_counts = read_route_pair_counts(&comparisons);
-
-    SqliteAuditComparisonReport {
-        sqlite_version: run.sqlite_version,
-        sqlite_path: run.sqlite_path.display().to_string(),
-        canister_wasm_profile: matrix_canister_wasm_profile().as_str().to_string(),
-        generated_scenario_count: run.generated_scenario_count,
-        compared_scenario_count: scenarios.len(),
-        common_success_count: comparisons.len(),
-        icydb_failure_count: failures.len(),
-        correctness_failure_count,
-        sample_count: run.timing_sample_count,
-        scenario_key_filter: run.scenario_key_filter,
-        selected_surface_counts,
-        selected_family_counts,
-        successful_route_family_counts,
-        successful_route_outcome_counts,
-        successful_route_pair_counts,
-        fairness_notes: sqlite_audit_comparison_fairness_notes(),
-        scenarios: comparisons,
-        failures,
-    }
-}
-
-fn sqlite_mutation_comparison_for_scenario(
-    fixture: &StandaloneCanisterFixture,
-    sqlite_path: &Path,
-    db_path: &Path,
-    scenario: &SqliteMutationScenario,
-) -> Result<SqliteMutationComparisonScenario, Box<SqliteMutationComparisonFailure>> {
-    let raw_sqlite_mutation_signature =
-        match sqlite_query_signature(sqlite_path, db_path, scenario.sql.as_str()) {
-            Ok(signature) => signature,
-            Err(err) => {
-                return Err(sqlite_mutation_string_failure(
-                    scenario,
-                    "sqlite_mutation_failure",
-                    err,
-                ));
-            }
-        };
-    let sqlite_mutation_signature =
-        mutation_signature_for_comparison(&raw_sqlite_mutation_signature, scenario);
-    let icydb_mutation_result = match update_surface_sql(fixture, scenario) {
-        Ok(result) => result,
-        Err(err) => {
-            return Err(sqlite_mutation_icydb_failure(
-                scenario,
-                "icydb_mutation_failure",
-                err,
-            ));
-        }
-    };
-    let icydb_mutation_signature = sqlite_comparable_signature(&icydb_mutation_result)
-        .unwrap_or_else(|| {
-            panic!(
-                "mutation scenario `{}` did not produce a SQLite-comparable IcyDB result",
-                scenario.key
-            )
-        });
-    let icydb_mutation_signature =
-        mutation_signature_for_comparison(&icydb_mutation_signature, scenario);
-
-    let (icydb_post_signature, sqlite_post_signature) =
-        sqlite_mutation_post_signatures(fixture, sqlite_path, db_path, scenario)?;
-
-    Ok(SqliteMutationComparisonScenario {
-        key: scenario.key.clone(),
-        surface: scenario.surface.label().to_string(),
-        family: scenario.family.clone(),
-        sql: scenario.sql.clone(),
-        post_read_sql: scenario.post_read_sql.clone(),
-        mutation_signature_ordered: scenario.mutation_signature_ordered,
-        expected_mutation_signature: scenario.expected_mutation_signature.clone(),
-        expected_mutation_match: expected_match_status(
-            icydb_mutation_signature.as_str(),
-            sqlite_mutation_signature.as_str(),
-            scenario.expected_mutation_signature.as_str(),
-        ),
-        mutation_signatures_match: icydb_mutation_signature == sqlite_mutation_signature,
-        icydb_mutation_signature,
-        sqlite_mutation_signature,
-        expected_post_signature: scenario.expected_post_signature.clone(),
-        expected_post_state_match: expected_match_status(
-            icydb_post_signature.as_str(),
-            sqlite_post_signature.as_str(),
-            scenario.expected_post_signature.as_str(),
-        ),
-        post_signatures_match: icydb_post_signature == sqlite_post_signature,
-        icydb_post_signature,
-        sqlite_post_signature,
-    })
-}
-
-fn sqlite_mutation_post_signatures(
-    fixture: &StandaloneCanisterFixture,
-    sqlite_path: &Path,
-    db_path: &Path,
-    scenario: &SqliteMutationScenario,
-) -> Result<(String, String), Box<SqliteMutationComparisonFailure>> {
-    let sqlite_post_signature =
-        match sqlite_query_signature(sqlite_path, db_path, scenario.post_read_sql.as_str()) {
-            Ok(signature) => signature,
-            Err(err) => {
-                return Err(sqlite_mutation_string_failure(
-                    scenario,
-                    "sqlite_post_read_failure",
-                    err,
-                ));
-            }
-        };
-    let post_read_scenario = MatrixScenario {
-        key: format!("{}.post_state", scenario.key),
-        source: ScenarioSource::Deterministic,
-        surface: scenario.surface,
-        family: "mutation.post_state".to_string(),
-        sql: scenario.post_read_sql.clone(),
-        metadata: read_metadata(
-            &["select.scalar_rows"],
-            QueryShape::Scalar,
-            ValueTypeFamily::Mixed,
-            PredicateFamily::None,
-            WindowSpec::ordered_unbounded("id ASC"),
-            not_paginated_route(),
-            true,
-        ),
-    };
-    let icydb_post_result = match query_surface_with_perf(fixture, &post_read_scenario) {
-        Ok(result) => result,
-        Err(err) => {
-            return Err(sqlite_mutation_icydb_failure(
-                scenario,
-                "icydb_post_read_failure",
-                err,
-            ));
-        }
-    };
-    let icydb_post_signature = sqlite_comparable_signature(&icydb_post_result.result)
-        .unwrap_or_else(|| {
-            panic!(
-                "mutation post-read scenario `{}` did not produce a SQLite-comparable IcyDB result",
-                scenario.key
-            )
-        });
-
-    Ok((icydb_post_signature, sqlite_post_signature))
-}
-
-fn expected_match_status(icydb: &str, sqlite: &str, expected: &str) -> String {
-    match (icydb == expected, sqlite == expected) {
-        (true, true) => "both".to_string(),
-        (true, false) => "icydb_only".to_string(),
-        (false, true) => "sqlite_only".to_string(),
-        (false, false) => "neither".to_string(),
-    }
-}
-
-fn mutation_signature_for_comparison(signature: &str, scenario: &SqliteMutationScenario) -> String {
-    if scenario.mutation_signature_ordered {
-        signature.to_string()
-    } else {
-        unordered_rows_signature(signature)
-    }
-}
-
-fn unordered_rows_signature(signature: &str) -> String {
-    if signature.is_empty() {
-        return String::new();
-    }
-
-    let mut rows = signature.lines().collect::<Vec<_>>();
-    rows.sort_unstable();
-    rows.join("\n")
-}
-
-fn sqlite_audit_comparison_failure(
-    scenario: &MatrixScenario,
-    err: Error,
-    sqlite_signature: String,
-    sqlite_explain_query_plan: Vec<String>,
-    sqlite_plan_summary: SqlitePlanSummary,
-) -> Box<SqliteAuditComparisonFailure> {
-    let diagnostic_code = err.diagnostic_code();
-    let error_code = err.code().raw();
-    let diagnostic_error_code = diagnostic_code.error_code().raw();
-    let (correctness_failure_owner, correctness_mismatch_category) =
-        rejected_scenario_correctness_projection(scenario, error_code, diagnostic_error_code);
-    Box::new(SqliteAuditComparisonFailure {
-        key: scenario.key.clone(),
-        surface: scenario.surface.label().to_string(),
-        family: scenario.family.clone(),
-        sql: scenario.sql.clone(),
-        status: "icydb_failure".to_string(),
-        icydb_code: error_code,
-        icydb_diagnostic_code: diagnostic_error_code,
-        icydb_diagnostic_label: diagnostic_label(diagnostic_code).to_string(),
-        icydb_class: error_class_label(err.class()).to_string(),
-        icydb_origin: format!("{:?}", err.origin()),
-        correctness_failure_owner,
-        correctness_mismatch_category,
-        sqlite_signature,
-        sqlite_explain_query_plan,
-        sqlite_plan_summary,
-    })
-}
-
-fn sqlite_mutation_icydb_failure(
-    scenario: &SqliteMutationScenario,
-    status: &str,
-    err: Error,
-) -> Box<SqliteMutationComparisonFailure> {
-    let diagnostic_code = err.diagnostic_code();
-    Box::new(SqliteMutationComparisonFailure {
-        key: scenario.key.clone(),
-        surface: scenario.surface.label().to_string(),
-        family: scenario.family.clone(),
-        sql: scenario.sql.clone(),
-        post_read_sql: scenario.post_read_sql.clone(),
-        status: status.to_string(),
-        diagnostic: diagnostic_label(diagnostic_code).to_string(),
-        icydb_code: err.code().raw(),
-        icydb_diagnostic_code: diagnostic_code.error_code().raw(),
-        icydb_diagnostic_label: diagnostic_label(diagnostic_code).to_string(),
-        icydb_class: error_class_label(err.class()).to_string(),
-        icydb_origin: format!("{:?}", err.origin()),
-    })
-}
-
-fn sqlite_mutation_string_failure(
-    scenario: &SqliteMutationScenario,
-    status: &str,
-    diagnostic: String,
-) -> Box<SqliteMutationComparisonFailure> {
-    Box::new(SqliteMutationComparisonFailure {
-        key: scenario.key.clone(),
-        surface: scenario.surface.label().to_string(),
-        family: scenario.family.clone(),
-        sql: scenario.sql.clone(),
-        post_read_sql: scenario.post_read_sql.clone(),
-        status: status.to_string(),
-        diagnostic,
-        icydb_code: 0,
-        icydb_diagnostic_code: 0,
-        icydb_diagnostic_label: String::new(),
-        icydb_class: String::new(),
-        icydb_origin: String::new(),
-    })
-}
-
-impl SqliteTimingSummary {
-    fn from_samples(mut samples: Vec<u128>) -> Self {
-        samples.sort_unstable();
-        let median = samples[samples.len() / 2];
-        let min = samples[0];
-        let max = samples[samples.len() - 1];
-
-        Self {
-            samples,
-            median,
-            min,
-            max,
-        }
-    }
-}
-
-fn sqlite_comparable_signature(result: &SqlQueryResult) -> Option<String> {
-    match result {
-        SqlQueryResult::Count { row_count, .. } => Some(row_count.to_string()),
-        SqlQueryResult::Projection(rows) => Some(rendered_rows_signature(&rows.rendered_rows())),
-        SqlQueryResult::Grouped(rows) => Some(rendered_rows_signature(&rows.rows)),
-        _ => None,
-    }
-}
-
-fn rendered_rows_signature(rows: &[Vec<String>]) -> String {
-    rows.iter()
-        .map(|row| row.join("\t"))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn sqlite_signature_correctness_verdict(
-    scenario: &MatrixScenario,
-    icydb_signature: &str,
-    sqlite_signature: &str,
-    observed_route: RouteFact,
-) -> CorrectnessVerdict {
-    correctness_verdict(
-        scenario,
-        &CorrectnessObservation {
-            subject: ObservedOutcome::Accepted(normalized_rendered_signature(
-                icydb_signature,
-                "null",
-                scenario.metadata.row_order,
-            )),
-            provider: Some(ObservedOutcome::Accepted(normalized_rendered_signature(
-                sqlite_signature,
-                "NULL",
-                scenario.metadata.row_order,
-            ))),
-            route: Some(observed_route),
-        },
-    )
-}
-
-fn normalized_rendered_signature(
-    signature: &str,
-    null_marker: &str,
-    row_order: RowOrder,
-) -> NormalizedResult {
-    let rows = if signature.is_empty() {
-        Vec::new()
-    } else {
-        signature
-            .lines()
-            .map(|row| {
-                row.split('\t')
-                    .map(|cell| {
-                        if cell == null_marker {
-                            NormalizedCell::Null
-                        } else {
-                            NormalizedCell::Text(cell.to_string())
-                        }
-                    })
-                    .collect()
-            })
-            .collect()
-    };
-    NormalizedResult {
-        columns: Vec::new(),
-        rows,
-        row_order,
-    }
-}
-
-fn correctness_report_projection(
-    verdict: &CorrectnessVerdict,
-) -> (bool, Option<String>, Option<String>) {
-    match verdict {
-        CorrectnessVerdict::Passed => (true, None, None),
-        CorrectnessVerdict::Failed(failure) => (
-            false,
-            Some(failure.signature.owner.code().to_string()),
-            Some(failure.signature.category.code().to_string()),
-        ),
     }
 }
 
@@ -4562,797 +2065,6 @@ fn rejected_scenario_correctness_projection(
     )
 }
 
-fn matrix_scenario_surface_counts(scenarios: &[MatrixScenario]) -> BTreeMap<String, usize> {
-    let mut counts = BTreeMap::new();
-    for scenario in scenarios {
-        increment_count(&mut counts, scenario.surface.label());
-    }
-    counts
-}
-
-fn matrix_scenario_family_counts(scenarios: &[MatrixScenario]) -> BTreeMap<String, usize> {
-    let mut counts = BTreeMap::new();
-    for scenario in scenarios {
-        increment_count(&mut counts, scenario.family.as_str());
-    }
-    counts
-}
-
-fn read_route_family_counts(
-    scenarios: &[SqliteAuditComparisonScenario],
-) -> BTreeMap<String, usize> {
-    let mut counts = BTreeMap::new();
-    for scenario in scenarios {
-        increment_count(&mut counts, scenario.route_family.as_str());
-    }
-    counts
-}
-
-fn read_route_outcome_counts(
-    scenarios: &[SqliteAuditComparisonScenario],
-) -> BTreeMap<String, usize> {
-    let mut counts = BTreeMap::new();
-    for scenario in scenarios {
-        increment_count(&mut counts, scenario.route_outcome.as_str());
-    }
-    counts
-}
-
-fn read_route_pair_counts(scenarios: &[SqliteAuditComparisonScenario]) -> BTreeMap<String, usize> {
-    let mut counts = BTreeMap::new();
-    for scenario in scenarios {
-        increment_count(
-            &mut counts,
-            format!("{}/{}", scenario.route_family, scenario.route_outcome),
-        );
-    }
-    counts
-}
-
-fn mutation_scenario_surface_counts(
-    scenarios: &[SqliteMutationScenario],
-) -> BTreeMap<String, usize> {
-    let mut counts = BTreeMap::new();
-    for scenario in scenarios {
-        increment_count(&mut counts, scenario.surface.label());
-    }
-    counts
-}
-
-fn mutation_scenario_family_counts(
-    scenarios: &[SqliteMutationScenario],
-) -> BTreeMap<String, usize> {
-    let mut counts = BTreeMap::new();
-    for scenario in scenarios {
-        increment_count(&mut counts, scenario.family.as_str());
-    }
-    counts
-}
-
-fn mutation_returning_compare_counts(
-    scenarios: &[SqliteMutationScenario],
-) -> BTreeMap<String, usize> {
-    let mut counts = BTreeMap::new();
-    for scenario in scenarios {
-        increment_count(
-            &mut counts,
-            mutation_order_cell(scenario.mutation_signature_ordered),
-        );
-    }
-    counts
-}
-
-fn increment_count(counts: &mut BTreeMap<String, usize>, key: impl Into<String>) {
-    counts
-        .entry(key.into())
-        .and_modify(|count| *count = count.saturating_add(1))
-        .or_insert(1);
-}
-
-fn count_map(entries: &[(&str, usize)]) -> BTreeMap<String, usize> {
-    entries
-        .iter()
-        .map(|(key, count)| ((*key).to_string(), *count))
-        .collect()
-}
-
-fn sqlite_audit_comparison_fairness_notes() -> Vec<String> {
-    vec![
-        "SQLite runs through the local sqlite3 CLI and is not using Internet Computer stable memory.".to_string(),
-        "IcyDB runs in the existing sql_perf audit canister and reports local instruction counters, not native wall-clock time.".to_string(),
-        "SQLite timings include CLI process startup and are diagnostic outlier signals, not headline benchmark claims.".to_string(),
-        "The SQLite fixture mirrors the main PerfAudit table data and indexes where SQLite can express the same shape.".to_string(),
-        "Only overlapping SELECT/COUNT/GROUP BY scenarios are compared; metadata and IcyDB-only SQL surfaces stay out of this harness.".to_string(),
-    ]
-}
-
-fn sqlite_differential_fairness_notes() -> Vec<String> {
-    let mut notes = sqlite_audit_comparison_fairness_notes();
-    notes.push(
-        "The random differential harness is seeded and reproducible; it is intended to find correctness mismatches, not to prove exhaustive SQL compatibility.".to_string(),
-    );
-    notes.push(
-        "Random cases use the same SQLite-compatible overlap filter as the deterministic audit matrix, so unsupported or IcyDB-only SQL surfaces are intentionally excluded.".to_string(),
-    );
-    notes
-}
-
-fn sqlite_mutation_differential_fairness_notes() -> Vec<String> {
-    vec![
-        "SQLite and IcyDB both run the same sequential mutation statements against freshly seeded audit fixtures.".to_string(),
-        "The harness compares explicit RETURNING projections plus a deterministic post-state SELECT after each mutation.".to_string(),
-        "Each scenario also carries a generated-model expected signature, so the report catches generator or seed drift in addition to IcyDB-vs-SQLite mismatches.".to_string(),
-        "Mutation coverage is scoped to supported INSERT/UPDATE/DELETE forms on PerfAuditUser and PerfAuditAccount; INSERT omits IcyDB managed timestamps and compares only shared SQLite-visible fields.".to_string(),
-        "The scenarios mutate indexed and non-indexed fields, then check that state remains aligned; they are correctness evidence, not a write-performance benchmark.".to_string(),
-    ]
-}
-
-fn sqlite_audit_comparison_output_stem() -> PathBuf {
-    env::var(SQL_PERF_SQLITE_OUTPUT_STEM_ENV).map_or_else(
-        |_| PathBuf::from(DEFAULT_SQL_PERF_SQLITE_OUTPUT_STEM),
-        PathBuf::from,
-    )
-}
-
-fn sqlite_required_audit_comparison_output_stem() -> PathBuf {
-    env::var(SQL_PERF_SQLITE_REQUIRED_OUTPUT_STEM_ENV).map_or_else(
-        |_| PathBuf::from(DEFAULT_SQL_PERF_SQLITE_REQUIRED_OUTPUT_STEM),
-        PathBuf::from,
-    )
-}
-
-fn sqlite_differential_output_stem() -> PathBuf {
-    env::var(SQL_PERF_SQLITE_DIFF_OUTPUT_STEM_ENV).map_or_else(
-        |_| PathBuf::from(DEFAULT_SQL_PERF_SQLITE_DIFF_OUTPUT_STEM),
-        PathBuf::from,
-    )
-}
-
-fn sqlite_mutation_differential_output_stem() -> PathBuf {
-    env::var(SQL_PERF_SQLITE_MUTATION_DIFF_OUTPUT_STEM_ENV).map_or_else(
-        |_| PathBuf::from(DEFAULT_SQL_PERF_SQLITE_MUTATION_DIFF_OUTPUT_STEM),
-        PathBuf::from,
-    )
-}
-
-fn write_sqlite_audit_comparison_reports(report: &SqliteAuditComparisonReport) {
-    write_sqlite_audit_comparison_reports_at(report, sqlite_audit_comparison_output_stem());
-}
-
-fn write_sqlite_required_audit_comparison_reports(report: &SqliteAuditComparisonReport) {
-    write_sqlite_audit_comparison_reports_at(
-        report,
-        sqlite_required_audit_comparison_output_stem(),
-    );
-}
-
-fn write_sqlite_audit_comparison_reports_at(
-    report: &SqliteAuditComparisonReport,
-    output_stem: PathBuf,
-) {
-    if let Some(parent) = output_stem.parent() {
-        fs::create_dir_all(parent).unwrap_or_else(|err| {
-            panic!(
-                "failed to create SQLite audit comparison report directory `{}`: {err}",
-                parent.display()
-            )
-        });
-    }
-
-    let json_path = output_stem.with_extension("json");
-    let markdown_path = output_stem.with_extension("md");
-    let json = serde_json::to_string_pretty(report)
-        .expect("SQLite audit comparison report should serialize");
-    fs::write(&json_path, json).unwrap_or_else(|err| {
-        panic!(
-            "failed to write SQLite audit comparison JSON `{}`: {err}",
-            json_path.display()
-        )
-    });
-    fs::write(&markdown_path, sqlite_audit_comparison_markdown(report)).unwrap_or_else(|err| {
-        panic!(
-            "failed to write SQLite audit comparison Markdown `{}`: {err}",
-            markdown_path.display()
-        )
-    });
-}
-
-fn write_sqlite_differential_reports(report: &SqliteDifferentialReport) {
-    let output_stem = sqlite_differential_output_stem();
-    if let Some(parent) = output_stem.parent() {
-        fs::create_dir_all(parent).unwrap_or_else(|err| {
-            panic!(
-                "failed to create SQLite differential report directory `{}`: {err}",
-                parent.display()
-            )
-        });
-    }
-
-    let json_path = output_stem.with_extension("json");
-    let markdown_path = output_stem.with_extension("md");
-    let json =
-        serde_json::to_string_pretty(report).expect("SQLite differential report should serialize");
-    fs::write(&json_path, json).unwrap_or_else(|err| {
-        panic!(
-            "failed to write SQLite differential JSON `{}`: {err}",
-            json_path.display()
-        )
-    });
-    fs::write(&markdown_path, sqlite_differential_markdown(report)).unwrap_or_else(|err| {
-        panic!(
-            "failed to write SQLite differential Markdown `{}`: {err}",
-            markdown_path.display()
-        )
-    });
-}
-
-fn write_sqlite_mutation_differential_reports(report: &SqliteMutationDifferentialReport) {
-    let output_stem = sqlite_mutation_differential_output_stem();
-    if let Some(parent) = output_stem.parent() {
-        fs::create_dir_all(parent).unwrap_or_else(|err| {
-            panic!(
-                "failed to create SQLite mutation differential report directory `{}`: {err}",
-                parent.display()
-            )
-        });
-    }
-
-    let json_path = output_stem.with_extension("json");
-    let markdown_path = output_stem.with_extension("md");
-    let json = serde_json::to_string_pretty(report)
-        .expect("SQLite mutation differential report should serialize");
-    fs::write(&json_path, json).unwrap_or_else(|err| {
-        panic!(
-            "failed to write SQLite mutation differential JSON `{}`: {err}",
-            json_path.display()
-        )
-    });
-    fs::write(
-        &markdown_path,
-        sqlite_mutation_differential_markdown(report),
-    )
-    .unwrap_or_else(|err| {
-        panic!(
-            "failed to write SQLite mutation differential Markdown `{}`: {err}",
-            markdown_path.display()
-        )
-    });
-}
-
-fn print_sqlite_audit_comparison_report(report: &SqliteAuditComparisonReport) {
-    if report.compared_scenario_count <= 50 {
-        println!("{}", sqlite_audit_comparison_markdown(report));
-        return;
-    }
-
-    let output_stem = sqlite_audit_comparison_output_stem();
-    println!(
-        "SQLite audit comparison: compared={}, common_success={}, icydb_failures={}, correctness_failures={}, artifacts={}{{.json,.md}}",
-        report.compared_scenario_count,
-        report.common_success_count,
-        report.icydb_failure_count,
-        report.correctness_failure_count,
-        output_stem.display(),
-    );
-}
-
-fn print_sqlite_differential_report(report: &SqliteDifferentialReport) {
-    if report.compatible_scenario_count <= 50 {
-        println!("{}", sqlite_differential_markdown(report));
-        return;
-    }
-
-    let output_stem = sqlite_differential_output_stem();
-    println!(
-        "SQLite random differential: seed={}, generated={}, compatible={}, common_success={}, icydb_failures={}, correctness_failures={}, artifacts={}{{.json,.md}}",
-        report.random_seed,
-        report.generated_case_count,
-        report.compatible_scenario_count,
-        report.common_success_count,
-        report.icydb_failure_count,
-        report.correctness_failure_count,
-        output_stem.display(),
-    );
-}
-
-fn print_sqlite_mutation_differential_report(report: &SqliteMutationDifferentialReport) {
-    if report.generated_mutation_count <= 50 {
-        println!("{}", sqlite_mutation_differential_markdown(report));
-        return;
-    }
-
-    let output_stem = sqlite_mutation_differential_output_stem();
-    println!(
-        "SQLite mutation differential: seed={}, generated={}, common_success={}, icydb_failures={}, sqlite_failures={}, mutation_mismatches={}, post_state_mismatches={}, expected_mutation_mismatches={}, expected_post_state_mismatches={}, artifacts={}{{.json,.md}}",
-        report.random_seed,
-        report.generated_mutation_count,
-        report.common_success_count,
-        report.icydb_failure_count,
-        report.sqlite_failure_count,
-        report.mutation_signature_mismatch_count,
-        report.post_state_mismatch_count,
-        report.expected_mutation_mismatch_count,
-        report.expected_post_state_mismatch_count,
-        output_stem.display(),
-    );
-}
-
-fn sqlite_audit_comparison_markdown(report: &SqliteAuditComparisonReport) -> String {
-    let mut out = String::new();
-    writeln!(out, "# SQL Perf Audit SQLite Comparison").expect("write to string should succeed");
-    writeln!(out).expect("write to string should succeed");
-    writeln!(out, "- SQLite version: {}", report.sqlite_version)
-        .expect("write to string should succeed");
-    writeln!(out, "- SQLite path: {}", report.sqlite_path).expect("write to string should succeed");
-    writeln!(
-        out,
-        "- Canister wasm profile: {}",
-        report.canister_wasm_profile
-    )
-    .expect("write to string should succeed");
-    writeln!(
-        out,
-        "- Compared scenarios: {} of {} generated",
-        report.compared_scenario_count, report.generated_scenario_count
-    )
-    .expect("write to string should succeed");
-    writeln!(out, "- Common successes: {}", report.common_success_count)
-        .expect("write to string should succeed");
-    writeln!(out, "- IcyDB failures: {}", report.icydb_failure_count)
-        .expect("write to string should succeed");
-    writeln!(
-        out,
-        "- Correctness failures: {}",
-        report.correctness_failure_count
-    )
-    .expect("write to string should succeed");
-    writeln!(out, "- SQLite timing samples: {}", report.sample_count)
-        .expect("write to string should succeed");
-    writeln!(out).expect("write to string should succeed");
-    writeln!(out, "## Fairness Notes").expect("write to string should succeed");
-    for note in &report.fairness_notes {
-        writeln!(out, "- {note}").expect("write to string should succeed");
-    }
-    writeln!(out).expect("write to string should succeed");
-    append_count_table(
-        &mut out,
-        "Selected Surface Coverage",
-        "Surface",
-        &report.selected_surface_counts,
-    );
-    append_count_table(
-        &mut out,
-        "Selected Family Coverage",
-        "Family",
-        &report.selected_family_counts,
-    );
-    append_count_table(
-        &mut out,
-        "Successful Route Family Coverage",
-        "Route Family",
-        &report.successful_route_family_counts,
-    );
-    append_count_table(
-        &mut out,
-        "Successful Route Outcome Coverage",
-        "Route Outcome",
-        &report.successful_route_outcome_counts,
-    );
-    append_count_table(
-        &mut out,
-        "Successful Route Pair Coverage",
-        "Route Pair",
-        &report.successful_route_pair_counts,
-    );
-    append_sqlite_success_table(&mut out, &report.scenarios);
-    append_sqlite_failure_table(&mut out, &report.failures);
-    append_sqlite_explain_plans(&mut out, &report.scenarios, &report.failures);
-    out
-}
-
-fn sqlite_differential_markdown(report: &SqliteDifferentialReport) -> String {
-    let mut out = String::new();
-    writeln!(out, "# SQL Perf Random SQLite Differential").expect("write to string should succeed");
-    writeln!(out).expect("write to string should succeed");
-    writeln!(out, "- SQLite version: {}", report.sqlite_version)
-        .expect("write to string should succeed");
-    writeln!(out, "- SQLite path: {}", report.sqlite_path).expect("write to string should succeed");
-    writeln!(
-        out,
-        "- Canister wasm profile: {}",
-        report.canister_wasm_profile
-    )
-    .expect("write to string should succeed");
-    writeln!(out, "- Random seed: {}", report.random_seed).expect("write to string should succeed");
-    writeln!(
-        out,
-        "- Compatible scenarios: {} of {} generated",
-        report.compatible_scenario_count, report.generated_case_count
-    )
-    .expect("write to string should succeed");
-    writeln!(out, "- Common successes: {}", report.common_success_count)
-        .expect("write to string should succeed");
-    writeln!(out, "- IcyDB failures: {}", report.icydb_failure_count)
-        .expect("write to string should succeed");
-    writeln!(
-        out,
-        "- Correctness failures: {}",
-        report.correctness_failure_count
-    )
-    .expect("write to string should succeed");
-    writeln!(out).expect("write to string should succeed");
-    writeln!(out, "## Fairness Notes").expect("write to string should succeed");
-    for note in &report.fairness_notes {
-        writeln!(out, "- {note}").expect("write to string should succeed");
-    }
-    writeln!(out).expect("write to string should succeed");
-    append_count_table(
-        &mut out,
-        "Selected Surface Coverage",
-        "Surface",
-        &report.selected_surface_counts,
-    );
-    append_count_table(
-        &mut out,
-        "Selected Family Coverage",
-        "Family",
-        &report.selected_family_counts,
-    );
-    append_count_table(
-        &mut out,
-        "Successful Route Family Coverage",
-        "Route Family",
-        &report.successful_route_family_counts,
-    );
-    append_count_table(
-        &mut out,
-        "Successful Route Outcome Coverage",
-        "Route Outcome",
-        &report.successful_route_outcome_counts,
-    );
-    append_count_table(
-        &mut out,
-        "Successful Route Pair Coverage",
-        "Route Pair",
-        &report.successful_route_pair_counts,
-    );
-    append_sqlite_success_table(&mut out, &report.scenarios);
-    append_sqlite_failure_table(&mut out, &report.failures);
-    append_sqlite_explain_plans(&mut out, &report.scenarios, &report.failures);
-    out
-}
-
-fn sqlite_mutation_differential_markdown(report: &SqliteMutationDifferentialReport) -> String {
-    let mut out = String::new();
-    writeln!(out, "# SQL Perf Random SQLite Mutation Differential")
-        .expect("write to string should succeed");
-    writeln!(out).expect("write to string should succeed");
-    writeln!(out, "- SQLite version: {}", report.sqlite_version)
-        .expect("write to string should succeed");
-    writeln!(out, "- SQLite path: {}", report.sqlite_path).expect("write to string should succeed");
-    writeln!(
-        out,
-        "- Canister wasm profile: {}",
-        report.canister_wasm_profile
-    )
-    .expect("write to string should succeed");
-    writeln!(out, "- Random seed: {}", report.random_seed).expect("write to string should succeed");
-    writeln!(
-        out,
-        "- Generated mutations: {}",
-        report.generated_mutation_count
-    )
-    .expect("write to string should succeed");
-    writeln!(out, "- Common successes: {}", report.common_success_count)
-        .expect("write to string should succeed");
-    writeln!(out, "- IcyDB failures: {}", report.icydb_failure_count)
-        .expect("write to string should succeed");
-    writeln!(out, "- SQLite failures: {}", report.sqlite_failure_count)
-        .expect("write to string should succeed");
-    writeln!(
-        out,
-        "- Mutation signature mismatches: {}",
-        report.mutation_signature_mismatch_count
-    )
-    .expect("write to string should succeed");
-    writeln!(
-        out,
-        "- Post-state mismatches: {}",
-        report.post_state_mismatch_count
-    )
-    .expect("write to string should succeed");
-    writeln!(
-        out,
-        "- Expected mutation mismatches: {}",
-        report.expected_mutation_mismatch_count
-    )
-    .expect("write to string should succeed");
-    writeln!(
-        out,
-        "- Expected post-state mismatches: {}",
-        report.expected_post_state_mismatch_count
-    )
-    .expect("write to string should succeed");
-    writeln!(out).expect("write to string should succeed");
-    writeln!(out, "## Fairness Notes").expect("write to string should succeed");
-    for note in &report.fairness_notes {
-        writeln!(out, "- {note}").expect("write to string should succeed");
-    }
-    writeln!(out).expect("write to string should succeed");
-    append_count_table(
-        &mut out,
-        "Generated Surface Coverage",
-        "Surface",
-        &report.generated_surface_counts,
-    );
-    append_count_table(
-        &mut out,
-        "Generated Family Coverage",
-        "Family",
-        &report.generated_family_counts,
-    );
-    append_count_table(
-        &mut out,
-        "Generated Returning Compare Coverage",
-        "Returning Compare",
-        &report.generated_returning_compare_counts,
-    );
-    append_sqlite_mutation_success_table(&mut out, &report.scenarios);
-    append_sqlite_mutation_failure_table(&mut out, &report.failures);
-    out
-}
-
-fn append_count_table(
-    output: &mut String,
-    title: &str,
-    label: &str,
-    counts: &BTreeMap<String, usize>,
-) {
-    if counts.is_empty() {
-        return;
-    }
-
-    writeln!(output, "## {title}").expect("write to string should succeed");
-    writeln!(output, "| {label} | Count |").expect("write to string should succeed");
-    writeln!(output, "| --- | ---: |").expect("write to string should succeed");
-    for (key, count) in counts {
-        writeln!(output, "| {} | {} |", key.replace('|', "\\|"), count)
-            .expect("write to string should succeed");
-    }
-    writeln!(output).expect("write to string should succeed");
-}
-
-fn append_sqlite_success_table(output: &mut String, scenarios: &[SqliteAuditComparisonScenario]) {
-    writeln!(output, "## Scenarios").expect("write to string should succeed");
-    writeln!(
-        output,
-        "| Scenario | Surface | Route | Outcome | Correctness | Owner | Mismatch | SQLite Plan | Alignment | IcyDB Total | IcyDB Execute | Gets | Ranges | Entries | SQLite Median ns |"
-    )
-    .expect("write to string should succeed");
-    writeln!(
-        output,
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"
-    )
-    .expect("write to string should succeed");
-    for scenario in scenarios {
-        writeln!(
-            output,
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
-            scenario.key,
-            scenario.surface,
-            scenario.route_family,
-            scenario.route_outcome,
-            scenario.correctness_passed,
-            scenario.correctness_failure_owner.as_deref().unwrap_or("-"),
-            scenario
-                .correctness_mismatch_category
-                .as_deref()
-                .unwrap_or("-"),
-            sqlite_plan_summary_cell(&scenario.sqlite_plan_summary),
-            scenario.sqlite_plan_alignment,
-            scenario.icydb_total_local_instructions,
-            scenario.icydb_execute_local_instructions,
-            scenario.icydb_data_store_get_calls,
-            scenario.icydb_index_store_range_scan_calls,
-            scenario.icydb_index_store_entry_reads,
-            sqlite_timing_median_cell(&scenario.sqlite_timing),
-        )
-        .expect("write to string should succeed");
-    }
-    writeln!(output).expect("write to string should succeed");
-}
-
-fn append_sqlite_mutation_success_table(
-    output: &mut String,
-    scenarios: &[SqliteMutationComparisonScenario],
-) {
-    writeln!(output, "## Mutation Scenarios").expect("write to string should succeed");
-    writeln!(
-        output,
-        "| Scenario | Surface | Family | Returning Compare | Returning Match | Expected Returning | Post-State Match | Expected Post-State | SQL |"
-    )
-    .expect("write to string should succeed");
-    writeln!(
-        output,
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
-    )
-    .expect("write to string should succeed");
-    for scenario in scenarios {
-        writeln!(
-            output,
-            "| {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
-            scenario.key,
-            scenario.surface,
-            scenario.family,
-            mutation_order_cell(scenario.mutation_signature_ordered),
-            scenario.mutation_signatures_match,
-            scenario.expected_mutation_match,
-            scenario.post_signatures_match,
-            scenario.expected_post_state_match,
-            scenario.sql,
-        )
-        .expect("write to string should succeed");
-    }
-    writeln!(output).expect("write to string should succeed");
-}
-
-const fn mutation_order_cell(ordered: bool) -> &'static str {
-    if ordered { "ordered" } else { "row-set" }
-}
-
-fn append_sqlite_failure_table(output: &mut String, failures: &[SqliteAuditComparisonFailure]) {
-    if failures.is_empty() {
-        return;
-    }
-
-    writeln!(output, "## IcyDB Failures").expect("write to string should succeed");
-    writeln!(
-        output,
-        "| Scenario | Surface | Owner | Mismatch | Diagnostic | Class | Origin | SQLite Plan | SQL |"
-    )
-    .expect("write to string should succeed");
-    writeln!(
-        output,
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
-    )
-    .expect("write to string should succeed");
-    for failure in failures {
-        writeln!(
-            output,
-            "| {} | {} | {} | {} | {} ({}) | {} | {} | {} | `{}` |",
-            failure.key,
-            failure.surface,
-            failure.correctness_failure_owner,
-            failure.correctness_mismatch_category,
-            failure.icydb_diagnostic_label,
-            failure.icydb_diagnostic_code,
-            failure.icydb_class,
-            failure.icydb_origin,
-            sqlite_plan_summary_cell(&failure.sqlite_plan_summary),
-            failure.sql.replace('|', "\\|"),
-        )
-        .expect("write to string should succeed");
-    }
-    writeln!(output).expect("write to string should succeed");
-}
-
-fn append_sqlite_mutation_failure_table(
-    output: &mut String,
-    failures: &[SqliteMutationComparisonFailure],
-) {
-    if failures.is_empty() {
-        return;
-    }
-
-    writeln!(output, "## Mutation Failures").expect("write to string should succeed");
-    writeln!(
-        output,
-        "| Scenario | Surface | Status | Diagnostic | SQL | Post-State SQL |"
-    )
-    .expect("write to string should succeed");
-    writeln!(output, "| --- | --- | --- | --- | --- | --- |")
-        .expect("write to string should succeed");
-    for failure in failures {
-        writeln!(
-            output,
-            "| {} | {} | {} | {} | `{}` | `{}` |",
-            failure.key,
-            failure.surface,
-            failure.status,
-            failure.diagnostic,
-            failure.sql,
-            failure.post_read_sql,
-        )
-        .expect("write to string should succeed");
-    }
-    writeln!(output).expect("write to string should succeed");
-}
-
-fn append_sqlite_explain_plans(
-    output: &mut String,
-    scenarios: &[SqliteAuditComparisonScenario],
-    failures: &[SqliteAuditComparisonFailure],
-) {
-    writeln!(output, "## SQLite EXPLAIN QUERY PLAN").expect("write to string should succeed");
-    for scenario in scenarios {
-        writeln!(output).expect("write to string should succeed");
-        writeln!(output, "### {}", scenario.key).expect("write to string should succeed");
-        for row in &scenario.sqlite_explain_query_plan {
-            writeln!(output, "- `{}`", row.replace('`', "\\`"))
-                .expect("write to string should succeed");
-        }
-    }
-    for failure in failures {
-        writeln!(output).expect("write to string should succeed");
-        writeln!(output, "### {} [icydb_failure]", failure.key)
-            .expect("write to string should succeed");
-        for row in &failure.sqlite_explain_query_plan {
-            writeln!(output, "- `{}`", row.replace('`', "\\`"))
-                .expect("write to string should succeed");
-        }
-    }
-}
-
-fn sqlite_plan_summary_cell(summary: &SqlitePlanSummary) -> String {
-    let mut parts = Vec::new();
-    if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_SCAN) {
-        parts.push("scan".to_string());
-    }
-    if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_SEARCH) {
-        parts.push("search".to_string());
-    }
-    if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_COVERING_INDEX) {
-        parts.push("covering-index".to_string());
-    } else if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_INDEX) {
-        parts.push("index".to_string());
-    }
-    if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_TEMP_ORDER) {
-        parts.push("temp-order".to_string());
-    }
-    if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_TEMP_GROUP) {
-        parts.push("temp-group".to_string());
-    }
-    if !summary.index_names.is_empty() {
-        parts.push(format!("indexes={}", summary.index_names.join("+")));
-    }
-
-    if parts.is_empty() {
-        "none".to_string()
-    } else {
-        parts.join(", ")
-    }
-}
-
-fn sqlite_timing_median_cell(timing: &SqliteTimingSummary) -> String {
-    if timing.samples.is_empty() {
-        "n/a".to_string()
-    } else {
-        timing.median.to_string()
-    }
-}
-
-fn install_sql_perf_canister_fixture() -> StandaloneCanisterFixture {
-    let options = matrix_canister_build_options();
-    eprintln!(
-        "sql_perf_matrix: canister wasm profile {}",
-        options.profile.as_str(),
-    );
-    if matrix_install_progress_enabled() {
-        return install_fixture_canister_with_options_and_progress(
-            "sql_perf",
-            options,
-            "sql_perf_matrix",
-        );
-    }
-
-    install_fixture_canister_with_options("sql_perf", options)
-}
-
-fn matrix_install_progress_enabled() -> bool {
-    env::var(SQL_PERF_MATRIX_INSTALL_PROGRESS_ENV)
-        .is_ok_and(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
-}
-
 fn query_surface_with_perf(
     fixture: &StandaloneCanisterFixture,
     scenario: &MatrixScenario,
@@ -5362,20 +2074,143 @@ fn query_surface_with_perf(
         .unwrap_or_else(|err| panic!("{} should decode: {err}", scenario.surface.query_method()))
 }
 
-fn update_surface_sql(
+fn warm_surface_with_perf(
     fixture: &StandaloneCanisterFixture,
-    scenario: &SqliteMutationScenario,
-) -> Result<SqlQueryResult, Error> {
-    let method = scenario.surface.update_method().unwrap_or_else(|| {
+    scenario: &MatrixScenario,
+) -> Result<SqlQueryPerfResult, Error> {
+    fixture
+        .update_call(scenario.surface.warm_method(), (scenario.sql.clone(),))
+        .unwrap_or_else(|err| panic!("{} should decode: {err}", scenario.surface.warm_method()))
+}
+
+fn accepted_schema_descriptions(
+    fixture: &StandaloneCanisterFixture,
+) -> Result<Vec<EntitySchemaDescription>, Error> {
+    fixture
+        .query_call("accepted_schema_descriptions", ())
+        .unwrap_or_else(|error| panic!("accepted schema descriptions should decode: {error}"))
+}
+
+fn capture_matrix_environment(
+    fixture: &StandaloneCanisterFixture,
+    wasm_bytes: &[u8],
+) -> PerfEnvironmentIdentity {
+    let accepted = accepted_schema_descriptions(fixture)
+        .unwrap_or_else(|error| panic!("accepted schema descriptions failed: {error}"));
+    let pocket_ic_binary = try_ensure_pocket_ic_bin()
+        .unwrap_or_else(|error| panic!("PocketIC binary should resolve: {error}"));
+    let identity = capture_perf_environment(
+        SQL_PERFORMANCE_PROFILE,
+        &workspace_root(),
+        matrix_canister_wasm_profile().as_str(),
+        wasm_bytes,
+        &accepted,
+        &pocket_ic_binary,
+    )
+    .unwrap_or_else(|error| panic!("performance environment capture failed: {error}"));
+    validate_perf_environment(SQL_PERFORMANCE_PROFILE, &identity)
+        .unwrap_or_else(|error| panic!("performance environment is invalid: {error}"));
+
+    identity
+}
+
+fn capture_isolated_matrix_environment(wasm_bytes: &[u8]) -> PerfEnvironmentIdentity {
+    let fixture = install_prebuilt_fixture_canister("sql_perf", wasm_bytes.to_vec());
+
+    capture_matrix_environment(&fixture, wasm_bytes)
+}
+
+fn sample_isolated_attributed_instrumentation(
+    wasm_bytes: &[u8],
+    scenario: &MatrixScenario,
+) -> InstrumentationPathSample {
+    let fixture = install_prebuilt_fixture_canister("sql_perf", wasm_bytes.to_vec());
+    reset_icydb_fixtures(&fixture);
+    let perf: Result<SqlTotalOnlyPerfResult, Error> = fixture
+        .query_call("query_user_attributed_total_perf", (scenario.sql.clone(),))
+        .unwrap_or_else(|error| {
+            panic!("attributed instrumentation sentinel should decode: {error}")
+        });
+    let perf = perf.unwrap_or_else(|error| {
         panic!(
-            "mutation scenario `{}` used non-mutable surface {}",
-            scenario.key,
-            scenario.surface.label()
+            "attributed instrumentation sentinel {} failed: {error}",
+            scenario.key
         )
     });
+
+    InstrumentationPathSample {
+        result_signature: result_signature(&perf.result),
+        instructions: perf.instructions,
+    }
+}
+
+fn sample_isolated_total_only_instrumentation(
+    wasm_bytes: &[u8],
+    scenario: &MatrixScenario,
+) -> InstrumentationPathSample {
+    let fixture = install_prebuilt_fixture_canister("sql_perf", wasm_bytes.to_vec());
+    reset_icydb_fixtures(&fixture);
+    let perf: Result<SqlTotalOnlyPerfResult, Error> = fixture
+        .query_call("query_user_total_only_perf", (scenario.sql.clone(),))
+        .unwrap_or_else(|error| {
+            panic!("total-only instrumentation sentinel should decode: {error}")
+        });
+    let perf = perf.unwrap_or_else(|error| {
+        panic!(
+            "total-only instrumentation sentinel {} failed: {error}",
+            scenario.key
+        )
+    });
+
+    InstrumentationPathSample {
+        result_signature: result_signature(&perf.result),
+        instructions: perf.instructions,
+    }
+}
+
+fn sample_isolated_p2_scenario(
+    wasm_bytes: &[u8],
+    scenario: &MatrixScenario,
+    warm_mode: bool,
+) -> MatrixSample {
+    let fixture = install_prebuilt_fixture_canister("sql_perf", wasm_bytes.to_vec());
+    reset_icydb_fixtures(&fixture);
+    if warm_mode {
+        warm_surface_with_perf(&fixture, scenario)
+            .unwrap_or_else(|error| panic!("P2 warm-up for {} failed: {error}", scenario.key));
+    }
+    sample_scenario(&fixture, scenario)
+        .unwrap_or_else(|failure| panic!("P2 sample for {} failed: {failure:?}", scenario.key))
+}
+
+fn load_scale_fixture(
+    fixture: &StandaloneCanisterFixture,
+    declaration: &ScaleScenarioDeclaration,
+) -> Result<ScaleFixtureFacts, Error> {
     fixture
-        .update_call(method, (scenario.sql.clone(),))
-        .unwrap_or_else(|err| panic!("{method} should decode: {err}"))
+        .update_call(
+            declaration.spec.surface.scale_load_method(),
+            (declaration.fixture_rows,),
+        )
+        .unwrap_or_else(|error| {
+            panic!(
+                "{} should decode scale fixture facts: {error}",
+                declaration.spec.surface.scale_load_method(),
+            )
+        })
+}
+
+fn sample_isolated_scale_scenario(
+    wasm_bytes: &[u8],
+    declaration: &ScaleScenarioDeclaration,
+) -> Result<ScaleObservation, ScaleScenarioRunError> {
+    let fixture = install_prebuilt_fixture_canister("sql_perf", wasm_bytes.to_vec());
+    let facts =
+        load_scale_fixture(&fixture, declaration).map_err(ScaleScenarioRunError::FixtureLoad)?;
+    let sample =
+        sample_scenario(&fixture, &declaration.scenario).map_err(ScaleScenarioRunError::Query)?;
+
+    build_scale_observation(declaration, facts, sample).map_err(ScaleScenarioRunError::Evidence)
 }
 
 fn summarize_perf_outcome(result: &SqlQueryResult) -> MatrixOutcome {
@@ -5452,10 +2287,10 @@ fn matrix_sample_from_perf(scenario: &MatrixScenario, perf: &SqlQueryPerfResult)
     let attribution = &perf.attribution;
     let mut sample = MatrixSample {
         key: scenario.key.clone(),
-        source: scenario.source.label().to_string(),
         surface: scenario.surface.label().to_string(),
         family: scenario.family.clone(),
         sql: scenario.sql.clone(),
+        fixture_row_count: scenario.surface.fixture_row_count(),
         outcome: summarize_perf_outcome(&perf.result),
         ..MatrixSample::default()
     };
@@ -5465,6 +2300,7 @@ fn matrix_sample_from_perf(scenario: &MatrixScenario, perf: &SqlQueryPerfResult)
     fill_matrix_scalar_aggregate_sample(&mut sample, attribution);
     fill_matrix_projection_path_sample(&mut sample, attribution);
     fill_matrix_store_output_cache_sample(&mut sample, attribution);
+    fill_matrix_phase_reconciliation(&mut sample);
 
     let route = route_fact_for_scenario(scenario, &sample);
     sample.route_family = route.family.code().to_string();
@@ -5602,7 +2438,11 @@ const fn fill_matrix_execution_sample(
     sample.planner_cache_insert_local_instructions =
         execution.planner_cache_insert_local_instructions;
     sample.store_local_instructions = execution.store_local_instructions;
+    sample.executor_invocation_local_instructions =
+        execution.executor_invocation_local_instructions;
     sample.executor_local_instructions = execution.executor_local_instructions;
+    sample.response_finalization_local_instructions =
+        execution.response_finalization_local_instructions;
     sample.total_local_instructions = attribution.total_local_instructions;
 }
 
@@ -5698,6 +2538,68 @@ const fn fill_matrix_store_output_cache_sample(
     sample.shared_query_plan_misses = attribution.cache.shared_query_plan_misses;
 }
 
+fn fill_matrix_phase_reconciliation(sample: &mut MatrixSample) {
+    let [total, compile, execute, planner, executor_invocation] =
+        expected_phase_reconciliations(sample);
+    sample.total_phase_reconciliation = total;
+    sample.compile_phase_reconciliation = compile;
+    sample.execute_phase_reconciliation = execute;
+    sample.planner_phase_reconciliation = planner;
+    sample.executor_invocation_phase_reconciliation = executor_invocation;
+}
+
+fn expected_phase_reconciliations(sample: &MatrixSample) -> [PhaseReconciliation; 5] {
+    [
+        reconcile_phase(
+            sample.total_local_instructions,
+            &[
+                sample.compile_local_instructions,
+                sample.execute_local_instructions,
+            ],
+        ),
+        reconcile_phase(
+            sample.compile_local_instructions,
+            &[
+                sample.compile_cache_key_local_instructions,
+                sample.compile_cache_lookup_local_instructions,
+                sample.compile_parse_local_instructions,
+                sample.compile_aggregate_lane_check_local_instructions,
+                sample.compile_prepare_local_instructions,
+                sample.compile_lower_local_instructions,
+                sample.compile_bind_local_instructions,
+                sample.compile_cache_insert_local_instructions,
+            ],
+        ),
+        reconcile_phase(
+            sample.execute_local_instructions,
+            &[
+                sample.planner_local_instructions,
+                sample.store_local_instructions,
+                sample.executor_local_instructions,
+                sample.response_finalization_local_instructions,
+            ],
+        ),
+        reconcile_phase(
+            sample.planner_local_instructions,
+            &[
+                sample.planner_schema_info_local_instructions,
+                sample.planner_prepare_local_instructions,
+                sample.planner_cache_key_local_instructions,
+                sample.planner_cache_lookup_local_instructions,
+                sample.planner_plan_build_local_instructions,
+                sample.planner_cache_insert_local_instructions,
+            ],
+        ),
+        reconcile_phase(
+            sample.executor_invocation_local_instructions,
+            &[
+                sample.store_local_instructions,
+                sample.executor_local_instructions,
+            ],
+        ),
+    ]
+}
+
 fn matrix_failure_from_error(scenario: &MatrixScenario, err: Error) -> MatrixFailure {
     let diagnostic_code = err.diagnostic_code();
     let error_code = err.code().raw();
@@ -5706,7 +2608,6 @@ fn matrix_failure_from_error(scenario: &MatrixScenario, err: Error) -> MatrixFai
         rejected_scenario_correctness_projection(scenario, error_code, diagnostic_error_code);
     MatrixFailure {
         key: scenario.key.clone(),
-        source: scenario.source.label().to_string(),
         surface: scenario.surface.label().to_string(),
         family: scenario.family.clone(),
         sql: scenario.sql.clone(),
@@ -5789,977 +2690,356 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn report_stem(mode: MatrixMode) -> PathBuf {
+fn report_stem() -> PathBuf {
     env::var("ICYDB_SQL_PERF_MATRIX_OUT").map_or_else(
         |_| {
             workspace_root()
                 .join("artifacts/perf-audit")
-                .join(mode.default_report_stem())
+                .join("sql_perf_deterministic_matrix")
         },
         PathBuf::from,
     )
 }
 
-fn write_matrix_reports(report: &MatrixReport) {
-    let stem = report_stem(matrix_mode_from_report(report));
-    if let Some(parent) = stem.parent() {
-        fs::create_dir_all(parent)
-            .unwrap_or_else(|err| panic!("matrix report directory should be created: {err}"));
-    }
-
-    let json_path = stem.with_extension("json");
-    let md_path = stem.with_extension("md");
-    let json = serde_json::to_string_pretty(report).expect("matrix report should serialize");
-    fs::write(&json_path, json)
-        .unwrap_or_else(|err| panic!("matrix JSON report should write: {err}"));
-    fs::write(&md_path, matrix_markdown(report))
-        .unwrap_or_else(|err| panic!("matrix Markdown report should write: {err}"));
-
-    println!("matrix JSON: {}", json_path.display());
-    println!("matrix Markdown: {}", md_path.display());
-}
-
-fn read_matrix_report(path: &Path) -> MatrixReport {
-    let json = fs::read_to_string(path)
-        .unwrap_or_else(|err| panic!("matrix JSON report should read {}: {err}", path.display()));
-    serde_json::from_str(&json)
-        .unwrap_or_else(|err| panic!("matrix JSON report should parse {}: {err}", path.display()))
-}
-
-fn write_matrix_delta_reports(delta: &MatrixDeltaReport, stem: &Path) {
-    if let Some(parent) = stem.parent() {
-        fs::create_dir_all(parent)
-            .unwrap_or_else(|err| panic!("matrix delta directory should be created: {err}"));
-    }
-
-    let json_path = stem.with_extension("json");
-    let md_path = stem.with_extension("md");
-    let json = serde_json::to_string_pretty(delta).expect("matrix delta report should serialize");
-    fs::write(&json_path, json)
-        .unwrap_or_else(|err| panic!("matrix delta JSON report should write: {err}"));
-    fs::write(&md_path, matrix_delta_markdown(delta))
-        .unwrap_or_else(|err| panic!("matrix delta Markdown report should write: {err}"));
-
-    println!("matrix delta JSON: {}", json_path.display());
-    println!("matrix delta Markdown: {}", md_path.display());
-}
-
-fn matrix_delta_report(
-    baseline_path: &Path,
-    baseline: &MatrixReport,
-    current_path: &Path,
-    current: &MatrixReport,
-    focused_targets: &BTreeSet<String>,
-    expected_improvements: &BTreeSet<String>,
-) -> MatrixDeltaReport {
-    let baseline_successes = sample_map(baseline);
-    let current_successes = sample_map(current);
-    let baseline_failures = failure_map(baseline);
-    let current_failures = failure_map(current);
-    let mut keys = BTreeSet::new();
-    keys.extend(baseline_successes.keys().map(|key| (*key).to_string()));
-    keys.extend(current_successes.keys().map(|key| (*key).to_string()));
-    keys.extend(baseline_failures.keys().map(|key| (*key).to_string()));
-    keys.extend(current_failures.keys().map(|key| (*key).to_string()));
-
-    let mut rows = keys
-        .iter()
-        .map(|key| {
-            let before = report_entry(
-                baseline_successes.get(key.as_str()).copied(),
-                baseline_failures.get(key.as_str()).copied(),
-            );
-            let after = report_entry(
-                current_successes.get(key.as_str()).copied(),
-                current_failures.get(key.as_str()).copied(),
-            );
-            matrix_delta_row(
-                key,
-                before,
-                after,
-                focused_targets.contains(key),
-                expected_improvements.contains(key),
-            )
-        })
-        .collect::<Vec<_>>();
-    rows.sort_by(|left, right| left.key.cmp(&right.key));
-
-    let mut closeout_failures = matrix_delta_closeout_failures(&rows);
-    append_canister_profile_closeout_failures(&mut closeout_failures, baseline, current);
-    append_focused_target_closeout_failures(&mut closeout_failures, &rows, focused_targets);
-    append_expected_improvement_closeout_failures(
-        &mut closeout_failures,
-        &rows,
-        expected_improvements,
-    );
-
-    MatrixDeltaReport {
-        baseline_path: baseline_path.display().to_string(),
-        current_path: current_path.display().to_string(),
-        baseline_canister_wasm_profile: baseline.canister_wasm_profile.clone(),
-        current_canister_wasm_profile: current.canister_wasm_profile.clone(),
-        baseline_scenario_count: baseline.samples.len() + baseline.failures.len(),
-        current_scenario_count: current.samples.len() + current.failures.len(),
-        union_scenario_count: rows.len(),
-        common_successful_scenario_count: rows
-            .iter()
-            .filter(|row| row.status_class == "common_success")
-            .count(),
-        improved_scenario_count: rows
-            .iter()
-            .filter(|row| row.status_class == "common_success")
-            .filter(|row| {
-                row.total_local_instructions
-                    .delta
-                    .is_some_and(|delta| delta < 0)
-            })
-            .count(),
-        regressed_scenario_count: rows
-            .iter()
-            .filter(|row| row.status_class == "common_success")
-            .filter(|row| {
-                row.total_local_instructions
-                    .delta
-                    .is_some_and(|delta| delta > 0)
-            })
-            .count(),
-        neutral_scenario_count: rows
-            .iter()
-            .filter(|row| row.status_class == "common_success")
-            .filter(|row| row.total_local_instructions.delta == Some(0))
-            .count(),
-        new_failure_count: rows
-            .iter()
-            .filter(|row| row.status_class == "new_failure")
-            .count(),
-        resolved_failure_count: rows
-            .iter()
-            .filter(|row| row.status_class == "resolved_failure")
-            .count(),
-        common_failure_count: rows
-            .iter()
-            .filter(|row| row.status_class == "common_failure")
-            .count(),
-        focused_target_count: focused_targets.len(),
-        expected_improvement_count: expected_improvements.len(),
-        closeout_failures,
-        route_family_aggregates: route_delta_aggregates(&rows, RouteAggregateKind::Family),
-        route_outcome_aggregates: route_delta_aggregates(&rows, RouteAggregateKind::Outcome),
-        route_pair_aggregates: route_delta_aggregates(&rows, RouteAggregateKind::Pair),
-        rows,
-    }
-}
-
-fn append_canister_profile_closeout_failures(
-    closeout_failures: &mut Vec<String>,
-    baseline: &MatrixReport,
-    current: &MatrixReport,
-) {
-    if baseline.canister_wasm_profile.is_empty() {
-        closeout_failures.push("baseline report lacks canister_wasm_profile metadata".to_string());
-    }
-    if current.canister_wasm_profile.is_empty() {
-        closeout_failures.push("current report lacks canister_wasm_profile metadata".to_string());
-    }
-    if !baseline.canister_wasm_profile.is_empty()
-        && !current.canister_wasm_profile.is_empty()
-        && baseline.canister_wasm_profile != current.canister_wasm_profile
-    {
-        closeout_failures.push(format!(
-            "canister wasm profile mismatch: baseline `{}`, current `{}`",
-            baseline.canister_wasm_profile, current.canister_wasm_profile,
-        ));
-    }
-}
-
-fn append_focused_target_closeout_failures(
-    closeout_failures: &mut Vec<String>,
-    rows: &[MatrixDeltaRow],
-    focused_targets: &BTreeSet<String>,
-) {
-    for key in focused_targets {
-        match rows.iter().find(|row| &row.key == key) {
-            Some(row) if row.before_status == "missing" || row.after_status == "missing" => {
-                closeout_failures
-                    .push(format!("focused target `{key}` lacks before or after data"));
-            }
-            Some(_) => {}
-            None => {
-                closeout_failures.push(format!(
-                    "focused target `{key}` is absent from both reports"
-                ));
-            }
-        }
-    }
-}
-
-fn append_expected_improvement_closeout_failures(
-    closeout_failures: &mut Vec<String>,
-    rows: &[MatrixDeltaRow],
-    expected_improvements: &BTreeSet<String>,
-) {
-    for key in expected_improvements {
-        match rows.iter().find(|row| &row.key == key) {
-            Some(row) if row.status_class != "common_success" => {
-                closeout_failures.push(format!(
-                    "expected improvement target `{key}` is not a common successful scenario"
-                ));
-            }
-            Some(row)
-                if row
-                    .total_local_instructions
-                    .delta
-                    .is_none_or(|delta| delta >= 0) =>
-            {
-                closeout_failures.push(format!(
-                    "expected improvement target `{key}` did not reduce total instructions"
-                ));
-            }
-            Some(_) => {}
-            None => {
-                closeout_failures.push(format!(
-                    "expected improvement target `{key}` is absent from both reports"
-                ));
-            }
-        }
-    }
-}
-
-fn sample_map(report: &MatrixReport) -> BTreeMap<&str, &MatrixSample> {
-    report
-        .samples
-        .iter()
-        .map(|sample| (sample.key.as_str(), sample))
-        .collect()
-}
-
-fn failure_map(report: &MatrixReport) -> BTreeMap<&str, &MatrixFailure> {
-    report
-        .failures
-        .iter()
-        .map(|failure| (failure.key.as_str(), failure))
-        .collect()
-}
-
-#[derive(Clone, Copy)]
-enum ReportEntry<'a> {
-    Success(&'a MatrixSample),
-    Failure(&'a MatrixFailure),
-    Missing,
-}
-
-const fn report_entry<'a>(
-    success: Option<&'a MatrixSample>,
-    failure: Option<&'a MatrixFailure>,
-) -> ReportEntry<'a> {
-    if let Some(sample) = success {
-        ReportEntry::Success(sample)
-    } else if let Some(failure) = failure {
-        ReportEntry::Failure(failure)
-    } else {
-        ReportEntry::Missing
-    }
-}
-
-fn matrix_delta_row(
-    key: &str,
-    before: ReportEntry<'_>,
-    after: ReportEntry<'_>,
-    focused_target: bool,
-    expected_to_improve: bool,
-) -> MatrixDeltaRow {
-    let before_sample = entry_sample(before);
-    let after_sample = entry_sample(after);
-    let before_route = entry_route(before);
-    let after_route = entry_route(after);
-    let before_result_signature = before_sample.and_then(|sample| sample.result_signature.clone());
-    let after_result_signature = after_sample.and_then(|sample| sample.result_signature.clone());
-    let before_cursor_signature = before_sample.and_then(|sample| sample.cursor_signature.clone());
-    let after_cursor_signature = after_sample.and_then(|sample| sample.cursor_signature.clone());
-    let before_order_by_idx_hint =
-        before_sample.and_then(|sample| sample.order_by_idx_hint.clone());
-    let after_order_by_idx_hint = after_sample.and_then(|sample| sample.order_by_idx_hint.clone());
-    let before_limit_stop_after = before_sample.map(|sample| sample.limit_stop_after.clone());
-    let after_limit_stop_after = after_sample.map(|sample| sample.limit_stop_after.clone());
-    let (before_route_family, before_route_outcome, before_route_reason) = before_route
-        .map_or((None, None, None), |(family, outcome, reason)| {
-            (Some(family), Some(outcome), reason)
+fn performance_shard_index(
+    variable: &'static str,
+    stage: &'static str,
+) -> Result<u8, PerfShardSelectionError> {
+    let value = env::var(variable)
+        .map_err(|source| PerfShardSelectionError::Environment { variable, source })?;
+    let shard_index =
+        value
+            .parse::<u8>()
+            .map_err(|source| PerfShardSelectionError::InvalidNumber {
+                variable,
+                value: value.clone(),
+                source,
+            })?;
+    let shard_count = SQL_PERFORMANCE_PROFILE.shard_count();
+    if shard_index >= shard_count {
+        return Err(PerfShardSelectionError::OutOfRange {
+            stage,
+            shard_index,
+            shard_count,
         });
-    let (after_route_family, after_route_outcome, after_route_reason) = after_route
-        .map_or((None, None, None), |(family, outcome, reason)| {
-            (Some(family), Some(outcome), reason)
-        });
-
-    MatrixDeltaRow {
-        key: key.to_string(),
-        before_status: entry_status(before).to_string(),
-        after_status: entry_status(after).to_string(),
-        status_class: status_class(before, after).to_string(),
-        total_local_instructions: metric_delta(
-            before_sample.map(|sample| sample.total_local_instructions),
-            after_sample.map(|sample| sample.total_local_instructions),
-        ),
-        compile_local_instructions: metric_delta(
-            before_sample.map(|sample| sample.compile_local_instructions),
-            after_sample.map(|sample| sample.compile_local_instructions),
-        ),
-        execute_local_instructions: metric_delta(
-            before_sample.map(|sample| sample.execute_local_instructions),
-            after_sample.map(|sample| sample.execute_local_instructions),
-        ),
-        planner_local_instructions: metric_delta(
-            before_sample.map(|sample| sample.planner_local_instructions),
-            after_sample.map(|sample| sample.planner_local_instructions),
-        ),
-        executor_local_instructions: metric_delta(
-            before_sample.map(|sample| sample.executor_local_instructions),
-            after_sample.map(|sample| sample.executor_local_instructions),
-        ),
-        store_local_instructions: metric_delta(
-            before_sample.map(|sample| sample.store_local_instructions),
-            after_sample.map(|sample| sample.store_local_instructions),
-        ),
-        data_store_get_calls: metric_delta(
-            before_sample.map(|sample| sample.data_store_get_calls),
-            after_sample.map(|sample| sample.data_store_get_calls),
-        ),
-        index_store_range_scan_calls: metric_delta(
-            before_sample.map(|sample| sample.index_store_range_scan_calls),
-            after_sample.map(|sample| sample.index_store_range_scan_calls),
-        ),
-        index_store_entry_reads: metric_delta(
-            before_sample.map(|sample| sample.index_store_entry_reads),
-            after_sample.map(|sample| sample.index_store_entry_reads),
-        ),
-        rows_returned: metric_delta(
-            before_sample.and_then(|sample| u64::try_from(sample.outcome.row_count).ok()),
-            after_sample.and_then(|sample| u64::try_from(sample.outcome.row_count).ok()),
-        ),
-        before_route_family,
-        after_route_family,
-        before_route_outcome,
-        after_route_outcome,
-        before_route_reason,
-        after_route_reason,
-        before_order_by_idx_hint,
-        after_order_by_idx_hint,
-        before_limit_stop_after,
-        after_limit_stop_after,
-        signature_changes: MatrixDeltaSignatureChanges {
-            result_signature_changed: signatures_changed(
-                before_result_signature.as_ref(),
-                after_result_signature.as_ref(),
-            ),
-            cursor_signature_changed: signatures_changed(
-                before_cursor_signature.as_ref(),
-                after_cursor_signature.as_ref(),
-            ),
-        },
-        before_result_signature,
-        after_result_signature,
-        before_cursor_signature,
-        after_cursor_signature,
-        result_row_count_before: before_sample.map(|sample| sample.outcome.row_count),
-        result_row_count_after: after_sample.map(|sample| sample.outcome.row_count),
-        target_flags: MatrixDeltaTargetFlags {
-            focused_target,
-            expected_to_improve,
-        },
     }
+
+    Ok(shard_index)
 }
 
-const fn entry_sample(entry: ReportEntry<'_>) -> Option<&MatrixSample> {
-    match entry {
-        ReportEntry::Success(sample) => Some(sample),
-        ReportEntry::Failure(_) | ReportEntry::Missing => None,
-    }
-}
-
-fn entry_route(entry: ReportEntry<'_>) -> Option<(String, String, Option<String>)> {
-    match entry {
-        ReportEntry::Success(sample) => {
-            let route = route_for_sample(sample);
-            Some((route.0, route.1, route.2))
-        }
-        ReportEntry::Failure(failure) => Some((
-            failure.route_family.clone(),
-            failure.route_outcome.clone(),
-            Some(failure.route_reason.clone()),
-        )),
-        ReportEntry::Missing => None,
-    }
-}
-
-fn route_for_sample(sample: &MatrixSample) -> (String, String, Option<String>) {
-    (
-        sample.route_family.clone(),
-        sample.route_outcome.clone(),
-        sample.route_reason.clone(),
+fn p1_shard_directory() -> PathBuf {
+    env::var_os(SQL_PERF_P1_SHARD_DIR_ENV).map_or_else(
+        || workspace_root().join("artifacts/perf-audit/sql_perf_p1_shards"),
+        PathBuf::from,
     )
 }
 
-const fn entry_status(entry: ReportEntry<'_>) -> &'static str {
-    match entry {
-        ReportEntry::Success(_) => "success",
-        ReportEntry::Failure(_) => "failure",
-        ReportEntry::Missing => "missing",
+fn p1_shard_path(directory: &Path, shard_index: u8) -> PathBuf {
+    directory.join(format!("p1-shard-{shard_index}.json"))
+}
+
+fn p2_selection_path() -> PathBuf {
+    env::var_os(SQL_PERF_P2_SELECTION_PATH_ENV).map_or_else(
+        || workspace_root().join("artifacts/perf-audit/sql_perf_p2_candidates.json"),
+        PathBuf::from,
+    )
+}
+
+fn p2_shard_directory() -> PathBuf {
+    env::var_os(SQL_PERF_P2_SHARD_DIR_ENV).map_or_else(
+        || workspace_root().join("artifacts/perf-audit/sql_perf_p2_shards"),
+        PathBuf::from,
+    )
+}
+
+fn p2_shard_path(directory: &Path, shard_index: u8) -> PathBuf {
+    directory.join(format!("p2-shard-{shard_index}.json"))
+}
+
+fn p2_report_path() -> PathBuf {
+    env::var_os(SQL_PERF_P2_REPORT_PATH_ENV).map_or_else(
+        || workspace_root().join("artifacts/perf-audit/sql_perf_p2_report.json"),
+        PathBuf::from,
+    )
+}
+
+fn required_perf_artifact_path(variable: &'static str) -> PathBuf {
+    env::var_os(variable).map_or_else(
+        || panic!("{variable} must name one current-format performance artifact"),
+        PathBuf::from,
+    )
+}
+
+fn performance_comparison_path() -> PathBuf {
+    env::var_os(SQL_PERF_COMPARISON_PATH_ENV).map_or_else(
+        || workspace_root().join("artifacts/perf-audit/sql_perf_comparison.json"),
+        PathBuf::from,
+    )
+}
+
+fn instrumentation_report_path() -> PathBuf {
+    env::var_os(SQL_PERF_INSTRUMENTATION_REPORT_PATH_ENV).map_or_else(
+        || workspace_root().join("artifacts/perf-audit/sql_perf_instrumentation.json"),
+        PathBuf::from,
+    )
+}
+
+fn scale_shard_directory() -> PathBuf {
+    env::var_os(SQL_PERF_SCALE_SHARD_DIR_ENV).map_or_else(
+        || workspace_root().join("artifacts/perf-audit/sql_perf_scale_shards"),
+        PathBuf::from,
+    )
+}
+
+fn scale_shard_path(directory: &Path, shard_index: u8) -> PathBuf {
+    directory.join(format!("scale-shard-{shard_index}.json"))
+}
+
+fn scale_report_path() -> PathBuf {
+    env::var_os(SQL_PERF_SCALE_REPORT_PATH_ENV).map_or_else(
+        || workspace_root().join("artifacts/perf-audit/sql_perf_scale_report.json"),
+        PathBuf::from,
+    )
+}
+
+fn merge_saved_scale_reports(scenarios: &[MatrixScenario]) -> MergedScaleShardReports {
+    let directory = scale_shard_directory();
+    let reports = (0..SQL_PERFORMANCE_PROFILE.shard_count())
+        .map(|shard_index| {
+            let path = scale_shard_path(&directory, shard_index);
+            read_scale_shard_report(
+                &path,
+                SQL_PERFORMANCE_PROFILE,
+                matrix_canister_wasm_profile().as_str(),
+                scenarios,
+            )
+            .unwrap_or_else(|error| panic!("scale shard artifact failed: {error}"))
+        })
+        .collect::<Vec<_>>();
+    let merged = merge_scale_shard_reports(
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        scenarios,
+        reports,
+    )
+    .unwrap_or_else(|error| panic!("scale shard merge failed: {error}"));
+    let path = scale_report_path();
+    write_merged_scale_report(
+        &path,
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        scenarios,
+        &merged,
+    )
+    .unwrap_or_else(|error| panic!("merged scale artifact failed: {error}"));
+
+    merged
+}
+
+fn validate_matrix_report_for_publication(
+    report: &MatrixReport,
+) -> Result<(), MatrixReportValidationError> {
+    let profile = SQL_PERFORMANCE_PROFILE;
+    if report.performance_profile_version != profile.version() {
+        return Err(MatrixReportValidationError::ProfileVersion {
+            expected: profile.version(),
+            actual: report.performance_profile_version,
+        });
     }
-}
-
-const fn status_class(before: ReportEntry<'_>, after: ReportEntry<'_>) -> &'static str {
-    match (before, after) {
-        (ReportEntry::Success(_), ReportEntry::Success(_)) => "common_success",
-        (ReportEntry::Success(_), ReportEntry::Failure(_)) => "new_failure",
-        (ReportEntry::Failure(_), ReportEntry::Success(_)) => "resolved_failure",
-        (ReportEntry::Failure(_), ReportEntry::Failure(_)) => "common_failure",
-        (ReportEntry::Success(_), ReportEntry::Missing) => "before_only_success",
-        (ReportEntry::Missing, ReportEntry::Success(_)) => "after_only_success",
-        _ => "skipped_or_missing",
+    if report.expected_scenario_set_hash != profile.expected_scenario_set_hash() {
+        return Err(MatrixReportValidationError::ScenarioSetHash {
+            field: "expected scenario-set hash",
+            expected: profile.expected_scenario_set_hash(),
+            actual: report.expected_scenario_set_hash.clone(),
+        });
     }
-}
-
-fn metric_delta(before: Option<u64>, after: Option<u64>) -> MetricDelta {
-    let delta = before.zip(after).map(|(before, after)| {
-        i64::try_from(after).unwrap_or(i64::MAX) - i64::try_from(before).unwrap_or(i64::MAX)
-    });
-    let delta_percent_bp = before
-        .zip(after)
-        .and_then(|(before, after)| percent_delta_bp(before, after));
-
-    MetricDelta {
-        before,
-        after,
-        delta,
-        delta_percent_bp,
+    if report.observed_scenario_set_hash != profile.expected_scenario_set_hash() {
+        return Err(MatrixReportValidationError::ScenarioSetHash {
+            field: "observed scenario-set hash",
+            expected: profile.expected_scenario_set_hash(),
+            actual: report.observed_scenario_set_hash.clone(),
+        });
     }
-}
-
-fn percent_delta_bp(before: u64, after: u64) -> Option<i64> {
-    if before == 0 {
-        return None;
+    if !report.broad_scan_complete {
+        return Err(MatrixReportValidationError::IncompleteBroadScan);
     }
-
-    let before = i128::from(before);
-    let after = i128::from(after);
-    i64::try_from((after - before).saturating_mul(10_000) / before).ok()
-}
-
-fn signatures_changed(before: Option<&String>, after: Option<&String>) -> bool {
-    matches!((before, after), (Some(before), Some(after)) if before != after)
-}
-
-fn matrix_delta_closeout_failures(rows: &[MatrixDeltaRow]) -> Vec<String> {
-    let mut failures = Vec::new();
-    for row in rows {
-        if row.status_class == "common_success" {
-            if row.total_local_instructions.before.is_none()
-                || row.total_local_instructions.after.is_none()
-            {
-                failures.push(format!(
-                    "common-success scenario `{}` lacks instruction totals",
-                    row.key
-                ));
-            }
-            if row.before_route_family.is_none()
-                || row.after_route_family.is_none()
-                || row.before_route_outcome.is_none()
-                || row.after_route_outcome.is_none()
-            {
-                failures.push(format!(
-                    "common-success scenario `{}` lacks route family/outcome",
-                    row.key
-                ));
-            }
-            if row.before_result_signature.is_none() || row.after_result_signature.is_none() {
-                failures.push(format!(
-                    "common-success scenario `{}` lacks result signatures",
-                    row.key
-                ));
-            }
-            if row.signature_changes.result_signature_changed {
-                failures.push(format!(
-                    "common-success scenario `{}` changed result signature without rationale",
-                    row.key
-                ));
-            }
-            if row.signature_changes.cursor_signature_changed {
-                failures.push(format!(
-                    "common-success scenario `{}` changed cursor signature without rationale",
-                    row.key
-                ));
-            }
-            if row
-                .total_local_instructions
-                .delta
-                .is_some_and(|delta| delta >= 100_000)
-                && row
-                    .total_local_instructions
-                    .delta_percent_bp
-                    .is_some_and(|percent| percent >= 1_000)
-            {
-                failures.push(format!(
-                    "common-success scenario `{}` regressed >=10% and >=100k instructions without rationale",
-                    row.key
-                ));
-            }
-        }
-        if row.status_class == "new_failure"
-            && (row.after_route_family.is_none() || row.after_route_outcome.is_none())
-        {
-            failures.push(format!(
-                "new failure `{}` lacks route classification",
-                row.key
+    if report.canister_wasm_profile != CanisterWasmProfile::WasmRelease.as_str() {
+        return Err(MatrixReportValidationError::UnsupportedWasmProfile(
+            report.canister_wasm_profile.clone(),
+        ));
+    }
+    validate_perf_environment(SQL_PERFORMANCE_PROFILE, &report.environment)
+        .map_err(MatrixReportValidationError::InvalidEnvironment)?;
+    if report.phase_ownership != current_phase_ownership() {
+        return Err(MatrixReportValidationError::PhaseOwnershipDrift);
+    }
+    if report.declared_scenario_count != profile.expected_scenario_count() {
+        return Err(MatrixReportValidationError::DeclaredScenarioCount {
+            expected: profile.expected_scenario_count(),
+            actual: report.declared_scenario_count,
+        });
+    }
+    if report.successful_scenario_count != report.samples.len() {
+        return Err(MatrixReportValidationError::SuccessfulScenarioCount {
+            expected: report.samples.len(),
+            actual: report.successful_scenario_count,
+        });
+    }
+    if report.failed_scenario_count != report.failures.len() {
+        return Err(MatrixReportValidationError::FailedScenarioCount {
+            expected: report.failures.len(),
+            actual: report.failed_scenario_count,
+        });
+    }
+    profile
+        .validate_scenario_set(
+            report
+                .samples
+                .iter()
+                .map(|sample| sample.key.as_str())
+                .chain(report.failures.iter().map(|failure| failure.key.as_str())),
+        )
+        .map_err(MatrixReportValidationError::InvalidOutcomeScenarioSet)?;
+    for sample in &report.samples {
+        let observed = [
+            sample.total_phase_reconciliation,
+            sample.compile_phase_reconciliation,
+            sample.execute_phase_reconciliation,
+            sample.planner_phase_reconciliation,
+            sample.executor_invocation_phase_reconciliation,
+        ];
+        if observed != expected_phase_reconciliations(sample) {
+            return Err(MatrixReportValidationError::PhaseReconciliationDrift(
+                sample.key.clone(),
             ));
         }
     }
-
-    failures
-}
-
-#[derive(Clone, Copy)]
-enum RouteAggregateKind {
-    Family,
-    Outcome,
-    Pair,
-}
-
-fn route_delta_aggregates(
-    rows: &[MatrixDeltaRow],
-    kind: RouteAggregateKind,
-) -> Vec<MatrixDeltaRouteAggregate> {
-    let mut aggregates =
-        BTreeMap::<(Option<String>, Option<String>), MatrixDeltaRouteAggregate>::new();
-    for row in rows
+    validate_p1_shard_receipts(profile, &report.p1_shard_receipts)
+        .map_err(MatrixReportValidationError::InvalidReceipts)?;
+    let declared_scenarios = deterministic_matrix();
+    let declared_ids = declared_scenarios
         .iter()
-        .filter(|row| row.status_class == "common_success")
-    {
-        let family = row
-            .after_route_family
-            .clone()
-            .or_else(|| row.before_route_family.clone());
-        let outcome = row
-            .after_route_outcome
-            .clone()
-            .or_else(|| row.before_route_outcome.clone());
-        let key = match kind {
-            RouteAggregateKind::Family => (family, None),
-            RouteAggregateKind::Outcome => (None, outcome),
-            RouteAggregateKind::Pair => (family, outcome),
-        };
-        let aggregate =
-            aggregates
-                .entry(key.clone())
-                .or_insert_with(|| MatrixDeltaRouteAggregate {
-                    route_family: key.0.clone(),
-                    route_outcome: key.1.clone(),
-                    scenario_count: 0,
-                    total_delta: 0,
-                });
-        aggregate.scenario_count += 1;
-        aggregate.total_delta += row.total_local_instructions.delta.unwrap_or_default();
-    }
-
-    let mut values = aggregates.into_values().collect::<Vec<_>>();
-    values.sort_by_key(|aggregate| Reverse(aggregate.total_delta.abs()));
-    values
-}
-
-fn matrix_delta_markdown(delta: &MatrixDeltaReport) -> String {
-    let mut output = String::new();
-    append_delta_heading(&mut output, delta);
-    append_delta_closeout_failures(&mut output, delta);
-    append_delta_aggregate_tables(&mut output, delta);
-    append_delta_ranked_tables(&mut output, delta);
-    append_delta_focus_and_change_tables(&mut output, delta);
-
-    output
-}
-
-fn append_delta_heading(output: &mut String, delta: &MatrixDeltaReport) {
-    writeln!(output, "# SQL Perf Matrix Delta").expect("write to string should succeed");
-    writeln!(output).expect("write to string should succeed");
-    writeln!(output, "- baseline: `{}`", delta.baseline_path)
-        .expect("write to string should succeed");
-    writeln!(output, "- current: `{}`", delta.current_path)
-        .expect("write to string should succeed");
-    writeln!(
-        output,
-        "- canister wasm profile: baseline `{}`, current `{}`",
-        delta.baseline_canister_wasm_profile, delta.current_canister_wasm_profile,
-    )
-    .expect("write to string should succeed");
-    writeln!(output, "- union scenarios: {}", delta.union_scenario_count)
-        .expect("write to string should succeed");
-    writeln!(
-        output,
-        "- common successful scenarios: {}",
-        delta.common_successful_scenario_count
-    )
-    .expect("write to string should succeed");
-    writeln!(
-        output,
-        "- improved scenarios: {}",
-        delta.improved_scenario_count
-    )
-    .expect("write to string should succeed");
-    writeln!(
-        output,
-        "- regressed scenarios: {}",
-        delta.regressed_scenario_count
-    )
-    .expect("write to string should succeed");
-    writeln!(
-        output,
-        "- neutral scenarios: {}",
-        delta.neutral_scenario_count
-    )
-    .expect("write to string should succeed");
-    writeln!(output, "- new failures: {}", delta.new_failure_count)
-        .expect("write to string should succeed");
-    writeln!(
-        output,
-        "- resolved failures: {}",
-        delta.resolved_failure_count
-    )
-    .expect("write to string should succeed");
-    writeln!(output).expect("write to string should succeed");
-}
-
-fn append_delta_aggregate_tables(output: &mut String, delta: &MatrixDeltaReport) {
-    append_delta_route_aggregate_table(
-        output,
-        "Route Family Delta",
-        &delta.route_family_aggregates,
-    );
-    append_delta_route_aggregate_table(
-        output,
-        "Route Outcome Delta",
-        &delta.route_outcome_aggregates,
-    );
-    append_delta_route_aggregate_table(
-        output,
-        "Route Family/Outcome Delta",
-        &delta.route_pair_aggregates,
-    );
-}
-
-fn append_delta_ranked_tables(output: &mut String, delta: &MatrixDeltaReport) {
-    append_delta_rows_table(
-        output,
-        "Top 50 Improvements By Absolute Instructions",
-        ranked_delta_rows(delta, DeltaRank::ImprovementAbsolute),
-    );
-    append_delta_rows_table(
-        output,
-        "Top 50 Regressions By Absolute Instructions",
-        ranked_delta_rows(delta, DeltaRank::RegressionAbsolute),
-    );
-    append_delta_rows_table(
-        output,
-        "Top 50 Improvements By Percent",
-        ranked_delta_rows(delta, DeltaRank::ImprovementPercent),
-    );
-    append_delta_rows_table(
-        output,
-        "Top 50 Regressions By Percent",
-        ranked_delta_rows(delta, DeltaRank::RegressionPercent),
-    );
-}
-
-fn append_delta_focus_and_change_tables(output: &mut String, delta: &MatrixDeltaReport) {
-    append_delta_rows_table(
-        output,
-        "Focused Target Scenarios",
-        delta
-            .rows
-            .iter()
-            .filter(|row| row.target_flags.focused_target)
-            .collect::<Vec<_>>(),
-    );
-    append_delta_rows_table(
-        output,
-        "Route Fact Changes",
-        delta
-            .rows
-            .iter()
-            .filter(|row| {
-                row.before_route_family != row.after_route_family
-                    || row.before_route_outcome != row.after_route_outcome
-                    || row.before_route_reason != row.after_route_reason
-                    || row.before_order_by_idx_hint != row.after_order_by_idx_hint
-                    || row.before_limit_stop_after != row.after_limit_stop_after
-            })
-            .collect::<Vec<_>>(),
-    );
-    append_delta_rows_table(
-        output,
-        "Result Or Status Changes",
-        delta
-            .rows
-            .iter()
-            .filter(|row| {
-                row.signature_changes.result_signature_changed
-                    || row.signature_changes.cursor_signature_changed
-                    || row.result_row_count_before != row.result_row_count_after
-                    || row.before_status != row.after_status
-            })
-            .collect::<Vec<_>>(),
-    );
-}
-
-fn append_delta_closeout_failures(output: &mut String, delta: &MatrixDeltaReport) {
-    if delta.closeout_failures.is_empty() {
-        writeln!(output, "## Closeout Gate").expect("write to string should succeed");
-        writeln!(output).expect("write to string should succeed");
-        writeln!(output, "- PASS").expect("write to string should succeed");
-        writeln!(output).expect("write to string should succeed");
-        return;
-    }
-
-    writeln!(output, "## Closeout Gate").expect("write to string should succeed");
-    writeln!(output).expect("write to string should succeed");
-    writeln!(output, "- FAIL").expect("write to string should succeed");
-    for failure in &delta.closeout_failures {
-        writeln!(output, "- {failure}").expect("write to string should succeed");
-    }
-    writeln!(output).expect("write to string should succeed");
-}
-
-fn append_delta_route_aggregate_table(
-    output: &mut String,
-    title: &str,
-    aggregates: &[MatrixDeltaRouteAggregate],
-) {
-    if aggregates.is_empty() {
-        return;
-    }
-
-    writeln!(output, "## {title}").expect("write to string should succeed");
-    writeln!(output).expect("write to string should succeed");
-    writeln!(
-        output,
-        "| Route Family | Route Outcome | Scenarios | Total Delta |"
-    )
-    .expect("write to string should succeed");
-    writeln!(output, "|---|---|---:|---:|").expect("write to string should succeed");
-    for aggregate in aggregates.iter().take(50) {
-        writeln!(
-            output,
-            "| {} | {} | {} | {} |",
-            aggregate.route_family.as_deref().unwrap_or(""),
-            aggregate.route_outcome.as_deref().unwrap_or(""),
-            aggregate.scenario_count,
-            signed_i64(aggregate.total_delta),
-        )
-        .expect("write to string should succeed");
-    }
-    writeln!(output).expect("write to string should succeed");
-}
-
-#[derive(Clone, Copy)]
-enum DeltaRank {
-    ImprovementAbsolute,
-    RegressionAbsolute,
-    ImprovementPercent,
-    RegressionPercent,
-}
-
-fn ranked_delta_rows(delta: &MatrixDeltaReport, rank: DeltaRank) -> Vec<&MatrixDeltaRow> {
-    let mut rows = delta
-        .rows
-        .iter()
-        .filter(|row| row.status_class == "common_success")
-        .filter(|row| row.total_local_instructions.delta != Some(0))
+        .map(|scenario| scenario.key.as_str())
         .collect::<Vec<_>>();
-    match rank {
-        DeltaRank::ImprovementAbsolute => {
-            rows.retain(|row| {
-                row.total_local_instructions
-                    .delta
-                    .is_some_and(|delta| delta < 0)
-            });
-            rows.sort_by_key(|row| row.total_local_instructions.delta.unwrap_or_default());
+    let successful_ids = report
+        .samples
+        .iter()
+        .map(|sample| sample.key.as_str())
+        .collect::<Vec<_>>();
+    let failed_ids = report
+        .failures
+        .iter()
+        .map(|failure| failure.key.as_str())
+        .collect::<Vec<_>>();
+    let expected_receipts =
+        build_p1_shard_receipts(profile, &declared_ids, &successful_ids, &failed_ids)
+            .map_err(MatrixReportValidationError::InvalidReceipts)?;
+    if report.p1_shard_receipts != expected_receipts {
+        return Err(MatrixReportValidationError::ReceiptOutcomeDrift);
+    }
+
+    Ok(())
+}
+
+fn write_matrix_reports(report: &MatrixReport) -> Result<(), MatrixReportArtifactError> {
+    validate_matrix_report_for_publication(report)
+        .map_err(MatrixReportArtifactError::InvalidReport)?;
+    let stem = report_stem();
+    if let Some(parent) = stem.parent() {
+        fs::create_dir_all(parent).map_err(|source| MatrixReportArtifactError::Io {
+            path: parent.to_path_buf(),
+            operation: "prepared",
+            source,
+        })?;
+    }
+
+    let json_path = stem.with_extension("json");
+    let md_path = stem.with_extension("md");
+    let json =
+        serde_json::to_vec_pretty(report).map_err(|source| MatrixReportArtifactError::Encode {
+            path: json_path.clone(),
+            source,
+        })?;
+    validate_matrix_report_size(&json_path, json.len())?;
+    fs::write(&json_path, json).map_err(|source| MatrixReportArtifactError::Io {
+        path: json_path.clone(),
+        operation: "written",
+        source,
+    })?;
+    fs::write(&md_path, matrix_markdown(report)).map_err(|source| {
+        MatrixReportArtifactError::Io {
+            path: md_path.clone(),
+            operation: "written",
+            source,
         }
-        DeltaRank::RegressionAbsolute => {
-            rows.retain(|row| {
-                row.total_local_instructions
-                    .delta
-                    .is_some_and(|delta| delta > 0)
-            });
-            rows.sort_by_key(|row| Reverse(row.total_local_instructions.delta.unwrap_or_default()));
-        }
-        DeltaRank::ImprovementPercent => {
-            rows.retain(|row| {
-                row.total_local_instructions
-                    .before
-                    .is_some_and(|before| before >= 100_000)
-                    && row
-                        .total_local_instructions
-                        .delta
-                        .is_some_and(|delta| delta < 0)
-            });
-            rows.sort_by_key(|row| {
-                row.total_local_instructions
-                    .delta_percent_bp
-                    .unwrap_or_default()
-            });
-        }
-        DeltaRank::RegressionPercent => {
-            rows.retain(|row| {
-                row.total_local_instructions
-                    .before
-                    .is_some_and(|before| before >= 100_000)
-                    && row
-                        .total_local_instructions
-                        .delta
-                        .is_some_and(|delta| delta > 0)
-            });
-            rows.sort_by_key(|row| {
-                Reverse(
-                    row.total_local_instructions
-                        .delta_percent_bp
-                        .unwrap_or_default(),
-                )
-            });
-        }
-    }
-    rows.truncate(50);
-    rows
+    })?;
+
+    println!("matrix JSON: {}", json_path.display());
+    println!("matrix Markdown: {}", md_path.display());
+
+    Ok(())
 }
 
-fn append_delta_rows_table(output: &mut String, title: &str, rows: Vec<&MatrixDeltaRow>) {
-    if rows.is_empty() {
-        return;
+fn validate_matrix_report_size(
+    path: &Path,
+    observed_bytes: usize,
+) -> Result<(), MatrixReportArtifactError> {
+    let max_bytes = SQL_PERFORMANCE_PROFILE.max_artifact_bytes();
+    if observed_bytes > max_bytes {
+        return Err(MatrixReportArtifactError::TooLarge {
+            path: path.to_path_buf(),
+            observed_bytes,
+            max_bytes,
+        });
     }
 
-    writeln!(output, "## {title}").expect("write to string should succeed");
-    writeln!(output).expect("write to string should succeed");
-    writeln!(
-        output,
-        "| Scenario | Status | Total Delta | Total %bp | Compile Delta | Execute Delta | Store Delta | Executor Delta | data_store.get Delta | index ranges Delta | index entries Delta | Rows Delta | Route Family | Route Outcome | Order Hint | Limit Stop | Result Changed | Cursor Changed |"
-    )
-    .expect("write to string should succeed");
-    writeln!(
-        output,
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|---|---|"
-    )
-    .expect("write to string should succeed");
-    for row in rows {
-        writeln!(
-            output,
-            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} -> {} | {} -> {} | {} | {} | {} | {} |",
-            row.key,
-            row.status_class,
-            metric_delta_text(&row.total_local_instructions),
-            row.total_local_instructions
-                .delta_percent_bp
-                .map_or_else(|| "n/a".to_string(), signed_i64),
-            metric_delta_text(&row.compile_local_instructions),
-            metric_delta_text(&row.execute_local_instructions),
-            metric_delta_text(&row.store_local_instructions),
-            metric_delta_text(&row.executor_local_instructions),
-            metric_delta_text(&row.data_store_get_calls),
-            metric_delta_text(&row.index_store_range_scan_calls),
-            metric_delta_text(&row.index_store_entry_reads),
-            metric_delta_text(&row.rows_returned),
-            row.before_route_family.as_deref().unwrap_or(""),
-            row.after_route_family.as_deref().unwrap_or(""),
-            row.before_route_outcome.as_deref().unwrap_or(""),
-            row.after_route_outcome.as_deref().unwrap_or(""),
-            option_string_transition(
-                row.before_order_by_idx_hint.as_deref(),
-                row.after_order_by_idx_hint.as_deref(),
-            ),
-            limit_stop_after_transition(
-                row.before_limit_stop_after.as_ref(),
-                row.after_limit_stop_after.as_ref(),
-            ),
-            row.signature_changes.result_signature_changed,
-            row.signature_changes.cursor_signature_changed,
-        )
-        .expect("write to string should succeed");
-    }
-    writeln!(output).expect("write to string should succeed");
-}
-
-fn metric_delta_text(metric: &MetricDelta) -> String {
-    metric.delta.map_or_else(|| "n/a".to_string(), signed_i64)
-}
-
-fn option_string_transition(before: Option<&str>, after: Option<&str>) -> String {
-    format!("{} -> {}", before.unwrap_or(""), after.unwrap_or(""))
-}
-
-fn limit_stop_after_transition(
-    before: Option<&MatrixLimitStopAfter>,
-    after: Option<&MatrixLimitStopAfter>,
-) -> String {
-    format!(
-        "{} -> {}",
-        limit_stop_after_text(before),
-        limit_stop_after_text(after)
-    )
-}
-
-fn limit_stop_after_text(value: Option<&MatrixLimitStopAfter>) -> String {
-    let Some(value) = value else {
-        return String::new();
-    };
-    if value.possible {
-        return format!(
-            "possible(limit={},lookahead={},matches={},index_entries={})",
-            value
-                .returned_limit
-                .map_or_else(|| "n/a".to_string(), |limit| limit.to_string()),
-            value.lookahead,
-            value
-                .stopped_after_matches
-                .map_or_else(|| "n/a".to_string(), |count| count.to_string()),
-            value
-                .stopped_after_index_entries
-                .map_or_else(|| "n/a".to_string(), |count| count.to_string()),
-        );
-    }
-
-    format!(
-        "disabled({})",
-        value.disabled_reason.as_deref().unwrap_or("unknown")
-    )
-}
-
-fn signed_i64(value: i64) -> String {
-    if value >= 0 {
-        format!("+{value}")
-    } else {
-        value.to_string()
-    }
+    Ok(())
 }
 
 fn matrix_markdown(report: &MatrixReport) -> String {
     let mut output = String::new();
-    let mode = matrix_mode_from_report(report);
-    writeln!(output, "# {}", mode.title()).expect("write to string should succeed");
+    writeln!(output, "# SQL Perf Deterministic Matrix").expect("write to string should succeed");
     writeln!(output).expect("write to string should succeed");
-    writeln!(output, "- matrix mode: {}", report.matrix_mode)
-        .expect("write to string should succeed");
-    if !report.canister_wasm_profile.is_empty() {
-        writeln!(
-            output,
-            "- canister wasm profile: {}",
-            report.canister_wasm_profile,
-        )
-        .expect("write to string should succeed");
-    }
     writeln!(
         output,
-        "- generated scenarios: {}",
-        report.generated_scenario_count
+        "- performance profile version: {}",
+        report.performance_profile_version,
     )
     .expect("write to string should succeed");
     writeln!(
         output,
-        "- executed scenarios: {}",
-        report.executed_scenario_count
+        "- expected scenario-set hash: `{}`",
+        report.expected_scenario_set_hash,
+    )
+    .expect("write to string should succeed");
+    writeln!(
+        output,
+        "- observed scenario-set hash: `{}`",
+        report.observed_scenario_set_hash,
+    )
+    .expect("write to string should succeed");
+    writeln!(
+        output,
+        "- broad scan complete: {}",
+        report.broad_scan_complete,
+    )
+    .expect("write to string should succeed");
+    writeln!(
+        output,
+        "- canister wasm profile: {}",
+        report.canister_wasm_profile,
+    )
+    .expect("write to string should succeed");
+    writeln!(
+        output,
+        "- declared scenarios: {}",
+        report.declared_scenario_count
+    )
+    .expect("write to string should succeed");
+    writeln!(
+        output,
+        "- successful scenarios: {}",
+        report.successful_scenario_count
     )
     .expect("write to string should succeed");
     writeln!(
@@ -6768,25 +3048,80 @@ fn matrix_markdown(report: &MatrixReport) -> String {
         report.failed_scenario_count
     )
     .expect("write to string should succeed");
-    writeln!(output, "- matrix limit: {}", report.matrix_limit)
-        .expect("write to string should succeed");
-    if let Some(filter) = &report.scenario_key_filter {
-        writeln!(output, "- scenario key filter: {filter}")
-            .expect("write to string should succeed");
-    }
-    if let Some(seed) = report.random_seed {
-        writeln!(output, "- random seed: {seed}").expect("write to string should succeed");
-        writeln!(output, "- random cases: {}", report.random_case_count)
-            .expect("write to string should succeed");
-    }
+    writeln!(
+        output,
+        "- P1 shard receipts: {}/{}",
+        report.p1_shard_receipts.len(),
+        SQL_PERFORMANCE_PROFILE.shard_count(),
+    )
+    .expect("write to string should succeed");
     writeln!(output).expect("write to string should succeed");
 
+    append_phase_ownership_table(&mut output, &report.phase_ownership);
+    append_p1_shard_receipt_table(&mut output, &report.p1_shard_receipts);
     append_instruction_hotspot_tables(&mut output, &report.samples);
     append_storage_backend_comparison_table(&mut output, &report.samples);
     append_route_classification_summary(&mut output, report);
     append_failure_table(&mut output, &report.failures);
 
     output
+}
+
+fn append_phase_ownership_table(output: &mut String, ownership: &PhaseOwnershipTable) {
+    writeln!(output, "## Phase Ownership (version {})", ownership.version)
+        .expect("write to string should succeed");
+    writeln!(output).expect("write to string should succeed");
+    writeln!(output, "| Parent | Relationship | Children |")
+        .expect("write to string should succeed");
+    writeln!(output, "|---|---|---|").expect("write to string should succeed");
+    for entry in &ownership.entries {
+        writeln!(
+            output,
+            "| `{}` | `{}` | {} |",
+            entry.parent,
+            entry.relationship.code(),
+            entry
+                .children
+                .iter()
+                .map(|child| format!("`{child}`"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        )
+        .expect("write to string should succeed");
+    }
+    writeln!(output).expect("write to string should succeed");
+}
+
+fn append_p1_shard_receipt_table(output: &mut String, receipts: &[P1ShardReceipt]) {
+    if receipts.is_empty() {
+        return;
+    }
+
+    writeln!(output, "## P1 Broad-Scan Shard Receipts").expect("write to string should succeed");
+    writeln!(output).expect("write to string should succeed");
+    writeln!(
+        output,
+        "| Shard | Expected | Observed | Success | Failure | Complete | Expected Hash | Observed Hash |",
+    )
+    .expect("write to string should succeed");
+    writeln!(output, "|---:|---:|---:|---:|---:|---|---|---|")
+        .expect("write to string should succeed");
+    for receipt in receipts {
+        writeln!(
+            output,
+            "| {} | {} | {} | {} | {} | {} | `{}` | `{}` |",
+            receipt.shard_index,
+            receipt.expected_scenario_count,
+            receipt.observed_scenario_count,
+            receipt.successful_scenario_count,
+            receipt.failed_scenario_count,
+            receipt.complete,
+            receipt.expected_shard_hash,
+            receipt.observed_shard_hash,
+        )
+        .expect("write to string should succeed");
+    }
+    writeln!(output).expect("write to string should succeed");
 }
 
 #[derive(Default)]
@@ -6797,6 +3132,14 @@ struct MatrixRouteSummary {
     index_store_range_scan_calls: u64,
     index_store_entry_reads: u64,
     rows_returned: usize,
+}
+
+fn route_for_sample(sample: &MatrixSample) -> (String, String, Option<String>) {
+    (
+        sample.route_family.clone(),
+        sample.route_outcome.clone(),
+        sample.route_reason.clone(),
+    )
 }
 
 fn append_route_classification_summary(output: &mut String, report: &MatrixReport) {
@@ -6886,8 +3229,22 @@ fn append_instruction_hotspot_tables(output: &mut String, samples: &[MatrixSampl
     );
     append_ranked_table(
         output,
-        "Top Executor Instructions",
+        "Top Executor Invocation Instructions",
+        ranked_by(samples, |sample| {
+            sample.executor_invocation_local_instructions
+        }),
+    );
+    append_ranked_table(
+        output,
+        "Top Executor Runtime Instructions",
         ranked_by(samples, |sample| sample.executor_local_instructions),
+    );
+    append_ranked_table(
+        output,
+        "Top Response Finalization Instructions",
+        ranked_by(samples, |sample| {
+            sample.response_finalization_local_instructions
+        }),
     );
     append_ranked_table(
         output,
@@ -6919,6 +3276,95 @@ fn append_instruction_hotspot_tables(output: &mut String, samples: &[MatrixSampl
     append_direct_data_row_hotspot_tables(output, samples);
     append_kernel_row_hotspot_tables(output, samples);
     append_main_fixture_hotspot_tables(output, samples);
+    append_phase_reconciliation_tables(output, samples);
+}
+
+fn append_phase_reconciliation_tables(output: &mut String, samples: &[MatrixSample]) {
+    append_phase_reconciliation_table(
+        output,
+        "Top Total Phase Residual",
+        samples,
+        |sample| sample.total_local_instructions,
+        |sample| sample.total_phase_reconciliation,
+    );
+    append_phase_reconciliation_table(
+        output,
+        "Top Compile Phase Residual",
+        samples,
+        |sample| sample.compile_local_instructions,
+        |sample| sample.compile_phase_reconciliation,
+    );
+    append_phase_reconciliation_table(
+        output,
+        "Top Execute Phase Residual",
+        samples,
+        |sample| sample.execute_local_instructions,
+        |sample| sample.execute_phase_reconciliation,
+    );
+    append_phase_reconciliation_table(
+        output,
+        "Top Planner Phase Residual",
+        samples,
+        |sample| sample.planner_local_instructions,
+        |sample| sample.planner_phase_reconciliation,
+    );
+    append_phase_reconciliation_table(
+        output,
+        "Top Executor Invocation Phase Residual",
+        samples,
+        |sample| sample.executor_invocation_local_instructions,
+        |sample| sample.executor_invocation_phase_reconciliation,
+    );
+}
+
+fn append_phase_reconciliation_table<Parent, Reconciliation>(
+    output: &mut String,
+    title: &str,
+    samples: &[MatrixSample],
+    parent: Parent,
+    reconciliation: Reconciliation,
+) where
+    Parent: Fn(&MatrixSample) -> u64,
+    Reconciliation: Fn(&MatrixSample) -> PhaseReconciliation,
+{
+    let mut ranked = samples.iter().collect::<Vec<_>>();
+    ranked.sort_by_key(|sample| {
+        let value = reconciliation(sample);
+        Reverse(
+            value
+                .unaccounted_local_instructions
+                .max(value.over_attributed_local_instructions),
+        )
+    });
+    ranked.truncate(top_n());
+
+    writeln!(output, "## {title}").expect("write to string should succeed");
+    writeln!(output).expect("write to string should succeed");
+    writeln!(
+        output,
+        "| Scenario | Surface | Parent | Attributable | Unaccounted | Over-attributed | Unaccounted bp |",
+    )
+    .expect("write to string should succeed");
+    writeln!(output, "|---|---|---:|---:|---:|---:|---:|").expect("write to string should succeed");
+    for sample in ranked {
+        let value = reconciliation(sample);
+        writeln!(
+            output,
+            "| `{}` | {} | {} | {} | {} | {} | {} |",
+            sample.key,
+            sample.surface,
+            parent(sample),
+            value.attributable_local_instructions,
+            value.unaccounted_local_instructions,
+            value.over_attributed_local_instructions,
+            value.unaccounted_basis_points.map_or_else(
+                || "n/a".to_string(),
+                |basis_points| basis_points.to_string()
+            ),
+        )
+        .expect("write to string should succeed");
+    }
+    writeln!(output).expect("write to string should succeed");
 }
 
 fn append_pure_covering_hotspot_tables(output: &mut String, samples: &[MatrixSample]) {
@@ -7150,14 +3596,6 @@ fn append_main_fixture_execution_hotspot_tables(output: &mut String, samples: &[
     );
 }
 
-fn matrix_mode_from_report(report: &MatrixReport) -> MatrixMode {
-    match report.matrix_mode.as_str() {
-        "deterministic" => MatrixMode::Deterministic,
-        "random" => MatrixMode::Random,
-        other => panic!("matrix report mode should be known, got '{other}'"),
-    }
-}
-
 fn ranked_by<F>(samples: &[MatrixSample], key: F) -> Vec<&MatrixSample>
 where
     F: Fn(&MatrixSample) -> u64,
@@ -7191,18 +3629,18 @@ fn append_ranked_table(output: &mut String, title: &str, samples: Vec<&MatrixSam
     writeln!(output).expect("write to string should succeed");
     writeln!(
         output,
-        "| Scenario | Surface | Total | Compile | Execute | Planner | Store | Executor | data_store.get | index_store.get | index_store.ranges | index_store.entries | Rows | SQL |"
+        "| Scenario | Surface | Total | Compile | Execute | Planner | Store | Executor Invocation | Executor Runtime | Response Finalization | data_store.get | index_store.get | index_store.ranges | index_store.entries | Rows | SQL |"
     )
     .expect("write to string should succeed");
     writeln!(
         output,
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
     )
     .expect("write to string should succeed");
     for sample in samples {
         writeln!(
             output,
-            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
+            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
             sample.key,
             sample.surface,
             sample.total_local_instructions,
@@ -7210,7 +3648,9 @@ fn append_ranked_table(output: &mut String, title: &str, samples: Vec<&MatrixSam
             sample.execute_local_instructions,
             sample.planner_local_instructions,
             sample.store_local_instructions,
+            sample.executor_invocation_local_instructions,
             sample.executor_local_instructions,
+            sample.response_finalization_local_instructions,
             sample.data_store_get_calls,
             sample.index_store_get_calls,
             sample.index_store_range_scan_calls,
@@ -7645,45 +4085,17 @@ fn print_matrix_summary(report: &MatrixReport) {
     println!("{}", matrix_markdown(report));
 }
 
-fn matrix_delta_path_env(name: &str) -> PathBuf {
-    env::var(name).map_or_else(
-        |_| panic!("{name} should point at one matrix JSON report"),
-        PathBuf::from,
-    )
-}
-
-fn matrix_delta_output_stem() -> PathBuf {
-    env::var("ICYDB_SQL_PERF_MATRIX_DELTA_OUT").map_or_else(
-        |_| workspace_root().join("artifacts/perf-audit/sql_perf_matrix_delta"),
-        PathBuf::from,
-    )
-}
-
-fn matrix_delta_key_set_env(name: &str) -> BTreeSet<String> {
-    env::var(name).map_or_else(
-        |_| BTreeSet::new(),
-        |value| {
-            value
-                .split(',')
-                .map(str::trim)
-                .filter(|key| !key.is_empty())
-                .map(str::to_string)
-                .collect()
-        },
-    )
-}
-
 #[test]
-fn sql_perf_generated_matrix_has_stable_shape() {
+fn sql_perf_deterministic_matrix_has_stable_shape() {
     let deterministic = deterministic_matrix();
+    SQL_PERFORMANCE_PROFILE
+        .validate_scenario_set(deterministic.iter().map(|scenario| scenario.key.as_str()))
+        .unwrap_or_else(|error| panic!("checked-in performance profile drifted: {error}"));
     assert!(
         deterministic.len() >= 1_000,
         "deterministic matrix should be broad enough to hunt hotspots; got {}",
         deterministic.len(),
     );
-    let selected = select_stratified(&deterministic, DEFAULT_MATRIX_LIMIT)
-        .expect("default deterministic budget should cover every declared stratum");
-    assert_eq!(selected.len(), DEFAULT_MATRIX_LIMIT);
 
     let mut keys = HashSet::new();
     for scenario in &deterministic {
@@ -7704,7 +4116,215 @@ fn sql_perf_generated_matrix_has_stable_shape() {
 }
 
 #[test]
-fn sql_perf_generated_matrix_includes_branch_route_hotspots() {
+fn sql_perf_p1_receipts_cover_the_profile_exactly() {
+    let deterministic = deterministic_matrix();
+    let declared_ids = deterministic
+        .iter()
+        .map(|scenario| scenario.key.as_str())
+        .collect::<Vec<_>>();
+    let receipts =
+        build_p1_shard_receipts(SQL_PERFORMANCE_PROFILE, &declared_ids, &declared_ids, &[])
+            .expect("complete deterministic outcomes should produce all P1 receipts");
+    let shard_counts = receipts
+        .iter()
+        .map(|receipt| receipt.observed_scenario_count)
+        .collect::<Vec<_>>();
+
+    assert_eq!(receipts.len(), 8);
+    assert_eq!(shard_counts, vec![230, 221, 231, 205, 221, 223, 227, 200]);
+    assert_eq!(shard_counts.iter().sum::<usize>(), 1_758);
+    assert!(receipts.iter().all(|receipt| receipt.complete));
+    validate_p1_shard_receipts(SQL_PERFORMANCE_PROFILE, &receipts)
+        .expect("all deterministic receipts should merge");
+}
+
+#[test]
+fn sql_perf_p1_receipts_reject_missing_duplicate_and_misassigned_evidence() {
+    let deterministic = deterministic_matrix();
+    let declared_ids = deterministic
+        .iter()
+        .map(|scenario| scenario.key.as_str())
+        .collect::<Vec<_>>();
+    let mut receipts =
+        build_p1_shard_receipts(SQL_PERFORMANCE_PROFILE, &declared_ids, &declared_ids, &[])
+            .expect("complete deterministic outcomes should produce all P1 receipts");
+
+    assert!(matches!(
+        validate_p1_shard_receipts(SQL_PERFORMANCE_PROFILE, &receipts[..7]),
+        Err(P1ReceiptError::ReceiptCountMismatch {
+            expected: 8,
+            actual: 7,
+        })
+    ));
+
+    receipts[1].shard_index = receipts[0].shard_index;
+    assert!(matches!(
+        validate_p1_shard_receipts(SQL_PERFORMANCE_PROFILE, &receipts),
+        Err(P1ReceiptError::DuplicateReceipt(_))
+    ));
+
+    let scenario_id = declared_ids[0];
+    let assigned = SQL_PERFORMANCE_PROFILE
+        .scenario_shard(scenario_id)
+        .expect("declared scenario should shard");
+    let wrong_shard = (assigned + 1) % SQL_PERFORMANCE_PROFILE.shard_count();
+    assert!(matches!(
+        p1_shard_receipt(
+            SQL_PERFORMANCE_PROFILE,
+            wrong_shard,
+            &declared_ids,
+            &[scenario_id],
+            &[],
+        ),
+        Err(P1ReceiptError::ScenarioAssignedToDifferentShard { .. })
+    ));
+}
+
+fn synthetic_p1_shard_reports() -> Vec<P1ShardReport> {
+    let scenarios = deterministic_matrix();
+    let declared_ids = scenarios
+        .iter()
+        .map(|scenario| scenario.key.as_str())
+        .collect::<Vec<_>>();
+
+    (0..SQL_PERFORMANCE_PROFILE.shard_count())
+        .map(|shard_index| {
+            let samples = scenarios
+                .iter()
+                .filter(|scenario| {
+                    SQL_PERFORMANCE_PROFILE
+                        .scenario_shard(&scenario.key)
+                        .expect("declared scenario should shard")
+                        == shard_index
+                })
+                .map(|scenario| MatrixSample {
+                    key: scenario.key.clone(),
+                    ..MatrixSample::default()
+                })
+                .collect::<Vec<_>>();
+            build_p1_shard_report(
+                SQL_PERFORMANCE_PROFILE,
+                matrix_canister_wasm_profile().as_str(),
+                crate::sql_perf_environment::tests::identity(),
+                shard_index,
+                &declared_ids,
+                samples,
+                Vec::new(),
+            )
+            .expect("complete deterministic shard should build")
+        })
+        .collect()
+}
+
+#[test]
+fn sql_perf_p1_shard_artifacts_are_strict_bounded_and_merge_exactly() {
+    let scenarios = deterministic_matrix();
+    let declared_ids = scenarios
+        .iter()
+        .map(|scenario| scenario.key.as_str())
+        .collect::<Vec<_>>();
+    let reports = synthetic_p1_shard_reports();
+    let mut unknown_field =
+        serde_json::to_value(&reports[0]).expect("current P1 shard should serialize");
+    unknown_field
+        .as_object_mut()
+        .expect("P1 shard should be a JSON object")
+        .insert("unexpected".to_string(), serde_json::Value::Bool(true));
+    assert!(
+        serde_json::from_value::<P1ShardReport>(unknown_field).is_err(),
+        "unknown shard artifact fields must fail current-format decoding",
+    );
+
+    let max_bytes = SQL_PERFORMANCE_PROFILE.max_artifact_bytes();
+    assert!(
+        validate_p1_shard_artifact_size(Path::new("p1-shard.json"), max_bytes, max_bytes).is_ok()
+    );
+    assert!(matches!(
+        validate_p1_shard_artifact_size(
+            Path::new("p1-shard.json"),
+            max_bytes + 1,
+            max_bytes,
+        ),
+        Err(P1ShardArtifactError::TooLarge {
+            observed_bytes,
+            max_bytes: observed_max_bytes,
+            ..
+        }) if observed_bytes == max_bytes + 1 && observed_max_bytes == max_bytes
+    ));
+
+    let merged = merge_p1_shard_reports(
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        &declared_ids,
+        reports,
+    )
+    .expect("all exact shard reports should merge");
+    assert_eq!(merged.receipts.len(), 8);
+    assert_eq!(merged.samples.len(), 1_758);
+    assert!(merged.failures.is_empty());
+    assert!(
+        merged
+            .samples
+            .windows(2)
+            .all(|pair| pair[0].key < pair[1].key)
+    );
+}
+
+#[test]
+fn sql_perf_p1_shard_merge_rejects_missing_duplicate_and_tampered_evidence() {
+    let scenarios = deterministic_matrix();
+    let declared_ids = scenarios
+        .iter()
+        .map(|scenario| scenario.key.as_str())
+        .collect::<Vec<_>>();
+    let required_wasm_profile = matrix_canister_wasm_profile().as_str();
+
+    let mut missing = synthetic_p1_shard_reports();
+    missing.pop();
+    assert!(matches!(
+        merge_p1_shard_reports(
+            SQL_PERFORMANCE_PROFILE,
+            required_wasm_profile,
+            &declared_ids,
+            missing,
+        ),
+        Err(P1ShardMergeError::ReportCountMismatch {
+            expected: 8,
+            actual: 7,
+        })
+    ));
+
+    let mut duplicate = synthetic_p1_shard_reports();
+    duplicate[7] = duplicate[0].clone();
+    assert!(matches!(
+        merge_p1_shard_reports(
+            SQL_PERFORMANCE_PROFILE,
+            required_wasm_profile,
+            &declared_ids,
+            duplicate,
+        ),
+        Err(P1ShardMergeError::DuplicateReport(0))
+    ));
+
+    let mut tampered = synthetic_p1_shard_reports();
+    let mut tampered_value =
+        serde_json::to_value(&tampered[0]).expect("current P1 shard should serialize");
+    tampered_value["samples"][0]["key"] = serde_json::Value::String("tampered".to_string());
+    tampered[0] = serde_json::from_value(tampered_value)
+        .expect("structurally current P1 shard should decode before semantic validation");
+    assert!(matches!(
+        merge_p1_shard_reports(
+            SQL_PERFORMANCE_PROFILE,
+            required_wasm_profile,
+            &declared_ids,
+            tampered,
+        ),
+        Err(P1ShardMergeError::InvalidReport { shard_index: 0, .. })
+    ));
+}
+
+#[test]
+fn sql_perf_deterministic_matrix_includes_branch_route_hotspots() {
     let deterministic = deterministic_matrix();
     let scenarios_by_key = deterministic
         .iter()
@@ -7750,588 +4370,6 @@ fn sql_perf_generated_matrix_includes_branch_route_hotspots() {
 
     assert_branch_route_hotspot_sql_shapes(&scenarios_by_key);
     assert_sparse_collection_in_route_hotspots(&scenarios_by_key);
-}
-
-#[test]
-fn sql_perf_sqlite_comparison_default_subset_is_broad_and_compatible() {
-    let deterministic = deterministic_matrix();
-    let scenarios_by_key = deterministic
-        .iter()
-        .map(|scenario| (scenario.key.as_str(), scenario))
-        .collect::<BTreeMap<_, _>>();
-    let selected = deterministic
-        .iter()
-        .filter(|scenario| scenario_has_sqlite_reference(scenario))
-        .collect::<Vec<_>>();
-    let selected_keys = selected
-        .iter()
-        .map(|scenario| scenario.key.as_str())
-        .collect::<BTreeSet<_>>();
-
-    assert!(
-        selected.len() >= 1_000,
-        "SQLite audit comparison should cover the broad compatible matrix subset; got {}",
-        selected.len(),
-    );
-    for key in SQL_PERF_SQLITE_REQUIRED_COMPATIBLE_KEYS {
-        assert!(
-            scenarios_by_key.contains_key(key),
-            "SQLite audit comparison required key should exist in deterministic matrix: {key}"
-        );
-        assert!(
-            selected_keys.contains(key),
-            "SQLite audit comparison compatible subset should include required key: {key}"
-        );
-    }
-    assert!(
-        selected
-            .iter()
-            .any(|scenario| scenario.surface == MatrixSurface::User)
-    );
-    assert!(
-        selected
-            .iter()
-            .any(|scenario| scenario.surface == MatrixSurface::Account)
-    );
-    assert!(
-        selected
-            .iter()
-            .any(|scenario| scenario.surface == MatrixSurface::Blob)
-    );
-    assert!(
-        selected
-            .iter()
-            .any(|scenario| scenario.surface == MatrixSurface::Token)
-    );
-    for incompatible in [
-        "user.select.wide.all.pk_asc.limit1",
-        "blob.select.payload.all.pk_asc.limit1",
-        "blob.select.lengths.all.pk_asc.limit1",
-        "token.collection_stage_id.branch_set.full_entity.limit50",
-        "user.metadata.describe",
-        "heap_user.select.pk.all.pk_asc.limit1",
-    ] {
-        assert!(
-            !selected_keys.contains(incompatible),
-            "SQLite audit comparison compatible subset should exclude incompatible key: {incompatible}"
-        );
-    }
-}
-
-#[test]
-fn sql_perf_sqlite_differential_random_subset_is_seeded_and_compatible() {
-    let generated_case_count = DEFAULT_SQL_PERF_SQLITE_DIFF_CASE_COUNT;
-    let generated = random_matrix(DEFAULT_SQL_PERF_SQLITE_DIFF_SEED, generated_case_count);
-    let selected =
-        sqlite_differential_scenarios(DEFAULT_SQL_PERF_SQLITE_DIFF_SEED, generated_case_count);
-
-    assert_eq!(generated.len(), generated_case_count);
-    assert!(
-        selected.len() >= 200,
-        "SQLite random differential should keep a broad compatible subset; got {}",
-        selected.len(),
-    );
-    assert_eq!(
-        generated.first().map(|scenario| scenario.key.as_str()),
-        Some("random.1cdb01960000000f.0000.user"),
-    );
-    assert!(
-        generated
-            .iter()
-            .any(|scenario| scenario.sql.contains(" OR ")),
-        "random SELECT differential should include disjunction predicates"
-    );
-    assert!(
-        generated
-            .iter()
-            .any(|scenario| scenario.sql.contains(" BETWEEN ")),
-        "random SELECT differential should include BETWEEN predicates"
-    );
-    assert!(
-        generated
-            .iter()
-            .any(|scenario| scenario.sql.contains(" NOT IN ")),
-        "random SELECT differential should include NOT IN predicates"
-    );
-    for scenario in &selected {
-        assert!(matches!(scenario.source, ScenarioSource::Generated { .. }));
-        assert!(
-            scenario.key.starts_with("random.1cdb01960000000f."),
-            "random differential scenario should include the seed in its key: {}",
-            scenario.key,
-        );
-        assert!(
-            scenario_has_sqlite_reference(scenario),
-            "random differential should select only SQLite-compatible scenarios: {}",
-            scenario.key,
-        );
-        assert!(
-            !scenario.family.contains(".full_entity")
-                && !scenario.sql.starts_with("SELECT * FROM PerfAuditToken"),
-            "random differential should exclude token full-entity SELECT * scenarios: {}",
-            scenario.key,
-        );
-    }
-    assert!(
-        selected
-            .iter()
-            .any(|scenario| scenario.surface == MatrixSurface::User)
-    );
-    assert!(
-        selected
-            .iter()
-            .any(|scenario| scenario.surface == MatrixSurface::Account)
-    );
-    assert!(
-        selected
-            .iter()
-            .any(|scenario| scenario.surface == MatrixSurface::Token)
-    );
-    let selected_surfaces = selected
-        .iter()
-        .map(|scenario| scenario.surface.label())
-        .collect::<BTreeSet<_>>();
-    assert!(
-        selected_surfaces.len() >= 3,
-        "SQLite random differential should retain multiple compatible surfaces; got {selected_surfaces:?}",
-    );
-}
-
-#[test]
-fn sql_perf_sqlite_differential_markdown_records_seed_and_strict_counts() {
-    let report = SqliteDifferentialReport {
-        sqlite_version: "sqlite-test".to_string(),
-        sqlite_path: "sqlite3".to_string(),
-        canister_wasm_profile: "debug".to_string(),
-        random_seed: DEFAULT_SQL_PERF_SQLITE_DIFF_SEED,
-        generated_case_count: 1,
-        compatible_scenario_count: 1,
-        common_success_count: 1,
-        icydb_failure_count: 0,
-        correctness_failure_count: 0,
-        selected_surface_counts: count_map(&[("user", 1)]),
-        selected_family_counts: count_map(&[("random.pk.pk_asc", 1)]),
-        successful_route_family_counts: count_map(&[("primary_order", 1)]),
-        successful_route_outcome_counts: count_map(&[("pushed", 1)]),
-        successful_route_pair_counts: count_map(&[("primary_order/pushed", 1)]),
-        fairness_notes: sqlite_differential_fairness_notes(),
-        scenarios: vec![SqliteAuditComparisonScenario {
-            key: "random.1cdb01960000000f.0000.user".to_string(),
-            surface: "user".to_string(),
-            family: "random.pk.pk_asc".to_string(),
-            sql: "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1".to_string(),
-            route_family: "primary_order".to_string(),
-            route_outcome: "pushed".to_string(),
-            route_reason: None,
-            limit_stop_after: MatrixLimitStopAfter::default(),
-            icydb_signature: "1".to_string(),
-            sqlite_signature: "1".to_string(),
-            correctness_passed: true,
-            correctness_failure_owner: None,
-            correctness_mismatch_category: None,
-            sqlite_explain_query_plan: vec!["SCAN PerfAuditUser".to_string()],
-            sqlite_plan_summary: sqlite_plan_summary(&["SCAN PerfAuditUser".to_string()]),
-            sqlite_plan_alignment: "aligned_ordered_access".to_string(),
-            icydb_total_local_instructions: 10,
-            icydb_execute_local_instructions: 8,
-            icydb_data_store_get_calls: 0,
-            icydb_index_store_range_scan_calls: 0,
-            icydb_index_store_entry_reads: 0,
-            sqlite_timing: SqliteTimingSummary {
-                samples: Vec::new(),
-                median: 0,
-                min: 0,
-                max: 0,
-            },
-        }],
-        failures: Vec::new(),
-    };
-
-    let markdown = sqlite_differential_markdown(&report);
-
-    assert!(markdown.contains("# SQL Perf Random SQLite Differential"));
-    assert!(markdown.contains("- Random seed: 2079257396718338063"));
-    assert!(markdown.contains("- Compatible scenarios: 1 of 1 generated"));
-    assert!(markdown.contains("- IcyDB failures: 0"));
-    assert!(markdown.contains("- Correctness failures: 0"));
-    assert!(markdown.contains("## Selected Surface Coverage"));
-    assert!(markdown.contains("| user | 1 |"));
-    assert!(markdown.contains("## Successful Route Pair Coverage"));
-    assert!(markdown.contains("| primary_order/pushed | 1 |"));
-    assert!(markdown.contains("random.1cdb01960000000f.0000.user"));
-}
-
-#[test]
-fn sql_perf_sqlite_mutation_differential_random_sequence_is_seeded_and_bounded() {
-    let scenarios = sqlite_mutation_differential_scenarios(
-        DEFAULT_SQL_PERF_SQLITE_MUTATION_DIFF_SEED,
-        DEFAULT_SQL_PERF_SQLITE_MUTATION_DIFF_CASE_COUNT,
-    );
-
-    assert_eq!(
-        scenarios.len(),
-        DEFAULT_SQL_PERF_SQLITE_MUTATION_DIFF_CASE_COUNT
-    );
-    assert!(scenarios.first().is_some_and(|scenario| {
-        scenario
-            .key
-            .starts_with("mutation.random.1cdb019600000010.0000.")
-    }));
-    assert_sqlite_mutation_sequence_covers_supported_shapes(&scenarios);
-    assert_sqlite_mutation_sequence_stays_on_comparable_surfaces(&scenarios);
-}
-
-fn assert_sqlite_mutation_sequence_covers_supported_shapes(scenarios: &[SqliteMutationScenario]) {
-    assert_sqlite_mutation_sequence_covers_surfaces_and_verbs(scenarios);
-    assert_sqlite_mutation_sequence_covers_matched_predicates(scenarios);
-    assert_sqlite_mutation_sequence_covers_indexed_field_updates(scenarios);
-    assert_sqlite_mutation_sequence_covers_no_match_predicates(scenarios);
-}
-
-fn assert_sqlite_mutation_sequence_covers_surfaces_and_verbs(scenarios: &[SqliteMutationScenario]) {
-    assert!(
-        scenarios
-            .iter()
-            .any(|scenario| scenario.surface == MatrixSurface::User)
-    );
-    assert!(
-        scenarios
-            .iter()
-            .any(|scenario| scenario.surface == MatrixSurface::Account)
-    );
-    assert!(
-        scenarios
-            .iter()
-            .any(|scenario| scenario.sql.starts_with("UPDATE "))
-    );
-    assert!(
-        scenarios
-            .iter()
-            .any(|scenario| scenario.sql.starts_with("DELETE "))
-    );
-    assert!(
-        scenarios
-            .iter()
-            .any(|scenario| scenario.sql.starts_with("INSERT ")),
-        "mutation differential should include INSERT scenarios with omitted managed timestamps",
-    );
-    assert!(
-        scenarios
-            .iter()
-            .any(|scenario| scenario.family == "mutation.insert"),
-        "mutation differential should classify INSERT scenarios explicitly",
-    );
-}
-
-fn assert_sqlite_mutation_sequence_covers_matched_predicates(scenarios: &[SqliteMutationScenario]) {
-    assert!(
-        scenarios.iter().any(|scenario| matches!(
-            scenario.family.as_str(),
-            "mutation.update_name_predicate" | "mutation.update_handle_predicate"
-        )),
-        "mutation differential should include exact non-primary-key predicate updates",
-    );
-    assert!(
-        scenarios
-            .iter()
-            .any(|scenario| scenario.family == "mutation.update_compound_predicate"),
-        "mutation differential should include compound non-primary-key predicate updates",
-    );
-    assert!(
-        scenarios
-            .iter()
-            .any(|scenario| scenario.family == "mutation.update_range_predicate"),
-        "mutation differential should include range non-primary-key predicate updates",
-    );
-    assert!(
-        scenarios.iter().any(|scenario| matches!(
-            scenario.family.as_str(),
-            "mutation.delete_name_predicate" | "mutation.delete_handle_predicate"
-        )),
-        "mutation differential should include exact non-primary-key predicate deletes",
-    );
-    assert!(
-        scenarios
-            .iter()
-            .any(|scenario| scenario.family == "mutation.delete_compound_predicate"),
-        "mutation differential should include compound non-primary-key predicate deletes",
-    );
-    assert!(
-        scenarios
-            .iter()
-            .any(|scenario| scenario.family == "mutation.delete_range_predicate"),
-        "mutation differential should include range non-primary-key predicate deletes",
-    );
-}
-
-fn assert_sqlite_mutation_sequence_covers_indexed_field_updates(
-    scenarios: &[SqliteMutationScenario],
-) {
-    assert!(
-        scenarios
-            .iter()
-            .any(|scenario| scenario.sql.contains("diff-user-")
-                || scenario.sql.contains("diff-handle-")),
-        "mutation differential should include indexed text-field updates"
-    );
-}
-
-fn assert_sqlite_mutation_sequence_covers_no_match_predicates(
-    scenarios: &[SqliteMutationScenario],
-) {
-    assert!(
-        scenarios.iter().any(|scenario| matches!(
-            scenario.family.as_str(),
-            "mutation.update_no_match_name" | "mutation.update_no_match_handle"
-        )),
-        "mutation differential should include zero-row exact-predicate updates",
-    );
-    assert!(
-        scenarios.iter().any(|scenario| matches!(
-            scenario.family.as_str(),
-            "mutation.delete_no_match_name" | "mutation.delete_no_match_handle"
-        )),
-        "mutation differential should include zero-row exact-predicate deletes",
-    );
-    assert!(
-        scenarios
-            .iter()
-            .any(|scenario| scenario.family == "mutation.update_no_match_range"),
-        "mutation differential should include zero-row range updates",
-    );
-    assert!(
-        scenarios
-            .iter()
-            .any(|scenario| scenario.family == "mutation.delete_no_match_range"),
-        "mutation differential should include zero-row range deletes",
-    );
-    assert!(
-        scenarios.iter().any(|scenario| {
-            scenario.expected_mutation_signature.is_empty()
-                && scenario.family.starts_with("mutation.update_no_match")
-        }),
-        "zero-row update scenarios should expect an empty RETURNING signature",
-    );
-    assert!(
-        scenarios.iter().any(|scenario| {
-            scenario.expected_mutation_signature.is_empty()
-                && scenario.family.starts_with("mutation.delete_no_match")
-        }),
-        "zero-row delete scenarios should expect an empty RETURNING signature",
-    );
-}
-
-fn assert_sqlite_mutation_sequence_stays_on_comparable_surfaces(
-    scenarios: &[SqliteMutationScenario],
-) {
-    for scenario in scenarios {
-        assert!(
-            matches!(
-                scenario.surface,
-                MatrixSurface::User | MatrixSurface::Account
-            ),
-            "mutation differential should stay on SQLite-comparable mutable audit surfaces: {}",
-            scenario.key,
-        );
-        assert!(
-            scenario.sql.contains(" RETURNING "),
-            "mutation scenario should expose a comparable RETURNING signature: {}",
-            scenario.key,
-        );
-        assert!(
-            scenario.post_read_sql.starts_with("SELECT "),
-            "mutation scenario should include a deterministic post-state read: {}",
-            scenario.key,
-        );
-        assert!(
-            mutation_scenario_is_no_match(scenario)
-                || !scenario.expected_mutation_signature.is_empty(),
-            "mutation scenario should include a generated expected RETURNING signature: {}",
-            scenario.key,
-        );
-        assert!(
-            !scenario.expected_post_signature.is_empty(),
-            "mutation scenario should include a generated expected post-state signature: {}",
-            scenario.key,
-        );
-        assert!(
-            !scenario.post_read_sql.contains("active"),
-            "post-state read should avoid boolean display differences: {}",
-            scenario.key,
-        );
-    }
-}
-
-fn mutation_scenario_is_no_match(scenario: &SqliteMutationScenario) -> bool {
-    scenario.family.starts_with("mutation.update_no_match")
-        || scenario.family.starts_with("mutation.delete_no_match")
-}
-
-#[test]
-fn sql_perf_sqlite_mutation_generator_expected_signatures_match_local_sqlite_when_available() {
-    let sqlite_path = sqlite3_path();
-    let Ok(_) = sqlite_version(&sqlite_path) else {
-        eprintln!(
-            "skipping SQLite mutation generator expected-signature check because `{}` is unavailable",
-            sqlite_path.display()
-        );
-        return;
-    };
-    let db_path = sqlite_audit_db_path();
-    setup_sqlite_audit_database(&sqlite_path, &db_path).unwrap_or_else(|err| {
-        panic!(
-            "failed to seed SQLite mutation generator database `{}`: {err}",
-            db_path.display()
-        )
-    });
-
-    let scenarios = sqlite_mutation_differential_scenarios(
-        DEFAULT_SQL_PERF_SQLITE_MUTATION_DIFF_SEED,
-        DEFAULT_SQL_PERF_SQLITE_MUTATION_DIFF_CASE_COUNT,
-    );
-
-    for scenario in &scenarios {
-        let raw_mutation_signature =
-            sqlite_query_signature(&sqlite_path, &db_path, scenario.sql.as_str()).unwrap_or_else(
-                |err| {
-                    panic!(
-                        "SQLite mutation scenario `{}` should execute: {err}",
-                        scenario.key
-                    )
-                },
-            );
-        let mutation_signature =
-            mutation_signature_for_comparison(raw_mutation_signature.as_str(), scenario);
-        assert_eq!(
-            mutation_signature, scenario.expected_mutation_signature,
-            "SQLite mutation scenario `{}` should match the generated RETURNING model",
-            scenario.key,
-        );
-
-        let post_signature =
-            sqlite_query_signature(&sqlite_path, &db_path, scenario.post_read_sql.as_str())
-                .unwrap_or_else(|err| {
-                    panic!(
-                        "SQLite mutation post-state scenario `{}` should execute: {err}",
-                        scenario.key
-                    )
-                });
-        assert_eq!(
-            post_signature, scenario.expected_post_signature,
-            "SQLite mutation scenario `{}` should match the generated post-state model",
-            scenario.key,
-        );
-    }
-}
-
-#[test]
-fn sql_perf_sqlite_mutation_differential_markdown_records_seed_and_mismatches() {
-    let report = SqliteMutationDifferentialReport {
-        sqlite_version: "sqlite-test".to_string(),
-        sqlite_path: "sqlite3".to_string(),
-        canister_wasm_profile: "debug".to_string(),
-        random_seed: DEFAULT_SQL_PERF_SQLITE_MUTATION_DIFF_SEED,
-        generated_mutation_count: 1,
-        common_success_count: 1,
-        icydb_failure_count: 0,
-        sqlite_failure_count: 0,
-        mutation_signature_mismatch_count: 0,
-        post_state_mismatch_count: 0,
-        expected_mutation_mismatch_count: 0,
-        expected_post_state_mismatch_count: 0,
-        generated_surface_counts: count_map(&[("user", 1)]),
-        generated_family_counts: count_map(&[("mutation.update_pk", 1)]),
-        generated_returning_compare_counts: count_map(&[("ordered", 1)]),
-        fairness_notes: sqlite_mutation_differential_fairness_notes(),
-        scenarios: vec![SqliteMutationComparisonScenario {
-            key: "mutation.random.1cdb019600000010.0000.user.update_pk".to_string(),
-            surface: "user".to_string(),
-            family: "mutation.update_pk".to_string(),
-            sql: "UPDATE PerfAuditUser SET age = 31 WHERE id = 1 RETURNING id, age".to_string(),
-            post_read_sql: user_mutation_post_read_sql(),
-            mutation_signature_ordered: true,
-            expected_mutation_signature: "1\t31".to_string(),
-            icydb_mutation_signature: "1\t31".to_string(),
-            sqlite_mutation_signature: "1\t31".to_string(),
-            mutation_signatures_match: true,
-            expected_mutation_match: "both".to_string(),
-            expected_post_signature: "1\tAlice\t31\t31\t28".to_string(),
-            icydb_post_signature: "1\tAlice\t31\t31\t28".to_string(),
-            sqlite_post_signature: "1\tAlice\t31\t31\t28".to_string(),
-            post_signatures_match: true,
-            expected_post_state_match: "both".to_string(),
-        }],
-        failures: Vec::new(),
-    };
-
-    let markdown = sqlite_mutation_differential_markdown(&report);
-
-    assert!(markdown.contains("# SQL Perf Random SQLite Mutation Differential"));
-    assert!(markdown.contains("- Random seed: 2079257396718338064"));
-    assert!(markdown.contains("- Generated mutations: 1"));
-    assert!(markdown.contains("- Mutation signature mismatches: 0"));
-    assert!(markdown.contains("- Post-state mismatches: 0"));
-    assert!(markdown.contains("- Expected mutation mismatches: 0"));
-    assert!(markdown.contains("- Expected post-state mismatches: 0"));
-    assert!(markdown.contains("## Generated Surface Coverage"));
-    assert!(markdown.contains("| user | 1 |"));
-    assert!(markdown.contains("## Generated Returning Compare Coverage"));
-    assert!(markdown.contains("| ordered | 1 |"));
-    assert!(markdown.contains("mutation.random.1cdb019600000010.0000.user.update_pk"));
-}
-
-#[test]
-fn sql_perf_sqlite_comparison_schema_seeds_audit_tables() {
-    let schema = sqlite_audit_schema_and_seed();
-
-    for required in [
-        "CREATE TABLE PerfAuditUser",
-        "CREATE TABLE PerfAuditAccount",
-        "CREATE TABLE PerfAuditBlob",
-        "CREATE TABLE PerfAuditToken",
-        "CREATE INDEX perf_audit_token_collection_stage_id",
-        "INSERT INTO PerfAuditUser",
-        "INSERT INTO PerfAuditAccount",
-        "INSERT INTO PerfAuditBlob",
-        "INSERT INTO PerfAuditToken",
-        TOKEN_TARGET_COLLECTION,
-        "draft-pressure-000",
-        "published-pressure-239",
-    ] {
-        assert!(
-            schema.contains(required),
-            "SQLite audit comparison schema should contain `{required}`"
-        );
-    }
-}
-
-#[test]
-fn sql_perf_sqlite_plan_summary_classifies_index_and_temp_sort() {
-    let rows = vec![
-        "4\t0\t0\t`--SEARCH PerfAuditUser USING COVERING INDEX perf_audit_user_age_id (age>?)"
-            .to_string(),
-        "18\t0\t0\t|--USE TEMP B-TREE FOR RIGHT PART OF ORDER BY".to_string(),
-    ];
-    let summary = sqlite_plan_summary(&rows);
-
-    assert!(!sqlite_plan_has(&summary, SQLITE_PLAN_FEATURE_SCAN));
-    assert!(sqlite_plan_has(&summary, SQLITE_PLAN_FEATURE_SEARCH));
-    assert!(sqlite_plan_has(&summary, SQLITE_PLAN_FEATURE_INDEX));
-    assert!(sqlite_plan_has(
-        &summary,
-        SQLITE_PLAN_FEATURE_COVERING_INDEX
-    ));
-    assert!(sqlite_plan_has(&summary, SQLITE_PLAN_FEATURE_TEMP_ORDER));
-    assert_eq!(summary.index_names, vec!["perf_audit_user_age_id"]);
-
-    let sample = MatrixSample {
-        route_outcome: "pushed".to_string(),
-        ..MatrixSample::default()
-    };
-    assert_eq!(
-        sqlite_plan_alignment(&sample, &summary),
-        "review_icydb_pushed_sqlite_temp_order"
-    );
 }
 
 fn assert_branch_route_hotspot_sql_shapes(scenarios_by_key: &BTreeMap<&str, &MatrixScenario>) {
@@ -8434,30 +4472,6 @@ fn assert_sparse_collection_in_route_hotspots(scenarios_by_key: &BTreeMap<&str, 
     assert!(
         sparse_count.sql.contains("missing-collection-249"),
         "sparse collection IN count hotspot should include 250 missing prefixes"
-    );
-}
-
-#[test]
-fn sql_perf_matrix_exact_key_filter_selects_known_scenarios() {
-    let deterministic = deterministic_matrix();
-    let selected = filter_matrix_scenarios(
-        deterministic,
-        Some(
-            "user.select.pk.all.pk_asc.limit1,\
-             journaled_user.select.wide.name_range.age_asc.limit10",
-        ),
-    );
-    let keys = selected
-        .iter()
-        .map(|scenario| scenario.key.as_str())
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        keys,
-        vec![
-            "user.select.pk.all.pk_asc.limit1",
-            "journaled_user.select.wide.name_range.age_asc.limit10",
-        ],
     );
 }
 
@@ -8602,244 +4616,120 @@ fn assert_token_route_facts(scenarios: &BTreeMap<String, MatrixScenario>) {
     );
 }
 
-fn matrix_delta_report_test_fixture() -> (MatrixReport, MatrixReport) {
-    let mut before_sample = report_matrix_sample(
-        "user.select.pk.all.pk_asc.limit1",
-        "user",
-        1_000,
-        100,
-        "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
-    );
-    before_sample.order_by_idx_hint = Some("id ASC".to_string());
-    before_sample.result_signature = Some("projection|PerfAuditUser|id|1|1".to_string());
-    let mut after_sample = before_sample.clone();
-    after_sample.total_local_instructions = 900;
-    after_sample.execute_local_instructions = 899;
-    after_sample.data_store_get_calls = 0;
-    after_sample.route_outcome = "pushed".to_string();
-    after_sample.route_reason = Some("primary_order_limit_stop_proven".to_string());
-    after_sample.limit_stop_after = MatrixLimitStopAfter {
-        possible: true,
-        returned_limit: Some(1),
-        lookahead: 1,
-        stopped_after_matches: Some(1),
-        stopped_after_index_entries: Some(0),
-        disabled_reason: None,
-    };
-    after_sample
-        .result_signature
-        .clone_from(&before_sample.result_signature);
-    let before_new_failure_sample = report_matrix_sample(
-        "user.failure.new",
-        "user",
-        1_100,
-        100,
-        "SELECT id FROM PerfAuditUser ORDER BY unsupported_expression",
-    );
-    let after_resolved_failure_sample = report_matrix_sample(
-        "user.failure.resolved",
-        "user",
-        1_050,
-        100,
-        "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
-    );
+fn test_matrix_report(samples: Vec<MatrixSample>, failures: Vec<MatrixFailure>) -> MatrixReport {
+    let declared_scenario_count = samples.len() + failures.len();
 
-    let before_failure = MatrixFailure {
-        key: "user.failure.resolved".to_string(),
-        source: ScenarioSource::Deterministic.label().to_string(),
-        surface: MatrixSurface::User.label().to_string(),
-        family: "failure.query_plan".to_string(),
-        sql: "SELECT id FROM PerfAuditUser ORDER BY unsupported_expression".to_string(),
-        route_family: failed_route_family(),
-        route_outcome: failed_route_outcome(),
-        route_reason: failed_route_reason(),
-        code: 3,
-        diagnostic_code: 3,
-        diagnostic_label: "QueryPlan".to_string(),
-        class: "Query".to_string(),
-        origin: "Query".to_string(),
-        correctness_failure_owner: "product_failure".to_string(),
-        correctness_mismatch_category: "acceptance".to_string(),
-    };
-    let after_failure = MatrixFailure {
-        key: "user.failure.new".to_string(),
-        ..before_failure.clone()
-    };
-
-    let before = MatrixReport {
-        matrix_mode: MatrixMode::Deterministic.label().to_string(),
-        canister_wasm_profile: "test".to_string(),
-        generated_scenario_count: 3,
-        executed_scenario_count: 2,
-        failed_scenario_count: 1,
-        matrix_limit: 3,
-        scenario_key_filter: None,
-        random_seed: None,
-        random_case_count: 0,
-        samples: vec![before_sample, before_new_failure_sample],
-        failures: vec![before_failure],
-    };
-    let current = MatrixReport {
-        matrix_mode: MatrixMode::Deterministic.label().to_string(),
-        canister_wasm_profile: "test".to_string(),
-        generated_scenario_count: 3,
-        executed_scenario_count: 2,
-        failed_scenario_count: 1,
-        matrix_limit: 3,
-        scenario_key_filter: None,
-        random_seed: None,
-        random_case_count: 0,
-        samples: vec![after_sample, after_resolved_failure_sample],
-        failures: vec![after_failure],
-    };
-
-    (before, current)
+    MatrixReport {
+        performance_profile_version: 1,
+        expected_scenario_set_hash: "test-scenario-set".to_string(),
+        observed_scenario_set_hash: "test-scenario-set".to_string(),
+        broad_scan_complete: false,
+        canister_wasm_profile: "wasm-release".to_string(),
+        environment: crate::sql_perf_environment::tests::identity(),
+        declared_scenario_count,
+        successful_scenario_count: samples.len(),
+        failed_scenario_count: failures.len(),
+        phase_ownership: current_phase_ownership(),
+        p1_shard_receipts: Vec::new(),
+        samples,
+        failures,
+    }
 }
 
 #[test]
-fn sql_perf_matrix_delta_reports_union_status_routes_and_signatures() {
-    let (before, current) = matrix_delta_report_test_fixture();
-    let focused = BTreeSet::from(["user.select.pk.all.pk_asc.limit1".to_string()]);
-    let expected = focused.clone();
-    let delta = matrix_delta_report(
-        Path::new("/tmp/before.json"),
-        &before,
-        Path::new("/tmp/after.json"),
-        &current,
-        &focused,
-        &expected,
-    );
+fn sql_perf_matrix_report_decoding_is_strict_and_size_bounded() {
+    let report = test_matrix_report(Vec::new(), Vec::new());
+    let encoded = serde_json::to_vec(&report).expect("current matrix report should serialize");
+    let decoded = serde_json::from_slice::<MatrixReport>(&encoded)
+        .expect("current matrix report should decode");
+    assert_eq!(decoded, report);
 
-    assert_eq!(delta.union_scenario_count, 3);
-    assert_eq!(delta.common_successful_scenario_count, 1);
-    assert_eq!(delta.improved_scenario_count, 1);
-    assert_eq!(delta.new_failure_count, 1);
-    assert_eq!(delta.resolved_failure_count, 1);
+    let mut unknown_field = serde_json::to_value(&report)
+        .expect("current matrix report should serialize as a JSON value");
+    unknown_field
+        .as_object_mut()
+        .expect("matrix report should be a JSON object")
+        .insert("unexpected".to_string(), serde_json::Value::Bool(true));
     assert!(
-        delta.closeout_failures.is_empty(),
-        "expected clean delta closeout, got {:?}",
-        delta.closeout_failures,
+        serde_json::from_value::<MatrixReport>(unknown_field).is_err(),
+        "unknown artifact fields must fail current-format decoding",
     );
 
-    let row = delta
-        .rows
+    let max_bytes = SQL_PERFORMANCE_PROFILE.max_artifact_bytes();
+    assert!(validate_matrix_report_size(Path::new("matrix.json"), max_bytes).is_ok());
+    assert!(matches!(
+        validate_matrix_report_size(Path::new("matrix.json"), max_bytes + 1),
+        Err(MatrixReportArtifactError::TooLarge {
+            observed_bytes,
+            max_bytes: observed_max_bytes,
+            ..
+        }) if observed_bytes == max_bytes + 1 && observed_max_bytes == max_bytes
+    ));
+}
+
+#[test]
+fn sql_perf_matrix_publication_requires_complete_current_profile_evidence() {
+    let scenarios = deterministic_matrix();
+    let samples = scenarios
         .iter()
-        .find(|row| row.key == "user.select.pk.all.pk_asc.limit1")
-        .expect("delta row should exist for common success");
-    assert_eq!(row.status_class, "common_success");
-    assert_eq!(row.total_local_instructions.delta, Some(-100));
-    assert_eq!(row.data_store_get_calls.delta, Some(-1));
-    assert_eq!(row.before_route_family.as_deref(), Some("primary_order"));
-    assert_eq!(
-        row.before_route_outcome.as_deref(),
-        Some("eligible_but_not_pushed")
-    );
-    assert_eq!(row.after_route_outcome.as_deref(), Some("pushed"));
-    assert_eq!(row.before_order_by_idx_hint.as_deref(), Some("id ASC"));
-    assert_eq!(row.after_order_by_idx_hint.as_deref(), Some("id ASC"));
-    assert_eq!(
-        row.before_limit_stop_after
-            .as_ref()
-            .map(|limit| limit.possible),
-        Some(false),
-    );
-    assert_eq!(
-        row.after_limit_stop_after
-            .as_ref()
-            .map(|limit| limit.possible),
-        Some(true),
-    );
-    assert!(!row.signature_changes.result_signature_changed);
+        .map(|scenario| MatrixSample {
+            key: scenario.key.clone(),
+            ..MatrixSample::default()
+        })
+        .collect::<Vec<_>>();
+    let declared_ids = scenarios
+        .iter()
+        .map(|scenario| scenario.key.as_str())
+        .collect::<Vec<_>>();
+    let successful_ids = samples
+        .iter()
+        .map(|sample| sample.key.as_str())
+        .collect::<Vec<_>>();
+    let receipts =
+        build_p1_shard_receipts(SQL_PERFORMANCE_PROFILE, &declared_ids, &successful_ids, &[])
+            .expect("complete profile should produce publication receipts");
+    let mut report = MatrixReport {
+        performance_profile_version: SQL_PERFORMANCE_PROFILE.version(),
+        expected_scenario_set_hash: SQL_PERFORMANCE_PROFILE
+            .expected_scenario_set_hash()
+            .to_string(),
+        observed_scenario_set_hash: SQL_PERFORMANCE_PROFILE
+            .expected_scenario_set_hash()
+            .to_string(),
+        broad_scan_complete: true,
+        canister_wasm_profile: CanisterWasmProfile::WasmRelease.as_str().to_string(),
+        environment: crate::sql_perf_environment::tests::identity(),
+        declared_scenario_count: samples.len(),
+        successful_scenario_count: samples.len(),
+        failed_scenario_count: 0,
+        phase_ownership: current_phase_ownership(),
+        p1_shard_receipts: receipts,
+        samples,
+        failures: Vec::new(),
+    };
 
-    let markdown = matrix_delta_markdown(&delta);
-    assert!(
-        markdown.contains("Top 50 Improvements By Absolute Instructions"),
-        "delta markdown should include improvement table"
-    );
-    assert!(
-        markdown.contains("Route Family Delta"),
-        "delta markdown should include route-family aggregate"
-    );
-    assert!(
-        markdown.contains("id ASC -> id ASC"),
-        "delta markdown should include order-by hint transitions"
-    );
-    assert!(
-        markdown.contains(
-            "disabled(test_sample) -> possible(limit=1,lookahead=1,matches=1,index_entries=0)"
-        ),
-        "delta markdown should include limit-stop transitions"
-    );
-}
-
-#[test]
-fn sql_perf_matrix_delta_gate_rejects_absent_focused_targets() {
-    let (before, current) = matrix_delta_report_test_fixture();
-    let focused = BTreeSet::from(["user.select.pk.missing.pk_asc.limit1".to_string()]);
-    let delta = matrix_delta_report(
-        Path::new("/tmp/before.json"),
-        &before,
-        Path::new("/tmp/after.json"),
-        &current,
-        &focused,
-        &BTreeSet::new(),
-    );
-
-    assert!(
-        delta.closeout_failures.contains(
-            &"focused target `user.select.pk.missing.pk_asc.limit1` is absent from both reports"
-                .to_string()
-        ),
-        "missing focused target should fail closeout, got {:?}",
-        delta.closeout_failures,
-    );
-}
-
-#[test]
-fn sql_perf_matrix_delta_gate_rejects_unimproved_expected_targets() {
-    let (mut before, mut current) = matrix_delta_report_test_fixture();
-    before.samples[0].total_local_instructions = 1_000;
-    current.samples[0].total_local_instructions = 1_000;
-    let expected = BTreeSet::from(["user.select.pk.all.pk_asc.limit1".to_string()]);
-    let delta = matrix_delta_report(
-        Path::new("/tmp/before.json"),
-        &before,
-        Path::new("/tmp/after.json"),
-        &current,
-        &BTreeSet::new(),
-        &expected,
-    );
-
-    assert!(
-        delta.closeout_failures.contains(
-            &"expected improvement target `user.select.pk.all.pk_asc.limit1` did not reduce total instructions"
-                .to_string(),
-        ),
-        "unimproved expected target should fail closeout, got {:?}",
-        delta.closeout_failures,
-    );
-}
-
-#[test]
-fn sql_perf_matrix_delta_gate_rejects_canister_wasm_profile_mismatch() {
-    let (before, mut current) = matrix_delta_report_test_fixture();
-    current.canister_wasm_profile = "wasm-release".to_string();
-    let delta = matrix_delta_report(
-        Path::new("/tmp/before.json"),
-        &before,
-        Path::new("/tmp/after.json"),
-        &current,
-        &BTreeSet::new(),
-        &BTreeSet::new(),
-    );
-
-    assert!(
-        delta.closeout_failures.contains(
-            &"canister wasm profile mismatch: baseline `test`, current `wasm-release`".to_string(),
-        ),
-        "profile mismatch should fail closeout, got {:?}",
-        delta.closeout_failures,
-    );
+    validate_matrix_report_for_publication(&report)
+        .expect("complete current-profile report should be publishable");
+    report.samples[0]
+        .total_phase_reconciliation
+        .unaccounted_local_instructions = 1;
+    assert!(matches!(
+        validate_matrix_report_for_publication(&report),
+        Err(MatrixReportValidationError::PhaseReconciliationDrift(_))
+    ));
+    fill_matrix_phase_reconciliation(&mut report.samples[0]);
+    report.broad_scan_complete = false;
+    assert!(matches!(
+        validate_matrix_report_for_publication(&report),
+        Err(MatrixReportValidationError::IncompleteBroadScan)
+    ));
+    report.broad_scan_complete = true;
+    report.p1_shard_receipts[0].expected_shard_hash = "forged".to_string();
+    report.p1_shard_receipts[0].observed_shard_hash = "forged".to_string();
+    assert!(matches!(
+        validate_matrix_report_for_publication(&report),
+        Err(MatrixReportValidationError::ReceiptOutcomeDrift)
+    ));
 }
 
 #[test]
@@ -8856,7 +4746,6 @@ fn sql_perf_matrix_markdown_reports_route_classification_summary() {
 
     let failure = MatrixFailure {
         key: "user.failure".to_string(),
-        source: ScenarioSource::Deterministic.label().to_string(),
         surface: MatrixSurface::User.label().to_string(),
         family: "failure.query_plan".to_string(),
         sql: "SELECT id FROM PerfAuditUser ORDER BY unsupported_expression".to_string(),
@@ -8871,29 +4760,22 @@ fn sql_perf_matrix_markdown_reports_route_classification_summary() {
         correctness_failure_owner: "product_failure".to_string(),
         correctness_mismatch_category: "acceptance".to_string(),
     };
-    let report = MatrixReport {
-        matrix_mode: MatrixMode::Deterministic.label().to_string(),
-        canister_wasm_profile: "test".to_string(),
-        generated_scenario_count: 2,
-        executed_scenario_count: 1,
-        failed_scenario_count: 1,
-        matrix_limit: 2,
-        scenario_key_filter: None,
-        random_seed: None,
-        random_case_count: 0,
-        samples: vec![sample],
-        failures: vec![failure],
-    };
+    let report = test_matrix_report(vec![sample], vec![failure]);
 
     let markdown = matrix_markdown(&report);
 
     assert!(
-        markdown.contains("- canister wasm profile: test"),
+        markdown.contains("- canister wasm profile: wasm-release"),
         "matrix markdown should include the fixture wasm profile",
     );
     assert!(
         markdown.contains("## Route Classification Summary"),
         "matrix markdown should expose route classification coverage",
+    );
+    assert!(
+        markdown.contains("## Phase Ownership (version 1)")
+            && markdown.contains("`nested_observation`"),
+        "matrix markdown should carry the versioned additive/nested ownership table",
     );
     assert!(
         markdown.contains(
@@ -8910,37 +4792,6 @@ fn sql_perf_matrix_markdown_reports_route_classification_summary() {
 }
 
 #[test]
-fn sql_perf_random_matrix_has_seeded_stable_shape() {
-    let random = random_matrix(DEFAULT_RANDOM_SEED, 20);
-    assert_eq!(random.len(), 20);
-    assert_eq!(
-        random.first().map(|scenario| scenario.key.as_str()),
-        Some("random.1cdb018200000001.0000.blob"),
-    );
-
-    let mut keys = HashSet::new();
-    for scenario in &random {
-        assert!(matches!(scenario.source, ScenarioSource::Generated { .. }));
-        assert!(
-            keys.insert(scenario.key.as_str()),
-            "duplicate random scenario key '{}'",
-            scenario.key,
-        );
-        assert!(
-            scenario.sql.starts_with("SELECT"),
-            "random scenario '{}' should use supported SELECT syntax",
-            scenario.key,
-        );
-    }
-    assert!(
-        random
-            .iter()
-            .any(|scenario| scenario.surface == MatrixSurface::Token),
-        "seeded random matrix should include token IN/branch route pressure"
-    );
-}
-
-#[test]
 fn sql_perf_matrix_storage_backend_comparison_pairs_all_storage_mirrors() {
     let samples = vec![
         storage_matrix_sample("heap_user.select.pk.all.pk_asc.limit1", "heap_user", 80, 10),
@@ -8951,19 +4802,7 @@ fn sql_perf_matrix_storage_backend_comparison_pairs_all_storage_mirrors() {
             12,
         ),
     ];
-    let report = MatrixReport {
-        matrix_mode: MatrixMode::Deterministic.label().to_string(),
-        canister_wasm_profile: "test".to_string(),
-        generated_scenario_count: samples.len(),
-        executed_scenario_count: samples.len(),
-        failed_scenario_count: 0,
-        matrix_limit: samples.len(),
-        scenario_key_filter: None,
-        random_seed: None,
-        random_case_count: 0,
-        samples,
-        failures: Vec::new(),
-    };
+    let report = test_matrix_report(samples, Vec::new());
 
     let markdown = matrix_markdown(&report);
 
@@ -9014,19 +4853,7 @@ fn sql_perf_matrix_main_fixture_hotspots_exclude_storage_mirror_baselines() {
             sample
         },
     ];
-    let report = MatrixReport {
-        matrix_mode: MatrixMode::Deterministic.label().to_string(),
-        canister_wasm_profile: "test".to_string(),
-        generated_scenario_count: samples.len(),
-        executed_scenario_count: samples.len(),
-        failed_scenario_count: 0,
-        matrix_limit: samples.len(),
-        scenario_key_filter: None,
-        random_seed: None,
-        random_case_count: 0,
-        samples,
-        failures: Vec::new(),
-    };
+    let report = test_matrix_report(samples, Vec::new());
 
     let markdown = matrix_markdown(&report);
     let main_fixture_total_section = markdown
@@ -9138,19 +4965,7 @@ fn sql_perf_matrix_reports_compile_phase_hotspots() {
     sample.compile_bind_local_instructions = 19;
     sample.compile_cache_insert_local_instructions = 26;
 
-    let report = MatrixReport {
-        matrix_mode: MatrixMode::Deterministic.label().to_string(),
-        canister_wasm_profile: "test".to_string(),
-        generated_scenario_count: 1,
-        executed_scenario_count: 1,
-        failed_scenario_count: 0,
-        matrix_limit: 1,
-        scenario_key_filter: None,
-        random_seed: None,
-        random_case_count: 0,
-        samples: vec![sample],
-        failures: Vec::new(),
-    };
+    let report = test_matrix_report(vec![sample], Vec::new());
 
     let markdown = matrix_markdown(&report);
     let compile_phase_section = markdown
@@ -9171,6 +4986,58 @@ fn sql_perf_matrix_reports_compile_phase_hotspots() {
 }
 
 #[test]
+fn sql_perf_matrix_preserves_execution_boundary_attribution() {
+    let mut attribution = SqlQueryExecutionAttribution {
+        execute_local_instructions: 160,
+        total_local_instructions: 160,
+        ..SqlQueryExecutionAttribution::default()
+    };
+    attribution.execution.store_local_instructions = 40;
+    attribution.execution.executor_invocation_local_instructions = 120;
+    attribution.execution.executor_local_instructions = 80;
+    attribution
+        .execution
+        .response_finalization_local_instructions = 40;
+    let mut sample = MatrixSample::default();
+
+    fill_matrix_execution_sample(&mut sample, &attribution);
+    fill_matrix_phase_reconciliation(&mut sample);
+
+    assert_eq!(sample.executor_invocation_local_instructions, 120);
+    assert_eq!(sample.executor_local_instructions, 80);
+    assert_eq!(sample.response_finalization_local_instructions, 40);
+    assert_eq!(
+        sample.executor_invocation_phase_reconciliation,
+        PhaseReconciliation {
+            attributable_local_instructions: 120,
+            unaccounted_local_instructions: 0,
+            over_attributed_local_instructions: 0,
+            unaccounted_basis_points: Some(0),
+        },
+    );
+    assert_eq!(
+        sample.execute_phase_reconciliation,
+        PhaseReconciliation {
+            attributable_local_instructions: 160,
+            unaccounted_local_instructions: 0,
+            over_attributed_local_instructions: 0,
+            unaccounted_basis_points: Some(0),
+        },
+    );
+
+    sample.key = "user.execution.boundary".to_string();
+    sample.surface = "user".to_string();
+    sample.sql = "SELECT id FROM PerfAuditUser".to_string();
+    let mut markdown = String::new();
+    append_instruction_hotspot_tables(&mut markdown, &[sample]);
+    assert!(markdown.contains("## Top Executor Invocation Instructions"));
+    assert!(markdown.contains("## Top Executor Runtime Instructions"));
+    assert!(markdown.contains("## Top Response Finalization Instructions"));
+    assert!(markdown.contains("## Top Execute Phase Residual"));
+    assert!(markdown.contains("## Top Executor Invocation Phase Residual"));
+}
+
+#[test]
 fn sql_perf_matrix_reports_pure_covering_hotspots() {
     let samples = vec![main_fixture_sample_with_pure_covering(
         "user.select.pk.id_only.pk_asc.limit1",
@@ -9180,19 +5047,7 @@ fn sql_perf_matrix_reports_pure_covering_hotspots() {
         35,
         "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
     )];
-    let report = MatrixReport {
-        matrix_mode: MatrixMode::Deterministic.label().to_string(),
-        canister_wasm_profile: "test".to_string(),
-        generated_scenario_count: samples.len(),
-        executed_scenario_count: samples.len(),
-        failed_scenario_count: 0,
-        matrix_limit: samples.len(),
-        scenario_key_filter: None,
-        random_seed: None,
-        random_case_count: 0,
-        samples,
-        failures: Vec::new(),
-    };
+    let report = test_matrix_report(samples, Vec::new());
 
     let markdown = matrix_markdown(&report);
     let pure_covering_decode_section = markdown
@@ -9234,19 +5089,7 @@ fn sql_perf_matrix_reports_hybrid_covering_hotspots() {
         50,
         "SELECT id, title FROM PerfAuditToken ORDER BY id ASC LIMIT 50",
     )];
-    let report = MatrixReport {
-        matrix_mode: MatrixMode::Deterministic.label().to_string(),
-        canister_wasm_profile: "test".to_string(),
-        generated_scenario_count: samples.len(),
-        executed_scenario_count: samples.len(),
-        failed_scenario_count: 0,
-        matrix_limit: samples.len(),
-        scenario_key_filter: None,
-        random_seed: None,
-        random_case_count: 0,
-        samples,
-        failures: Vec::new(),
-    };
+    let report = test_matrix_report(samples, Vec::new());
 
     let markdown = matrix_markdown(&report);
     let hybrid_row_section = markdown
@@ -9276,6 +5119,15 @@ fn storage_matrix_sample(key: &str, surface: &str, total: u64, store: u64) -> Ma
     )
 }
 
+fn test_fixture_row_count(surface: &str) -> u64 {
+    match surface {
+        "account" | "blob" | "user" => 6,
+        "heap_user" | "journaled_user" => 512,
+        "token" => 260,
+        other => panic!("test sample has unknown matrix surface `{other}`"),
+    }
+}
+
 fn report_matrix_sample(
     key: &str,
     surface: &str,
@@ -9283,88 +5135,30 @@ fn report_matrix_sample(
     store: u64,
     sql: &str,
 ) -> MatrixSample {
-    MatrixSample {
+    let execute = total.saturating_sub(1);
+    let executor_runtime = execute.saturating_sub(store);
+    let mut sample = MatrixSample {
         key: key.to_string(),
-        source: ScenarioSource::Deterministic.label().to_string(),
         surface: surface.to_string(),
         family: "select.pk.all.pk_asc".to_string(),
         sql: sql.to_string(),
+        fixture_row_count: test_fixture_row_count(surface),
         route_family: "primary_order".to_string(),
         route_outcome: "eligible_but_not_pushed".to_string(),
         route_reason: Some("test_sample".to_string()),
-        order_by_idx_hint: None,
         limit_stop_after: MatrixLimitStopAfter {
             possible: false,
             disabled_reason: Some("test_sample".to_string()),
             ..MatrixLimitStopAfter::default()
         },
         result_signature: Some("projection|PerfAuditHeapUser|id|1|1".to_string()),
-        cursor_signature: None,
         compile_local_instructions: 1,
-        compile_cache_key_local_instructions: 0,
-        compile_cache_lookup_local_instructions: 0,
-        compile_parse_local_instructions: 0,
-        compile_parse_tokenize_local_instructions: 0,
-        compile_parse_select_local_instructions: 0,
-        compile_parse_expr_local_instructions: 0,
-        compile_parse_predicate_local_instructions: 0,
-        compile_aggregate_lane_check_local_instructions: 0,
-        compile_prepare_local_instructions: 0,
-        compile_lower_local_instructions: 0,
-        compile_bind_local_instructions: 0,
-        compile_cache_insert_local_instructions: 0,
-        execute_local_instructions: total.saturating_sub(1),
-        planner_local_instructions: 0,
-        planner_schema_info_local_instructions: 0,
-        planner_prepare_local_instructions: 0,
-        planner_cache_key_local_instructions: 0,
-        planner_cache_lookup_local_instructions: 0,
-        planner_plan_build_local_instructions: 0,
-        planner_cache_insert_local_instructions: 0,
+        execute_local_instructions: execute,
         store_local_instructions: store,
-        executor_local_instructions: total.saturating_sub(store),
-        grouped_stream_local_instructions: 0,
-        grouped_fold_local_instructions: 0,
-        grouped_finalize_local_instructions: 0,
-        scalar_aggregate_base_row_local_instructions: 0,
-        scalar_aggregate_reducer_fold_local_instructions: 0,
-        scalar_aggregate_expression_evaluations: 0,
-        scalar_aggregate_filter_evaluations: 0,
-        scalar_aggregate_rows_ingested: 0,
-        scalar_aggregate_terminal_count: 0,
-        scalar_aggregate_unique_input_expr_count: 0,
-        scalar_aggregate_unique_filter_expr_count: 0,
-        scalar_aggregate_sink_mode: None,
-        pure_covering_decode_local_instructions: 0,
-        pure_covering_row_assembly_local_instructions: 0,
-        hybrid_covering_path_hits: 0,
-        hybrid_covering_index_field_accesses: 0,
-        hybrid_covering_row_field_accesses: 0,
-        direct_data_row_scan_local_instructions: 0,
-        direct_data_row_key_stream_local_instructions: 0,
-        direct_data_row_row_read_local_instructions: 0,
-        direct_data_row_key_encode_local_instructions: 0,
-        direct_data_row_store_get_local_instructions: 0,
-        direct_data_row_order_window_local_instructions: 0,
-        direct_data_row_page_window_local_instructions: 0,
-        kernel_row_scan_local_instructions: 0,
-        kernel_row_key_stream_local_instructions: 0,
-        kernel_row_row_read_local_instructions: 0,
-        kernel_row_order_window_local_instructions: 0,
-        kernel_row_page_window_local_instructions: 0,
-        kernel_row_retained_layout_hits: 0,
-        kernel_row_retained_slot_values: 0,
-        kernel_row_retained_octet_length_values: 0,
+        executor_invocation_local_instructions: execute,
+        executor_local_instructions: executor_runtime,
         data_store_get_calls: 1,
-        index_store_get_calls: 0,
-        index_store_range_scan_calls: 0,
-        index_store_entry_reads: 0,
-        output_blob_values: 0,
-        output_blob_bytes: 0,
-        output_blob_hex_bytes: 0,
-        sql_compiled_command_hits: 0,
         sql_compiled_command_misses: 1,
-        shared_query_plan_hits: 0,
         shared_query_plan_misses: 1,
         total_local_instructions: total,
         outcome: MatrixOutcome {
@@ -9372,7 +5166,11 @@ fn report_matrix_sample(
             entity: "PerfAuditHeapUser".to_string(),
             row_count: 1,
         },
-    }
+        ..MatrixSample::default()
+    };
+    fill_matrix_phase_reconciliation(&mut sample);
+
+    sample
 }
 
 fn main_fixture_sample_with_kernel_scan(
@@ -9429,19 +5227,7 @@ fn sql_perf_matrix_reports_index_range_scan_hotspots() {
         "SELECT id FROM PerfAuditToken WHERE collection_id IN ('01KV5N439P0000000000000000', 'missing-collection-000') ORDER BY id ASC LIMIT 50",
     );
     sample.index_store_range_scan_calls = 251;
-    let report = MatrixReport {
-        matrix_mode: MatrixMode::Deterministic.label().to_string(),
-        canister_wasm_profile: "test".to_string(),
-        generated_scenario_count: 1,
-        executed_scenario_count: 1,
-        failed_scenario_count: 0,
-        matrix_limit: 1,
-        scenario_key_filter: None,
-        random_seed: None,
-        random_case_count: 0,
-        samples: vec![sample],
-        failures: Vec::new(),
-    };
+    let report = test_matrix_report(vec![sample], Vec::new());
 
     let markdown = matrix_markdown(&report);
     let range_scan_section = markdown
@@ -9481,544 +5267,43 @@ fn sql_perf_matrix_pocketic_startup_smoke() {
 }
 
 #[test]
-#[ignore = "optional SQLite comparison; run manually with sqlite3 and PocketIC"]
-fn sql_perf_generated_matrix_compares_sqlite_reference_fixture() {
-    let sqlite_path = sqlite3_path();
-    let Ok(sqlite_version) = sqlite_version(&sqlite_path) else {
-        eprintln!(
-            "skipping SQLite audit comparison because `{}` is unavailable",
-            sqlite_path.display()
-        );
-        return;
-    };
-    let db_path = sqlite_audit_db_path();
-    setup_sqlite_audit_database(&sqlite_path, &db_path).unwrap_or_else(|err| {
-        panic!(
-            "failed to seed SQLite audit comparison database `{}`: {err}",
-            db_path.display()
-        )
-    });
-
-    eprintln!("sql_perf_sqlite: installing sql_perf fixture canister");
-    let fixture = install_sql_perf_canister_fixture();
-    eprintln!("sql_perf_sqlite: resetting and loading IcyDB fixture rows");
-    reset_icydb_fixtures(&fixture);
-
-    let scenarios = sqlite_audit_comparison_scenarios();
-    let generated_scenario_count = deterministic_matrix().len();
-    let timing_sample_count = sqlite_timing_sample_count();
-    let report = sqlite_audit_comparison_report_for_scenarios(
-        SqliteAuditComparisonRun {
-            fixture: &fixture,
-            sqlite_path: &sqlite_path,
-            db_path: &db_path,
-            sqlite_version,
-            generated_scenario_count,
-            timing_sample_count,
-            scenario_key_filter: env::var(SQL_PERF_SQLITE_KEYS_ENV).ok(),
-        },
-        &scenarios,
-    );
-
-    write_sqlite_audit_comparison_reports(&report);
-    print_sqlite_audit_comparison_report(&report);
-
-    if sqlite_strict_enabled() {
-        assert_sqlite_audit_comparison_report_matches(&report, "strict SQLite comparison");
-    }
-}
-
-#[test]
-#[ignore = "optional strict SQLite required-subset comparison; run manually with sqlite3 and PocketIC"]
-fn sql_perf_required_sqlite_comparison_subset_matches_reference_fixture() {
-    let sqlite_path = sqlite3_path();
-    let Ok(sqlite_version) = sqlite_version(&sqlite_path) else {
-        eprintln!(
-            "skipping SQLite required-subset comparison because `{}` is unavailable",
-            sqlite_path.display()
-        );
-        return;
-    };
-    let db_path = sqlite_audit_db_path();
-    setup_sqlite_audit_database(&sqlite_path, &db_path).unwrap_or_else(|err| {
-        panic!(
-            "failed to seed SQLite required-subset comparison database `{}`: {err}",
-            db_path.display()
-        )
-    });
-
-    eprintln!("sql_perf_sqlite_required: installing sql_perf fixture canister");
-    let fixture = install_sql_perf_canister_fixture();
-    eprintln!("sql_perf_sqlite_required: resetting and loading IcyDB fixture rows");
-    reset_icydb_fixtures(&fixture);
-
-    let scenarios = sqlite_required_audit_comparison_scenarios();
-    let report = sqlite_audit_comparison_report_for_scenarios(
-        SqliteAuditComparisonRun {
-            fixture: &fixture,
-            sqlite_path: &sqlite_path,
-            db_path: &db_path,
-            sqlite_version,
-            generated_scenario_count: deterministic_matrix().len(),
-            timing_sample_count: 0,
-            scenario_key_filter: Some("required-compatible-subset".to_string()),
-        },
-        &scenarios,
-    );
-
-    write_sqlite_required_audit_comparison_reports(&report);
-    print_sqlite_audit_comparison_report(&report);
-    assert_eq!(
-        report.compared_scenario_count,
-        SQL_PERF_SQLITE_REQUIRED_COMPATIBLE_KEYS.len(),
-        "required SQLite comparison subset should compare every required key",
-    );
-    assert_sqlite_audit_comparison_report_matches(&report, "required SQLite comparison subset");
-}
-
-#[test]
-#[ignore = "optional randomized SQLite differential; run manually with sqlite3 and PocketIC"]
-fn sql_perf_random_matrix_differential_compares_sqlite_reference_fixture() {
-    let sqlite_path = sqlite3_path();
-    let Ok(sqlite_version) = sqlite_version(&sqlite_path) else {
-        eprintln!(
-            "skipping SQLite random differential because `{}` is unavailable",
-            sqlite_path.display()
-        );
-        return;
-    };
-    let db_path = sqlite_audit_db_path();
-    setup_sqlite_audit_database(&sqlite_path, &db_path).unwrap_or_else(|err| {
-        panic!(
-            "failed to seed SQLite random differential database `{}`: {err}",
-            db_path.display()
-        )
-    });
-
-    eprintln!("sql_perf_sqlite_diff: installing sql_perf fixture canister");
-    let fixture = install_sql_perf_canister_fixture();
-    eprintln!("sql_perf_sqlite_diff: resetting and loading IcyDB fixture rows");
-    reset_icydb_fixtures(&fixture);
-
-    let seed = sqlite_differential_seed();
-    let generated_case_count = sqlite_differential_case_count();
-    let scenarios = sqlite_differential_scenarios(seed, generated_case_count);
-    assert!(
-        !scenarios.is_empty(),
-        "SQLite random differential should select at least one compatible scenario"
-    );
-
-    let mut comparisons = Vec::new();
-    let mut failures = Vec::new();
-    for (index, scenario) in scenarios.iter().enumerate() {
-        if scenarios.len() <= 50 || index % 50 == 0 {
-            eprintln!(
-                "sql_perf_sqlite_diff: comparing {}/{} {}",
-                index + 1,
-                scenarios.len(),
-                scenario.key,
-            );
-        }
-        match sqlite_audit_comparison_for_scenario(&fixture, &sqlite_path, &db_path, scenario, 0) {
-            Ok(comparison) => comparisons.push(comparison),
-            Err(failure) => failures.push(*failure),
-        }
-    }
-    let correctness_failure_count = comparisons
+#[ignore = "expensive PocketIC P1 shard; set ICYDB_SQL_PERF_P1_SHARD_INDEX and run manually"]
+fn sql_perf_p1_shard_reports_hotspots() {
+    let shard_index = performance_shard_index(SQL_PERF_P1_SHARD_INDEX_ENV, "P1")
+        .unwrap_or_else(|error| panic!("P1 shard selection failed: {error}"));
+    let scenarios = deterministic_matrix();
+    let declared_ids = scenarios
         .iter()
-        .filter(|scenario| !scenario.correctness_passed)
-        .count();
-    let selected_surface_counts = matrix_scenario_surface_counts(&scenarios);
-    let selected_family_counts = matrix_scenario_family_counts(&scenarios);
-    let successful_route_family_counts = read_route_family_counts(&comparisons);
-    let successful_route_outcome_counts = read_route_outcome_counts(&comparisons);
-    let successful_route_pair_counts = read_route_pair_counts(&comparisons);
-
-    let report = SqliteDifferentialReport {
-        sqlite_version,
-        sqlite_path: sqlite_path.display().to_string(),
-        canister_wasm_profile: matrix_canister_wasm_profile().as_str().to_string(),
-        random_seed: seed,
-        generated_case_count,
-        compatible_scenario_count: scenarios.len(),
-        common_success_count: comparisons.len(),
-        icydb_failure_count: failures.len(),
-        correctness_failure_count,
-        selected_surface_counts,
-        selected_family_counts,
-        successful_route_family_counts,
-        successful_route_outcome_counts,
-        successful_route_pair_counts,
-        fairness_notes: sqlite_differential_fairness_notes(),
-        scenarios: comparisons,
-        failures,
-    };
-
-    write_sqlite_differential_reports(&report);
-    print_sqlite_differential_report(&report);
-
-    assert!(
-        report.failures.is_empty(),
-        "SQLite random differential should have no IcyDB failures: {:?}",
-        report
-            .failures
-            .iter()
-            .map(|failure| failure.key.as_str())
-            .collect::<Vec<_>>(),
-    );
-    let mismatches = report
-        .scenarios
-        .iter()
-        .filter(|scenario| !scenario.correctness_passed)
         .map(|scenario| scenario.key.as_str())
         .collect::<Vec<_>>();
-    assert!(
-        mismatches.is_empty(),
-        "SQLite random differential correctness verdict should pass for overlapping audit scenarios: {mismatches:?}",
-    );
-    assert_sqlite_differential_report_covers_required_shapes(&report);
-}
-
-#[test]
-#[ignore = "optional randomized SQLite mutation differential; run manually with sqlite3 and PocketIC"]
-fn sql_perf_random_mutation_differential_compares_sqlite_reference_fixture() {
-    let sqlite_path = sqlite3_path();
-    let Ok(sqlite_version) = sqlite_version(&sqlite_path) else {
-        eprintln!(
-            "skipping SQLite mutation differential because `{}` is unavailable",
-            sqlite_path.display()
-        );
-        return;
-    };
-    let db_path = sqlite_audit_db_path();
-    setup_sqlite_audit_database(&sqlite_path, &db_path).unwrap_or_else(|err| {
-        panic!(
-            "failed to seed SQLite mutation differential database `{}`: {err}",
-            db_path.display()
-        )
-    });
-
-    eprintln!("sql_perf_sqlite_mutation_diff: installing sql_perf fixture canister");
-    let fixture = install_sql_perf_canister_fixture();
-    eprintln!("sql_perf_sqlite_mutation_diff: resetting and loading IcyDB fixture rows");
-    reset_icydb_fixtures(&fixture);
-
-    let seed = sqlite_mutation_differential_seed();
-    let generated_mutation_count = sqlite_mutation_differential_case_count();
-    let scenarios = sqlite_mutation_differential_scenarios(seed, generated_mutation_count);
-    assert!(
-        !scenarios.is_empty(),
-        "SQLite mutation differential should generate at least one mutation scenario"
-    );
-
-    let report = sqlite_mutation_differential_report_for_scenarios(
-        &fixture,
-        &sqlite_path,
-        &db_path,
-        sqlite_version,
-        seed,
-        generated_mutation_count,
-        &scenarios,
-    );
-
-    write_sqlite_mutation_differential_reports(&report);
-    print_sqlite_mutation_differential_report(&report);
-
-    assert_sqlite_mutation_differential_report_matches(&report);
-}
-
-fn sqlite_mutation_differential_report_for_scenarios(
-    fixture: &StandaloneCanisterFixture,
-    sqlite_path: &Path,
-    db_path: &Path,
-    sqlite_version: String,
-    seed: u64,
-    generated_mutation_count: usize,
-    scenarios: &[SqliteMutationScenario],
-) -> SqliteMutationDifferentialReport {
-    let mut comparisons = Vec::new();
-    let mut failures = Vec::new();
-    for (index, scenario) in scenarios.iter().enumerate() {
-        eprintln!(
-            "sql_perf_sqlite_mutation_diff: comparing {}/{} {}",
-            index + 1,
-            scenarios.len(),
-            scenario.key,
-        );
-        match sqlite_mutation_comparison_for_scenario(fixture, sqlite_path, db_path, scenario) {
-            Ok(comparison) => comparisons.push(comparison),
-            Err(failure) => {
-                failures.push(*failure);
-                break;
-            }
-        }
-    }
-    let mutation_signature_mismatch_count = comparisons
+    SQL_PERFORMANCE_PROFILE
+        .validate_scenario_set(declared_ids.iter().copied())
+        .unwrap_or_else(|error| panic!("checked-in performance profile drifted: {error}"));
+    let shard_scenarios = scenarios
         .iter()
-        .filter(|scenario| !scenario.mutation_signatures_match)
-        .count();
-    let post_state_mismatch_count = comparisons
-        .iter()
-        .filter(|scenario| !scenario.post_signatures_match)
-        .count();
-    let expected_mutation_mismatch_count = comparisons
-        .iter()
-        .filter(|scenario| scenario.expected_mutation_match != "both")
-        .count();
-    let expected_post_state_mismatch_count = comparisons
-        .iter()
-        .filter(|scenario| scenario.expected_post_state_match != "both")
-        .count();
-    let icydb_failure_count = failures
-        .iter()
-        .filter(|failure| failure.status.starts_with("icydb_"))
-        .count();
-    let sqlite_failure_count = failures
-        .iter()
-        .filter(|failure| failure.status.starts_with("sqlite_"))
-        .count();
-
-    SqliteMutationDifferentialReport {
-        sqlite_version,
-        sqlite_path: sqlite_path.display().to_string(),
-        canister_wasm_profile: matrix_canister_wasm_profile().as_str().to_string(),
-        random_seed: seed,
-        generated_mutation_count,
-        common_success_count: comparisons.len(),
-        icydb_failure_count,
-        sqlite_failure_count,
-        mutation_signature_mismatch_count,
-        post_state_mismatch_count,
-        expected_mutation_mismatch_count,
-        expected_post_state_mismatch_count,
-        generated_surface_counts: mutation_scenario_surface_counts(scenarios),
-        generated_family_counts: mutation_scenario_family_counts(scenarios),
-        generated_returning_compare_counts: mutation_returning_compare_counts(scenarios),
-        fairness_notes: sqlite_mutation_differential_fairness_notes(),
-        scenarios: comparisons,
-        failures,
-    }
-}
-
-fn assert_sqlite_mutation_differential_report_matches(report: &SqliteMutationDifferentialReport) {
-    assert_eq!(
-        report.common_success_count, report.generated_mutation_count,
-        "SQLite mutation differential should compare every generated mutation",
-    );
-    assert!(
-        report.failures.is_empty(),
-        "SQLite mutation differential should have no execution failures: {:?}",
-        report
-            .failures
-            .iter()
-            .map(|failure| (failure.key.as_str(), failure.status.as_str()))
-            .collect::<Vec<_>>(),
-    );
-    let mutation_mismatches = report
-        .scenarios
-        .iter()
-        .filter(|scenario| !scenario.mutation_signatures_match)
-        .map(|scenario| scenario.key.as_str())
+        .filter(|scenario| {
+            SQL_PERFORMANCE_PROFILE
+                .scenario_shard(&scenario.key)
+                .unwrap_or_else(|error| panic!("scenario sharding failed: {error}"))
+                == shard_index
+        })
         .collect::<Vec<_>>();
-    assert!(
-        mutation_mismatches.is_empty(),
-        "SQLite mutation differential RETURNING signatures should match IcyDB: {mutation_mismatches:?}",
-    );
-    let post_state_mismatches = report
-        .scenarios
-        .iter()
-        .filter(|scenario| !scenario.post_signatures_match)
-        .map(|scenario| scenario.key.as_str())
-        .collect::<Vec<_>>();
-    assert!(
-        post_state_mismatches.is_empty(),
-        "SQLite mutation differential post-state signatures should match IcyDB: {post_state_mismatches:?}",
-    );
-    let expected_mutation_mismatches = report
-        .scenarios
-        .iter()
-        .filter(|scenario| scenario.expected_mutation_match != "both")
-        .map(|scenario| scenario.key.as_str())
-        .collect::<Vec<_>>();
-    assert!(
-        expected_mutation_mismatches.is_empty(),
-        "SQLite mutation differential RETURNING signatures should match the generated mutation model: {expected_mutation_mismatches:?}",
-    );
-    let expected_post_state_mismatches = report
-        .scenarios
-        .iter()
-        .filter(|scenario| scenario.expected_post_state_match != "both")
-        .map(|scenario| scenario.key.as_str())
-        .collect::<Vec<_>>();
-    assert!(
-        expected_post_state_mismatches.is_empty(),
-        "SQLite mutation differential post-state signatures should match the generated mutation model: {expected_post_state_mismatches:?}",
-    );
-    assert_sqlite_mutation_differential_report_covers_required_shapes(report);
-}
 
-fn assert_sqlite_differential_report_covers_required_shapes(report: &SqliteDifferentialReport) {
-    assert_count_present(
-        &report.selected_surface_counts,
-        "user",
-        "SQLite random differential should cover user reads",
-    );
-    assert_count_present(
-        &report.selected_surface_counts,
-        "account",
-        "SQLite random differential should cover account reads",
-    );
-    assert_count_present(
-        &report.selected_surface_counts,
-        "token",
-        "SQLite random differential should cover token reads",
-    );
-    assert_count_present(
-        &report.successful_route_pair_counts,
-        "primary_order/pushed",
-        "SQLite random differential should cover pushed primary-order reads",
-    );
-    assert_count_present(
-        &report.successful_route_pair_counts,
-        "secondary_order/eligible_but_not_pushed",
-        "SQLite random differential should cover secondary-order materialization candidates",
-    );
-    assert_count_present(
-        &report.successful_route_pair_counts,
-        "equality_prefix_ordered_suffix/pushed",
-        "SQLite random differential should cover equality-prefix ordered suffix reads",
-    );
-    assert_count_present(
-        &report.successful_route_pair_counts,
-        "not_ordered_or_not_paginated/unchanged_or_not_applicable",
-        "SQLite random differential should cover non-paginated/count overlap reads",
-    );
-    assert_count_with_prefix(
-        &report.selected_family_counts,
-        "random.route.branch_set.",
-        "SQLite random differential should cover branch-set token routes",
-    );
-    assert_count_with_prefix(
-        &report.selected_family_counts,
-        "random.route.sparse_in.",
-        "SQLite random differential should cover sparse IN token routes",
-    );
-}
-
-fn assert_sqlite_audit_comparison_report_matches(
-    report: &SqliteAuditComparisonReport,
-    label: &str,
-) {
-    assert!(
-        report.failures.is_empty(),
-        "{label} should have no IcyDB failures: {:?}",
-        report
-            .failures
-            .iter()
-            .map(|failure| failure.key.as_str())
-            .collect::<Vec<_>>(),
-    );
-    let mismatches = report
-        .scenarios
-        .iter()
-        .filter(|scenario| !scenario.correctness_passed)
-        .map(|scenario| scenario.key.as_str())
-        .collect::<Vec<_>>();
-    assert!(
-        mismatches.is_empty(),
-        "{label} correctness verdict should pass for overlapping audit scenarios: {mismatches:?}",
-    );
-}
-
-fn assert_sqlite_mutation_differential_report_covers_required_shapes(
-    report: &SqliteMutationDifferentialReport,
-) {
-    assert_count_present(
-        &report.generated_surface_counts,
-        "user",
-        "SQLite mutation differential should cover user writes",
-    );
-    assert_count_present(
-        &report.generated_surface_counts,
-        "account",
-        "SQLite mutation differential should cover account writes",
-    );
-    assert_count_present(
-        &report.generated_returning_compare_counts,
-        "ordered",
-        "SQLite mutation differential should cover ordered RETURNING comparison",
-    );
-    assert_count_present(
-        &report.generated_returning_compare_counts,
-        "row-set",
-        "SQLite mutation differential should cover row-set RETURNING comparison",
-    );
-    for family in [
-        "mutation.insert",
-        "mutation.update_pk",
-        "mutation.delete_pk",
-        "mutation.update_range_predicate",
-        "mutation.delete_range_predicate",
-        "mutation.update_no_match_range",
-        "mutation.delete_no_match_range",
-    ] {
-        assert_count_present(
-            &report.generated_family_counts,
-            family,
-            "SQLite mutation differential should cover the required write family",
-        );
-    }
-    assert_count_with_prefix(
-        &report.generated_family_counts,
-        "mutation.update_no_match_",
-        "SQLite mutation differential should cover zero-row updates",
-    );
-    assert_count_with_prefix(
-        &report.generated_family_counts,
-        "mutation.delete_no_match_",
-        "SQLite mutation differential should cover zero-row deletes",
-    );
-}
-
-fn assert_count_present(counts: &BTreeMap<String, usize>, key: &str, context: &str) {
-    assert!(
-        counts.get(key).copied().unwrap_or(0) > 0,
-        "{context}: missing `{key}` in {counts:?}",
-    );
-}
-
-fn assert_count_with_prefix(counts: &BTreeMap<String, usize>, prefix: &str, context: &str) {
-    assert!(
-        counts
-            .iter()
-            .any(|(key, count)| key.starts_with(prefix) && *count > 0),
-        "{context}: missing prefix `{prefix}` in {counts:?}",
-    );
-}
-
-#[test]
-#[ignore = "expensive PocketIC hotspot scan; run manually with --ignored --nocapture"]
-fn sql_perf_generated_matrix_reports_hotspots() {
-    eprintln!("sql_perf_matrix: installing sql_perf fixture canister");
-    let fixture = install_sql_perf_canister_fixture();
+    eprintln!("sql_perf_matrix: building one wasm-release module for P1 shard {shard_index}");
+    let wasm =
+        build_fixture_canister_wasm_bytes_with_options("sql_perf", matrix_canister_build_options());
+    let fixture = install_prebuilt_fixture_canister("sql_perf", wasm.clone());
     eprintln!("sql_perf_matrix: resetting and loading fixture rows");
     reset_icydb_fixtures(&fixture);
+    let environment = capture_matrix_environment(&fixture, &wasm);
 
-    let mode = matrix_mode();
-    let scenarios = generated_matrix(mode);
-    let generated_scenario_count = scenarios.len();
-    let scenario_key_filter = matrix_scenario_key_filter();
-    let scenarios = filter_matrix_scenarios(scenarios, scenario_key_filter.as_deref());
-    let matrix_limit = matrix_limit(scenarios.len());
-    let selected = select_stratified(&scenarios, matrix_limit)
-        .unwrap_or_else(|error| panic!("stratified SQL matrix selection failed: {error:?}"));
     eprintln!(
-        "sql_perf_matrix: selected {} of {generated_scenario_count} generated scenarios",
-        selected.len(),
+        "sql_perf_matrix: sampling {} scenarios assigned to P1 shard {shard_index}",
+        shard_scenarios.len(),
     );
     let mut samples = Vec::new();
     let mut failures = Vec::new();
-    for scenario in &selected {
+    for scenario in shard_scenarios {
         eprintln!("sql_perf_matrix: sampling {}", scenario.key);
         match sample_scenario(&fixture, scenario) {
             Ok(sample) => {
@@ -10031,56 +5316,440 @@ fn sql_perf_generated_matrix_reports_hotspots() {
             }
         }
     }
-    let random_case_count = if mode == MatrixMode::Random {
-        random_case_count()
-    } else {
-        0
-    };
-
-    let report = MatrixReport {
-        matrix_mode: mode.label().to_string(),
-        canister_wasm_profile: matrix_canister_wasm_profile().as_str().to_string(),
-        generated_scenario_count,
-        executed_scenario_count: samples.len(),
-        failed_scenario_count: failures.len(),
-        matrix_limit,
-        scenario_key_filter,
-        random_seed: (mode == MatrixMode::Random).then(random_seed),
-        random_case_count,
+    let report = build_p1_shard_report(
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        environment,
+        shard_index,
+        &declared_ids,
         samples,
         failures,
-    };
+    )
+    .unwrap_or_else(|error| panic!("P1 shard evidence is incomplete: {error}"));
+    let path = p1_shard_path(&p1_shard_directory(), shard_index);
+    write_p1_shard_report(
+        &path,
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        &declared_ids,
+        &report,
+    )
+    .unwrap_or_else(|error| panic!("P1 shard artifact failed: {error}"));
 
-    write_matrix_reports(&report);
-    print_matrix_summary(&report);
+    println!("P1 shard JSON: {}", path.display());
 }
 
 #[test]
-#[ignore = "reads saved full-matrix reports; run manually after before/after matrix capture"]
-fn sql_perf_generated_matrix_compares_saved_reports() {
-    let baseline_path = matrix_delta_path_env("ICYDB_SQL_PERF_MATRIX_DELTA_BASELINE");
-    let current_path = matrix_delta_path_env("ICYDB_SQL_PERF_MATRIX_DELTA_CURRENT");
-    let output_stem = matrix_delta_output_stem();
-    let focused_targets = matrix_delta_key_set_env("ICYDB_SQL_PERF_MATRIX_DELTA_FOCUSED_KEYS");
-    let expected_improvements =
-        matrix_delta_key_set_env("ICYDB_SQL_PERF_MATRIX_DELTA_EXPECTED_IMPROVEMENTS");
-    let baseline = read_matrix_report(&baseline_path);
-    let current = read_matrix_report(&current_path);
-    let delta = matrix_delta_report(
-        baseline_path.as_path(),
+#[ignore = "expensive PocketIC scale shard; set ICYDB_SQL_PERF_SCALE_SHARD_INDEX and run manually"]
+fn sql_perf_scale_shard_measures_declared_ladders() {
+    let shard_index = performance_shard_index(SQL_PERF_SCALE_SHARD_INDEX_ENV, "scale")
+        .unwrap_or_else(|error| panic!("scale shard selection failed: {error}"));
+    let p1_scenarios = deterministic_matrix();
+    let declarations = scale_scenario_declarations(SQL_PERFORMANCE_PROFILE, &p1_scenarios)
+        .unwrap_or_else(|error| panic!("scale declarations are invalid: {error}"));
+    let shard_declarations = declarations
+        .iter()
+        .filter(|declaration| {
+            SQL_PERFORMANCE_PROFILE
+                .scenario_shard(&declaration.scenario.key)
+                .unwrap_or_else(|error| panic!("scale scenario sharding failed: {error}"))
+                == shard_index
+        })
+        .collect::<Vec<_>>();
+
+    eprintln!("sql_perf_matrix: building one wasm-release module for scale shard {shard_index}");
+    let wasm =
+        build_fixture_canister_wasm_bytes_with_options("sql_perf", matrix_canister_build_options());
+    let environment = capture_isolated_matrix_environment(&wasm);
+    eprintln!(
+        "sql_perf_matrix: sampling {} scale scenarios assigned to shard {shard_index}",
+        shard_declarations.len(),
+    );
+    let mut observations = Vec::with_capacity(shard_declarations.len());
+    for declaration in shard_declarations {
+        eprintln!("sql_perf_matrix: sampling {}", declaration.scenario.key);
+        observations.push(
+            sample_isolated_scale_scenario(&wasm, declaration).unwrap_or_else(|error| {
+                panic!(
+                    "scale scenario {} failed: {error}",
+                    declaration.scenario.key
+                )
+            }),
+        );
+    }
+    let report = build_scale_shard_report(
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        environment,
+        &p1_scenarios,
+        shard_index,
+        observations,
+    )
+    .unwrap_or_else(|error| panic!("scale shard evidence is incomplete: {error}"));
+    let path = scale_shard_path(&scale_shard_directory(), shard_index);
+    write_scale_shard_report(
+        &path,
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        &p1_scenarios,
+        &report,
+    )
+    .unwrap_or_else(|error| panic!("scale shard artifact failed: {error}"));
+
+    println!("scale shard JSON: {}", path.display());
+}
+
+#[test]
+#[ignore = "merges all eight saved P1 and scale shard artifacts; run manually after shard capture"]
+fn sql_perf_p1_merges_saved_shards() {
+    let scenarios = deterministic_matrix();
+    let declared_ids = scenarios
+        .iter()
+        .map(|scenario| scenario.key.as_str())
+        .collect::<Vec<_>>();
+    let directory = p1_shard_directory();
+    let reports = (0..SQL_PERFORMANCE_PROFILE.shard_count())
+        .map(|shard_index| {
+            let path = p1_shard_path(&directory, shard_index);
+            read_p1_shard_report(
+                &path,
+                SQL_PERFORMANCE_PROFILE,
+                matrix_canister_wasm_profile().as_str(),
+                &declared_ids,
+            )
+            .unwrap_or_else(|error| panic!("P1 shard artifact failed: {error}"))
+        })
+        .collect::<Vec<_>>();
+    let merged = merge_p1_shard_reports(
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        &declared_ids,
+        reports,
+    )
+    .unwrap_or_else(|error| panic!("P1 shard merge failed: {error}"));
+    let merged_scale = merge_saved_scale_reports(&scenarios);
+    assert_eq!(
+        merged.environment, merged_scale.environment,
+        "P1 and scale artifacts must describe the same environment and measured subject",
+    );
+    let successful_scenario_count = merged.samples.len();
+    let failed_scenario_count = merged.failures.len();
+    let requirements = P2SelectionRequirements::from_profile(
+        SQL_PERFORMANCE_PROFILE,
+        Vec::new(),
+        merged_scale.p2_representatives.clone(),
+    );
+    let selection = select_p2_candidates(
+        SQL_PERFORMANCE_PROFILE,
+        &merged.environment,
+        &scenarios,
+        &merged.samples,
+        &requirements,
+    )
+    .unwrap_or_else(|error| panic!("P2 candidate selection failed: {error}"));
+    let selection_path = p2_selection_path();
+    write_p2_candidate_selection(
+        &selection_path,
+        SQL_PERFORMANCE_PROFILE,
+        &declared_ids,
+        &selection,
+    )
+    .unwrap_or_else(|error| panic!("P2 candidate artifact failed: {error}"));
+    let report = MatrixReport {
+        performance_profile_version: SQL_PERFORMANCE_PROFILE.version(),
+        expected_scenario_set_hash: SQL_PERFORMANCE_PROFILE
+            .expected_scenario_set_hash()
+            .to_string(),
+        observed_scenario_set_hash: SQL_PERFORMANCE_PROFILE
+            .expected_scenario_set_hash()
+            .to_string(),
+        broad_scan_complete: true,
+        canister_wasm_profile: matrix_canister_wasm_profile().as_str().to_string(),
+        environment: merged.environment.clone(),
+        declared_scenario_count: declared_ids.len(),
+        successful_scenario_count,
+        failed_scenario_count,
+        phase_ownership: current_phase_ownership(),
+        p1_shard_receipts: merged.receipts,
+        samples: merged.samples,
+        failures: merged.failures,
+    };
+
+    write_matrix_reports(&report)
+        .unwrap_or_else(|error| panic!("merged P1 matrix artifact failed: {error}"));
+    print_matrix_summary(&report);
+    println!(
+        "scale observations: {}; normalized costs: {}; adjacent slopes: {}",
+        merged_scale.observations.len(),
+        merged_scale.normalized_costs.len(),
+        merged_scale.slopes.len(),
+    );
+    println!("scale report JSON: {}", scale_report_path().display());
+    println!("P2 candidate JSON: {}", selection_path.display());
+}
+
+#[test]
+#[ignore = "expensive PocketIC P2 shard; set ICYDB_SQL_PERF_P2_SHARD_INDEX and run manually"]
+fn sql_perf_p2_shard_confirms_selected_candidates() {
+    let shard_index = performance_shard_index(SQL_PERF_P2_SHARD_INDEX_ENV, "P2")
+        .unwrap_or_else(|error| panic!("P2 shard selection failed: {error}"));
+    let scenarios = deterministic_matrix();
+    let declared_ids = scenarios
+        .iter()
+        .map(|scenario| scenario.key.as_str())
+        .collect::<Vec<_>>();
+    let selection =
+        read_p2_candidate_selection(&p2_selection_path(), SQL_PERFORMANCE_PROFILE, &declared_ids)
+            .unwrap_or_else(|error| panic!("P2 candidate artifact failed: {error}"));
+    let declarations = scenarios
+        .iter()
+        .map(|scenario| (scenario.key.as_str(), scenario))
+        .collect::<BTreeMap<_, _>>();
+    let candidates = selection
+        .candidates
+        .iter()
+        .filter(|candidate| candidate.shard_index == shard_index)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    eprintln!("sql_perf_matrix: building one wasm-release module for P2 shard {shard_index}");
+    let wasm =
+        build_fixture_canister_wasm_bytes_with_options("sql_perf", matrix_canister_build_options());
+    let environment = capture_isolated_matrix_environment(&wasm);
+    assert_eq!(
+        environment, selection.environment,
+        "P2 must confirm the exact environment and measured subject selected by P1",
+    );
+    eprintln!(
+        "sql_perf_matrix: confirming {} candidates assigned to P2 shard {shard_index}",
+        candidates.len(),
+    );
+    let mut confirmations = Vec::with_capacity(candidates.len());
+    for candidate in candidates {
+        let scenario = declarations
+            .get(candidate.scenario_id.as_str())
+            .copied()
+            .unwrap_or_else(|| panic!("P2 candidate {} has no declaration", candidate.scenario_id));
+        eprintln!("sql_perf_matrix: confirming {} cold", candidate.scenario_id);
+        let cold_samples = (0..SQL_PERFORMANCE_PROFILE.cold_samples_per_confirmation())
+            .map(|_| sample_isolated_p2_scenario(&wasm, scenario, false))
+            .collect::<Vec<_>>();
+        let warm_input = if scenario.metadata.statement == StatementFamily::Select {
+            eprintln!("sql_perf_matrix: confirming {} warm", candidate.scenario_id);
+            P2WarmSampleInput::Required(
+                (0..SQL_PERFORMANCE_PROFILE.warm_samples_per_confirmation())
+                    .map(|_| sample_isolated_p2_scenario(&wasm, scenario, true))
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            eprintln!(
+                "sql_perf_matrix: {} has no non-SELECT warm mode",
+                candidate.scenario_id,
+            );
+            P2WarmSampleInput::NotApplicable(P2WarmNotApplicableReason::NonSelectStatement)
+        };
+        confirmations.push(
+            build_p2_confirmation(SQL_PERFORMANCE_PROFILE, candidate, cold_samples, warm_input)
+                .unwrap_or_else(|error| panic!("P2 confirmation failed: {error}")),
+        );
+    }
+
+    let report = build_p2_shard_report(
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        environment,
+        &scenarios,
+        &selection,
+        shard_index,
+        confirmations,
+    )
+    .unwrap_or_else(|error| panic!("P2 shard evidence is incomplete: {error}"));
+    let path = p2_shard_path(&p2_shard_directory(), shard_index);
+    write_p2_shard_report(
+        &path,
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        &scenarios,
+        &selection,
+        &report,
+    )
+    .unwrap_or_else(|error| panic!("P2 shard artifact failed: {error}"));
+
+    println!("P2 shard JSON: {}", path.display());
+}
+
+#[test]
+#[ignore = "merges all eight saved P2 shard artifacts; run manually after shard capture"]
+fn sql_perf_p2_merges_saved_shards() {
+    let scenarios = deterministic_matrix();
+    let declared_ids = scenarios
+        .iter()
+        .map(|scenario| scenario.key.as_str())
+        .collect::<Vec<_>>();
+    let selection =
+        read_p2_candidate_selection(&p2_selection_path(), SQL_PERFORMANCE_PROFILE, &declared_ids)
+            .unwrap_or_else(|error| panic!("P2 candidate artifact failed: {error}"));
+    let directory = p2_shard_directory();
+    let reports = (0..SQL_PERFORMANCE_PROFILE.shard_count())
+        .map(|shard_index| {
+            read_p2_shard_report(
+                &p2_shard_path(&directory, shard_index),
+                SQL_PERFORMANCE_PROFILE,
+                matrix_canister_wasm_profile().as_str(),
+                &scenarios,
+                &selection,
+            )
+            .unwrap_or_else(|error| panic!("P2 shard artifact failed: {error}"))
+        })
+        .collect::<Vec<_>>();
+    let merged = merge_p2_shard_reports(
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        &scenarios,
+        &selection,
+        reports,
+    )
+    .unwrap_or_else(|error| panic!("P2 shard merge failed: {error}"));
+    let report_path = p2_report_path();
+    write_merged_p2_report(
+        &report_path,
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        &scenarios,
+        &merged,
+    )
+    .unwrap_or_else(|error| panic!("merged P2 artifact failed: {error}"));
+
+    println!(
+        "P2 merge complete: {} confirmations across {} receipts",
+        merged.confirmations.len(),
+        merged.receipts.len(),
+    );
+    println!("P2 report JSON: {}", report_path.display());
+}
+
+#[test]
+#[ignore = "expensive PocketIC instrumentation calibration; run manually for Tier D evidence"]
+fn sql_perf_calibrates_attribution_overhead() {
+    let scenarios = deterministic_matrix();
+    let scenario = scenarios
+        .iter()
+        .find(|scenario| scenario.key == INSTRUMENTATION_SENTINEL_SCENARIO_ID)
+        .unwrap_or_else(|| {
+            panic!(
+                "instrumentation sentinel {INSTRUMENTATION_SENTINEL_SCENARIO_ID:?} has no declaration"
+            )
+        });
+    assert_eq!(
+        scenario.surface,
+        MatrixSurface::User,
+        "instrumentation sentinel must use the endpoint with both attributed and total-only paths",
+    );
+
+    eprintln!("sql_perf_matrix: building one wasm-release module for instrumentation calibration");
+    let wasm =
+        build_fixture_canister_wasm_bytes_with_options("sql_perf", matrix_canister_build_options());
+    let environment = capture_isolated_matrix_environment(&wasm);
+    let sample_count = SQL_PERFORMANCE_PROFILE.cold_samples_per_confirmation();
+    let attributed_samples = (0..sample_count)
+        .map(|_| sample_isolated_attributed_instrumentation(&wasm, scenario))
+        .collect::<Vec<_>>();
+    let total_only_samples = (0..sample_count)
+        .map(|_| sample_isolated_total_only_instrumentation(&wasm, scenario))
+        .collect::<Vec<_>>();
+    let report = build_instrumentation_calibration_report(
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        environment,
+        attributed_samples,
+        total_only_samples,
+    )
+    .unwrap_or_else(|error| panic!("instrumentation calibration failed: {error}"));
+    let path = instrumentation_report_path();
+    write_instrumentation_calibration_report(
+        &path,
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        &report,
+    )
+    .unwrap_or_else(|error| panic!("instrumentation artifact failed: {error}"));
+    let decoded = read_instrumentation_calibration_report(
+        &path,
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+    )
+    .unwrap_or_else(|error| panic!("written instrumentation artifact is invalid: {error}"));
+    assert_eq!(decoded, report);
+
+    println!(
+        "instrumentation calibration: attributed_median={} total_only_median={} overhead={} ({} bp); raw_wasm_bytes={}",
+        report.attributed_median_instructions,
+        report.total_only_median_instructions,
+        report.overhead_instructions,
+        report.overhead_basis_points,
+        report.environment.subject.raw_wasm_bytes,
+    );
+    println!("instrumentation report JSON: {}", path.display());
+}
+
+#[test]
+#[ignore = "compares explicit saved P2 baseline/current artifacts; run manually after both captures"]
+fn sql_perf_compares_saved_baseline() {
+    let scenarios = deterministic_matrix();
+    let baseline_path = required_perf_artifact_path(SQL_PERF_BASELINE_PATH_ENV);
+    let current_path = required_perf_artifact_path(SQL_PERF_CURRENT_PATH_ENV);
+    let baseline_scale_path = required_perf_artifact_path(SQL_PERF_SCALE_BASELINE_PATH_ENV);
+    let current_scale_path = required_perf_artifact_path(SQL_PERF_SCALE_CURRENT_PATH_ENV);
+    let baseline = read_merged_p2_report(
+        &baseline_path,
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        &scenarios,
+    )
+    .unwrap_or_else(|error| panic!("P2 baseline artifact failed: {error}"));
+    let current = read_merged_p2_report(
+        &current_path,
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        &scenarios,
+    )
+    .unwrap_or_else(|error| panic!("current P2 artifact failed: {error}"));
+    let baseline_scale = read_merged_scale_report(
+        &baseline_scale_path,
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        &scenarios,
+    )
+    .unwrap_or_else(|error| panic!("scale baseline artifact failed: {error}"));
+    let current_scale = read_merged_scale_report(
+        &current_scale_path,
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        &scenarios,
+    )
+    .unwrap_or_else(|error| panic!("current scale artifact failed: {error}"));
+    let comparison = compare_performance_baseline(
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        &scenarios,
         &baseline,
-        current_path.as_path(),
         &current,
-        &focused_targets,
-        &expected_improvements,
+        &baseline_scale,
+        &current_scale,
+    )
+    .unwrap_or_else(|error| panic!("P2 reports are not comparable: {error}"));
+    let comparison_path = performance_comparison_path();
+    write_performance_baseline_comparison(&comparison_path, SQL_PERFORMANCE_PROFILE, &comparison)
+        .unwrap_or_else(|error| panic!("P2 comparison artifact failed: {error}"));
+
+    assert_eq!(
+        comparison.observation_only_metric_count, 0,
+        "P2 closeout requires reviewed thresholds for every required metric",
     );
-
-    write_matrix_delta_reports(&delta, output_stem.as_path());
-    println!("{}", matrix_delta_markdown(&delta));
-
     assert!(
-        delta.closeout_failures.is_empty(),
-        "matrix delta closeout gate failed: {:?}",
-        delta.closeout_failures,
+        matches!(comparison.verdict, P2BaselineVerdict::Passed),
+        "P2 baseline regression gate failed: {:?}",
+        comparison.verdict,
     );
+    println!("P2 comparison JSON: {}", comparison_path.display());
 }

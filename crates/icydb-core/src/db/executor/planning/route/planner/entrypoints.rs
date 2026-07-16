@@ -12,7 +12,6 @@ use crate::db::executor::planning::route::planner::{
 };
 use crate::{
     db::{
-        direction::Direction,
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutionRoutePlan,
             planning::{
@@ -21,7 +20,7 @@ use crate::{
             route::{
                 AggregateRouteShape, LoadTerminalFastPathContract, PushdownApplicability,
                 RouteContinuationPlan, ScanHintPlan, derive_execution_capability_facts_for_model,
-                derive_load_terminal_fast_path_contract_for_plan,
+                derive_load_route_direction, derive_load_terminal_fast_path_contract_for_plan,
                 pk_order_stream_fast_path_shape_supported,
             },
         },
@@ -133,21 +132,18 @@ fn build_mutation_execution_route_plan(
 ) -> Result<ExecutionRoutePlan, InternalError> {
     let intent_stage = derive_mutation_route_intent_stage(plan)?;
 
-    // Mutation now uses the same staged assembly surface as the other route
-    // families, but it still carries mutation-safe defaults instead of
-    // borrowing load scan-hint or continuation-window semantics.
+    // Mutation uses the planner-owned order direction because post-access may
+    // rely on primary-key traversal satisfying an ordered mutation window. It
+    // still carries mutation-safe materialized defaults and no load hints.
     let continuation = RouteContinuationPlan::initial_for_mutation();
     let access_shape_facts = plan.access_shape_facts();
-    let capability_facts = derive_execution_capability_facts_for_model(
-        plan,
-        Direction::Asc,
-        None,
-        &access_shape_facts,
-    );
+    let direction = derive_load_route_direction(plan);
+    let capability_facts =
+        derive_execution_capability_facts_for_model(plan, direction, None, &access_shape_facts);
     let feasibility_stage = RouteFeasibilityStage {
         continuation,
         derivation: RouteDerivationContext {
-            direction: Direction::Asc,
+            direction,
             capability_facts,
             support: RouteDerivationSupport {
                 desc_physical_reverse_supported: false,

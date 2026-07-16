@@ -1,0 +1,248 @@
+name: SQL Performance Evidence
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sql-performance-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_HOME: ${{ github.workspace }}/.cache/cargo/icydb
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target/icydb
+  CARGO_TERM_COLOR: always
+  IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD: "1"
+  RUST_CURRENT: "1.97.0"
+  TMPDIR: ${{ github.workspace }}/.cache
+
+jobs:
+  p1:
+    name: P1 shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_CURRENT }}
+      - name: Install WASM target
+        run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target/icydb
+          cache-targets: "false"
+      - name: Prepare local cache
+        run: mkdir -p "$TMPDIR"
+      - run: cargo fetch --locked
+      - name: Capture P1 shard
+        run: make test-sql-perf-p1-shard P1_SHARD=${{ matrix.shard }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sql-perf-p1-shard-${{ matrix.shard }}
+          path: artifacts/perf-audit/sql_perf_p1_shards/p1-shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 14
+
+  scale:
+    name: Scale shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_CURRENT }}
+      - name: Install WASM target
+        run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target/icydb
+          cache-targets: "false"
+      - name: Prepare local cache
+        run: mkdir -p "$TMPDIR"
+      - run: cargo fetch --locked
+      - name: Capture scale shard
+        run: make test-sql-perf-scale-shard SCALE_SHARD=${{ matrix.shard }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sql-perf-scale-shard-${{ matrix.shard }}
+          path: artifacts/perf-audit/sql_perf_scale_shards/scale-shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 14
+
+  p1_merge:
+    name: Merge P1 and scale evidence
+    needs: [p1, scale]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_CURRENT }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target/icydb
+          cache-targets: "false"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sql-perf-p1-shard-*
+          path: artifacts/perf-audit/sql_perf_p1_shards
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sql-perf-scale-shard-*
+          path: artifacts/perf-audit/sql_perf_scale_shards
+          merge-multiple: true
+      - run: cargo fetch --locked
+      - name: Merge complete P1 and scale receipts
+        run: make test-sql-perf-p1-merge
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sql-perf-p1-merged
+          path: |
+            artifacts/perf-audit/sql_perf_deterministic_matrix.*
+            artifacts/perf-audit/sql_perf_p2_candidates.json
+            artifacts/perf-audit/sql_perf_scale_report.json
+          if-no-files-found: error
+          retention-days: 14
+
+  p2:
+    name: P2 shard ${{ matrix.shard }}
+    needs: p1_merge
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_CURRENT }}
+      - name: Install WASM target
+        run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target/icydb
+          cache-targets: "false"
+      - name: Prepare local cache
+        run: mkdir -p "$TMPDIR"
+      - uses: actions/download-artifact@v4
+        with:
+          name: sql-perf-p1-merged
+          path: artifacts/perf-audit
+      - run: cargo fetch --locked
+      - name: Confirm P2 shard
+        run: make test-sql-perf-p2-shard P2_SHARD=${{ matrix.shard }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sql-perf-p2-shard-${{ matrix.shard }}
+          path: artifacts/perf-audit/sql_perf_p2_shards/p2-shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 14
+
+  instrumentation:
+    name: Attribution overhead calibration
+    needs: p1_merge
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_CURRENT }}
+      - name: Install WASM target
+        run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target/icydb
+          cache-targets: "false"
+      - name: Prepare local cache
+        run: mkdir -p "$TMPDIR"
+      - run: cargo fetch --locked
+      - name: Capture attributed versus total-only overhead
+        run: make test-sql-perf-instrumentation
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sql-perf-instrumentation
+          path: artifacts/perf-audit/sql_perf_instrumentation.json
+          if-no-files-found: error
+          retention-days: 14
+
+  p2_merge:
+    name: Merge P2 evidence
+    needs: p2
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_CURRENT }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target/icydb
+          cache-targets: "false"
+      - uses: actions/download-artifact@v4
+        with:
+          name: sql-perf-p1-merged
+          path: artifacts/perf-audit
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sql-perf-p2-shard-*
+          path: artifacts/perf-audit/sql_perf_p2_shards
+          merge-multiple: true
+      - run: cargo fetch --locked
+      - name: Merge complete P2 receipts
+        run: make test-sql-perf-p2-merge
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sql-perf-p2-merged
+          path: artifacts/perf-audit/sql_perf_p2_report.json
+          if-no-files-found: error
+          retention-days: 14
+
+  evidence_bundle:
+    name: Bundle current Tier D evidence
+    needs: [p2_merge, instrumentation]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sql-perf-p1-merged
+          path: artifacts/perf-audit
+      - uses: actions/download-artifact@v4
+        with:
+          name: sql-perf-p2-merged
+          path: artifacts/perf-audit
+      - uses: actions/download-artifact@v4
+        with:
+          name: sql-perf-instrumentation
+          path: artifacts/perf-audit
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sql-perf-tier-d-current
+          path: artifacts/perf-audit/*
+          if-no-files-found: error
+          retention-days: 14

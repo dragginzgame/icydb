@@ -515,15 +515,15 @@ const fn leaf_codec_for(kind: FieldKind, storage_decode: FieldStorageDecode) -> 
 }
 
 ///
-/// RelationStrength
+/// RelationEnforcement
 ///
 /// Explicit relation intent for save-time referential integrity.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RelationStrength {
-    Strong,
-    Weak,
+pub enum RelationEnforcement {
+    Enforced,
+    Unchecked,
 }
 
 ///
@@ -587,7 +587,7 @@ pub enum FieldKind {
     Unit,
 
     /// Typed relation; `key_kind` reflects the referenced key type.
-    /// `strength` encodes strong vs. weak relation intent.
+    /// `enforcement` encodes enforced vs. explicitly unchecked relation intent.
     Relation {
         /// Fully-qualified Rust type path for diagnostics.
         target_path: &'static str,
@@ -598,7 +598,7 @@ pub enum FieldKind {
         /// Data store path where the target entity is persisted.
         target_store_path: &'static str,
         key_kind: &'static Self,
-        strength: RelationStrength,
+        enforcement: RelationEnforcement,
     },
 
     // Collections

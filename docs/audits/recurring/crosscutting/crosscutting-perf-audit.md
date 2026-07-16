@@ -61,9 +61,8 @@ Historical helper names such as:
 * `execute_sql_grouped(...)`
 * `execute_sql_aggregate(...)`
 
-are obsolete as primary owner labels. They may still appear in older reports or
-compatibility wrappers, but new audit runs must anchor findings to the current
-owner boundary above.
+are obsolete as primary owner labels. They may still appear in archived reports,
+but new audit runs must anchor findings to the current owner boundary above.
 
 ### Current Authoritative Harness Lanes
 
@@ -81,18 +80,18 @@ Authoritative current lanes:
 * generated SQL matrix lane:
   * `testing/integration/tests/sql_perf_matrix_audit.rs`
   * reuses the `sql_perf` audit canister, not demo canisters
-  * generates broad deterministic SQL query coverage plus optional seeded-random
-    cases for hotspot discovery
+  * generates broad deterministic SQL query coverage for hotspot discovery;
+    typed correctness generation is owned by the dedicated correctness lanes
   * emits ranked JSON/Markdown reports under `artifacts/perf-audit/` by default
 * typed/fluent lane:
   * `testing/integration/tests/fluent_perf_audit.rs`
   * covers fluent query/update, repeat/cache, direct-row, grouped, and finalize
     attribution scenarios
 
-Legacy context lane:
+Secondary context lane:
 
 * generated dispatch or `demo_rpg` canister sampling may be used only as
-  optional compatibility context
+  optional end-to-end context
 * it must not be the primary comparable baseline unless the dedicated SQL and
   fluent harnesses cannot run, and the report must mark that method shift
 
@@ -302,9 +301,11 @@ Measure and report:
 
 For each supported scenario, sample what exists:
 
-* PocketIC SQL perf harness
-  `sql_perf_audit_harness_reports_instruction_samples`, as the authoritative
-  SQL query/update/explain/repeat/cache lane
+* checked-in SQL performance profile through the exact P1 discovery and P2
+  confirmation shards, as the authoritative comparable SQL read lane
+* focused PocketIC SQL checks in `sql_perf_audit` only for write, storage,
+  repeat, route, or cache contracts not yet owned by the profile; this target
+  has no scheduled baseline or independent repeated-sampling authority
 * PocketIC typed/fluent perf harness
   `fluent_perf_audit_harness_reports_instruction_samples`, as the authoritative
   typed/fluent lane
@@ -457,7 +458,7 @@ Before capturing instruction data:
 
 Recommended current scans:
 
-* `rg -n "sql_perf_scenarios|fluent_perf_scenarios|scenario_key|baseline_path|maybe_write_blessed_baseline" testing/integration/tests/sql_perf_audit.rs testing/integration/tests/fluent_perf_audit.rs`
+* `rg -n "PerformanceProfile|p1_shard|p2_candidates|fluent_perf_scenarios|scenario_key|baseline_path" testing/integration/tests/sql_perf_matrix_audit.rs testing/integration/tests/sql_perf_p*.rs testing/integration/tests/sql_perf_audit.rs testing/integration/tests/fluent_perf_audit.rs`
 * `rg -n "SqlQueryExecutionAttribution|QueryExecutionAttribution|store_get_calls|grouped_stream_local_instructions" crates/icydb-core/src canisters/audit/sql_perf/src`
 * `rg -n "execute_trusted_sql_query|execute_sql_update|execute_trusted_sql_query_with_attribution|execute_compiled_sql|execute_compiled_sql_with_phase_attribution" crates/icydb-core/src/db/session`
 * `rg -n "compile_sql_command|compile_sql_query|compile_sql_update" crates/icydb-core/src/db`
@@ -564,42 +565,71 @@ Then verify both harnesses compile:
 * `cargo test -p icydb-testing-integration --test sql_perf_audit --no-run`
 * `cargo test -p icydb-testing-integration --test fluent_perf_audit --no-run`
 
-The primary instruction capture commands are:
+The remaining dedicated typed/fluent instruction capture command is:
 
-* `POCKET_IC_BIN=/home/adam/projects/icydb/.cache/pocket-ic-server-13.0.0/pocket-ic cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_audit_harness_reports_instruction_samples -- --nocapture`
-* `POCKET_IC_BIN=/home/adam/projects/icydb/.cache/pocket-ic-server-13.0.0/pocket-ic cargo test -p icydb-testing-integration --test fluent_perf_audit fluent_perf_audit_harness_reports_instruction_samples -- --nocapture`
+* `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 cargo test -p icydb-testing-integration --test fluent_perf_audit fluent_perf_audit_harness_reports_instruction_samples -- --nocapture`
 
-Focused follow-up attribution commands:
+Focused SQL contract and follow-up attribution commands:
 
-* `POCKET_IC_BIN=/home/adam/projects/icydb/.cache/pocket-ic-server-13.0.0/pocket-ic cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_shared_floor_queries_report_phase_breakdown -- --nocapture`
-* `POCKET_IC_BIN=/home/adam/projects/icydb/.cache/pocket-ic-server-13.0.0/pocket-ic cargo test -p icydb-testing-integration --test fluent_perf_audit fluent_perf_update_warm_persists_query_cache_across_calls -- --nocapture`
+* `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_update_warm_persists_compiled_and_shared_cache_across_calls -- --nocapture`
+* `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_repeated_query_contracts_keep_compiled_and_shared_cache_path -- --nocapture`
+* `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_shared_floor_queries_report_phase_breakdown -- --nocapture`
+* `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 cargo test -p icydb-testing-integration --test fluent_perf_audit fluent_perf_update_warm_persists_query_cache_across_calls -- --nocapture`
 
-Generated matrix deterministic hotspot command:
+Deterministic P1 shard commands:
 
-* `ICYDB_SQL_PERF_MATRIX_MODE=deterministic ICYDB_SQL_PERF_MATRIX_LIMIT=all cargo test -p icydb-testing-integration --test sql_perf_matrix_audit sql_perf_generated_matrix_reports_hotspots -- --ignored --nocapture`
+* run `make test-sql-perf-p1-shard P1_SHARD=<index>` once for each index from
+  zero through seven;
+* run `make test-sql-perf-scale-shard SCALE_SHARD=<index>` once for each index
+  from zero through seven; and
+* run `make test-sql-perf-p1-merge` only after all eight P1 and all eight scale
+  shard artifacts exist.
 
-Generated matrix seeded-random exploration command:
+Each P1 shard runner uses the checked-in performance profile, its deterministic
+membership, the fixed top-20 ranking budget, and a `wasm-release` canister. The
+merge reads exactly shards zero through seven, validates each shard against its
+serialized outcomes, and is the only authority that emits the complete matrix.
+Prefix, first-N, ranking-count, and wasm-profile overrides are intentionally not
+supported because they cannot produce comparable Tier D evidence.
 
-* `ICYDB_SQL_PERF_MATRIX_MODE=random ICYDB_SQL_PERF_MATRIX_RANDOM_CASES=300 ICYDB_SQL_PERF_MATRIX_SEED=202606132 cargo test -p icydb-testing-integration --test sql_perf_matrix_audit sql_perf_generated_matrix_reports_hotspots -- --ignored --nocapture`
+The successful P1 merge writes the strict P2 candidate selection. Run
+`make test-sql-perf-p2-shard P2_SHARD=<index>` once for each index from zero
+through seven, then run `make test-sql-perf-p2-merge`. Each candidate has five
+fresh-canister cold observations and five independently update-warmed
+observations; cache counters prove each mode, and every stable receipt is
+required. Missing, duplicate, tampered, semantically drifting, or unstable
+evidence fails the P2 merge.
 
-Generated matrix controls:
+Run `make test-sql-perf-instrumentation` to write the separate strict
+attributed-versus-total-only calibration artifact for the fixed user primary-key
+`LIMIT 1` sentinel. It records the complete environment, raw WASM identity, five
+isolated samples per path, exact result identity, and median overhead. Until clean
+scheduled runs establish a reviewed budget, its disposition is
+`observation_only`; it is evidence, not a passing threshold.
 
-* `ICYDB_SQL_PERF_MATRIX_MODE` accepts `deterministic` or `random`; the
-  default is `deterministic`.
-* `ICYDB_SQL_PERF_MATRIX_LIMIT` accepts a positive integer or `all`; the
-  default executes the first 300 scenarios for the selected mode.
-* `ICYDB_SQL_PERF_MATRIX_RANDOM_CASES` selects the number of seeded-random
-  valid query shapes when `ICYDB_SQL_PERF_MATRIX_MODE=random`; the default is
-  `300`.
-* `ICYDB_SQL_PERF_MATRIX_SEED` selects the random matrix seed and is valid only
-  when `ICYDB_SQL_PERF_MATRIX_MODE=random`.
-* `ICYDB_SQL_PERF_MATRIX_TOP` controls ranked Markdown table length.
-* `ICYDB_SQL_PERF_MATRIX_OUT` overrides the report path stem.
+Run `make test-sql-perf-baseline` only with explicit `P2_BASELINE_PATH` and
+`SCALE_BASELINE_PATH` values naming reviewed artifacts. The command compares
+confirmed P2 medians and exact scale totals, normalized costs, and slopes. It
+rejects incomparable environments or semantic drift before producing a verdict and
+never updates either baseline.
 
-Do not combine deterministic baseline and random exploration in one report. If
-random controls are provided without `ICYDB_SQL_PERF_MATRIX_MODE=random`, the
-harness rejects the run instead of appending random scenarios to the
-deterministic matrix.
+The `SQL Performance Evidence` workflow runs nightly and on manual dispatch. It
+requires all eight P1, scale, and P2 jobs, performs the two strict merges, captures
+instrumentation evidence, and publishes one current Tier D bundle. The bundle is
+not a release verdict until a reviewed comparable baseline and calibrated budgets
+exist.
+
+Deterministic matrix output control:
+
+* `P1_SHARD_DIR` selects the shard-artifact directory for both make targets; and
+* `P1_REPORT_OUT` selects the merged JSON/Markdown report path stem;
+* `P2_SELECTION_PATH` selects the strict candidate artifact; and
+* `P2_SHARD_DIR` and `P2_REPORT_PATH` select P2 shard and merged artifacts;
+* `SCALE_SHARD_DIR` and `SCALE_REPORT_PATH` select scale shard and merged
+  artifacts;
+* `PERF_INSTRUMENTATION_PATH` selects the calibration artifact; and
+* `P2_BASELINE_PATH`, `SCALE_BASELINE_PATH`, and `PERF_COMPARISON_PATH` select
+  explicit comparison inputs and output.
 
 When a recurring run emits raw captures or transformed rows, write them below
 `docs/reports/recurring/YYYY/MM/DD/perf-audit/<run>/artifacts/`. Previously

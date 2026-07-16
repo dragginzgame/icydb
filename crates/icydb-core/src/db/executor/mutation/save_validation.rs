@@ -899,7 +899,7 @@ mod tests {
         persisted_field_kind_is_queryable,
     };
     use crate::{
-        db::schema::{AcceptedFieldKind, AcceptedRelationStrength, AcceptedRowDecodeContract},
+        db::schema::{AcceptedFieldKind, AcceptedRelationEnforcement, AcceptedRowDecodeContract},
         model::{
             EntityModel, IndexModel,
             field::{
@@ -959,7 +959,7 @@ mod tests {
             target_entity_tag: EntityTag::new(77),
             target_store_path: "target::Store".into(),
             key_kind: Box::new(key_kind),
-            strength: AcceptedRelationStrength::Weak,
+            enforcement: AcceptedRelationEnforcement::Unchecked,
         }
     }
 

@@ -15,12 +15,16 @@ pub(crate) use model::EvidenceClass;
 pub(crate) use model::{
     CorrectnessScenario, EligibleProvider, EvidenceStrength, ExpectedAcceptance, MutationKind,
     NullabilityClass, PredicateFamily, QueryShape, RouteExpectation, RouteFact, RouteFamily,
-    RouteObservation, RouteOutcome, RouteReason, RowOrder, ScenarioMetadata, ScenarioSource,
-    StatementFamily, ValueTypeFamily, WindowBehavior, WindowSpec,
+    RouteObservation, RouteOutcome, RouteReason, RowOrder, ScenarioMetadata, StatementFamily,
+    ValueTypeFamily, WindowBehavior, WindowSpec,
 };
 pub(crate) use normalization::{
     NormalizationMismatchKind, NormalizedCell, NormalizedResult, compare_normalized_results,
 };
+#[allow(
+    unused_imports,
+    reason = "shared harness targets consume different scenario-selection subsets"
+)]
 pub(crate) use selection::select_stratified;
 pub(crate) use selection::{ScenarioStratum, SelectionError};
 pub(crate) use verdict::{

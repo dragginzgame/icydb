@@ -2509,6 +2509,28 @@ fn route_plan_mutation_is_materialized_with_no_fast_paths_or_hints() {
 }
 
 #[test]
+fn route_plan_mutation_preserves_descending_primary_key_direction() {
+    let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+    plan.scalar_plan_mut().mode = QueryMode::Delete(DeleteSpec::new());
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Desc,
+        )],
+    });
+
+    let route_plan = build_mutation_route_plan(&plan).expect("mutation route plan should build");
+
+    assert_eq!(route_plan.direction(), Direction::Desc);
+    assert_eq!(
+        route_plan.execution_mode(),
+        RouteExecutionMode::Materialized
+    );
+    assert!(route_plan.scan_hints.physical_fetch_hint.is_none());
+    assert!(route_plan.scan_hints.load_scan_budget_hint.is_none());
+}
+
+#[test]
 fn route_plan_mutation_rejects_non_delete_mode() {
     let plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     let result = build_mutation_route_plan(&plan);

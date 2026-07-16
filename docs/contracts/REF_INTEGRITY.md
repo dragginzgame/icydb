@@ -2,11 +2,13 @@
 
 ## Status
 
-IcyDB enforces referential integrity for **explicitly declared strong
-relations only**.
+IcyDB enforces referential integrity for schema-declared relations by default.
+Only relations explicitly configured as **unchecked** opt out.
 
-References are stored as **typed primary-key values**. Strong relations trigger
+References are stored as **typed primary-key values**. Enforced relations trigger
 save-time target-existence checks and delete-time source-reference checks.
+The surrounding row strictness and ingress rules are defined in
+`docs/contracts/WRITE_ADMISSION.md`.
 
 This document is **normative**. It defines:
 
@@ -35,7 +37,8 @@ IcyDB is **not** a relational system. It does not support:
 * public reverse traversal queries
 * query-time relation semantics
 
-RI is intentionally narrow, explicit, and opt-in.
+RI is intentionally narrow, schema-driven, and enabled by default for declared
+relations.
 
 ---
 
@@ -61,7 +64,8 @@ References are **identity values**, not relationships in the relational sense.
 `Id<T>` is a *boundary type* used for entity-kind correctness. It is **not** automatically validated for existence.
 `Id<T>` values may be deserialized from untrusted input; validation is explicit and contextual.
 
-Existence validation occurs **only** where the schema explicitly declares a strong relation.
+Existence validation occurs wherever the schema declares a relation unless that
+relation explicitly sets `enforcement = "unchecked"`.
 
 ---
 
@@ -81,38 +85,39 @@ RI applies **only** to top-level entity fields declared as relations.
 
 ---
 
-## 4. Relation strength
+## 4. Relation enforcement
 
-IcyDB distinguishes between **strong** and **weak** relations.
+IcyDB distinguishes between **enforced** and **unchecked** relations.
 
-Strength controls **validation behavior**, not representation.
+Enforcement controls **validation behavior**, not representation.
 
-Strength is declared explicitly in the schema DSL:
+Relations are enforced by default. The schema DSL uses one enum-valued
+`enforcement` setting and permits an explicit unchecked opt-out:
 
 ```text
-item(rel = "EntityA", strong)
-item(rel = "EntityA", weak)
-item(rel = "EntityA")        // defaults to weak
+item(rel = "EntityA", prim = "Ulid")
+item(rel = "EntityA", prim = "Ulid", enforcement = "enforced")
+item(rel = "EntityA", prim = "Ulid", enforcement = "unchecked")
 ```
 
-Strength is **never inferred**.
+Unchecked behavior is **never inferred**.
 
 ---
 
-### 4.1 Strong relations (validated)
+### 4.1 Enforced relations (validated)
 
-Strong relations are validated on both save and delete paths.
+Enforced relations are validated on both save and delete paths.
 
 Rules:
 
-* Strength is explicit schema intent
+* Enforced is the default schema intent
 * Validation runs **before commit**
 * The referenced entity **must exist**
 * Any failure aborts the mutation
 * No partial state is written
 * No cascading inserts or deletes occur
 
-Supported strong shapes in the current contract:
+Supported enforced shapes in the current contract:
 
 * `Id<T>`
 * `Option<Id<T>>`
@@ -131,18 +136,18 @@ Collection validation is **aggregate**:
 
 ---
 
-### 4.2 Weak relations (not validated)
+### 4.2 Unchecked relations (not validated)
 
-Weak relations are **not validated for existence**.
+Unchecked relations are **not validated for existence**.
 
 Rules:
 
-* Strength is explicit schema intent
+* The opt-out must be explicit schema intent
 * Values are type-checked and serialized normally
 * Missing targets do **not** cause errors
-* Weak relations do **not** affect atomicity
+* Unchecked relations do **not** affect atomicity
 
-Weak relations provide **no correctness guarantees** beyond type safety.
+Unchecked relations provide **no referential-integrity guarantees**.
 
 ---
 
@@ -152,21 +157,21 @@ Weak relations provide **no correctness guarantees** beyond type safety.
 
 RI enforcement:
 
-* runs during mutation pre-commit
-* completes before the commit boundary
+* is part of the write-admission pre-commit defined in
+  `docs/contracts/WRITE_ADMISSION.md`
 * is synchronous and bounded
 * does not rely on traps or recovery
 * applies to both save-time target existence checks and delete-time source checks
 
 ### 5.2 What is enforced
 
-Only **strong relations** are enforced.
+Only relations whose enforcement is **enforced** receive RI guarantees.
 
 For collections, validation is element-wise and bounded.
 
 RI enforcement is skipped when:
 
-* the relation strength is `weak`
+* the relation enforcement is `unchecked`
 * the value is explicitly absent (`None`)
 * the field is not a schema-declared relation
 * the reference is nested beyond the field boundary
@@ -190,10 +195,9 @@ IcyDB explicitly does **not** enforce:
 
 Referential integrity is designed to preserve IcyDB’s atomicity model.
 
-* All validation occurs pre-commit
-* The apply phase remains mechanical and infallible
-* No partial state visibility is possible
-* Weak relations do not weaken atomicity guarantees
+* Relation validation completes under the write-admission contract
+* The apply phase follows `docs/contracts/ATOMICITY.md`
+* Unchecked relations do not weaken atomicity guarantees
 
 RI enforcement does **not** depend on traps, recovery timing, or read behavior.
 
@@ -201,7 +205,7 @@ RI enforcement does **not** depend on traps, recovery timing, or read behavior.
 
 ## 7. Error classification
 
-Strong-relation failures surface as **write-time validation errors**.
+Enforced-relation failures surface as **write-time validation errors**.
 
 They are reported as:
 
@@ -239,7 +243,7 @@ Any extension must preserve:
 * bounded pre-commit validation
 * single-message atomicity
 * executor simplicity
-* explicit, opt-in semantics
+* an explicit opt-out for non-enforcing relations
 
 ---
 
@@ -247,14 +251,15 @@ Any extension must preserve:
 
 IcyDB’s referential integrity model is:
 
-* **explicit**
 * **schema-driven**
-* **save-time and delete-time for strong relations**
+* **enforced by default with an explicit unchecked opt-out**
+* **save-time and delete-time for enforced relations**
 * **bounded**
 * **non-relational**
 
-Strong relations provide correctness where it is safe and enforceable.
+Enforced relations provide correctness where it is safe and enforceable.
 
-Weak relations provide flexibility where enforcement would violate IcyDB’s design goals.
+Unchecked relations provide flexibility where dangling references are an
+intentional part of the domain model.
 
 This balance is intentional and foundational.

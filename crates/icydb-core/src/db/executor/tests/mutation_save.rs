@@ -42,7 +42,7 @@ use crate::{
     error::{ErrorClass, ErrorOrigin},
     metrics::{metrics_report, metrics_reset_all},
     model::{
-        field::{FieldDatabaseDefault, FieldKind, FieldStorageDecode, RelationStrength},
+        field::{FieldDatabaseDefault, FieldKind, FieldStorageDecode, RelationEnforcement},
         index::IndexModel,
     },
     testing::test_memory,
@@ -232,7 +232,7 @@ crate::test_entity! {
             target_entity_tag: TargetEntity::ENTITY_TAG,
             target_store_path: TargetStore::PATH,
             key_kind: &FieldKind::Ulid,
-            strength: RelationStrength::Strong,
+            enforcement: RelationEnforcement::Enforced,
         } },
     ],
     indexes = [],
@@ -266,7 +266,7 @@ crate::test_entity! {
             target_entity_tag: TargetEntity::ENTITY_TAG,
             target_store_path: TargetStore::PATH,
             key_kind: &FieldKind::Ulid,
-            strength: RelationStrength::Strong,
+            enforcement: RelationEnforcement::Enforced,
         } },
     ],
     indexes = [],
@@ -300,7 +300,7 @@ crate::test_entity! {
             target_entity_tag: SourceEntity::ENTITY_TAG,
             target_store_path: TargetStore::PATH,
             key_kind: &FieldKind::Ulid,
-            strength: RelationStrength::Strong,
+            enforcement: RelationEnforcement::Enforced,
         } },
     ],
     indexes = [],
@@ -334,7 +334,7 @@ crate::test_entity! {
             target_entity_tag: TargetEntity::ENTITY_TAG,
             target_store_path: SourceStore::PATH,
             key_kind: &FieldKind::Ulid,
-            strength: RelationStrength::Strong,
+            enforcement: RelationEnforcement::Enforced,
         } },
     ],
     indexes = [],
@@ -358,7 +358,7 @@ static SOURCE_SET_TARGET_KIND: FieldKind = FieldKind::Relation {
     target_entity_tag: TargetEntity::ENTITY_TAG,
     target_store_path: TargetStore::PATH,
     key_kind: &FieldKind::Ulid,
-    strength: RelationStrength::Strong,
+    enforcement: RelationEnforcement::Enforced,
 };
 
 crate::test_entity! {
@@ -394,7 +394,7 @@ static SELF_RELATION_PARENT_KIND: FieldKind = FieldKind::Relation {
     target_entity_tag: SelfRelationEntity::ENTITY_TAG,
     target_store_path: SourceStore::PATH,
     key_kind: &FieldKind::Ulid,
-    strength: RelationStrength::Strong,
+    enforcement: RelationEnforcement::Enforced,
 };
 
 crate::test_entity! {

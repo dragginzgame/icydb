@@ -7,7 +7,8 @@ It is intentionally narrow: it covers what the current APIs guarantee today.
 The atomic batch surface is strictly single-entity-type; it is not multi-entity
 transaction support.
 The broader operator-facing durability boundary is defined in
-`docs/contracts/DURABILITY.md`.
+`docs/contracts/DURABILITY.md`. Per-row strictness and mutation ingress are
+defined in `docs/contracts/WRITE_ADMISSION.md`.
 
 This document does not define database-session transactions. IcyDB does not
 provide Postgres-style transaction blocks, isolation levels, or automatic
@@ -57,6 +58,7 @@ IcyDB now has two explicit lanes for batch writes.
 
 * Scope: one entity type per call
 * Contract: fail-fast convenience helper
+* Every attempted item receives the full write-admission checks
 * Earlier items may commit before a later item fails
 * No transactional rollback across batch items
 * Not a multi-entity transaction
@@ -71,8 +73,7 @@ For `*_many_atomic`, execution is split into two phases:
 
 For each item in request order:
 
-* run sanitize/validate/invariant checks
-* run strong-relation validation
+* apply the complete `docs/contracts/WRITE_ADMISSION.md` contract
 * build the logical row operation and its current journal record from accepted
   durable state plus the new payload
 * reject duplicate keys within the same batch request
@@ -107,7 +108,8 @@ No new fallible semantics are introduced after marker persistence.
   normal execution
 * Durable end state converges to the marker-described journal state
 
-This follows the same commit/recovery model documented in `docs/contracts/ATOMICITY.md`.
+This follows the same commit/recovery model documented in
+`docs/contracts/ATOMICITY.md`.
 
 ---
 

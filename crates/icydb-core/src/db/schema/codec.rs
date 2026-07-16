@@ -5,7 +5,7 @@
 
 use crate::{
     db::schema::{
-        AcceptedFieldKind, AcceptedRelationStrength, FieldId, PersistedFieldOrigin,
+        AcceptedFieldKind, AcceptedRelationEnforcement, FieldId, PersistedFieldOrigin,
         PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexOrigin, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
@@ -41,7 +41,7 @@ pub(in crate::db) fn persisted_schema_snapshot_decode_count_for_tests() -> u64 {
 use candid::{CandidType, Decode, Encode};
 use serde::Deserialize;
 
-const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 1;
+const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 2;
 
 // Candid wire container for one persisted schema snapshot.
 //
@@ -250,7 +250,7 @@ enum AcceptedFieldKindWire {
         target_entity_tag: u64,
         target_store_path: String,
         key_kind: Box<Self>,
-        strength: PersistedRelationStrengthWire,
+        enforcement: PersistedRelationEnforcementWire,
     },
     List(Box<Self>),
     Set(Box<Self>),
@@ -263,11 +263,11 @@ enum AcceptedFieldKindWire {
     },
 }
 
-// Candid wire enum for relation strength.
+// Candid wire enum for relation enforcement.
 #[derive(CandidType, Deserialize)]
-enum PersistedRelationStrengthWire {
-    Strong,
-    Weak,
+enum PersistedRelationEnforcementWire {
+    Enforced,
+    Unchecked,
 }
 
 // Candid wire enum for slot payload decode policy.
@@ -825,14 +825,14 @@ impl AcceptedFieldKindWire {
                 target_entity_tag,
                 target_store_path,
                 key_kind,
-                strength,
+                enforcement,
             } => Self::Relation {
                 target_path: target_path.clone(),
                 target_entity_name: target_entity_name.clone(),
                 target_entity_tag: target_entity_tag.value(),
                 target_store_path: target_store_path.clone(),
                 key_kind: Box::new(Self::from_kind(key_kind)),
-                strength: PersistedRelationStrengthWire::from_strength(*strength),
+                enforcement: PersistedRelationEnforcementWire::from_enforcement(*enforcement),
             },
             AcceptedFieldKind::List(inner) => Self::List(Box::new(Self::from_kind(inner))),
             AcceptedFieldKind::Set(inner) => Self::Set(Box::new(Self::from_kind(inner))),
@@ -883,14 +883,14 @@ impl AcceptedFieldKindWire {
                 target_entity_tag,
                 target_store_path,
                 key_kind,
-                strength,
+                enforcement,
             } => AcceptedFieldKind::Relation {
                 target_path,
                 target_entity_name,
                 target_entity_tag: EntityTag::new(target_entity_tag),
                 target_store_path,
                 key_kind: Box::new(key_kind.into_kind()?),
-                strength: strength.into_strength(),
+                enforcement: enforcement.into_enforcement(),
             },
             Self::List(inner) => AcceptedFieldKind::List(Box::new(inner.into_kind()?)),
             Self::Set(inner) => AcceptedFieldKind::Set(Box::new(inner.into_kind()?)),
@@ -903,18 +903,18 @@ impl AcceptedFieldKindWire {
     }
 }
 
-impl PersistedRelationStrengthWire {
-    const fn from_strength(strength: AcceptedRelationStrength) -> Self {
-        match strength {
-            AcceptedRelationStrength::Strong => Self::Strong,
-            AcceptedRelationStrength::Weak => Self::Weak,
+impl PersistedRelationEnforcementWire {
+    const fn from_enforcement(enforcement: AcceptedRelationEnforcement) -> Self {
+        match enforcement {
+            AcceptedRelationEnforcement::Enforced => Self::Enforced,
+            AcceptedRelationEnforcement::Unchecked => Self::Unchecked,
         }
     }
 
-    const fn into_strength(self) -> AcceptedRelationStrength {
+    const fn into_enforcement(self) -> AcceptedRelationEnforcement {
         match self {
-            Self::Strong => AcceptedRelationStrength::Strong,
-            Self::Weak => AcceptedRelationStrength::Weak,
+            Self::Enforced => AcceptedRelationEnforcement::Enforced,
+            Self::Unchecked => AcceptedRelationEnforcement::Unchecked,
         }
     }
 }

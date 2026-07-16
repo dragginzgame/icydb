@@ -542,29 +542,6 @@ impl RouteExpectation {
 }
 
 ///
-/// ScenarioSource
-///
-/// Reproduction identity for a deterministic or generated SQL scenario.
-/// Owned by the shared SQL harness and included in evidence reports.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ScenarioSource {
-    Deterministic,
-    Generated { root_seed: u64, case_index: u64 },
-}
-
-impl ScenarioSource {
-    /// Return the stable report label for the source class.
-    pub(crate) const fn label(self) -> &'static str {
-        match self {
-            Self::Deterministic => "deterministic",
-            Self::Generated { .. } => "random",
-        }
-    }
-}
-
-///
 /// ScenarioMetadata
 ///
 /// Authoritative typed intent and evidence contract attached to one SQL payload.
@@ -630,9 +607,6 @@ pub(crate) struct ScenarioMetadata {
 pub(crate) struct CorrectnessScenario<S> {
     /// Stable scenario identity used for selection and reporting.
     pub(crate) key: String,
-
-    /// Deterministic or generated reproduction identity.
-    pub(crate) source: ScenarioSource,
 
     /// Runner-specific execution surface.
     pub(crate) surface: S,

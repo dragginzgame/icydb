@@ -274,20 +274,20 @@ fn durable_source_strong_relation_to_heap_target_rejects_at_runtime_boundary() {
 }
 
 #[test]
-fn durable_source_weak_relation_to_heap_target_remains_non_enforcing() {
+fn durable_source_unchecked_relation_to_heap_target_remains_non_enforcing() {
     reset_mixed_heap_relation_stores();
     let session = mixed_heap_relation_sql_session();
 
     let (result, classes) = capture_mutation_commit_classes(
-        DurableSessionSqlWeakSourceToHeapTargetEntity::PATH,
+        DurableSessionSqlUncheckedSourceToHeapTargetEntity::PATH,
         || {
-            session.insert(DurableSessionSqlWeakSourceToHeapTargetEntity {
+            session.insert(DurableSessionSqlUncheckedSourceToHeapTargetEntity {
                 id: 11,
                 target_id: 9_999,
             })
         },
     );
-    result.expect("weak durable-source relation to heap target should not take strong policy");
+    result.expect("unchecked durable-source relation to heap target should remain non-enforcing");
     assert_eq!(
         classes,
         vec![MutationCommitClass::DurableOnly],
@@ -295,15 +295,15 @@ fn durable_source_weak_relation_to_heap_target_remains_non_enforcing() {
     );
 
     let persisted = session
-        .load::<DurableSessionSqlWeakSourceToHeapTargetEntity>()
+        .load::<DurableSessionSqlUncheckedSourceToHeapTargetEntity>()
         .trusted_read_unchecked()
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
-        .expect("weak durable-source relation load should succeed")
+        .expect("unchecked durable-source relation load should succeed")
         .entities();
     assert_eq!(
         persisted,
-        vec![DurableSessionSqlWeakSourceToHeapTargetEntity {
+        vec![DurableSessionSqlUncheckedSourceToHeapTargetEntity {
             id: 11,
             target_id: 9_999,
         }],

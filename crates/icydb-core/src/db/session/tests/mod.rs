@@ -29,6 +29,8 @@ mod indexed_covering;
 mod indexed_prefix;
 mod journaled_runtime;
 mod lane_metrics;
+#[cfg(feature = "sql")]
+mod mutation_reference;
 mod predicate_convergence;
 mod prefix_offsets;
 mod query_lowering;
@@ -45,7 +47,7 @@ mod sql_scalar;
 mod sql_surface;
 mod sql_write;
 #[cfg(feature = "sql")]
-mod sqlite_comparison;
+mod sqlite_reference;
 mod storage_backend_perf;
 mod temporal;
 mod verbose_route_choice;
@@ -115,7 +117,7 @@ use crate::{
     error::{ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail},
     metrics::sink::{MetricsEvent, MetricsSink, PlanKind, with_shared_metrics_sink},
     model::{
-        field::{FieldKind, FieldModel, FieldStorageDecode, RelationStrength},
+        field::{FieldKind, FieldModel, FieldStorageDecode, RelationEnforcement},
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     testing::test_memory,
@@ -365,6 +367,7 @@ thread_local! {
 
 static SESSION_SQL_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCanister>] = &[
     EntityRuntimeHooks::for_entity::<SessionSqlEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionSqliteReferenceEntity>(),
     EntityRuntimeHooks::for_entity::<SessionSqlFieldPathEntity>(),
     EntityRuntimeHooks::for_entity::<SessionSqlRecordFieldPathEntity>(),
     EntityRuntimeHooks::for_entity::<SessionNullableSqlEntity>(),
@@ -417,7 +420,7 @@ static MIXED_HEAP_RELATION_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCaniste
     EntityRuntimeHooks::for_entity::<SessionSqlSelfRelationEntity>(),
     EntityRuntimeHooks::for_entity::<HeapSessionSqlEntity>(),
     EntityRuntimeHooks::for_entity::<DurableSessionSqlSourceToHeapTargetEntity>(),
-    EntityRuntimeHooks::for_entity::<DurableSessionSqlWeakSourceToHeapTargetEntity>(),
+    EntityRuntimeHooks::for_entity::<DurableSessionSqlUncheckedSourceToHeapTargetEntity>(),
     EntityRuntimeHooks::for_entity::<HeapSessionSqlSourceToDurableTargetEntity>(),
     EntityRuntimeHooks::for_entity::<HeapSessionSqlSourceToHeapTargetEntity>(),
 ];
@@ -841,6 +844,22 @@ struct SessionSqlEntity {
     id: Ulid,
     name: String,
     age: u64,
+}
+
+///
+/// SessionSqliteReferenceEntity
+///
+/// Exact signed-integer and binary-text fixture used only by the required
+/// bundled SQLite differential profile.
+///
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct SessionSqliteReferenceEntity {
+    id: Ulid,
+    name: String,
+    age: i64,
+    rank: i64,
+    active: bool,
 }
 
 ///
@@ -1839,6 +1858,30 @@ crate::test_entity! {
 }
 
 crate::test_entity! {
+    ident = SessionSqliteReferenceEntity,
+    entity_name = "SessionSqliteReferenceEntity",
+    tag = EntityTag::new(0x10A0),
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! {
+            id: Ulid => FieldKind::Ulid,
+            options = crate::testing::TestFieldModelOptions::DEFAULT
+                .with_insert_generation(crate::model::field::FieldInsertGeneration::Ulid),
+        },
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { age: i64 => FieldKind::Int64 },
+        crate::test_field! { rank: i64 => FieldKind::Int64 },
+        crate::test_field! { active: bool => FieldKind::Bool },
+    ],
+    indexes = [],
+    relations = [],
+    entity_value = id_field(id),
+}
+
+crate::test_entity! {
     ident = SessionSqlFieldPathEntity,
     entity_name = "SessionSqlFieldPathEntity",
     tag = crate::testing::SESSION_SQL_FIELD_PATH_ENTITY_TAG,
@@ -2109,7 +2152,7 @@ static SESSION_SQL_SELF_RELATION_PARENT_KIND: FieldKind = FieldKind::Relation {
     target_entity_tag: SessionSqlSelfRelationEntity::ENTITY_TAG,
     target_store_path: SessionSqlStore::PATH,
     key_kind: &FieldKind::Nat64,
-    strength: RelationStrength::Strong,
+    enforcement: RelationEnforcement::Enforced,
 };
 
 crate::test_entity! {
@@ -2316,16 +2359,16 @@ static SESSION_SQL_HEAP_TARGET_RELATION_KIND: FieldKind = FieldKind::Relation {
     target_entity_tag: HeapSessionSqlEntity::ENTITY_TAG,
     target_store_path: HeapSessionSqlStore::PATH,
     key_kind: &FieldKind::Nat64,
-    strength: RelationStrength::Strong,
+    enforcement: RelationEnforcement::Enforced,
 };
 
-static SESSION_SQL_HEAP_TARGET_WEAK_RELATION_KIND: FieldKind = FieldKind::Relation {
+static SESSION_SQL_HEAP_TARGET_UNCHECKED_RELATION_KIND: FieldKind = FieldKind::Relation {
     target_path: HeapSessionSqlEntity::PATH,
     target_entity_name: "HeapSessionSqlEntity",
     target_entity_tag: HeapSessionSqlEntity::ENTITY_TAG,
     target_store_path: HeapSessionSqlStore::PATH,
     key_kind: &FieldKind::Nat64,
-    strength: RelationStrength::Weak,
+    enforcement: RelationEnforcement::Unchecked,
 };
 
 static SESSION_SQL_DURABLE_TARGET_RELATION_KIND: FieldKind = FieldKind::Relation {
@@ -2334,7 +2377,7 @@ static SESSION_SQL_DURABLE_TARGET_RELATION_KIND: FieldKind = FieldKind::Relation
     target_entity_tag: SessionSqlSelfRelationEntity::ENTITY_TAG,
     target_store_path: SessionSqlStore::PATH,
     key_kind: &FieldKind::Nat64,
-    strength: RelationStrength::Strong,
+    enforcement: RelationEnforcement::Enforced,
 };
 
 static SESSION_SQL_JOURNALED_TARGET_RELATION_KIND: FieldKind = FieldKind::Relation {
@@ -2343,7 +2386,7 @@ static SESSION_SQL_JOURNALED_TARGET_RELATION_KIND: FieldKind = FieldKind::Relati
     target_entity_tag: JournaledSessionSqlEntity::ENTITY_TAG,
     target_store_path: JournaledSessionSqlStore::PATH,
     key_kind: &FieldKind::Nat64,
-    strength: RelationStrength::Strong,
+    enforcement: RelationEnforcement::Enforced,
 };
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -2393,14 +2436,14 @@ crate::test_entity! {
 }
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
-struct DurableSessionSqlWeakSourceToHeapTargetEntity {
+struct DurableSessionSqlUncheckedSourceToHeapTargetEntity {
     id: u64,
     target_id: u64,
 }
 
 crate::test_entity! {
-    ident = DurableSessionSqlWeakSourceToHeapTargetEntity,
-    entity_name = "DurableSessionSqlWeakSourceToHeapTargetEntity",
+    ident = DurableSessionSqlUncheckedSourceToHeapTargetEntity,
+    entity_name = "DurableSessionSqlUncheckedSourceToHeapTargetEntity",
     tag = EntityTag::new(0x1074),
     store = SessionSqlStore,
     canister = SessionSqlCanister,
@@ -2408,7 +2451,7 @@ crate::test_entity! {
     primary_key = [id],
     fields = [
         crate::test_field! { id: u64 => FieldKind::Nat64 },
-        crate::test_field! { target_id: u64 => SESSION_SQL_HEAP_TARGET_WEAK_RELATION_KIND },
+        crate::test_field! { target_id: u64 => SESSION_SQL_HEAP_TARGET_UNCHECKED_RELATION_KIND },
     ],
     indexes = [],
     relations = [],

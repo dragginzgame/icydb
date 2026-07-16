@@ -5,6 +5,7 @@ fn primitive_item(primitive: Primitive) -> Item {
     Item::new(
         ItemTarget::Primitive(primitive),
         None,
+        RelationEnforcement::Enforced,
         None,
         None,
         None,
@@ -18,6 +19,7 @@ fn relation_item(primitive: Primitive, target: &'static str) -> Item {
     Item::new(
         ItemTarget::Primitive(primitive),
         Some(target),
+        RelationEnforcement::Enforced,
         None,
         None,
         None,

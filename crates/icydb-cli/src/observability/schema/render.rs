@@ -115,7 +115,7 @@ fn schema_relation_row(
         entity_name.to_string(),
         relation.field().to_string(),
         relation.target_entity_name().to_string(),
-        format!("{:?}", relation.strength()),
+        format!("{:?}", relation.enforcement()),
         format!("{:?}", relation.cardinality()),
     ]
 }
@@ -192,7 +192,7 @@ fn append_schema_relation_table(output: &mut String, rows: &[SchemaRelationRow])
     append_schema_table(
         output,
         "relations",
-        &["entity", "field", "target", "strength", "cardinality"],
+        &["entity", "field", "target", "enforcement", "cardinality"],
         rows,
         &[
             ColumnAlign::Left,

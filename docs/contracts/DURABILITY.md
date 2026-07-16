@@ -5,6 +5,7 @@ IcyDB on the Internet Computer.
 
 It is normative for the current line. It consolidates the tested reliability
 model from `docs/contracts/ATOMICITY.md`,
+`docs/contracts/WRITE_ADMISSION.md`,
 `docs/contracts/TRANSACTION_SEMANTICS.md`, and the 0.189/0.190 recovery proof
 work into one operational boundary.
 
@@ -71,8 +72,8 @@ threads, or perform canister calls during the mutation or recovery runtime path.
 Atomicity is provided by IcyDB's commit discipline, not by relying on IC trap
 rollback as normal control flow:
 
-- fallible validation, planning, decoding, and row-op preparation happen before
-  durable mutation;
+- accepted-schema write admission plus all fallible planning, decoding, and
+  row-op preparation happen before durable mutation;
 - after the commit marker is durable, recovery authority belongs to the marker
   and journal protocol;
 - guarded reentry must converge to the marker-authorized final state;
@@ -87,6 +88,10 @@ Batch helpers have explicit lanes:
 
 - `*_many_atomic` is all-or-nothing for one entity type in one call;
 - `*_many_non_atomic` is fail-fast and may leave an already committed prefix.
+
+The exact row-content and mutation-ingress requirements are defined in
+`docs/contracts/WRITE_ADMISSION.md`. Durability does not create a less strict
+write lane.
 
 ## Guarded Recovery
 
@@ -104,6 +109,12 @@ Recovery may use:
 The recovery proof established for the current line covers internally produced
 interrupted states. It does not claim to repair arbitrary hostile stable-memory
 images.
+
+Recovery is replay, not fresh write admission. It verifies the durable marker,
+journal, store, key, schema-fingerprint, and row boundaries needed to complete
+an internally produced commit. It does not rerun mutation-time sanitizers or
+user validators, and it does not turn external raw bytes into an admitted
+mutation.
 
 Direct raw-store or index access that bypasses guarded recovery is outside this
 contract and may observe transient or stale state during startup or interrupted
@@ -133,7 +144,8 @@ An import/restore feature must define:
 - persisted-format compatibility rules;
 - corruption-detection requirements;
 - version-gap behavior;
-- recovery-size and resource limits.
+- recovery-size and resource limits;
+- accepted-schema write admission for every imported row after-image.
 
 ## Checksum Decision
 

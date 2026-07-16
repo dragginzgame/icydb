@@ -14,8 +14,8 @@ use crate::{
         validate_primary_key_component_binary_value_bytes,
     },
     db::key_taxonomy::PrimaryKeyComponent,
-    db::schema::{AcceptedFieldKind, AcceptedRelationStrength},
-    model::field::{FieldKind, RelationStrength},
+    db::schema::{AcceptedFieldKind, AcceptedRelationEnforcement},
+    model::field::{FieldKind, RelationEnforcement},
     types::{Account, EntityTag, Principal, Subaccount, Timestamp, Ulid},
     value::Value,
 };
@@ -29,7 +29,7 @@ static STRONG_RELATION_KIND: FieldKind = FieldKind::Relation {
     target_entity_tag: EntityTag::new(7),
     target_store_path: "RelationTargetStore",
     key_kind: &RELATION_ULID_KEY_KIND,
-    strength: RelationStrength::Strong,
+    enforcement: RelationEnforcement::Enforced,
 };
 static STRONG_RELATION_LIST_KIND: FieldKind = FieldKind::List(&STRONG_RELATION_KIND);
 static STRONG_INT128_RELATION_KIND: FieldKind = FieldKind::Relation {
@@ -38,7 +38,7 @@ static STRONG_INT128_RELATION_KIND: FieldKind = FieldKind::Relation {
     target_entity_tag: EntityTag::new(7),
     target_store_path: "RelationTargetStore",
     key_kind: &RELATION_INT128_KEY_KIND,
-    strength: RelationStrength::Strong,
+    enforcement: RelationEnforcement::Enforced,
 };
 static STRONG_NAT128_RELATION_KIND: FieldKind = FieldKind::Relation {
     target_path: "RelationTargetEntity",
@@ -46,7 +46,7 @@ static STRONG_NAT128_RELATION_KIND: FieldKind = FieldKind::Relation {
     target_entity_tag: EntityTag::new(7),
     target_store_path: "RelationTargetStore",
     key_kind: &RELATION_NAT128_KEY_KIND,
-    strength: RelationStrength::Strong,
+    enforcement: RelationEnforcement::Enforced,
 };
 
 const TAG_UNIT: u8 = 0x01;
@@ -227,7 +227,7 @@ fn primary_key_component_binary_roundtrips_128_bit_relation_payloads() {
         target_entity_tag: EntityTag::new(7),
         target_store_path: "RelationTargetStore".to_string(),
         key_kind: Box::new(AcceptedFieldKind::Int128),
-        strength: AcceptedRelationStrength::Strong,
+        enforcement: AcceptedRelationEnforcement::Enforced,
     };
     let accepted_nat_kind = AcceptedFieldKind::Relation {
         target_path: "RelationTargetEntity".to_string(),
@@ -235,7 +235,7 @@ fn primary_key_component_binary_roundtrips_128_bit_relation_payloads() {
         target_entity_tag: EntityTag::new(7),
         target_store_path: "RelationTargetStore".to_string(),
         key_kind: Box::new(AcceptedFieldKind::Nat128),
-        strength: AcceptedRelationStrength::Strong,
+        enforcement: AcceptedRelationEnforcement::Enforced,
     };
 
     assert_eq!(

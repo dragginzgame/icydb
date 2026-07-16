@@ -21,7 +21,7 @@ pub use entity::{
 };
 pub use field::{
     DEFAULT_BIG_INT_MAX_BYTES, EnumVariantModel, FieldDatabaseDefault, FieldInsertGeneration,
-    FieldKind, FieldModel, FieldStorageDecode, FieldWriteManagement, RelationStrength,
+    FieldKind, FieldModel, FieldStorageDecode, FieldWriteManagement, RelationEnforcement,
 };
 #[cfg(test)]
 pub(crate) use field_kind_semantics::field_kind_has_identity_group_canonical_form;

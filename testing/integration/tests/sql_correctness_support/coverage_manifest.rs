@@ -3,13 +3,15 @@
 //! Does not own: product behavior or the deterministic evidence supplied by cited tests.
 //! Boundary: validates manifest entries against `SQL_SUBSET.md` and repository test providers.
 
+use crate::sql_harness::{EligibleProvider, EvidenceClass, EvidenceStrength};
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Component, Path, PathBuf},
 };
 
-use crate::sql_harness::{EligibleProvider, EvidenceClass, EvidenceStrength};
+use icydb_testing_sqlite_reference::required_sqlite_reference_scenarios;
 
 ///
 /// FeatureKind
@@ -174,6 +176,16 @@ const REQ_EXECUTE: &[EvidenceRequirement] = &[EvidenceRequirement {
     class: EvidenceClass::Execute,
     minimum_strength: EvidenceStrength::ContractAssertion,
 }];
+const REQ_EXECUTE_REFERENCE: &[EvidenceRequirement] = &[
+    EvidenceRequirement {
+        class: EvidenceClass::Execute,
+        minimum_strength: EvidenceStrength::ContractAssertion,
+    },
+    EvidenceRequirement {
+        class: EvidenceClass::ReferenceDifferential,
+        minimum_strength: EvidenceStrength::ReferenceOracle,
+    },
+];
 const REQ_METAMORPHIC_EXECUTE: &[EvidenceRequirement] = &[EvidenceRequirement {
     class: EvidenceClass::Execute,
     minimum_strength: EvidenceStrength::MetamorphicInvariant,
@@ -266,6 +278,7 @@ const NO_EXTERNAL_TEXT: Option<&str> = Some(
 const NO_EXTERNAL_BLOB_LIMIT: Option<&str> = Some(
     "The literal allocation cap and SQL transport boundary are IcyDB resource-policy contracts.",
 );
+const SQLITE_REFERENCE_PROVIDER_ID: &str = "core.query.sqlite_reference_profile";
 
 macro_rules! provider {
     ($id:literal, $path:literal, $symbol:literal, $strength:ident, [$($evidence:ident),+ $(,)?]) => {
@@ -356,6 +369,13 @@ const PROVIDERS: &[ProviderSpec] = &[
         "execute_trusted_sql_query_admits_supported_single_entity_read_shapes",
         ContractAssertion,
         [Parse, Lower, Execute]
+    ),
+    provider!(
+        "core.query.sqlite_reference_profile",
+        "crates/icydb-core/src/db/session/tests/sqlite_reference.rs",
+        "required_sqlite_reference_profile_matches_native_icydb",
+        ReferenceOracle,
+        [ReferenceDifferential]
     ),
     provider!(
         "core.query.unsupported_families",
@@ -933,6 +953,15 @@ const PROVIDERS: &[ProviderSpec] = &[
     ),
 ];
 
+macro_rules! deterministic_providers {
+    (REQ_EXECUTE_REFERENCE, [$($provider:literal),+ $(,)?]) => {
+        &[$($provider),+, SQLITE_REFERENCE_PROVIDER_ID]
+    };
+    ($evidence:ident, [$($provider:literal),+ $(,)?]) => {
+        &[$($provider),+]
+    };
+}
+
 macro_rules! cell {
     (
         $id:literal,
@@ -955,7 +984,10 @@ macro_rules! cell {
             evidence: $evidence,
             performance: $performance,
             eligible_providers: $eligible,
-            deterministic_providers: &[$($provider),+],
+            deterministic_providers: deterministic_providers!(
+                $evidence,
+                [$($provider),+]
+            ),
             generated_families: &[],
             reference_exclusion: $reference_exclusion,
         }
@@ -1005,7 +1037,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "Cursor Pagination",
         Clause,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.scalar_matrix"],
@@ -1053,7 +1085,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "`SELECT`",
         Statement,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.public_read_families"],
@@ -1065,7 +1097,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "`SELECT`",
         Statement,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.distinct_window"],
@@ -1077,7 +1109,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "`SELECT`",
         Statement,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.global_aggregate"],
@@ -1089,7 +1121,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "`SELECT`",
         Statement,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.grouped_aggregate"],
@@ -1101,7 +1133,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "`SELECT`",
         Expression,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.aggregate_distinct_filter"],
@@ -1113,7 +1145,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "`SELECT`",
         Expression,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.computed_projection"],
@@ -1125,7 +1157,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "`SELECT`",
         Clause,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.null_ordering"],
@@ -1736,7 +1768,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "Entity Naming And Aliases",
         Clause,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.qualified_names"],
@@ -1748,7 +1780,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "Projection",
         Clause,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.projection_shape"],
@@ -1760,7 +1792,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "Projection",
         Clause,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.global_aggregate", "core.query.aggregate_inputs"],
@@ -1772,7 +1804,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "Projection",
         Interaction,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.grouped_aggregate", "core.query.composition"],
@@ -1796,7 +1828,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "Shared SQL Expression Family",
         Expression,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.computed_projection"],
@@ -1820,7 +1852,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "Shared SQL Expression Family",
         Expression,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.value_selection"],
@@ -1832,7 +1864,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "Shared SQL Expression Family",
         Expression,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         [
@@ -1861,7 +1893,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "Projection Aliases",
         Clause,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.alias_order"],
@@ -1873,7 +1905,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "Projection Aliases",
         Interaction,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.alias_order"],
@@ -1885,7 +1917,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "Predicates",
         Expression,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         [
@@ -1900,7 +1932,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "Predicates",
         Expression,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.field_comparison"],
@@ -1912,7 +1944,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "Predicates",
         Interaction,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.grouped_where_field_comparison"],
@@ -1924,7 +1956,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "Predicates",
         Expression,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         [
@@ -1939,7 +1971,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "Predicates",
         Expression,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.range"],
@@ -1951,7 +1983,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "Predicates",
         Expression,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.null_predicates"],
@@ -2016,7 +2048,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "Predicates",
         Expression,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.field_bound_range"],
@@ -2052,7 +2084,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "`HAVING`",
         Clause,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.having"],
@@ -2064,7 +2096,7 @@ const MANIFEST: &[CoverageCell] = &[
         Accepted,
         "`HAVING`",
         Clause,
-        REQ_EXECUTE,
+        REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.global_having"],
@@ -2471,6 +2503,7 @@ fn validate_cell(
             ));
         }
     }
+    validate_reference_differential_eligibility(cell)?;
 
     if cell.status == FeatureStatus::Rejected
         && !cell
@@ -2488,6 +2521,25 @@ fn validate_cell(
     {
         return Err(format!(
             "accepted interaction {:?} lacks a deterministic composition provider",
+            cell.id
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_reference_differential_eligibility(cell: &CoverageCell) -> Result<(), String> {
+    let requires_reference = cell
+        .evidence
+        .iter()
+        .any(|requirement| requirement.class == EvidenceClass::ReferenceDifferential);
+    if requires_reference
+        && !cell
+            .eligible_providers
+            .contains(&EligibleProvider::SqliteReference)
+    {
+        return Err(format!(
+            "manifest cell {:?} requires the SQLite differential without SQLite eligibility",
             cell.id
         ));
     }
@@ -2531,6 +2583,24 @@ fn sql_contract_metadata_and_coverage_manifest_are_consistent() {
     assert_eq!(
         contract_ids, manifest_ids,
         "SQL contract metadata and coverage manifest must form an exact bijection"
+    );
+
+    let profile_features = required_sqlite_reference_scenarios()
+        .iter()
+        .flat_map(|scenario| scenario.contract_features().iter().copied())
+        .collect::<BTreeSet<_>>();
+    let reference_manifest_features = MANIFEST
+        .iter()
+        .filter(|cell| {
+            cell.evidence
+                .iter()
+                .any(|requirement| requirement.class == EvidenceClass::ReferenceDifferential)
+        })
+        .map(|cell| cell.id)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        profile_features, reference_manifest_features,
+        "the compact SQLite profile and manifest reference obligations must form an exact bijection",
     );
 
     for (id, contract_feature) in &contract_features {
@@ -2608,6 +2678,22 @@ fn manifest_consistency_gate_rejects_missing_or_invalid_evidence() {
     assert!(
         validate_cell(&correlated_reference, &providers, &mut BTreeSet::new()).is_err(),
         "metamorphic agreement must not satisfy reference-differential evidence"
+    );
+
+    let mut sqlite_requirement_without_eligibility = *MANIFEST
+        .iter()
+        .find(|cell| {
+            cell.evidence
+                .iter()
+                .any(|requirement| requirement.class == EvidenceClass::ReferenceDifferential)
+        })
+        .expect("the compact profile should create reference obligations");
+    sqlite_requirement_without_eligibility.eligible_providers =
+        &[EligibleProvider::StateModelReference];
+    assert!(
+        validate_reference_differential_eligibility(&sqlite_requirement_without_eligibility)
+            .is_err(),
+        "a SQLite differential obligation without SQLite eligibility must fail"
     );
 
     let adjacent_non_test = "#[test]\nfn actual_test() {}\nfn adjacent_helper() {}";

@@ -6,7 +6,7 @@
 
 use crate::db::{
     EntityCatalogCounts, EntityCatalogDescription, EntityFieldDescription, EntityIndexDescription,
-    EntityRelationCardinality, EntityRelationDescription, EntityRelationStrength,
+    EntityRelationCardinality, EntityRelationDescription, EntityRelationEnforcement,
     EntitySchemaDescription, MemoryCatalogDescription, StoreCatalogDescription,
     response::RowProjectionOutput,
     sql::{
@@ -71,7 +71,7 @@ fn render_describe_lines_output_contract_vector_is_stable() {
             "schema.public.User".to_string(),
             "User".to_string(),
             "user_store".to_string(),
-            EntityRelationStrength::Strong,
+            EntityRelationEnforcement::Enforced,
             EntityRelationCardinality::Single,
         )],
     );
@@ -99,11 +99,11 @@ fn render_describe_lines_output_contract_vector_is_stable() {
             "+-------------------------+--------+--------+-----------+".to_string(),
             String::new(),
             "relations:".to_string(),
-            "+-----------+--------+----------+-------------+".to_string(),
-            "| field     | target | strength | cardinality |".to_string(),
-            "+-----------+--------+----------+-------------+".to_string(),
-            "| mentor_id | User   | Strong   | Single      |".to_string(),
-            "+-----------+--------+----------+-------------+".to_string(),
+            "+-----------+--------+-------------+-------------+".to_string(),
+            "| field     | target | enforcement | cardinality |".to_string(),
+            "+-----------+--------+-------------+-------------+".to_string(),
+            "| mentor_id | User   | Enforced    | Single      |".to_string(),
+            "+-----------+--------+-------------+-------------+".to_string(),
         ],
         "describe shell output must remain contract-stable across release lines",
     );

@@ -14,6 +14,7 @@ This document is **interpretive, not normative**.
 Normative specifications live in:
 - `docs/contracts/DURABILITY.md`
 - `docs/contracts/ATOMICITY.md`
+- `docs/contracts/WRITE_ADMISSION.md`
 - `docs/contracts/PERSISTED_FORMAT_POLICY.md`
 - `docs/contracts/PERSISTED_FORMAT_INVENTORY.md`
 - `docs/contracts/REF_INTEGRITY.md`
@@ -205,6 +206,20 @@ This keeps validation centralized and avoids superlinear maintenance cost as ent
 
 ---
 
+### 3.5 Write Strictness
+
+IcyDB has no non-strict entity or table mode. Accepted schema owns the exact
+persisted kind and absence behavior for every field, and every supported row
+mutation ingress must satisfy that authority before commit.
+
+Trusted/admin exposure changes who may invoke a write; it does not bypass row
+admission. An explicitly `unchecked` relation opts out only from referential
+integrity, not field or row validation.
+
+> **Normative definition:** see `docs/contracts/WRITE_ADMISSION.md`.
+
+---
+
 ## 4. Unsupported and opaque values
 
 `Value::Unsupported` represents runtime values that:
@@ -298,11 +313,14 @@ Referential integrity in IcyDB is a **write-time validation rule**, not a query 
 
 Key characteristics:
 - schema-driven
-- explicit
+- enforced by default for declared relations
+- explicitly unchecked only when dangling references are intentional
 - bounded
 - non-relational
 
-Only references explicitly declared in the schema participate in enforcement.
+Only references explicitly declared in the schema participate in enforcement;
+declared relations are enforced unless configured with
+`enforcement = "unchecked"`.
 
 > **Normative definition:** see `docs/contracts/REF_INTEGRITY.md`.
 
@@ -347,10 +365,12 @@ IcyDB relies on:
 - deterministic recovery
 - recovery-before-read
 
-Reads do not perform recovery checks after startup; a post-startup trap may expose
-partial state until recovery is triggered by a write or restart.
+Guarded read and write entrypoints perform the required marker check before
+operation-specific execution. If recovery cannot complete, the guarded
+operation fails rather than proceeding on partial state.
 
-> **Normative guarantees:** see `docs/contracts/ATOMICITY.md`.
+> **Normative guarantees:** see `docs/contracts/ATOMICITY.md` and
+> `docs/contracts/DURABILITY.md`.
 
 ---
 

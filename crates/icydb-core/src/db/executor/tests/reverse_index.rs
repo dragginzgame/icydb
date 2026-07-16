@@ -498,7 +498,7 @@ fn delete_target_succeeds_after_strong_referrer_is_removed() {
 }
 
 #[test]
-fn delete_allows_target_with_weak_single_referrer() {
+fn delete_allows_target_with_unchecked_single_referrer() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_relation_stores();
 
@@ -508,12 +508,12 @@ fn delete_allows_target_with_weak_single_referrer() {
     SaveExecutor::<RelationTargetEntity>::new(REL_DB, false)
         .insert(RelationTargetEntity { id: target_id })
         .expect("target save should succeed");
-    SaveExecutor::<WeakSingleRelationSourceEntity>::new(REL_DB, false)
-        .insert(WeakSingleRelationSourceEntity {
+    SaveExecutor::<UncheckedSingleRelationSourceEntity>::new(REL_DB, false)
+        .insert(UncheckedSingleRelationSourceEntity {
             id: source_id,
             target: target_id,
         })
-        .expect("weak source save should succeed");
+        .expect("unchecked source save should succeed");
 
     let reverse_rows_before_delete = REL_DB
         .with_store_registry(|reg| {
@@ -523,7 +523,7 @@ fn delete_allows_target_with_weak_single_referrer() {
         .expect("target index store access should succeed");
     assert_eq!(
         reverse_rows_before_delete, 0,
-        "weak relation should not create reverse strong-relation index entries",
+        "unchecked relation should not create reverse strong-relation index entries",
     );
 
     let target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
@@ -534,27 +534,31 @@ fn delete_allows_target_with_weak_single_referrer() {
         .expect("target delete plan should build");
     let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(target_delete_plan)
-        .expect("target delete should succeed for weak referrer");
+        .expect("target delete should succeed for unchecked referrer");
     assert_eq!(deleted_targets.len(), 1, "target row should be removed");
 
-    let source_plan = Query::<WeakSingleRelationSourceEntity>::new(MissingRowPolicy::Ignore)
+    let source_plan = Query::<UncheckedSingleRelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .by_id(source_id)
         .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("source load plan should build");
-    let remaining_source = LoadExecutor::<WeakSingleRelationSourceEntity>::new(REL_DB, false)
+    let remaining_source = LoadExecutor::<UncheckedSingleRelationSourceEntity>::new(REL_DB, false)
         .execute(source_plan)
         .expect("source load should succeed");
-    assert_eq!(remaining_source.len(), 1, "weak source row should remain");
+    assert_eq!(
+        remaining_source.len(),
+        1,
+        "unchecked source row should remain"
+    );
     assert_eq!(
         remaining_source.as_slice()[0].entity_ref().target,
         target_id,
-        "weak source relation value should be preserved",
+        "unchecked source relation value should be preserved",
     );
 }
 
 #[test]
-fn delete_allows_target_with_weak_optional_referrer() {
+fn delete_allows_target_with_unchecked_optional_referrer() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_relation_stores();
 
@@ -564,12 +568,12 @@ fn delete_allows_target_with_weak_optional_referrer() {
     SaveExecutor::<RelationTargetEntity>::new(REL_DB, false)
         .insert(RelationTargetEntity { id: target_id })
         .expect("target save should succeed");
-    SaveExecutor::<WeakOptionalRelationSourceEntity>::new(REL_DB, false)
-        .insert(WeakOptionalRelationSourceEntity {
+    SaveExecutor::<UncheckedOptionalRelationSourceEntity>::new(REL_DB, false)
+        .insert(UncheckedOptionalRelationSourceEntity {
             id: source_id,
             target: Some(target_id),
         })
-        .expect("weak optional source save should succeed");
+        .expect("unchecked optional source save should succeed");
 
     let reverse_rows_before_delete = REL_DB
         .with_store_registry(|reg| {
@@ -579,7 +583,7 @@ fn delete_allows_target_with_weak_optional_referrer() {
         .expect("target index store access should succeed");
     assert_eq!(
         reverse_rows_before_delete, 0,
-        "weak optional relation should not create reverse strong-relation index entries",
+        "unchecked optional relation should not create reverse strong-relation index entries",
     );
 
     let target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
@@ -590,31 +594,32 @@ fn delete_allows_target_with_weak_optional_referrer() {
         .expect("target delete plan should build");
     let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(target_delete_plan)
-        .expect("target delete should succeed for weak optional referrer");
+        .expect("target delete should succeed for unchecked optional referrer");
     assert_eq!(deleted_targets.len(), 1, "target row should be removed");
 
-    let source_plan = Query::<WeakOptionalRelationSourceEntity>::new(MissingRowPolicy::Ignore)
+    let source_plan = Query::<UncheckedOptionalRelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .by_id(source_id)
         .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("source load plan should build");
-    let remaining_source = LoadExecutor::<WeakOptionalRelationSourceEntity>::new(REL_DB, false)
-        .execute(source_plan)
-        .expect("source load should succeed");
+    let remaining_source =
+        LoadExecutor::<UncheckedOptionalRelationSourceEntity>::new(REL_DB, false)
+            .execute(source_plan)
+            .expect("source load should succeed");
     assert_eq!(
         remaining_source.len(),
         1,
-        "weak optional source row should remain"
+        "unchecked optional source row should remain"
     );
     assert_eq!(
         remaining_source.as_slice()[0].entity_ref().target,
         Some(target_id),
-        "weak optional source relation value should be preserved",
+        "unchecked optional source relation value should be preserved",
     );
 }
 
 #[test]
-fn delete_allows_target_with_weak_list_referrer() {
+fn delete_allows_target_with_unchecked_list_referrer() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_relation_stores();
 
@@ -624,12 +629,12 @@ fn delete_allows_target_with_weak_list_referrer() {
     SaveExecutor::<RelationTargetEntity>::new(REL_DB, false)
         .insert(RelationTargetEntity { id: target_id })
         .expect("target save should succeed");
-    SaveExecutor::<WeakListRelationSourceEntity>::new(REL_DB, false)
-        .insert(WeakListRelationSourceEntity {
+    SaveExecutor::<UncheckedListRelationSourceEntity>::new(REL_DB, false)
+        .insert(UncheckedListRelationSourceEntity {
             id: source_id,
             targets: vec![target_id],
         })
-        .expect("weak list source save should succeed");
+        .expect("unchecked list source save should succeed");
 
     let reverse_rows_before_delete = REL_DB
         .with_store_registry(|reg| {
@@ -639,7 +644,7 @@ fn delete_allows_target_with_weak_list_referrer() {
         .expect("target index store access should succeed");
     assert_eq!(
         reverse_rows_before_delete, 0,
-        "weak list relation should not create reverse strong-relation index entries",
+        "unchecked list relation should not create reverse strong-relation index entries",
     );
 
     let target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
@@ -650,31 +655,31 @@ fn delete_allows_target_with_weak_list_referrer() {
         .expect("target delete plan should build");
     let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(target_delete_plan)
-        .expect("target delete should succeed for weak list referrer");
+        .expect("target delete should succeed for unchecked list referrer");
     assert_eq!(deleted_targets.len(), 1, "target row should be removed");
 
-    let source_plan = Query::<WeakListRelationSourceEntity>::new(MissingRowPolicy::Ignore)
+    let source_plan = Query::<UncheckedListRelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .by_id(source_id)
         .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("source load plan should build");
-    let remaining_source = LoadExecutor::<WeakListRelationSourceEntity>::new(REL_DB, false)
+    let remaining_source = LoadExecutor::<UncheckedListRelationSourceEntity>::new(REL_DB, false)
         .execute(source_plan)
         .expect("source load should succeed");
     assert_eq!(
         remaining_source.len(),
         1,
-        "weak list source row should remain"
+        "unchecked list source row should remain"
     );
     assert_eq!(
         remaining_source.as_slice()[0].entity_ref().targets,
         vec![target_id],
-        "weak list source relation values should be preserved",
+        "unchecked list source relation values should be preserved",
     );
 }
 
 #[test]
-fn delete_allows_target_with_weak_set_referrer() {
+fn delete_allows_target_with_unchecked_set_referrer() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_relation_stores();
 
@@ -684,12 +689,12 @@ fn delete_allows_target_with_weak_set_referrer() {
     SaveExecutor::<RelationTargetEntity>::new(REL_DB, false)
         .insert(RelationTargetEntity { id: target_id })
         .expect("target save should succeed");
-    SaveExecutor::<WeakSetRelationSourceEntity>::new(REL_DB, false)
-        .insert(WeakSetRelationSourceEntity {
+    SaveExecutor::<UncheckedSetRelationSourceEntity>::new(REL_DB, false)
+        .insert(UncheckedSetRelationSourceEntity {
             id: source_id,
             targets: vec![target_id],
         })
-        .expect("weak set source save should succeed");
+        .expect("unchecked set source save should succeed");
 
     let reverse_rows_before_delete = REL_DB
         .with_store_registry(|reg| {
@@ -699,7 +704,7 @@ fn delete_allows_target_with_weak_set_referrer() {
         .expect("target index store access should succeed");
     assert_eq!(
         reverse_rows_before_delete, 0,
-        "weak set relation should not create reverse strong-relation index entries",
+        "unchecked set relation should not create reverse strong-relation index entries",
     );
 
     let target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
@@ -710,26 +715,26 @@ fn delete_allows_target_with_weak_set_referrer() {
         .expect("target delete plan should build");
     let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(target_delete_plan)
-        .expect("target delete should succeed for weak set referrer");
+        .expect("target delete should succeed for unchecked set referrer");
     assert_eq!(deleted_targets.len(), 1, "target row should be removed");
 
-    let source_plan = Query::<WeakSetRelationSourceEntity>::new(MissingRowPolicy::Ignore)
+    let source_plan = Query::<UncheckedSetRelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .by_id(source_id)
         .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("source load plan should build");
-    let remaining_source = LoadExecutor::<WeakSetRelationSourceEntity>::new(REL_DB, false)
+    let remaining_source = LoadExecutor::<UncheckedSetRelationSourceEntity>::new(REL_DB, false)
         .execute(source_plan)
         .expect("source load should succeed");
     assert_eq!(
         remaining_source.len(),
         1,
-        "weak set source row should remain"
+        "unchecked set source row should remain"
     );
     assert_eq!(
         remaining_source.as_slice()[0].entity_ref().targets,
         vec![target_id],
-        "weak set source relation values should be preserved",
+        "unchecked set source relation values should be preserved",
     );
 }
 

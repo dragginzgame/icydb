@@ -5,6 +5,9 @@ execution surfaces. Query semantics remain documented in `QUERY_CONTRACT.md`,
 `QUERY_PRACTICE.md`, and `SQL_SUBSET.md`; this document answers which surfaces
 are policy-evaluated and which explicitly bypass that policy.
 
+Row mutation is outside this contract. Unlike trusted read execution, write
+execution has no accepted-schema bypass; see `WRITE_ADMISSION.md`.
+
 ## Core Rule
 
 Any production canister surface that executes caller-controlled read work must
@@ -52,8 +55,8 @@ diagnostic before doing the broader work.
 | `FluentLoadQuery::execute` / `execute_rows` / terminal execution / paged `execute` | `PublicRead` default policy | built-in plus caller auth | Ordinary typed/fluent execution. It rejects unsafe full scans, materialized sorts, missing row bounds, and grouped reads without query hard limits. Exact selected primary-key access supplies its own row bound; cursor/keyset methods own continuation. |
 | `trusted_read_unchecked()` fluent lane | trusted caller contract | caller-owned | Explicit bypass for maintenance/admin fluent code with its own authorization and resource policy. It is not public-safe by itself. Fluent load queries use normal terminal names after entering the trusted lane. |
 | generated `icydb_query` | trusted bypass | controller-gated | Generated SQL query endpoint. It uses the trusted perf-attributed SQL helper and remains admin-only. |
-| generated `icydb_ddl` | not a read-admission lane | controller-gated | Schema mutation frontend, governed by DDL admission and schema authority. |
-| generated `icydb_update` | not a read-admission lane | controller-gated | SQL write endpoint, governed by explicit write policy. |
+| generated `icydb_ddl` | not a read-admission lane | controller-gated | Schema mutation frontend, governed by DDL admission, accepted-schema authority, and the write-admission contract. |
+| generated `icydb_update` | not a read-admission lane | controller-gated | SQL write endpoint, governed by write admission and explicit exposure policy. |
 | generated `icydb_schema` / `icydb_schema_check` | diagnostic/admin | controller-gated | Accepted-schema diagnostics, not row-query execution. |
 | generated `icydb_snapshot` | diagnostic/admin | build-option gated | Storage report diagnostics, not row-query execution. |
 | generated `icydb_metrics` / `icydb_metrics_extended` | diagnostic | build-option gated | Metrics diagnostics, not row-query execution. |

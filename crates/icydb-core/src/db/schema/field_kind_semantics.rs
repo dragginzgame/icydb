@@ -394,7 +394,7 @@ const fn classify_relation_scalar_class(kind: &AcceptedFieldKind) -> Option<Acce
 mod tests {
     use super::{AcceptedFieldKindCategory, AcceptedScalarClass, classify_accepted_field_kind};
     use crate::{
-        db::schema::{AcceptedFieldKind, AcceptedRelationStrength},
+        db::schema::{AcceptedFieldKind, AcceptedRelationEnforcement},
         types::EntityTag,
     };
 
@@ -405,7 +405,7 @@ mod tests {
             target_entity_tag: EntityTag::new(77),
             target_store_path: "target::Store".into(),
             key_kind: Box::new(key_kind),
-            strength: AcceptedRelationStrength::Weak,
+            enforcement: AcceptedRelationEnforcement::Unchecked,
         }
     }
 

@@ -24,6 +24,9 @@ pub struct Item {
     #[serde(skip_serializing_if = "Option::is_none")]
     relation: Option<&'static str>,
 
+    #[serde(skip_serializing_if = "RelationEnforcement::is_enforced")]
+    enforcement: RelationEnforcement,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     scale: Option<u32>,
 
@@ -52,6 +55,7 @@ impl Item {
     pub const fn new(
         target: ItemTarget,
         relation: Option<&'static str>,
+        enforcement: RelationEnforcement,
         scale: Option<u32>,
         max_len: Option<u32>,
         max_bytes: Option<u32>,
@@ -62,6 +66,7 @@ impl Item {
         Self {
             target,
             relation,
+            enforcement,
             scale,
             max_len,
             max_bytes,
@@ -79,6 +84,11 @@ impl Item {
     #[must_use]
     pub const fn relation(&self) -> Option<&'static str> {
         self.relation
+    }
+
+    #[must_use]
+    pub const fn enforcement(&self) -> RelationEnforcement {
+        self.enforcement
     }
 
     #[must_use]
@@ -114,6 +124,22 @@ impl Item {
     #[must_use]
     pub const fn is_relation(&self) -> bool {
         self.relation().is_some()
+    }
+}
+
+/// Referential-integrity policy for one schema-declared relation.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+pub enum RelationEnforcement {
+    /// Require target existence and block deletes that would leave dangling references.
+    #[default]
+    Enforced,
+    /// Retain relation typing without referential-integrity guarantees.
+    Unchecked,
+}
+
+impl RelationEnforcement {
+    const fn is_enforced(&self) -> bool {
+        matches!(self, Self::Enforced)
     }
 }
 
@@ -175,6 +201,10 @@ impl ValidateNode for Item {
                     err!(errs, "relation entity '{relation}' not found");
                 }
             }
+        }
+
+        if self.relation().is_none() && self.enforcement() == RelationEnforcement::Unchecked {
+            errs.add("relation enforcement may only be unchecked when relation is declared");
         }
 
         errs.result()

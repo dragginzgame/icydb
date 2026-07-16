@@ -361,7 +361,7 @@ impl FieldSlot {
 mod tests {
     use super::canonicalize_grouped_having_numeric_literal_for_accepted_kind;
     use crate::{
-        db::schema::{AcceptedFieldKind, AcceptedRelationStrength},
+        db::schema::{AcceptedFieldKind, AcceptedRelationEnforcement},
         types::EntityTag,
         value::Value,
     };
@@ -374,7 +374,7 @@ mod tests {
             target_entity_tag: EntityTag::new(1),
             target_store_path: "demo::store::TargetStore".to_string(),
             key_kind: Box::new(AcceptedFieldKind::Nat64),
-            strength: AcceptedRelationStrength::Strong,
+            enforcement: AcceptedRelationEnforcement::Enforced,
         };
 
         assert_eq!(

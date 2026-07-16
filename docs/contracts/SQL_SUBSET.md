@@ -7,6 +7,10 @@ closed.
 This contract is about the public SQL frontend that remains after the old
 public SQL router removal.
 
+All state-changing SQL remains subject to
+`docs/contracts/WRITE_ADMISSION.md`. SQL exposure policy and trusted execution
+never disable accepted-schema row validation.
+
 The `icydb-sql-feature` comments are stable evidence identifiers. Their current
 coverage obligations live in the
 [SQL coverage manifest](../../testing/integration/tests/sql_correctness_support/coverage_manifest.rs);
@@ -276,7 +280,8 @@ Supported shapes:
 - `ALTER TABLE entity DROP COLUMN IF EXISTS field`
 
 SQL DDL is a frontend over accepted schema catalog mutation, not the source of
-schema authority.
+schema authority. Schema mutation and row-rewrite admission remain governed by
+`docs/contracts/WRITE_ADMISSION.md`.
 
 `CREATE INDEX` currently admits field-path secondary indexes and deterministic
 text expression secondary indexes. Single-field, multi-field, unique, explicit
@@ -355,6 +360,11 @@ Mutation ownership still primarily lives on typed and fluent APIs:
 - `replace(...)`
 - `delete::<E>()`
 - the corresponding typed/fluent `...returning...` helpers
+
+Every SQL row after-image is decoded against accepted field contracts and then
+enters the same structural write-admission pipeline used by non-SQL structural
+mutation. `trusted` in a SQL API name describes caller-owned authorization and
+surface policy; it is not a schema-validation bypass.
 
 Public SQL ownership is split deliberately:
 

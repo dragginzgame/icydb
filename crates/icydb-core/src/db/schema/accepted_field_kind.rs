@@ -4,7 +4,7 @@
 //! Boundary: accepted snapshots and runtime contracts persist enum IDs only.
 
 use crate::{
-    model::field::{FieldKind, RelationStrength},
+    model::field::{FieldKind, RelationEnforcement},
     types::EntityTag,
     value::EnumTypeId,
 };
@@ -58,7 +58,7 @@ pub(in crate::db) enum AcceptedFieldKind {
         target_entity_tag: EntityTag,
         target_store_path: String,
         key_kind: Box<Self>,
-        strength: AcceptedRelationStrength,
+        enforcement: AcceptedRelationEnforcement,
     },
     List(Box<Self>),
     Set(Box<Self>),
@@ -220,7 +220,7 @@ impl AcceptedFieldKind {
                     target_entity_tag: left_tag,
                     target_store_path: left_store,
                     key_kind: left_key,
-                    strength: left_strength,
+                    enforcement: left_enforcement,
                 },
                 FieldKind::Relation {
                     target_path: right_path,
@@ -228,7 +228,7 @@ impl AcceptedFieldKind {
                     target_entity_tag: right_tag,
                     target_store_path: right_store,
                     key_kind: right_key,
-                    strength: right_strength,
+                    enforcement: right_enforcement,
                 },
             ) => {
                 left_path == right_path
@@ -237,9 +237,14 @@ impl AcceptedFieldKind {
                     && left_store == right_store
                     && left_key.matches_generated_storage_shape(*right_key)
                     && matches!(
-                        (left_strength, right_strength),
-                        (AcceptedRelationStrength::Strong, RelationStrength::Strong)
-                            | (AcceptedRelationStrength::Weak, RelationStrength::Weak)
+                        (left_enforcement, right_enforcement),
+                        (
+                            AcceptedRelationEnforcement::Enforced,
+                            RelationEnforcement::Enforced
+                        ) | (
+                            AcceptedRelationEnforcement::Unchecked,
+                            RelationEnforcement::Unchecked
+                        )
                     )
             }
             _ => false,
@@ -247,9 +252,9 @@ impl AcceptedFieldKind {
     }
 }
 
-/// Accepted relation strength independent of generated metadata.
+/// Accepted relation enforcement independent of generated metadata.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum AcceptedRelationStrength {
-    Strong,
-    Weak,
+pub(in crate::db) enum AcceptedRelationEnforcement {
+    Enforced,
+    Unchecked,
 }

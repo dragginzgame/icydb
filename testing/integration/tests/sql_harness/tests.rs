@@ -185,14 +185,6 @@ fn route_taxonomies_cover_the_current_slice_contract() {
             .outcome,
         RouteOutcome::Pushed
     );
-    assert_eq!(
-        ScenarioSource::Generated {
-            root_seed: 1,
-            case_index: 0,
-        }
-        .label(),
-        "random"
-    );
 }
 
 #[test]

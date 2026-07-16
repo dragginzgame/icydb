@@ -11,8 +11,8 @@ use crate::db::schema::{
 use crate::{
     db::schema::{
         AcceptedEnumCatalog, AcceptedEnumCatalogHandle, AcceptedFieldKind,
-        AcceptedRelationStrength, AcceptedSchemaSnapshot, AcceptedValueAdmissionContract, FieldId,
-        FieldType, PersistedFieldSnapshot, PersistedIndexExpressionOp,
+        AcceptedRelationEnforcement, AcceptedSchemaSnapshot, AcceptedValueAdmissionContract,
+        FieldId, FieldType, PersistedFieldSnapshot, PersistedIndexExpressionOp,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
         SchemaFieldSlot, enum_catalog::AcceptedValueContract, field_type_from_model_kind,
@@ -128,8 +128,8 @@ fn accepted_slot_index(slot: SchemaFieldSlot) -> usize {
 
 fn persisted_kind_has_strong_relation(kind: &AcceptedFieldKind) -> bool {
     match kind {
-        AcceptedFieldKind::Relation { strength, .. } => {
-            *strength == AcceptedRelationStrength::Strong
+        AcceptedFieldKind::Relation { enforcement, .. } => {
+            *enforcement == AcceptedRelationEnforcement::Enforced
         }
         AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
             persisted_kind_has_strong_relation(inner)

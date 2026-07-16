@@ -10,7 +10,7 @@ use crate::{
     },
     db::key_taxonomy::PrimaryKeyComponent,
     db::schema::AcceptedFieldKind,
-    model::field::{FieldKind, RelationStrength},
+    model::field::{FieldKind, RelationEnforcement},
     types::{Account, Decimal, EntityTag, Float32, Float64, Principal, Subaccount, Ulid},
     value::Value,
 };
@@ -22,7 +22,7 @@ static STRONG_RELATION_KIND: FieldKind = FieldKind::Relation {
     target_entity_tag: EntityTag::new(7),
     target_store_path: "RelationTargetStore",
     key_kind: &RELATION_ULID_KEY_KIND,
-    strength: RelationStrength::Strong,
+    enforcement: RelationEnforcement::Enforced,
 };
 static STRONG_RELATION_LIST_KIND: FieldKind = FieldKind::List(&STRONG_RELATION_KIND);
 

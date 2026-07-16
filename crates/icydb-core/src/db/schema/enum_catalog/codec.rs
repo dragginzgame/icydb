@@ -5,7 +5,7 @@
 
 use super::{
     AcceptedEnumCatalog, AcceptedEnumType, AcceptedEnumVariant, AcceptedEnumVariantBody,
-    AcceptedFieldKind, AcceptedRelationStrength, AcceptedValueContract, EnumOrderingPolicy,
+    AcceptedFieldKind, AcceptedRelationEnforcement, AcceptedValueContract, EnumOrderingPolicy,
     EnumTypeId, EnumVariantId, MAX_ENUM_CONTRACT_DEPTH,
 };
 use crate::{error::InternalError, model::field::FieldStorageDecode, types::EntityTag};
@@ -57,8 +57,8 @@ const KIND_SET: u8 = 29;
 const KIND_MAP: u8 = 30;
 const KIND_STRUCTURED: u8 = 31;
 
-const RELATION_STRONG: u8 = 0;
-const RELATION_WEAK: u8 = 1;
+const RELATION_ENFORCED: u8 = 0;
+const RELATION_UNCHECKED: u8 = 1;
 
 /// Encode one canonical accepted enum catalog into its current durable codec.
 pub(in crate::db::schema) fn encode_accepted_enum_catalog(
@@ -279,16 +279,16 @@ fn encode_value_kind(
             target_entity_tag,
             target_store_path,
             key_kind,
-            strength,
+            enforcement,
         } => {
             writer.push_u8(KIND_RELATION);
             writer.push_string(target_path)?;
             writer.push_string(target_entity_name)?;
             writer.push_u64(target_entity_tag.value());
             writer.push_string(target_store_path)?;
-            writer.push_u8(match strength {
-                AcceptedRelationStrength::Strong => RELATION_STRONG,
-                AcceptedRelationStrength::Weak => RELATION_WEAK,
+            writer.push_u8(match enforcement {
+                AcceptedRelationEnforcement::Enforced => RELATION_ENFORCED,
+                AcceptedRelationEnforcement::Unchecked => RELATION_UNCHECKED,
             });
             encode_value_kind(writer, key_kind, nested_depth)?;
         }
@@ -367,9 +367,9 @@ fn decode_value_kind(
             target_entity_name: reader.read_string()?,
             target_entity_tag: EntityTag::new(reader.read_u64()?),
             target_store_path: reader.read_string()?,
-            strength: match reader.read_u8()? {
-                RELATION_STRONG => AcceptedRelationStrength::Strong,
-                RELATION_WEAK => AcceptedRelationStrength::Weak,
+            enforcement: match reader.read_u8()? {
+                RELATION_ENFORCED => AcceptedRelationEnforcement::Enforced,
+                RELATION_UNCHECKED => AcceptedRelationEnforcement::Unchecked,
                 _ => return Err(InternalError::store_corruption()),
             },
             key_kind: Box::new(decode_value_kind(reader, nested_depth)?),

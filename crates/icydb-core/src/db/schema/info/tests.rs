@@ -1,7 +1,7 @@
 use crate::{
     db::predicate::{CompareOp, ComparePredicate, Predicate, normalize_enum_literals},
     db::schema::{
-        AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedRelationStrength,
+        AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedRelationEnforcement,
         AcceptedSchemaRevision, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
         PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
@@ -667,7 +667,7 @@ fn accepted_snapshot_schema_info_uses_persisted_strong_relation_authority() {
         target_entity_tag: EntityTag::new(7),
         target_store_path: "schema::info::tests::target_store".to_string(),
         key_kind: Box::new(AcceptedFieldKind::Ulid),
-        strength: AcceptedRelationStrength::Strong,
+        enforcement: AcceptedRelationEnforcement::Enforced,
     })
     .persisted_snapshot()
     .clone()

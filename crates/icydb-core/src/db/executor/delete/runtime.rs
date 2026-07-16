@@ -127,7 +127,7 @@ fn resolve_delete_candidate_rows_as<T>(
         stream_bindings: AccessStreamBindings::new(
             prepared.index_prefix_specs.as_ref(),
             prepared.index_range_specs.as_ref(),
-            AccessScanContinuationInput::initial_asc(),
+            AccessScanContinuationInput::new(None, prepared.route_plan.direction()),
         ),
         execution_preparation: &prepared.execution_preparation,
         projection_materialization: ProjectionMaterializationMode::None,

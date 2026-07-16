@@ -117,12 +117,6 @@ impl<'a> AccessScanContinuationInput<'a> {
         }
     }
 
-    /// Build one initial (non-continuation) ascending scan continuation input.
-    #[must_use]
-    pub(in crate::db::executor) const fn initial_asc() -> Self {
-        Self::new(None, Direction::Asc)
-    }
-
     /// Borrow continuation scan direction.
     #[must_use]
     pub(in crate::db::executor) const fn direction(&self) -> Direction {

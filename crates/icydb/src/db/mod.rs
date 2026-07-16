@@ -28,7 +28,7 @@ pub use session::{
 pub use icydb_core::db::{
     AdminBatchRequest, DataStoreSnapshot, EntityCatalogCounts, EntityCatalogDescription,
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
-    EntityRelationDescription, EntityRelationStrength, EntitySchemaCheckDescription,
+    EntityRelationDescription, EntityRelationEnforcement, EntitySchemaCheckDescription,
     EntitySchemaDescription, ExplainAggregateTerminalPlan, ExplainExecutionDescriptor,
     ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
     ExplainExecutionOrderingSource, IndexStoreSnapshot, MemoryCatalogDescription, QueryTracePlan,

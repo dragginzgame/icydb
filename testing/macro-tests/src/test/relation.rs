@@ -10,7 +10,8 @@ pub use icydb_testing_test_fixtures::macro_test::relation::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::traits::EntityKey;
+    use icydb::model::field::{FieldKind, RelationEnforcement};
+    use icydb::traits::{EntityDeclaration, EntityKey};
 
     fn assert_entity_key_type<T>()
     where
@@ -37,6 +38,26 @@ mod tests {
 
         let row: HasRelation = entity;
         assert_eq!(row.a_id, test_ulid(1, 2));
+    }
+
+    #[test]
+    fn relation_enforcement_defaults_to_enforced_and_requires_explicit_unchecked_opt_out() {
+        let relation_enforcement = |field_name| {
+            let field = HasRelation::MODEL
+                .fields()
+                .iter()
+                .find(|field| field.name() == field_name)
+                .expect("relation field should be present");
+
+            match field.kind() {
+                FieldKind::Relation { enforcement, .. } => enforcement,
+                _ => panic!("relation field should retain relation metadata"),
+            }
+        };
+
+        assert_eq!(relation_enforcement("a_id"), RelationEnforcement::Enforced);
+        assert_eq!(relation_enforcement("b_id"), RelationEnforcement::Enforced);
+        assert_eq!(relation_enforcement("c_id"), RelationEnforcement::Unchecked);
     }
 
     #[test]

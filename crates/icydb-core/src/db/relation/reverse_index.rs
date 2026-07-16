@@ -29,7 +29,7 @@ use crate::{
             validate_relation_primary_key_component_kind,
         },
         schema::{AcceptedFieldDecodeContract, OwnedAcceptedRelationEdgeContract},
-        schema::{AcceptedFieldKind, AcceptedRelationStrength},
+        schema::{AcceptedFieldKind, AcceptedRelationEnforcement},
     },
     entity::EntityKind,
     error::InternalError,
@@ -551,7 +551,7 @@ where
     let Some(target) = accepted_relation_target_metadata_from_kind(field.kind()) else {
         return Ok(None);
     };
-    if target.strength != AcceptedRelationStrength::Strong {
+    if target.enforcement != AcceptedRelationEnforcement::Enforced {
         return Ok(None);
     }
     if target_path_filter.is_some_and(|filter| filter != target.target_path) {

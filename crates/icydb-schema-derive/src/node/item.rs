@@ -40,10 +40,7 @@ pub struct Item {
     pub(crate) relation: Option<Path>,
 
     #[darling(default)]
-    pub(crate) strong: bool,
-
-    #[darling(default)]
-    pub(crate) weak: bool,
+    pub(crate) enforcement: Option<RelationEnforcement>,
 
     #[darling(multiple, rename = "sanitizer")]
     pub(crate) sanitizers: Vec<TypeSanitizer>,
@@ -64,15 +61,10 @@ impl Item {
             ));
         }
 
-        // Phase 2: validate relation strength flags.
-        if self.strong && self.weak {
+        // Phase 2: validate relation enforcement metadata.
+        if self.relation.is_none() && self.enforcement.is_some() {
             return Err(DarlingError::custom(
-                "relation cannot be both strong and weak",
-            ));
-        }
-        if self.relation.is_none() && (self.strong || self.weak) {
-            return Err(DarlingError::custom(
-                "strong/weak may only be used with rel",
+                "enforcement may only be used with rel",
             ));
         }
         if let Some(relation) = &self.relation
@@ -200,12 +192,40 @@ impl Item {
     pub const fn is_relation(&self) -> bool {
         self.relation.is_some()
     }
+
+    pub const fn relation_enforcement(&self) -> RelationEnforcement {
+        match self.enforcement {
+            Some(enforcement) => enforcement,
+            None => RelationEnforcement::Enforced,
+        }
+    }
+}
+
+/// Relation-integrity policy declared for one relation item.
+#[derive(Clone, Copy, Debug, Default, Eq, FromMeta, PartialEq)]
+pub(crate) enum RelationEnforcement {
+    /// Require target existence and delete safety.
+    #[default]
+    #[darling(rename = "enforced")]
+    Enforced,
+
+    /// Admit references without referential-integrity checks.
+    #[darling(rename = "unchecked")]
+    Unchecked,
 }
 
 impl HasSchemaPart for Item {
     fn schema_part(&self) -> TokenStream {
         let target = self.target().schema_part();
         let relation = quote_option(self.relation.as_ref(), to_path);
+        let enforcement = match self.relation_enforcement() {
+            RelationEnforcement::Enforced => {
+                quote!(::icydb::schema::node::RelationEnforcement::Enforced)
+            }
+            RelationEnforcement::Unchecked => {
+                quote!(::icydb::schema::node::RelationEnforcement::Unchecked)
+            }
+        };
         let scale = quote_option(self.scale.as_ref(), |scale| quote!(#scale));
         let max_len = quote_option(self.max_len.as_ref(), |max_len| quote!(#max_len));
         let max_bytes = quote_option(self.max_bytes.as_ref(), |max_bytes| quote!(#max_bytes));
@@ -217,6 +237,7 @@ impl HasSchemaPart for Item {
             ::icydb::schema::node::Item::new(
                 #target,
                 #relation,
+                #enforcement,
                 #scale,
                 #max_len,
                 #max_bytes,

@@ -1,10 +1,10 @@
 use crate::{
     db::{
         EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
-        EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription,
+        EntityRelationDescription, EntityRelationEnforcement, EntitySchemaDescription,
         relation::{RelationFieldCardinality, relation_field_metadata_for_model_iter},
         schema::{
-            AcceptedFieldKind, AcceptedRelationStrength, AcceptedSchemaSnapshot, FieldId,
+            AcceptedFieldKind, AcceptedRelationEnforcement, AcceptedSchemaSnapshot, FieldId,
             PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
             SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
             describe::{
@@ -17,7 +17,7 @@ use crate::{
         entity::{EntityModel, PrimaryKeyModel},
         field::{
             FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode, LeafCodec,
-            RelationStrength, ScalarCodec,
+            RelationEnforcement, ScalarCodec,
         },
     },
     types::EntityTag,
@@ -30,7 +30,7 @@ static DESCRIBE_SINGLE_RELATION_KIND: FieldKind = FieldKind::Relation {
     target_entity_tag: EntityTag::new(0xD001),
     target_store_path: "stores::Target",
     key_kind: &FieldKind::Ulid,
-    strength: RelationStrength::Strong,
+    enforcement: RelationEnforcement::Enforced,
 };
 static DESCRIBE_LIST_RELATION_INNER_KIND: FieldKind = FieldKind::Relation {
     target_path: "entities::Account",
@@ -38,7 +38,7 @@ static DESCRIBE_LIST_RELATION_INNER_KIND: FieldKind = FieldKind::Relation {
     target_entity_tag: EntityTag::new(0xD002),
     target_store_path: "stores::Account",
     key_kind: &FieldKind::Nat64,
-    strength: RelationStrength::Weak,
+    enforcement: RelationEnforcement::Unchecked,
 };
 static DESCRIBE_SET_RELATION_INNER_KIND: FieldKind = FieldKind::Relation {
     target_path: "entities::Team",
@@ -46,7 +46,7 @@ static DESCRIBE_SET_RELATION_INNER_KIND: FieldKind = FieldKind::Relation {
     target_entity_tag: EntityTag::new(0xD003),
     target_store_path: "stores::Team",
     key_kind: &FieldKind::Text { max_len: None },
-    strength: RelationStrength::Strong,
+    enforcement: RelationEnforcement::Enforced,
 };
 static DESCRIBE_RELATION_FIELDS: [FieldModel; 4] = [
     FieldModel::generated("id", FieldKind::Ulid),
@@ -186,7 +186,7 @@ fn entity_relation_description_candid_shape_is_stable() {
         "target_path",
         "target_entity_name",
         "target_store_path",
-        "strength",
+        "enforcement",
         "cardinality",
     ] {
         assert!(
@@ -198,11 +198,11 @@ fn entity_relation_description_candid_shape_is_stable() {
 
 #[test]
 fn relation_enum_variant_labels_are_stable() {
-    let mut strength_labels = expect_variant_labels(EntityRelationStrength::ty());
-    strength_labels.sort_unstable();
+    let mut enforcement_labels = expect_variant_labels(EntityRelationEnforcement::ty());
+    enforcement_labels.sort_unstable();
     assert_eq!(
-        strength_labels,
-        vec!["Strong".to_string(), "Weak".to_string()]
+        enforcement_labels,
+        vec!["Enforced".to_string(), "Unchecked".to_string()]
     );
 
     let mut cardinality_labels = expect_variant_labels(EntityRelationCardinality::ty());
@@ -239,7 +239,7 @@ fn describe_fixture_constructors_stay_usable() {
             "entities::Account".to_string(),
             "Account".to_string(),
             "accounts".to_string(),
-            EntityRelationStrength::Strong,
+            EntityRelationEnforcement::Enforced,
             EntityRelationCardinality::Single,
         )],
     );
@@ -285,10 +285,10 @@ fn schema_describe_relations_match_relation_field_metadata() {
         assert_eq!(relation.target_entity_name(), metadata.target_entity_name());
         assert_eq!(relation.target_store_path(), metadata.target_store_path());
         assert_eq!(
-            relation.strength(),
-            match metadata.strength() {
-                RelationStrength::Strong => EntityRelationStrength::Strong,
-                RelationStrength::Weak => EntityRelationStrength::Weak,
+            relation.enforcement(),
+            match metadata.enforcement() {
+                RelationEnforcement::Enforced => EntityRelationEnforcement::Enforced,
+                RelationEnforcement::Unchecked => EntityRelationEnforcement::Unchecked,
             }
         );
         assert_eq!(
@@ -338,7 +338,7 @@ fn accepted_schema_describe_relations_use_persisted_relation_authority() {
                     target_entity_tag: EntityTag::new(0xD0A1),
                     target_store_path: "accepted::TargetStore".to_string(),
                     key_kind: Box::new(AcceptedFieldKind::Nat128),
-                    strength: AcceptedRelationStrength::Strong,
+                    enforcement: AcceptedRelationEnforcement::Enforced,
                 })),
                 Vec::new(),
                 false,
@@ -365,7 +365,7 @@ fn accepted_schema_describe_relations_use_persisted_relation_authority() {
     assert_eq!(relation.target_path(), "accepted::Target");
     assert_eq!(relation.target_entity_name(), "AcceptedTarget");
     assert_eq!(relation.target_store_path(), "accepted::TargetStore");
-    assert_eq!(relation.strength(), EntityRelationStrength::Strong);
+    assert_eq!(relation.enforcement(), EntityRelationEnforcement::Enforced);
     assert_eq!(relation.cardinality(), EntityRelationCardinality::Set);
 }
 

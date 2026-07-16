@@ -19,7 +19,7 @@ use crate::db::{
     registry::StoreRegistry,
     schema::{
         AcceptedEnumCatalogHandle, AcceptedFieldDecodeContract, AcceptedFieldKind,
-        AcceptedRelationStrength, AcceptedRowLayoutRuntimeContract, AcceptedSchemaRevision,
+        AcceptedRelationEnforcement, AcceptedRowLayoutRuntimeContract, AcceptedSchemaRevision,
         AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot, PersistedRelationEdgeSnapshot,
         PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
         SchemaVersion, enum_catalog::build_initial_accepted_enum_catalog,
@@ -59,7 +59,7 @@ fn relation(field_index: usize, key_kind: AcceptedFieldKind) -> AcceptedStrongRe
         target_entity_tag: EntityTag::new(77),
         target_store_path: "TargetStore".to_string(),
         key_kind: Box::new(key_kind.clone()),
-        strength: AcceptedRelationStrength::Strong,
+        enforcement: AcceptedRelationEnforcement::Enforced,
     };
 
     AcceptedStrongRelationInfo {
@@ -167,7 +167,7 @@ fn accepted_strong_relations_require_registered_target_authority() {
         target_entity_tag: EntityTag::new(77),
         target_store_path: "TargetStore".to_string(),
         key_kind: Box::new(AcceptedFieldKind::Ulid),
-        strength: AcceptedRelationStrength::Strong,
+        enforcement: AcceptedRelationEnforcement::Enforced,
     };
     let snapshot = PersistedSchemaSnapshot::new(
         SchemaVersion::initial(),
@@ -278,7 +278,7 @@ fn relation_validation_rejects_local_target_component_arity_mismatch() {
         target_entity_tag: EntityTag::new(77),
         target_store_path: "TargetStore".to_string(),
         key_kind: Box::new(AcceptedFieldKind::Nat64),
-        strength: AcceptedRelationStrength::Strong,
+        enforcement: AcceptedRelationEnforcement::Enforced,
     };
     let relation = AcceptedStrongRelationInfo {
         relation_name: "target_id".to_string(),

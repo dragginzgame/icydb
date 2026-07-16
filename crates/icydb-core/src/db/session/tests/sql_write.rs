@@ -3485,17 +3485,25 @@ fn execute_sql_statement_insert_select_late_failure_is_statement_atomic() {
     let session = sql_session();
     seed_write_entities(
         &session,
-        &[(1, "Ada", 21), (2, "Bea", 22), (12, "Existing", 32)],
+        &[(1, "Ada", 11), (2, "Bea", 12), (12, "Existing", 32)],
     );
 
+    let mut rejection = None;
     let events = capture_sql_write_events(|| {
-        execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
-            &session,
-            "INSERT INTO SessionSqlWriteEntity (id, name, age) \
-             SELECT id + 10, name, age FROM SessionSqlWriteEntity WHERE id <= 2 ORDER BY id ASC",
-        )
-        .expect_err("late INSERT SELECT conflict should reject the whole statement");
+        rejection = Some(
+            execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+                &session,
+                "INSERT INTO SessionSqlWriteEntity (id, name, age) \
+                 SELECT age, name, age FROM SessionSqlWriteEntity WHERE id <= 2 ORDER BY id ASC",
+            )
+            .expect_err("late INSERT SELECT conflict should reject the whole statement"),
+        );
     });
+    let rejection = rejection.expect("late INSERT SELECT conflict should be captured");
+    let QueryError::Execute(execution) = rejection else {
+        panic!("late INSERT SELECT conflict should preserve an execution error: {rejection}");
+    };
+    assert_eq!(execution.as_internal().class(), ErrorClass::Conflict);
     assert!(
         events.is_empty(),
         "failed staged INSERT SELECT must not emit successful SQL write row metrics",
@@ -3507,12 +3515,12 @@ fn execute_sql_statement_insert_select_late_failure_is_statement_atomic() {
             vec![
                 Value::Nat64(1),
                 Value::Text("Ada".to_string()),
-                Value::Nat64(21),
+                Value::Nat64(11),
             ],
             vec![
                 Value::Nat64(2),
                 Value::Text("Bea".to_string()),
-                Value::Nat64(22),
+                Value::Nat64(12),
             ],
             vec![
                 Value::Nat64(12),

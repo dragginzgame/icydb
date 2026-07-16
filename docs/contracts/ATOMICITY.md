@@ -1,10 +1,11 @@
-
 # IcyDB Atomicity Model (Explicit, Single-Message)
 
 This document defines the **atomicity, write-safety, and invariant contract** for
 IcyDB mutations executed within a **single Internet Computer update call**.
 The operator-facing durability summary lives in
 `docs/contracts/DURABILITY.md`.
+The row-content and mutation-ingress requirements that must complete before the
+commit boundary live in `docs/contracts/WRITE_ADMISSION.md`.
 
 It is the normative runtime contract, not an implementation plan.
 
@@ -59,7 +60,9 @@ global database invariants (e.g. completing or rolling back a previously started
 commit) before operations proceed.
 
 System recovery:
-* Executes at startup before the first read or mutation pre-commit begins, and is re-enforced by guarded operation boundaries via a fast persisted-marker check
+
+* Executes at startup before the first guarded operation and is re-enforced by
+  guarded operation boundaries through a fast persisted-marker check
 * Leaves the database in a fully consistent state
 * Is not part of the current mutation’s atomicity scope
 * Is not observable by reads as partial state
@@ -101,6 +104,7 @@ complete successfully before any read execution, planning, or validation begins.
 
 All fallible work **must complete before any durable mutation**, including:
 
+* accepted-schema write admission
 * validation
 * decoding
 * schema checks
@@ -110,6 +114,9 @@ All fallible work **must complete before any durable mutation**, including:
 * mutation planning
 
 If any step fails, **no durable state is mutated**.
+
+`docs/contracts/WRITE_ADMISSION.md` defines the exact field, absence, key,
+relation, and supported-ingress guarantees included in write admission.
 
 ---
 
@@ -146,8 +153,8 @@ Commit markers are **authoritative**, not diagnostic.
   marker is persisted
 * The system recovery step handles markers left behind by interrupted commits
 * Read entrypoints enforce recovery before accessing durable stores
-* Write entrypoints perform a marker check and recovery before accessing durable stores;
-  reads must not branch on marker presence outside recovery
+* Write entrypoints perform a marker check and recovery before accessing durable
+  stores; reads must not branch on marker presence outside recovery
 * Guarded reads and writes both perform marker checks at entry; if a marker is
   present, recovery publishes and folds its journal batches before read or
   mutation execution proceeds
@@ -159,7 +166,8 @@ Commit markers are **authoritative**, not diagnostic.
 ### Save (single entity)
 
 * Fully atomic
-* All fallible work occurs pre-commit
+* Every row after-image satisfies `docs/contracts/WRITE_ADMISSION.md`
+* All fallible admission and preparation work occurs pre-commit
 * Apply phase appends marker-bound journal batches and applies prevalidated row
   operations only
 
@@ -176,7 +184,8 @@ IcyDB now exposes two explicit batch lanes:
   may commit before an error is returned.
 
 Detailed batch-lane behavior and edge cases are defined in
-`docs/contracts/TRANSACTION_SEMANTICS.md`.
+`docs/contracts/TRANSACTION_SEMANTICS.md`; per-item row strictness remains
+governed by `docs/contracts/WRITE_ADMISSION.md` in both lanes.
 
 ### Delete (single entity or planner-based)
 
@@ -212,7 +221,8 @@ The following are **explicitly out of scope**:
 * Multi-message commits
 * Async or awaited mutation paths
 * Forward recovery after process crash
-* Lazy or deferred recovery interleaved with read execution logic (recovery runs at guarded entry boundaries before read execution)
+* Lazy or deferred recovery interleaved with read execution logic; recovery
+  runs at guarded entry boundaries before read execution
 * Atomicity across independent mutation calls
 * Distributed or cross-canister transactions
 
@@ -225,6 +235,8 @@ Introducing any of these **requires a new atomicity specification**.
 The following invariants are **mandatory and non-negotiable**:
 
 * No durable mutation before pre-commit completes successfully
+* No commit marker publication before applicable write admission and commit
+  preparation complete
 * No fallible work after the commit boundary
 * Apply phase must be infallible by construction
 * Commit marker application must not depend on IC trap rollback
@@ -232,10 +244,10 @@ The following invariants are **mandatory and non-negotiable**:
 * All mutation entrypoints must perform write-side recovery (marker check plus
   journal publication/fold) before pre-commit
 * Mutation correctness must not depend on recovery occurring after the commit
-  boundary.
-* Startup recovery must complete before any read pre-commit, and read/write entrypoint
-  marker checks must complete before operation-specific execution; recovery must not be interleaved with
-  mutation planning or apply phases.
+  boundary
+* Startup recovery must complete before read execution, and read/write
+  entrypoint marker checks must complete before operation-specific execution;
+  recovery must not be interleaved with mutation planning or apply phases
 * No `await`, yield, or re-entrancy during mutation execution
 
 Violating any invariant is a **bug**, not an acceptable failure mode.
@@ -264,4 +276,4 @@ journal publication/fold recovery if needed.
 * Matches the current executor + commit-marker architecture
 * Makes invariants explicit and enforceable
 * Prevents silent regression via async or refactors
-* Defines one explicit contract for the current release line
+* Defines one explicit atomicity contract for the current release line

@@ -395,6 +395,46 @@ pub fn build_canister(canister_name: &str) -> Result<PathBuf, String> {
     build_canister_with_options(canister_name, CanisterBuildOptions::default())
 }
 
+/// Build one supported fixture canister and return its raw WASM bytes.
+///
+/// This boundary lets repeated isolated tests build once and install the exact
+/// same module into multiple fresh PocketIC instances.
+///
+/// # Panics
+///
+/// Panics if the canister name is unsupported, its build fails, or the built
+/// WASM cannot be read.
+#[must_use]
+pub fn build_fixture_canister_wasm_bytes_with_options(
+    canister_name: &str,
+    options: CanisterBuildOptions,
+) -> Vec<u8> {
+    local_fixture_wasm_bytes_with_options(canister_name, options)
+}
+
+/// Install already-built fixture WASM into one fresh standalone PocketIC instance.
+///
+/// # Panics
+///
+/// Panics if the canister name is unsupported, empty init arguments cannot be
+/// encoded, PocketIC cannot start, or installation fails.
+#[must_use]
+pub fn install_prebuilt_fixture_canister(
+    canister_name: &str,
+    wasm: Vec<u8>,
+) -> StandaloneCanisterFixture {
+    fixture_for_canister_name(canister_name)
+        .unwrap_or_else(|error| panic!("fixture canister should be supported: {error}"));
+    install_prebuilt_canister_from_spec(
+        InstallSpec::new(
+            wasm,
+            candid::encode_args(()).expect("encode empty init args"),
+            FIXTURE_INSTALL_CYCLES,
+        )
+        .label(canister_name),
+    )
+}
+
 /// Build one supported canister and install it into a fresh standalone fixture
 /// with empty init args.
 ///

@@ -169,7 +169,7 @@ pub use response::{
 };
 pub use schema::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
-    EntityRelationDescription, EntityRelationStrength, EntitySchemaCheckDescription,
+    EntityRelationDescription, EntityRelationEnforcement, EntitySchemaCheckDescription,
     EntitySchemaDescription, SchemaLiteralValidationReason, SchemaStore, SchemaValidationOperator,
     ValidateError,
 };

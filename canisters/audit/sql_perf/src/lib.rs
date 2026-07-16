@@ -13,10 +13,10 @@ use icydb::types::{Blob, Timestamp, Ulid};
 use icydb::{
     ErrorCode, ErrorOrigin,
     db::{
-        DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
-        QueryExecutionAttribution, SqlCompileAttribution, SqlExecutionAttribution,
-        SqlPureCoveringAttribution, SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
-        response::QueryResponse, sql::SqlQueryResult,
+        DirectDataRowAttribution, EntitySchemaDescription, GroupedCountAttribution,
+        GroupedExecutionAttribution, QueryExecutionAttribution, SqlCompileAttribution,
+        SqlExecutionAttribution, SqlPureCoveringAttribution, SqlQueryCacheAttribution,
+        SqlQueryExecutionAttribution, response::QueryResponse, sql::SqlQueryResult,
     },
     prelude::*,
     traits::EntityFor,
@@ -54,6 +54,59 @@ struct SqlTotalOnlyPerfResult {
 struct FluentTotalOnlyPerfResult {
     row_count: u32,
     instructions: u64,
+}
+
+///
+/// ScalePayloadProfile
+///
+/// Exact blob-payload distribution loaded by one SQL scale fixture.
+/// Owned by the audit canister and returned to the host as fixture evidence.
+///
+
+#[derive(CandidType, Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
+enum ScalePayloadProfile {
+    /// The selected surface has no blob payload fields.
+    NotApplicable,
+
+    /// Thumbnail lengths cycle through 32/64/128/256 bytes and chunk lengths
+    /// cycle through 256/512/1,024/2,048 bytes.
+    BlobCycleV1,
+}
+
+///
+/// ScaleFixtureFacts
+///
+/// Realized deterministic distribution facts for one loaded scale surface.
+/// Owned by the audit canister and validated by the host before sampling.
+///
+
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
+struct ScaleFixtureFacts {
+    /// Current hard-cut scale-fixture format version.
+    profile_version: u32,
+
+    /// Stable audit surface name loaded into the otherwise-empty canister.
+    surface: String,
+
+    /// Exact number of rows constructed and inserted for the surface.
+    fixture_rows: u32,
+
+    /// Rows matching the surface's declared impossible predicate.
+    zero_match_rows: u32,
+
+    /// Rows matching the surface's declared exact-key predicate.
+    one_match_rows: u32,
+
+    /// Rows matching the surface's declared quarter-selectivity predicate.
+    quarter_match_rows: u32,
+
+    /// Rows matching the surface's declared all-row predicate.
+    all_match_rows: u32,
+
+    /// Exact blob payload distribution, or typed non-applicability.
+    payload_profile: ScalePayloadProfile,
 }
 
 // FluentQueryPerfOutcome
@@ -127,6 +180,10 @@ const SQL_WRITE_MATERIALIZATION_ROWS: i32 = 32;
 const JOURNALED_REENTRY_PROBE_ROWS: i32 = 32;
 const TOKEN_TARGET_COLLECTION: &str = "01KV5N439P0000000000000000";
 const TOKEN_OTHER_COLLECTION: &str = "01KV5N439P1111111111111111";
+#[cfg(feature = "sql")]
+const SCALE_FIXTURE_PROFILE_VERSION: u32 = 1;
+#[cfg(feature = "sql")]
+const SCALE_FIXTURE_ROW_CARDINALITIES: &[u32] = &[16, 256, 2_048];
 
 #[cfg(feature = "sql")]
 const fn query_validate_error() -> icydb::Error {
@@ -136,6 +193,15 @@ const fn query_validate_error() -> icydb::Error {
 #[cfg(feature = "sql")]
 const fn invalid_perf_loop_runs_error() -> icydb::Error {
     query_validate_error()
+}
+
+#[cfg(feature = "sql")]
+fn validate_scale_fixture_rows(row_count: u32) -> Result<i32, icydb::Error> {
+    if !SCALE_FIXTURE_ROW_CARDINALITIES.contains(&row_count) {
+        return Err(query_validate_error());
+    }
+
+    i32::try_from(row_count).map_err(|_| query_validate_error())
 }
 
 #[cfg(feature = "sql")]
@@ -1235,6 +1301,145 @@ fn __icydb_fixtures_load() -> Result<(), icydb::Error> {
     Ok(())
 }
 
+/// Load only the deterministic user scale surface at one reviewed cardinality.
+#[cfg(feature = "sql")]
+#[update]
+fn load_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::Error> {
+    let validated_rows = validate_scale_fixture_rows(row_count)?;
+    let rows = perf_scale_users(validated_rows);
+    let facts = scale_fixture_facts(
+        "user",
+        row_count,
+        rows.len(),
+        rows.iter().filter(|row| row.name.starts_with('A')).count(),
+        rows.iter().filter(|row| row.id == 1).count(),
+        rows.iter()
+            .filter(|row| row.age >= 24 && row.age < 40)
+            .count(),
+        ScalePayloadProfile::NotApplicable,
+    )?;
+    __icydb_fixtures_reset()?;
+    db()?.insert_many_atomic(rows)?;
+
+    Ok(facts)
+}
+
+/// Load only the deterministic account scale surface at one reviewed cardinality.
+#[cfg(feature = "sql")]
+#[update]
+fn load_account_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::Error> {
+    let validated_rows = validate_scale_fixture_rows(row_count)?;
+    let rows = perf_scale_accounts(validated_rows);
+    let facts = scale_fixture_facts(
+        "account",
+        row_count,
+        rows.len(),
+        rows.iter()
+            .filter(|row| row.handle.starts_with('a'))
+            .count(),
+        rows.iter().filter(|row| row.id == 1).count(),
+        rows.iter()
+            .filter(|row| row.tier == "gold" && row.active)
+            .count(),
+        ScalePayloadProfile::NotApplicable,
+    )?;
+    __icydb_fixtures_reset()?;
+    db()?.insert_many_atomic(rows)?;
+
+    Ok(facts)
+}
+
+/// Load only the deterministic blob scale surface at one reviewed cardinality.
+#[cfg(feature = "sql")]
+#[update]
+fn load_blob_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::Error> {
+    let validated_rows = validate_scale_fixture_rows(row_count)?;
+    let rows = perf_scale_blobs(validated_rows);
+    let facts = scale_fixture_facts(
+        "blob",
+        row_count,
+        rows.len(),
+        rows.iter()
+            .filter(|row| row.label.starts_with("blob-"))
+            .count(),
+        rows.iter().filter(|row| row.id == 1).count(),
+        rows.iter().filter(|row| row.bucket == 10).count(),
+        ScalePayloadProfile::BlobCycleV1,
+    )?;
+    __icydb_fixtures_reset()?;
+    db()?.insert_many_atomic(rows)?;
+
+    Ok(facts)
+}
+
+/// Load only the deterministic heap-user scale surface at one reviewed cardinality.
+#[cfg(feature = "sql")]
+#[update]
+fn load_heap_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::Error> {
+    let validated_rows = validate_scale_fixture_rows(row_count)?;
+    let rows = perf_scale_heap_users(validated_rows);
+    let facts = scale_user_mirror_fixture_facts("heap_user", row_count, &rows)?;
+    __icydb_fixtures_reset()?;
+    db()?.insert_many_atomic(rows)?;
+
+    Ok(facts)
+}
+
+/// Load only the deterministic journaled-user scale surface at one reviewed cardinality.
+#[cfg(feature = "sql")]
+#[update]
+fn load_journaled_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::Error> {
+    let validated_rows = validate_scale_fixture_rows(row_count)?;
+    let rows = perf_scale_journaled_users(validated_rows);
+    let facts = scale_journaled_user_fixture_facts(row_count, &rows)?;
+    __icydb_fixtures_reset()?;
+    db()?.insert_many_atomic(rows)?;
+
+    Ok(facts)
+}
+
+/// Load only the deterministic token scale surface at one reviewed cardinality.
+#[cfg(feature = "sql")]
+#[update]
+fn load_token_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::Error> {
+    let validated_rows = validate_scale_fixture_rows(row_count)?;
+    let rows = perf_scale_tokens(validated_rows);
+    let first_id = Ulid::from_bytes(20_001_u128.to_be_bytes());
+    let facts = scale_fixture_facts(
+        "token",
+        row_count,
+        rows.len(),
+        rows.iter()
+            .filter(|row| row.collection_id == "missing-collection")
+            .count(),
+        rows.iter().filter(|row| row.id == first_id).count(),
+        rows.iter()
+            .filter(|row| row.collection_id == TOKEN_TARGET_COLLECTION)
+            .count(),
+        ScalePayloadProfile::NotApplicable,
+    )?;
+    __icydb_fixtures_reset()?;
+    db()?.insert_many_atomic(rows)?;
+
+    Ok(facts)
+}
+
+/// Return accepted runtime schema descriptions in stable audit-surface order.
+#[cfg(feature = "sql")]
+#[query]
+fn accepted_schema_descriptions() -> Result<Vec<EntitySchemaDescription>, icydb::Error> {
+    let session = db()?;
+
+    Ok(vec![
+        session.try_describe_entity::<PerfAuditAccount>()?,
+        session.try_describe_entity::<PerfAuditBlob>()?,
+        session.try_describe_entity::<PerfAuditHeapUser>()?,
+        session.try_describe_entity::<PerfAuditJournaledUser>()?,
+        session.try_describe_entity::<PerfAuditToken>()?,
+        session.try_describe_entity::<PerfAuditUser>()?,
+    ])
+}
+
 /// Load a small journaled-only fixture for same-WASM upgrade/reentry
 /// instruction probes. The full SQL perf corpus intentionally remains larger
 /// than this audit budget.
@@ -1264,6 +1469,23 @@ fn query_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error>
     Ok(SqlQueryPerfResult {
         result,
         attribution,
+    })
+}
+
+/// Execute one PerfAuditUser-only SQL query through the fully attributed path
+/// while measuring the same outer canister-local boundary as the total-only
+/// calibration endpoint.
+#[cfg(feature = "sql")]
+#[query]
+fn query_user_attributed_total_perf(sql: String) -> Result<SqlTotalOnlyPerfResult, icydb::Error> {
+    let start = ic_cdk::api::performance_counter(1);
+    let (result, _attribution) =
+        db()?.execute_trusted_sql_query_with_attribution::<PerfAuditUser>(sql.as_str())?;
+    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+    Ok(SqlTotalOnlyPerfResult {
+        result,
+        instructions,
     })
 }
 
@@ -1315,15 +1537,6 @@ fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::E
         result,
         attribution,
     })
-}
-
-/// Execute one PerfAuditUser-only SQL mutation. This is intentionally limited
-/// to the audit canister so the SQLite differential harness can compare write
-/// semantics and post-state signatures.
-#[cfg(feature = "sql")]
-#[update]
-fn update_user_sql(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db()?.execute_trusted_sql_mutation::<PerfAuditUser>(sql.as_str())
 }
 
 /// Execute the same PerfAuditUser-only SQL query repeatedly inside one canister
@@ -1871,14 +2084,6 @@ fn warm_account_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb
         result,
         attribution,
     })
-}
-
-/// Execute one PerfAuditAccount-only SQL mutation for the SQLite differential
-/// harness.
-#[cfg(feature = "sql")]
-#[update]
-fn update_account_sql(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db()?.execute_trusted_sql_mutation::<PerfAuditAccount>(sql.as_str())
 }
 
 /// Execute the same PerfAuditAccount-only SQL query repeatedly inside one
@@ -2839,6 +3044,193 @@ fn focused_empty_require_one_row(scenario_key: &str) -> FocusedPkPerfRow {
         row.result_signature = "not_found|PerfAuditUser".to_string();
     }
     row
+}
+
+#[cfg(feature = "sql")]
+fn scale_fixture_facts(
+    surface: &str,
+    requested_rows: u32,
+    actual_rows: usize,
+    zero_match_rows: usize,
+    one_match_rows: usize,
+    quarter_match_rows: usize,
+    payload_profile: ScalePayloadProfile,
+) -> Result<ScaleFixtureFacts, icydb::Error> {
+    let actual_rows = u32::try_from(actual_rows).map_err(|_| query_validate_error())?;
+    let zero_match_rows = u32::try_from(zero_match_rows).map_err(|_| query_validate_error())?;
+    let one_match_rows = u32::try_from(one_match_rows).map_err(|_| query_validate_error())?;
+    let quarter_match_rows =
+        u32::try_from(quarter_match_rows).map_err(|_| query_validate_error())?;
+    if actual_rows != requested_rows
+        || zero_match_rows != 0
+        || one_match_rows != 1
+        || quarter_match_rows != requested_rows / 4
+    {
+        return Err(query_validate_error());
+    }
+
+    Ok(ScaleFixtureFacts {
+        profile_version: SCALE_FIXTURE_PROFILE_VERSION,
+        surface: surface.to_string(),
+        fixture_rows: actual_rows,
+        zero_match_rows,
+        one_match_rows,
+        quarter_match_rows,
+        all_match_rows: actual_rows,
+        payload_profile,
+    })
+}
+
+#[cfg(feature = "sql")]
+fn scale_user_mirror_fixture_facts(
+    surface: &str,
+    requested_rows: u32,
+    rows: &[PerfAuditHeapUser],
+) -> Result<ScaleFixtureFacts, icydb::Error> {
+    scale_fixture_facts(
+        surface,
+        requested_rows,
+        rows.len(),
+        rows.iter().filter(|row| row.name.starts_with('A')).count(),
+        rows.iter().filter(|row| row.id == 1).count(),
+        rows.iter()
+            .filter(|row| row.age >= 24 && row.age < 40)
+            .count(),
+        ScalePayloadProfile::NotApplicable,
+    )
+}
+
+#[cfg(feature = "sql")]
+fn scale_journaled_user_fixture_facts(
+    requested_rows: u32,
+    rows: &[PerfAuditJournaledUser],
+) -> Result<ScaleFixtureFacts, icydb::Error> {
+    scale_fixture_facts(
+        "journaled_user",
+        requested_rows,
+        rows.len(),
+        rows.iter().filter(|row| row.name.starts_with('A')).count(),
+        rows.iter().filter(|row| row.id == 1).count(),
+        rows.iter()
+            .filter(|row| row.age >= 24 && row.age < 40)
+            .count(),
+        ScalePayloadProfile::NotApplicable,
+    )
+}
+
+#[cfg(feature = "sql")]
+fn perf_scale_users(row_count: i32) -> Vec<PerfAuditUser> {
+    let quarter_rows = row_count / 4;
+    (1..=row_count)
+        .map(|id| {
+            let quarter_match = id <= quarter_rows;
+            let age = if quarter_match { 31 } else { 43 };
+            PerfAuditUser {
+                id,
+                name: format!("scale-user-{id:04}"),
+                age,
+                age_nat: if quarter_match { 31 } else { 43 },
+                rank: age - 2,
+                active: quarter_match,
+                created_at: Timestamp::default(),
+                updated_at: Timestamp::default(),
+            }
+        })
+        .collect()
+}
+
+#[cfg(feature = "sql")]
+fn perf_scale_accounts(row_count: i32) -> Vec<PerfAuditAccount> {
+    let quarter_rows = row_count / 4;
+    (1..=row_count)
+        .map(|id| {
+            let quarter_match = id <= quarter_rows;
+            PerfAuditAccount {
+                id,
+                handle: format!("scale-account-{id:04}"),
+                tier: if quarter_match { "gold" } else { "bronze" }.to_string(),
+                active: quarter_match,
+                score: 40 + (id % 60),
+                created_at: Timestamp::default(),
+                updated_at: Timestamp::default(),
+            }
+        })
+        .collect()
+}
+
+#[cfg(feature = "sql")]
+fn perf_scale_blobs(row_count: i32) -> Vec<PerfAuditBlob> {
+    let quarter_rows = row_count / 4;
+    (1..=row_count)
+        .map(|id| {
+            let (thumbnail_len, chunk_len) = match id % 4 {
+                0 => (32, 256),
+                1 => (64, 512),
+                2 => (128, 1_024),
+                _ => (256, 2_048),
+            };
+            // The low byte deliberately repeats a deterministic payload-byte
+            // seed without affecting the separately declared length profile.
+            PerfAuditBlob {
+                id,
+                label: format!("scale-payload-{id:04}"),
+                bucket: if id <= quarter_rows { 10 } else { 20 },
+                thumbnail: perf_blob(id.to_le_bytes()[0], thumbnail_len),
+                chunk: perf_blob(id.wrapping_add(31).to_le_bytes()[0], chunk_len),
+                created_at: Timestamp::default(),
+                updated_at: Timestamp::default(),
+            }
+        })
+        .collect()
+}
+
+#[cfg(feature = "sql")]
+fn perf_scale_heap_users(row_count: i32) -> Vec<PerfAuditHeapUser> {
+    let quarter_rows = row_count / 4;
+    (1..=row_count)
+        .map(|id| {
+            build_perf_audit_heap_user(
+                id,
+                &format!("scale-heap-user-{id:04}"),
+                if id <= quarter_rows { 31 } else { 43 },
+            )
+        })
+        .collect()
+}
+
+#[cfg(feature = "sql")]
+fn perf_scale_journaled_users(row_count: i32) -> Vec<PerfAuditJournaledUser> {
+    let quarter_rows = row_count / 4;
+    (1..=row_count)
+        .map(|id| {
+            build_perf_audit_journaled_user(
+                id,
+                &format!("scale-journaled-user-{id:04}"),
+                if id <= quarter_rows { 31 } else { 43 },
+            )
+        })
+        .collect()
+}
+
+#[cfg(feature = "sql")]
+fn perf_scale_tokens(row_count: i32) -> Vec<PerfAuditToken> {
+    let quarter_rows = row_count / 4;
+    (1..=row_count)
+        .map(|id| {
+            let quarter_match = id <= quarter_rows;
+            let stage = if id % 2 == 0 { "Draft" } else { "Review" };
+            perf_audit_token(
+                20_000 + u128::from(id.unsigned_abs()),
+                if quarter_match {
+                    TOKEN_TARGET_COLLECTION
+                } else {
+                    TOKEN_OTHER_COLLECTION
+                },
+                stage,
+                &format!("scale-token-{id:04}"),
+            )
+        })
+        .collect()
 }
 
 /// Build the deterministic user fixture batch used by the perf audit.

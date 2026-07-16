@@ -31,9 +31,10 @@ For local development setup, test prerequisites, and troubleshooting, see
   catalogs, schema reconciliation, SQL DDL, and observability.
 - Primary keys can be scalar or composite. Composite keys use ordered
   components and generated key structs.
-- Strong relations are explicit and validated at write time. Scalar and
-  composite target identities use full accepted primary-key metadata; collection
-  relations to composite targets remain intentionally deferred.
+- Relations are enforced by default and validated at write time; non-enforcing
+  references require `enforcement = "unchecked"`. Scalar and composite target
+  identities use full accepted primary-key metadata; collection relations to
+  composite targets remain intentionally deferred.
 - SQL is intentionally single-entity. It is useful for canister-local reads,
   writes, aggregates, introspection, and accepted-catalog DDL, not joins or
   general relational workloads.
@@ -296,6 +297,7 @@ usage, IC test prerequisites, and wasm report commands live in
 - [docs/contracts/QUERY_CONTRACT.md](docs/contracts/QUERY_CONTRACT.md)
 - [docs/contracts/QUERY_PRACTICE.md](docs/contracts/QUERY_PRACTICE.md)
 - [docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md)
+- [docs/contracts/WRITE_ADMISSION.md](docs/contracts/WRITE_ADMISSION.md)
 - [docs/contracts/SQL_SUBSET.md](docs/contracts/SQL_SUBSET.md)
 - [docs/contracts/DURABILITY.md](docs/contracts/DURABILITY.md)
 - [docs/contracts/ATOMICITY.md](docs/contracts/ATOMICITY.md)

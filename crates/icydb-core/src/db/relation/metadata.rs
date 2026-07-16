@@ -6,7 +6,7 @@
 
 use crate::{
     model::entity::EntityModel,
-    model::field::{FieldKind, RelationStrength},
+    model::field::{FieldKind, RelationEnforcement},
 };
 
 ///
@@ -30,7 +30,7 @@ pub(in crate::db) enum RelationFieldCardinality {
 ///
 /// Canonical relation metadata shape extracted from an entity model field.
 /// The metadata is intentionally semantic: it describes relation target
-/// identity, strength, and cardinality without performing save,
+/// identity, enforcement, and cardinality without performing save,
 /// delete, reverse-index, or storage execution behavior.
 ///
 
@@ -40,7 +40,7 @@ pub(in crate::db) struct RelationFieldMetadata {
     target_path: &'static str,
     target_entity_name: &'static str,
     target_store_path: &'static str,
-    strength: RelationStrength,
+    enforcement: RelationEnforcement,
     cardinality: RelationFieldCardinality,
 }
 
@@ -53,7 +53,7 @@ impl RelationFieldMetadata {
             target_path: target.path,
             target_entity_name: target.entity_name,
             target_store_path: target.store_path,
-            strength: target.strength,
+            enforcement: target.enforcement,
             cardinality: target.cardinality,
         }
     }
@@ -82,10 +82,10 @@ impl RelationFieldMetadata {
         self.target_store_path
     }
 
-    /// Return the declared relation strength.
+    /// Return the declared relation enforcement.
     #[must_use]
-    pub(in crate::db) const fn strength(self) -> RelationStrength {
-        self.strength
+    pub(in crate::db) const fn enforcement(self) -> RelationEnforcement {
+        self.enforcement
     }
 
     /// Return the declared relation cardinality.
@@ -108,7 +108,7 @@ struct RelationTargetMetadata {
     path: &'static str,
     entity_name: &'static str,
     store_path: &'static str,
-    strength: RelationStrength,
+    enforcement: RelationEnforcement,
     cardinality: RelationFieldCardinality,
 }
 
@@ -119,39 +119,39 @@ const fn relation_target_from_kind(kind: &FieldKind) -> Option<RelationTargetMet
             target_path,
             target_entity_name,
             target_store_path,
-            strength,
+            enforcement,
             ..
         } => Some(RelationTargetMetadata {
             path: target_path,
             entity_name: target_entity_name,
             store_path: target_store_path,
-            strength: *strength,
+            enforcement: *enforcement,
             cardinality: RelationFieldCardinality::Single,
         }),
         FieldKind::List(FieldKind::Relation {
             target_path,
             target_entity_name,
             target_store_path,
-            strength,
+            enforcement,
             ..
         }) => Some(RelationTargetMetadata {
             path: target_path,
             entity_name: target_entity_name,
             store_path: target_store_path,
-            strength: *strength,
+            enforcement: *enforcement,
             cardinality: RelationFieldCardinality::List,
         }),
         FieldKind::Set(FieldKind::Relation {
             target_path,
             target_entity_name,
             target_store_path,
-            strength,
+            enforcement,
             ..
         }) => Some(RelationTargetMetadata {
             path: target_path,
             entity_name: target_entity_name,
             store_path: target_store_path,
-            strength: *strength,
+            enforcement: *enforcement,
             cardinality: RelationFieldCardinality::Set,
         }),
         _ => None,
@@ -185,6 +185,6 @@ impl EntityModel {
     #[must_use]
     pub(in crate::db) fn has_any_strong_relations(&self) -> bool {
         relation_field_metadata_for_model_iter(self)
-            .any(|metadata| metadata.strength() == RelationStrength::Strong)
+            .any(|metadata| metadata.enforcement() == RelationEnforcement::Enforced)
     }
 }

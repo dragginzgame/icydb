@@ -294,6 +294,7 @@ mod tests {
         Item::new(
             ItemTarget::Primitive(primitive),
             None,
+            RelationEnforcement::Enforced,
             None,
             None,
             None,
@@ -312,6 +313,7 @@ mod tests {
         Item::new(
             ItemTarget::Primitive(primitive),
             None,
+            RelationEnforcement::Enforced,
             scale,
             max_len,
             max_bytes,

@@ -29,7 +29,7 @@ pub(in crate::db::executor::tests) use crate::{
     error::InternalError,
     metrics::sink::{MetricsEvent, MetricsSink, with_shared_metrics_sink},
     model::{
-        field::{FieldKind, RelationStrength},
+        field::{FieldKind, RelationEnforcement},
         index::IndexModel,
     },
     testing::test_memory,
@@ -536,25 +536,25 @@ pub(in crate::db::executor::tests) static REL_ENTITY_RUNTIME_HOOKS: &[EntityRunt
         validate_delete_strong_relations_for_source::<CompositePkRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
-        WeakSingleRelationSourceEntity::ENTITY_TAG,
-        <WeakSingleRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
-        WeakSingleRelationSourceEntity::PATH,
+        UncheckedSingleRelationSourceEntity::ENTITY_TAG,
+        <UncheckedSingleRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
+        UncheckedSingleRelationSourceEntity::PATH,
         RelationSourceStore::PATH,
-        validate_delete_strong_relations_for_source::<WeakSingleRelationSourceEntity>,
+        validate_delete_strong_relations_for_source::<UncheckedSingleRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
-        WeakOptionalRelationSourceEntity::ENTITY_TAG,
-        <WeakOptionalRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
-        WeakOptionalRelationSourceEntity::PATH,
+        UncheckedOptionalRelationSourceEntity::ENTITY_TAG,
+        <UncheckedOptionalRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
+        UncheckedOptionalRelationSourceEntity::PATH,
         RelationSourceStore::PATH,
-        validate_delete_strong_relations_for_source::<WeakOptionalRelationSourceEntity>,
+        validate_delete_strong_relations_for_source::<UncheckedOptionalRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
-        WeakListRelationSourceEntity::ENTITY_TAG,
-        <WeakListRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
-        WeakListRelationSourceEntity::PATH,
+        UncheckedListRelationSourceEntity::ENTITY_TAG,
+        <UncheckedListRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
+        UncheckedListRelationSourceEntity::PATH,
         RelationSourceStore::PATH,
-        validate_delete_strong_relations_for_source::<WeakListRelationSourceEntity>,
+        validate_delete_strong_relations_for_source::<UncheckedListRelationSourceEntity>,
     ),
 ];
 
@@ -612,7 +612,7 @@ crate::test_entity! {
             target_entity_tag: RelationTargetEntity::ENTITY_TAG,
             target_store_path: RelationTargetStore::PATH,
             key_kind: &FieldKind::Ulid,
-            strength: RelationStrength::Strong,
+            enforcement: RelationEnforcement::Enforced,
         } },
     ],
     indexes = [],
@@ -933,19 +933,19 @@ crate::test_entity! {
 }
 
 ///
-/// WeakSingleRelationSourceEntity
+/// UncheckedSingleRelationSourceEntity
 ///
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
-pub(in crate::db::executor::tests) struct WeakSingleRelationSourceEntity {
+pub(in crate::db::executor::tests) struct UncheckedSingleRelationSourceEntity {
     pub(in crate::db::executor::tests) id: Ulid,
     pub(in crate::db::executor::tests) target: Ulid,
 }
 
 crate::test_entity! {
-    ident = WeakSingleRelationSourceEntity,
-    entity_name = "WeakSingleRelationSourceEntity",
-    tag = crate::testing::WEAK_SINGLE_RELATION_SOURCE_ENTITY_TAG,
+    ident = UncheckedSingleRelationSourceEntity,
+    entity_name = "UncheckedSingleRelationSourceEntity",
+    tag = crate::testing::UNCHECKED_SINGLE_RELATION_SOURCE_ENTITY_TAG,
     store = RelationSourceStore,
     canister = RelationTestCanister,
     key_type = Ulid,
@@ -958,7 +958,7 @@ crate::test_entity! {
             target_entity_tag: RelationTargetEntity::ENTITY_TAG,
             target_store_path: RelationTargetStore::PATH,
             key_kind: &FieldKind::Ulid,
-            strength: RelationStrength::Weak,
+            enforcement: RelationEnforcement::Unchecked,
         } },
     ],
     indexes = [],
@@ -967,19 +967,19 @@ crate::test_entity! {
 }
 
 ///
-/// WeakOptionalRelationSourceEntity
+/// UncheckedOptionalRelationSourceEntity
 ///
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
-pub(in crate::db::executor::tests) struct WeakOptionalRelationSourceEntity {
+pub(in crate::db::executor::tests) struct UncheckedOptionalRelationSourceEntity {
     pub(in crate::db::executor::tests) id: Ulid,
     pub(in crate::db::executor::tests) target: Option<Ulid>,
 }
 
 crate::test_entity! {
-    ident = WeakOptionalRelationSourceEntity,
-    entity_name = "WeakOptionalRelationSourceEntity",
-    tag = crate::testing::WEAK_OPTIONAL_RELATION_SOURCE_ENTITY_TAG,
+    ident = UncheckedOptionalRelationSourceEntity,
+    entity_name = "UncheckedOptionalRelationSourceEntity",
+    tag = crate::testing::UNCHECKED_OPTIONAL_RELATION_SOURCE_ENTITY_TAG,
     store = RelationSourceStore,
     canister = RelationTestCanister,
     key_type = Ulid,
@@ -992,7 +992,7 @@ crate::test_entity! {
             target_entity_tag: RelationTargetEntity::ENTITY_TAG,
             target_store_path: RelationTargetStore::PATH,
             key_kind: &FieldKind::Ulid,
-            strength: RelationStrength::Weak,
+            enforcement: RelationEnforcement::Unchecked,
         } },
     ],
     indexes = [],
@@ -1001,16 +1001,16 @@ crate::test_entity! {
 }
 
 ///
-/// WeakListRelationSourceEntity
+/// UncheckedListRelationSourceEntity
 ///
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
-pub(in crate::db::executor::tests) struct WeakListRelationSourceEntity {
+pub(in crate::db::executor::tests) struct UncheckedListRelationSourceEntity {
     pub(in crate::db::executor::tests) id: Ulid,
     pub(in crate::db::executor::tests) targets: Vec<Ulid>,
 }
 
-pub(in crate::db::executor::tests) static REL_WEAK_LIST_TARGET_KIND: FieldKind =
+pub(in crate::db::executor::tests) static REL_UNCHECKED_LIST_TARGET_KIND: FieldKind =
     FieldKind::Relation {
         target_path: RelationTargetEntity::PATH,
         target_entity_name: <RelationTargetEntity as crate::entity::EntityDeclaration>::MODEL
@@ -1018,20 +1018,20 @@ pub(in crate::db::executor::tests) static REL_WEAK_LIST_TARGET_KIND: FieldKind =
         target_entity_tag: RelationTargetEntity::ENTITY_TAG,
         target_store_path: RelationTargetStore::PATH,
         key_kind: &FieldKind::Ulid,
-        strength: RelationStrength::Weak,
+        enforcement: RelationEnforcement::Unchecked,
     };
 
 crate::test_entity! {
-    ident = WeakListRelationSourceEntity,
-    entity_name = "WeakListRelationSourceEntity",
-    tag = crate::testing::WEAK_LIST_RELATION_SOURCE_ENTITY_TAG,
+    ident = UncheckedListRelationSourceEntity,
+    entity_name = "UncheckedListRelationSourceEntity",
+    tag = crate::testing::UNCHECKED_LIST_RELATION_SOURCE_ENTITY_TAG,
     store = RelationSourceStore,
     canister = RelationTestCanister,
     key_type = Ulid,
     primary_key = [id],
     fields = [
         crate::test_field! { id: Ulid => FieldKind::Ulid },
-        crate::test_field! { targets: Vec<Ulid> => FieldKind::List(&REL_WEAK_LIST_TARGET_KIND) },
+        crate::test_field! { targets: Vec<Ulid> => FieldKind::List(&REL_UNCHECKED_LIST_TARGET_KIND) },
     ],
     indexes = [],
     relations = [],
@@ -1039,16 +1039,16 @@ crate::test_entity! {
 }
 
 ///
-/// WeakSetRelationSourceEntity
+/// UncheckedSetRelationSourceEntity
 ///
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
-pub(in crate::db::executor::tests) struct WeakSetRelationSourceEntity {
+pub(in crate::db::executor::tests) struct UncheckedSetRelationSourceEntity {
     pub(in crate::db::executor::tests) id: Ulid,
     pub(in crate::db::executor::tests) targets: Vec<Ulid>,
 }
 
-pub(in crate::db::executor::tests) static REL_WEAK_SET_TARGET_KIND: FieldKind =
+pub(in crate::db::executor::tests) static REL_UNCHECKED_SET_TARGET_KIND: FieldKind =
     FieldKind::Relation {
         target_path: RelationTargetEntity::PATH,
         target_entity_name: <RelationTargetEntity as crate::entity::EntityDeclaration>::MODEL
@@ -1056,20 +1056,20 @@ pub(in crate::db::executor::tests) static REL_WEAK_SET_TARGET_KIND: FieldKind =
         target_entity_tag: RelationTargetEntity::ENTITY_TAG,
         target_store_path: RelationTargetStore::PATH,
         key_kind: &FieldKind::Ulid,
-        strength: RelationStrength::Weak,
+        enforcement: RelationEnforcement::Unchecked,
     };
 
 crate::test_entity! {
-    ident = WeakSetRelationSourceEntity,
-    entity_name = "WeakSetRelationSourceEntity",
-    tag = crate::testing::WEAK_SET_RELATION_SOURCE_ENTITY_TAG,
+    ident = UncheckedSetRelationSourceEntity,
+    entity_name = "UncheckedSetRelationSourceEntity",
+    tag = crate::testing::UNCHECKED_SET_RELATION_SOURCE_ENTITY_TAG,
     store = RelationSourceStore,
     canister = RelationTestCanister,
     key_type = Ulid,
     primary_key = [id],
     fields = [
         crate::test_field! { id: Ulid => FieldKind::Ulid },
-        crate::test_field! { targets: Vec<Ulid> => FieldKind::Set(&REL_WEAK_SET_TARGET_KIND) },
+        crate::test_field! { targets: Vec<Ulid> => FieldKind::Set(&REL_UNCHECKED_SET_TARGET_KIND) },
     ],
     indexes = [],
     relations = [],

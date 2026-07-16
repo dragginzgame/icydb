@@ -30,6 +30,8 @@ members = [
     "schema/test/sql",
     "testing/integration",
     "testing/macro-tests",
+    "testing/sql-generator",
+    "testing/sqlite-reference",
     "testing/wasm-helpers",
 ]
 resolver = "2"
@@ -45,6 +47,7 @@ license = "Apache-2.0 OR MIT"
 repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
+blake3 = "1.8.5"
 candid = "0.10"
 clap = { version = "4.6.1", default-features = false, features = [
     "derive",
@@ -85,6 +88,8 @@ icydb-testing-audit-one-simple-fixtures = { path = "schema/audit/one_simple" }
 icydb-testing-audit-sql-perf-fixtures = { path = "schema/audit/sql_perf" }
 icydb-testing-audit-ten-simple-fixtures = { path = "schema/audit/ten_simple" }
 icydb-testing-demo-rpg-fixtures = { path = "schema/demo/rpg" }
+icydb-testing-sql-generator = { path = "testing/sql-generator" }
+icydb-testing-sqlite-reference = { path = "testing/sqlite-reference" }
 icydb-testing-test-fixtures = { path = "schema/test/fixtures" }
 icydb-testing-test-sql-fixtures = { path = "schema/test/sql" }
 icydb-testing-wasm-helpers = { path = "testing/wasm-helpers" }
@@ -95,6 +100,11 @@ proptest = "1.9.0"
 quote = "1.0"
 rand_chacha = "0.10"
 remain = "0.2"
+rusqlite = { version = "=0.40.1", default-features = false, features = [
+    "bundled",
+    "functions",
+    "load_extension",
+] }
 rustyline = "18.0"
 serde = { version = "1.0", default-features = false }
 serde_bytes = "0.11"

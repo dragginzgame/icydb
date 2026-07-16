@@ -87,7 +87,11 @@ jobs:
       - run: cargo check --locked -p icydb-core --no-default-features --features diagnostics
       - run: cargo clippy --locked -p icydb-core --no-default-features --features diagnostics -- -D warnings
       - run: cargo clippy --locked --workspace --all-targets --exclude icydb-testing-integration -- -D warnings
+      - run: cargo clippy --locked -p icydb-testing-integration --test sql_correctness --test sql_canister -- -D warnings
+      - run: cargo test --locked -p icydb-core --no-default-features --features sql db::session::tests::sqlite_reference --verbose
+      - run: cargo test --locked -p icydb-core --no-default-features --features sql db::session::tests::mutation_reference --verbose
       - run: cargo test --locked --workspace --all-targets --exclude icydb-testing-integration --verbose
+      - run: cargo test --locked -p icydb-testing-integration --test sql_correctness --verbose
       - run: cargo test --locked -p icydb-testing-integration --test sql_canister --verbose
 
   wasm_size_report:

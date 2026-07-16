@@ -1,3 +1,17 @@
+#[allow(
+    dead_code,
+    unused_imports,
+    reason = "this boundary target consumes only the verdict subset of the shared test harness"
+)]
+mod sql_harness;
+
+use crate::sql_harness::{
+    CorrectnessObservation, CorrectnessScenario, CorrectnessVerdict, EligibleProvider,
+    EvidenceStrength, ExpectedAcceptance, MutationKind, NormalizedCell, NormalizedResult,
+    NullabilityClass, ObservedOutcome, PredicateFamily, QueryShape, RouteExpectation, RouteFact,
+    RouteFamily, RouteOutcome, RouteReason, RowOrder, ScenarioMetadata, StatementFamily,
+    ValueTypeFamily, WindowSpec, correctness_verdict,
+};
 use candid::CandidType;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
@@ -7,8 +21,15 @@ use icydb::{
         sql::{SqlGroupedRowsOutput, SqlQueryResult},
     },
     diagnostic::DiagnosticCode,
+    types::Decimal,
+    value::OutputValue,
 };
 use icydb_testing_integration::{install_fixture_canister, reset_icydb_fixtures};
+use icydb_testing_sqlite_reference::{
+    SqliteReferenceColumnKind, SqliteReferenceFamily, SqliteReferencePredicateFamily,
+    SqliteReferenceResult, SqliteReferenceRowOrder, SqliteReferenceScenario, SqliteReferenceValue,
+    SqliteReferenceWindow, execute_sqlite_reference_scenario, required_sqlite_reference_scenarios,
+};
 use serde::Deserialize;
 
 // Mirror the generated IcyDB SQL query envelope so these boundary tests can
@@ -501,6 +522,429 @@ fn assert_ddl_rejects_with_entity_index_visibility_unchanged(
     );
 
     err
+}
+
+#[test]
+fn sql_canister_required_sqlite_reference_profile_matches_bundled_reference() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+    let scenarios = required_sqlite_reference_scenarios();
+    assert!(
+        scenarios.len() <= 96,
+        "required live SQLite profile must stay within the design cap",
+    );
+
+    for scenario in scenarios {
+        let expected = execute_sqlite_reference_scenario(*scenario).unwrap_or_else(|error| {
+            panic!(
+                "bundled SQLite scenario {:?} failed as {:?}: {}",
+                scenario.id(),
+                error.kind(),
+                error.detail(),
+            )
+        });
+        let sql = scenario
+            .render_sql("SqlTestUser")
+            .expect("maintained live entity identifier should render");
+        let live = query_sql(&fixture, &sql).unwrap_or_else(|error| {
+            panic!(
+                "live IcyDB scenario {:?} rejected with {:?}/{:?}: {error}",
+                scenario.id(),
+                error.code(),
+                error.diagnostic_code(),
+            )
+        });
+        let subject = normalize_live_sqlite_result(*scenario, live).unwrap_or_else(|error| {
+            panic!(
+                "live IcyDB scenario {:?} should normalize: {error}",
+                scenario.id()
+            )
+        });
+        let reference = normalize_bundled_sqlite_result(&expected);
+        let correctness_scenario = live_sqlite_correctness_scenario(*scenario, sql);
+        let observation = CorrectnessObservation {
+            subject: ObservedOutcome::Accepted(subject),
+            provider: Some(ObservedOutcome::Accepted(reference)),
+            route: None,
+        };
+
+        assert_eq!(
+            correctness_verdict(&correctness_scenario, &observation),
+            CorrectnessVerdict::Passed,
+            "live IcyDB should agree with bundled SQLite for scenario {:?}",
+            scenario.id(),
+        );
+    }
+}
+
+fn live_sqlite_correctness_scenario(
+    scenario: SqliteReferenceScenario,
+    sql: String,
+) -> CorrectnessScenario<()> {
+    CorrectnessScenario {
+        key: scenario.id().to_string(),
+        surface: (),
+        family: "sqlite.reference.live".to_string(),
+        sql,
+        metadata: ScenarioMetadata {
+            contract_features: scenario.contract_features(),
+            provider_id: "canister.query.sqlite_reference_profile",
+            provider: EligibleProvider::SqliteReference,
+            evidence_strength: EvidenceStrength::ReferenceOracle,
+            statement: StatementFamily::Select,
+            shape: sqlite_reference_query_shape(scenario),
+            value_type: sqlite_reference_value_type(scenario),
+            nullability: if scenario.nullable() {
+                NullabilityClass::Nullable
+            } else {
+                NullabilityClass::NonNullable
+            },
+            predicate: sqlite_reference_predicate(scenario.predicate()),
+            window: sqlite_reference_window(scenario.window()),
+            mutation: MutationKind::None,
+            row_order: sqlite_reference_row_order(scenario.row_order()),
+            route: RouteExpectation::Fixed(RouteFact::new(
+                RouteFamily::UnsupportedAccessKind,
+                RouteOutcome::Unsupported,
+                RouteReason::OrderExpressionNotClassified,
+            )),
+            required_route: None,
+            expected: ExpectedAcceptance::Accepted,
+        },
+    }
+}
+
+fn sqlite_reference_query_shape(scenario: SqliteReferenceScenario) -> QueryShape {
+    if scenario
+        .families()
+        .contains(&SqliteReferenceFamily::Grouped)
+    {
+        QueryShape::Grouped
+    } else if scenario
+        .families()
+        .contains(&SqliteReferenceFamily::Aggregate)
+    {
+        QueryShape::GlobalAggregate
+    } else {
+        QueryShape::Scalar
+    }
+}
+
+fn sqlite_reference_value_type(scenario: SqliteReferenceScenario) -> ValueTypeFamily {
+    let columns = scenario.columns();
+    if columns
+        .iter()
+        .all(|kind| *kind == SqliteReferenceColumnKind::Blob)
+    {
+        ValueTypeFamily::Blob
+    } else if columns
+        .iter()
+        .all(|kind| *kind == SqliteReferenceColumnKind::Boolean)
+    {
+        ValueTypeFamily::Boolean
+    } else if columns.iter().all(|kind| {
+        matches!(
+            kind,
+            SqliteReferenceColumnKind::Decimal | SqliteReferenceColumnKind::Integer
+        )
+    }) {
+        ValueTypeFamily::Numeric
+    } else if columns
+        .iter()
+        .all(|kind| *kind == SqliteReferenceColumnKind::Text)
+    {
+        ValueTypeFamily::Text
+    } else {
+        ValueTypeFamily::Mixed
+    }
+}
+
+const fn sqlite_reference_predicate(predicate: SqliteReferencePredicateFamily) -> PredicateFamily {
+    match predicate {
+        SqliteReferencePredicateFamily::Compound => PredicateFamily::Compound,
+        SqliteReferencePredicateFamily::FieldComparison => PredicateFamily::FieldComparison,
+        SqliteReferencePredicateFamily::Membership => PredicateFamily::Membership,
+        SqliteReferencePredicateFamily::None => PredicateFamily::None,
+        SqliteReferencePredicateFamily::Range => PredicateFamily::Range,
+    }
+}
+
+const fn sqlite_reference_window(window: SqliteReferenceWindow) -> WindowSpec {
+    match window {
+        SqliteReferenceWindow::Ordered => {
+            WindowSpec::ordered_unbounded("declared SQLite reference order")
+        }
+        SqliteReferenceWindow::OrderedLimit { limit, offset } => {
+            WindowSpec::ordered(limit, offset, "declared SQLite reference order")
+        }
+        SqliteReferenceWindow::Unordered => WindowSpec::NONE,
+    }
+}
+
+const fn sqlite_reference_row_order(order: SqliteReferenceRowOrder) -> RowOrder {
+    match order {
+        SqliteReferenceRowOrder::Ordered => RowOrder::Ordered,
+        SqliteReferenceRowOrder::Unordered => RowOrder::Unordered,
+    }
+}
+
+fn normalize_bundled_sqlite_result(result: &SqliteReferenceResult) -> NormalizedResult {
+    NormalizedResult {
+        columns: result.columns().to_vec(),
+        rows: result
+            .rows()
+            .iter()
+            .map(|row| row.iter().map(normalize_bundled_sqlite_value).collect())
+            .collect(),
+        row_order: sqlite_reference_row_order(result.row_order()),
+    }
+}
+
+fn normalize_bundled_sqlite_value(value: &SqliteReferenceValue) -> NormalizedCell {
+    match value {
+        SqliteReferenceValue::Blob(value) => NormalizedCell::Bytes(value.clone()),
+        SqliteReferenceValue::Boolean(value) => NormalizedCell::Bool(*value),
+        SqliteReferenceValue::Decimal { mantissa, scale } => NormalizedCell::Decimal {
+            coefficient: *mantissa,
+            scale: *scale,
+        },
+        SqliteReferenceValue::Integer(value) => NormalizedCell::Int(i128::from(*value)),
+        SqliteReferenceValue::Null => NormalizedCell::Null,
+        SqliteReferenceValue::Text(value) => NormalizedCell::Text(value.clone()),
+    }
+}
+
+fn normalize_live_sqlite_result(
+    scenario: SqliteReferenceScenario,
+    result: SqlQueryResult,
+) -> Result<NormalizedResult, String> {
+    let (columns, rows) = match result {
+        SqlQueryResult::Projection(output) => {
+            verify_live_row_count(scenario, output.row_count, output.rows.len())?;
+            let rows = output
+                .rows
+                .into_iter()
+                .enumerate()
+                .map(|(row_index, row)| normalize_live_projection_row(scenario, row_index, row))
+                .collect::<Result<Vec<_>, _>>()?;
+            (output.columns, rows)
+        }
+        SqlQueryResult::Grouped(output) => {
+            verify_live_row_count(scenario, output.row_count, output.rows.len())?;
+            if output.next_cursor.is_some() {
+                return Err("compact live SQLite profile unexpectedly produced a cursor".into());
+            }
+            let rows = output
+                .rows
+                .into_iter()
+                .enumerate()
+                .map(|(row_index, row)| normalize_live_grouped_row(scenario, row_index, row))
+                .collect::<Result<Vec<_>, _>>()?;
+            (output.columns, rows)
+        }
+        other => {
+            return Err(format!(
+                "scenario {:?} returned unsupported live payload {other:?}",
+                scenario.id()
+            ));
+        }
+    };
+    if columns.len() != scenario.columns().len() {
+        return Err(format!(
+            "scenario {:?} returned {} columns for {} declared mappings",
+            scenario.id(),
+            columns.len(),
+            scenario.columns().len(),
+        ));
+    }
+
+    Ok(NormalizedResult {
+        columns,
+        rows,
+        row_order: sqlite_reference_row_order(scenario.row_order()),
+    })
+}
+
+fn normalize_live_projection_row(
+    scenario: SqliteReferenceScenario,
+    row_index: usize,
+    row: Vec<OutputValue>,
+) -> Result<Vec<NormalizedCell>, String> {
+    verify_live_row_shape(scenario, row_index, row.len())?;
+    row.into_iter()
+        .zip(scenario.columns().iter().copied())
+        .enumerate()
+        .map(|(column, (value, kind))| {
+            normalize_live_projection_value(scenario, column, kind, value)
+        })
+        .collect()
+}
+
+fn normalize_live_projection_value(
+    scenario: SqliteReferenceScenario,
+    column: usize,
+    kind: SqliteReferenceColumnKind,
+    value: OutputValue,
+) -> Result<NormalizedCell, String> {
+    let value = match (kind, value) {
+        (_, OutputValue::Null) => NormalizedCell::Null,
+        (SqliteReferenceColumnKind::Blob, OutputValue::Blob(value)) => NormalizedCell::Bytes(value),
+        (SqliteReferenceColumnKind::Boolean, OutputValue::Bool(value)) => {
+            NormalizedCell::Bool(value)
+        }
+        (SqliteReferenceColumnKind::Decimal, OutputValue::Decimal(value)) => {
+            NormalizedCell::Decimal {
+                coefficient: value.mantissa(),
+                scale: value.scale(),
+            }
+        }
+        (SqliteReferenceColumnKind::Integer, OutputValue::Int64(value)) => {
+            NormalizedCell::Int(i128::from(value))
+        }
+        (SqliteReferenceColumnKind::Integer, OutputValue::Int128(value)) => {
+            let value = i64::try_from(value).map_err(|_| {
+                format!(
+                    "scenario {:?} column {column} returned non-SQLite Int128 {value}",
+                    scenario.id()
+                )
+            })?;
+            NormalizedCell::Int(i128::from(value))
+        }
+        (SqliteReferenceColumnKind::Integer, OutputValue::Nat64(value)) => {
+            let value = i64::try_from(value).map_err(|_| {
+                format!(
+                    "scenario {:?} column {column} returned non-SQLite Nat64 {value}",
+                    scenario.id()
+                )
+            })?;
+            NormalizedCell::Int(i128::from(value))
+        }
+        (SqliteReferenceColumnKind::Integer, OutputValue::Nat128(value)) => {
+            let value = i64::try_from(value).map_err(|_| {
+                format!(
+                    "scenario {:?} column {column} returned non-SQLite Nat128 {value}",
+                    scenario.id()
+                )
+            })?;
+            NormalizedCell::Int(i128::from(value))
+        }
+        (SqliteReferenceColumnKind::Text, OutputValue::Text(value)) => NormalizedCell::Text(value),
+        (kind, value) => {
+            return Err(format!(
+                "scenario {:?} column {column} returned {value:?} for {kind:?}",
+                scenario.id()
+            ));
+        }
+    };
+
+    Ok(value)
+}
+
+fn normalize_live_grouped_row(
+    scenario: SqliteReferenceScenario,
+    row_index: usize,
+    row: Vec<String>,
+) -> Result<Vec<NormalizedCell>, String> {
+    verify_live_row_shape(scenario, row_index, row.len())?;
+    row.into_iter()
+        .zip(scenario.columns().iter().copied())
+        .enumerate()
+        .map(|(column, (value, kind))| {
+            let value = match kind {
+                SqliteReferenceColumnKind::Decimal => {
+                    let value = value.parse::<Decimal>().map_err(|error| {
+                        format!(
+                            "scenario {:?} grouped column {column} returned non-decimal {value:?}: {error}",
+                            scenario.id()
+                        )
+                    })?;
+                    NormalizedCell::Decimal {
+                        coefficient: value.mantissa(),
+                        scale: value.scale(),
+                    }
+                }
+                SqliteReferenceColumnKind::Integer => {
+                    let value = value.parse::<i64>().map_err(|error| {
+                        format!(
+                            "scenario {:?} grouped column {column} returned non-integer {value:?}: {error}",
+                            scenario.id()
+                        )
+                    })?;
+                    NormalizedCell::Int(i128::from(value))
+                }
+                SqliteReferenceColumnKind::Text => NormalizedCell::Text(value),
+                SqliteReferenceColumnKind::Blob | SqliteReferenceColumnKind::Boolean => {
+                    return Err(format!(
+                        "scenario {:?} grouped column {column} uses unsupported rendered {kind:?} mapping",
+                        scenario.id()
+                    ));
+                }
+            };
+            Ok(value)
+        })
+        .collect()
+}
+
+#[test]
+fn sql_canister_sqlite_normalization_preserves_exact_decimal_identity() {
+    let expected = NormalizedCell::Decimal {
+        coefficient: 123,
+        scale: 2,
+    };
+    assert_eq!(
+        normalize_bundled_sqlite_value(&SqliteReferenceValue::Decimal {
+            mantissa: 123,
+            scale: 2,
+        }),
+        expected,
+    );
+
+    let scenario = required_sqlite_reference_scenarios()[0];
+    let actual = normalize_live_projection_value(
+        scenario,
+        0,
+        SqliteReferenceColumnKind::Decimal,
+        OutputValue::Decimal(Decimal::new(123, 2)),
+    )
+    .expect("exact decimal output should normalize without coercion");
+    assert_eq!(actual, expected);
+}
+
+fn verify_live_row_shape(
+    scenario: SqliteReferenceScenario,
+    row_index: usize,
+    row_len: usize,
+) -> Result<(), String> {
+    if row_len != scenario.columns().len() {
+        return Err(format!(
+            "scenario {:?} row {row_index} returned {row_len} values for {} declared mappings",
+            scenario.id(),
+            scenario.columns().len(),
+        ));
+    }
+
+    Ok(())
+}
+
+fn verify_live_row_count(
+    scenario: SqliteReferenceScenario,
+    row_count: u32,
+    rows_len: usize,
+) -> Result<(), String> {
+    let rows_len = u32::try_from(rows_len).map_err(|_| {
+        format!(
+            "scenario {:?} returned a row vector too large for its public count",
+            scenario.id()
+        )
+    })?;
+    if row_count != rows_len {
+        return Err(format!(
+            "scenario {:?} reported {row_count} rows but returned {rows_len}",
+            scenario.id()
+        ));
+    }
+
+    Ok(())
 }
 
 #[test]

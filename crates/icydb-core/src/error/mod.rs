@@ -306,6 +306,13 @@ impl InternalError {
         Self::new(ErrorClass::InvariantViolation, ErrorOrigin::Executor)
     }
 
+    /// Construct an executor-origin conflict.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn executor_conflict() -> Self {
+        Self::new(ErrorClass::Conflict, ErrorOrigin::Executor)
+    }
+
     /// Construct an executor-origin internal error.
     #[cold]
     #[inline(never)]
@@ -542,9 +549,9 @@ impl InternalError {
         Self::query_executor_invariant()
     }
 
-    /// Construct an executor-origin mutation unsupported error for duplicate atomic save keys.
+    /// Construct an executor-origin mutation conflict for duplicate atomic save keys.
     pub(crate) fn mutation_atomic_save_duplicate_key(_entity_path: &str, _key: impl Sized) -> Self {
-        Self::executor_unsupported()
+        Self::executor_conflict()
     }
 
     /// Construct an executor-origin mutation invariant for index-store generation drift.

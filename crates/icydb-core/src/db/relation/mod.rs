@@ -14,7 +14,7 @@ use crate::{
         data::RawDataStoreKey,
         identity::EntityName,
         schema::{
-            AcceptedFieldKind, AcceptedRelationStrength, classify_accepted_field_kind,
+            AcceptedFieldKind, AcceptedRelationEnforcement, classify_accepted_field_kind,
             ensure_accepted_schema_snapshot,
         },
     },
@@ -91,7 +91,7 @@ struct AcceptedRelationTargetMetadata<'a> {
     target_entity_tag: EntityTag,
     target_store_path: &'a str,
     scalar_target_key_kind: &'a AcceptedFieldKind,
-    strength: AcceptedRelationStrength,
+    enforcement: AcceptedRelationEnforcement,
     cardinality: AcceptedRelationCardinality,
 }
 
@@ -208,7 +208,7 @@ where
     let Some(target) = accepted_relation_target_metadata_from_kind(kind) else {
         return Ok(None);
     };
-    if target.strength != AcceptedRelationStrength::Strong {
+    if target.enforcement != AcceptedRelationEnforcement::Enforced {
         return Ok(None);
     }
     if let Some(edge_target_path) = expected_edge_target_path
@@ -349,7 +349,7 @@ fn accepted_relation_target_metadata_from_kind(
             target_entity_tag,
             target_store_path,
             key_kind,
-            strength,
+            enforcement,
         } = kind
         else {
             return None;
@@ -361,7 +361,7 @@ fn accepted_relation_target_metadata_from_kind(
             target_entity_tag: *target_entity_tag,
             target_store_path,
             scalar_target_key_kind: key_kind.as_ref(),
-            strength: *strength,
+            enforcement: *enforcement,
             cardinality,
         })
     }
@@ -627,7 +627,7 @@ mod tests {
         validate_accepted_relation_primary_key_kinds, validate_relation_primary_key_component_kind,
     };
     use crate::{
-        db::schema::{AcceptedFieldKind, AcceptedRelationStrength},
+        db::schema::{AcceptedFieldKind, AcceptedRelationEnforcement},
         error::ErrorClass,
         types::EntityTag,
     };
@@ -639,7 +639,7 @@ mod tests {
             target_entity_tag: EntityTag::new(11),
             target_store_path: "TargetStore".to_string(),
             key_kind: Box::new(key_kind),
-            strength: AcceptedRelationStrength::Strong,
+            enforcement: AcceptedRelationEnforcement::Enforced,
         }
     }
 

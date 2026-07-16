@@ -116,7 +116,7 @@ pub mod model {
         pub use icydb_core::model::{
             DEFAULT_BIG_INT_MAX_BYTES, EnumVariantModel, FieldDatabaseDefault,
             FieldInsertGeneration, FieldKind, FieldModel, FieldStorageDecode, FieldWriteManagement,
-            RelationStrength,
+            RelationEnforcement,
         };
     }
 

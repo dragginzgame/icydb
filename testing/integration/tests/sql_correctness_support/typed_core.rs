@@ -11,8 +11,8 @@ use crate::sql_harness::{
     MeasurementStatus, MismatchCategory, MutationKind, NormalizedCell, NormalizedResult,
     NullabilityClass, ObservedOutcome, PerformanceFailure, PerformanceVerdict, PredicateFamily,
     QueryShape, RouteExpectation, RouteFact, RouteFamily, RouteObservation, RouteOutcome,
-    RouteReason, RowOrder, ScenarioMetadata, ScenarioSource, ScenarioStratum, SelectionError,
-    StatementFamily, ValueTypeFamily, WindowSpec, compare_normalized_results, correctness_verdict,
+    RouteReason, RowOrder, ScenarioMetadata, ScenarioStratum, SelectionError, StatementFamily,
+    ValueTypeFamily, WindowSpec, compare_normalized_results, correctness_verdict,
     performance_verdict, select_stratified,
 };
 
@@ -54,7 +54,6 @@ fn scenario(
 ) -> CorrectnessScenario<()> {
     CorrectnessScenario {
         key: key.to_string(),
-        source: ScenarioSource::Deterministic,
         surface: (),
         family: "select.primary".to_string(),
         sql: "SELECT id FROM T ORDER BY id ASC LIMIT 1".to_string(),

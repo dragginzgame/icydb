@@ -1,6 +1,9 @@
 .PHONY: help version tags patch minor major package publish release-stage release-commit release-push \
         release-patch release-minor release-major release \
-        test test-bump test-sql-canister-matrix build check clippy fmt fmt-check clean install install-dev update-dev \
+        test test-bump test-sql-canister-matrix test-sql-perf-p1-shard test-sql-perf-p1-merge \
+        test-sql-perf-scale-shard test-sql-perf-p2-shard test-sql-perf-p2-merge \
+        test-sql-perf-instrumentation test-sql-perf-baseline \
+        build check clippy fmt fmt-check clean install install-dev update-dev \
         fetch test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks test-no-default-smoke \
         wasm-size-report wasm-audit-report \
@@ -21,6 +24,19 @@ IC_TESTKIT_ENV := IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 TMPDIR="$(ROOT_DIR)/.cac
 ACTIONLINT_VERSION ?= 1.7.12
 ACTIONLINT_INSTALL_DIR ?= $(HOME)/.local/bin
 ACTIONLINT_BIN ?= $(ACTIONLINT_INSTALL_DIR)/actionlint
+P1_SHARD_DIR ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_p1_shards
+P1_REPORT_OUT ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_deterministic_matrix
+P2_SELECTION_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_p2_candidates.json
+P2_SHARD_DIR ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_p2_shards
+P2_REPORT_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_p2_report.json
+P2_BASELINE_PATH ?=
+P2_CURRENT_PATH ?= $(P2_REPORT_PATH)
+PERF_COMPARISON_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_comparison.json
+PERF_INSTRUMENTATION_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_instrumentation.json
+SCALE_BASELINE_PATH ?=
+SCALE_CURRENT_PATH ?= $(SCALE_REPORT_PATH)
+SCALE_SHARD_DIR ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_scale_shards
+SCALE_REPORT_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_scale_report.json
 
 # Print repo-local cargo paths for standalone shell scripts that need Makefile-
 # owned defaults without duplicating the path definitions.
@@ -43,8 +59,8 @@ help:
 	@echo ""
 	@echo "Setup / Installation:"
 	@echo "  install          Install the local icydb CLI binary"
-	@echo "  install-dev      Install local developer dependencies, sqlite3, actionlint, and git hooks"
-	@echo "  update-dev       Update user-local Rust/Cargo/actionlint/ICP tools; warns if sqlite3 is missing"
+	@echo "  install-dev      Install local developer dependencies, actionlint, and git hooks"
+	@echo "  update-dev       Update user-local Rust/Cargo/actionlint/ICP tools"
 	@echo "  install-hooks    Configure git hooks"
 	@echo ""
 	@echo "Version Management:"
@@ -67,6 +83,20 @@ help:
 	@echo "  test             Run all tests; lets ic-testkit download pinned PocketIC when uncached"
 	@echo "  test-sql-canister-matrix"
 	@echo "                  Run the live generated SQL canister endpoint matrix"
+	@echo "  test-sql-perf-p1-shard P1_SHARD=0"
+	@echo "                  Run one deterministic P1 performance shard (0 through 7)"
+	@echo "  test-sql-perf-p1-merge"
+	@echo "                  Merge all eight strict P1 and scale shard artifacts"
+	@echo "  test-sql-perf-scale-shard SCALE_SHARD=0"
+	@echo "                  Run one deterministic scale shard (0 through 7)"
+	@echo "  test-sql-perf-p2-shard P2_SHARD=0"
+	@echo "                  Run one deterministic P2 confirmation shard (0 through 7)"
+	@echo "  test-sql-perf-p2-merge"
+	@echo "                  Merge all eight strict P2 shard artifacts"
+	@echo "  test-sql-perf-instrumentation"
+	@echo "                  Capture attributed versus total-only sentinel overhead"
+	@echo "  test-sql-perf-baseline P2_BASELINE_PATH=..."
+	@echo "                  Compare reviewed P2 and scale baselines"
 	@echo "  build            Build all crates"
 	@echo "  check            Run cargo check"
 	@echo "  clippy           Run clippy checks"
@@ -199,6 +229,67 @@ test-no-default-smoke:
 
 test-sql-canister-matrix:
 	IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 $(CARGO_WORK_ENV) cargo test -p icydb-testing-integration --test sql_canister --features icydb/sql-explain -- --nocapture
+
+test-sql-perf-p1-shard:
+	@test -n "$(P1_SHARD)" || { echo "P1_SHARD must be an index from 0 through 7" >&2; exit 1; }
+	ICYDB_SQL_PERF_P1_SHARD_INDEX="$(P1_SHARD)" \
+	ICYDB_SQL_PERF_P1_SHARD_DIR="$(P1_SHARD_DIR)" \
+	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
+	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
+		sql_perf_p1_shard_reports_hotspots -- --ignored --nocapture
+
+test-sql-perf-p1-merge:
+	ICYDB_SQL_PERF_P1_SHARD_DIR="$(P1_SHARD_DIR)" \
+	ICYDB_SQL_PERF_SCALE_SHARD_DIR="$(SCALE_SHARD_DIR)" \
+	ICYDB_SQL_PERF_SCALE_REPORT_PATH="$(SCALE_REPORT_PATH)" \
+	ICYDB_SQL_PERF_MATRIX_OUT="$(P1_REPORT_OUT)" \
+	ICYDB_SQL_PERF_P2_SELECTION_PATH="$(P2_SELECTION_PATH)" \
+	$(CARGO_WORK_ENV) \
+	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
+		sql_perf_p1_merges_saved_shards -- --ignored --nocapture
+
+test-sql-perf-scale-shard:
+	@test -n "$(SCALE_SHARD)" || { echo "SCALE_SHARD must be an index from 0 through 7" >&2; exit 1; }
+	ICYDB_SQL_PERF_SCALE_SHARD_INDEX="$(SCALE_SHARD)" \
+	ICYDB_SQL_PERF_SCALE_SHARD_DIR="$(SCALE_SHARD_DIR)" \
+	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
+	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
+		sql_perf_scale_shard_measures_declared_ladders -- --ignored --nocapture
+
+test-sql-perf-p2-shard:
+	@test -n "$(P2_SHARD)" || { echo "P2_SHARD must be an index from 0 through 7" >&2; exit 1; }
+	ICYDB_SQL_PERF_P2_SHARD_INDEX="$(P2_SHARD)" \
+	ICYDB_SQL_PERF_P2_SELECTION_PATH="$(P2_SELECTION_PATH)" \
+	ICYDB_SQL_PERF_P2_SHARD_DIR="$(P2_SHARD_DIR)" \
+	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
+	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
+		sql_perf_p2_shard_confirms_selected_candidates -- --ignored --nocapture
+
+test-sql-perf-p2-merge:
+	ICYDB_SQL_PERF_P2_SELECTION_PATH="$(P2_SELECTION_PATH)" \
+	ICYDB_SQL_PERF_P2_SHARD_DIR="$(P2_SHARD_DIR)" \
+	ICYDB_SQL_PERF_P2_REPORT_PATH="$(P2_REPORT_PATH)" \
+	$(CARGO_WORK_ENV) \
+	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
+		sql_perf_p2_merges_saved_shards -- --ignored --nocapture
+
+test-sql-perf-instrumentation:
+	ICYDB_SQL_PERF_INSTRUMENTATION_REPORT_PATH="$(PERF_INSTRUMENTATION_PATH)" \
+	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
+	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
+		sql_perf_calibrates_attribution_overhead -- --ignored --nocapture
+
+test-sql-perf-baseline:
+	@test -n "$(P2_BASELINE_PATH)" || { echo "P2_BASELINE_PATH must name a reviewed merged P2 baseline" >&2; exit 1; }
+	@test -n "$(SCALE_BASELINE_PATH)" || { echo "SCALE_BASELINE_PATH must name a reviewed merged scale baseline" >&2; exit 1; }
+	ICYDB_SQL_PERF_BASELINE_PATH="$(P2_BASELINE_PATH)" \
+	ICYDB_SQL_PERF_CURRENT_PATH="$(P2_CURRENT_PATH)" \
+	ICYDB_SQL_PERF_COMPARISON_PATH="$(PERF_COMPARISON_PATH)" \
+	ICYDB_SQL_PERF_SCALE_BASELINE_PATH="$(SCALE_BASELINE_PATH)" \
+	ICYDB_SQL_PERF_SCALE_CURRENT_PATH="$(SCALE_CURRENT_PATH)" \
+	$(CARGO_WORK_ENV) \
+	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
+		sql_perf_compares_saved_baseline -- --ignored --nocapture
 
 wasm-size-report:
 	$(CARGO_WORK_ENV) bash scripts/ci/wasm-size-report.sh $(SIZE_REPORT_ARGS)
