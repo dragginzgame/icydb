@@ -28,7 +28,7 @@ INDEX_EXECUTOR_FILES=(
 
 # Branch-set execution must consume already-lowered branch prefix specs. Planner
 # and access-layer code may own semantic values; executor stream assembly must
-# not rebuild branch slots, branch prefixes, or ordered-suffix proofs.
+# not rebuild branch slots or branch prefixes.
 BRANCH_SET_RUNTIME_FILES=(
   "crates/icydb-core/src/db/executor/stream/access/physical.rs"
   "crates/icydb-core/src/db/executor/stream/access/traversal.rs"
@@ -55,7 +55,6 @@ EXECUTOR_RUNTIME_FORBIDDEN_PATTERNS=(
 # stream assembly instead of staying on IndexBranchSetSpec plus lowering.
 BRANCH_SET_RUNTIME_FORBIDDEN_PATTERNS=(
   "\\bIndexBranchSetSpec\\b"
-  "\\bIndexBranchSetOrderedSuffix\\b"
   "\\bbranch_values\\b"
   "branch_prefix_values\\("
   "fixed_values\\.len\\(\\)([[:space:]]*\\+|\\.saturating_add\\()[[:space:]]*1"
@@ -65,9 +64,11 @@ BRANCH_SET_RUNTIME_FORBIDDEN_PATTERNS=(
 REQUIRED_MATCHES=(
   "crates/icydb-core/src/db/access/path.rs:::IndexBranchSet \\{ spec: IndexBranchSetSpec \\}:::branch-set access path must carry the branch-set spec"
   "crates/icydb-core/src/db/access/lowering.rs:::spec\\.branch_prefix_values\\(branch_value\\):::branch-set lowering must consume spec-owned branch prefix construction"
-  "crates/icydb-core/src/db/access/path.rs:::pub\\(in crate::db\\) const fn label\\(self\\) -> &'static str:::branch-set ordered suffix label must stay access-owned"
-  "crates/icydb-core/src/db/query/intent/cache_key.rs:::ordered_suffix: spec\\.ordered_suffix\\(\\)\\.label\\(\\):::branch-set cache identity must include the ordered suffix proof"
-  "crates/icydb-core/src/db/query/fingerprint/hash_sections/access.rs:::write_str\\(self\\.hasher, ordered_suffix\\.label\\(\\)\\):::branch-set fingerprint identity must include the ordered suffix proof"
+  "crates/icydb-core/src/db/access/path.rs:::pub\\(crate\\) const fn from_primary_key_asc_contract\\(:::branch-set construction must retain its sole primary-key-ascending contract"
+  "crates/icydb-core/src/db/query/intent/cache_key.rs:::fixed_values: Self::value_list_cache_key\\(spec\\.fixed_values\\(\\)\\):::branch-set cache identity must include fixed prefix values"
+  "crates/icydb-core/src/db/query/intent/cache_key.rs:::branch_values: Self::value_list_cache_key\\(spec\\.branch_values\\(\\)\\):::branch-set cache identity must include branch values"
+  "crates/icydb-core/src/db/query/fingerprint/hash_sections/access.rs:::write_values\\(self\\.hasher, fixed_values\\):::branch-set fingerprint identity must include fixed prefix values"
+  "crates/icydb-core/src/db/query/fingerprint/hash_sections/access.rs:::write_values\\(self\\.hasher, branch_values\\):::branch-set fingerprint identity must include branch values"
   "crates/icydb-core/src/db/executor/stream/access/bindings.rs:::prefix_offset < self.prefixes.len\\(\\):::missing invariant check for unused IndexPrefixSpec entries"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::let \\[spec\\] = index_prefix_specs else:::missing invariant error for unresolved index-prefix specs in physical path resolution"
   "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::validate_index_prefix_spec_alignment:::missing invariant error for misaligned index-prefix specs in physical path resolution"
