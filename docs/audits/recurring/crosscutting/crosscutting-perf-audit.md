@@ -634,6 +634,22 @@ baseline exists, use `PERF_CALIBRATION_COHORT=<canonical-id>` together with
 member of the three-run calibration cohort. Calibration evidence retains no
 historical threshold reasons and cannot satisfy the ordinary baseline verdict.
 
+After all three bundles exist, run `make test-sql-perf-calibration-review` with
+`PERF_CALIBRATION_RUN_1_DIR`, `PERF_CALIBRATION_RUN_2_DIR`, and
+`PERF_CALIBRATION_RUN_3_DIR`. The command rejects mixed cohort identities,
+ordinals, comparable environments, raw Wasm subjects, component identities, and
+semantic results. Its bounded JSON projection retains P2 metric medians, scale
+totals, exact normalized costs, adjacent-cardinality slopes, attribution
+overhead, and raw/normalized top-20 scenarios recurring in at least two runs.
+This is review evidence only: it cannot update the profile, select thresholds,
+or bless a baseline.
+
+Every raw phase ranked by P2 must be observed by the exact P1 profile. A global
+non-count aggregate sentinel exercises scalar reducer-fold attribution; global
+`COUNT` scenarios alone are insufficient because their fast path bypasses that
+runtime. Candidate selection fails closed when any required raw metric remains
+unobserved.
+
 The `SQL Performance Evidence` workflow runs nightly and on manual dispatch. It
 builds one raw `wasm-release` subject before sharding and distributes that exact
 artifact to every measurement job. Normal runs resolve a reviewed workflow-run
@@ -643,6 +659,11 @@ and run the ordinary comparison as a separate fail-closed gate. Manual calibrati
 dispatches supply the same cohort plus one exact run ordinal; they retain tagged
 evidence but skip the inapplicable ordinary comparison. No workflow run blesses a
 baseline automatically.
+
+The separate manual `SQL Performance Calibration Review` workflow downloads
+three explicitly named evidence runs, invokes the same strict reviewer, and
+retains only its diagnostic projection. Supplying three run IDs is not itself
+authority to change a checked-in budget or baseline.
 
 Deterministic matrix output control:
 

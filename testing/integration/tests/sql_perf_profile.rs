@@ -16,9 +16,9 @@ use icydb_testing_sql_generator::{
 /// Current checked-in SQL performance profile version.
 pub(crate) const SQL_PERFORMANCE_PROFILE_VERSION: u32 = 1;
 
-const EXPECTED_SCENARIO_COUNT: usize = 1_758;
+const EXPECTED_SCENARIO_COUNT: usize = 1_759;
 const EXPECTED_SCENARIO_SET_HASH: &str =
-    "9d1a7fcfc2176969473b6bf377f2f369822dc7b1937bc3408b0d0842538d3345";
+    "c231744805e29efad0fbd40656ef89becfc62635b9d8769e75a98fe8d88ae10e";
 const EXPECTED_SCALE_SCENARIO_COUNT: usize = 45;
 const EXPECTED_SCALE_SCENARIO_SET_HASH: &str =
     "aa4e78925f21c0a93dbfba3e0484c6a82b8a8a49c3c4fc4d835f71826588f6c4";
@@ -462,7 +462,7 @@ mod tests {
         let regression = profile.total_instruction_regression_threshold();
 
         assert_eq!(profile.version(), SQL_PERFORMANCE_PROFILE_VERSION);
-        assert_eq!(profile.expected_scenario_count(), 1_758);
+        assert_eq!(profile.expected_scenario_count(), 1_759);
         assert_eq!(
             profile.expected_scenario_set_hash(),
             EXPECTED_SCENARIO_SET_HASH

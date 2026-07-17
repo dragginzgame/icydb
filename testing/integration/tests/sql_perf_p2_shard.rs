@@ -1285,24 +1285,40 @@ pub(crate) mod tests {
         sql_perf_profile::SQL_PERFORMANCE_PROFILE,
     };
 
+    use std::collections::BTreeSet;
+
     use super::*;
 
     fn test_selection(scenarios: &[MatrixScenario]) -> P2CandidateSelection {
-        let mut candidates = scenarios
+        let mut reasons = scenarios
             .iter()
             .take(32)
-            .map(|scenario| P2Candidate {
-                scenario_id: scenario.key.clone(),
+            .map(|scenario| {
+                (
+                    scenario.key.clone(),
+                    BTreeSet::from([P2CandidateReason::RawMetric {
+                        metric: P2RawMetric::Total,
+                        rank: 1,
+                    }]),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        for scenario_id in SQL_PERFORMANCE_PROFILE.focused_hotspot_scenario_ids() {
+            reasons
+                .entry((*scenario_id).to_string())
+                .or_default()
+                .insert(P2CandidateReason::FocusedHotspot);
+        }
+        let candidates = reasons
+            .into_iter()
+            .map(|(scenario_id, reasons)| P2Candidate {
                 shard_index: SQL_PERFORMANCE_PROFILE
-                    .scenario_shard(&scenario.key)
+                    .scenario_shard(&scenario_id)
                     .expect("test candidate should shard"),
-                reasons: vec![P2CandidateReason::RawMetric {
-                    metric: P2RawMetric::Total,
-                    rank: 1,
-                }],
+                scenario_id,
+                reasons: reasons.into_iter().collect(),
             })
             .collect::<Vec<_>>();
-        candidates.sort_by(|left, right| left.scenario_id.cmp(&right.scenario_id));
         let p2_scenario_set_hash = scenario_set_hash(
             candidates
                 .iter()

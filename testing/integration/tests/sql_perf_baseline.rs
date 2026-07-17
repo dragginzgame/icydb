@@ -107,7 +107,23 @@ pub(crate) enum P2BaselineMetric {
 }
 
 impl P2BaselineMetric {
-    fn value(self, sample: &MatrixSample) -> u64 {
+    /// Return every metric retained by confirmed baseline and calibration evidence.
+    pub(crate) fn all() -> impl Iterator<Item = Self> {
+        P2RawMetric::all()
+            .iter()
+            .copied()
+            .map(Self::Instruction)
+            .chain(P2_NON_INSTRUCTION_METRICS.iter().copied())
+            .chain(
+                PhaseResidualMetric::all()
+                    .iter()
+                    .copied()
+                    .map(Self::PhaseResidual),
+            )
+    }
+
+    /// Read this metric from one retained matrix sample.
+    pub(crate) fn value(self, sample: &MatrixSample) -> u64 {
         match self {
             Self::Instruction(metric) => metric.value(sample),
             Self::PhaseResidual(metric) => metric.value(sample),
@@ -133,6 +149,18 @@ impl P2BaselineMetric {
             Self::OutputBlobHexBytes => sample.output_blob_hex_bytes,
             Self::RowsReturned => u64::try_from(sample.outcome.row_count).unwrap_or(u64::MAX),
         }
+    }
+
+    /// Return the exact median across one validated five-sample confirmation set.
+    pub(crate) fn median(self, sample_set: &P2SampleSet) -> u64 {
+        let mut values = sample_set
+            .samples
+            .iter()
+            .map(|sample| self.value(sample))
+            .collect::<Vec<_>>();
+        values.sort_unstable();
+
+        values[values.len() / 2]
     }
 
     const fn threshold(self, profile: PerformanceProfile) -> Option<PerformanceThreshold> {
@@ -613,20 +641,9 @@ fn append_sample_set_deltas(
             mode,
         });
     }
-    for metric in P2RawMetric::all()
-        .iter()
-        .copied()
-        .map(P2BaselineMetric::Instruction)
-        .chain(P2_NON_INSTRUCTION_METRICS.iter().copied())
-        .chain(
-            PhaseResidualMetric::all()
-                .iter()
-                .copied()
-                .map(P2BaselineMetric::PhaseResidual),
-        )
-    {
-        let baseline = median_metric(baseline, metric);
-        let current = median_metric(current, metric);
+    for metric in P2BaselineMetric::all() {
+        let baseline = metric.median(baseline);
+        let current = metric.median(current);
         let delta = i128::from(current) - i128::from(baseline);
         let delta_basis_points = relative_delta_basis_points(baseline, current);
         let disposition =
@@ -652,17 +669,6 @@ fn append_sample_set_deltas(
     }
 
     Ok(())
-}
-
-fn median_metric(sample_set: &P2SampleSet, metric: P2BaselineMetric) -> u64 {
-    let mut values = sample_set
-        .samples
-        .iter()
-        .map(|sample| metric.value(sample))
-        .collect::<Vec<_>>();
-    values.sort_unstable();
-
-    values[values.len() / 2]
 }
 
 fn relative_delta_basis_points(baseline: u64, current: u64) -> Option<i128> {

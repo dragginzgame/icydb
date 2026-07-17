@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 /// Owned by P2 confirmation and proven from typed SQL cache counters.
 ///
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum P2SampleMode {
     /// A query against an isolated fixture with no prior execution of its SQL.

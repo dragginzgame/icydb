@@ -9,6 +9,7 @@
 )]
 mod sql_harness;
 mod sql_perf_baseline;
+mod sql_perf_calibration;
 mod sql_perf_environment;
 mod sql_perf_instrumentation;
 mod sql_perf_measurement;
@@ -60,6 +61,9 @@ use crate::sql_perf_baseline::{
     P2BaselineVerdict, compare_performance_baseline, discover_p1_threshold_crossings,
     write_performance_baseline_comparison,
 };
+use crate::sql_perf_calibration::{
+    CalibrationRunArtifacts, build_calibration_cohort_review, write_calibration_cohort_review,
+};
 use crate::sql_perf_environment::{
     PerfEnvironmentIdentity, capture_perf_environment, validate_perf_environment,
 };
@@ -110,6 +114,10 @@ const SQL_PERF_P1_SHARD_DIR_ENV: &str = "ICYDB_SQL_PERF_P1_SHARD_DIR";
 const SQL_PERF_P1_BASELINE_PATH_ENV: &str = "ICYDB_SQL_PERF_P1_BASELINE_PATH";
 const SQL_PERF_CALIBRATION_COHORT_ENV: &str = "ICYDB_SQL_PERF_CALIBRATION_COHORT";
 const SQL_PERF_CALIBRATION_RUN_ENV: &str = "ICYDB_SQL_PERF_CALIBRATION_RUN";
+const SQL_PERF_CALIBRATION_RUN_1_DIR_ENV: &str = "ICYDB_SQL_PERF_CALIBRATION_RUN_1_DIR";
+const SQL_PERF_CALIBRATION_RUN_2_DIR_ENV: &str = "ICYDB_SQL_PERF_CALIBRATION_RUN_2_DIR";
+const SQL_PERF_CALIBRATION_RUN_3_DIR_ENV: &str = "ICYDB_SQL_PERF_CALIBRATION_RUN_3_DIR";
+const SQL_PERF_CALIBRATION_REVIEW_PATH_ENV: &str = "ICYDB_SQL_PERF_CALIBRATION_REVIEW_PATH";
 const SQL_PERF_P2_SELECTION_PATH_ENV: &str = "ICYDB_SQL_PERF_P2_SELECTION_PATH";
 const SQL_PERF_P2_SHARD_INDEX_ENV: &str = "ICYDB_SQL_PERF_P2_SHARD_INDEX";
 const SQL_PERF_P2_SHARD_DIR_ENV: &str = "ICYDB_SQL_PERF_P2_SHARD_DIR";
@@ -1933,6 +1941,21 @@ fn user_global_aggregate_scenarios() -> Vec<MatrixScenario> {
                 true,
             ),
         ),
+        scenario(
+            "user.aggregate.sum_age",
+            MatrixSurface::User,
+            "aggregate.sum",
+            "SELECT SUM(age) FROM PerfAuditUser",
+            read_metadata(
+                &["select.global_aggregate"],
+                QueryShape::GlobalAggregate,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::None,
+                WindowSpec::NONE,
+                not_paginated_route(),
+                true,
+            ),
+        ),
     ]
 }
 
@@ -2957,6 +2980,42 @@ fn p2_report_path() -> PathBuf {
         || workspace_root().join("artifacts/perf-audit/sql_perf_p2_report.json"),
         PathBuf::from,
     )
+}
+
+fn calibration_review_path() -> PathBuf {
+    env::var_os(SQL_PERF_CALIBRATION_REVIEW_PATH_ENV).map_or_else(
+        || workspace_root().join("artifacts/perf-audit/sql_perf_calibration_review.json"),
+        PathBuf::from,
+    )
+}
+
+fn read_calibration_run_artifacts(
+    directory_variable: &'static str,
+    scenarios: &[MatrixScenario],
+) -> CalibrationRunArtifacts {
+    let directory = required_perf_artifact_path(directory_variable);
+    let p2 = read_merged_p2_report(
+        &directory.join("sql_perf_p2_report.json"),
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        scenarios,
+    )
+    .unwrap_or_else(|error| panic!("calibration P2 artifact failed: {error}"));
+    let scale = read_merged_scale_report(
+        &directory.join("sql_perf_scale_report.json"),
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        scenarios,
+    )
+    .unwrap_or_else(|error| panic!("calibration scale artifact failed: {error}"));
+    let instrumentation = read_instrumentation_calibration_report(
+        &directory.join("sql_perf_instrumentation.json"),
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+    )
+    .unwrap_or_else(|error| panic!("calibration instrumentation artifact failed: {error}"));
+
+    CalibrationRunArtifacts::new(p2, scale, instrumentation)
 }
 
 fn required_perf_artifact_path(variable: &'static str) -> PathBuf {
@@ -4415,6 +4474,18 @@ fn sql_perf_deterministic_matrix_has_stable_shape() {
 }
 
 #[test]
+fn sql_perf_deterministic_matrix_exercises_scalar_aggregate_reducer() {
+    let deterministic = deterministic_matrix();
+    let scenario = deterministic
+        .iter()
+        .find(|scenario| scenario.key == "user.aggregate.sum_age")
+        .expect("the maintained P1 profile should exercise scalar aggregate reduction");
+
+    assert_eq!(scenario.sql, "SELECT SUM(age) FROM PerfAuditUser");
+    assert_eq!(scenario.metadata.shape, QueryShape::GlobalAggregate);
+}
+
+#[test]
 fn sql_perf_p1_receipts_cover_the_profile_exactly() {
     let deterministic = deterministic_matrix();
     let declared_ids = deterministic
@@ -4430,8 +4501,8 @@ fn sql_perf_p1_receipts_cover_the_profile_exactly() {
         .collect::<Vec<_>>();
 
     assert_eq!(receipts.len(), 8);
-    assert_eq!(shard_counts, vec![230, 221, 231, 205, 221, 223, 227, 200]);
-    assert_eq!(shard_counts.iter().sum::<usize>(), 1_758);
+    assert_eq!(shard_counts, vec![230, 221, 231, 205, 222, 223, 227, 200]);
+    assert_eq!(shard_counts.iter().sum::<usize>(), 1_759);
     assert!(receipts.iter().all(|receipt| receipt.complete));
     validate_p1_shard_receipts(SQL_PERFORMANCE_PROFILE, &receipts)
         .expect("all deterministic receipts should merge");
@@ -4559,7 +4630,7 @@ fn sql_perf_p1_shard_artifacts_are_strict_bounded_and_merge_exactly() {
     )
     .expect("all exact shard reports should merge");
     assert_eq!(merged.receipts.len(), 8);
-    assert_eq!(merged.samples.len(), 1_758);
+    assert_eq!(merged.samples.len(), 1_759);
     assert!(merged.failures.is_empty());
     assert!(
         merged
@@ -6106,6 +6177,35 @@ fn sql_perf_calibrates_attribution_overhead() {
         report.environment.subject.raw_wasm_bytes,
     );
     println!("instrumentation report JSON: {}", path.display());
+}
+
+#[test]
+#[ignore = "reviews exactly three saved clean calibration bundles; run manually after ordinals 1/2/3"]
+fn sql_perf_reviews_initial_calibration_cohort() {
+    let scenarios = deterministic_matrix();
+    let runs = [
+        read_calibration_run_artifacts(SQL_PERF_CALIBRATION_RUN_1_DIR_ENV, &scenarios),
+        read_calibration_run_artifacts(SQL_PERF_CALIBRATION_RUN_2_DIR_ENV, &scenarios),
+        read_calibration_run_artifacts(SQL_PERF_CALIBRATION_RUN_3_DIR_ENV, &scenarios),
+    ];
+    let review = build_calibration_cohort_review(
+        SQL_PERFORMANCE_PROFILE,
+        matrix_canister_wasm_profile().as_str(),
+        &scenarios,
+        runs,
+    )
+    .unwrap_or_else(|error| panic!("calibration cohort review failed: {error}"));
+    let path = calibration_review_path();
+    write_calibration_cohort_review(&path, SQL_PERFORMANCE_PROFILE, &review)
+        .unwrap_or_else(|error| panic!("calibration review artifact failed: {error}"));
+
+    println!(
+        "calibration cohort {}: {} P2 envelopes, {} unresolved promotion candidates",
+        review.cohort(),
+        review.p2_envelope_count(),
+        review.unresolved_promotion_count(),
+    );
+    println!("calibration review JSON: {}", path.display());
 }
 
 #[test]

@@ -277,6 +277,22 @@ reviewed baseline only after exact current P2 and scale reports exist:
 make test-sql-perf-baseline P2_BASELINE_PATH=... SCALE_BASELINE_PATH=...
 ```
 
+After three initial-calibration workflow bundles exist, validate them together
+and produce the bounded review projection with:
+
+```bash
+make test-sql-perf-calibration-review \
+  PERF_CALIBRATION_RUN_1_DIR=/path/to/run-1 \
+  PERF_CALIBRATION_RUN_2_DIR=/path/to/run-2 \
+  PERF_CALIBRATION_RUN_3_DIR=/path/to/run-3
+```
+
+Each directory must contain that run's merged P2, scale, and instrumentation
+artifacts. The reviewer requires exact ordinals `1`, `2`, and `3` from one
+cohort and one clean measured subject. It reports cross-run envelopes and
+recurring top-20 promotion candidates but does not choose thresholds, edit the
+focused set, or bless a baseline.
+
 Performance artifacts and verdicts cannot satisfy correctness obligations, and
 correctness success cannot substitute for missing performance evidence.
 

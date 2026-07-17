@@ -5,7 +5,7 @@
         build-sql-perf-wasm \
         test-sql-perf-p1-shard test-sql-perf-p1-merge \
         test-sql-perf-scale-shard test-sql-perf-p2-shard test-sql-perf-p2-merge \
-        test-sql-perf-instrumentation test-sql-perf-baseline \
+        test-sql-perf-instrumentation test-sql-perf-calibration-review test-sql-perf-baseline \
         build check clippy fmt fmt-check clean install install-dev update-dev \
         fetch test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks test-no-default-smoke \
@@ -32,6 +32,10 @@ P1_REPORT_OUT ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_deterministic_matrix
 P1_BASELINE_PATH ?=
 PERF_CALIBRATION_COHORT ?=
 PERF_CALIBRATION_RUN ?=
+PERF_CALIBRATION_RUN_1_DIR ?=
+PERF_CALIBRATION_RUN_2_DIR ?=
+PERF_CALIBRATION_RUN_3_DIR ?=
+PERF_CALIBRATION_REVIEW_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_calibration_review.json
 P2_SELECTION_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_p2_candidates.json
 P2_SHARD_DIR ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_p2_shards
 P2_REPORT_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_p2_report.json
@@ -114,6 +118,8 @@ help:
 	@echo "                  Merge all eight strict P2 shard artifacts"
 	@echo "  test-sql-perf-instrumentation"
 	@echo "                  Capture attributed versus total-only sentinel overhead"
+	@echo "  test-sql-perf-calibration-review PERF_CALIBRATION_RUN_1_DIR=... PERF_CALIBRATION_RUN_2_DIR=... PERF_CALIBRATION_RUN_3_DIR=..."
+	@echo "                  Validate and review one exact three-run initial calibration cohort"
 	@echo "  test-sql-perf-baseline P2_BASELINE_PATH=..."
 	@echo "                  Compare reviewed P2 and scale baselines"
 	@echo "  build            Build all crates"
@@ -344,6 +350,18 @@ test-sql-perf-instrumentation:
 	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
 	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
 		sql_perf_calibrates_attribution_overhead -- --ignored --nocapture
+
+test-sql-perf-calibration-review:
+	@test -d "$(PERF_CALIBRATION_RUN_1_DIR)" || { echo "PERF_CALIBRATION_RUN_1_DIR must name the ordinal-1 evidence bundle" >&2; exit 1; }
+	@test -d "$(PERF_CALIBRATION_RUN_2_DIR)" || { echo "PERF_CALIBRATION_RUN_2_DIR must name the ordinal-2 evidence bundle" >&2; exit 1; }
+	@test -d "$(PERF_CALIBRATION_RUN_3_DIR)" || { echo "PERF_CALIBRATION_RUN_3_DIR must name the ordinal-3 evidence bundle" >&2; exit 1; }
+	ICYDB_SQL_PERF_CALIBRATION_RUN_1_DIR="$(PERF_CALIBRATION_RUN_1_DIR)" \
+	ICYDB_SQL_PERF_CALIBRATION_RUN_2_DIR="$(PERF_CALIBRATION_RUN_2_DIR)" \
+	ICYDB_SQL_PERF_CALIBRATION_RUN_3_DIR="$(PERF_CALIBRATION_RUN_3_DIR)" \
+	ICYDB_SQL_PERF_CALIBRATION_REVIEW_PATH="$(PERF_CALIBRATION_REVIEW_PATH)" \
+	$(CARGO_WORK_ENV) \
+	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
+		sql_perf_reviews_initial_calibration_cohort -- --ignored --exact --nocapture
 
 test-sql-perf-baseline:
 	@test -n "$(P2_BASELINE_PATH)" || { echo "P2_BASELINE_PATH must name a reviewed merged P2 baseline" >&2; exit 1; }

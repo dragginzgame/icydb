@@ -1,0 +1,88 @@
+name: SQL Performance Calibration Review
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_1_id:
+        description: "Clean SQL Performance Evidence run carrying calibration ordinal 1"
+        required: true
+        type: string
+      run_2_id:
+        description: "Clean SQL Performance Evidence run carrying calibration ordinal 2"
+        required: true
+        type: string
+      run_3_id:
+        description: "Clean SQL Performance Evidence run carrying calibration ordinal 3"
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  CARGO_HOME: ${{ github.workspace }}/.cache/cargo/icydb
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target/icydb
+  CARGO_TERM_COLOR: always
+  RUN_1_ID: ${{ inputs.run_1_id }}
+  RUN_2_ID: ${{ inputs.run_2_id }}
+  RUN_3_ID: ${{ inputs.run_3_id }}
+  RUST_CURRENT: "1.97.0"
+  TMPDIR: ${{ github.workspace }}/.cache
+
+jobs:
+  review:
+    name: Review exact three-run calibration cohort
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require three distinct workflow runs
+        run: >-
+          test "$RUN_1_ID" != "$RUN_2_ID" &&
+          test "$RUN_1_ID" != "$RUN_3_ID" &&
+          test "$RUN_2_ID" != "$RUN_3_ID"
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_CURRENT }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target/icydb
+          cache-targets: "false"
+      - name: Prepare local cache
+        run: mkdir -p "$TMPDIR"
+      - name: Download calibration ordinal 1
+        uses: actions/download-artifact@v4
+        with:
+          name: sql-perf-tier-d-current
+          path: artifacts/perf-calibration/run-1
+          github-token: ${{ github.token }}
+          run-id: ${{ env.RUN_1_ID }}
+      - name: Download calibration ordinal 2
+        uses: actions/download-artifact@v4
+        with:
+          name: sql-perf-tier-d-current
+          path: artifacts/perf-calibration/run-2
+          github-token: ${{ github.token }}
+          run-id: ${{ env.RUN_2_ID }}
+      - name: Download calibration ordinal 3
+        uses: actions/download-artifact@v4
+        with:
+          name: sql-perf-tier-d-current
+          path: artifacts/perf-calibration/run-3
+          github-token: ${{ github.token }}
+          run-id: ${{ env.RUN_3_ID }}
+      - run: cargo fetch --locked
+      - name: Validate cohort and project review evidence
+        run: >-
+          make test-sql-perf-calibration-review
+          PERF_CALIBRATION_RUN_1_DIR=artifacts/perf-calibration/run-1
+          PERF_CALIBRATION_RUN_2_DIR=artifacts/perf-calibration/run-2
+          PERF_CALIBRATION_RUN_3_DIR=artifacts/perf-calibration/run-3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sql-perf-calibration-review
+          path: artifacts/perf-audit/sql_perf_calibration_review.json
+          if-no-files-found: error
+          retention-days: 90
