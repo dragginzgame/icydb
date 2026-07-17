@@ -277,6 +277,7 @@ dependencies = [
  "icydb",
  "icydb-testing-audit-sql-perf-fixtures",
  "icydb-testing-wasm-helpers",
+ "serde",
 ]
 
 [[package]]

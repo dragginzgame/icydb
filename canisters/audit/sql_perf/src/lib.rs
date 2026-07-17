@@ -4,7 +4,7 @@
 //!
 
 #[cfg(feature = "sql")]
-use candid::CandidType;
+use candid::{CandidType, Deserialize};
 #[cfg(feature = "sql")]
 use ic_cdk::query;
 use ic_cdk::update;
@@ -63,14 +63,16 @@ struct FluentTotalOnlyPerfResult {
 /// Owned by the audit canister and returned to the host as fixture evidence.
 ///
 
-#[derive(CandidType, Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[cfg(feature = "sql")]
 enum ScalePayloadProfile {
     /// The selected surface has no blob payload fields.
+    #[serde(rename = "not_applicable")]
     NotApplicable,
 
     /// Thumbnail lengths cycle through 32/64/128/256 bytes and chunk lengths
     /// cycle through 256/512/1,024/2,048 bytes.
+    #[serde(rename = "blob_cycle_v1")]
     BlobCycleV1,
 }
 

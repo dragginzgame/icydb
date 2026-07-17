@@ -20,6 +20,7 @@ candid = { workspace = true }
 ic-cdk = { workspace = true }
 icydb = { path = "../../../crates/icydb", default-features = false, features = ["sql", "sql-explain", "diagnostics"] }
 icydb-testing-audit-sql-perf-fixtures = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 
 [build-dependencies]
 icydb = { path = "../../../crates/icydb", default-features = false }

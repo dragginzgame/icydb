@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)
 
+- `0.204.3` repairs the scale-fixture Candid contract so clean calibration
+  runs can decode typed payload evidence without changing production query
+  behavior. The 0.204 design remains open pending clean evidence.
+
 - `0.204.2` makes performance confirmation fail closed on clean reviewed
   baseline identity, propagates typed discovery provenance through P2, and adds
   an explicit non-verdict three-run initial-calibration procedure. The 0.204

@@ -33,7 +33,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use candid::CandidType;
+use candid::{CandidType, decode_one, encode_one};
 use ic_testkit::pic::{
     StandaloneCanisterFixture, try_acquire_pic_serial_guard, try_ensure_pocket_ic_bin, try_pic,
 };
@@ -144,13 +144,14 @@ struct SqlTotalOnlyPerfResult {
 ///
 
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
 enum ScalePayloadProfile {
     /// The selected surface has no blob payload fields.
+    #[serde(rename = "not_applicable")]
     NotApplicable,
 
     /// Thumbnail lengths cycle through 32/64/128/256 bytes and chunk lengths
     /// cycle through 256/512/1,024/2,048 bytes.
+    #[serde(rename = "blob_cycle_v1")]
     BlobCycleV1,
 }
 
@@ -4293,6 +4294,24 @@ fn append_failure_table(output: &mut String, failures: &[MatrixFailure]) {
         .expect("write to string should succeed");
     }
     writeln!(output).expect("write to string should succeed");
+}
+
+#[test]
+fn scale_payload_profile_candid_and_json_labels_are_canonical() {
+    for (profile, expected_json) in [
+        (ScalePayloadProfile::NotApplicable, "\"not_applicable\""),
+        (ScalePayloadProfile::BlobCycleV1, "\"blob_cycle_v1\""),
+    ] {
+        let encoded = encode_one(profile).expect("scale payload profile should encode as Candid");
+        let decoded = decode_one::<ScalePayloadProfile>(&encoded)
+            .expect("scale payload profile should decode from its declared Candid type");
+
+        assert_eq!(decoded, profile);
+        assert_eq!(
+            serde_json::to_string(&profile).expect("scale payload profile should encode as JSON"),
+            expected_json,
+        );
+    }
 }
 
 #[test]
