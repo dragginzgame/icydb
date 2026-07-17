@@ -1627,7 +1627,7 @@ mod tests {
         assert_eq!(selection.candidate_count, 71);
         assert_eq!(
             selection.p2_scenario_set_hash,
-            "6b246a0f996b82ed1566d8f47bf0305b7f588377ff9360c4b06a957ec465925c"
+            "63b2f81fa2904d9d7e1154dbc37c542366cf87f3888217a885382e45e24274df"
         );
         assert!(
             selection

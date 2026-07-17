@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)
 
+- `0.204.7` adds maintained full-entity materialized-order evidence for both
+  storage backends so every required P1 execution metric is observable.
+  Production SQL remains unchanged, and clean calibration is still required.
+
 - `0.204.6` adds a strict three-run calibration reviewer and fixes P1
   scalar-aggregate attribution coverage. Production SQL remains unchanged,
   and clean calibration evidence is still required for 0.204 closeout.

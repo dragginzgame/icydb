@@ -222,6 +222,39 @@ fn execute_sql_projection_unindexed_ordered_direct_fields_use_retained_slot_rows
 }
 
 #[test]
+fn execute_sql_full_entity_unindexed_order_uses_direct_data_rows() {
+    let session = seeded_projection_window_session();
+
+    let (result, lane_metrics) = crate::db::with_scalar_materialization_lane_metrics(|| {
+        session.execute_trusted_sql_query::<SessionSqlEntity>(
+            "SELECT * FROM SessionSqlEntity ORDER BY age DESC, id ASC LIMIT 2",
+        )
+    });
+    let SqlStatementResult::Projection { row_count, .. } =
+        result.expect("unindexed full-entity order should execute")
+    else {
+        panic!("unindexed full-entity order should emit projection rows");
+    };
+
+    assert_eq!(row_count, 2);
+    assert_eq!(
+        lane_metrics.direct_data_row_path_hits, 1,
+        "full-entity materialized ordering should use the direct data-row lane",
+    );
+    assert_eq!(
+        lane_metrics.direct_filtered_data_row_path_hits, 0,
+        "unfiltered full-entity ordering should not claim the filtered direct lane",
+    );
+    assert_eq!(
+        lane_metrics.kernel_data_row_path_hits
+            + lane_metrics.kernel_full_row_retained_path_hits
+            + lane_metrics.kernel_slots_only_path_hits,
+        0,
+        "full-entity materialized ordering should not allocate kernel-row envelopes",
+    );
+}
+
+#[test]
 fn execute_sql_projection_filtered_retained_rows_open_once_with_rejections() {
     let session = seeded_projection_window_session();
 

@@ -1849,8 +1849,36 @@ fn storage_backend_mirror_matrix() -> Vec<MatrixScenario> {
             &storage_mirror_orders(),
             &[1, 3, 10],
         ));
+        scenarios.push(storage_mirror_full_entity_materialized_order_scenario(
+            surface,
+        ));
     }
     scenarios
+}
+
+// Keep one full-entity unindexed order per storage backend so P1 measures the
+// raw DataRow materialized-order lane. Projected mirror scenarios intentionally
+// retain only the slots needed by their outward row shape.
+fn storage_mirror_full_entity_materialized_order_scenario(
+    surface: MatrixSurface,
+) -> MatrixScenario {
+    let projection = projection("full_entity", "*", ValueTypeFamily::Mixed, false);
+    let predicate = predicate("all", "", PredicateFamily::None, PredicateRoute::All);
+    let order = order("age_asc", "age ASC, id ASC", OrderRoute::Age);
+
+    scenario(
+        format!("{}.select.full_entity.all.age_asc.limit10", surface.label()),
+        surface,
+        "select.full_entity.all.age_asc",
+        select_sql(
+            surface.table(),
+            projection.sql,
+            predicate.sql,
+            order.sql,
+            10,
+        ),
+        scalar_select_metadata(surface, &projection, &predicate, &order, 10),
+    )
 }
 
 fn storage_mirror_projections() -> Vec<ProjectionFragment> {
@@ -4486,6 +4514,38 @@ fn sql_perf_deterministic_matrix_exercises_scalar_aggregate_reducer() {
 }
 
 #[test]
+fn sql_perf_deterministic_matrix_exercises_direct_data_row_materialized_order() {
+    let deterministic = deterministic_matrix();
+
+    for (surface, table) in [
+        ("heap_user", "PerfAuditHeapUser"),
+        ("journaled_user", "PerfAuditJournaledUser"),
+    ] {
+        let key = format!("{surface}.select.full_entity.all.age_asc.limit10");
+        let scenario = deterministic
+            .iter()
+            .find(|scenario| scenario.key == key)
+            .unwrap_or_else(|| {
+                panic!("the maintained P1 profile should exercise {surface} direct-row ordering")
+            });
+
+        assert_eq!(
+            scenario.sql,
+            format!("SELECT * FROM {table} ORDER BY age ASC, id ASC LIMIT 10"),
+        );
+        assert_eq!(scenario.metadata.shape, QueryShape::Scalar);
+        assert_eq!(
+            scenario.metadata.route,
+            RouteExpectation::Fixed(RouteFact::new(
+                RouteFamily::MaterializedOrder,
+                RouteOutcome::Materialized,
+                RouteReason::StorageMirrorHasPrimaryIndexOnly,
+            )),
+        );
+    }
+}
+
+#[test]
 fn sql_perf_p1_receipts_cover_the_profile_exactly() {
     let deterministic = deterministic_matrix();
     let declared_ids = deterministic
@@ -4501,8 +4561,8 @@ fn sql_perf_p1_receipts_cover_the_profile_exactly() {
         .collect::<Vec<_>>();
 
     assert_eq!(receipts.len(), 8);
-    assert_eq!(shard_counts, vec![230, 221, 231, 205, 222, 223, 227, 200]);
-    assert_eq!(shard_counts.iter().sum::<usize>(), 1_759);
+    assert_eq!(shard_counts, vec![230, 221, 232, 205, 222, 223, 227, 201]);
+    assert_eq!(shard_counts.iter().sum::<usize>(), 1_761);
     assert!(receipts.iter().all(|receipt| receipt.complete));
     validate_p1_shard_receipts(SQL_PERFORMANCE_PROFILE, &receipts)
         .expect("all deterministic receipts should merge");
@@ -4630,7 +4690,7 @@ fn sql_perf_p1_shard_artifacts_are_strict_bounded_and_merge_exactly() {
     )
     .expect("all exact shard reports should merge");
     assert_eq!(merged.receipts.len(), 8);
-    assert_eq!(merged.samples.len(), 1_759);
+    assert_eq!(merged.samples.len(), 1_761);
     assert!(merged.failures.is_empty());
     assert!(
         merged
