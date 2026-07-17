@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- SQL performance evidence now builds one raw Wasm subject per workflow and
+  shares its exact bytes across every measurement shard, preserving strict
+  subject identity without independent-build drift.
+
 ## [0.204.x] 🧪 - 2026-07-15 - SQL Evidence Authority
 
 Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)

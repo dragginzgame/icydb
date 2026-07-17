@@ -2,6 +2,7 @@
         release-patch release-minor release-major release \
         test test-bump test-sql-canister-matrix test-sql-tier-c-shard test-sql-tier-c-merge \
         test-sql-tier-c-replay \
+        build-sql-perf-wasm \
         test-sql-perf-p1-shard test-sql-perf-p1-merge \
         test-sql-perf-scale-shard test-sql-perf-p2-shard test-sql-perf-p2-merge \
         test-sql-perf-instrumentation test-sql-perf-baseline \
@@ -38,6 +39,7 @@ P2_BASELINE_PATH ?=
 P2_CURRENT_PATH ?= $(P2_REPORT_PATH)
 PERF_COMPARISON_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_comparison.json
 PERF_INSTRUMENTATION_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_instrumentation.json
+SQL_PERF_WASM_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_canister.wasm
 SCALE_BASELINE_PATH ?=
 SCALE_CURRENT_PATH ?= $(SCALE_REPORT_PATH)
 SCALE_SHARD_DIR ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_scale_shards
@@ -96,6 +98,8 @@ help:
 	@echo "                  Merge all eight Tier C receipts and publish typed coverage"
 	@echo "  test-sql-tier-c-replay TIER_C_FAILURE_ARTIFACT=..."
 	@echo "                  Reproduce one minimized Tier C failure exactly"
+	@echo "  build-sql-perf-wasm"
+	@echo "                  Build the one wasm-release subject shared by every performance shard"
 	@echo "  test-sql-perf-p1-shard P1_SHARD=0"
 	@echo "                  Run one deterministic P1 performance shard (0 through 7)"
 	@echo "  test-sql-perf-p1-merge P1_BASELINE_PATH=..."
@@ -269,10 +273,18 @@ test-sql-tier-c-replay:
 		db::session::tests::tier_c_reference::tier_c_failure_artifact_replays_exact_minimized_failure \
 		-- --ignored --exact --nocapture --test-threads=1
 
+build-sql-perf-wasm:
+	ICYDB_SQL_PERF_WASM_PATH="$(SQL_PERF_WASM_PATH)" \
+	$(CARGO_WORK_ENV) \
+	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
+		sql_perf_builds_shared_wasm_subject -- --ignored --exact --nocapture
+
 test-sql-perf-p1-shard:
 	@test -n "$(P1_SHARD)" || { echo "P1_SHARD must be an index from 0 through 7" >&2; exit 1; }
+	@test -s "$(SQL_PERF_WASM_PATH)" || { echo "run make build-sql-perf-wasm before SQL performance measurement" >&2; exit 1; }
 	ICYDB_SQL_PERF_P1_SHARD_INDEX="$(P1_SHARD)" \
 	ICYDB_SQL_PERF_P1_SHARD_DIR="$(P1_SHARD_DIR)" \
+	ICYDB_SQL_PERF_WASM_PATH="$(SQL_PERF_WASM_PATH)" \
 	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
 	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
 		sql_perf_p1_shard_reports_hotspots -- --ignored --nocapture
@@ -298,17 +310,21 @@ test-sql-perf-p1-merge:
 
 test-sql-perf-scale-shard:
 	@test -n "$(SCALE_SHARD)" || { echo "SCALE_SHARD must be an index from 0 through 7" >&2; exit 1; }
+	@test -s "$(SQL_PERF_WASM_PATH)" || { echo "run make build-sql-perf-wasm before SQL performance measurement" >&2; exit 1; }
 	ICYDB_SQL_PERF_SCALE_SHARD_INDEX="$(SCALE_SHARD)" \
 	ICYDB_SQL_PERF_SCALE_SHARD_DIR="$(SCALE_SHARD_DIR)" \
+	ICYDB_SQL_PERF_WASM_PATH="$(SQL_PERF_WASM_PATH)" \
 	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
 	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
 		sql_perf_scale_shard_measures_declared_ladders -- --ignored --nocapture
 
 test-sql-perf-p2-shard:
 	@test -n "$(P2_SHARD)" || { echo "P2_SHARD must be an index from 0 through 7" >&2; exit 1; }
+	@test -s "$(SQL_PERF_WASM_PATH)" || { echo "run make build-sql-perf-wasm before SQL performance measurement" >&2; exit 1; }
 	ICYDB_SQL_PERF_P2_SHARD_INDEX="$(P2_SHARD)" \
 	ICYDB_SQL_PERF_P2_SELECTION_PATH="$(P2_SELECTION_PATH)" \
 	ICYDB_SQL_PERF_P2_SHARD_DIR="$(P2_SHARD_DIR)" \
+	ICYDB_SQL_PERF_WASM_PATH="$(SQL_PERF_WASM_PATH)" \
 	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
 	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
 		sql_perf_p2_shard_confirms_selected_candidates -- --ignored --nocapture
@@ -322,7 +338,9 @@ test-sql-perf-p2-merge:
 		sql_perf_p2_merges_saved_shards -- --ignored --nocapture
 
 test-sql-perf-instrumentation:
+	@test -s "$(SQL_PERF_WASM_PATH)" || { echo "run make build-sql-perf-wasm before SQL performance measurement" >&2; exit 1; }
 	ICYDB_SQL_PERF_INSTRUMENTATION_REPORT_PATH="$(PERF_INSTRUMENTATION_PATH)" \
+	ICYDB_SQL_PERF_WASM_PATH="$(SQL_PERF_WASM_PATH)" \
 	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
 	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
 		sql_perf_calibrates_attribution_overhead -- --ignored --nocapture

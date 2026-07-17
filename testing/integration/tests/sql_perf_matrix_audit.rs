@@ -123,6 +123,8 @@ const SQL_PERF_SCALE_CURRENT_PATH_ENV: &str = "ICYDB_SQL_PERF_SCALE_CURRENT_PATH
 const SQL_PERF_SCALE_SHARD_INDEX_ENV: &str = "ICYDB_SQL_PERF_SCALE_SHARD_INDEX";
 const SQL_PERF_SCALE_SHARD_DIR_ENV: &str = "ICYDB_SQL_PERF_SCALE_SHARD_DIR";
 const SQL_PERF_SCALE_REPORT_PATH_ENV: &str = "ICYDB_SQL_PERF_SCALE_REPORT_PATH";
+const SQL_PERF_WASM_PATH_ENV: &str = "ICYDB_SQL_PERF_WASM_PATH";
+const WASM_V1_HEADER: &[u8; 8] = b"\0asm\x01\0\0\0";
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 struct SqlQueryPerfResult {
@@ -2964,6 +2966,35 @@ fn required_perf_artifact_path(variable: &'static str) -> PathBuf {
     )
 }
 
+fn matrix_canister_wasm_path() -> PathBuf {
+    required_perf_artifact_path(SQL_PERF_WASM_PATH_ENV)
+}
+
+/// Read the exact shared Tier D subject and reject non-WASM artifacts before
+/// measurement.
+fn read_matrix_canister_wasm_file(path: &Path) -> io::Result<Vec<u8>> {
+    let wasm = fs::read(path)?;
+    if !wasm.starts_with(WASM_V1_HEADER) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "SQL performance subject is not a WebAssembly 1 module",
+        ));
+    }
+
+    Ok(wasm)
+}
+
+/// Load the workflow-owned subject instead of giving a measurement shard build authority.
+fn read_matrix_canister_wasm() -> Vec<u8> {
+    let path = matrix_canister_wasm_path();
+    read_matrix_canister_wasm_file(&path).unwrap_or_else(|error| {
+        panic!(
+            "shared SQL performance WASM {} could not be read: {error}",
+            path.display(),
+        )
+    })
+}
+
 fn performance_comparison_path() -> PathBuf {
     env::var_os(SQL_PERF_COMPARISON_PATH_ENV).map_or_else(
         || workspace_root().join("artifacts/perf-audit/sql_perf_comparison.json"),
@@ -5594,6 +5625,63 @@ fn sql_perf_p1_baseline_input_requires_one_complete_explicit_mode() {
 }
 
 #[test]
+fn sql_perf_shared_wasm_reader_requires_a_webassembly_module() {
+    let path = std::env::temp_dir().join(format!(
+        "icydb-sql-perf-subject-{}.wasm",
+        std::process::id(),
+    ));
+    fs::write(&path, b"not-wasm").expect("temporary subject should be writable");
+
+    let error = read_matrix_canister_wasm_file(&path)
+        .expect_err("non-WASM subject should fail before measurement");
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+
+    fs::write(&path, b"\0asm\x01\0\0\0").expect("minimal WASM subject should be writable");
+    assert_eq!(
+        read_matrix_canister_wasm_file(&path).expect("minimal WASM subject should be accepted"),
+        b"\0asm\x01\0\0\0",
+    );
+    fs::remove_file(path).expect("temporary subject should be removable");
+}
+
+#[test]
+#[ignore = "builds the one shared wasm-release subject consumed by every Tier D measurement job"]
+fn sql_perf_builds_shared_wasm_subject() {
+    let path = matrix_canister_wasm_path();
+    let parent = path.parent().unwrap_or_else(|| {
+        panic!(
+            "shared SQL performance WASM path has no parent: {}",
+            path.display()
+        )
+    });
+    fs::create_dir_all(parent).unwrap_or_else(|error| {
+        panic!(
+            "shared SQL performance WASM directory {} could not be created: {error}",
+            parent.display(),
+        )
+    });
+
+    eprintln!("sql_perf_matrix: building the shared wasm-release subject");
+    let wasm =
+        build_fixture_canister_wasm_bytes_with_options("sql_perf", matrix_canister_build_options());
+    fs::write(&path, &wasm).unwrap_or_else(|error| {
+        panic!(
+            "shared SQL performance WASM {} could not be written: {error}",
+            path.display(),
+        )
+    });
+    let written = read_matrix_canister_wasm_file(&path).unwrap_or_else(|error| {
+        panic!(
+            "written SQL performance WASM {} is invalid: {error}",
+            path.display(),
+        )
+    });
+    assert_eq!(written, wasm, "written SQL performance subject drifted");
+
+    println!("shared SQL performance WASM: {}", path.display());
+}
+
+#[test]
 #[ignore = "expensive PocketIC P1 shard; set ICYDB_SQL_PERF_P1_SHARD_INDEX and run manually"]
 fn sql_perf_p1_shard_reports_hotspots() {
     let shard_index = performance_shard_index(SQL_PERF_P1_SHARD_INDEX_ENV, "P1")
@@ -5616,9 +5704,10 @@ fn sql_perf_p1_shard_reports_hotspots() {
         })
         .collect::<Vec<_>>();
 
-    eprintln!("sql_perf_matrix: building one wasm-release module for P1 shard {shard_index}");
-    let wasm =
-        build_fixture_canister_wasm_bytes_with_options("sql_perf", matrix_canister_build_options());
+    eprintln!(
+        "sql_perf_matrix: loading the shared wasm-release subject for P1 shard {shard_index}"
+    );
+    let wasm = read_matrix_canister_wasm();
     let fixture = install_prebuilt_fixture_canister("sql_perf", wasm.clone());
     eprintln!("sql_perf_matrix: resetting and loading fixture rows");
     reset_icydb_fixtures(&fixture);
@@ -5684,9 +5773,10 @@ fn sql_perf_scale_shard_measures_declared_ladders() {
         })
         .collect::<Vec<_>>();
 
-    eprintln!("sql_perf_matrix: building one wasm-release module for scale shard {shard_index}");
-    let wasm =
-        build_fixture_canister_wasm_bytes_with_options("sql_perf", matrix_canister_build_options());
+    eprintln!(
+        "sql_perf_matrix: loading the shared wasm-release subject for scale shard {shard_index}"
+    );
+    let wasm = read_matrix_canister_wasm();
     let environment = capture_isolated_matrix_environment(&wasm);
     eprintln!(
         "sql_perf_matrix: sampling {} scale scenarios assigned to shard {shard_index}",
@@ -5838,9 +5928,10 @@ fn sql_perf_p2_shard_confirms_selected_candidates() {
         .cloned()
         .collect::<Vec<_>>();
 
-    eprintln!("sql_perf_matrix: building one wasm-release module for P2 shard {shard_index}");
-    let wasm =
-        build_fixture_canister_wasm_bytes_with_options("sql_perf", matrix_canister_build_options());
+    eprintln!(
+        "sql_perf_matrix: loading the shared wasm-release subject for P2 shard {shard_index}"
+    );
+    let wasm = read_matrix_canister_wasm();
     let environment = capture_isolated_matrix_environment(&wasm);
     assert_eq!(
         environment, selection.environment,
@@ -5972,9 +6063,8 @@ fn sql_perf_calibrates_attribution_overhead() {
         "instrumentation sentinel must use the endpoint with both attributed and total-only paths",
     );
 
-    eprintln!("sql_perf_matrix: building one wasm-release module for instrumentation calibration");
-    let wasm =
-        build_fixture_canister_wasm_bytes_with_options("sql_perf", matrix_canister_build_options());
+    eprintln!("sql_perf_matrix: loading the shared wasm-release subject for instrumentation");
+    let wasm = read_matrix_canister_wasm();
     let environment = capture_isolated_matrix_environment(&wasm);
     let sample_count = SQL_PERFORMANCE_PROFILE.cold_samples_per_confirmation();
     let attributed_samples = (0..sample_count)

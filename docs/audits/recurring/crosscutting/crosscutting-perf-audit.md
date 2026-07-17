@@ -578,6 +578,8 @@ Focused SQL contract and follow-up attribution commands:
 
 Deterministic P1 shard commands:
 
+- run `make build-sql-perf-wasm` once to create the exact subject shared by the
+  complete P1, scale, P2, and instrumentation run;
 * run `make test-sql-perf-p1-shard P1_SHARD=<index>` once for each index from
   zero through seven;
 * run `make test-sql-perf-scale-shard SCALE_SHARD=<index>` once for each index
@@ -586,8 +588,9 @@ Deterministic P1 shard commands:
   shard artifacts exist.
 
 Each P1 shard runner uses the checked-in performance profile, its deterministic
-membership, the fixed top-20 ranking budget, and a `wasm-release` canister. The
-merge reads exactly shards zero through seven, validates each shard against its
+membership, the fixed top-20 ranking budget, and the same prebuilt `wasm-release`
+canister bytes. The merge reads exactly shards zero through seven, validates each
+shard against its
 serialized outcomes, and is the only authority that emits the complete matrix.
 Prefix, first-N, ranking-count, and wasm-profile overrides are intentionally not
 supported because they cannot produce comparable Tier D evidence.
@@ -631,16 +634,19 @@ baseline exists, use `PERF_CALIBRATION_COHORT=<canonical-id>` together with
 member of the three-run calibration cohort. Calibration evidence retains no
 historical threshold reasons and cannot satisfy the ordinary baseline verdict.
 
-The `SQL Performance Evidence` workflow runs nightly and on manual dispatch. Normal
-runs resolve a reviewed workflow-run artifact from the dispatch input or
-`ICYDB_SQL_PERF_BASELINE_RUN_ID`, require all eight P1, scale, and P2 jobs, perform
-the strict merges, retain the current bundle, and run the ordinary comparison as a
-separate fail-closed gate. Manual calibration dispatches supply the same cohort plus
-one exact run ordinal; they retain tagged evidence but skip the inapplicable ordinary
-comparison. No workflow run blesses a baseline automatically.
+The `SQL Performance Evidence` workflow runs nightly and on manual dispatch. It
+builds one raw `wasm-release` subject before sharding and distributes that exact
+artifact to every measurement job. Normal runs resolve a reviewed workflow-run
+artifact from the dispatch input or `ICYDB_SQL_PERF_BASELINE_RUN_ID`, require all
+eight P1, scale, and P2 jobs, perform the strict merges, retain the current bundle,
+and run the ordinary comparison as a separate fail-closed gate. Manual calibration
+dispatches supply the same cohort plus one exact run ordinal; they retain tagged
+evidence but skip the inapplicable ordinary comparison. No workflow run blesses a
+baseline automatically.
 
 Deterministic matrix output control:
 
+* `SQL_PERF_WASM_PATH` selects the one shared raw `wasm-release` subject;
 * `P1_SHARD_DIR` selects the shard-artifact directory for both make targets; and
 * `P1_REPORT_OUT` selects the merged JSON/Markdown report path stem;
 * `P1_BASELINE_PATH` selects one reviewed P1 discovery baseline, while

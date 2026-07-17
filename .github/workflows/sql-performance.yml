@@ -38,14 +38,10 @@ env:
   TMPDIR: ${{ github.workspace }}/.cache
 
 jobs:
-  p1:
-    name: P1 shard ${{ matrix.shard }}
+  wasm:
+    name: Build shared SQL performance subject
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@v1
@@ -61,17 +57,18 @@ jobs:
       - name: Prepare local cache
         run: mkdir -p "$TMPDIR"
       - run: cargo fetch --locked
-      - name: Capture P1 shard
-        run: make test-sql-perf-p1-shard P1_SHARD=${{ matrix.shard }}
+      - name: Build shared wasm-release subject
+        run: make build-sql-perf-wasm
       - uses: actions/upload-artifact@v4
         with:
-          name: sql-perf-p1-shard-${{ matrix.shard }}
-          path: artifacts/perf-audit/sql_perf_p1_shards/p1-shard-${{ matrix.shard }}.json
+          name: sql-perf-wasm
+          path: artifacts/perf-audit/sql_perf_canister.wasm
           if-no-files-found: error
           retention-days: 14
 
-  scale:
-    name: Scale shard ${{ matrix.shard }}
+  p1:
+    name: P1 shard ${{ matrix.shard }}
+    needs: wasm
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -83,8 +80,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.RUST_CURRENT }}
-      - name: Install WASM target
-        run: rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -92,6 +87,45 @@ jobs:
           cache-targets: "false"
       - name: Prepare local cache
         run: mkdir -p "$TMPDIR"
+      - uses: actions/download-artifact@v4
+        with:
+          name: sql-perf-wasm
+          path: artifacts/perf-audit
+      - run: cargo fetch --locked
+      - name: Capture P1 shard
+        run: make test-sql-perf-p1-shard P1_SHARD=${{ matrix.shard }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sql-perf-p1-shard-${{ matrix.shard }}
+          path: artifacts/perf-audit/sql_perf_p1_shards/p1-shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 14
+
+  scale:
+    name: Scale shard ${{ matrix.shard }}
+    needs: wasm
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_CURRENT }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target/icydb
+          cache-targets: "false"
+      - name: Prepare local cache
+        run: mkdir -p "$TMPDIR"
+      - uses: actions/download-artifact@v4
+        with:
+          name: sql-perf-wasm
+          path: artifacts/perf-audit
       - run: cargo fetch --locked
       - name: Capture scale shard
         run: make test-sql-perf-scale-shard SCALE_SHARD=${{ matrix.shard }}
@@ -161,7 +195,7 @@ jobs:
 
   p2:
     name: P2 shard ${{ matrix.shard }}
-    needs: p1_merge
+    needs: [p1_merge, wasm]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -173,8 +207,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.RUST_CURRENT }}
-      - name: Install WASM target
-        run: rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -185,6 +217,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: sql-perf-p1-merged
+          path: artifacts/perf-audit
+      - uses: actions/download-artifact@v4
+        with:
+          name: sql-perf-wasm
           path: artifacts/perf-audit
       - run: cargo fetch --locked
       - name: Confirm P2 shard
@@ -198,7 +234,7 @@ jobs:
 
   instrumentation:
     name: Attribution overhead calibration
-    needs: p1_merge
+    needs: [p1_merge, wasm]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -206,8 +242,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.RUST_CURRENT }}
-      - name: Install WASM target
-        run: rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -215,6 +249,10 @@ jobs:
           cache-targets: "false"
       - name: Prepare local cache
         run: mkdir -p "$TMPDIR"
+      - uses: actions/download-artifact@v4
+        with:
+          name: sql-perf-wasm
+          path: artifacts/perf-audit
       - run: cargo fetch --locked
       - name: Capture attributed versus total-only overhead
         run: make test-sql-perf-instrumentation
