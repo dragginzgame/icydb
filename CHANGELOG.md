@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)
 
+- `0.204.2` makes performance confirmation fail closed on clean reviewed
+  baseline identity, propagates typed discovery provenance through P2, and adds
+  an explicit non-verdict three-run initial-calibration procedure. The 0.204
+  design remains open pending clean evidence and calibrated budgets.
+
 - `0.204.1` adds pinned differential, generative, scheduled correctness, and
   performance evidence; fixes SQL ordering, filtering, and mutation defects;
   hard-cuts redundant query and relation contracts; and keeps sole-current

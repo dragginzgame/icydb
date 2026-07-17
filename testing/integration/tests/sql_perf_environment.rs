@@ -506,6 +506,25 @@ pub(crate) fn require_comparable_environment(
     Ok(())
 }
 
+/// Require one measured subject to come from an exact clean source revision.
+///
+/// Dirty artifacts remain useful for local method validation, but cannot satisfy
+/// reviewed baseline discovery or a closeout regression verdict.
+///
+/// # Errors
+///
+/// Returns a typed subject-state error when tracked or untracked source differs
+/// from the recorded revision.
+pub(crate) const fn require_clean_perf_subject(
+    identity: &PerfEnvironmentIdentity,
+) -> Result<(), PerfSubjectStateError> {
+    if identity.subject.source_dirty {
+        return Err(PerfSubjectStateError::DirtySource);
+    }
+
+    Ok(())
+}
+
 fn current_fixture_profile(
     profile: PerformanceProfile,
 ) -> Result<PerfFixtureProfileIdentity, PerfEnvironmentError> {
@@ -748,6 +767,31 @@ impl Display for PerfEnvironmentMismatch {
 }
 
 impl Error for PerfEnvironmentMismatch {}
+
+///
+/// PerfSubjectStateError
+///
+/// Typed subject state that cannot participate in release performance evidence.
+/// Owned by environment admission and preserved by selection and comparison errors.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PerfSubjectStateError {
+    /// Tracked or untracked source differs from the recorded revision.
+    DirtySource,
+}
+
+impl Display for PerfSubjectStateError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DirtySource => {
+                formatter.write_str("performance subject was measured from a dirty source worktree")
+            }
+        }
+    }
+}
+
+impl Error for PerfSubjectStateError {}
 
 /// Typed failure while capturing or validating environment identity.
 #[derive(Debug)]

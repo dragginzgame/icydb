@@ -7,7 +7,9 @@ use crate::{
     MatrixSample, MatrixScenario,
     sql_harness::{PredicateFamily, QueryShape, StatementFamily, ValueTypeFamily, WindowBehavior},
     sql_perf_environment::{
-        PerfEnvironmentError, PerfEnvironmentIdentity, validate_perf_environment,
+        PerfEnvironmentError, PerfEnvironmentIdentity, PerfEnvironmentMismatch,
+        PerfSubjectStateError, require_clean_perf_subject, require_comparable_environment,
+        validate_perf_environment,
     },
     sql_perf_profile::{
         PerformanceProfile, PerformanceProfileError, SQL_PERFORMANCE_PROFILE, scenario_set_hash,
@@ -46,6 +48,13 @@ macro_rules! define_p2_raw_metrics {
             /// Return every instruction metric required by P2 ranking and deltas.
             pub(crate) const fn all() -> &'static [Self] {
                 P2_RAW_METRICS
+            }
+
+            /// Return the stable machine-readable metric code.
+            pub(crate) const fn code(self) -> &'static str {
+                match self {
+                    $(Self::$variant => stringify!($field)),+
+                }
             }
 
             /// Read this metric from one retained matrix sample.
@@ -221,8 +230,8 @@ pub(crate) enum P2CandidateReason {
 
     /// The scenario crossed one checked-in comparable-baseline threshold.
     BaselineThreshold {
-        /// Stable thresholded metric identifier.
-        metric: String,
+        /// Typed thresholded instruction metric.
+        metric: P2RawMetric,
     },
 
     /// The scenario represents one required scale stratum.
@@ -259,6 +268,84 @@ pub(crate) struct P2Candidate {
 }
 
 ///
+/// P2CalibrationRun
+///
+/// Exact ordinal in one reviewed three-run initial-calibration cohort.
+/// Owned by P2 selection and retained in calibration evidence.
+///
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum P2CalibrationRun {
+    /// First clean run.
+    One,
+
+    /// Second clean run.
+    Two,
+
+    /// Third clean run.
+    Three,
+}
+
+impl P2CalibrationRun {
+    /// Parse the command-boundary ordinal used by the scheduled runner.
+    pub(crate) const fn from_ordinal(value: &str) -> Option<Self> {
+        match value.as_bytes() {
+            b"1" => Some(Self::One),
+            b"2" => Some(Self::Two),
+            b"3" => Some(Self::Three),
+            _ => None,
+        }
+    }
+}
+
+///
+/// P2BaselineBasis
+///
+/// Reviewed baseline authority used while deriving one P2 candidate set.
+/// Owned by P2 selection and consumed by merged evidence and comparison.
+///
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum P2BaselineBasis {
+    /// P1 discovery compared the current scan to one clean comparable baseline.
+    Comparable {
+        /// Complete reviewed baseline identity used for discovery.
+        /// Boxed only to keep the calibration variant's stack footprint small.
+        baseline_environment: Box<PerfEnvironmentIdentity>,
+        /// Exact typed threshold-crossing reasons supplied to selection.
+        threshold_crossing_count: usize,
+    },
+
+    /// No historical delta exists; this artifact belongs to a three-run cohort.
+    InitialCalibration {
+        /// Stable reviewer-chosen cohort identity shared by exactly three runs.
+        cohort: String,
+        /// Exact clean run ordinal within the cohort.
+        run: P2CalibrationRun,
+    },
+}
+
+impl P2BaselineBasis {
+    /// Construct a comparable-baseline basis with its exact crossing count.
+    pub(crate) fn comparable(
+        baseline_environment: PerfEnvironmentIdentity,
+        threshold_crossing_count: usize,
+    ) -> Self {
+        Self::Comparable {
+            baseline_environment: Box::new(baseline_environment),
+            threshold_crossing_count,
+        }
+    }
+
+    /// Construct one explicitly identified initial-calibration run.
+    pub(crate) const fn initial_calibration(cohort: String, run: P2CalibrationRun) -> Self {
+        Self::InitialCalibration { cohort, run }
+    }
+}
+
+///
 /// P2CandidateSelection
 ///
 /// Exact current P2 candidate set derived from one complete P1 report.
@@ -280,6 +367,9 @@ pub(crate) struct P2CandidateSelection {
     /// Complete P1/scale environment from which this selection was derived.
     pub(crate) environment: PerfEnvironmentIdentity,
 
+    /// Comparable-baseline or explicit initial-calibration basis.
+    pub(crate) baseline_basis: P2BaselineBasis,
+
     /// Exact selected scenario count.
     pub(crate) candidate_count: usize,
 
@@ -299,8 +389,8 @@ pub(crate) struct P2ThresholdCrossing {
     /// Stable P1 scenario identity.
     pub(crate) scenario_id: String,
 
-    /// Stable thresholded metric identifier.
-    pub(crate) metric: String,
+    /// Typed thresholded instruction metric.
+    pub(crate) metric: P2RawMetric,
 }
 
 ///
@@ -329,6 +419,9 @@ pub(crate) struct P2ScaleRepresentative {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct P2SelectionRequirements {
+    /// Reviewed basis governing whether threshold crossings may be absent.
+    baseline_basis: P2BaselineBasis,
+
     /// Comparable-baseline threshold crossings.
     threshold_crossings: Vec<P2ThresholdCrossing>,
 
@@ -345,12 +438,14 @@ pub(crate) struct P2SelectionRequirements {
 impl P2SelectionRequirements {
     /// Construct the explicit non-ranking requirements for one selection.
     pub(crate) const fn new(
+        baseline_basis: P2BaselineBasis,
         threshold_crossings: Vec<P2ThresholdCrossing>,
         scale_representatives: Vec<P2ScaleRepresentative>,
         regression_sentinels: Vec<String>,
         focused_hotspots: Vec<String>,
     ) -> Self {
         Self {
+            baseline_basis,
             threshold_crossings,
             scale_representatives,
             regression_sentinels,
@@ -361,10 +456,12 @@ impl P2SelectionRequirements {
     /// Construct current checked-in sentinel requirements plus derived inputs.
     pub(crate) fn from_profile(
         profile: PerformanceProfile,
+        baseline_basis: P2BaselineBasis,
         threshold_crossings: Vec<P2ThresholdCrossing>,
         scale_representatives: Vec<P2ScaleRepresentative>,
     ) -> Self {
         Self::new(
+            baseline_basis,
             threshold_crossings,
             scale_representatives,
             profile
@@ -397,6 +494,12 @@ pub(crate) fn select_p2_candidates(
 ) -> Result<P2CandidateSelection, P2SelectionError> {
     validate_perf_environment(profile, environment)
         .map_err(P2SelectionError::InvalidEnvironment)?;
+    validate_baseline_basis(
+        profile,
+        environment,
+        &requirements.baseline_basis,
+        requirements.threshold_crossings.len(),
+    )?;
     profile
         .validate_scenario_set(scenarios.iter().map(|scenario| scenario.key.as_str()))
         .map_err(P2SelectionError::InvalidDeclaredScenarioSet)?;
@@ -460,6 +563,7 @@ pub(crate) fn select_p2_candidates(
         p1_scenario_set_hash: profile.expected_scenario_set_hash().to_string(),
         p2_scenario_set_hash,
         environment: environment.clone(),
+        baseline_basis: requirements.baseline_basis.clone(),
         candidate_count: candidates.len(),
         candidates,
     };
@@ -500,6 +604,18 @@ pub(crate) fn validate_p2_candidate_selection(
     }
     validate_perf_environment(profile, &selection.environment)
         .map_err(P2SelectionError::InvalidEnvironment)?;
+    let threshold_crossing_count = selection
+        .candidates
+        .iter()
+        .flat_map(|candidate| &candidate.reasons)
+        .filter(|reason| matches!(reason, P2CandidateReason::BaselineThreshold { .. }))
+        .count();
+    validate_baseline_basis(
+        profile,
+        &selection.environment,
+        &selection.baseline_basis,
+        threshold_crossing_count,
+    )?;
     if selection.candidate_count != selection.candidates.len() {
         return Err(P2SelectionError::CandidateCountDrift {
             declared: selection.candidate_count,
@@ -660,6 +776,69 @@ pub(crate) fn validate_p2_selection_artifact_size(
     Ok(())
 }
 
+/// Revalidate the exact discovery authority serialized with one P2 selection.
+///
+/// # Errors
+///
+/// Returns a typed error for dirty subjects, invalid or incomparable environment
+/// identity, calibration threshold reasons, or retained crossing-count drift.
+fn validate_baseline_basis(
+    profile: PerformanceProfile,
+    current_environment: &PerfEnvironmentIdentity,
+    basis: &P2BaselineBasis,
+    actual_threshold_crossing_count: usize,
+) -> Result<(), P2SelectionError> {
+    require_clean_perf_subject(current_environment).map_err(|source| {
+        P2SelectionError::UncleanSubject {
+            subject: "current",
+            source,
+        }
+    })?;
+    match basis {
+        P2BaselineBasis::Comparable {
+            baseline_environment,
+            threshold_crossing_count,
+        } => {
+            validate_perf_environment(profile, baseline_environment)
+                .map_err(P2SelectionError::InvalidBaselineEnvironment)?;
+            require_clean_perf_subject(baseline_environment).map_err(|source| {
+                P2SelectionError::UncleanSubject {
+                    subject: "baseline",
+                    source,
+                }
+            })?;
+            require_comparable_environment(baseline_environment, current_environment)
+                .map_err(P2SelectionError::IncomparableBaselineEnvironment)?;
+            if *threshold_crossing_count != actual_threshold_crossing_count {
+                return Err(P2SelectionError::ThresholdCrossingCountDrift {
+                    declared: *threshold_crossing_count,
+                    actual: actual_threshold_crossing_count,
+                });
+            }
+        }
+        P2BaselineBasis::InitialCalibration { cohort, .. } => {
+            if !valid_calibration_cohort(cohort) {
+                return Err(P2SelectionError::InvalidCalibrationCohort(cohort.clone()));
+            }
+            if actual_threshold_crossing_count != 0 {
+                return Err(P2SelectionError::CalibrationThresholdCrossings(
+                    actual_threshold_crossing_count,
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn valid_calibration_cohort(cohort: &str) -> bool {
+    !cohort.is_empty()
+        && cohort.len() <= 64
+        && cohort.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_' | b'.')
+        })
+}
+
 fn append_raw_rankings(
     profile: PerformanceProfile,
     samples: &[MatrixSample],
@@ -810,12 +989,12 @@ fn append_explicit_requirements(
     selected: &mut BTreeMap<String, BTreeSet<P2CandidateReason>>,
 ) -> Result<(), P2SelectionError> {
     for crossing in &requirements.threshold_crossings {
-        validate_requirement(declarations, &crossing.scenario_id, &crossing.metric)?;
+        validate_requirement(declarations, &crossing.scenario_id, crossing.metric.code())?;
         insert_reason(
             selected,
             &crossing.scenario_id,
             P2CandidateReason::BaselineThreshold {
-                metric: crossing.metric.clone(),
+                metric: crossing.metric,
             },
         );
     }
@@ -942,6 +1121,9 @@ const fn window_code(window: WindowBehavior) -> &'static str {
 
 #[derive(Debug)]
 pub(crate) enum P2SelectionError {
+    /// Initial-calibration evidence retained historical threshold-crossing reasons.
+    CalibrationThresholdCrossings(usize),
+
     /// The deterministic union exceeds the checked-in cap and was not truncated.
     CandidateCapExceeded {
         /// Checked-in maximum candidate count.
@@ -992,6 +1174,15 @@ pub(crate) enum P2SelectionError {
     /// The P1/scale environment retained by selection is invalid.
     InvalidEnvironment(PerfEnvironmentError),
 
+    /// The comparable P1 baseline environment is invalid.
+    InvalidBaselineEnvironment(PerfEnvironmentError),
+
+    /// The reviewer-chosen initial-calibration cohort is empty or non-canonical.
+    InvalidCalibrationCohort(String),
+
+    /// The reviewed baseline and current P1 environments are incomparable.
+    IncomparableBaselineEnvironment(PerfEnvironmentMismatch),
+
     /// One observed scenario has no declared metadata.
     MissingDeclaration(String),
 
@@ -1022,6 +1213,22 @@ pub(crate) enum P2SelectionError {
         actual: u32,
     },
 
+    /// Serialized threshold-crossing count differs from retained typed reasons.
+    ThresholdCrossingCountDrift {
+        /// Count declared by the comparable-baseline basis.
+        declared: usize,
+        /// Count reconstructed from candidate reasons.
+        actual: usize,
+    },
+
+    /// One measured subject came from source state outside its recorded revision.
+    UncleanSubject {
+        /// Stable subject label.
+        subject: &'static str,
+        /// Typed source-state cause.
+        source: PerfSubjectStateError,
+    },
+
     /// An explicit requirement names a scenario outside the exact P1 profile.
     UnknownRequiredScenario(String),
 
@@ -1032,9 +1239,32 @@ pub(crate) enum P2SelectionError {
     UnobservedRawMetric(P2RawMetric),
 }
 
+fn write_selection_cause(
+    formatter: &mut fmt::Formatter<'_>,
+    context: &str,
+    cause: &dyn Display,
+) -> fmt::Result {
+    write!(formatter, "{context}: {cause}")
+}
+
+fn fmt_cal_count(formatter: &mut fmt::Formatter<'_>, actual: usize) -> fmt::Result {
+    write!(
+        formatter,
+        "initial-calibration P2 selection retained {actual} baseline threshold crossings",
+    )
+}
+
+fn fmt_calibration_cohort(formatter: &mut fmt::Formatter<'_>, cohort: &str) -> fmt::Result {
+    write!(
+        formatter,
+        "invalid P2 initial-calibration cohort {cohort:?}"
+    )
+}
+
 impl Display for P2SelectionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::CalibrationThresholdCrossings(actual) => fmt_cal_count(formatter, *actual),
             Self::CandidateCountDrift { declared, actual } => write!(
                 formatter,
                 "P2 candidate count drifted: declared {declared}, retained {actual}",
@@ -1055,19 +1285,26 @@ impl Display for P2SelectionError {
                 "P2 candidate {scenario_id:?} shard drifted: expected {expected}, observed {actual}",
             ),
             Self::InvalidProfile(error) => {
-                write!(formatter, "invalid performance profile: {error}")
+                write_selection_cause(formatter, "invalid performance profile", error)
             }
             Self::InvalidEnvironment(error) => {
-                write!(formatter, "invalid P2 selection environment: {error}")
+                write_selection_cause(formatter, "invalid P2 selection environment", error)
+            }
+            Self::InvalidBaselineEnvironment(error) => {
+                write_selection_cause(formatter, "invalid P2 baseline environment", error)
+            }
+            Self::InvalidCalibrationCohort(cohort) => fmt_calibration_cohort(formatter, cohort),
+            Self::IncomparableBaselineEnvironment(error) => {
+                write_selection_cause(formatter, "P2 baseline environment is incomparable", error)
             }
             Self::InvalidDeclaredScenarioSet(error) => {
-                write!(formatter, "invalid declared P1 scenario set: {error}")
+                write_selection_cause(formatter, "invalid declared P1 scenario set", error)
             }
             Self::InvalidObservationScenarioSet(error) => {
-                write!(formatter, "invalid observed P1 scenario set: {error}")
+                write_selection_cause(formatter, "invalid observed P1 scenario set", error)
             }
             Self::InvalidCandidateScenarioSet(error) => {
-                write!(formatter, "invalid selected P2 scenario set: {error}")
+                write_selection_cause(formatter, "invalid selected P2 scenario set", error)
             }
             Self::MissingDeclaration(scenario_id) => {
                 write!(
@@ -1109,6 +1346,16 @@ impl Display for P2SelectionError {
                 formatter,
                 "P2 selection profile version drifted: expected {expected}, observed {actual}",
             ),
+            Self::ThresholdCrossingCountDrift { declared, actual } => write!(
+                formatter,
+                "P2 threshold-crossing count drifted: declared {declared}, retained {actual}",
+            ),
+            Self::UncleanSubject { subject, source } => {
+                write!(
+                    formatter,
+                    "unclean P2 selection {subject} subject: {source}"
+                )
+            }
             Self::CandidateCapExceeded { cap, actual } => write!(
                 formatter,
                 "P2 candidate union exceeds its hard cap: maximum {cap}, observed {actual}",
@@ -1124,13 +1371,19 @@ impl Error for P2SelectionError {
             | Self::InvalidDeclaredScenarioSet(error)
             | Self::InvalidObservationScenarioSet(error)
             | Self::InvalidCandidateScenarioSet(error) => Some(error),
-            Self::InvalidEnvironment(error) => Some(error),
+            Self::InvalidEnvironment(error) | Self::InvalidBaselineEnvironment(error) => {
+                Some(error)
+            }
+            Self::IncomparableBaselineEnvironment(error) => Some(error),
+            Self::UncleanSubject { source, .. } => Some(source),
             Self::MissingDeclaration(_)
+            | Self::CalibrationThresholdCrossings(_)
             | Self::CandidateCountDrift { .. }
             | Self::CandidateOrderingDrift
             | Self::CandidateReasonDrift(_)
             | Self::CandidateShardDrift { .. }
             | Self::ObservationDrift(_)
+            | Self::InvalidCalibrationCohort(_)
             | Self::UnobservedRawMetric(_)
             | Self::UnobservedNormalizedDenominator(_)
             | Self::UnknownRequiredScenario(_)
@@ -1138,6 +1391,7 @@ impl Error for P2SelectionError {
             | Self::P1ScenarioSetHashDrift { .. }
             | Self::P2ScenarioSetHashDrift { .. }
             | Self::ProfileVersionDrift { .. }
+            | Self::ThresholdCrossingCountDrift { .. }
             | Self::CandidateCapExceeded { .. } => None,
         }
     }
@@ -1330,9 +1584,10 @@ mod tests {
         scenarios: &[MatrixScenario],
     ) -> P2SelectionRequirements {
         P2SelectionRequirements::new(
+            P2BaselineBasis::comparable(crate::sql_perf_environment::tests::identity(), 1),
             vec![P2ThresholdCrossing {
                 scenario_id: scenarios[0].key.clone(),
-                metric: "total_local_instructions".to_string(),
+                metric: P2RawMetric::Total,
             }],
             vec![P2ScaleRepresentative {
                 scenario_id: scenarios[1].key.clone(),
@@ -1479,7 +1734,6 @@ mod tests {
             validate_p2_candidate_selection(SQL_PERFORMANCE_PROFILE, &declared_ids, &hash_drift,),
             Err(P2SelectionError::P2ScenarioSetHashDrift { .. })
         ));
-
         let path =
             std::env::temp_dir().join(format!("icydb-p2-selection-{}.json", std::process::id()));
         write_p2_candidate_selection(&path, SQL_PERFORMANCE_PROFILE, &declared_ids, &selection)
@@ -1491,11 +1745,85 @@ mod tests {
     }
 
     #[test]
+    fn selection_rejects_tampered_baseline_and_calibration_basis() {
+        let scenarios = deterministic_matrix();
+        let samples = complete_test_samples(&scenarios);
+        let selection = select_p2_candidates(
+            SQL_PERFORMANCE_PROFILE,
+            &crate::sql_perf_environment::tests::identity(),
+            &scenarios,
+            &samples,
+            &requirements_with_every_explicit_reason(&scenarios),
+        )
+        .expect("complete P1 observations should select P2 candidates");
+        let declared_ids = scenarios
+            .iter()
+            .map(|scenario| scenario.key.as_str())
+            .collect::<Vec<_>>();
+
+        let mut threshold_count_drift = selection.clone();
+        threshold_count_drift.baseline_basis =
+            P2BaselineBasis::comparable(crate::sql_perf_environment::tests::identity(), 2);
+        assert!(matches!(
+            validate_p2_candidate_selection(
+                SQL_PERFORMANCE_PROFILE,
+                &declared_ids,
+                &threshold_count_drift,
+            ),
+            Err(P2SelectionError::ThresholdCrossingCountDrift {
+                declared: 2,
+                actual: 1,
+            })
+        ));
+
+        let mut calibration_with_threshold = selection.clone();
+        calibration_with_threshold.baseline_basis = P2BaselineBasis::initial_calibration(
+            "test-calibration".to_string(),
+            P2CalibrationRun::One,
+        );
+        assert!(matches!(
+            validate_p2_candidate_selection(
+                SQL_PERFORMANCE_PROFILE,
+                &declared_ids,
+                &calibration_with_threshold,
+            ),
+            Err(P2SelectionError::CalibrationThresholdCrossings(1))
+        ));
+
+        let mut invalid_cohort = selection;
+        invalid_cohort.baseline_basis = P2BaselineBasis::initial_calibration(
+            "Not Canonical".to_string(),
+            P2CalibrationRun::One,
+        );
+        for candidate in &mut invalid_cohort.candidates {
+            candidate
+                .reasons
+                .retain(|reason| !matches!(reason, P2CandidateReason::BaselineThreshold { .. }));
+        }
+        assert!(matches!(
+            validate_p2_candidate_selection(
+                SQL_PERFORMANCE_PROFILE,
+                &declared_ids,
+                &invalid_cohort,
+            ),
+            Err(P2SelectionError::InvalidCalibrationCohort(cohort))
+                if cohort == "Not Canonical"
+        ));
+    }
+
+    #[test]
     fn checked_in_focused_hotspots_are_all_required_by_profile_selection() {
         let scenarios = deterministic_matrix();
         let samples = complete_test_samples(&scenarios);
-        let requirements =
-            P2SelectionRequirements::from_profile(SQL_PERFORMANCE_PROFILE, Vec::new(), Vec::new());
+        let requirements = P2SelectionRequirements::from_profile(
+            SQL_PERFORMANCE_PROFILE,
+            P2BaselineBasis::initial_calibration(
+                "test-calibration".to_string(),
+                P2CalibrationRun::One,
+            ),
+            Vec::new(),
+            Vec::new(),
+        );
         let selection = select_p2_candidates(
             SQL_PERFORMANCE_PROFILE,
             &crate::sql_perf_environment::tests::identity(),
@@ -1528,8 +1856,16 @@ mod tests {
             .take(SQL_PERFORMANCE_PROFILE.confirmation_scenario_cap() + 1)
             .map(|scenario| scenario.key.clone())
             .collect();
-        let requirements =
-            P2SelectionRequirements::new(Vec::new(), Vec::new(), regression_sentinels, Vec::new());
+        let requirements = P2SelectionRequirements::new(
+            P2BaselineBasis::initial_calibration(
+                "test-calibration".to_string(),
+                P2CalibrationRun::One,
+            ),
+            Vec::new(),
+            Vec::new(),
+            regression_sentinels,
+            Vec::new(),
+        );
 
         assert!(matches!(
             select_p2_candidates(
@@ -1551,8 +1887,16 @@ mod tests {
         for sample in &mut samples {
             sample.response_finalization_local_instructions = 0;
         }
-        let no_requirements =
-            P2SelectionRequirements::new(Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let no_requirements = P2SelectionRequirements::new(
+            P2BaselineBasis::initial_calibration(
+                "test-calibration".to_string(),
+                P2CalibrationRun::One,
+            ),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
         assert!(matches!(
             select_p2_candidates(
                 SQL_PERFORMANCE_PROFILE,
@@ -1568,6 +1912,10 @@ mod tests {
 
         let samples = complete_test_samples(&scenarios);
         let unknown = P2SelectionRequirements::new(
+            P2BaselineBasis::initial_calibration(
+                "test-calibration".to_string(),
+                P2CalibrationRun::One,
+            ),
             Vec::new(),
             Vec::new(),
             vec!["missing.scenario".to_string()],

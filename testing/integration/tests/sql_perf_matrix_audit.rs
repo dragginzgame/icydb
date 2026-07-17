@@ -28,7 +28,8 @@ use std::{
     collections::{BTreeMap, HashSet},
     env,
     fmt::Write as _,
-    fs, io,
+    fs,
+    io::{self, Read},
     path::{Path, PathBuf},
 };
 
@@ -56,7 +57,8 @@ use crate::sql_harness::{
     ValueTypeFamily, WindowSpec, correctness_verdict,
 };
 use crate::sql_perf_baseline::{
-    P2BaselineVerdict, compare_performance_baseline, write_performance_baseline_comparison,
+    P2BaselineVerdict, compare_performance_baseline, discover_p1_threshold_crossings,
+    write_performance_baseline_comparison,
 };
 use crate::sql_perf_environment::{
     PerfEnvironmentIdentity, capture_perf_environment, validate_perf_environment,
@@ -70,13 +72,13 @@ use crate::sql_perf_measurement::{
     PerformanceMeasurementCoverage, PerformanceMeasurementStatus, current_measurement_coverage,
 };
 use crate::sql_perf_p1_shard::{
-    P1ShardArtifactError, P1ShardMergeError, P1ShardReport, build_p1_shard_report,
-    merge_p1_shard_reports, read_p1_shard_report, validate_p1_shard_artifact_size,
-    write_p1_shard_report,
+    MergedP1ShardReports, P1ShardArtifactError, P1ShardMergeError, P1ShardReport,
+    build_p1_shard_report, merge_p1_shard_reports, read_p1_shard_report,
+    validate_p1_shard_artifact_size, write_p1_shard_report,
 };
 use crate::sql_perf_p2::{
-    P2SelectionRequirements, read_p2_candidate_selection, select_p2_candidates,
-    write_p2_candidate_selection,
+    P2BaselineBasis, P2CalibrationRun, P2SelectionRequirements, read_p2_candidate_selection,
+    select_p2_candidates, write_p2_candidate_selection,
 };
 use crate::sql_perf_p2_confirmation::{
     P2WarmNotApplicableReason, P2WarmSampleInput, build_p2_confirmation,
@@ -105,6 +107,9 @@ use crate::sql_perf_scale_shard::{
 
 const SQL_PERF_P1_SHARD_INDEX_ENV: &str = "ICYDB_SQL_PERF_P1_SHARD_INDEX";
 const SQL_PERF_P1_SHARD_DIR_ENV: &str = "ICYDB_SQL_PERF_P1_SHARD_DIR";
+const SQL_PERF_P1_BASELINE_PATH_ENV: &str = "ICYDB_SQL_PERF_P1_BASELINE_PATH";
+const SQL_PERF_CALIBRATION_COHORT_ENV: &str = "ICYDB_SQL_PERF_CALIBRATION_COHORT";
+const SQL_PERF_CALIBRATION_RUN_ENV: &str = "ICYDB_SQL_PERF_CALIBRATION_RUN";
 const SQL_PERF_P2_SELECTION_PATH_ENV: &str = "ICYDB_SQL_PERF_P2_SELECTION_PATH";
 const SQL_PERF_P2_SHARD_INDEX_ENV: &str = "ICYDB_SQL_PERF_P2_SHARD_INDEX";
 const SQL_PERF_P2_SHARD_DIR_ENV: &str = "ICYDB_SQL_PERF_P2_SHARD_DIR";
@@ -679,7 +684,7 @@ impl std::error::Error for MatrixReportValidationError {
     }
 }
 
-/// Typed failure while encoding or publishing one matrix report.
+/// Typed failure while encoding, publishing, or reading one matrix report.
 #[derive(Debug)]
 enum MatrixReportArtifactError {
     /// The in-memory report is not complete current-profile evidence.
@@ -707,6 +712,13 @@ enum MatrixReportArtifactError {
         /// Artifact path.
         path: PathBuf,
         /// JSON encoding cause.
+        source: serde_json::Error,
+    },
+    /// The artifact is not the one current strict JSON shape.
+    Decode {
+        /// Artifact path.
+        path: PathBuf,
+        /// JSON decoding cause.
         source: serde_json::Error,
     },
 }
@@ -738,6 +750,11 @@ impl std::fmt::Display for MatrixReportArtifactError {
                 "matrix report {} could not be encoded: {source}",
                 path.display(),
             ),
+            Self::Decode { path, source } => write!(
+                formatter,
+                "matrix report {} is not current-format JSON: {source}",
+                path.display(),
+            ),
         }
     }
 }
@@ -747,11 +764,78 @@ impl std::error::Error for MatrixReportArtifactError {
         match self {
             Self::InvalidReport(error) => Some(error),
             Self::Io { source, .. } => Some(source),
-            Self::Encode { source, .. } => Some(source),
+            Self::Encode { source, .. } | Self::Decode { source, .. } => Some(source),
             Self::TooLarge { .. } => None,
         }
     }
 }
+
+///
+/// P1BaselineInput
+///
+/// Explicit source of P1 baseline-discovery authority for one runner invocation.
+/// Owned by the P1 merge command boundary.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum P1BaselineInput {
+    /// Compare against one reviewed merged P1 artifact.
+    Comparable(PathBuf),
+
+    /// Produce one clean member of a reviewed three-run calibration cohort.
+    InitialCalibration {
+        /// Stable reviewer-chosen cohort identity.
+        cohort: String,
+        /// Exact ordinal within the three-run cohort.
+        run: P2CalibrationRun,
+    },
+}
+
+///
+/// P1BaselineInputError
+///
+/// Typed command-boundary failure while selecting P1 baseline authority.
+/// Owned and rendered by the P1 merge runner.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum P1BaselineInputError {
+    /// Comparable and initial-calibration inputs were both supplied.
+    ConflictingModes,
+    /// Neither one complete comparable input nor one complete calibration input exists.
+    IncompleteMode,
+
+    /// Calibration run is not exactly 1, 2, or 3.
+    InvalidCalibrationRun(String),
+
+    /// One calibration text input is not valid Unicode.
+    NonUnicode(&'static str),
+}
+
+impl std::fmt::Display for P1BaselineInputError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ConflictingModes => formatter.write_str(
+                "P1 baseline path and initial-calibration inputs are mutually exclusive",
+            ),
+            Self::IncompleteMode => formatter.write_str(
+                "P1 merge requires either one baseline path or both calibration cohort and run",
+            ),
+            Self::InvalidCalibrationRun(value) => write!(
+                formatter,
+                "P1 calibration run must be 1, 2, or 3; observed {value:?}",
+            ),
+            Self::NonUnicode(variable) => {
+                write!(
+                    formatter,
+                    "P1 baseline input {variable} is not valid Unicode"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for P1BaselineInputError {}
 
 ///
 /// PerfShardSelectionError
@@ -2749,6 +2833,104 @@ fn p1_shard_path(directory: &Path, shard_index: u8) -> PathBuf {
     directory.join(format!("p1-shard-{shard_index}.json"))
 }
 
+/// Read and classify the sole baseline authority for one P1 merge invocation.
+///
+/// # Errors
+///
+/// Returns a typed error unless exactly one complete comparable or calibration
+/// mode is present.
+fn p1_baseline_input() -> Result<P1BaselineInput, P1BaselineInputError> {
+    classify_p1_baseline_input(
+        nonempty_environment_value(SQL_PERF_P1_BASELINE_PATH_ENV),
+        nonempty_environment_value(SQL_PERF_CALIBRATION_COHORT_ENV),
+        nonempty_environment_value(SQL_PERF_CALIBRATION_RUN_ENV),
+    )
+}
+
+/// Classify raw command-boundary values without consulting ambient process state.
+///
+/// # Errors
+///
+/// Returns a typed error for conflicting, incomplete, non-Unicode, or invalid
+/// calibration inputs.
+fn classify_p1_baseline_input(
+    baseline_path: Option<std::ffi::OsString>,
+    cohort: Option<std::ffi::OsString>,
+    run: Option<std::ffi::OsString>,
+) -> Result<P1BaselineInput, P1BaselineInputError> {
+    match (baseline_path, cohort, run) {
+        (Some(path), None, None) => Ok(P1BaselineInput::Comparable(PathBuf::from(path))),
+        (None, Some(cohort), Some(run)) => {
+            let cohort = cohort
+                .into_string()
+                .map_err(|_| P1BaselineInputError::NonUnicode(SQL_PERF_CALIBRATION_COHORT_ENV))?;
+            let run = run
+                .into_string()
+                .map_err(|_| P1BaselineInputError::NonUnicode(SQL_PERF_CALIBRATION_RUN_ENV))?;
+            let run = P2CalibrationRun::from_ordinal(&run)
+                .ok_or_else(|| P1BaselineInputError::InvalidCalibrationRun(run.clone()))?;
+            Ok(P1BaselineInput::InitialCalibration { cohort, run })
+        }
+        (Some(_), _, _) => Err(P1BaselineInputError::ConflictingModes),
+        (None, None | Some(_), None) | (None, None, Some(_)) => {
+            Err(P1BaselineInputError::IncompleteMode)
+        }
+    }
+}
+
+fn nonempty_environment_value(variable: &'static str) -> Option<std::ffi::OsString> {
+    env::var_os(variable).filter(|value| !value.is_empty())
+}
+
+/// Turn reviewed baseline or calibration input into P2 non-ranking requirements.
+///
+/// This is the sole command boundary with that authority.
+///
+/// # Panics
+///
+/// Panics when the ignored evidence runner receives invalid input or artifacts.
+fn p2_selection_requirements_for_p1_merge(
+    merged: &MergedP1ShardReports,
+    merged_scale: &MergedScaleShardReports,
+) -> (P2SelectionRequirements, String) {
+    let baseline_input =
+        p1_baseline_input().unwrap_or_else(|error| panic!("P1 baseline input failed: {error}"));
+    let (baseline_basis, threshold_crossings, baseline_label) = match baseline_input {
+        P1BaselineInput::Comparable(path) => {
+            let baseline = read_matrix_report(&path)
+                .unwrap_or_else(|error| panic!("P1 baseline artifact failed: {error}"));
+            let threshold_crossings = discover_p1_threshold_crossings(
+                SQL_PERFORMANCE_PROFILE,
+                &baseline.environment,
+                &baseline.samples,
+                &merged.environment,
+                &merged.samples,
+            )
+            .unwrap_or_else(|error| panic!("P1 baseline discovery failed: {error}"));
+            let basis =
+                P2BaselineBasis::comparable(baseline.environment, threshold_crossings.len());
+            (basis, threshold_crossings, path.display().to_string())
+        }
+        P1BaselineInput::InitialCalibration { cohort, run } => {
+            let label = format!("initial-calibration:{cohort}:{run:?}");
+            (
+                P2BaselineBasis::initial_calibration(cohort, run),
+                Vec::new(),
+                label,
+            )
+        }
+    };
+    (
+        P2SelectionRequirements::from_profile(
+            SQL_PERFORMANCE_PROFILE,
+            baseline_basis,
+            threshold_crossings,
+            merged_scale.p2_representatives.clone(),
+        ),
+        baseline_label,
+    )
+}
+
 fn p2_selection_path() -> PathBuf {
     env::var_os(SQL_PERF_P2_SELECTION_PATH_ENV).map_or_else(
         || workspace_root().join("artifacts/perf-audit/sql_perf_p2_candidates.json"),
@@ -3000,6 +3182,35 @@ fn write_matrix_reports(report: &MatrixReport) -> Result<(), MatrixReportArtifac
     println!("matrix Markdown: {}", md_path.display());
 
     Ok(())
+}
+
+/// Read one bounded strict report and revalidate it against current profile authority.
+fn read_matrix_report(path: &Path) -> Result<MatrixReport, MatrixReportArtifactError> {
+    let file = fs::File::open(path).map_err(|source| MatrixReportArtifactError::Io {
+        path: path.to_path_buf(),
+        operation: "opened",
+        source,
+    })?;
+    let max_bytes = SQL_PERFORMANCE_PROFILE.max_artifact_bytes();
+    let read_limit = u64::try_from(max_bytes).map_or(u64::MAX, |maximum| maximum.saturating_add(1));
+    let mut bytes = Vec::new();
+    file.take(read_limit)
+        .read_to_end(&mut bytes)
+        .map_err(|source| MatrixReportArtifactError::Io {
+            path: path.to_path_buf(),
+            operation: "read",
+            source,
+        })?;
+    validate_matrix_report_size(path, bytes.len())?;
+    let report =
+        serde_json::from_slice(&bytes).map_err(|source| MatrixReportArtifactError::Decode {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    validate_matrix_report_for_publication(&report)
+        .map_err(MatrixReportArtifactError::InvalidReport)?;
+
+    Ok(report)
 }
 
 fn validate_matrix_report_size(
@@ -5324,6 +5535,46 @@ fn sql_perf_matrix_pocketic_startup_smoke() {
 }
 
 #[test]
+fn sql_perf_p1_baseline_input_requires_one_complete_explicit_mode() {
+    let baseline_path = std::ffi::OsString::from("reviewed-p1.json");
+    assert_eq!(
+        classify_p1_baseline_input(Some(baseline_path.clone()), None, None),
+        Ok(P1BaselineInput::Comparable(PathBuf::from(baseline_path))),
+    );
+    assert_eq!(
+        classify_p1_baseline_input(
+            None,
+            Some(std::ffi::OsString::from("initial-204")),
+            Some(std::ffi::OsString::from("3")),
+        ),
+        Ok(P1BaselineInput::InitialCalibration {
+            cohort: "initial-204".to_string(),
+            run: P2CalibrationRun::Three,
+        }),
+    );
+    assert_eq!(
+        classify_p1_baseline_input(
+            Some(std::ffi::OsString::from("reviewed-p1.json")),
+            Some(std::ffi::OsString::from("initial-204")),
+            Some(std::ffi::OsString::from("1")),
+        ),
+        Err(P1BaselineInputError::ConflictingModes),
+    );
+    assert_eq!(
+        classify_p1_baseline_input(None, Some(std::ffi::OsString::from("initial-204")), None,),
+        Err(P1BaselineInputError::IncompleteMode),
+    );
+    assert_eq!(
+        classify_p1_baseline_input(
+            None,
+            Some(std::ffi::OsString::from("initial-204")),
+            Some(std::ffi::OsString::from("4")),
+        ),
+        Err(P1BaselineInputError::InvalidCalibrationRun("4".to_string())),
+    );
+}
+
+#[test]
 #[ignore = "expensive PocketIC P1 shard; set ICYDB_SQL_PERF_P1_SHARD_INDEX and run manually"]
 fn sql_perf_p1_shard_reports_hotspots() {
     let shard_index = performance_shard_index(SQL_PERF_P1_SHARD_INDEX_ENV, "P1")
@@ -5491,11 +5742,8 @@ fn sql_perf_p1_merges_saved_shards() {
     );
     let successful_scenario_count = merged.samples.len();
     let failed_scenario_count = merged.failures.len();
-    let requirements = P2SelectionRequirements::from_profile(
-        SQL_PERFORMANCE_PROFILE,
-        Vec::new(),
-        merged_scale.p2_representatives.clone(),
-    );
+    let (requirements, baseline_label) =
+        p2_selection_requirements_for_p1_merge(&merged, &merged_scale);
     let selection = select_p2_candidates(
         SQL_PERFORMANCE_PROFILE,
         &merged.environment,
@@ -5543,6 +5791,7 @@ fn sql_perf_p1_merges_saved_shards() {
         merged_scale.slopes.len(),
     );
     println!("scale report JSON: {}", scale_report_path().display());
+    println!("P1 baseline basis: {baseline_label}");
     println!("P2 candidate JSON: {}", selection_path.display());
 }
 

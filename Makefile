@@ -28,6 +28,9 @@ ACTIONLINT_INSTALL_DIR ?= $(HOME)/.local/bin
 ACTIONLINT_BIN ?= $(ACTIONLINT_INSTALL_DIR)/actionlint
 P1_SHARD_DIR ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_p1_shards
 P1_REPORT_OUT ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_deterministic_matrix
+P1_BASELINE_PATH ?=
+PERF_CALIBRATION_COHORT ?=
+PERF_CALIBRATION_RUN ?=
 P2_SELECTION_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_p2_candidates.json
 P2_SHARD_DIR ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_p2_shards
 P2_REPORT_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_p2_report.json
@@ -95,8 +98,10 @@ help:
 	@echo "                  Reproduce one minimized Tier C failure exactly"
 	@echo "  test-sql-perf-p1-shard P1_SHARD=0"
 	@echo "                  Run one deterministic P1 performance shard (0 through 7)"
-	@echo "  test-sql-perf-p1-merge"
-	@echo "                  Merge all eight strict P1 and scale shard artifacts"
+	@echo "  test-sql-perf-p1-merge P1_BASELINE_PATH=..."
+	@echo "                  Merge strict P1/scale shards against one reviewed P1 baseline"
+	@echo "  test-sql-perf-p1-merge PERF_CALIBRATION_COHORT=... PERF_CALIBRATION_RUN=1"
+	@echo "                  Produce one explicit clean run in a three-run initial calibration"
 	@echo "  test-sql-perf-scale-shard SCALE_SHARD=0"
 	@echo "                  Run one deterministic scale shard (0 through 7)"
 	@echo "  test-sql-perf-p2-shard P2_SHARD=0"
@@ -273,7 +278,16 @@ test-sql-perf-p1-shard:
 		sql_perf_p1_shard_reports_hotspots -- --ignored --nocapture
 
 test-sql-perf-p1-merge:
+	@if [ -n "$(P1_BASELINE_PATH)" ]; then \
+		test -z "$(PERF_CALIBRATION_COHORT)$(PERF_CALIBRATION_RUN)" || { echo "P1 baseline and calibration inputs are mutually exclusive" >&2; exit 1; }; \
+	else \
+		test -n "$(PERF_CALIBRATION_COHORT)" || { echo "set P1_BASELINE_PATH or both PERF_CALIBRATION_COHORT and PERF_CALIBRATION_RUN" >&2; exit 1; }; \
+		test -n "$(PERF_CALIBRATION_RUN)" || { echo "set P1_BASELINE_PATH or both PERF_CALIBRATION_COHORT and PERF_CALIBRATION_RUN" >&2; exit 1; }; \
+	fi
 	ICYDB_SQL_PERF_P1_SHARD_DIR="$(P1_SHARD_DIR)" \
+	ICYDB_SQL_PERF_P1_BASELINE_PATH="$(P1_BASELINE_PATH)" \
+	ICYDB_SQL_PERF_CALIBRATION_COHORT="$(PERF_CALIBRATION_COHORT)" \
+	ICYDB_SQL_PERF_CALIBRATION_RUN="$(PERF_CALIBRATION_RUN)" \
 	ICYDB_SQL_PERF_SCALE_SHARD_DIR="$(SCALE_SHARD_DIR)" \
 	ICYDB_SQL_PERF_SCALE_REPORT_PATH="$(SCALE_REPORT_PATH)" \
 	ICYDB_SQL_PERF_MATRIX_OUT="$(P1_REPORT_OUT)" \

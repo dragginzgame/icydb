@@ -8,7 +8,9 @@ use crate::{
     route_fact_for_scenario,
     sql_perf_environment::PerfEnvironmentIdentity,
     sql_perf_measurement::{PerformanceMeasurementCoverage, current_measurement_coverage},
-    sql_perf_p2::{P2CandidateSelection, P2SelectionError, validate_p2_candidate_selection},
+    sql_perf_p2::{
+        P2BaselineBasis, P2CandidateSelection, P2SelectionError, validate_p2_candidate_selection,
+    },
     sql_perf_p2_confirmation::{
         P2ConfirmationError, P2ScenarioConfirmation, P2WarmEvidence, P2WarmNotApplicableReason,
         require_stable_p2_confirmation, validate_p2_confirmation,
@@ -123,6 +125,9 @@ pub(crate) struct MergedP2ShardReports {
     /// Exact environment inherited from candidate selection and every shard.
     pub(crate) environment: PerfEnvironmentIdentity,
 
+    /// Comparable-baseline or explicit initial-calibration selection basis.
+    pub(crate) baseline_basis: P2BaselineBasis,
+
     /// Exact receipts ordered by zero-based shard index.
     pub(crate) receipts: Vec<P2ShardReceipt>,
 
@@ -134,6 +139,11 @@ impl MergedP2ShardReports {
     /// Borrow the exact selected P2 scenario-set identity.
     pub(crate) fn p2_scenario_set_hash(&self) -> &str {
         &self.p2_scenario_set_hash
+    }
+
+    /// Borrow the exact baseline or calibration basis used for candidate discovery.
+    pub(crate) const fn baseline_basis(&self) -> &P2BaselineBasis {
+        &self.baseline_basis
     }
 }
 
@@ -356,6 +366,7 @@ pub(crate) fn merge_p2_shard_reports(
         phase_ownership: current_phase_ownership(),
         measurement_coverage: current_measurement_coverage(),
         environment: selection.environment.clone(),
+        baseline_basis: selection.baseline_basis.clone(),
         receipts,
         confirmations,
     };
@@ -527,6 +538,7 @@ fn merged_p2_selection(report: &MergedP2ShardReports) -> P2CandidateSelection {
         p1_scenario_set_hash: report.p1_scenario_set_hash.clone(),
         p2_scenario_set_hash: report.p2_scenario_set_hash.clone(),
         environment: report.environment.clone(),
+        baseline_basis: report.baseline_basis.clone(),
         candidate_count: report.confirmations.len(),
         candidates: report
             .confirmations
@@ -1268,7 +1280,7 @@ impl Error for P2MergedArtifactError {
 pub(crate) mod tests {
     use crate::{
         fill_matrix_phase_reconciliation, report_matrix_sample,
-        sql_perf_p2::{P2Candidate, P2CandidateReason, P2RawMetric},
+        sql_perf_p2::{P2BaselineBasis, P2Candidate, P2CandidateReason, P2RawMetric},
         sql_perf_p2_confirmation::{P2SampleMode, P2WarmSampleInput, build_p2_confirmation},
         sql_perf_profile::SQL_PERFORMANCE_PROFILE,
     };
@@ -1305,6 +1317,10 @@ pub(crate) mod tests {
                 .to_string(),
             p2_scenario_set_hash,
             environment: crate::sql_perf_environment::tests::identity(),
+            baseline_basis: P2BaselineBasis::comparable(
+                crate::sql_perf_environment::tests::identity(),
+                0,
+            ),
             candidate_count: candidates.len(),
             candidates,
         }

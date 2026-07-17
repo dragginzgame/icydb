@@ -4,8 +4,22 @@ on:
   schedule:
     - cron: "17 2 * * *"
   workflow_dispatch:
+    inputs:
+      baseline_run_id:
+        description: "Reviewed SQL Performance Evidence workflow run ID"
+        required: false
+        type: string
+      calibration_cohort:
+        description: "Reviewer-chosen ID for an explicit three-run initial calibration"
+        required: false
+        type: string
+      calibration_run:
+        description: "Initial-calibration run ordinal: 1, 2, or 3"
+        required: false
+        type: string
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -17,6 +31,9 @@ env:
   CARGO_TARGET_DIR: ${{ github.workspace }}/target/icydb
   CARGO_TERM_COLOR: always
   IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD: "1"
+  REVIEWED_SQL_PERF_BASELINE_RUN_ID: ${{ inputs.baseline_run_id || vars.ICYDB_SQL_PERF_BASELINE_RUN_ID }}
+  SQL_PERF_CALIBRATION_COHORT: ${{ inputs.calibration_cohort }}
+  SQL_PERF_CALIBRATION_RUN: ${{ inputs.calibration_run }}
   RUST_CURRENT: "1.97.0"
   TMPDIR: ${{ github.workspace }}/.cache
 
@@ -92,6 +109,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Require a reviewed baseline run
+        if: env.SQL_PERF_CALIBRATION_COHORT == ''
+        run: test -n "$REVIEWED_SQL_PERF_BASELINE_RUN_ID"
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.RUST_CURRENT }}
@@ -110,9 +130,25 @@ jobs:
           pattern: sql-perf-scale-shard-*
           path: artifacts/perf-audit/sql_perf_scale_shards
           merge-multiple: true
+      - name: Download reviewed P1 baseline
+        if: env.SQL_PERF_CALIBRATION_COHORT == ''
+        uses: actions/download-artifact@v4
+        with:
+          name: sql-perf-tier-d-current
+          path: artifacts/perf-baseline
+          github-token: ${{ github.token }}
+          run-id: ${{ env.REVIEWED_SQL_PERF_BASELINE_RUN_ID }}
       - run: cargo fetch --locked
       - name: Merge complete P1 and scale receipts
-        run: make test-sql-perf-p1-merge
+        run: |
+          if [ -n "$SQL_PERF_CALIBRATION_COHORT" ]; then
+            make test-sql-perf-p1-merge \
+              PERF_CALIBRATION_COHORT="$SQL_PERF_CALIBRATION_COHORT" \
+              PERF_CALIBRATION_RUN="$SQL_PERF_CALIBRATION_RUN"
+          else
+            make test-sql-perf-p1-merge \
+              P1_BASELINE_PATH=artifacts/perf-baseline/sql_perf_deterministic_matrix.json
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: sql-perf-p1-merged
@@ -223,7 +259,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  evidence_bundle:
+  current_evidence_bundle:
     name: Bundle current Tier D evidence
     needs: [p2_merge, instrumentation]
     runs-on: ubuntu-latest
@@ -245,4 +281,49 @@ jobs:
           name: sql-perf-tier-d-current
           path: artifacts/perf-audit/*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90
+
+  baseline_gate:
+    name: Gate reviewed Tier D baseline
+    needs: current_evidence_bundle
+    if: inputs.calibration_cohort == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require a reviewed baseline run
+        run: test -n "$REVIEWED_SQL_PERF_BASELINE_RUN_ID"
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_CURRENT }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target/icydb
+          cache-targets: "false"
+      - uses: actions/download-artifact@v4
+        with:
+          name: sql-perf-tier-d-current
+          path: artifacts/perf-current
+      - name: Download reviewed Tier D baseline
+        uses: actions/download-artifact@v4
+        with:
+          name: sql-perf-tier-d-current
+          path: artifacts/perf-baseline
+          github-token: ${{ github.token }}
+          run-id: ${{ env.REVIEWED_SQL_PERF_BASELINE_RUN_ID }}
+      - run: cargo fetch --locked
+      - name: Compare confirmed current evidence to the reviewed baseline
+        run: >-
+          make test-sql-perf-baseline
+          P2_BASELINE_PATH=artifacts/perf-baseline/sql_perf_p2_report.json
+          P2_CURRENT_PATH=artifacts/perf-current/sql_perf_p2_report.json
+          SCALE_BASELINE_PATH=artifacts/perf-baseline/sql_perf_scale_report.json
+          SCALE_CURRENT_PATH=artifacts/perf-current/sql_perf_scale_report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sql-perf-tier-d-comparison
+          path: artifacts/perf-audit/sql_perf_comparison.json
+          if-no-files-found: error
+          retention-days: 90

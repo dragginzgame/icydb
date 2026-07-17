@@ -622,21 +622,30 @@ never updates either baseline. Confirmed comparisons retain raw unaccounted and
 over-attributed phase residual changes as observation-only metrics until reviewed
 residual budgets exist.
 
-The current scheduled P1 merge has no reviewed previous-baseline bridge from which
-to derive `baseline_threshold` candidate reasons. Those reasons remain typed input
-to selection, but clean prior/current bridge evidence and workflow wiring are still
-required before threshold-crossing selection can satisfy closeout.
+The P1 merge accepts exactly one baseline authority. Normal runs require
+`P1_BASELINE_PATH` naming a reviewed complete P1 report, derive typed
+`baseline_threshold` candidate reasons, and reject dirty, incomplete,
+incomparable, or semantically drifting evidence. Before the first reviewed
+baseline exists, use `PERF_CALIBRATION_COHORT=<canonical-id>` together with
+`PERF_CALIBRATION_RUN=1`, `2`, or `3` to produce one explicitly tagged clean
+member of the three-run calibration cohort. Calibration evidence retains no
+historical threshold reasons and cannot satisfy the ordinary baseline verdict.
 
-The `SQL Performance Evidence` workflow runs nightly and on manual dispatch. It
-requires all eight P1, scale, and P2 jobs, performs the two strict merges, captures
-instrumentation evidence, and publishes one current Tier D bundle. The bundle is
-not a release verdict until a reviewed comparable baseline and calibrated budgets
-exist.
+The `SQL Performance Evidence` workflow runs nightly and on manual dispatch. Normal
+runs resolve a reviewed workflow-run artifact from the dispatch input or
+`ICYDB_SQL_PERF_BASELINE_RUN_ID`, require all eight P1, scale, and P2 jobs, perform
+the strict merges, retain the current bundle, and run the ordinary comparison as a
+separate fail-closed gate. Manual calibration dispatches supply the same cohort plus
+one exact run ordinal; they retain tagged evidence but skip the inapplicable ordinary
+comparison. No workflow run blesses a baseline automatically.
 
 Deterministic matrix output control:
 
 * `P1_SHARD_DIR` selects the shard-artifact directory for both make targets; and
 * `P1_REPORT_OUT` selects the merged JSON/Markdown report path stem;
+* `P1_BASELINE_PATH` selects one reviewed P1 discovery baseline, while
+  `PERF_CALIBRATION_COHORT` plus `PERF_CALIBRATION_RUN` explicitly select one
+  first-baseline calibration run instead;
 * `P2_SELECTION_PATH` selects the strict candidate artifact; and
 * `P2_SHARD_DIR` and `P2_REPORT_PATH` select P2 shard and merged artifacts;
 * `SCALE_SHARD_DIR` and `SCALE_REPORT_PATH` select scale shard and merged

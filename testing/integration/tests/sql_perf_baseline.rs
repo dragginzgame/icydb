@@ -1,20 +1,21 @@
 //! Module: sql_perf_baseline
-//! Responsibility: comparable P2 median deltas and the current regression verdict.
+//! Responsibility: comparable P1 threshold discovery and the confirmed P2 regression verdict.
 //! Does not own: sampling, candidate selection, environment capture, or baseline updates.
-//! Boundary: validates both merged artifacts, rejects incomparable inputs, and gates typed metrics.
+//! Boundary: rejects incomplete, dirty, incomparable, or semantically drifting evidence before deltas.
 
 use crate::{
     MatrixSample, MatrixScenario,
     sql_perf_environment::{
-        PerfEnvironmentIdentity, PerfEnvironmentMismatch, require_comparable_environment,
+        PerfEnvironmentIdentity, PerfEnvironmentMismatch, PerfSubjectStateError,
+        require_clean_perf_subject, require_comparable_environment,
     },
     sql_perf_measurement::{
         PerformanceMeasurementCoverage, PhaseResidualMetric, current_measurement_coverage,
     },
-    sql_perf_p2::P2RawMetric,
+    sql_perf_p2::{P2BaselineBasis, P2CalibrationRun, P2RawMetric, P2ThresholdCrossing},
     sql_perf_p2_confirmation::{P2SampleMode, P2SampleSet, P2WarmEvidence, same_semantic_result},
     sql_perf_p2_shard::{MergedP2ShardReports, P2ShardMergeError, validate_merged_p2_report},
-    sql_perf_profile::{PerformanceProfile, PerformanceThreshold},
+    sql_perf_profile::{PerformanceProfile, PerformanceProfileError, PerformanceThreshold},
     sql_perf_scale_baseline::{
         ScaleBaselineComparison, ScaleBaselineComparisonError, compare_scale_baseline,
     },
@@ -22,7 +23,7 @@ use crate::{
 };
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     error::Error,
     fmt::{self, Display},
     fs, io,
@@ -136,11 +137,19 @@ impl P2BaselineMetric {
 
     const fn threshold(self, profile: PerformanceProfile) -> Option<PerformanceThreshold> {
         match self {
-            Self::Instruction(P2RawMetric::Total) => {
-                Some(profile.total_instruction_regression_threshold())
-            }
+            Self::Instruction(metric) => raw_metric_threshold(profile, metric),
             _ => None,
         }
+    }
+}
+
+const fn raw_metric_threshold(
+    profile: PerformanceProfile,
+    metric: P2RawMetric,
+) -> Option<PerformanceThreshold> {
+    match metric {
+        P2RawMetric::Total => Some(profile.total_instruction_regression_threshold()),
+        _ => None,
     }
 }
 
@@ -292,6 +301,114 @@ pub(crate) struct PerformanceBaselineComparison {
     pub(crate) verdict: P2BaselineVerdict,
 }
 
+///
+/// P1BaselineDiscoveryError
+///
+/// Typed failure that prevents comparable P1 evidence from selecting P2 candidates.
+/// Owned by baseline discovery and preserved at the P1 merge boundary.
+///
+
+#[derive(Debug)]
+pub(crate) enum P1BaselineDiscoveryError {
+    /// Baseline and current artifacts do not share one comparable environment.
+    IncomparableEnvironment(PerfEnvironmentMismatch),
+
+    /// The reviewed baseline does not contain one successful sample per profile scenario.
+    InvalidBaselineScenarioSet(PerformanceProfileError),
+
+    /// The current broad scan does not contain one successful sample per profile scenario.
+    InvalidCurrentScenarioSet(PerformanceProfileError),
+
+    /// One current scenario is absent from an otherwise validated baseline set.
+    MissingBaselineSample(String),
+
+    /// Declaration, route, window, or result identity changed between P1 subjects.
+    SemanticDrift(String),
+
+    /// One measured subject came from source state outside its recorded revision.
+    UncleanSubject {
+        /// Stable subject label.
+        subject: &'static str,
+        /// Typed source-state cause.
+        source: PerfSubjectStateError,
+    },
+}
+
+/// Derive typed P2 discovery reasons from one complete comparable P1 pair.
+///
+/// This is a discovery filter, not the release regression verdict. A crossing
+/// must still pass isolated five-sample P2 confirmation before it can gate.
+///
+/// # Errors
+///
+/// Returns a typed error when either broad scan is incomplete, either subject is
+/// dirty, environments are incomparable, or semantic identity changed.
+pub(crate) fn discover_p1_threshold_crossings(
+    profile: PerformanceProfile,
+    baseline_environment: &PerfEnvironmentIdentity,
+    baseline_samples: &[MatrixSample],
+    current_environment: &PerfEnvironmentIdentity,
+    current_samples: &[MatrixSample],
+) -> Result<Vec<P2ThresholdCrossing>, P1BaselineDiscoveryError> {
+    profile
+        .validate_scenario_set(baseline_samples.iter().map(|sample| sample.key.as_str()))
+        .map_err(P1BaselineDiscoveryError::InvalidBaselineScenarioSet)?;
+    profile
+        .validate_scenario_set(current_samples.iter().map(|sample| sample.key.as_str()))
+        .map_err(P1BaselineDiscoveryError::InvalidCurrentScenarioSet)?;
+    require_clean_perf_subject(baseline_environment).map_err(|source| {
+        P1BaselineDiscoveryError::UncleanSubject {
+            subject: "baseline",
+            source,
+        }
+    })?;
+    require_clean_perf_subject(current_environment).map_err(|source| {
+        P1BaselineDiscoveryError::UncleanSubject {
+            subject: "current",
+            source,
+        }
+    })?;
+    require_comparable_environment(baseline_environment, current_environment)
+        .map_err(P1BaselineDiscoveryError::IncomparableEnvironment)?;
+
+    let baseline_by_id = baseline_samples
+        .iter()
+        .map(|sample| (sample.key.as_str(), sample))
+        .collect::<BTreeMap<_, _>>();
+    let mut crossings = Vec::new();
+    for current in current_samples {
+        let baseline = baseline_by_id
+            .get(current.key.as_str())
+            .copied()
+            .ok_or_else(|| P1BaselineDiscoveryError::MissingBaselineSample(current.key.clone()))?;
+        if !same_semantic_result(baseline, current) {
+            return Err(P1BaselineDiscoveryError::SemanticDrift(current.key.clone()));
+        }
+        for metric in P2RawMetric::all().iter().copied() {
+            let Some(threshold) = raw_metric_threshold(profile, metric) else {
+                continue;
+            };
+            if reaches_regression_threshold(
+                threshold,
+                metric.value(baseline),
+                metric.value(current),
+            ) {
+                crossings.push(P2ThresholdCrossing {
+                    scenario_id: current.key.clone(),
+                    metric,
+                });
+            }
+        }
+    }
+    crossings.sort_by(|left, right| {
+        left.scenario_id
+            .cmp(&right.scenario_id)
+            .then(left.metric.cmp(&right.metric))
+    });
+
+    Ok(crossings)
+}
+
 /// Compare two complete P2 reports under one comparable environment.
 ///
 /// # Errors
@@ -314,6 +431,7 @@ pub(crate) fn compare_performance_baseline(
         .map_err(PerformanceBaselineComparisonError::InvalidCurrent)?;
     require_comparable_environment(&baseline.environment, &current.environment)
         .map_err(PerformanceBaselineComparisonError::IncomparableEnvironment)?;
+    require_current_baseline_basis(baseline, current)?;
     let scale = compare_same_subject_scale(
         profile,
         required_wasm_profile,
@@ -404,6 +522,33 @@ fn compare_same_subject_scale(
     .map_err(PerformanceBaselineComparisonError::InvalidScaleComparison)
 }
 
+/// Require current P2 discovery to name the exact report used as comparison baseline.
+///
+/// # Errors
+///
+/// Returns a typed error when current evidence is calibration-only or names a
+/// different baseline subject.
+fn require_current_baseline_basis(
+    baseline: &MergedP2ShardReports,
+    current: &MergedP2ShardReports,
+) -> Result<(), PerformanceBaselineComparisonError> {
+    match current.baseline_basis() {
+        P2BaselineBasis::Comparable {
+            baseline_environment,
+            ..
+        } if **baseline_environment == baseline.environment => Ok(()),
+        P2BaselineBasis::Comparable { .. } => {
+            Err(PerformanceBaselineComparisonError::SelectionBaselineDrift)
+        }
+        P2BaselineBasis::InitialCalibration { cohort, run } => Err(
+            PerformanceBaselineComparisonError::CurrentInitialCalibration {
+                cohort: cohort.clone(),
+                run: *run,
+            },
+        ),
+    }
+}
+
 fn compare_confirmation_deltas(
     profile: PerformanceProfile,
     baseline: &MergedP2ShardReports,
@@ -491,10 +636,7 @@ fn append_sample_set_deltas(
                     P2MetricDisposition::Gated {
                         absolute_threshold: threshold.absolute_instructions(),
                         relative_threshold_basis_points: threshold.relative_basis_points(),
-                        regression: delta >= i128::from(threshold.absolute_instructions())
-                            && delta_basis_points.is_some_and(|basis_points| {
-                                basis_points >= i128::from(threshold.relative_basis_points())
-                            }),
+                        regression: reaches_regression_threshold(threshold, baseline, current),
                     }
                 });
         deltas.push(P2MetricDelta {
@@ -529,6 +671,18 @@ fn relative_delta_basis_points(baseline: u64, current: u64) -> Option<i128> {
     }
 
     Some((i128::from(current) - i128::from(baseline)).saturating_mul(10_000) / i128::from(baseline))
+}
+
+fn reaches_regression_threshold(
+    threshold: PerformanceThreshold,
+    baseline: u64,
+    current: u64,
+) -> bool {
+    let delta = i128::from(current) - i128::from(baseline);
+    delta >= i128::from(threshold.absolute_instructions())
+        && relative_delta_basis_points(baseline, current).is_some_and(|basis_points| {
+            basis_points >= i128::from(threshold.relative_basis_points())
+        })
 }
 
 fn confirmation_ids(report: &MergedP2ShardReports) -> Vec<String> {
@@ -576,6 +730,45 @@ pub(crate) fn write_performance_baseline_comparison(
     })
 }
 
+impl Display for P1BaselineDiscoveryError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::IncomparableEnvironment(error) => {
+                write!(formatter, "P1 environments are incomparable: {error}")
+            }
+            Self::InvalidBaselineScenarioSet(error) => {
+                write!(formatter, "invalid P1 baseline scenario set: {error}")
+            }
+            Self::InvalidCurrentScenarioSet(error) => {
+                write!(formatter, "invalid current P1 scenario set: {error}")
+            }
+            Self::MissingBaselineSample(scenario_id) => {
+                write!(formatter, "P1 baseline is missing scenario {scenario_id:?}")
+            }
+            Self::SemanticDrift(scenario_id) => write!(
+                formatter,
+                "P1 semantic identity drifted for scenario {scenario_id:?}",
+            ),
+            Self::UncleanSubject { subject, source } => {
+                write!(formatter, "unclean P1 {subject} subject: {source}")
+            }
+        }
+    }
+}
+
+impl Error for P1BaselineDiscoveryError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::InvalidBaselineScenarioSet(error) | Self::InvalidCurrentScenarioSet(error) => {
+                Some(error)
+            }
+            Self::IncomparableEnvironment(error) => Some(error),
+            Self::UncleanSubject { source, .. } => Some(source),
+            Self::MissingBaselineSample(_) | Self::SemanticDrift(_) => None,
+        }
+    }
+}
+
 /// Typed failure that prevents a meaningful P2 comparison report.
 #[derive(Debug)]
 pub(crate) enum PerformanceBaselineComparisonError {
@@ -585,6 +778,14 @@ pub(crate) enum PerformanceBaselineComparisonError {
         baseline: Vec<String>,
         /// Current scenario IDs.
         current: Vec<String>,
+    },
+
+    /// The current report is calibration evidence and has no reviewed historical delta.
+    CurrentInitialCalibration {
+        /// Stable three-run cohort identity.
+        cohort: String,
+        /// Exact run ordinal within the cohort.
+        run: P2CalibrationRun,
     },
 
     /// The two artifacts do not share a comparable environment.
@@ -601,6 +802,9 @@ pub(crate) enum PerformanceBaselineComparisonError {
 
     /// Baseline and current disagree about one scenario's maintained cache modes.
     SampleModeDrift(String),
+
+    /// The current selection names a different baseline subject than the compared report.
+    SelectionBaselineDrift,
 
     /// One P2 report and its same-subject scale report have different identities.
     SubjectEnvironmentDrift(&'static str),
@@ -621,6 +825,10 @@ impl Display for PerformanceBaselineComparisonError {
                 formatter,
                 "P2 candidate sets differ: baseline {baseline:?}, current {current:?}",
             ),
+            Self::CurrentInitialCalibration { cohort, run } => write!(
+                formatter,
+                "current P2 report is initial-calibration evidence for cohort {cohort:?} run {run:?}",
+            ),
             Self::IncomparableEnvironment(error) => {
                 write!(formatter, "P2 environments are incomparable: {error}")
             }
@@ -635,6 +843,9 @@ impl Display for PerformanceBaselineComparisonError {
                     "P2 cache-mode membership drifted for {scenario_id:?}"
                 )
             }
+            Self::SelectionBaselineDrift => formatter.write_str(
+                "current P2 selection baseline does not match the compared baseline report",
+            ),
             Self::SubjectEnvironmentDrift(subject) => write!(
                 formatter,
                 "{subject} P2 and scale reports describe different environments or subjects",
@@ -654,7 +865,9 @@ impl Error for PerformanceBaselineComparisonError {
             Self::InvalidBaseline(error) | Self::InvalidCurrent(error) => Some(error),
             Self::InvalidScaleComparison(error) => Some(error),
             Self::CandidateSetDrift { .. }
+            | Self::CurrentInitialCalibration { .. }
             | Self::SampleModeDrift(_)
+            | Self::SelectionBaselineDrift
             | Self::SubjectEnvironmentDrift(_)
             | Self::SemanticDrift { .. } => None,
         }
@@ -737,11 +950,98 @@ impl Error for PerformanceBaselineArtifactError {
 mod tests {
     use crate::{
         deterministic_matrix, fill_matrix_phase_reconciliation,
-        sql_perf_p2_shard::tests::complete_report, sql_perf_profile::SQL_PERFORMANCE_PROFILE,
+        sql_perf_environment::tests::identity, sql_perf_p2_shard::tests::complete_report,
+        sql_perf_profile::SQL_PERFORMANCE_PROFILE,
         sql_perf_scale_shard::tests::complete_report as complete_scale_report,
     };
 
     use super::*;
+
+    fn complete_p1_samples() -> Vec<MatrixSample> {
+        deterministic_matrix()
+            .into_iter()
+            .map(|scenario| MatrixSample {
+                key: scenario.key,
+                total_local_instructions: 1_000_000,
+                ..MatrixSample::default()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn p1_discovery_emits_only_dual_threshold_crossings() {
+        let mut baseline = complete_p1_samples();
+        baseline[0].total_local_instructions = 2_000_000;
+        let mut current = baseline.clone();
+        current[0].total_local_instructions = 2_100_000;
+        let baseline_environment = identity();
+        let mut current_environment = baseline_environment.clone();
+        current_environment.subject.source_revision = "66".repeat(20);
+        current_environment.subject.raw_wasm_sha256 = "77".repeat(32);
+
+        assert_eq!(
+            discover_p1_threshold_crossings(
+                SQL_PERFORMANCE_PROFILE,
+                &baseline_environment,
+                &baseline,
+                &current_environment,
+                &current,
+            )
+            .expect("an absolute-only increase should remain below the dual threshold"),
+            Vec::new(),
+        );
+
+        current[0].total_local_instructions = 2_200_000;
+        assert_eq!(
+            discover_p1_threshold_crossings(
+                SQL_PERFORMANCE_PROFILE,
+                &baseline_environment,
+                &baseline,
+                &current_environment,
+                &current,
+            )
+            .expect("a comparable P1 pair should produce discovery reasons"),
+            vec![P2ThresholdCrossing {
+                scenario_id: current[0].key.clone(),
+                metric: P2RawMetric::Total,
+            }],
+        );
+    }
+
+    #[test]
+    fn p1_discovery_rejects_dirty_and_semantically_drifting_evidence() {
+        let baseline = complete_p1_samples();
+        let mut current = baseline.clone();
+        let baseline_environment = identity();
+        let mut current_environment = baseline_environment.clone();
+        current_environment.subject.source_dirty = true;
+        assert!(matches!(
+            discover_p1_threshold_crossings(
+                SQL_PERFORMANCE_PROFILE,
+                &baseline_environment,
+                &baseline,
+                &current_environment,
+                &current,
+            ),
+            Err(P1BaselineDiscoveryError::UncleanSubject {
+                subject: "current",
+                ..
+            })
+        ));
+
+        current_environment.subject.source_dirty = false;
+        current[0].route_family = "drifted".to_string();
+        assert!(matches!(
+            discover_p1_threshold_crossings(
+                SQL_PERFORMANCE_PROFILE,
+                &baseline_environment,
+                &baseline,
+                &current_environment,
+                &current,
+            ),
+            Err(P1BaselineDiscoveryError::SemanticDrift(_))
+        ));
+    }
 
     #[test]
     fn comparable_p2_reports_emit_gated_and_observation_only_deltas() {
@@ -794,6 +1094,14 @@ mod tests {
         let (_, scale) = complete_scale_report();
         let mut current = baseline.clone();
         current.environment.comparable.accepted_snapshot_hash = "00".repeat(32);
+        let P2BaselineBasis::Comparable {
+            baseline_environment,
+            ..
+        } = &mut current.baseline_basis
+        else {
+            panic!("test report should use a comparable baseline");
+        };
+        baseline_environment.comparable.accepted_snapshot_hash = "00".repeat(32);
         assert!(matches!(
             compare_performance_baseline(
                 SQL_PERFORMANCE_PROFILE,
@@ -807,6 +1115,51 @@ mod tests {
             Err(PerformanceBaselineComparisonError::IncomparableEnvironment(
                 _
             ))
+        ));
+
+        let mut current = baseline.clone();
+        current.environment.subject.source_dirty = true;
+        assert!(matches!(
+            compare_performance_baseline(
+                SQL_PERFORMANCE_PROFILE,
+                "wasm-release",
+                &scenarios,
+                &baseline,
+                &current,
+                &scale,
+                &scale,
+            ),
+            Err(PerformanceBaselineComparisonError::InvalidCurrent(
+                P2ShardMergeError::InvalidSelection(
+                    crate::sql_perf_p2::P2SelectionError::UncleanSubject {
+                        subject: "current",
+                        ..
+                    }
+                )
+            ))
+        ));
+
+        let mut current = baseline.clone();
+        current.baseline_basis = P2BaselineBasis::initial_calibration(
+            "test-calibration".to_string(),
+            P2CalibrationRun::Two,
+        );
+        assert!(matches!(
+            compare_performance_baseline(
+                SQL_PERFORMANCE_PROFILE,
+                "wasm-release",
+                &scenarios,
+                &baseline,
+                &current,
+                &scale,
+                &scale,
+            ),
+            Err(
+                PerformanceBaselineComparisonError::CurrentInitialCalibration {
+                    run: P2CalibrationRun::Two,
+                    ..
+                }
+            )
         ));
 
         let mut current = baseline.clone();
