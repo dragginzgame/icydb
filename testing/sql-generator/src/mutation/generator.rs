@@ -17,7 +17,7 @@ const MUTATION_STRUCTURAL_VARIANT_COUNT: u32 = 4;
 const MUTATION_SEQUENCE_FAMILY_ID: &str = "mutation.sequence";
 
 /// Current hard-cut deterministic mutation generator version.
-pub const MUTATION_GENERATOR_VERSION: u32 = 2;
+pub const MUTATION_GENERATOR_VERSION: u32 = 1;
 
 /// Required root-local mutation cases.
 pub const TIER_A_MUTATION_CASES_PER_ROOT: u64 = 4;

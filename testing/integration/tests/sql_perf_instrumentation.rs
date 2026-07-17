@@ -22,7 +22,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 /// Current hard-cut instrumentation-calibration artifact version.
-const INSTRUMENTATION_CALIBRATION_VERSION: u32 = 2;
+const INSTRUMENTATION_CALIBRATION_VERSION: u32 = 1;
 
 /// Stable scenario selected as the narrowest trustworthy SQL attribution sentinel.
 pub(crate) const INSTRUMENTATION_SENTINEL_SCENARIO_ID: &str = "user.select.pk.all.pk_asc.limit1";

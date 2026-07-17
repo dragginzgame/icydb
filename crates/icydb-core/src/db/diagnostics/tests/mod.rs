@@ -843,13 +843,13 @@ fn storage_report_empty_store_snapshot() {
     assert_eq!(data_a.memory_id(), Some(155));
     assert_eq!(data_a.stable_key(), Some("icydb.test.store_a.data.v1"));
     assert_eq!(data_a.schema_version(), Some(1));
-    assert_eq!(data_a.schema_fingerprint_method_version(), Some(2));
+    assert_eq!(data_a.schema_fingerprint_method_version(), Some(1));
     assert!(data_a.schema_fingerprint().is_some());
     assert_journaled_index_capabilities(index_a);
     assert_eq!(index_a.memory_id(), Some(156));
     assert_eq!(index_a.stable_key(), Some("icydb.test.store_a.index.v1"));
     assert_eq!(index_a.schema_version(), Some(1));
-    assert_eq!(index_a.schema_fingerprint_method_version(), Some(3));
+    assert_eq!(index_a.schema_fingerprint_method_version(), Some(1));
     assert!(index_a.schema_fingerprint().is_some());
 
     let populated_schema = schema_snapshot(&report, STORE_A_PATH);

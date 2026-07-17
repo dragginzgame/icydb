@@ -1749,8 +1749,8 @@ fn insert_many_atomic_rejects_duplicate_keys_in_request() {
         .expect_err("atomic insert batch should reject duplicate keys in one request");
     assert_eq!(
         err.class,
-        ErrorClass::Unsupported,
-        "duplicate key request should fail deterministic pre-commit validation",
+        ErrorClass::Conflict,
+        "duplicate key request should preserve its typed conflict classification",
     );
     assert_eq!(
         err.origin,
@@ -1759,7 +1759,7 @@ fn insert_many_atomic_rejects_duplicate_keys_in_request() {
     );
     assert_error_diagnostic(
         &err,
-        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeConflict,
         "duplicate key request",
     );
 
@@ -2508,7 +2508,7 @@ fn batch_lane_metrics_atomic_success_failure_and_non_atomic_partial_are_distinct
             },
         ])
         .expect_err("atomic duplicate-key batch should fail pre-commit");
-    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.class, ErrorClass::Conflict);
     let after_atomic_failure_report = metrics_report(None);
     let after_atomic_failure = after_atomic_failure_report
         .counters()

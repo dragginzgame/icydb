@@ -41,7 +41,7 @@ pub(in crate::db) fn persisted_schema_snapshot_decode_count_for_tests() -> u64 {
 use candid::{CandidType, Decode, Encode};
 use serde::Deserialize;
 
-const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 2;
+const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 1;
 
 // Candid wire container for one persisted schema snapshot.
 //
@@ -350,7 +350,7 @@ impl PersistedSchemaSnapshotWire {
 
     fn into_snapshot(self) -> Result<PersistedSchemaSnapshot, InternalError> {
         if self.codec_version != SCHEMA_SNAPSHOT_CODEC_VERSION {
-            return Err(InternalError::store_corruption());
+            return Err(InternalError::serialize_incompatible_persisted_format());
         }
 
         let version = SchemaVersion::new(self.version);

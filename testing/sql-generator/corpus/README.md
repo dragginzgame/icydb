@@ -6,7 +6,7 @@ This directory owns reviewed, minimized SQL regression inputs for the current
 The current inventory contains
 `select.filtered-global-count-residual-scan.json`, minimized deterministically
 from the Tier A native/SQLite mismatch for generated case
-`sql-select/v2/session-accepted-snapshot-v1/select.global_aggregate/1cdb020400000001/0000000000000006/sqlite_reference`.
+`sql-select/v1/session-accepted-snapshot-v1/select.global_aggregate/1cdb020400000001/0000000000000006/sqlite_reference`.
 It locks the corrected scan-time residual-filter contract for filtered global
 `COUNT(*)` over the smallest one-row fixture that preserves the historical
 value mismatch.

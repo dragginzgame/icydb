@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 /// Current hard-cut canonical mutation replay format.
-pub const MUTATION_REPLAY_FORMAT_VERSION: u32 = 2;
+pub const MUTATION_REPLAY_FORMAT_VERSION: u32 = 1;
 
 /// Domain separator for canonical mutation row-set fingerprints.
 const MUTATION_ROWS_FINGERPRINT_DOMAIN: &[u8] = b"icydb-sql-mutation-rows/v1";

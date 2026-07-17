@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 
 /// Current hard-cut canonical SELECT replay format.
-pub const SELECT_REPLAY_FORMAT_VERSION: u32 = 2;
+pub const SELECT_REPLAY_FORMAT_VERSION: u32 = 1;
 
 ///
 /// SelectExecutionPhase

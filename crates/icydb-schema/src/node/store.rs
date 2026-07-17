@@ -953,7 +953,7 @@ mod tests {
             "demo_rpg",
             StableMemoryAllocationMetadata::from_accepted_schema_contract(
                 7,
-                2,
+                1,
                 "data-row-layout".to_string(),
             ),
         );
@@ -961,7 +961,7 @@ mod tests {
             "demo_rpg",
             StableMemoryAllocationMetadata::from_accepted_schema_contract(
                 8,
-                3,
+                1,
                 "index-catalog".to_string(),
             ),
         );
@@ -977,16 +977,16 @@ mod tests {
             "demo_rpg",
             StableMemoryAllocationMetadata::from_accepted_schema_contract(
                 9,
-                2,
-                "data-row-layout-v2".to_string(),
+                1,
+                "data-row-layout-changed".to_string(),
             ),
         );
 
         assert_eq!(data.schema_version(), Some(7));
-        assert_eq!(data.schema_fingerprint_method_version(), Some(2));
+        assert_eq!(data.schema_fingerprint_method_version(), Some(1));
         assert_eq!(data.schema_fingerprint(), Some("data-row-layout"));
         assert_eq!(index.schema_version(), Some(8));
-        assert_eq!(index.schema_fingerprint_method_version(), Some(3));
+        assert_eq!(index.schema_fingerprint_method_version(), Some(1));
         assert_eq!(index.schema_fingerprint(), Some("index-catalog"));
         assert_eq!(schema.schema_version(), Some(10));
         assert_eq!(schema.schema_fingerprint_method_version(), Some(1));

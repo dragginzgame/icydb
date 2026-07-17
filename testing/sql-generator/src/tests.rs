@@ -56,7 +56,7 @@ fn splitmix64_bounded_and_weighted_choices_have_fixed_golden_vectors() {
 }
 
 #[test]
-fn select_sub_seed_has_fixed_blake3_golden_vector() {
+fn select_sub_seeds_have_fixed_blake3_golden_vectors() {
     let actual = derive_sql_sub_seed(
         SELECT_GENERATOR_VERSION,
         TIER_A_ROOT_SEEDS[0],
@@ -65,7 +65,16 @@ fn select_sub_seed_has_fixed_blake3_golden_vector() {
     )
     .expect("fixed family identity should derive");
 
-    assert_eq!(actual, 0xdab6_477b_1b44_b05c);
+    assert_eq!(actual, 0xf25a_a4d4_38d2_2440);
+
+    let corpus_source = derive_sql_sub_seed(
+        SELECT_GENERATOR_VERSION,
+        TIER_A_ROOT_SEEDS[0],
+        SelectGeneratorFamily::GlobalAggregate.id(),
+        6,
+    )
+    .expect("fixed corpus source identity should derive");
+    assert_eq!(corpus_source, 0xfe70_a2ad_2a8f_4a81);
 }
 
 #[test]
@@ -96,7 +105,7 @@ fn accepted_snapshot_order_and_representative_case_are_golden() {
     );
     assert_eq!(
         blake3::hash(&canonical).to_hex().as_str(),
-        "105d273bf3f79dff5e09985317e75454723bf2bcc3eaa3ed70065dcbcd486a37",
+        "fa4b689186b718d9360fc3d90fe3911873644643fade6910c4ba63b0ba76a0be",
     );
 }
 

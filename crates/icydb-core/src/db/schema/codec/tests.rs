@@ -7,11 +7,34 @@ use crate::{
         SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout,
         SchemaVersion, decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
     },
+    error::{ErrorClass, ErrorOrigin},
     model::field::{
         FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec, ScalarCodec,
     },
     types::EntityTag,
 };
+
+#[test]
+fn decode_persisted_schema_snapshot_rejects_future_codec_version() {
+    let snapshot = PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "entities::FutureCodec".to_string(),
+        "FutureCodec".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::new(SchemaVersion::initial(), Vec::new()),
+        Vec::new(),
+    );
+    let mut wire = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
+    wire.codec_version = super::SCHEMA_SNAPSHOT_CODEC_VERSION.saturating_add(1);
+    let encoded = candid::encode_one(&wire).expect("future schema codec fixture should encode");
+
+    let error = decode_persisted_schema_snapshot(&encoded)
+        .expect_err("future schema codec version must fail closed");
+
+    assert_eq!(error.class(), ErrorClass::IncompatiblePersistedFormat);
+    assert_eq!(error.origin(), ErrorOrigin::Serialize);
+}
+
 #[test]
 fn decode_persisted_schema_snapshot_rejects_zero_schema_version() {
     let snapshot = PersistedSchemaSnapshot::new(

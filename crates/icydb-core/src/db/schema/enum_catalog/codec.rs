@@ -12,7 +12,7 @@ use crate::{error::InternalError, model::field::FieldStorageDecode, types::Entit
 use std::collections::BTreeMap;
 
 const ACCEPTED_ENUM_CATALOG_MAGIC: &[u8; 8] = b"ICYDBENC";
-const ACCEPTED_ENUM_CATALOG_CODEC_VERSION: u16 = 2;
+const ACCEPTED_ENUM_CATALOG_CODEC_VERSION: u16 = 1;
 const ACCEPTED_ENUM_CATALOG_HEADER_BYTES: usize = 14;
 pub(super) const MAX_ACCEPTED_ENUM_CATALOG_BYTES: usize = 512 * 1024;
 

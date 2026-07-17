@@ -13,7 +13,8 @@ Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)
 
 - `0.204.1` adds pinned differential, generative, scheduled correctness, and
   performance evidence; fixes SQL ordering, filtering, and mutation defects;
-  and hard-cuts redundant query and relation contracts. Potentially breaking:
+  hard-cuts redundant query and relation contracts; and keeps sole-current
+  internal formats at version 1 without legacy decoders. Potentially breaking:
   relations are always enforced, current schema snapshots must be recreated,
   and removed public one-variant types have no aliases. The 0.204 design remains
   open pending clean scheduled evidence and calibrated performance budgets.

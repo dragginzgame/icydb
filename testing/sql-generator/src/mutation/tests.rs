@@ -194,7 +194,7 @@ fn tier_c_mutation_profile_is_exact_bounded_and_fully_generatable() {
 }
 
 #[test]
-fn mutation_v2_identity_has_fixed_golden_vector() {
+fn mutation_identity_has_fixed_golden_vector() {
     let sequence = generate_mutation_sequence(
         &mutation_snapshot(),
         TIER_A_ROOT_SEEDS[0],
@@ -203,11 +203,11 @@ fn mutation_v2_identity_has_fixed_golden_vector() {
     )
     .expect("fixed mutation identity should generate");
 
-    assert_eq!(sequence.identity().generator_version(), 2);
-    assert_eq!(sequence.identity().sub_seed(), 0x0b74_35ce_4867_a92b);
+    assert_eq!(sequence.identity().generator_version(), 1);
+    assert_eq!(sequence.identity().sub_seed(), 0x79b2_f14b_e89f_a143);
     assert_eq!(
         sequence.identity().id(),
-        "sql-mutation/v2/mutation.sequence/1cdb020400000001/0000000000000000/0b7435ce4867a92b"
+        "sql-mutation/v1/mutation.sequence/1cdb020400000001/0000000000000000/79b2f14be89fa143"
     );
 }
 
@@ -347,12 +347,12 @@ fn injected_mutation_failure_shrinks_from_initial_state_and_replays_canonically(
             .get_mut(sequence_key)
             .and_then(|sequence| sequence.get_mut("identity"))
             .and_then(|identity| identity.get_mut("generator_version"))
-            .expect("mutation replay should embed generator version") = serde_json::json!(1);
+            .expect("mutation replay should embed generator version") = serde_json::json!(2);
     }
     let stale_bytes = crate::replay::canonical_json_bytes(&stale_identity)
         .expect("stale replay should serialize canonically");
     let stale_error = MutationReplayRecord::from_canonical_json(stale_bytes.as_slice())
-        .expect_err("stale mutation generator identities must reject");
+        .expect_err("future mutation generator identities must reject");
     assert_eq!(stale_error.kind(), SqlGeneratorErrorKind::InvalidCase);
 
     let corpus =

@@ -11,7 +11,7 @@ const SPLITMIX64_MIX_ONE: u64 = 0xbf58_476d_1ce4_e5b9;
 const SPLITMIX64_MIX_TWO: u64 = 0x94d0_49bb_1331_11eb;
 
 /// Current hard-cut SELECT generator format and semantic version.
-pub const SELECT_GENERATOR_VERSION: u32 = 2;
+pub const SELECT_GENERATOR_VERSION: u32 = 1;
 
 ///
 /// SplitMix64

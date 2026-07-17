@@ -1,8 +1,7 @@
 use super::{
     AcceptedStoreCatalogScope, RawSchemaKey, RawSchemaSnapshot,
-    SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION, SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_VERSION,
-    SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_VERSION, SchemaStore, SchemaStoreBackend,
-    SchemaStoreVisit, accepted_schema_bundle_cache_miss_count_for_tests,
+    SCHEMA_STORE_FINGERPRINT_METHOD_VERSION, SchemaStore, SchemaStoreBackend, SchemaStoreVisit,
+    accepted_schema_bundle_cache_miss_count_for_tests,
     reset_accepted_schema_bundle_cache_miss_count_for_tests,
 };
 use crate::{
@@ -720,13 +719,13 @@ fn schema_store_catalog_metadata_uses_latest_persisted_snapshots() {
     assert_eq!(initial_metadata.schema_version(), SchemaVersion::initial());
     assert_eq!(
         initial_metadata.schema_fingerprint_method_version(),
-        SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION
+        SCHEMA_STORE_FINGERPRINT_METHOD_VERSION
     );
     assert_eq!(initial_metadata.entity_count(), 1);
     assert_eq!(updated_metadata.schema_version(), SchemaVersion::new(3));
     assert_eq!(
         updated_metadata.schema_fingerprint_method_version(),
-        SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION
+        SCHEMA_STORE_FINGERPRINT_METHOD_VERSION
     );
     assert_eq!(updated_metadata.entity_count(), 2);
     assert_ne!(
@@ -799,17 +798,17 @@ fn schema_store_allocation_metadata_uses_role_specific_fingerprints() {
     );
     assert_eq!(
         indexed_metadata.data().schema_fingerprint_method_version(),
-        SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_VERSION
+        SCHEMA_STORE_FINGERPRINT_METHOD_VERSION
     );
     assert_eq!(
         indexed_metadata.index().schema_fingerprint_method_version(),
-        SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_VERSION
+        SCHEMA_STORE_FINGERPRINT_METHOD_VERSION
     );
     assert_eq!(
         indexed_metadata
             .schema()
             .schema_fingerprint_method_version(),
-        SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION
+        SCHEMA_STORE_FINGERPRINT_METHOD_VERSION
     );
     assert_ne!(
         base_metadata.index().schema_fingerprint(),

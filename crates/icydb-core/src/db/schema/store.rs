@@ -51,9 +51,12 @@ const SCHEMA_KEY_NAMESPACE_ENTITY_SNAPSHOT: u8 = 0;
 const SCHEMA_KEY_NAMESPACE_ACCEPTED_BUNDLE: u8 = 1;
 const SCHEMA_KEY_NAMESPACE_ACCEPTED_ROOT: u8 = 2;
 pub(in crate::db) const MAX_SCHEMA_SNAPSHOT_BYTES: u32 = 512 * 1024;
-const SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION: u8 = 1;
-const SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_VERSION: u8 = 2;
-const SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_VERSION: u8 = 3;
+// Every role exposes the sole current method version while its separate domain
+// tag keeps data, index, and full-catalog fingerprint inputs disjoint.
+const SCHEMA_STORE_FINGERPRINT_METHOD_VERSION: u8 = 1;
+const SCHEMA_STORE_CATALOG_FINGERPRINT_DOMAIN: u8 = 1;
+const SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_DOMAIN: u8 = 2;
+const SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_DOMAIN: u8 = 3;
 const RAW_SCHEMA_SNAPSHOT_MAGIC: &[u8; 8] = b"ICYDBCAT";
 const RAW_SCHEMA_SNAPSHOT_VALUE_VERSION: u8 = 1;
 const RAW_SCHEMA_SNAPSHOT_HEADER_BYTES: usize = 25;
@@ -1859,10 +1862,7 @@ fn derive_data_allocation_metadata(
 ) -> Result<SchemaStoreCatalogMetadata, InternalError> {
     let mut max_version = SchemaVersion::initial();
     let mut hasher = new_hash_sha256();
-    write_hash_tag_u8(
-        &mut hasher,
-        SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_VERSION,
-    );
+    write_hash_tag_u8(&mut hasher, SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_DOMAIN);
 
     for (entity, (_, snapshot)) in latest_by_entity {
         let persisted = snapshot.decode_persisted_snapshot()?;
@@ -1889,7 +1889,7 @@ fn derive_data_allocation_metadata(
 
     Ok(finalize_schema_metadata(
         max_version,
-        SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_VERSION,
+        SCHEMA_STORE_FINGERPRINT_METHOD_VERSION,
         hasher,
         latest_by_entity.len(),
     ))
@@ -1902,7 +1902,7 @@ fn derive_index_allocation_metadata(
     let mut hasher = new_hash_sha256();
     write_hash_tag_u8(
         &mut hasher,
-        SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_VERSION,
+        SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_DOMAIN,
     );
 
     for (entity, (_, snapshot)) in latest_by_entity {
@@ -1933,7 +1933,7 @@ fn derive_index_allocation_metadata(
 
     Ok(finalize_schema_metadata(
         max_version,
-        SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_VERSION,
+        SCHEMA_STORE_FINGERPRINT_METHOD_VERSION,
         hasher,
         latest_by_entity.len(),
     ))
@@ -1944,7 +1944,7 @@ fn derive_schema_catalog_metadata(
 ) -> Result<SchemaStoreCatalogMetadata, InternalError> {
     let mut max_version = SchemaVersion::initial();
     let mut hasher = new_hash_sha256();
-    write_hash_tag_u8(&mut hasher, SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION);
+    write_hash_tag_u8(&mut hasher, SCHEMA_STORE_CATALOG_FINGERPRINT_DOMAIN);
 
     for (entity, (version, snapshot)) in latest_by_entity {
         let persisted = snapshot.decode_persisted_snapshot()?;
@@ -1960,7 +1960,7 @@ fn derive_schema_catalog_metadata(
 
     Ok(finalize_schema_metadata(
         max_version,
-        SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION,
+        SCHEMA_STORE_FINGERPRINT_METHOD_VERSION,
         hasher,
         latest_by_entity.len(),
     ))
