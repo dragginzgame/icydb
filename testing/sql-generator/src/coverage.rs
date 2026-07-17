@@ -7,8 +7,14 @@ use crate::{
     GeneratedMutationSequence, GeneratedSelectCase, MutationOperation, MutationPredicate,
     MutationSqliteEligibility, SelectExpectedOutcome, SelectFeature, SelectProvider,
     SelectQueryShape, SelectValueKind, SqlGeneratorError, TierCEvidenceError, TierCMergedReport,
-    TierCScenarioOutcome, TierCShardReport, replay::canonical_json_bytes,
-    scheduled::TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES, scheduled_sql_scenario_shard,
+    TierCScenarioOutcome, TierCShardReport,
+    model::{
+        SelectExpression, SelectFunction, SelectGeneratorFamily, SelectOrderTarget,
+        SelectPredicate, SelectViolation,
+    },
+    replay::canonical_json_bytes,
+    scheduled::TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES,
+    scheduled_sql_scenario_shard,
 };
 
 use std::{
@@ -20,7 +26,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 /// Current hard-cut Tier C coverage-distribution artifact format.
-pub const TIER_C_DISTRIBUTION_FORMAT_VERSION: u32 = 1;
+pub const TIER_C_DISTRIBUTION_FORMAT_VERSION: u32 = 2;
 
 // -----------------------------------------------------------------------------
 // Shared coverage taxonomy
@@ -189,6 +195,62 @@ impl QueryShape {
             Self::Metadata => "metadata",
             Self::Mutation => "mutation",
             Self::Scalar => "scalar",
+        }
+    }
+}
+
+///
+/// GeneratedExpressionDepth
+///
+/// Deepest typed expression or predicate node in one accepted generated SELECT.
+/// Non-generated and expected-rejection scenarios use `NotApplicable` rather
+/// than inventing a comparable complexity measurement.
+///
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GeneratedExpressionDepth {
+    /// The scenario is not an accepted generated SELECT.
+    NotApplicable,
+
+    /// Maximum generated expression depth is one node.
+    One,
+
+    /// Maximum generated expression depth is two nodes.
+    Two,
+
+    /// Maximum generated expression depth is three nodes.
+    Three,
+
+    /// Maximum generated expression depth is four nodes.
+    Four,
+}
+
+impl GeneratedExpressionDepth {
+    /// Return the stable machine-readable depth identity.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::NotApplicable => "not_applicable",
+            Self::One => "one",
+            Self::Two => "two",
+            Self::Three => "three",
+            Self::Four => "four",
+        }
+    }
+
+    fn from_generated_case(case: &GeneratedSelectCase) -> Result<Self, SqlGeneratorError> {
+        match case.query().max_expression_depth() {
+            1 => Ok(Self::One),
+            2 => Ok(Self::Two),
+            3 => Ok(Self::Three),
+            4 => Ok(Self::Four),
+            depth => Err(SqlGeneratorError::new(
+                crate::SqlGeneratorErrorKind::InvalidCase,
+                format!(
+                    "generated SELECT expression depth {depth} is outside the current one-through-four profile"
+                ),
+            )),
         }
     }
 }
@@ -497,6 +559,7 @@ impl TierCExpectedAcceptance {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TierCCoverageLabels {
     evidence_strength: BTreeSet<EvidenceStrength>,
+    generated_expression_depth: BTreeSet<GeneratedExpressionDepth>,
     mutation: BTreeSet<MutationKind>,
     nullability: BTreeSet<NullabilityClass>,
     predicate: BTreeSet<PredicateFamily>,
@@ -517,10 +580,11 @@ impl TierCCoverageLabels {
     /// statement and mutation labels describe incompatible operations.
     #[expect(
         clippy::too_many_arguments,
-        reason = "the constructor makes all ten report dimensions explicit"
+        reason = "the constructor makes all eleven report dimensions explicit"
     )]
     pub fn try_new(
         evidence_strength: BTreeSet<EvidenceStrength>,
+        generated_expression_depth: BTreeSet<GeneratedExpressionDepth>,
         mutation: BTreeSet<MutationKind>,
         nullability: BTreeSet<NullabilityClass>,
         predicate: BTreeSet<PredicateFamily>,
@@ -533,6 +597,7 @@ impl TierCCoverageLabels {
     ) -> Result<Self, TierCDistributionError> {
         let labels = Self {
             evidence_strength,
+            generated_expression_depth,
             mutation,
             nullability,
             predicate,
@@ -550,6 +615,7 @@ impl TierCCoverageLabels {
 
     fn validate(&self) -> Result<(), TierCDistributionError> {
         let complete = !self.evidence_strength.is_empty()
+            && !self.generated_expression_depth.is_empty()
             && !self.mutation.is_empty()
             && !self.nullability.is_empty()
             && !self.predicate.is_empty()
@@ -606,6 +672,61 @@ impl TierCCoverageLabels {
     }
 }
 
+/// Exact generated-only facts kept separate from universal correctness strata.
+/// Enum variants prevent SELECT snapshots from claiming mutation sequence facts
+/// and prevent the narrower mutation snapshot from inventing index metadata.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum TierCGeneratedProfile {
+    Mutation {
+        fixture_row_count: u32,
+        schema_field_count: u32,
+        schema_fixture_family: String,
+        statement_count: u32,
+    },
+    Select {
+        fixture_row_count: u32,
+        schema_field_count: u32,
+        schema_fixture_family: String,
+        schema_generated_field_count: u32,
+        schema_index_count: u32,
+        schema_nullable_field_count: u32,
+    },
+}
+
+impl TierCGeneratedProfile {
+    fn mutation(sequence: &GeneratedMutationSequence) -> Result<Self, TierCDistributionError> {
+        Ok(Self::Mutation {
+            fixture_row_count: bounded_count(sequence.initial_rows().len())?,
+            schema_field_count: bounded_count(sequence.snapshot().fields().len())?,
+            schema_fixture_family: sequence.snapshot().fixture_family().to_string(),
+            statement_count: bounded_count(sequence.steps().len())?,
+        })
+    }
+
+    fn select(case: &GeneratedSelectCase) -> Result<Self, TierCDistributionError> {
+        Ok(Self::Select {
+            fixture_row_count: bounded_count(case.fixture().len())?,
+            schema_field_count: bounded_count(case.snapshot().fields().len())?,
+            schema_fixture_family: case.snapshot().fixture_family().to_string(),
+            schema_generated_field_count: bounded_count(
+                case.snapshot()
+                    .fields()
+                    .iter()
+                    .filter(|field| field.generated())
+                    .count(),
+            )?,
+            schema_index_count: bounded_count(case.snapshot().indexes().len())?,
+            schema_nullable_field_count: bounded_count(
+                case.snapshot()
+                    .fields()
+                    .iter()
+                    .filter(|field| field.nullable())
+                    .count(),
+            )?,
+        })
+    }
+}
+
 ///
 /// TierCScenarioDeclaration
 ///
@@ -620,6 +741,7 @@ pub struct TierCScenarioDeclaration {
     provider_ids: BTreeSet<String>,
     expected: TierCExpectedAcceptance,
     labels: TierCCoverageLabels,
+    generated_profile: Option<TierCGeneratedProfile>,
 }
 
 impl TierCScenarioDeclaration {
@@ -636,12 +758,49 @@ impl TierCScenarioDeclaration {
         expected: TierCExpectedAcceptance,
         labels: TierCCoverageLabels,
     ) -> Result<Self, TierCDistributionError> {
+        Self::try_new_with_generated_profile(
+            scenario_id,
+            contract_features,
+            provider_ids,
+            expected,
+            labels,
+            None,
+        )
+    }
+
+    fn try_new_generated(
+        scenario_id: impl Into<String>,
+        contract_features: BTreeSet<String>,
+        provider_ids: BTreeSet<String>,
+        expected: TierCExpectedAcceptance,
+        labels: TierCCoverageLabels,
+        generated_profile: TierCGeneratedProfile,
+    ) -> Result<Self, TierCDistributionError> {
+        Self::try_new_with_generated_profile(
+            scenario_id,
+            contract_features,
+            provider_ids,
+            expected,
+            labels,
+            Some(generated_profile),
+        )
+    }
+
+    fn try_new_with_generated_profile(
+        scenario_id: impl Into<String>,
+        contract_features: BTreeSet<String>,
+        provider_ids: BTreeSet<String>,
+        expected: TierCExpectedAcceptance,
+        labels: TierCCoverageLabels,
+        generated_profile: Option<TierCGeneratedProfile>,
+    ) -> Result<Self, TierCDistributionError> {
         let declaration = Self {
             scenario_id: scenario_id.into(),
             contract_features,
             provider_ids,
             expected,
             labels,
+            generated_profile,
         };
         declaration.validate()?;
 
@@ -652,6 +811,12 @@ impl TierCScenarioDeclaration {
     #[must_use]
     pub const fn scenario_id(&self) -> &str {
         self.scenario_id.as_str()
+    }
+
+    /// Borrow exact contract features derived from this scenario's typed source.
+    #[must_use]
+    pub const fn contract_features(&self) -> &BTreeSet<String> {
+        &self.contract_features
     }
 
     fn validate(&self) -> Result<(), TierCDistributionError> {
@@ -696,7 +861,7 @@ impl TierCScenarioDeclaration {
 ///
 /// TierCStratumDistribution
 ///
-/// Scenario counts across the exact ten typed distribution dimensions.
+/// Scenario counts across the exact eleven typed distribution dimensions.
 /// A multi-label scenario contributes once to each distinct label it declares.
 ///
 
@@ -704,6 +869,7 @@ impl TierCScenarioDeclaration {
 #[serde(deny_unknown_fields)]
 struct TierCStratumDistribution {
     evidence_strength: BTreeMap<String, u32>,
+    generated_expression_depth: BTreeMap<String, u32>,
     mutation: BTreeMap<String, u32>,
     nullability: BTreeMap<String, u32>,
     predicate: BTreeMap<String, u32>,
@@ -719,6 +885,7 @@ impl TierCStratumDistribution {
     const fn empty() -> Self {
         Self {
             evidence_strength: BTreeMap::new(),
+            generated_expression_depth: BTreeMap::new(),
             mutation: BTreeMap::new(),
             nullability: BTreeMap::new(),
             predicate: BTreeMap::new(),
@@ -729,6 +896,82 @@ impl TierCStratumDistribution {
             value_type: BTreeMap::new(),
             window: BTreeMap::new(),
         }
+    }
+}
+
+/// Exact observed distributions for generated fixtures and accepted schema facts.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct TierCGeneratedDistribution {
+    mutation_fixture_rows: BTreeMap<String, u32>,
+    mutation_schema_fields: BTreeMap<String, u32>,
+    mutation_statement_counts: BTreeMap<String, u32>,
+    schema_fixture_families: BTreeMap<String, u32>,
+    select_fixture_rows: BTreeMap<String, u32>,
+    select_schema_fields: BTreeMap<String, u32>,
+    select_schema_generated_fields: BTreeMap<String, u32>,
+    select_schema_indexes: BTreeMap<String, u32>,
+    select_schema_nullable_fields: BTreeMap<String, u32>,
+}
+
+impl TierCGeneratedDistribution {
+    const fn empty() -> Self {
+        Self {
+            mutation_fixture_rows: BTreeMap::new(),
+            mutation_schema_fields: BTreeMap::new(),
+            mutation_statement_counts: BTreeMap::new(),
+            schema_fixture_families: BTreeMap::new(),
+            select_fixture_rows: BTreeMap::new(),
+            select_schema_fields: BTreeMap::new(),
+            select_schema_generated_fields: BTreeMap::new(),
+            select_schema_indexes: BTreeMap::new(),
+            select_schema_nullable_fields: BTreeMap::new(),
+        }
+    }
+
+    fn increment(&mut self, profile: &TierCGeneratedProfile) -> Result<(), TierCDistributionError> {
+        match profile {
+            TierCGeneratedProfile::Mutation {
+                fixture_row_count,
+                schema_field_count,
+                schema_fixture_family,
+                statement_count,
+            } => {
+                increment_numeric_count(&mut self.mutation_fixture_rows, *fixture_row_count)?;
+                increment_numeric_count(&mut self.mutation_schema_fields, *schema_field_count)?;
+                increment_count(
+                    &mut self.schema_fixture_families,
+                    schema_fixture_family.as_str(),
+                )?;
+                increment_numeric_count(&mut self.mutation_statement_counts, *statement_count)?;
+            }
+            TierCGeneratedProfile::Select {
+                fixture_row_count,
+                schema_field_count,
+                schema_fixture_family,
+                schema_generated_field_count,
+                schema_index_count,
+                schema_nullable_field_count,
+            } => {
+                increment_numeric_count(&mut self.select_fixture_rows, *fixture_row_count)?;
+                increment_numeric_count(&mut self.select_schema_fields, *schema_field_count)?;
+                increment_numeric_count(
+                    &mut self.select_schema_generated_fields,
+                    *schema_generated_field_count,
+                )?;
+                increment_numeric_count(&mut self.select_schema_indexes, *schema_index_count)?;
+                increment_numeric_count(
+                    &mut self.select_schema_nullable_fields,
+                    *schema_nullable_field_count,
+                )?;
+                increment_count(
+                    &mut self.schema_fixture_families,
+                    schema_fixture_family.as_str(),
+                )?;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -750,6 +993,7 @@ pub struct TierCCoverageDistributionReport {
     provider_id_counts: BTreeMap<String, u32>,
     expected_acceptance_counts: BTreeMap<String, u32>,
     strata: TierCStratumDistribution,
+    generated: TierCGeneratedDistribution,
     complete: bool,
 }
 
@@ -789,6 +1033,7 @@ impl TierCCoverageDistributionReport {
         let mut provider_id_counts = BTreeMap::new();
         let mut expected_acceptance_counts = BTreeMap::new();
         let mut strata = TierCStratumDistribution::empty();
+        let mut generated = TierCGeneratedDistribution::empty();
 
         for declaration in declarations {
             for feature_id in &declaration.contract_features {
@@ -801,6 +1046,11 @@ impl TierCCoverageDistributionReport {
             increment_labels(
                 &mut strata.evidence_strength,
                 &declaration.labels.evidence_strength,
+                |label| label.code(),
+            )?;
+            increment_labels(
+                &mut strata.generated_expression_depth,
+                &declaration.labels.generated_expression_depth,
                 |label| label.code(),
             )?;
             increment_labels(
@@ -842,6 +1092,9 @@ impl TierCCoverageDistributionReport {
             increment_labels(&mut strata.window, &declaration.labels.window, |label| {
                 label.code()
             })?;
+            if let Some(profile) = &declaration.generated_profile {
+                generated.increment(profile)?;
+            }
         }
 
         Ok(Self {
@@ -853,6 +1106,7 @@ impl TierCCoverageDistributionReport {
             provider_id_counts,
             expected_acceptance_counts,
             strata,
+            generated,
             complete: true,
         })
     }
@@ -881,6 +1135,56 @@ impl TierCCoverageDistributionReport {
             .get(kind.code())
             .copied()
             .unwrap_or_default()
+    }
+
+    /// Return how many scenarios declare one generated expression-depth stratum.
+    #[must_use]
+    pub fn generated_expression_depth_count(&self, depth: GeneratedExpressionDepth) -> u32 {
+        self.strata
+            .generated_expression_depth
+            .get(depth.code())
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Return how many generated mutation scenarios use one exact fixture size.
+    #[must_use]
+    pub fn generated_mutation_fixture_row_count(&self, row_count: u32) -> u32 {
+        numeric_count(&self.generated.mutation_fixture_rows, row_count)
+    }
+
+    /// Return how many generated mutation scenarios use one exact statement count.
+    #[must_use]
+    pub fn generated_mutation_statement_count(&self, statement_count: u32) -> u32 {
+        numeric_count(&self.generated.mutation_statement_counts, statement_count)
+    }
+
+    /// Return how many generated scenarios use one accepted snapshot-fixture family.
+    #[must_use]
+    pub fn generated_schema_fixture_family_count(&self, fixture_family: &str) -> u32 {
+        self.generated
+            .schema_fixture_families
+            .get(fixture_family)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Return how many generated SELECT scenarios use one exact fixture size.
+    #[must_use]
+    pub fn generated_select_fixture_row_count(&self, row_count: u32) -> u32 {
+        numeric_count(&self.generated.select_fixture_rows, row_count)
+    }
+
+    /// Return how many generated SELECT scenarios observe one secondary-index count.
+    #[must_use]
+    pub fn generated_select_schema_index_count(&self, index_count: u32) -> u32 {
+        numeric_count(&self.generated.select_schema_indexes, index_count)
+    }
+
+    /// Return how many generated SELECT scenarios observe one nullable-field count.
+    #[must_use]
+    pub fn generated_select_schema_nullable_field_count(&self, field_count: u32) -> u32 {
+        numeric_count(&self.generated.select_schema_nullable_fields, field_count)
     }
 
     /// Borrow counts keyed by stable provider identity.
@@ -1177,8 +1481,14 @@ pub fn generated_select_tier_c_declaration(
         SelectQueryShape::GroupedAggregate => QueryShape::Grouped,
         SelectQueryShape::Scalar => QueryShape::Scalar,
     };
+    let generated_expression_depth = match expected {
+        TierCExpectedAcceptance::Accepted => GeneratedExpressionDepth::from_generated_case(case)
+            .map_err(TierCDistributionError::GeneratedCase)?,
+        TierCExpectedAcceptance::Rejected => GeneratedExpressionDepth::NotApplicable,
+    };
     let labels = TierCCoverageLabels::try_new(
         BTreeSet::from([evidence_strength]),
+        BTreeSet::from([generated_expression_depth]),
         BTreeSet::from([MutationKind::None]),
         BTreeSet::from([nullability]),
         predicates,
@@ -1190,16 +1500,13 @@ pub fn generated_select_tier_c_declaration(
         BTreeSet::from([window]),
     )?;
 
-    TierCScenarioDeclaration::try_new(
+    TierCScenarioDeclaration::try_new_generated(
         scenario_id,
-        case.family()
-            .contract_features()
-            .iter()
-            .map(|feature| (*feature).to_string())
-            .collect(),
+        generated_select_contract_features(case),
         BTreeSet::from([provider_id.to_string()]),
         expected,
         labels,
+        TierCGeneratedProfile::select(case)?,
     )
 }
 
@@ -1273,6 +1580,7 @@ pub fn generated_mutation_tier_c_declaration(
     }
     let labels = TierCCoverageLabels::try_new(
         BTreeSet::from([EvidenceStrength::ReferenceOracle]),
+        BTreeSet::from([GeneratedExpressionDepth::NotApplicable]),
         mutations,
         BTreeSet::from([NullabilityClass::NonNullable]),
         predicates,
@@ -1284,13 +1592,177 @@ pub fn generated_mutation_tier_c_declaration(
         windows,
     )?;
 
-    TierCScenarioDeclaration::try_new(
+    TierCScenarioDeclaration::try_new_generated(
         scenario_id,
         contract_features,
         provider_ids,
         TierCExpectedAcceptance::Accepted,
         labels,
+        TierCGeneratedProfile::mutation(sequence)?,
     )
+}
+
+fn generated_select_contract_features(case: &GeneratedSelectCase) -> BTreeSet<String> {
+    if let Some(violation) = case.violation() {
+        let feature = match violation {
+            SelectViolation::InvalidClauseOrder | SelectViolation::LimitOverflow => {
+                "pagination.scalar_limit_offset"
+            }
+            SelectViolation::UnknownField => "projection.scalar",
+            SelectViolation::UnsupportedFunctionSignature => "expression.text_functions",
+            SelectViolation::WrongOperatorType => "expression.numeric_functions",
+        };
+        return BTreeSet::from([feature.to_string()]);
+    }
+
+    let query = case.query();
+    let mut features = BTreeSet::new();
+    match case.family() {
+        SelectGeneratorFamily::Distinct => {
+            insert_contract_feature(&mut features, "projection.scalar");
+            insert_contract_feature(&mut features, "select.scalar_distinct");
+        }
+        SelectGeneratorFamily::Expression => {
+            insert_contract_feature(&mut features, "select.computed_projection");
+            if case.features().contains(&SelectFeature::Arithmetic) {
+                insert_contract_feature(&mut features, "expression.numeric_functions");
+            }
+            if case.features().contains(&SelectFeature::SearchedCase) {
+                insert_contract_feature(&mut features, "expression.searched_case");
+            }
+            if case.features().contains(&SelectFeature::Text) {
+                insert_contract_feature(&mut features, "expression.text_functions");
+            }
+            if case.features().contains(&SelectFeature::Null) {
+                insert_contract_feature(&mut features, "expression.value_selection");
+            }
+        }
+        SelectGeneratorFamily::GlobalAggregate => {
+            insert_contract_feature(&mut features, "projection.aggregate");
+            insert_contract_feature(&mut features, "select.global_aggregate");
+            if case.features().contains(&SelectFeature::AggregateDistinct) {
+                insert_contract_feature(&mut features, "select.aggregate_distinct_filter");
+            }
+        }
+        SelectGeneratorFamily::GroupedAggregate => {
+            insert_contract_feature(&mut features, "projection.aggregate");
+            insert_contract_feature(&mut features, "projection.grouped_layout");
+            insert_contract_feature(&mut features, "select.grouped_aggregate");
+        }
+        SelectGeneratorFamily::Having => {
+            insert_contract_feature(&mut features, "projection.aggregate");
+            match query.shape() {
+                SelectQueryShape::GlobalAggregate => {
+                    insert_contract_feature(&mut features, "having.global_aggregate");
+                }
+                SelectQueryShape::GroupedAggregate => {
+                    insert_contract_feature(&mut features, "having.grouped_aggregate");
+                }
+                SelectQueryShape::Scalar => {}
+            }
+        }
+        SelectGeneratorFamily::Predicate => {
+            if let Some(predicate) = query.predicate() {
+                collect_predicate_contract_features(predicate, &mut features);
+            }
+        }
+        SelectGeneratorFamily::ScalarProjection => {
+            insert_contract_feature(&mut features, "projection.scalar");
+            insert_contract_feature(&mut features, "select.scalar_rows");
+            if query
+                .projections()
+                .iter()
+                .any(|projection| projection.alias().is_some())
+            {
+                insert_contract_feature(&mut features, "projection.aliases");
+            }
+        }
+        SelectGeneratorFamily::Window => {
+            insert_contract_feature(&mut features, "projection.scalar");
+            insert_contract_feature(&mut features, "select.scalar_rows");
+            if query.limit().is_some() || query.offset().is_some() {
+                insert_contract_feature(&mut features, "pagination.scalar_limit_offset");
+            }
+            if query
+                .order()
+                .iter()
+                .any(|term| matches!(term.target(), SelectOrderTarget::Alias(_)))
+            {
+                insert_contract_feature(&mut features, "ordering.projection_alias");
+            }
+        }
+    }
+
+    features
+}
+
+fn collect_predicate_contract_features(
+    predicate: &SelectPredicate,
+    features: &mut BTreeSet<String>,
+) {
+    match predicate {
+        SelectPredicate::And { left, right } | SelectPredicate::Or { left, right } => {
+            insert_contract_feature(features, "predicate.boolean_comparison");
+            collect_predicate_contract_features(left, features);
+            collect_predicate_contract_features(right, features);
+        }
+        SelectPredicate::Comparison { left, right, .. } => {
+            insert_contract_feature(features, "predicate.boolean_comparison");
+            if matches!(left, SelectExpression::Field { .. })
+                && matches!(right, SelectExpression::Field { .. })
+            {
+                insert_contract_feature(features, "predicate.field_comparison");
+            }
+        }
+        SelectPredicate::IsNull { .. } => {
+            insert_contract_feature(features, "predicate.null");
+        }
+        SelectPredicate::IsTruth { .. } => {
+            insert_contract_feature(features, "predicate.boolean_truth");
+        }
+        SelectPredicate::Not { predicate } => {
+            insert_contract_feature(features, "predicate.boolean_comparison");
+            collect_predicate_contract_features(predicate, features);
+        }
+        SelectPredicate::PrefixLike { expression, .. } => {
+            insert_contract_feature(features, "predicate.prefix_pattern");
+            if expression_is_casefolded(expression) {
+                insert_contract_feature(features, "predicate.casefold_prefix");
+            }
+        }
+        SelectPredicate::StartsWith { value, prefix } => {
+            insert_contract_feature(features, "predicate.starts_with");
+            if expression_is_casefolded(value) {
+                insert_contract_feature(features, "predicate.casefold_prefix");
+            }
+            if !expression_is_plain_predicate_argument(value)
+                || !expression_is_plain_predicate_argument(prefix)
+            {
+                insert_contract_feature(features, "predicate.expression_arguments");
+            }
+        }
+    }
+}
+
+const fn expression_is_casefolded(expression: &SelectExpression) -> bool {
+    matches!(
+        expression,
+        SelectExpression::Function {
+            function: SelectFunction::Lower | SelectFunction::Upper,
+            ..
+        }
+    )
+}
+
+const fn expression_is_plain_predicate_argument(expression: &SelectExpression) -> bool {
+    matches!(
+        expression,
+        SelectExpression::Field { .. } | SelectExpression::Literal { .. }
+    )
+}
+
+fn insert_contract_feature(features: &mut BTreeSet<String>, feature: &'static str) {
+    features.insert(feature.to_string());
 }
 
 fn select_value_type(case: &GeneratedSelectCase) -> Result<ValueTypeFamily, SqlGeneratorError> {
@@ -1504,6 +1976,19 @@ fn increment_count(
     Ok(())
 }
 
+fn increment_numeric_count(
+    counts: &mut BTreeMap<String, u32>,
+    key: u32,
+) -> Result<(), TierCDistributionError> {
+    let key = key.to_string();
+    increment_count(counts, key.as_str())
+}
+
+fn numeric_count(counts: &BTreeMap<String, u32>, key: u32) -> u32 {
+    let key = key.to_string();
+    counts.get(key.as_str()).copied().unwrap_or_default()
+}
+
 fn bounded_count(count: usize) -> Result<u32, TierCDistributionError> {
     u32::try_from(count).map_err(|_| TierCDistributionError::ScenarioCountOverflow)
 }
@@ -1521,13 +2006,14 @@ const fn validate_artifact_size(byte_count: usize) -> Result<(), TierCDistributi
 
 #[cfg(test)]
 mod tests {
+    use super::TierCGeneratedProfile;
     use crate::{
-        EligibleProvider, EvidenceStrength, MutationKind, NullabilityClass, PredicateFamily,
-        QueryShape, RouteFamily, SQL_SCHEDULED_SHARD_COUNT, StatementFamily,
-        TierCCoverageDistributionReport, TierCCoverageLabels, TierCDistributionError,
-        TierCExpectedAcceptance, TierCMergedReport, TierCScenarioDeclaration,
-        TierCScenarioObservation, TierCScenarioOutcome, TierCShardReport, ValueTypeFamily,
-        WindowBehavior, scheduled_sql_scenario_shard,
+        EligibleProvider, EvidenceStrength, GeneratedExpressionDepth, MutationKind,
+        NullabilityClass, PredicateFamily, QueryShape, RouteFamily, SQL_SCHEDULED_SHARD_COUNT,
+        StatementFamily, TierCCoverageDistributionReport, TierCCoverageLabels,
+        TierCDistributionError, TierCExpectedAcceptance, TierCMergedReport,
+        TierCScenarioDeclaration, TierCScenarioObservation, TierCScenarioOutcome, TierCShardReport,
+        ValueTypeFamily, WindowBehavior, scheduled_sql_scenario_shard,
     };
     use std::collections::BTreeSet;
 
@@ -1550,6 +2036,16 @@ mod tests {
         assert_eq!(report.mutation_count(MutationKind::Insert), 8);
         assert_eq!(report.mutation_count(MutationKind::Update), 8);
         assert_eq!(report.mutation_count(MutationKind::Delete), 8);
+        assert_eq!(
+            report.generated_expression_depth_count(GeneratedExpressionDepth::NotApplicable),
+            8,
+        );
+        assert_eq!(report.generated_mutation_fixture_row_count(4), 8);
+        assert_eq!(report.generated_mutation_statement_count(8), 8);
+        assert_eq!(
+            report.generated_schema_fixture_family_count("test-mutation-snapshot-v1"),
+            8,
+        );
 
         let encoded = report
             .to_canonical_json(&declarations, &merged)
@@ -1567,6 +2063,7 @@ mod tests {
     fn distribution_rejects_inconsistent_operation_labels() {
         let labels = TierCCoverageLabels::try_new(
             BTreeSet::from([EvidenceStrength::ReferenceOracle]),
+            BTreeSet::from([GeneratedExpressionDepth::NotApplicable]),
             BTreeSet::from([MutationKind::Insert]),
             BTreeSet::from([NullabilityClass::NonNullable]),
             BTreeSet::from([PredicateFamily::None]),
@@ -1587,6 +2084,7 @@ mod tests {
     fn mutation_declaration(scenario_id: &str) -> TierCScenarioDeclaration {
         let labels = TierCCoverageLabels::try_new(
             BTreeSet::from([EvidenceStrength::ReferenceOracle]),
+            BTreeSet::from([GeneratedExpressionDepth::NotApplicable]),
             BTreeSet::from([
                 MutationKind::Delete,
                 MutationKind::Insert,
@@ -1609,7 +2107,7 @@ mod tests {
             BTreeSet::from([WindowBehavior::None, WindowBehavior::OrderedLimit]),
         )
         .expect("test labels should align");
-        TierCScenarioDeclaration::try_new(
+        TierCScenarioDeclaration::try_new_generated(
             scenario_id,
             BTreeSet::from([
                 "mutation.delete".to_string(),
@@ -1622,6 +2120,12 @@ mod tests {
             ]),
             TierCExpectedAcceptance::Accepted,
             labels,
+            TierCGeneratedProfile::Mutation {
+                fixture_row_count: 4,
+                schema_field_count: 3,
+                schema_fixture_family: "test-mutation-snapshot-v1".to_string(),
+                statement_count: 8,
+            },
         )
         .expect("test declaration should validate")
     }

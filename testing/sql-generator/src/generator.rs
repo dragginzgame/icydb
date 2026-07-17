@@ -288,9 +288,12 @@ fn generate_fixture(
     text_domain: GeneratedTextDomain,
     rng: &mut SplitMix64,
 ) -> Result<GeneratedFixture, SqlGeneratorError> {
-    let row_count = match case_index % 4 {
-        0 => 0,
-        1 => 1,
+    let family_case = case_index % TIER_A_VALID_CASES_PER_FAMILY;
+    let row_count = match (case_index, family_case) {
+        (24.., 6) if budgets.max_fixture_rows() >= 32 => 32,
+        (24.., 7) if budgets.max_fixture_rows() >= 64 => 64,
+        (_, 0 | 4) => 0,
+        (_, 1 | 5) => 1,
         _ => 6_u64.saturating_add(rng.bounded(5)?),
     };
     if row_count > u64::from(budgets.max_fixture_rows()) {
@@ -918,7 +921,8 @@ fn expression_query(
             "generated expression literal does not fit i64",
         )
     })?;
-    let expression = match case_index % TIER_A_VALID_CASES_PER_FAMILY {
+    let family_case = case_index % TIER_A_VALID_CASES_PER_FAMILY;
+    let expression = match family_case {
         0 => arithmetic(
             SelectArithmeticOperator::Add,
             field(fields.first_integer),
@@ -963,6 +967,11 @@ fn expression_query(
             then_expression: Box::new(function(SelectFunction::Upper, vec![field(fields.text)])),
             else_expression: Box::new(function(SelectFunction::Lower, vec![field(fields.text)])),
         },
+    };
+    let expression = if case_index >= TIER_A_VALID_CASES_PER_FAMILY && family_case == 5 {
+        function(SelectFunction::Upper, vec![expression])
+    } else {
+        expression
     };
 
     Ok(SelectQuery::new(

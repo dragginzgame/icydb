@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)
 
+- `0.204.8` upgrades `ulid` to 3.0.0 and derives scheduled SQL feature,
+  complexity, fixture, and schema evidence from exact typed cases without
+  changing production SQL or persisted ULID semantics.
+
 - `0.204.7` adds maintained full-entity materialized-order evidence for both
   storage backends so every required P1 execution metric is observable.
   Production SQL remains unchanged, and clean calibration is still required.

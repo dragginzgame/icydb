@@ -8,10 +8,11 @@ use crate::db::schema::{AcceptedFieldKind, AcceptedSchemaSnapshot};
 use icydb_testing_sql_generator::{
     ALL_SELECT_GENERATOR_FAMILIES, ALL_SELECT_VIOLATIONS, GeneratedSelectCase, GeneratedValue,
     SelectComparisonProvider, SelectExecutionPhase, SelectExpectedOutcome, SelectExpectedRejection,
-    SelectField, SelectFieldKind, SelectIndex, SelectMismatchCategory, SelectMismatchSignature,
-    SelectObservedOutcome, SelectQueryShape, SelectResultOrder, SelectSnapshot, SelectValueKind,
-    SelectViolation, TIER_A_INVALID_CASES_PER_VIOLATION, TIER_A_ROOT_SEEDS, TIER_A_SELECT_BUDGETS,
-    TIER_A_VALID_CASES_PER_FAMILY, generate_invalid_select_case, generate_valid_select_case,
+    SelectField, SelectFieldKind, SelectGeneratorFamily, SelectIndex, SelectMismatchCategory,
+    SelectMismatchSignature, SelectObservedOutcome, SelectQueryShape, SelectResultOrder,
+    SelectSnapshot, SelectValueKind, SelectViolation, TIER_A_INVALID_CASES_PER_VIOLATION,
+    TIER_A_ROOT_SEEDS, TIER_A_SELECT_BUDGETS, TIER_A_VALID_CASES_PER_FAMILY, TIER_C_ROOT_SEEDS,
+    TIER_C_SELECT_BUDGETS, generate_invalid_select_case, generate_valid_select_case,
 };
 use icydb_testing_sqlite_reference::{
     SQLITE_REFERENCE_FIXTURE_ROWS, SqliteAdapterError, SqliteReferenceColumnKind,
@@ -121,6 +122,36 @@ fn tier_a_generated_select_profile_matches_native_icydb() {
 
     assert_eq!(executed, 128);
     route_distribution.assert_complete(executed);
+}
+
+#[test]
+fn tier_c_generated_complexity_sentinels_match_native_icydb() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let snapshot = generated_select_snapshot_from_accepted_authority(&session)
+        .expect("accepted session snapshot should map into generator facts");
+
+    for (case_index, expected_rows, expected_depth) in [(29, 1, 4), (30, 32, 3), (31, 64, 3)] {
+        reset_session_sql_store();
+        let session = sql_session();
+        let generated = generate_valid_select_case(
+            &snapshot,
+            TIER_C_ROOT_SEEDS[0],
+            SelectGeneratorFamily::Expression,
+            case_index,
+            TIER_C_SELECT_BUDGETS,
+        )
+        .expect("Tier C complexity sentinel should generate");
+        assert_eq!(generated.fixture().len(), expected_rows);
+        assert_eq!(generated.query().max_expression_depth(), expected_depth);
+        execute_generated_native_reference_case(&session, &generated).unwrap_or_else(|failure| {
+            panic!(
+                "Tier C complexity sentinel mismatch for {} with SQL {:?}: {failure:?}",
+                generated.identity().id(),
+                generated.rendered_sql(),
+            )
+        });
+    }
 }
 
 #[test]

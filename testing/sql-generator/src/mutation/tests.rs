@@ -173,6 +173,7 @@ fn tier_c_mutation_profile_is_exact_bounded_and_fully_generatable() {
             )
             .expect("Tier C mutation sequence should generate");
             assert!(identities.insert(sequence.identity().id().to_string()));
+            assert_eq!(sequence.initial_rows().len(), 4);
             assert_eq!(sequence.steps().len(), 8);
         }
     }

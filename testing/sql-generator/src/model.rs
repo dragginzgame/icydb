@@ -430,6 +430,7 @@ impl SelectGeneratorFamily {
             Self::Predicate => &[
                 "predicate.boolean_comparison",
                 "predicate.boolean_truth",
+                "predicate.casefold_prefix",
                 "predicate.expression_arguments",
                 "predicate.field_comparison",
                 "predicate.null",
@@ -952,6 +953,34 @@ impl SelectQuery {
             .iter()
             .map(|projection| projection.expression.value_kind(snapshot))
             .collect()
+    }
+
+    /// Return the deepest typed expression or predicate node in this query.
+    ///
+    /// Alias-only order targets contribute no independent depth because their
+    /// source projection is already included. Valid queries always return at
+    /// least one because projection lists cannot be empty.
+    #[must_use]
+    pub fn max_expression_depth(&self) -> u8 {
+        let projection_depth = self
+            .projections
+            .iter()
+            .map(|projection| projection.expression.depth());
+        let predicate_depth = self.predicate.iter().map(SelectPredicate::depth);
+        let grouping_depth = self.group_by.iter().map(SelectExpression::depth);
+        let having_depth = self.having.iter().map(SelectPredicate::depth);
+        let order_depth = self.order.iter().filter_map(|term| match &term.target {
+            SelectOrderTarget::Alias(_) => None,
+            SelectOrderTarget::Expression(expression) => Some(expression.depth()),
+        });
+
+        projection_depth
+            .chain(predicate_depth)
+            .chain(grouping_depth)
+            .chain(having_depth)
+            .chain(order_depth)
+            .max()
+            .unwrap_or_default()
     }
 
     /// Return the semantic result family derived from grouping and aggregates.

@@ -9,11 +9,12 @@ use crate::{
     SELECT_GENERATOR_VERSION, SELECT_REPLAY_FORMAT_VERSION, SelectBudgets,
     SelectComparisonProvider, SelectExecutionPhase, SelectFeature, SelectField, SelectFieldKind,
     SelectGeneratorFamily, SelectIndex, SelectMismatchCategory, SelectMismatchSignature,
-    SelectObservedOutcome, SelectProvider, SelectReplayRecord, SelectSnapshot,
+    SelectObservedOutcome, SelectProvider, SelectReplayRecord, SelectSnapshot, SelectViolation,
     SqlGeneratorErrorKind, TIER_A_INVALID_CASES_PER_VIOLATION, TIER_A_ROOT_SEEDS,
     TIER_A_SELECT_BUDGETS, TIER_A_VALID_CASES_PER_FAMILY, TIER_C_INVALID_CASES_PER_VIOLATION,
     TIER_C_ROOT_SEEDS, TIER_C_SELECT_BUDGETS, TIER_C_VALID_CASES_PER_FAMILY, TierCFailureArtifact,
     TierCFailureArtifactError, generate_invalid_select_case, generate_valid_select_case,
+    generated_select_tier_c_declaration,
     rng::{SplitMix64, derive_sql_sub_seed},
     shrink_select_failure,
 };
@@ -224,6 +225,9 @@ fn tier_c_profile_is_exact_bounded_and_fully_generatable() {
     assert_eq!(TIER_C_SELECT_BUDGETS.max_artifact_bytes(), 1_048_576);
 
     let snapshot = select_snapshot();
+    let mut declared_features = BTreeMap::<SelectGeneratorFamily, BTreeSet<String>>::new();
+    let mut expression_depths = BTreeSet::new();
+    let mut fixture_row_counts = BTreeSet::new();
     let mut identities = BTreeSet::new();
     for root_seed in TIER_C_ROOT_SEEDS {
         for family in ALL_SELECT_GENERATOR_FAMILIES {
@@ -237,6 +241,15 @@ fn tier_c_profile_is_exact_bounded_and_fully_generatable() {
                 )
                 .expect("Tier C valid case should generate");
                 assert!(identities.insert(generated.identity().id().to_string()));
+                expression_depths.insert(generated.query().max_expression_depth());
+                fixture_row_counts.insert(generated.fixture().len());
+                let declaration =
+                    generated_select_tier_c_declaration(generated.identity().id(), &generated)
+                        .expect("Tier C valid declaration should derive from typed facts");
+                declared_features
+                    .entry(*family)
+                    .or_default()
+                    .extend(declaration.contract_features().iter().cloned());
             }
         }
         for violation in ALL_SELECT_VIOLATIONS {
@@ -262,6 +275,105 @@ fn tier_c_profile_is_exact_bounded_and_fully_generatable() {
                 * usize::try_from(TIER_C_INVALID_CASES_PER_VIOLATION)
                     .expect("Tier C invalid count should fit usize"));
     assert_eq!(identities.len(), expected_count);
+    assert_eq!(expression_depths, BTreeSet::from([1, 2, 3, 4]));
+    assert!(fixture_row_counts.is_superset(&BTreeSet::from([0, 1, 32, 64])));
+    for family in ALL_SELECT_GENERATOR_FAMILIES {
+        assert_eq!(
+            declared_features.get(family),
+            Some(
+                &family
+                    .contract_features()
+                    .iter()
+                    .map(|feature| (*feature).to_string())
+                    .collect::<BTreeSet<_>>()
+            ),
+            "Tier C exact cases must collectively cover {family:?}",
+        );
+    }
+}
+
+#[test]
+fn tier_c_select_declarations_derive_exact_case_contract_features() {
+    let snapshot = select_snapshot();
+    let cases = [
+        (
+            SelectGeneratorFamily::Expression,
+            0,
+            &["expression.numeric_functions", "select.computed_projection"][..],
+        ),
+        (
+            SelectGeneratorFamily::Expression,
+            5,
+            &["expression.value_selection", "select.computed_projection"][..],
+        ),
+        (
+            SelectGeneratorFamily::Predicate,
+            3,
+            &[
+                "predicate.casefold_prefix",
+                "predicate.expression_arguments",
+                "predicate.starts_with",
+            ][..],
+        ),
+        (
+            SelectGeneratorFamily::Predicate,
+            4,
+            &["predicate.boolean_comparison", "predicate.field_comparison"][..],
+        ),
+        (
+            SelectGeneratorFamily::Window,
+            2,
+            &[
+                "ordering.projection_alias",
+                "pagination.scalar_limit_offset",
+                "projection.scalar",
+                "select.scalar_rows",
+            ][..],
+        ),
+        (
+            SelectGeneratorFamily::Window,
+            4,
+            &["projection.scalar", "select.scalar_rows"][..],
+        ),
+    ];
+
+    for (family, case_index, expected) in cases {
+        let generated = generate_valid_select_case(
+            &snapshot,
+            TIER_C_ROOT_SEEDS[0],
+            family,
+            case_index,
+            TIER_C_SELECT_BUDGETS,
+        )
+        .expect("exact Tier C feature case should generate");
+        let declaration =
+            generated_select_tier_c_declaration(generated.identity().id(), &generated)
+                .expect("exact Tier C feature declaration should project");
+        assert_eq!(
+            declaration.contract_features(),
+            &expected
+                .iter()
+                .map(|feature| (*feature).to_string())
+                .collect::<BTreeSet<_>>(),
+            "unexpected exact feature projection for {family:?}/{case_index}",
+        );
+    }
+
+    let invalid = generate_invalid_select_case(
+        &snapshot,
+        TIER_C_ROOT_SEEDS[0],
+        SelectViolation::WrongOperatorType,
+        0,
+        TIER_C_SELECT_BUDGETS,
+    )
+    .expect("exact invalid Tier C feature case should generate");
+    let invalid_declaration =
+        generated_select_tier_c_declaration(invalid.identity().id(), &invalid)
+            .expect("exact invalid Tier C feature declaration should project");
+    assert_eq!(
+        invalid_declaration.contract_features(),
+        &BTreeSet::from(["expression.numeric_functions".to_string()]),
+    );
 }
 
 #[test]

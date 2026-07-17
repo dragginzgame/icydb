@@ -24,9 +24,9 @@ use std::{
 };
 
 use icydb_testing_sql_generator::{
-    ALL_SELECT_GENERATOR_FAMILIES, ALL_SELECT_VIOLATIONS, GeneratedMutationSequence,
-    GeneratedSelectCase, MutationKind as CoverageMutationKind, MutationSnapshot,
-    RegressionCorpusCase, RegressionCorpusEntry, SQL_SCHEDULED_SHARD_COUNT,
+    ALL_SELECT_GENERATOR_FAMILIES, ALL_SELECT_VIOLATIONS, GeneratedExpressionDepth,
+    GeneratedMutationSequence, GeneratedSelectCase, MutationKind as CoverageMutationKind,
+    MutationSnapshot, RegressionCorpusCase, RegressionCorpusEntry, SQL_SCHEDULED_SHARD_COUNT,
     SelectComparisonProvider, SelectExecutionPhase, SelectExpectedOutcome, SelectMismatchCategory,
     SelectMismatchSignature, SelectObservedOutcome, SelectReplayRecord, SelectSnapshot,
     StatementFamily as CoverageStatementFamily, TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES,
@@ -853,12 +853,69 @@ fn assert_native_coverage_contract(inputs: &TierCNativeInputs, merged: &TierCMer
         u32::try_from(TIER_C_NATIVE_SCENARIO_COUNT)
             .expect("Tier C native scenario count should fit u32"),
     );
+    for depth in [
+        GeneratedExpressionDepth::One,
+        GeneratedExpressionDepth::Two,
+        GeneratedExpressionDepth::Three,
+        GeneratedExpressionDepth::Four,
+    ] {
+        assert!(
+            distribution.generated_expression_depth_count(depth) > 0,
+            "Tier C generated SELECT evidence must reach expression-depth stratum {depth:?}",
+        );
+    }
     let mutation_sequence_count = u32::try_from(TIER_C_ROOT_SEEDS.len())
         .expect("Tier C root count should fit u32")
         .saturating_mul(
             u32::try_from(TIER_C_MUTATION_CASES_PER_ROOT)
                 .expect("Tier C mutation quota should fit u32"),
         );
+    let generated_select_count = distribution
+        .provider_id_counts()
+        .get("sqlite.generated_select")
+        .copied()
+        .unwrap_or_default()
+        .saturating_add(
+            distribution
+                .provider_id_counts()
+                .get("icydb.typed_rejection")
+                .copied()
+                .unwrap_or_default(),
+        );
+    for row_count in [0, 1, 32, 64] {
+        assert!(
+            distribution.generated_select_fixture_row_count(row_count) > 0,
+            "Tier C generated SELECT evidence must reach fixture size {row_count}",
+        );
+    }
+    assert_eq!(
+        distribution.generated_select_schema_index_count(0),
+        generated_select_count,
+        "the sole generated SELECT schema must report its zero secondary indexes exactly",
+    );
+    assert_eq!(
+        distribution.generated_select_schema_nullable_field_count(0),
+        generated_select_count,
+        "the sole generated SELECT schema must report its zero nullable fields exactly",
+    );
+    assert_eq!(
+        distribution.generated_mutation_fixture_row_count(4),
+        mutation_sequence_count,
+        "every current generated mutation sequence must report its four-row fixture",
+    );
+    assert_eq!(
+        distribution.generated_mutation_statement_count(8),
+        mutation_sequence_count,
+        "every current generated mutation sequence must report its reviewed eight-step shape",
+    );
+    assert_eq!(
+        distribution.generated_schema_fixture_family_count("session-accepted-snapshot-v1"),
+        generated_select_count,
+    );
+    assert_eq!(
+        distribution.generated_schema_fixture_family_count("session-write-accepted-snapshot-v1"),
+        mutation_sequence_count,
+    );
     let mutation_labels = distribution
         .mutation_count(CoverageMutationKind::Insert)
         .saturating_add(distribution.mutation_count(CoverageMutationKind::Update))

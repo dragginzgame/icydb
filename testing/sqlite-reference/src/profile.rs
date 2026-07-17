@@ -10,9 +10,10 @@ use crate::{
 use std::collections::BTreeSet;
 
 use icydb_testing_sql_generator::{
-    EligibleProvider, EvidenceStrength, MutationKind, NullabilityClass, PredicateFamily,
-    QueryShape, RouteFamily, StatementFamily, TierCCoverageLabels, TierCDistributionError,
-    TierCExpectedAcceptance, TierCScenarioDeclaration, ValueTypeFamily, WindowBehavior,
+    EligibleProvider, EvidenceStrength, GeneratedExpressionDepth, MutationKind, NullabilityClass,
+    PredicateFamily, QueryShape, RouteFamily, StatementFamily, TierCCoverageLabels,
+    TierCDistributionError, TierCExpectedAcceptance, TierCScenarioDeclaration, ValueTypeFamily,
+    WindowBehavior,
 };
 
 const REFERENCE_ENTITY_TOKEN: &str = "{entity}";
@@ -262,6 +263,7 @@ impl SqliteReferenceScenario {
         };
         let labels = TierCCoverageLabels::try_new(
             BTreeSet::from([EvidenceStrength::ReferenceOracle]),
+            BTreeSet::from([GeneratedExpressionDepth::NotApplicable]),
             BTreeSet::from([MutationKind::None]),
             BTreeSet::from([if self.nullable {
                 NullabilityClass::Nullable
