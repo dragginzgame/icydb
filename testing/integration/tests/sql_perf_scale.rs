@@ -853,7 +853,8 @@ pub(crate) fn build_scale_observation(
                     predicate_match_rows.min(window)
                 }),
         ),
-        QueryShape::GlobalAggregate => Some(predicate_match_rows),
+        // A global aggregate ingests its matched inputs but emits one result row.
+        QueryShape::GlobalAggregate => Some(1),
         QueryShape::Grouped | QueryShape::Metadata | QueryShape::Mutation => None,
     };
     if let Some(expected_result_rows) = expected_result_rows {

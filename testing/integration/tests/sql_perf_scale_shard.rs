@@ -1147,7 +1147,7 @@ pub(crate) mod tests {
         MatrixOutcome, MatrixSample, QueryShape, deterministic_matrix,
         fill_matrix_phase_reconciliation,
         sql_perf_profile::SQL_PERFORMANCE_PROFILE,
-        sql_perf_scale::{ScaleSelectivity, build_scale_observation},
+        sql_perf_scale::{ScaleEvidenceError, ScaleSelectivity, build_scale_observation},
     };
 
     use super::*;
@@ -1173,9 +1173,8 @@ pub(crate) mod tests {
                 .spec
                 .result_window
                 .map_or(predicate_rows, |window| predicate_rows.min(window)),
-            QueryShape::GlobalAggregate => predicate_rows,
             QueryShape::Grouped => 2,
-            QueryShape::Metadata | QueryShape::Mutation => 1,
+            QueryShape::GlobalAggregate | QueryShape::Metadata | QueryShape::Mutation => 1,
         };
         let mut sample = MatrixSample {
             key: declaration.scenario.key.clone(),
@@ -1264,6 +1263,39 @@ pub(crate) mod tests {
             counts,
             SQL_PERFORMANCE_PROFILE.expected_scale_shard_counts(),
         );
+    }
+
+    #[test]
+    fn global_aggregate_scale_evidence_separates_returned_and_matched_rows() {
+        let declarations =
+            scale_scenario_declarations(SQL_PERFORMANCE_PROFILE, &deterministic_matrix())
+                .expect("current scale declarations should be valid");
+        let declaration = declarations
+            .iter()
+            .find(|declaration| {
+                declaration.spec.sentinel_id == "user.not_paginated.aggregate_quarter"
+                    && declaration.fixture_rows == 16
+            })
+            .expect("quarter-selectivity aggregate scale declaration should exist");
+        let observation = observation(declaration);
+
+        assert_eq!(observation.predicate_match_rows, 4);
+        assert_eq!(observation.sample.outcome.row_count, 1);
+
+        let mut matched_rows_as_output = observation.sample;
+        matched_rows_as_output.outcome.row_count = 4;
+        assert!(matches!(
+            build_scale_observation(
+                declaration,
+                fixture_facts(declaration),
+                matched_rows_as_output,
+            ),
+            Err(ScaleEvidenceError::ResultCardinalityDrift {
+                expected: 1,
+                actual: 4,
+                ..
+            })
+        ));
     }
 
     #[test]

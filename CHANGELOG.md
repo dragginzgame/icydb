@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)
 
+- `0.204.4` corrects scale aggregate cardinality evidence so matched inputs
+  remain separate from the single aggregate output row. The 0.204 design
+  remains open pending clean calibration evidence.
+
 - `0.204.3` repairs the scale-fixture Candid contract so clean calibration
   runs can decode typed payload evidence without changing production query
   behavior. The 0.204 design remains open pending clean evidence.
