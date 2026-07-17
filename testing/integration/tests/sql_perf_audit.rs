@@ -45,9 +45,9 @@ struct FluentQueryPerfResult {
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 struct StorageWritePerfResult {
     first_insert_local_instructions: u64,
-    steady_insert_local_instructions: u64,
-    steady_update_local_instructions: u64,
-    steady_delete_local_instructions: u64,
+    steady_insert_avg_local_instructions: u64,
+    steady_update_avg_local_instructions: u64,
+    steady_delete_avg_local_instructions: u64,
     write_then_read_back_local_instructions: u64,
     read_back_rows: u32,
 }
@@ -1281,9 +1281,9 @@ fn print_storage_write_matrix(label: &str, result: &StorageWritePerfResult) {
     println!(
         "{label} write matrix: first_insert={} steady_insert_avg={} steady_update_avg={} steady_delete_avg={} write_then_read_back={} read_back_rows={}",
         result.first_insert_local_instructions,
-        result.steady_insert_local_instructions,
-        result.steady_update_local_instructions,
-        result.steady_delete_local_instructions,
+        result.steady_insert_avg_local_instructions,
+        result.steady_update_avg_local_instructions,
+        result.steady_delete_avg_local_instructions,
         result.write_then_read_back_local_instructions,
         result.read_back_rows,
     );
@@ -1303,17 +1303,17 @@ fn assert_storage_write_matrix_stays_bounded(label: &str, result: &StorageWriteP
         ),
         (
             "steady insert avg",
-            result.steady_insert_local_instructions,
+            result.steady_insert_avg_local_instructions,
             25_000_000,
         ),
         (
             "steady update avg",
-            result.steady_update_local_instructions,
+            result.steady_update_avg_local_instructions,
             25_000_000,
         ),
         (
             "steady delete avg",
-            result.steady_delete_local_instructions,
+            result.steady_delete_avg_local_instructions,
             150_000_000,
         ),
         (
