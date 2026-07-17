@@ -7,13 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- SQL performance evidence now builds one raw Wasm subject per workflow and
-  shares its exact bytes across every measurement shard, preserving strict
-  subject identity without independent-build drift.
-
 ## [0.204.x] 🧪 - 2026-07-15 - SQL Evidence Authority
 
 Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)
+
+- `0.204.5` makes one workflow-owned raw Wasm the exact subject for every Tier D
+  measurement job, preventing independent-build drift while preserving strict
+  merge identity. The 0.204 design remains open pending clean calibration evidence.
 
 - `0.204.4` corrects scale aggregate cardinality evidence so matched inputs
   remain separate from the single aggregate output row. The 0.204 design
