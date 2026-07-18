@@ -230,7 +230,7 @@ impl PerformanceProfile {
         }
         if !self.broad_scan_requires_full_enumeration
             || self.confirmation_top_n_per_metric != 20
-            || self.confirmation_scenario_cap != 256
+            || self.confirmation_scenario_cap != 512
             || self.cold_samples_per_confirmation != 5
             || self.warm_samples_per_confirmation != 5
             || self.expected_scale_scenario_count != EXPECTED_SCALE_SCENARIO_COUNT
@@ -241,7 +241,7 @@ impl PerformanceProfile {
             || self.focused_hotspot_scenario_ids != FOCUSED_HOTSPOT_SCENARIO_IDS
             || self.regression_sentinel_scenario_ids != REGRESSION_SENTINEL_SCENARIO_IDS
             || self.shard_count != PERFORMANCE_SHARD_COUNT
-            || self.max_artifact_bytes != 16 * 1024 * 1024
+            || self.max_artifact_bytes != 128 * 1024 * 1024
             || self.stability_threshold
                 != (PerformanceThreshold {
                     absolute_instructions: 10_000,
@@ -312,7 +312,7 @@ pub(crate) const SQL_PERFORMANCE_PROFILE: PerformanceProfile = PerformanceProfil
     expected_scale_shard_counts: EXPECTED_SCALE_SHARD_COUNTS,
     broad_scan_requires_full_enumeration: true,
     confirmation_top_n_per_metric: 20,
-    confirmation_scenario_cap: 256,
+    confirmation_scenario_cap: 512,
     cold_samples_per_confirmation: 5,
     warm_samples_per_confirmation: 5,
     scale_row_cardinalities: SCALE_ROW_CARDINALITIES,
@@ -320,7 +320,7 @@ pub(crate) const SQL_PERFORMANCE_PROFILE: PerformanceProfile = PerformanceProfil
     focused_hotspot_scenario_ids: FOCUSED_HOTSPOT_SCENARIO_IDS,
     regression_sentinel_scenario_ids: REGRESSION_SENTINEL_SCENARIO_IDS,
     shard_count: PERFORMANCE_SHARD_COUNT,
-    max_artifact_bytes: 16 * 1024 * 1024,
+    max_artifact_bytes: 128 * 1024 * 1024,
     stability_threshold: PerformanceThreshold {
         absolute_instructions: 10_000,
         relative_basis_points: 100,
@@ -469,7 +469,7 @@ mod tests {
         );
         assert!(profile.broad_scan_requires_full_enumeration());
         assert_eq!(profile.confirmation_top_n_per_metric(), 20);
-        assert_eq!(profile.confirmation_scenario_cap(), 256);
+        assert_eq!(profile.confirmation_scenario_cap(), 512);
         assert_eq!(profile.cold_samples_per_confirmation(), 5);
         assert_eq!(profile.warm_samples_per_confirmation(), 5);
         assert_eq!(profile.scale_row_cardinalities(), &[16, 256, 2_048]);
@@ -477,7 +477,7 @@ mod tests {
         assert_eq!(profile.focused_hotspot_scenario_ids().len(), 15);
         assert!(profile.regression_sentinel_scenario_ids().is_empty());
         assert_eq!(profile.shard_count(), 8);
-        assert_eq!(profile.max_artifact_bytes(), 16 * 1024 * 1024);
+        assert_eq!(profile.max_artifact_bytes(), 128 * 1024 * 1024);
         assert_eq!(stability.absolute_instructions(), 10_000);
         assert_eq!(stability.relative_basis_points(), 100);
         assert_eq!(regression.absolute_instructions(), 100_000);

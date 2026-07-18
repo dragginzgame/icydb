@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)
 
+- `0.204.10` aligns bounded P2 confirmation and artifact budgets with clean live
+  evidence, preserving every required candidate and raw sample without truncation.
+
 - `0.204.9` makes generated SQL fixture evidence exact for nullable data,
   duplicates, numeric boundaries, and ordering ties while explicitly attributing
   excluded strata to deterministic providers without changing production SQL.
