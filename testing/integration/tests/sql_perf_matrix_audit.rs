@@ -20,6 +20,7 @@ mod sql_perf_p2_shard;
 mod sql_perf_phase;
 mod sql_perf_profile;
 mod sql_perf_receipt;
+mod sql_perf_regression_sentinels;
 mod sql_perf_scale;
 mod sql_perf_scale_baseline;
 mod sql_perf_scale_shard;

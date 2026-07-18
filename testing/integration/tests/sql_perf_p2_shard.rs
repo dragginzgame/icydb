@@ -1309,6 +1309,12 @@ pub(crate) mod tests {
                 .or_default()
                 .insert(P2CandidateReason::FocusedHotspot);
         }
+        for scenario_id in SQL_PERFORMANCE_PROFILE.regression_sentinel_scenario_ids() {
+            reasons
+                .entry((*scenario_id).to_string())
+                .or_default()
+                .insert(P2CandidateReason::RegressionSentinel);
+        }
         let candidates = reasons
             .into_iter()
             .map(|(scenario_id, reasons)| P2Candidate {
@@ -1397,17 +1403,24 @@ pub(crate) mod tests {
                 test_sample(scenario, P2SampleMode::Cold, total)
             })
             .collect();
-        let warm = (0..5)
-            .map(|_| test_sample(scenario, P2SampleMode::Warm, 80_000))
-            .collect();
+        let warm = match scenario.metadata.statement {
+            StatementFamily::Select => P2WarmSampleInput::Required(
+                (0..5)
+                    .map(|_| test_sample(scenario, P2SampleMode::Warm, 80_000))
+                    .collect(),
+            ),
+            StatementFamily::Delete
+            | StatementFamily::Describe
+            | StatementFamily::Explain
+            | StatementFamily::Insert
+            | StatementFamily::Show
+            | StatementFamily::Update => {
+                P2WarmSampleInput::NotApplicable(P2WarmNotApplicableReason::NonSelectStatement)
+            }
+        };
 
-        build_p2_confirmation(
-            SQL_PERFORMANCE_PROFILE,
-            candidate,
-            cold,
-            P2WarmSampleInput::Required(warm),
-        )
-        .expect("test confirmation should build")
+        build_p2_confirmation(SQL_PERFORMANCE_PROFILE, candidate, cold, warm)
+            .expect("test confirmation should build")
     }
 
     fn test_reports(

@@ -674,6 +674,7 @@ fn recurring_hotspots(
     let focused = profile
         .focused_hotspot_scenario_ids()
         .iter()
+        .chain(profile.regression_sentinel_scenario_ids())
         .copied()
         .collect::<BTreeSet<_>>();
     let mut evidence = BTreeMap::<String, Vec<CalibrationHotspotRun>>::new();
@@ -1386,6 +1387,12 @@ mod tests {
         assert_eq!(review.runs.len(), 3);
         assert!(!review.recurring_hotspots.is_empty());
         assert!(review.unresolved_promotion_count() > 0);
+        assert!(review.recurring_hotspots.iter().any(|hotspot| {
+            hotspot.disposition == CalibrationHotspotDisposition::AlreadyFocused
+                && SQL_PERFORMANCE_PROFILE
+                    .regression_sentinel_scenario_ids()
+                    .contains(&hotspot.scenario_id.as_str())
+        }));
         assert!(review.p2_envelope_count() > 0);
         assert_eq!(review.scale_totals.len(), 45);
         assert_eq!(review.scale_slopes.len(), 30);

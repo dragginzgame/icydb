@@ -13,6 +13,8 @@ use icydb_testing_sql_generator::{
     SQL_SCHEDULED_SHARD_COUNT, ScenarioShardError, scheduled_sql_scenario_shard,
 };
 
+use crate::sql_perf_regression_sentinels::REGRESSION_SENTINEL_SCENARIO_IDS;
+
 /// Current checked-in SQL performance profile version.
 pub(crate) const SQL_PERFORMANCE_PROFILE_VERSION: u32 = 1;
 
@@ -43,8 +45,6 @@ const FOCUSED_HOTSPOT_SCENARIO_IDS: &[&str] = &[
     "token.collection_stage_id.overcap_pruned.page_only.limit50",
     "token.collection_stage_id.prefixed_stage_range.page_only.limit50",
 ];
-const REGRESSION_SENTINEL_SCENARIO_IDS: &[&str] = &[];
-
 /// One absolute-plus-relative regression threshold.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PerformanceThreshold {
@@ -288,6 +288,10 @@ impl PerformanceProfile {
                 "scale shard counts must cover the exact scale scenario set",
             ));
         }
+        validate_regression_sentinels(
+            self.regression_sentinel_scenario_ids,
+            self.focused_hotspot_scenario_ids,
+        )?;
         if !self.broad_scan_requires_full_enumeration
             || self.confirmation_top_n_per_metric != 20
             || self.confirmation_scenario_cap != 512
@@ -381,6 +385,27 @@ impl PerformanceProfile {
         self.validate()?;
         scenario_shard(scenario_id, self.shard_count)
     }
+}
+
+/// Validate the exact promoted set independently from the fixed profile fields.
+fn validate_regression_sentinels(
+    regression_sentinels: &[&str],
+    focused_hotspots: &[&str],
+) -> Result<(), PerformanceProfileError> {
+    if regression_sentinels.len() != 351
+        || !regression_sentinels
+            .windows(2)
+            .all(|pair| pair[0] < pair[1])
+        || regression_sentinels
+            .iter()
+            .any(|candidate| focused_hotspots.contains(candidate))
+    {
+        return Err(PerformanceProfileError::InvalidContract(
+            "regression sentinels must be the exact sorted promotion set",
+        ));
+    }
+
+    Ok(())
 }
 
 /// Current SQL performance discovery and confirmation profile.
@@ -560,7 +585,12 @@ mod tests {
         assert_eq!(profile.scale_row_cardinalities(), &[16, 256, 2_048]);
         assert_eq!(profile.result_window_sizes(), &[1, 10, 50]);
         assert_eq!(profile.focused_hotspot_scenario_ids().len(), 15);
-        assert!(profile.regression_sentinel_scenario_ids().is_empty());
+        assert_eq!(profile.regression_sentinel_scenario_ids().len(), 351);
+        assert_eq!(
+            scenario_set_hash(profile.regression_sentinel_scenario_ids().iter().copied(),)
+                .expect("reviewed regression sentinels should hash"),
+            "f7acfb40711e8462cb53394fff39466a96241b06aa4523ab76813c772e139baf",
+        );
         assert_eq!(profile.shard_count(), 8);
         assert_eq!(profile.max_artifact_bytes(), 128 * 1024 * 1024);
         assert_eq!(stability.absolute_increase(), 10_000);

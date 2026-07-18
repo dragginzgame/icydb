@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)
 
+- `0.204.16` promotes all 351 recurring SQL performance hotspots into checked-in
+  regression sentinels, closing the cohort review while preserving the existing
+  383-scenario confirmation set without changing production SQL.
+
 - `0.204.15` selects the accepted exact-subject SQL performance baseline and
   makes every retained P2 and scale metric participate in one checked-in,
   typed regression verdict without changing production SQL.

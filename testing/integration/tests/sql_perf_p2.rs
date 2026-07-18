@@ -1812,7 +1812,7 @@ mod tests {
     }
 
     #[test]
-    fn checked_in_focused_hotspots_are_all_required_by_profile_selection() {
+    fn checked_in_hotspots_and_regression_sentinels_are_required_by_profile_selection() {
         let scenarios = deterministic_matrix();
         let samples = complete_test_samples(&scenarios);
         let requirements = P2SelectionRequirements::from_profile(
@@ -1843,6 +1843,20 @@ mod tests {
                 candidate
                     .reasons
                     .contains(&P2CandidateReason::FocusedHotspot)
+            );
+        }
+        for scenario_id in SQL_PERFORMANCE_PROFILE.regression_sentinel_scenario_ids() {
+            let candidate = selection
+                .candidates
+                .iter()
+                .find(|candidate| candidate.scenario_id == *scenario_id)
+                .unwrap_or_else(|| {
+                    panic!("regression sentinel {scenario_id:?} should be selected")
+                });
+            assert!(
+                candidate
+                    .reasons
+                    .contains(&P2CandidateReason::RegressionSentinel)
             );
         }
     }
