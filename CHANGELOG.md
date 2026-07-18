@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)
 
+- `0.204.12` makes all three initial-calibration runs measure one exact Wasm
+  subject, preserving strict cross-run identity without accepting semantically
+  equivalent binaries as interchangeable.
+
 - `0.204.11` reuses one snapshot-restored PocketIC fixture per P2 shard,
   preserving isolated cold/warm evidence without exhausting the server with
   per-sample instances.

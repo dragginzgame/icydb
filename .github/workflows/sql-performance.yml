@@ -17,6 +17,10 @@ on:
         description: "Initial-calibration run ordinal: 1, 2, or 3"
         required: false
         type: string
+      calibration_subject_run_id:
+        description: "Ordinal-1 run whose exact SQL performance Wasm is reused by ordinals 2 and 3"
+        required: false
+        type: string
 
 permissions:
   actions: read
@@ -34,31 +38,70 @@ env:
   REVIEWED_SQL_PERF_BASELINE_RUN_ID: ${{ inputs.baseline_run_id || vars.ICYDB_SQL_PERF_BASELINE_RUN_ID }}
   SQL_PERF_CALIBRATION_COHORT: ${{ inputs.calibration_cohort }}
   SQL_PERF_CALIBRATION_RUN: ${{ inputs.calibration_run }}
+  SQL_PERF_CALIBRATION_SUBJECT_RUN_ID: ${{ inputs.calibration_subject_run_id }}
   RUST_CURRENT: "1.97.0"
   TMPDIR: ${{ github.workspace }}/.cache
 
 jobs:
   wasm:
-    name: Build shared SQL performance subject
+    name: Prepare shared SQL performance subject
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Require one exact calibration subject mode
+        run: |
+          if [ -z "$SQL_PERF_CALIBRATION_COHORT" ]; then
+            test -z "$SQL_PERF_CALIBRATION_RUN"
+            test -z "$SQL_PERF_CALIBRATION_SUBJECT_RUN_ID"
+          elif [ "$SQL_PERF_CALIBRATION_RUN" = "1" ]; then
+            test -z "$SQL_PERF_CALIBRATION_SUBJECT_RUN_ID"
+          else
+            case "$SQL_PERF_CALIBRATION_RUN" in
+              2|3) test -n "$SQL_PERF_CALIBRATION_SUBJECT_RUN_ID" ;;
+              *) exit 1 ;;
+            esac
+          fi
       - uses: dtolnay/rust-toolchain@v1
+        if: env.SQL_PERF_CALIBRATION_SUBJECT_RUN_ID == ''
         with:
           toolchain: ${{ env.RUST_CURRENT }}
       - name: Install WASM target
+        if: env.SQL_PERF_CALIBRATION_SUBJECT_RUN_ID == ''
         run: rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+        if: env.SQL_PERF_CALIBRATION_SUBJECT_RUN_ID == ''
         with:
           workspaces: |
             . -> target/icydb
           cache-targets: "false"
       - name: Prepare local cache
+        if: env.SQL_PERF_CALIBRATION_SUBJECT_RUN_ID == ''
         run: mkdir -p "$TMPDIR"
-      - run: cargo fetch --locked
+      - name: Verify reused calibration subject source
+        if: env.SQL_PERF_CALIBRATION_SUBJECT_RUN_ID != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_path="repos/${GITHUB_REPOSITORY}/actions/runs/${SQL_PERF_CALIBRATION_SUBJECT_RUN_ID}"
+          test "$(gh api "$run_path" --jq '.conclusion')" = "success"
+          test "$(gh api "$run_path" --jq '.head_sha')" = "$GITHUB_SHA"
+          test "$(gh api "$run_path" --jq '.path')" = ".github/workflows/sql-performance.yml"
+      - name: Download exact calibration subject
+        if: env.SQL_PERF_CALIBRATION_SUBJECT_RUN_ID != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: sql-perf-wasm
+          path: artifacts/perf-audit
+          github-token: ${{ github.token }}
+          run-id: ${{ env.SQL_PERF_CALIBRATION_SUBJECT_RUN_ID }}
+      - if: env.SQL_PERF_CALIBRATION_SUBJECT_RUN_ID == ''
+        run: cargo fetch --locked
       - name: Build shared wasm-release subject
+        if: env.SQL_PERF_CALIBRATION_SUBJECT_RUN_ID == ''
         run: make build-sql-perf-wasm
+      - name: Require the exact shared Wasm
+        run: test -s artifacts/perf-audit/sql_perf_canister.wasm
       - uses: actions/upload-artifact@v4
         with:
           name: sql-perf-wasm
