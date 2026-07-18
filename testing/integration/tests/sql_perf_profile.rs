@@ -45,24 +45,59 @@ const FOCUSED_HOTSPOT_SCENARIO_IDS: &[&str] = &[
 ];
 const REGRESSION_SENTINEL_SCENARIO_IDS: &[&str] = &[];
 
-/// One absolute-plus-relative instruction threshold.
+/// One absolute-plus-relative regression threshold.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PerformanceThreshold {
-    absolute_instructions: u64,
-    relative_basis_points: u16,
+    absolute_increase: u64,
+    relative_increase_basis_points: u16,
 }
 
 impl PerformanceThreshold {
-    /// Return the absolute instruction threshold.
-    pub(crate) const fn absolute_instructions(self) -> u64 {
-        self.absolute_instructions
+    /// Return the absolute increase threshold.
+    pub(crate) const fn absolute_increase(self) -> u64 {
+        self.absolute_increase
     }
 
-    /// Return the relative threshold in basis points.
-    pub(crate) const fn relative_basis_points(self) -> u16 {
-        self.relative_basis_points
+    /// Return the relative increase threshold in basis points.
+    pub(crate) const fn relative_increase_basis_points(self) -> u16 {
+        self.relative_increase_basis_points
+    }
+
+    /// Return whether one current unsigned value reaches this reviewed threshold.
+    ///
+    /// A zero baseline uses the absolute threshold alone because no relative
+    /// percentage exists.
+    pub(crate) fn reached(self, baseline: u64, current: u64) -> bool {
+        let delta = i128::from(current) - i128::from(baseline);
+        if delta < i128::from(self.absolute_increase) {
+            return false;
+        }
+        if baseline == 0 {
+            return true;
+        }
+        let basis_points = delta.saturating_mul(10_000) / i128::from(baseline);
+
+        basis_points >= i128::from(self.relative_increase_basis_points)
     }
 }
+
+const PHASE_INSTRUCTION_REGRESSION_THRESHOLD: PerformanceThreshold = PerformanceThreshold {
+    absolute_increase: 10_000,
+    relative_increase_basis_points: 100,
+};
+const RESIDUAL_INSTRUCTION_REGRESSION_THRESHOLD: PerformanceThreshold = PerformanceThreshold {
+    absolute_increase: 10_000,
+    relative_increase_basis_points: 100,
+};
+const EXACT_COUNTER_REGRESSION_THRESHOLD: PerformanceThreshold = PerformanceThreshold {
+    absolute_increase: 1,
+    relative_increase_basis_points: 0,
+};
+const SCALE_NORMALIZED_REGRESSION_BASIS_POINTS: u16 = 100;
+const SCALE_SLOPE_REGRESSION_THRESHOLD: PerformanceThreshold = PerformanceThreshold {
+    absolute_increase: 10_000,
+    relative_increase_basis_points: 100,
+};
 
 /// Authoritative fixed profile for SQL performance discovery and confirmation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -184,6 +219,31 @@ impl PerformanceProfile {
         self.total_instruction_regression_threshold
     }
 
+    /// Return the reviewed non-total instruction-phase regression threshold.
+    pub(crate) const fn phase_instruction_regression_threshold() -> PerformanceThreshold {
+        PHASE_INSTRUCTION_REGRESSION_THRESHOLD
+    }
+
+    /// Return the reviewed attribution-residual regression threshold.
+    pub(crate) const fn residual_instruction_regression_threshold() -> PerformanceThreshold {
+        RESIDUAL_INSTRUCTION_REGRESSION_THRESHOLD
+    }
+
+    /// Return the reviewed exact-counter regression threshold.
+    pub(crate) const fn exact_counter_regression_threshold() -> PerformanceThreshold {
+        EXACT_COUNTER_REGRESSION_THRESHOLD
+    }
+
+    /// Return the reviewed normalized scale-cost threshold in basis points.
+    pub(crate) const fn scale_normalized_regression_basis_points() -> u16 {
+        SCALE_NORMALIZED_REGRESSION_BASIS_POINTS
+    }
+
+    /// Return the reviewed adjacent-cardinality slope regression threshold.
+    pub(crate) const fn scale_slope_regression_threshold() -> PerformanceThreshold {
+        SCALE_SLOPE_REGRESSION_THRESHOLD
+    }
+
     /// Validate every fixed profile invariant.
     ///
     /// # Errors
@@ -244,13 +304,34 @@ impl PerformanceProfile {
             || self.max_artifact_bytes != 128 * 1024 * 1024
             || self.stability_threshold
                 != (PerformanceThreshold {
-                    absolute_instructions: 10_000,
-                    relative_basis_points: 100,
+                    absolute_increase: 10_000,
+                    relative_increase_basis_points: 100,
                 })
             || self.total_instruction_regression_threshold
                 != (PerformanceThreshold {
-                    absolute_instructions: 100_000,
-                    relative_basis_points: 1_000,
+                    absolute_increase: 100_000,
+                    relative_increase_basis_points: 1_000,
+                })
+            || Self::phase_instruction_regression_threshold()
+                != (PerformanceThreshold {
+                    absolute_increase: 10_000,
+                    relative_increase_basis_points: 100,
+                })
+            || Self::residual_instruction_regression_threshold()
+                != (PerformanceThreshold {
+                    absolute_increase: 10_000,
+                    relative_increase_basis_points: 100,
+                })
+            || Self::exact_counter_regression_threshold()
+                != (PerformanceThreshold {
+                    absolute_increase: 1,
+                    relative_increase_basis_points: 0,
+                })
+            || Self::scale_normalized_regression_basis_points() != 100
+            || Self::scale_slope_regression_threshold()
+                != (PerformanceThreshold {
+                    absolute_increase: 10_000,
+                    relative_increase_basis_points: 100,
                 })
         {
             return Err(PerformanceProfileError::InvalidContract(
@@ -322,12 +403,12 @@ pub(crate) const SQL_PERFORMANCE_PROFILE: PerformanceProfile = PerformanceProfil
     shard_count: PERFORMANCE_SHARD_COUNT,
     max_artifact_bytes: 128 * 1024 * 1024,
     stability_threshold: PerformanceThreshold {
-        absolute_instructions: 10_000,
-        relative_basis_points: 100,
+        absolute_increase: 10_000,
+        relative_increase_basis_points: 100,
     },
     total_instruction_regression_threshold: PerformanceThreshold {
-        absolute_instructions: 100_000,
-        relative_basis_points: 1_000,
+        absolute_increase: 100_000,
+        relative_increase_basis_points: 1_000,
     },
 };
 
@@ -459,7 +540,11 @@ mod tests {
     fn checked_in_profile_matches_design_contract() {
         let profile = SQL_PERFORMANCE_PROFILE;
         let stability = profile.stability_threshold();
-        let regression = profile.total_instruction_regression_threshold();
+        let total = profile.total_instruction_regression_threshold();
+        let phase = PerformanceProfile::phase_instruction_regression_threshold();
+        let residual = PerformanceProfile::residual_instruction_regression_threshold();
+        let counter = PerformanceProfile::exact_counter_regression_threshold();
+        let slope = PerformanceProfile::scale_slope_regression_threshold();
 
         assert_eq!(profile.version(), SQL_PERFORMANCE_PROFILE_VERSION);
         assert_eq!(profile.expected_scenario_count(), 1_777);
@@ -478,10 +563,22 @@ mod tests {
         assert!(profile.regression_sentinel_scenario_ids().is_empty());
         assert_eq!(profile.shard_count(), 8);
         assert_eq!(profile.max_artifact_bytes(), 128 * 1024 * 1024);
-        assert_eq!(stability.absolute_instructions(), 10_000);
-        assert_eq!(stability.relative_basis_points(), 100);
-        assert_eq!(regression.absolute_instructions(), 100_000);
-        assert_eq!(regression.relative_basis_points(), 1_000);
+        assert_eq!(stability.absolute_increase(), 10_000);
+        assert_eq!(stability.relative_increase_basis_points(), 100);
+        assert_eq!(total.absolute_increase(), 100_000);
+        assert_eq!(total.relative_increase_basis_points(), 1_000);
+        assert_eq!(phase.absolute_increase(), 10_000);
+        assert_eq!(phase.relative_increase_basis_points(), 100);
+        assert_eq!(residual.absolute_increase(), 10_000);
+        assert_eq!(residual.relative_increase_basis_points(), 100);
+        assert_eq!(counter.absolute_increase(), 1);
+        assert_eq!(counter.relative_increase_basis_points(), 0);
+        assert_eq!(
+            PerformanceProfile::scale_normalized_regression_basis_points(),
+            100,
+        );
+        assert_eq!(slope.absolute_increase(), 10_000);
+        assert_eq!(slope.relative_increase_basis_points(), 100);
         profile
             .validate()
             .expect("checked-in profile should be valid");
@@ -494,5 +591,17 @@ mod tests {
             .map(|id| profile.scenario_shard(id).expect("scenario should shard"));
 
         assert_eq!(assignments, [0, 6, 7]);
+    }
+
+    #[test]
+    fn reviewed_thresholds_are_inclusive_and_fail_closed_from_zero() {
+        let total = SQL_PERFORMANCE_PROFILE.total_instruction_regression_threshold();
+        assert!(!total.reached(1_000_000, 1_099_999));
+        assert!(total.reached(1_000_000, 1_100_000));
+
+        let counter = PerformanceProfile::exact_counter_regression_threshold();
+        assert!(!counter.reached(0, 0));
+        assert!(counter.reached(0, 1));
+        assert!(counter.reached(100, 101));
     }
 }

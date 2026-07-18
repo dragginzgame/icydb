@@ -404,9 +404,10 @@ pub(crate) fn same_semantic_result(left: &MatrixSample, right: &MatrixSample) ->
 
 fn stability_range(profile: PerformanceProfile, median: u64) -> u64 {
     let threshold = profile.stability_threshold();
-    let relative = median.saturating_mul(u64::from(threshold.relative_basis_points())) / 10_000;
+    let relative =
+        median.saturating_mul(u64::from(threshold.relative_increase_basis_points())) / 10_000;
 
-    threshold.absolute_instructions().max(relative)
+    threshold.absolute_increase().max(relative)
 }
 
 ///

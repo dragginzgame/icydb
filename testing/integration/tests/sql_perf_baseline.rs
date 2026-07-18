@@ -17,13 +17,14 @@ use crate::{
     sql_perf_p2_shard::{MergedP2ShardReports, P2ShardMergeError, validate_merged_p2_report},
     sql_perf_profile::{PerformanceProfile, PerformanceProfileError, PerformanceThreshold},
     sql_perf_scale_baseline::{
-        ScaleBaselineComparison, ScaleBaselineComparisonError, compare_scale_baseline,
+        ScaleBaselineComparison, ScaleBaselineComparisonError, ScaleRegressionCause,
+        compare_scale_baseline,
     },
     sql_perf_scale_shard::MergedScaleShardReports,
 };
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     error::Error,
     fmt::{self, Display},
     fs, io,
@@ -163,10 +164,31 @@ impl P2BaselineMetric {
         values[values.len() / 2]
     }
 
-    const fn threshold(self, profile: PerformanceProfile) -> Option<PerformanceThreshold> {
+    const fn threshold(self, profile: PerformanceProfile) -> PerformanceThreshold {
         match self {
             Self::Instruction(metric) => raw_metric_threshold(profile, metric),
-            _ => None,
+            Self::PhaseResidual(_) => {
+                PerformanceProfile::residual_instruction_regression_threshold()
+            }
+            Self::ScalarAggregateRowsIngested
+            | Self::HybridCoveringPathHits
+            | Self::HybridCoveringIndexFieldAccesses
+            | Self::HybridCoveringRowFieldAccesses
+            | Self::KernelRowRetainedLayoutHits
+            | Self::KernelRowRetainedSlotValues
+            | Self::KernelRowRetainedOctetLengthValues
+            | Self::DataStoreGetCalls
+            | Self::IndexStoreGetCalls
+            | Self::IndexStoreRangeScanCalls
+            | Self::IndexStoreEntryReads
+            | Self::SqlCompiledCommandHits
+            | Self::SqlCompiledCommandMisses
+            | Self::SharedQueryPlanHits
+            | Self::SharedQueryPlanMisses
+            | Self::OutputBlobValues
+            | Self::OutputBlobBytes
+            | Self::OutputBlobHexBytes
+            | Self::RowsReturned => PerformanceProfile::exact_counter_regression_threshold(),
         }
     }
 }
@@ -174,10 +196,10 @@ impl P2BaselineMetric {
 const fn raw_metric_threshold(
     profile: PerformanceProfile,
     metric: P2RawMetric,
-) -> Option<PerformanceThreshold> {
+) -> PerformanceThreshold {
     match metric {
-        P2RawMetric::Total => Some(profile.total_instruction_regression_threshold()),
-        _ => None,
+        P2RawMetric::Total => profile.total_instruction_regression_threshold(),
+        _ => PerformanceProfile::phase_instruction_regression_threshold(),
     }
 }
 
@@ -203,28 +225,18 @@ const P2_NON_INSTRUCTION_METRICS: &[P2BaselineMetric] = &[
     P2BaselineMetric::RowsReturned,
 ];
 
-///
-/// P2MetricDisposition
-///
-/// Explicit threshold status for one retained median delta.
-/// Metrics without reviewed budgets remain observation-only and never imply a gate.
-///
-
+/// Reviewed gate result for one retained P2 metric.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub(crate) enum P2MetricDisposition {
-    /// Both an absolute and relative threshold are checked.
-    Gated {
-        /// Reviewed absolute increase threshold.
-        absolute_threshold: u64,
-        /// Reviewed relative increase threshold in basis points.
-        relative_threshold_basis_points: u16,
-        /// Whether both thresholds were reached.
-        regression: bool,
-    },
+#[serde(deny_unknown_fields)]
+pub(crate) struct P2MetricGate {
+    /// Reviewed absolute increase threshold.
+    absolute_threshold: u64,
 
-    /// No reviewed threshold exists yet.
-    ObservationOnly,
+    /// Reviewed relative increase threshold in basis points.
+    relative_threshold_basis_points: u16,
+
+    /// Whether the current median reached the complete threshold.
+    regression: bool,
 }
 
 ///
@@ -257,8 +269,8 @@ pub(crate) struct P2MetricDelta {
     /// Signed relative delta in basis points, absent for a zero baseline.
     pub(crate) delta_basis_points: Option<i128>,
 
-    /// Reviewed gate or explicit observation-only status.
-    pub(crate) disposition: P2MetricDisposition,
+    /// Reviewed threshold and its result.
+    pub(crate) gate: P2MetricGate,
 }
 
 /// One threshold regression that makes the P2 baseline verdict fail.
@@ -281,15 +293,26 @@ pub(crate) struct P2RegressionCause {
     pub(crate) delta_basis_points: i128,
 }
 
-/// Current P2 regression verdict after all comparability checks pass.
+/// One reviewed regression contributing to the final performance verdict.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "source", content = "cause", rename_all = "snake_case")]
+pub(crate) enum PerformanceRegressionCause {
+    /// Confirmed P2 scenario and cache-mode regression.
+    P2(P2RegressionCause),
+
+    /// Exact-cardinality, normalized-cost, or adjacent-slope regression.
+    Scale(ScaleRegressionCause),
+}
+
+/// Current complete performance verdict after all comparability checks pass.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "status", content = "causes", rename_all = "snake_case")]
-pub(crate) enum P2BaselineVerdict {
-    /// Every currently gated metric stayed within its reviewed threshold.
+pub(crate) enum PerformanceBaselineVerdict {
+    /// Every reviewed metric stayed within its checked-in threshold.
     Passed,
 
-    /// One or more gated metrics reached both regression thresholds.
-    Failed(Vec<P2RegressionCause>),
+    /// One or more reviewed metrics reached their regression thresholds.
+    Failed(Vec<PerformanceRegressionCause>),
 }
 
 ///
@@ -316,9 +339,6 @@ pub(crate) struct PerformanceBaselineComparison {
     /// Exact number of compared candidates.
     pub(crate) candidate_count: usize,
 
-    /// Number of distinct metrics without reviewed thresholds.
-    pub(crate) observation_only_metric_count: usize,
-
     /// Complete comparable scale totals, normalized costs, and slopes.
     pub(crate) scale: ScaleBaselineComparison,
 
@@ -326,7 +346,7 @@ pub(crate) struct PerformanceBaselineComparison {
     pub(crate) deltas: Vec<P2MetricDelta>,
 
     /// Current threshold verdict; comparability failures produce no report.
-    pub(crate) verdict: P2BaselineVerdict,
+    pub(crate) verdict: PerformanceBaselineVerdict,
 }
 
 ///
@@ -413,14 +433,8 @@ pub(crate) fn discover_p1_threshold_crossings(
             return Err(P1BaselineDiscoveryError::SemanticDrift(current.key.clone()));
         }
         for metric in P2RawMetric::all().iter().copied() {
-            let Some(threshold) = raw_metric_threshold(profile, metric) else {
-                continue;
-            };
-            if reaches_regression_threshold(
-                threshold,
-                metric.value(baseline),
-                metric.value(current),
-            ) {
+            let threshold = raw_metric_threshold(profile, metric);
+            if threshold.reached(metric.value(baseline), metric.value(current)) {
                 crossings.push(P2ThresholdCrossing {
                     scenario_id: current.key.clone(),
                     metric,
@@ -471,39 +485,29 @@ pub(crate) fn compare_performance_baseline(
     )?;
     let deltas = compare_confirmation_deltas(profile, baseline, current)?;
 
-    let causes = deltas
+    let mut causes = deltas
         .iter()
-        .filter_map(|delta| match delta.disposition {
-            P2MetricDisposition::Gated {
-                regression: true, ..
-            } => Some(P2RegressionCause {
+        .filter(|delta| delta.gate.regression)
+        .map(|delta| {
+            PerformanceRegressionCause::P2(P2RegressionCause {
                 scenario_id: delta.scenario_id.clone(),
                 mode: delta.mode,
                 metric: delta.metric,
                 delta: delta.delta,
                 delta_basis_points: delta.delta_basis_points.unwrap_or_default(),
-            }),
-            _ => None,
+            })
         })
         .collect::<Vec<_>>();
-    let p2_observation_only_metric_count = deltas
-        .iter()
-        .filter_map(|delta| {
-            matches!(delta.disposition, P2MetricDisposition::ObservationOnly)
-                .then_some(delta.metric)
-        })
-        .collect::<BTreeSet<_>>()
-        .len();
-    let scale_observation_only_metric_count = 2 + scale
-        .normalized
-        .iter()
-        .map(|delta| delta.denominator)
-        .collect::<BTreeSet<_>>()
-        .len();
+    causes.extend(
+        scale
+            .regression_causes()
+            .into_iter()
+            .map(PerformanceRegressionCause::Scale),
+    );
     let verdict = if causes.is_empty() {
-        P2BaselineVerdict::Passed
+        PerformanceBaselineVerdict::Passed
     } else {
-        P2BaselineVerdict::Failed(causes)
+        PerformanceBaselineVerdict::Failed(causes)
     };
 
     Ok(PerformanceBaselineComparison {
@@ -512,8 +516,6 @@ pub(crate) fn compare_performance_baseline(
         measurement_coverage: current_measurement_coverage(),
         p2_scenario_set_hash: baseline.p2_scenario_set_hash().to_string(),
         candidate_count: baseline.confirmations.len(),
-        observation_only_metric_count: p2_observation_only_metric_count
-            + scale_observation_only_metric_count,
         scale,
         deltas,
         verdict,
@@ -646,16 +648,12 @@ fn append_sample_set_deltas(
         let current = metric.median(current);
         let delta = i128::from(current) - i128::from(baseline);
         let delta_basis_points = relative_delta_basis_points(baseline, current);
-        let disposition =
-            metric
-                .threshold(profile)
-                .map_or(P2MetricDisposition::ObservationOnly, |threshold| {
-                    P2MetricDisposition::Gated {
-                        absolute_threshold: threshold.absolute_instructions(),
-                        relative_threshold_basis_points: threshold.relative_basis_points(),
-                        regression: reaches_regression_threshold(threshold, baseline, current),
-                    }
-                });
+        let threshold = metric.threshold(profile);
+        let gate = P2MetricGate {
+            absolute_threshold: threshold.absolute_increase(),
+            relative_threshold_basis_points: threshold.relative_increase_basis_points(),
+            regression: threshold.reached(baseline, current),
+        };
         deltas.push(P2MetricDelta {
             scenario_id: scenario_id.to_string(),
             mode,
@@ -664,7 +662,7 @@ fn append_sample_set_deltas(
             current,
             delta,
             delta_basis_points,
-            disposition,
+            gate,
         });
     }
 
@@ -677,18 +675,6 @@ fn relative_delta_basis_points(baseline: u64, current: u64) -> Option<i128> {
     }
 
     Some((i128::from(current) - i128::from(baseline)).saturating_mul(10_000) / i128::from(baseline))
-}
-
-fn reaches_regression_threshold(
-    threshold: PerformanceThreshold,
-    baseline: u64,
-    current: u64,
-) -> bool {
-    let delta = i128::from(current) - i128::from(baseline);
-    delta >= i128::from(threshold.absolute_instructions())
-        && relative_delta_basis_points(baseline, current).is_some_and(|basis_points| {
-            basis_points >= i128::from(threshold.relative_basis_points())
-        })
 }
 
 fn confirmation_ids(report: &MergedP2ShardReports) -> Vec<String> {
@@ -1050,7 +1036,7 @@ mod tests {
     }
 
     #[test]
-    fn comparable_p2_reports_emit_gated_and_observation_only_deltas() {
+    fn comparable_reports_gate_every_retained_metric() {
         let scenarios = deterministic_matrix();
         let baseline = complete_report(&scenarios);
         let mut current = baseline.clone();
@@ -1071,26 +1057,47 @@ mod tests {
         )
         .expect("subject identity may differ in a comparable pair");
 
-        assert_eq!(comparison.verdict, P2BaselineVerdict::Passed);
+        assert_eq!(comparison.verdict, PerformanceBaselineVerdict::Passed);
         assert_eq!(
             comparison.measurement_coverage,
             current_measurement_coverage(),
         );
-        assert!(comparison.observation_only_metric_count > 0);
         assert!(comparison.deltas.iter().any(|delta| {
             delta.metric == P2BaselineMetric::Instruction(P2RawMetric::Total)
-                && matches!(delta.disposition, P2MetricDisposition::Gated { .. })
+                && delta.gate.absolute_threshold == 100_000
+                && delta.gate.relative_threshold_basis_points == 1_000
+        }));
+        assert!(comparison.deltas.iter().any(|delta| {
+            matches!(delta.metric, P2BaselineMetric::PhaseResidual(_))
+                && delta.gate.absolute_threshold == 10_000
+                && delta.gate.relative_threshold_basis_points == 100
+        }));
+        assert!(comparison.deltas.iter().any(|delta| {
+            delta.metric == P2BaselineMetric::DataStoreGetCalls
+                && delta.gate.absolute_threshold == 1
+                && delta.gate.relative_threshold_basis_points == 0
         }));
         assert!(
             comparison
-                .deltas
+                .scale
+                .totals
                 .iter()
-                .any(|delta| { matches!(delta.disposition, P2MetricDisposition::ObservationOnly) })
+                .all(|delta| !delta.regression)
         );
-        assert!(comparison.deltas.iter().any(|delta| {
-            matches!(delta.metric, P2BaselineMetric::PhaseResidual(_))
-                && matches!(delta.disposition, P2MetricDisposition::ObservationOnly)
-        }));
+        assert!(
+            comparison
+                .scale
+                .normalized
+                .iter()
+                .all(|delta| !delta.regression)
+        );
+        assert!(
+            comparison
+                .scale
+                .slopes
+                .iter()
+                .all(|delta| !delta.regression)
+        );
     }
 
     #[test]
@@ -1219,18 +1226,15 @@ mod tests {
         )
         .expect("a stable instruction regression should remain comparable");
 
-        assert!(matches!(comparison.verdict, P2BaselineVerdict::Failed(_)));
+        assert!(matches!(
+            comparison.verdict,
+            PerformanceBaselineVerdict::Failed(_)
+        ));
         assert!(comparison.deltas.iter().any(|delta| {
             delta.scenario_id == scenario_id
                 && delta.mode == P2SampleMode::Cold
                 && delta.metric == P2BaselineMetric::Instruction(P2RawMetric::Total)
-                && matches!(
-                    delta.disposition,
-                    P2MetricDisposition::Gated {
-                        regression: true,
-                        ..
-                    }
-                )
+                && delta.gate.regression
         }));
     }
 }

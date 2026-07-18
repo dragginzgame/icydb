@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)
 
+- `0.204.15` selects the accepted exact-subject SQL performance baseline and
+  makes every retained P2 and scale metric participate in one checked-in,
+  typed regression verdict without changing production SQL.
+
 - `0.204.14` fixes performance-artifact path resolution and records the first
   clean exact-subject cohort with identical evidence across all three ordinals,
   without changing production SQL.

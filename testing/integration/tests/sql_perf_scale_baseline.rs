@@ -9,7 +9,7 @@ use crate::{
         PerfEnvironmentIdentity, PerfEnvironmentMismatch, require_comparable_environment,
     },
     sql_perf_p2_confirmation::same_semantic_result,
-    sql_perf_profile::PerformanceProfile,
+    sql_perf_profile::{PerformanceProfile, PerformanceThreshold},
     sql_perf_scale::NormalizedDenominator,
     sql_perf_scale_shard::{
         MergedScaleShardReports, ScaleShardError, validate_merged_scale_report,
@@ -44,6 +44,15 @@ pub(crate) struct ScaleTotalDelta {
 
     /// Signed relative delta in basis points, absent for a zero baseline.
     pub(crate) delta_basis_points: Option<i128>,
+
+    /// Reviewed absolute increase threshold.
+    pub(crate) absolute_threshold: u64,
+
+    /// Reviewed relative increase threshold in basis points.
+    pub(crate) relative_threshold_basis_points: u16,
+
+    /// Whether this exact-cardinality total reached the reviewed threshold.
+    pub(crate) regression: bool,
 }
 
 /// Exact numerator and nonzero unit count for a normalized cost.
@@ -75,6 +84,12 @@ pub(crate) struct ScaleNormalizedDelta {
 
     /// Signed rational relative delta in basis points, absent for a zero baseline numerator.
     pub(crate) delta_basis_points: Option<i128>,
+
+    /// Reviewed rational relative increase threshold in basis points.
+    pub(crate) relative_threshold_basis_points: u16,
+
+    /// Whether this normalized cost reached the reviewed threshold.
+    pub(crate) regression: bool,
 }
 
 /// One comparable adjacent-cardinality slope delta.
@@ -101,13 +116,24 @@ pub(crate) struct ScaleSlopeDelta {
 
     /// Signed change in the instruction-delta numerator.
     pub(crate) instruction_delta_change: i128,
+
+    /// Signed relative increase in slope magnitude, absent for a zero baseline slope.
+    pub(crate) delta_basis_points: Option<i128>,
+
+    /// Reviewed absolute instruction-delta increase threshold.
+    pub(crate) absolute_threshold: u64,
+
+    /// Reviewed relative increase threshold in basis points.
+    pub(crate) relative_threshold_basis_points: u16,
+
+    /// Whether this adjacent-cardinality slope reached the reviewed threshold.
+    pub(crate) regression: bool,
 }
 
 ///
 /// ScaleBaselineComparison
 ///
-/// Exact observation-only scale deltas for one comparable subject pair.
-/// Threshold ownership remains explicit and is calibrated separately before closeout.
+/// Exact gated scale deltas for one comparable subject pair.
 ///
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -127,6 +153,85 @@ pub(crate) struct ScaleBaselineComparison {
 
     /// Exact adjacent-cardinality slope deltas.
     pub(crate) slopes: Vec<ScaleSlopeDelta>,
+}
+
+impl ScaleBaselineComparison {
+    /// Return every reviewed scale regression in stable report order.
+    pub(crate) fn regression_causes(&self) -> Vec<ScaleRegressionCause> {
+        self.totals
+            .iter()
+            .filter(|delta| delta.regression)
+            .map(|delta| ScaleRegressionCause::Total {
+                scenario_id: delta.scenario_id.clone(),
+                fixture_rows: delta.fixture_rows,
+                delta: delta.delta,
+                delta_basis_points: delta.delta_basis_points.unwrap_or_default(),
+            })
+            .chain(
+                self.normalized
+                    .iter()
+                    .filter(|delta| delta.regression)
+                    .map(|delta| ScaleRegressionCause::Normalized {
+                        scenario_id: delta.scenario_id.clone(),
+                        denominator: delta.denominator,
+                        delta_basis_points: delta.delta_basis_points.unwrap_or_default(),
+                    }),
+            )
+            .chain(
+                self.slopes
+                    .iter()
+                    .filter(|delta| delta.regression)
+                    .map(|delta| ScaleRegressionCause::Slope {
+                        sentinel_id: delta.sentinel_id.clone(),
+                        from_fixture_rows: delta.from_fixture_rows,
+                        to_fixture_rows: delta.to_fixture_rows,
+                        instruction_delta_change: delta.instruction_delta_change,
+                        delta_basis_points: delta.delta_basis_points.unwrap_or_default(),
+                    }),
+            )
+            .collect()
+    }
+}
+
+/// One reviewed scale regression that contributes to the final performance verdict.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "metric", rename_all = "snake_case")]
+pub(crate) enum ScaleRegressionCause {
+    /// Exact-cardinality total instructions crossed their dual threshold.
+    Total {
+        /// Stable exact-cardinality scenario identity.
+        scenario_id: String,
+        /// Exact fixture row count.
+        fixture_rows: u32,
+        /// Signed current-minus-baseline instruction delta.
+        delta: i128,
+        /// Signed relative delta in basis points.
+        delta_basis_points: i128,
+    },
+
+    /// Exact normalized cost crossed its relative threshold.
+    Normalized {
+        /// Stable exact-cardinality scenario identity.
+        scenario_id: String,
+        /// Typed normalization unit.
+        denominator: NormalizedDenominator,
+        /// Signed rational relative delta in basis points.
+        delta_basis_points: i128,
+    },
+
+    /// Adjacent-cardinality slope crossed its dual threshold.
+    Slope {
+        /// Stable scale-sentinel family identity.
+        sentinel_id: String,
+        /// Lower fixture cardinality.
+        from_fixture_rows: u32,
+        /// Higher fixture cardinality.
+        to_fixture_rows: u32,
+        /// Signed increase in the instruction-delta numerator.
+        instruction_delta_change: i128,
+        /// Signed relative increase in basis points.
+        delta_basis_points: i128,
+    },
 }
 
 /// Compare two independently validated merged scale artifacts.
@@ -150,7 +255,7 @@ pub(crate) fn compare_scale_baseline(
     require_comparable_environment(&baseline.environment, &current.environment)
         .map_err(ScaleBaselineComparisonError::IncomparableEnvironment)?;
 
-    let totals = compare_scale_totals(baseline, current)?;
+    let totals = compare_scale_totals(profile, baseline, current)?;
     let normalized = compare_scale_normalized(baseline, current)?;
     let slopes = compare_scale_slopes(baseline, current)?;
 
@@ -164,6 +269,7 @@ pub(crate) fn compare_scale_baseline(
 }
 
 fn compare_scale_totals(
+    profile: PerformanceProfile,
     baseline: &MergedScaleShardReports,
     current: &MergedScaleShardReports,
 ) -> Result<Vec<ScaleTotalDelta>, ScaleBaselineComparisonError> {
@@ -192,6 +298,7 @@ fn compare_scale_totals(
                     baseline.scenario_id.clone(),
                 ));
             }
+            let threshold = profile.total_instruction_regression_threshold();
             Ok(ScaleTotalDelta {
                 scenario_id: baseline.scenario_id.clone(),
                 fixture_rows: baseline.fixture.fixture_rows,
@@ -200,6 +307,12 @@ fn compare_scale_totals(
                 delta: i128::from(current.sample.total_local_instructions)
                     - i128::from(baseline.sample.total_local_instructions),
                 delta_basis_points: relative_delta_basis_points(
+                    baseline.sample.total_local_instructions,
+                    current.sample.total_local_instructions,
+                ),
+                absolute_threshold: threshold.absolute_increase(),
+                relative_threshold_basis_points: threshold.relative_increase_basis_points(),
+                regression: threshold.reached(
                     baseline.sample.total_local_instructions,
                     current.sample.total_local_instructions,
                 ),
@@ -225,6 +338,14 @@ fn compare_scale_normalized(
             {
                 return Err(ScaleBaselineComparisonError::NormalizedSetDrift);
             }
+            let delta_basis_points = normalized_delta_basis_points(
+                baseline.cost.local_instructions,
+                baseline.cost.units.get(),
+                current.cost.local_instructions,
+                current.cost.units.get(),
+            )?;
+            let relative_threshold_basis_points =
+                PerformanceProfile::scale_normalized_regression_basis_points();
             Ok(ScaleNormalizedDelta {
                 scenario_id: baseline.scenario_id.clone(),
                 denominator: baseline.denominator,
@@ -236,12 +357,14 @@ fn compare_scale_normalized(
                     local_instructions: current.cost.local_instructions,
                     units: current.cost.units.get(),
                 },
-                delta_basis_points: normalized_delta_basis_points(
+                delta_basis_points,
+                relative_threshold_basis_points,
+                regression: normalized_regression(
                     baseline.cost.local_instructions,
-                    baseline.cost.units.get(),
                     current.cost.local_instructions,
-                    current.cost.units.get(),
-                )?,
+                    delta_basis_points,
+                    relative_threshold_basis_points,
+                ),
             })
         })
         .collect()
@@ -269,6 +392,14 @@ fn compare_scale_slopes(
             {
                 return Err(ScaleBaselineComparisonError::SlopeSetDrift);
             }
+            let threshold = PerformanceProfile::scale_slope_regression_threshold();
+            let instruction_delta_change = current
+                .instruction_delta
+                .saturating_sub(baseline.instruction_delta);
+            let delta_basis_points = signed_relative_delta_basis_points(
+                baseline.instruction_delta,
+                current.instruction_delta,
+            );
             Ok(ScaleSlopeDelta {
                 sentinel_id: baseline.sentinel_id.clone(),
                 from_fixture_rows: baseline.from_fixture_rows,
@@ -276,9 +407,16 @@ fn compare_scale_slopes(
                 row_delta: baseline.row_delta,
                 baseline_instruction_delta: baseline.instruction_delta,
                 current_instruction_delta: current.instruction_delta,
-                instruction_delta_change: current
-                    .instruction_delta
-                    .saturating_sub(baseline.instruction_delta),
+                instruction_delta_change,
+                delta_basis_points,
+                absolute_threshold: threshold.absolute_increase(),
+                relative_threshold_basis_points: threshold.relative_increase_basis_points(),
+                regression: signed_regression_reached(
+                    threshold,
+                    baseline.instruction_delta,
+                    instruction_delta_change,
+                    delta_basis_points,
+                ),
             })
         })
         .collect()
@@ -320,6 +458,47 @@ fn normalized_delta_basis_points(
         i128::try_from(scaled).map_err(|_| ScaleBaselineComparisonError::ArithmeticOverflow)?;
 
     Ok(Some(if negative { -signed } else { signed }))
+}
+
+fn normalized_regression(
+    baseline_instructions: u64,
+    current_instructions: u64,
+    delta_basis_points: Option<i128>,
+    relative_threshold_basis_points: u16,
+) -> bool {
+    if baseline_instructions == 0 {
+        return current_instructions > 0;
+    }
+
+    delta_basis_points
+        .is_some_and(|basis_points| basis_points >= i128::from(relative_threshold_basis_points))
+}
+
+const fn signed_relative_delta_basis_points(baseline: i128, current: i128) -> Option<i128> {
+    let denominator = baseline.saturating_abs();
+    if denominator == 0 {
+        return None;
+    }
+
+    Some(current.saturating_sub(baseline).saturating_mul(10_000) / denominator)
+}
+
+fn signed_regression_reached(
+    threshold: PerformanceThreshold,
+    baseline: i128,
+    increase: i128,
+    delta_basis_points: Option<i128>,
+) -> bool {
+    if increase < i128::from(threshold.absolute_increase()) {
+        return false;
+    }
+    if baseline == 0 {
+        return true;
+    }
+
+    delta_basis_points.is_some_and(|basis_points| {
+        basis_points >= i128::from(threshold.relative_increase_basis_points())
+    })
 }
 
 /// Typed failure that prevents meaningful scale deltas.
@@ -462,6 +641,65 @@ mod tests {
                 &current,
             ),
             Err(ScaleBaselineComparisonError::InvalidCurrent(_))
+        ));
+    }
+
+    #[test]
+    fn reviewed_scale_thresholds_cover_zero_and_boundary_cases() {
+        let normalized_threshold = PerformanceProfile::scale_normalized_regression_basis_points();
+        assert!(!normalized_regression(
+            10_000,
+            10_099,
+            Some(99),
+            normalized_threshold,
+        ));
+        assert!(normalized_regression(
+            10_000,
+            10_100,
+            Some(100),
+            normalized_threshold,
+        ));
+        assert!(!normalized_regression(0, 0, None, normalized_threshold,));
+        assert!(normalized_regression(0, 1, None, normalized_threshold,));
+
+        let slope_threshold = PerformanceProfile::scale_slope_regression_threshold();
+        assert!(!signed_regression_reached(
+            slope_threshold,
+            1_000_000,
+            9_999,
+            Some(99),
+        ));
+        assert!(signed_regression_reached(
+            slope_threshold,
+            1_000_000,
+            10_000,
+            Some(100),
+        ));
+        assert!(signed_regression_reached(slope_threshold, 0, 10_000, None,));
+    }
+
+    #[test]
+    fn scale_regression_causes_include_every_gated_family() {
+        let (scenarios, baseline) = complete_report();
+        let mut comparison = compare_scale_baseline(
+            SQL_PERFORMANCE_PROFILE,
+            "wasm-release",
+            &scenarios,
+            &baseline,
+            &baseline,
+        )
+        .expect("one scale artifact should compare to itself");
+        comparison.totals[0].regression = true;
+        comparison.normalized[0].regression = true;
+        comparison.slopes[0].regression = true;
+
+        assert!(matches!(
+            comparison.regression_causes().as_slice(),
+            [
+                ScaleRegressionCause::Total { .. },
+                ScaleRegressionCause::Normalized { .. },
+                ScaleRegressionCause::Slope { .. },
+            ]
         ));
     }
 }
