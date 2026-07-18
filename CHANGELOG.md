@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)
 
+- `0.204.11` reuses one snapshot-restored PocketIC fixture per P2 shard,
+  preserving isolated cold/warm evidence without exhausting the server with
+  per-sample instances.
+
 - `0.204.10` aligns bounded P2 confirmation and artifact budgets with clean live
   evidence, preserving every required candidate and raw sample without truncation.
 

@@ -36,7 +36,8 @@ use std::{
 
 use candid::{CandidType, decode_one, encode_one};
 use ic_testkit::pic::{
-    StandaloneCanisterFixture, try_acquire_pic_serial_guard, try_ensure_pocket_ic_bin, try_pic,
+    ControllerSnapshots, StandaloneCanisterFixture, try_acquire_pic_serial_guard,
+    try_ensure_pocket_ic_bin, try_pic,
 };
 use icydb::{
     Error, ErrorOrigin,
@@ -81,8 +82,8 @@ use crate::sql_perf_p1_shard::{
     validate_p1_shard_artifact_size, write_p1_shard_report,
 };
 use crate::sql_perf_p2::{
-    P2BaselineBasis, P2CalibrationRun, P2SelectionRequirements, read_p2_candidate_selection,
-    select_p2_candidates, write_p2_candidate_selection,
+    P2BaselineBasis, P2CalibrationRun, P2Candidate, P2CandidateReason, P2SelectionRequirements,
+    read_p2_candidate_selection, select_p2_candidates, write_p2_candidate_selection,
 };
 use crate::sql_perf_p2_confirmation::{
     P2WarmNotApplicableReason, P2WarmSampleInput, build_p2_confirmation,
@@ -2317,18 +2318,40 @@ fn sample_isolated_total_only_instrumentation(
     }
 }
 
-fn sample_isolated_p2_scenario(
+/// Install one P2 fixture and capture its clean post-reset canister state.
+///
+/// One shard reuses this PocketIC instance and restores the snapshot before every
+/// sample. The restored canister state preserves cold/warm isolation without
+/// creating hundreds of server instances during one evidence job.
+fn install_p2_snapshot_fixture(
     wasm_bytes: &[u8],
+) -> (StandaloneCanisterFixture, ControllerSnapshots) {
+    let fixture = install_prebuilt_fixture_canister("sql_perf", wasm_bytes.to_vec());
+    reset_icydb_fixtures(&fixture);
+    let canister_id = fixture.canister_id();
+    let snapshots = fixture
+        .pic()
+        .capture_controller_snapshots(canister_id, [canister_id])
+        .unwrap_or_else(|| panic!("P2 fixture baseline snapshot should be available"));
+
+    (fixture, snapshots)
+}
+
+/// Restore the clean P2 baseline and capture one cold or deliberately warmed sample.
+fn sample_snapshot_isolated_p2_scenario(
+    fixture: &StandaloneCanisterFixture,
+    snapshots: &ControllerSnapshots,
     scenario: &MatrixScenario,
     warm_mode: bool,
 ) -> MatrixSample {
-    let fixture = install_prebuilt_fixture_canister("sql_perf", wasm_bytes.to_vec());
-    reset_icydb_fixtures(&fixture);
+    fixture
+        .pic()
+        .restore_controller_snapshots(fixture.canister_id(), snapshots);
     if warm_mode {
-        warm_surface_with_perf(&fixture, scenario)
+        warm_surface_with_perf(fixture, scenario)
             .unwrap_or_else(|error| panic!("P2 warm-up for {} failed: {error}", scenario.key));
     }
-    sample_scenario(&fixture, scenario)
+    sample_scenario(fixture, scenario)
         .unwrap_or_else(|failure| panic!("P2 sample for {} failed: {failure:?}", scenario.key))
 }
 
@@ -6036,6 +6059,43 @@ fn sql_perf_p1_merges_saved_shards() {
 }
 
 #[test]
+#[ignore = "expensive PocketIC snapshot stress; set ICYDB_SQL_PERF_WASM_PATH and run manually"]
+fn sql_perf_p2_snapshot_isolation_survives_observed_server_pressure() {
+    const CONFIRMATION_REPETITIONS: usize = 30;
+
+    let scenarios = deterministic_matrix();
+    let scenario = scenarios
+        .iter()
+        .find(|scenario| scenario.key == "account.select.narrow.all.pk_asc.limit1")
+        .unwrap_or_else(|| panic!("P2 snapshot stress scenario should be declared"));
+    let wasm = read_matrix_canister_wasm();
+    let (fixture, snapshots) = install_p2_snapshot_fixture(&wasm);
+    let candidate = P2Candidate {
+        scenario_id: scenario.key.clone(),
+        shard_index: SQL_PERFORMANCE_PROFILE
+            .scenario_shard(&scenario.key)
+            .unwrap_or_else(|error| panic!("P2 stress scenario should have a shard: {error}")),
+        reasons: vec![P2CandidateReason::FocusedHotspot],
+    };
+
+    for _ in 0..CONFIRMATION_REPETITIONS {
+        let cold_samples = (0..SQL_PERFORMANCE_PROFILE.cold_samples_per_confirmation())
+            .map(|_| sample_snapshot_isolated_p2_scenario(&fixture, &snapshots, scenario, false))
+            .collect::<Vec<_>>();
+        let warm_samples = (0..SQL_PERFORMANCE_PROFILE.warm_samples_per_confirmation())
+            .map(|_| sample_snapshot_isolated_p2_scenario(&fixture, &snapshots, scenario, true))
+            .collect::<Vec<_>>();
+        build_p2_confirmation(
+            SQL_PERFORMANCE_PROFILE,
+            candidate.clone(),
+            cold_samples,
+            P2WarmSampleInput::Required(warm_samples),
+        )
+        .unwrap_or_else(|error| panic!("snapshot-restored P2 confirmation failed: {error}"));
+    }
+}
+
+#[test]
 #[ignore = "expensive PocketIC P2 shard; set ICYDB_SQL_PERF_P2_SHARD_INDEX and run manually"]
 fn sql_perf_p2_shard_confirms_selected_candidates() {
     let shard_index = performance_shard_index(SQL_PERF_P2_SHARD_INDEX_ENV, "P2")
@@ -6063,7 +6123,8 @@ fn sql_perf_p2_shard_confirms_selected_candidates() {
         "sql_perf_matrix: loading the shared wasm-release subject for P2 shard {shard_index}"
     );
     let wasm = read_matrix_canister_wasm();
-    let environment = capture_isolated_matrix_environment(&wasm);
+    let (fixture, snapshots) = install_p2_snapshot_fixture(&wasm);
+    let environment = capture_matrix_environment(&fixture, &wasm);
     assert_eq!(
         environment, selection.environment,
         "P2 must confirm the exact environment and measured subject selected by P1",
@@ -6080,13 +6141,15 @@ fn sql_perf_p2_shard_confirms_selected_candidates() {
             .unwrap_or_else(|| panic!("P2 candidate {} has no declaration", candidate.scenario_id));
         eprintln!("sql_perf_matrix: confirming {} cold", candidate.scenario_id);
         let cold_samples = (0..SQL_PERFORMANCE_PROFILE.cold_samples_per_confirmation())
-            .map(|_| sample_isolated_p2_scenario(&wasm, scenario, false))
+            .map(|_| sample_snapshot_isolated_p2_scenario(&fixture, &snapshots, scenario, false))
             .collect::<Vec<_>>();
         let warm_input = if scenario.metadata.statement == StatementFamily::Select {
             eprintln!("sql_perf_matrix: confirming {} warm", candidate.scenario_id);
             P2WarmSampleInput::Required(
                 (0..SQL_PERFORMANCE_PROFILE.warm_samples_per_confirmation())
-                    .map(|_| sample_isolated_p2_scenario(&wasm, scenario, true))
+                    .map(|_| {
+                        sample_snapshot_isolated_p2_scenario(&fixture, &snapshots, scenario, true)
+                    })
                     .collect::<Vec<_>>(),
             )
         } else {
