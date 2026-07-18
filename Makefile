@@ -17,6 +17,11 @@
 # via `make -C "$$ROOT"` and share a single source of truth.
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
+# Cargo runs integration-test binaries from the owning package directory. Resolve
+# caller-supplied artifact paths here so relative CLI/workflow inputs retain their
+# repository-root meaning after Cargo crosses that working-directory boundary.
+workspace_path = $(if $(strip $(1)),$(if $(filter /%,$(strip $(1))),$(strip $(1)),$(abspath $(ROOT_DIR)/$(strip $(1)))))
+
 # Keep workspace cargo state repo-local so sibling repos compiling on the same
 # filesystem do not contend on a shared cargo home or target directory.
 CARGO_WORK_HOME := $(ROOT_DIR)/.cache/cargo/icydb
@@ -303,7 +308,7 @@ test-sql-perf-p1-merge:
 		test -n "$(PERF_CALIBRATION_RUN)" || { echo "set P1_BASELINE_PATH or both PERF_CALIBRATION_COHORT and PERF_CALIBRATION_RUN" >&2; exit 1; }; \
 	fi
 	ICYDB_SQL_PERF_P1_SHARD_DIR="$(P1_SHARD_DIR)" \
-	ICYDB_SQL_PERF_P1_BASELINE_PATH="$(P1_BASELINE_PATH)" \
+	ICYDB_SQL_PERF_P1_BASELINE_PATH="$(call workspace_path,$(P1_BASELINE_PATH))" \
 	ICYDB_SQL_PERF_CALIBRATION_COHORT="$(PERF_CALIBRATION_COHORT)" \
 	ICYDB_SQL_PERF_CALIBRATION_RUN="$(PERF_CALIBRATION_RUN)" \
 	ICYDB_SQL_PERF_SCALE_SHARD_DIR="$(SCALE_SHARD_DIR)" \
@@ -352,12 +357,12 @@ test-sql-perf-instrumentation:
 		sql_perf_calibrates_attribution_overhead -- --ignored --nocapture
 
 test-sql-perf-calibration-review:
-	@test -d "$(PERF_CALIBRATION_RUN_1_DIR)" || { echo "PERF_CALIBRATION_RUN_1_DIR must name the ordinal-1 evidence bundle" >&2; exit 1; }
-	@test -d "$(PERF_CALIBRATION_RUN_2_DIR)" || { echo "PERF_CALIBRATION_RUN_2_DIR must name the ordinal-2 evidence bundle" >&2; exit 1; }
-	@test -d "$(PERF_CALIBRATION_RUN_3_DIR)" || { echo "PERF_CALIBRATION_RUN_3_DIR must name the ordinal-3 evidence bundle" >&2; exit 1; }
-	ICYDB_SQL_PERF_CALIBRATION_RUN_1_DIR="$(PERF_CALIBRATION_RUN_1_DIR)" \
-	ICYDB_SQL_PERF_CALIBRATION_RUN_2_DIR="$(PERF_CALIBRATION_RUN_2_DIR)" \
-	ICYDB_SQL_PERF_CALIBRATION_RUN_3_DIR="$(PERF_CALIBRATION_RUN_3_DIR)" \
+	@test -d "$(call workspace_path,$(PERF_CALIBRATION_RUN_1_DIR))" || { echo "PERF_CALIBRATION_RUN_1_DIR must name the ordinal-1 evidence bundle" >&2; exit 1; }
+	@test -d "$(call workspace_path,$(PERF_CALIBRATION_RUN_2_DIR))" || { echo "PERF_CALIBRATION_RUN_2_DIR must name the ordinal-2 evidence bundle" >&2; exit 1; }
+	@test -d "$(call workspace_path,$(PERF_CALIBRATION_RUN_3_DIR))" || { echo "PERF_CALIBRATION_RUN_3_DIR must name the ordinal-3 evidence bundle" >&2; exit 1; }
+	ICYDB_SQL_PERF_CALIBRATION_RUN_1_DIR="$(call workspace_path,$(PERF_CALIBRATION_RUN_1_DIR))" \
+	ICYDB_SQL_PERF_CALIBRATION_RUN_2_DIR="$(call workspace_path,$(PERF_CALIBRATION_RUN_2_DIR))" \
+	ICYDB_SQL_PERF_CALIBRATION_RUN_3_DIR="$(call workspace_path,$(PERF_CALIBRATION_RUN_3_DIR))" \
 	ICYDB_SQL_PERF_CALIBRATION_REVIEW_PATH="$(PERF_CALIBRATION_REVIEW_PATH)" \
 	$(CARGO_WORK_ENV) \
 	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
@@ -366,11 +371,11 @@ test-sql-perf-calibration-review:
 test-sql-perf-baseline:
 	@test -n "$(P2_BASELINE_PATH)" || { echo "P2_BASELINE_PATH must name a reviewed merged P2 baseline" >&2; exit 1; }
 	@test -n "$(SCALE_BASELINE_PATH)" || { echo "SCALE_BASELINE_PATH must name a reviewed merged scale baseline" >&2; exit 1; }
-	ICYDB_SQL_PERF_BASELINE_PATH="$(P2_BASELINE_PATH)" \
-	ICYDB_SQL_PERF_CURRENT_PATH="$(P2_CURRENT_PATH)" \
+	ICYDB_SQL_PERF_BASELINE_PATH="$(call workspace_path,$(P2_BASELINE_PATH))" \
+	ICYDB_SQL_PERF_CURRENT_PATH="$(call workspace_path,$(P2_CURRENT_PATH))" \
 	ICYDB_SQL_PERF_COMPARISON_PATH="$(PERF_COMPARISON_PATH)" \
-	ICYDB_SQL_PERF_SCALE_BASELINE_PATH="$(SCALE_BASELINE_PATH)" \
-	ICYDB_SQL_PERF_SCALE_CURRENT_PATH="$(SCALE_CURRENT_PATH)" \
+	ICYDB_SQL_PERF_SCALE_BASELINE_PATH="$(call workspace_path,$(SCALE_BASELINE_PATH))" \
+	ICYDB_SQL_PERF_SCALE_CURRENT_PATH="$(call workspace_path,$(SCALE_CURRENT_PATH))" \
 	$(CARGO_WORK_ENV) \
 	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
 		sql_perf_compares_saved_baseline -- --ignored --nocapture

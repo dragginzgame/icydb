@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)
 
+- `0.204.14` fixes performance-artifact path resolution and records the first
+  clean exact-subject cohort with identical evidence across all three ordinals,
+  without changing production SQL.
+
 - `0.204.13` makes the comparable query-performance contract machine-checked
   against the manifest and exact P1/scale profile, while hard timeouts make the
   required SQL correctness lanes fail closed without changing production SQL.
