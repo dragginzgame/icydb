@@ -5119,8 +5119,8 @@ fn sql_perf_p1_receipts_cover_the_profile_exactly() {
         .collect::<Vec<_>>();
 
     assert_eq!(receipts.len(), 8);
-    assert_eq!(shard_counts, vec![230, 221, 232, 205, 222, 223, 227, 201]);
-    assert_eq!(shard_counts.iter().sum::<usize>(), 1_761);
+    assert_eq!(shard_counts, vec![234, 222, 235, 207, 222, 223, 230, 204]);
+    assert_eq!(shard_counts.iter().sum::<usize>(), 1_777);
     assert!(receipts.iter().all(|receipt| receipt.complete));
     validate_p1_shard_receipts(SQL_PERFORMANCE_PROFILE, &receipts)
         .expect("all deterministic receipts should merge");
@@ -5248,7 +5248,7 @@ fn sql_perf_p1_shard_artifacts_are_strict_bounded_and_merge_exactly() {
     )
     .expect("all exact shard reports should merge");
     assert_eq!(merged.receipts.len(), 8);
-    assert_eq!(merged.samples.len(), 1_761);
+    assert_eq!(merged.samples.len(), 1_777);
     assert!(merged.failures.is_empty());
     assert!(
         merged

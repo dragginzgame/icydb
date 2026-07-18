@@ -462,7 +462,7 @@ mod tests {
         let regression = profile.total_instruction_regression_threshold();
 
         assert_eq!(profile.version(), SQL_PERFORMANCE_PROFILE_VERSION);
-        assert_eq!(profile.expected_scenario_count(), 1_761);
+        assert_eq!(profile.expected_scenario_count(), 1_777);
         assert_eq!(
             profile.expected_scenario_set_hash(),
             EXPECTED_SCENARIO_SET_HASH
