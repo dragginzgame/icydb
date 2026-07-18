@@ -861,6 +861,7 @@ struct SessionSqliteReferenceEntity {
     age: i64,
     rank: i64,
     active: bool,
+    note: Option<String>,
 }
 
 ///
@@ -1876,6 +1877,10 @@ crate::test_entity! {
         crate::test_field! { age: i64 => FieldKind::Int64 },
         crate::test_field! { rank: i64 => FieldKind::Int64 },
         crate::test_field! { active: bool => FieldKind::Bool },
+        crate::test_field! {
+            note: Option<String> => FieldKind::Text { max_len: None },
+            options = crate::testing::TestFieldModelOptions::DEFAULT.with_nullable(true),
+        },
     ],
     indexes = [],
     relations = [],

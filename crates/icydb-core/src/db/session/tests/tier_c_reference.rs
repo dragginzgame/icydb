@@ -25,10 +25,11 @@ use std::{
 
 use icydb_testing_sql_generator::{
     ALL_SELECT_GENERATOR_FAMILIES, ALL_SELECT_VIOLATIONS, GeneratedExpressionDepth,
-    GeneratedMutationSequence, GeneratedSelectCase, MutationKind as CoverageMutationKind,
-    MutationSnapshot, RegressionCorpusCase, RegressionCorpusEntry, SQL_SCHEDULED_SHARD_COUNT,
-    SelectComparisonProvider, SelectExecutionPhase, SelectExpectedOutcome, SelectMismatchCategory,
-    SelectMismatchSignature, SelectObservedOutcome, SelectReplayRecord, SelectSnapshot,
+    GeneratedFixtureProperty, GeneratedMutationSequence, GeneratedSelectCase,
+    MutationKind as CoverageMutationKind, MutationSnapshot, RegressionCorpusCase,
+    RegressionCorpusEntry, SQL_SCHEDULED_SHARD_COUNT, SelectComparisonProvider,
+    SelectExecutionPhase, SelectExpectedOutcome, SelectMismatchCategory, SelectMismatchSignature,
+    SelectObservedOutcome, SelectReplayRecord, SelectSnapshot,
     StatementFamily as CoverageStatementFamily, TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES,
     TIER_C_INVALID_CASES_PER_VIOLATION, TIER_C_MUTATION_BUDGETS, TIER_C_MUTATION_CASES_PER_ROOT,
     TIER_C_ROOT_SEEDS, TIER_C_SELECT_BUDGETS, TIER_C_VALID_CASES_PER_FAMILY,
@@ -864,40 +865,14 @@ fn assert_native_coverage_contract(inputs: &TierCNativeInputs, merged: &TierCMer
             "Tier C generated SELECT evidence must reach expression-depth stratum {depth:?}",
         );
     }
+    assert_native_generated_select_contract(inputs, &distribution);
     let mutation_sequence_count = u32::try_from(TIER_C_ROOT_SEEDS.len())
         .expect("Tier C root count should fit u32")
         .saturating_mul(
             u32::try_from(TIER_C_MUTATION_CASES_PER_ROOT)
                 .expect("Tier C mutation quota should fit u32"),
         );
-    let generated_select_count = distribution
-        .provider_id_counts()
-        .get("sqlite.generated_select")
-        .copied()
-        .unwrap_or_default()
-        .saturating_add(
-            distribution
-                .provider_id_counts()
-                .get("icydb.typed_rejection")
-                .copied()
-                .unwrap_or_default(),
-        );
-    for row_count in [0, 1, 32, 64] {
-        assert!(
-            distribution.generated_select_fixture_row_count(row_count) > 0,
-            "Tier C generated SELECT evidence must reach fixture size {row_count}",
-        );
-    }
-    assert_eq!(
-        distribution.generated_select_schema_index_count(0),
-        generated_select_count,
-        "the sole generated SELECT schema must report its zero secondary indexes exactly",
-    );
-    assert_eq!(
-        distribution.generated_select_schema_nullable_field_count(0),
-        generated_select_count,
-        "the sole generated SELECT schema must report its zero nullable fields exactly",
-    );
+
     assert_eq!(
         distribution.generated_mutation_fixture_row_count(4),
         mutation_sequence_count,
@@ -907,10 +882,6 @@ fn assert_native_coverage_contract(inputs: &TierCNativeInputs, merged: &TierCMer
         distribution.generated_mutation_statement_count(8),
         mutation_sequence_count,
         "every current generated mutation sequence must report its reviewed eight-step shape",
-    );
-    assert_eq!(
-        distribution.generated_schema_fixture_family_count("session-accepted-snapshot-v1"),
-        generated_select_count,
     );
     assert_eq!(
         distribution.generated_schema_fixture_family_count("session-write-accepted-snapshot-v1"),
@@ -943,6 +914,92 @@ fn assert_native_coverage_contract(inputs: &TierCNativeInputs, merged: &TierCMer
             distribution.mutation_count(mutation),
         );
     }
+}
+
+fn assert_native_generated_select_contract(
+    inputs: &TierCNativeInputs,
+    distribution: &TierCCoverageDistributionReport,
+) {
+    let root_count =
+        u32::try_from(TIER_C_ROOT_SEEDS.len()).expect("Tier C root count should fit u32");
+    let family_count = u32::try_from(ALL_SELECT_GENERATOR_FAMILIES.len())
+        .expect("Tier C SELECT family count should fit u32");
+    let violation_count = u32::try_from(ALL_SELECT_VIOLATIONS.len())
+        .expect("Tier C SELECT violation count should fit u32");
+    let accepted_generated_select_count = root_count.saturating_mul(family_count).saturating_mul(
+        u32::try_from(TIER_C_VALID_CASES_PER_FAMILY)
+            .expect("Tier C valid case count should fit u32"),
+    );
+    let rejected_generated_select_count =
+        root_count.saturating_mul(violation_count).saturating_mul(
+            u32::try_from(TIER_C_INVALID_CASES_PER_VIOLATION)
+                .expect("Tier C invalid case count should fit u32"),
+        );
+    let generated_select_count =
+        accepted_generated_select_count.saturating_add(rejected_generated_select_count);
+    let corpus_select_count = u32::try_from(
+        inputs
+            .corpus
+            .iter()
+            .filter(|entry| matches!(entry.regression_case(), RegressionCorpusCase::Select(_)))
+            .count(),
+    )
+    .expect("Tier C SELECT corpus count should fit u32");
+    let profiled_select_count = generated_select_count.saturating_add(corpus_select_count);
+    let executed_profiled_select_count =
+        accepted_generated_select_count.saturating_add(corpus_select_count);
+    for row_count in [0, 1, 32, 64] {
+        assert!(
+            distribution.generated_select_fixture_row_count(row_count) > 0,
+            "Tier C generated SELECT evidence must reach fixture size {row_count}",
+        );
+    }
+    for property in [
+        GeneratedFixtureProperty::StoredNull,
+        GeneratedFixtureProperty::DuplicateValue,
+        GeneratedFixtureProperty::NumericBoundary,
+        GeneratedFixtureProperty::OrderingTie,
+    ] {
+        let count = distribution.generated_select_fixture_property_count(property);
+        assert!(
+            count > 0 && count <= executed_profiled_select_count,
+            "accepted Tier C generated SELECT evidence must execute exact fixture property {property:?}",
+        );
+    }
+    assert_eq!(
+        distribution.generated_select_schema_field_count(6),
+        generated_select_count,
+        "current generated SELECTs must report their six accepted fields exactly",
+    );
+    assert_eq!(
+        distribution.generated_select_schema_field_count(5),
+        corpus_select_count,
+        "the reviewed SELECT regression corpus must retain its exact five-field replay snapshot",
+    );
+    assert_eq!(
+        distribution.generated_select_schema_generated_field_count(1),
+        profiled_select_count,
+        "every generated or replayed SELECT schema must report its generated ULID field exactly",
+    );
+    assert_eq!(
+        distribution.generated_select_schema_index_count(0),
+        profiled_select_count,
+        "every generated or replayed SELECT schema must report zero secondary indexes exactly",
+    );
+    assert_eq!(
+        distribution.generated_select_schema_nullable_field_count(1),
+        generated_select_count,
+        "current generated SELECTs must report their one nullable field exactly",
+    );
+    assert_eq!(
+        distribution.generated_select_schema_nullable_field_count(0),
+        corpus_select_count,
+        "the reviewed SELECT regression corpus must retain its exact non-null replay snapshot",
+    );
+    assert_eq!(
+        distribution.generated_schema_fixture_family_count("session-accepted-snapshot-v1"),
+        profiled_select_count,
+    );
 }
 
 fn selected_shard_index() -> u8 {

@@ -26,7 +26,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 /// Current hard-cut Tier C coverage-distribution artifact format.
-pub const TIER_C_DISTRIBUTION_FORMAT_VERSION: u32 = 2;
+pub const TIER_C_DISTRIBUTION_FORMAT_VERSION: u32 = 3;
 
 // -----------------------------------------------------------------------------
 // Shared coverage taxonomy
@@ -251,6 +251,42 @@ impl GeneratedExpressionDepth {
                     "generated SELECT expression depth {depth} is outside the current one-through-four profile"
                 ),
             )),
+        }
+    }
+}
+
+///
+/// GeneratedFixtureProperty
+///
+/// Exact observable data property derived from one accepted generated SELECT's
+/// embedded fixture and typed query. Expected-rejection cases do not claim
+/// fixture execution because their rows never reach the reference engines.
+///
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum GeneratedFixtureProperty {
+    /// At least one persisted fixture cell is SQL `NULL`.
+    StoredNull,
+
+    /// At least one non-null scalar value repeats in the same field.
+    DuplicateValue,
+
+    /// At least one integer reaches a reviewed minimum or maximum boundary.
+    NumericBoundary,
+
+    /// Direct order keys tie while a directly projected field differs.
+    OrderingTie,
+}
+
+impl GeneratedFixtureProperty {
+    /// Return the stable machine-readable fixture-property identity.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::StoredNull => "stored_null",
+            Self::DuplicateValue => "duplicate_value",
+            Self::NumericBoundary => "numeric_boundary",
+            Self::OrderingTie => "ordering_tie",
         }
     }
 }
@@ -684,6 +720,7 @@ enum TierCGeneratedProfile {
         statement_count: u32,
     },
     Select {
+        executed_fixture_properties: BTreeSet<GeneratedFixtureProperty>,
         fixture_row_count: u32,
         schema_field_count: u32,
         schema_fixture_family: String,
@@ -704,7 +741,14 @@ impl TierCGeneratedProfile {
     }
 
     fn select(case: &GeneratedSelectCase) -> Result<Self, TierCDistributionError> {
+        let executed_fixture_properties =
+            if matches!(case.expected(), SelectExpectedOutcome::Accepted) {
+                generated_fixture_properties(case)
+            } else {
+                BTreeSet::new()
+            };
         Ok(Self::Select {
+            executed_fixture_properties,
             fixture_row_count: bounded_count(case.fixture().len())?,
             schema_field_count: bounded_count(case.snapshot().fields().len())?,
             schema_fixture_family: case.snapshot().fixture_family().to_string(),
@@ -724,6 +768,58 @@ impl TierCGeneratedProfile {
                     .count(),
             )?,
         })
+    }
+}
+
+fn generated_fixture_properties(case: &GeneratedSelectCase) -> BTreeSet<GeneratedFixtureProperty> {
+    let mut properties = BTreeSet::new();
+    let fixture = case.fixture();
+    if fixture.has_stored_null() {
+        properties.insert(GeneratedFixtureProperty::StoredNull);
+    }
+    if fixture.has_duplicate_non_null_field_value() {
+        properties.insert(GeneratedFixtureProperty::DuplicateValue);
+    }
+    if fixture.has_reviewed_numeric_boundary() {
+        properties.insert(GeneratedFixtureProperty::NumericBoundary);
+    }
+    if let Some(order_field_ids) = direct_order_field_ids(case) {
+        let projected_field_ids = case
+            .query()
+            .projections()
+            .iter()
+            .filter_map(|projection| direct_field_id(projection.expression()))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        if fixture.has_observable_ordering_tie(&order_field_ids, &projected_field_ids) {
+            properties.insert(GeneratedFixtureProperty::OrderingTie);
+        }
+    }
+
+    properties
+}
+
+fn direct_order_field_ids(case: &GeneratedSelectCase) -> Option<Vec<u32>> {
+    case.query()
+        .order()
+        .iter()
+        .map(|term| match term.target() {
+            SelectOrderTarget::Expression(expression) => direct_field_id(expression),
+            SelectOrderTarget::Alias(alias) => case
+                .query()
+                .projections()
+                .iter()
+                .find(|projection| projection.alias() == Some(alias.as_str()))
+                .and_then(|projection| direct_field_id(projection.expression())),
+        })
+        .collect()
+}
+
+const fn direct_field_id(expression: &SelectExpression) -> Option<u32> {
+    match expression {
+        SelectExpression::Field { field_id } => Some(*field_id),
+        _ => None,
     }
 }
 
@@ -907,6 +1003,7 @@ struct TierCGeneratedDistribution {
     mutation_schema_fields: BTreeMap<String, u32>,
     mutation_statement_counts: BTreeMap<String, u32>,
     schema_fixture_families: BTreeMap<String, u32>,
+    select_executed_fixture_properties: BTreeMap<String, u32>,
     select_fixture_rows: BTreeMap<String, u32>,
     select_schema_fields: BTreeMap<String, u32>,
     select_schema_generated_fields: BTreeMap<String, u32>,
@@ -921,6 +1018,7 @@ impl TierCGeneratedDistribution {
             mutation_schema_fields: BTreeMap::new(),
             mutation_statement_counts: BTreeMap::new(),
             schema_fixture_families: BTreeMap::new(),
+            select_executed_fixture_properties: BTreeMap::new(),
             select_fixture_rows: BTreeMap::new(),
             select_schema_fields: BTreeMap::new(),
             select_schema_generated_fields: BTreeMap::new(),
@@ -946,6 +1044,7 @@ impl TierCGeneratedDistribution {
                 increment_numeric_count(&mut self.mutation_statement_counts, *statement_count)?;
             }
             TierCGeneratedProfile::Select {
+                executed_fixture_properties,
                 fixture_row_count,
                 schema_field_count,
                 schema_fixture_family,
@@ -953,6 +1052,12 @@ impl TierCGeneratedDistribution {
                 schema_index_count,
                 schema_nullable_field_count,
             } => {
+                for property in executed_fixture_properties {
+                    increment_count(
+                        &mut self.select_executed_fixture_properties,
+                        property.code(),
+                    )?;
+                }
                 increment_numeric_count(&mut self.select_fixture_rows, *fixture_row_count)?;
                 increment_numeric_count(&mut self.select_schema_fields, *schema_field_count)?;
                 increment_numeric_count(
@@ -1173,6 +1278,31 @@ impl TierCCoverageDistributionReport {
     #[must_use]
     pub fn generated_select_fixture_row_count(&self, row_count: u32) -> u32 {
         numeric_count(&self.generated.select_fixture_rows, row_count)
+    }
+
+    /// Return how many accepted generated SELECTs execute one exact fixture property.
+    #[must_use]
+    pub fn generated_select_fixture_property_count(
+        &self,
+        property: GeneratedFixtureProperty,
+    ) -> u32 {
+        self.generated
+            .select_executed_fixture_properties
+            .get(property.code())
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Return how many generated SELECTs observe one accepted field count.
+    #[must_use]
+    pub fn generated_select_schema_field_count(&self, field_count: u32) -> u32 {
+        numeric_count(&self.generated.select_schema_fields, field_count)
+    }
+
+    /// Return how many generated SELECTs observe one generated-field count.
+    #[must_use]
+    pub fn generated_select_schema_generated_field_count(&self, field_count: u32) -> u32 {
+        numeric_count(&self.generated.select_schema_generated_fields, field_count)
     }
 
     /// Return how many generated SELECT scenarios observe one secondary-index count.

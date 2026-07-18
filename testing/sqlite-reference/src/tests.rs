@@ -253,6 +253,7 @@ fn generated_select_snapshot() -> SelectSnapshot {
             SelectField::new(3, "age", SelectFieldKind::Integer, false, false, false),
             SelectField::new(4, "score", SelectFieldKind::Integer, false, false, false),
             SelectField::new(5, "active", SelectFieldKind::Boolean, false, false, false),
+            SelectField::new(6, "note", SelectFieldKind::Text, true, false, false),
         ],
         vec![
             SelectIndex::new(1, "by_name", vec![2]),

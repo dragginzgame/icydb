@@ -98,7 +98,7 @@ fn accepted_snapshot_order_and_representative_case_are_golden() {
             .iter()
             .map(SelectField::id)
             .collect::<Vec<_>>(),
-        vec![1, 2, 3, 4, 5],
+        vec![1, 2, 3, 4, 5, 6],
     );
     assert_eq!(
         case.rendered_sql(),
@@ -106,7 +106,7 @@ fn accepted_snapshot_order_and_representative_case_are_golden() {
     );
     assert_eq!(
         blake3::hash(&canonical).to_hex().as_str(),
-        "fa4b689186b718d9360fc3d90fe3911873644643fade6910c4ba63b0ba76a0be",
+        "d7919694f435f93a2957c084d21a5275173b264a4119dfda328456ea1bfd9cba",
     );
 }
 
@@ -546,6 +546,7 @@ fn select_snapshot() -> SelectSnapshot {
             SelectField::new(4, "score", SelectFieldKind::Integer, false, false, false),
             SelectField::new(2, "name", SelectFieldKind::Text, false, false, false),
             SelectField::new(3, "age", SelectFieldKind::Integer, false, false, false),
+            SelectField::new(6, "note", SelectFieldKind::Text, true, false, false),
         ],
         vec![
             SelectIndex::new(2, "by_score", vec![4]),

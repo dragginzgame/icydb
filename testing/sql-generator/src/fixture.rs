@@ -5,6 +5,12 @@
 
 use crate::{SelectSnapshot, SelectValueKind, SqlGeneratorError, SqlGeneratorErrorKind};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+
+/// Reviewed lower signed-integer boundary required in scheduled fixture evidence.
+pub(crate) const REVIEWED_INTEGER_MIN_BOUNDARY: i64 = -2_147_483_648;
+/// Reviewed upper signed-integer boundary required in scheduled fixture evidence.
+pub(crate) const REVIEWED_INTEGER_MAX_BOUNDARY: i64 = 2_147_483_647;
 
 ///
 /// GeneratedValue
@@ -150,6 +156,79 @@ impl GeneratedFixture {
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.rows.is_empty()
+    }
+
+    /// Return whether any fixture cell contains a stored SQL null.
+    pub(crate) fn has_stored_null(&self) -> bool {
+        self.rows.iter().any(|row| {
+            row.values()
+                .iter()
+                .any(|field_value| field_value.value.is_null())
+        })
+    }
+
+    /// Return whether a field repeats one non-null value across fixture rows.
+    pub(crate) fn has_duplicate_non_null_field_value(&self) -> bool {
+        let mut observed = BTreeSet::new();
+        for row in &self.rows {
+            for field_value in row.values() {
+                if field_value.value.is_null() {
+                    continue;
+                }
+                if !observed.insert((field_value.field_id, &field_value.value)) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Return whether the fixture contains either reviewed integer boundary.
+    pub(crate) fn has_reviewed_numeric_boundary(&self) -> bool {
+        self.rows.iter().any(|row| {
+            row.values().iter().any(|field_value| {
+                matches!(
+                    field_value.value,
+                    GeneratedValue::Integer(
+                        REVIEWED_INTEGER_MIN_BOUNDARY | REVIEWED_INTEGER_MAX_BOUNDARY
+                    )
+                )
+            })
+        })
+    }
+
+    /// Return whether direct order keys tie while a direct projected field differs.
+    pub(crate) fn has_observable_ordering_tie(
+        &self,
+        order_field_ids: &[u32],
+        projected_field_ids: &[u32],
+    ) -> bool {
+        if order_field_ids.is_empty() || projected_field_ids.is_empty() {
+            return false;
+        }
+
+        for (left_index, left) in self.rows.iter().enumerate() {
+            for right in self.rows.iter().skip(left_index.saturating_add(1)) {
+                let same_order_key = order_field_ids.iter().all(|field_id| {
+                    matches!(
+                        (
+                            left.value_by_field_id(*field_id),
+                            right.value_by_field_id(*field_id),
+                        ),
+                        (Some(left_value), Some(right_value)) if left_value == right_value
+                    )
+                });
+                let different_projection = projected_field_ids.iter().any(|field_id| {
+                    left.value_by_field_id(*field_id) != right.value_by_field_id(*field_id)
+                });
+                if same_order_key && different_projection {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     /// Return the canonical BLAKE3 fingerprint of this fixture.

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)
 
+- `0.204.9` makes generated SQL fixture evidence exact for nullable data,
+  duplicates, numeric boundaries, and ordering ties while explicitly attributing
+  excluded strata to deterministic providers without changing production SQL.
+
 - `0.204.8` upgrades `ulid` to 3.0.0 and derives scheduled SQL feature,
   complexity, fixture, and schema evidence from exact typed cases without
   changing production SQL or persisted ULID semantics.

@@ -5,7 +5,10 @@
 
 use crate::{
     error::{SqlGeneratorError, SqlGeneratorErrorKind},
-    fixture::{GeneratedFieldValue, GeneratedFixture, GeneratedFixtureRow, GeneratedValue},
+    fixture::{
+        GeneratedFieldValue, GeneratedFixture, GeneratedFixtureRow, GeneratedValue,
+        REVIEWED_INTEGER_MAX_BOUNDARY, REVIEWED_INTEGER_MIN_BOUNDARY,
+    },
     model::{
         GeneratedSelectCase, GeneratedSelectIdentity, SelectArithmeticOperator, SelectBudgets,
         SelectComparisonOperator, SelectExpectedOutcome, SelectExpression, SelectFeature,
@@ -17,7 +20,16 @@ use crate::{
 };
 use std::{collections::BTreeSet, fmt::Write as _};
 
-const INTEGER_FIXTURE_VALUES: &[i64] = &[-2_147_483_648, -1, 0, 1, 24, 31, 43, 2_147_483_647];
+const INTEGER_FIXTURE_VALUES: &[i64] = &[
+    REVIEWED_INTEGER_MIN_BOUNDARY,
+    -1,
+    0,
+    1,
+    24,
+    31,
+    43,
+    REVIEWED_INTEGER_MAX_BOUNDARY,
+];
 
 /// Required pull-request root seeds from the 0.204 design.
 pub const TIER_A_ROOT_SEEDS: &[u64] = &[0x1cdb_0204_0000_0001, 0x1cdb_0204_0000_0002];
@@ -382,8 +394,23 @@ fn generated_field_value(
     match field.kind() {
         SelectFieldKind::Boolean => Ok(GeneratedValue::Boolean(selector % 2 == 0)),
         SelectFieldKind::Integer => {
+            if case_index >= 24 && row_index == 0 {
+                match case_index % TIER_A_VALID_CASES_PER_FAMILY {
+                    2 => return Ok(GeneratedValue::Integer(REVIEWED_INTEGER_MIN_BOUNDARY)),
+                    3 => return Ok(GeneratedValue::Integer(REVIEWED_INTEGER_MAX_BOUNDARY)),
+                    _ => {}
+                }
+            }
             if let Some(ordinal) = window_integer_ordinal {
-                let value = row_index.checked_mul(ordinal).ok_or_else(|| {
+                let order_row = if case_index >= 24
+                    && case_index % TIER_A_VALID_CASES_PER_FAMILY == 6
+                    && ordinal == 2
+                {
+                    row_index % 3
+                } else {
+                    row_index
+                };
+                let value = order_row.checked_mul(ordinal).ok_or_else(|| {
                     SqlGeneratorError::new(
                         SqlGeneratorErrorKind::InvalidCase,
                         "generated window fixture integer overflowed",
@@ -933,7 +960,14 @@ fn expression_query(
             field(fields.first_integer),
             field(fields.second_integer),
         ),
-        2 => function(SelectFunction::Lower, vec![field(fields.text)]),
+        2 => function(
+            SelectFunction::Lower,
+            vec![field(if case_index >= 24 {
+                fields.nullable_text
+            } else {
+                fields.text
+            })],
+        ),
         3 => function(SelectFunction::Length, vec![field(fields.text)]),
         4 => function(
             SelectFunction::NullIf,
@@ -1519,6 +1553,7 @@ fn collect_predicate_features(predicate: &SelectPredicate, features: &mut BTreeS
 
 struct RequiredFields<'a> {
     text: &'a SelectField,
+    nullable_text: &'a SelectField,
     first_integer: &'a SelectField,
     second_integer: &'a SelectField,
     boolean: &'a SelectField,
@@ -1528,6 +1563,16 @@ fn required_fields(snapshot: &SelectSnapshot) -> Result<RequiredFields<'_>, SqlG
     let text = snapshot
         .first_query_field(SelectFieldKind::Text)
         .ok_or_else(|| missing_field_kind(SelectFieldKind::Text))?;
+    let nullable_text = snapshot
+        .query_fields(SelectFieldKind::Text)
+        .into_iter()
+        .find(|field| field.nullable())
+        .ok_or_else(|| {
+            SqlGeneratorError::new(
+                SqlGeneratorErrorKind::InvalidSnapshot,
+                "SELECT generation requires one accepted nullable text field fact",
+            )
+        })?;
     let integer_fields = snapshot.query_fields(SelectFieldKind::Integer);
     let first_integer = integer_fields
         .first()
@@ -1543,6 +1588,7 @@ fn required_fields(snapshot: &SelectSnapshot) -> Result<RequiredFields<'_>, SqlG
 
     Ok(RequiredFields {
         text,
+        nullable_text,
         first_integer,
         second_integer,
         boolean,

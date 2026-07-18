@@ -27,11 +27,11 @@ pub use corpus::{
 };
 pub use corpus_inventory::{RegressionCorpusInventoryError, checked_in_regression_corpus};
 pub use coverage::{
-    EligibleProvider, EvidenceStrength, GeneratedExpressionDepth, MutationKind, NullabilityClass,
-    PredicateFamily, QueryShape, RouteFamily, StatementFamily, TIER_C_DISTRIBUTION_FORMAT_VERSION,
-    TierCCoverageDistributionReport, TierCCoverageLabels, TierCDistributionError,
-    TierCExpectedAcceptance, TierCScenarioDeclaration, ValueTypeFamily, WindowBehavior,
-    generated_mutation_tier_c_declaration, generated_select_tier_c_declaration,
+    EligibleProvider, EvidenceStrength, GeneratedExpressionDepth, GeneratedFixtureProperty,
+    MutationKind, NullabilityClass, PredicateFamily, QueryShape, RouteFamily, StatementFamily,
+    TIER_C_DISTRIBUTION_FORMAT_VERSION, TierCCoverageDistributionReport, TierCCoverageLabels,
+    TierCDistributionError, TierCExpectedAcceptance, TierCScenarioDeclaration, ValueTypeFamily,
+    WindowBehavior, generated_mutation_tier_c_declaration, generated_select_tier_c_declaration,
 };
 pub use error::{SqlGeneratorError, SqlGeneratorErrorKind};
 pub use failure::{

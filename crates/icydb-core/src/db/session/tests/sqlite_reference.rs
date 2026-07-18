@@ -43,6 +43,7 @@ pub(super) fn seed_required_sqlite_reference_fixture(session: &DbSession<Session
             age: row.age(),
             rank: row.rank(),
             active: row.age() % 2 == 0,
+            note: None,
         },
         "SQLite reference",
     );
@@ -147,6 +148,39 @@ fn tier_c_generated_complexity_sentinels_match_native_icydb() {
         execute_generated_native_reference_case(&session, &generated).unwrap_or_else(|failure| {
             panic!(
                 "Tier C complexity sentinel mismatch for {} with SQL {:?}: {failure:?}",
+                generated.identity().id(),
+                generated.rendered_sql(),
+            )
+        });
+    }
+}
+
+#[test]
+fn tier_c_generated_fixture_property_sentinels_match_native_icydb() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let snapshot = generated_select_snapshot_from_accepted_authority(&session)
+        .expect("accepted session snapshot should map into generator facts");
+
+    for (family, case_index) in [
+        (SelectGeneratorFamily::Expression, 26),
+        (SelectGeneratorFamily::Distinct, 26),
+        (SelectGeneratorFamily::Window, 26),
+        (SelectGeneratorFamily::Window, 30),
+    ] {
+        reset_session_sql_store();
+        let session = sql_session();
+        let generated = generate_valid_select_case(
+            &snapshot,
+            TIER_C_ROOT_SEEDS[0],
+            family,
+            case_index,
+            TIER_C_SELECT_BUDGETS,
+        )
+        .expect("Tier C fixture-property sentinel should generate");
+        execute_generated_native_reference_case(&session, &generated).unwrap_or_else(|failure| {
+            panic!(
+                "Tier C fixture-property sentinel mismatch for {} with SQL {:?}: {failure:?}",
                 generated.identity().id(),
                 generated.rendered_sql(),
             )
@@ -1078,6 +1112,7 @@ fn seed_generated_select_fixture(
             age: generated_integer_value(row, generated, "age"),
             rank: generated_integer_value(row, generated, "rank"),
             active: generated_boolean_value(row, generated, "active"),
+            note: generated_optional_text_value(row, generated, "note"),
         })?;
     }
 
@@ -1097,6 +1132,21 @@ fn generated_text_value(
         );
     };
     value.clone()
+}
+
+fn generated_optional_text_value(
+    row: &icydb_testing_sql_generator::GeneratedFixtureRow,
+    generated: &GeneratedSelectCase,
+    field: &str,
+) -> Option<String> {
+    match row.value_by_field_name(generated.snapshot(), field) {
+        None | Some(GeneratedValue::Null(SelectValueKind::Text)) => None,
+        Some(GeneratedValue::Text(value)) => Some(value.clone()),
+        _ => panic!(
+            "generated case {:?} should carry nullable text field {field:?}",
+            generated.identity().id(),
+        ),
+    }
 }
 
 fn generated_integer_value(

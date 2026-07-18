@@ -196,6 +196,22 @@ struct ProviderSpec {
 }
 
 ///
+/// GeneratedSelectExclusionAttribution
+///
+/// Maintained deterministic evidence for one schema or value stratum deliberately
+/// excluded from the generated SELECT reference profile.
+/// Owned by the correctness coverage manifest and validated against `PROVIDERS`.
+///
+
+#[derive(Clone, Copy, Debug)]
+struct GeneratedSelectExclusionAttribution {
+    /// Stable identity of the excluded generated-SELECT stratum.
+    stratum: &'static str,
+    /// Deterministic providers that exercise the stratum without claiming generated coverage.
+    deterministic_providers: &'static [&'static str],
+}
+
+///
 /// ContractFeature
 ///
 /// SQL feature declaration parsed from the active contract document.
@@ -997,6 +1013,41 @@ const PROVIDERS: &[ProviderSpec] = &[
         ContractAssertion,
         [Lower]
     ),
+];
+
+const GENERATED_SELECT_EXCLUSION_ATTRIBUTIONS: &[GeneratedSelectExclusionAttribution] = &[
+    GeneratedSelectExclusionAttribution {
+        stratum: "blob_value",
+        deterministic_providers: &[
+            "core.blob.equality",
+            "core.blob.insert_hex",
+            "core.blob.literal_boundary",
+            "core.blob.octet_length",
+            "core.blob.order_rejected",
+            "core.blob.update_hex",
+        ],
+    },
+    GeneratedSelectExclusionAttribution {
+        stratum: "database_default",
+        deterministic_providers: &["core.ddl.alter_default"],
+    },
+    GeneratedSelectExclusionAttribution {
+        stratum: "generated_ulid_exact_key",
+        deterministic_providers: &["core.query.exact_key_execute", "core.query.exact_key_route"],
+    },
+    GeneratedSelectExclusionAttribution {
+        stratum: "nested_field_path_index",
+        deterministic_providers: &["core.ddl.create_field_path"],
+    },
+    GeneratedSelectExclusionAttribution {
+        stratum: "secondary_index",
+        deterministic_providers: &[
+            "core.ddl.create_expression",
+            "core.ddl.create_multi_field",
+            "core.query.explain_route_facts",
+            "core.query.starts_with",
+        ],
+    },
 ];
 
 macro_rules! deterministic_providers {
@@ -2645,6 +2696,19 @@ pub(super) fn sql_coverage_manifest_revision() -> String {
         );
     }
 
+    let mut attributions = GENERATED_SELECT_EXCLUSION_ATTRIBUTIONS
+        .iter()
+        .collect::<Vec<_>>();
+    attributions.sort_by_key(|attribution| attribution.stratum);
+    hash_count(&mut hasher, attributions.len());
+    for attribution in attributions {
+        hash_text(&mut hasher, attribution.stratum);
+        hash_text_list(
+            &mut hasher,
+            attribution.deterministic_providers.iter().copied(),
+        );
+    }
+
     hasher.finalize().to_hex().to_string()
 }
 
@@ -2774,6 +2838,33 @@ fn sql_contract_metadata_and_coverage_manifest_are_consistent() {
         used_providers, declared_providers,
         "deterministic provider registry must not retain unreferenced entries"
     );
+}
+
+#[test]
+fn generated_select_exclusions_are_explicitly_attributed() {
+    let providers = provider_specs().expect("deterministic SQL providers should resolve");
+    let mut strata = BTreeSet::new();
+
+    for attribution in GENERATED_SELECT_EXCLUSION_ATTRIBUTIONS {
+        assert!(
+            strata.insert(attribution.stratum),
+            "generated SELECT exclusion strata must be unique: {:?}",
+            attribution.stratum
+        );
+        assert!(
+            !attribution.deterministic_providers.is_empty(),
+            "generated SELECT exclusion {:?} needs deterministic evidence",
+            attribution.stratum
+        );
+        for provider_id in attribution.deterministic_providers {
+            assert!(
+                providers.contains_key(provider_id),
+                "generated SELECT exclusion {:?} names unknown provider {:?}",
+                attribution.stratum,
+                provider_id
+            );
+        }
+    }
 }
 
 #[test]

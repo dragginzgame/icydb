@@ -24,7 +24,7 @@ pub const TIER_C_EVIDENCE_FORMAT_VERSION: u32 = 1;
 /// The integration manifest gate rederives and golden-vector checks this transport
 /// identity from the authoritative typed coverage cells and provider declarations.
 pub const TIER_C_SQL_COVERAGE_MANIFEST_REVISION: &str =
-    "20b39f2df5c0594be3194885763413b9b68f95c1e74b24c2bbe73f9d8a7b709a";
+    "81c075f6c74ecbad9c00eb1ebf68cb233a97bdcbbfc9302ead08f35000ab9b7c";
 
 /// Largest Tier C shard or merged artifact admitted before JSON decoding.
 pub const TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES: usize = 1_048_576;
