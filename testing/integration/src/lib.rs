@@ -1,5 +1,7 @@
 //! Shared integration harness helpers.
 
+pub mod sql_performance_contract;
+
 use std::{
     env, fs,
     path::{Path, PathBuf},

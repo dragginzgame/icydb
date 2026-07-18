@@ -26,7 +26,7 @@ mod sql_perf_scale_shard;
 
 use std::{
     cmp::Reverse,
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     env,
     fmt::Write as _,
     fs,
@@ -48,6 +48,9 @@ use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildTarget, CanisterWasmProfile,
     build_fixture_canister_wasm_bytes_with_options, install_prebuilt_fixture_canister,
     reset_icydb_fixtures,
+    sql_performance_contract::{
+        SQL_PERFORMANCE_BROAD_CONTRACT_FEATURES, SQL_PERFORMANCE_SCALE_CONTRACT_FEATURES,
+    },
 };
 use serde::{Deserialize, Serialize};
 
@@ -201,7 +204,7 @@ struct ScaleFixtureFacts {
     payload_profile: ScalePayloadProfile,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum MatrixSurface {
     Account,
     Blob,
@@ -947,17 +950,308 @@ fn deterministic_matrix() -> Vec<MatrixScenario> {
         &account_orders(),
         &[1, 3, 10],
     ));
-    scenarios.extend(select_matrix(
+    let mut blob_scenarios = select_matrix(
         MatrixSurface::Blob,
         &blob_projections(),
         &blob_predicates(),
         &blob_orders(),
         &[1, 3, 10],
-    ));
+    );
+    let scale_payload = blob_scenarios
+        .iter_mut()
+        .find(|scenario| scenario.key == "blob.select.payload.bucket_eq.bucket_label_asc.limit10")
+        .expect("reviewed blob scale representative should remain in the P1 matrix");
+    scale_payload.metadata.contract_features = &["blob.read_write_compare", "select.scalar_rows"];
+    scenarios.extend(blob_scenarios);
     scenarios.extend(storage_backend_mirror_matrix());
     scenarios.extend(aggregate_and_metadata_matrix());
+    scenarios.extend(performance_contract_sentinel_matrix());
 
     scenarios
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "the reviewed contract sentinels stay together as one declarative profile"
+)]
+fn performance_contract_sentinel_matrix() -> Vec<MatrixScenario> {
+    vec![
+        scenario(
+            "user.contract.boolean_projection",
+            MatrixSurface::User,
+            "contract.boolean_projection",
+            "SELECT active FROM PerfAuditUser WHERE active = true ORDER BY id ASC LIMIT 3",
+            read_metadata(
+                &[
+                    "naming.single_binding",
+                    "predicate.boolean_comparison",
+                    "projection.scalar",
+                    "select.scalar_rows",
+                    "surface.single_entity",
+                ],
+                QueryShape::Scalar,
+                ValueTypeFamily::Boolean,
+                PredicateFamily::Boolean,
+                WindowSpec::ordered(3, 0, "id ASC"),
+                residual_ordered_route(),
+                true,
+            ),
+        ),
+        scenario(
+            "user.contract.limit_offset",
+            MatrixSurface::User,
+            "contract.limit_offset",
+            "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 3 OFFSET 1",
+            read_metadata(
+                &["pagination.scalar_limit_offset"],
+                QueryShape::Scalar,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::None,
+                WindowSpec::ordered(3, 1, "id ASC"),
+                primary_order_route(false),
+                true,
+            ),
+        ),
+        scenario(
+            "user.contract.grouped_cursor",
+            MatrixSurface::User,
+            "contract.grouped_cursor",
+            "SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age ORDER BY age ASC LIMIT 2",
+            read_metadata(
+                &[
+                    "pagination.grouped_cursor",
+                    "projection.aggregate",
+                    "projection.grouped_layout",
+                    "select.grouped_aggregate",
+                ],
+                QueryShape::Grouped,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::None,
+                WindowSpec::ordered(2, 0, "age ASC"),
+                grouped_materialized_route(),
+                true,
+            ),
+        ),
+        scenario(
+            "user.contract.scalar_distinct",
+            MatrixSurface::User,
+            "contract.scalar_distinct",
+            "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age ASC LIMIT 3",
+            read_metadata(
+                &["select.scalar_distinct"],
+                QueryShape::Scalar,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::None,
+                WindowSpec::ordered(3, 0, "age ASC"),
+                secondary_index_route(),
+                true,
+            ),
+        ),
+        scenario(
+            "user.contract.aggregate_distinct_filter",
+            MatrixSurface::User,
+            "contract.aggregate_distinct_filter",
+            "SELECT COUNT(DISTINCT age), COUNT(*) FILTER (WHERE active = true) FROM PerfAuditUser",
+            read_metadata(
+                &[
+                    "projection.aggregate",
+                    "select.aggregate_distinct_filter",
+                    "select.global_aggregate",
+                ],
+                QueryShape::GlobalAggregate,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::Boolean,
+                WindowSpec::NONE,
+                not_paginated_route(),
+                true,
+            ),
+        ),
+        scenario(
+            "user.contract.null_projection_predicate_order",
+            MatrixSurface::User,
+            "contract.null_projection_predicate_order",
+            "SELECT NULLIF(name, name) AS maybe_name FROM PerfAuditUser WHERE NULLIF(name, name) IS NULL ORDER BY maybe_name ASC, id ASC LIMIT 3",
+            read_metadata_with_nullability(
+                &[
+                    "expression.value_selection",
+                    "ordering.null_values",
+                    "ordering.projection_alias",
+                    "predicate.null",
+                    "projection.aliases",
+                    "select.computed_projection",
+                ],
+                QueryShape::Scalar,
+                ValueTypeFamily::Text,
+                NullabilityClass::Nullable,
+                PredicateFamily::None,
+                WindowSpec::ordered(3, 0, "maybe_name ASC, id ASC"),
+                materialized_sort_route(),
+                true,
+            ),
+        ),
+        scenario(
+            "user.contract.exact_primary_key",
+            MatrixSurface::User,
+            "contract.exact_primary_key",
+            "SELECT id, name FROM PerfAuditUser WHERE id = 1",
+            read_metadata(
+                &["select.exact_primary_key"],
+                QueryShape::Scalar,
+                ValueTypeFamily::Mixed,
+                PredicateFamily::PrimaryKey,
+                WindowSpec::NONE,
+                not_paginated_route(),
+                true,
+            ),
+        ),
+        scenario(
+            "user.contract.computed_projection",
+            MatrixSurface::User,
+            "contract.computed_projection",
+            "SELECT ABS(age - rank) AS gap, LOWER(name) AS lower_name, CASE WHEN active THEN age ELSE rank END AS chosen FROM PerfAuditUser ORDER BY lower_name ASC, id ASC LIMIT 3",
+            read_metadata(
+                &[
+                    "expression.numeric_functions",
+                    "expression.searched_case",
+                    "expression.text_functions",
+                    "expression.value_selection",
+                    "ordering.projection_alias",
+                    "projection.aliases",
+                    "select.computed_projection",
+                ],
+                QueryShape::Scalar,
+                ValueTypeFamily::Mixed,
+                PredicateFamily::None,
+                WindowSpec::ordered(3, 0, "lower_name ASC, id ASC"),
+                materialized_sort_route(),
+                true,
+            ),
+        ),
+        scenario(
+            "user.contract.grouped_field_comparison",
+            MatrixSurface::User,
+            "contract.grouped_field_comparison",
+            "SELECT age, COUNT(*) FROM PerfAuditUser WHERE age > rank GROUP BY age HAVING COUNT(*) > 0 ORDER BY age ASC LIMIT 3",
+            read_metadata(
+                &[
+                    "having.grouped_aggregate",
+                    "predicate.field_comparison",
+                    "predicate.grouped_where_field_comparison",
+                ],
+                QueryShape::Grouped,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::FieldComparison,
+                WindowSpec::ordered(3, 0, "age ASC"),
+                grouped_materialized_route(),
+                true,
+            ),
+        ),
+        scenario(
+            "user.contract.membership_range",
+            MatrixSurface::User,
+            "contract.membership_range",
+            "SELECT id, age FROM PerfAuditUser WHERE age IN (24, 31, 43) AND age BETWEEN 20 AND 50 ORDER BY id ASC LIMIT 3",
+            read_metadata(
+                &["predicate.membership", "predicate.range"],
+                QueryShape::Scalar,
+                ValueTypeFamily::Mixed,
+                PredicateFamily::Compound,
+                WindowSpec::ordered(3, 0, "id ASC"),
+                residual_ordered_route(),
+                true,
+            ),
+        ),
+        scenario(
+            "user.contract.prefix",
+            MatrixSurface::User,
+            "contract.prefix",
+            "SELECT id, name FROM PerfAuditUser WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 3",
+            read_metadata(
+                &["predicate.prefix_pattern"],
+                QueryShape::Scalar,
+                ValueTypeFamily::Mixed,
+                PredicateFamily::Prefix,
+                WindowSpec::ordered(3, 0, "name ASC, id ASC"),
+                secondary_index_route(),
+                true,
+            ),
+        ),
+        scenario(
+            "user.contract.casefold_prefix",
+            MatrixSurface::User,
+            "contract.casefold_prefix",
+            "SELECT id, name FROM PerfAuditUser WHERE LOWER(name) LIKE 'a%' ORDER BY LOWER(name) ASC, id ASC LIMIT 3",
+            read_metadata(
+                &["predicate.casefold_prefix"],
+                QueryShape::Scalar,
+                ValueTypeFamily::Mixed,
+                PredicateFamily::CasefoldPrefix,
+                WindowSpec::ordered(3, 0, "LOWER(name) ASC, id ASC"),
+                secondary_index_route(),
+                true,
+            ),
+        ),
+        scenario(
+            "user.contract.starts_with_expression_arguments",
+            MatrixSurface::User,
+            "contract.starts_with_expression_arguments",
+            "SELECT id, name FROM PerfAuditUser WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al')) ORDER BY id ASC LIMIT 3",
+            read_metadata(
+                &["predicate.expression_arguments", "predicate.starts_with"],
+                QueryShape::Scalar,
+                ValueTypeFamily::Mixed,
+                PredicateFamily::Prefix,
+                WindowSpec::ordered(3, 0, "id ASC"),
+                residual_ordered_route(),
+                true,
+            ),
+        ),
+        scenario(
+            "user.contract.field_bound_range",
+            MatrixSurface::User,
+            "contract.field_bound_range",
+            "SELECT id, rank FROM PerfAuditUser WHERE rank BETWEEN age AND age ORDER BY id ASC LIMIT 3",
+            read_metadata(
+                &["predicate.field_bound_range"],
+                QueryShape::Scalar,
+                ValueTypeFamily::Mixed,
+                PredicateFamily::Range,
+                WindowSpec::ordered(3, 0, "id ASC"),
+                residual_ordered_route(),
+                true,
+            ),
+        ),
+        scenario(
+            "user.contract.boolean_truth",
+            MatrixSurface::User,
+            "contract.boolean_truth",
+            "SELECT id, active FROM PerfAuditUser WHERE active IS TRUE ORDER BY id ASC LIMIT 3",
+            read_metadata(
+                &["predicate.boolean_truth"],
+                QueryShape::Scalar,
+                ValueTypeFamily::Mixed,
+                PredicateFamily::Boolean,
+                WindowSpec::ordered(3, 0, "id ASC"),
+                residual_ordered_route(),
+                true,
+            ),
+        ),
+        scenario(
+            "user.contract.global_having",
+            MatrixSurface::User,
+            "contract.global_having",
+            "SELECT COUNT(*) AS total FROM PerfAuditUser HAVING total > 0",
+            read_metadata(
+                &["having.global_aggregate"],
+                QueryShape::GlobalAggregate,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::None,
+                WindowSpec::NONE,
+                not_paginated_route(),
+                true,
+            ),
+        ),
+    ]
 }
 
 const TOKEN_TARGET_COLLECTION: &str = "01KV5N439P0000000000000000";
@@ -1358,6 +1652,32 @@ const fn read_metadata(
     route: RouteExpectation,
     sqlite_eligible: bool,
 ) -> ScenarioMetadata {
+    read_metadata_with_nullability(
+        contract_features,
+        shape,
+        value_type,
+        NullabilityClass::NonNullable,
+        predicate,
+        window,
+        route,
+        sqlite_eligible,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each argument is one required typed scenario dimension"
+)]
+const fn read_metadata_with_nullability(
+    contract_features: &'static [&'static str],
+    shape: QueryShape,
+    value_type: ValueTypeFamily,
+    nullability: NullabilityClass,
+    predicate: PredicateFamily,
+    window: WindowSpec,
+    route: RouteExpectation,
+    sqlite_eligible: bool,
+) -> ScenarioMetadata {
     ScenarioMetadata {
         contract_features,
         provider_id: if sqlite_eligible {
@@ -1378,7 +1698,7 @@ const fn read_metadata(
         statement: StatementFamily::Select,
         shape,
         value_type,
-        nullability: NullabilityClass::NonNullable,
+        nullability,
         predicate,
         window,
         mutation: MutationKind::None,
@@ -1418,6 +1738,13 @@ const fn not_paginated_route() -> RouteExpectation {
         RouteOutcome::UnchangedOrNotApplicable,
         RouteReason::NotAPaginatedSelect,
     ))
+}
+
+const fn primary_order_route(residual_filter: bool) -> RouteExpectation {
+    RouteExpectation::PrimaryOrder {
+        candidate_reason: RouteReason::PrimaryOrderCandidate,
+        residual_filter,
+    }
 }
 
 const fn grouped_materialized_route() -> RouteExpectation {
@@ -4521,6 +4848,214 @@ fn sql_perf_deterministic_matrix_has_stable_shape() {
             "generated scenario '{}' should use supported SQL syntax",
             scenario.key,
         );
+    }
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one test owns the exact required performance-profile vocabulary"
+)]
+fn sql_perf_profile_covers_every_required_contract_and_semantic_stratum() {
+    let deterministic = deterministic_matrix();
+    SQL_PERFORMANCE_PROFILE
+        .validate_scenario_set(deterministic.iter().map(|scenario| scenario.key.as_str()))
+        .expect("required performance coverage must consume the exact pinned P1 profile");
+
+    let required_broad = SQL_PERFORMANCE_BROAD_CONTRACT_FEATURES
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    let observed_broad = deterministic
+        .iter()
+        .flat_map(|scenario| scenario.metadata.contract_features.iter().copied())
+        .filter(|feature| required_broad.contains(feature))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        observed_broad, required_broad,
+        "the exact P1 profile must declare every broad performance contract feature",
+    );
+
+    let scale = scale_scenario_declarations(SQL_PERFORMANCE_PROFILE, &deterministic)
+        .expect("the exact P1 profile should materialize every reviewed scale declaration");
+    let required_scale = SQL_PERFORMANCE_SCALE_CONTRACT_FEATURES
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    let observed_scale = scale
+        .iter()
+        .flat_map(|declaration| {
+            declaration
+                .scenario
+                .metadata
+                .contract_features
+                .iter()
+                .copied()
+        })
+        .filter(|feature| required_scale.contains(feature))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        observed_scale, required_scale,
+        "the exact scale profile must declare every scale performance contract feature",
+    );
+
+    assert_eq!(
+        deterministic
+            .iter()
+            .map(|scenario| scenario.surface)
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([
+            MatrixSurface::Account,
+            MatrixSurface::Blob,
+            MatrixSurface::HeapUser,
+            MatrixSurface::JournaledUser,
+            MatrixSurface::Token,
+            MatrixSurface::User,
+        ]),
+        "the P1 profile must retain every reviewed storage and fixture surface",
+    );
+    assert_eq!(
+        deterministic
+            .iter()
+            .map(|scenario| scenario.metadata.statement)
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([
+            StatementFamily::Describe,
+            StatementFamily::Explain,
+            StatementFamily::Select,
+            StatementFamily::Show,
+        ]),
+        "the query profile must retain every reviewed read and metadata statement family",
+    );
+    assert_eq!(
+        deterministic
+            .iter()
+            .map(|scenario| scenario.metadata.shape)
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([
+            QueryShape::GlobalAggregate,
+            QueryShape::Grouped,
+            QueryShape::Metadata,
+            QueryShape::Scalar,
+        ]),
+        "the P1 profile must retain scalar, aggregate, grouped, and metadata shapes",
+    );
+    assert_eq!(
+        deterministic
+            .iter()
+            .map(|scenario| scenario.metadata.value_type)
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([
+            ValueTypeFamily::Blob,
+            ValueTypeFamily::Boolean,
+            ValueTypeFamily::Catalog,
+            ValueTypeFamily::Mixed,
+            ValueTypeFamily::Numeric,
+            ValueTypeFamily::Text,
+        ]),
+        "the P1 profile must retain every maintained query value family",
+    );
+    assert_eq!(
+        deterministic
+            .iter()
+            .map(|scenario| scenario.metadata.nullability)
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([
+            NullabilityClass::NotApplicable,
+            NullabilityClass::NonNullable,
+            NullabilityClass::Nullable,
+        ]),
+        "the P1 profile must retain nullable and non-null query evidence",
+    );
+    assert_eq!(
+        deterministic
+            .iter()
+            .map(|scenario| scenario.metadata.predicate)
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([
+            PredicateFamily::Boolean,
+            PredicateFamily::CasefoldPrefix,
+            PredicateFamily::Compound,
+            PredicateFamily::FieldComparison,
+            PredicateFamily::Membership,
+            PredicateFamily::None,
+            PredicateFamily::Prefix,
+            PredicateFamily::PrimaryKey,
+            PredicateFamily::Range,
+            PredicateFamily::SparseMembership,
+        ]),
+        "the P1 profile must retain every maintained query predicate family",
+    );
+    assert_eq!(
+        deterministic
+            .iter()
+            .map(|scenario| scenario.metadata.route.family())
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([
+            RouteFamily::EqualityPrefixOrderedSuffix,
+            RouteFamily::IncompatibleFilterFirstOrder,
+            RouteFamily::MaterializedOrder,
+            RouteFamily::NotOrderedOrNotPaginated,
+            RouteFamily::PrimaryOrder,
+            RouteFamily::ResidualFilterOrderedScan,
+            RouteFamily::SecondaryOrder,
+            RouteFamily::UnsupportedAccessKind,
+        ]),
+        "the P1 profile must retain every maintained query route family",
+    );
+
+    let ids = deterministic
+        .iter()
+        .map(|scenario| scenario.key.as_str())
+        .collect::<BTreeSet<_>>();
+    for required in [
+        "blob.select.payload.bucket_eq.bucket_label_asc.limit10",
+        "heap_user.select.full_entity.all.age_asc.limit10",
+        "journaled_user.select.full_entity.all.age_asc.limit10",
+        "token.collection_stage_id.branch_set.covering_page_only.limit50",
+        "token.collection_stage_id.branch_set.index_residual_covering.limit3",
+        "user.aggregate.group_age_count",
+        "user.aggregate.sum_age",
+        "user.contract.boolean_projection",
+        "user.contract.computed_projection",
+        "user.select.pk.active_true.pk_desc.limit10",
+        "user.select.pk.age_range.age_asc.limit10",
+        "user.select.pk.all.pk_asc.limit1",
+    ] {
+        assert!(
+            ids.contains(required),
+            "the P1 profile lost required semantic representative {required:?}",
+        );
+    }
+
+    assert!(
+        deterministic
+            .iter()
+            .any(|scenario| scenario.metadata.statement == StatementFamily::Select),
+        "the profile needs cacheable SELECT evidence",
+    );
+    assert!(
+        deterministic
+            .iter()
+            .any(|scenario| scenario.metadata.statement != StatementFamily::Select),
+        "the profile needs typed non-cacheable statement evidence",
+    );
+}
+
+#[test]
+#[ignore = "focused PocketIC execution of the reviewed performance-contract sentinels"]
+fn sql_perf_contract_sentinels_execute_through_current_query_path() {
+    let wasm = read_matrix_canister_wasm();
+    let fixture = install_prebuilt_fixture_canister("sql_perf", wasm);
+    reset_icydb_fixtures(&fixture);
+
+    for scenario in performance_contract_sentinel_matrix() {
+        sample_scenario(&fixture, &scenario).unwrap_or_else(|failure| {
+            panic!(
+                "performance contract sentinel {:?} failed: {failure:?}",
+                scenario.key
+            )
+        });
     }
 }
 

@@ -4,6 +4,9 @@
 //! Boundary: validates manifest entries against `SQL_SUBSET.md` and repository test providers.
 
 use crate::sql_harness::{EligibleProvider, EvidenceClass, EvidenceStrength};
+use icydb_testing_integration::sql_performance_contract::{
+    SQL_PERFORMANCE_BROAD_CONTRACT_FEATURES, SQL_PERFORMANCE_SCALE_CONTRACT_FEATURES,
+};
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -1666,7 +1669,7 @@ const MANIFEST: &[CoverageCell] = &[
         "Public SQL Mutation Execution",
         Statement,
         REQ_STATE,
-        PERF_BROAD,
+        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.mutation.public_families"],
         None
@@ -1678,7 +1681,7 @@ const MANIFEST: &[CoverageCell] = &[
         "Public SQL Mutation Execution",
         Statement,
         REQ_STATE,
-        PERF_BROAD,
+        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.mutation.public_families"],
         None
@@ -1690,7 +1693,7 @@ const MANIFEST: &[CoverageCell] = &[
         "Public SQL Mutation Execution",
         Statement,
         REQ_STATE,
-        PERF_BROAD,
+        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.mutation.public_families"],
         None
@@ -1702,7 +1705,7 @@ const MANIFEST: &[CoverageCell] = &[
         "Public SQL Mutation Execution",
         Clause,
         REQ_EXECUTE,
-        PERF_BROAD,
+        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.mutation.returning_star"],
         None
@@ -1726,7 +1729,7 @@ const MANIFEST: &[CoverageCell] = &[
         "SQL `UPDATE` Availability By Surface",
         Policy,
         REQ_EXECUTE,
-        PERF_BROAD,
+        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.mutation.public_families"],
         None
@@ -1801,7 +1804,7 @@ const MANIFEST: &[CoverageCell] = &[
         "SQL `UPDATE` Availability By Surface",
         Interaction,
         REQ_STATE,
-        PERF_BROAD,
+        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.mutation.trusted_update_window"],
         None
@@ -1813,7 +1816,7 @@ const MANIFEST: &[CoverageCell] = &[
         "Blob Literals and Blob Values",
         ValueType,
         REQ_STATE,
-        PERF_SCALE,
+        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.blob.insert_hex"],
         None
@@ -1825,7 +1828,7 @@ const MANIFEST: &[CoverageCell] = &[
         "Blob Literals and Blob Values",
         Policy,
         REQ_BOUNDARY,
-        PERF_SCALE,
+        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.blob.literal_boundary"],
         NO_EXTERNAL_BLOB_LIMIT
@@ -2218,7 +2221,7 @@ const MANIFEST: &[CoverageCell] = &[
         "Public SQL Write `RETURNING`",
         Clause,
         REQ_STATE,
-        PERF_BROAD,
+        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.mutation.returning_star"],
         None
@@ -2230,7 +2233,7 @@ const MANIFEST: &[CoverageCell] = &[
         "Public SQL Write `RETURNING`",
         Clause,
         REQ_STATE,
-        PERF_BROAD,
+        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.mutation.returning_fields"],
         None
@@ -2813,6 +2816,37 @@ fn sql_contract_metadata_and_coverage_manifest_are_consistent() {
     assert_eq!(
         profile_features, reference_manifest_features,
         "the compact SQLite profile and manifest reference obligations must form an exact bijection",
+    );
+
+    let broad_performance_features = MANIFEST
+        .iter()
+        .filter(|cell| cell.performance.contains(&PerformanceObligation::BroadScan))
+        .map(|cell| cell.id)
+        .collect::<BTreeSet<_>>();
+    let required_broad_performance_features = SQL_PERFORMANCE_BROAD_CONTRACT_FEATURES
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        broad_performance_features, required_broad_performance_features,
+        "manifest broad-scan dispositions must match the shared query-performance contract",
+    );
+
+    let scale_performance_features = MANIFEST
+        .iter()
+        .filter(|cell| {
+            cell.performance
+                .contains(&PerformanceObligation::ScaleSentinel)
+        })
+        .map(|cell| cell.id)
+        .collect::<BTreeSet<_>>();
+    let required_scale_performance_features = SQL_PERFORMANCE_SCALE_CONTRACT_FEATURES
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        scale_performance_features, required_scale_performance_features,
+        "manifest scale dispositions must match the shared query-performance contract",
     );
 
     for (id, contract_feature) in &contract_features {
