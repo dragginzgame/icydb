@@ -77,8 +77,8 @@ impl CalibrationRunArtifacts {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum CalibrationHotspotDisposition {
-    /// The current profile already retains the recurring scenario as focused evidence.
-    AlreadyFocused,
+    /// The current profile already retains the recurring scenario as required evidence.
+    AlreadyRetained,
 
     /// A reviewer must decide whether to add the recurring scenario to the focused set.
     RequiresPromotionReview,
@@ -675,6 +675,7 @@ fn recurring_hotspots(
         .focused_hotspot_scenario_ids()
         .iter()
         .chain(profile.regression_sentinel_scenario_ids())
+        .chain(profile.contract_sentinel_scenario_ids())
         .copied()
         .collect::<BTreeSet<_>>();
     let mut evidence = BTreeMap::<String, Vec<CalibrationHotspotRun>>::new();
@@ -708,7 +709,7 @@ fn recurring_hotspots(
         .filter_map(|(scenario_id, runs)| {
             (runs.len() >= 2).then(|| CalibrationRecurringHotspot {
                 disposition: if focused.contains(scenario_id.as_str()) {
-                    CalibrationHotspotDisposition::AlreadyFocused
+                    CalibrationHotspotDisposition::AlreadyRetained
                 } else {
                     CalibrationHotspotDisposition::RequiresPromotionReview
                 },
@@ -727,6 +728,7 @@ fn calibration_sentinel_ids(
         .focused_hotspot_scenario_ids()
         .iter()
         .chain(profile.regression_sentinel_scenario_ids())
+        .chain(profile.contract_sentinel_scenario_ids())
         .map(|scenario_id| (*scenario_id).to_string())
         .chain(recurring.iter().map(|hotspot| hotspot.scenario_id.clone()))
         .collect()
@@ -740,6 +742,7 @@ fn validate_required_sentinels(
         .focused_hotspot_scenario_ids()
         .iter()
         .chain(profile.regression_sentinel_scenario_ids())
+        .chain(profile.contract_sentinel_scenario_ids())
     {
         for (index, artifacts) in runs.iter().enumerate() {
             if !artifacts
@@ -1388,14 +1391,14 @@ mod tests {
         assert!(!review.recurring_hotspots.is_empty());
         assert!(review.unresolved_promotion_count() > 0);
         assert!(review.recurring_hotspots.iter().any(|hotspot| {
-            hotspot.disposition == CalibrationHotspotDisposition::AlreadyFocused
+            hotspot.disposition == CalibrationHotspotDisposition::AlreadyRetained
                 && SQL_PERFORMANCE_PROFILE
                     .regression_sentinel_scenario_ids()
                     .contains(&hotspot.scenario_id.as_str())
         }));
         assert!(review.p2_envelope_count() > 0);
-        assert_eq!(review.scale_totals.len(), 51);
-        assert_eq!(review.scale_slopes.len(), 34);
+        assert_eq!(review.scale_totals.len(), 72);
+        assert_eq!(review.scale_slopes.len(), 48);
         assert_eq!(review.instrumentation.observations.len(), 3);
 
         let path = std::env::temp_dir().join(format!(

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Extends the 0.205 closeout contract with mandatory cold/warm grouped P2
+  sentinels and few-/many-group scale controls for page boundaries, `HAVING`,
+  `COUNT(*)`, and hash-only DISTINCT, with fail-closed merge checks for grouped
+  semantic or live-state drift and no production query behavior change.
+
 ## [0.205.x] 🔧 - 2026-07-19 - Grouped Early Finalization
 
 Detailed notes: [docs/changelog/0.205.md](docs/changelog/0.205.md)

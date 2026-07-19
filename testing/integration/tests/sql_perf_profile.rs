@@ -9,6 +9,7 @@ use std::{
     fmt::{self, Display},
 };
 
+use icydb_testing_integration::sql_performance_contract::SQL_GROUPED_EARLY_FINALIZATION_P2_SCENARIOS;
 use icydb_testing_sql_generator::{
     SQL_SCHEDULED_SHARD_COUNT, ScenarioShardError, scheduled_sql_scenario_shard,
 };
@@ -18,16 +19,16 @@ use crate::sql_perf_regression_sentinels::REGRESSION_SENTINEL_SCENARIO_IDS;
 /// Current checked-in SQL performance profile version.
 pub(crate) const SQL_PERFORMANCE_PROFILE_VERSION: u32 = 1;
 
-const EXPECTED_SCENARIO_COUNT: usize = 1_781;
+const EXPECTED_SCENARIO_COUNT: usize = 1_787;
 const EXPECTED_SCENARIO_SET_HASH: &str =
-    "6db69e2ce853ff085b5136b14b152539629c4ccea7a3b59a5b8a017041eb9360";
-const EXPECTED_SCALE_SCENARIO_COUNT: usize = 51;
+    "a6823a84aa768257b2dc27d166e79c20260c5629eb33c70f590d308c64a1f80b";
+const EXPECTED_SCALE_SCENARIO_COUNT: usize = 72;
 const EXPECTED_SCALE_SCENARIO_SET_HASH: &str =
-    "7dce0427236b8c45ebcaef7c57dc593de51ed829750f4d216c92162e6847600f";
-const EXPECTED_SCALE_SHARD_COUNTS: &[usize] = &[6, 8, 5, 9, 3, 5, 5, 10];
+    "afa7c342801019da5b1f36674fd7cc4997332822b39f15eac5bf4633381b9ca0";
+const EXPECTED_SCALE_SHARD_COUNTS: &[usize] = &[8, 11, 10, 11, 6, 7, 8, 11];
 const PERFORMANCE_SHARD_COUNT: u8 = SQL_SCHEDULED_SHARD_COUNT;
 const SCALE_ROW_CARDINALITIES: &[u32] = &[16, 256, 2_048];
-const RESULT_WINDOW_SIZES: &[u32] = &[1, 10, 50];
+const RESULT_WINDOW_SIZES: &[u32] = &[1, 10, 16, 50, 100];
 const FOCUSED_HOTSPOT_SCENARIO_IDS: &[&str] = &[
     "token.collection_id.sparse_in.count",
     "token.collection_id.sparse_in.page_only.limit50",
@@ -116,6 +117,7 @@ pub(crate) struct PerformanceProfile {
     scale_row_cardinalities: &'static [u32],
     result_window_sizes: &'static [u32],
     focused_hotspot_scenario_ids: &'static [&'static str],
+    contract_sentinel_scenario_ids: &'static [&'static str],
     regression_sentinel_scenario_ids: &'static [&'static str],
     shard_count: u8,
     max_artifact_bytes: usize,
@@ -192,6 +194,11 @@ impl PerformanceProfile {
     /// Borrow the checked-in focused P2 hotspot scenario identities.
     pub(crate) const fn focused_hotspot_scenario_ids(self) -> &'static [&'static str] {
         self.focused_hotspot_scenario_ids
+    }
+
+    /// Borrow scenarios required for repeated 0.205 grouped-contract evidence.
+    pub(crate) const fn contract_sentinel_scenario_ids(self) -> &'static [&'static str] {
+        self.contract_sentinel_scenario_ids
     }
 
     /// Borrow the checked-in P2 regression-sentinel scenario identities.
@@ -292,6 +299,11 @@ impl PerformanceProfile {
             self.regression_sentinel_scenario_ids,
             self.focused_hotspot_scenario_ids,
         )?;
+        validate_contract_sentinels(
+            self.contract_sentinel_scenario_ids(),
+            self.regression_sentinel_scenario_ids,
+            self.focused_hotspot_scenario_ids,
+        )?;
         if !self.broad_scan_requires_full_enumeration
             || self.confirmation_top_n_per_metric != 20
             || self.confirmation_scenario_cap != 512
@@ -303,6 +315,7 @@ impl PerformanceProfile {
             || self.scale_row_cardinalities != SCALE_ROW_CARDINALITIES
             || self.result_window_sizes != RESULT_WINDOW_SIZES
             || self.focused_hotspot_scenario_ids != FOCUSED_HOTSPOT_SCENARIO_IDS
+            || self.contract_sentinel_scenario_ids != SQL_GROUPED_EARLY_FINALIZATION_P2_SCENARIOS
             || self.regression_sentinel_scenario_ids != REGRESSION_SENTINEL_SCENARIO_IDS
             || self.shard_count != PERFORMANCE_SHARD_COUNT
             || self.max_artifact_bytes != 128 * 1024 * 1024
@@ -408,6 +421,26 @@ fn validate_regression_sentinels(
     Ok(())
 }
 
+/// Validate required contract sentinels independently from hotspot policy.
+fn validate_contract_sentinels(
+    contract_sentinels: &[&str],
+    regression_sentinels: &[&str],
+    focused_hotspots: &[&str],
+) -> Result<(), PerformanceProfileError> {
+    let unique = contract_sentinels.iter().copied().collect::<BTreeSet<_>>();
+    if unique.len() != contract_sentinels.len()
+        || contract_sentinels.iter().any(|candidate| {
+            regression_sentinels.contains(candidate) || focused_hotspots.contains(candidate)
+        })
+    {
+        return Err(PerformanceProfileError::InvalidContract(
+            "contract sentinels must be unique and disjoint from hotspot policy",
+        ));
+    }
+
+    Ok(())
+}
+
 /// Current SQL performance discovery and confirmation profile.
 pub(crate) const SQL_PERFORMANCE_PROFILE: PerformanceProfile = PerformanceProfile {
     version: SQL_PERFORMANCE_PROFILE_VERSION,
@@ -424,6 +457,7 @@ pub(crate) const SQL_PERFORMANCE_PROFILE: PerformanceProfile = PerformanceProfil
     scale_row_cardinalities: SCALE_ROW_CARDINALITIES,
     result_window_sizes: RESULT_WINDOW_SIZES,
     focused_hotspot_scenario_ids: FOCUSED_HOTSPOT_SCENARIO_IDS,
+    contract_sentinel_scenario_ids: SQL_GROUPED_EARLY_FINALIZATION_P2_SCENARIOS,
     regression_sentinel_scenario_ids: REGRESSION_SENTINEL_SCENARIO_IDS,
     shard_count: PERFORMANCE_SHARD_COUNT,
     max_artifact_bytes: 128 * 1024 * 1024,
@@ -572,7 +606,7 @@ mod tests {
         let slope = PerformanceProfile::scale_slope_regression_threshold();
 
         assert_eq!(profile.version(), SQL_PERFORMANCE_PROFILE_VERSION);
-        assert_eq!(profile.expected_scenario_count(), 1_781);
+        assert_eq!(profile.expected_scenario_count(), 1_787);
         assert_eq!(
             profile.expected_scenario_set_hash(),
             EXPECTED_SCENARIO_SET_HASH
@@ -583,9 +617,10 @@ mod tests {
         assert_eq!(profile.cold_samples_per_confirmation(), 5);
         assert_eq!(profile.warm_samples_per_confirmation(), 5);
         assert_eq!(profile.scale_row_cardinalities(), &[16, 256, 2_048]);
-        assert_eq!(profile.result_window_sizes(), &[1, 10, 50]);
+        assert_eq!(profile.result_window_sizes(), &[1, 10, 16, 50, 100]);
         assert_eq!(profile.focused_hotspot_scenario_ids().len(), 15);
         assert_eq!(profile.regression_sentinel_scenario_ids().len(), 351);
+        assert_eq!(profile.contract_sentinel_scenario_ids().len(), 10);
         assert_eq!(
             scenario_set_hash(profile.regression_sentinel_scenario_ids().iter().copied(),)
                 .expect("reviewed regression sentinels should hash"),

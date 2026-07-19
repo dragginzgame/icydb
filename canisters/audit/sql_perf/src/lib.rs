@@ -3191,6 +3191,8 @@ fn scale_journaled_user_fixture_facts(
 
 #[cfg(feature = "sql")]
 fn perf_scale_users(row_count: i32) -> Vec<PerfAuditUser> {
+    const MANY_GROUP_COUNT: i32 = 100;
+
     let quarter_rows = row_count / 4;
     let grouped_age_rows = quarter_rows / 4;
     (1..=row_count)
@@ -3209,7 +3211,7 @@ fn perf_scale_users(row_count: i32) -> Vec<PerfAuditUser> {
             };
             PerfAuditUser {
                 id,
-                name: format!("scale-user-{id:04}"),
+                name: format!("scale-group-{:03}", ((id - 1) % MANY_GROUP_COUNT) + 1),
                 age,
                 age_nat: if quarter_match { 31 } else { 43 },
                 rank: age - 2,

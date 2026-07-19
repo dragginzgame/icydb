@@ -1315,6 +1315,12 @@ pub(crate) mod tests {
                 .or_default()
                 .insert(P2CandidateReason::RegressionSentinel);
         }
+        for scenario_id in SQL_PERFORMANCE_PROFILE.contract_sentinel_scenario_ids() {
+            reasons
+                .entry((*scenario_id).to_string())
+                .or_default()
+                .insert(P2CandidateReason::ContractSentinel);
+        }
         let candidates = reasons
             .into_iter()
             .map(|(scenario_id, reasons)| P2Candidate {

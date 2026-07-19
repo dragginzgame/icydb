@@ -15,7 +15,7 @@ use crate::{
     sql_perf_scale::{
         AdjacentScaleSlope, ScaleEvidenceError, ScaleNormalizedObservation, ScaleObservation,
         ScaleProfileError, ScaleScenarioDeclaration, adjacent_scale_slopes, scale_normalized_costs,
-        scale_scenario_declarations, validate_scale_observation,
+        scale_scenario_declarations, validate_grouped_scale_pairs, validate_scale_observation,
     },
 };
 
@@ -501,6 +501,8 @@ fn validate_merged_scale_observations(
             ));
         }
     }
+    validate_grouped_scale_pairs(declarations, &report.observations)
+        .map_err(ScaleShardError::InvalidScaleEvidence)?;
 
     Ok(())
 }
@@ -1147,7 +1149,10 @@ pub(crate) mod tests {
         MatrixOutcome, MatrixSample, QueryShape, deterministic_matrix,
         fill_matrix_phase_reconciliation,
         sql_perf_profile::SQL_PERFORMANCE_PROFILE,
-        sql_perf_scale::{ScaleEvidenceError, ScaleSelectivity, build_scale_observation},
+        sql_perf_scale::{
+            GroupedScaleStateExpectation, ScaleEvidenceError, ScaleSelectivity,
+            build_scale_observation,
+        },
     };
 
     use super::*;
@@ -1190,6 +1195,20 @@ pub(crate) mod tests {
             },
             ..MatrixSample::default()
         };
+        if let Some(grouped) = declaration.spec.grouped {
+            sample.grouped_groups_observed = 2;
+            sample.grouped_groups_finalized = 2;
+            sample.grouped_peak_live_groups = match grouped.state {
+                GroupedScaleStateExpectation::SingleActiveGroup => 1,
+                GroupedScaleStateExpectation::RetainedGroupTable => 2,
+            };
+            sample.grouped_peak_live_aggregate_states = sample.grouped_peak_live_groups;
+            sample.result_signature = Some(format!(
+                "grouped|{}|{}",
+                grouped.pair_id.unwrap_or(declaration.spec.sentinel_id),
+                declaration.fixture_rows,
+            ));
+        }
         fill_matrix_phase_reconciliation(&mut sample);
 
         build_scale_observation(declaration, facts, sample)
@@ -1251,7 +1270,7 @@ pub(crate) mod tests {
             hash,
             SQL_PERFORMANCE_PROFILE.expected_scale_scenario_set_hash(),
         );
-        assert_eq!(declarations.len(), 51);
+        assert_eq!(declarations.len(), 72);
         let mut counts = vec![0_usize; usize::from(SQL_PERFORMANCE_PROFILE.shard_count())];
         for declaration in declarations {
             let shard_index = SQL_PERFORMANCE_PROFILE
@@ -1299,6 +1318,54 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn grouped_scale_pairs_reject_semantic_and_live_state_drift() {
+        let (p1_scenarios, mut semantic_drift) = complete_report();
+        let semantic = semantic_drift
+            .observations
+            .iter_mut()
+            .find(|observation| {
+                observation.sentinel_id == "user.grouped_hash.few_groups.sum.window1"
+                    && observation.fixture.fixture_rows == 16
+            })
+            .expect("grouped hash scale control should exist");
+        semantic.sample.result_signature = Some("grouped|drift".to_string());
+        assert!(matches!(
+            validate_merged_scale_report(
+                SQL_PERFORMANCE_PROFILE,
+                "wasm-release",
+                &p1_scenarios,
+                &semantic_drift,
+            ),
+            Err(ScaleShardError::InvalidScaleEvidence(
+                ScaleEvidenceError::GroupedPairDrift { .. }
+            ))
+        ));
+
+        let (p1_scenarios, mut state_drift) = complete_report();
+        let state = state_drift
+            .observations
+            .iter_mut()
+            .find(|observation| {
+                observation.sentinel_id == "user.grouped_ordered.few_groups.sum.window1"
+                    && observation.fixture.fixture_rows == 16
+            })
+            .expect("grouped ordered scale case should exist");
+        state.sample.grouped_peak_live_groups = 2;
+        assert!(matches!(
+            validate_merged_scale_report(
+                SQL_PERFORMANCE_PROFILE,
+                "wasm-release",
+                &p1_scenarios,
+                &state_drift,
+            ),
+            Err(ScaleShardError::InvalidObservation {
+                source: ScaleEvidenceError::GroupedStateDrift { .. },
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn scale_merge_requires_all_shards_and_derives_complete_slopes() {
         let (p1_scenarios, reports) = complete_reports();
         let merged = merge_scale_shard_reports(
@@ -1310,9 +1377,9 @@ pub(crate) mod tests {
         .expect("all exact scale shards should merge");
 
         assert_eq!(merged.receipts.len(), 8);
-        assert_eq!(merged.observations.len(), 51);
-        assert_eq!(merged.slopes.len(), 34);
-        assert!(merged.normalized_costs.len() >= 51);
+        assert_eq!(merged.observations.len(), 72);
+        assert_eq!(merged.slopes.len(), 48);
+        assert!(merged.normalized_costs.len() >= 72);
         assert!(merged.p2_representatives.iter().any(|representative| {
             representative.stratum == "route/equality_prefix_ordered_suffix"
         }));

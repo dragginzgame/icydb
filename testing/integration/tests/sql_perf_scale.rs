@@ -79,6 +79,33 @@ pub(crate) const NORMALIZED_DENOMINATORS: &[NormalizedDenominator] = &[
     NormalizedDenominator::OutputByte,
 ];
 
+/// Expected grouped live-state shape for one scale sentinel.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum GroupedScaleStateExpectation {
+    /// Ordered execution retains only the group currently receiving rows.
+    SingleActiveGroup,
+
+    /// Hash execution retains every observed group until finalization.
+    RetainedGroupTable,
+}
+
+/// Grouped physical-state and semantic-pair contract for one scale sentinel.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct GroupedScaleExpectation {
+    /// Stable ordered/hash pair identity, when an equivalent control exists.
+    pub(crate) pair_id: Option<&'static str>,
+
+    /// Required physical live-state shape.
+    pub(crate) state: GroupedScaleStateExpectation,
+}
+
+impl GroupedScaleExpectation {
+    /// Construct one grouped physical-state expectation.
+    const fn new(pair_id: Option<&'static str>, state: GroupedScaleStateExpectation) -> Self {
+        Self { pair_id, state }
+    }
+}
+
 ///
 /// ScaleSentinelSpec
 ///
@@ -111,6 +138,9 @@ pub(crate) struct ScaleSentinelSpec {
 
     /// Required blob-payload distribution for the surface.
     pub(crate) payload_profile: ScalePayloadProfile,
+
+    /// Grouped physical-state and semantic-pair contract, when applicable.
+    pub(crate) grouped: Option<GroupedScaleExpectation>,
 }
 
 const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
@@ -123,6 +153,7 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         selectivity: ScaleSelectivity::All,
         result_window: Some(1),
         payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: None,
     },
     ScaleSentinelSpec {
         sentinel_id: "user.primary_order.one.window1",
@@ -133,6 +164,7 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         selectivity: ScaleSelectivity::One,
         result_window: Some(1),
         payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: None,
     },
     ScaleSentinelSpec {
         sentinel_id: "user.secondary_order.quarter.window10",
@@ -143,6 +175,7 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         selectivity: ScaleSelectivity::Quarter,
         result_window: Some(10),
         payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: None,
     },
     ScaleSentinelSpec {
         sentinel_id: "user.secondary_order.zero.window1",
@@ -153,6 +186,7 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         selectivity: ScaleSelectivity::Zero,
         result_window: Some(1),
         payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: None,
     },
     ScaleSentinelSpec {
         sentinel_id: "token.equality_prefix.quarter.window50",
@@ -163,6 +197,7 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         selectivity: ScaleSelectivity::Quarter,
         result_window: Some(50),
         payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: None,
     },
     ScaleSentinelSpec {
         sentinel_id: "user.incompatible_filter_order.quarter.window10",
@@ -173,6 +208,7 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         selectivity: ScaleSelectivity::Quarter,
         result_window: Some(10),
         payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: None,
     },
     ScaleSentinelSpec {
         sentinel_id: "heap_user.materialized_order.all.window10",
@@ -183,6 +219,7 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         selectivity: ScaleSelectivity::All,
         result_window: Some(10),
         payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: None,
     },
     ScaleSentinelSpec {
         sentinel_id: "user.not_paginated.aggregate_all",
@@ -193,6 +230,7 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         selectivity: ScaleSelectivity::All,
         result_window: None,
         payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: None,
     },
     ScaleSentinelSpec {
         sentinel_id: "user.not_paginated.aggregate_quarter",
@@ -203,6 +241,7 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         selectivity: ScaleSelectivity::Quarter,
         result_window: None,
         payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: None,
     },
     ScaleSentinelSpec {
         sentinel_id: "user.residual_primary.quarter.window10",
@@ -213,6 +252,7 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         selectivity: ScaleSelectivity::Quarter,
         result_window: Some(10),
         payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: None,
     },
     ScaleSentinelSpec {
         sentinel_id: "user.unsupported_order.all.window10",
@@ -223,6 +263,7 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         selectivity: ScaleSelectivity::All,
         result_window: Some(10),
         payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: None,
     },
     ScaleSentinelSpec {
         sentinel_id: "blob.secondary_payload.quarter.window10",
@@ -233,6 +274,7 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         selectivity: ScaleSelectivity::Quarter,
         result_window: Some(10),
         payload_profile: ScalePayloadProfile::BlobCycleV1,
+        grouped: None,
     },
     ScaleSentinelSpec {
         sentinel_id: "heap_user.primary_order.all.window10",
@@ -243,6 +285,7 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         selectivity: ScaleSelectivity::All,
         result_window: Some(10),
         payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: None,
     },
     ScaleSentinelSpec {
         sentinel_id: "journaled_user.primary_order.all.window10",
@@ -253,6 +296,7 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         selectivity: ScaleSelectivity::All,
         result_window: Some(10),
         payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: None,
     },
     ScaleSentinelSpec {
         sentinel_id: "user.grouped_hash.few_groups.sum.window1",
@@ -263,6 +307,26 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         selectivity: ScaleSelectivity::Quarter,
         result_window: Some(1),
         payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: Some(GroupedScaleExpectation::new(
+            Some("few_groups.sum.window1"),
+            GroupedScaleStateExpectation::RetainedGroupTable,
+        )),
+    },
+    ScaleSentinelSpec {
+        sentinel_id: "user.grouped_hash.few_groups.count.window10",
+        p1_scenario_id: "user.aggregate.group_age_count",
+        sql_override: Some(
+            "SELECT age, COUNT(*) FROM PerfAuditUser WHERE age = age GROUP BY age ORDER BY age ASC LIMIT 10",
+        ),
+        surface: MatrixSurface::User,
+        route_family: RouteFamily::GroupedAggregate,
+        selectivity: ScaleSelectivity::All,
+        result_window: Some(10),
+        payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: Some(GroupedScaleExpectation::new(
+            Some("few_groups.count.window10"),
+            GroupedScaleStateExpectation::RetainedGroupTable,
+        )),
     },
     ScaleSentinelSpec {
         sentinel_id: "user.grouped_ordered.few_groups.count.window10",
@@ -273,6 +337,10 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         selectivity: ScaleSelectivity::All,
         result_window: Some(10),
         payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: Some(GroupedScaleExpectation::new(
+            Some("few_groups.count.window10"),
+            GroupedScaleStateExpectation::SingleActiveGroup,
+        )),
     },
     ScaleSentinelSpec {
         sentinel_id: "user.grouped_ordered.few_groups.sum.window1",
@@ -283,6 +351,94 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         selectivity: ScaleSelectivity::Quarter,
         result_window: Some(1),
         payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: Some(GroupedScaleExpectation::new(
+            Some("few_groups.sum.window1"),
+            GroupedScaleStateExpectation::SingleActiveGroup,
+        )),
+    },
+    ScaleSentinelSpec {
+        sentinel_id: "user.grouped_hash.many_groups.sum.window16",
+        p1_scenario_id: "user.grouped_scale.hash_name_sum_window16",
+        sql_override: None,
+        surface: MatrixSurface::User,
+        route_family: RouteFamily::GroupedAggregate,
+        selectivity: ScaleSelectivity::All,
+        result_window: Some(16),
+        payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: Some(GroupedScaleExpectation::new(
+            Some("many_groups.sum.window16"),
+            GroupedScaleStateExpectation::RetainedGroupTable,
+        )),
+    },
+    ScaleSentinelSpec {
+        sentinel_id: "user.grouped_ordered.many_groups.sum.window16",
+        p1_scenario_id: "user.grouped_scale.ordered_name_sum_window16",
+        sql_override: None,
+        surface: MatrixSurface::User,
+        route_family: RouteFamily::GroupedAggregate,
+        selectivity: ScaleSelectivity::All,
+        result_window: Some(16),
+        payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: Some(GroupedScaleExpectation::new(
+            Some("many_groups.sum.window16"),
+            GroupedScaleStateExpectation::SingleActiveGroup,
+        )),
+    },
+    ScaleSentinelSpec {
+        sentinel_id: "user.grouped_hash.many_groups.having_sum.window16",
+        p1_scenario_id: "user.grouped_scale.hash_name_having_sum_window16",
+        sql_override: None,
+        surface: MatrixSurface::User,
+        route_family: RouteFamily::GroupedAggregate,
+        selectivity: ScaleSelectivity::All,
+        result_window: Some(16),
+        payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: Some(GroupedScaleExpectation::new(
+            Some("many_groups.having_sum.window16"),
+            GroupedScaleStateExpectation::RetainedGroupTable,
+        )),
+    },
+    ScaleSentinelSpec {
+        sentinel_id: "user.grouped_ordered.many_groups.having_sum.window16",
+        p1_scenario_id: "user.grouped_scale.ordered_name_having_sum_window16",
+        sql_override: None,
+        surface: MatrixSurface::User,
+        route_family: RouteFamily::GroupedAggregate,
+        selectivity: ScaleSelectivity::All,
+        result_window: Some(16),
+        payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: Some(GroupedScaleExpectation::new(
+            Some("many_groups.having_sum.window16"),
+            GroupedScaleStateExpectation::SingleActiveGroup,
+        )),
+    },
+    ScaleSentinelSpec {
+        sentinel_id: "user.grouped_hash.few_groups.distinct_nat.window16",
+        p1_scenario_id: "user.grouped_scale.hash_age_distinct_nat_window16",
+        sql_override: None,
+        surface: MatrixSurface::User,
+        route_family: RouteFamily::GroupedAggregate,
+        selectivity: ScaleSelectivity::All,
+        result_window: Some(16),
+        payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: Some(GroupedScaleExpectation::new(
+            None,
+            GroupedScaleStateExpectation::RetainedGroupTable,
+        )),
+    },
+    ScaleSentinelSpec {
+        sentinel_id: "user.grouped_ordered.many_groups.count.window100",
+        p1_scenario_id: "user.grouped_scale.ordered_name_count_window100",
+        sql_override: None,
+        surface: MatrixSurface::User,
+        route_family: RouteFamily::GroupedAggregate,
+        selectivity: ScaleSelectivity::All,
+        result_window: Some(100),
+        payload_profile: ScalePayloadProfile::NotApplicable,
+        grouped: Some(GroupedScaleExpectation::new(
+            None,
+            GroupedScaleStateExpectation::SingleActiveGroup,
+        )),
     },
 ];
 
@@ -481,6 +637,34 @@ fn validate_scale_spec_coverage(profile: PerformanceProfile) -> Result<(), Scale
     }) {
         return Err(ScaleProfileError::PayloadProfileDrift);
     }
+    let mut grouped_pairs = BTreeMap::<&str, Vec<GroupedScaleStateExpectation>>::new();
+    for spec in scale_sentinel_specs() {
+        if (spec.route_family == RouteFamily::GroupedAggregate) != spec.grouped.is_some() {
+            return Err(ScaleProfileError::GroupedContractDrift);
+        }
+        if let Some(grouped) = spec.grouped
+            && let Some(pair_id) = grouped.pair_id
+        {
+            grouped_pairs
+                .entry(pair_id)
+                .or_default()
+                .push(grouped.state);
+        }
+    }
+    if grouped_pairs.values().any(|states| {
+        states.as_slice()
+            != [
+                GroupedScaleStateExpectation::SingleActiveGroup,
+                GroupedScaleStateExpectation::RetainedGroupTable,
+            ]
+            && states.as_slice()
+                != [
+                    GroupedScaleStateExpectation::RetainedGroupTable,
+                    GroupedScaleStateExpectation::SingleActiveGroup,
+                ]
+    }) {
+        return Err(ScaleProfileError::GroupedContractDrift);
+    }
 
     Ok(())
 }
@@ -505,6 +689,9 @@ pub(crate) enum ScaleProfileError {
 
     /// The checked-in performance profile is invalid.
     InvalidProfile(PerformanceProfileError),
+
+    /// Grouped scale sentinels lack one exact physical-state or pair contract.
+    GroupedContractDrift,
 
     /// The materialized scale scenario set has an invalid canonical identity.
     InvalidScaleScenarioSet(PerformanceProfileError),
@@ -568,7 +755,7 @@ pub(crate) enum ScaleProfileError {
     /// One P1 result window cannot be represented by the scale artifact.
     WindowOverflow(String),
 
-    /// The reviewed 1/10/50 result-window set is incomplete.
+    /// The reviewed result-window set is incomplete.
     WindowCoverageDrift,
 }
 
@@ -589,6 +776,9 @@ impl Display for ScaleProfileError {
             }
             Self::InvalidProfile(error) => {
                 write!(formatter, "invalid performance profile: {error}")
+            }
+            Self::GroupedContractDrift => {
+                formatter.write_str("grouped scale physical-state contract drifted")
             }
             Self::InvalidScaleScenarioSet(error) => {
                 write!(formatter, "invalid scale scenario set: {error}")
@@ -855,6 +1045,7 @@ pub(crate) fn build_scale_observation(
             actual: sample.route_family,
         });
     }
+    validate_grouped_scale_state(declaration, &sample)?;
     if fixture.profile_version != 1
         || fixture.surface != declaration.spec.surface.label()
         || fixture.fixture_rows != declaration.fixture_rows
@@ -908,6 +1099,88 @@ pub(crate) fn build_scale_observation(
     validate_observation_facts(&observation)?;
 
     Ok(observation)
+}
+
+fn validate_grouped_scale_state(
+    declaration: &ScaleScenarioDeclaration,
+    sample: &MatrixSample,
+) -> Result<(), ScaleEvidenceError> {
+    let Some(grouped) = declaration.spec.grouped else {
+        return Ok(());
+    };
+    let valid = sample.grouped_groups_observed > 0
+        && sample.grouped_groups_finalized == sample.grouped_groups_observed
+        && match grouped.state {
+            GroupedScaleStateExpectation::SingleActiveGroup => {
+                sample.grouped_peak_live_groups == 1
+                    && sample.grouped_peak_live_aggregate_states <= 1
+            }
+            GroupedScaleStateExpectation::RetainedGroupTable => {
+                sample.grouped_groups_observed > 1
+                    && sample.grouped_peak_live_groups == sample.grouped_groups_observed
+                    && sample.grouped_peak_live_aggregate_states <= sample.grouped_groups_observed
+            }
+        };
+    if !valid {
+        return Err(ScaleEvidenceError::GroupedStateDrift {
+            scenario_id: declaration.scenario.key.clone(),
+            expected: grouped.state,
+        });
+    }
+
+    Ok(())
+}
+
+/// Validate every declared ordered/hash scale pair against merged observations.
+///
+/// # Errors
+///
+/// Returns a typed error when a pair is incomplete or produces different
+/// public grouped results at the same fixture cardinality.
+pub(crate) fn validate_grouped_scale_pairs(
+    declarations: &[ScaleScenarioDeclaration],
+    observations: &[ScaleObservation],
+) -> Result<(), ScaleEvidenceError> {
+    let observed_by_id = observations
+        .iter()
+        .map(|observation| (observation.scenario_id.as_str(), observation))
+        .collect::<BTreeMap<_, _>>();
+    let mut pairs = BTreeMap::<(&str, u32), Vec<&ScaleObservation>>::new();
+    for declaration in declarations {
+        let Some(pair_id) = declaration.spec.grouped.and_then(|grouped| grouped.pair_id) else {
+            continue;
+        };
+        let observation = observed_by_id
+            .get(declaration.scenario.key.as_str())
+            .copied()
+            .ok_or_else(|| ScaleEvidenceError::GroupedPairDrift {
+                pair_id: pair_id.to_string(),
+                fixture_rows: declaration.fixture_rows,
+            })?;
+        pairs
+            .entry((pair_id, declaration.fixture_rows))
+            .or_default()
+            .push(observation);
+    }
+    for ((pair_id, fixture_rows), pair) in pairs {
+        let same_result = pair
+            .first()
+            .and_then(|observation| observation.sample.result_signature.as_ref())
+            .is_some_and(|expected| {
+                pair.len() == 2
+                    && pair.iter().all(|observation| {
+                        observation.sample.result_signature.as_ref() == Some(expected)
+                    })
+            });
+        if !same_result {
+            return Err(ScaleEvidenceError::GroupedPairDrift {
+                pair_id: pair_id.to_string(),
+                fixture_rows,
+            });
+        }
+    }
+
+    Ok(())
 }
 
 /// Validate one retained observation against its current scale declaration.
@@ -1114,6 +1387,22 @@ pub(crate) enum ScaleEvidenceError {
     /// Realized fixture facts or their retained sample projection drifted.
     FixtureFactDrift(String),
 
+    /// One grouped scale sample violated its declared live-state shape.
+    GroupedStateDrift {
+        /// Stable exact-cardinality scenario identity.
+        scenario_id: String,
+        /// Required grouped live-state shape.
+        expected: GroupedScaleStateExpectation,
+    },
+
+    /// One ordered/hash semantic pair is incomplete or returned different rows.
+    GroupedPairDrift {
+        /// Stable pair identity shared by both physical controls.
+        pair_id: String,
+        /// Exact fixture cardinality at which the pair drifted.
+        fixture_rows: u32,
+    },
+
     /// One result returned a row count other than its declared exact expectation.
     ResultCardinalityDrift {
         /// Stable exact-cardinality scenario identity.
@@ -1177,6 +1466,20 @@ impl Display for ScaleEvidenceError {
             Self::FixtureFactDrift(scenario_id) => write!(
                 formatter,
                 "scale observation {scenario_id:?} carries inconsistent fixture facts",
+            ),
+            Self::GroupedStateDrift {
+                scenario_id,
+                expected,
+            } => write!(
+                formatter,
+                "scale observation {scenario_id:?} violated grouped state {expected:?}",
+            ),
+            Self::GroupedPairDrift {
+                pair_id,
+                fixture_rows,
+            } => write!(
+                formatter,
+                "grouped scale pair {pair_id:?} drifted at {fixture_rows} fixture rows",
             ),
             Self::ResultCardinalityDrift {
                 scenario_id,

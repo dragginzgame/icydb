@@ -48,15 +48,22 @@ pub const SQL_PERFORMANCE_BROAD_CONTRACT_FEATURES: &[&str] = &[
 /// SQL contract features whose cost is represented by the scale-sentinel profile.
 pub const SQL_PERFORMANCE_SCALE_CONTRACT_FEATURES: &[&str] = &["blob.read_write_compare"];
 
-/// Stable scenario identities for the grouped early-finalization before/after line.
+/// Stable P2 scenario identities for the grouped early-finalization evidence line.
 ///
-/// The pair executes equivalent grouped results through the current ordered
-/// and hash-fallback modes. Their EXPLAIN companions prove which physical mode
-/// supplied each measurement without making rendered EXPLAIN text an execution
-/// authority.
-pub const SQL_GROUPED_EARLY_MATERIALIZATION_BASELINE_SCENARIOS: &[&str] = &[
+/// Ordered/hash pairs execute equivalent grouped results through both physical
+/// modes. EXPLAIN companions prove the baseline pair's selected mode without
+/// making rendered EXPLAIN text an execution authority. The remaining cases
+/// keep the required aggregate, `HAVING`, `DISTINCT`, and public-boundary
+/// shapes in repeated cold/warm confirmation.
+pub const SQL_GROUPED_EARLY_FINALIZATION_P2_SCENARIOS: &[&str] = &[
     "user.grouped_baseline.hash_sum_age_control",
     "user.grouped_baseline.hash_sum_age_control_explain",
     "user.grouped_baseline.ordered_sum_age",
     "user.grouped_baseline.ordered_sum_age_explain",
+    "user.grouped_scale.hash_name_having_sum_window16",
+    "user.grouped_scale.hash_name_sum_window16",
+    "user.grouped_scale.hash_age_distinct_nat_window16",
+    "user.grouped_scale.ordered_name_count_window100",
+    "user.grouped_scale.ordered_name_having_sum_window16",
+    "user.grouped_scale.ordered_name_sum_window16",
 ];

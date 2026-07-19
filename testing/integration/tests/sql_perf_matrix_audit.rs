@@ -50,8 +50,8 @@ use icydb_testing_integration::{
     build_fixture_canister_wasm_bytes_with_options, install_prebuilt_fixture_canister,
     reset_icydb_fixtures,
     sql_performance_contract::{
-        SQL_GROUPED_EARLY_MATERIALIZATION_BASELINE_SCENARIOS,
-        SQL_PERFORMANCE_BROAD_CONTRACT_FEATURES, SQL_PERFORMANCE_SCALE_CONTRACT_FEATURES,
+        SQL_GROUPED_EARLY_FINALIZATION_P2_SCENARIOS, SQL_PERFORMANCE_BROAD_CONTRACT_FEATURES,
+        SQL_PERFORMANCE_SCALE_CONTRACT_FEATURES,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -107,7 +107,7 @@ use crate::sql_perf_receipt::{
 };
 use crate::sql_perf_scale::{
     ScaleEvidenceError, ScaleObservation, ScaleScenarioDeclaration, build_scale_observation,
-    scale_scenario_declarations,
+    scale_scenario_declarations, validate_grouped_scale_pairs,
 };
 use crate::sql_perf_scale_shard::{
     MergedScaleShardReports, build_scale_shard_report, merge_scale_shard_reports,
@@ -1718,14 +1718,17 @@ const fn read_metadata_with_nullability(
     }
 }
 
-/// Build one grouped physical-mode equivalence declaration for the 0.205 baseline.
-const fn grouped_execution_mode_metadata(predicate: PredicateFamily) -> ScenarioMetadata {
+/// Build one grouped physical-mode equivalence declaration for 0.205 evidence.
+const fn grouped_execution_mode_metadata(
+    predicate: PredicateFamily,
+    limit: usize,
+) -> ScenarioMetadata {
     let mut metadata = read_metadata(
         &["select.grouped_aggregate"],
         QueryShape::Grouped,
         ValueTypeFamily::Numeric,
         predicate,
-        WindowSpec::limit(1),
+        WindowSpec::limit(limit),
         grouped_aggregate_route(),
         false,
     );
@@ -1733,6 +1736,22 @@ const fn grouped_execution_mode_metadata(predicate: PredicateFamily) -> Scenario
     metadata.provider = EligibleProvider::ExecutionModeEquivalent;
     metadata.evidence_strength = EvidenceStrength::MetamorphicInvariant;
     metadata
+}
+
+/// Build one required grouped scale declaration without claiming mode equivalence.
+const fn grouped_scale_contract_metadata(
+    predicate: PredicateFamily,
+    limit: usize,
+) -> ScenarioMetadata {
+    read_metadata(
+        &["select.grouped_aggregate"],
+        QueryShape::Grouped,
+        ValueTypeFamily::Numeric,
+        predicate,
+        WindowSpec::limit(limit),
+        grouped_aggregate_route(),
+        false,
+    )
 }
 
 /// Build one EXPLAIN declaration paired with a grouped physical-mode measurement.
@@ -2400,7 +2419,7 @@ fn user_grouped_aggregate_scenarios() -> Vec<MatrixScenario> {
     ]
 }
 
-fn grouped_early_materialization_baseline_scenarios() -> Vec<MatrixScenario> {
+fn grouped_early_finalization_control_scenarios() -> Vec<MatrixScenario> {
     const ORDERED_SQL: &str = "SELECT age, SUM(age) FROM PerfAuditUser \
                                WHERE age >= 24 AND age < 40 \
                                GROUP BY age LIMIT 1";
@@ -2414,14 +2433,14 @@ fn grouped_early_materialization_baseline_scenarios() -> Vec<MatrixScenario> {
             MatrixSurface::User,
             "grouped_baseline.ordered_sum_age",
             ORDERED_SQL,
-            grouped_execution_mode_metadata(PredicateFamily::Range),
+            grouped_execution_mode_metadata(PredicateFamily::Range, 1),
         ),
         scenario(
             "user.grouped_baseline.hash_sum_age_control",
             MatrixSurface::User,
             "grouped_baseline.hash_sum_age_control",
             HASH_CONTROL_SQL,
-            grouped_execution_mode_metadata(PredicateFamily::Compound),
+            grouped_execution_mode_metadata(PredicateFamily::Compound, 1),
         ),
         scenario(
             "user.grouped_baseline.ordered_sum_age_explain",
@@ -2436,6 +2455,58 @@ fn grouped_early_materialization_baseline_scenarios() -> Vec<MatrixScenario> {
             "grouped_baseline.hash_sum_age_control_explain",
             format!("EXPLAIN EXECUTION {HASH_CONTROL_SQL}"),
             grouped_execution_mode_explain_metadata(),
+        ),
+    ]
+}
+
+fn grouped_early_finalization_scale_scenarios() -> Vec<MatrixScenario> {
+    let mut ordered_having = grouped_execution_mode_metadata(PredicateFamily::None, 16);
+    ordered_having.contract_features = &["select.grouped_aggregate", "having.grouped_aggregate"];
+    let mut hash_having = grouped_execution_mode_metadata(PredicateFamily::Compound, 16);
+    hash_having.contract_features = &["select.grouped_aggregate", "having.grouped_aggregate"];
+
+    vec![
+        scenario(
+            "user.grouped_scale.ordered_name_sum_window16",
+            MatrixSurface::User,
+            "grouped_scale.ordered_name_sum_window16",
+            "SELECT name, SUM(age) FROM PerfAuditUser GROUP BY name LIMIT 16",
+            grouped_execution_mode_metadata(PredicateFamily::None, 16),
+        ),
+        scenario(
+            "user.grouped_scale.hash_name_sum_window16",
+            MatrixSurface::User,
+            "grouped_scale.hash_name_sum_window16",
+            "SELECT name, SUM(age) FROM PerfAuditUser WHERE name = name GROUP BY name LIMIT 16",
+            grouped_execution_mode_metadata(PredicateFamily::Compound, 16),
+        ),
+        scenario(
+            "user.grouped_scale.ordered_name_having_sum_window16",
+            MatrixSurface::User,
+            "grouped_scale.ordered_name_having_sum_window16",
+            "SELECT name, SUM(age) FROM PerfAuditUser GROUP BY name HAVING SUM(age) > 0 LIMIT 16",
+            ordered_having,
+        ),
+        scenario(
+            "user.grouped_scale.hash_name_having_sum_window16",
+            MatrixSurface::User,
+            "grouped_scale.hash_name_having_sum_window16",
+            "SELECT name, SUM(age) FROM PerfAuditUser WHERE name = name GROUP BY name HAVING SUM(age) > 0 LIMIT 16",
+            hash_having,
+        ),
+        scenario(
+            "user.grouped_scale.hash_age_distinct_nat_window16",
+            MatrixSurface::User,
+            "grouped_scale.hash_age_distinct_nat_window16",
+            "SELECT age, COUNT(DISTINCT age_nat) FROM PerfAuditUser GROUP BY age LIMIT 16",
+            grouped_scale_contract_metadata(PredicateFamily::None, 16),
+        ),
+        scenario(
+            "user.grouped_scale.ordered_name_count_window100",
+            MatrixSurface::User,
+            "grouped_scale.ordered_name_count_window100",
+            "SELECT name, COUNT(*) FROM PerfAuditUser GROUP BY name LIMIT 100",
+            grouped_scale_contract_metadata(PredicateFamily::None, 100),
         ),
     ]
 }
@@ -2551,7 +2622,8 @@ fn metadata_scenarios() -> Vec<MatrixScenario> {
 fn aggregate_and_metadata_matrix() -> Vec<MatrixScenario> {
     let mut scenarios = user_global_aggregate_scenarios();
     scenarios.extend(user_grouped_aggregate_scenarios());
-    scenarios.extend(grouped_early_materialization_baseline_scenarios());
+    scenarios.extend(grouped_early_finalization_control_scenarios());
+    scenarios.extend(grouped_early_finalization_scale_scenarios());
     scenarios.extend(account_aggregate_scenarios());
     scenarios.extend(blob_aggregate_scenarios());
     scenarios.extend(metadata_scenarios());
@@ -4935,12 +5007,12 @@ fn sql_perf_deterministic_matrix_has_stable_shape() {
 }
 
 #[test]
-fn sql_perf_profile_retains_grouped_early_materialization_baseline_identifiers() {
+fn sql_perf_profile_retains_grouped_early_finalization_p2_identifiers() {
     let scenarios = deterministic_matrix()
         .into_iter()
         .map(|scenario| (scenario.key.clone(), scenario))
         .collect::<BTreeMap<_, _>>();
-    let expected_ids = SQL_GROUPED_EARLY_MATERIALIZATION_BASELINE_SCENARIOS
+    let expected_ids = SQL_GROUPED_EARLY_FINALIZATION_P2_SCENARIOS
         .iter()
         .copied()
         .collect::<BTreeSet<_>>();
@@ -4951,20 +5023,32 @@ fn sql_perf_profile_retains_grouped_early_materialization_baseline_identifiers()
 
     assert_eq!(
         observed_ids, expected_ids,
-        "the exact P1 profile must retain every grouped early-materialization baseline identity",
+        "the exact P1 profile must retain every grouped early-finalization P2 identity",
     );
-    for id in SQL_GROUPED_EARLY_MATERIALIZATION_BASELINE_SCENARIOS {
+    for id in SQL_GROUPED_EARLY_FINALIZATION_P2_SCENARIOS {
         let scenario = &scenarios[*id];
-        assert_eq!(
-            scenario.metadata.provider,
-            EligibleProvider::ExecutionModeEquivalent,
-            "grouped baseline scenario {id:?} should remain owned by execution-mode equivalence",
-        );
-        assert_eq!(
-            scenario.metadata.evidence_strength,
-            EvidenceStrength::MetamorphicInvariant,
-            "grouped baseline scenario {id:?} should remain a metamorphic invariant",
-        );
+        let is_contract_only = id.contains("distinct_nat") || id.contains("window100");
+        if is_contract_only {
+            assert_eq!(
+                scenario.metadata.provider,
+                EligibleProvider::IcyDbContractOnly
+            );
+            assert_eq!(
+                scenario.metadata.evidence_strength,
+                EvidenceStrength::ContractAssertion,
+            );
+        } else {
+            assert_eq!(
+                scenario.metadata.provider,
+                EligibleProvider::ExecutionModeEquivalent,
+                "grouped pair scenario {id:?} should remain owned by execution-mode equivalence",
+            );
+            assert_eq!(
+                scenario.metadata.evidence_strength,
+                EvidenceStrength::MetamorphicInvariant,
+                "grouped pair scenario {id:?} should remain a metamorphic invariant",
+            );
+        }
     }
 }
 
@@ -5178,13 +5262,13 @@ fn sql_perf_contract_sentinels_execute_through_current_query_path() {
 }
 
 #[test]
-#[ignore = "focused PocketIC capture of the grouped early-materialization before-state"]
-fn sql_perf_grouped_early_materialization_baseline_is_mode_proven_and_output_equivalent() {
+#[ignore = "focused PocketIC capture of the grouped early-finalization control pair"]
+fn sql_perf_grouped_early_finalization_control_is_mode_proven_and_output_equivalent() {
     let wasm = read_matrix_canister_wasm();
     let wasm_bytes = wasm.len();
     let fixture = install_prebuilt_fixture_canister("sql_perf", wasm);
     reset_icydb_fixtures(&fixture);
-    let scenarios = grouped_early_materialization_baseline_scenarios()
+    let scenarios = grouped_early_finalization_control_scenarios()
         .into_iter()
         .map(|scenario| (scenario.key.clone(), scenario))
         .collect::<BTreeMap<_, _>>();
@@ -5274,39 +5358,59 @@ fn sql_perf_grouped_early_materialization_baseline_is_mode_proven_and_output_equ
 }
 
 #[test]
-#[ignore = "focused PocketIC scale capture for grouped ordered/hash physical evidence"]
-fn sql_perf_grouped_early_materialization_few_group_scale_pair_is_equivalent() {
+#[ignore = "focused PocketIC capture for the complete grouped scale contract"]
+fn sql_perf_grouped_early_finalization_scale_contract_is_live() {
     let wasm = read_matrix_canister_wasm();
     let declarations =
         scale_scenario_declarations(SQL_PERFORMANCE_PROFILE, &deterministic_matrix())
             .expect("grouped scale pair should belong to the current exact profile");
 
     for fixture_rows in SQL_PERFORMANCE_PROFILE.scale_row_cardinalities() {
-        let ordered = declarations
+        let grouped_declarations = declarations
             .iter()
-            .find(|declaration| {
-                declaration.spec.sentinel_id == "user.grouped_ordered.few_groups.sum.window1"
-                    && declaration.fixture_rows == *fixture_rows
+            .filter(|declaration| {
+                declaration.spec.grouped.is_some() && declaration.fixture_rows == *fixture_rows
             })
-            .expect("ordered grouped scale declaration should exist");
-        let hash = declarations
-            .iter()
-            .find(|declaration| {
-                declaration.spec.sentinel_id == "user.grouped_hash.few_groups.sum.window1"
-                    && declaration.fixture_rows == *fixture_rows
-            })
-            .expect("hash grouped scale declaration should exist");
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(grouped_declarations.len(), 10);
         let fixture = install_prebuilt_fixture_canister("sql_perf", wasm.clone());
-        let facts = load_scale_fixture(&fixture, ordered)
+        let facts = load_scale_fixture(&fixture, &grouped_declarations[0])
             .expect("grouped scale fixture should load exactly once per cardinality");
-        let ordered_sample = sample_scenario(&fixture, &ordered.scenario)
-            .unwrap_or_else(|failure| panic!("ordered grouped scale sample failed: {failure:?}"));
-        let hash_sample = sample_scenario(&fixture, &hash.scenario)
-            .unwrap_or_else(|failure| panic!("hash grouped scale sample failed: {failure:?}"));
-        let ordered = build_scale_observation(ordered, facts.clone(), ordered_sample)
-            .expect("ordered grouped scale evidence should validate");
-        let hash = build_scale_observation(hash, facts, hash_sample)
-            .expect("hash grouped scale evidence should validate");
+        let observations = grouped_declarations
+            .iter()
+            .map(|declaration| {
+                let sample =
+                    sample_scenario(&fixture, &declaration.scenario).unwrap_or_else(|failure| {
+                        panic!(
+                            "grouped scale sample {} failed: {failure:?}",
+                            declaration.spec.sentinel_id,
+                        )
+                    });
+                build_scale_observation(declaration, facts.clone(), sample).unwrap_or_else(
+                    |error| {
+                        panic!(
+                            "grouped scale evidence {} should validate: {error}",
+                            declaration.spec.sentinel_id,
+                        )
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        validate_grouped_scale_pairs(&grouped_declarations, &observations)
+            .expect("every ordered/hash grouped scale pair should remain semantically equivalent");
+        let ordered = observations
+            .iter()
+            .find(|observation| {
+                observation.sentinel_id == "user.grouped_ordered.few_groups.sum.window1"
+            })
+            .expect("ordered grouped scale observation should exist");
+        let hash = observations
+            .iter()
+            .find(|observation| {
+                observation.sentinel_id == "user.grouped_hash.few_groups.sum.window1"
+            })
+            .expect("hash grouped scale observation should exist");
 
         assert_eq!(
             ordered.sample.result_signature.as_deref(),
@@ -5328,20 +5432,25 @@ fn sql_perf_grouped_early_materialization_few_group_scale_pair_is_equivalent() {
         assert_eq!(hash.sample.grouped_peak_live_aggregate_states, 4);
         assert!(!hash.sample.grouped_early_scan_stop);
 
-        println!(
-            "0.205 grouped few-group scale rows={fixture_rows}: ordered_total={} ordered_execute={} ordered_rows={} hash_total={} hash_execute={} hash_rows={} result={}",
-            ordered.sample.total_local_instructions,
-            ordered.sample.execute_local_instructions,
-            ordered.sample.grouped_rows_scanned,
-            hash.sample.total_local_instructions,
-            hash.sample.execute_local_instructions,
-            hash.sample.grouped_rows_scanned,
-            ordered
-                .sample
-                .result_signature
-                .as_deref()
-                .unwrap_or("missing"),
-        );
+        for observation in &observations {
+            println!(
+                "0.205 grouped scale rows={fixture_rows} sentinel={} total={} execute={} scanned={} groups={} peak_groups={} peak_states={} peak_distinct={} early_stop={} result={}",
+                observation.sentinel_id,
+                observation.sample.total_local_instructions,
+                observation.sample.execute_local_instructions,
+                observation.sample.grouped_rows_scanned,
+                observation.sample.grouped_groups_observed,
+                observation.sample.grouped_peak_live_groups,
+                observation.sample.grouped_peak_live_aggregate_states,
+                observation.sample.grouped_peak_live_distinct_values,
+                observation.sample.grouped_early_scan_stop,
+                observation
+                    .sample
+                    .result_signature
+                    .as_deref()
+                    .unwrap_or("missing"),
+            );
+        }
     }
 }
 
@@ -5405,8 +5514,8 @@ fn sql_perf_p1_receipts_cover_the_profile_exactly() {
         .collect::<Vec<_>>();
 
     assert_eq!(receipts.len(), 8);
-    assert_eq!(shard_counts, vec![234, 222, 235, 207, 222, 224, 232, 205]);
-    assert_eq!(shard_counts.iter().sum::<usize>(), 1_781);
+    assert_eq!(shard_counts, vec![235, 222, 236, 208, 222, 226, 232, 206]);
+    assert_eq!(shard_counts.iter().sum::<usize>(), 1_787);
     assert!(receipts.iter().all(|receipt| receipt.complete));
     validate_p1_shard_receipts(SQL_PERFORMANCE_PROFILE, &receipts)
         .expect("all deterministic receipts should merge");
@@ -5534,7 +5643,7 @@ fn sql_perf_p1_shard_artifacts_are_strict_bounded_and_merge_exactly() {
     )
     .expect("all exact shard reports should merge");
     assert_eq!(merged.receipts.len(), 8);
-    assert_eq!(merged.samples.len(), 1_781);
+    assert_eq!(merged.samples.len(), 1_787);
     assert!(merged.failures.is_empty());
     assert!(
         merged

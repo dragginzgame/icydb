@@ -245,6 +245,9 @@ pub(crate) enum P2CandidateReason {
 
     /// The checked-in profile marks the scenario as a focused hotspot.
     FocusedHotspot,
+
+    /// The checked-in profile requires repeated current-contract evidence.
+    ContractSentinel,
 }
 
 ///
@@ -433,6 +436,9 @@ pub(crate) struct P2SelectionRequirements {
 
     /// Checked-in focused-hotspot scenario IDs.
     focused_hotspots: Vec<String>,
+
+    /// Checked-in current-contract scenario IDs.
+    contract_sentinels: Vec<String>,
 }
 
 impl P2SelectionRequirements {
@@ -443,6 +449,7 @@ impl P2SelectionRequirements {
         scale_representatives: Vec<P2ScaleRepresentative>,
         regression_sentinels: Vec<String>,
         focused_hotspots: Vec<String>,
+        contract_sentinels: Vec<String>,
     ) -> Self {
         Self {
             baseline_basis,
@@ -450,6 +457,7 @@ impl P2SelectionRequirements {
             scale_representatives,
             regression_sentinels,
             focused_hotspots,
+            contract_sentinels,
         }
     }
 
@@ -471,6 +479,11 @@ impl P2SelectionRequirements {
                 .collect(),
             profile
                 .focused_hotspot_scenario_ids()
+                .iter()
+                .map(|scenario_id| (*scenario_id).to_string())
+                .collect(),
+            profile
+                .contract_sentinel_scenario_ids()
                 .iter()
                 .map(|scenario_id| (*scenario_id).to_string())
                 .collect(),
@@ -1019,6 +1032,10 @@ fn append_explicit_requirements(
     for scenario_id in &requirements.focused_hotspots {
         validate_requirement(declarations, scenario_id, "focused_hotspot")?;
         insert_reason(selected, scenario_id, P2CandidateReason::FocusedHotspot);
+    }
+    for scenario_id in &requirements.contract_sentinels {
+        validate_requirement(declarations, scenario_id, "contract_sentinel")?;
+        insert_reason(selected, scenario_id, P2CandidateReason::ContractSentinel);
     }
 
     Ok(())
@@ -1595,6 +1612,7 @@ mod tests {
             }],
             vec![scenarios[2].key.clone()],
             vec![scenarios[3].key.clone()],
+            vec![scenarios[4].key.clone()],
         )
     }
 
@@ -1624,10 +1642,10 @@ mod tests {
 
         assert_eq!(selection, reversed);
         assert_eq!(selection.candidate_count, selection.candidates.len());
-        assert_eq!(selection.candidate_count, 75);
+        assert_eq!(selection.candidate_count, 76);
         assert_eq!(
             selection.p2_scenario_set_hash,
-            "c3face166c7adcba7849313079c5151693cc080152b966a2f5063980b59fc217"
+            "a10b9ead1b2a61d274ce08d9d4f7a2add42c406f61a2fc92b157156a3b625d0d"
         );
         assert!(
             selection
@@ -1673,6 +1691,7 @@ mod tests {
         );
         assert!(reasons.contains(&&P2CandidateReason::RegressionSentinel));
         assert!(reasons.contains(&&P2CandidateReason::FocusedHotspot));
+        assert!(reasons.contains(&&P2CandidateReason::ContractSentinel));
     }
 
     #[test]
@@ -1812,7 +1831,7 @@ mod tests {
     }
 
     #[test]
-    fn checked_in_hotspots_and_regression_sentinels_are_required_by_profile_selection() {
+    fn checked_in_profile_sentinels_are_required_by_p2_selection() {
         let scenarios = deterministic_matrix();
         let samples = complete_test_samples(&scenarios);
         let requirements = P2SelectionRequirements::from_profile(
@@ -1859,6 +1878,18 @@ mod tests {
                     .contains(&P2CandidateReason::RegressionSentinel)
             );
         }
+        for scenario_id in SQL_PERFORMANCE_PROFILE.contract_sentinel_scenario_ids() {
+            let candidate = selection
+                .candidates
+                .iter()
+                .find(|candidate| candidate.scenario_id == *scenario_id)
+                .unwrap_or_else(|| panic!("contract sentinel {scenario_id:?} should be selected"));
+            assert!(
+                candidate
+                    .reasons
+                    .contains(&P2CandidateReason::ContractSentinel)
+            );
+        }
     }
 
     #[test]
@@ -1878,6 +1909,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
             regression_sentinels,
+            Vec::new(),
             Vec::new(),
         );
 
@@ -1910,6 +1942,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
         );
         assert!(matches!(
             select_p2_candidates(
@@ -1933,6 +1966,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
             vec!["missing.scenario".to_string()],
+            Vec::new(),
             Vec::new(),
         );
         assert!(matches!(
