@@ -3,7 +3,6 @@ use crate::{
         cursor::CursorBoundary,
         executor::{
             ExecutionKernel, OrderedKeyStreamBox, ScalarContinuationContext,
-            can_use_bounded_direct_order_collection,
             pipeline::contracts::{
                 CursorEmissionMode, PageCursor, ScalarMaterializationCapabilities,
                 StructuralCursorPage,
@@ -155,9 +154,6 @@ impl<'a> ScalarMaterializationPlan<'a> {
             return Ok(None);
         }
         let resolved_order = plan.require_resolved_order()?;
-        if !can_use_bounded_direct_order_collection(resolved_order) {
-            return Ok(None);
-        }
 
         Ok(
             ExecutionKernel::bounded_order_keep_count(plan, continuation.cursor_boundary()).map(
@@ -478,7 +474,8 @@ impl KernelRowScanStrategy<'_> {
 ///
 /// KernelRowOrderWindow
 ///
-/// KernelRowOrderWindow carries the scan-time top-K retained-row order window.
+/// KernelRowOrderWindow carries the scan-time top-K retained-row order window
+/// for direct-field and expression-backed resolved orders.
 /// The scan uses it only to reduce the retained working set; post-access
 /// ordering still owns final canonical ordering and pagination.
 ///

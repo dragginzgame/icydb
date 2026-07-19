@@ -7,12 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Closed the 0.205 grouped early-finalization evidence line with an exact
-  three-run cohort: bounded ordered pages retain one group and materially reduce
-  scanned work, while the full-scan count trade-off remains explicit.
-- Opened 0.206 with a checked-in post-0.205 hotspot ledger and a diagnostics-only
-  peak retained-candidate counter, keeping runtime semantics and route selection
-  unchanged while the primary optimization budget awaits exact Wasm evidence.
+## [0.206.x] 🔧 - 2026-07-19 - SQL Performance Remediation
+
+Detailed notes: [docs/changelog/0.206.md](docs/changelog/0.206.md)
+
+- `0.206.1` bounds unindexed expression-ordered initial SQL pages to the
+  requested window plus continuation lookahead while preserving the required
+  scan, canonical ordering, route selection, and cursor behavior.
+
+- `0.206.0` opens the post-0.205 remediation line with a durable 14-family
+  performance review and exact retained-candidate diagnostics, without changing
+  production query semantics or routing.
 
 ## [0.205.x] 🔧 - 2026-07-19 - Grouped Early Finalization
 

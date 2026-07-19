@@ -94,9 +94,8 @@ pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub use mutation::save::MutationMode;
 pub(super) use mutation::save::SaveExecutor;
 pub(in crate::db::executor) use order::{
-    BoundedDirectOrderWindow, OrderReadableRow, apply_structural_order_window,
-    apply_structural_order_window_to_data_rows, can_use_bounded_direct_order_collection,
-    compare_orderable_row_with_boundary,
+    BoundedOrderWindow, OrderReadableRow, apply_structural_order_window,
+    apply_structural_order_window_to_data_rows, compare_orderable_row_with_boundary,
 };
 pub(super) use pipeline::contracts::LoadExecutor;
 #[cfg(feature = "sql")]

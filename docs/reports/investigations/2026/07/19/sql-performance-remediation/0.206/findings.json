@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "design": "0.206",
-  "status": "opening_review_measurement_pending",
+  "status": "primary_implementation_validated_measurement_pending",
   "leading_set_frozen": true,
-  "selection_frozen": false,
+  "selection_frozen": true,
   "opening_evidence": {
     "cohort": "0.205.2-8bba5367e5-closeout",
     "run_id": "29691074553",
@@ -16,16 +16,26 @@
     "p2_scenario_set_hash": "306c6bd3bcff8978d10783abde0bce643e3e21fc9ab17f24effb2e4c931237d0",
     "scale_scenario_set_hash": "afa7c342801019da5b1f36674fd7cc4997332822b39f15eac5bf4633381b9ca0"
   },
-  "pending_primary_budget": {
+  "selection_evidence": {
+    "run_id": "29696076149",
+    "source_revision": "a30b71d27e2c6d3611217357a2f9c8c9c2a96a9c",
+    "raw_wasm_sha256": "2fd45f0fe3fe2f50e31440c727ef2aa539d9d323f5f9db01f653fef426f3b8e1",
+    "raw_wasm_bytes": 3915688,
+    "diagnostics_attribution_schema_version": 2,
+    "p1_artifact_sha256": "2dc13c033e0052947af883a1d2ec0cd0c5afd54136d544e1f2f72c0ed95b2b12",
+    "scale_artifact_sha256": "05a972becb1721f6195952855539b69050dcb2ad6b3e17353bc4f9202f9f5b97",
+    "p2_artifact_sha256": "4a174b383b2de9773ad9bfab4f281d682783d9ee0ecea4776c9960c894e19f82",
+    "instrumentation_artifact_sha256": "b7c79f4677c84e6903864339478eaf3472804ef03198e9876087f4fc177cb86c"
+  },
+  "primary_budget": {
     "finding_id": "206-003",
     "family": "scale.user.unsupported_order.all.window10",
     "scenario_id": "scale.user.unsupported_order.all.window10.rows2048",
     "metric": "kernel_row_peak_retained_candidates",
-    "opening_value": null,
-    "expected_opening_value": 2048,
+    "opening_value": 2048,
     "required_target_max": 11,
     "sampling_variance": 0,
-    "selection_state": "awaiting_typed_opening_measurement"
+    "selection_state": "frozen"
   },
   "findings": [
     {
@@ -63,9 +73,9 @@
         "crates/icydb-core/src/db/executor/terminal/page/plan.rs",
         "crates/icydb-core/src/db/executor/order.rs"
       ],
-      "disposition": "NeedsTypedMeasurement",
-      "selection_state": "primary_candidate_pending_measurement",
-      "evidence": "104312631 total instructions, 35243583 kernel order-window instructions, 2048 data gets, 10 rows returned"
+      "disposition": "OptimizeNow",
+      "selection_state": "primary_implemented_measurement_pending",
+      "evidence": "run 29696076149 records 2048 peak retained candidates, 104312717 total instructions, 35243583 kernel order-window instructions, 2048 data gets, and 10 rows returned"
     },
     {
       "id": "206-004",

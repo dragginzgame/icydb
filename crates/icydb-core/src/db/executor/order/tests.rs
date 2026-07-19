@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     db::data::{CanonicalRow, with_structural_read_metrics},
-    db::query::plan::ResolvedOrderField,
+    db::query::plan::{ResolvedOrderField, expr::CompiledExpr},
     entity::EntityDeclaration,
     model::field::FieldKind,
     types::{Blob, Text, Ulid},
@@ -239,6 +239,71 @@ fn bounded_direct_order_window_keeps_best_rows_without_sorting() {
         .map(|row| row.read_order_slot(0))
         .collect::<Vec<_>>();
     assert_eq!(ordered, vec![Some(Value::Nat64(1)), Some(Value::Nat64(2))]);
+}
+
+#[test]
+fn bounded_order_window_caches_expression_keys_once_and_keeps_complete_order() {
+    let order = ResolvedOrder::new(vec![
+        ResolvedOrderField::new(
+            ResolvedOrderValueSource::expression(CompiledExpr::Add {
+                left_slot: 0,
+                left_field: "age".to_string(),
+                right_slot: 1,
+                right_field: "rank".to_string(),
+            }),
+            OrderDirection::Asc,
+        ),
+        ResolvedOrderField::new(
+            ResolvedOrderValueSource::direct_field(2),
+            OrderDirection::Asc,
+        ),
+    ]);
+    let reads = (0..4).map(|_| Rc::new(Cell::new(0))).collect::<Vec<_>>();
+    let mut window = BoundedOrderWindow::new(3, &order);
+    for (reads, slots) in reads.iter().zip([
+        vec![
+            Some(Value::Nat64(5)),
+            Some(Value::Nat64(5)),
+            Some(Value::Nat64(2)),
+        ],
+        vec![
+            Some(Value::Nat64(3)),
+            Some(Value::Nat64(3)),
+            Some(Value::Nat64(4)),
+        ],
+        vec![
+            Some(Value::Nat64(2)),
+            Some(Value::Nat64(4)),
+            Some(Value::Nat64(3)),
+        ],
+        vec![
+            Some(Value::Nat64(9)),
+            Some(Value::Nat64(9)),
+            Some(Value::Nat64(1)),
+        ],
+    ]) {
+        window.push(CountingRow::borrowed(reads.clone(), slots));
+    }
+
+    assert!(
+        reads.iter().all(|reads| reads.get() == 3),
+        "each candidate should evaluate two expression slots and one tie-break slot exactly once",
+    );
+
+    let mut rows = window.into_rows();
+    apply_structural_order_window(&mut rows, &order, Some(3));
+    let ids = rows
+        .iter()
+        .map(|row| row.read_order_slot(2))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        vec![
+            Some(Value::Nat64(3)),
+            Some(Value::Nat64(4)),
+            Some(Value::Nat64(2)),
+        ],
+    );
 }
 
 crate::test_canister! {

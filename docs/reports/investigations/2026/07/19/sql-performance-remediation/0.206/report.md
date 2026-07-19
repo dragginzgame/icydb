@@ -1,25 +1,25 @@
 # 0.206 SQL Performance Remediation Investigation
 
-Status: Slice 1 opening review complete; selection awaits the typed retained-candidate rerun.
+Status: Slice 1 selection frozen; Slice 2 implementation validated locally;
+exact post-change evidence pending.
 
 ## Decision
 
-The accepted post-0.205 cohort freezes a 14-family leading set. It does not yet
-freeze an `OptimizeNow` selection. The best evidenced candidate is
-`scale.user.unsupported_order.all.window10`: at 2,048 rows it costs 104,312,631
+The accepted post-0.205 cohort freezes a 14-family leading set. Exact selection
+run `29696076149` freezes 206-003 as the sole `OptimizeNow` finding. The selected
+family is
+`scale.user.unsupported_order.all.window10`: at 2,048 rows it costs 104,312,717
 instructions, including 35,243,583 in the kernel order-window phase, and the
 current source retains the complete qualifying row set before applying the
-bounded expression order. The opening artifact did not transport the exact
-peak retained-candidate count required by the 0.206 design, so selecting it
-from instruction evidence alone would violate the design.
+bounded expression order.
 
-The Slice 1 measurement patch adds only
+The Slice 1 measurement patch added only
 `kernel_row_peak_retained_candidates` at the canonical kernel scan collector.
-It changes neither semantics nor dispatch. Selection freezes only after a clean
-current-source run proves the exact opening value and raw Wasm identity. The
-expected structural observation is 2,048 retained candidates for the
-2,048-row expression-order sentinel; that expectation is not treated as
-measured evidence until the rerun records it.
+It changed neither semantics nor dispatch. The exact current-source run records
+16, 256, and 2,048 retained candidates at the corresponding cardinalities, so
+the predeclared 2,048-to-at-most-11 structural budget is now measured and
+frozen. The direct-field incompatible-order guard already records 11 retained
+candidates at 2,048 rows.
 
 No directly coupled family is proposed. The leading incompatible-filter/order
 family already uses direct-field bounded kernel collection and does not share
@@ -36,6 +36,10 @@ remain workflow artifacts and are not copied into the repository.
 | opening scale | `29691074553` | `8bba5367e58a9fffc39754cdb0b117c768cb87e1` | profile 1; scale `afa7c342`; fixture `66ae745f` | `sql_perf_scale_report.json` | `94b33a88f03cfdcee4f157003ebf9126eb734ddd6b4afc95b576f0a7a8f0d664` |
 | opening P1 | `29691074553` | `8bba5367e58a9fffc39754cdb0b117c768cb87e1` | profile 1; P1 `a6823a84`; accepted snapshot `04c1f5d6` | `sql_perf_deterministic_matrix.json` | `f7f747ac26b4694aaf350d9606597c971d04a2015187083373709eac7cde3474` |
 | cohort review | `29693321199` | `8bba5367e58a9fffc39754cdb0b117c768cb87e1` | cohort `0.205.2-8bba5367e5-closeout`; three accepted ordinals | `sql_perf_calibration_review.json` | `43dcb041a58442ca9e2738fb5d2e52f9c7b26605ee1c944a0f95b69baf2b82a7` |
+| selection P1 | `29696076149` | `a30b71d27e2c6d3611217357a2f9c8c9c2a96a9c` | profile 1; diagnostics schema 2; P1 `a6823a84` | `sql_perf_deterministic_matrix.json` | `2dc13c033e0052947af883a1d2ec0cd0c5afd54136d544e1f2f72c0ed95b2b12` |
+| selection scale | `29696076149` | `a30b71d27e2c6d3611217357a2f9c8c9c2a96a9c` | profile 1; scale `afa7c342`; fixture `66ae745f` | `sql_perf_scale_report.json` | `05a972becb1721f6195952855539b69050dcb2ad6b3e17353bc4f9202f9f5b97` |
+| selection P2 | `29696076149` | `a30b71d27e2c6d3611217357a2f9c8c9c2a96a9c` | 424 confirmations; P2 `306c6bd3` | `sql_perf_p2_report.json` | `4a174b383b2de9773ad9bfab4f281d682783d9ee0ecea4776c9960c894e19f82` |
+| selection attribution | `29696076149` | `a30b71d27e2c6d3611217357a2f9c8c9c2a96a9c` | 22,883 instructions; 350 basis points; observation only | `sql_perf_instrumentation.json` | `b7c79f4677c84e6903864339478eaf3472804ef03198e9876087f4fc177cb86c` |
 
 The opening subject is raw Wasm SHA-256
 `e40cf2756a9b714d232eff6a488b81db6939a0a3ed882863f82716e0b91008fb`,
@@ -44,10 +48,14 @@ The opening subject is raw Wasm SHA-256
 features. All three cohort ordinals produced the same P2 selection hash and
 the calibration review accepted the cohort.
 
-The measurement rerun will be appended as a new immutable reference. It uses
+The selection subject is raw Wasm SHA-256
+`2fd45f0fe3fe2f50e31440c727ef2aa539d9d323f5f9db01f653fef426f3b8e1`,
+3,915,688 non-gzipped bytes: 228 bytes above the opening subject. It uses
 diagnostics-attribution schema 2 because the retained-candidate field changes
-the typed artifact shape; there is no schema-1 compatibility decoder. It will
-not overwrite these opening facts.
+the typed artifact shape; there is no schema-1 compatibility decoder. The
+first Scale shard 5 attempt failed before IcyDB execution while downloading
+PocketIC; the failed job alone was rerun, passed, and the complete workflow
+then succeeded against the same revision and Wasm.
 
 ## Deterministic Leading Set
 
@@ -123,7 +131,7 @@ Source inspection was performed only after the table above was frozen.
 | --- | --- | --- | --- |
 | 206-001 | AND-range planner | `range::extract::index_range_from_and` requires every AND child to be a literal comparison, so the residual `name = name` child prevents lower/upper range fusion; `predicate::plan_predicate` recursively produces two one-sided range children and the grouped stream traverses both before the required hash fold | `NeedsTypedMeasurement` |
 | 206-002 | AND-range planner | same planner shape and symbols as 206-001; HAVING is not the material difference, and current phase attribution does not isolate the instruction cost of either child traversal | `NeedsTypedMeasurement` |
-| 206-003 | scalar page order collector | `terminal/page/plan.rs`, `scan.rs`, and `executor/order.rs` bound direct-field order collection, but expression order is collected in full before cached key selection | `NeedsTypedMeasurement` |
+| 206-003 | scalar page order collector | `terminal/page/plan.rs`, `scan.rs`, and `executor/order.rs` bound direct-field order collection, but expression order is collected in full before cached key selection; run 29696076149 proves a 2,048-candidate peak | `OptimizeNow` |
 | 206-004 | grouped aggregate bundle | `aggregate/runtime/grouped_fold/bundle.rs` owns per-group DISTINCT state; evidence matches five live distinct values | `ContractRequired` |
 | 206-005 | ordered grouped COUNT fold | `aggregate/runtime/grouped_fold/count/mod.rs` already retains one group; LIMIT 100 consumes the complete 100-group result | `ContractRequired` |
 | 206-006 | ordered grouped COUNT fold | same owner; all five groups and all rows are needed to finalize exact counts | `ContractRequired` |
@@ -150,17 +158,17 @@ the individual access children. The findings therefore remain
 because the downstream hash fold is semantically necessary, and they cannot
 outrank 206-003 under the design's typed avoidable-phase scoring rule.
 
-## Pending Selection Budget
+## Frozen Selection Budget
 
-If the measurement rerun records the expected structural fact, Slice 1 will
-freeze 206-003 as the sole primary `OptimizeNow` finding with this budget:
+Slice 1 freezes 206-003 as the sole primary `OptimizeNow` finding with this
+budget:
 
 - family: `scale.user.unsupported_order.all.window10`;
 - primary scenario: `scale.user.unsupported_order.all.window10.rows2048`;
 - guard cardinalities: 16, 256, and 2,048 rows;
 - mode: isolated cold scale execution;
 - structural metric: `kernel_row_peak_retained_candidates`;
-- opening value: supplied by the measurement rerun, expected 2,048;
+- opening value: 2,048 in run `29696076149`;
 - required target: at most `offset + limit + lookahead`, which is 11 for the
   primary scenario;
 - sampling variance: zero for the structural metric;
@@ -173,29 +181,54 @@ freeze 206-003 as the sole primary `OptimizeNow` finding with this budget:
 - resource guards: existing scan/group/output/instruction limits remain in
   force; no byte or heap improvement is claimed without typed evidence.
 
-If the rerun does not record the expected peak, 206-003 remains
-`NeedsTypedMeasurement` and the selection is not silently substituted.
+## Slice 2 Implementation
+
+The initial cursorless materialized-order scan now retains at most
+`offset + limit + lookahead` rows for both direct-field and expression-backed
+planner-resolved orders. Expression-backed collection evaluates and caches the
+complete resolved ordering tuple once for each candidate during scan-time
+selection. The tuple includes every declared term, direction, null behavior,
+and the planner-appended primary-key tie-breaker.
+
+The change preserves the existing authority boundaries:
+
+- the planner remains the sole source of `ResolvedOrder`;
+- the existing kernel window contract remains the sole source of the bounded
+  keep count;
+- the scan collector reduces only the retained working set;
+- the canonical post-access phase still performs final ordering and page
+  projection; and
+- continuation queries, route-ordered queries, DISTINCT queries, and shapes
+  without a materialized slot layout retain their existing paths.
+
+There is no scenario-specific dispatch, route forcing, hidden index, feature
+flag, compatibility path, or retained full-collection expression-order branch.
+Focused executor and session coverage passes for cached complete keys,
+ascending and descending scalar expressions, nullable text expressions,
+unindexed materialization, expression-index covering routes, and paged result
+parity. The exact workflow rerun remains required before the structural target,
+instruction guardrails, raw Wasm delta, and Slice 2 acceptance can be recorded.
 
 ## Remaining Risks
 
-- The counter transport changes the diagnostics/performance artifact shape and
-  therefore requires a new exact raw-Wasm and environment identity before
-  selection.
 - `KernelRowAttribution` is public only under the diagnostics feature. The new
   field is retained as a maintained exact regression metric in the checked-in
   performance baseline rather than as slice-only optimization proof; the
   ordinary non-diagnostics query API is unchanged.
-- Expression-order bounded collection must cache each expression key once per
-  input row and compare the complete deterministic order, including the primary
-  key tie-break. A direct-field-only heap is not a valid replacement.
-- The full scan remains contract-required. The proposed target removes retained
+- Expression-order bounded collection caches each expression key once per
+  input row during scan-time selection and compares the complete deterministic
+  order, including the primary-key tie-break. The exact workflow must prove
+  that this implementation meets its instruction guardrails.
+- The full scan remains contract-required. The implementation removes retained
   candidate state; it does not claim index pushdown or early scan stop.
 - Peak retained candidates are not peak heap bytes. No memory-byte claim is
   authorized by this counter.
 
 ## Validation State
 
-The opening 0.205.2 cohort and strict review passed. The local measurement
-transport has focused compilation and unit coverage; its required Wasm-scale
-measurement run is pending publication of the slice. Full repository tests
-remain user-owned under repository policy.
+The opening 0.205.2 cohort and strict review passed. Exact selection run
+`29696076149` passed all P1, scale, P2, attribution, merge, and bundle jobs after
+one infrastructure-only PocketIC-download rerun. The local Slice 2
+implementation passes focused expression-order semantics and package-local
+Clippy with warnings denied. Exact post-change performance evidence is pending;
+full repository tests remain user-owned under repository policy.

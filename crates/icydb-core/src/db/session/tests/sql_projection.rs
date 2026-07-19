@@ -386,8 +386,8 @@ fn execute_sql_projection_unindexed_ordered_scalar_expr_uses_retained_slot_rows(
             .kernel_row
             .expect("expression-ordered scalar projection should report kernel attribution");
         assert_eq!(
-            kernel.peak_retained_candidates, 4,
-            "expression ordering currently retains every qualifying candidate before top-k",
+            kernel.peak_retained_candidates, 3,
+            "expression ordering should retain only the page plus lookahead",
         );
     }
 }

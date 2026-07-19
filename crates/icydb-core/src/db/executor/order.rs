@@ -20,7 +20,7 @@ use crate::{
 use std::{array, borrow::Cow, cmp::Ordering, mem};
 
 const INLINE_ORDER_VALUE_CAPACITY: usize = 2;
-const BOUNDED_DIRECT_ORDER_INITIAL_CAPACITY: usize = 64;
+const BOUNDED_ORDER_INITIAL_CAPACITY: usize = 64;
 
 ///
 /// OrderReadableRow
@@ -197,13 +197,72 @@ fn apply_structural_order_window_inner<R>(
     rows.extend(cached_rows.into_iter().map(|(row, _)| row));
 }
 
-/// Return whether a scan-time bounded order window can compare rows through
-/// already-materialized direct slots without evaluating expression terms.
-#[must_use]
-pub(in crate::db::executor) fn can_use_bounded_direct_order_collection(
-    resolved_order: &ResolvedOrder,
-) -> bool {
-    resolved_order_uses_only_direct_fields(resolved_order)
+///
+/// BoundedOrderWindow
+///
+/// BoundedOrderWindow retains the best `keep_count` rows while a scan is still
+/// running. Direct-field orders keep borrowed comparisons; expression-backed
+/// orders cache each candidate's complete resolved ordering tuple once.
+/// It captures the resolved order used to choose the strategy so later pushes
+/// cannot supply a different comparison contract.
+/// It deliberately does not final-sort rows; the canonical post-access
+/// order/window phase remains the final ordering authority.
+///
+
+pub(in crate::db::executor) struct BoundedOrderWindow<'a, R> {
+    resolved_order: &'a ResolvedOrder,
+    candidates: BoundedOrderCandidates<R>,
+}
+
+impl<'a, R> BoundedOrderWindow<'a, R>
+where
+    R: OrderReadableRow,
+{
+    /// Build one bounded accumulator for the planner-resolved order contract.
+    #[must_use]
+    pub(in crate::db::executor) fn new(
+        keep_count: usize,
+        resolved_order: &'a ResolvedOrder,
+    ) -> Self {
+        let candidates = if resolved_order_uses_only_direct_fields(resolved_order) {
+            BoundedOrderCandidates::Direct(BoundedDirectOrderWindow::new(keep_count))
+        } else {
+            BoundedOrderCandidates::Cached(BoundedCachedOrderWindow::new(keep_count))
+        };
+
+        Self {
+            resolved_order,
+            candidates,
+        }
+    }
+
+    /// Retain one candidate if it belongs in the bounded resolved-order window.
+    pub(in crate::db::executor) fn push(&mut self, candidate: R) {
+        match &mut self.candidates {
+            BoundedOrderCandidates::Direct(window) => window.push(candidate, self.resolved_order),
+            BoundedOrderCandidates::Cached(window) => window.push(candidate, self.resolved_order),
+        }
+    }
+
+    /// Consume the retained, not-yet-final-sorted rows.
+    #[must_use]
+    pub(in crate::db::executor) fn into_rows(self) -> Vec<R> {
+        match self.candidates {
+            BoundedOrderCandidates::Direct(window) => window.into_rows(),
+            BoundedOrderCandidates::Cached(window) => window.into_rows(),
+        }
+    }
+}
+
+///
+/// BoundedOrderCandidates
+///
+/// Strategy-owned candidates selected once from the captured resolved order.
+///
+
+enum BoundedOrderCandidates<R> {
+    Direct(BoundedDirectOrderWindow<R>),
+    Cached(BoundedCachedOrderWindow<R>),
 }
 
 ///
@@ -215,7 +274,7 @@ pub(in crate::db::executor) fn can_use_bounded_direct_order_collection(
 /// order/window phase remains the final ordering authority.
 ///
 
-pub(in crate::db::executor) struct BoundedDirectOrderWindow<R> {
+struct BoundedDirectOrderWindow<R> {
     rows: Vec<R>,
     worst_index: Option<usize>,
     keep_count: usize,
@@ -227,16 +286,16 @@ where
 {
     /// Build one bounded direct-order accumulator.
     #[must_use]
-    pub(in crate::db::executor) fn new(keep_count: usize) -> Self {
+    fn new(keep_count: usize) -> Self {
         Self {
-            rows: Vec::with_capacity(keep_count.min(BOUNDED_DIRECT_ORDER_INITIAL_CAPACITY)),
+            rows: Vec::with_capacity(keep_count.min(BOUNDED_ORDER_INITIAL_CAPACITY)),
             worst_index: None,
             keep_count,
         }
     }
 
     /// Retain one candidate if it belongs in the bounded order window.
-    pub(in crate::db::executor) fn push(&mut self, candidate: R, resolved_order: &ResolvedOrder) {
+    fn push(&mut self, candidate: R, resolved_order: &ResolvedOrder) {
         if self.keep_count == 0 {
             return;
         }
@@ -266,7 +325,7 @@ where
 
     /// Consume the retained, not-yet-final-sorted rows.
     #[must_use]
-    pub(in crate::db::executor) fn into_rows(self) -> Vec<R> {
+    fn into_rows(self) -> Vec<R> {
         self.rows
     }
 
@@ -279,6 +338,80 @@ where
         if compare_borrowed_direct_orderable_rows(
             &self.rows[appended_index],
             &self.rows[worst_index],
+            resolved_order,
+        )
+        .is_gt()
+        {
+            self.worst_index = Some(appended_index);
+        }
+    }
+}
+
+///
+/// BoundedCachedOrderWindow
+///
+/// Expression-backed candidates paired with their complete resolved order
+/// tuples so comparisons never re-evaluate an expression for an already-seen
+/// row.
+///
+
+struct BoundedCachedOrderWindow<R> {
+    rows: Vec<(R, CachedOrderValues)>,
+    worst_index: Option<usize>,
+    keep_count: usize,
+}
+
+impl<R> BoundedCachedOrderWindow<R>
+where
+    R: OrderReadableRow,
+{
+    fn new(keep_count: usize) -> Self {
+        Self {
+            rows: Vec::with_capacity(keep_count.min(BOUNDED_ORDER_INITIAL_CAPACITY)),
+            worst_index: None,
+            keep_count,
+        }
+    }
+
+    fn push(&mut self, candidate: R, resolved_order: &ResolvedOrder) {
+        if self.keep_count == 0 {
+            return;
+        }
+
+        let cached_values = cache_order_values_from_row(&candidate, resolved_order);
+        if self.rows.len() < self.keep_count {
+            self.rows.push((candidate, cached_values));
+            self.update_worst_after_append(resolved_order);
+            return;
+        }
+
+        let worst_index = self
+            .worst_index
+            .unwrap_or_else(|| worst_cached_order_row_index(self.rows.as_slice(), resolved_order));
+        if compare_cached_orderable_rows(&cached_values, &self.rows[worst_index].1, resolved_order)
+            .is_lt()
+        {
+            self.rows[worst_index] = (candidate, cached_values);
+            self.worst_index = Some(worst_cached_order_row_index(
+                self.rows.as_slice(),
+                resolved_order,
+            ));
+        }
+    }
+
+    fn into_rows(self) -> Vec<R> {
+        self.rows.into_iter().map(|(row, _)| row).collect()
+    }
+
+    fn update_worst_after_append(&mut self, resolved_order: &ResolvedOrder) {
+        let appended_index = self.rows.len().saturating_sub(1);
+        let Some(worst_index) = self.worst_index else {
+            self.worst_index = Some(appended_index);
+            return;
+        };
+        if compare_cached_orderable_rows(
+            &self.rows[appended_index].1,
+            &self.rows[worst_index].1,
             resolved_order,
         )
         .is_gt()
@@ -545,6 +678,28 @@ where
     let mut worst_index = 0usize;
     for index in 1..rows.len() {
         if compare_borrowed_direct_orderable_rows(&rows[index], &rows[worst_index], resolved_order)
+            .is_gt()
+        {
+            worst_index = index;
+        }
+    }
+
+    worst_index
+}
+
+// Find the currently worst retained cached tuple under the complete resolved
+// order, including direction and the planner-appended primary-key tie-breaker.
+fn worst_cached_order_row_index<R>(
+    rows: &[(R, CachedOrderValues)],
+    resolved_order: &ResolvedOrder,
+) -> usize {
+    debug_assert!(
+        !rows.is_empty(),
+        "bounded cached order window must have retained rows before resolving worst row",
+    );
+    let mut worst_index = 0usize;
+    for index in 1..rows.len() {
+        if compare_cached_orderable_rows(&rows[index].1, &rows[worst_index].1, resolved_order)
             .is_gt()
         {
             worst_index = index;

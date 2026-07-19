@@ -2,7 +2,7 @@ use crate::{
     db::{
         data::{DataRow, DecodedDataStoreKey},
         executor::{
-            BoundedDirectOrderWindow, OrderedKeyStreamBox, ScalarContinuationContext,
+            BoundedOrderWindow, OrderedKeyStreamBox, ScalarContinuationContext,
             exact_output_key_count_hint, key_stream_budget_is_redundant,
             measure_execution_stats_phase, record_key_stream_micros, record_key_stream_yield,
             route::LoadOrderRouteMode,
@@ -389,7 +389,7 @@ fn scan_kernel_rows_with_bounded_order_window(
     }
 
     let mut rows_scanned = 0usize;
-    let mut window = BoundedDirectOrderWindow::new(order_window.keep_count);
+    let mut window = BoundedOrderWindow::new(order_window.keep_count, order_window.resolved_order);
 
     while let Some(key) = next_kernel_scan_key(key_stream)? {
         record_key_stream_yield();
@@ -402,7 +402,7 @@ fn scan_kernel_rows_with_bounded_order_window(
             return Err(InternalError::query_executor_invariant());
         }
 
-        window.push(row, order_window.resolved_order);
+        window.push(row);
     }
 
     Ok((window.into_rows(), rows_scanned))
