@@ -14,7 +14,7 @@ use crate::{
         SelectComparisonOperator, SelectExpectedOutcome, SelectExpression, SelectFeature,
         SelectField, SelectFieldKind, SelectFunction, SelectGeneratorFamily, SelectOrderDirection,
         SelectOrderTarget, SelectOrderTerm, SelectPredicate, SelectProjection, SelectProvider,
-        SelectQuery, SelectSnapshot, SelectViolation,
+        SelectQuery, SelectSnapshot, SelectValueKind, SelectViolation,
     },
     rng::{SELECT_GENERATOR_VERSION, SplitMix64, derive_sql_sub_seed},
 };
@@ -614,7 +614,14 @@ fn global_aggregate_query(
             None,
         ),
         4 => (
-            vec![projection(count_value(field(fields.boolean), false), None)],
+            vec![projection(
+                filtered_count_all(comparison(
+                    field(fields.boolean),
+                    SelectComparisonOperator::Equal,
+                    SelectExpression::literal(GeneratedValue::Boolean(true)),
+                )),
+                Some("active_count"),
+            )],
             None,
         ),
         5 => (
@@ -785,6 +792,28 @@ fn having_query(
             count_value(field(fields.first_integer), true),
         ),
     };
+    if family_case == 7 {
+        let predicate = comparison(
+            field(fields.second_integer),
+            SelectComparisonOperator::GreaterOrEqual,
+            SelectExpression::literal(GeneratedValue::Integer(0)),
+        );
+        let having = comparison(aggregate.clone(), operator, threshold);
+        return Ok(SelectQuery::grouped_aggregate(
+            vec![
+                projection(group_key.clone(), None),
+                projection(aggregate, Some("aggregate_value")),
+            ],
+            Some(predicate),
+            vec![group_key.clone()],
+            Some(having),
+            vec![
+                SelectOrderTerm::alias("aggregate_value", SelectOrderDirection::Descending),
+                order_expression(group_key, SelectOrderDirection::Ascending),
+            ],
+            16,
+        ));
+    }
     Ok(grouped_count_query(
         group_key,
         vec![projection(aggregate.clone(), Some("aggregate_value"))],
@@ -866,11 +895,16 @@ fn predicate_query(
     let integer_literal = || SelectExpression::literal(GeneratedValue::Integer(literal));
     let boolean_literal = || SelectExpression::literal(GeneratedValue::Boolean(true));
     let predicate = match case_index % TIER_A_VALID_CASES_PER_FAMILY {
-        0 => comparison(
-            field(fields.first_integer),
-            SelectComparisonOperator::GreaterOrEqual,
-            integer_literal(),
-        ),
+        0 => SelectPredicate::InList {
+            expression: field(fields.first_integer),
+            members: vec![
+                integer_literal(),
+                SelectExpression::literal(GeneratedValue::Integer(0)),
+                SelectExpression::literal(GeneratedValue::Null(SelectValueKind::Integer)),
+            ],
+            negated: case_index >= TIER_A_VALID_CASES_PER_FAMILY
+                && (case_index / TIER_A_VALID_CASES_PER_FAMILY).is_multiple_of(2),
+        },
         1 => SelectPredicate::And {
             left: Box::new(comparison(
                 field(fields.first_integer),
@@ -916,11 +950,12 @@ fn predicate_query(
                 SelectComparisonOperator::Less,
                 integer_literal(),
             )),
-            right: Box::new(comparison(
-                field(fields.boolean),
-                SelectComparisonOperator::Equal,
-                boolean_literal(),
-            )),
+            right: Box::new(SelectPredicate::Between {
+                expression: field(fields.second_integer),
+                lower: SelectExpression::literal(GeneratedValue::Integer(-8)),
+                upper: SelectExpression::literal(GeneratedValue::Integer(8)),
+                negated: case_index >= TIER_A_VALID_CASES_PER_FAMILY,
+            }),
         },
     };
 
@@ -950,15 +985,18 @@ fn expression_query(
     })?;
     let family_case = case_index % TIER_A_VALID_CASES_PER_FAMILY;
     let expression = match family_case {
-        0 => arithmetic(
+        0 => function(
+            SelectFunction::Abs,
+            vec![arithmetic(
+                SelectArithmeticOperator::Subtract,
+                field(fields.first_integer),
+                SelectExpression::literal(GeneratedValue::Integer(small)),
+            )],
+        ),
+        1 => arithmetic(
             SelectArithmeticOperator::Add,
             field(fields.first_integer),
             SelectExpression::literal(GeneratedValue::Integer(small)),
-        ),
-        1 => arithmetic(
-            SelectArithmeticOperator::Subtract,
-            field(fields.first_integer),
-            field(fields.second_integer),
         ),
         2 => function(
             SelectFunction::Lower,
@@ -1017,6 +1055,11 @@ fn expression_query(
     ))
 }
 
+// Keep all eight reviewed window slots visible as one stable structural table.
+#[expect(
+    clippy::too_many_lines,
+    reason = "reviewed window generator slots are intentionally table-shaped"
+)]
 fn window_query(
     snapshot: &SelectSnapshot,
     case_index: u64,
@@ -1028,10 +1071,11 @@ fn window_query(
     } else {
         SelectOrderDirection::Descending
     };
-    let projections = vec![
+    let mut projections = vec![
         projection(field(fields.text), Some("display_name")),
         projection(field(fields.first_integer), Some("sort_value")),
     ];
+    let mut predicate = None;
     let (order, limit, offset) = match case_index % TIER_A_VALID_CASES_PER_FAMILY {
         0 => (
             vec![
@@ -1099,18 +1143,34 @@ fn window_query(
             Some(8),
             None,
         ),
-        _ => (
-            vec![
-                order_expression(field(fields.boolean), SelectOrderDirection::Ascending),
-                order_expression(field(fields.text), SelectOrderDirection::Ascending),
-                order_expression(field(fields.first_integer), SelectOrderDirection::Ascending),
-            ],
-            Some(4),
-            Some(2),
-        ),
+        _ => {
+            projections[1] = projection(
+                function(SelectFunction::Abs, vec![field(fields.first_integer)]),
+                Some("sort_value"),
+            );
+            predicate = Some(comparison(
+                field(fields.second_integer),
+                SelectComparisonOperator::GreaterOrEqual,
+                SelectExpression::literal(GeneratedValue::Integer(0)),
+            ));
+            (
+                vec![
+                    SelectOrderTerm::alias("sort_value", SelectOrderDirection::Descending),
+                    SelectOrderTerm::alias("display_name", SelectOrderDirection::Ascending),
+                ],
+                Some(4),
+                Some(2),
+            )
+        }
     };
 
-    Ok(SelectQuery::new(projections, None, order, limit, offset))
+    Ok(SelectQuery::new(
+        projections,
+        predicate,
+        order,
+        limit,
+        offset,
+    ))
 }
 
 fn invalid_base_query(
@@ -1278,13 +1338,21 @@ fn render_expression(
                 )
             }),
         SelectExpression::Literal { value } => Ok(render_literal(value)),
-        SelectExpression::Count { argument, distinct } => {
+        SelectExpression::Count {
+            argument,
+            distinct,
+            filter,
+        } => {
             let argument = match argument {
                 Some(argument) => render_expression(snapshot, argument)?,
                 None => "*".to_string(),
             };
             let distinct = if *distinct { "DISTINCT " } else { "" };
-            Ok(format!("COUNT({distinct}{argument})"))
+            let filter = match filter {
+                Some(filter) => format!(" FILTER (WHERE {})", render_predicate(snapshot, filter)?),
+                None => String::new(),
+            };
+            Ok(format!("COUNT({distinct}{argument}){filter}"))
         }
         SelectExpression::Arithmetic {
             operator,
@@ -1306,6 +1374,7 @@ fn render_expression(
             arguments,
         } => {
             let name = match function {
+                SelectFunction::Abs => "ABS",
                 SelectFunction::Coalesce => "COALESCE",
                 SelectFunction::Length => "LENGTH",
                 SelectFunction::Lower => "LOWER",
@@ -1367,6 +1436,34 @@ fn render_predicate(
                 "{} {operator} {}",
                 render_expression(snapshot, left)?,
                 render_expression(snapshot, right)?,
+            ))
+        }
+        SelectPredicate::Between {
+            expression,
+            lower,
+            upper,
+            negated,
+        } => Ok(format!(
+            "{} {}BETWEEN {} AND {}",
+            render_expression(snapshot, expression)?,
+            if *negated { "NOT " } else { "" },
+            render_expression(snapshot, lower)?,
+            render_expression(snapshot, upper)?,
+        )),
+        SelectPredicate::InList {
+            expression,
+            members,
+            negated,
+        } => {
+            let members = members
+                .iter()
+                .map(|member| render_expression(snapshot, member))
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            Ok(format!(
+                "{} {}IN ({members})",
+                render_expression(snapshot, expression)?,
+                if *negated { "NOT " } else { "" },
             ))
         }
         SelectPredicate::IsNull {
@@ -1484,10 +1581,18 @@ fn collect_expression_features(
             collect_expression_features(then_expression, features);
             collect_expression_features(else_expression, features);
         }
-        SelectExpression::Count { argument, distinct } => {
+        SelectExpression::Count {
+            argument,
+            distinct,
+            filter,
+        } => {
             features.insert(SelectFeature::Aggregate);
             if *distinct {
                 features.insert(SelectFeature::AggregateDistinct);
+            }
+            if let Some(filter) = filter {
+                features.insert(SelectFeature::AggregateFilter);
+                collect_predicate_features(filter, features);
             }
             if let Some(argument) = argument {
                 collect_expression_features(argument, features);
@@ -1499,6 +1604,9 @@ fn collect_expression_features(
             arguments,
         } => {
             features.insert(SelectFeature::Function);
+            if matches!(function, SelectFunction::Abs) {
+                features.insert(SelectFeature::NumericFunction);
+            }
             if matches!(function, SelectFunction::Coalesce | SelectFunction::NullIf) {
                 features.insert(SelectFeature::Null);
             }
@@ -1522,6 +1630,17 @@ fn collect_predicate_features(predicate: &SelectPredicate, features: &mut BTreeS
             collect_predicate_features(left, features);
             collect_predicate_features(right, features);
         }
+        SelectPredicate::Between {
+            expression,
+            lower,
+            upper,
+            ..
+        } => {
+            features.insert(SelectFeature::Range);
+            collect_expression_features(expression, features);
+            collect_expression_features(lower, features);
+            collect_expression_features(upper, features);
+        }
         SelectPredicate::Not { predicate } => {
             features.insert(SelectFeature::Boolean);
             collect_predicate_features(predicate, features);
@@ -1534,6 +1653,17 @@ fn collect_predicate_features(predicate: &SelectPredicate, features: &mut BTreeS
         SelectPredicate::IsNull { expression, .. } => {
             features.insert(SelectFeature::Null);
             collect_expression_features(expression, features);
+        }
+        SelectPredicate::InList {
+            expression,
+            members,
+            ..
+        } => {
+            features.insert(SelectFeature::Membership);
+            collect_expression_features(expression, features);
+            for member in members {
+                collect_expression_features(member, features);
+            }
         }
         SelectPredicate::IsTruth { expression, .. } => {
             features.insert(SelectFeature::Boolean);
@@ -1614,6 +1744,7 @@ const fn count_all() -> SelectExpression {
     SelectExpression::Count {
         argument: None,
         distinct: false,
+        filter: None,
     }
 }
 
@@ -1621,6 +1752,15 @@ fn count_value(expression: SelectExpression, distinct: bool) -> SelectExpression
     SelectExpression::Count {
         argument: Some(Box::new(expression)),
         distinct,
+        filter: None,
+    }
+}
+
+fn filtered_count_all(filter: SelectPredicate) -> SelectExpression {
+    SelectExpression::Count {
+        argument: None,
+        distinct: false,
+        filter: Some(Box::new(filter)),
     }
 }
 

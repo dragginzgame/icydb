@@ -4500,7 +4500,7 @@ fn explain_sql_grouped_qualified_identifier_matrix_matches_unqualified_output() 
 }
 
 #[test]
-fn execute_sql_ordered_grouped_sum_over_secondary_range_stays_monotonic() {
+fn execute_sql_ordered_grouped_secondary_range_stays_monotonic() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     insert_session_fixture_rows(
@@ -4541,6 +4541,22 @@ fn execute_sql_ordered_grouped_sum_over_secondary_range_stays_monotonic() {
         runtime_outputs(result.rows()[0].aggregate_values()),
         [Value::Decimal(crate::types::Decimal::from(30_u64))],
     );
+
+    let count_sql = "SELECT name, COUNT(*) \
+                     FROM IndexedSessionSqlEntity \
+                     WHERE name >= '' AND name <= 'zzzz' \
+                     GROUP BY name ORDER BY name ASC LIMIT 100";
+    assert_indexed_grouped_execution_mode::<IndexedSessionSqlEntity>(
+        &session,
+        count_sql,
+        "ordered_streaming",
+        "ordered grouped secondary-range COUNT(*)",
+    );
+
+    let count_result =
+        execute_grouped_select_for_tests::<IndexedSessionSqlEntity>(&session, count_sql, None)
+            .expect("ordered grouped secondary-range COUNT(*) should execute");
+    assert_eq!(count_result.rows().len(), 3);
 }
 
 #[cfg(feature = "diagnostics")]

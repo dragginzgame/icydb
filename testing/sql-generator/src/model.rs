@@ -7,6 +7,8 @@ use crate::{GeneratedFixture, GeneratedValue, SqlGeneratorError, SqlGeneratorErr
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+const MAX_GENERATED_MEMBERSHIP_MEMBERS: usize = 8;
+
 /// Required native budgets for the initial 0.204 SELECT generator lane.
 pub const TIER_A_SELECT_BUDGETS: SelectBudgets = SelectBudgets::new(16, 3, 4, 3, 256, 512, 262_144);
 
@@ -425,7 +427,9 @@ impl SelectGeneratorFamily {
             Self::Having => &[
                 "having.global_aggregate",
                 "having.grouped_aggregate",
+                "ordering.projection_alias",
                 "projection.aggregate",
+                "select.grouped_composition",
             ],
             Self::Predicate => &[
                 "predicate.boolean_comparison",
@@ -433,8 +437,10 @@ impl SelectGeneratorFamily {
                 "predicate.casefold_prefix",
                 "predicate.expression_arguments",
                 "predicate.field_comparison",
+                "predicate.membership",
                 "predicate.null",
                 "predicate.prefix_pattern",
+                "predicate.range",
                 "predicate.starts_with",
             ],
             Self::ScalarProjection => &[
@@ -443,9 +449,13 @@ impl SelectGeneratorFamily {
                 "select.scalar_rows",
             ],
             Self::Window => &[
+                "expression.numeric_functions",
                 "ordering.projection_alias",
                 "pagination.scalar_limit_offset",
+                "predicate.boolean_comparison",
                 "projection.scalar",
+                "select.computed_projection",
+                "select.scalar_composition",
                 "select.scalar_rows",
             ],
         }
@@ -579,6 +589,9 @@ pub enum SelectFeature {
     /// Aggregate-level duplicate elimination.
     AggregateDistinct,
 
+    /// Aggregate-local `FILTER (WHERE ...)` predicate.
+    AggregateFilter,
+
     /// Projection alias declaration.
     Alias,
 
@@ -606,6 +619,12 @@ pub enum SelectFeature {
     /// Explicit SQL limit.
     Limit,
 
+    /// Membership predicate over a bounded explicit value set.
+    Membership,
+
+    /// Maintained numeric scalar function call.
+    NumericFunction,
+
     /// Null predicate or null-producing expression.
     Null,
 
@@ -620,6 +639,9 @@ pub enum SelectFeature {
 
     /// Plain scalar projection.
     Projection,
+
+    /// Lower-and-upper-bound predicate.
+    Range,
 
     /// Searched `CASE` expression.
     SearchedCase,
@@ -1595,10 +1617,12 @@ pub(crate) enum SelectExpression {
         then_expression: Box<Self>,
         else_expression: Box<Self>,
     },
-    /// `COUNT(*)`, `COUNT(expression)`, or `COUNT(DISTINCT expression)`.
+    /// `COUNT(*)`, `COUNT(expression)`, or `COUNT(DISTINCT expression)`, with
+    /// an optional aggregate-local filter.
     Count {
         argument: Option<Box<Self>>,
         distinct: bool,
+        filter: Option<Box<SelectPredicate>>,
     },
     Field {
         #[serde(with = "tagged_u32")]
@@ -1637,7 +1661,11 @@ impl SelectExpression {
                     )
                 }),
             Self::Literal { value } => Ok(value.value_kind()),
-            Self::Count { argument, distinct } => {
+            Self::Count {
+                argument,
+                distinct,
+                filter,
+            } => {
                 if *distinct && argument.is_none() {
                     return Err(SqlGeneratorError::new(
                         SqlGeneratorErrorKind::InvalidCase,
@@ -1652,6 +1680,15 @@ impl SelectExpression {
                         ));
                     }
                     argument.validate(snapshot)?;
+                }
+                if let Some(filter) = filter {
+                    filter.validate(snapshot)?;
+                    if filter.contains_aggregate() {
+                        return Err(SqlGeneratorError::new(
+                            SqlGeneratorErrorKind::InvalidCase,
+                            "generated aggregate FILTER cannot contain aggregate expressions",
+                        ));
+                    }
                 }
                 Ok(SelectValueKind::Integer)
             }
@@ -1690,9 +1727,14 @@ impl SelectExpression {
     pub(crate) fn depth(&self) -> u8 {
         match self {
             Self::Field { .. } | Self::Literal { .. } => 1,
-            Self::Count { argument, .. } => {
-                1_u8.saturating_add(argument.as_deref().map_or(0, Self::depth))
-            }
+            Self::Count {
+                argument, filter, ..
+            } => 1_u8.saturating_add(
+                argument
+                    .as_deref()
+                    .map_or(0, Self::depth)
+                    .max(filter.as_deref().map_or(0, SelectPredicate::depth)),
+            ),
             Self::Arithmetic { left, right, .. } => {
                 1_u8.saturating_add(left.depth().max(right.depth()))
             }
@@ -1797,18 +1839,38 @@ impl SelectExpression {
                     }
                 }
             }
-            Self::Count { argument, distinct } => {
+            Self::Count {
+                argument,
+                distinct,
+                filter,
+            } => {
                 if let Some(argument) = argument {
                     for candidate in argument.shrink_candidates() {
                         candidates.push(Self::Count {
                             argument: Some(Box::new(candidate)),
                             distinct: *distinct,
+                            filter: filter.clone(),
                         });
                     }
                     if *distinct {
                         candidates.push(Self::Count {
                             argument: argument.clone().into(),
                             distinct: false,
+                            filter: filter.clone(),
+                        });
+                    }
+                }
+                if let Some(filter) = filter {
+                    candidates.push(Self::Count {
+                        argument: argument.clone(),
+                        distinct: *distinct,
+                        filter: None,
+                    });
+                    for candidate in filter.shrink_candidates() {
+                        candidates.push(Self::Count {
+                            argument: argument.clone(),
+                            distinct: *distinct,
+                            filter: Some(Box::new(candidate)),
                         });
                     }
                 }
@@ -1848,6 +1910,7 @@ pub(crate) enum SelectArithmeticOperator {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SelectFunction {
+    Abs,
     Coalesce,
     Length,
     Lower,
@@ -1862,6 +1925,14 @@ impl SelectFunction {
         snapshot: &SelectSnapshot,
     ) -> Result<SelectValueKind, SqlGeneratorError> {
         match self {
+            Self::Abs => {
+                require_arity(arguments, 1, self)?;
+                let kind = arguments[0].value_kind(snapshot)?;
+                if !matches!(kind, SelectValueKind::Decimal | SelectValueKind::Integer) {
+                    return Err(function_error(self, "requires one numeric argument"));
+                }
+                Ok(SelectValueKind::Decimal)
+            }
             Self::Lower | Self::Upper => {
                 require_arity(arguments, 1, self)?;
                 require_expression_kind(&arguments[0], snapshot, SelectValueKind::Text)?;
@@ -1904,10 +1975,21 @@ pub(crate) enum SelectPredicate {
         left: Box<Self>,
         right: Box<Self>,
     },
+    Between {
+        expression: SelectExpression,
+        lower: SelectExpression,
+        upper: SelectExpression,
+        negated: bool,
+    },
     Comparison {
         operator: SelectComparisonOperator,
         left: SelectExpression,
         right: SelectExpression,
+    },
+    InList {
+        expression: SelectExpression,
+        members: Vec<SelectExpression>,
+        negated: bool,
     },
     IsNull {
         expression: SelectExpression,
@@ -1944,6 +2026,23 @@ impl SelectPredicate {
                 left.validate(snapshot)?;
                 right.validate(snapshot)
             }
+            Self::Between {
+                expression,
+                lower,
+                upper,
+                ..
+            } => {
+                let expression_kind = expression.value_kind(snapshot)?;
+                let lower_kind = lower.value_kind(snapshot)?;
+                let upper_kind = upper.value_kind(snapshot)?;
+                if expression_kind != lower_kind || expression_kind != upper_kind {
+                    return Err(SqlGeneratorError::new(
+                        SqlGeneratorErrorKind::InvalidCase,
+                        "generated BETWEEN operands have different scalar types",
+                    ));
+                }
+                Ok(())
+            }
             Self::Not { predicate } => predicate.validate(snapshot),
             Self::Comparison { left, right, .. } => {
                 let left_kind = left.value_kind(snapshot)?;
@@ -1953,6 +2052,28 @@ impl SelectPredicate {
                         SqlGeneratorErrorKind::InvalidCase,
                         "generated comparison operands have different scalar types",
                     ));
+                }
+                Ok(())
+            }
+            Self::InList {
+                expression,
+                members,
+                ..
+            } => {
+                if members.is_empty() || members.len() > MAX_GENERATED_MEMBERSHIP_MEMBERS {
+                    return Err(SqlGeneratorError::new(
+                        SqlGeneratorErrorKind::Budget,
+                        "generated membership list is empty or over budget",
+                    ));
+                }
+                let expression_kind = expression.value_kind(snapshot)?;
+                for member in members {
+                    if member.value_kind(snapshot)? != expression_kind {
+                        return Err(SqlGeneratorError::new(
+                            SqlGeneratorErrorKind::InvalidCase,
+                            "generated membership operands have different scalar types",
+                        ));
+                    }
                 }
                 Ok(())
             }
@@ -1975,10 +2096,29 @@ impl SelectPredicate {
             Self::And { left, right } | Self::Or { left, right } => {
                 1_u8.saturating_add(left.depth().max(right.depth()))
             }
+            Self::Between {
+                expression,
+                lower,
+                upper,
+                ..
+            } => 1_u8.saturating_add(expression.depth().max(lower.depth()).max(upper.depth())),
             Self::Not { predicate } => 1_u8.saturating_add(predicate.depth()),
             Self::Comparison { left, right, .. } => {
                 1_u8.saturating_add(left.depth().max(right.depth()))
             }
+            Self::InList {
+                expression,
+                members,
+                ..
+            } => 1_u8.saturating_add(
+                expression.depth().max(
+                    members
+                        .iter()
+                        .map(SelectExpression::depth)
+                        .max()
+                        .unwrap_or_default(),
+                ),
+            ),
             Self::IsNull { expression, .. }
             | Self::IsTruth { expression, .. }
             | Self::PrefixLike { expression, .. } => 1_u8.saturating_add(expression.depth()),
@@ -1993,9 +2133,27 @@ impl SelectPredicate {
             Self::And { left, right } | Self::Or { left, right } => {
                 left.contains_aggregate() || right.contains_aggregate()
             }
+            Self::Between {
+                expression,
+                lower,
+                upper,
+                ..
+            } => {
+                expression.contains_aggregate()
+                    || lower.contains_aggregate()
+                    || upper.contains_aggregate()
+            }
             Self::Not { predicate } => predicate.contains_aggregate(),
             Self::Comparison { left, right, .. } => {
                 left.contains_aggregate() || right.contains_aggregate()
+            }
+            Self::InList {
+                expression,
+                members,
+                ..
+            } => {
+                expression.contains_aggregate()
+                    || members.iter().any(SelectExpression::contains_aggregate)
             }
             Self::IsNull { expression, .. }
             | Self::IsTruth { expression, .. }
@@ -2011,10 +2169,30 @@ impl SelectPredicate {
             Self::And { left, right } | Self::Or { left, right } => {
                 left.respects_group_scope(group_by) && right.respects_group_scope(group_by)
             }
+            Self::Between {
+                expression,
+                lower,
+                upper,
+                ..
+            } => {
+                expression.respects_group_scope(group_by, false)
+                    && lower.respects_group_scope(group_by, false)
+                    && upper.respects_group_scope(group_by, false)
+            }
             Self::Not { predicate } => predicate.respects_group_scope(group_by),
             Self::Comparison { left, right, .. } => {
                 left.respects_group_scope(group_by, false)
                     && right.respects_group_scope(group_by, false)
+            }
+            Self::InList {
+                expression,
+                members,
+                ..
+            } => {
+                expression.respects_group_scope(group_by, false)
+                    && members
+                        .iter()
+                        .all(|member| member.respects_group_scope(group_by, false))
             }
             Self::IsNull { expression, .. }
             | Self::IsTruth { expression, .. }
@@ -2028,12 +2206,57 @@ impl SelectPredicate {
         }
     }
 
+    // Keep shrink behavior exhaustive beside the closed predicate AST so new
+    // variants cannot silently miss minimization.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "closed predicate AST shrink policy is intentionally exhaustive"
+    )]
     fn shrink_candidates(&self) -> Vec<Self> {
         let mut candidates = Vec::new();
         match self {
             Self::And { left, right } | Self::Or { left, right } => {
                 candidates.push((**left).clone());
                 candidates.push((**right).clone());
+            }
+            Self::Between {
+                expression,
+                lower,
+                upper,
+                negated,
+            } => {
+                for candidate in expression.shrink_candidates() {
+                    candidates.push(Self::Between {
+                        expression: candidate,
+                        lower: lower.clone(),
+                        upper: upper.clone(),
+                        negated: *negated,
+                    });
+                }
+                for candidate in lower.shrink_candidates() {
+                    candidates.push(Self::Between {
+                        expression: expression.clone(),
+                        lower: candidate,
+                        upper: upper.clone(),
+                        negated: *negated,
+                    });
+                }
+                for candidate in upper.shrink_candidates() {
+                    candidates.push(Self::Between {
+                        expression: expression.clone(),
+                        lower: lower.clone(),
+                        upper: candidate,
+                        negated: *negated,
+                    });
+                }
+                if *negated {
+                    candidates.push(Self::Between {
+                        expression: expression.clone(),
+                        lower: lower.clone(),
+                        upper: upper.clone(),
+                        negated: false,
+                    });
+                }
             }
             Self::Not { predicate } => candidates.push((**predicate).clone()),
             Self::Comparison {
@@ -2064,6 +2287,44 @@ impl SelectPredicate {
                     candidates.push(Self::IsNull {
                         expression: candidate,
                         negated: *negated,
+                    });
+                }
+            }
+            Self::InList {
+                expression,
+                members,
+                negated,
+            } => {
+                for candidate in expression.shrink_candidates() {
+                    candidates.push(Self::InList {
+                        expression: candidate,
+                        members: members.clone(),
+                        negated: *negated,
+                    });
+                }
+                for (index, member) in members.iter().enumerate() {
+                    for candidate in member.shrink_candidates() {
+                        let mut simplified_members = members.clone();
+                        simplified_members[index] = candidate;
+                        candidates.push(Self::InList {
+                            expression: expression.clone(),
+                            members: simplified_members,
+                            negated: *negated,
+                        });
+                    }
+                }
+                if members.len() > 1 {
+                    candidates.push(Self::InList {
+                        expression: expression.clone(),
+                        members: members[..members.len() - 1].to_vec(),
+                        negated: *negated,
+                    });
+                }
+                if *negated {
+                    candidates.push(Self::InList {
+                        expression: expression.clone(),
+                        members: members.clone(),
+                        negated: false,
                     });
                 }
             }

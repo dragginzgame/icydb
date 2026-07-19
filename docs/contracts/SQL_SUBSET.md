@@ -130,6 +130,14 @@ Supported `SELECT` families are:
 - narrow computed projection loads, including admitted bounded arithmetic,
   numeric scalar functions, text-function projection forms, and searched `CASE`
 
+<!-- icydb-sql-feature id="select.scalar_composition" kind="interaction" status="accepted" -->
+- scalar `WHERE`, computed projection, projection-alias ordering, `LIMIT`, and
+  `OFFSET` clauses compose within their independently admitted bounds
+
+<!-- icydb-sql-feature id="select.grouped_composition" kind="interaction" status="accepted" -->
+- grouped `WHERE`, aggregate projection, `GROUP BY`, `HAVING`, aggregate-alias
+  ordering, and `LIMIT` clauses compose within their independently admitted bounds
+
 <!-- icydb-sql-feature id="ordering.null_values" kind="semantic" status="accepted" -->
 `ORDER BY` uses IcyDB's canonical value comparator. For nullable values, `ASC`
 places `NULL` before present values and `DESC` reverses that comparator, so

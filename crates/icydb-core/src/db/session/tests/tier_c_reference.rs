@@ -58,7 +58,7 @@ const TIER_C_NATIVE_SCENARIO_COUNT: usize = 2_505;
 
 /// Golden identity of the complete current accepted-snapshot Tier C catalog.
 const TIER_C_NATIVE_SCENARIO_SET_HASH: &str =
-    "412ed958e3734230ebcfd5f567ccda539401583b4a463b63d64248c0971ace7c";
+    "17d84631a60e3fa7d10af0b1104ec276f0042be06441598e6eab7ee63647c789";
 
 ///
 /// TierCNativeScenario

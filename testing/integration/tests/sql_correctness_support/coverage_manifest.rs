@@ -1265,6 +1265,30 @@ const MANIFEST: &[CoverageCell] = &[
         None
     ),
     cell!(
+        "select.scalar_composition",
+        Interaction,
+        Accepted,
+        "`SELECT`",
+        Interaction,
+        REQ_EXECUTE_REFERENCE,
+        PERF_NONE,
+        ELIGIBLE_SQLITE,
+        ["core.query.composition"],
+        None
+    ),
+    cell!(
+        "select.grouped_composition",
+        Interaction,
+        Accepted,
+        "`SELECT`",
+        Interaction,
+        REQ_EXECUTE_REFERENCE,
+        PERF_NONE,
+        ELIGIBLE_SQLITE,
+        ["core.query.composition"],
+        None
+    ),
+    cell!(
         "ordering.null_values",
         Semantic,
         Accepted,

@@ -316,7 +316,9 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         sentinel_id: "user.grouped_hash.few_groups.count.window10",
         p1_scenario_id: "user.aggregate.group_age_count",
         sql_override: Some(
-            "SELECT age, COUNT(*) FROM PerfAuditUser WHERE age = age GROUP BY age ORDER BY age ASC LIMIT 10",
+            "SELECT age, COUNT(*) FROM PerfAuditUser \
+             WHERE age >= 0 AND age < 100 AND age = age \
+             GROUP BY age ORDER BY age ASC LIMIT 10",
         ),
         surface: MatrixSurface::User,
         route_family: RouteFamily::GroupedAggregate,
@@ -1125,6 +1127,10 @@ fn validate_grouped_scale_state(
         return Err(ScaleEvidenceError::GroupedStateDrift {
             scenario_id: declaration.scenario.key.clone(),
             expected: grouped.state,
+            groups_observed: sample.grouped_groups_observed,
+            groups_finalized: sample.grouped_groups_finalized,
+            peak_live_groups: sample.grouped_peak_live_groups,
+            peak_live_aggregate_states: sample.grouped_peak_live_aggregate_states,
         });
     }
 
@@ -1393,6 +1399,14 @@ pub(crate) enum ScaleEvidenceError {
         scenario_id: String,
         /// Required grouped live-state shape.
         expected: GroupedScaleStateExpectation,
+        /// Number of groups observed by the executor-owned runtime counter.
+        groups_observed: u64,
+        /// Number of groups finalized by the executor-owned runtime counter.
+        groups_finalized: u64,
+        /// Peak concurrently live grouped-key states.
+        peak_live_groups: u64,
+        /// Peak concurrently live aggregate states.
+        peak_live_aggregate_states: u64,
     },
 
     /// One ordered/hash semantic pair is incomplete or returned different rows.
@@ -1470,9 +1484,15 @@ impl Display for ScaleEvidenceError {
             Self::GroupedStateDrift {
                 scenario_id,
                 expected,
+                groups_observed,
+                groups_finalized,
+                peak_live_groups,
+                peak_live_aggregate_states,
             } => write!(
                 formatter,
-                "scale observation {scenario_id:?} violated grouped state {expected:?}",
+                "scale observation {scenario_id:?} violated grouped state {expected:?}: \
+                 observed={groups_observed}, finalized={groups_finalized}, \
+                 peak_groups={peak_live_groups}, peak_aggregate_states={peak_live_aggregate_states}",
             ),
             Self::GroupedPairDrift {
                 pair_id,

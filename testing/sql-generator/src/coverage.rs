@@ -10,7 +10,7 @@ use crate::{
     TierCScenarioOutcome, TierCShardReport,
     model::{
         SelectExpression, SelectFunction, SelectGeneratorFamily, SelectOrderTarget,
-        SelectPredicate, SelectViolation,
+        SelectPredicate, SelectQuery, SelectViolation,
     },
     replay::canonical_json_bytes,
     scheduled::TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES,
@@ -1736,6 +1736,12 @@ pub fn generated_mutation_tier_c_declaration(
     )
 }
 
+// Keep the closed family-to-contract attribution table centralized so exact
+// generated evidence cannot drift across helpers.
+#[expect(
+    clippy::too_many_lines,
+    reason = "closed generated-family attribution table is intentionally centralized"
+)]
 fn generated_select_contract_features(case: &GeneratedSelectCase) -> BTreeSet<String> {
     if let Some(violation) = case.violation() {
         let feature = match violation {
@@ -1758,7 +1764,7 @@ fn generated_select_contract_features(case: &GeneratedSelectCase) -> BTreeSet<St
         }
         SelectGeneratorFamily::Expression => {
             insert_contract_feature(&mut features, "select.computed_projection");
-            if case.features().contains(&SelectFeature::Arithmetic) {
+            if case.features().contains(&SelectFeature::NumericFunction) {
                 insert_contract_feature(&mut features, "expression.numeric_functions");
             }
             if case.features().contains(&SelectFeature::SearchedCase) {
@@ -1774,7 +1780,9 @@ fn generated_select_contract_features(case: &GeneratedSelectCase) -> BTreeSet<St
         SelectGeneratorFamily::GlobalAggregate => {
             insert_contract_feature(&mut features, "projection.aggregate");
             insert_contract_feature(&mut features, "select.global_aggregate");
-            if case.features().contains(&SelectFeature::AggregateDistinct) {
+            if case.features().contains(&SelectFeature::AggregateDistinct)
+                || case.features().contains(&SelectFeature::AggregateFilter)
+            {
                 insert_contract_feature(&mut features, "select.aggregate_distinct_filter");
             }
         }
@@ -1793,6 +1801,16 @@ fn generated_select_contract_features(case: &GeneratedSelectCase) -> BTreeSet<St
                     insert_contract_feature(&mut features, "having.grouped_aggregate");
                 }
                 SelectQueryShape::Scalar => {}
+            }
+            if query
+                .order()
+                .iter()
+                .any(|term| matches!(term.target(), SelectOrderTarget::Alias(_)))
+            {
+                insert_contract_feature(&mut features, "ordering.projection_alias");
+            }
+            if is_grouped_composition(query) {
+                insert_contract_feature(&mut features, "select.grouped_composition");
             }
         }
         SelectGeneratorFamily::Predicate => {
@@ -1814,6 +1832,13 @@ fn generated_select_contract_features(case: &GeneratedSelectCase) -> BTreeSet<St
         SelectGeneratorFamily::Window => {
             insert_contract_feature(&mut features, "projection.scalar");
             insert_contract_feature(&mut features, "select.scalar_rows");
+            if case.features().contains(&SelectFeature::NumericFunction) {
+                insert_contract_feature(&mut features, "expression.numeric_functions");
+                insert_contract_feature(&mut features, "select.computed_projection");
+            }
+            if let Some(predicate) = query.predicate() {
+                collect_predicate_contract_features(predicate, &mut features);
+            }
             if query.limit().is_some() || query.offset().is_some() {
                 insert_contract_feature(&mut features, "pagination.scalar_limit_offset");
             }
@@ -1823,6 +1848,9 @@ fn generated_select_contract_features(case: &GeneratedSelectCase) -> BTreeSet<St
                 .any(|term| matches!(term.target(), SelectOrderTarget::Alias(_)))
             {
                 insert_contract_feature(&mut features, "ordering.projection_alias");
+            }
+            if is_scalar_composition(query) {
+                insert_contract_feature(&mut features, "select.scalar_composition");
             }
         }
     }
@@ -1840,6 +1868,9 @@ fn collect_predicate_contract_features(
             collect_predicate_contract_features(left, features);
             collect_predicate_contract_features(right, features);
         }
+        SelectPredicate::Between { .. } => {
+            insert_contract_feature(features, "predicate.range");
+        }
         SelectPredicate::Comparison { left, right, .. } => {
             insert_contract_feature(features, "predicate.boolean_comparison");
             if matches!(left, SelectExpression::Field { .. })
@@ -1847,6 +1878,9 @@ fn collect_predicate_contract_features(
             {
                 insert_contract_feature(features, "predicate.field_comparison");
             }
+        }
+        SelectPredicate::InList { .. } => {
+            insert_contract_feature(features, "predicate.membership");
         }
         SelectPredicate::IsNull { .. } => {
             insert_contract_feature(features, "predicate.null");
@@ -1876,6 +1910,38 @@ fn collect_predicate_contract_features(
             }
         }
     }
+}
+
+fn is_scalar_composition(query: &SelectQuery) -> bool {
+    query.shape() == SelectQueryShape::Scalar
+        && query.has_predicate()
+        && query
+            .projections()
+            .iter()
+            .any(|projection| !matches!(projection.expression(), SelectExpression::Field { .. }))
+        && query.order_term_count() > 0
+        && query
+            .order()
+            .iter()
+            .any(|term| matches!(term.target(), SelectOrderTarget::Alias(_)))
+        && query.limit().is_some()
+        && query.offset().is_some()
+}
+
+fn is_grouped_composition(query: &SelectQuery) -> bool {
+    query.shape() == SelectQueryShape::GroupedAggregate
+        && query.has_predicate()
+        && query.has_having()
+        && query.projections().iter().any(|projection| {
+            matches!(projection.expression(), SelectExpression::Count { .. })
+                && projection.alias().is_some()
+        })
+        && query.order_term_count() > 0
+        && query
+            .order()
+            .iter()
+            .any(|term| matches!(term.target(), SelectOrderTarget::Alias(_)))
+        && query.limit().is_some()
 }
 
 const fn expression_is_casefolded(expression: &SelectExpression) -> bool {
@@ -1926,7 +1992,10 @@ fn select_value_type(case: &GeneratedSelectCase) -> Result<ValueTypeFamily, SqlG
 }
 
 fn select_predicates(case: &GeneratedSelectCase) -> BTreeSet<PredicateFamily> {
-    if !case.query().has_predicate() && !case.query().has_having() {
+    if !case.query().has_predicate()
+        && !case.query().has_having()
+        && !case.features().contains(&SelectFeature::AggregateFilter)
+    {
         return BTreeSet::from([PredicateFamily::None]);
     }
 
@@ -1937,11 +2006,17 @@ fn select_predicates(case: &GeneratedSelectCase) -> BTreeSet<PredicateFamily> {
     if case.features().contains(&SelectFeature::Comparison) {
         predicates.insert(PredicateFamily::FieldComparison);
     }
+    if case.features().contains(&SelectFeature::Membership) {
+        predicates.insert(PredicateFamily::Membership);
+    }
     if case.features().contains(&SelectFeature::Text) {
         predicates.insert(PredicateFamily::Prefix);
     }
     if case.features().contains(&SelectFeature::Null) {
         predicates.insert(PredicateFamily::Boolean);
+    }
+    if case.features().contains(&SelectFeature::Range) {
+        predicates.insert(PredicateFamily::Range);
     }
     if predicates.is_empty() {
         predicates.insert(PredicateFamily::FieldComparison);

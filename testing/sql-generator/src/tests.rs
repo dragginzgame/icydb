@@ -66,7 +66,7 @@ fn select_sub_seeds_have_fixed_blake3_golden_vectors() {
     )
     .expect("fixed family identity should derive");
 
-    assert_eq!(actual, 0xf25a_a4d4_38d2_2440);
+    assert_eq!(actual, 0xdab6_477b_1b44_b05c);
 
     let corpus_source = derive_sql_sub_seed(
         SELECT_GENERATOR_VERSION,
@@ -75,7 +75,7 @@ fn select_sub_seeds_have_fixed_blake3_golden_vectors() {
         6,
     )
     .expect("fixed corpus source identity should derive");
-    assert_eq!(corpus_source, 0xfe70_a2ad_2a8f_4a81);
+    assert_eq!(corpus_source, 0x2985_11a7_6a85_1f70);
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn accepted_snapshot_order_and_representative_case_are_golden() {
     );
     assert_eq!(
         blake3::hash(&canonical).to_hex().as_str(),
-        "d7919694f435f93a2957c084d21a5275173b264a4119dfda328456ea1bfd9cba",
+        "e7280fc61b7da6c5e5c23b6ec2f11d30e78cd494bc643bca0e1666aabe405f4d",
     );
 }
 
@@ -293,6 +293,10 @@ fn tier_c_profile_is_exact_bounded_and_fully_generatable() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "exact per-slot contract attribution remains one auditable table"
+)]
 fn tier_c_select_declarations_derive_exact_case_contract_features() {
     let snapshot = select_snapshot();
     let cases = [
@@ -305,6 +309,30 @@ fn tier_c_select_declarations_derive_exact_case_contract_features() {
             SelectGeneratorFamily::Expression,
             5,
             &["expression.value_selection", "select.computed_projection"][..],
+        ),
+        (
+            SelectGeneratorFamily::GlobalAggregate,
+            4,
+            &[
+                "projection.aggregate",
+                "select.aggregate_distinct_filter",
+                "select.global_aggregate",
+            ][..],
+        ),
+        (
+            SelectGeneratorFamily::Having,
+            7,
+            &[
+                "having.grouped_aggregate",
+                "ordering.projection_alias",
+                "projection.aggregate",
+                "select.grouped_composition",
+            ][..],
+        ),
+        (
+            SelectGeneratorFamily::Predicate,
+            0,
+            &["predicate.membership"][..],
         ),
         (
             SelectGeneratorFamily::Predicate,
@@ -321,6 +349,11 @@ fn tier_c_select_declarations_derive_exact_case_contract_features() {
             &["predicate.boolean_comparison", "predicate.field_comparison"][..],
         ),
         (
+            SelectGeneratorFamily::Predicate,
+            7,
+            &["predicate.boolean_comparison", "predicate.range"][..],
+        ),
+        (
             SelectGeneratorFamily::Window,
             2,
             &[
@@ -334,6 +367,20 @@ fn tier_c_select_declarations_derive_exact_case_contract_features() {
             SelectGeneratorFamily::Window,
             4,
             &["projection.scalar", "select.scalar_rows"][..],
+        ),
+        (
+            SelectGeneratorFamily::Window,
+            7,
+            &[
+                "expression.numeric_functions",
+                "ordering.projection_alias",
+                "pagination.scalar_limit_offset",
+                "predicate.boolean_comparison",
+                "projection.scalar",
+                "select.computed_projection",
+                "select.scalar_composition",
+                "select.scalar_rows",
+            ][..],
         ),
     ];
 
@@ -598,6 +645,7 @@ fn assert_family_features(reached: &BTreeMap<SelectGeneratorFamily, BTreeSet<Sel
         SelectFeature::Arithmetic,
         SelectFeature::Function,
         SelectFeature::Null,
+        SelectFeature::NumericFunction,
         SelectFeature::SearchedCase,
         SelectFeature::Text,
     ] {
@@ -608,14 +656,20 @@ fn assert_family_features(reached: &BTreeMap<SelectGeneratorFamily, BTreeSet<Sel
     for feature in [
         SelectFeature::Boolean,
         SelectFeature::Comparison,
+        SelectFeature::Membership,
         SelectFeature::Predicate,
+        SelectFeature::Range,
         SelectFeature::Text,
     ] {
         assert!(predicate.contains(&feature), "missing {feature:?}");
     }
 
     let global = &reached[&SelectGeneratorFamily::GlobalAggregate];
-    for feature in [SelectFeature::Aggregate, SelectFeature::AggregateDistinct] {
+    for feature in [
+        SelectFeature::Aggregate,
+        SelectFeature::AggregateDistinct,
+        SelectFeature::AggregateFilter,
+    ] {
         assert!(global.contains(&feature), "missing {feature:?}");
     }
 
@@ -640,8 +694,10 @@ fn assert_family_features(reached: &BTreeMap<SelectGeneratorFamily, BTreeSet<Sel
     let window = &reached[&SelectGeneratorFamily::Window];
     for feature in [
         SelectFeature::Limit,
+        SelectFeature::NumericFunction,
         SelectFeature::Offset,
         SelectFeature::Ordering,
+        SelectFeature::Predicate,
     ] {
         assert!(window.contains(&feature), "missing {feature:?}");
     }

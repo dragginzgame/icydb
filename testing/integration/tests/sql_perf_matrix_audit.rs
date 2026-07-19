@@ -1738,6 +1738,16 @@ const fn grouped_execution_mode_metadata(
     metadata
 }
 
+/// Build grouped mode-equivalence metadata for explicit canonical name order.
+const fn grouped_name_execution_mode_metadata(
+    predicate: PredicateFamily,
+    limit: usize,
+) -> ScenarioMetadata {
+    let mut metadata = grouped_execution_mode_metadata(predicate, limit);
+    metadata.window = WindowSpec::ordered(limit, 0, "name ASC");
+    metadata
+}
+
 /// Build one required grouped scale declaration without claiming mode equivalence.
 const fn grouped_scale_contract_metadata(
     predicate: PredicateFamily,
@@ -1752,6 +1762,16 @@ const fn grouped_scale_contract_metadata(
         grouped_aggregate_route(),
         false,
     )
+}
+
+/// Build one required grouped name-order scale declaration.
+const fn grouped_name_scale_contract_metadata(
+    predicate: PredicateFamily,
+    limit: usize,
+) -> ScenarioMetadata {
+    let mut metadata = grouped_scale_contract_metadata(predicate, limit);
+    metadata.window = WindowSpec::ordered(limit, 0, "name ASC");
+    metadata
 }
 
 /// Build one EXPLAIN declaration paired with a grouped physical-mode measurement.
@@ -2375,12 +2395,14 @@ fn user_grouped_aggregate_scenarios() -> Vec<MatrixScenario> {
             "user.aggregate.group_age_count",
             MatrixSurface::User,
             "aggregate.grouped",
-            "SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age ORDER BY age ASC LIMIT 10",
+            "SELECT age, COUNT(*) FROM PerfAuditUser \
+             WHERE age >= 0 AND age < 100 \
+             GROUP BY age ORDER BY age ASC LIMIT 10",
             read_metadata(
                 &["select.grouped_aggregate"],
                 QueryShape::Grouped,
                 ValueTypeFamily::Numeric,
-                PredicateFamily::None,
+                PredicateFamily::Range,
                 WindowSpec::ordered(10, 0, "age ASC"),
                 grouped_aggregate_route(),
                 true,
@@ -2460,9 +2482,9 @@ fn grouped_early_finalization_control_scenarios() -> Vec<MatrixScenario> {
 }
 
 fn grouped_early_finalization_scale_scenarios() -> Vec<MatrixScenario> {
-    let mut ordered_having = grouped_execution_mode_metadata(PredicateFamily::None, 16);
+    let mut ordered_having = grouped_name_execution_mode_metadata(PredicateFamily::Range, 16);
     ordered_having.contract_features = &["select.grouped_aggregate", "having.grouped_aggregate"];
-    let mut hash_having = grouped_execution_mode_metadata(PredicateFamily::Compound, 16);
+    let mut hash_having = grouped_name_execution_mode_metadata(PredicateFamily::Compound, 16);
     hash_having.contract_features = &["select.grouped_aggregate", "having.grouped_aggregate"];
 
     vec![
@@ -2470,28 +2492,38 @@ fn grouped_early_finalization_scale_scenarios() -> Vec<MatrixScenario> {
             "user.grouped_scale.ordered_name_sum_window16",
             MatrixSurface::User,
             "grouped_scale.ordered_name_sum_window16",
-            "SELECT name, SUM(age) FROM PerfAuditUser GROUP BY name LIMIT 16",
-            grouped_execution_mode_metadata(PredicateFamily::None, 16),
+            "SELECT name, SUM(age) FROM PerfAuditUser \
+             WHERE name >= '' AND name <= 'zzzz' \
+             GROUP BY name ORDER BY name ASC LIMIT 16",
+            grouped_name_execution_mode_metadata(PredicateFamily::Range, 16),
         ),
         scenario(
             "user.grouped_scale.hash_name_sum_window16",
             MatrixSurface::User,
             "grouped_scale.hash_name_sum_window16",
-            "SELECT name, SUM(age) FROM PerfAuditUser WHERE name = name GROUP BY name LIMIT 16",
-            grouped_execution_mode_metadata(PredicateFamily::Compound, 16),
+            "SELECT name, SUM(age) FROM PerfAuditUser \
+             WHERE name >= '' AND name <= 'zzzz' AND name = name \
+             GROUP BY name ORDER BY name ASC LIMIT 16",
+            grouped_name_execution_mode_metadata(PredicateFamily::Compound, 16),
         ),
         scenario(
             "user.grouped_scale.ordered_name_having_sum_window16",
             MatrixSurface::User,
             "grouped_scale.ordered_name_having_sum_window16",
-            "SELECT name, SUM(age) FROM PerfAuditUser GROUP BY name HAVING SUM(age) > 0 LIMIT 16",
+            "SELECT name, SUM(age) FROM PerfAuditUser \
+             WHERE name >= '' AND name <= 'zzzz' \
+             GROUP BY name HAVING SUM(age) > 0 \
+             ORDER BY name ASC LIMIT 16",
             ordered_having,
         ),
         scenario(
             "user.grouped_scale.hash_name_having_sum_window16",
             MatrixSurface::User,
             "grouped_scale.hash_name_having_sum_window16",
-            "SELECT name, SUM(age) FROM PerfAuditUser WHERE name = name GROUP BY name HAVING SUM(age) > 0 LIMIT 16",
+            "SELECT name, SUM(age) FROM PerfAuditUser \
+             WHERE name >= '' AND name <= 'zzzz' AND name = name \
+             GROUP BY name HAVING SUM(age) > 0 \
+             ORDER BY name ASC LIMIT 16",
             hash_having,
         ),
         scenario(
@@ -2505,8 +2537,10 @@ fn grouped_early_finalization_scale_scenarios() -> Vec<MatrixScenario> {
             "user.grouped_scale.ordered_name_count_window100",
             MatrixSurface::User,
             "grouped_scale.ordered_name_count_window100",
-            "SELECT name, COUNT(*) FROM PerfAuditUser GROUP BY name LIMIT 100",
-            grouped_scale_contract_metadata(PredicateFamily::None, 100),
+            "SELECT name, COUNT(*) FROM PerfAuditUser \
+             WHERE name >= '' AND name <= 'zzzz' \
+             GROUP BY name ORDER BY name ASC LIMIT 100",
+            grouped_name_scale_contract_metadata(PredicateFamily::Range, 100),
         ),
     ]
 }

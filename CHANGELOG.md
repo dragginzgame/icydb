@@ -7,14 +7,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Extends the 0.205 closeout contract with mandatory cold/warm grouped P2
-  sentinels and few-/many-group scale controls for page boundaries, `HAVING`,
-  `COUNT(*)`, and hash-only DISTINCT, with fail-closed merge checks for grouped
-  semantic or live-state drift and no production query behavior change.
-
 ## [0.205.x] 🔧 - 2026-07-19 - Grouped Early Finalization
 
 Detailed notes: [docs/changelog/0.205.md](docs/changelog/0.205.md)
+
+- `0.205.2` corrects grouped scale evidence to require index-range order proof
+  and hard-cuts seeded SELECT generation to version 2 with bounded aggregate,
+  predicate, and cross-clause composition coverage, without changing production
+  SQL behavior.
+
+- `0.205.1` extends closeout evidence with mandatory cold/warm grouped P2
+  sentinels and few-/many-group scale controls, with fail-closed semantic and
+  live-state merge checks and no production query behavior change.
 
 - `0.205.0` replaces full-table ordered grouping with planner-proven,
   one-active-group streaming and executor-owned runtime evidence while retaining
