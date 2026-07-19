@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "design": "0.206",
+  "status": "opening_review_measurement_pending",
+  "leading_set_frozen": true,
+  "selection_frozen": false,
+  "opening_evidence": {
+    "cohort": "0.205.2-8bba5367e5-closeout",
+    "run_id": "29691074553",
+    "review_run_id": "29693321199",
+    "source_revision": "8bba5367e58a9fffc39754cdb0b117c768cb87e1",
+    "raw_wasm_sha256": "e40cf2756a9b714d232eff6a488b81db6939a0a3ed882863f82716e0b91008fb",
+    "raw_wasm_bytes": 3915460,
+    "performance_profile_version": 1,
+    "p1_scenario_set_hash": "a6823a84aa768257b2dc27d166e79c20260c5629eb33c70f590d308c64a1f80b",
+    "p2_scenario_set_hash": "306c6bd3bcff8978d10783abde0bce643e3e21fc9ab17f24effb2e4c931237d0",
+    "scale_scenario_set_hash": "afa7c342801019da5b1f36674fd7cc4997332822b39f15eac5bf4633381b9ca0"
+  },
+  "pending_primary_budget": {
+    "finding_id": "206-003",
+    "family": "scale.user.unsupported_order.all.window10",
+    "scenario_id": "scale.user.unsupported_order.all.window10.rows2048",
+    "metric": "kernel_row_peak_retained_candidates",
+    "opening_value": null,
+    "expected_opening_value": 2048,
+    "required_target_max": 11,
+    "sampling_variance": 0,
+    "selection_state": "awaiting_typed_opening_measurement"
+  },
+  "findings": [
+    {
+      "id": "206-001",
+      "family": "scale.user.grouped_hash.many_groups.having_sum.window16",
+      "ranks": { "total_2048": 1, "marginal_256_2048": 1, "normalized": 2 },
+      "owner": "crates/icydb-core/src/db/query/plan/planner/range/extract.rs",
+      "supporting_modules": [
+        "crates/icydb-core/src/db/query/plan/planner/predicate.rs",
+        "crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/generic/runner.rs"
+      ],
+      "disposition": "NeedsTypedMeasurement",
+      "selection_state": "not_selected_missing_child_scan_phase_attribution",
+      "evidence": "2048 rows, 100 required live groups and aggregate states, but 2 one-sided range scans read 4096 index entries before 2048 data gets; child traversal instructions are not isolated"
+    },
+    {
+      "id": "206-002",
+      "family": "scale.user.grouped_hash.many_groups.sum.window16",
+      "ranks": { "total_2048": 2, "marginal_256_2048": 2, "normalized": 3 },
+      "owner": "crates/icydb-core/src/db/query/plan/planner/range/extract.rs",
+      "supporting_modules": [
+        "crates/icydb-core/src/db/query/plan/planner/predicate.rs",
+        "crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/generic/runner.rs"
+      ],
+      "disposition": "NeedsTypedMeasurement",
+      "selection_state": "not_selected_missing_child_scan_phase_attribution",
+      "evidence": "2048 rows, 100 required live groups and aggregate states, but 2 one-sided range scans read 4096 index entries before 2048 data gets; child traversal instructions are not isolated"
+    },
+    {
+      "id": "206-003",
+      "family": "scale.user.unsupported_order.all.window10",
+      "ranks": { "total_2048": 3, "marginal_256_2048": 3 },
+      "owner": "crates/icydb-core/src/db/executor/terminal/page/scan.rs",
+      "supporting_modules": [
+        "crates/icydb-core/src/db/executor/terminal/page/plan.rs",
+        "crates/icydb-core/src/db/executor/order.rs"
+      ],
+      "disposition": "NeedsTypedMeasurement",
+      "selection_state": "primary_candidate_pending_measurement",
+      "evidence": "104312631 total instructions, 35243583 kernel order-window instructions, 2048 data gets, 10 rows returned"
+    },
+    {
+      "id": "206-004",
+      "family": "scale.user.grouped_hash.few_groups.distinct_nat.window16",
+      "ranks": { "total_2048": 4, "marginal_256_2048": 4 },
+      "owner": "crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/bundle.rs",
+      "disposition": "ContractRequired",
+      "selection_state": "not_selected",
+      "evidence": "2048 rows, 5 groups, 5 peak live distinct values"
+    },
+    {
+      "id": "206-005",
+      "family": "scale.user.grouped_ordered.many_groups.count.window100",
+      "ranks": { "total_2048": 5 },
+      "owner": "crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/mod.rs",
+      "disposition": "ContractRequired",
+      "selection_state": "not_selected",
+      "evidence": "2048 rows and all 100 result groups consumed with peak one live group and state"
+    },
+    {
+      "id": "206-006",
+      "family": "scale.user.grouped_ordered.few_groups.count.window10",
+      "ranks": { "marginal_256_2048": 5 },
+      "owner": "crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/mod.rs",
+      "disposition": "ContractRequired",
+      "selection_state": "not_selected",
+      "evidence": "2048 rows and all 5 result groups consumed with peak one live group and state"
+    },
+    {
+      "id": "206-007",
+      "family": "scale.user.not_paginated.aggregate_quarter",
+      "ranks": { "normalized": 1 },
+      "owner": "schema/audit/sql_perf/src/sql_perf.rs",
+      "supporting_modules": [
+        "crates/icydb-core/src/db/executor/aggregate/scalar_terminals/mod.rs"
+      ],
+      "disposition": "SchemaDependent",
+      "selection_state": "not_selected",
+      "evidence": "2048 data gets for COUNT(*) WHERE active = true; the accepted fixture schema has no active index"
+    },
+    {
+      "id": "206-008",
+      "family": "scale.user.grouped_hash.few_groups.sum.window1",
+      "ranks": { "normalized": 4 },
+      "owner": "crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/generic/runner.rs",
+      "disposition": "ContractRequired",
+      "selection_state": "not_selected",
+      "evidence": "2048 rows and 4 required hash groups with no ordered-stream proof"
+    },
+    {
+      "id": "206-009",
+      "family": "scale.user.incompatible_filter_order.quarter.window10",
+      "ranks": { "normalized": 5 },
+      "owner": "crates/icydb-core/src/db/query/plan/planner/predicate.rs",
+      "supporting_modules": [ "schema/audit/sql_perf/src/sql_perf.rs" ],
+      "disposition": "SchemaDependent",
+      "selection_state": "not_selected",
+      "evidence": "512 age-index entries and data gets must be materialized because no accepted index satisfies both filter and name order"
+    },
+    {
+      "id": "206-010",
+      "family": "route.sparse_in.page_only",
+      "scenario_id": "token.collection_id.sparse_in.page_only.limit50",
+      "ranks": { "cold_compile_planner": 1 },
+      "owner": "crates/icydb-core/src/db/query/plan/planner/prefix.rs",
+      "disposition": "NeedsTypedMeasurement",
+      "selection_state": "not_selected",
+      "evidence": "2132345 compile plus 7496596 planner instructions; no canonicalization-pass counter"
+    },
+    {
+      "id": "206-011",
+      "family": "route.sparse_in.count",
+      "scenario_id": "token.collection_id.sparse_in.count",
+      "ranks": { "cold_compile_planner": 2 },
+      "owner": "crates/icydb-core/src/db/sql/lowering/select/binding.rs",
+      "supporting_modules": [ "crates/icydb-core/src/db/predicate/normalize.rs" ],
+      "disposition": "NeedsTypedMeasurement",
+      "selection_state": "not_selected",
+      "evidence": "2304221 compile plus 1235887 planner instructions; no canonicalization-pass counter"
+    },
+    {
+      "id": "206-012",
+      "family": "route.branch_over_cap_pruned.page_only",
+      "scenario_id": "token.collection_stage_id.overcap_pruned.page_only.limit50",
+      "ranks": { "cold_compile_planner": 3 },
+      "owner": "crates/icydb-core/src/db/query/plan/planner/prefix.rs",
+      "disposition": "NeedsTypedMeasurement",
+      "selection_state": "not_selected",
+      "evidence": "1340706 compile plus 2096600 planner instructions; exclusion-pruning passes are not counted"
+    },
+    {
+      "id": "206-013",
+      "family": "route.branch_set.wide_noncovered_page_only",
+      "scenario_id": "token.collection_stage_id.branch_set.wide_noncovered_page_only.limit50",
+      "ranks": { "cold_compile_planner": 4 },
+      "owner": "crates/icydb-core/src/db/query/plan/planner/prefix.rs",
+      "disposition": "NeedsTypedMeasurement",
+      "selection_state": "not_selected",
+      "evidence": "543842 compile plus 1535483 planner instructions; branch construction passes are not counted"
+    },
+    {
+      "id": "206-014",
+      "family": "route.branch_set.wide_page_only",
+      "scenario_id": "token.collection_stage_id.branch_set.wide_page_only.limit50",
+      "ranks": { "cold_compile_planner": 5 },
+      "owner": "crates/icydb-core/src/db/query/plan/planner/prefix.rs",
+      "disposition": "NeedsTypedMeasurement",
+      "selection_state": "not_selected",
+      "evidence": "536992 compile plus 1522369 planner instructions; branch construction passes are not counted"
+    }
+  ]
+}

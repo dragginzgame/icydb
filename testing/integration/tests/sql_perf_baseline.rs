@@ -70,6 +70,9 @@ pub(crate) enum P2BaselineMetric {
     /// Kernel retained octet-length values.
     KernelRowRetainedOctetLengthValues,
 
+    /// Maximum concurrently retained kernel-row candidates.
+    KernelRowPeakRetainedCandidates,
+
     /// Data-store point reads.
     DataStoreGetCalls,
 
@@ -137,6 +140,7 @@ impl P2BaselineMetric {
             Self::KernelRowRetainedOctetLengthValues => {
                 sample.kernel_row_retained_octet_length_values
             }
+            Self::KernelRowPeakRetainedCandidates => sample.kernel_row_peak_retained_candidates,
             Self::DataStoreGetCalls => sample.data_store_get_calls,
             Self::IndexStoreGetCalls => sample.index_store_get_calls,
             Self::IndexStoreRangeScanCalls => sample.index_store_range_scan_calls,
@@ -177,6 +181,7 @@ impl P2BaselineMetric {
             | Self::KernelRowRetainedLayoutHits
             | Self::KernelRowRetainedSlotValues
             | Self::KernelRowRetainedOctetLengthValues
+            | Self::KernelRowPeakRetainedCandidates
             | Self::DataStoreGetCalls
             | Self::IndexStoreGetCalls
             | Self::IndexStoreRangeScanCalls
@@ -211,6 +216,7 @@ const P2_NON_INSTRUCTION_METRICS: &[P2BaselineMetric] = &[
     P2BaselineMetric::KernelRowRetainedLayoutHits,
     P2BaselineMetric::KernelRowRetainedSlotValues,
     P2BaselineMetric::KernelRowRetainedOctetLengthValues,
+    P2BaselineMetric::KernelRowPeakRetainedCandidates,
     P2BaselineMetric::DataStoreGetCalls,
     P2BaselineMetric::IndexStoreGetCalls,
     P2BaselineMetric::IndexStoreRangeScanCalls,

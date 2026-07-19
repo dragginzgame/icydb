@@ -151,11 +151,11 @@ The active delivery sequence is intentionally serial:
 
 1. [0.205 grouped early
    materialization](design/0.205-grouped-early-materialization/0.205-design.md)
-   closes the eligible ordered-group retention boundary.
+   is complete and closes the eligible ordered-group retention boundary.
 2. [0.206 SQL performance
    remediation](design/0.206-sql-performance-remediation/0.206-design.md)
-   selects one primary production optimization and at most one inseparable
-   companion from the post-0.205 evidence.
+   is active: its 14-family post-0.205 leading set is frozen, and exact retained-
+   candidate measurement now gates the one primary production selection.
 3. [0.207 redo-only schema index
    publication](design/0.207-redo-only-schema-index-publication/0.207-design.md)
    hard-cuts index publication to the maintained marker/recovery authority.

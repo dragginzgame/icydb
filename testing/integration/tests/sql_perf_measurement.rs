@@ -56,6 +56,9 @@ pub(crate) struct PerformanceMeasurementCoverage {
     /// Typed projected blob payload byte counters.
     pub(crate) projected_blob_output_bytes: PerformanceMeasurementStatus,
 
+    /// Maximum kernel-row candidates retained concurrently during scan collection.
+    pub(crate) peak_retained_candidates: PerformanceMeasurementStatus,
+
     /// Peak heap usage during one scenario.
     pub(crate) peak_heap_bytes: PerformanceMeasurementStatus,
 
@@ -68,7 +71,7 @@ pub(crate) struct PerformanceMeasurementCoverage {
 
 impl PerformanceMeasurementCoverage {
     /// Return every required dimension in stable report order.
-    pub(crate) const fn entries(self) -> [(&'static str, PerformanceMeasurementStatus); 7] {
+    pub(crate) const fn entries(self) -> [(&'static str, PerformanceMeasurementStatus); 8] {
         [
             ("instruction_attribution", self.instruction_attribution),
             ("storage_operations", self.storage_operations),
@@ -77,6 +80,7 @@ impl PerformanceMeasurementCoverage {
                 "projected_blob_output_bytes",
                 self.projected_blob_output_bytes,
             ),
+            ("peak_retained_candidates", self.peak_retained_candidates),
             ("peak_heap_bytes", self.peak_heap_bytes),
             ("allocator_traffic_bytes", self.allocator_traffic_bytes),
             ("stable_memory_byte_volume", self.stable_memory_byte_volume),
@@ -91,6 +95,7 @@ pub(crate) const fn current_measurement_coverage() -> PerformanceMeasurementCove
         storage_operations: PerformanceMeasurementStatus::Measured,
         result_cardinality: PerformanceMeasurementStatus::Measured,
         projected_blob_output_bytes: PerformanceMeasurementStatus::Measured,
+        peak_retained_candidates: PerformanceMeasurementStatus::Measured,
         peak_heap_bytes: PerformanceMeasurementStatus::NotMeasured,
         allocator_traffic_bytes: PerformanceMeasurementStatus::NotMeasured,
         stable_memory_byte_volume: PerformanceMeasurementStatus::NotMeasured,
@@ -225,6 +230,10 @@ mod tests {
         );
         assert_eq!(
             coverage.projected_blob_output_bytes,
+            PerformanceMeasurementStatus::Measured,
+        );
+        assert_eq!(
+            coverage.peak_retained_candidates,
             PerformanceMeasurementStatus::Measured,
         );
         assert_eq!(

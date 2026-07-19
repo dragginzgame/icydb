@@ -25,7 +25,8 @@ use super::metrics::{
 #[cfg(feature = "diagnostics")]
 use super::metrics::{
     measure_kernel_row_phase, record_kernel_row_key_stream_local_instructions,
-    record_kernel_row_row_read_local_instructions, record_kernel_row_scan_local_instructions,
+    record_kernel_row_peak_retained_candidates, record_kernel_row_row_read_local_instructions,
+    record_kernel_row_scan_local_instructions,
 };
 #[cfg(any(test, feature = "diagnostics"))]
 use super::metrics::{
@@ -127,7 +128,10 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
         let (scan_local_instructions, result) =
             measure_kernel_row_phase(|| execute_kernel_row_scan_inner(request));
         record_kernel_row_scan_local_instructions(scan_local_instructions);
-        result
+        let result = result?;
+        record_kernel_row_peak_retained_candidates(result.0.len());
+
+        Ok(result)
     }
 
     #[cfg(not(feature = "diagnostics"))]

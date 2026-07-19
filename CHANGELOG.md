@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Closed the 0.205 grouped early-finalization evidence line with an exact
+  three-run cohort: bounded ordered pages retain one group and materially reduce
+  scanned work, while the full-scan count trade-off remains explicit.
+- Opened 0.206 with a checked-in post-0.205 hotspot ledger and a diagnostics-only
+  peak retained-candidate counter, keeping runtime semantics and route selection
+  unchanged while the primary optimization budget awaits exact Wasm evidence.
+
 ## [0.205.x] 🔧 - 2026-07-19 - Grouped Early Finalization
 
 Detailed notes: [docs/changelog/0.205.md](docs/changelog/0.205.md)

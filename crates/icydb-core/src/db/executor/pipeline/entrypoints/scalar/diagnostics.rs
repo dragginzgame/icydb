@@ -58,6 +58,7 @@ pub(in crate::db) struct ScalarExecutePhaseAttribution {
     pub(in crate::db) kernel_row_retained_layout_hits: u64,
     pub(in crate::db) kernel_row_retained_slot_values: u64,
     pub(in crate::db) kernel_row_retained_octet_length_values: u64,
+    pub(in crate::db) kernel_row_peak_retained_candidates: u64,
 }
 
 /// Execute one prepared scalar runtime bundle while reporting the internal
@@ -133,6 +134,8 @@ pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime_with_phase_
             kernel_row_retained_slot_values: kernel_row_phase_attribution.retained_slot_values,
             kernel_row_retained_octet_length_values: kernel_row_phase_attribution
                 .retained_octet_length_values,
+            kernel_row_peak_retained_candidates: kernel_row_phase_attribution
+                .peak_retained_candidates,
         },
     ))
 }

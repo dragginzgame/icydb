@@ -91,6 +91,7 @@ pub(in crate::db) struct KernelRowPhaseAttribution {
     pub(in crate::db) retained_layout_hits: u64,
     pub(in crate::db) retained_slot_values: u64,
     pub(in crate::db) retained_octet_length_values: u64,
+    pub(in crate::db) peak_retained_candidates: u64,
 }
 
 #[cfg(feature = "diagnostics")]
@@ -104,6 +105,7 @@ impl KernelRowPhaseAttribution {
             || self.retained_layout_hits != 0
             || self.retained_slot_values != 0
             || self.retained_octet_length_values != 0
+            || self.peak_retained_candidates != 0
     }
 }
 
@@ -141,6 +143,7 @@ std::thread_local! {
             retained_layout_hits: 0,
             retained_slot_values: 0,
             retained_octet_length_values: 0,
+            peak_retained_candidates: 0,
         })
     };
 }
@@ -347,6 +350,18 @@ pub(super) fn record_kernel_row_page_window_local_instructions(delta: u64) {
     update_kernel_row_phase_attribution(delta, |current, delta| {
         current.page_window_local_instructions =
             current.page_window_local_instructions.saturating_add(delta);
+    });
+}
+
+// Record the largest kernel-row candidate set retained by one scalar scan.
+// The collector grows monotonically until its optional bound, so its returned
+// row count is the exact scan-local peak rather than an allocation-capacity
+// estimate.
+#[cfg(feature = "diagnostics")]
+pub(super) fn record_kernel_row_peak_retained_candidates(candidate_count: usize) {
+    let candidate_count = usize_to_u64(candidate_count);
+    update_kernel_row_phase_attribution(candidate_count, |current, candidate_count| {
+        current.peak_retained_candidates = current.peak_retained_candidates.max(candidate_count);
     });
 }
 

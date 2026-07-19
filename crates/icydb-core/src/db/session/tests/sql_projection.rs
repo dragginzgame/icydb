@@ -353,6 +353,43 @@ fn execute_sql_projection_unindexed_ordered_scalar_expr_uses_retained_slot_rows(
         lane_metrics.kernel_retained_octet_length_values, 0,
         "numeric/text scalar projection should not use byte-length-only retained values",
     );
+
+    #[cfg(feature = "diagnostics")]
+    {
+        let (_, attribution) = session
+            .execute_trusted_sql_query_with_attribution::<SessionSqlEntity>(
+                "SELECT name, age + age AS doubled \
+                 FROM SessionSqlEntity \
+                 WHERE name >= 'matrix' \
+                 ORDER BY age DESC, id ASC \
+                 LIMIT 2",
+            )
+            .expect("unindexed ordered scalar attribution should execute");
+        let kernel = attribution
+            .kernel_row
+            .expect("unindexed ordered scalar projection should report kernel attribution");
+        assert_eq!(
+            kernel.peak_retained_candidates, 3,
+            "direct-field bounded order collection should retain the page plus lookahead",
+        );
+
+        let (_, attribution) = session
+            .execute_trusted_sql_query_with_attribution::<SessionSqlEntity>(
+                "SELECT name, age + age AS doubled \
+                 FROM SessionSqlEntity \
+                 WHERE name >= 'matrix' \
+                 ORDER BY age + age DESC, id ASC \
+                 LIMIT 2",
+            )
+            .expect("expression-ordered scalar attribution should execute");
+        let kernel = attribution
+            .kernel_row
+            .expect("expression-ordered scalar projection should report kernel attribution");
+        assert_eq!(
+            kernel.peak_retained_candidates, 4,
+            "expression ordering currently retains every qualifying candidate before top-k",
+        );
+    }
 }
 
 // Seed the aggregate rows used by the bounded computed ORDER BY coverage in

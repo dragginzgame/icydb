@@ -90,6 +90,8 @@ pub struct KernelRowAttribution {
     pub retained_layout_hits: u64,
     pub retained_slot_values: u64,
     pub retained_octet_length_values: u64,
+    /// Maximum kernel-row candidates retained by a successful scan collection.
+    pub peak_retained_candidates: u64,
 }
 
 impl KernelRowAttribution {
@@ -105,6 +107,7 @@ impl KernelRowAttribution {
             retained_layout_hits: phase.kernel_row_retained_layout_hits,
             retained_slot_values: phase.kernel_row_retained_slot_values,
             retained_octet_length_values: phase.kernel_row_retained_octet_length_values,
+            peak_retained_candidates: phase.kernel_row_peak_retained_candidates,
         })
     }
 
@@ -126,6 +129,7 @@ impl KernelRowAttribution {
                 retained_layout_hits: phase.retained_layout_hits,
                 retained_slot_values: phase.retained_slot_values,
                 retained_octet_length_values: phase.retained_octet_length_values,
+                peak_retained_candidates: phase.peak_retained_candidates,
             })
         } else {
             None

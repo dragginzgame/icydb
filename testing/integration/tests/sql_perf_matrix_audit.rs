@@ -479,6 +479,7 @@ struct MatrixSample {
     kernel_row_retained_layout_hits: u64,
     kernel_row_retained_slot_values: u64,
     kernel_row_retained_octet_length_values: u64,
+    kernel_row_peak_retained_candidates: u64,
     data_store_get_calls: u64,
     index_store_get_calls: u64,
     index_store_range_scan_calls: u64,
@@ -3206,6 +3207,7 @@ const fn fill_matrix_projection_path_sample(
         sample.kernel_row_retained_layout_hits = kernel.retained_layout_hits;
         sample.kernel_row_retained_slot_values = kernel.retained_slot_values;
         sample.kernel_row_retained_octet_length_values = kernel.retained_octet_length_values;
+        sample.kernel_row_peak_retained_candidates = kernel.peak_retained_candidates;
     }
 }
 
@@ -4371,6 +4373,11 @@ fn append_kernel_row_hotspot_tables(output: &mut String, samples: &[MatrixSample
             sample.kernel_row_retained_octet_length_values
         }),
     );
+    append_kernel_row_table(
+        output,
+        "Top Kernel Row Peak Retained Candidates",
+        ranked_by(samples, |sample| sample.kernel_row_peak_retained_candidates),
+    );
 }
 
 fn append_main_fixture_hotspot_tables(output: &mut String, samples: &[MatrixSample]) {
@@ -4500,6 +4507,11 @@ fn append_main_fixture_execution_hotspot_tables(output: &mut String, samples: &[
         ranked_main_fixture_by(samples, |sample| {
             sample.kernel_row_retained_octet_length_values
         }),
+    );
+    append_kernel_row_table(
+        output,
+        "Top Main Fixture Kernel Row Peak Retained Candidates",
+        ranked_main_fixture_by(samples, |sample| sample.kernel_row_peak_retained_candidates),
     );
 }
 
@@ -4788,18 +4800,18 @@ fn append_kernel_row_table(output: &mut String, title: &str, samples: Vec<&Matri
     writeln!(output).expect("write to string should succeed");
     writeln!(
         output,
-        "| Scenario | Surface | Scan | Key Stream | Row Read | Order Window | Page Window | Retained Layouts | Retained Values | Length Values | SQL |"
+        "| Scenario | Surface | Scan | Key Stream | Row Read | Order Window | Page Window | Retained Layouts | Retained Values | Length Values | Peak Candidates | SQL |"
     )
     .expect("write to string should succeed");
     writeln!(
         output,
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
     )
     .expect("write to string should succeed");
     for sample in samples {
         writeln!(
             output,
-            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
+            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
             sample.key,
             sample.surface,
             sample.kernel_row_scan_local_instructions,
@@ -4810,6 +4822,7 @@ fn append_kernel_row_table(output: &mut String, title: &str, samples: Vec<&Matri
             sample.kernel_row_retained_layout_hits,
             sample.kernel_row_retained_slot_values,
             sample.kernel_row_retained_octet_length_values,
+            sample.kernel_row_peak_retained_candidates,
             sample.sql.replace('|', "\\|"),
         )
         .expect("write to string should succeed");
@@ -6091,6 +6104,7 @@ fn sql_perf_matrix_markdown_reports_measured_and_unmeasured_resources() {
 
     assert!(markdown.contains("| `instruction_attribution` | `measured` |"));
     assert!(markdown.contains("| `projected_blob_output_bytes` | `measured` |"));
+    assert!(markdown.contains("| `peak_retained_candidates` | `measured` |"));
     assert!(markdown.contains("| `peak_heap_bytes` | `not_measured` |"));
     assert!(markdown.contains("| `allocator_traffic_bytes` | `not_measured` |"));
     assert!(markdown.contains("| `stable_memory_byte_volume` | `not_measured` |"));
