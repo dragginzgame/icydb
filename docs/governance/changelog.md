@@ -19,7 +19,7 @@ Detailed change breakdowns belong in:
 
 `docs/changelog/<major>.<minor>.md`
 
-For example: [docs/changelog/0.33.md](docs/changelog/0.33.md)
+For example: [docs/changelog/0.33.md](../changelog/0.33.md)
 
 ---
 
@@ -49,7 +49,7 @@ For example: [docs/changelog/0.33.md](docs/changelog/0.33.md)
 - Detailed minor notes may be substantially more verbose than root changelog entries.
 
 All patch releases in the same minor line share one detailed notes file.
-Example: `0.33.0`, `0.33.1`, and `0.33.2` all map to [docs/changelog/0.33.md](docs/changelog/0.33.md).
+Example: `0.33.0`, `0.33.1`, and `0.33.2` all map to [docs/changelog/0.33.md](../changelog/0.33.md).
 
 The root changelog must link to the detailed file when present.
 
@@ -134,7 +134,7 @@ For root changelog references to detailed notes, links must be clickable Markdow
 
 Use:
 
-`[docs/changelog/0.33.md](docs/changelog/0.33.md)`
+`[docs/changelog/0.33.md](../changelog/0.33.md)`
 
 Do not use plain backticked path text for detailed-breakdown links.
 

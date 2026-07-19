@@ -7,7 +7,9 @@
 #[cfg(feature = "diagnostics")]
 use crate::db::diagnostics::measure_local_instruction_delta as measure_grouped_execute_phase;
 #[cfg(feature = "diagnostics")]
-use crate::db::executor::{GroupedCountFoldMetrics, with_grouped_count_fold_metrics};
+use crate::db::executor::{
+    GroupedCountFoldMetrics, aggregate::GroupedRuntimeStats, with_grouped_count_fold_metrics,
+};
 use crate::db::registry::StoreHandle;
 use crate::{
     db::{
@@ -147,12 +149,66 @@ impl GroupedCountAttribution {
     }
 }
 
+///
+/// GroupedRuntimeAttribution
+///
+/// GroupedRuntimeAttribution carries the resource-owner snapshot captured by
+/// successful grouped fold execution through diagnostics boundaries.
+/// It is the single internal transport for grouped work and peak live-state
+/// facts shared by fluent and SQL attribution.
+///
+
+#[cfg(feature = "diagnostics")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::db) struct GroupedRuntimeAttribution {
+    pub(in crate::db) rows_scanned: u64,
+    pub(in crate::db) groups_observed: u64,
+    pub(in crate::db) groups_finalized: u64,
+    pub(in crate::db) peak_live_groups: u64,
+    pub(in crate::db) peak_live_aggregate_states: u64,
+    pub(in crate::db) peak_live_distinct_values: u64,
+    pub(in crate::db) early_scan_stop: bool,
+}
+
+#[cfg(feature = "diagnostics")]
+impl GroupedRuntimeAttribution {
+    /// Build the diagnostics transport directly from executor-owned runtime truth.
+    #[must_use]
+    fn from_runtime_stats(stats: GroupedRuntimeStats, rows_scanned: usize) -> Self {
+        Self {
+            rows_scanned: u64::try_from(rows_scanned).unwrap_or(u64::MAX),
+            groups_observed: stats.groups_observed(),
+            groups_finalized: stats.groups_finalized(),
+            peak_live_groups: stats.peak_live_groups(),
+            peak_live_aggregate_states: stats.peak_live_aggregate_states(),
+            peak_live_distinct_values: stats.peak_live_distinct_values(),
+            early_scan_stop: stats.early_scan_stop(),
+        }
+    }
+
+    /// Build the empty runtime attribution used by non-grouped SQL phases.
+    #[cfg(any(test, feature = "sql"))]
+    #[must_use]
+    pub(in crate::db) const fn none() -> Self {
+        Self {
+            rows_scanned: 0,
+            groups_observed: 0,
+            groups_finalized: 0,
+            peak_live_groups: 0,
+            peak_live_aggregate_states: 0,
+            peak_live_distinct_values: 0,
+            early_scan_stop: false,
+        }
+    }
+}
+
 #[cfg(feature = "diagnostics")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct GroupedExecutePhaseAttribution {
     pub(in crate::db) stream_local_instructions: u64,
     pub(in crate::db) fold_local_instructions: u64,
     pub(in crate::db) finalize_local_instructions: u64,
+    pub(in crate::db) runtime: GroupedRuntimeAttribution,
     pub(in crate::db) grouped_count: GroupedCountAttribution,
 }
 
@@ -369,6 +425,10 @@ fn execute_prepared_grouped_route_runtime_internal(
                     .map(crate::db::executor::ExecutionProfileStats::into_execution_stats),
             );
         }
+        let grouped_runtime = GroupedRuntimeAttribution::from_runtime_stats(
+            folded.runtime_stats(),
+            folded.rows_scanned(),
+        );
         let execution_time_micros = elapsed_execution_micros(execution_started_at);
 
         // Phase 3: finalize grouped rows, cursor payload, and execution trace.
@@ -386,6 +446,7 @@ fn execute_prepared_grouped_route_runtime_internal(
                 stream_local_instructions,
                 fold_local_instructions,
                 finalize_local_instructions,
+                runtime: grouped_runtime,
                 grouped_count: GroupedCountAttribution::from_fold_metrics(
                     grouped_count_fold_metrics,
                 ),

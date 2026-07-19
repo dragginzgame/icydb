@@ -7,7 +7,8 @@ use crate::db::{
     diagnostics::StoreCounterSnapshot,
     executor::{
         DirectDataRowPhaseAttribution, GroupedCountAttribution as ExecutorGroupedCountAttribution,
-        GroupedExecutePhaseAttribution, KernelRowPhaseAttribution,
+        GroupedExecutePhaseAttribution,
+        GroupedRuntimeAttribution as ExecutorGroupedRuntimeAttribution, KernelRowPhaseAttribution,
         ScalarAggregateTerminalAttribution, ScalarExecutePhaseAttribution,
     },
     query::read_intent::ReadIntentKind,
@@ -165,16 +166,33 @@ impl GroupedCountAttribution {
     }
 }
 
-// GroupedExecutionAttribution
-//
-// Candid diagnostics payload for grouped execution counters.
-// Stream, fold, finalize, and grouped-count metrics stay together so grouped
-// execution is no longer spread across top-level query attribution fields.
+/// Candid diagnostics payload for grouped execution counters and physical state facts.
+///
+/// Stream, fold, finalize, runtime-state, and grouped-count metrics stay
+/// together so grouped execution is not reconstructed at the session layer.
 #[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct GroupedExecutionAttribution {
+    /// Local instructions consumed while building the grouped source stream.
     pub stream_local_instructions: u64,
+    /// Local instructions consumed while folding grouped source rows.
     pub fold_local_instructions: u64,
+    /// Local instructions consumed while finalizing the grouped response.
     pub finalize_local_instructions: u64,
+    /// Candidate source rows read by grouped execution.
+    pub rows_scanned: u64,
+    /// Canonical groups observed by successful fold execution.
+    pub groups_observed: u64,
+    /// Canonical groups finalized by successful fold execution.
+    pub groups_finalized: u64,
+    /// Peak number of simultaneously live canonical groups.
+    pub peak_live_groups: u64,
+    /// Peak number of simultaneously live aggregate state slots.
+    pub peak_live_aggregate_states: u64,
+    /// Peak number of simultaneously live grouped DISTINCT values.
+    pub peak_live_distinct_values: u64,
+    /// Whether bounded ordered selection stopped the source scan early.
+    pub early_scan_stop: bool,
+    /// Dedicated grouped `COUNT(*)` hot-path attribution.
     pub count: GroupedCountAttribution,
 }
 
@@ -184,6 +202,7 @@ impl GroupedExecutionAttribution {
             phase.stream_local_instructions,
             phase.fold_local_instructions,
             phase.finalize_local_instructions,
+            phase.runtime,
             phase.grouped_count,
         )
     }
@@ -192,12 +211,20 @@ impl GroupedExecutionAttribution {
         stream_local_instructions: u64,
         fold_local_instructions: u64,
         finalize_local_instructions: u64,
+        runtime: ExecutorGroupedRuntimeAttribution,
         count: ExecutorGroupedCountAttribution,
     ) -> Self {
         Self {
             stream_local_instructions,
             fold_local_instructions,
             finalize_local_instructions,
+            rows_scanned: runtime.rows_scanned,
+            groups_observed: runtime.groups_observed,
+            groups_finalized: runtime.groups_finalized,
+            peak_live_groups: runtime.peak_live_groups,
+            peak_live_aggregate_states: runtime.peak_live_aggregate_states,
+            peak_live_distinct_values: runtime.peak_live_distinct_values,
+            early_scan_stop: runtime.early_scan_stop,
             count: GroupedCountAttribution::from_executor(count),
         }
     }

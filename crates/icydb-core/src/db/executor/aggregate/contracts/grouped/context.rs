@@ -10,15 +10,13 @@ use crate::db::executor::{
     group::{GroupKey, GroupKeySet},
 };
 #[cfg(test)]
-use crate::{
-    db::{
-        direction::Direction,
-        executor::aggregate::contracts::{
-            grouped::engine::GroupedAggregateState, plan::FieldSlot, spec::AggregateKind,
-        },
+use crate::db::{
+    direction::Direction,
+    executor::aggregate::contracts::{
+        grouped::engine::GroupedAggregateState, plan::FieldSlot, spec::AggregateKind,
     },
-    error::InternalError,
 };
+use crate::error::InternalError;
 use std::mem::size_of;
 
 ///
@@ -33,8 +31,21 @@ use std::mem::size_of;
 pub(in crate::db::executor) struct ExecutionBudget {
     groups: u64,
     aggregate_states: u64,
+    #[cfg(any(test, feature = "diagnostics"))]
+    live_groups: u64,
+    #[cfg(any(test, feature = "diagnostics"))]
+    peak_live_groups: u64,
+    #[cfg(any(test, feature = "diagnostics"))]
+    live_aggregate_states: u64,
+    #[cfg(any(test, feature = "diagnostics"))]
+    peak_live_aggregate_states: u64,
     estimated_bytes: u64,
+    peak_estimated_bytes: u64,
     distinct_values: u64,
+    #[cfg(any(test, feature = "diagnostics"))]
+    live_distinct_values: u64,
+    #[cfg(any(test, feature = "diagnostics"))]
+    peak_live_distinct_values: u64,
 }
 
 impl ExecutionBudget {
@@ -44,8 +55,21 @@ impl ExecutionBudget {
         Self {
             groups: 0,
             aggregate_states: 0,
+            #[cfg(any(test, feature = "diagnostics"))]
+            live_groups: 0,
+            #[cfg(any(test, feature = "diagnostics"))]
+            peak_live_groups: 0,
+            #[cfg(any(test, feature = "diagnostics"))]
+            live_aggregate_states: 0,
+            #[cfg(any(test, feature = "diagnostics"))]
+            peak_live_aggregate_states: 0,
             estimated_bytes: 0,
+            peak_estimated_bytes: 0,
             distinct_values: 0,
+            #[cfg(any(test, feature = "diagnostics"))]
+            live_distinct_values: 0,
+            #[cfg(any(test, feature = "diagnostics"))]
+            peak_live_distinct_values: 0,
         }
     }
 
@@ -67,10 +91,37 @@ impl ExecutionBudget {
         self.estimated_bytes
     }
 
+    /// Return the peak conservative grouped memory estimate in bytes.
+    #[must_use]
+    pub(in crate::db::executor) const fn peak_estimated_bytes(&self) -> u64 {
+        self.peak_estimated_bytes
+    }
+
     /// Return the total number of grouped DISTINCT values admitted so far.
     #[must_use]
     pub(in crate::db::executor) const fn distinct_values(&self) -> u64 {
         self.distinct_values
+    }
+
+    /// Return the peak number of simultaneously live canonical groups.
+    #[cfg(any(test, feature = "diagnostics"))]
+    #[must_use]
+    pub(in crate::db::executor) const fn peak_live_groups(&self) -> u64 {
+        self.peak_live_groups
+    }
+
+    /// Return the peak number of simultaneously live aggregate state slots.
+    #[cfg(any(test, feature = "diagnostics"))]
+    #[must_use]
+    pub(in crate::db::executor) const fn peak_live_aggregate_states(&self) -> u64 {
+        self.peak_live_aggregate_states
+    }
+
+    /// Return the peak number of simultaneously live grouped DISTINCT values.
+    #[cfg(any(test, feature = "diagnostics"))]
+    #[must_use]
+    pub(in crate::db::executor) const fn peak_live_distinct_values(&self) -> u64 {
+        self.peak_live_distinct_values
     }
 
     fn record_new_group_state(
@@ -106,9 +157,86 @@ impl ExecutionBudget {
 
         self.groups = next_groups;
         self.aggregate_states = self.aggregate_states.saturating_add(1);
+        #[cfg(any(test, feature = "diagnostics"))]
+        {
+            if new_group_key {
+                self.live_groups = self.live_groups.saturating_add(1);
+                self.peak_live_groups = self.peak_live_groups.max(self.live_groups);
+            }
+            self.live_aggregate_states = self.live_aggregate_states.saturating_add(1);
+            self.peak_live_aggregate_states = self
+                .peak_live_aggregate_states
+                .max(self.live_aggregate_states);
+        }
         self.estimated_bytes = next_bytes;
+        self.peak_estimated_bytes = self.peak_estimated_bytes.max(next_bytes);
 
         Ok(())
+    }
+
+    // Reserve one ordered active group's key and aggregate states while
+    // keeping observed group/state work cumulative across released groups.
+    fn reserve_ordered_group_states(
+        &mut self,
+        config: &ExecutionConfig,
+        aggregate_state_count: usize,
+    ) -> Result<(), GroupError> {
+        let next_groups = self.groups.saturating_add(1);
+        if next_groups > config.max_groups() {
+            return Err(GroupError::memory_limit_exceeded(
+                GroupBudgetResourceCode::Groups,
+                next_groups,
+                config.max_groups(),
+            ));
+        }
+
+        let bytes_delta = ordered_active_group_bytes(aggregate_state_count);
+        let next_bytes = self.estimated_bytes.saturating_add(bytes_delta);
+        if next_bytes > config.max_group_bytes() {
+            return Err(GroupError::memory_limit_exceeded(
+                GroupBudgetResourceCode::EstimatedBytes,
+                next_bytes,
+                config.max_group_bytes(),
+            ));
+        }
+
+        self.groups = next_groups;
+        self.aggregate_states = self
+            .aggregate_states
+            .saturating_add(u64::try_from(aggregate_state_count).unwrap_or(u64::MAX));
+        #[cfg(any(test, feature = "diagnostics"))]
+        {
+            self.live_groups = self.live_groups.saturating_add(1);
+            self.peak_live_groups = self.peak_live_groups.max(self.live_groups);
+            self.live_aggregate_states = self
+                .live_aggregate_states
+                .saturating_add(u64::try_from(aggregate_state_count).unwrap_or(u64::MAX));
+            self.peak_live_aggregate_states = self
+                .peak_live_aggregate_states
+                .max(self.live_aggregate_states);
+        }
+        self.estimated_bytes = next_bytes;
+        self.peak_estimated_bytes = self.peak_estimated_bytes.max(next_bytes);
+
+        Ok(())
+    }
+
+    // Release one ordered active group's live state without erasing the
+    // cumulative group and aggregate-state work already observed.
+    fn release_ordered_group_states(&mut self, aggregate_state_count: usize) {
+        let bytes_delta = ordered_active_group_bytes(aggregate_state_count);
+        debug_assert!(
+            self.estimated_bytes >= bytes_delta,
+            "ordered grouped state release must not exceed its live reservation",
+        );
+        self.estimated_bytes = self.estimated_bytes.saturating_sub(bytes_delta);
+        #[cfg(any(test, feature = "diagnostics"))]
+        {
+            self.live_groups = self.live_groups.saturating_sub(1);
+            self.live_aggregate_states = self
+                .live_aggregate_states
+                .saturating_sub(u64::try_from(aggregate_state_count).unwrap_or(u64::MAX));
+        }
     }
 
     const fn record_distinct_value(&mut self, config: &ExecutionConfig) -> Result<(), GroupError> {
@@ -122,6 +250,13 @@ impl ExecutionBudget {
         }
 
         self.distinct_values = attempted;
+        #[cfg(any(test, feature = "diagnostics"))]
+        {
+            self.live_distinct_values = self.live_distinct_values.saturating_add(1);
+            if self.live_distinct_values > self.peak_live_distinct_values {
+                self.peak_live_distinct_values = self.live_distinct_values;
+            }
+        }
 
         Ok(())
     }
@@ -130,6 +265,65 @@ impl ExecutionBudget {
 impl Default for ExecutionBudget {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+///
+/// GroupedRuntimeStats
+///
+/// GroupedRuntimeStats is the immutable grouped work/live-state snapshot
+/// emitted only after one grouped fold completes successfully.
+/// It carries executor-owned facts into diagnostics without reconstructing
+/// runtime behavior from the selected route or returned page.
+///
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg(any(test, feature = "diagnostics"))]
+pub(in crate::db::executor) struct GroupedRuntimeStats {
+    groups_observed: u64,
+    groups_finalized: u64,
+    peak_live_groups: u64,
+    peak_live_aggregate_states: u64,
+    peak_live_distinct_values: u64,
+    early_scan_stop: bool,
+}
+
+#[cfg(any(test, feature = "diagnostics"))]
+impl GroupedRuntimeStats {
+    /// Return the number of canonical groups observed by successful fold execution.
+    #[must_use]
+    pub(in crate::db::executor) const fn groups_observed(&self) -> u64 {
+        self.groups_observed
+    }
+
+    /// Return the number of canonical groups finalized by successful fold execution.
+    #[must_use]
+    pub(in crate::db::executor) const fn groups_finalized(&self) -> u64 {
+        self.groups_finalized
+    }
+
+    /// Return the peak number of simultaneously live canonical groups.
+    #[must_use]
+    pub(in crate::db::executor) const fn peak_live_groups(&self) -> u64 {
+        self.peak_live_groups
+    }
+
+    /// Return the peak number of simultaneously live aggregate state slots.
+    #[must_use]
+    pub(in crate::db::executor) const fn peak_live_aggregate_states(&self) -> u64 {
+        self.peak_live_aggregate_states
+    }
+
+    /// Return the peak number of simultaneously live grouped DISTINCT values.
+    #[must_use]
+    pub(in crate::db::executor) const fn peak_live_distinct_values(&self) -> u64 {
+        self.peak_live_distinct_values
+    }
+
+    /// Return whether bounded ordered page selection stopped the source scan early.
+    #[must_use]
+    pub(in crate::db::executor) const fn early_scan_stop(&self) -> bool {
+        self.early_scan_stop
     }
 }
 
@@ -263,6 +457,23 @@ impl ExecutionContext {
         &self.budget
     }
 
+    /// Freeze executor-owned grouped work and live-state facts after a successful fold.
+    #[cfg(any(test, feature = "diagnostics"))]
+    #[must_use]
+    pub(in crate::db::executor) const fn successful_runtime_stats(
+        &self,
+        early_scan_stop: bool,
+    ) -> GroupedRuntimeStats {
+        GroupedRuntimeStats {
+            groups_observed: self.budget.groups(),
+            groups_finalized: self.budget.groups(),
+            peak_live_groups: self.budget.peak_live_groups(),
+            peak_live_aggregate_states: self.budget.peak_live_aggregate_states(),
+            peak_live_distinct_values: self.budget.peak_live_distinct_values(),
+            early_scan_stop,
+        }
+    }
+
     /// Build one grouped aggregate state through the execution-context boundary.
     ///
     /// This keeps grouped state construction policy-owned by executor context
@@ -376,6 +587,28 @@ impl ExecutionContext {
         Ok(())
     }
 
+    /// Reserve one active ordered group while preserving cumulative work caps.
+    pub(in crate::db::executor::aggregate) fn reserve_ordered_group_states(
+        &mut self,
+        aggregate_state_count: usize,
+    ) -> Result<(), GroupError> {
+        if aggregate_state_count == 0 {
+            return Err(GroupError::from(InternalError::query_executor_invariant()));
+        }
+
+        self.budget
+            .reserve_ordered_group_states(&self.config, aggregate_state_count)
+    }
+
+    /// Release the live state owned by one finalized ordered group.
+    pub(in crate::db::executor::aggregate) fn release_ordered_group_states(
+        &mut self,
+        aggregate_state_count: usize,
+    ) {
+        self.budget
+            .release_ordered_group_states(aggregate_state_count);
+    }
+
     /// Record one admitted grouped DISTINCT value against the total budget.
     pub(in crate::db::executor) const fn record_distinct_value(
         &mut self,
@@ -449,6 +682,14 @@ fn estimated_new_group_bytes(
     };
 
     saturating_u64_from_usize(entry_growth)
+}
+
+fn ordered_active_group_bytes(aggregate_state_count: usize) -> u64 {
+    let bytes = size_of::<GroupKey>().saturating_add(
+        aggregate_state_count.saturating_mul(size_of::<GroupedTerminalAggregateState>()),
+    );
+
+    saturating_u64_from_usize(bytes)
 }
 
 const fn derived_max_distinct_values_per_group(max_group_bytes: u64) -> u64 {

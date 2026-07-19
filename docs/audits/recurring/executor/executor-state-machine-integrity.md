@@ -52,7 +52,7 @@ Every run must re-check this map and update the report when ownership moved.
 | -------------- | ------------------- | -------------- |
 | schema transition admission | `crates/icydb-core/src/db/schema/transition.rs`, `crates/icydb-core/src/db/schema/reconcile.rs` | canonical semantic authority |
 | schema mutation runner publication | `crates/icydb-core/src/db/schema/reconcile.rs`, `crates/icydb-core/src/db/schema/mutation/field_path/*`, `crates/icydb-core/src/db/schema/mutation/runner.rs` | invariant preservation |
-| route-plan validation handoff | `crates/icydb-core/src/db/executor/planning/route/*`, `crates/icydb-core/tests/write_boundary_guards.rs` | layer violation |
+| route-plan validation handoff | `crates/icydb-core/src/db/executor/planning/route/*`, `crates/icydb-core/src/db/executor/planning/route/tests/structural_guards.rs` | layer violation |
 | commit-window open/apply/finish | `crates/icydb-core/src/db/executor/mutation/commit_window.rs`, `crates/icydb-core/src/db/commit/guard.rs` | recovery consistency |
 | SQL/fluent write transition barrier | `crates/icydb-core/src/db/session/sql/*`, `crates/icydb-core/src/db/executor/tests/mutation_save.rs` | completeness |
 | recovery write gate handoff | `crates/icydb-core/src/db/commit/recovery.rs`, `crates/icydb-core/src/db/mod.rs` | recovery consistency |

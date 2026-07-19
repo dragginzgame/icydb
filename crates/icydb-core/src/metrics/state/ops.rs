@@ -131,7 +131,7 @@ pub struct EventOps {
     pub(crate) plan_union: u64,
     pub(crate) plan_intersection: u64,
     pub(crate) plan_grouped_hash_materialized: u64,
-    pub(crate) plan_grouped_ordered_materialized: u64,
+    pub(crate) plan_grouped_ordered_streaming: u64,
     pub(crate) plan_choice_conflicting_primary_key_children_access_preferred: u64,
     pub(crate) plan_choice_constant_false_predicate: u64,
     pub(crate) plan_choice_empty_child_access_preferred: u64,
@@ -560,8 +560,8 @@ impl EventOps {
     }
 
     #[must_use]
-    pub const fn plan_grouped_ordered_materialized(&self) -> u64 {
-        self.plan_grouped_ordered_materialized
+    pub const fn plan_grouped_ordered_streaming(&self) -> u64 {
+        self.plan_grouped_ordered_streaming
     }
 
     #[must_use]

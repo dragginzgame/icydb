@@ -79,6 +79,7 @@ impl SqlQueryExecutionAttribution {
                 execute_phase.grouped_stream_local_instructions,
                 execute_phase.grouped_fold_local_instructions,
                 execute_phase.grouped_finalize_local_instructions,
+                execute_phase.grouped_runtime,
                 execute_phase.grouped_count,
             ),
         );

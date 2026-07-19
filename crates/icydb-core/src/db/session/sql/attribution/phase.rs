@@ -5,6 +5,7 @@ use crate::db::{
     DirectDataRowAttribution, KernelRowAttribution,
     executor::{
         GroupedCountAttribution as ExecutorGroupedCountAttribution, GroupedExecutePhaseAttribution,
+        GroupedRuntimeAttribution as ExecutorGroupedRuntimeAttribution,
         ScalarAggregateTerminalAttribution,
     },
     session::query::QueryPlanCompilePhaseAttribution,
@@ -33,6 +34,7 @@ pub(in crate::db) struct SqlExecutePhaseAttribution {
     pub grouped_stream_local_instructions: u64,
     pub grouped_fold_local_instructions: u64,
     pub grouped_finalize_local_instructions: u64,
+    pub grouped_runtime: ExecutorGroupedRuntimeAttribution,
     pub grouped_count: ExecutorGroupedCountAttribution,
     pub scalar_aggregate_terminal: ScalarAggregateTerminalAttribution,
     pub direct_data_row: Option<DirectDataRowAttribution>,
@@ -62,6 +64,7 @@ impl SqlExecutePhaseAttribution {
             grouped_stream_local_instructions: 0,
             grouped_fold_local_instructions: 0,
             grouped_finalize_local_instructions: 0,
+            grouped_runtime: ExecutorGroupedRuntimeAttribution::none(),
             grouped_count: ExecutorGroupedCountAttribution::none(),
             scalar_aggregate_terminal: ScalarAggregateTerminalAttribution::none(),
             direct_data_row: None,
@@ -108,6 +111,7 @@ impl SqlExecutePhaseAttribution {
             grouped_phase_attribution.fold_local_instructions;
         attribution.grouped_finalize_local_instructions =
             grouped_phase_attribution.finalize_local_instructions;
+        attribution.grouped_runtime = grouped_phase_attribution.runtime;
         attribution.grouped_count = grouped_phase_attribution.grouped_count;
 
         attribution

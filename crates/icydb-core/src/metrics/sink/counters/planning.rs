@@ -132,9 +132,9 @@ pub(in crate::metrics::sink) const fn record_global_grouped_plan_mode(
             ops.plan_grouped_hash_materialized =
                 ops.plan_grouped_hash_materialized.saturating_add(1);
         }
-        Some(GroupedPlanExecutionMode::OrderedMaterialized) => {
-            ops.plan_grouped_ordered_materialized =
-                ops.plan_grouped_ordered_materialized.saturating_add(1);
+        Some(GroupedPlanExecutionMode::OrderedStreaming) => {
+            ops.plan_grouped_ordered_streaming =
+                ops.plan_grouped_ordered_streaming.saturating_add(1);
         }
     }
 }
@@ -266,9 +266,9 @@ pub(in crate::metrics::sink) const fn record_entity_grouped_plan_mode(
             ops.plan_grouped_hash_materialized =
                 ops.plan_grouped_hash_materialized.saturating_add(1);
         }
-        Some(GroupedPlanExecutionMode::OrderedMaterialized) => {
-            ops.plan_grouped_ordered_materialized =
-                ops.plan_grouped_ordered_materialized.saturating_add(1);
+        Some(GroupedPlanExecutionMode::OrderedStreaming) => {
+            ops.plan_grouped_ordered_streaming =
+                ops.plan_grouped_ordered_streaming.saturating_add(1);
         }
     }
 }

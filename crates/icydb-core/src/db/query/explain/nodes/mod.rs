@@ -75,7 +75,7 @@ const fn aggregate_layer_owns(node_type: ExplainExecutionNodeType) -> bool {
             | ExplainExecutionNodeType::AggregateSeekFirst
             | ExplainExecutionNodeType::AggregateSeekLast
             | ExplainExecutionNodeType::GroupedAggregateHashMaterialized
-            | ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized
+            | ExplainExecutionNodeType::GroupedAggregateOrderedStreaming
     )
 }
 

@@ -120,9 +120,17 @@ Owner:
 Responsibilities:
 - planner-owned grouped strategy selection
 - runtime execution of the dedicated grouped fold paths
+- one shared ordered key-transition owner for generic reducers and the
+  specialized grouped `COUNT(*)` counter
 
 Current dedicated grouped family:
 - grouped `COUNT(*)` path
+
+Current ordered ownership:
+- `OrderedGroupFoldState` owns active-key monotonicity, transition finality,
+  live-state reserve/release, and page-stop handoff
+- the dedicated count path supplies only optimized key extraction and one
+  active counter; it does not own transition safety
 
 ## Current Consumer Routes
 
@@ -201,11 +209,18 @@ This guard enforces the load-stream fast-path ownership boundary:
 - the execution-attempt runtime must enter stream fast-path resolution through
   the single `FastPathResolutionStrategy::for_route(...)` gate
 
+### 4. Grouped dedicated fast-path owner guard
+
+Guard:
+- `/home/adam/projects/icydb/crates/icydb-core/src/db/executor/planning/route/tests/fast_path_guards.rs`
+
+This guard checks that grouped `COUNT(*)` specialization stays selected by the
+planner-carried fold route and consumes the shared ordered transition owner
+instead of adding its own monotonicity or route decision.
+
 ## Remaining Unguarded Areas
 
-The current tripwires do not yet lock:
-- grouped dedicated fast-path ownership
-- the bytes-terminal derivation exception
+The current tripwires do not yet lock the bytes-terminal derivation exception.
 
 Those can be tightened in follow-up guards once the remaining boundary story is
 stable enough to freeze.

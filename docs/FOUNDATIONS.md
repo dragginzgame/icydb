@@ -11,20 +11,24 @@ This document is **interpretive, not normative**.
 > (atomicity, referential integrity, query semantics, identity and PK invariants),
 > those contracts take precedence.
 
-Normative specifications live in:
-- `docs/contracts/DURABILITY.md`
-- `docs/contracts/ATOMICITY.md`
-- `docs/contracts/WRITE_ADMISSION.md`
-- `docs/contracts/PERSISTED_FORMAT_POLICY.md`
-- `docs/contracts/PERSISTED_FORMAT_INVENTORY.md`
-- `docs/contracts/REF_INTEGRITY.md`
-- `docs/contracts/QUERY_CONTRACT.md`
-- `docs/contracts/READ_ADMISSION.md`
-- `docs/contracts/IDENTITY_CONTRACT.md`
+Normative specifications live under [`contracts/`](contracts/), including:
 
-Architecture terminology lives in:
-- `docs/architecture/TERMINOLOGY.md`
-- `docs/architecture/NAMING.md`
+- [query semantics](contracts/QUERY_CONTRACT.md),
+  [read admission](contracts/READ_ADMISSION.md),
+  [cursor semantics](contracts/CURSOR.md), and
+  [SQL scope](contracts/SQL_SUBSET.md);
+- [write admission](contracts/WRITE_ADMISSION.md),
+  [atomicity](contracts/ATOMICITY.md), and
+  [transaction semantics](contracts/TRANSACTION_SEMANTICS.md);
+- [durability](contracts/DURABILITY.md),
+  [persisted-format policy](contracts/PERSISTED_FORMAT_POLICY.md), and the
+  [persisted-format inventory](contracts/PERSISTED_FORMAT_INVENTORY.md); and
+- [referential integrity](contracts/REF_INTEGRITY.md),
+  [resource bounds](contracts/RESOURCE_MODEL.md), and
+  [identity](contracts/IDENTITY_CONTRACT.md).
+
+Architecture terminology lives in [TERMINOLOGY.md](architecture/TERMINOLOGY.md)
+and [NAMING.md](architecture/NAMING.md).
 
 ---
 
@@ -121,64 +125,79 @@ Intent must be valid independently of indexes or access paths.
 The planner:
 - validates intent against schema
 - normalizes predicates
-- selects access paths
-- enforces schema-level constraints
+- enforces admitted query semantics and schema-level constraints
 
 The result is a **LogicalPlan** that is:
 - fully specified
 - deterministic
 - schema-validated
 - free of ambiguity
+- independent of a chosen physical access path
 
 The planner is the **only layer** allowed to interpret schema semantics.
 
 ---
 
-### 2.3 Execution
+### 2.3 Access and route planning
+
+Physical planning:
+
+- derives access capabilities from the logical plan and accepted catalog;
+- selects one deterministic access plan;
+- derives an executor route and its eligibility facts; and
+- carries explicit fallback or downgrade reasons.
+
+These phases choose *how* to satisfy already-validated semantics. They do not
+reinterpret the query or upgrade its admitted capabilities.
+
+---
+
+### 2.4 Execution
 
 The executor:
 - executes a validated plan
-- performs no schema reasoning
+- consumes accepted authority carried by the plan rather than reconstructing
+  schema semantics
 - enforces execution-time invariants
 - operates deterministically
 
-Any valid plan must be executable without fallible logic beyond mechanical data access.
+Execution remains fallible for bounded persisted decoding, corruption checks,
+resource limits, and revalidation of planner-proposed route facts. Those checks
+must not become a second schema interpreter or an authority upgrade.
 
 
 ---
 
-## 3. Typed schema vs runtime values
+## 3. Accepted fields and query capabilities
 
-IcyDB distinguishes between **query-visible schema** and **runtime payload values**.
-
----
-
-### 3.1 Query-visible schema
-
-The schema defines:
-- fields allowed in predicates
-- fields allowed in access paths
-- fields eligible for indexing
-- fields eligible for integrity checks
-
-Schema fields are exhaustively validated during planning.
+Every persisted top-level row slot belongs to accepted schema. Accepted schema
+also declares which query operations each exact field kind supports.
 
 ---
 
-### 3.2 Runtime-visible values
+### 3.1 Accepted field authority
 
-Entities may carry values that:
-- are not part of the schema
-- are not indexable
-- are not filterable
+Accepted schema defines:
 
-These values:
-- may be preserved in views
-- may participate in ordering
-- are treated as opaque for comparison
+- every persisted field and physical slot;
+- the exact current persisted field kind and absence policy;
+- fields admitted in predicates and access paths;
+- fields eligible for comparison, ordering, grouping, or indexing; and
+- fields participating in integrity checks.
 
-This mirrors the separation between logical schema and physical tuple payloads in
-traditional database engines.
+Generated models may propose or reconcile these facts, but they are not runtime
+fallback authority.
+
+---
+
+### 3.2 Accepted but non-queryable fields
+
+An accepted field may deliberately have no predicate, ordering, grouping, or
+index capability. Its value is still declared by accepted schema, decoded under
+its exact accepted kind, and preserved by normal row admission.
+
+Unsupported operations on such a field fail closed. IcyDB does not preserve an
+out-of-schema opaque payload as a compatibility fallback.
 
 ---
 
@@ -220,20 +239,18 @@ contract.
 
 ---
 
-## 4. Unsupported and opaque values
+## 4. Unsupported values and operations
 
-`Value::Unsupported` represents runtime values that:
+IcyDB has no maintained `Value::Unsupported` catch-all representation.
 
-- must not participate in planning
-- must not be indexed
-- must not be compared for equality or ordering
+- A query operation on a field without the required accepted capability is
+  rejected during admission or planning.
+- An incoming value incompatible with the accepted field kind is rejected
+  during write admission.
+- A persisted value that fails bounded current-form decoding is corruption.
 
-The executor:
-- preserves these values
-- treats comparisons involving them as incomparable
-- maintains stable ordering when required
-
-This prevents crashes while preserving determinism.
+Unsupported values are not silently preserved, compared as equal, or routed
+through a legacy decoder.
 
 ---
 
@@ -243,11 +260,16 @@ Ordering in IcyDB follows these principles:
 
 - filtering occurs before ordering
 - ordering occurs before pagination
-- ordering is stable
-- incomparable values compare as equal
-- stable ordering preserves input order for incomparable values
+- admitted ordering uses only accepted orderable domains
+- non-orderable fields fail closed rather than becoming incomparable values
+- explicit `ORDER BY` owns direction and null ordering
+- pagination uses the complete deterministic order, including its canonical
+  primary-key tie-breaker
+- without explicit `ORDER BY`, result order is not a public guarantee, although
+  one unchanged plan over unchanged state remains deterministic
 
-These rules guarantee deterministic results even under partial ordering.
+These rules keep ordering deterministic without inventing a partial-order
+fallback.
 
 ---
 

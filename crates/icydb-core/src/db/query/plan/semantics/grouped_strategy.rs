@@ -42,6 +42,7 @@ pub(in crate::db) enum GroupedPlanFallbackReason {
     AggregateStreamingNotSupported,
     HavingBlocksGroupedOrder,
     GroupKeyOrderPrefixMismatch,
+    GroupKeyOrderDirectionMismatch,
     GroupKeyOrderExpressionNotAdmissible,
     GroupKeyOrderUnavailable,
 }
@@ -56,6 +57,7 @@ impl GroupedPlanFallbackReason {
             Self::AggregateStreamingNotSupported => "aggregate_streaming_not_supported",
             Self::HavingBlocksGroupedOrder => "having_blocks_grouped_order",
             Self::GroupKeyOrderPrefixMismatch => "group_key_order_prefix_mismatch",
+            Self::GroupKeyOrderDirectionMismatch => "group_key_order_direction_mismatch",
             Self::GroupKeyOrderExpressionNotAdmissible => {
                 "group_key_order_expression_not_admissible"
             }
@@ -334,8 +336,16 @@ fn grouped_canonical_order_strategy_projection(
     // Phase 1: walk the user-declared grouped ORDER BY list once and keep
     // canonical grouped-key proof separate from the broader grouped Top-K
     // expression family admitted by the `0.88` planner lane.
+    let mut canonical_direction = None;
     for (index, term) in order.fields.iter().enumerate() {
         if index < group_fields.len() {
+            let direction = term.direction();
+            if canonical_direction.is_some_and(|expected| expected != direction) {
+                return GroupedOrderStrategyProjection::HashFallback(
+                    GroupedPlanFallbackReason::GroupKeyOrderDirectionMismatch,
+                );
+            }
+            canonical_direction.get_or_insert(direction);
             match classify_grouped_order_term_for_field(term.expr(), group_fields[index].field()) {
                 GroupedOrderTermAdmissibility::Preserves(_) => {}
                 GroupedOrderTermAdmissibility::PrefixMismatch => {

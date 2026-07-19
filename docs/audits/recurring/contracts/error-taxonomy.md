@@ -296,9 +296,9 @@ Start with:
 - `cargo test -p icydb-core recovery_rejects_corrupt_marker_data_key_decode -- --nocapture`
 - `cargo test -p icydb-core recovery_rejects_incompatible_marker_format_version_fail_closed -- --nocapture`
 - `cargo test -p icydb-core unique_conflict_classification_parity_holds_between_live_apply_and_replay -- --nocapture`
-- `cargo test -p icydb-core conditional_unique_conflict_classification_parity_holds_between_live_update_and_replay -- --nocapture`
-- `cargo test -p icydb-core db::schema::mutation::tests::planning::runner_outcome_classifies_missing_capabilities_and_unsupported_requirements -- --nocapture`
-- `cargo test -p icydb-core schema_mutation_publication_boundary_uses_runner_preflight --features sql -- --nocapture`
+- `cargo test -p icydb-core unique_expression_conflict_classification_parity_holds_between_live_apply_and_replay -- --nocapture`
+- `cargo test -p icydb-core db::schema::mutation::tests::planning::field_path_index_request_lowering_fails_closed_for_unsupported_indexes -- --nocapture`
+- `cargo test -p icydb-core db::schema::mutation::tests::planning::index_mutation_plans_preserve_the_current_physical_target --features sql -- --nocapture`
 - `bash scripts/ci/check-layer-authority-invariants.sh`
 
 Add targeted tests for any new public error kind, internal error class,

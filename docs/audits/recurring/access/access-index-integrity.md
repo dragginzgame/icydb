@@ -568,18 +568,18 @@ Minimum verification set:
 * `cargo test -p icydb-core accepted_snapshot_schema_info_exposes_persisted_expression_indexes --features sql -- --nocapture`
 * `cargo test -p icydb-core accepted_snapshot_schema_info_uses_persisted_relation_authority --features sql -- --nocapture`
 * `cargo test -p icydb-core schema_transition_policy_accepts_supported_ddl_indexes_absent_from_generated_model --features sql -- --nocapture`
-* `cargo test -p icydb-core ensure_accepted_schema_snapshot_preserves_ddl_indexes_during_generated_index_rename --features sql -- --nocapture`
+* `cargo test -p icydb-core reconcile_staged_schema_snapshot_preserves_ddl_indexes_during_generated_index_rename --features sql -- --nocapture`
 * `cargo test -p icydb-core sql_ddl_frontend_does_not_take_schema_store_or_generated_index_authority --features sql -- --nocapture`
 * `cargo test -p icydb-core expression_index_store_batch_rolls_back_on_post_insert_validation_failure --features sql -- --nocapture`
-* `cargo test -p icydb-core execute_sql_ddl_publishes_supported_field_path_index --features sql -- --nocapture`
-* `cargo test -p icydb-core execute_sql_ddl_publishes_supported_expression_index --features sql -- --nocapture`
-* `cargo test -p icydb-core execute_sql_ddl_publishes_supported_unique_field_path_index --features sql -- --nocapture`
-* `cargo test -p icydb-core execute_sql_ddl_publishes_supported_unique_expression_index --features sql -- --nocapture`
-* `cargo test -p icydb-core execute_sql_ddl_rejects_duplicate_unique_field_path_values_without_publication --features sql -- --nocapture`
-* `cargo test -p icydb-core execute_sql_ddl_rejects_duplicate_unique_expression_values_without_publication --features sql -- --nocapture`
-* `cargo test -p icydb-core execute_sql_ddl_drops_supported_ddl_published_index --features sql -- --nocapture`
-* `cargo test -p icydb-core execute_sql_ddl_rejects_generated_index_drop_with_structured_detail --features sql -- --nocapture`
-* `cargo test -p icydb-core execute_sql_ddl_publication_invalidates_shared_query_plan_cache_key --features sql -- --nocapture`
+* `cargo test -p icydb-core execute_admin_sql_ddl_publishes_supported_field_path_index --features sql -- --nocapture`
+* `cargo test -p icydb-core execute_admin_sql_ddl_publishes_supported_expression_index --features sql -- --nocapture`
+* `cargo test -p icydb-core execute_admin_sql_ddl_publishes_supported_unique_field_path_index --features sql -- --nocapture`
+* `cargo test -p icydb-core execute_admin_sql_ddl_publishes_supported_unique_expression_index --features sql -- --nocapture`
+* `cargo test -p icydb-core execute_admin_sql_ddl_rejects_duplicate_unique_field_path_values_without_publication --features sql -- --nocapture`
+* `cargo test -p icydb-core execute_admin_sql_ddl_rejects_duplicate_unique_expression_values_without_publication --features sql -- --nocapture`
+* `cargo test -p icydb-core execute_admin_sql_ddl_drops_supported_ddl_published_index --features sql -- --nocapture`
+* `cargo test -p icydb-core execute_admin_sql_ddl_rejects_generated_index_drop_with_structured_detail --features sql -- --nocapture`
+* `cargo test -p icydb-core execute_admin_sql_ddl_publication_invalidates_shared_query_plan_cache_key --features sql -- --nocapture`
 
 If the audit touches mutation-readiness claims, also run:
 

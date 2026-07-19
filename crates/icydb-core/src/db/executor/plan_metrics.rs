@@ -36,7 +36,7 @@ pub(super) fn record_grouped_plan_metrics(
     let kind = access_plan_kind(&plan.access);
     let grouped_execution_mode = match grouped_execution_mode {
         GroupedExecutionMode::HashMaterialized => GroupedPlanExecutionMode::HashMaterialized,
-        GroupedExecutionMode::OrderedMaterialized => GroupedPlanExecutionMode::OrderedMaterialized,
+        GroupedExecutionMode::OrderedStreaming => GroupedPlanExecutionMode::OrderedStreaming,
     };
 
     record(MetricsEvent::Plan {

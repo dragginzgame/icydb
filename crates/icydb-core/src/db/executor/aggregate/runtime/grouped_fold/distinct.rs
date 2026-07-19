@@ -67,6 +67,8 @@ pub(super) fn execute_global_distinct_grouped_fold_stage(
             rows: page_rows,
             next_cursor: None,
         },
+        #[cfg(feature = "diagnostics")]
+        grouped_execution_context.successful_runtime_stats(false),
         filtered_rows,
         false,
         stream,

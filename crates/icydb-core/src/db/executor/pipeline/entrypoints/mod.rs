@@ -29,7 +29,9 @@ use crate::{
 
 pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::LoadSurfaceMode;
 #[cfg(feature = "diagnostics")]
-pub(in crate::db) use grouped::{GroupedCountAttribution, GroupedExecutePhaseAttribution};
+pub(in crate::db) use grouped::{
+    GroupedCountAttribution, GroupedExecutePhaseAttribution, GroupedRuntimeAttribution,
+};
 pub(in crate::db::executor) use grouped::{
     PreparedGroupedRouteRuntime, execute_prepared_grouped_route_runtime,
     prepare_grouped_route_runtime_for_load_plan,

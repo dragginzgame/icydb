@@ -21,8 +21,9 @@ use crate::{
                 runtime::grouped_fold::{
                     count::materialize_group_key_from_row_view,
                     utils::{
-                        GroupIndexBucket, find_matching_group_index_in_bucket,
-                        group_key_matches_row_view, stable_hash_group_values_from_row_view,
+                        GroupIndexBucket, compare_grouped_boundary_values,
+                        find_matching_group_index_in_bucket, group_key_matches_row_view,
+                        stable_hash_group_values_from_row_view,
                     },
                 },
             },
@@ -34,6 +35,7 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+use std::cmp::Ordering;
 
 ///
 /// GroupedAggregateBundleSpec
@@ -151,6 +153,203 @@ impl GroupedAggregateGroupEntry {
             group_key,
             group_state: GroupedAggregateGroupState::from_specs(specs),
         }
+    }
+}
+
+///
+/// OrderedGroupFoldState
+///
+/// OrderedGroupFoldState is the single canonical ordered group-transition
+/// owner shared by generic reducers and specialized grouped `COUNT(*)`.
+/// It validates monotonicity, owns one active key/state pair, and releases the
+/// live reservation before handing a closed group to page selection.
+///
+
+pub(super) struct OrderedGroupFoldState<State> {
+    active: Option<(GroupKey, State)>,
+    aggregate_state_count: usize,
+}
+
+impl<State> OrderedGroupFoldState<State> {
+    /// Build one empty ordered transition state for a fixed reducer-slot count.
+    #[must_use]
+    pub(super) const fn new(aggregate_state_count: usize) -> Self {
+        Self {
+            active: None,
+            aggregate_state_count,
+        }
+    }
+
+    /// Apply one row to its ordered group and visit a group exactly when its key closes.
+    ///
+    /// The visitor returns `true` once page selection has enough information
+    /// to stop the source scan. In that case the incoming next group is not
+    /// opened, so no unused aggregate state survives the lookahead boundary.
+    pub(super) fn apply_row(
+        &mut self,
+        execution_context: &mut ExecutionContext,
+        incoming_key: GroupKey,
+        direction: Direction,
+        create_state: impl FnOnce() -> State,
+        apply_to_state: impl FnOnce(&mut State, &mut ExecutionContext) -> Result<(), GroupError>,
+        visit_closed_group: impl FnOnce(GroupKey, State) -> Result<bool, InternalError>,
+    ) -> Result<bool, GroupError> {
+        let transition = self.active.as_ref().map(|(active_key, _)| {
+            compare_grouped_boundary_values(
+                direction,
+                active_key.canonical_value(),
+                incoming_key.canonical_value(),
+            )
+        });
+
+        match transition {
+            None => {}
+            Some(Ordering::Equal) => {
+                let active = self
+                    .active
+                    .as_mut()
+                    .map(|(_, state)| state)
+                    .ok_or_else(|| GroupError::from(InternalError::query_executor_invariant()))?;
+                apply_to_state(active, execution_context)?;
+                return Ok(false);
+            }
+            Some(Ordering::Greater) => {
+                return Err(GroupError::from(InternalError::query_executor_invariant()));
+            }
+            Some(Ordering::Less) => {
+                let closed = self
+                    .take_active(execution_context)
+                    .ok_or_else(|| GroupError::from(InternalError::query_executor_invariant()))?;
+                if visit_closed_group(closed.0, closed.1).map_err(GroupError::from)? {
+                    return Ok(true);
+                }
+            }
+        }
+
+        self.open_group(incoming_key, create_state, execution_context)?;
+        let active = self
+            .active
+            .as_mut()
+            .map(|(_, state)| state)
+            .ok_or_else(|| GroupError::from(InternalError::query_executor_invariant()))?;
+        apply_to_state(active, execution_context)?;
+
+        Ok(false)
+    }
+
+    /// Close the final active group after ordered input exhaustion.
+    pub(super) fn finish(
+        &mut self,
+        execution_context: &mut ExecutionContext,
+        visit_closed_group: impl FnOnce(GroupKey, State) -> Result<bool, InternalError>,
+    ) -> Result<(), GroupError> {
+        let Some(closed) = self.take_active(execution_context) else {
+            return Ok(());
+        };
+        let _selection_complete =
+            visit_closed_group(closed.0, closed.1).map_err(GroupError::from)?;
+
+        Ok(())
+    }
+
+    // Open one active group after reserving its one-group live-state budget.
+    fn open_group(
+        &mut self,
+        group_key: GroupKey,
+        create_state: impl FnOnce() -> State,
+        execution_context: &mut ExecutionContext,
+    ) -> Result<(), GroupError> {
+        execution_context.reserve_ordered_group_states(self.aggregate_state_count)?;
+        self.active = Some((group_key, create_state()));
+
+        Ok(())
+    }
+
+    // Release and consume the active group into the shared finalize contract.
+    fn take_active(
+        &mut self,
+        execution_context: &mut ExecutionContext,
+    ) -> Option<(GroupKey, State)> {
+        let active = self.active.take()?;
+        execution_context.release_ordered_group_states(self.aggregate_state_count);
+
+        Some(active)
+    }
+}
+
+///
+/// OrderedGroupedAggregateFold
+///
+/// OrderedGroupedAggregateFold adapts generic aggregate reducer states onto
+/// the shared ordered group-transition owner.
+///
+
+pub(super) struct OrderedGroupedAggregateFold {
+    aggregate_specs: Vec<GroupedAggregateBundleSpec>,
+    transitions: OrderedGroupFoldState<GroupedAggregateGroupState>,
+}
+
+impl OrderedGroupedAggregateFold {
+    /// Build one empty ordered generic aggregate fold.
+    #[must_use]
+    pub(super) const fn new(aggregate_specs: Vec<GroupedAggregateBundleSpec>) -> Self {
+        let aggregate_count = aggregate_specs.len();
+        Self {
+            aggregate_specs,
+            transitions: OrderedGroupFoldState::new(aggregate_count),
+        }
+    }
+
+    /// Return the number of aggregate slots carried by each active group.
+    #[must_use]
+    pub(super) const fn aggregate_count(&self) -> usize {
+        self.aggregate_specs.len()
+    }
+
+    /// Ingest one ordered generic aggregate row through the shared transition owner.
+    pub(super) fn ingest_row(
+        &mut self,
+        execution_context: &mut ExecutionContext,
+        data_key: &DecodedDataStoreKey,
+        row_view: &RowView,
+        group_fields: &[FieldSlot],
+        direction: Direction,
+        visit_closed_group: impl FnOnce(GroupedFinalizeGroup) -> Result<bool, InternalError>,
+    ) -> Result<bool, GroupError> {
+        let incoming_key = materialize_group_key_from_row_view(row_view, group_fields, None)
+            .map_err(GroupError::from)?;
+        let specs = self.aggregate_specs.as_slice();
+
+        self.transitions.apply_row(
+            execution_context,
+            incoming_key,
+            direction,
+            || GroupedAggregateGroupState::from_specs(specs),
+            |state, context| {
+                GroupedAggregateBundle::apply_row_to_group(state, data_key, row_view, context)
+            },
+            |group_key, state| {
+                visit_closed_group(GroupedFinalizeGroup {
+                    group_key,
+                    aggregate_states: state.aggregate_states,
+                })
+            },
+        )
+    }
+
+    /// Close the final active generic aggregate group after input exhaustion.
+    pub(super) fn finish(
+        &mut self,
+        execution_context: &mut ExecutionContext,
+        visit_closed_group: impl FnOnce(GroupedFinalizeGroup) -> Result<bool, InternalError>,
+    ) -> Result<(), GroupError> {
+        self.transitions
+            .finish(execution_context, |group_key, state| {
+                visit_closed_group(GroupedFinalizeGroup {
+                    group_key,
+                    aggregate_states: state.aggregate_states,
+                })
+            })
     }
 }
 
@@ -440,5 +639,180 @@ impl GroupedAggregateBundle {
         );
 
         out
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{GroupedAggregateBundleSpec, OrderedGroupedAggregateFold};
+    use crate::{
+        db::{
+            data::{DecodedDataStoreKey, PrimaryKeyComponent},
+            direction::Direction,
+            executor::{
+                aggregate::{
+                    AggregateKind, ExecutionConfig, ExecutionContext, GroupError,
+                    contracts::GroupedDistinctExecutionMode,
+                },
+                pipeline::runtime::RowView,
+            },
+            query::plan::FieldSlot,
+        },
+        types::EntityTag,
+        value::Value,
+    };
+
+    fn data_key(value: u64) -> DecodedDataStoreKey {
+        let raw =
+            DecodedDataStoreKey::new(EntityTag::new(1), &PrimaryKeyComponent::Nat64(value).into())
+                .to_raw()
+                .expect("ordered grouped test key should encode");
+
+        DecodedDataStoreKey::try_from_raw(&raw).expect("ordered grouped test key should decode")
+    }
+
+    fn count_rows_fold() -> OrderedGroupedAggregateFold {
+        let spec = GroupedAggregateBundleSpec::new(
+            AggregateKind::Count,
+            Direction::Asc,
+            GroupedDistinctExecutionMode::new(false, false),
+            None,
+            None,
+            None,
+            u64::MAX,
+        )
+        .expect("ordered grouped COUNT state should build");
+
+        OrderedGroupedAggregateFold::new(vec![spec])
+    }
+
+    fn row(group: u64) -> RowView {
+        RowView::new(vec![Some(Value::Nat64(group))])
+    }
+
+    #[test]
+    fn ordered_grouped_fold_finalizes_transitions_and_releases_live_state() {
+        let mut fold = count_rows_fold();
+        let mut context = ExecutionContext::new(ExecutionConfig::unbounded());
+        let group_fields = [FieldSlot::from_test_slot(0, "group")];
+        let mut finalized = Vec::new();
+
+        for (key, group) in [(1, 10), (2, 10), (3, 20), (4, 20)] {
+            let stopped = fold
+                .ingest_row(
+                    &mut context,
+                    &data_key(key),
+                    &row(group),
+                    &group_fields,
+                    Direction::Asc,
+                    |closed| {
+                        finalized.push(closed.finalize_single()?);
+                        Ok(false)
+                    },
+                )
+                .expect("monotonic ordered grouped row should fold");
+            assert!(!stopped);
+        }
+        fold.finish(&mut context, |closed| {
+            finalized.push(closed.finalize_single()?);
+            Ok(false)
+        })
+        .expect("final active ordered group should close");
+
+        assert_eq!(
+            finalized,
+            vec![
+                (
+                    crate::db::executor::group::GroupKey::from_group_values(vec![Value::Nat64(10)])
+                        .expect("group key"),
+                    Value::Nat64(2)
+                ),
+                (
+                    crate::db::executor::group::GroupKey::from_group_values(vec![Value::Nat64(20)])
+                        .expect("group key"),
+                    Value::Nat64(2)
+                ),
+            ],
+        );
+        assert_eq!(context.budget().groups(), 2);
+        assert_eq!(context.budget().aggregate_states(), 2);
+        assert_eq!(context.budget().estimated_bytes(), 0);
+        assert!(context.budget().peak_estimated_bytes() > 0);
+        let runtime_stats = context.successful_runtime_stats(false);
+        assert_eq!(runtime_stats.groups_observed(), 2);
+        assert_eq!(runtime_stats.groups_finalized(), 2);
+        assert_eq!(runtime_stats.peak_live_groups(), 1);
+        assert_eq!(runtime_stats.peak_live_aggregate_states(), 1);
+        assert_eq!(runtime_stats.peak_live_distinct_values(), 0);
+        assert!(!runtime_stats.early_scan_stop());
+    }
+
+    #[test]
+    fn ordered_grouped_fold_fails_closed_on_non_monotonic_group_keys() {
+        let mut fold = count_rows_fold();
+        let mut context = ExecutionContext::new(ExecutionConfig::unbounded());
+        let group_fields = [FieldSlot::from_test_slot(0, "group")];
+
+        fold.ingest_row(
+            &mut context,
+            &data_key(1),
+            &row(20),
+            &group_fields,
+            Direction::Asc,
+            |_| Ok(false),
+        )
+        .expect("first ordered group should open");
+        let err = fold
+            .ingest_row(
+                &mut context,
+                &data_key(2),
+                &row(10),
+                &group_fields,
+                Direction::Asc,
+                |_| Ok(false),
+            )
+            .expect_err("descending key on ascending route must fail closed");
+
+        assert!(matches!(err, GroupError::Internal(_)));
+    }
+
+    #[test]
+    fn ordered_grouped_fold_does_not_open_next_group_after_selection_stop() {
+        let mut fold = count_rows_fold();
+        let mut context = ExecutionContext::new(ExecutionConfig::unbounded());
+        let group_fields = [FieldSlot::from_test_slot(0, "group")];
+
+        fold.ingest_row(
+            &mut context,
+            &data_key(1),
+            &row(10),
+            &group_fields,
+            Direction::Asc,
+            |_| Ok(false),
+        )
+        .expect("first ordered group should open");
+        let stopped = fold
+            .ingest_row(
+                &mut context,
+                &data_key(2),
+                &row(20),
+                &group_fields,
+                Direction::Asc,
+                |_| Ok(true),
+            )
+            .expect("selection stop should close the active group");
+
+        assert!(stopped);
+        assert_eq!(context.budget().groups(), 1);
+        assert_eq!(context.budget().estimated_bytes(), 0);
+        let runtime_stats = context.successful_runtime_stats(true);
+        assert_eq!(runtime_stats.groups_observed(), 1);
+        assert_eq!(runtime_stats.groups_finalized(), 1);
+        assert_eq!(runtime_stats.peak_live_groups(), 1);
+        assert!(runtime_stats.early_scan_stop());
     }
 }

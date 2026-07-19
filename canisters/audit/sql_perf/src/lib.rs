@@ -280,6 +280,61 @@ impl GroupedCountTotals {
     }
 }
 
+///
+/// GroupedRuntimeTotals
+///
+/// Accumulates executor-owned grouped runtime facts across repeated perf runs.
+/// Average work counters and maximum live-state peaks are projected into the
+/// final sample without making the audit canister a second runtime authority.
+///
+
+#[cfg(feature = "sql")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct GroupedRuntimeTotals {
+    rows_scanned: u64,
+    groups_observed: u64,
+    groups_finalized: u64,
+    max_peak_live_groups: u64,
+    max_peak_live_aggregate_states: u64,
+    max_peak_live_distinct_values: u64,
+    early_scan_stop_runs: u64,
+}
+
+#[cfg(feature = "sql")]
+impl GroupedRuntimeTotals {
+    fn record(&mut self, grouped: GroupedExecutionAttribution) {
+        self.rows_scanned = self.rows_scanned.saturating_add(grouped.rows_scanned);
+        self.groups_observed = self.groups_observed.saturating_add(grouped.groups_observed);
+        self.groups_finalized = self
+            .groups_finalized
+            .saturating_add(grouped.groups_finalized);
+        self.max_peak_live_groups = self.max_peak_live_groups.max(grouped.peak_live_groups);
+        self.max_peak_live_aggregate_states = self
+            .max_peak_live_aggregate_states
+            .max(grouped.peak_live_aggregate_states);
+        self.max_peak_live_distinct_values = self
+            .max_peak_live_distinct_values
+            .max(grouped.peak_live_distinct_values);
+        self.early_scan_stop_runs = self
+            .early_scan_stop_runs
+            .saturating_add(u64::from(grouped.early_scan_stop));
+    }
+
+    const fn apply_average(
+        self,
+        attribution: &mut GroupedExecutionAttribution,
+        repeated_run_count: u64,
+    ) {
+        attribution.rows_scanned = self.rows_scanned / repeated_run_count;
+        attribution.groups_observed = self.groups_observed / repeated_run_count;
+        attribution.groups_finalized = self.groups_finalized / repeated_run_count;
+        attribution.peak_live_groups = self.max_peak_live_groups;
+        attribution.peak_live_aggregate_states = self.max_peak_live_aggregate_states;
+        attribution.peak_live_distinct_values = self.max_peak_live_distinct_values;
+        attribution.early_scan_stop = self.early_scan_stop_runs == repeated_run_count;
+    }
+}
+
 #[cfg(feature = "sql")]
 #[expect(clippy::too_many_arguments)]
 #[expect(
@@ -311,6 +366,7 @@ fn average_attribution(
     total_grouped_stream_local_instructions: u64,
     total_grouped_fold_local_instructions: u64,
     total_grouped_finalize_local_instructions: u64,
+    grouped_runtime_totals: GroupedRuntimeTotals,
     total_grouped_count_borrowed_hash_computations: u64,
     total_grouped_count_bucket_candidate_checks: u64,
     total_grouped_count_existing_group_hits: u64,
@@ -379,7 +435,7 @@ fn average_attribution(
         });
     }
     if saw_grouped {
-        attribution.grouped = Some(GroupedExecutionAttribution {
+        let mut grouped = GroupedExecutionAttribution {
             stream_local_instructions: total_grouped_stream_local_instructions / divisor,
             fold_local_instructions: total_grouped_fold_local_instructions / divisor,
             finalize_local_instructions: total_grouped_finalize_local_instructions / divisor,
@@ -398,7 +454,10 @@ fn average_attribution(
                 new_group_insert_local_instructions:
                     total_grouped_count_new_group_insert_local_instructions / divisor,
             },
-        });
+            ..GroupedExecutionAttribution::default()
+        };
+        grouped_runtime_totals.apply_average(&mut grouped, divisor);
+        attribution.grouped = Some(grouped);
     }
     attribution.store_get_calls = total_store_get_calls / divisor;
     attribution.index_store_get_calls = total_index_store_get_calls / divisor;
@@ -454,6 +513,7 @@ fn average_fluent_attribution(
     total_grouped_stream_local_instructions: u64,
     total_grouped_fold_local_instructions: u64,
     total_grouped_finalize_local_instructions: u64,
+    grouped_runtime_totals: GroupedRuntimeTotals,
     total_grouped_count_borrowed_hash_computations: u64,
     total_grouped_count_bucket_candidate_checks: u64,
     total_grouped_count_existing_group_hits: u64,
@@ -527,7 +587,7 @@ fn average_fluent_attribution(
         });
     }
     if saw_grouped {
-        attribution.grouped = Some(GroupedExecutionAttribution {
+        let mut grouped = GroupedExecutionAttribution {
             stream_local_instructions: total_grouped_stream_local_instructions / divisor,
             fold_local_instructions: total_grouped_fold_local_instructions / divisor,
             finalize_local_instructions: total_grouped_finalize_local_instructions / divisor,
@@ -546,7 +606,10 @@ fn average_fluent_attribution(
                 new_group_insert_local_instructions:
                     total_grouped_count_new_group_insert_local_instructions / divisor,
             },
-        });
+            ..GroupedExecutionAttribution::default()
+        };
+        grouped_runtime_totals.apply_average(&mut grouped, divisor);
+        attribution.grouped = Some(grouped);
     }
     attribution.store_get_calls = total_store_get_calls / divisor;
     attribution.index_store_get_calls = total_index_store_get_calls / divisor;
@@ -598,6 +661,7 @@ where
     let mut total_grouped_stream_local_instructions = 0_u64;
     let mut total_grouped_fold_local_instructions = 0_u64;
     let mut total_grouped_finalize_local_instructions = 0_u64;
+    let mut grouped_runtime_totals = GroupedRuntimeTotals::default();
     let mut grouped_count_totals = GroupedCountTotals::default();
     let mut total_store_get_calls = 0_u64;
     let mut total_index_store_get_calls = 0_u64;
@@ -686,6 +750,7 @@ where
                 .saturating_add(grouped.fold_local_instructions);
             total_grouped_finalize_local_instructions = total_grouped_finalize_local_instructions
                 .saturating_add(grouped.finalize_local_instructions);
+            grouped_runtime_totals.record(grouped);
             grouped_count_totals.record_grouped_count(grouped.count);
         }
         total_store_get_calls = total_store_get_calls.saturating_add(attribution.store_get_calls);
@@ -738,6 +803,7 @@ where
             total_grouped_stream_local_instructions,
             total_grouped_fold_local_instructions,
             total_grouped_finalize_local_instructions,
+            grouped_runtime_totals,
             grouped_count_totals.borrowed_hash_computations,
             grouped_count_totals.bucket_candidate_checks,
             grouped_count_totals.existing_group_hits,
@@ -1094,6 +1160,7 @@ fn query_fluent_scenario_loop(
     let mut total_grouped_stream_local_instructions = 0_u64;
     let mut total_grouped_fold_local_instructions = 0_u64;
     let mut total_grouped_finalize_local_instructions = 0_u64;
+    let mut grouped_runtime_totals = GroupedRuntimeTotals::default();
     let mut grouped_count_totals = GroupedCountTotals::default();
     let mut total_store_get_calls = 0_u64;
     let mut total_index_store_get_calls = 0_u64;
@@ -1199,6 +1266,7 @@ fn query_fluent_scenario_loop(
                 .saturating_add(grouped.fold_local_instructions);
             total_grouped_finalize_local_instructions = total_grouped_finalize_local_instructions
                 .saturating_add(grouped.finalize_local_instructions);
+            grouped_runtime_totals.record(grouped);
         }
         grouped_count_totals.record_fluent(&attribution);
         total_store_get_calls = total_store_get_calls.saturating_add(attribution.store_get_calls);
@@ -1252,6 +1320,7 @@ fn query_fluent_scenario_loop(
             total_grouped_stream_local_instructions,
             total_grouped_fold_local_instructions,
             total_grouped_finalize_local_instructions,
+            grouped_runtime_totals,
             grouped_count_totals.borrowed_hash_computations,
             grouped_count_totals.bucket_candidate_checks,
             grouped_count_totals.existing_group_hits,
@@ -3123,10 +3192,21 @@ fn scale_journaled_user_fixture_facts(
 #[cfg(feature = "sql")]
 fn perf_scale_users(row_count: i32) -> Vec<PerfAuditUser> {
     let quarter_rows = row_count / 4;
+    let grouped_age_rows = quarter_rows / 4;
     (1..=row_count)
         .map(|id| {
             let quarter_match = id <= quarter_rows;
-            let age = if quarter_match { 31 } else { 43 };
+            let age = if id <= grouped_age_rows {
+                31
+            } else if id <= grouped_age_rows * 2 {
+                32
+            } else if id <= grouped_age_rows * 3 {
+                33
+            } else if quarter_match {
+                34
+            } else {
+                43
+            };
             PerfAuditUser {
                 id,
                 name: format!("scale-user-{id:04}"),

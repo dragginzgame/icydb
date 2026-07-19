@@ -18,13 +18,13 @@ use crate::sql_perf_regression_sentinels::REGRESSION_SENTINEL_SCENARIO_IDS;
 /// Current checked-in SQL performance profile version.
 pub(crate) const SQL_PERFORMANCE_PROFILE_VERSION: u32 = 1;
 
-const EXPECTED_SCENARIO_COUNT: usize = 1_777;
+const EXPECTED_SCENARIO_COUNT: usize = 1_781;
 const EXPECTED_SCENARIO_SET_HASH: &str =
-    "aab04fd35c1d224eedc44d2075f5bdfc44256162c8a33a096aa469612504bc8c";
-const EXPECTED_SCALE_SCENARIO_COUNT: usize = 45;
+    "6db69e2ce853ff085b5136b14b152539629c4ccea7a3b59a5b8a017041eb9360";
+const EXPECTED_SCALE_SCENARIO_COUNT: usize = 51;
 const EXPECTED_SCALE_SCENARIO_SET_HASH: &str =
-    "aa4e78925f21c0a93dbfba3e0484c6a82b8a8a49c3c4fc4d835f71826588f6c4";
-const EXPECTED_SCALE_SHARD_COUNTS: &[usize] = &[6, 6, 4, 7, 3, 4, 6, 9];
+    "7dce0427236b8c45ebcaef7c57dc593de51ed829750f4d216c92162e6847600f";
+const EXPECTED_SCALE_SHARD_COUNTS: &[usize] = &[6, 8, 5, 9, 3, 5, 5, 10];
 const PERFORMANCE_SHARD_COUNT: u8 = SQL_SCHEDULED_SHARD_COUNT;
 const SCALE_ROW_CARDINALITIES: &[u32] = &[16, 256, 2_048];
 const RESULT_WINDOW_SIZES: &[u32] = &[1, 10, 50];
@@ -572,7 +572,7 @@ mod tests {
         let slope = PerformanceProfile::scale_slope_regression_threshold();
 
         assert_eq!(profile.version(), SQL_PERFORMANCE_PROFILE_VERSION);
-        assert_eq!(profile.expected_scenario_count(), 1_777);
+        assert_eq!(profile.expected_scenario_count(), 1_781);
         assert_eq!(
             profile.expected_scenario_set_hash(),
             EXPECTED_SCENARIO_SET_HASH

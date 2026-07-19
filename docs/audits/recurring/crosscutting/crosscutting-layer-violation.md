@@ -48,7 +48,7 @@ The following concerns must have a single owning layer:
 | Query shape semantics | intent/query |
 | Plan legality + validation | query/plan |
 | Access feasibility + canonicalization | access |
-| Route capability + execution strategy | executor/route |
+| Route capability + execution strategy | executor/planning/route |
 | Runtime execution semantics | executor |
 | Ordering domain + key comparison | index |
 | Envelope containment | index |
@@ -145,7 +145,8 @@ If rewrite or advancement logic appears in more than two locations, flag as dive
 
 ## STEP 4 - Access Capability Fan-Out
 
-Access feasibility must be owned by `access/*` and `executor/route/*`.
+Access feasibility must be owned by `access/*` and
+`executor/planning/route/*`.
 
 Search for:
 

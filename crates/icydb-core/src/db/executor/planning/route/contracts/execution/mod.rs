@@ -206,7 +206,7 @@ pub enum RouteExecutionMode {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum GroupedExecutionMode {
     HashMaterialized,
-    OrderedMaterialized,
+    OrderedStreaming,
 }
 
 impl GroupedExecutionMode {
@@ -227,7 +227,7 @@ impl GroupedExecutionMode {
             && projection.ordered_group_projection_safe;
 
         if ordered_route_eligible {
-            Self::OrderedMaterialized
+            Self::OrderedStreaming
         } else {
             Self::HashMaterialized
         }
@@ -238,7 +238,7 @@ impl GroupedExecutionMode {
     pub(in crate::db::executor) const fn code(self) -> &'static str {
         match self {
             Self::HashMaterialized => "hash_materialized",
-            Self::OrderedMaterialized => "ordered_materialized",
+            Self::OrderedStreaming => "ordered_streaming",
         }
     }
 }

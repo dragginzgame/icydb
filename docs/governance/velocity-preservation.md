@@ -149,7 +149,7 @@ Forbidden by default:
 
 Primary scope:
 
-- `crates/icydb-build/src/db.rs`
+- `crates/icydb-build/src/db/`
 - `canisters/**`
 - `testing/**`
 
@@ -173,7 +173,7 @@ chooses to publish them separately.
 
 # 6. Route Planner Controlled Hub Rule
 
-`crates/icydb-core/src/db/executor/route/planner/mod.rs` is a controlled hub.
+`crates/icydb-core/src/db/executor/planning/route/planner/mod.rs` is a controlled hub.
 
 Rules:
 
@@ -181,10 +181,11 @@ Rules:
 - do not add direct `session::*` imports there
 - do not increase the number of top-level `db::*` import families casually
 - new route features should enter through:
-  - `route/planner/entrypoints/*`
-  - `route/planner/feasibility/*`
-  - `route/planner/execution/*`
-- avoid pushing new semantic branching back into `route/planner/mod.rs`
+  - `planning/route/planner/entrypoints.rs`
+  - `planning/route/planner/feasibility/*`
+  - `planning/route/planner/execution/*`
+- avoid pushing new semantic branching back into
+  `planning/route/planner/mod.rs`
 
 The root planner module is allowed to coordinate existing route-owned contracts.
 It is not the place to absorb unrelated frontend or session concerns.

@@ -130,7 +130,7 @@ Every module should begin with a module-level documentation header describing ow
 Example:
 
 ```rust
-//! Module: executor::route::planner
+//! Module: executor::planning::route::planner
 //! Responsibility: route eligibility and capability classification.
 //! Does not own: planner semantics or execution logic.
 //! Boundary: converts planner output into executable route plans.
@@ -446,7 +446,7 @@ When doing this hygiene pass, commit per module, not one massive commit.
 
 Examples:
 
-- `cleanup: normalize imports and documentation in executor/route`
+- `cleanup: normalize imports and documentation in executor/planning/route`
 - `cleanup: reorder helpers and banners in planner/pushdown`
 - `cleanup: tighten visibility in index/storage`
 

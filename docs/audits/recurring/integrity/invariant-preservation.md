@@ -326,7 +326,7 @@ Required commands:
 * `cargo test -p icydb-core recovery_startup_rebuild_rejects_future_row_format_fail_closed --features sql -- --nocapture`
 * `cargo test -p icydb-core schema::mutation --features sql -- --nocapture`
 * `cargo test -p icydb-core schema::reconcile --features sql -- --nocapture`
-* `cargo test -p icydb-core --test write_boundary_guards -- --nocapture`
+* `cargo test -p icydb-core structural_guards --features sql -- --nocapture`
 
 If a command is intentionally replaced because its historical target no longer
 matches live tests or files, state that in the report and name the replacement.

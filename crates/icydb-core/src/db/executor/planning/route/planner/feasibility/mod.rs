@@ -156,6 +156,7 @@ pub(super) fn derive_route_derivation_context_for_model(
         planner_route_profile,
         direction,
         aggregate_shape,
+        grouped_plan_strategy,
         &access_shape_facts,
     );
     let kind: Option<AggregateKind> = aggregate_shape.map(AggregateRouteShape::kind);
@@ -208,6 +209,7 @@ fn derive_route_capability_state_for_model(
     planner_route_profile: &PlannerRouteProfile,
     direction: Direction,
     aggregate_shape: Option<AggregateRouteShape<'_>>,
+    grouped_plan_strategy: Option<GroupedPlanStrategy>,
     access_shape_facts: &crate::db::access::AccessShapeFacts,
 ) -> (
     RouteCapabilityFacts,
@@ -234,6 +236,8 @@ fn derive_route_capability_state_for_model(
         direction,
         aggregate_shape,
         access_shape_facts,
+        grouped_plan_strategy,
+        support.desc_physical_reverse_supported,
     );
     let count_pushdown = RouteCountPushdownState {
         existing_rows_shape_supported,

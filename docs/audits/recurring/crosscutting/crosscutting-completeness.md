@@ -571,9 +571,9 @@ without mutating repository state beyond normal build/test artifacts:
 - `cargo test -p icydb-core --features sql sql_blob -- --nocapture`
 - `cargo test -p icydb-core --features sql execute_trusted_sql_query_admits_supported_single_entity_read_shapes -- --nocapture`
 - `cargo test -p icydb-core --features sql compile_sql_query_and_execute_compiled_preserve_supported_read_families -- --nocapture`
-- `cargo test -p icydb-core --features sql execute_sql_update_admits_supported_single_entity_mutation_shapes -- --nocapture`
-- `cargo test -p icydb-core --features sql execute_sql_ddl_publishes_supported_expression_index -- --nocapture`
-- `cargo test -p icydb-core --features sql execute_sql_ddl_rename_column_updates_expression_index_metadata -- --nocapture`
+- `cargo test -p icydb-core --features sql execute_sql_statement_admits_supported_single_entity_mutation_shapes -- --nocapture`
+- `cargo test -p icydb-core --features sql execute_admin_sql_ddl_publishes_supported_expression_index -- --nocapture`
+- `cargo test -p icydb-core --features sql execute_admin_sql_ddl_rename_column_updates_expression_index_metadata -- --nocapture`
 - `git diff --check`
 
 The report may substitute nearby focused filters when names drift, but it should

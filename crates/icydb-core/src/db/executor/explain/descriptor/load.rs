@@ -710,18 +710,20 @@ fn grouped_aggregate_execution_node_descriptor(
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
     let grouped_execution_mode = route_plan.grouped_execution_mode()?;
-    let node_type = match grouped_execution_mode {
-        GroupedExecutionMode::HashMaterialized => {
-            ExplainExecutionNodeType::GroupedAggregateHashMaterialized
-        }
-        GroupedExecutionMode::OrderedMaterialized => {
-            ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized
-        }
+    let (node_type, grouped_node_execution_mode) = match grouped_execution_mode {
+        GroupedExecutionMode::HashMaterialized => (
+            ExplainExecutionNodeType::GroupedAggregateHashMaterialized,
+            execution_mode,
+        ),
+        GroupedExecutionMode::OrderedStreaming => (
+            ExplainExecutionNodeType::GroupedAggregateOrderedStreaming,
+            ExplainExecutionMode::Streaming,
+        ),
     };
     let mut node =
         crate::db::executor::explain::descriptor::shared::empty_execution_node_descriptor(
             node_type,
-            execution_mode,
+            grouped_node_execution_mode,
         );
     annotate_aggregate_execution_identity_properties(
         &mut node.node_properties,

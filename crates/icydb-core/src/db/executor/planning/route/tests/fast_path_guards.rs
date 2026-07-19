@@ -112,3 +112,29 @@ fn stream_fast_path_precedence_stays_route_owned() {
         );
     }
 }
+
+#[test]
+fn grouped_count_fast_path_stays_on_shared_transition_owner() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db");
+    let cases = [
+        (
+            "uses_count_rows_dedicated_fold",
+            BTreeSet::from(["src/db/executor/aggregate/runtime/grouped_fold/mod.rs".to_string()]),
+        ),
+        (
+            "OrderedGroupFoldState<",
+            BTreeSet::from([
+                "src/db/executor/aggregate/runtime/grouped_fold/bundle.rs".to_string(),
+                "src/db/executor/aggregate/runtime/grouped_fold/count/mod.rs".to_string(),
+            ]),
+        ),
+    ];
+
+    for (token, allowed) in cases {
+        let actual = runtime_token_hits(source_root.as_path(), token);
+        assert_eq!(
+            actual, allowed,
+            "grouped dedicated fast-path token `{token}` drifted outside the planner dispatch and shared transition owners",
+        );
+    }
+}

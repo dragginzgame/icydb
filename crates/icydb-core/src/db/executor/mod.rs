@@ -108,7 +108,8 @@ pub(in crate::db::executor) use pipeline::contracts::{
 pub(in crate::db) use pipeline::contracts::{CursorPage, PageCursor};
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use pipeline::{
-    GroupedCountAttribution, GroupedExecutePhaseAttribution, ScalarExecutePhaseAttribution,
+    GroupedCountAttribution, GroupedExecutePhaseAttribution, GroupedRuntimeAttribution,
+    ScalarExecutePhaseAttribution,
 };
 pub(in crate::db::executor) use planning::continuation::{
     AccessWindow, ContinuationMode, GroupedContinuationContext, GroupedPaginationWindow,

@@ -138,8 +138,14 @@ fn build_mutation_execution_route_plan(
     let continuation = RouteContinuationPlan::initial_for_mutation();
     let access_shape_facts = plan.access_shape_facts();
     let direction = derive_load_route_direction(plan);
-    let capability_facts =
-        derive_execution_capability_facts_for_model(plan, direction, None, &access_shape_facts);
+    let capability_facts = derive_execution_capability_facts_for_model(
+        plan,
+        direction,
+        None,
+        &access_shape_facts,
+        None,
+        false,
+    );
     let feasibility_stage = RouteFeasibilityStage {
         continuation,
         derivation: RouteDerivationContext {

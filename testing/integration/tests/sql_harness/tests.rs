@@ -120,6 +120,7 @@ fn scenario_taxonomies_cover_the_current_slice_contract() {
 fn route_taxonomies_cover_the_current_slice_contract() {
     let route_families = [
         RouteFamily::EqualityPrefixOrderedSuffix,
+        RouteFamily::GroupedAggregate,
         RouteFamily::IncompatibleFilterFirstOrder,
         RouteFamily::MaterializedOrder,
         RouteFamily::NotContractual,
@@ -152,7 +153,7 @@ fn route_taxonomies_cover_the_current_slice_contract() {
         RouteReason::EqualityPrefixOrderedSuffixCandidate,
         RouteReason::EqualityPrefixOrderedSuffixLimitStopProven,
         RouteReason::FilterOrderMismatch,
-        RouteReason::GroupedAggregateMaterialized,
+        RouteReason::GroupedAggregateOwnsExecution,
         RouteReason::IndexOrderSuffixGap,
         RouteReason::NoOrderBy,
         RouteReason::NotAPaginatedSelect,

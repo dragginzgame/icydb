@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.205.x] 🔧 - 2026-07-19 - Grouped Early Finalization
+
+Detailed notes: [docs/changelog/0.205.md](docs/changelog/0.205.md)
+
+- `0.205.0` replaces full-table ordered grouping with planner-proven,
+  one-active-group streaming and executor-owned runtime evidence while retaining
+  the explicit hash fallback for shapes without a sufficient ordering proof.
+
 ## [0.204.x] 🧪 - 2026-07-15 - SQL Evidence Authority
 
 Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)

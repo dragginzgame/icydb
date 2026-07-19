@@ -4,8 +4,8 @@ use crate::{
     types::Decimal,
 };
 
-// Execute one indexed grouped SQL case, assert the fully materialized ordered
-// grouped contract, and project rows into a compact assertion shape.
+// Execute one indexed grouped SQL case under its route-owned grouped contract
+// and project rows into a compact assertion shape.
 fn execute_indexed_grouped_case(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
@@ -94,6 +94,43 @@ fn grouped_result_rows(execution: &PagedGroupedExecutionWithTrace) -> Vec<(Value
             )
         })
         .collect()
+}
+
+// Assert one grouped SQL shape projects the route-owned physical execution
+// mode expected by the parity fixture.
+fn assert_indexed_grouped_execution_mode<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    expected_mode: &str,
+    context: &str,
+) where
+    E: PersistedRow<Canister = SessionSqlCanister>,
+{
+    let query = lower_select_query_for_tests::<E>(session, sql)
+        .unwrap_or_else(|err| panic!("{context} should lower for execution explain: {err}"));
+    let descriptor = session
+        .explain_query_execution_with_visible_indexes(&query)
+        .unwrap_or_else(|err| panic!("{context} execution explain should succeed: {err}"));
+
+    assert_eq!(
+        descriptor.node_properties().get("grouped_execution_mode"),
+        Some(&Value::from(expected_mode)),
+        "{context} should project the expected route-owned grouped execution mode",
+    );
+}
+
+// Execute one grouped SQL parity case through the maintained session boundary.
+fn execute_indexed_grouped_parity_case<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    cursor_token: Option<&str>,
+    context: &str,
+) -> PagedGroupedExecutionWithTrace
+where
+    E: PersistedRow<Canister = SessionSqlCanister>,
+{
+    execute_grouped_select_for_tests::<E>(session, sql, cursor_token)
+        .unwrap_or_else(|err| panic!("{context} grouped SQL execution should succeed: {err}"))
 }
 
 // Assert that one grouped/session boundary error stays in the Unsupported lane.
@@ -288,7 +325,7 @@ fn assert_indexed_grouped_ordered_public_case(
     if expect_grouped_node_contract {
         let grouped_node = explain_execution_find_first_node(
             &descriptor,
-            ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized,
+            ExplainExecutionNodeType::GroupedAggregateOrderedStreaming,
         )
         .unwrap_or_else(|| {
             panic!("{context} should emit an explicit ordered grouped aggregate node")
@@ -307,7 +344,7 @@ fn assert_indexed_grouped_ordered_public_case(
         );
         assert_eq!(
             grouped_node.node_properties().get("aggregate_physical"),
-            Some(&Value::from("ordered_materialized")),
+            Some(&Value::from("ordered_streaming")),
             "{context} grouped aggregate node should identify the ordered grouped physical implementation",
         );
     }
@@ -1103,6 +1140,199 @@ fn grouped_select_helper_indexed_filtered_aggregate_matrix_preserves_ordered_gro
         &session,
         &cases,
         "should preserve grouped-key order on the admitted ordered grouped lane",
+    );
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the 0.205 baseline keeps every currently ordered-eligible grouped family in one parity table"
+)]
+fn grouped_ordered_and_hash_execution_modes_preserve_current_family_parity() {
+    // Phase 1: seed one duplicate-heavy cohort while the secondary index is
+    // ready, then capture the current route-owned result contract.
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (1, "g", 10),
+            (2, "g", 10),
+            (3, "g", 20),
+            (4, "g", 30),
+            (5, "g", 40),
+            (6, "g", 50),
+            (7, "g", 50),
+        ],
+    );
+    let cases = [
+        (
+            "dedicated COUNT(*)",
+            "SELECT serial, COUNT(*) \
+             FROM CompositeIndexedSessionSqlEntity \
+             WHERE code = 'g' \
+             GROUP BY serial \
+             LIMIT 10",
+            "ordered_streaming",
+        ),
+        (
+            "generic aggregate family",
+            "SELECT serial, COUNT(note), SUM(serial), AVG(serial), MIN(serial), MAX(serial) \
+             FROM CompositeIndexedSessionSqlEntity \
+             WHERE code = 'g' \
+             GROUP BY serial \
+             LIMIT 10",
+            "ordered_streaming",
+        ),
+        (
+            "aggregate FILTER family",
+            "SELECT serial, COUNT(*) FILTER (WHERE serial >= 20), \
+                    SUM(serial) FILTER (WHERE serial >= 20) \
+             FROM CompositeIndexedSessionSqlEntity \
+             WHERE code = 'g' \
+             GROUP BY serial \
+             LIMIT 10",
+            "ordered_streaming",
+        ),
+        (
+            "post-aggregate HAVING",
+            "SELECT serial, COUNT(*), SUM(serial) \
+             FROM CompositeIndexedSessionSqlEntity \
+             WHERE code = 'g' \
+             GROUP BY serial \
+             HAVING COUNT(*) > 1 \
+             LIMIT 10",
+            "ordered_streaming",
+        ),
+        (
+            "explicit canonical ascending order",
+            "SELECT serial, COUNT(*), SUM(serial) \
+             FROM CompositeIndexedSessionSqlEntity \
+             WHERE code = 'g' \
+             GROUP BY serial \
+             ORDER BY serial ASC \
+             LIMIT 10",
+            "ordered_streaming",
+        ),
+        (
+            "explicit canonical descending order",
+            "SELECT serial, COUNT(*), SUM(serial) \
+             FROM CompositeIndexedSessionSqlEntity \
+             WHERE code = 'g' \
+             GROUP BY serial \
+             ORDER BY serial DESC \
+             LIMIT 10",
+            "ordered_streaming",
+        ),
+        (
+            "offset and bounded page",
+            "SELECT serial, COUNT(*), SUM(serial) \
+             FROM CompositeIndexedSessionSqlEntity \
+             WHERE code = 'g' \
+             GROUP BY serial \
+             LIMIT 1 OFFSET 1",
+            "ordered_streaming",
+        ),
+        (
+            "dedicated COUNT(*) cursor first page",
+            "SELECT serial, COUNT(*) \
+             FROM CompositeIndexedSessionSqlEntity \
+             WHERE code = 'g' \
+             GROUP BY serial \
+             LIMIT 1",
+            "ordered_streaming",
+        ),
+    ];
+    let mut ordered_results = Vec::with_capacity(cases.len());
+
+    for &(context, sql, expected_mode) in &cases {
+        assert_indexed_grouped_execution_mode::<CompositeIndexedSessionSqlEntity>(
+            &session,
+            sql,
+            expected_mode,
+            context,
+        );
+        let execution = execute_indexed_grouped_parity_case::<CompositeIndexedSessionSqlEntity>(
+            &session, sql, None, context,
+        );
+        ordered_results.push((
+            context,
+            sql,
+            execution.rows().to_vec(),
+            execution.continuation_cursor().map(<[u8]>::to_vec),
+        ));
+    }
+    let cursor_sql = cases
+        .last()
+        .map(|(_, sql, _)| *sql)
+        .expect("grouped parity cases should include a cursor page");
+    let ordered_cursor = ordered_results
+        .last()
+        .and_then(|(_, _, _, cursor)| cursor.as_deref())
+        .map(crate::db::cursor::encode_cursor)
+        .expect("ordered grouped cursor case should emit a continuation");
+    let ordered_resume = execute_indexed_grouped_parity_case::<CompositeIndexedSessionSqlEntity>(
+        &session,
+        cursor_sql,
+        Some(ordered_cursor.as_str()),
+        "ordered cursor continuation",
+    );
+    let ordered_resume_rows = ordered_resume.rows().to_vec();
+    let ordered_resume_cursor = ordered_resume.continuation_cursor().map(<[u8]>::to_vec);
+
+    // Phase 2: hide the same physical index without changing rows, forcing
+    // every query through the hash fallback over identical logical input.
+    hide_indexed_session_indexes();
+
+    for (context, sql, ordered_rows, ordered_cursor) in ordered_results {
+        assert_indexed_grouped_execution_mode::<CompositeIndexedSessionSqlEntity>(
+            &session,
+            sql,
+            "hash_materialized",
+            context,
+        );
+        let hash_execution = execute_indexed_grouped_parity_case::<CompositeIndexedSessionSqlEntity>(
+            &session, sql, None, context,
+        );
+        assert_eq!(
+            hash_execution.rows(),
+            ordered_rows,
+            "{context} should preserve public grouped rows across current physical modes",
+        );
+        assert_eq!(
+            hash_execution.continuation_cursor().is_some(),
+            ordered_cursor.is_some(),
+            "{context} should preserve grouped continuation availability across current physical modes",
+        );
+    }
+
+    // Phase 3: resume each physical route from its own strategy-bound cursor
+    // and compare the resulting semantic page.
+    let hash_first = execute_indexed_grouped_parity_case::<CompositeIndexedSessionSqlEntity>(
+        &session,
+        cursor_sql,
+        None,
+        "hash cursor first page",
+    );
+    let hash_cursor = hash_first
+        .continuation_cursor()
+        .map(crate::db::cursor::encode_cursor)
+        .expect("hash grouped cursor case should emit a continuation");
+    let hash_resume = execute_indexed_grouped_parity_case::<CompositeIndexedSessionSqlEntity>(
+        &session,
+        cursor_sql,
+        Some(hash_cursor.as_str()),
+        "hash cursor continuation",
+    );
+    assert_eq!(
+        hash_resume.rows(),
+        ordered_resume_rows,
+        "grouped continuation rows should remain independent of physical mode",
+    );
+    assert_eq!(
+        hash_resume.continuation_cursor().is_some(),
+        ordered_resume_cursor.is_some(),
+        "grouped continuation availability should remain independent of physical mode",
     );
 }
 
@@ -4269,17 +4499,73 @@ fn explain_sql_grouped_qualified_identifier_matrix_matches_unqualified_output() 
     }
 }
 
+#[test]
+fn execute_sql_ordered_grouped_sum_over_secondary_range_stays_monotonic() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    insert_session_fixture_rows(
+        &session,
+        [
+            (1_u128, "bravo", 30_u64),
+            (2, "alpha", 10),
+            (3, "charlie", 40),
+            (4, "alpha", 20),
+        ],
+        |(id, name, age)| IndexedSessionSqlEntity {
+            id: Ulid::from_u128(id),
+            name: name.to_string(),
+            age,
+        },
+        "ordered grouped secondary-range seed",
+    );
+    let sql = "SELECT name, SUM(age) \
+               FROM IndexedSessionSqlEntity \
+               WHERE name >= '' AND name <= 'zzzz' \
+               GROUP BY name LIMIT 1";
+    assert_indexed_grouped_execution_mode::<IndexedSessionSqlEntity>(
+        &session,
+        sql,
+        "ordered_streaming",
+        "ordered grouped secondary-range SUM",
+    );
+
+    let result = execute_grouped_select_for_tests::<IndexedSessionSqlEntity>(&session, sql, None)
+        .expect("ordered grouped secondary-range SUM should execute");
+
+    assert_eq!(result.rows().len(), 1);
+    assert_eq!(
+        runtime_outputs(result.rows()[0].group_key()),
+        [Value::Text("alpha".to_string())],
+    );
+    assert_eq!(
+        runtime_outputs(result.rows()[0].aggregate_values()),
+        [Value::Decimal(crate::types::Decimal::from(30_u64))],
+    );
+}
+
 #[cfg(feature = "diagnostics")]
 #[test]
-fn execute_sql_grouped_query_with_attribution_reports_grouped_phase_split() {
-    reset_session_sql_store();
-    let session = sql_session();
-    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("carol", 32)]);
+fn execute_sql_ordered_grouped_attribution_reports_bounded_live_state_and_early_stop() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_composite_indexed_session_sql_entities(
+        &session,
+        &[(1, "g", 10), (2, "g", 10), (3, "g", 20), (4, "g", 30)],
+    );
+    let sql = "SELECT serial, COUNT(*) \
+               FROM CompositeIndexedSessionSqlEntity \
+               WHERE code = 'g' \
+               GROUP BY serial \
+               LIMIT 1";
+    assert_indexed_grouped_execution_mode::<CompositeIndexedSessionSqlEntity>(
+        &session,
+        sql,
+        "ordered_streaming",
+        "ordered grouped attribution",
+    );
 
     let (_result, attribution) = session
-        .execute_trusted_sql_query_with_attribution::<SessionSqlEntity>(
-            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age LIMIT 10",
-        )
+        .execute_trusted_sql_query_with_attribution::<CompositeIndexedSessionSqlEntity>(sql)
         .expect("grouped SQL attribution query should execute");
     let grouped = attribution
         .grouped
@@ -4292,6 +4578,16 @@ fn execute_sql_grouped_query_with_attribution_reports_grouped_phase_split() {
                 .saturating_add(grouped.fold_local_instructions)
                 .saturating_add(grouped.finalize_local_instructions),
         "grouped SQL executor totals should remain at least as large as the grouped phase split",
+    );
+    assert_eq!(grouped.rows_scanned, 4);
+    assert_eq!(grouped.groups_observed, 2);
+    assert_eq!(grouped.groups_finalized, 2);
+    assert_eq!(grouped.peak_live_groups, 1);
+    assert_eq!(grouped.peak_live_aggregate_states, 1);
+    assert_eq!(grouped.peak_live_distinct_values, 0);
+    assert!(
+        grouped.early_scan_stop,
+        "ordered LIMIT 1 should stop after one qualifying lookahead group",
     );
 }
 
@@ -4331,5 +4627,15 @@ fn execute_fluent_grouped_query_with_attribution_reports_grouped_phase_split() {
     assert_eq!(
         attribution.direct_data_row, None,
         "grouped fluent attribution should not populate scalar direct-row counters",
+    );
+    assert_eq!(grouped.rows_scanned, 3);
+    assert_eq!(grouped.groups_observed, 2);
+    assert_eq!(grouped.groups_finalized, 2);
+    assert_eq!(grouped.peak_live_groups, 2);
+    assert_eq!(grouped.peak_live_aggregate_states, 2);
+    assert_eq!(grouped.peak_live_distinct_values, 0);
+    assert!(
+        !grouped.early_scan_stop,
+        "hash grouped execution should scan its admitted source to completion",
     );
 }

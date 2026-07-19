@@ -172,7 +172,12 @@ impl ExecutionRoutePlan {
 
     /// Return the route-owned policy for physical secondary-index leaf order.
     pub(in crate::db::executor) const fn index_leaf_order_policy(&self) -> IndexLeafOrderPolicy {
-        if self.secondary_fast_path_eligible() {
+        if matches!(
+            self.grouped_execution_mode,
+            Some(GroupedExecutionMode::OrderedStreaming)
+        ) {
+            IndexLeafOrderPolicy::PreservePhysicalLeaf
+        } else if self.secondary_fast_path_eligible() {
             IndexLeafOrderPolicy::PreservePrefixBranch
         } else if self.capability_facts.ordered_index_leaf_stream_eligible {
             IndexLeafOrderPolicy::PreservePhysicalLeaf

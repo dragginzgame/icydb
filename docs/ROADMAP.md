@@ -3,15 +3,21 @@
 This document defines the long-term direction and architectural identity of IcyDB.
 
 This roadmap is directional and planning-oriented.
-Behavioral guarantees are defined exclusively in:
+Behavioral guarantees are defined by the current files under
+[`contracts/`](contracts/), especially:
 
-- `docs/contracts/DURABILITY.md`
-- `docs/contracts/ATOMICITY.md`
-- `docs/contracts/PERSISTED_FORMAT_POLICY.md`
-- `docs/contracts/PERSISTED_FORMAT_INVENTORY.md`
-- `docs/contracts/REF_INTEGRITY.md`
-- `docs/contracts/RESOURCE_MODEL.md`
-- `docs/contracts/TRANSACTION_SEMANTICS.md`
+- [query semantics](contracts/QUERY_CONTRACT.md),
+  [read admission](contracts/READ_ADMISSION.md), and
+  [SQL scope](contracts/SQL_SUBSET.md);
+- [write admission](contracts/WRITE_ADMISSION.md),
+  [atomicity](contracts/ATOMICITY.md), and
+  [transaction semantics](contracts/TRANSACTION_SEMANTICS.md);
+- [durability](contracts/DURABILITY.md),
+  [persisted-format policy](contracts/PERSISTED_FORMAT_POLICY.md), and the
+  [persisted-format inventory](contracts/PERSISTED_FORMAT_INVENTORY.md); and
+- [cursor](contracts/CURSOR.md),
+  [referential-integrity](contracts/REF_INTEGRITY.md), and
+  [resource-model](contracts/RESOURCE_MODEL.md) contracts.
 
 This document defines *what IcyDB is*, *what it will become*, and *what it will not become*.
 
@@ -141,26 +147,38 @@ At that point, growth becomes incremental refinement, not architectural expansio
 
 # 7. Near-Term Focus
 
-## Stability & Consolidation
+The active delivery sequence is intentionally serial:
 
-- Preserve grouped invariants and HAVING semantics.
-- Harden continuation envelope boundaries.
-- Keep fixed-scale decimal normalization, coercion, and persisted-row
-  invariants hardened.
-- Maintain strict resource-model compliance.
-- Keep aggregate identity and SQL/grouped semantic ownership sealed.
+1. [0.205 grouped early
+   materialization](design/0.205-grouped-early-materialization/0.205-design.md)
+   closes the eligible ordered-group retention boundary.
+2. [0.206 SQL performance
+   remediation](design/0.206-sql-performance-remediation/0.206-design.md)
+   selects one primary production optimization and at most one inseparable
+   companion from the post-0.205 evidence.
+3. [0.207 redo-only schema index
+   publication](design/0.207-redo-only-schema-index-publication/0.207-design.md)
+   hard-cuts index publication to the maintained marker/recovery authority.
+4. [0.208 exact composite contracts and explicit
+   AnyValue](design/0.208-exact-composite-contracts-and-explicit-any-value/0.208-design.md)
+   completes exact recursive field contracts.
+5. [0.209 temporal defaults and versioned row
+   layouts](design/0.209-temporal-defaults-and-versioned-row-layouts/0.209-design.md)
+   owns the next current-form row-envelope cut. It replaces the older vague
+   offset-row roadmap item; no parallel row codec is planned.
+6. [0.210 exact and resumable bulk
+   update](design/0.210-exact-and-resumable-bulk-update/0.210-design.md),
+   [0.211 accepted-catalog
+   constraints](design/0.211-accepted-catalog-constraints/0.211-design.md),
+   [0.212 bounded resumable integrity
+   checking](design/0.212-bounded-resumable-integrity-check/0.212-design.md), and
+   [0.213 exact unsigned identity
+   generation](design/0.213-exact-unsigned-identity-generation/0.213-design.md)
+   then consume those accepted contracts in order.
 
-## Execution Optimization (Within Scope)
-
-- Aggregate-aware fast paths (provably equivalent only).
-- Composite aggregate direct-path routing.
-- Covering-index detection improvements.
-- Strategy selection clarity (without cost-based planning).
-- Deterministic downgrade pathways.
-- Structural execution ownership across scalar and grouped runtimes.
-- Follow-on row-storage optimization after structural execution completion:
-  replace CBOR row-payload decode with offset-based row encoding plus stable
-  slot/offset layouts for direct field access.
+All proposed lines remain subject to review at their implementation boundary.
+Before 1.0, format and protocol replacements are hard cuts: one current form,
+typed failure for obsolete state, and no compatibility path.
 
 ---
 
@@ -204,22 +222,25 @@ If implemented:
 
 ## Operational Surface
 
-The first-class CLI now exists. Long-term growth here is command completeness
-over the stable engine surface, for example:
+The current CLI exposes the implemented developer and operator surfaces:
 
 ```bash
-icydb schema create
-icydb collection create
-icydb insert
-icydb query --explain
-icydb index inspect
-icydb check
-icydb rebuild
-icydb export
-icydb import
+icydb sql --canister <name> --sql "SELECT ..."
+icydb snapshot <name>
+icydb metrics <name>
+icydb diagnostic <code>
+icydb schema show <name>
+icydb schema check <name>
+icydb config init|show|check ...
+icydb canister list|deploy|refresh|upgrade|status ...
 ```
 
-This surface remains an operational wrapper over a stable engine core.
+SQL commands provide the admitted query, mutation, DDL, EXPLAIN, and index
+inspection vocabulary. There is no separate collection-management, rebuild,
+export, or import command today. Their possible 1.0 status remains an explicit
+decision in [the 1.0 readiness checklist](1.0-TODO.md); raw stable-memory import
+is not a supported product path. CLI growth remains an operational wrapper over
+the accepted engine contracts rather than a second mutation authority.
 
 ---
 

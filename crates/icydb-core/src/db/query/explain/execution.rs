@@ -251,7 +251,7 @@ pub enum ExplainExecutionNodeType {
     AggregateSeekFirst,
     AggregateSeekLast,
     GroupedAggregateHashMaterialized,
-    GroupedAggregateOrderedMaterialized,
+    GroupedAggregateOrderedStreaming,
     SecondaryOrderPushdown,
 }
 
@@ -552,7 +552,7 @@ impl ExplainExecutionNodeType {
             Self::AggregateSeekFirst => "AggregateSeekFirst",
             Self::AggregateSeekLast => "AggregateSeekLast",
             Self::GroupedAggregateHashMaterialized => "GroupedAggregateHashMaterialized",
-            Self::GroupedAggregateOrderedMaterialized => "GroupedAggregateOrderedMaterialized",
+            Self::GroupedAggregateOrderedStreaming => "GroupedAggregateOrderedStreaming",
             Self::SecondaryOrderPushdown => "SecondaryOrderPushdown",
         }
     }

@@ -9,7 +9,7 @@ Pin IcyDB by tag in the canister crate:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.183.28" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.204.16" }
 ```
 
 The default crate feature set is typed/fluent-only. Enable SQL explicitly when
@@ -17,21 +17,22 @@ the canister uses session/library SQL APIs or generated SQL endpoints:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.183.28", features = ["sql"] }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.204.16", features = ["sql"] }
 ```
 
 The public `icydb` crate path supports Rust `1.88.0` and newer. Repository
 maintenance uses the newer internal toolchain listed below.
 
-Generated endpoint build scripts should depend on `icydb-config` with the same
-tag as `icydb` and call `icydb_config::build_configured_canister!()`.
+Generated endpoint build scripts should depend on `icydb` with the same tag and
+call `icydb::build::build_configured_canister!()`.
 
 ## Generated Endpoint Config
 
-Local canisters load generated endpoint switches from `icydb.toml` through
-`icydb-config`. Generated canister glue uses fixed `__icydb_*`
-Rust/export names, and the CLI checks the config before calling endpoint
-families.
+Local canisters load generated endpoint switches from `icydb.toml` through the
+public `icydb::build` facade. Generated canister endpoints use public
+`icydb_*` method names; their generated Rust wrappers use hidden `__icydb_*`
+names only to avoid collisions with plain application hooks. The CLI checks the
+config before calling endpoint families.
 
 Create or replace a local `icydb.toml` for a canister when setting up a new
 demo or test canister:
@@ -44,7 +45,9 @@ icydb config init --canister demo_rpg --all --force
 `config init` writes at the visible workspace root by default. Pass
 `--start-dir <path>` when running from a canister subdirectory or from outside
 the workspace. Readonly SQL is enabled by default; pass `--no-readonly` only for
-canisters that should not expose `__icydb_query`.
+canisters that should not expose `icydb_query`. `--all` also enables the
+primary-key-only `icydb_update` policy. Use `--update-policy bounded` when the
+generated update endpoint must instead admit the bounded deterministic policy.
 
 Readonly SQL is a generated controller-gated admin surface, not a generated
 public read endpoint. Do not expose `icydb_query` or a thin wrapper around it
@@ -63,6 +66,7 @@ Example generated endpoint config:
 readonly = true
 ddl = true
 fixtures = true
+update = true
 
 [canisters.demo_rpg.sql.introspection]
 local = true
@@ -79,18 +83,21 @@ enabled = true
 enabled = true
 ```
 
-Current generated surfaces:
+Current generated endpoint surfaces:
 
-- `__icydb_query` for controller-gated read SQL
+- `icydb_query` for controller-gated read SQL
   - `EXPLAIN`, `DESCRIBE`, and `SHOW` follow
     `[canisters.<name>.sql.introspection]`; defaults are `local = true` and
     `ic = false`
-- `__icydb_ddl` for supported accepted-catalog SQL DDL
-- `__icydb_fixtures_reset` and `__icydb_fixtures_load` for local fixture flows
-- `__icydb_snapshot` for storage inventory and stable allocation metadata
-- `__icydb_schema` and `__icydb_schema_check` for accepted schema diagnostics
-- `__icydb_metrics` and `__icydb_metrics_reset` for default runtime metrics
-- `__icydb_metrics_extended` when the target metrics mode is `extended`
+- `icydb_ddl` for supported accepted-catalog SQL DDL
+- `icydb_update` only when `update = "primary_key"` (also selected by `true`)
+  or `update = "bounded"`; both policies are controller-gated and narrower
+  than the session/library mutation surface
+- `icydb_fixtures_reset` and `icydb_fixtures_load` for local fixture flows
+- `icydb_snapshot` for storage inventory and stable allocation metadata
+- `icydb_schema` and `icydb_schema_check` for accepted schema diagnostics
+- `icydb_metrics` and `icydb_metrics_reset` for default runtime metrics
+- `icydb_metrics_extended` when the target metrics mode is `extended`
 
 Fixture loading calls a plain non-exported user hook when present:
 
@@ -329,7 +336,7 @@ cargo run -q -p icydb-cli -- canister list --environment test
 `icydb sql` only queries the current canister state. It does not create or load
 demo data automatically. Use `canister refresh` for the destructive local reset
 flow for the selected ICP canister; it clears that canister's stable memory,
-then calls `__icydb_fixtures_load` when the fixture endpoint is configured.
+then calls `icydb_fixtures_load` when the fixture endpoint is configured.
 
 ## CLI Command Shapes
 

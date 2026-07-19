@@ -1068,7 +1068,7 @@ fn explain_execution_scalar_surface_defers_projection_and_grouped_node_families(
         for deferred in [
             ExplainExecutionNodeType::ProjectionMaterialized,
             ExplainExecutionNodeType::GroupedAggregateHashMaterialized,
-            ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized,
+            ExplainExecutionNodeType::GroupedAggregateOrderedStreaming,
         ] {
             assert!(
                 !explain_execution_contains_node_type(descriptor, deferred),

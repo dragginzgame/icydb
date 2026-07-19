@@ -512,6 +512,9 @@ pub enum RouteFamily {
     /// Equality-prefix filtering followed by compatible ordered suffix traversal.
     EqualityPrefixOrderedSuffix,
 
+    /// Grouped aggregate execution whose physical mode is owned by grouped route diagnostics.
+    GroupedAggregate,
+
     /// Filter-first access whose order is incompatible with the requested order.
     IncompatibleFilterFirstOrder,
 
@@ -543,6 +546,7 @@ impl RouteFamily {
     pub const fn code(self) -> &'static str {
         match self {
             Self::EqualityPrefixOrderedSuffix => "equality_prefix_ordered_suffix",
+            Self::GroupedAggregate => "grouped_aggregate",
             Self::IncompatibleFilterFirstOrder => "incompatible_filter_first_order",
             Self::MaterializedOrder => "materialized_order",
             Self::NotContractual => "not_contractual",

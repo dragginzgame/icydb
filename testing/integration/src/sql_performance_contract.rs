@@ -47,3 +47,16 @@ pub const SQL_PERFORMANCE_BROAD_CONTRACT_FEATURES: &[&str] = &[
 
 /// SQL contract features whose cost is represented by the scale-sentinel profile.
 pub const SQL_PERFORMANCE_SCALE_CONTRACT_FEATURES: &[&str] = &["blob.read_write_compare"];
+
+/// Stable scenario identities for the grouped early-finalization before/after line.
+///
+/// The pair executes equivalent grouped results through the current ordered
+/// and hash-fallback modes. Their EXPLAIN companions prove which physical mode
+/// supplied each measurement without making rendered EXPLAIN text an execution
+/// authority.
+pub const SQL_GROUPED_EARLY_MATERIALIZATION_BASELINE_SCENARIOS: &[&str] = &[
+    "user.grouped_baseline.hash_sum_age_control",
+    "user.grouped_baseline.hash_sum_age_control_explain",
+    "user.grouped_baseline.ordered_sum_age",
+    "user.grouped_baseline.ordered_sum_age_explain",
+];

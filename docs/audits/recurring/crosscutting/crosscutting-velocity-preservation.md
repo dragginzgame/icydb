@@ -258,7 +258,7 @@ Produce hub containment table:
 
 Required hubs:
 
-* `executor/route/planner/mod.rs`
+* `executor/planning/route/planner/mod.rs`
 * SQL execution/session roots
 * cursor/continuation roots
 * any current module root over local threshold that imports more than one

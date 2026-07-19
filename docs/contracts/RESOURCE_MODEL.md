@@ -158,10 +158,16 @@ Class C operators are disallowed unless rewritten into bounded forms.
 
 For grouped queries, resource admission and execution must enforce:
 
-- `groups <= max_groups`
-- `estimated_group_bytes <= max_group_bytes` (as computed by conservative accounting)
+- `groups_observed <= max_groups`
+- `current_live_group_bytes <= max_group_bytes` (as computed by conservative accounting)
 - `distinct_per_group <= max_distinct_values_per_group`
-- `distinct_total <= max_distinct_values_total`
+- `distinct_values_observed <= max_distinct_values_total`
+
+Group and total-DISTINCT counters remain cumulative work bounds. Group bytes
+are a live-memory bound: hash execution retains its admitted group table,
+whereas ordered streaming releases each active group at its proven key
+transition. The budget records peak live groups, aggregate states, DISTINCT
+values, and estimated bytes for diagnostics without weakening cumulative caps.
 
 Distinct insertions must pass through grouped budget accounting.
 Budget enforcement over these counters is authoritative.
@@ -188,7 +194,7 @@ eligibility conditions hold. Current planner+executor matrix includes:
 - Streaming-safe access shape
 - Streaming-compatible grouped aggregates
 - Streaming-compatible HAVING operators
-- Streaming-compatible grouped DISTINCT shape
+- No grouped DISTINCT domain that crosses the active canonical group boundary
 
 Planner may propose ordered grouping; executor revalidates and downgrades to
 hash grouping when any eligibility condition fails.
@@ -196,8 +202,12 @@ Executor revalidation must never upgrade execution beyond planner-declared
 eligibility.
 
 Grouped execution mode remains explicit and authoritative at runtime.
-In the current line, grouped execution remains materialized for both ordered
-and hash strategy labels.
+Eligible generic and dedicated grouped-`COUNT(*)` routes use
+`OrderedStreaming`: they share one transition owner, retain one active group,
+finalize it only at a proven canonical group-key transition, and keep only
+bounded response-page state. Incompatible routes use `HashMaterialized` and
+retain the budget-accounted group table. Grouped field-target DISTINCT remains
+explicitly hash materialized.
 
 ## 6. Scan Budget Contract
 

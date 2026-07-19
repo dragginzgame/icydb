@@ -5,4 +5,5 @@
 mod page_finalize;
 mod runner;
 
+pub(super) use page_finalize::OrderedGroupedPageSelection;
 pub(super) use runner::execute_generic_grouped_fold_stage;

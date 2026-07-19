@@ -23,7 +23,8 @@ use crate::db::{
         },
     },
     query::plan::{
-        AccessPlannedQuery, CoveringReadExecutionPlan, OrderDirection, PlannerRouteProfile,
+        AccessPlannedQuery, CoveringReadExecutionPlan, GroupedPlanStrategy, OrderDirection,
+        PlannerRouteProfile,
     },
 };
 
@@ -173,7 +174,13 @@ struct LoadRouteCapabilityFacts {
 
 impl LoadRouteCapabilityFacts {
     // Derive the shared load-capability fact snapshot from one validated plan.
-    fn from_plan(plan: &AccessPlannedQuery, access_shape_facts: &AccessShapeFacts) -> Self {
+    fn from_plan(
+        plan: &AccessPlannedQuery,
+        access_shape_facts: &AccessShapeFacts,
+        grouped_plan_strategy: Option<GroupedPlanStrategy>,
+        direction: Direction,
+        desc_physical_reverse_supported: bool,
+    ) -> Self {
         let logical = plan.scalar_plan();
 
         // Phase 1: collect the shared budget and order facts that downstream
@@ -185,7 +192,11 @@ impl LoadRouteCapabilityFacts {
             .order
             .as_ref()
             .is_some_and(|order| !order.fields.is_empty());
-        let requires_post_access_sort = has_order && !access_order_satisfied_by_path;
+        let grouped_order_satisfied_by_route = grouped_plan_strategy
+            .is_some_and(GroupedPlanStrategy::ordered_group_admitted)
+            && (!matches!(direction, Direction::Desc) || desc_physical_reverse_supported);
+        let requires_post_access_sort =
+            has_order && !access_order_satisfied_by_path && !grouped_order_satisfied_by_route;
 
         // Phase 2: project those facts onto the canonical load-order route
         // decision so route capability and hint callers share one owner.
@@ -199,9 +210,11 @@ impl LoadRouteCapabilityFacts {
             LoadOrderRouteDecision::materialized_fallback(
                 LoadOrderRouteReason::RequiresMaterializedSort,
             )
-        } else if let Some(decision) =
-            secondary_prefix_streaming_requires_materialized_boundary(plan, access_shape_facts)
-        {
+        } else if let Some(decision) = secondary_prefix_streaming_requires_materialized_boundary(
+            plan,
+            access_shape_facts,
+            grouped_order_satisfied_by_route,
+        ) {
             decision
         } else {
             LoadOrderRouteDecision::direct_streaming()
@@ -252,8 +265,17 @@ impl LoadRouteCapabilityFacts {
 fn derive_load_route_capability_facts_for_model(
     plan: &AccessPlannedQuery,
     access_shape_facts: &AccessShapeFacts,
+    grouped_plan_strategy: Option<GroupedPlanStrategy>,
+    direction: Direction,
+    desc_physical_reverse_supported: bool,
 ) -> LoadRouteCapabilityFacts {
-    LoadRouteCapabilityFacts::from_plan(plan, access_shape_facts)
+    LoadRouteCapabilityFacts::from_plan(
+        plan,
+        access_shape_facts,
+        grouped_plan_strategy,
+        direction,
+        desc_physical_reverse_supported,
+    )
 }
 
 // Some secondary-prefix ORDER BY shapes are semantically pushdown-compatible
@@ -263,6 +285,7 @@ fn derive_load_route_capability_facts_for_model(
 fn secondary_prefix_streaming_requires_materialized_boundary(
     plan: &AccessPlannedQuery,
     access_shape_facts: &AccessShapeFacts,
+    grouped_order_satisfied_by_route: bool,
 ) -> Option<LoadOrderRouteDecision> {
     let logical = plan.scalar_plan();
     let index = access_shape_facts.single_path_index_prefix_details()?;
@@ -273,6 +296,12 @@ fn secondary_prefix_streaming_requires_materialized_boundary(
         return Some(LoadOrderRouteDecision::materialized_boundary(
             LoadOrderRouteReason::DistinctRequiresMaterialization,
         ));
+    }
+    // Canonical grouped output has one row per complete group key, so the
+    // scalar lane's duplicate-secondary-value page-stability restriction does
+    // not apply once planner order plus physical reverse traversal are proven.
+    if grouped_order_satisfied_by_route {
+        return None;
     }
     if child_prefix_expansion_preserves_primary_key_order_for_direction(
         plan,
@@ -383,9 +412,16 @@ pub(super) fn derive_execution_capability_facts_for_model(
     direction: Direction,
     aggregate_shape: Option<AggregateRouteShape<'_>>,
     access_shape_facts: &AccessShapeFacts,
+    grouped_plan_strategy: Option<GroupedPlanStrategy>,
+    desc_physical_reverse_supported: bool,
 ) -> RouteCapabilityFacts {
-    let load_route_capability_facts =
-        derive_load_route_capability_facts_for_model(plan, access_shape_facts);
+    let load_route_capability_facts = derive_load_route_capability_facts_for_model(
+        plan,
+        access_shape_facts,
+        grouped_plan_strategy,
+        direction,
+        desc_physical_reverse_supported,
+    );
     let aggregate_execution_policy = derive_aggregate_execution_policy(
         plan,
         direction,

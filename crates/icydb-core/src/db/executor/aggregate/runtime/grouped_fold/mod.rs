@@ -95,6 +95,7 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
     debug_assert!(
         grouped_budget.max_groups() >= grouped_budget.groups()
             && grouped_budget.max_group_bytes() >= grouped_budget.estimated_bytes()
+            && grouped_budget.max_group_bytes() >= grouped_budget.peak_estimated_bytes()
             && grouped_execution_context
                 .config()
                 .max_distinct_values_total()

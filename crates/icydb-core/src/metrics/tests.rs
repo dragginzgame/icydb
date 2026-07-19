@@ -1064,7 +1064,7 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         plan_union: 41,
         plan_intersection: 42,
         plan_grouped_hash_materialized: 43,
-        plan_grouped_ordered_materialized: 44,
+        plan_grouped_ordered_streaming: 44,
         plan_choice_conflicting_primary_key_children_access_preferred: 166,
         plan_choice_constant_false_predicate: 167,
         plan_choice_empty_child_access_preferred: 168,
@@ -1204,7 +1204,7 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "plan_union",
         "plan_intersection",
         "plan_grouped_hash_materialized",
-        "plan_grouped_ordered_materialized",
+        "plan_grouped_ordered_streaming",
         "plan_choice_conflicting_primary_key_children_access_preferred",
         "plan_choice_constant_false_predicate",
         "plan_choice_empty_child_access_preferred",
@@ -1367,7 +1367,7 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.plan_union(), 41);
     assert_eq!(summary.plan_intersection(), 42);
     assert_eq!(summary.plan_grouped_hash_materialized(), 43);
-    assert_eq!(summary.plan_grouped_ordered_materialized(), 44);
+    assert_eq!(summary.plan_grouped_ordered_streaming(), 44);
     assert_eq!(
         summary.plan_choice_conflicting_primary_key_children_access_preferred(),
         166

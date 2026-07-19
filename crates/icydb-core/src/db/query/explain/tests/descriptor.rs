@@ -11,7 +11,7 @@ fn explain_execution_public_node_type_vocabulary_stays_stable() {
         ExplainExecutionNodeType::CoveringRead.as_str(),
         ExplainExecutionNodeType::AggregateCount.as_str(),
         ExplainExecutionNodeType::GroupedAggregateHashMaterialized.as_str(),
-        ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized.as_str(),
+        ExplainExecutionNodeType::GroupedAggregateOrderedStreaming.as_str(),
     ];
     let expected = [
         "ByKeyLookup",
@@ -22,7 +22,7 @@ fn explain_execution_public_node_type_vocabulary_stays_stable() {
         "CoveringRead",
         "AggregateCount",
         "GroupedAggregateHashMaterialized",
-        "GroupedAggregateOrderedMaterialized",
+        "GroupedAggregateOrderedStreaming",
     ];
 
     assert_eq!(

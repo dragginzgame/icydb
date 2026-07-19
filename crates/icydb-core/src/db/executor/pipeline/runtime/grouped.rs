@@ -3,6 +3,8 @@
 //! Does not own: grouped route-stage DTOs or planner semantics.
 //! Boundary: keeps grouped row decoding and fold-stage runtime state out of contracts.
 
+#[cfg(feature = "diagnostics")]
+use crate::db::executor::aggregate::GroupedRuntimeStats;
 use crate::{
     db::{
         data::{DecodedDataStoreKey, RawRow},
@@ -570,6 +572,8 @@ impl GroupedStreamStage {
 
 pub(in crate::db::executor) struct GroupedFoldStage {
     page: GroupedCursorPage,
+    #[cfg(feature = "diagnostics")]
+    runtime_stats: GroupedRuntimeStats,
     filtered_rows: usize,
     check_filtered_rows_upper_bound: bool,
     rows_scanned: usize,
@@ -584,6 +588,7 @@ impl GroupedFoldStage {
     // observability metadata captured after grouped fold execution.
     pub(in crate::db::executor) fn from_grouped_stream(
         page: GroupedCursorPage,
+        #[cfg(feature = "diagnostics")] runtime_stats: GroupedRuntimeStats,
         filtered_rows: usize,
         check_filtered_rows_upper_bound: bool,
         stream: &GroupedStreamStage,
@@ -591,6 +596,8 @@ impl GroupedFoldStage {
     ) -> Self {
         Self {
             page,
+            #[cfg(feature = "diagnostics")]
+            runtime_stats,
             filtered_rows,
             check_filtered_rows_upper_bound,
             rows_scanned: stream
@@ -607,6 +614,12 @@ impl GroupedFoldStage {
     // Return grouped output row count for observability.
     pub(in crate::db::executor) const fn rows_returned(&self) -> usize {
         self.page.rows.len()
+    }
+
+    // Return executor-owned grouped work and peak live-state facts.
+    #[cfg(feature = "diagnostics")]
+    pub(in crate::db::executor) const fn runtime_stats(&self) -> GroupedRuntimeStats {
+        self.runtime_stats
     }
 
     // Borrow grouped path optimization outcome metadata.

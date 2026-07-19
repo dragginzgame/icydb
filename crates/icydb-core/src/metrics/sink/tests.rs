@@ -231,7 +231,7 @@ fn metrics_report_grouped_execution_mode_counters_accumulate() {
     record(MetricsEvent::Plan {
         entity_path: "metrics::tests::Entity",
         kind: PlanKind::KeyRange,
-        grouped_execution_mode: Some(GroupedPlanExecutionMode::OrderedMaterialized),
+        grouped_execution_mode: Some(GroupedPlanExecutionMode::OrderedStreaming),
     });
 
     let report = metrics_report(None);
@@ -241,14 +241,14 @@ fn metrics_report_grouped_execution_mode_counters_accumulate() {
     assert_eq!(counters.ops.plan_index_prefix, 1);
     assert_eq!(counters.ops.plan_key_range, 1);
     assert_eq!(counters.ops.plan_grouped_hash_materialized, 1);
-    assert_eq!(counters.ops.plan_grouped_ordered_materialized, 1);
+    assert_eq!(counters.ops.plan_grouped_ordered_streaming, 1);
 
     let entity = report
         .entity_counters()
         .first()
         .expect("grouped plan metrics should retain per-entity counters");
     assert_eq!(entity.plan_grouped_hash_materialized(), 1);
-    assert_eq!(entity.plan_grouped_ordered_materialized(), 1);
+    assert_eq!(entity.plan_grouped_ordered_streaming(), 1);
 }
 
 #[test]

@@ -119,7 +119,7 @@ pub(crate) struct EntityCounters {
     pub(crate) plan_union: u64,
     pub(crate) plan_intersection: u64,
     pub(crate) plan_grouped_hash_materialized: u64,
-    pub(crate) plan_grouped_ordered_materialized: u64,
+    pub(crate) plan_grouped_ordered_streaming: u64,
     pub(crate) plan_choice_conflicting_primary_key_children_access_preferred: u64,
     pub(crate) plan_choice_constant_false_predicate: u64,
     pub(crate) plan_choice_empty_child_access_preferred: u64,

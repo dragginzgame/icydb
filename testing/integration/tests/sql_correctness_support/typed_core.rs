@@ -242,9 +242,9 @@ fn stratified_selection_is_order_invariant_and_preserves_every_declared_stratum(
             EligibleProvider::IcyDbContractOnly,
             EvidenceStrength::ContractAssertion,
             RouteExpectation::Fixed(RouteFact::new(
-                RouteFamily::MaterializedOrder,
-                RouteOutcome::Materialized,
-                RouteReason::GroupedAggregateMaterialized,
+                RouteFamily::GroupedAggregate,
+                RouteOutcome::UnchangedOrNotApplicable,
+                RouteReason::GroupedAggregateOwnsExecution,
             )),
         ),
         scenario(

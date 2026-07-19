@@ -512,14 +512,13 @@ Start with the checks IcyDB already uses as security-adjacent evidence:
 * `cargo test -p icydb-core --features sql execute_trusted_sql_query_rejects_invalid_grouped_projection_shapes -- --nocapture`
 * `cargo test -p icydb-core --features sql db::query::plan::tests::group::grouped_plan_rejects_validation_shape_matrix -- --nocapture`
 * `cargo test -p icydb-core --features sql db::query::plan::tests::group::grouped_plan_having_order_limit_composition_enforces_bounded_policy -- --nocapture`
-* `cargo test -p icydb-core --features sql db::executor::planning::route::tests::route_grouped_runtime_revalidation_flags_match_baseline -- --nocapture`
+* `cargo test -p icydb-core --features sql db::executor::planning::route::tests::grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_route -- --nocapture`
 * `cargo test -p icydb-core --features sql grouped_select_helper_cursor_rejection_matrix_preserves_cursor_plan_taxonomy -- --nocapture`
 * `cargo test -p icydb-core --features sql anchor_containment_guard_rejects_out_of_envelope_anchor -- --nocapture`
 * `cargo test -p icydb-core --features sql recovery_replay_is_idempotent -- --nocapture`
 * `cargo test -p icydb-core --features sql unique_conflict_classification_parity_holds_between_live_apply_and_replay -- --nocapture`
 * `cargo test -p icydb-core --features sql recovery_replay_interrupted_conflicting_unique_batch_fails_closed -- --nocapture`
 * `cargo test -p icydb-core --features sql shared_query_plan_cache_is_reused_by_fluent_and_sql_select_surfaces -- --nocapture`
-* `cargo test -p icydb-core --features sql shared_query_plan_cache_key_version_mismatch_fails_closed -- --nocapture`
 * `cargo test -p icydb-core --features sql shared_query_plan_cache_schema_fingerprint_method_mismatch_fails_closed -- --nocapture`
 * `cargo test -p icydb-core --features sql shared_query_plan_cache_schema_version_mismatch_fails_closed -- --nocapture`
 * `cargo test -p icydb-core --features sql sql_compile_cache_keeps_query_and_update_surfaces_separate -- --nocapture`

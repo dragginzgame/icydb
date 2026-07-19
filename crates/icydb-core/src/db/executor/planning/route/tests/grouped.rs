@@ -22,6 +22,34 @@ fn avg_rank_order_term(direction: OrderDirection) -> crate::db::query::plan::Ord
     )
 }
 
+fn grouped_rank_plan_with_explicit_order(direction: OrderDirection) -> AccessPlannedQuery {
+    let mut grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: grouped_field_slots(&["rank"]),
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Sum,
+            input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                crate::db::query::plan::expr::FieldId::new("rank"),
+            ))),
+            filter_expr: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+    grouped.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![crate::db::query::plan::OrderTerm::field("rank", direction)],
+    });
+    grouped
+}
+
 #[test]
 fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_paths() {
     let mut base = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
@@ -249,9 +277,87 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_prefix_sh
 
     assert_eq!(
         grouped_execution_mode(&route_plan),
-        GroupedExecutionMode::OrderedMaterialized
+        GroupedExecutionMode::OrderedStreaming
     );
     assert_eq!(route_plan.grouped_plan_fallback_reason(), None);
+    assert!(
+        route_plan
+            .index_leaf_order_policy()
+            .preserves_leaf_index_order(),
+        "ordered grouped execution must preserve the physical index order that proves group contiguity",
+    );
+}
+
+#[test]
+fn route_plan_grouped_wrapper_uses_grouped_order_proof_for_explicit_canonical_direction() {
+    for (direction, expected_direction) in [
+        (OrderDirection::Asc, Direction::Asc),
+        (OrderDirection::Desc, Direction::Desc),
+    ] {
+        let grouped = grouped_rank_plan_with_explicit_order(direction);
+        let route_plan = build_grouped_route_plan(&grouped);
+
+        assert_eq!(route_plan.grouped_plan_fallback_reason(), None);
+        assert_eq!(route_plan.direction(), expected_direction);
+        assert_eq!(
+            route_plan.load_order_route_reason(),
+            LoadOrderRouteReason::None,
+        );
+        assert_eq!(
+            grouped_execution_mode(&route_plan),
+            GroupedExecutionMode::OrderedStreaming,
+            "explicit canonical grouped ordering should consume the planner-owned grouped order proof",
+        );
+        assert!(
+            route_plan
+                .load_order_route_mode()
+                .allows_ordered_group_projection(),
+            "explicit canonical grouped ordering should not inherit scalar materialized-sort policy",
+        );
+    }
+}
+
+#[test]
+fn route_plan_grouped_wrapper_rejects_mixed_group_key_directions() {
+    let mut grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
+            ),
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: grouped_field_slots(&["rank", "label"]),
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            input_expr: None,
+            filter_expr: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+    grouped.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("label", OrderDirection::Desc),
+        ],
+    });
+    let route_plan = build_grouped_route_plan(&grouped);
+
+    assert_eq!(
+        grouped_execution_mode(&route_plan),
+        GroupedExecutionMode::HashMaterialized,
+    );
+    let fallback_reason = route_plan
+        .grouped_plan_fallback_reason()
+        .expect("mixed group-key directions should retain a typed planner reason");
+    assert_eq!(
+        fallback_reason,
+        GroupedPlanFallbackReason::GroupKeyOrderDirectionMismatch,
+    );
+    assert_eq!(fallback_reason.code(), "group_key_order_direction_mismatch",);
 }
 
 #[test]
@@ -281,7 +387,7 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_count_field_ind
 
     assert_eq!(
         grouped_execution_mode(&route_plan),
-        GroupedExecutionMode::OrderedMaterialized
+        GroupedExecutionMode::OrderedStreaming
     );
     assert_eq!(route_plan.grouped_plan_fallback_reason(), None);
 }
@@ -313,7 +419,7 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_sum_field_index
 
     assert_eq!(
         grouped_execution_mode(&route_plan),
-        GroupedExecutionMode::OrderedMaterialized
+        GroupedExecutionMode::OrderedStreaming
     );
     assert_eq!(route_plan.grouped_plan_fallback_reason(), None);
 }
@@ -345,7 +451,7 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_avg_field_index
 
     assert_eq!(
         grouped_execution_mode(&route_plan),
-        GroupedExecutionMode::OrderedMaterialized
+        GroupedExecutionMode::OrderedStreaming
     );
     assert_eq!(route_plan.grouped_plan_fallback_reason(), None);
 }
@@ -376,7 +482,7 @@ fn route_plan_grouped_wrapper_preserves_ordered_strategy_for_fully_indexable_pre
 
     assert_eq!(
         grouped_execution_mode(&route_plan),
-        GroupedExecutionMode::OrderedMaterialized
+        GroupedExecutionMode::OrderedStreaming
     );
     assert_eq!(route_plan.grouped_plan_fallback_reason(), None);
 }
@@ -406,9 +512,15 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_range_sha
 
     assert_eq!(
         grouped_execution_mode(&route_plan),
-        GroupedExecutionMode::OrderedMaterialized
+        GroupedExecutionMode::OrderedStreaming
     );
     assert_eq!(route_plan.grouped_plan_fallback_reason(), None);
+    assert!(
+        route_plan
+            .index_leaf_order_policy()
+            .preserves_leaf_index_order(),
+        "ordered grouped range execution must preserve the physical index order that proves group contiguity",
+    );
 }
 
 #[test]
@@ -675,7 +787,7 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
         (
             GroupedPlanStrategy::ordered_group(),
             None,
-            GroupedExecutionMode::OrderedMaterialized,
+            GroupedExecutionMode::OrderedStreaming,
         )
     );
 
@@ -892,7 +1004,7 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_mixed_count_and
     .expect("mixed grouped route test should build grouped route plan");
     assert_eq!(
         grouped_execution_mode(&route_plan),
-        GroupedExecutionMode::OrderedMaterialized,
+        GroupedExecutionMode::OrderedStreaming,
         "mixed grouped count+sum shapes should keep the ordered grouped execution family when group-key order is proven",
     );
 }
@@ -980,7 +1092,7 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
     );
     assert_eq!(
         grouped_execution_mode(&route_plan),
-        GroupedExecutionMode::OrderedMaterialized
+        GroupedExecutionMode::OrderedStreaming
     );
 }
 
@@ -1007,7 +1119,9 @@ fn grouped_execution_mode_context_is_stable() {
     };
     assert_eq!(
         GroupedExecutionMode::from_planner_strategy(
-            GroupedPlanStrategy::ordered_group(),
+            GroupedPlanStrategy::ordered_group_with_aggregate_family(
+                GroupedPlanAggregateFamily::GenericRows,
+            ),
             GroupedExecutionModeContext::from_route_inputs(
                 Direction::Asc,
                 true,
@@ -1016,7 +1130,7 @@ fn grouped_execution_mode_context_is_stable() {
                     .allows_ordered_group_projection(),
             ),
         ),
-        GroupedExecutionMode::OrderedMaterialized,
+        GroupedExecutionMode::OrderedStreaming,
         "ordered grouped planner strategy should stay ordered on direct compatible routes",
     );
     assert_eq!(

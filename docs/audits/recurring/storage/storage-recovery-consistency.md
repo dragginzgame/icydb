@@ -393,12 +393,12 @@ Start with:
 * `cargo test -p icydb-core recovery_replay_is_idempotent -- --nocapture`
 * `cargo test -p icydb-core recovery_replay_interrupted_conflicting_unique_batch_fails_closed -- --nocapture`
 * `cargo test -p icydb-core unique_conflict_classification_parity_holds_between_live_apply_and_replay -- --nocapture`
-* `cargo test -p icydb-core commit_marker_* -- --nocapture`
+* `cargo test -p icydb-core db::commit::store::tests::commit_marker -- --nocapture`
 * `cargo test -p icydb-core commit_forward_apply_and_replay_preserve_identical_store_state_for_mixed_marker_sequence -- --nocapture`
 * `cargo test -p icydb-core conditional_index_forward_apply_and_replay_preserve_identical_store_state_for_membership_matrix -- --nocapture`
 * `cargo test -p icydb-core recovery_replay_updates_old_nullable_row_before_image_with_accepted_contract -- --nocapture`
 * `cargo test -p icydb-core schema::reconcile --features sql -- --nocapture`
-* `cargo test -p icydb-core schema_mutation_publication_boundary_uses_runner_preflight --features sql -- --nocapture`
+* `cargo test -p icydb-core db::schema::mutation::tests::planning::index_mutation_plans_preserve_the_current_physical_target --features sql -- --nocapture`
 
 Add targeted replay/apply tests for any newly widened mutation surface. Add
 targeted schema mutation startup tests when supported physical mutation

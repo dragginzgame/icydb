@@ -1624,10 +1624,10 @@ mod tests {
 
         assert_eq!(selection, reversed);
         assert_eq!(selection.candidate_count, selection.candidates.len());
-        assert_eq!(selection.candidate_count, 74);
+        assert_eq!(selection.candidate_count, 75);
         assert_eq!(
             selection.p2_scenario_set_hash,
-            "135956065b83dc6cbc281eff5a2544e14cf9b950044e3bb07d3b0139f82c6235"
+            "c3face166c7adcba7849313079c5151693cc080152b966a2f5063980b59fc217"
         );
         assert!(
             selection

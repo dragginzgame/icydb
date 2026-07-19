@@ -82,7 +82,7 @@ pub struct EntitySummary {
     plan_union: u64,
     plan_intersection: u64,
     plan_grouped_hash_materialized: u64,
-    plan_grouped_ordered_materialized: u64,
+    plan_grouped_ordered_streaming: u64,
     plan_choice_conflicting_primary_key_children_access_preferred: u64,
     plan_choice_constant_false_predicate: u64,
     plan_choice_empty_child_access_preferred: u64,
@@ -502,8 +502,8 @@ impl EntitySummary {
     }
 
     #[must_use]
-    pub const fn plan_grouped_ordered_materialized(&self) -> u64 {
-        self.plan_grouped_ordered_materialized
+    pub const fn plan_grouped_ordered_streaming(&self) -> u64 {
+        self.plan_grouped_ordered_streaming
     }
 
     #[must_use]
@@ -931,7 +931,7 @@ impl EntitySummary {
             .saturating_add(self.plan_union)
             .saturating_add(self.plan_intersection)
             .saturating_add(self.plan_grouped_hash_materialized)
-            .saturating_add(self.plan_grouped_ordered_materialized)
+            .saturating_add(self.plan_grouped_ordered_streaming)
             .saturating_add(self.plan_choice_conflicting_primary_key_children_access_preferred)
             .saturating_add(self.plan_choice_constant_false_predicate)
             .saturating_add(self.plan_choice_empty_child_access_preferred)
@@ -1081,7 +1081,7 @@ pub(in crate::metrics) fn entity_summary_from_counters(
         plan_union: ops.plan_union,
         plan_intersection: ops.plan_intersection,
         plan_grouped_hash_materialized: ops.plan_grouped_hash_materialized,
-        plan_grouped_ordered_materialized: ops.plan_grouped_ordered_materialized,
+        plan_grouped_ordered_streaming: ops.plan_grouped_ordered_streaming,
         plan_choice_conflicting_primary_key_children_access_preferred: ops
             .plan_choice_conflicting_primary_key_children_access_preferred,
         plan_choice_constant_false_predicate: ops.plan_choice_constant_false_predicate,

@@ -3,8 +3,6 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use std::{borrow::Cow, cmp::Ordering, collections::BinaryHeap};
-
 use crate::{
     db::executor::projection::ProjectionEvalError,
     db::{
@@ -38,6 +36,151 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+use std::{borrow::Cow, cmp::Ordering, collections::BinaryHeap};
+
+///
+/// OrderedGroupedPageSelection
+///
+/// OrderedGroupedPageSelection consumes closed groups in already-proven final
+/// key order. It reuses the canonical grouped finalization, HAVING, cursor,
+/// offset, projection, and lookahead rules while retaining only response rows.
+///
+
+pub(in crate::db::executor::aggregate::runtime::grouped_fold) struct OrderedGroupedPageSelection<'a>
+{
+    selection: GroupedPageFinalizeSelection<'a>,
+    aggregate_count: usize,
+    page_rows: Vec<RuntimeGroupedRow>,
+    groups_skipped_for_offset: usize,
+    has_more: bool,
+}
+
+impl<'a> OrderedGroupedPageSelection<'a> {
+    /// Build one incremental page selector for a canonical ordered grouped route.
+    pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn new(
+        route: &'a GroupedRouteStage,
+        grouped_projection_spec: &'a ProjectionSpec,
+        aggregate_count: usize,
+    ) -> Result<Self, InternalError> {
+        let compiled_projection = compile_grouped_projection_plan_if_needed(
+            grouped_projection_spec,
+            route.projection_is_identity(),
+            route.projection_layout(),
+            route.group_fields(),
+            route.grouped_aggregate_execution_specs(),
+        )?;
+        let compiled_having_expr = route
+            .grouped_having_expr()
+            .map(|expr| {
+                compile_grouped_projection_expr(
+                    expr,
+                    route.group_fields(),
+                    route.grouped_aggregate_execution_specs(),
+                )
+                .map_err(ProjectionEvalError::into_grouped_projection_internal_error)
+            })
+            .transpose()?;
+        let selection = GroupedPageFinalizeSelection::new(
+            route,
+            route.grouped_pagination_window(),
+            compiled_projection,
+            compiled_having_expr,
+        )?;
+        if selection.compiled_top_k_order.is_some() {
+            return Err(InternalError::query_executor_invariant());
+        }
+
+        Ok(Self {
+            selection,
+            aggregate_count,
+            page_rows: Vec::new(),
+            groups_skipped_for_offset: 0,
+            has_more: false,
+        })
+    }
+
+    /// Consume one closed group and return whether lookahead proves the page complete.
+    pub(super) fn push_closed_group(
+        &mut self,
+        finalized_group: crate::db::executor::aggregate::runtime::grouped_fold::bundle::GroupedFinalizeGroup,
+    ) -> Result<bool, InternalError> {
+        let candidate = GroupedPageCandidate::from_finalized(
+            finalized_group,
+            self.aggregate_count,
+            GroupedPageCandidateRanking::Canonical {
+                direction: self.selection.direction,
+            },
+        )?;
+
+        self.push_candidate(candidate)
+    }
+
+    /// Consume one already-finalized specialized group through the canonical page owner.
+    pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn push_finalized_values(
+        &mut self,
+        group_key: GroupKey,
+        aggregate_values: Vec<Value>,
+    ) -> Result<bool, InternalError> {
+        if aggregate_values.len() != self.aggregate_count {
+            return Err(InternalError::query_executor_invariant());
+        }
+        let candidate = GroupedPageCandidate {
+            group_key,
+            aggregate_values,
+            ranking: GroupedPageCandidateRanking::Canonical {
+                direction: self.selection.direction,
+            },
+        };
+
+        self.push_candidate(candidate)
+    }
+
+    // Apply HAVING, continuation, offset, limit, lookahead, and projection to
+    // one candidate whose aggregate values are already final.
+    fn push_candidate(&mut self, candidate: GroupedPageCandidate) -> Result<bool, InternalError> {
+        if !self.selection.matches_window(&candidate)? {
+            return Ok(false);
+        }
+        if self.groups_skipped_for_offset
+            < self.selection.pagination_window.initial_offset_for_page()
+        {
+            self.groups_skipped_for_offset = self.groups_skipped_for_offset.saturating_add(1);
+            return Ok(false);
+        }
+        if self
+            .selection
+            .pagination_window
+            .limit()
+            .is_some_and(|limit| self.page_rows.len() >= limit)
+        {
+            self.has_more = true;
+            return Ok(true);
+        }
+
+        self.page_rows
+            .push(self.selection.shape_candidate(candidate)?);
+
+        Ok(false)
+    }
+
+    /// Complete the incremental selection and construct its canonical cursor page.
+    pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn finish(
+        self,
+        route: &GroupedRouteStage,
+    ) -> Result<(Vec<RuntimeGroupedRow>, Option<PageCursor>), InternalError> {
+        let next_cursor = if self.has_more {
+            self.page_rows
+                .last()
+                .map(|row| grouped_next_cursor_boundary(row.group_key()))
+                .map(|last_group_key| route.grouped_next_cursor(last_group_key))
+                .transpose()?
+        } else {
+            None
+        };
+
+        Ok((self.page_rows, next_cursor))
+    }
+}
 
 ///
 /// GroupedPageCandidate
@@ -460,6 +603,22 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
             self.compiled_having_expr.as_ref(),
             self.group_fields,
             self.resume_boundary,
+        )
+    }
+
+    // Shape one selected candidate through the canonical grouped projection boundary.
+    fn shape_candidate(
+        &self,
+        candidate: GroupedPageCandidate,
+    ) -> Result<RuntimeGroupedRow, InternalError> {
+        let Some(compiled_projection) = &self.compiled_projection else {
+            return candidate.into_row();
+        };
+
+        project_grouped_values_from_compiled_projection(
+            compiled_projection,
+            candidate.group_key_values()?,
+            candidate.aggregate_values.as_slice(),
         )
     }
 

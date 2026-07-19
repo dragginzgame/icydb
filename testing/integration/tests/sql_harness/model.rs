@@ -189,7 +189,7 @@ pub(crate) enum RouteReason {
     EqualityPrefixOrderedSuffixCandidate,
     EqualityPrefixOrderedSuffixLimitStopProven,
     FilterOrderMismatch,
-    GroupedAggregateMaterialized,
+    GroupedAggregateOwnsExecution,
     IndexOrderSuffixGap,
     NoOrderBy,
     NotAPaginatedSelect,
@@ -215,7 +215,7 @@ impl RouteReason {
                 "equality_prefix_ordered_suffix_limit_stop_proven"
             }
             Self::FilterOrderMismatch => "filter_order_mismatch",
-            Self::GroupedAggregateMaterialized => "grouped_aggregate_materialized",
+            Self::GroupedAggregateOwnsExecution => "grouped_aggregate_owns_execution",
             Self::IndexOrderSuffixGap => "index_order_suffix_gap",
             Self::NoOrderBy => "no_order_by",
             Self::NotAPaginatedSelect => "not_a_paginated_select",

@@ -40,7 +40,8 @@ evidence paths.
 1. All Class B operators route through budget-accounted execution context.
 2. All Class B DISTINCT insertions are admitted through budget-accounted boundaries.
 3. Zero-key grouped uses implicit-single-group admission.
-4. Ordered-group strategy labels do not imply streaming runtime behavior.
+4. `OrderedStreaming` is selected only from planner ordered proof plus executor
+   revalidation; incompatible shapes remain `HashMaterialized`.
 5. `SUM(DISTINCT)` and `COUNT(DISTINCT)` enforce caps deterministically.
 6. No Class C shape is reachable through grouped `HAVING + ORDER + LIMIT`.
 7. Grouped `ORDER BY` policy is bounded (for example, explicit `LIMIT` gate).
@@ -112,12 +113,12 @@ Start with:
 - `cargo test -p icydb-core db::query::plan::tests::group::grouped_plan_having_order_limit_composition_enforces_bounded_policy -- --nocapture`
 - `cargo test -p icydb-core db::query::plan::tests::group::grouped_plan_accepts_global_distinct_field_without_group_keys_matrix -- --nocapture`
 - `cargo test -p icydb-core db::executor::aggregate::materialized_distinct::tests::insert_materialized_distinct_value_dedups_repeated_values -- --nocapture`
-- `cargo test -p icydb-core db::executor::tests::aggregate_core::aggregate_core_sum_distinct_uses_grouped_global_distinct_path -- --nocapture`
-- `cargo test -p icydb-core db::executor::tests::aggregate_core::aggregate_core_avg_distinct_uses_grouped_global_distinct_path -- --nocapture`
-- `cargo test -p icydb-core db::executor::tests::aggregate_core::aggregate_core_grouped_scalar_distinct_policy_violation_fails_without_scan -- --nocapture`
+- `cargo test -p icydb-core db::executor::tests::aggregate_execution::aggregate_execution_sum_distinct_uses_grouped_global_distinct_path -- --nocapture`
+- `cargo test -p icydb-core db::executor::tests::aggregate_execution::aggregate_execution_avg_distinct_uses_grouped_global_distinct_path -- --nocapture`
+- `cargo test -p icydb-core db::executor::tests::aggregate_execution::aggregate_execution_grouped_scalar_distinct_policy_violation_fails_without_scan -- --nocapture`
 - `cargo test -p icydb-core db::executor::planning::route::tests::route_matrix_load_unique_secondary_order_limit_one_uses_bounded_scan_budget_hint -- --nocapture`
 - `cargo test -p icydb-core db::executor::planning::route::tests::route_matrix_load_non_pk_order_disables_scan_budget_hint -- --nocapture`
-- `cargo test -p icydb-core db::executor::planning::route::tests::route_grouped_runtime_revalidation_flags_match_baseline -- --nocapture`
+- `cargo test -p icydb-core db::executor::planning::route::tests::grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_route -- --nocapture`
 - `cargo test -p icydb-core db::executor::planning::route::tests::route_feature_budget_shape_kinds_stay_within_soft_delta -- --nocapture`
 - `cargo test -p icydb-core db::query::fingerprint::shape_signature::tests::signature_changes_when_grouped_limits_change -- --nocapture`
 - `cargo test -p icydb-core db::executor::tests::metrics::grouped_load_emits_rows_aggregated_metrics -- --nocapture`

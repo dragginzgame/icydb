@@ -2,10 +2,10 @@
 
 ## Status
 
-Tentative follow-up after [0.209 accepted-catalog
-constraints](../0.209-accepted-catalog-constraints/0.209-design.md) and [0.210
+Tentative follow-up after [0.211 accepted-catalog
+constraints](../0.211-accepted-catalog-constraints/0.211-design.md) and [0.212
 bounded integrity
-checking](../0.210-bounded-resumable-integrity-check/0.210-design.md). Not part
+checking](../0.212-bounded-resumable-integrity-check/0.212-design.md). Not part
 of either implementation line.
 
 ## Purpose
@@ -19,7 +19,7 @@ model because the accepted-before or accepted-after entity snapshot may be
 absent, or because one relation transition coordinates source, target, and
 reverse-generation authority.
 
-0.209 supplies stable relation/constraint identity and the bounded activation
+0.211 supplies stable relation/constraint identity and the bounded activation
 state machine. This follow-up may reuse those owners; it must not invent a
 SQL-only relation representation or execution path.
 
@@ -86,7 +86,7 @@ Relation DDL:
   accepted primary-key fields;
 - creates an enforced relation with immediate checking and
   `ON DELETE RESTRICT`;
-- lowers to 0.209's candidate relation, write gate, target-existence scan,
+- lowers to 0.211's candidate relation, write gate, target-existence scan,
   staged reverse generation, stable-revision verification, and atomic
   promotion; and
 - must update delete/save preflight authority atomically with accepted
@@ -105,7 +105,7 @@ NOT VALID
 
 The syntax is illustrative and unsupported until this design is completed.
 `NOT VALID` would expose the same temporary `EnforcingNewWrites` activation as
-0.209, not a permanent partially enforced relation. A future plain form must
+0.211, not a permanent partially enforced relation. A future plain form must
 either prove complete historical validity in one bounded call or change
 nothing.
 

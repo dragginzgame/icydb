@@ -255,13 +255,33 @@ const SCALE_SENTINEL_SPECS: &[ScaleSentinelSpec] = &[
         payload_profile: ScalePayloadProfile::NotApplicable,
     },
     ScaleSentinelSpec {
-        sentinel_id: "user.grouped_materialized.all.window10",
+        sentinel_id: "user.grouped_hash.few_groups.sum.window1",
+        p1_scenario_id: "user.grouped_baseline.hash_sum_age_control",
+        sql_override: None,
+        surface: MatrixSurface::User,
+        route_family: RouteFamily::GroupedAggregate,
+        selectivity: ScaleSelectivity::Quarter,
+        result_window: Some(1),
+        payload_profile: ScalePayloadProfile::NotApplicable,
+    },
+    ScaleSentinelSpec {
+        sentinel_id: "user.grouped_ordered.few_groups.count.window10",
         p1_scenario_id: "user.aggregate.group_age_count",
         sql_override: None,
         surface: MatrixSurface::User,
-        route_family: RouteFamily::MaterializedOrder,
+        route_family: RouteFamily::GroupedAggregate,
         selectivity: ScaleSelectivity::All,
         result_window: Some(10),
+        payload_profile: ScalePayloadProfile::NotApplicable,
+    },
+    ScaleSentinelSpec {
+        sentinel_id: "user.grouped_ordered.few_groups.sum.window1",
+        p1_scenario_id: "user.grouped_baseline.ordered_sum_age",
+        sql_override: None,
+        surface: MatrixSurface::User,
+        route_family: RouteFamily::GroupedAggregate,
+        selectivity: ScaleSelectivity::Quarter,
+        result_window: Some(1),
         payload_profile: ScalePayloadProfile::NotApplicable,
     },
 ];
@@ -413,6 +433,7 @@ fn validate_scale_spec_coverage(profile: PerformanceProfile) -> Result<(), Scale
         .collect::<BTreeSet<_>>();
     let expected_routes = [
         RouteFamily::EqualityPrefixOrderedSuffix,
+        RouteFamily::GroupedAggregate,
         RouteFamily::IncompatibleFilterFirstOrder,
         RouteFamily::MaterializedOrder,
         RouteFamily::NotOrderedOrNotPaginated,

@@ -249,7 +249,7 @@ pub enum PlanChoiceReason {
 #[remain::sorted]
 pub enum GroupedPlanExecutionMode {
     HashMaterialized,
-    OrderedMaterialized,
+    OrderedStreaming,
 }
 
 ///

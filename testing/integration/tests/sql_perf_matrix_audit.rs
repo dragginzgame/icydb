@@ -50,6 +50,7 @@ use icydb_testing_integration::{
     build_fixture_canister_wasm_bytes_with_options, install_prebuilt_fixture_canister,
     reset_icydb_fixtures,
     sql_performance_contract::{
+        SQL_GROUPED_EARLY_MATERIALIZATION_BASELINE_SCENARIOS,
         SQL_PERFORMANCE_BROAD_CONTRACT_FEATURES, SQL_PERFORMANCE_SCALE_CONTRACT_FEATURES,
     },
 };
@@ -442,6 +443,13 @@ struct MatrixSample {
     grouped_stream_local_instructions: u64,
     grouped_fold_local_instructions: u64,
     grouped_finalize_local_instructions: u64,
+    grouped_rows_scanned: u64,
+    grouped_groups_observed: u64,
+    grouped_groups_finalized: u64,
+    grouped_peak_live_groups: u64,
+    grouped_peak_live_aggregate_states: u64,
+    grouped_peak_live_distinct_values: u64,
+    grouped_early_scan_stop: bool,
     scalar_aggregate_base_row_local_instructions: u64,
     scalar_aggregate_reducer_fold_local_instructions: u64,
     scalar_aggregate_expression_evaluations: u64,
@@ -1029,7 +1037,7 @@ fn performance_contract_sentinel_matrix() -> Vec<MatrixScenario> {
                 ValueTypeFamily::Numeric,
                 PredicateFamily::None,
                 WindowSpec::ordered(2, 0, "age ASC"),
-                grouped_materialized_route(),
+                grouped_aggregate_route(),
                 true,
             ),
         ),
@@ -1143,7 +1151,7 @@ fn performance_contract_sentinel_matrix() -> Vec<MatrixScenario> {
                 ValueTypeFamily::Numeric,
                 PredicateFamily::FieldComparison,
                 WindowSpec::ordered(3, 0, "age ASC"),
-                grouped_materialized_route(),
+                grouped_aggregate_route(),
                 true,
             ),
         ),
@@ -1710,6 +1718,32 @@ const fn read_metadata_with_nullability(
     }
 }
 
+/// Build one grouped physical-mode equivalence declaration for the 0.205 baseline.
+const fn grouped_execution_mode_metadata(predicate: PredicateFamily) -> ScenarioMetadata {
+    let mut metadata = read_metadata(
+        &["select.grouped_aggregate"],
+        QueryShape::Grouped,
+        ValueTypeFamily::Numeric,
+        predicate,
+        WindowSpec::limit(1),
+        grouped_aggregate_route(),
+        false,
+    );
+    metadata.provider_id = "perf.matrix.grouped_execution_mode";
+    metadata.provider = EligibleProvider::ExecutionModeEquivalent;
+    metadata.evidence_strength = EvidenceStrength::MetamorphicInvariant;
+    metadata
+}
+
+/// Build one EXPLAIN declaration paired with a grouped physical-mode measurement.
+const fn grouped_execution_mode_explain_metadata() -> ScenarioMetadata {
+    let mut metadata = metadata_statement(&["select.grouped_aggregate"], StatementFamily::Explain);
+    metadata.provider_id = "perf.matrix.grouped_execution_mode";
+    metadata.provider = EligibleProvider::ExecutionModeEquivalent;
+    metadata.evidence_strength = EvidenceStrength::MetamorphicInvariant;
+    metadata
+}
+
 const fn metadata_statement(
     contract_features: &'static [&'static str],
     statement: StatementFamily,
@@ -1748,11 +1782,11 @@ const fn primary_order_route(residual_filter: bool) -> RouteExpectation {
     }
 }
 
-const fn grouped_materialized_route() -> RouteExpectation {
+const fn grouped_aggregate_route() -> RouteExpectation {
     RouteExpectation::Fixed(RouteFact::new(
-        RouteFamily::MaterializedOrder,
-        RouteOutcome::Materialized,
-        RouteReason::GroupedAggregateMaterialized,
+        RouteFamily::GroupedAggregate,
+        RouteOutcome::UnchangedOrNotApplicable,
+        RouteReason::GroupedAggregateOwnsExecution,
     ))
 }
 
@@ -2329,7 +2363,7 @@ fn user_grouped_aggregate_scenarios() -> Vec<MatrixScenario> {
                 ValueTypeFamily::Numeric,
                 PredicateFamily::None,
                 WindowSpec::ordered(10, 0, "age ASC"),
-                grouped_materialized_route(),
+                grouped_aggregate_route(),
                 true,
             ),
         ),
@@ -2344,7 +2378,7 @@ fn user_grouped_aggregate_scenarios() -> Vec<MatrixScenario> {
                 ValueTypeFamily::Mixed,
                 PredicateFamily::None,
                 WindowSpec::ordered(10, 0, "active ASC"),
-                grouped_materialized_route(),
+                grouped_aggregate_route(),
                 false,
             ),
         ),
@@ -2359,9 +2393,49 @@ fn user_grouped_aggregate_scenarios() -> Vec<MatrixScenario> {
                 ValueTypeFamily::Numeric,
                 PredicateFamily::Compound,
                 WindowSpec::ordered(5, 0, "high_count DESC, age ASC"),
-                grouped_materialized_route(),
+                grouped_aggregate_route(),
                 true,
             ),
+        ),
+    ]
+}
+
+fn grouped_early_materialization_baseline_scenarios() -> Vec<MatrixScenario> {
+    const ORDERED_SQL: &str = "SELECT age, SUM(age) FROM PerfAuditUser \
+                               WHERE age >= 24 AND age < 40 \
+                               GROUP BY age LIMIT 1";
+    const HASH_CONTROL_SQL: &str = "SELECT age, SUM(age) FROM PerfAuditUser \
+                                    WHERE age >= 24 AND age < 40 AND age = age \
+                                    GROUP BY age LIMIT 1";
+
+    vec![
+        scenario(
+            "user.grouped_baseline.ordered_sum_age",
+            MatrixSurface::User,
+            "grouped_baseline.ordered_sum_age",
+            ORDERED_SQL,
+            grouped_execution_mode_metadata(PredicateFamily::Range),
+        ),
+        scenario(
+            "user.grouped_baseline.hash_sum_age_control",
+            MatrixSurface::User,
+            "grouped_baseline.hash_sum_age_control",
+            HASH_CONTROL_SQL,
+            grouped_execution_mode_metadata(PredicateFamily::Compound),
+        ),
+        scenario(
+            "user.grouped_baseline.ordered_sum_age_explain",
+            MatrixSurface::User,
+            "grouped_baseline.ordered_sum_age_explain",
+            format!("EXPLAIN EXECUTION {ORDERED_SQL}"),
+            grouped_execution_mode_explain_metadata(),
+        ),
+        scenario(
+            "user.grouped_baseline.hash_sum_age_control_explain",
+            MatrixSurface::User,
+            "grouped_baseline.hash_sum_age_control_explain",
+            format!("EXPLAIN EXECUTION {HASH_CONTROL_SQL}"),
+            grouped_execution_mode_explain_metadata(),
         ),
     ]
 }
@@ -2379,7 +2453,7 @@ fn account_aggregate_scenarios() -> Vec<MatrixScenario> {
                 ValueTypeFamily::Mixed,
                 PredicateFamily::Boolean,
                 WindowSpec::ordered(10, 0, "tier ASC"),
-                grouped_materialized_route(),
+                grouped_aggregate_route(),
                 true,
             ),
         ),
@@ -2477,6 +2551,7 @@ fn metadata_scenarios() -> Vec<MatrixScenario> {
 fn aggregate_and_metadata_matrix() -> Vec<MatrixScenario> {
     let mut scenarios = user_global_aggregate_scenarios();
     scenarios.extend(user_grouped_aggregate_scenarios());
+    scenarios.extend(grouped_early_materialization_baseline_scenarios());
     scenarios.extend(account_aggregate_scenarios());
     scenarios.extend(blob_aggregate_scenarios());
     scenarios.extend(metadata_scenarios());
@@ -2957,6 +3032,13 @@ const fn fill_matrix_grouped_sample(
     sample.grouped_stream_local_instructions = grouped.stream_local_instructions;
     sample.grouped_fold_local_instructions = grouped.fold_local_instructions;
     sample.grouped_finalize_local_instructions = grouped.finalize_local_instructions;
+    sample.grouped_rows_scanned = grouped.rows_scanned;
+    sample.grouped_groups_observed = grouped.groups_observed;
+    sample.grouped_groups_finalized = grouped.groups_finalized;
+    sample.grouped_peak_live_groups = grouped.peak_live_groups;
+    sample.grouped_peak_live_aggregate_states = grouped.peak_live_aggregate_states;
+    sample.grouped_peak_live_distinct_values = grouped.peak_live_distinct_values;
+    sample.grouped_early_scan_stop = grouped.early_scan_stop;
 }
 
 fn fill_matrix_scalar_aggregate_sample(
@@ -4853,6 +4935,40 @@ fn sql_perf_deterministic_matrix_has_stable_shape() {
 }
 
 #[test]
+fn sql_perf_profile_retains_grouped_early_materialization_baseline_identifiers() {
+    let scenarios = deterministic_matrix()
+        .into_iter()
+        .map(|scenario| (scenario.key.clone(), scenario))
+        .collect::<BTreeMap<_, _>>();
+    let expected_ids = SQL_GROUPED_EARLY_MATERIALIZATION_BASELINE_SCENARIOS
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    let observed_ids = scenarios
+        .keys()
+        .filter_map(|id| expected_ids.contains(id.as_str()).then_some(id.as_str()))
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(
+        observed_ids, expected_ids,
+        "the exact P1 profile must retain every grouped early-materialization baseline identity",
+    );
+    for id in SQL_GROUPED_EARLY_MATERIALIZATION_BASELINE_SCENARIOS {
+        let scenario = &scenarios[*id];
+        assert_eq!(
+            scenario.metadata.provider,
+            EligibleProvider::ExecutionModeEquivalent,
+            "grouped baseline scenario {id:?} should remain owned by execution-mode equivalence",
+        );
+        assert_eq!(
+            scenario.metadata.evidence_strength,
+            EvidenceStrength::MetamorphicInvariant,
+            "grouped baseline scenario {id:?} should remain a metamorphic invariant",
+        );
+    }
+}
+
+#[test]
 #[expect(
     clippy::too_many_lines,
     reason = "one test owns the exact required performance-profile vocabulary"
@@ -4994,6 +5110,7 @@ fn sql_perf_profile_covers_every_required_contract_and_semantic_stratum() {
             .collect::<BTreeSet<_>>(),
         BTreeSet::from([
             RouteFamily::EqualityPrefixOrderedSuffix,
+            RouteFamily::GroupedAggregate,
             RouteFamily::IncompatibleFilterFirstOrder,
             RouteFamily::MaterializedOrder,
             RouteFamily::NotOrderedOrNotPaginated,
@@ -5061,6 +5178,174 @@ fn sql_perf_contract_sentinels_execute_through_current_query_path() {
 }
 
 #[test]
+#[ignore = "focused PocketIC capture of the grouped early-materialization before-state"]
+fn sql_perf_grouped_early_materialization_baseline_is_mode_proven_and_output_equivalent() {
+    let wasm = read_matrix_canister_wasm();
+    let wasm_bytes = wasm.len();
+    let fixture = install_prebuilt_fixture_canister("sql_perf", wasm);
+    reset_icydb_fixtures(&fixture);
+    let scenarios = grouped_early_materialization_baseline_scenarios()
+        .into_iter()
+        .map(|scenario| (scenario.key.clone(), scenario))
+        .collect::<BTreeMap<_, _>>();
+
+    let ordered = sample_scenario(
+        &fixture,
+        &scenarios["user.grouped_baseline.ordered_sum_age"],
+    )
+    .unwrap_or_else(|failure| panic!("ordered grouped baseline failed: {failure:?}"));
+    let hash = sample_scenario(
+        &fixture,
+        &scenarios["user.grouped_baseline.hash_sum_age_control"],
+    )
+    .unwrap_or_else(|failure| panic!("hash grouped baseline failed: {failure:?}"));
+    let ordered_explain = sample_scenario(
+        &fixture,
+        &scenarios["user.grouped_baseline.ordered_sum_age_explain"],
+    )
+    .unwrap_or_else(|failure| panic!("ordered grouped EXPLAIN baseline failed: {failure:?}"));
+    let hash_explain = sample_scenario(
+        &fixture,
+        &scenarios["user.grouped_baseline.hash_sum_age_control_explain"],
+    )
+    .unwrap_or_else(|failure| panic!("hash grouped EXPLAIN baseline failed: {failure:?}"));
+
+    assert_eq!(
+        ordered.result_signature, hash.result_signature,
+        "ordered and hash controls should produce identical grouped output",
+    );
+    assert!(
+        ordered_explain
+            .result_signature
+            .as_deref()
+            .is_some_and(|signature| signature.contains("ordered_streaming")),
+        "ordered baseline EXPLAIN should prove the current ordered-streaming mode",
+    );
+    assert!(
+        hash_explain
+            .result_signature
+            .as_deref()
+            .is_some_and(|signature| signature.contains("hash_materialized")),
+        "hash control EXPLAIN should prove the current hash-materialized mode",
+    );
+    for (label, sample) in [("ordered", &ordered), ("hash", &hash)] {
+        assert!(
+            sample.grouped_stream_local_instructions > 0
+                && sample.grouped_fold_local_instructions > 0
+                && sample.grouped_finalize_local_instructions > 0,
+            "{label} grouped baseline should retain the complete phase-counter split",
+        );
+        assert_eq!(
+            sample.grouped_groups_observed, sample.grouped_groups_finalized,
+            "{label} grouped baseline should finalize every successfully observed group",
+        );
+        println!(
+            "0.205 grouped baseline {label}: raw_wasm_bytes={wasm_bytes} total={} execute={} stream={} fold={} finalize={} rows_scanned={} groups={} peak_groups={} peak_states={} peak_distinct={} early_stop={} data_gets={} index_reads={} result={}",
+            sample.total_local_instructions,
+            sample.execute_local_instructions,
+            sample.grouped_stream_local_instructions,
+            sample.grouped_fold_local_instructions,
+            sample.grouped_finalize_local_instructions,
+            sample.grouped_rows_scanned,
+            sample.grouped_groups_observed,
+            sample.grouped_peak_live_groups,
+            sample.grouped_peak_live_aggregate_states,
+            sample.grouped_peak_live_distinct_values,
+            sample.grouped_early_scan_stop,
+            sample.data_store_get_calls,
+            sample.index_store_entry_reads,
+            sample.result_signature.as_deref().unwrap_or("missing"),
+        );
+    }
+    assert_eq!(ordered.grouped_peak_live_groups, 1);
+    assert_eq!(ordered.grouped_peak_live_aggregate_states, 1);
+    assert!(
+        ordered.grouped_early_scan_stop,
+        "ordered grouped LIMIT 1 should stop after qualifying lookahead",
+    );
+    assert!(
+        hash.grouped_peak_live_groups > ordered.grouped_peak_live_groups,
+        "hash control should retain more live groups than ordered streaming",
+    );
+    assert!(
+        !hash.grouped_early_scan_stop,
+        "hash control should scan its admitted source to completion",
+    );
+}
+
+#[test]
+#[ignore = "focused PocketIC scale capture for grouped ordered/hash physical evidence"]
+fn sql_perf_grouped_early_materialization_few_group_scale_pair_is_equivalent() {
+    let wasm = read_matrix_canister_wasm();
+    let declarations =
+        scale_scenario_declarations(SQL_PERFORMANCE_PROFILE, &deterministic_matrix())
+            .expect("grouped scale pair should belong to the current exact profile");
+
+    for fixture_rows in SQL_PERFORMANCE_PROFILE.scale_row_cardinalities() {
+        let ordered = declarations
+            .iter()
+            .find(|declaration| {
+                declaration.spec.sentinel_id == "user.grouped_ordered.few_groups.sum.window1"
+                    && declaration.fixture_rows == *fixture_rows
+            })
+            .expect("ordered grouped scale declaration should exist");
+        let hash = declarations
+            .iter()
+            .find(|declaration| {
+                declaration.spec.sentinel_id == "user.grouped_hash.few_groups.sum.window1"
+                    && declaration.fixture_rows == *fixture_rows
+            })
+            .expect("hash grouped scale declaration should exist");
+        let fixture = install_prebuilt_fixture_canister("sql_perf", wasm.clone());
+        let facts = load_scale_fixture(&fixture, ordered)
+            .expect("grouped scale fixture should load exactly once per cardinality");
+        let ordered_sample = sample_scenario(&fixture, &ordered.scenario)
+            .unwrap_or_else(|failure| panic!("ordered grouped scale sample failed: {failure:?}"));
+        let hash_sample = sample_scenario(&fixture, &hash.scenario)
+            .unwrap_or_else(|failure| panic!("hash grouped scale sample failed: {failure:?}"));
+        let ordered = build_scale_observation(ordered, facts.clone(), ordered_sample)
+            .expect("ordered grouped scale evidence should validate");
+        let hash = build_scale_observation(hash, facts, hash_sample)
+            .expect("hash grouped scale evidence should validate");
+
+        assert_eq!(
+            ordered.sample.result_signature.as_deref(),
+            hash.sample.result_signature.as_deref(),
+            "ordered and hash grouped scale output should remain identical",
+        );
+        assert_eq!(
+            ordered.sample.grouped_rows_scanned,
+            u64::from(fixture_rows / 8 + 1),
+            "ordered LIMIT 1 should scan the first age group plus one lookahead row",
+        );
+        assert_eq!(ordered.sample.grouped_groups_observed, 2);
+        assert_eq!(ordered.sample.grouped_peak_live_groups, 1);
+        assert_eq!(ordered.sample.grouped_peak_live_aggregate_states, 1);
+        assert!(ordered.sample.grouped_early_scan_stop);
+        assert_eq!(hash.sample.grouped_rows_scanned, u64::from(*fixture_rows),);
+        assert_eq!(hash.sample.grouped_groups_observed, 4);
+        assert_eq!(hash.sample.grouped_peak_live_groups, 4);
+        assert_eq!(hash.sample.grouped_peak_live_aggregate_states, 4);
+        assert!(!hash.sample.grouped_early_scan_stop);
+
+        println!(
+            "0.205 grouped few-group scale rows={fixture_rows}: ordered_total={} ordered_execute={} ordered_rows={} hash_total={} hash_execute={} hash_rows={} result={}",
+            ordered.sample.total_local_instructions,
+            ordered.sample.execute_local_instructions,
+            ordered.sample.grouped_rows_scanned,
+            hash.sample.total_local_instructions,
+            hash.sample.execute_local_instructions,
+            hash.sample.grouped_rows_scanned,
+            ordered
+                .sample
+                .result_signature
+                .as_deref()
+                .unwrap_or("missing"),
+        );
+    }
+}
+
+#[test]
 fn sql_perf_deterministic_matrix_exercises_scalar_aggregate_reducer() {
     let deterministic = deterministic_matrix();
     let scenario = deterministic
@@ -5120,8 +5405,8 @@ fn sql_perf_p1_receipts_cover_the_profile_exactly() {
         .collect::<Vec<_>>();
 
     assert_eq!(receipts.len(), 8);
-    assert_eq!(shard_counts, vec![234, 222, 235, 207, 222, 223, 230, 204]);
-    assert_eq!(shard_counts.iter().sum::<usize>(), 1_777);
+    assert_eq!(shard_counts, vec![234, 222, 235, 207, 222, 224, 232, 205]);
+    assert_eq!(shard_counts.iter().sum::<usize>(), 1_781);
     assert!(receipts.iter().all(|receipt| receipt.complete));
     validate_p1_shard_receipts(SQL_PERFORMANCE_PROFILE, &receipts)
         .expect("all deterministic receipts should merge");
@@ -5249,7 +5534,7 @@ fn sql_perf_p1_shard_artifacts_are_strict_bounded_and_merge_exactly() {
     )
     .expect("all exact shard reports should merge");
     assert_eq!(merged.receipts.len(), 8);
-    assert_eq!(merged.samples.len(), 1_777);
+    assert_eq!(merged.samples.len(), 1_781);
     assert!(merged.failures.is_empty());
     assert!(
         merged

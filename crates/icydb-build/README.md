@@ -1,6 +1,6 @@
 # IcyDB Build
 
-Build-time helpers for generated canister wiring, query/export surfaces, and
+Build-time helpers for generated canister wiring, query endpoint surfaces, and
 observability endpoints.
 
 This crate generates the actor glue used by `icydb::start!()`, including

@@ -555,6 +555,13 @@ const PROVIDERS: &[ProviderSpec] = &[
         [Execute]
     ),
     provider!(
+        "core.query.grouped_execution_mode_parity",
+        "crates/icydb-core/src/db/session/tests/sql_grouped.rs",
+        "grouped_ordered_and_hash_execution_modes_preserve_current_family_parity",
+        MetamorphicInvariant,
+        [Route, Execute]
+    ),
+    provider!(
         "core.query.explain_public",
         "crates/icydb-core/src/db/session/tests/sql_explain.rs",
         "execute_trusted_sql_query_explain_plan_matrix_returns_public_explain_payload",
@@ -1152,7 +1159,10 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_METAMORPHIC_EXECUTE,
         PERF_BROAD,
         ELIGIBLE_EXECUTION_MODE,
-        ["core.query.grouped_cursor"],
+        [
+            "core.query.grouped_cursor",
+            "core.query.grouped_execution_mode_parity"
+        ],
         NO_EXTERNAL_ROUTE
     ),
     cell!(
@@ -1224,7 +1234,10 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
-        ["core.query.grouped_aggregate"],
+        [
+            "core.query.grouped_aggregate",
+            "core.query.grouped_execution_mode_parity"
+        ],
         None
     ),
     cell!(
@@ -1907,7 +1920,11 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
-        ["core.query.grouped_aggregate", "core.query.composition"],
+        [
+            "core.query.grouped_aggregate",
+            "core.query.composition",
+            "core.query.grouped_execution_mode_parity"
+        ],
         None
     ),
     cell!(
@@ -2187,7 +2204,10 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE_REFERENCE,
         PERF_BROAD,
         ELIGIBLE_SQLITE,
-        ["core.query.having"],
+        [
+            "core.query.having",
+            "core.query.grouped_execution_mode_parity"
+        ],
         None
     ),
     cell!(

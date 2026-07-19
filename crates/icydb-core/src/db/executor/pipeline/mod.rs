@@ -14,5 +14,6 @@ pub(super) mod timing;
 pub(in crate::db::executor) use entrypoints::execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use entrypoints::{
-    GroupedCountAttribution, GroupedExecutePhaseAttribution, ScalarExecutePhaseAttribution,
+    GroupedCountAttribution, GroupedExecutePhaseAttribution, GroupedRuntimeAttribution,
+    ScalarExecutePhaseAttribution,
 };

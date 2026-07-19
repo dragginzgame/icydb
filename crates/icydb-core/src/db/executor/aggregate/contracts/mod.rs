@@ -11,6 +11,8 @@ mod spec;
 mod state;
 
 pub(in crate::db::executor) use error::{GroupBudgetResourceCode, GroupError};
+#[cfg(feature = "diagnostics")]
+pub(in crate::db::executor) use grouped::GroupedRuntimeStats;
 pub(in crate::db::executor) use grouped::{
     ExecutionConfig, ExecutionContext, ScalarAggregateEngine, execute_scalar_aggregate,
 };

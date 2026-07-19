@@ -8,8 +8,11 @@ use crate::{
             ExecutionContext, FieldSlot, GroupError, ProjectionSpec,
             contracts::GroupedDistinctExecutionMode,
             runtime::grouped_fold::{
-                bundle::{GroupedAggregateBundle, GroupedAggregateBundleSpec},
+                bundle::{
+                    GroupedAggregateBundle, GroupedAggregateBundleSpec, OrderedGroupedAggregateFold,
+                },
                 dispatch::group_fields_support_borrowed_group_probe,
+                generic::{OrderedGroupedPageSelection, page_finalize::finalize_grouped_page},
                 utils::group_capacity_hint,
             },
         },
@@ -20,8 +23,6 @@ use crate::{
     },
     error::InternalError,
 };
-
-use super::page_finalize::finalize_grouped_page;
 
 ///
 /// GenericGroupedFoldRunner
@@ -74,6 +75,79 @@ impl<'a> GenericGroupedFoldRunner<'a> {
                 rows: page_rows,
                 next_cursor,
             },
+            #[cfg(feature = "diagnostics")]
+            grouped_execution_context.successful_runtime_stats(false),
+            filtered_rows,
+            true,
+            stream,
+            scanned_rows,
+        ))
+    }
+
+    // Execute the canonical ordered grouped reducer while retaining exactly
+    // one active aggregate group plus the response page.
+    fn execute_ordered(
+        &self,
+        stream: &mut GroupedStreamStage,
+        grouped_execution_context: &mut ExecutionContext,
+        mut grouped_fold: OrderedGroupedAggregateFold,
+    ) -> Result<GroupedFoldStage, InternalError> {
+        let mut selection = OrderedGroupedPageSelection::new(
+            self.route,
+            self.grouped_projection_spec,
+            grouped_fold.aggregate_count(),
+        )?;
+        let (row_runtime, execution_preparation, resolved) = stream.fold_inputs_mut();
+        let effective_runtime_filter_program =
+            execution_preparation.effective_runtime_filter_program();
+        let mut scanned_rows = 0usize;
+        let mut filtered_rows = 0usize;
+        let consistency = self.route.consistency();
+        let mut early_scan_stop = false;
+
+        while let Some(data_key) = resolved.key_stream_mut().next_key()? {
+            let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
+                continue;
+            };
+            scanned_rows = scanned_rows.saturating_add(1);
+            if let Some(effective_runtime_filter_program) = effective_runtime_filter_program
+                && !row_view.eval_filter_program(effective_runtime_filter_program)?
+            {
+                continue;
+            }
+
+            early_scan_stop = grouped_fold
+                .ingest_row(
+                    grouped_execution_context,
+                    &data_key,
+                    &row_view,
+                    self.group_fields,
+                    self.route.direction(),
+                    |closed| selection.push_closed_group(closed),
+                )
+                .map_err(GroupError::into_internal_error)?;
+            if early_scan_stop {
+                break;
+            }
+            filtered_rows = filtered_rows.saturating_add(1);
+        }
+
+        if !early_scan_stop {
+            grouped_fold
+                .finish(grouped_execution_context, |closed| {
+                    selection.push_closed_group(closed)
+                })
+                .map_err(GroupError::into_internal_error)?;
+        }
+        let (page_rows, next_cursor) = selection.finish(self.route)?;
+
+        Ok(GroupedFoldStage::from_grouped_stream(
+            GroupedCursorPage {
+                rows: page_rows,
+                next_cursor,
+            },
+            #[cfg(feature = "diagnostics")]
+            grouped_execution_context.successful_runtime_stats(early_scan_stop),
             filtered_rows,
             true,
             stream,
@@ -191,12 +265,11 @@ impl<'a> GenericGroupedFoldRunner<'a> {
 
 // Build the shared grouped aggregate bundle for canonical grouped terminal
 // projection layout.
-fn build_grouped_bundle(
+fn build_grouped_specs(
     route: &GroupedRouteStage,
     grouped_execution_context: &ExecutionContext,
-    group_capacity_hint: usize,
-) -> Result<GroupedAggregateBundle, InternalError> {
-    let grouped_specs = route
+) -> Result<Vec<GroupedAggregateBundleSpec>, InternalError> {
+    route
         .grouped_aggregate_execution_specs()
         .iter()
         .map(|aggregate_spec| {
@@ -215,12 +288,16 @@ fn build_grouped_bundle(
                     .max_distinct_values_per_group(),
             )
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<Vec<_>, _>>()
+}
 
-    Ok(GroupedAggregateBundle::new(
-        grouped_specs,
-        group_capacity_hint,
-    ))
+// Build the hash-materialized grouped aggregate bundle for canonical grouped
+// terminal projection layout.
+fn build_grouped_bundle(
+    grouped_specs: Vec<GroupedAggregateBundleSpec>,
+    group_capacity_hint: usize,
+) -> GroupedAggregateBundle {
+    GroupedAggregateBundle::new(grouped_specs, group_capacity_hint)
 }
 
 // Execute the canonical grouped reducer/finalize path for every grouped shape
@@ -231,12 +308,23 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn execute_generic
     grouped_execution_context: &mut ExecutionContext,
     grouped_projection_spec: &ProjectionSpec,
 ) -> Result<GroupedFoldStage, InternalError> {
+    let grouped_specs = build_grouped_specs(route, grouped_execution_context)?;
+    if matches!(
+        route.grouped_execution_mode(),
+        crate::db::executor::route::GroupedExecutionMode::OrderedStreaming
+    ) {
+        return GenericGroupedFoldRunner::new(route, grouped_projection_spec).execute_ordered(
+            stream,
+            grouped_execution_context,
+            OrderedGroupedAggregateFold::new(grouped_specs),
+        );
+    }
+
     let group_capacity_hint = group_capacity_hint(
         stream.cheap_access_candidate_count_hint(),
         grouped_execution_context.config().max_groups(),
     );
-    let grouped_bundle =
-        build_grouped_bundle(route, grouped_execution_context, group_capacity_hint)?;
+    let grouped_bundle = build_grouped_bundle(grouped_specs, group_capacity_hint);
 
     GenericGroupedFoldRunner::new(route, grouped_projection_spec).execute(
         stream,

@@ -1394,8 +1394,8 @@ mod tests {
                     .contains(&hotspot.scenario_id.as_str())
         }));
         assert!(review.p2_envelope_count() > 0);
-        assert_eq!(review.scale_totals.len(), 45);
-        assert_eq!(review.scale_slopes.len(), 30);
+        assert_eq!(review.scale_totals.len(), 51);
+        assert_eq!(review.scale_slopes.len(), 34);
         assert_eq!(review.instrumentation.observations.len(), 3);
 
         let path = std::env::temp_dir().join(format!(

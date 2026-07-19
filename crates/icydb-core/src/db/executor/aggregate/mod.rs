@@ -60,6 +60,8 @@ pub(in crate::db::executor) use capability::{
 pub(in crate::db::executor) use contracts::BinaryOp;
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use contracts::FieldId;
+#[cfg(feature = "diagnostics")]
+pub(in crate::db::executor) use contracts::GroupedRuntimeStats;
 pub(in crate::db::executor) use contracts::{
     AccessPlannedQuery, AggregateFoldMode, AggregateKind, CompiledExpr, CoveringProjectionFacts,
     CoveringProjectionOrder, EffectiveRuntimeFilterProgram, ExecutionConfig, ExecutionContext,
