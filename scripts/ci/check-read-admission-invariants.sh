@@ -240,7 +240,7 @@ fi
 declare -A required_read_admission_links=(
   ["$README_DOC"]="[docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md)"
   ["$INSTALLING_DOC"]="[docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md)"
-  ["$FOUNDATIONS_DOC"]="docs/contracts/READ_ADMISSION.md"
+  ["$FOUNDATIONS_DOC"]="(contracts/READ_ADMISSION.md)"
   ["$QUERY_CONTRACT_DOC"]="docs/contracts/READ_ADMISSION.md"
   ["$QUERY_PRACTICE_DOC"]="docs/contracts/READ_ADMISSION.md"
   ["$SQL_SUBSET_DOC"]="docs/contracts/READ_ADMISSION.md"
