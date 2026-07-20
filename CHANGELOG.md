@@ -7,13 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Moves lockfile provenance from comparable environment to measured subject,
-  removes the one-off previous-source workflow path, and keeps historical
-  pre-hard-cut deltas explicitly contextual.
-
 ## [0.206.x] 🔧 - 2026-07-19 - SQL Performance Remediation
 
 Detailed notes: [docs/changelog/0.206.md](docs/changelog/0.206.md)
+
+- `0.206.3` moves lockfile provenance into measured-subject identity and
+  deletes the one-off source override, restoring one ordinary
+  baseline-to-candidate workflow while real environment drift stays fail-closed.
 
 - `0.206.2` reuses scan-evaluated expression-order tuples during canonical
   final ordering and supports immutable previous-source performance subjects,
