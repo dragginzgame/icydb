@@ -244,8 +244,12 @@ impl GroupedExecutionObserver {
     }
 
     #[cfg(not(feature = "diagnostics"))]
+    #[expect(
+        clippy::unused_self,
+        reason = "keeps one observer call shape while the non-diagnostics observer remains zero-sized"
+    )]
     fn build_stream(
-        &mut self,
+        &self,
         build: impl FnOnce() -> Result<GroupedStreamStage, InternalError>,
     ) -> Result<GroupedStreamStage, InternalError> {
         build()
@@ -282,8 +286,12 @@ impl GroupedExecutionObserver {
     }
 
     #[cfg(not(feature = "diagnostics"))]
+    #[expect(
+        clippy::unused_self,
+        reason = "keeps one observer call shape while the non-diagnostics observer remains zero-sized"
+    )]
     fn fold(
-        &mut self,
+        &self,
         fold: impl FnOnce() -> Result<GroupedFoldStage, InternalError>,
     ) -> Result<GroupedFoldStage, InternalError> {
         let (folded, aggregation_micros) = crate::db::executor::measure_execution_stats_phase(fold);
@@ -303,7 +311,11 @@ impl GroupedExecutionObserver {
     }
 
     #[cfg(not(feature = "diagnostics"))]
-    const fn observe_runtime(&mut self, _folded: &GroupedFoldStage) {}
+    #[expect(
+        clippy::unused_self,
+        reason = "keeps one observer call shape while the non-diagnostics observer remains zero-sized"
+    )]
+    const fn observe_runtime(&self, _folded: &GroupedFoldStage) {}
 
     #[cfg(feature = "diagnostics")]
     fn finalize(
@@ -321,8 +333,12 @@ impl GroupedExecutionObserver {
     }
 
     #[cfg(not(feature = "diagnostics"))]
+    #[expect(
+        clippy::unused_self,
+        reason = "keeps one observer call shape while the non-diagnostics observer remains zero-sized"
+    )]
     fn finalize(
-        &mut self,
+        &self,
         finalize: impl FnOnce() -> (GroupedCursorPage, Option<ExecutionTrace>),
     ) -> (GroupedCursorPage, Option<ExecutionTrace>) {
         finalize()
@@ -476,10 +492,10 @@ fn execute_grouped_route_path(
     grouped_slot_layout: RetainedSlotLayout,
     #[cfg(feature = "diagnostics")] collect_phase_attribution: bool,
 ) -> Result<GroupedRouteExecutionResult, InternalError> {
-    let mut observer = GroupedExecutionObserver::new(
-        #[cfg(feature = "diagnostics")]
-        collect_phase_attribution,
-    );
+    #[cfg(feature = "diagnostics")]
+    let mut observer = GroupedExecutionObserver::new(collect_phase_attribution);
+    #[cfg(not(feature = "diagnostics"))]
+    let observer = GroupedExecutionObserver::new();
     let collect_stats = route.execution_trace.is_some();
     let execution_started_at = start_execution_timer();
     let (fold_result, mut execution_stats) = with_execution_stats_capture(collect_stats, || {
