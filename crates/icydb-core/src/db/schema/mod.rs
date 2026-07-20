@@ -97,9 +97,7 @@ pub(in crate::db::schema) use mutation::AcceptedSchemaMutationError;
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use mutation::SchemaDdlSchemaVersionAdmissionError;
 pub(in crate::db::schema) use mutation::{
-    MutationPlan, MutationPublicationPreflight, SchemaFieldPathIndexMutationMetrics,
-    SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRunner, SchemaFieldPathIndexRunnerError,
-    SchemaFieldPathIndexRunnerReport, SchemaMutationRequest, SchemaMutationRunnerInput,
+    MutationPlan, MutationPublicationPreflight, SchemaMutationRequest,
     schema_mutation_request_for_snapshots,
 };
 #[cfg(feature = "sql")]
@@ -113,11 +111,10 @@ pub(in crate::db) use mutation::{
     SchemaDdlSecondaryIndexFieldPathIntent, SchemaDdlSecondaryIndexKeyCandidateError,
     SchemaDdlSecondaryIndexKeyIntent, SchemaDdlVersionContractPreflightError,
     SchemaFieldDefaultTarget, SchemaFieldDropTarget, SchemaFieldNullabilityTarget,
-    SchemaFieldRenameTarget, SchemaSecondaryIndexDropCleanupTarget,
-    build_sql_ddl_field_addition_candidate, build_sql_ddl_secondary_index_candidate,
-    derive_sql_ddl_expression_index_accepted_after, derive_sql_ddl_field_addition_accepted_after,
-    derive_sql_ddl_field_default_accepted_after, derive_sql_ddl_field_drop_accepted_after,
-    derive_sql_ddl_field_nullability_accepted_after,
+    SchemaFieldRenameTarget, build_sql_ddl_field_addition_candidate,
+    build_sql_ddl_secondary_index_candidate, derive_sql_ddl_expression_index_accepted_after,
+    derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
+    derive_sql_ddl_field_drop_accepted_after, derive_sql_ddl_field_nullability_accepted_after,
     derive_sql_ddl_field_path_index_accepted_after, derive_sql_ddl_field_rename_accepted_after,
     derive_sql_ddl_secondary_index_drop_accepted_after, encode_sql_ddl_add_column_default,
     encode_sql_ddl_alter_column_default, resolve_sql_ddl_field_addition_name_candidate,
@@ -136,18 +133,13 @@ pub(in crate::db) use mutation::{
     admit_sql_ddl_field_path_index_candidate, admit_sql_ddl_field_rename_candidate,
     admit_sql_ddl_secondary_index_drop_candidate,
 };
-#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use mutation::{
     SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
     SchemaExpressionIndexRebuildTarget,
 };
-#[cfg(feature = "sql")]
-pub(in crate::db::schema) use mutation::{
-    SchemaExpressionIndexRebuildRow, SchemaExpressionIndexStagedEntry,
-    SchemaExpressionIndexStagedRebuild,
-};
 pub(in crate::db) use mutation::{
-    SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget,
+    SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget, SchemaUserIndexDomainRow,
+    StagedUserIndexDomainError, StagedUserIndexDomainReplacement,
 };
 #[cfg(test)]
 pub(in crate::db::schema) use mutation::{SchemaMutationDelta, classify_schema_mutation_delta};

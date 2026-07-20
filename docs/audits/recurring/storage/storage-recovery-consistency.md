@@ -35,9 +35,10 @@ For every mutation family:
 
 For schema mutation startup work:
 
-> accepted snapshot visibility must remain old until physical work is validated,
-> runtime invalidation has completed, and the physical index store can be proven
-> ready for the accepted-after snapshot.
+> before marker authority, complete accepted-after index work must remain
+> zero-write and accepted-before stays authoritative; after marker authority,
+> guarded recovery must finish accepted-after schema and derived state forward
+> before the index store can become Ready.
 
 If replay and execution differ in:
 
@@ -78,16 +79,13 @@ Primary owners:
   they reuse the same marker protocol
 * `db/schema/reconcile.rs`
   * startup accepted snapshot reconciliation
-* `db/schema/reconcile/startup_field_path.rs`
-  * supported field-path schema mutation startup adapter
-  * startup rebuild gate
-  * startup publication decision
-  * physical-store revalidation before accepted snapshot insertion
-* `db/schema/mutation/field_path/*`
-  * staged, isolated, and published field-path index-store contracts
-  * rollback/discard reports
-* `db/schema/mutation/runner.rs`
-  * runner phases, publication readiness, and developer diagnostics
+* `db/schema/reconcile/user_index_domain.rs`
+  * accepted-catalog row scan and zero-write startup/SQL staging adapter
+* `db/schema/mutation/user_index_domain.rs`
+  * complete accepted-before/accepted-after derived-index projection
+  * bounded precommit validation and raw replacement payload
+* `db/commit/schema_publication.rs`
+  * marker-first accepted-schema and mechanical user-index-domain publication
 
 Historical names such as `ensure_recovered_for_write` are obsolete and must not
 be used as the audit frame.
@@ -303,16 +301,18 @@ Produce:
 
 For supported field-path schema mutation startup publication, verify:
 
-1. old accepted snapshot remains visible until the field-path runner report is
-   publishable
-2. startup row/schema gate revalidation runs before physical work and before
-   accepted snapshot publication
-3. final physical-store revalidation runs immediately before schema-store
-   insertion
-4. target index entries match runner output before accepted-after publication
-5. index store is ready before accepted-after publication
-6. stale, staged, building, or mismatched physical-store state is discarded when
-   proven unreferenced, otherwise startup fails closed
+1. complete accepted-before and accepted-after user-index domains derive from
+   accepted catalog contracts plus authoritative rows without physical writes
+2. the observed accepted-before physical domain matches row-derived truth
+   exactly before marker persistence
+3. accepted identity, store ownership, uniqueness, resource bounds, and final
+   raw entries are validated before marker persistence
+4. marker-first apply marks the backing store Building, replaces only the
+   affected entity/user domain, and marks Ready only after completion
+5. interruption after marker persistence selects accepted-after and runs the
+   complete forward recovery rebuild
+6. failed recovery leaves the marker present and the derived store non-Ready;
+   retry clears and rebuilds forward without restoring a before-image
 7. no recovery path reconstructs accepted schema/index authority from generated
    model metadata
 
@@ -335,10 +335,10 @@ Every run must answer these explicitly:
 * Can recovery proceed before `ensure_recovered` gates write-side entry?
 * Can accepted schema-transition replay and normal replay diverge on the same
   marker contract?
-* Can schema mutation startup publish the accepted-after snapshot before
-  physical-store readiness is proven?
-* Can staged or building schema mutation physical work become runtime-visible
-  after restart?
+* Can schema mutation startup touch physical index state before the marker owns
+  the accepted-after candidate?
+* Can marker-owned or Building schema mutation work become runtime-visible
+  before forward recovery completes?
 * Can ready-but-unreferenced physical index state be silently treated as
   accepted?
 * Can generated model/index metadata be used to recover accepted runtime

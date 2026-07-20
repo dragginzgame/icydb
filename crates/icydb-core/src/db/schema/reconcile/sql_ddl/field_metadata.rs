@@ -20,10 +20,8 @@ use crate::{
 };
 
 use super::{
-    super::startup_field_path::{
-        SchemaMutationCatalogScope, catalog_backed_row_contract_for_rebuild,
-    },
-    SqlDdlPublicationEnvelope, validate_sql_ddl_drop_schema_gate,
+    super::user_index_domain::catalog_backed_row_contract_for_sql_ddl, SqlDdlPublicationEnvelope,
+    validate_sql_ddl_drop_schema_gate,
 };
 
 /// One pending dense-row rewrite retaining the exact accepted-before bytes
@@ -68,10 +66,9 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
         envelope.before(),
         "before row rewrite",
     )?;
-    let contract = catalog_backed_row_contract_for_rebuild(
+    let contract = catalog_backed_row_contract_for_sql_ddl(
         store,
-        SchemaMutationCatalogScope::sql_ddl(entity_tag, accepted_before_identity),
-        entity_path,
+        accepted_before_identity,
         accepted_before.persisted_snapshot(),
     )?;
     let rewrite_slots = envelope
@@ -413,10 +410,9 @@ fn validate_sql_ddl_set_not_null_rows(
         .iter()
         .find(|field| field.id() == target.field_id())
         .ok_or_else(InternalError::store_unsupported)?;
-    let contract = catalog_backed_row_contract_for_rebuild(
+    let contract = catalog_backed_row_contract_for_sql_ddl(
         store,
-        SchemaMutationCatalogScope::sql_ddl(entity_tag, accepted_before_identity),
-        entity_path,
+        accepted_before_identity,
         accepted_before.persisted_snapshot(),
     )?;
     let required_slot = usize::from(field.slot().get());

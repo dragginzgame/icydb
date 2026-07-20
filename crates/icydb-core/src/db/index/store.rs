@@ -107,7 +107,6 @@ pub enum IndexState {
     Building,
     #[default]
     Ready,
-    Dropping,
 }
 
 impl IndexState {
@@ -117,7 +116,6 @@ impl IndexState {
         match self {
             Self::Building => "building",
             Self::Ready => "ready",
-            Self::Dropping => "dropping",
         }
     }
 }
@@ -350,11 +348,6 @@ impl IndexStore {
     /// Mark this index store as fully built and planner-visible again.
     pub(in crate::db) const fn mark_ready(&mut self) {
         self.state = IndexState::Ready;
-    }
-
-    /// Mark this index store as dropping and therefore not planner-visible.
-    pub(in crate::db) const fn mark_dropping(&mut self) {
-        self.state = IndexState::Dropping;
     }
 
     pub(crate) fn insert(

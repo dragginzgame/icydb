@@ -44,7 +44,10 @@ use crate::{
     error::{ErrorClass, ErrorDetail, QueryErrorDetail, SchemaDdlAdmissionError, StoreError},
 };
 use icydb_diagnostic_code::{SqlLoweringCode, SqlSurfaceMismatchCode};
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    panic::{AssertUnwindSafe, catch_unwind},
+};
 
 // Assert that one representative SQL surface stays fail-closed for a matrix of
 // statement lanes that belong to some other surface.
@@ -7351,6 +7354,11 @@ fn execute_admin_sql_ddl_rejects_duplicate_unique_expression_values_without_publ
         )
         .expect_err("duplicate normalized values should reject unique expression index publication");
 
+    assert!(
+        !commit_marker_present().expect("commit marker should decode after rejected DDL"),
+        "precommit expression rejection must not establish durable publication authority",
+    );
+
     let SqlStatementResult::ShowIndexes(indexes) = session
         .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should remain readable after rejected DDL")
@@ -7370,6 +7378,7 @@ fn execute_admin_sql_ddl_rejects_duplicate_unique_expression_values_without_publ
             0,
             "rejected unique expression DDL should not write physical index keys",
         );
+        assert_eq!(store.state(), IndexState::Ready);
     });
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
 }
@@ -7634,6 +7643,94 @@ fn execute_admin_sql_ddl_publishes_supported_field_path_index() {
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
 }
 
+fn interrupt_session_sql_ddl_after_marker(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    mode: CommitFailpointMode,
+) {
+    arm_commit_failpoint_for_tests(CommitFailpoint::AfterMarkerWrite, mode);
+    match mode {
+        CommitFailpointMode::ReturnError => {
+            session
+                .execute_admin_sql_ddl::<SessionSqlEntity>(sql)
+                .expect_err("returned interruption should stop after marker persistence");
+        }
+        CommitFailpointMode::PanicUnwind => {
+            let interrupted = catch_unwind(AssertUnwindSafe(|| {
+                session.execute_admin_sql_ddl::<SessionSqlEntity>(sql)
+            }));
+            assert!(
+                interrupted.is_err(),
+                "panic interruption should unwind after marker persistence",
+            );
+        }
+    }
+}
+
+#[test]
+fn execute_admin_sql_ddl_create_index_recovers_marker_authorized_domain_after_interruption() {
+    for mode in [
+        CommitFailpointMode::ReturnError,
+        CommitFailpointMode::PanicUnwind,
+    ] {
+        reset_session_sql_store();
+        SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+        let session = sql_session();
+        seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
+
+        interrupt_session_sql_ddl_after_marker(
+            &session,
+            &ddl_transition_sql(
+                "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
+                1,
+            ),
+            mode,
+        );
+        assert!(commit_marker_present().expect("commit marker should decode"));
+        SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+            assert!(
+                store.is_empty(),
+                "physical index state must remain untouched before marker replay",
+            );
+            assert_eq!(store.state(), IndexState::Ready);
+        });
+        let accepted_before = SESSION_SQL_SCHEMA_STORE
+            .with_borrow(|store| {
+                store.current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            })
+            .expect("accepted schema should remain readable before marker replay")
+            .expect("accepted-before schema should remain published");
+        assert!(accepted_before.indexes().is_empty());
+
+        ensure_recovered(&SESSION_SQL_DB).expect("marker-authorized CREATE INDEX should recover");
+
+        assert!(!commit_marker_present().expect("commit marker should decode"));
+        let accepted_after = SESSION_SQL_SCHEMA_STORE
+            .with_borrow(|store| {
+                store.current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            })
+            .expect("accepted schema should remain readable after recovery")
+            .expect("accepted-after schema should be published by recovery");
+        assert!(
+            accepted_after
+                .indexes()
+                .iter()
+                .any(|index| index.name() == "session_sql_age_idx"),
+            "marker replay must publish the accepted-after index metadata",
+        );
+        SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+            assert_eq!(
+                store.len(),
+                3,
+                "recovery must rebuild the complete accepted-after index domain",
+            );
+            assert_eq!(store.state(), IndexState::Ready);
+        });
+
+        SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    }
+}
+
 #[test]
 fn execute_admin_sql_ddl_publishes_supported_filtered_field_path_index() {
     reset_session_sql_store();
@@ -7797,61 +7894,89 @@ fn execute_admin_sql_ddl_publishes_and_drops_supported_multi_field_path_index() 
 }
 
 #[test]
-fn execute_admin_sql_ddl_drop_index_compacts_surviving_metadata_and_physical_keys() {
-    reset_session_sql_store();
-    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    let session = sql_session();
-    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
+fn execute_admin_sql_ddl_drop_index_compacts_first_middle_and_last_ordinals() {
+    for (target, expected_names) in [
+        (
+            "session_sql_age_idx",
+            ["session_sql_name_idx", "session_sql_age_name_idx"],
+        ),
+        (
+            "session_sql_name_idx",
+            ["session_sql_age_idx", "session_sql_age_name_idx"],
+        ),
+        (
+            "session_sql_age_name_idx",
+            ["session_sql_age_idx", "session_sql_name_idx"],
+        ),
+    ] {
+        reset_session_sql_store();
+        SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+        let session = sql_session();
+        seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
 
-    session
-        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
-            "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
-            1,
-        ))
-        .expect("first DDL index should publish");
-    session
-        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
-            "CREATE INDEX session_sql_name_idx ON SessionSqlEntity (name)",
-            2,
-        ))
-        .expect("second DDL index should publish");
-    session
-        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
-            "DROP INDEX session_sql_age_idx ON SessionSqlEntity",
-            3,
-        ))
-        .expect("dropping the first DDL index should compact surviving identities");
+        for (sql, version) in [
+            (
+                "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
+                1,
+            ),
+            (
+                "CREATE INDEX session_sql_name_idx ON SessionSqlEntity (name)",
+                2,
+            ),
+            (
+                "CREATE INDEX session_sql_age_name_idx ON SessionSqlEntity (age, name)",
+                3,
+            ),
+        ] {
+            session
+                .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(sql, version))
+                .expect("DDL index should publish before ordinal drop coverage");
+        }
+        session
+            .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+                &format!("DROP INDEX {target} ON SessionSqlEntity"),
+                4,
+            ))
+            .expect("DROP INDEX should compact the complete accepted-after domain");
 
-    let accepted = SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
-        store
-            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
-            .expect("compacted accepted schema should remain readable")
-            .expect("index drop should publish a compacted accepted schema")
-    });
-    let [survivor] = accepted.indexes() else {
-        panic!("index drop should leave exactly one accepted index");
-    };
-    assert_eq!(survivor.name(), "session_sql_name_idx");
-    assert_eq!(survivor.ordinal(), 1);
+        let accepted = SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
+            store
+                .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+                .expect("compacted accepted schema should remain readable")
+                .expect("index drop should publish a compacted accepted schema")
+        });
+        let accepted_names = accepted
+            .indexes()
+            .iter()
+            .map(crate::db::schema::PersistedIndexSnapshot::name)
+            .collect::<Vec<_>>();
+        let accepted_ordinals = accepted
+            .indexes()
+            .iter()
+            .map(crate::db::schema::PersistedIndexSnapshot::ordinal)
+            .collect::<Vec<_>>();
+        assert_eq!(accepted_names, expected_names);
+        assert_eq!(accepted_ordinals, vec![1, 2]);
 
-    let mut physical_ordinals = Vec::new();
-    SESSION_SQL_INDEX_STORE.with_borrow(|store| {
-        store
-            .visit_entries(|raw_key, _| {
-                let key = IndexKey::try_from_raw(raw_key)
-                    .expect("surviving physical index key should decode");
-                physical_ordinals.push(key.index_id().ordinal());
-                Ok::<_, ()>(IndexStoreVisit::Continue)
-            })
-            .expect("infallible test visitor should complete");
-    });
-    assert_eq!(physical_ordinals, vec![1, 1, 1]);
+        let mut physical_ordinals = Vec::new();
+        SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+            store
+                .visit_entries(|raw_key, _| {
+                    let key = IndexKey::try_from_raw(raw_key)
+                        .expect("surviving physical index key should decode");
+                    physical_ordinals.push(key.index_id().ordinal());
+                    Ok::<_, ()>(IndexStoreVisit::Continue)
+                })
+                .expect("infallible test visitor should complete");
+        });
+        assert_eq!(physical_ordinals, vec![1, 1, 1, 2, 2, 2]);
 
-    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+        SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    }
 }
 
 #[test]
-fn execute_admin_sql_ddl_drop_index_rolls_back_keys_when_publication_rejects() {
+fn execute_admin_sql_ddl_drop_index_rejects_before_physical_replacement() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     let session = sql_session();
@@ -7883,7 +8008,7 @@ fn execute_admin_sql_ddl_drop_index_rolls_back_keys_when_publication_rejects() {
         "DROP INDEX session_sql_age_idx ON SessionSqlEntity",
         3,
     ))
-    .expect("DROP INDEX should parse before rollback validation");
+    .expect("DROP INDEX should parse before zero-write validation");
     let bound =
         bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
             .expect("DROP INDEX should bind against the current accepted schema");
@@ -7902,8 +8027,12 @@ fn execute_admin_sql_ddl_drop_index_rolls_back_keys_when_publication_rejects() {
         rejecting_identity,
         &derivation,
     )
-    .expect_err("publication rejection should fail DROP INDEX after its physical attempt");
+    .expect_err("publication rejection should fail DROP INDEX before physical replacement");
 
+    assert!(
+        !commit_marker_present().expect("commit marker should decode after rejected DDL"),
+        "precommit DROP INDEX rejection must not establish durable publication authority",
+    );
     assert!(matches!(
         error.detail(),
         Some(ErrorDetail::Store(StoreError::SchemaDdlPublicationRaceLost))
@@ -7911,7 +8040,7 @@ fn execute_admin_sql_ddl_drop_index_rolls_back_keys_when_publication_rejects() {
     assert_eq!(
         session_sql_index_entries_for_test(),
         entries_before,
-        "rejected DROP INDEX must restore removed and remapped keys exactly",
+        "rejected DROP INDEX must leave the accepted-before domain untouched",
     );
     SESSION_SQL_INDEX_STORE.with_borrow(|index_store| {
         assert_eq!(index_store.state(), IndexState::Ready);
@@ -7923,6 +8052,73 @@ fn execute_admin_sql_ddl_drop_index_rolls_back_keys_when_publication_rejects() {
             .expect("accepted-before schema should remain published");
         assert_eq!(&latest, accepted_before.persisted_snapshot());
     });
+}
+
+#[test]
+fn execute_admin_sql_ddl_drop_index_recovers_marker_authorized_domain_after_interruption() {
+    for mode in [
+        CommitFailpointMode::ReturnError,
+        CommitFailpointMode::PanicUnwind,
+    ] {
+        reset_session_sql_store();
+        SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+        let session = sql_session();
+        seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
+
+        session
+            .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+                "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
+                1,
+            ))
+            .expect("first DDL index should publish before interrupted DROP INDEX");
+        session
+            .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+                "CREATE INDEX session_sql_name_idx ON SessionSqlEntity (name)",
+                2,
+            ))
+            .expect("second DDL index should publish before interrupted DROP INDEX");
+        let physical_before = session_sql_index_entries_for_test();
+
+        interrupt_session_sql_ddl_after_marker(
+            &session,
+            &ddl_transition_sql("DROP INDEX session_sql_age_idx ON SessionSqlEntity", 3),
+            mode,
+        );
+
+        assert!(commit_marker_present().expect("commit marker should decode"));
+        assert_eq!(session_sql_index_entries_for_test(), physical_before);
+        SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+            assert_eq!(store.state(), IndexState::Ready);
+        });
+        let accepted_before = SESSION_SQL_SCHEMA_STORE
+            .with_borrow(|store| {
+                store.current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            })
+            .expect("accepted schema should remain readable before marker replay")
+            .expect("accepted-before schema should remain published");
+        assert_eq!(accepted_before.indexes().len(), 2);
+
+        ensure_recovered(&SESSION_SQL_DB).expect("marker-authorized DROP INDEX should recover");
+
+        assert!(!commit_marker_present().expect("commit marker should decode"));
+        let accepted_after = SESSION_SQL_SCHEMA_STORE
+            .with_borrow(|store| {
+                store.current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            })
+            .expect("accepted schema should remain readable after recovery")
+            .expect("accepted-after schema should be published by recovery");
+        let [survivor] = accepted_after.indexes() else {
+            panic!("recovered DROP INDEX should leave one accepted index");
+        };
+        assert_eq!(survivor.name(), "session_sql_name_idx");
+        assert_eq!(survivor.ordinal(), 1);
+        SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+            assert_eq!(store.len(), 3);
+            assert_eq!(store.state(), IndexState::Ready);
+        });
+
+        SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    }
 }
 
 #[test]
@@ -8051,6 +8247,11 @@ fn execute_admin_sql_ddl_rejects_duplicate_unique_field_path_values_without_publ
         ))
         .expect_err("duplicate values should reject unique field-path index publication");
 
+    assert!(
+        !commit_marker_present().expect("commit marker should decode after rejected DDL"),
+        "precommit field-path rejection must not establish durable publication authority",
+    );
+
     let SqlStatementResult::ShowIndexes(indexes) = session
         .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should remain readable after rejected DDL")
@@ -8063,6 +8264,15 @@ fn execute_admin_sql_ddl_rejects_duplicate_unique_field_path_values_without_publ
             .all(|index| !index.contains("session_sql_age_unique_idx")),
         "rejected unique DDL should not publish accepted index metadata",
     );
+
+    SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+        assert_eq!(
+            store.len(),
+            0,
+            "rejected unique field-path DDL should not write physical index keys",
+        );
+        assert_eq!(store.state(), IndexState::Ready);
+    });
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
 }

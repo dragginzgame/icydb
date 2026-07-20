@@ -3,18 +3,7 @@
 //! Does not own: SQL DDL parsing, physical rebuild execution, or schema-store writes.
 //! Boundary: describes accepted snapshot changes before reconciliation persists them.
 
-use crate::db::{
-    data::CanonicalSlotReader,
-    index::{
-        IndexEntryValue, IndexId, IndexKey, IndexState, IndexStore, IndexStoreVisit,
-        RawIndexStoreKey,
-    },
-    key_taxonomy::PrimaryKeyValue,
-    predicate::PredicateProgram,
-    schema::PersistedFieldSnapshot,
-};
-use crate::error::InternalError;
-use crate::types::EntityTag;
+use crate::db::schema::PersistedFieldSnapshot;
 
 #[cfg(feature = "sql")]
 mod field;
@@ -102,8 +91,7 @@ pub(in crate::db) use index_candidate::{
 
 mod index;
 #[cfg(feature = "sql")]
-pub(in crate::db) use index::SchemaSecondaryIndexDropCleanupTarget;
-#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use index::SchemaSecondaryIndexDropTarget;
 pub(in crate::db) use index::{
     SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
 };
@@ -123,10 +111,8 @@ pub(in crate::db) use index::{
     resolve_sql_ddl_secondary_index_drop_candidate,
 };
 
-mod staged_index_validation;
-pub(in crate::db::schema) use staged_index_validation::{
-    SchemaStagedIndexValidationError, staged_index_keys_have_duplicate_unique_components,
-};
+mod user_index_domain;
+pub(in crate::db) use user_index_domain::*;
 
 ///
 /// SchemaMutationRequest
@@ -163,16 +149,6 @@ pub(in crate::db) enum AcceptedSchemaMutationError {
     EmptyIndexKey,
     ExpressionIndexRequiresExpressionKey,
 }
-
-mod runner;
-pub(in crate::db::schema) use self::runner::*;
-
-mod field_path;
-pub(in crate::db::schema) use self::field_path::*;
-
-mod expression;
-#[cfg(any(test, feature = "sql"))]
-pub(in crate::db::schema) use self::expression::*;
 
 ///
 /// MutationPlan

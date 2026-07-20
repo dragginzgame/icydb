@@ -75,65 +75,6 @@ fn index_mutation_plans_preserve_the_current_physical_target() {
 }
 
 #[test]
-fn runner_input_binds_accepted_snapshots_to_the_same_mutation_plan() {
-    let before = base_snapshot();
-    let added = nullable_text_field("nickname", 3, 2);
-    let after = append_fields_snapshot(&before, std::slice::from_ref(&added));
-    let plan: MutationPlan =
-        SchemaMutationRequest::AppendOnlyFields(std::slice::from_ref(&added)).into();
-    let input = super::SchemaMutationRunnerInput::new(&before, &after, plan.clone())
-        .expect("same-entity accepted snapshots should build runner input");
-
-    assert_eq!(
-        input.accepted_after().fields().len(),
-        before.fields().len() + 1,
-    );
-    assert_eq!(input.mutation_plan(), &plan);
-}
-
-#[test]
-fn runner_input_rejects_cross_entity_snapshot_pairs() {
-    let before = base_snapshot();
-    let wrong_entity = PersistedSchemaSnapshot::new(
-        before.version(),
-        "test::OtherEntity".to_string(),
-        before.entity_name().to_string(),
-        before.first_primary_key_field_id(),
-        before.row_layout().clone(),
-        before.fields().to_vec(),
-    );
-    let wrong_name = PersistedSchemaSnapshot::new(
-        before.version(),
-        before.entity_path().to_string(),
-        "OtherEntity".to_string(),
-        before.first_primary_key_field_id(),
-        before.row_layout().clone(),
-        before.fields().to_vec(),
-    );
-    let wrong_pk = PersistedSchemaSnapshot::new(
-        before.version(),
-        before.entity_path().to_string(),
-        before.entity_name().to_string(),
-        FieldId::new(99),
-        before.row_layout().clone(),
-        before.fields().to_vec(),
-    );
-
-    assert_eq!(
-        super::SchemaMutationRunnerInput::new(&before, &wrong_entity, MutationPlan::exact_match(),),
-        Err(super::SchemaMutationRunnerInputError::EntityPath),
-    );
-    assert_eq!(
-        super::SchemaMutationRunnerInput::new(&before, &wrong_name, MutationPlan::exact_match(),),
-        Err(super::SchemaMutationRunnerInputError::EntityName),
-    );
-    assert_eq!(
-        super::SchemaMutationRunnerInput::new(&before, &wrong_pk, MutationPlan::exact_match()),
-        Err(super::SchemaMutationRunnerInputError::PrimaryKeyField),
-    );
-}
-
-#[test]
 fn field_path_index_request_lowering_fails_closed_for_unsupported_indexes() {
     let unique = PersistedIndexSnapshot::new(
         1,

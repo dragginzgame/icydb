@@ -5,9 +5,7 @@
 
 #[cfg(feature = "sql")]
 mod sql_ddl;
-#[cfg(feature = "sql")]
-mod startup_expression;
-mod startup_field_path;
+mod user_index_domain;
 
 use crate::{
     db::{
@@ -16,7 +14,8 @@ use crate::{
         schema::{
             AcceptedCatalogSnapshotSelection, AcceptedSchemaSnapshot, MutationPublicationPreflight,
             PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaStore, SchemaTransitionDecision,
-            SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
+            SchemaTransitionPlanKind, StagedUserIndexDomainReplacement,
+            compiled_schema_proposal_for_model, decide_schema_transition,
             enum_catalog::{
                 AcceptedEnumCatalog, AcceptedSchemaRevision, AcceptedSchemaRevisionBundle,
                 CandidateSchemaRevision, build_initial_accepted_enum_catalog,
@@ -40,48 +39,11 @@ use crate::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-use startup_field_path::{
-    DeferredStartupFieldPathIndexPublication, SchemaMutationCatalogScope,
-    execute_supported_field_path_index_addition,
-};
+use user_index_domain::stage_startup_user_index_domain_replacement;
 
 struct ReconciledRuntimeSchema {
     accepted: AcceptedSchemaSnapshot,
-    pending_publication: Option<PendingStartupFieldPathIndexPublication>,
-}
-
-struct PendingStartupFieldPathIndexPublication {
-    store: StoreHandle,
-    entity_tag: EntityTag,
-    accepted_before: PersistedSchemaSnapshot,
-    deferred: DeferredStartupFieldPathIndexPublication,
-}
-
-impl PendingStartupFieldPathIndexPublication {
-    fn validate_before_accepted_publication(&self) -> Result<(), InternalError> {
-        self.deferred
-            .validate_before_accepted_publication(self.store, self.entity_tag)
-    }
-
-    fn rollback_if_publication_rejected(self) {
-        if schema_publication_error_allows_physical_rollback(
-            self.store,
-            self.entity_tag,
-            &self.accepted_before,
-        ) {
-            self.deferred.rollback(self.store);
-        }
-    }
-}
-
-fn rollback_rejected_startup_publications(
-    pending: BTreeMap<&'static str, Vec<PendingStartupFieldPathIndexPublication>>,
-) {
-    for publications in pending.into_values() {
-        for publication in publications {
-            publication.rollback_if_publication_rejected();
-        }
-    }
+    pending_publication: Option<StagedUserIndexDomainReplacement>,
 }
 
 #[cfg(feature = "sql")]
@@ -106,19 +68,13 @@ pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
     let mut accepted_snapshots_by_store =
         BTreeMap::<&'static str, BTreeMap<EntityTag, PersistedSchemaSnapshot>>::new();
     let mut pending_publications =
-        BTreeMap::<&'static str, Vec<PendingStartupFieldPathIndexPublication>>::new();
+        BTreeMap::<&'static str, Vec<StagedUserIndexDomainReplacement>>::new();
 
     for hooks in entity_runtime_hooks {
         let enum_catalog = catalogs_by_store
             .get(hooks.store_path)
             .ok_or_else(InternalError::store_invariant)?;
-        let reconciled = match reconcile_runtime_schema(db, hooks, enum_catalog) {
-            Ok(reconciled) => reconciled,
-            Err(error) => {
-                rollback_rejected_startup_publications(pending_publications);
-                return Err(error);
-            }
-        };
+        let reconciled = reconcile_runtime_schema(db, hooks, enum_catalog)?;
         if accepted_snapshots_by_store
             .entry(hooks.store_path)
             .or_default()
@@ -134,7 +90,6 @@ pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
                     .or_default()
                     .push(pending);
             }
-            rollback_rejected_startup_publications(pending_publications);
             return Err(InternalError::store_invariant());
         }
         if let Some(pending) = reconciled.pending_publication {
@@ -150,26 +105,15 @@ pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
             .remove(store_path)
             .ok_or_else(InternalError::store_invariant)?;
         let store_pending = pending_publications.remove(store_path).unwrap_or_default();
-        if let Err(error) = store_pending.iter().try_for_each(
-            PendingStartupFieldPathIndexPublication::validate_before_accepted_publication,
-        ) {
-            pending_publications.insert(store_path, store_pending);
-            rollback_rejected_startup_publications(pending_publications);
-            return Err(error);
-        }
-        if let Err(error) = publish_generated_accepted_schema_bundle(
+        publish_generated_accepted_schema_bundle(
             db.store_handle(store_path)?,
             store_path,
             enum_catalog,
             entity_snapshots,
-        ) {
-            pending_publications.insert(store_path, store_pending);
-            rollback_rejected_startup_publications(pending_publications);
-            return Err(error);
-        }
+            store_pending,
+        )?;
     }
     if !accepted_snapshots_by_store.is_empty() {
-        rollback_rejected_startup_publications(pending_publications);
         return Err(InternalError::store_invariant());
     }
 
@@ -181,6 +125,7 @@ pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
 // Physical rollback is unsafe while a marker remains: recovery owns that
 // candidate and may still publish it. Inspection failures are likewise
 // commit-in-doubt and conservatively retain accepted-after physical work.
+#[cfg(any(test, feature = "sql"))]
 fn schema_publication_error_allows_physical_rollback(
     store: StoreHandle,
     entity_tag: EntityTag,
@@ -245,6 +190,7 @@ fn publish_generated_accepted_schema_bundle(
     store_path: &'static str,
     enum_catalog: AcceptedEnumCatalog,
     entity_snapshots: BTreeMap<EntityTag, PersistedSchemaSnapshot>,
+    replacements: Vec<StagedUserIndexDomainReplacement>,
 ) -> Result<(), InternalError> {
     let current = store.with_schema(SchemaStore::current_accepted_schema_bundle)?;
     if current
@@ -268,7 +214,11 @@ fn publish_generated_accepted_schema_bundle(
         entity_snapshots.clone(),
     )?;
     if current.as_ref() == Some(&comparison) {
-        return Ok(());
+        return if replacements.is_empty() {
+            Ok(())
+        } else {
+            Err(InternalError::store_invariant())
+        };
     }
     let candidate_revision = expected_revision
         .checked_next()
@@ -281,16 +231,29 @@ fn publish_generated_accepted_schema_bundle(
     )?;
     let candidate = CandidateSchemaRevision::new(bundle)?;
     if current.is_none() {
+        if !replacements.is_empty() {
+            return Err(InternalError::store_invariant());
+        }
         return store.with_schema_mut(|schema_store| {
             schema_store.publish_accepted_schema_candidate(expected_revision, &candidate)
         });
     }
-    crate::db::commit::publish_accepted_schema_candidate(
-        store_path,
-        store,
-        expected_revision,
-        &candidate,
-    )
+    if replacements.is_empty() {
+        crate::db::commit::publish_accepted_schema_candidate(
+            store_path,
+            store,
+            expected_revision,
+            &candidate,
+        )
+    } else {
+        crate::db::commit::publish_accepted_schema_candidate_with_user_index_domains(
+            store_path,
+            store,
+            expected_revision,
+            &candidate,
+            replacements,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -383,6 +346,47 @@ fn publish_accepted_entity_snapshot_revision_with_row_puts(
     accepted_after: &PersistedSchemaSnapshot,
     row_puts: Vec<crate::db::journal::JournalRecord>,
 ) -> Result<(), InternalError> {
+    let Some((expected_revision, candidate)) =
+        prepare_accepted_entity_snapshot_revision(store, expected_identity, accepted_after)?
+    else {
+        return Ok(());
+    };
+    crate::db::commit::publish_accepted_schema_candidate_with_row_puts(
+        expected_identity.store_path(),
+        store,
+        expected_revision,
+        &candidate,
+        row_puts,
+    )
+}
+
+#[cfg(feature = "sql")]
+fn publish_accepted_entity_snapshot_revision_with_user_index_domain(
+    store: StoreHandle,
+    expected_identity: crate::db::schema::AcceptedCatalogIdentity,
+    accepted_after: &PersistedSchemaSnapshot,
+    replacement: crate::db::schema::StagedUserIndexDomainReplacement,
+) -> Result<(), InternalError> {
+    let Some((expected_revision, candidate)) =
+        prepare_accepted_entity_snapshot_revision(store, expected_identity, accepted_after)?
+    else {
+        return Err(InternalError::store_invariant());
+    };
+    crate::db::commit::publish_accepted_schema_candidate_with_user_index_domain(
+        expected_identity.store_path(),
+        store,
+        expected_revision,
+        &candidate,
+        replacement,
+    )
+}
+
+#[cfg(feature = "sql")]
+fn prepare_accepted_entity_snapshot_revision(
+    store: StoreHandle,
+    expected_identity: crate::db::schema::AcceptedCatalogIdentity,
+    accepted_after: &PersistedSchemaSnapshot,
+) -> Result<Option<(AcceptedSchemaRevision, CandidateSchemaRevision)>, InternalError> {
     let current_selection = store
         .with_schema(|schema_store| {
             schema_store.current_accepted_catalog_selection(
@@ -413,7 +417,7 @@ fn publish_accepted_entity_snapshot_revision_with_row_puts(
         return Err(InternalError::store_corruption());
     }
     if entity_snapshots == *current.entity_snapshots() {
-        return Ok(());
+        return Ok(None);
     }
 
     let candidate_revision = expected_revision
@@ -426,13 +430,7 @@ fn publish_accepted_entity_snapshot_revision_with_row_puts(
         entity_snapshots,
     )?;
     let candidate = CandidateSchemaRevision::new(bundle)?;
-    crate::db::commit::publish_accepted_schema_candidate_with_row_puts(
-        expected_identity.store_path(),
-        store,
-        expected_revision,
-        &candidate,
-        row_puts,
-    )
+    Ok(Some((expected_revision, candidate)))
 }
 
 fn merge_generated_indexes_with_extra_accepted_indexes(
@@ -675,9 +673,8 @@ fn reconcile_staged_schema_snapshot(
     )
 }
 
-// Startup reconciliation owns the wider store handle, so it can execute the
-// single supported physical schema mutation before publishing the accepted
-// root.
+// Startup reconciliation owns the store-wide candidate and zero-write staging
+// required before accepted-schema publication.
 fn ensure_accepted_schema_snapshot_for_runtime_store(
     store: StoreHandle,
     entity_tag: EntityTag,
@@ -735,26 +732,16 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
                 (merged, None)
             }
             SchemaTransitionPlanKind::AddFieldPathIndex => {
-                let outcome = execute_supported_field_path_index_addition(
+                validate_startup_field_path_target(&plan, &expected)?;
+                let replacement = stage_startup_user_index_domain_replacement(
                     store,
-                    SchemaMutationCatalogScope::startup(entity_tag, store_path),
+                    entity_tag,
+                    store_path,
                     entity_path,
                     &actual,
                     &expected,
-                    &plan,
                 )?;
-                let deferred = outcome
-                    .into_deferred_startup_publication()
-                    .ok_or_else(InternalError::store_invariant)?;
-                (
-                    expected,
-                    Some(PendingStartupFieldPathIndexPublication {
-                        store,
-                        entity_tag,
-                        accepted_before: actual,
-                        deferred,
-                    }),
-                )
+                (expected, Some(replacement))
             }
         };
 
@@ -792,6 +779,24 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
         accepted,
         pending_publication: None,
     })
+}
+
+fn validate_startup_field_path_target(
+    plan: &SchemaTransitionPlan,
+    expected: &PersistedSchemaSnapshot,
+) -> Result<(), InternalError> {
+    let target = plan
+        .field_path_index_target()
+        .ok_or_else(InternalError::store_unsupported)?;
+    if expected
+        .indexes()
+        .iter()
+        .all(|index| index.ordinal() != target.ordinal())
+    {
+        return Err(InternalError::store_unsupported());
+    }
+
+    Ok(())
 }
 
 fn accept_reconciled_schema_snapshot(

@@ -3,8 +3,7 @@
 use super::{
     AcceptedSchemaMutationError, SchemaExpressionIndexRebuildTarget, SchemaFieldAdditionTarget,
     SchemaFieldDefaultTarget, SchemaFieldDropTarget, SchemaFieldNullabilityTarget,
-    SchemaFieldPathIndexRebuildTarget, SchemaFieldRenameTarget,
-    SchemaSecondaryIndexDropCleanupTarget,
+    SchemaFieldPathIndexRebuildTarget, SchemaFieldRenameTarget, SchemaSecondaryIndexDropTarget,
 };
 use crate::db::schema::{
     AcceptedSchemaSnapshot, SchemaVersion,
@@ -76,11 +75,9 @@ impl SchemaDdlMutationAdmission {
         }
     }
 
-    /// Borrow the admitted secondary-index drop cleanup target.
+    /// Borrow the admitted secondary-index drop target.
     #[must_use]
-    pub(in crate::db) const fn drop_target(
-        &self,
-    ) -> Option<&SchemaSecondaryIndexDropCleanupTarget> {
+    pub(in crate::db) const fn drop_target(&self) -> Option<&SchemaSecondaryIndexDropTarget> {
         match &self.target {
             SchemaDdlMutationTarget::FieldPathAddition(_)
             | SchemaDdlMutationTarget::FieldAddition(_)
@@ -174,7 +171,7 @@ impl SchemaDdlMutationAdmission {
 ///
 /// SchemaDdlMutationTarget
 ///
-/// Schema-owned physical target admitted for one SQL DDL mutation.
+/// Schema-owned target admitted for one SQL DDL mutation.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -186,7 +183,7 @@ pub(in crate::db) enum SchemaDdlMutationTarget {
     FieldRename(SchemaFieldRenameTarget),
     FieldPathAddition(SchemaFieldPathIndexRebuildTarget),
     ExpressionAddition(SchemaExpressionIndexRebuildTarget),
-    SecondaryDrop(SchemaSecondaryIndexDropCleanupTarget),
+    SecondaryDrop(SchemaSecondaryIndexDropTarget),
 }
 
 ///

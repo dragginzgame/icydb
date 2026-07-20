@@ -807,6 +807,20 @@ const PROVIDERS: &[ProviderSpec] = &[
         [State]
     ),
     provider!(
+        "core.ddl.create_unique_field_path_precommit",
+        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
+        "execute_admin_sql_ddl_rejects_duplicate_unique_field_path_values_without_publication",
+        ContractAssertion,
+        [State]
+    ),
+    provider!(
+        "core.ddl.create_unique_expression_precommit",
+        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
+        "execute_admin_sql_ddl_rejects_duplicate_unique_expression_values_without_publication",
+        ContractAssertion,
+        [State]
+    ),
+    provider!(
         "core.ddl.desc_rejected",
         "crates/icydb-core/src/db/session/tests/sql_surface.rs",
         "execute_admin_sql_ddl_rejects_desc_index_order_without_publication",
@@ -905,9 +919,16 @@ const PROVIDERS: &[ProviderSpec] = &[
         [State]
     ),
     provider!(
-        "core.ddl.drop_index_rollback",
+        "core.ddl.drop_index_precommit_atomicity",
         "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_drop_index_rolls_back_keys_when_publication_rejects",
+        "execute_admin_sql_ddl_drop_index_rejects_before_physical_replacement",
+        ContractAssertion,
+        [State]
+    ),
+    provider!(
+        "core.ddl.index_recovery_retry",
+        "crates/icydb-core/src/db/commit/tests/mod.rs",
+        "recovery_secondary_index_rebuild_clear_failpoint_is_retryable_for_error_and_unwind",
         ContractAssertion,
         [State]
     ),
@@ -1567,7 +1588,11 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         PERF_NONE,
         ELIGIBLE_ICYDB,
-        ["core.ddl.create_unique"],
+        [
+            "core.ddl.create_unique",
+            "core.ddl.create_unique_field_path_precommit",
+            "core.ddl.create_unique_expression_precommit"
+        ],
         NO_EXTERNAL_CATALOG
     ),
     cell!(
@@ -1695,7 +1720,8 @@ const MANIFEST: &[CoverageCell] = &[
         ELIGIBLE_ICYDB,
         [
             "core.ddl.drop_column_rollback",
-            "core.ddl.drop_index_rollback"
+            "core.ddl.drop_index_precommit_atomicity",
+            "core.ddl.index_recovery_retry"
         ],
         NO_EXTERNAL_CATALOG
     ),

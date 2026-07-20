@@ -1,31 +1,26 @@
 mod field_metadata;
 
+use super::{
+    publish_accepted_entity_snapshot_revision,
+    publish_accepted_entity_snapshot_revision_with_row_puts,
+    publish_accepted_entity_snapshot_revision_with_user_index_domain,
+    schema_publication_error_allows_physical_rollback,
+    user_index_domain::stage_sql_ddl_user_index_domain_replacement,
+    validate_publishable_transition_plan,
+};
 use crate::{
     db::{
-        index::{
-            IndexEntryValue, IndexId, IndexKey, IndexState, IndexStore, IndexStoreVisit,
-            RawIndexStoreKey,
-        },
+        index::{IndexId, IndexKey},
         registry::StoreHandle,
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, PersistedSchemaSnapshot,
-            SchemaDdlAcceptedSnapshotDerivation, SchemaSecondaryIndexDropCleanupTarget,
-            SchemaTransitionDecision, SchemaTransitionPlanKind, decide_schema_transition,
+            SchemaDdlAcceptedSnapshotDerivation, SchemaTransitionDecision,
+            SchemaTransitionPlanKind, StagedUserIndexDomainReplacement, decide_schema_transition,
             transition::SchemaTransitionPlan,
         },
     },
     error::InternalError,
     types::EntityTag,
-};
-use std::collections::HashSet;
-
-use super::{
-    publish_accepted_entity_snapshot_revision,
-    publish_accepted_entity_snapshot_revision_with_row_puts,
-    schema_publication_error_allows_physical_rollback,
-    startup_expression::execute_supported_expression_index_addition,
-    startup_field_path::{SchemaMutationCatalogScope, execute_supported_field_path_index_addition},
-    validate_publishable_transition_plan,
 };
 
 pub(in crate::db) use field_metadata::{
@@ -61,19 +56,22 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_path_index_addition(
         return Err(InternalError::store_unsupported());
     }
 
-    let report = execute_supported_field_path_index_addition(
+    let replacement = stage_sql_ddl_user_index_domain_replacement(
         envelope.store(),
-        envelope.publication_gate(),
-        entity_path,
+        accepted_before_identity,
         envelope.before(),
         envelope.after(),
-        &plan,
+    )?;
+    let rows_scanned = replacement.usage().source_rows();
+    let index_keys_written = staged_target_entry_count(&replacement, entity_tag, target.ordinal())?;
+    publish_accepted_entity_snapshot_revision_with_user_index_domain(
+        envelope.store(),
+        accepted_before_identity,
+        envelope.after(),
+        replacement,
     )?;
 
-    Ok((
-        report.metrics().rows_scanned(),
-        report.metrics().index_keys_written(),
-    ))
+    Ok((rows_scanned, index_keys_written))
 }
 
 /// Execute one supported SQL DDL expression index addition through the schema
@@ -102,16 +100,45 @@ pub(in crate::db) fn execute_admin_sql_ddl_expression_index_addition(
     let Some(target) = derivation.admission().expression_target() else {
         return Err(InternalError::store_unsupported());
     };
-
-    execute_supported_expression_index_addition(
+    if plan.expression_index_target() != Some(target) {
+        return Err(InternalError::store_unsupported());
+    }
+    let replacement = stage_sql_ddl_user_index_domain_replacement(
         envelope.store(),
-        envelope.publication_gate(),
-        entity_path,
+        accepted_before_identity,
         envelope.before(),
         envelope.after(),
-        &plan,
-        target,
-    )
+    )?;
+    let rows_scanned = replacement.usage().source_rows();
+    let index_keys_written = staged_target_entry_count(&replacement, entity_tag, target.ordinal())?;
+    publish_accepted_entity_snapshot_revision_with_user_index_domain(
+        envelope.store(),
+        accepted_before_identity,
+        envelope.after(),
+        replacement,
+    )?;
+
+    Ok((rows_scanned, index_keys_written))
+}
+
+fn staged_target_entry_count(
+    replacement: &StagedUserIndexDomainReplacement,
+    entity_tag: EntityTag,
+    ordinal: u16,
+) -> Result<usize, InternalError> {
+    let target = IndexId::new(entity_tag, ordinal);
+    let mut count = 0usize;
+    for entry in replacement.final_entries() {
+        let key =
+            IndexKey::try_from_raw(entry.key()).map_err(|_| InternalError::store_corruption())?;
+        if *key.index_id() == target {
+            count = count
+                .checked_add(1)
+                .ok_or_else(InternalError::store_unsupported)?;
+        }
+    }
+
+    Ok(count)
 }
 
 /// Execute one metadata-only SQL DDL additive-field publication.
@@ -198,10 +225,6 @@ impl<'a> SqlDdlPublicationEnvelope<'a> {
         self.entity_path
     }
 
-    pub(super) const fn publication_gate(&self) -> SchemaMutationCatalogScope {
-        SchemaMutationCatalogScope::sql_ddl(self.entity_tag, self.accepted_before_identity)
-    }
-
     pub(super) fn require_transition_plan(
         &self,
         operation: &'static str,
@@ -278,8 +301,8 @@ fn publish_sql_ddl_accepted_snapshot(
     publish_accepted_entity_snapshot_revision(store, accepted_before_identity, after)
 }
 
-/// Execute one supported SQL DDL secondary-index drop by cleaning the target
-/// physical index namespace before publishing the accepted-after schema.
+/// Execute one supported SQL DDL secondary-index drop through marker-first
+/// complete-domain replacement.
 pub(in crate::db) fn execute_admin_sql_ddl_secondary_index_drop(
     store: StoreHandle,
     entity_tag: EntityTag,
@@ -299,162 +322,21 @@ pub(in crate::db) fn execute_admin_sql_ddl_secondary_index_drop(
     let Some(target) = derivation.admission().drop_target() else {
         return Err(InternalError::store_unsupported());
     };
-
-    validate_sql_ddl_drop_schema_gate(
+    let replacement = stage_sql_ddl_user_index_domain_replacement(
         envelope.store(),
-        entity_tag,
-        entity_path,
+        accepted_before_identity,
         envelope.before(),
-        "before cleanup",
+        envelope.after(),
     )?;
-    let affected = envelope.store().with_index_mut(|index_store| {
-        validate_sql_ddl_drop_ready_index_state(entity_path, target, index_store.state())?;
-        let mut affected = Vec::new();
-        index_store.visit_entries(|raw_key, value| {
-            let index_key =
-                IndexKey::try_from_raw(raw_key).map_err(|_| InternalError::store_corruption())?;
-            if index_key.index_id().entity_tag() == entity_tag
-                && index_key.index_id().ordinal() >= target.ordinal()
-            {
-                let remapped = if index_key.index_id().ordinal() == target.ordinal() {
-                    None
-                } else {
-                    let ordinal = index_key
-                        .index_id()
-                        .ordinal()
-                        .checked_sub(1)
-                        .ok_or_else(InternalError::store_corruption)?;
-                    let key = index_key
-                        .clone_with_index_id(IndexId::new(entity_tag, ordinal))
-                        .to_raw()
-                        .map_err(|_| InternalError::store_corruption())?;
-                    Some(key)
-                };
-                affected.push(SqlDdlSecondaryIndexDropEntry {
-                    original_key: raw_key.clone(),
-                    remapped_key: remapped,
-                    value: value.clone(),
-                });
-            }
-            Ok::<IndexStoreVisit, InternalError>(IndexStoreVisit::Continue)
-        })?;
-        validate_sql_ddl_secondary_index_drop_entries(index_store, &affected)?;
-        if let Err(error) = apply_sql_ddl_secondary_index_drop(index_store, &affected) {
-            rollback_sql_ddl_secondary_index_drop(index_store, &affected);
-            return Err(error);
-        }
-
-        Ok::<_, InternalError>(affected)
-    })?;
-    let removed = affected
-        .iter()
-        .filter(|entry| entry.remapped_key.is_none())
-        .count();
-    let publication_result = validate_sql_ddl_drop_schema_gate(
+    let removed = staged_target_entry_count(&replacement, entity_tag, target.ordinal())?;
+    publish_accepted_entity_snapshot_revision_with_user_index_domain(
         envelope.store(),
-        entity_tag,
-        entity_path,
-        envelope.before(),
-        "before publication",
-    )
-    .and_then(|()| envelope.publish());
-    if let Err(error) = publication_result {
-        if envelope.publication_error_allows_physical_rollback() {
-            store.with_index_mut(|index_store| {
-                rollback_sql_ddl_secondary_index_drop(index_store, &affected);
-            });
-        }
-        return Err(error);
-    }
+        accepted_before_identity,
+        envelope.after(),
+        replacement,
+    )?;
 
     Ok(removed)
-}
-
-/// One affected physical entry. The original key/value is the rollback image;
-/// `remapped_key` is the accepted-after location for a surviving higher index.
-struct SqlDdlSecondaryIndexDropEntry {
-    original_key: RawIndexStoreKey,
-    remapped_key: Option<RawIndexStoreKey>,
-    value: IndexEntryValue,
-}
-
-fn validate_sql_ddl_secondary_index_drop_entries(
-    index_store: &IndexStore,
-    affected: &[SqlDdlSecondaryIndexDropEntry],
-) -> Result<(), InternalError> {
-    // Reject collisions before removing anything so the mutation has one
-    // reversible old-key to new-key mapping.
-    let original_keys = affected
-        .iter()
-        .map(|entry| entry.original_key.clone())
-        .collect::<HashSet<_>>();
-    let mut remapped_keys = HashSet::new();
-
-    for remapped_key in affected
-        .iter()
-        .filter_map(|entry| entry.remapped_key.as_ref())
-    {
-        if !remapped_keys.insert(remapped_key.clone())
-            || (index_store.get(remapped_key).is_some() && !original_keys.contains(remapped_key))
-        {
-            return Err(InternalError::store_corruption());
-        }
-    }
-
-    Ok(())
-}
-
-fn apply_sql_ddl_secondary_index_drop(
-    index_store: &mut IndexStore,
-    affected: &[SqlDdlSecondaryIndexDropEntry],
-) -> Result<(), InternalError> {
-    for entry in affected {
-        if index_store.remove(&entry.original_key) != Some(entry.value.clone()) {
-            return Err(InternalError::store_corruption());
-        }
-    }
-    for entry in affected {
-        if let Some(remapped_key) = &entry.remapped_key
-            && index_store
-                .insert(remapped_key.clone(), entry.value.clone())
-                .is_some()
-        {
-            return Err(InternalError::store_corruption());
-        }
-    }
-
-    Ok(())
-}
-
-fn rollback_sql_ddl_secondary_index_drop(
-    index_store: &mut IndexStore,
-    affected: &[SqlDdlSecondaryIndexDropEntry],
-) {
-    for remapped_key in affected
-        .iter()
-        .filter_map(|entry| entry.remapped_key.as_ref())
-    {
-        index_store.remove(remapped_key);
-    }
-    for entry in affected {
-        index_store.remove(&entry.original_key);
-    }
-    for entry in affected {
-        index_store.insert(entry.original_key.clone(), entry.value.clone());
-    }
-}
-
-fn validate_sql_ddl_drop_ready_index_state(
-    entity_path: &'static str,
-    target: &SchemaSecondaryIndexDropCleanupTarget,
-    state: IndexState,
-) -> Result<(), InternalError> {
-    if state == IndexState::Ready {
-        return Ok(());
-    }
-
-    let _ = (entity_path, target, state);
-    Err(InternalError::store_unsupported())
 }
 
 fn validate_sql_ddl_drop_schema_gate(

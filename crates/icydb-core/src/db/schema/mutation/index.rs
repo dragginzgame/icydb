@@ -43,16 +43,19 @@ impl SchemaFieldPathIndexRebuildTarget {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn store(&self) -> &str {
         self.store.as_str()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn unique(&self) -> bool {
         self.unique
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn predicate_sql(&self) -> Option<&str> {
         match &self.predicate_sql {
             Some(predicate_sql) => Some(predicate_sql.as_str()),
@@ -138,13 +141,11 @@ pub(in crate::db) struct SchemaExpressionIndexRebuildTarget {
 
 impl SchemaExpressionIndexRebuildTarget {
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn ordinal(&self) -> u16 {
         self.ordinal
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn name(&self) -> &str {
         self.name.as_str()
     }
@@ -156,13 +157,7 @@ impl SchemaExpressionIndexRebuildTarget {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
-    pub(in crate::db) const fn unique(&self) -> bool {
-        self.unique
-    }
-
-    #[cfg(any(test, feature = "sql"))]
-    #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn predicate_sql(&self) -> Option<&str> {
         match &self.predicate_sql {
             Some(predicate_sql) => Some(predicate_sql.as_str()),
@@ -171,7 +166,6 @@ impl SchemaExpressionIndexRebuildTarget {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn key_items(&self) -> &[SchemaExpressionIndexRebuildKey] {
         self.key_items.as_slice()
     }
@@ -207,13 +201,11 @@ pub(in crate::db) struct SchemaExpressionIndexRebuildExpression {
 
 impl SchemaExpressionIndexRebuildExpression {
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn op(&self) -> PersistedIndexExpressionOp {
         self.op
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn source(&self) -> &SchemaFieldPathIndexRebuildKey {
         &self.source
     }
@@ -238,21 +230,21 @@ impl SchemaExpressionIndexRebuildExpression {
 }
 
 ///
-/// SchemaSecondaryIndexDropCleanupTarget
+/// SchemaSecondaryIndexDropTarget
 ///
-/// Accepted schema-owned ordinal boundary for dropping a secondary index.
-/// Cleanup removes the target namespace and shifts later index ordinals before
-/// publishing the accepted-after snapshot.
+/// Accepted schema-owned ordinal identity for dropping a secondary index.
+/// The accepted-after snapshot and complete user-index-domain stage own dense
+/// ordinal derivation; this target carries no physical cleanup instructions.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg(any(test, feature = "sql"))]
-pub(in crate::db) struct SchemaSecondaryIndexDropCleanupTarget {
+pub(in crate::db) struct SchemaSecondaryIndexDropTarget {
     ordinal: u16,
 }
 
 #[cfg(any(test, feature = "sql"))]
-impl SchemaSecondaryIndexDropCleanupTarget {
+impl SchemaSecondaryIndexDropTarget {
     const fn from_accepted_index(index: &PersistedIndexSnapshot) -> Self {
         Self {
             ordinal: index.ordinal(),
@@ -389,7 +381,7 @@ pub(in crate::db) const fn admit_sql_ddl_secondary_index_drop_candidate(
 ) -> SchemaDdlMutationAdmission {
     SchemaDdlMutationAdmission {
         target: SchemaDdlMutationTarget::SecondaryDrop(
-            SchemaSecondaryIndexDropCleanupTarget::from_accepted_index(index),
+            SchemaSecondaryIndexDropTarget::from_accepted_index(index),
         ),
     }
 }

@@ -131,12 +131,6 @@ impl SchemaTransitionPlan {
     ) -> Option<&SchemaExpressionIndexRebuildTarget> {
         self.mutation_plan.expression_index_target()
     }
-
-    // Borrow the catalog-native mutation plan behind this reconciliation
-    // transition.
-    pub(in crate::db::schema) const fn mutation_plan(&self) -> &MutationPlan {
-        &self.mutation_plan
-    }
 }
 
 ///

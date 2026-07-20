@@ -20,65 +20,13 @@ use crate::{
     },
     error::InternalError,
     model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
-    testing::test_memory,
     types::EntityTag,
     value::Value,
 };
-use ic_stable_structures::Storable;
-use std::{borrow::Cow, collections::BTreeMap};
+use std::borrow::Cow;
 
 struct RebuildSlotReader {
     values: Vec<Option<Value>>,
-}
-
-#[derive(Default)]
-struct RecordingStagedStoreWriter {
-    writes: Vec<(String, RawIndexStoreKey, IndexEntryValue)>,
-}
-
-#[derive(Default)]
-struct RecordingStagedStoreRollbackWriter {
-    actions: Vec<(String, RawIndexStoreKey, Option<IndexEntryValue>)>,
-}
-
-#[derive(Default)]
-struct RecordingStagedStoreReadView {
-    entries: BTreeMap<(String, RawIndexStoreKey), IndexEntryValue>,
-}
-
-impl RecordingStagedStoreReadView {
-    fn insert(&mut self, store: &str, key: RawIndexStoreKey, entry: IndexEntryValue) {
-        self.entries.insert((store.to_string(), key), entry);
-    }
-}
-
-impl super::SchemaFieldPathIndexStagedStoreReadView for RecordingStagedStoreReadView {
-    fn read_staged_entry(&self, store: &str, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
-        self.entries.get(&(store.to_string(), key.clone())).cloned()
-    }
-}
-
-impl super::SchemaFieldPathIndexStagedStoreWriter for RecordingStagedStoreWriter {
-    fn write_staged_entry(&mut self, store: &str, key: &RawIndexStoreKey, entry: &IndexEntryValue) {
-        self.writes
-            .push((store.to_string(), key.clone(), entry.clone()));
-    }
-}
-
-impl super::SchemaFieldPathIndexStagedStoreRollbackWriter for RecordingStagedStoreRollbackWriter {
-    fn restore_staged_entry(
-        &mut self,
-        store: &str,
-        key: &RawIndexStoreKey,
-        entry: &IndexEntryValue,
-    ) {
-        self.actions
-            .push((store.to_string(), key.clone(), Some(entry.clone())));
-    }
-
-    fn remove_staged_entry(&mut self, store: &str, key: &RawIndexStoreKey) {
-        self.actions.push((store.to_string(), key.clone(), None));
-    }
 }
 
 impl SlotReader for RebuildSlotReader {
@@ -156,23 +104,6 @@ fn non_unique_name_index() -> PersistedIndexSnapshot {
     )
 }
 
-fn unique_name_rebuild_target() -> SchemaFieldPathIndexRebuildTarget {
-    SchemaFieldPathIndexRebuildTarget {
-        ordinal: 3,
-        name: "uniq_name".to_string(),
-        store: "test::mutation::uniq_name".to_string(),
-        unique: true,
-        predicate_sql: Some("name IS NOT NULL".to_string()),
-        key_paths: vec![SchemaFieldPathIndexRebuildKey {
-            field_id: FieldId::new(2),
-            slot: SchemaFieldSlot::new(1),
-            path: vec!["name".to_string()],
-            kind: AcceptedFieldKind::Text { max_len: None },
-            nullable: false,
-        }],
-    }
-}
-
 fn name_key_path() -> PersistedIndexFieldPathSnapshot {
     PersistedIndexFieldPathSnapshot::new(
         FieldId::new(2),
@@ -200,104 +131,6 @@ fn expression_name_index() -> PersistedIndexSnapshot {
         )]),
         Some("LOWER(name) IS NOT NULL".to_string()),
     )
-}
-
-fn accepted_name_field_path_target() -> super::SchemaFieldPathIndexRebuildTarget {
-    let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
-        .expect("non-unique field-path index should lower to a rebuild target");
-    let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
-        panic!("field-path index request should preserve rebuild target");
-    };
-    target
-}
-
-fn accepted_lower_name_expression_target() -> super::SchemaExpressionIndexRebuildTarget {
-    let request = SchemaMutationRequest::from_accepted_expression_index(&expression_name_index())
-        .expect("accepted expression index should lower to a rebuild target");
-    let SchemaMutationRequest::AddExpressionIndex { target } = request else {
-        panic!("expression index request should preserve rebuild target");
-    };
-    target
-}
-
-fn unique_lower_name_expression_target() -> super::SchemaExpressionIndexRebuildTarget {
-    let unique = PersistedIndexSnapshot::new(
-        3,
-        "unique_lower_name".to_string(),
-        "test::mutation::unique_lower_name".to_string(),
-        true,
-        expression_name_index().key().clone(),
-        Some("LOWER(name) IS NOT NULL".to_string()),
-    );
-    let request = SchemaMutationRequest::from_accepted_expression_index(&unique)
-        .expect("unique expression index should lower to a rebuild target");
-    let SchemaMutationRequest::AddExpressionIndex { target } = request else {
-        panic!("unique expression index request should preserve rebuild target");
-    };
-    target
-}
-
-fn staged_name_index_store() -> super::SchemaFieldPathIndexStagedStore {
-    let first = RebuildSlotReader {
-        values: vec![None, Some(Value::Text("Ada".to_string()))],
-    };
-    let second = RebuildSlotReader {
-        values: vec![None, Some(Value::Text("Grace".to_string()))],
-    };
-    let staged = super::SchemaFieldPathIndexStagedRebuild::from_rows(
-        "test::mutation::entity",
-        EntityTag::new(7),
-        accepted_name_field_path_target(),
-        None,
-        [
-            super::SchemaFieldPathIndexRebuildRow::new(PrimaryKeyComponent::Nat64(2), &second),
-            super::SchemaFieldPathIndexRebuildRow::new(PrimaryKeyComponent::Nat64(1), &first),
-        ],
-    )
-    .expect("field-path rebuild rows should stage into raw index entries");
-
-    super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged)
-        .expect("valid staged rebuild should write into an in-memory staged store buffer")
-}
-
-fn extra_staged_name_index_entry() -> super::SchemaFieldPathIndexStagedEntry {
-    let extra = RebuildSlotReader {
-        values: vec![None, Some(Value::Text("Margaret".to_string()))],
-    };
-    let staged = super::SchemaFieldPathIndexStagedRebuild::from_rows(
-        "test::mutation::entity",
-        EntityTag::new(7),
-        accepted_name_field_path_target(),
-        None,
-        [super::SchemaFieldPathIndexRebuildRow::new(
-            PrimaryKeyComponent::Nat64(3),
-            &extra,
-        )],
-    )
-    .expect("extra field-path rebuild row should stage into a raw index entry");
-
-    staged.entries()[0].clone()
-}
-
-fn initialized_index_store(memory_id: u8) -> IndexStore {
-    let mut store = IndexStore::init_journaled(test_memory(memory_id));
-    store.clear();
-    store
-}
-
-fn field_path_index_runner_context() -> (
-    PersistedSchemaSnapshot,
-    PersistedSchemaSnapshot,
-    MutationPlan,
-) {
-    let before = base_snapshot();
-    let after = snapshot_with_indexes(&before, vec![non_unique_name_index()]);
-    let plan: MutationPlan =
-        SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower")
-            .into();
-
-    (before, after, plan)
 }
 
 fn base_snapshot() -> PersistedSchemaSnapshot {
@@ -381,8 +214,5 @@ fn snapshot_with_indexes(
     )
 }
 
-mod expression_staging;
-mod field_path_runner;
-mod field_path_staging;
-mod field_path_store;
 mod planning;
+mod user_index_domain;

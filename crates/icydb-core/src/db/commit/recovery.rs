@@ -163,10 +163,19 @@ fn recover_domain<C: CanisterKind>(
     recovery_key: RecoveryDomainKey,
 ) -> Result<(), InternalError> {
     mark_recovery_domain_in_progress(recovery_key);
-    // Schema compatibility must be checked before row replay/rebuild can
-    // decode stored rows with the generated runtime layout.
-    ensure_schema_reconciled(db)?;
-    perform_recovery(db)?;
+    let marker = with_commit_store(super::store::CommitStore::load)
+        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    // Ordinary row replay needs the current schema reconciled before it can
+    // decode rows. A schema-publication marker instead owns accepted-after:
+    // replay that candidate first, then reconcile the generated proposal
+    // against the newly authoritative accepted schema.
+    if !marker
+        .as_ref()
+        .is_some_and(marker_authorizes_schema_publication)
+    {
+        ensure_schema_reconciled(db)?;
+    }
+    perform_recovery(db, marker)?;
     mark_recovery_domain_recovered(recovery_key)
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     clear_recovery_domain_in_progress(recovery_key);
@@ -175,9 +184,10 @@ fn recover_domain<C: CanisterKind>(
     ensure_schema_reconciled(db)
 }
 
-fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
-    let marker = with_commit_store(super::store::CommitStore::load)
-        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+fn perform_recovery<C: CanisterKind>(
+    db: &Db<C>,
+    marker: Option<CommitMarker>,
+) -> Result<(), InternalError> {
     let had_marker = marker.is_some();
     if let Some(marker) = marker {
         publish_marker_bound_journal_batches(db, &marker)
@@ -224,6 +234,15 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     mark_commit_marker_verified_absent();
 
     Ok(())
+}
+
+fn marker_authorizes_schema_publication(marker: &CommitMarker) -> bool {
+    marker.journal_batches().iter().any(|batch| {
+        batch
+            .records()
+            .iter()
+            .any(|record| matches!(record, JournalRecord::AcceptedSchemaPublish { .. }))
+    })
 }
 
 fn publish_marker_bound_journal_batches<C: CanisterKind>(

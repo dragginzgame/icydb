@@ -1189,7 +1189,6 @@ fn storage_report_index_snapshots_include_runtime_state() {
     reset_stores();
 
     with_index_store_mut(STORE_A_PATH, IndexStore::mark_building);
-    with_index_store_mut(STORE_Z_PATH, IndexStore::mark_dropping);
 
     let report = diagnostics_report(&[]);
     let store_a = report
@@ -1204,7 +1203,7 @@ fn storage_report_index_snapshots_include_runtime_state() {
         .expect("store Z index snapshot should exist");
 
     assert_eq!(store_a.state(), IndexState::Building);
-    assert_eq!(store_z.state(), IndexState::Dropping);
+    assert_eq!(store_z.state(), IndexState::Ready);
 }
 
 #[test]

@@ -2988,7 +2988,7 @@ fn session_show_indexes_reports_primary_and_secondary_indexes() {
 }
 
 #[test]
-fn session_show_indexes_sql_reports_runtime_index_state_transitions() {
+fn session_show_indexes_sql_reports_ready_and_building_runtime_index_states() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
@@ -3020,23 +3020,6 @@ fn session_show_indexes_sql_reports_runtime_index_state_transitions() {
             "INDEX name (name) [state=building] [origin=generated]".to_string(),
         ],
         "SHOW INDEXES FROM should expose Building while planner visibility removes the index from covering routes",
-    );
-
-    INDEXED_SESSION_SQL_DB
-        .recovered_store(IndexedSessionSqlStore::PATH)
-        .expect("indexed SQL store should recover")
-        .with_index_mut(IndexStore::mark_dropping);
-    assert_eq!(
-        statement_show_indexes_sql::<IndexedSessionSqlEntity>(
-            &session,
-            "SHOW INDEXES FROM IndexedSessionSqlEntity",
-        )
-        .expect("SHOW INDEXES FROM should succeed for dropping index"),
-        vec![
-            "PRIMARY KEY (id) [state=dropping] [origin=generated]".to_string(),
-            "INDEX name (name) [state=dropping] [origin=generated]".to_string(),
-        ],
-        "SHOW INDEXES FROM should expose Dropping while planner visibility removes the index from covering routes",
     );
 }
 

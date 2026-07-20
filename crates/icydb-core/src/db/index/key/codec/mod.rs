@@ -64,18 +64,6 @@ impl PartialOrd for IndexKey {
 }
 
 impl IndexKey {
-    /// Clone this decoded key under a reassigned dense index identity.
-    #[must_use]
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn clone_with_index_id(&self, index_id: IndexId) -> Self {
-        Self {
-            key_kind: self.key_kind,
-            index_id,
-            components: self.components.clone(),
-            primary_key: self.primary_key.clone(),
-        }
-    }
-
     fn to_raw_with_primary_key(
         &self,
         primary_key: &[u8],

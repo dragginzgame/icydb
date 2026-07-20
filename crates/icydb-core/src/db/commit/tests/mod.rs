@@ -1481,10 +1481,7 @@ fn assert_journal_tail_fold_interruption_oracle(
     );
 }
 
-fn assert_secondary_index_rebuild_clear_interruption_oracle(
-    case: &RecoveryFailpointCase,
-    mode: CommitFailpointMode,
-) {
+fn assert_secondary_index_rebuild_clear_interruption_oracle(case: &RecoveryFailpointCase) {
     let oracle = CommitFailpoint::AfterSecondaryIndexRebuildClear.recovery_oracle();
     assert_eq!(
         oracle.snapshot(),
@@ -1517,30 +1514,15 @@ fn assert_secondary_index_rebuild_clear_interruption_oracle(
         "secondary-index rebuild should run after canonical rows reach post-state",
     );
 
-    match mode.failure_class() {
-        CommitFailpointFailureClass::StructuredReturnedError => {
-            assert_eq!(
-                index_rows, case.pre_snapshot.1,
-                "returned rebuild errors should restore the pre-rebuild index snapshot",
-            );
-            assert_eq!(
-                recovery_index_state(),
-                IndexState::Ready,
-                "returned rebuild errors should restore the pre-rebuild index state",
-            );
-        }
-        CommitFailpointFailureClass::HostUnwindInterruption => {
-            assert!(
-                index_rows.is_empty(),
-                "host unwind should leave the cleared derived index state for guarded retry",
-            );
-            assert_eq!(
-                recovery_index_state(),
-                IndexState::Building,
-                "host unwind should leave indexes non-ready until guarded retry",
-            );
-        }
-    }
+    assert!(
+        index_rows.is_empty(),
+        "rebuild interruption should leave the cleared derived index state for guarded retry",
+    );
+    assert_eq!(
+        recovery_index_state(),
+        IndexState::Building,
+        "rebuild interruption should leave indexes non-ready until guarded retry",
+    );
 }
 
 fn assert_journaled_index_fold_interruption_oracle(case: &RecoveryFailpointCase) {
@@ -2303,7 +2285,7 @@ fn recovery_secondary_index_rebuild_clear_failpoint_is_retryable_for_error_and_u
 
         arm_commit_failpoint_for_tests(CommitFailpoint::AfterSecondaryIndexRebuildClear, mode);
         assert_recovery_failpoint(mode);
-        assert_secondary_index_rebuild_clear_interruption_oracle(&case, mode);
+        assert_secondary_index_rebuild_clear_interruption_oracle(&case);
 
         ensure_recovered(&DB).expect("secondary-index rebuild retry should converge");
         assert_eq!(recovery_store_snapshot(), case.post_snapshot);
@@ -5056,7 +5038,7 @@ fn recovery_reconciles_schema_before_rebuilding_indexes_from_rows() {
 }
 
 #[test]
-fn recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt_row() {
+fn recovery_startup_rebuild_failure_leaves_non_ready_domain_for_forward_retry() {
     reset_recovery_state();
 
     let sentinel = RecoveryIndexedEntity {
@@ -5076,8 +5058,6 @@ fn recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt
             index_store.insert(sentinel_key.clone(), sentinel_entry);
         });
     });
-    let before_snapshot = index_key_bytes_snapshot();
-
     let bad_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(Ulid::from_u128(923))
         .expect("bad data key should build")
         .to_raw()
@@ -5099,15 +5079,27 @@ fn recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Recovery);
 
-    let after_snapshot = index_key_bytes_snapshot();
+    assert!(
+        index_key_bytes_snapshot().is_empty(),
+        "failed startup rebuild must not restore the superseded derived projection",
+    );
     assert_eq!(
-        after_snapshot, before_snapshot,
-        "failed startup rebuild must restore the prior index snapshot"
+        recovery_index_state(),
+        IndexState::Building,
+        "failed startup rebuild must remain non-ready for guarded retry",
     );
     assert!(
         commit_marker_present().expect("commit marker check should succeed"),
         "failed startup rebuild must keep marker persisted for retry"
     );
+
+    let retry_error = ensure_recovered(&DB)
+        .expect_err("unchanged corrupt authority should fail the same forward retry");
+    assert_eq!(retry_error.class, ErrorClass::Corruption);
+    assert_eq!(retry_error.origin, ErrorOrigin::Recovery);
+    assert!(index_key_bytes_snapshot().is_empty());
+    assert_eq!(recovery_index_state(), IndexState::Building);
+    assert!(commit_marker_present().expect("commit marker check should succeed"));
 
     store::with_commit_store(|store| {
         store.clear_raw_for_tests();

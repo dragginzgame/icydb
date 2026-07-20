@@ -10,14 +10,13 @@ use crate::{
         Db,
         commit::CommitRowOp,
         data::{DataStore, DecodedDataStoreKey, StoreVisit},
-        index::{IndexEntryValue, IndexState, IndexStore, IndexStoreVisit, RawIndexStoreKey},
+        index::IndexStore,
         registry::{StoreHandle, StoreRecoveryCapability},
         schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
     },
     error::InternalError,
     traits::CanisterKind,
 };
-use std::convert::Infallible;
 
 /// Rebuild all secondary indexes from authoritative data rows.
 ///
@@ -26,74 +25,11 @@ use std::convert::Infallible;
 pub(in crate::db) fn rebuild_secondary_indexes_from_rows(
     db: &Db<impl CanisterKind>,
 ) -> Result<(), InternalError> {
-    // Phase 1: capture deterministic store ordering and rollback snapshots.
+    // Derived indexes have one recovery direction: clear and rebuild from the
+    // accepted schema plus authoritative rows. Failure leaves the store
+    // non-Ready so guarded retry starts forward from another complete clear.
     let stores = sorted_store_handles(db);
-    let snapshots = stores
-        .iter()
-        .map(|(_, handle)| IndexStoreSnapshot::capture(*handle))
-        .collect::<Vec<_>>();
-
-    // Phase 2: clear and rebuild all index entries from authoritative rows.
-    let rebuild_result = rebuild_secondary_indexes_in_place(db, &stores);
-    if let Err(err) = rebuild_result {
-        // Phase 3: fail closed by restoring the exact pre-rebuild snapshot.
-        for snapshot in snapshots {
-            snapshot.restore();
-        }
-        return Err(err);
-    }
-
-    Ok(())
-}
-
-///
-/// IndexStoreSnapshot
-///
-/// Rollback snapshot for one index store captured before recovery rebuild.
-/// This protects fail-closed recovery semantics if any rebuild step fails.
-///
-
-#[derive(Clone)]
-struct IndexStoreSnapshot {
-    handle: StoreHandle,
-    entries: Vec<(RawIndexStoreKey, IndexEntryValue)>,
-    state: IndexState,
-}
-
-impl IndexStoreSnapshot {
-    // Capture one index store's exact pre-rebuild contents and readiness state.
-    fn capture(handle: StoreHandle) -> Self {
-        Self {
-            handle,
-            entries: handle.with_index(|index_store| {
-                let mut entries = Vec::new();
-                let _: Result<(), Infallible> = index_store.visit_entries(|raw_key, raw_entry| {
-                    entries.push((raw_key.clone(), raw_entry.clone()));
-                    Ok(IndexStoreVisit::Continue)
-                });
-                entries
-            }),
-            state: handle.index_state(),
-        }
-    }
-
-    // Restore one index store to the exact pre-rebuild snapshot.
-    fn restore(self) {
-        let data_generation = self.handle.with_data(DataStore::generation);
-        self.handle.with_index_mut(|index_store| {
-            index_store.clear();
-            for (raw_key, raw_entry) in self.entries {
-                index_store.insert(raw_key, raw_entry);
-            }
-            index_store.mark_prefix_cardinality_data_generation(data_generation);
-
-            match self.state {
-                IndexState::Building => index_store.mark_building(),
-                IndexState::Ready => index_store.mark_ready(),
-                IndexState::Dropping => index_store.mark_dropping(),
-            }
-        });
-    }
+    rebuild_secondary_indexes_in_place(db, &stores)
 }
 
 /// Collect store handles in deterministic path order for stable rebuild behavior.
