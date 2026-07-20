@@ -16,8 +16,7 @@ use crate::{
         cursor::ValidatedGroupedCursor,
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutionTrace, LoadCursorInput,
-            LoadCursorResolver, PreparedGroupedRuntimeResidents, PreparedLoadCursor,
-            PreparedLoadPlan, RetainedSlotLayout,
+            PreparedGroupedRuntimeResidents, PreparedLoadPlan, RetainedSlotLayout,
             aggregate::runtime::{
                 GroupedOutputRuntimeObserverBindings, build_grouped_stream_with_runtime,
                 execute_group_fold_stage, finalize_grouped_output_with_observer,
@@ -589,26 +588,13 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    /// Prepare the canonical grouped load runtime from public cursor input.
-    /// Ordinary and diagnostics entrypoints share this complete outer setup.
-    pub(in crate::db::executor::pipeline) fn prepare_grouped_load_route_runtime(
+    /// Prepare the canonical grouped load runtime from a cursor already
+    /// resolved by the parent entrypoint orchestration boundary.
+    pub(super) fn prepare_grouped_route_runtime_from_resolved_cursor(
         &self,
         plan: PreparedLoadPlan,
-        cursor: LoadCursorInput,
+        cursor: ValidatedGroupedCursor,
     ) -> Result<PreparedGroupedRouteRuntime, InternalError> {
-        if !plan.mode().is_load() {
-            return Err(InternalError::load_executor_load_plan_required());
-        }
-
-        let resolved_cursor = LoadCursorResolver::resolve_load_cursor_context(
-            &plan,
-            cursor,
-            LoadSurfaceMode::GroupedPage,
-        )?;
-        let PreparedLoadCursor::Grouped(cursor) = resolved_cursor else {
-            return Err(InternalError::query_executor_invariant());
-        };
-
         prepare_grouped_route_runtime_for_load_plan(&self.db, self.debug, plan, cursor)
     }
 

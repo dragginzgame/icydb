@@ -27,12 +27,12 @@ where
         cursor: LoadCursorInput,
         execution_mode: LoadSurfaceMode,
     ) -> Result<PreparedLoadRouteRuntime, InternalError> {
-        if !plan.mode().is_load() {
-            return Err(InternalError::load_executor_load_plan_required());
-        }
-
         match execution_mode {
             LoadSurfaceMode::ScalarPage => {
+                if !plan.mode().is_load() {
+                    return Err(InternalError::load_executor_load_plan_required());
+                }
+
                 let resolved_cursor = LoadCursorResolver::resolve_load_cursor_context(
                     &plan,
                     cursor,

@@ -14,7 +14,8 @@ use crate::{
         PersistedRow,
         cursor::{ValidatedCursor, ValidatedGroupedCursor},
         executor::{
-            CursorPage, ExecutionTrace, LoadCursorInput, PreparedExecutionPlan,
+            CursorPage, ExecutionTrace, LoadCursorInput, LoadCursorResolver, PreparedExecutionPlan,
+            PreparedLoadCursor, PreparedLoadPlan,
             pipeline::{
                 contracts::{LoadExecutor, StructuralGroupedProjectionResult},
                 orchestrator::LoadExecutionSurface,
@@ -24,6 +25,7 @@ use crate::{
         response::EntityResponse,
         schema::SchemaInfo,
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
 };
 
@@ -81,6 +83,35 @@ impl PreparedLoadRouteRuntime {
                 Ok(LoadExecutionSurface::GroupedPageWithTrace(page, trace))
             }
         }
+    }
+}
+
+impl<E> LoadExecutor<E>
+where
+    E: EntityKind + EntityValue,
+{
+    /// Resolve public grouped cursor input at the parent entrypoint boundary,
+    /// then prepare the canonical grouped route runtime shared by ordinary and
+    /// diagnostic execution.
+    pub(in crate::db::executor::pipeline) fn prepare_grouped_load_route_runtime(
+        &self,
+        plan: PreparedLoadPlan,
+        cursor: LoadCursorInput,
+    ) -> Result<PreparedGroupedRouteRuntime, InternalError> {
+        if !plan.mode().is_load() {
+            return Err(InternalError::load_executor_load_plan_required());
+        }
+
+        let resolved_cursor = LoadCursorResolver::resolve_load_cursor_context(
+            &plan,
+            cursor,
+            LoadSurfaceMode::GroupedPage,
+        )?;
+        let PreparedLoadCursor::Grouped(cursor) = resolved_cursor else {
+            return Err(InternalError::query_executor_invariant());
+        };
+
+        self.prepare_grouped_route_runtime_from_resolved_cursor(plan, cursor)
     }
 }
 
