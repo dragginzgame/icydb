@@ -186,9 +186,6 @@ pub(crate) struct PerfComparableEnvironmentIdentity {
     /// Rust compilation target for measured WASM.
     pub(crate) wasm_target: String,
 
-    /// SHA-256 of the workspace lockfile.
-    pub(crate) lockfile_sha256: String,
-
     /// Exact sorted canister feature set.
     pub(crate) feature_set: Vec<String>,
 
@@ -225,6 +222,9 @@ pub(crate) struct PerfSubjectIdentity {
 
     /// Whether tracked or untracked source state differs from the revision.
     pub(crate) source_dirty: bool,
+
+    /// SHA-256 of the workspace lockfile used to build the subject.
+    pub(crate) lockfile_sha256: String,
 
     /// SHA-256 of the raw non-gzipped measured WASM.
     pub(crate) raw_wasm_sha256: String,
@@ -269,8 +269,6 @@ pub(crate) enum PerfEnvironmentField {
     RustToolchain,
     /// WASM target.
     WasmTarget,
-    /// Workspace lockfile.
-    Lockfile,
     /// Canister feature set.
     FeatureSet,
     /// PocketIC version or binary.
@@ -340,7 +338,6 @@ pub(crate) fn capture_perf_environment(
             },
             rust_toolchain,
             wasm_target: WASM_TARGET.to_string(),
-            lockfile_sha256: sha256_hex(&lockfile_bytes),
             feature_set: ["diagnostics", "sql", "sql-explain"]
                 .into_iter()
                 .map(str::to_string)
@@ -356,6 +353,7 @@ pub(crate) fn capture_perf_environment(
         subject: PerfSubjectIdentity {
             source_revision,
             source_dirty: !source_status.is_empty(),
+            lockfile_sha256: sha256_hex(&lockfile_bytes),
             raw_wasm_sha256: sha256_hex(wasm_bytes),
             raw_wasm_bytes: u64::try_from(wasm_bytes.len())
                 .map_err(|_| PerfEnvironmentError::WasmSizeOverflow)?,
@@ -400,16 +398,16 @@ pub(crate) fn validate_perf_environment(
     let required_text = [
         comparable.accepted_snapshot_hash.as_str(),
         comparable.rust_toolchain.as_str(),
-        comparable.lockfile_sha256.as_str(),
         comparable.pocket_ic_version.as_str(),
         comparable.pocket_ic_sha256.as_str(),
         identity.subject.source_revision.as_str(),
+        identity.subject.lockfile_sha256.as_str(),
         identity.subject.raw_wasm_sha256.as_str(),
     ];
     if required_text.iter().any(|value| value.is_empty())
         || !is_sha256(&comparable.accepted_snapshot_hash)
-        || !is_sha256(&comparable.lockfile_sha256)
         || !is_sha256(&comparable.pocket_ic_sha256)
+        || !is_sha256(&identity.subject.lockfile_sha256)
         || !is_sha256(&identity.subject.raw_wasm_sha256)
         || identity.subject.raw_wasm_bytes == 0
     {
@@ -435,7 +433,8 @@ pub(crate) fn validate_perf_environment(
 /// # Errors
 ///
 /// Returns the first typed differing field in stable contract order. Subject
-/// revision and raw WASM identity are intentionally not compared.
+/// revision, dependency lock, and raw WASM identity are intentionally not
+/// compared because their performance effects belong to the measured change.
 pub(crate) fn require_comparable_environment(
     baseline: &PerfEnvironmentIdentity,
     current: &PerfEnvironmentIdentity,
@@ -467,10 +466,6 @@ pub(crate) fn require_comparable_environment(
         (
             baseline.wasm_target == current.wasm_target,
             PerfEnvironmentField::WasmTarget,
-        ),
-        (
-            baseline.lockfile_sha256 == current.lockfile_sha256,
-            PerfEnvironmentField::Lockfile,
         ),
         (
             baseline.feature_set == current.feature_set,
@@ -936,7 +931,6 @@ pub(crate) mod tests {
                 },
                 rust_toolchain: "rustc test".to_string(),
                 wasm_target: WASM_TARGET.to_string(),
-                lockfile_sha256: "22".repeat(32),
                 feature_set: vec![
                     "diagnostics".to_string(),
                     "sql".to_string(),
@@ -953,6 +947,7 @@ pub(crate) mod tests {
             subject: PerfSubjectIdentity {
                 source_revision: "44".repeat(20),
                 source_dirty: false,
+                lockfile_sha256: "22".repeat(32),
                 raw_wasm_sha256: "55".repeat(32),
                 raw_wasm_bytes: 1,
             },
@@ -980,6 +975,7 @@ pub(crate) mod tests {
         let baseline = identity();
         let mut current = baseline.clone();
         current.subject.source_revision = "66".repeat(20);
+        current.subject.lockfile_sha256 = "99".repeat(32);
         current.subject.raw_wasm_sha256 = "77".repeat(32);
         assert_eq!(require_comparable_environment(&baseline, &current), Ok(()));
 
@@ -1025,10 +1021,6 @@ pub(crate) mod tests {
         let mut current = baseline.clone();
         current.comparable.wasm_target.push_str("-changed");
         assert_field(current, PerfEnvironmentField::WasmTarget);
-
-        let mut current = baseline.clone();
-        current.comparable.lockfile_sha256 = "00".repeat(32);
-        assert_field(current, PerfEnvironmentField::Lockfile);
 
         let mut current = baseline.clone();
         current.comparable.feature_set.push("changed".to_string());
@@ -1077,6 +1069,15 @@ pub(crate) mod tests {
             validate_perf_environment(SQL_PERFORMANCE_PROFILE, &environment),
             Err(PerfEnvironmentError::InvalidIdentity(
                 "fixture profile differs from current canonical facts"
+            ))
+        ));
+
+        let mut environment = identity();
+        environment.subject.lockfile_sha256 = "invalid".to_string();
+        assert!(matches!(
+            validate_perf_environment(SQL_PERFORMANCE_PROFILE, &environment),
+            Err(PerfEnvironmentError::InvalidIdentity(
+                "required environment identity field is empty or malformed"
             ))
         ));
     }

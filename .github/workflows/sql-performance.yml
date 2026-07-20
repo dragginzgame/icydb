@@ -9,10 +9,6 @@ on:
         description: "Reviewed SQL Performance Evidence workflow run ID"
         required: false
         type: string
-      subject_revision:
-        description: "Exact commit SHA to measure for a reviewed previous-source bridge"
-        required: false
-        type: string
       calibration_cohort:
         description: "Reviewer-chosen ID for an explicit three-run initial calibration"
         required: false
@@ -40,7 +36,6 @@ env:
   CARGO_TERM_COLOR: always
   IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD: "1"
   REVIEWED_SQL_PERF_BASELINE_RUN_ID: ${{ inputs.baseline_run_id || vars.ICYDB_SQL_PERF_BASELINE_RUN_ID }}
-  SQL_PERF_SUBJECT_REVISION: ${{ inputs.subject_revision || github.sha }}
   SQL_PERF_CALIBRATION_COHORT: ${{ inputs.calibration_cohort }}
   SQL_PERF_CALIBRATION_RUN: ${{ inputs.calibration_run }}
   SQL_PERF_CALIBRATION_SUBJECT_RUN_ID: ${{ inputs.calibration_subject_run_id }}
@@ -54,12 +49,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.SQL_PERF_SUBJECT_REVISION }}
-      - name: Require one immutable subject and exact calibration mode
+      - name: Require the triggered subject and exact calibration mode
         run: |
-          [[ "$SQL_PERF_SUBJECT_REVISION" =~ ^[0-9a-f]{40}$ ]]
-          test "$(git rev-parse HEAD)" = "$SQL_PERF_SUBJECT_REVISION"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           if [ -z "$SQL_PERF_CALIBRATION_COHORT" ]; then
             test -z "$SQL_PERF_CALIBRATION_RUN"
             test -z "$SQL_PERF_CALIBRATION_SUBJECT_RUN_ID"
@@ -116,7 +108,7 @@ jobs:
         if: env.SQL_PERF_CALIBRATION_SUBJECT_RUN_ID != ''
         run: |
           report=artifacts/perf-calibration-subject/sql_perf_deterministic_matrix.json
-          test "$(jq -r '.environment.subject.source_revision' "$report")" = "$SQL_PERF_SUBJECT_REVISION"
+          test "$(jq -r '.environment.subject.source_revision' "$report")" = "$GITHUB_SHA"
           expected_wasm_sha="$(jq -r '.environment.subject.raw_wasm_sha256' "$report")"
           actual_wasm_sha="$(sha256sum artifacts/perf-audit/sql_perf_canister.wasm | cut -d ' ' -f 1)"
           test "$actual_wasm_sha" = "$expected_wasm_sha"
@@ -145,8 +137,6 @@ jobs:
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.SQL_PERF_SUBJECT_REVISION }}
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.RUST_CURRENT }}
@@ -182,8 +172,6 @@ jobs:
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.SQL_PERF_SUBJECT_REVISION }}
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.RUST_CURRENT }}
@@ -215,8 +203,6 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.SQL_PERF_SUBJECT_REVISION }}
       - name: Require a reviewed baseline run
         if: env.SQL_PERF_CALIBRATION_COHORT == ''
         run: test -n "$REVIEWED_SQL_PERF_BASELINE_RUN_ID"
@@ -278,8 +264,6 @@ jobs:
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.SQL_PERF_SUBJECT_REVISION }}
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.RUST_CURRENT }}
@@ -315,8 +299,6 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.SQL_PERF_SUBJECT_REVISION }}
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.RUST_CURRENT }}
@@ -348,8 +330,6 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.SQL_PERF_SUBJECT_REVISION }}
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.RUST_CURRENT }}
@@ -409,8 +389,6 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.SQL_PERF_SUBJECT_REVISION }}
       - name: Require a reviewed baseline run
         run: test -n "$REVIEWED_SQL_PERF_BASELINE_RUN_ID"
       - uses: dtolnay/rust-toolchain@v1

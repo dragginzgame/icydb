@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "design": "0.206",
-  "status": "primary_correction_validated_measurement_pending",
+  "status": "subject_identity_hard_cut_new_baseline_pending",
   "leading_set_frozen": true,
   "selection_frozen": true,
   "opening_evidence": {
@@ -108,7 +108,89 @@
       "implementation_shape": "one_opaque_pending_order_rows_container",
       "focused_scale_status": "blocked_before_sampling_pocket_ic_loopback_bind_failure"
     },
-    "exact_comparable_rerun_required": true
+    "exact_comparable_rerun_required": false,
+    "closeout_decision": "move_lockfile_identity_from_environment_to_subject_and_remove_source_override"
+  },
+  "candidate_evidence": {
+    "authority": "exact_clean_three_run_pre_hard_cut_candidate_cohort",
+    "cohort": "0.206.2-f066894cb-closeout",
+    "run_ids": ["29742278537", "29743875425", "29744294981"],
+    "review_run_id": "29746556799",
+    "source_revision": "f066894cb5709b64af3cb6c9d559c52ba3acfc93",
+    "source_dirty": false,
+    "raw_wasm_sha256": "5cc72cd7b7d07ad7acf4ad42d3a1d4610c849f86b68521e00cd2eb863ea98d09",
+    "raw_wasm_bytes": 3920987,
+    "subject_lockfile_sha256": "b44f68a4d5527b3310484ed14a57c6fee4e23dbe4bf4a1f7978ec820931336a4",
+    "p1_scenario_set_hash": "a6823a84aa768257b2dc27d166e79c20260c5629eb33c70f590d308c64a1f80b",
+    "p2_scenario_set_hash": "6ad8c63a82e1e6a0a5cc7145518ed026f4737b9a530059d546199581eec53d01",
+    "scale_scenario_set_hash": "afa7c342801019da5b1f36674fd7cc4997332822b39f15eac5bf4633381b9ca0",
+    "p1_artifact_sha256": "6f33390852890bdb7f78f0f0771657cefd4ec9acf83277b7e3223eea9195d993",
+    "scale_artifact_sha256": "f4746ceab9d92885bd3bf31cf2542429c412ea7aae3af331128d2c66946b7d46",
+    "p2_artifact_sha256": "c900fc1260bea2921a6810105e1dd3887f712885c62c29e97ecca959bae20a41",
+    "instrumentation_artifact_sha256": "0ae417caa41072ac2b2254ea77976930733c8e7f47942f80b06b0f9807b2887e",
+    "review_artifact_sha256": "fec75651bed485a32b145f9460db3141608111d5b23185ea5d2f04c3afd38c2d",
+    "successful_p1_scenarios": 1787,
+    "failed_p1_scenarios": 0,
+    "p2_candidate_count": 424,
+    "instrumentation_overhead_instructions": 22883,
+    "instrumentation_overhead_basis_points": 350,
+    "unresolved_promotion_count": 31,
+    "promotion_set_change_from_opening": {
+      "added": 0,
+      "removed": 0
+    },
+    "guard_observations": [
+      {
+        "rows": 16,
+        "peak_retained": 11,
+        "total_instructions": 1685600,
+        "order_window_instructions": 61137,
+        "data_store_get_calls": 16,
+        "result_signature_unchanged": true
+      },
+      {
+        "rows": 256,
+        "peak_retained": 11,
+        "total_instructions": 11435036,
+        "order_window_instructions": 63337,
+        "data_store_get_calls": 256,
+        "result_signature_unchanged": true
+      },
+      {
+        "rows": 2048,
+        "peak_retained": 11,
+        "total_instructions": 88478158,
+        "order_window_instructions": 63387,
+        "data_store_get_calls": 2048,
+        "result_signature_unchanged": true
+      }
+    ],
+    "exact_previous_source_comparison_required": false,
+    "superseded_shape_reproduction_run_id": "29748512253",
+    "superseded_shape_reproduction_status": "cancelled_before_shards"
+  },
+  "historical_comparison": {
+    "authority": "contextual_only_pre_hard_cut_environment_shape",
+    "selection_run_id": "29696076149",
+    "candidate_run_id": "29742278537",
+    "rows_2048_total_instructions_before": 104312717,
+    "rows_2048_total_instructions_after": 88478158,
+    "rows_2048_total_delta_basis_points": -1518,
+    "rows_2048_order_window_instructions_before": 35243583,
+    "rows_2048_order_window_instructions_after": 63387,
+    "rows_2048_order_window_delta_basis_points": -9982,
+    "raw_wasm_bytes_before": 3915688,
+    "raw_wasm_bytes_after": 3920987,
+    "raw_wasm_byte_delta": 5299,
+    "exact_causal_claim_authorized": false
+  },
+  "environment_contract_hard_cut": {
+    "lockfile_owner_before": "comparable_environment",
+    "lockfile_owner_after": "measured_subject",
+    "old_artifact_decoder_retained": false,
+    "source_revision_override_retained": false,
+    "actual_environment_mismatches_remain_fail_closed": true,
+    "new_baseline_cohort_required_after_development_push": true
   },
   "primary_budget": {
     "finding_id": "206-003",
@@ -157,8 +239,8 @@
         "crates/icydb-core/src/db/executor/order.rs"
       ],
       "disposition": "OptimizeNow",
-      "selection_state": "primary_corrected_measurement_pending",
-      "evidence": "selection run 29696076149 records 2048 peak retained candidates; lockfile-incomparable run 29731714587 reaches 11 but exposed duplicate final expression-key evaluation at the 16-row guard; the corrected allocation-free cache handoff passes all three focused local guards, including a 15.18 percent 2048-row total reduction, and awaits exact comparable evidence"
+      "selection_state": "primary_candidate_reviewed_new_environment_contract_baseline_pending",
+      "evidence": "selection run 29696076149 records 2048 peak retained candidates; exact candidate runs 29742278537, 29743875425, and 29744294981 each retain 11 and reproduce identical measurements under review 29746556799; historical instruction and Wasm deltas remain contextual across the hard-cut environment shape, while the new contract records lockfile identity with the measured subject and retains no source override"
     },
     {
       "id": "206-004",

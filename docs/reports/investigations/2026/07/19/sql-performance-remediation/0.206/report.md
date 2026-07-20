@@ -1,8 +1,9 @@
 # 0.206 SQL Performance Remediation Investigation
 
-Status: Slice 1 selection frozen; Slice 2 implementation corrected after its
-first diagnostic run and validated locally; exact comparable post-change
-evidence pending.
+Status: Slice 1 selection frozen; the corrected Slice 2 candidate passed an
+exact three-run cohort review; the subject/environment ownership hard cut is
+implemented locally, and a new-format baseline cohort remains required after
+the development commit is pushed.
 
 ## Decision
 
@@ -41,6 +42,11 @@ remain workflow artifacts and are not copied into the repository.
 | selection scale | `29696076149` | `a30b71d27e2c6d3611217357a2f9c8c9c2a96a9c` | profile 1; scale `afa7c342`; fixture `66ae745f` | `sql_perf_scale_report.json` | `05a972becb1721f6195952855539b69050dcb2ad6b3e17353bc4f9202f9f5b97` |
 | selection P2 | `29696076149` | `a30b71d27e2c6d3611217357a2f9c8c9c2a96a9c` | 424 confirmations; P2 `306c6bd3` | `sql_perf_p2_report.json` | `4a174b383b2de9773ad9bfab4f281d682783d9ee0ecea4776c9960c894e19f82` |
 | selection attribution | `29696076149` | `a30b71d27e2c6d3611217357a2f9c8c9c2a96a9c` | 22,883 instructions; 350 basis points; observation only | `sql_perf_instrumentation.json` | `b7c79f4677c84e6903864339478eaf3472804ef03198e9876087f4fc177cb86c` |
+| candidate P1 | `29742278537` | `f066894cb5709b64af3cb6c9d559c52ba3acfc93` | profile 1; diagnostics schema 2; P1 `a6823a84`; 1,787 passed | `sql_perf_deterministic_matrix.json` | `6f33390852890bdb7f78f0f0771657cefd4ec9acf83277b7e3223eea9195d993` |
+| candidate scale | `29742278537` | `f066894cb5709b64af3cb6c9d559c52ba3acfc93` | scale `afa7c342`; fixture `66ae745f` | `sql_perf_scale_report.json` | `f4746ceab9d92885bd3bf31cf2542429c412ea7aae3af331128d2c66946b7d46` |
+| candidate P2 | `29742278537` | `f066894cb5709b64af3cb6c9d559c52ba3acfc93` | 424 confirmations; P2 `6ad8c63a` | `sql_perf_p2_report.json` | `c900fc1260bea2921a6810105e1dd3887f712885c62c29e97ecca959bae20a41` |
+| candidate attribution | `29742278537` | `f066894cb5709b64af3cb6c9d559c52ba3acfc93` | 22,883 instructions; 350 basis points; observation only | `sql_perf_instrumentation.json` | `0ae417caa41072ac2b2254ea77976930733c8e7f47942f80b06b0f9807b2887e` |
+| candidate cohort review | `29746556799` | `f066894cb5709b64af3cb6c9d559c52ba3acfc93` | cohort `0.206.2-f066894cb-closeout`; runs `29742278537`, `29743875425`, `29744294981` | `sql_perf_calibration_review.json` | `fec75651bed485a32b145f9460db3141608111d5b23185ea5d2f04c3afd38c2d` |
 
 The opening subject is raw Wasm SHA-256
 `e40cf2756a9b714d232eff6a488b81db6939a0a3ed882863f82716e0b91008fb`,
@@ -108,28 +114,72 @@ build is 3,919,866 raw bytes with SHA-256
 2,922 bytes above tagged `0.206.1` and 4,178 bytes above selection. Its focused
 shard attempt stopped before sampling when PocketIC could not bind its ephemeral
 loopback listener, so only the raw-byte result is current-lockfile evidence.
-Both local size identities remain provisional until the clean remote subject is
-recorded. A focused complexity pass replaced the earlier cache DTO plus scan-row
+Both local size identities are superseded by the clean remote subject below. A
+focused complexity pass replaced the earlier cache DTO plus scan-row
 enum with one opaque pending-row container, reducing the correction from about
 211 to 123 net production lines and removing 1,571 raw Wasm bytes from the prior
 current-lockfile candidate.
 
-The workflow now accepts an immutable 40-character `subject_revision` for the
-documented previous-source bridge. All code-bearing jobs check out that same
-revision. An explicit three-run calibration cohort can therefore measure the
-previous accepted implementation under the candidate's lockfile identity and
-pass through the existing strict reviewer before the candidate comparison. No
-lockfile comparison is weakened and no compatibility lane is created. Exact
-bridge and corrected-cache evidence are still required.
+The exact clean candidate cohort measures raw non-gzipped Wasm SHA-256
+`5cc72cd7b7d07ad7acf4ad42d3a1d4610c849f86b68521e00cd2eb863ea98d09`,
+3,920,987 bytes, under lockfile SHA-256
+`b44f68a4d5527b3310484ed14a57c6fee4e23dbe4bf4a1f7978ec820931336a4`.
+All three ordinals are bit-for-bit identical for the selected family:
 
-The remaining bridge must use one reviewable synthetic source whose production
-code is exact selection revision
-`a30b71d27e2c6d3611217357a2f9c8c9c2a96a9c` and whose release-only workspace
-version files match the `0.206.1` candidate environment. Three calibration
-ordinals must measure that same source revision and raw Wasm, followed by the
-existing strict calibration review. The corrected candidate then names the
-accepted ordinal-one run as its baseline. The bridge commit is evidence-only;
-it is not merged, tagged, published, or treated as a supported source state.
+| Rows | Peak retained | Total instructions | Order-window instructions | Data gets | Result |
+| ---: | ---: | ---: | ---: | ---: | --- |
+| 16 | 11 | 1,685,600 | 61,137 | 16 | unchanged IDs 1-10 |
+| 256 | 11 | 11,435,036 | 63,337 | 256 | unchanged IDs 1-10 |
+| 2,048 | 11 | 88,478,158 | 63,387 | 2,048 | unchanged IDs 1-10 |
+
+All 1,787 P1 scenarios passed in each ordinal. The review records 424 P2
+candidates and identical 22,883-instruction, 350-basis-point attribution
+overhead in all three runs. Its 31 unresolved promotion-review scenarios are
+the exact same set as the accepted opening cohort: no candidate was added or
+removed by Slice 2. This accepts candidate stability, not the final baseline or
+the before/after comparison.
+
+## Closeout Comparison Decision
+
+Selection run `29696076149` and the corrected candidate cohort differ at
+`Cargo.lock`: workspace versions changed from 0.206.0 to 0.206.2, and the
+candidate lock resolves `serde_json` 1.0.151 and `syn` 3.0.2. Treating that
+lockfile as external environment was the ownership error that made ordinary
+release versioning invalidate the baseline. 0.206.3 hard-cuts the artifact
+shape so the lock hash is recorded with source revision and raw Wasm as measured
+subject provenance. Dependency changes remain visible, and their performance
+effects participate in the candidate verdict instead of making it inadmissible.
+
+There is no decoder for the superseded environment shape and no synthetic
+historical-source or source-override workflow lane. Existing 0.206 artifacts
+remain immutable historical evidence; they are not rewritten to manufacture a
+new exact comparison. Ordinary run `29748512253` was cancelled during its
+shared-Wasm build, before shard execution, once the ownership hard cut made its
+superseded-shape result non-authoritative.
+
+The maintained performance claims are therefore narrower and exact:
+
+- peak retained candidates fall from an exactly observed 2,048 in the selected
+  old implementation to exactly 11 in every clean candidate ordinal;
+- the candidate's absolute instruction, store-call, result-signature, and raw
+  Wasm observations are exact and stable across the accepted three-run cohort;
+- all 1,787 candidate P1 scenarios pass and all three ordinals produce the same
+  424-scenario P2 selection and attribution overhead; and
+- a fresh cohort under the hard-cut subject/environment shape must become
+  future regression authority after the development commit is pushed.
+
+For historical context only, the selected 2,048-row case moves from 104,312,717
+to 88,478,158 total instructions and from 35,243,583 to 63,387 order-window
+instructions, approximately 15.18% and 99.82% lower respectively. The raw Wasm
+moves from 3,915,688 to 3,920,987 bytes. These cross-lockfile deltas are useful
+directional evidence but are not published as exact causal measurements.
+
+Future performance slices use the direct flow: baseline, complete candidate
+source-and-dependency change, comparison, then release. The workflow measures
+only its trigger revision. Actual external environment changes—toolchain,
+fixture, build configuration, accepted schema, PocketIC, diagnostics, or
+counter policy—still fail closed and require a fresh baseline rather than a
+compatibility or historical-source mode.
 
 ## Deterministic Leading Set
 
@@ -285,9 +335,10 @@ Focused executor and session coverage passes for cached complete keys,
 ascending and descending scalar expressions, nullable text expressions,
 unindexed materialization, expression-index covering routes, paged result
 parity, one-evaluation cache reuse, and fail-closed cache-contract mismatch.
-The exact workflow rerun remains required before the structural target,
-instruction guardrails, final raw Wasm delta, and Slice 2 acceptance can be
-recorded.
+The clean candidate cohort proves the structural target, candidate instruction
+values, and final candidate raw Wasm identity. Historical cross-lockfile deltas
+remain explicitly contextual. A fresh new-format candidate cohort is the
+remaining external Slice 2 closeout evidence.
 
 ## Remaining Risks
 
@@ -297,8 +348,9 @@ recorded.
   ordinary non-diagnostics query API is unchanged.
 - Expression-order bounded collection caches each expression key once per
   input row during scan-time selection and compares the complete deterministic
-  order, including the primary-key tie-break. The exact workflow must prove
-  that this implementation meets its instruction guardrails.
+  order, including the primary-key tie-break. The exact candidate cohort proves
+  its stable absolute instruction values; historical percentage deltas remain
+  contextual because the selection lockfile differs.
 - The full scan remains contract-required. The implementation removes retained
   candidate state; it does not claim index pushdown or early scan stop.
 - Peak retained candidates are not peak heap bytes. No memory-byte claim is
@@ -308,7 +360,11 @@ recorded.
 
 The opening 0.205.2 cohort and strict review passed. Exact selection run
 `29696076149` passed all P1, scale, P2, attribution, merge, and bundle jobs after
-one infrastructure-only PocketIC-download rerun. The local Slice 2
-implementation passes focused expression-order semantics and package-local
-Clippy with warnings denied. Exact post-change performance evidence is pending;
-full repository tests remain user-owned under repository policy.
+one infrastructure-only PocketIC-download rerun. Candidate runs `29742278537`,
+`29743875425`, and `29744294981` passed every P1, scale, P2, attribution, merge,
+and bundle job; strict review run `29746556799` accepted their exact shared
+cohort. The local Slice 2 implementation also passes focused expression-order
+semantics and package-local Clippy with warnings denied. A fresh cohort under
+the hard-cut subject/environment shape remains pending after the development
+commit is pushed; full repository tests remain user-owned under repository
+policy.

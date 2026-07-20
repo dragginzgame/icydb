@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Moves lockfile provenance from comparable environment to measured subject,
+  removes the one-off previous-source workflow path, and keeps historical
+  pre-hard-cut deltas explicitly contextual.
+
 ## [0.206.x] 🔧 - 2026-07-19 - SQL Performance Remediation
 
 Detailed notes: [docs/changelog/0.206.md](docs/changelog/0.206.md)
