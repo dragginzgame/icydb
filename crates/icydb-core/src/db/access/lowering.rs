@@ -67,12 +67,7 @@ pub(in crate::db) struct LoweredAccess<'a, K> {
 
 impl<'a, K> LoweredAccess<'a, K> {
     #[must_use]
-    pub(in crate::db) const fn executable(&self) -> &ExecutableAccessPlan<'a, K> {
-        &self.executable
-    }
-
-    #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(test)]
     pub(in crate::db) const fn index_prefix_specs(&self) -> &[LoweredIndexPrefixSpec] {
         self.index_prefix_specs.as_slice()
     }
@@ -110,6 +105,17 @@ impl<'a, K> LoweredAccess<'a, K> {
 pub(in crate::db) enum LoweredAccessError {
     IndexPrefix,
     IndexRange,
+}
+
+impl LoweredAccessError {
+    /// Convert access-lowering failure at the prepared-plan boundary without
+    /// misclassifying index encoding failure as cursor state corruption.
+    #[must_use]
+    pub(in crate::db) fn into_internal_error(self) -> InternalError {
+        match self {
+            Self::IndexPrefix | Self::IndexRange => InternalError::index_invariant(),
+        }
+    }
 }
 
 /// Lower one structural access plan into executable and raw index-bound specs.
@@ -928,6 +934,7 @@ mod accepted_enum_tests {
                 SchemaVersion, build_initial_accepted_enum_catalog_from_kinds_for_tests,
             },
         },
+        error::ErrorOrigin,
         model::{
             entity::EntityModel,
             field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
@@ -961,6 +968,16 @@ mod accepted_enum_tests {
     static INDEXES: [&IndexModel; 1] = [&STATUS_INDEX];
     static MODEL: EntityModel =
         entity_model_from_static("access::Item", "Item", &FIELDS[0], 0, &FIELDS, &INDEXES);
+
+    #[test]
+    fn lowering_failures_map_to_index_owned_runtime_errors() {
+        for error in [
+            LoweredAccessError::IndexPrefix,
+            LoweredAccessError::IndexRange,
+        ] {
+            assert_eq!(error.into_internal_error().origin(), ErrorOrigin::Index);
+        }
+    }
 
     #[test]
     fn accepted_enum_prefix_lowering_matches_stored_unit_key_bytes() {

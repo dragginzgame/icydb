@@ -4,55 +4,35 @@ use crate::{
         executor::{
             pipeline::contracts::{PageCursor, StructuralCursorPage},
             projection::{PreparedProjectionContract, validate_prepared_projection_row},
+            terminal::page::{KernelRow, RetainedSlotRow},
         },
-        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
 };
-
-use crate::db::executor::terminal::page::{KernelRow, RetainedSlotRow};
-
-///
-/// StructuralPostScanPageWindowStrategy
-///
-/// StructuralPostScanPageWindowStrategy freezes whether the structural
-/// post-scan tail still owns one page-window pass before final payload
-/// shaping.
-///
-
-#[derive(Clone, Copy)]
-pub(super) enum StructuralPostScanPageWindowStrategy {
-    NotPresent,
-    CursorlessRetainedWindow,
-}
 
 ///
 /// StructuralPostScanTailStrategy
 ///
 /// StructuralPostScanTailStrategy owns the remaining shared structural
 /// post-scan tail for scalar materialization.
-/// It applies the resolved page-window policy, shared projection validation,
-/// and final payload shaping so the main page path and cursorless short path
-/// consume the same tail boundary.
+/// It applies shared projection validation and final payload shaping so the
+/// main page path and cursorless short path consume the same tail boundary.
 ///
 
 #[derive(Clone, Copy)]
 pub(super) struct StructuralPostScanTailStrategy<'a> {
-    page_window_strategy: StructuralPostScanPageWindowStrategy,
     projection_validation: Option<&'a PreparedProjectionContract>,
     retain_slot_rows: bool,
 }
 
 impl<'a> StructuralPostScanTailStrategy<'a> {
-    // Build one shared structural post-scan tail from already-resolved page
-    // window, projection validation, and final payload policy.
+    // Build one shared structural post-scan tail from already-resolved
+    // projection validation and final payload policy.
     pub(super) const fn new(
-        page_window_strategy: StructuralPostScanPageWindowStrategy,
         projection_validation: Option<&'a PreparedProjectionContract>,
         retain_slot_rows: bool,
     ) -> Self {
         Self {
-            page_window_strategy,
             projection_validation,
             retain_slot_rows,
         }
@@ -60,33 +40,8 @@ impl<'a> StructuralPostScanTailStrategy<'a> {
 
     // Apply the resolved structural post-scan tail before cursor derivation
     // and outward payload shaping.
-    pub(super) fn apply(
-        &self,
-        plan: &AccessPlannedQuery,
-        rows: &mut Vec<KernelRow>,
-    ) -> Result<(), InternalError> {
-        self.apply_with_pre_applied_page_window(plan, rows, false)
-    }
-
-    // Apply the resolved structural post-scan tail when an upstream scan may
-    // have already applied the cursorless page offset during collection.
-    pub(super) fn apply_with_pre_applied_page_window(
-        &self,
-        plan: &AccessPlannedQuery,
-        rows: &mut Vec<KernelRow>,
-        page_window_already_applied: bool,
-    ) -> Result<(), InternalError> {
-        if matches!(
-            self.page_window_strategy,
-            StructuralPostScanPageWindowStrategy::CursorlessRetainedWindow
-        ) && !page_window_already_applied
-            && self.retain_slot_rows
-            && !cursorless_short_path_page_window_is_redundant(plan, rows.len())
-        {
-            apply_cursorless_short_path_page_window(plan, rows);
-        }
-
-        validate_prepared_projection_rows(self.projection_validation, rows.as_slice())
+    pub(super) fn apply(&self, rows: &[KernelRow]) -> Result<(), InternalError> {
+        validate_prepared_projection_rows(self.projection_validation, rows)
     }
 
     // Finalize one already-materialized structural row set onto the outward
@@ -126,58 +81,6 @@ pub(in crate::db::executor) const fn select_structural_cursor_payload_strategy(
     let _ = retain_slot_rows;
 
     StructuralCursorPayloadStrategy::DataRows { next_cursor }
-}
-
-// Return whether the cursorless retained-slot path already staged its final
-// LIMIT/OFFSET window.
-fn cursorless_short_path_page_window_is_redundant(
-    plan: &AccessPlannedQuery,
-    row_count: usize,
-) -> bool {
-    let Some(page) = plan.scalar_plan().page.as_ref() else {
-        return true;
-    };
-
-    if page.offset != 0 {
-        return false;
-    }
-
-    page.limit
-        .is_none_or(|limit| row_count <= usize::try_from(limit).unwrap_or(usize::MAX))
-}
-
-// Apply the cursorless LIMIT/OFFSET window directly on the collected row set
-// when the route already guarantees final order and the outer surface does not
-// retain scalar continuation state.
-fn apply_cursorless_short_path_page_window<T>(plan: &AccessPlannedQuery, rows: &mut Vec<T>) {
-    let Some(page) = plan.scalar_plan().page.as_ref() else {
-        return;
-    };
-
-    let total = rows.len();
-    let start = usize::try_from(page.offset)
-        .unwrap_or(usize::MAX)
-        .min(total);
-    let end = match page.limit {
-        Some(limit) => start
-            .saturating_add(usize::try_from(limit).unwrap_or(usize::MAX))
-            .min(total),
-        None => total,
-    };
-    if start == 0 {
-        rows.truncate(end);
-        return;
-    }
-
-    let mut kept = 0usize;
-    for read_index in start..end {
-        if kept != read_index {
-            rows.swap(kept, read_index);
-        }
-        kept = kept.saturating_add(1);
-    }
-
-    rows.truncate(kept);
 }
 
 // Require the prepared projection-validation bundle whenever a retained-slot

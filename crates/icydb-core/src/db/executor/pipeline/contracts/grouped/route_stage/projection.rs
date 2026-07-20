@@ -88,7 +88,7 @@ impl GroupedRouteStage {
     pub(in crate::db::executor) const fn grouped_route_plan(
         &self,
     ) -> &crate::db::executor::ExecutionRoutePlan {
-        &self.route_payload.grouped_route_plan
+        &self.grouped_route_plan
     }
 
     /// Borrow lowered grouped index-prefix specs.
@@ -107,14 +107,16 @@ impl GroupedRouteStage {
 
     /// Return routed grouped stream direction.
     pub(in crate::db::executor) const fn direction(&self) -> Direction {
-        self.direction
+        self.grouped_route_plan.direction()
     }
 
     /// Return grouped execution mode for grouped stream observability.
-    pub(in crate::db::executor) const fn grouped_execution_mode(
+    pub(in crate::db::executor) fn grouped_execution_mode(
         &self,
-    ) -> crate::db::executor::route::GroupedExecutionMode {
-        self.grouped_execution_mode
+    ) -> Result<crate::db::executor::route::GroupedExecutionMode, InternalError> {
+        self.grouped_route_plan
+            .grouped_execution_mode()
+            .ok_or_else(InternalError::query_executor_invariant)
     }
 
     /// Return whether the grouped route projected bounded Top-K grouped
@@ -185,9 +187,7 @@ impl GroupedRouteStage {
     ) -> Self {
         use crate::db::{
             cursor::ContinuationSignature,
-            executor::{
-                GroupedContinuationContext, GroupedPaginationWindow, route::GroupedExecutionMode,
-            },
+            executor::{GroupedContinuationContext, GroupedPaginationWindow},
             predicate::MissingRowPolicy,
             query::plan::{
                 AccessPlannedQuery, GroupedDistinctExecutionStrategy, GroupedExecutionConfig,
@@ -225,9 +225,7 @@ impl GroupedRouteStage {
                 grouped_having_expr: None,
                 grouped_distinct_execution_strategy: GroupedDistinctExecutionStrategy::None,
             },
-            route_payload: crate::db::executor::pipeline::contracts::GroupedRoutePayload {
-                grouped_route_plan,
-            },
+            grouped_route_plan,
             index_specs: crate::db::executor::pipeline::contracts::IndexSpecBundle {
                 index_prefix_specs: std::sync::Arc::from(Vec::<
                     crate::db::access::LoweredIndexPrefixSpec,
@@ -237,8 +235,6 @@ impl GroupedRouteStage {
                 >::new()),
             },
             continuation,
-            direction,
-            grouped_execution_mode: GroupedExecutionMode::HashMaterialized,
             execution_trace: None,
         }
     }

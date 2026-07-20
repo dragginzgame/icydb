@@ -8,8 +8,7 @@ use crate::{
         LoadCursorInput, LoadCursorResolver, PreparedLoadCursor, PreparedLoadPlan,
         ScalarContinuationContext,
         pipeline::{
-            contracts::LoadExecutor,
-            entrypoints::{PreparedLoadRouteRuntime, prepare_grouped_route_runtime_for_load_plan},
+            contracts::LoadExecutor, entrypoints::PreparedLoadRouteRuntime,
             orchestrator::LoadSurfaceMode,
         },
     },
@@ -32,28 +31,22 @@ where
             return Err(InternalError::load_executor_load_plan_required());
         }
 
-        let resolved_cursor =
-            LoadCursorResolver::resolve_load_cursor_context(&plan, cursor, execution_mode)?;
-        self.build_prepared_route_runtime(plan, resolved_cursor, false)
-    }
+        match execution_mode {
+            LoadSurfaceMode::ScalarPage => {
+                let resolved_cursor = LoadCursorResolver::resolve_load_cursor_context(
+                    &plan,
+                    cursor,
+                    LoadSurfaceMode::ScalarPage,
+                )?;
+                let PreparedLoadCursor::Scalar(resolved_continuation) = resolved_cursor else {
+                    return Err(InternalError::query_executor_invariant());
+                };
 
-    // Build one canonical prepared route runtime from one typed execution context.
-    pub(in crate::db::executor::pipeline::orchestrator) fn build_prepared_route_runtime(
-        &self,
-        plan: PreparedLoadPlan,
-        cursor: PreparedLoadCursor,
-        scalar_rows_mode: bool,
-    ) -> Result<PreparedLoadRouteRuntime, InternalError> {
-        match cursor {
-            PreparedLoadCursor::Scalar(resolved_continuation) => self
-                .build_scalar_prepared_route_runtime(
-                    plan,
-                    *resolved_continuation,
-                    scalar_rows_mode,
-                ),
-            PreparedLoadCursor::Grouped(cursor) => {
-                self.build_grouped_prepared_route_runtime(plan, cursor)
+                self.build_scalar_prepared_route_runtime(plan, *resolved_continuation, false)
             }
+            LoadSurfaceMode::GroupedPage => self
+                .prepare_grouped_load_route_runtime(plan, cursor)
+                .map(PreparedLoadRouteRuntime::Grouped),
         }
     }
 
@@ -68,19 +61,6 @@ where
         let prepared =
             self.prepare_scalar_route_runtime(plan, resolved_continuation, scalar_rows_mode)?;
 
-        Ok(PreparedLoadRouteRuntime::scalar(prepared))
-    }
-
-    // Build one grouped prepared route runtime from one prepared grouped cursor
-    // while keeping grouped route/runtime assembly under one local owner.
-    fn build_grouped_prepared_route_runtime(
-        &self,
-        plan: PreparedLoadPlan,
-        cursor: crate::db::cursor::ValidatedGroupedCursor,
-    ) -> Result<PreparedLoadRouteRuntime, InternalError> {
-        let prepared =
-            prepare_grouped_route_runtime_for_load_plan(&self.db, self.debug, plan, cursor)?;
-
-        Ok(PreparedLoadRouteRuntime::grouped(prepared))
+        Ok(PreparedLoadRouteRuntime::Scalar(prepared))
     }
 }

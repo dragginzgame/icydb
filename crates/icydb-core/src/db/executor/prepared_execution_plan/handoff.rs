@@ -52,9 +52,7 @@ impl PreparedScalarRuntimeHandoff {
             execution_plan,
             residents.continuation_identity,
             residents.index_prefix_specs,
-            residents.index_prefix_spec_invalid,
             residents.index_range_specs,
-            residents.index_range_spec_invalid,
         );
 
         Self {
@@ -65,19 +63,6 @@ impl PreparedScalarRuntimeHandoff {
             plan_core: PreparedScalarPlanCore { core },
         }
     }
-}
-
-///
-/// PreparedGroupedRuntimeHandoff
-///
-/// Grouped runtime residents cloned from one prepared load plan.
-/// Grouped entrypoints use this pair as one explicit handoff so the grouped
-/// runtime boundary does not expose two separate clone-only wrappers.
-///
-
-pub(in crate::db::executor) struct PreparedGroupedRuntimeHandoff {
-    pub(in crate::db::executor) execution_preparation: Option<ExecutionPreparation>,
-    pub(in crate::db::executor) grouped_slot_layout: Option<RetainedSlotLayout>,
 }
 
 ///

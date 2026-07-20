@@ -5,10 +5,10 @@
 
 use crate::{
     db::{
-        access::{LoweredAccess, LoweredAccessError, lower_access_with_schema_info},
+        access::ExecutableAccessPlan,
         direction::Direction,
         executor::{
-            EntityAuthority, ExecutionPreparation, ExecutionRoutePlan, ExecutorPlanError,
+            EntityAuthority, ExecutionPreparation, ExecutionRoutePlan,
             LoweredIndexPrefixCardinalityPlan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             StoreResolver,
             aggregate::{AggregateKind, ScalarTerminalKind, field::FieldSlot},
@@ -234,36 +234,19 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingInputs<'ctx> {
 }
 
 impl PreparedAggregateStreamingInputs<'_> {
-    /// Lower the owned logical access plan for one explicit decision phase.
-    pub(in crate::db::executor) fn lowered_access(
-        &self,
-    ) -> Result<LoweredAccess<'_, Value>, InternalError> {
-        lower_access_with_schema_info(
-            self.authority.entity_tag(),
-            &self.logical_plan.access,
-            self.authority
-                .accepted_schema_info()
-                .ok_or_else(InternalError::query_executor_invariant)?,
-        )
-        .map_err(|err| match err {
-            LoweredAccessError::IndexPrefix => {
-                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
-            }
-            LoweredAccessError::IndexRange => {
-                ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error()
-            }
-        })
+    /// Borrow the executable access tree whose encoded index specs were frozen
+    /// by canonical prepared-plan construction.
+    #[must_use]
+    pub(in crate::db::executor) fn executable_access(&self) -> ExecutableAccessPlan<'_, Value> {
+        self.logical_plan.access.executable_contract()
     }
 
     /// Return whether normalized plan semantics prove the aggregate window is empty.
     #[must_use]
-    pub(in crate::db::executor) fn window_is_provably_empty(
-        &self,
-        lowered_access: &LoweredAccess<'_, Value>,
-    ) -> bool {
+    pub(in crate::db::executor) fn window_is_provably_empty(&self) -> bool {
         self.page_spec().is_some_and(|page| page.limit == Some(0))
-            || lowered_access
-                .executable()
+            || self
+                .executable_access()
                 .as_path()
                 .is_some_and(|path| path.shape_facts().is_by_keys_empty())
     }

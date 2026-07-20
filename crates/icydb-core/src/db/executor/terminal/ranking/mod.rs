@@ -99,7 +99,7 @@ where
         let row_layout = plan.authority().row_layout()?;
         let prepared = self.prepare_scalar_materialized_boundary(plan)?;
         let page = self.execute_scalar_materialized_page_boundary(prepared)?;
-        let (mut data_rows, _) = page.into_data_rows_and_cursor();
+        let (mut data_rows, _) = page.require_data_rows_and_cursor()?;
         let take_len = usize::try_from(take_count).unwrap_or(usize::MAX);
         if data_rows.len() > take_len {
             data_rows.truncate(take_len);
@@ -146,33 +146,33 @@ where
 
         match (direction, projection) {
             (RankedFieldBoundaryDirection::Top, RankedFieldBoundaryProjection::Rows) => {
-                let (data_rows, _) = page.into_data_rows_and_cursor();
+                let (data_rows, _) = page.require_data_rows_and_cursor()?;
                 Self::top_k_field_from_materialized(row_layout, data_rows, field_slot, take_count)
                     .map(RankingTerminalBoundaryOutput::Rows)
             }
             (RankedFieldBoundaryDirection::Bottom, RankedFieldBoundaryProjection::Rows) => {
-                let (data_rows, _) = page.into_data_rows_and_cursor();
+                let (data_rows, _) = page.require_data_rows_and_cursor()?;
                 Self::bottom_k_field_from_materialized(
                     row_layout, data_rows, field_slot, take_count,
                 )
                 .map(RankingTerminalBoundaryOutput::Rows)
             }
             (RankedFieldBoundaryDirection::Top, RankedFieldBoundaryProjection::Values) => {
-                let data_rows = page.data_rows();
+                let data_rows = page.require_data_rows()?;
                 Self::top_k_field_values_from_materialized(
                     row_layout, data_rows, field_slot, take_count,
                 )
                 .map(RankingTerminalBoundaryOutput::Values)
             }
             (RankedFieldBoundaryDirection::Bottom, RankedFieldBoundaryProjection::Values) => {
-                let data_rows = page.data_rows();
+                let data_rows = page.require_data_rows()?;
                 Self::bottom_k_field_values_from_materialized(
                     row_layout, data_rows, field_slot, take_count,
                 )
                 .map(RankingTerminalBoundaryOutput::Values)
             }
             (RankedFieldBoundaryDirection::Top, RankedFieldBoundaryProjection::ValuesWithIds) => {
-                let (data_rows, _) = page.into_data_rows_and_cursor();
+                let (data_rows, _) = page.require_data_rows_and_cursor()?;
                 Self::top_k_field_values_with_ids_from_materialized(
                     row_layout, data_rows, field_slot, take_count,
                 )
@@ -182,7 +182,7 @@ where
                 RankedFieldBoundaryDirection::Bottom,
                 RankedFieldBoundaryProjection::ValuesWithIds,
             ) => {
-                let (data_rows, _) = page.into_data_rows_and_cursor();
+                let (data_rows, _) = page.require_data_rows_and_cursor()?;
                 Self::bottom_k_field_values_with_ids_from_materialized(
                     row_layout, data_rows, field_slot, take_count,
                 )

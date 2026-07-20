@@ -78,7 +78,7 @@ where
 {
     validate_delete_plan_shape(&plan)?;
 
-    let prepared = plan.into_access_plan_handoff()?;
+    let prepared = plan.into_access_plan_handoff();
     let accepted_schema = {
         let store = db.recovered_store(E::Store::PATH)?;
         store.with_schema_mut(|schema_store| {

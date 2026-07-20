@@ -119,7 +119,7 @@ where
     ) -> Result<(Vec<DataRow>, RowLayout), InternalError> {
         let row_layout = prepared.authority.row_layout()?;
         let page = self.execute_scalar_materialized_page_stage(prepared)?;
-        let (rows, _) = page.into_data_rows_and_cursor();
+        let (rows, _) = page.require_data_rows_and_cursor()?;
 
         Ok((rows, row_layout))
     }
@@ -173,7 +173,7 @@ impl ExecutionKernel {
             continuation_identity,
             index_prefix_specs,
             index_range_specs,
-        } = plan.into_streaming_handoff()?;
+        } = plan.into_streaming_handoff();
 
         // Re-validate executor invariants at the logical boundary.
         validate_executor_plan_for_authority(&authority, &logical_plan)?;
@@ -285,11 +285,10 @@ impl ExecutionKernel {
         // with the original prepared dispatch state and prepared aggregate inputs.
         let fold_mode = dispatch.route_plan.aggregate_fold_mode;
         let authority = prepared.authority.clone();
-        let lowered_access = prepared.lowered_access()?;
+        let executable_access = prepared.executable_access();
         if matches!(scalar_terminal_kind, ScalarTerminalKind::Exists)
             && matches!(prepared.consistency(), MissingRowPolicy::Ignore)
-            && lowered_access
-                .executable()
+            && executable_access
                 .shape_facts()
                 .single_path_facts()
                 .is_some_and(|facts| matches!(facts.kind(), AccessPathKind::IndexPrefix))
@@ -300,7 +299,7 @@ impl ExecutionKernel {
 
         let fast_path_inputs = AggregateFastPathInputs {
             logical_plan: &prepared.logical_plan,
-            executable_access: lowered_access.executable(),
+            executable_access: &executable_access,
             authority: authority.clone(),
             store: prepared.store,
             route_plan: &dispatch.route_plan,
@@ -330,7 +329,7 @@ impl ExecutionKernel {
         let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputContext {
             runtime: &runtime,
             plan: &prepared.logical_plan,
-            executable_access: lowered_access.executable().clone(),
+            executable_access,
             stream_bindings: AccessStreamBindings {
                 index_prefix_specs: prepared.index_prefix_specs.as_ref(),
                 index_range_specs: prepared.index_range_specs.as_ref(),

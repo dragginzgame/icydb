@@ -3,12 +3,11 @@ use crate::{
     db::{
         cursor::{ContinuationSignature, ValidatedCursor, ValidatedGroupedCursor},
         executor::{
-            EntityAuthority, ExecutorPlanError, GroupedPaginationWindow, PreparedScalarPlanCore,
-            PreparedScalarRuntimeHandoff,
+            EntityAuthority, GroupedPaginationWindow, PreparedGroupedRuntimeResidents,
+            PreparedScalarPlanCore, PreparedScalarRuntimeHandoff,
             pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
             prepared_execution_plan::{
                 PreparedAccessPlanHandoff, PreparedExecutionPlanCore,
-                PreparedGroupedRuntimeHandoff,
                 build_prepared_execution_plan_core_with_shared_lowered_access,
             },
             terminal::RetainedSlotLayout,
@@ -56,9 +55,7 @@ impl PreparedLoadPlan {
                 plan,
                 continuation_identity,
                 index_prefix_specs,
-                false,
                 index_range_specs,
-                false,
             ),
         }
     }
@@ -80,24 +77,14 @@ impl PreparedLoadPlan {
 
     pub(in crate::db::executor) fn index_prefix_specs(
         &self,
-    ) -> Result<&[crate::db::executor::LoweredIndexPrefixSpec], InternalError> {
-        if self.core.residents.index_prefix_spec_invalid {
-            return Err(
-                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
-            );
-        }
-
-        Ok(self.core.residents.index_prefix_specs.as_ref())
+    ) -> &[crate::db::executor::LoweredIndexPrefixSpec] {
+        self.core.residents.index_prefix_specs.as_ref()
     }
 
     pub(in crate::db::executor) fn index_range_specs(
         &self,
-    ) -> Result<&[crate::db::executor::LoweredIndexRangeSpec], InternalError> {
-        if self.core.residents.index_range_spec_invalid {
-            return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
-        }
-
-        Ok(self.core.residents.index_range_specs.as_ref())
+    ) -> &[crate::db::executor::LoweredIndexRangeSpec] {
+        self.core.residents.index_range_specs.as_ref()
     }
 
     pub(in crate::db::executor) fn execution_ordering(
@@ -193,14 +180,6 @@ impl PreparedLoadPlan {
             )?,
         };
         let execution_preparation = core.get_or_init_scalar_execution_preparation();
-        if core.residents.index_prefix_spec_invalid {
-            return Err(
-                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
-            );
-        }
-        if core.residents.index_range_spec_invalid {
-            return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
-        }
 
         Ok(PreparedScalarRuntimeHandoff {
             authority,
@@ -211,45 +190,30 @@ impl PreparedLoadPlan {
         })
     }
 
-    pub(in crate::db::executor) fn cloned_grouped_runtime_handoff(
+    /// Clone cached grouped preparation and layout as one provenance-bound
+    /// resident bundle.
+    pub(in crate::db::executor) fn cloned_grouped_runtime_residents(
         &self,
-    ) -> Result<PreparedGroupedRuntimeHandoff, InternalError> {
+    ) -> Result<Option<PreparedGroupedRuntimeResidents>, InternalError> {
         let Some(residents) = self
             .core
             .get_or_init_grouped_runtime_residents(self.authority.clone())?
         else {
-            return Ok(PreparedGroupedRuntimeHandoff {
-                execution_preparation: None,
-                grouped_slot_layout: None,
-            });
+            return Ok(None);
         };
 
-        Ok(PreparedGroupedRuntimeHandoff {
-            execution_preparation: Some(residents.execution_preparation()),
-            grouped_slot_layout: Some(residents.grouped_slot_layout()),
-        })
+        Ok(Some(residents.as_ref().clone()))
     }
 
-    pub(in crate::db::executor) fn into_access_plan_handoff(
-        self,
-    ) -> Result<PreparedAccessPlanHandoff, InternalError> {
+    pub(in crate::db::executor) fn into_access_plan_handoff(self) -> PreparedAccessPlanHandoff {
         let Self { authority, core } = self;
         let residents = core.into_residents();
 
-        if residents.index_prefix_spec_invalid {
-            return Err(
-                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
-            );
-        }
-        if residents.index_range_spec_invalid {
-            return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
-        }
-
-        Ok(PreparedAccessPlanHandoff {
+        PreparedAccessPlanHandoff {
             authority,
             plan: residents.plan,
             index_prefix_specs: residents.index_prefix_specs,
             index_range_specs: residents.index_range_specs,
-        })
+        }
     }
 }

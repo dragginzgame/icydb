@@ -41,8 +41,8 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
             derive_load_terminal_fast_path_contract_for_plan(authority, plan);
 
         // Phase 2: lower index-bound summaries into stable compact text.
-        let index_prefix_specs = render_index_prefix_specs(self.core.index_prefix_specs()?)?;
-        let index_range_specs = render_index_range_specs(self.core.index_range_specs()?);
+        let index_prefix_specs = render_index_prefix_specs(self.core.index_prefix_specs())?;
+        let index_range_specs = render_index_range_specs(self.core.index_range_specs());
         let explain_plan = plan.explain();
 
         // Phase 3: join the canonical snapshot payload in one stable line order.

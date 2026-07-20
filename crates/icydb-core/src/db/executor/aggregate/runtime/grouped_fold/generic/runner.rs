@@ -310,7 +310,7 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn execute_generic
 ) -> Result<GroupedFoldStage, InternalError> {
     let grouped_specs = build_grouped_specs(route, grouped_execution_context)?;
     if matches!(
-        route.grouped_execution_mode(),
+        route.grouped_execution_mode()?,
         crate::db::executor::route::GroupedExecutionMode::OrderedStreaming
     ) {
         return GenericGroupedFoldRunner::new(route, grouped_projection_spec).execute_ordered(

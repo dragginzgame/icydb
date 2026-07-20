@@ -43,27 +43,33 @@ impl ResolvedExecutionKeyStream {
         }
     }
 
-    /// Consume resolved key-stream payload into explicit stream-resolution fields.
+    /// Decorate the owned key stream while preserving all resolution metadata.
+    ///
+    /// The decorator also returns the counter owned by the resulting stream so
+    /// DISTINCT accounting cannot be separated from the decorated stream.
     #[must_use]
-    #[expect(clippy::type_complexity)]
-    pub(in crate::db::executor) fn into_stream_resolution_fields(
+    pub(in crate::db::executor) fn decorate_key_stream(
         self,
-    ) -> (
-        OrderedKeyStreamBox,
-        Option<ExecutionOptimization>,
-        Option<usize>,
-        bool,
-        u64,
-        Option<Rc<Cell<u64>>>,
-    ) {
-        (
-            self.key_stream,
-            self.optimization,
-            self.rows_scanned_override,
-            self.index_predicate_applied,
-            self.index_predicate_keys_rejected,
-            self.distinct_keys_deduped_counter,
-        )
+        decorate: impl FnOnce(OrderedKeyStreamBox) -> (OrderedKeyStreamBox, Option<Rc<Cell<u64>>>),
+    ) -> Self {
+        let Self {
+            key_stream,
+            optimization,
+            rows_scanned_override,
+            index_predicate_applied,
+            index_predicate_keys_rejected,
+            distinct_keys_deduped_counter: _,
+        } = self;
+        let (key_stream, distinct_keys_deduped_counter) = decorate(key_stream);
+
+        Self {
+            key_stream,
+            optimization,
+            rows_scanned_override,
+            index_predicate_applied,
+            index_predicate_keys_rejected,
+            distinct_keys_deduped_counter,
+        }
     }
 
     /// Borrow the concrete owned ordered key stream.

@@ -13,7 +13,6 @@ pub(in crate::db) use inputs::StructuralCursorPage;
 pub(in crate::db::executor) use inputs::{
     CursorEmissionMode, ExecutionInputs, PreparedExecutionInputContext,
     PreparedExecutionProjection, ProjectionMaterializationMode, RowCollectorMaterializationRequest,
-    RuntimePageMaterializationRequest,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use outcomes::KernelRowsExecutionAttempt;

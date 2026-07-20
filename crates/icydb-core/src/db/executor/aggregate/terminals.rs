@@ -354,11 +354,11 @@ where
         let boundary = match request {
             ScalarTerminalBoundaryRequest::Count => {
                 let (strategy, window_provably_empty) = {
-                    let lowered_access = prepared.lowered_access()?;
+                    let executable_access = prepared.executable_access();
                     let strategy =
                         derive_count_terminal_fast_path_contract_for_model(
                             &prepared.logical_plan,
-                            &lowered_access,
+                            &executable_access,
                             prepared.execution_preparation.strict_mode().is_some(),
                         )
                         .map_or(
@@ -376,7 +376,7 @@ where
                             },
                         );
 
-                    (strategy, prepared.window_is_provably_empty(&lowered_access))
+                    (strategy, prepared.window_is_provably_empty())
                 };
 
                 PreparedScalarTerminalBoundary {
@@ -404,20 +404,14 @@ where
                 PreparedScalarTerminalBoundary {
                     op: PreparedScalarTerminalOp::Exists,
                     strategy,
-                    window_provably_empty: {
-                        let lowered_access = prepared.lowered_access()?;
-                        prepared.window_is_provably_empty(&lowered_access)
-                    },
+                    window_provably_empty: prepared.window_is_provably_empty(),
                     prepared,
                 }
             }
             ScalarTerminalBoundaryRequest::IdTerminal { kind } => PreparedScalarTerminalBoundary {
                 op: PreparedScalarTerminalOp::IdTerminal { kind },
                 strategy: PreparedScalarTerminalStrategy::KernelAggregate,
-                window_provably_empty: {
-                    let lowered_access = prepared.lowered_access()?;
-                    prepared.window_is_provably_empty(&lowered_access)
-                },
+                window_provably_empty: prepared.window_is_provably_empty(),
                 prepared,
             },
             ScalarTerminalBoundaryRequest::IdBySlot { kind, target_field } => {
@@ -432,10 +426,7 @@ where
                         field_slot,
                     },
                     strategy: PreparedScalarTerminalStrategy::KernelAggregate,
-                    window_provably_empty: {
-                        let lowered_access = prepared.lowered_access()?;
-                        prepared.window_is_provably_empty(&lowered_access)
-                    },
+                    window_provably_empty: prepared.window_is_provably_empty(),
                     prepared,
                 }
             }

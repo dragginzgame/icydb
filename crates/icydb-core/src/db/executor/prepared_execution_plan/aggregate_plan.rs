@@ -1,7 +1,7 @@
 use crate::{
     db::executor::{
-        AccessPlannedQuery, EntityAuthority, ExecutionPreparation, ExecutorPlanError,
-        LoweredIndexPrefixSpec, PreparedAggregateStreamingPlanHandoff, PreparedLoadPlan,
+        AccessPlannedQuery, EntityAuthority, ExecutionPreparation, LoweredIndexPrefixSpec,
+        PreparedAggregateStreamingPlanHandoff, PreparedLoadPlan,
         prepared_execution_plan::{
             PreparedExecutionPlanCore, build_prepared_execution_plan_core_with_lowered_access,
             contracts::GroupSpec,
@@ -41,40 +41,23 @@ impl PreparedAggregatePlan {
         self.core.get_or_init_aggregate_execution_preparation()
     }
 
-    pub(in crate::db::executor) fn index_prefix_specs(
-        &self,
-    ) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
-        if self.core.residents.index_prefix_spec_invalid {
-            return Err(
-                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
-            );
-        }
-
-        Ok(self.core.residents.index_prefix_specs.as_ref())
+    pub(in crate::db::executor) fn index_prefix_specs(&self) -> &[LoweredIndexPrefixSpec] {
+        self.core.residents.index_prefix_specs.as_ref()
     }
 
     pub(in crate::db::executor) fn into_streaming_handoff(
         self,
-    ) -> Result<PreparedAggregateStreamingPlanHandoff, InternalError> {
+    ) -> PreparedAggregateStreamingPlanHandoff {
         let Self { authority, core } = self;
         let residents = core.into_residents();
 
-        if residents.index_prefix_spec_invalid {
-            return Err(
-                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
-            );
-        }
-        if residents.index_range_spec_invalid {
-            return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
-        }
-
-        Ok(PreparedAggregateStreamingPlanHandoff {
+        PreparedAggregateStreamingPlanHandoff {
             authority,
             logical_plan: residents.plan,
             continuation_identity: residents.continuation_identity,
             index_prefix_specs: residents.index_prefix_specs,
             index_range_specs: residents.index_range_specs,
-        })
+        }
     }
 
     /// Re-shape one prepared aggregate plan into one grouped prepared load plan
@@ -99,9 +82,7 @@ impl PreparedAggregatePlan {
                 grouped_plan,
                 residents.continuation_identity,
                 residents.index_prefix_specs,
-                residents.index_prefix_spec_invalid,
                 residents.index_range_specs,
-                residents.index_range_spec_invalid,
             ),
         })
     }

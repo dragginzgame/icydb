@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{ExecutionPathPayload, LoweredAccess},
+        access::{ExecutableAccessPlan, ExecutionPathPayload},
         data::{DataStore, DecodedDataStoreKey, RawDataStoreKey, StoreVisit},
         executor::{
             EntityAuthority, LoweredIndexPrefixCardinalityPlan, PreparedAggregatePlan,
@@ -153,10 +153,10 @@ fn execute_measured_index_prefix_cardinality_terminal(
 pub(super) fn execute_count_primary_key_cardinality_terminal_request(
     prepared: PreparedAggregateStreamingInputs<'_>,
 ) -> Result<ScalarAggregateOutput, InternalError> {
-    let lowered_access = prepared.lowered_access()?;
+    let executable_access = prepared.executable_access();
     let (count, rows_scanned) = aggregate_count_from_pk_cardinality_with_store(
         &prepared.logical_plan,
-        &lowered_access,
+        &executable_access,
         prepared.authority.entity_tag(),
         prepared.store,
     )?;
@@ -192,9 +192,7 @@ fn try_prepare_index_prefix_cardinality_preflight(
 ) -> Option<PreparedScalarTerminalPreflight<'_>> {
     let authority = plan.authority();
     let logical_plan = plan.logical_plan();
-    let Ok(index_prefix_specs) = plan.index_prefix_specs() else {
-        return None;
-    };
+    let index_prefix_specs = plan.index_prefix_specs();
     let prefixes = exact_count_cardinality_prefixes_for_plan(
         authority.entity_tag(),
         logical_plan,
@@ -399,13 +397,13 @@ fn record_index_prefix_cardinality_terminal(
 // preserving canonical page-window and scan-accounting semantics.
 fn aggregate_count_from_pk_cardinality_with_store(
     logical_plan: &AccessPlannedQuery,
-    lowered_access: &LoweredAccess<'_, Value>,
+    executable_access: &ExecutableAccessPlan<'_, Value>,
     entity_tag: EntityTag,
     store: StoreHandle,
 ) -> Result<(u32, usize), InternalError> {
     // Phase 1: snapshot pagination + access payload before resolving store cardinality.
     let page = logical_plan.scalar_plan().page.as_ref();
-    let Some(path) = lowered_access.executable().as_path() else {
+    let Some(path) = executable_access.as_path() else {
         return Err(InternalError::query_executor_invariant());
     };
 

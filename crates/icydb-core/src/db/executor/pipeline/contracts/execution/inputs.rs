@@ -3,14 +3,11 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use std::rc::Rc;
-
 use crate::{
     db::{
         access::ExecutableAccessPlan,
         cursor::CursorBoundary,
         data::DataRow,
-        direction::Direction,
         executor::{
             AccessStreamBindings, EntityAuthority, ExecutionPreparation, OrderedKeyStreamBox,
             ScalarContinuationContext,
@@ -29,6 +26,7 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+use std::rc::Rc;
 
 ///
 /// PreparedExecutionProjection
@@ -186,12 +184,13 @@ impl StructuralCursorPage {
         }
     }
 
-    /// Borrow structural scalar rows without forcing typed response assembly.
-    #[must_use]
-    pub(in crate::db) const fn data_rows(&self) -> &[DataRow] {
+    /// Require canonical data rows for a data-row-only structural consumer.
+    pub(in crate::db) fn require_data_rows(&self) -> Result<&[DataRow], InternalError> {
         match &self.payload {
-            StructuralCursorPagePayload::DataRows(data_rows) => data_rows.as_slice(),
-            StructuralCursorPagePayload::SlotRows(_) => &[],
+            StructuralCursorPagePayload::DataRows(data_rows) => Ok(data_rows.as_slice()),
+            StructuralCursorPagePayload::SlotRows(_) => {
+                Err(InternalError::query_executor_invariant())
+            }
         }
     }
 
@@ -209,20 +208,23 @@ impl StructuralCursorPage {
         }
     }
 
-    /// Consume one structural scalar page into data rows plus cursor state.
-    #[must_use]
-    pub(in crate::db) fn into_data_rows_and_cursor(
+    /// Require and consume canonical data rows plus cursor state for a
+    /// data-row-only structural consumer.
+    pub(in crate::db) fn require_data_rows_and_cursor(
         self,
-    ) -> (
-        Vec<DataRow>,
-        Option<crate::db::executor::pipeline::contracts::PageCursor>,
-    ) {
-        let data_rows = match self.payload {
-            StructuralCursorPagePayload::DataRows(data_rows) => data_rows,
-            StructuralCursorPagePayload::SlotRows(_) => Vec::new(),
-        };
-
-        (data_rows, self.next_cursor)
+    ) -> Result<
+        (
+            Vec<DataRow>,
+            Option<crate::db::executor::pipeline::contracts::PageCursor>,
+        ),
+        InternalError,
+    > {
+        match self.payload {
+            StructuralCursorPagePayload::DataRows(data_rows) => Ok((data_rows, self.next_cursor)),
+            StructuralCursorPagePayload::SlotRows(_) => {
+                Err(InternalError::query_executor_invariant())
+            }
+        }
     }
 }
 
@@ -287,31 +289,12 @@ impl ProjectionMaterializationMode {
 }
 
 ///
-/// RuntimePageMaterializationRequest
-///
-/// Generic-free page materialization envelope consumed through the executor
-/// runtime adapter boundary.
-///
-
-pub(in crate::db::executor) struct RuntimePageMaterializationRequest<'a> {
-    pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
-    pub(in crate::db::executor) key_stream: &'a mut OrderedKeyStreamBox,
-    pub(in crate::db::executor) scan_budget_hint: Option<usize>,
-    pub(in crate::db::executor) load_order_route_mode: LoadOrderRouteMode,
-    pub(in crate::db::executor) capabilities: ScalarMaterializationCapabilities<'a>,
-    pub(in crate::db::executor) consistency: MissingRowPolicy,
-    pub(in crate::db::executor) continuation: &'a ScalarContinuationContext,
-    pub(in crate::db::executor) direction: Direction,
-}
-
-///
 /// RowCollectorMaterializationRequest
 ///
 /// Structural short-path materialization envelope for the cursorless
 /// row-collector lane.
-/// This now carries the route-owned scalar terminal fast-path contract so the
-/// terminal runtime can consume planner-selected covering-read metadata
-/// without rediscovering it ad hoc.
+/// It carries the route-owned scalar terminal fast-path and consistency
+/// contracts so the terminal runtime does not reconstruct planner decisions.
 ///
 
 pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
@@ -321,6 +304,7 @@ pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
     pub(in crate::db::executor) continuation: &'a ScalarContinuationContext,
     pub(in crate::db::executor) cursor_boundary: Option<&'a CursorBoundary>,
     pub(in crate::db::executor) capabilities: ScalarMaterializationCapabilities<'a>,
+    pub(in crate::db::executor) consistency: MissingRowPolicy,
     pub(in crate::db::executor) key_stream: &'a mut OrderedKeyStreamBox,
 }
 

@@ -177,8 +177,9 @@ where
         }
 
         let page = self.execute_scalar_materialized_page_boundary(prepared)?;
+        let data_rows = page.require_data_rows()?;
 
-        Ok(page.data_rows().iter().fold(0u64, |total, (_, row)| {
+        Ok(data_rows.iter().fold(0u64, |total, (_, row)| {
             saturating_add_payload_len(total, row.len())
         }))
     }
@@ -201,7 +202,7 @@ where
                 .ok_or_else(InternalError::query_executor_invariant)?;
                 let value_len = serialized_value_len(&constant_value)?;
                 let page = self.execute_scalar_materialized_page_boundary(prepared)?;
-                let row_count = u64::try_from(page.data_rows().len()).unwrap_or(u64::MAX);
+                let row_count = u64::try_from(page.require_data_rows()?.len()).unwrap_or(u64::MAX);
 
                 Ok(crate::db::executor::saturating_row_len(value_len).saturating_mul(row_count))
             }
@@ -232,7 +233,7 @@ where
             .map_err(AggregateFieldValueError::into_internal_error)?;
         let page = self.execute_scalar_materialized_page_boundary(prepared)?;
 
-        Self::bytes_by_materialized_rows(page.data_rows(), &row_layout, field_slot)
+        Self::bytes_by_materialized_rows(page.require_data_rows()?, &row_layout, field_slot)
     }
 
     // Fold `bytes(field)` over one already materialized structural row window.
@@ -350,8 +351,8 @@ where
     ) -> Result<CoveringProjectionComponentRows, InternalError> {
         resolve_single_covering_projection_component_from_lowered_specs(
             prepared.authority.entity_tag(),
-            prepared.index_prefix_specs()?,
-            prepared.index_range_specs()?,
+            prepared.index_prefix_specs(),
+            prepared.index_range_specs(),
             direction,
             component_index,
             |store_path| prepared.store_resolver.try_get_store(store_path),
@@ -434,8 +435,8 @@ where
         let access = ExecutableAccess::from_executable_plan(
             prepared.logical_plan().access.executable_contract(),
             AccessStreamBindings::new(
-                prepared.index_prefix_specs()?,
-                prepared.index_range_specs()?,
+                prepared.index_prefix_specs(),
+                prepared.index_range_specs(),
                 AccessScanContinuationInput::new(None, direction),
             ),
             None,

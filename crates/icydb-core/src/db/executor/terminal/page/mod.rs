@@ -16,7 +16,9 @@ mod scan;
 mod tests;
 
 #[cfg(feature = "sql")]
-use crate::db::executor::pipeline::contracts::KernelRowsExecutionAttempt;
+use crate::db::executor::pipeline::contracts::{
+    ExecutionOutcomeMetrics, KernelRowsExecutionAttempt,
+};
 use crate::{
     db::{
         data::DataRow,
@@ -239,13 +241,13 @@ fn scan_key_stream_into_windowed_kernel_rows<'a>(
             continuation,
             row_runtime,
         )?)?;
-    let (mut rows, rows_after_cursor) = apply_post_access_to_kernel_rows_dyn(
+    let (rows, rows_after_cursor) = apply_post_access_to_kernel_rows_dyn(
         plan,
         scan_rows,
         continuation.cursor_boundary(),
         scalar_materialization_plan.defer_retained_slot_distinct_window(),
     )?;
-    scalar_materialization_plan.apply_post_scan_tail(plan, &mut rows)?;
+    scalar_materialization_plan.apply_post_scan_tail(rows.as_slice())?;
     let post_access_rows = rows.len();
 
     Ok(WindowedKernelRows {
@@ -373,11 +375,13 @@ pub(in crate::db::executor) fn materialize_key_stream_into_kernel_rows<'a>(
 
     Ok(KernelRowsExecutionAttempt {
         rows,
-        rows_scanned,
-        post_access_rows,
-        optimization: None,
-        index_predicate_applied: false,
-        index_predicate_keys_rejected: 0,
-        distinct_keys_deduped: 0,
+        metrics: ExecutionOutcomeMetrics {
+            rows_scanned,
+            post_access_rows,
+            optimization: None,
+            index_predicate_applied: false,
+            index_predicate_keys_rejected: 0,
+            distinct_keys_deduped: 0,
+        },
     })
 }

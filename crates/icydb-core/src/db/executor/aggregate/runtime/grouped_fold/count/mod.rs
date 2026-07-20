@@ -48,7 +48,7 @@ pub(super) fn execute_single_grouped_count_fold_stage(
 ) -> Result<GroupedFoldStage, InternalError> {
     metrics::record_fold_stage_run();
     if matches!(
-        route.grouped_execution_mode(),
+        route.grouped_execution_mode()?,
         GroupedExecutionMode::OrderedStreaming
     ) {
         return execute_ordered_grouped_count_fold_stage(

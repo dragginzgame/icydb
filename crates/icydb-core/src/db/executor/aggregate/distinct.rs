@@ -128,7 +128,7 @@ where
         route: GroupedRouteStage,
     ) -> Result<Option<Value>, InternalError> {
         let (page, _) = execute_prepared_grouped_route_runtime(
-            self.prepare_grouped_route_runtime(route, authority, None, None)?,
+            self.prepare_grouped_route_runtime(route, authority, None)?,
         )?;
 
         GlobalDistinctGroupedOutputContract::decode_page(page)

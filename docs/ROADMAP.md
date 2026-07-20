@@ -154,9 +154,9 @@ The active delivery sequence is intentionally serial:
    is complete and closes the eligible ordered-group retention boundary.
 2. [0.206 SQL performance
    remediation](design/0.206-sql-performance-remediation/0.206-design.md)
-   is active: its 14-family post-0.205 leading set and sole primary production
-   selection are frozen; bounded expression-order remediation is implemented
-   and awaits exact post-change performance evidence.
+   is complete: bounded expression-order remediation meets its retained-row
+   target, the exact hard-cut cohort passed review, and the ordinary gate
+   reproduced the selected post-remediation baseline.
 3. [0.207 redo-only schema index
    publication](design/0.207-redo-only-schema-index-publication/0.207-design.md)
    hard-cuts index publication to the maintained marker/recovery authority.

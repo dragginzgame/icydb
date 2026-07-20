@@ -3,8 +3,7 @@ use super::contracts::{AccessPlannedQuery, QueryMode};
 use super::contracts::{CoveringHybridReadExecutionPlan, CoveringReadExecutionPlan};
 #[cfg(feature = "sql")]
 use crate::db::executor::{
-    ExecutorPlanError, PreparedScalarPlanCore, PreparedScalarRuntimeHandoff,
-    SharedPreparedProjectionRuntimeHandoff,
+    PreparedScalarPlanCore, PreparedScalarRuntimeHandoff, SharedPreparedProjectionRuntimeHandoff,
     pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
 };
 use crate::{
@@ -132,37 +131,17 @@ impl SharedPreparedExecutionPlan {
     }
 
     #[cfg(feature = "sql")]
-    pub(in crate::db::executor) fn validate_lowered_access_specs(
+    pub(in crate::db) fn index_prefix_specs(
         &self,
-    ) -> Result<(), InternalError> {
-        if self.core.residents.index_prefix_spec_invalid {
-            return Err(
-                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
-            );
-        }
-        if self.core.residents.index_range_spec_invalid {
-            return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
-        }
-
-        Ok(())
-    }
-
-    #[cfg(feature = "sql")]
-    pub(in crate::db::executor) fn index_prefix_specs(
-        &self,
-    ) -> Result<&[crate::db::executor::LoweredIndexPrefixSpec], InternalError> {
-        self.validate_lowered_access_specs()?;
-
-        Ok(self.core.residents.index_prefix_specs.as_ref())
+    ) -> &[crate::db::executor::LoweredIndexPrefixSpec] {
+        self.core.residents.index_prefix_specs.as_ref()
     }
 
     #[cfg(feature = "sql")]
     pub(in crate::db::executor) fn index_range_specs(
         &self,
-    ) -> Result<&[crate::db::executor::LoweredIndexRangeSpec], InternalError> {
-        self.validate_lowered_access_specs()?;
-
-        Ok(self.core.residents.index_range_specs.as_ref())
+    ) -> &[crate::db::executor::LoweredIndexRangeSpec] {
+        self.core.residents.index_range_specs.as_ref()
     }
 
     #[must_use]
@@ -198,14 +177,6 @@ impl SharedPreparedExecutionPlan {
             CursorEmissionMode::Suppress,
         )?;
         let execution_preparation = core.get_or_init_scalar_execution_preparation();
-        if core.residents.index_prefix_spec_invalid {
-            return Err(
-                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
-            );
-        }
-        if core.residents.index_range_spec_invalid {
-            return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
-        }
         let scalar_runtime = PreparedScalarRuntimeHandoff {
             authority: authority.clone(),
             execution_preparation,

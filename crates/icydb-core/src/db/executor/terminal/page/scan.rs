@@ -419,6 +419,14 @@ fn scan_rows_with<T>(
     ) -> Result<Option<DecodedDataStoreKey>, InternalError>,
     mut read_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<T>, InternalError>,
 ) -> Result<RowScanResult<T>, InternalError> {
+    if row_keep_cap == Some(0) {
+        return Ok(RowScanResult {
+            rows: Vec::new(),
+            rows_scanned: 0,
+            rows_matched: 0,
+        });
+    }
+
     let mut rows_scanned = 0usize;
     let staged_capacity = staged_row_capacity(key_stream, row_keep_cap, row_skip_count);
     let mut rows = Vec::with_capacity(staged_capacity);

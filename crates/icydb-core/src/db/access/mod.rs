@@ -42,8 +42,8 @@ pub(in crate::db) use lowering::current_deferred_index_prefix_raw_bound_material
 #[cfg(test)]
 pub(in crate::db) use lowering::lower_access;
 pub(in crate::db) use lowering::{
-    LoweredAccess, LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-    LoweredIndexScanContract, LoweredKey, lower_access_with_schema_info,
+    LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract,
+    LoweredKey, lower_access_with_schema_info,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use lowering::{

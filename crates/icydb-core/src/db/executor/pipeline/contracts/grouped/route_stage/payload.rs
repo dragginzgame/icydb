@@ -5,10 +5,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::db::{
-    direction::Direction,
-    executor::{
-        ExecutionRoutePlan, ExecutionTrace, GroupedContinuationContext, route::GroupedExecutionMode,
-    },
+    executor::{ExecutionRoutePlan, ExecutionTrace, GroupedContinuationContext},
     query::plan::{
         AccessPlannedQuery, GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy,
         GroupedExecutionConfig, GroupedExecutionRoute, PlannedProjectionLayout, expr::Expr,
@@ -53,17 +50,6 @@ pub(in crate::db::executor) struct GroupedPlannerPayload {
 }
 
 ///
-/// GroupedRoutePayload
-///
-/// Route-owned grouped execution payload produced after grouped planner handoff.
-/// Keeps route-plan artifacts scoped to grouped routing and stream resolution.
-///
-
-pub(in crate::db::executor) struct GroupedRoutePayload {
-    pub(in crate::db::executor) grouped_route_plan: ExecutionRoutePlan,
-}
-
-///
 /// GroupedRouteStage
 ///
 /// Route-planning stage payload for grouped execution.
@@ -73,10 +59,8 @@ pub(in crate::db::executor) struct GroupedRoutePayload {
 
 pub(in crate::db::executor) struct GroupedRouteStage {
     pub(in crate::db::executor) planner_payload: GroupedPlannerPayload,
-    pub(in crate::db::executor) route_payload: GroupedRoutePayload,
+    pub(in crate::db::executor) grouped_route_plan: ExecutionRoutePlan,
     pub(in crate::db::executor) index_specs: IndexSpecBundle,
     pub(in crate::db::executor) continuation: GroupedContinuationContext,
-    pub(in crate::db::executor) direction: Direction,
-    pub(in crate::db::executor) grouped_execution_mode: GroupedExecutionMode,
     pub(in crate::db::executor) execution_trace: Option<ExecutionTrace>,
 }

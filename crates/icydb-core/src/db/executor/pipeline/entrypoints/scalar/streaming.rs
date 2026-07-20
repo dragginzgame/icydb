@@ -13,6 +13,7 @@ use crate::{
                     execution::{
                         execute_prepared_scalar_kernel, finish_scalar_kernel_observability,
                     },
+                    hints::ScalarRouteTerminal,
                     runtime::PreparedScalarRouteRuntime,
                 },
             },
@@ -38,7 +39,7 @@ pub(super) fn execute_prepared_scalar_kernel_row_sink_execution(
 ) -> Result<ScalarKernelRowSinkExecution, InternalError> {
     let execution = execute_prepared_scalar_kernel(
         prepared,
-        |_, _, _, _| {},
+        ScalarRouteTerminal::KernelRows,
         |execution_inputs, route_plan, continuation| {
             ExecutionKernel::materialize_kernel_rows_with_optional_residual_retry(
                 execution_inputs,
@@ -51,24 +52,8 @@ pub(super) fn execute_prepared_scalar_kernel_row_sink_execution(
     let execution_stats = execution.execution_stats;
     let mut execution_trace = execution.execution_trace;
     let execution_time_micros = execution.execution_time_micros;
-    let KernelRowsExecutionAttempt {
-        rows,
-        rows_scanned,
-        post_access_rows,
-        optimization,
-        index_predicate_applied,
-        index_predicate_keys_rejected,
-        distinct_keys_deduped,
-    } = execution.attempt;
+    let KernelRowsExecutionAttempt { rows, metrics } = execution.attempt;
     let projected_rows = rows.len();
-    let metrics = ExecutionOutcomeMetrics {
-        optimization,
-        rows_scanned,
-        post_access_rows,
-        index_predicate_applied,
-        index_predicate_keys_rejected,
-        distinct_keys_deduped,
-    };
     for row in &rows {
         row_sink(row)?;
     }

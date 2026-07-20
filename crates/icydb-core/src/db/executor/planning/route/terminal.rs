@@ -4,7 +4,7 @@
 //! Boundary: canonical terminal eligibility derivation consumed by load/aggregate terminals.
 
 use crate::db::{
-    access::LoweredAccess,
+    access::ExecutableAccessPlan,
     direction::Direction,
     executor::{
         EntityAuthority,
@@ -52,13 +52,10 @@ pub(in crate::db::executor) enum CountTerminalFastPathContract {
 /// corruption diagnostics.
 pub(in crate::db::executor) fn derive_count_terminal_fast_path_contract_for_model(
     plan: &AccessPlannedQuery,
-    lowered_access: &LoweredAccess<'_, Value>,
+    executable_access: &ExecutableAccessPlan<'_, Value>,
     strict_predicate_compatible: bool,
 ) -> Option<CountTerminalFastPathContract> {
-    let shape_facts = lowered_access
-        .executable()
-        .shape_facts()
-        .single_path_facts()?;
+    let shape_facts = executable_access.shape_facts().single_path_facts()?;
 
     (plan.has_no_distinct()
         && !plan.has_any_residual_filter()

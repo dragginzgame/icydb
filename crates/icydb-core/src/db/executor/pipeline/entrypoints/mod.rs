@@ -17,7 +17,7 @@ use crate::{
             CursorPage, ExecutionTrace, LoadCursorInput, PreparedExecutionPlan,
             pipeline::{
                 contracts::{LoadExecutor, StructuralGroupedProjectionResult},
-                orchestrator::{LoadExecutionPayload, LoadPayloadState},
+                orchestrator::LoadExecutionSurface,
             },
             terminal::decode_data_rows_into_entity_response,
         },
@@ -34,7 +34,6 @@ pub(in crate::db) use grouped::{
 };
 pub(in crate::db::executor) use grouped::{
     PreparedGroupedRouteRuntime, execute_prepared_grouped_route_runtime,
-    prepare_grouped_route_runtime_for_load_plan,
 };
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use scalar::ScalarExecutePhaseAttribution;
@@ -65,61 +64,24 @@ pub(in crate::db::executor) enum PreparedLoadRouteRuntime {
 }
 
 impl PreparedLoadRouteRuntime {
-    // Build one scalar prepared route runtime envelope.
-    pub(in crate::db::executor::pipeline) const fn scalar(
-        prepared: PreparedScalarRouteRuntime,
-    ) -> Self {
-        Self::Scalar(prepared)
-    }
-
-    // Build one grouped prepared route runtime envelope.
-    pub(in crate::db::executor::pipeline) const fn grouped(
-        prepared: PreparedGroupedRouteRuntime,
-    ) -> Self {
-        Self::Grouped(prepared)
-    }
-
-    // Execute one variant-owned prepared route runtime and return the payload
-    // plus trace pair before the shared outer execution state is rebuilt.
-    fn execute_payload(
+    // Execute one variant-owned prepared route runtime directly into its final
+    // load surface. The runtime variant is the scalar/grouped discriminator.
+    pub(in crate::db::executor::pipeline) fn execute(
         self,
-    ) -> Result<(LoadExecutionPayload, Option<ExecutionTrace>), InternalError> {
+    ) -> Result<LoadExecutionSurface, InternalError> {
         match self {
             Self::Scalar(prepared) => {
                 let (page, trace) = execute_prepared_scalar_route_runtime(prepared)?;
 
-                Ok((LoadExecutionPayload::scalar(page), trace))
+                Ok(LoadExecutionSurface::ScalarPageWithTrace(page, trace))
             }
             Self::Grouped(prepared) => {
                 let (page, trace) = execute_prepared_grouped_route_runtime(prepared)?;
 
-                Ok((LoadExecutionPayload::grouped(page), trace))
+                Ok(LoadExecutionSurface::GroupedPageWithTrace(page, trace))
             }
         }
     }
-
-    // Execute one canonical entrypoint dispatch over one already-prepared
-    // scalar or grouped route runtime envelope.
-    pub(in crate::db::executor::pipeline) fn execute(
-        self,
-        mode: LoadSurfaceMode,
-    ) -> Result<LoadPayloadState, InternalError> {
-        let (payload, trace) = self.execute_payload()?;
-
-        Ok(LoadPayloadState::new(mode, payload, trace))
-    }
-}
-
-#[cfg(feature = "diagnostics")]
-fn resolve_grouped_perf_cursor(
-    plan: &crate::db::executor::PreparedLoadPlan,
-    cursor: LoadCursorInput,
-) -> Result<crate::db::executor::PreparedLoadCursor, InternalError> {
-    crate::db::executor::LoadCursorResolver::resolve_load_cursor_context(
-        plan,
-        cursor,
-        LoadSurfaceMode::GroupedPage,
-    )
 }
 
 impl<E> LoadExecutor<E>
@@ -134,7 +96,7 @@ where
         let plan = plan.into_prepared_load_plan();
         let row_layout = plan.authority().row_layout()?;
         let page = execute_prepared_scalar_rows_for_canister(&self.db, self.debug, plan)?;
-        let (data_rows, _) = page.into_data_rows_and_cursor();
+        let (data_rows, _) = page.require_data_rows_and_cursor()?;
 
         decode_data_rows_into_entity_response::<E>(&row_layout, data_rows)
     }
@@ -160,7 +122,7 @@ where
             )?;
         phase_attribution.load_plan_local_instructions = load_plan_local_instructions;
         phase_attribution.row_layout_local_instructions = row_layout_local_instructions;
-        let (data_rows, _) = page.into_data_rows_and_cursor();
+        let (data_rows, _) = page.require_data_rows_and_cursor()?;
 
         // Phase 2: decode the structural data rows into typed response rows.
         let (response_decode_local_instructions, response) = measure_load_entry_phase(|| {

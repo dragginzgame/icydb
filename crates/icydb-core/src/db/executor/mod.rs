@@ -32,8 +32,7 @@ mod util;
 mod window;
 
 use crate::db::access::{
-    LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract,
-    LoweredKey, lower_access_with_schema_info,
+    LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract, LoweredKey,
 };
 
 pub(in crate::db) use crate::db::access::{
@@ -125,8 +124,9 @@ pub(in crate::db) use prepared_execution_plan::SharedPreparedExecutionPlan;
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use prepared_execution_plan::SharedPreparedProjectionRuntimeHandoff;
 pub(in crate::db::executor) use prepared_execution_plan::{
-    PreparedAggregatePlan, PreparedAggregateStreamingPlanHandoff, PreparedLoadPlan,
-    PreparedScalarPlanCore, PreparedScalarRuntimeHandoff, classify_bytes_by_projection_mode,
+    PreparedAggregatePlan, PreparedAggregateStreamingPlanHandoff, PreparedGroupedRuntimeResidents,
+    PreparedLoadPlan, PreparedScalarPlanCore, PreparedScalarRuntimeHandoff,
+    classify_bytes_by_projection_mode,
 };
 pub(in crate::db::executor) use profiling::{
     ExecutionProfileStats, measure_execution_stats_phase, record_aggregation,
@@ -310,16 +310,6 @@ impl ExecutorPlanError {
     /// attempted against non-load prepared execution plans.
     #[cfg(test)]
     pub(in crate::db::executor) fn load_execution_descriptor_requires_load_plan() -> Self {
-        Self::continuation_cursor_invariant()
-    }
-
-    /// Construct one executor plan error for invalid lowered index-prefix specs.
-    pub(in crate::db::executor) fn lowered_index_prefix_spec_invalid() -> Self {
-        Self::continuation_cursor_invariant()
-    }
-
-    /// Construct one executor plan error for invalid lowered index-range specs.
-    pub(in crate::db::executor) fn lowered_index_range_spec_invalid() -> Self {
         Self::continuation_cursor_invariant()
     }
 

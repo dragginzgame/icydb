@@ -12,7 +12,7 @@ mod tests;
 
 use crate::{
     db::{
-        access::LoweredAccess,
+        access::ExecutableAccessPlan,
         data::{DataRow, DecodedDataStoreKey, RawRow},
         direction::Direction,
         executor::{
@@ -180,13 +180,13 @@ where
     // Return whether numeric field aggregates can use one direct key-stream fold.
     fn streaming_numeric_field_aggregate_eligible(
         prepared: &PreparedAggregateStreamingInputs<'_>,
-        lowered_access: &LoweredAccess<'_, Value>,
+        executable_access: &ExecutableAccessPlan<'_, Value>,
     ) -> bool {
         if prepared.has_predicate() || prepared.logical_plan.scalar_plan().distinct {
             return false;
         }
 
-        let Some(path) = lowered_access.executable().as_path() else {
+        let Some(path) = executable_access.as_path() else {
             return false;
         };
         let shape_facts = path.shape_facts();
@@ -281,14 +281,16 @@ where
 
         let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
         let (strategy, window_provably_empty) = {
-            let lowered_access = prepared.lowered_access()?;
-            let strategy =
-                if Self::streaming_numeric_field_aggregate_eligible(&prepared, &lowered_access) {
-                    PreparedScalarNumericAggregateStrategy::Streaming
-                } else {
-                    PreparedScalarNumericAggregateStrategy::Materialized
-                };
-            (strategy, prepared.window_is_provably_empty(&lowered_access))
+            let executable_access = prepared.executable_access();
+            let strategy = if Self::streaming_numeric_field_aggregate_eligible(
+                &prepared,
+                &executable_access,
+            ) {
+                PreparedScalarNumericAggregateStrategy::Streaming
+            } else {
+                PreparedScalarNumericAggregateStrategy::Materialized
+            };
+            (strategy, prepared.window_is_provably_empty())
         };
 
         Ok(PreparedScalarNumericPayload::Aggregate {

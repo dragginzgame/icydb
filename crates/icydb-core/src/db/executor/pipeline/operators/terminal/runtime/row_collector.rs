@@ -12,7 +12,6 @@ use crate::{
         terminal::page::{
             ScalarRowRuntimeHandle, execute_kernel_row_scan, resolve_cursorless_short_path_plan,
         },
-        traversal::row_read_consistency_for_plan,
     },
     error::InternalError,
 };
@@ -34,6 +33,7 @@ impl ExecutionKernel {
             continuation,
             cursor_boundary,
             capabilities,
+            consistency,
             key_stream,
         } = request;
 
@@ -47,10 +47,9 @@ impl ExecutionKernel {
         // before the short path builds its canonical scan request.
         continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_mode)?;
 
-        // Phase 3: derive the shared scan contract from plan-owned
-        // consistency only, then let the resolved short-path plan build the
-        // exact kernel request it wants to run.
-        let consistency = row_read_consistency_for_plan(plan);
+        // Phase 3: let the resolved short-path plan build the exact kernel
+        // request from the canonical consistency contract carried by the
+        // execution boundary.
         let (rows, rows_scanned) = execute_kernel_row_scan(short_path_plan.scan_request(
             key_stream,
             scan_budget_hint,
@@ -61,7 +60,7 @@ impl ExecutionKernel {
 
         // Phase 4: the short-path plan owns post-access shaping and final
         // payload selection from here onward.
-        let (payload, post_access_rows) = short_path_plan.materialize_rows(plan, rows)?;
+        let (payload, post_access_rows) = short_path_plan.materialize_rows(rows)?;
         Ok(Some((payload, rows_scanned, post_access_rows)))
     }
 }

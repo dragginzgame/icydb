@@ -5,12 +5,15 @@ use super::contracts::{
 };
 use crate::{
     db::{
+        access::{
+            LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            lower_access_with_schema_info,
+        },
         commit::CommitSchemaFingerprint,
         cursor::{ContinuationSignature, CursorPlanError, ValidatedCursor, ValidatedGroupedCursor},
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutionRoutePlan, ExecutorPlanError,
-            GroupedPaginationWindow, LoweredAccessError, LoweredIndexPrefixSpec,
-            LoweredIndexRangeSpec, ScalarContinuationContext, lower_access_with_schema_info,
+            GroupedPaginationWindow, ScalarContinuationContext,
             pipeline::{
                 contracts::{CursorEmissionMode, ProjectionMaterializationMode},
                 runtime::{
@@ -88,10 +91,8 @@ pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPla
         Option<PlannedContinuationContract>,
     pub(in crate::db::executor::prepared_execution_plan) index_prefix_specs:
         Arc<[LoweredIndexPrefixSpec]>,
-    pub(in crate::db::executor::prepared_execution_plan) index_prefix_spec_invalid: bool,
     pub(in crate::db::executor::prepared_execution_plan) index_range_specs:
         Arc<[LoweredIndexRangeSpec]>,
-    pub(in crate::db::executor::prepared_execution_plan) index_range_spec_invalid: bool,
 }
 
 impl std::fmt::Debug for PreparedExecutionPlanResidents {
@@ -127,9 +128,7 @@ impl Clone for PreparedExecutionPlanResidents {
             ),
             continuation: self.continuation.clone(),
             index_prefix_specs: Arc::clone(&self.index_prefix_specs),
-            index_prefix_spec_invalid: self.index_prefix_spec_invalid,
             index_range_specs: Arc::clone(&self.index_range_specs),
-            index_range_spec_invalid: self.index_range_spec_invalid,
         }
     }
 }
@@ -169,7 +168,7 @@ pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPla
 ///
 
 #[derive(Clone)]
-pub(in crate::db::executor::prepared_execution_plan) struct PreparedGroupedRuntimeResidents {
+pub(in crate::db::executor) struct PreparedGroupedRuntimeResidents {
     execution_preparation: ExecutionPreparation,
     grouped_slot_layout: RetainedSlotLayout,
 }
@@ -181,7 +180,9 @@ impl std::fmt::Debug for PreparedGroupedRuntimeResidents {
 }
 
 impl PreparedGroupedRuntimeResidents {
-    const fn new(
+    /// Build one grouped preparation/layout bundle from the same logical-plan
+    /// provenance.
+    pub(in crate::db::executor) const fn new(
         execution_preparation: ExecutionPreparation,
         grouped_slot_layout: RetainedSlotLayout,
     ) -> Self {
@@ -191,16 +192,9 @@ impl PreparedGroupedRuntimeResidents {
         }
     }
 
-    pub(in crate::db::executor::prepared_execution_plan) fn execution_preparation(
-        &self,
-    ) -> ExecutionPreparation {
-        self.execution_preparation.clone()
-    }
-
-    pub(in crate::db::executor::prepared_execution_plan) fn grouped_slot_layout(
-        &self,
-    ) -> RetainedSlotLayout {
-        self.grouped_slot_layout.clone()
+    /// Consume the grouped resident bundle at the grouped runtime boundary.
+    pub(in crate::db::executor) fn into_parts(self) -> (ExecutionPreparation, RetainedSlotLayout) {
+        (self.execution_preparation, self.grouped_slot_layout)
     }
 }
 
@@ -230,26 +224,12 @@ impl PreparedScalarPlanCore {
         self.core.continuation_signature_for_runtime()
     }
 
-    pub(in crate::db::executor) fn index_prefix_specs(
-        &self,
-    ) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
-        if self.core.residents.index_prefix_spec_invalid {
-            return Err(
-                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
-            );
-        }
-
-        Ok(self.core.residents.index_prefix_specs.as_ref())
+    pub(in crate::db::executor) fn index_prefix_specs(&self) -> &[LoweredIndexPrefixSpec] {
+        self.core.residents.index_prefix_specs.as_ref()
     }
 
-    pub(in crate::db::executor) fn index_range_specs(
-        &self,
-    ) -> Result<&[LoweredIndexRangeSpec], InternalError> {
-        if self.core.residents.index_range_spec_invalid {
-            return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
-        }
-
-        Ok(self.core.residents.index_range_specs.as_ref())
+    pub(in crate::db::executor) fn index_range_specs(&self) -> &[LoweredIndexRangeSpec] {
+        self.core.residents.index_range_specs.as_ref()
     }
 
     pub(in crate::db::executor) fn get_or_init_initial_scalar_route_plan(
@@ -278,9 +258,7 @@ impl PreparedExecutionPlanCore {
         continuation_identity: Option<AcceptedContinuationIdentity>,
         continuation: Option<PlannedContinuationContract>,
         index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
-        index_prefix_spec_invalid: bool,
         index_range_specs: Arc<[LoweredIndexRangeSpec]>,
-        index_range_spec_invalid: bool,
     ) -> Self {
         Self {
             residents: Rc::new(PreparedExecutionPlanResidents {
@@ -298,9 +276,7 @@ impl PreparedExecutionPlanCore {
                 none_suppress_retained_slot_layout: OnceLock::new(),
                 continuation,
                 index_prefix_specs,
-                index_prefix_spec_invalid,
                 index_range_specs,
-                index_range_spec_invalid,
             }),
         }
     }
@@ -579,25 +555,15 @@ impl PreparedExecutionPlanCore {
     #[cfg(test)]
     pub(in crate::db::executor::prepared_execution_plan) fn index_prefix_specs(
         &self,
-    ) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
-        if self.residents.index_prefix_spec_invalid {
-            return Err(
-                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
-            );
-        }
-
-        Ok(self.residents.index_prefix_specs.as_ref())
+    ) -> &[LoweredIndexPrefixSpec] {
+        self.residents.index_prefix_specs.as_ref()
     }
 
     #[cfg(test)]
     pub(in crate::db::executor::prepared_execution_plan) fn index_range_specs(
         &self,
-    ) -> Result<&[LoweredIndexRangeSpec], InternalError> {
-        if self.residents.index_range_spec_invalid {
-            return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
-        }
-
-        Ok(self.residents.index_range_specs.as_ref())
+    ) -> &[LoweredIndexRangeSpec] {
+        self.residents.index_range_specs.as_ref()
     }
 
     // Recover the prepared-plan resident payload by move when this core is
@@ -741,51 +707,23 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     // state. Projection shapes, grouped residents, and retained-slot layouts are
     // lazy residents because each execution surface consumes only one of those
     // families.
-    let (
-        index_prefix_specs,
-        index_prefix_spec_invalid,
-        index_range_specs,
-        index_range_spec_invalid,
-    ) = match lower_access_with_schema_info(
+    let lowered_access = lower_access_with_schema_info(
         authority.entity_tag(),
         &plan.access,
         authority
             .accepted_schema_info()
             .ok_or_else(InternalError::query_executor_invariant)?,
-    ) {
-        Ok(lowered) => {
-            let (_, index_prefix_specs, index_range_specs) =
-                lowered.into_executable_and_index_specs();
-
-            (
-                Arc::from(index_prefix_specs),
-                false,
-                Arc::from(index_range_specs),
-                false,
-            )
-        }
-        Err(LoweredAccessError::IndexPrefix) => (
-            Arc::from(Vec::<LoweredIndexPrefixSpec>::new()),
-            true,
-            Arc::from(Vec::<LoweredIndexRangeSpec>::new()),
-            false,
-        ),
-        Err(LoweredAccessError::IndexRange) => (
-            Arc::from(Vec::<LoweredIndexPrefixSpec>::new()),
-            false,
-            Arc::from(Vec::<LoweredIndexRangeSpec>::new()),
-            true,
-        ),
-    };
+    )
+    .map_err(LoweredAccessError::into_internal_error)?;
+    let (_, index_prefix_specs, index_range_specs) =
+        lowered_access.into_executable_and_index_specs();
 
     Ok(build_prepared_execution_plan_core_with_lowered_access(
         authority,
         plan,
         continuation_identity,
-        index_prefix_specs,
-        index_prefix_spec_invalid,
-        index_range_specs,
-        index_range_spec_invalid,
+        Arc::from(index_prefix_specs),
+        Arc::from(index_range_specs),
     ))
 }
 
@@ -797,18 +735,14 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     plan: AccessPlannedQuery,
     continuation_identity: Option<AcceptedContinuationIdentity>,
     index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
-    index_prefix_spec_invalid: bool,
     index_range_specs: Arc<[LoweredIndexRangeSpec]>,
-    index_range_spec_invalid: bool,
 ) -> PreparedExecutionPlanCore {
     build_prepared_execution_plan_core_with_shared_lowered_access(
         authority,
         Arc::new(plan),
         continuation_identity,
         index_prefix_specs,
-        index_prefix_spec_invalid,
         index_range_specs,
-        index_range_spec_invalid,
     )
 }
 
@@ -820,9 +754,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     plan: Arc<AccessPlannedQuery>,
     continuation_identity: Option<AcceptedContinuationIdentity>,
     index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
-    index_prefix_spec_invalid: bool,
     index_range_specs: Arc<[LoweredIndexRangeSpec]>,
-    index_range_spec_invalid: bool,
 ) -> PreparedExecutionPlanCore {
     // Recompute continuation after the logical-shape rewrite so grouped cursor
     // signatures and boundary arity reflect the grouped plan, not the scalar
@@ -837,8 +769,6 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
         continuation_identity,
         continuation,
         index_prefix_specs,
-        index_prefix_spec_invalid,
         index_range_specs,
-        index_range_spec_invalid,
     )
 }

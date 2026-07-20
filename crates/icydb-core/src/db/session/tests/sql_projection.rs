@@ -153,6 +153,65 @@ fn sql_primary_order_limit_one_projection_scans_one_row_for_stable_and_journaled
 }
 
 #[test]
+fn sql_cursorless_retained_projection_scan_owns_limit_and_offset_edges() {
+    reset_journaled_session_sql_store();
+    let session = journaled_sql_session();
+    for (id, name) in [(1_u64, "Ada"), (2, "Bob"), (3, "Cara"), (4, "Dana")] {
+        session
+            .insert(JournaledSessionSqlEntity {
+                id,
+                name: name.to_string(),
+                age: 20 + id,
+            })
+            .expect("journaled cursorless projection seed insert should succeed");
+    }
+
+    let cases = [
+        (
+            "SELECT name FROM JournaledSessionSqlEntity ORDER BY id ASC LIMIT 0",
+            Vec::<Vec<Value>>::new(),
+        ),
+        (
+            "SELECT name FROM JournaledSessionSqlEntity ORDER BY id ASC LIMIT 2 OFFSET 1",
+            vec![
+                vec![Value::Text("Bob".to_string())],
+                vec![Value::Text("Cara".to_string())],
+            ],
+        ),
+        (
+            "SELECT name FROM JournaledSessionSqlEntity ORDER BY id ASC OFFSET 2",
+            vec![
+                vec![Value::Text("Cara".to_string())],
+                vec![Value::Text("Dana".to_string())],
+            ],
+        ),
+        (
+            "SELECT name FROM JournaledSessionSqlEntity ORDER BY id ASC LIMIT 10 OFFSET 10",
+            Vec::<Vec<Value>>::new(),
+        ),
+    ];
+
+    for (sql, expected) in cases {
+        let (rows, metrics) = with_sql_projection_materialization_metrics(|| {
+            statement_projection_rows::<JournaledSessionSqlEntity>(&session, sql)
+                .expect("cursorless retained projection window should execute")
+        });
+
+        assert_eq!(rows, expected, "cursorless retained projection: {sql}");
+        if !sql.ends_with("LIMIT 0") {
+            assert_eq!(
+                metrics.slot_rows_path_hits, 1,
+                "cursorless direct-field projection should retain slot rows: {sql}",
+            );
+            assert_eq!(
+                metrics.data_rows_path_hits, 0,
+                "cursorless direct-field projection should not reconstruct data rows: {sql}",
+            );
+        }
+    }
+}
+
+#[test]
 fn execute_sql_projection_repeated_direct_field_uses_retained_slot_rows() {
     let session = seeded_projection_window_session();
 

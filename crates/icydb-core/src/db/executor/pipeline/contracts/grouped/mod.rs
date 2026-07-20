@@ -6,5 +6,5 @@
 mod route_stage;
 
 pub(in crate::db::executor) use route_stage::{
-    GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage, IndexSpecBundle,
+    GroupedPlannerPayload, GroupedRouteStage, IndexSpecBundle,
 };

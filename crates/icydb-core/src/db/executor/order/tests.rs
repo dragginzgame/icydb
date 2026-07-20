@@ -91,6 +91,18 @@ fn resolved_order(fields: &[(usize, OrderDirection)]) -> ResolvedOrder {
     )
 }
 
+fn add_expression_order(direction: OrderDirection) -> ResolvedOrder {
+    ResolvedOrder::new(vec![ResolvedOrderField::new(
+        ResolvedOrderValueSource::expression(CompiledExpr::Add {
+            left_slot: 0,
+            left_field: "age".to_string(),
+            right_slot: 1,
+            right_field: "rank".to_string(),
+        }),
+        direction,
+    )])
+}
+
 #[test]
 fn apply_structural_order_sorts_rows_by_resolved_slots() {
     let mut rows = vec![
@@ -314,15 +326,7 @@ fn bounded_order_window_caches_expression_keys_once_and_keeps_complete_order() {
 
 #[test]
 fn cached_bounded_order_window_rejects_a_different_order_contract() {
-    let order = ResolvedOrder::new(vec![ResolvedOrderField::new(
-        ResolvedOrderValueSource::expression(CompiledExpr::Add {
-            left_slot: 0,
-            left_field: "age".to_string(),
-            right_slot: 1,
-            right_field: "rank".to_string(),
-        }),
-        OrderDirection::Asc,
-    )]);
+    let order = add_expression_order(OrderDirection::Asc);
     let mut window = BoundedOrderWindow::new(2, &order);
     window.push(TestRow::new(vec![
         Some(Value::Nat64(3)),
@@ -333,15 +337,7 @@ fn cached_bounded_order_window_rejects_a_different_order_contract() {
         Some(Value::Nat64(1)),
     ]));
 
-    let descending_order = ResolvedOrder::new(vec![ResolvedOrderField::new(
-        ResolvedOrderValueSource::expression(CompiledExpr::Add {
-            left_slot: 0,
-            left_field: "age".to_string(),
-            right_slot: 1,
-            right_field: "rank".to_string(),
-        }),
-        OrderDirection::Desc,
-    )]);
+    let descending_order = add_expression_order(OrderDirection::Desc);
     let Err(error) = window
         .into_pending_rows()
         .apply_order(&descending_order, Some(2))
@@ -353,6 +349,67 @@ fn cached_bounded_order_window_rejects_a_different_order_contract() {
         error.diagnostic_code(),
         icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
     );
+}
+
+#[test]
+fn cached_bounded_order_window_rejects_a_different_keep_count() {
+    let order = add_expression_order(OrderDirection::Asc);
+    let mut window = BoundedOrderWindow::new(2, &order);
+    window.push(TestRow::new(vec![
+        Some(Value::Nat64(3)),
+        Some(Value::Nat64(2)),
+    ]));
+
+    let Err(error) = window.into_pending_rows().apply_order(&order, Some(1)) else {
+        panic!("a different bounded keep count must not consume cached values");
+    };
+
+    assert_eq!(
+        error.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+    );
+}
+
+#[test]
+fn cached_bounded_order_rows_reject_a_plain_row_terminal() {
+    let order = add_expression_order(OrderDirection::Asc);
+    let mut window = BoundedOrderWindow::new(1, &order);
+    window.push(TestRow::new(vec![
+        Some(Value::Nat64(3)),
+        Some(Value::Nat64(2)),
+    ]));
+
+    let Err(error) = window.into_pending_rows().into_plain_rows() else {
+        panic!("cached expression-order rows must not enter a plain-row terminal");
+    };
+
+    assert_eq!(
+        error.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+    );
+}
+
+#[test]
+fn cached_bounded_order_window_handles_empty_and_singleton_results() {
+    let order = add_expression_order(OrderDirection::Asc);
+    let empty = BoundedOrderWindow::<TestRow>::new(2, &order)
+        .into_pending_rows()
+        .apply_order(&order, Some(2))
+        .expect("an empty cached order window should remain valid");
+    assert!(empty.is_empty());
+
+    let mut singleton = BoundedOrderWindow::new(2, &order);
+    singleton.push(TestRow::new(vec![
+        Some(Value::Nat64(3)),
+        Some(Value::Nat64(2)),
+    ]));
+    let singleton = singleton
+        .into_pending_rows()
+        .apply_order(&order, Some(2))
+        .expect("a singleton cached order window should remain valid");
+
+    assert_eq!(singleton.len(), 1);
+    assert_eq!(singleton[0].read_order_slot(0), Some(Value::Nat64(3)));
 }
 
 crate::test_canister! {

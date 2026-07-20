@@ -626,9 +626,8 @@ fn prefix_cardinality_count_entrypoints_share_proof_and_terminal_authority() {
             ".cached_shared_query_plan_for_accepted_authority_with_catalog_and_compile_phase_attribution(",
             "direct_count_cardinality_prefix_specs_from_planned_query(",
             "fn direct_count_cardinality_prefix_specs_from_planned_query(",
-            "lower_access_with_schema_info(",
             "exact_count_cardinality_prefixes_for_plan(",
-            "lowered_access.index_prefix_specs()",
+            "prepared_plan.index_prefix_specs()",
             "lowered_index_prefix_cardinality_specs_from_plan(",
         ],
         "direct SQL count prefix-spec admission may keep its accepted-authority shortcut, but its planned fallback must use the shared query-plan cache and the planner prefix-cardinality proof",
@@ -654,6 +653,7 @@ fn prefix_cardinality_count_entrypoints_share_proof_and_terminal_authority() {
     assert_source_excludes_patterns(
         &direct_count,
         &[
+            "lower_access_with_schema_info(",
             "exact_prefix_cardinality_sum(",
             "index_prefix_cardinality_sum(",
             "count_index_prefix_cardinality_specs(",
@@ -734,7 +734,6 @@ fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit
             "apply_delete_post_access_rows(prepared, &mut rows)?",
             "validate_structural_delete_candidate_bounds(rows.len(), max_selected_rows)?",
             "package_rows(rows)",
-            "validate_structural_delete_projection_bounds(&prepared_projection.output, max_rows)?",
             "validate_precommit(&prepared_projection.output)?",
             "prepare_structural_delete_count_core_with_optional_bounds(",
         ],
@@ -1199,6 +1198,55 @@ fn assert_key_codec_drift_paths_are_recoverable(crate_root: &Path) {
     );
 }
 
+fn assert_scalar_route_authority(crate_root: &Path) {
+    let runtime = source_for(
+        crate_root,
+        "src/db/executor/pipeline/entrypoints/scalar/runtime.rs",
+    );
+    let hints = source_for(
+        crate_root,
+        "src/db/executor/pipeline/entrypoints/scalar/hints.rs",
+    );
+
+    assert_source_contains_patterns(
+        &runtime,
+        &[
+            "enum ScalarRouteSource {",
+            "Initial {",
+            "route_plan: ExecutionRoutePlan,",
+            "Resumed {",
+            "validate_executor_plan_for_authority(&authority, logical_plan)?;",
+        ],
+        "scalar runtime preparation should keep initial/resumed route inputs variant-owned and validate authority at one boundary",
+    );
+    assert_source_contains_patterns(
+        &hints,
+        &[
+            "pub(super) fn normalize_scalar_route_for_execution(",
+            "apply_unpaged_top_n_seek_hints(",
+            "route_plan.scan_hints.physical_fetch_hint = None;",
+            "apply_index_set_page_fetch_hint(",
+        ],
+        "unpaged, suppression, and safe index-set hint changes should share one final route-normalization owner",
+    );
+}
+
+fn assert_scalar_terminal_inputs_not_rebuilt(sources: [(&str, &str); 3]) {
+    let duplicate_input_builders = sources
+        .into_iter()
+        .filter_map(|(file, source)| {
+            source
+                .contains("ExecutionInputs::new_prepared(")
+                .then_some(file)
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        duplicate_input_builders.is_empty(),
+        "scalar terminal adapters should not rebuild ExecutionInputs outside execution.rs: {duplicate_input_builders:?}",
+    );
+}
+
 #[test]
 fn scalar_entrypoints_share_execution_inputs_spine() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -1218,12 +1266,17 @@ fn scalar_entrypoints_share_execution_inputs_spine() {
         crate_root,
         "src/db/executor/pipeline/entrypoints/scalar/entrypoints.rs",
     );
+    let kernel = source_for(crate_root, "src/db/executor/kernel/mod.rs");
+    let outcomes = source_for(
+        crate_root,
+        "src/db/executor/pipeline/contracts/execution/outcomes.rs",
+    );
 
     assert_source_contains_patterns(
         &execution,
         &[
             "pub(super) fn execute_prepared_scalar_kernel<T>(",
-            "prepare_scalar_route_for_execution(",
+            "normalize_scalar_route_for_execution(",
             "let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputContext {",
             "record_plan_metrics(entity_path, plan);",
             "with_execution_stats_capture(debug, ||",
@@ -1236,6 +1289,7 @@ fn scalar_entrypoints_share_execution_inputs_spine() {
         &materialized,
         &[
             "execute_prepared_scalar_kernel(",
+            "ScalarRouteTerminal::MaterializedPage,",
             "ExecutionKernel::materialize_with_optional_residual_retry(",
             "finish_scalar_kernel_observability(",
         ],
@@ -1246,6 +1300,7 @@ fn scalar_entrypoints_share_execution_inputs_spine() {
         &streaming,
         &[
             "execute_prepared_scalar_kernel(",
+            "ScalarRouteTerminal::KernelRows,",
             "ExecutionKernel::materialize_kernel_rows_with_optional_residual_retry(",
             "finish_scalar_kernel_observability(",
         ],
@@ -1264,22 +1319,115 @@ fn scalar_entrypoints_share_execution_inputs_spine() {
         "retained-slot page and aggregate row-sink entrypoints should prepare route runtime handoffs, then enter the shared scalar kernel spine",
     );
 
-    let duplicate_input_builders = [
+    assert_source_contains_patterns(
+        &kernel,
+        &[
+            "struct ResidualRetrySession<'a, 'b, 'c>",
+            "fn materialize<A, MaterializeAttempt>(",
+            "A: ResidualRetryAttempt,",
+            "fn retry_decision<A: ResidualRetryAttempt>(",
+            "accumulated_attempt.merge_latest(retry_attempt)",
+            "accumulated_metrics.merge_residual_retry_attempt(latest_metrics)",
+        ],
+        "structural pages and aggregate kernel rows should share one residual-retry loop and decision policy",
+    );
+    assert_source_contains_patterns(
+        &outcomes,
+        &[
+            "pub(in crate::db::executor) metrics: ExecutionOutcomeMetrics,",
+            "fn merge_residual_retry_attempt(self, latest: Self) -> Self",
+        ],
+        "both scalar attempt payloads should carry the same residual-retry accounting contract",
+    );
+    assert_scalar_route_authority(crate_root);
+
+    assert_scalar_terminal_inputs_not_rebuilt([
         ("materialized.rs", materialized.as_str()),
         ("streaming.rs", streaming.as_str()),
         ("entrypoints.rs", entrypoints.as_str()),
-    ]
-    .into_iter()
-    .filter_map(|(file, source)| {
-        source
-            .contains("ExecutionInputs::new_prepared(")
-            .then_some(file)
-    })
-    .collect::<Vec<_>>();
+    ]);
+}
 
-    assert!(
-        duplicate_input_builders.is_empty(),
-        "scalar terminal adapters should not rebuild ExecutionInputs outside execution.rs: {duplicate_input_builders:?}",
+#[test]
+fn load_and_grouped_runtime_handoffs_own_discriminators_and_residents() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let entrypoints = source_for(crate_root, "src/db/executor/pipeline/entrypoints/mod.rs");
+    let prepared_core = source_for(
+        crate_root,
+        "src/db/executor/prepared_execution_plan/core.rs",
+    );
+    let grouped = source_for(
+        crate_root,
+        "src/db/executor/pipeline/entrypoints/grouped.rs",
+    );
+    let grouped_route = source_for(
+        crate_root,
+        "src/db/executor/pipeline/contracts/grouped/route_stage/payload.rs",
+    );
+
+    assert_source_contains_patterns(
+        &entrypoints,
+        &[
+            "enum PreparedLoadRouteRuntime {",
+            "Self::Scalar(prepared) => {",
+            "Ok(LoadExecutionSurface::ScalarPageWithTrace(page, trace))",
+            "Self::Grouped(prepared) => {",
+            "Ok(LoadExecutionSurface::GroupedPageWithTrace(page, trace))",
+        ],
+        "prepared load runtime variants should construct final scalar/grouped surfaces directly",
+    );
+    assert_source_contains_patterns(
+        &prepared_core,
+        &[
+            "struct PreparedGroupedRuntimeResidents {",
+            "execution_preparation: ExecutionPreparation,",
+            "grouped_slot_layout: RetainedSlotLayout,",
+            "fn into_parts(self) -> (ExecutionPreparation, RetainedSlotLayout)",
+        ],
+        "grouped execution preparation and slot layout should travel as one provenance-bound resident",
+    );
+    assert_source_contains_patterns(
+        &grouped,
+        &[
+            "prepared_residents: Option<PreparedGroupedRuntimeResidents>,",
+            "let residents = if let Some(residents) = prepared_residents {",
+            "PreparedGroupedRuntimeResidents::new(execution_preparation, grouped_slot_layout)",
+        ],
+        "grouped runtime preparation should move or rebuild preparation and layout as one bundle",
+    );
+    assert_source_contains_patterns(
+        &grouped_route,
+        &["grouped_route_plan: ExecutionRoutePlan,"],
+        "the grouped route stage should carry the authoritative route plan directly",
+    );
+}
+
+#[test]
+fn grouped_diagnostics_wrap_the_canonical_execution_spine() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let grouped = source_for(
+        crate_root,
+        "src/db/executor/pipeline/entrypoints/grouped.rs",
+    );
+    let strategy = source_for(
+        crate_root,
+        "src/db/executor/pipeline/orchestrator/strategy/mod.rs",
+    );
+
+    assert_source_contains_patterns(
+        &grouped,
+        &[
+            "observer.build_stream(|| {",
+            "observer.fold(|| execute_group_fold_stage(&route, stream))",
+            "observer.finalize(|| runtime.finalize_grouped_output(route, folded, execution_time_micros))",
+            "let prepared = self.prepare_grouped_load_route_runtime(plan, cursor)?;",
+        ],
+        "grouped diagnostics should observe the canonical stream/fold/finalize spine and shared outer preparation",
+    );
+    assert_source_contains_patterns(
+        &strategy,
+        &[".prepare_grouped_load_route_runtime(plan, cursor)"],
+        "ordinary grouped load execution should use the same outer preparation as diagnostics",
     );
 }
 

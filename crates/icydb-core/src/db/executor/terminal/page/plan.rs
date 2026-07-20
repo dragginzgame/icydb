@@ -15,8 +15,7 @@ use crate::{
             terminal::page::{
                 KernelRow, KernelRowPayloadMode, RetainedSlotLayout, ScalarRowRuntimeHandle,
                 post_scan::{
-                    StructuralPostScanPageWindowStrategy, StructuralPostScanTailStrategy,
-                    required_prepared_projection_validation,
+                    StructuralPostScanTailStrategy, required_prepared_projection_validation,
                 },
                 scan::{KernelRowScanRequest, ScalarPageKernelRequest},
             },
@@ -172,12 +171,8 @@ impl<'a> ScalarMaterializationPlan<'a> {
 
     // Apply the remaining shared post-scan tail before cursor derivation and
     // final payload shaping.
-    pub(super) fn apply_post_scan_tail(
-        &self,
-        plan: &AccessPlannedQuery,
-        rows: &mut Vec<KernelRow>,
-    ) -> Result<(), InternalError> {
-        self.post_scan_tail.apply(plan, rows)
+    pub(super) fn apply_post_scan_tail(&self, rows: &[KernelRow]) -> Result<(), InternalError> {
+        self.post_scan_tail.apply(rows)
     }
 
     // Finalize the structural payload through the already-resolved tail
@@ -234,14 +229,9 @@ impl<'a> CursorlessShortPathPlan<'a> {
     // the shared post-access tail and outward payload family.
     pub(in crate::db::executor) fn materialize_rows(
         &self,
-        plan: &AccessPlannedQuery,
-        mut rows: Vec<KernelRow>,
+        rows: Vec<KernelRow>,
     ) -> Result<(StructuralCursorPage, usize), InternalError> {
-        self.post_scan_tail.apply_with_pre_applied_page_window(
-            plan,
-            &mut rows,
-            self.row_skip_count != 0,
-        )?;
+        self.post_scan_tail.apply(rows.as_slice())?;
 
         let post_access_rows = rows.len();
         let payload = self.post_scan_tail.finalize_payload(rows, None)?;
@@ -274,15 +264,8 @@ impl<'a> ResolvedScalarStructuralPolicy<'a> {
 
     // Build one shared structural post-scan tail from the already-resolved
     // projection validation and final payload family.
-    const fn post_scan_tail(
-        &self,
-        page_window_strategy: StructuralPostScanPageWindowStrategy,
-    ) -> StructuralPostScanTailStrategy<'a> {
-        StructuralPostScanTailStrategy::new(
-            page_window_strategy,
-            self.projection_validation,
-            self.retain_slot_rows,
-        )
+    const fn post_scan_tail(&self) -> StructuralPostScanTailStrategy<'a> {
+        StructuralPostScanTailStrategy::new(self.projection_validation, self.retain_slot_rows)
     }
 }
 
@@ -317,8 +300,7 @@ pub(super) fn resolve_scalar_materialization_plan<'a>(
         direct_data_row_path,
         kernel_row_scan_strategy: structural_policy.kernel_row_scan_strategy(),
         defer_retained_slot_distinct_window,
-        post_scan_tail: structural_policy
-            .post_scan_tail(StructuralPostScanPageWindowStrategy::NotPresent),
+        post_scan_tail: structural_policy.post_scan_tail(),
         cursor_emission: capabilities.cursor_emission,
     })
 }
@@ -367,8 +349,7 @@ pub(in crate::db::executor) fn resolve_cursorless_short_path_plan<'a>(
             cursor_boundary,
             capabilities.retain_slot_rows,
         ),
-        post_scan_tail: structural_policy
-            .post_scan_tail(StructuralPostScanPageWindowStrategy::CursorlessRetainedWindow),
+        post_scan_tail: structural_policy.post_scan_tail(),
     }))
 }
 

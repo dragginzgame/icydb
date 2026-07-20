@@ -41,6 +41,7 @@ pub(in crate::db::executor) use aggregate_plan::PreparedAggregatePlan;
 pub(in crate::db::executor) use bytes_projection::BytesByProjectionMode;
 pub(in crate::db::executor) use bytes_projection::classify_bytes_by_projection_mode;
 pub use core::ExecutionFamily;
+pub(in crate::db::executor) use core::PreparedGroupedRuntimeResidents;
 pub(in crate::db::executor) use core::PreparedScalarPlanCore;
 pub(in crate::db::executor::prepared_execution_plan) use core::{
     PreparedExecutionPlanCore, build_prepared_execution_plan_core_with_lowered_access,
@@ -50,8 +51,7 @@ pub(in crate::db::executor::prepared_execution_plan) use core::{
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use handoff::SharedPreparedProjectionRuntimeHandoff;
 pub(in crate::db::executor) use handoff::{
-    PreparedAccessPlanHandoff, PreparedAggregateStreamingPlanHandoff,
-    PreparedGroupedRuntimeHandoff, PreparedScalarRuntimeHandoff,
+    PreparedAccessPlanHandoff, PreparedAggregateStreamingPlanHandoff, PreparedScalarRuntimeHandoff,
 };
 pub(in crate::db::executor) use load_plan::PreparedLoadPlan;
 pub(in crate::db) use shared_plan::SharedPreparedExecutionPlan;
@@ -206,9 +206,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
 
     /// Borrow lowered index-prefix specs for test-only executor contracts.
     #[cfg(test)]
-    pub(in crate::db) fn index_prefix_specs(
-        &self,
-    ) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
+    pub(in crate::db) fn index_prefix_specs(&self) -> &[LoweredIndexPrefixSpec] {
         self.core.index_prefix_specs()
     }
 
@@ -222,9 +220,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
     // Collapse the typed prepared shell into the structural logical plan plus
     // lowered access specs together so structural consumers do not peel those
     // three prepared artifacts back out through separate wrappers.
-    pub(in crate::db::executor) fn into_access_plan_handoff(
-        self,
-    ) -> Result<PreparedAccessPlanHandoff, InternalError> {
+    pub(in crate::db::executor) fn into_access_plan_handoff(self) -> PreparedAccessPlanHandoff {
         let Self {
             authority,
             core,
@@ -232,21 +228,12 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         } = self;
         let residents = core.into_residents();
 
-        if residents.index_prefix_spec_invalid {
-            return Err(
-                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
-            );
-        }
-        if residents.index_range_spec_invalid {
-            return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
-        }
-
-        Ok(PreparedAccessPlanHandoff {
+        PreparedAccessPlanHandoff {
             authority,
             plan: residents.plan,
             index_prefix_specs: residents.index_prefix_specs,
             index_range_specs: residents.index_range_specs,
-        })
+        }
     }
 
     /// Validate and decode grouped continuation cursor state for grouped plans.

@@ -7,7 +7,7 @@ use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
         access::{
-            LoweredIndexPrefixCardinalitySpec, lower_access_with_schema_info,
+            LoweredIndexPrefixCardinalitySpec,
             lower_exact_index_prefix_cardinality_specs_for_prefix_access,
         },
         executor::{
@@ -17,7 +17,7 @@ use crate::{
         },
         query::{
             intent::StructuralQuery,
-            plan::{AccessPlannedQuery, VisibleIndexes, expr::ProjectionSpec},
+            plan::{VisibleIndexes, expr::ProjectionSpec},
         },
         schema::SchemaInfo,
         session::{
@@ -205,29 +205,17 @@ pub(in crate::db::session::sql::execute) fn direct_count_cardinality_prefix_spec
 }
 
 fn direct_count_cardinality_prefix_specs_from_planned_query(
-    authority: &EntityAuthority,
-    plan: &AccessPlannedQuery,
-) -> Result<Option<Vec<LoweredIndexPrefixCardinalitySpec>>, QueryError> {
-    let lowered_access = lower_access_with_schema_info(
-        authority.entity_tag(),
-        &plan.access,
-        authority
-            .accepted_schema_info()
-            .ok_or_else(QueryError::invariant)?,
-    )
-    .map_err(|_err| QueryError::invariant())?;
-    let Some(prefix_plan) = exact_count_cardinality_prefixes_for_plan(
-        authority.entity_tag(),
+    prepared_plan: &SharedPreparedExecutionPlan,
+) -> Option<Vec<LoweredIndexPrefixCardinalitySpec>> {
+    let plan = prepared_plan.logical_plan();
+    let prefix_plan = exact_count_cardinality_prefixes_for_plan(
+        prepared_plan.authority_ref().entity_tag(),
         plan,
-        lowered_access.index_prefix_specs(),
+        prepared_plan.index_prefix_specs(),
         true,
-    ) else {
-        return Ok(None);
-    };
+    )?;
 
-    Ok(lowered_index_prefix_cardinality_specs_from_plan(
-        prefix_plan,
-    ))
+    lowered_index_prefix_cardinality_specs_from_plan(prefix_plan)
 }
 
 fn direct_count_cardinality_target_from_entry<E>(
@@ -450,20 +438,13 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         prepared_plan: &SharedPreparedExecutionPlan,
         cache_attribution: SqlCacheAttribution,
-    ) -> Result<DirectCountCardinalityTarget, QueryError> {
+    ) -> DirectCountCardinalityTarget {
         let entry = direct_count_cardinality_plan_entry_from_prefix_specs(
             catalog,
-            direct_count_cardinality_prefix_specs_from_planned_query(
-                &authority,
-                prepared_plan.logical_plan(),
-            )?,
+            direct_count_cardinality_prefix_specs_from_planned_query(prepared_plan),
         );
 
-        Ok(DirectCountCardinalityTarget::from_optional_entry(
-            authority,
-            entry,
-            cache_attribution,
-        ))
+        DirectCountCardinalityTarget::from_optional_entry(authority, entry, cache_attribution)
     }
 
     fn direct_count_cardinality_target_for_authority(
@@ -485,11 +466,13 @@ impl<C: CanisterKind> DbSession<C> {
                 command.query(),
             )?;
 
-        Self::direct_count_cardinality_target_from_cached_shared_plan(
-            catalog,
-            authority,
-            &prepared_plan,
-            SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
+        Ok(
+            Self::direct_count_cardinality_target_from_cached_shared_plan(
+                catalog,
+                authority,
+                &prepared_plan,
+                SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
+            ),
         )
     }
 
@@ -595,7 +578,7 @@ impl<C: CanisterKind> DbSession<C> {
                 authority,
                 &prepared_plan,
                 SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
-            )?
+            )
         };
         if target.count_plan_entry().is_some() {
             let (cache_insert, ()) = measure_sql_stage(|| {

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "design": "0.206",
-  "status": "subject_identity_hard_cut_new_baseline_pending",
+  "status": "closed_reviewed_baseline_selected",
   "leading_set_frozen": true,
   "selection_frozen": true,
   "opening_evidence": {
@@ -190,7 +190,79 @@
     "old_artifact_decoder_retained": false,
     "source_revision_override_retained": false,
     "actual_environment_mismatches_remain_fail_closed": true,
-    "new_baseline_cohort_required_after_development_push": true
+    "new_baseline_cohort_required_after_development_push": false
+  },
+  "final_baseline_evidence": {
+    "authority": "reviewed_post_remediation_hard_cut_baseline",
+    "cohort": "0.206.3-c2f5856f4-closeout",
+    "run_ids": ["29751989919", "29753941708", "29753956883"],
+    "review_run_id": "29756834526",
+    "ordinary_gate_run_id": "29757215564",
+    "selected_baseline_run_id": "29751989919",
+    "source_revision": "c2f5856f49192d6d1187d2e1ef1adcecea79284a",
+    "source_dirty": false,
+    "subject_lockfile_sha256": "0b7a298d024d8c4cfeb99dffe7cb72fdb850d20f6c79746be703e1069dc83e6a",
+    "raw_wasm_sha256": "ef400795f433de0adf1acf4888afb24d9c67667d230d095db902bf5aa0dd2c64",
+    "raw_wasm_bytes": 3921037,
+    "p1_artifact_sha256": "720665314dfe107c585dd7cdcd4729d53016bd4ab295f26720010f7fc160ad3d",
+    "scale_artifact_sha256": "cdb5ab73cae8a20b8599db29f0cf0972920babe57b629fb7677b1f5ca08869a3",
+    "p2_artifact_sha256": "b5744d52fc3b3db3cd47b05a65e404bc5708cc5ec2376c4df72435c3a0bf2cbc",
+    "instrumentation_artifact_sha256": "ad3319e05aeeed9d658fe1e62c1282807acf8c2f91ef1073ba9384ac51669a81",
+    "review_artifact_sha256": "db49cbbdd4ac1646fe941d8d2e49bec264b59f8f8335f347fa0c662c2f967681",
+    "ordinary_comparison_artifact_sha256": "1d9ea872fc118b2c9cac533459b9f607369969aa3027ae9402fe24e257c89153",
+    "successful_p1_scenarios": 1787,
+    "failed_p1_scenarios": 0,
+    "p2_candidate_count": 424,
+    "instrumentation_overhead_instructions": 22883,
+    "instrumentation_overhead_basis_points": 350,
+    "unresolved_promotion_count": 31,
+    "ordinary_comparison": {
+      "verdict": "passed",
+      "metric_comparison_count": 63225,
+      "changed_metric_count": 0,
+      "metric_regression_count": 0,
+      "scale_total_count": 72,
+      "changed_scale_total_count": 0,
+      "scale_normalized_count": 264,
+      "changed_scale_normalized_count": 0,
+      "scale_slope_count": 48,
+      "changed_scale_slope_count": 0,
+      "rebuilt_raw_wasm_sha256": "4ea90be3420fd611abdc57d0ebfb3e7e9aed28ebd2423d6c700303b09d4ca78f",
+      "rebuilt_raw_wasm_bytes": 3921037
+    },
+    "guard_observations": [
+      {
+        "rows": 16,
+        "peak_retained": 11,
+        "total_instructions": 1685600,
+        "order_window_instructions": 61137,
+        "data_store_get_calls": 16,
+        "result_signature_unchanged": true
+      },
+      {
+        "rows": 256,
+        "peak_retained": 11,
+        "total_instructions": 11435036,
+        "order_window_instructions": 63337,
+        "data_store_get_calls": 256,
+        "result_signature_unchanged": true
+      },
+      {
+        "rows": 2048,
+        "peak_retained": 11,
+        "total_instructions": 88478158,
+        "order_window_instructions": 63387,
+        "data_store_get_calls": 2048,
+        "result_signature_unchanged": true
+      }
+    ]
+  },
+  "closeout_dispositions": {
+    "materialized_unindexed_order": "complete_scan_is_contract_required_but_206_003_bounds_avoidable_candidate_retention",
+    "residual_ordered_scan": "schema_dependent_missing_compatible_filter_order_index_1546_row_reads_and_10_retained_candidates_at_rows2048",
+    "scalar_aggregate": "schema_dependent_under_206_007",
+    "large_membership": "owned_by_sql_lowering_and_prefix_access_planner_under_206_010_through_206_014_needs_typed_measurement",
+    "owned_by_205_misclassification_present": false
   },
   "primary_budget": {
     "finding_id": "206-003",
@@ -239,8 +311,8 @@
         "crates/icydb-core/src/db/executor/order.rs"
       ],
       "disposition": "OptimizeNow",
-      "selection_state": "primary_candidate_reviewed_new_environment_contract_baseline_pending",
-      "evidence": "selection run 29696076149 records 2048 peak retained candidates; exact candidate runs 29742278537, 29743875425, and 29744294981 each retain 11 and reproduce identical measurements under review 29746556799; historical instruction and Wasm deltas remain contextual across the hard-cut environment shape, while the new contract records lockfile identity with the measured subject and retains no source override"
+      "selection_state": "complete_reviewed_baseline_selected",
+      "evidence": "selection run 29696076149 records 2048 peak retained candidates; final baseline runs 29751989919, 29753941708, and 29753956883 each retain 11 and reproduce identical measurements under review 29756834526; ordinary gate 29757215564 passes all maintained comparisons before baseline 29751989919 is selected; historical instruction and Wasm deltas remain contextual across the hard-cut environment shape, while the current contract records lockfile identity with the measured subject and retains no source override"
     },
     {
       "id": "206-004",

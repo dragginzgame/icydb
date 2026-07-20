@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.206.md](docs/changelog/0.206.md)
 
+- `0.206.4` completes performance closeout and removes duplicate executor
+  authority across prepared access, retry, pagination, routing, and grouped
+  diagnostics while retaining measured count fast paths.
+
 - `0.206.3` moves lockfile provenance into measured-subject identity and
   deletes the one-off source override, restoring one ordinary
   baseline-to-candidate workflow while real environment drift stays fail-closed.

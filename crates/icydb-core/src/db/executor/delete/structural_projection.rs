@@ -151,22 +151,6 @@ fn validate_structural_delete_candidate_bounds(
     ))
 }
 
-#[cfg(feature = "sql")]
-fn validate_structural_delete_projection_bounds(
-    projection: &MaterializedProjectionRows,
-    max_rows: Option<u32>,
-) -> Result<(), InternalError> {
-    validate_structural_delete_row_count_bounds(projection.row_count(), max_rows)
-}
-
-#[cfg(feature = "sql")]
-fn validate_structural_delete_row_count_bounds(
-    row_count: u32,
-    max_rows: Option<u32>,
-) -> Result<(), InternalError> {
-    validate_structural_delete_candidate_bounds(row_count as usize, max_rows)
-}
-
 // Prepare one structural delete projection through the shared delete core while
 // leaving the final typed commit-window bridge to the API wrapper.
 #[cfg(feature = "sql")]
@@ -190,12 +174,10 @@ where
     )?
     else {
         let projection = MaterializedProjectionRows::empty();
-        validate_structural_delete_projection_bounds(&projection, max_rows)?;
         validate_precommit(&projection)?;
 
         return Ok(None);
     };
-    validate_structural_delete_projection_bounds(&prepared_projection.output, max_rows)?;
     validate_precommit(&prepared_projection.output)?;
 
     Ok(Some(prepared_projection))
@@ -224,25 +206,13 @@ where
     C: CanisterKind,
 {
     // Phase 1: run the shared structural delete-count core.
-    let Some(prepared_count) = prepare_structural_delete_output(
+    prepare_structural_delete_output(
         db,
         store,
         prepared,
         max_rows,
         package_structural_delete_count,
-    )?
-    else {
-        return Ok(None);
-    };
-    #[cfg(not(feature = "sql"))]
-    let _ = max_rows;
-    #[cfg(feature = "sql")]
-    if let Some(max_rows) = max_rows {
-        let row_count = u32::try_from(prepared_count.row_count).unwrap_or(u32::MAX);
-        validate_structural_delete_row_count_bounds(row_count, Some(max_rows))?;
-    }
-
-    Ok(Some(prepared_count))
+    )
 }
 
 // Prepare one structural delete count with SQL policy row bounds checked before

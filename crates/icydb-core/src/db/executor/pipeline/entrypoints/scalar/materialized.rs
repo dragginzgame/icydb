@@ -6,7 +6,7 @@
 use crate::{
     db::{
         executor::{
-            ExecutionKernel, ExecutionTrace, ScalarContinuationContext,
+            ExecutionKernel, ExecutionTrace,
             pipeline::{
                 contracts::{ExecutionOutcomeMetrics, StructuralCursorPage},
                 entrypoints::scalar::{
@@ -14,16 +14,12 @@ use crate::{
                         execute_prepared_scalar_kernel, finish_scalar_kernel_observability,
                     },
                     finalize::finalize_scalar_structural_path_execution,
+                    hints::ScalarRouteTerminal,
                     runtime::PreparedScalarRouteRuntime,
                 },
             },
-            route::{
-                access_order_satisfied_by_route_mode, branch_set_page_keep_cap_shape_supported,
-                index_prefix_set_page_fetch_hint_shape_supported,
-            },
         },
         index::IndexCompilePolicy,
-        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
 };
@@ -40,69 +36,6 @@ pub(super) type ScalarPathExecution = (
     u64,
 );
 
-fn apply_index_set_page_fetch_hint(
-    route_plan: &mut crate::db::executor::ExecutionRoutePlan,
-    plan: &AccessPlannedQuery,
-    continuation: &ScalarContinuationContext,
-    residual_filter_present: bool,
-) {
-    let access_shape_facts = plan.access_shape_facts();
-    let single_path_facts = access_shape_facts.single_path_facts();
-    let branch_set_page = single_path_facts
-        .as_ref()
-        .is_some_and(branch_set_page_keep_cap_shape_supported);
-    let index_prefix_set_page = single_path_facts
-        .as_ref()
-        .is_some_and(index_prefix_set_page_fetch_hint_shape_supported);
-    if route_plan.scan_hints.physical_fetch_hint.is_some()
-        || residual_filter_present
-        || !cursor_fetch_hint_safe(route_plan, plan, continuation)
-        || !index_prefix_set_page
-        || !plan.scalar_plan().mode.is_load()
-        || plan.scalar_plan().distinct
-        || (branch_set_page
-            && plan
-                .scalar_plan()
-                .order
-                .as_ref()
-                .is_none_or(|order| order.fields.is_empty()))
-        || !access_order_satisfied_by_route_mode(plan)
-        || !route_plan.load_order_route_mode().allows_streaming_load()
-    {
-        return;
-    }
-
-    let Some(limit) = plan.scalar_plan().page.as_ref().and_then(|page| page.limit) else {
-        return;
-    };
-
-    let fetch = if limit == 0 {
-        0
-    } else {
-        continuation
-            .keep_count_for_limit_window(plan, limit)
-            .saturating_add(1)
-    };
-    route_plan.scan_hints.physical_fetch_hint = Some(fetch);
-}
-
-fn cursor_fetch_hint_safe(
-    route_plan: &crate::db::executor::ExecutionRoutePlan,
-    plan: &AccessPlannedQuery,
-    continuation: &ScalarContinuationContext,
-) -> bool {
-    if !continuation.has_cursor_boundary() {
-        return true;
-    }
-
-    let access_continuation = continuation.access_scan_input(route_plan.direction(), plan);
-    access_continuation.primary_key_boundary().is_some()
-        || access_continuation
-            .index_scan_continuation()
-            .anchor()
-            .is_some()
-}
-
 // Execute one prepared scalar runtime bundle through the canonical monomorphic
 // scalar spine without re-entering typed executor state.
 pub(super) fn execute_prepared_scalar_path_execution(
@@ -110,14 +43,7 @@ pub(super) fn execute_prepared_scalar_path_execution(
 ) -> Result<ScalarPathExecution, InternalError> {
     let execution = execute_prepared_scalar_kernel(
         prepared,
-        |route_plan, plan, continuation, prep| {
-            apply_index_set_page_fetch_hint(
-                route_plan,
-                plan,
-                continuation,
-                prep.effective_runtime_filter_program().is_some(),
-            );
-        },
+        ScalarRouteTerminal::MaterializedPage,
         |execution_inputs, route_plan, continuation| {
             ExecutionKernel::materialize_with_optional_residual_retry(
                 execution_inputs,

@@ -1,5 +1,28 @@
 use super::*;
 
+#[test]
+fn retained_slot_pages_fail_closed_at_data_row_only_boundaries() {
+    let page = StructuralCursorPage::new_with_slot_rows(
+        vec![RetainedSlotRow::new(5, vec![(1, Value::Int64(13))])],
+        None,
+    );
+    let Err(error) = page.require_data_rows() else {
+        panic!("retained-slot pages must not masquerade as empty data-row pages");
+    };
+    assert_eq!(error.class(), ErrorClass::InvariantViolation);
+    assert_eq!(error.origin(), ErrorOrigin::Query);
+
+    let page = StructuralCursorPage::new_with_slot_rows(
+        vec![RetainedSlotRow::new(5, vec![(1, Value::Int64(13))])],
+        None,
+    );
+    let Err(error) = page.require_data_rows_and_cursor() else {
+        panic!("retained-slot pages must not consume as empty data-row pages");
+    };
+    assert_eq!(error.class(), ErrorClass::InvariantViolation);
+    assert_eq!(error.origin(), ErrorOrigin::Query);
+}
+
 #[cfg(feature = "sql")]
 #[test]
 fn projection_hash_alias_identity_matches_evaluated_projection_output() {

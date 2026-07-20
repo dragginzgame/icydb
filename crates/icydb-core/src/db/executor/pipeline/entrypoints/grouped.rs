@@ -16,6 +16,7 @@ use crate::{
         cursor::ValidatedGroupedCursor,
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutionTrace, LoadCursorInput,
+            LoadCursorResolver, PreparedGroupedRuntimeResidents, PreparedLoadCursor,
             PreparedLoadPlan, RetainedSlotLayout,
             aggregate::runtime::{
                 GroupedOutputRuntimeObserverBindings, build_grouped_stream_with_runtime,
@@ -93,14 +94,25 @@ struct GroupedRouteExecutionResult {
 }
 
 ///
-/// GroupedExecutePhaseAttribution
+/// GroupedExecutionObserver
 ///
-/// GroupedExecutePhaseAttribution records the internal grouped-load execute
-/// split after one prepared route has already crossed the session compile
-/// boundary.
-/// It isolates grouped stream build, grouped fold, and grouped page
-/// finalization so perf tooling can see which grouped runtime phase still owns
-/// the repeated-query floor.
+/// GroupedExecutionObserver records optional diagnostics around the canonical
+/// grouped stream, fold, and finalize operations. Its non-diagnostics form is
+/// zero-sized and executes those operations directly.
+///
+
+struct GroupedExecutionObserver {
+    #[cfg(feature = "diagnostics")]
+    collect_phase_attribution: bool,
+    #[cfg(feature = "diagnostics")]
+    phase_attribution: GroupedExecutePhaseAttribution,
+}
+
+///
+/// GroupedCountAttribution
+///
+/// GroupedCountAttribution records dedicated grouped-count lookup and update
+/// work from the canonical grouped fold operation.
 ///
 
 #[cfg(feature = "diagnostics")]
@@ -202,6 +214,136 @@ impl GroupedRuntimeAttribution {
     }
 }
 
+impl GroupedExecutionObserver {
+    #[cfg(feature = "diagnostics")]
+    fn new(collect_phase_attribution: bool) -> Self {
+        Self {
+            collect_phase_attribution,
+            phase_attribution: GroupedExecutePhaseAttribution::default(),
+        }
+    }
+
+    #[cfg(not(feature = "diagnostics"))]
+    const fn new() -> Self {
+        Self {}
+    }
+
+    #[cfg(feature = "diagnostics")]
+    fn build_stream(
+        &mut self,
+        build: impl FnOnce() -> Result<GroupedStreamStage, InternalError>,
+    ) -> Result<GroupedStreamStage, InternalError> {
+        if self.collect_phase_attribution {
+            let (local_instructions, stream) = measure_grouped_execute_phase(build);
+            self.phase_attribution.stream_local_instructions = local_instructions;
+
+            return stream;
+        }
+
+        build()
+    }
+
+    #[cfg(not(feature = "diagnostics"))]
+    fn build_stream(
+        &mut self,
+        build: impl FnOnce() -> Result<GroupedStreamStage, InternalError>,
+    ) -> Result<GroupedStreamStage, InternalError> {
+        build()
+    }
+
+    #[cfg(feature = "diagnostics")]
+    fn fold(
+        &mut self,
+        fold: impl FnOnce() -> Result<GroupedFoldStage, InternalError>,
+    ) -> Result<GroupedFoldStage, InternalError> {
+        if self.collect_phase_attribution {
+            let mut grouped_count_fold_metrics = GroupedCountFoldMetrics::default();
+            let ((local_instructions, folded), aggregation_micros) =
+                crate::db::executor::measure_execution_stats_phase(|| {
+                    measure_grouped_execute_phase(|| {
+                        let (folded, metrics) = with_grouped_count_fold_metrics(fold);
+                        grouped_count_fold_metrics = metrics;
+
+                        folded
+                    })
+                });
+            record_aggregation(aggregation_micros);
+            self.phase_attribution.fold_local_instructions = local_instructions;
+            self.phase_attribution.grouped_count =
+                GroupedCountAttribution::from_fold_metrics(grouped_count_fold_metrics);
+
+            return folded;
+        }
+
+        let (folded, aggregation_micros) = crate::db::executor::measure_execution_stats_phase(fold);
+        record_aggregation(aggregation_micros);
+
+        folded
+    }
+
+    #[cfg(not(feature = "diagnostics"))]
+    fn fold(
+        &mut self,
+        fold: impl FnOnce() -> Result<GroupedFoldStage, InternalError>,
+    ) -> Result<GroupedFoldStage, InternalError> {
+        let (folded, aggregation_micros) = crate::db::executor::measure_execution_stats_phase(fold);
+        record_aggregation(aggregation_micros);
+
+        folded
+    }
+
+    #[cfg(feature = "diagnostics")]
+    fn observe_runtime(&mut self, folded: &GroupedFoldStage) {
+        if self.collect_phase_attribution {
+            self.phase_attribution.runtime = GroupedRuntimeAttribution::from_runtime_stats(
+                folded.runtime_stats(),
+                folded.rows_scanned(),
+            );
+        }
+    }
+
+    #[cfg(not(feature = "diagnostics"))]
+    const fn observe_runtime(&mut self, _folded: &GroupedFoldStage) {}
+
+    #[cfg(feature = "diagnostics")]
+    fn finalize(
+        &mut self,
+        finalize: impl FnOnce() -> (GroupedCursorPage, Option<ExecutionTrace>),
+    ) -> (GroupedCursorPage, Option<ExecutionTrace>) {
+        if self.collect_phase_attribution {
+            let (local_instructions, finalized) = measure_grouped_execute_phase(finalize);
+            self.phase_attribution.finalize_local_instructions = local_instructions;
+
+            return finalized;
+        }
+
+        finalize()
+    }
+
+    #[cfg(not(feature = "diagnostics"))]
+    fn finalize(
+        &mut self,
+        finalize: impl FnOnce() -> (GroupedCursorPage, Option<ExecutionTrace>),
+    ) -> (GroupedCursorPage, Option<ExecutionTrace>) {
+        finalize()
+    }
+
+    #[cfg(feature = "diagnostics")]
+    fn into_phase_attribution(self) -> Option<GroupedExecutePhaseAttribution> {
+        self.collect_phase_attribution
+            .then_some(self.phase_attribution)
+    }
+}
+
+///
+/// GroupedExecutePhaseAttribution
+///
+/// GroupedExecutePhaseAttribution records the internal grouped-load execute
+/// split after one prepared route has already crossed the session compile
+/// boundary. It observes the canonical stream, fold, and finalization
+/// operations without owning an alternate execution path.
+///
+
 #[cfg(feature = "diagnostics")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct GroupedExecutePhaseAttribution {
@@ -270,25 +412,26 @@ impl PreparedGroupedRouteRuntime {
     fn new(
         route: GroupedRouteStage,
         runtime: GroupedPathRuntimeContext,
-        prepared_execution_preparation: Option<ExecutionPreparation>,
-        prepared_grouped_slot_layout: Option<RetainedSlotLayout>,
+        prepared_residents: Option<PreparedGroupedRuntimeResidents>,
     ) -> Result<Self, InternalError> {
-        let execution_preparation = prepared_execution_preparation.unwrap_or_else(|| {
-            ExecutionPreparation::from_runtime_plan(
+        let residents = if let Some(residents) = prepared_residents {
+            residents
+        } else {
+            let execution_preparation = ExecutionPreparation::from_runtime_plan(
                 route.plan(),
                 route.plan().slot_map().map(<[usize]>::to_vec),
-            )
-        });
-        let grouped_slot_layout = match prepared_grouped_slot_layout {
-            Some(layout) => layout,
-            None => compile_grouped_row_slot_layout_from_inputs(
+            );
+            let grouped_slot_layout = compile_grouped_row_slot_layout_from_inputs(
                 runtime.authority.row_layout()?,
                 route.group_fields(),
                 route.grouped_aggregate_execution_specs(),
                 route.grouped_distinct_execution_strategy(),
                 execution_preparation.effective_runtime_filter_program(),
-            ),
+            );
+
+            PreparedGroupedRuntimeResidents::new(execution_preparation, grouped_slot_layout)
         };
+        let (execution_preparation, grouped_slot_layout) = residents.into_parts();
 
         Ok(Self {
             route,
@@ -312,15 +455,14 @@ where
     C: CanisterKind,
 {
     let authority = plan.authority();
-    let prepared_runtime_handoff = plan.cloned_grouped_runtime_handoff()?;
+    let prepared_residents = plan.cloned_grouped_runtime_residents()?;
     let route = resolve_grouped_route_for_plan(plan, cursor, debug)?;
     let store = db.recovered_store(authority.store_path())?;
 
     PreparedGroupedRouteRuntime::new(
         route,
         GroupedPathRuntimeContext::from_store(store, authority),
-        prepared_runtime_handoff.execution_preparation,
-        prepared_runtime_handoff.grouped_slot_layout,
+        prepared_residents,
     )
 }
 
@@ -332,19 +474,20 @@ fn execute_grouped_route_path(
     mut route: GroupedRouteStage,
     execution_preparation: ExecutionPreparation,
     grouped_slot_layout: RetainedSlotLayout,
-) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
+    #[cfg(feature = "diagnostics")] collect_phase_attribution: bool,
+) -> Result<GroupedRouteExecutionResult, InternalError> {
+    let mut observer = GroupedExecutionObserver::new(
+        #[cfg(feature = "diagnostics")]
+        collect_phase_attribution,
+    );
     let collect_stats = route.execution_trace.is_some();
     let execution_started_at = start_execution_timer();
     let (fold_result, mut execution_stats) = with_execution_stats_capture(collect_stats, || {
-        let stream =
-            runtime.build_grouped_stream(&route, execution_preparation, grouped_slot_layout)?;
-        let (folded, aggregation_micros) =
-            crate::db::executor::measure_execution_stats_phase(|| {
-                execute_group_fold_stage(&route, stream)
-            });
-        record_aggregation(aggregation_micros);
+        let stream = observer.build_stream(|| {
+            runtime.build_grouped_stream(&route, execution_preparation, grouped_slot_layout)
+        })?;
 
-        folded
+        observer.fold(|| execute_group_fold_stage(&route, stream))
     });
     let folded = fold_result?;
     let execution_time_micros = elapsed_execution_micros(execution_started_at);
@@ -356,8 +499,16 @@ fn execute_grouped_route_path(
             execution_stats.map(crate::db::executor::ExecutionProfileStats::into_execution_stats),
         );
     }
+    observer.observe_runtime(&folded);
+    let (page, trace) =
+        observer.finalize(|| runtime.finalize_grouped_output(route, folded, execution_time_micros));
 
-    Ok(runtime.finalize_grouped_output(route, folded, execution_time_micros))
+    Ok(GroupedRouteExecutionResult {
+        page,
+        trace,
+        #[cfg(feature = "diagnostics")]
+        phase_attribution: observer.into_phase_attribution(),
+    })
 }
 
 // Execute one grouped prepared runtime bundle through the canonical grouped
@@ -373,96 +524,14 @@ fn execute_prepared_grouped_route_runtime_internal(
         grouped_slot_layout,
     } = prepared;
 
-    #[cfg(feature = "diagnostics")]
-    if collect_phase_attribution {
-        let mut route = route;
-        let collect_stats = route.execution_trace.is_some();
-        let execution_started_at = start_execution_timer();
-
-        let (attributed_result, mut execution_stats) =
-            with_execution_stats_capture(collect_stats, || {
-                // Phase 1: build the grouped execution stream from the prepared route.
-                let (stream_local_instructions, stream) = measure_grouped_execute_phase(|| {
-                    runtime.build_grouped_stream(&route, execution_preparation, grouped_slot_layout)
-                });
-                let stream = stream?;
-
-                // Phase 2: fold grouped rows over the resolved stream contract.
-                let mut grouped_count_fold_metrics = GroupedCountFoldMetrics::default();
-                let ((fold_local_instructions, folded), aggregation_micros) =
-                    crate::db::executor::measure_execution_stats_phase(|| {
-                        measure_grouped_execute_phase(|| {
-                            let (folded, metrics) = with_grouped_count_fold_metrics(|| {
-                                execute_group_fold_stage(&route, stream)
-                            });
-                            grouped_count_fold_metrics = metrics;
-
-                            folded
-                        })
-                    });
-                record_aggregation(aggregation_micros);
-                let folded = folded?;
-
-                Ok::<_, InternalError>((
-                    stream_local_instructions,
-                    fold_local_instructions,
-                    grouped_count_fold_metrics,
-                    folded,
-                ))
-            });
-        let (
-            stream_local_instructions,
-            fold_local_instructions,
-            grouped_count_fold_metrics,
-            folded,
-        ) = attributed_result?;
-        if let Some(stats) = execution_stats.as_mut() {
-            stats.apply_grouped_outcome(folded.rows_returned());
-        }
-        if let Some(trace) = route.execution_trace_mut().as_mut() {
-            trace.set_execution_stats(
-                execution_stats
-                    .map(crate::db::executor::ExecutionProfileStats::into_execution_stats),
-            );
-        }
-        let grouped_runtime = GroupedRuntimeAttribution::from_runtime_stats(
-            folded.runtime_stats(),
-            folded.rows_scanned(),
-        );
-        let execution_time_micros = elapsed_execution_micros(execution_started_at);
-
-        // Phase 3: finalize grouped rows, cursor payload, and execution trace.
-        let (finalize_local_instructions, finalized) = measure_grouped_execute_phase(|| {
-            Ok::<(GroupedCursorPage, Option<ExecutionTrace>), InternalError>(
-                runtime.finalize_grouped_output(route, folded, execution_time_micros),
-            )
-        });
-        let (page, trace) = finalized?;
-
-        return Ok(GroupedRouteExecutionResult {
-            page,
-            trace,
-            phase_attribution: Some(GroupedExecutePhaseAttribution {
-                stream_local_instructions,
-                fold_local_instructions,
-                finalize_local_instructions,
-                runtime: grouped_runtime,
-                grouped_count: GroupedCountAttribution::from_fold_metrics(
-                    grouped_count_fold_metrics,
-                ),
-            }),
-        });
-    }
-
-    let (page, trace) =
-        execute_grouped_route_path(&runtime, route, execution_preparation, grouped_slot_layout)?;
-
-    Ok(GroupedRouteExecutionResult {
-        page,
-        trace,
+    execute_grouped_route_path(
+        &runtime,
+        route,
+        execution_preparation,
+        grouped_slot_layout,
         #[cfg(feature = "diagnostics")]
-        phase_attribution: None,
-    })
+        collect_phase_attribution,
+    )
 }
 
 // Execute one fully prepared grouped runtime bundle through the canonical
@@ -504,6 +573,29 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    /// Prepare the canonical grouped load runtime from public cursor input.
+    /// Ordinary and diagnostics entrypoints share this complete outer setup.
+    pub(in crate::db::executor::pipeline) fn prepare_grouped_load_route_runtime(
+        &self,
+        plan: PreparedLoadPlan,
+        cursor: LoadCursorInput,
+    ) -> Result<PreparedGroupedRouteRuntime, InternalError> {
+        if !plan.mode().is_load() {
+            return Err(InternalError::load_executor_load_plan_required());
+        }
+
+        let resolved_cursor = LoadCursorResolver::resolve_load_cursor_context(
+            &plan,
+            cursor,
+            LoadSurfaceMode::GroupedPage,
+        )?;
+        let PreparedLoadCursor::Grouped(cursor) = resolved_cursor else {
+            return Err(InternalError::query_executor_invariant());
+        };
+
+        prepare_grouped_route_runtime_for_load_plan(&self.db, self.debug, plan, cursor)
+    }
+
     fn grouped_path_runtime(
         &self,
         authority: EntityAuthority,
@@ -519,14 +611,12 @@ where
         &self,
         route: GroupedRouteStage,
         authority: EntityAuthority,
-        prepared_execution_preparation: Option<ExecutionPreparation>,
-        prepared_grouped_slot_layout: Option<RetainedSlotLayout>,
+        prepared_residents: Option<PreparedGroupedRuntimeResidents>,
     ) -> Result<PreparedGroupedRouteRuntime, InternalError> {
         PreparedGroupedRouteRuntime::new(
             route,
             self.grouped_path_runtime(authority)?,
-            prepared_execution_preparation,
-            prepared_grouped_slot_layout,
+            prepared_residents,
         )
     }
 
@@ -556,24 +646,7 @@ where
         ),
         InternalError,
     > {
-        if !plan.mode().is_load() {
-            return Err(InternalError::load_executor_load_plan_required());
-        }
-
-        let resolved_cursor = super::resolve_grouped_perf_cursor(&plan, cursor)?;
-        let crate::db::executor::PreparedLoadCursor::Grouped(cursor) = resolved_cursor else {
-            return Err(InternalError::query_executor_invariant());
-        };
-
-        let prepared_runtime_handoff = plan.cloned_grouped_runtime_handoff()?;
-        let authority = plan.authority();
-        let route = resolve_grouped_route_for_plan(plan, cursor, self.debug)?;
-        let prepared = self.prepare_grouped_route_runtime(
-            route,
-            authority,
-            prepared_runtime_handoff.execution_preparation,
-            prepared_runtime_handoff.grouped_slot_layout,
-        )?;
+        let prepared = self.prepare_grouped_load_route_runtime(plan, cursor)?;
 
         execute_prepared_grouped_route_runtime_with_phase_attribution(prepared)
     }

@@ -1,9 +1,8 @@
 # 0.206 SQL Performance Remediation Investigation
 
-Status: Slice 1 selection frozen; the corrected Slice 2 candidate passed an
-exact three-run cohort review; the subject/environment ownership hard cut is
-implemented locally, and a new-format baseline cohort remains required after
-the development commit is pushed.
+Status: complete; the corrected Slice 2 candidate and hard-cut subject identity
+passed exact three-run cohort review, the ordinary baseline gate reproduced all
+maintained evidence, and reviewed run `29751989919` is selected.
 
 ## Decision
 
@@ -47,6 +46,12 @@ remain workflow artifacts and are not copied into the repository.
 | candidate P2 | `29742278537` | `f066894cb5709b64af3cb6c9d559c52ba3acfc93` | 424 confirmations; P2 `6ad8c63a` | `sql_perf_p2_report.json` | `c900fc1260bea2921a6810105e1dd3887f712885c62c29e97ecca959bae20a41` |
 | candidate attribution | `29742278537` | `f066894cb5709b64af3cb6c9d559c52ba3acfc93` | 22,883 instructions; 350 basis points; observation only | `sql_perf_instrumentation.json` | `0ae417caa41072ac2b2254ea77976930733c8e7f47942f80b06b0f9807b2887e` |
 | candidate cohort review | `29746556799` | `f066894cb5709b64af3cb6c9d559c52ba3acfc93` | cohort `0.206.2-f066894cb-closeout`; runs `29742278537`, `29743875425`, `29744294981` | `sql_perf_calibration_review.json` | `fec75651bed485a32b145f9460db3141608111d5b23185ea5d2f04c3afd38c2d` |
+| final baseline P1 | `29751989919` | `c2f5856f49192d6d1187d2e1ef1adcecea79284a` | hard-cut subject shape; 1,787 passed | `sql_perf_deterministic_matrix.json` | `720665314dfe107c585dd7cdcd4729d53016bd4ab295f26720010f7fc160ad3d` |
+| final baseline scale | `29751989919` | `c2f5856f49192d6d1187d2e1ef1adcecea79284a` | scale `afa7c342`; fixture `66ae745f` | `sql_perf_scale_report.json` | `cdb5ab73cae8a20b8599db29f0cf0972920babe57b629fb7677b1f5ca08869a3` |
+| final baseline P2 | `29751989919` | `c2f5856f49192d6d1187d2e1ef1adcecea79284a` | 424 confirmations; P2 `6ad8c63a` | `sql_perf_p2_report.json` | `b5744d52fc3b3db3cd47b05a65e404bc5708cc5ec2376c4df72435c3a0bf2cbc` |
+| final baseline attribution | `29751989919` | `c2f5856f49192d6d1187d2e1ef1adcecea79284a` | 22,883 instructions; 350 basis points; observation only | `sql_perf_instrumentation.json` | `ad3319e05aeeed9d658fe1e62c1282807acf8c2f91ef1073ba9384ac51669a81` |
+| final cohort review | `29756834526` | `c2f5856f49192d6d1187d2e1ef1adcecea79284a` | cohort `0.206.3-c2f5856f4-closeout`; runs `29751989919`, `29753941708`, `29753956883` | `sql_perf_calibration_review.json` | `db49cbbdd4ac1646fe941d8d2e49bec264b59f8f8335f347fa0c662c2f967681` |
+| ordinary baseline gate | `29757215564` | `c2f5856f49192d6d1187d2e1ef1adcecea79284a` | baseline `29751989919`; passed with zero changed measurements or regressions | `sql_perf_comparison.json` | `1d9ea872fc118b2c9cac533459b9f607369969aa3027ae9402fe24e257c89153` |
 
 The opening subject is raw Wasm SHA-256
 `e40cf2756a9b714d232eff6a488b81db6939a0a3ed882863f82716e0b91008fb`,
@@ -181,6 +186,47 @@ fixture, build configuration, accepted schema, PocketIC, diagnostics, or
 counter policy—still fail closed and require a fresh baseline rather than a
 compatibility or historical-source mode.
 
+## Final Baseline Selection
+
+Runs `29751989919`, `29753941708`, and `29753956883` form final cohort
+`0.206.3-c2f5856f4-closeout`. Ordinals 2 and 3 reused ordinal 1's exact Wasm;
+review run `29756834526` accepted the cohort. The measured subject records
+source `c2f5856f49192d6d1187d2e1ef1adcecea79284a`, lockfile SHA-256
+`0b7a298d024d8c4cfeb99dffe7cb72fdb850d20f6c79746be703e1069dc83e6a`,
+and raw non-gzipped Wasm SHA-256
+`ef400795f433de0adf1acf4888afb24d9c67667d230d095db902bf5aa0dd2c64`
+at 3,921,037 bytes. `Cargo.lock` is absent from comparable environment
+identity and present in measured subject identity, as required by the hard
+cut. The final baseline is 5,349 raw bytes above selection run `29696076149`;
+like the historical instruction delta, that cross-lockfile size delta is
+contextual rather than an exact causal attribution.
+
+The release lock also resolves newer transitive `clap`, `clap_derive`,
+`hyper`, `serde_json`, and `syn` packages without changing a direct dependency
+requirement in `Cargo.toml`. Dependency-graph inspection places `clap` on the
+CLI, `hyper` on the integration/PocketIC runner, `serde_json` on this package's
+test tooling, and `syn` on host-side macros. Any resulting code-generation or
+Wasm effect is nevertheless included in the final measured subject above.
+
+The cohort reproduces the selected family exactly at all three cardinalities:
+
+| Rows | Peak retained | Total instructions | Order-window instructions | Data gets | Result |
+| ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 16 | 11 | 1,685,600 | 61,137 | 16 | unchanged IDs 1-10 |
+| 256 | 11 | 11,435,036 | 63,337 | 256 | unchanged IDs 1-10 |
+| 2,048 | 11 | 88,478,158 | 63,387 | 2,048 | unchanged IDs 1-10 |
+
+All three ordinals have 1,787 successful P1 scenarios, the same 424-candidate
+P2 set, 22,883-instruction attribution overhead, and the same 31 unresolved
+promotion-review scenarios. Ordinary run `29757215564` then rebuilt the same
+source and passed the single maintained baseline flow against ordinal 1. Its
+63,225 metric comparisons, 72 scale totals, 264 normalized scale costs, and 48
+scale slopes contain zero changed values and zero regressions. The rebuilt raw
+Wasm has the same 3,921,037-byte size but a different recorded SHA-256; this is
+subject provenance rather than comparable-environment identity, and the full
+measured behavior is unchanged. Repository variable
+`ICYDB_SQL_PERF_BASELINE_RUN_ID` now selects run `29751989919`.
+
 ## Deterministic Leading Set
 
 Families are deduplicated after taking the top five for each design-owned
@@ -273,6 +319,20 @@ that the required engine work is removable only through an application-declared
 compatible index or a different query. Adding an index to claim an engine win
 would violate 0.206.
 
+The closeout concerns outside the sole selected family also have explicit
+owners and dispositions. Materialized expression order requires the complete
+scan but no longer requires complete candidate retention; 206-003 removes that
+avoidable engine work. Incompatible direct-field filter/order remains
+`SchemaDependent` under 206-009. The maintained residual-primary scenario reads
+1,546 rows at 2,048-row scale before producing the ordered ten-row window,
+retains only ten candidates, and spends no materialized-order phase work; the
+residual ordered-scan owner is therefore behaving according to the accepted
+schema, while removing the row reads requires a compatible application index.
+Scalar aggregate scan cost is `SchemaDependent` under 206-007. Large-membership
+compile/planner work is owned by SQL lowering and the prefix access planner
+under 206-010 through 206-014, and remains `NeedsTypedMeasurement` rather than
+an unproved optimization claim.
+
 The grouped hash state in 206-001 and 206-002 is contract-required, but their
 complete current cost is not. Existing storage counters prove two full index
 traversals and 4,096 index-entry reads for 2,048 input rows. Source inspection
@@ -337,8 +397,8 @@ unindexed materialization, expression-index covering routes, paged result
 parity, one-evaluation cache reuse, and fail-closed cache-contract mismatch.
 The clean candidate cohort proves the structural target, candidate instruction
 values, and final candidate raw Wasm identity. Historical cross-lockfile deltas
-remain explicitly contextual. A fresh new-format candidate cohort is the
-remaining external Slice 2 closeout evidence.
+remain explicitly contextual. The accepted hard-cut cohort, ordinary gate, and
+selected baseline complete the external Slice 2 closeout evidence.
 
 ## Remaining Risks
 
@@ -364,7 +424,8 @@ one infrastructure-only PocketIC-download rerun. Candidate runs `29742278537`,
 `29743875425`, and `29744294981` passed every P1, scale, P2, attribution, merge,
 and bundle job; strict review run `29746556799` accepted their exact shared
 cohort. The local Slice 2 implementation also passes focused expression-order
-semantics and package-local Clippy with warnings denied. A fresh cohort under
-the hard-cut subject/environment shape remains pending after the development
-commit is pushed; full repository tests remain user-owned under repository
-policy.
+semantics and package-local Clippy with warnings denied. Final runs
+`29751989919`, `29753941708`, and `29753956883` passed every evidence stage;
+strict review `29756834526` accepted their exact shared cohort; and ordinary
+run `29757215564` passed baseline comparison before run `29751989919` was
+selected. Full repository tests remain user-owned under repository policy.

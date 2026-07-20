@@ -19,9 +19,10 @@ use crate::{
             pipeline::contracts::{
                 CursorEmissionMode, FastPathKeyResult, FastStreamRouteKind, FastStreamRouteRequest,
                 KernelPageMaterializationRequest, RowCollectorMaterializationRequest,
-                RuntimePageMaterializationRequest, ScalarMaterializationCapabilities,
-                StructuralCursorPage,
+                ScalarMaterializationCapabilities, StructuralCursorPage,
             },
+            projection::PreparedProjectionContract,
+            route::LoadOrderRouteMode,
             scan::execute_fast_stream_route,
             stream::access::TraversalRuntime,
             terminal::page::{
@@ -44,9 +45,9 @@ type MaterializedExecutionPayloadResult = (StructuralCursorPage, usize, usize);
 /// ExecutionMaterializationContract
 ///
 /// ExecutionMaterializationContract captures the execution-input fields shared
-/// by the row-collector and runtime-page materialization requests.
-/// Runtime materialization consumes this once so the two outward request shapes
-/// do not re-spell predicate/projection/retained-slot wiring.
+/// by the row-collector and kernel-page materialization requests.
+/// Runtime materialization consumes this once so the two terminal request
+/// shapes do not re-spell predicate/projection/retained-slot wiring.
 ///
 
 #[derive(Clone, Copy)]
@@ -54,16 +55,31 @@ pub(in crate::db::executor) struct ExecutionMaterializationContract<'a> {
     pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
     pub(in crate::db::executor) residual_filter_program: Option<&'a EffectiveRuntimeFilterProgram>,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
-    pub(in crate::db::executor) load_order_route_mode:
-        crate::db::executor::route::LoadOrderRouteMode,
+    pub(in crate::db::executor) load_order_route_mode: LoadOrderRouteMode,
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
     pub(in crate::db::executor) retained_slot_layout: Option<&'a RetainedSlotLayout>,
     pub(in crate::db::executor) prepared_projection_validation:
-        Option<&'a crate::db::executor::projection::PreparedProjectionContract>,
+        Option<&'a PreparedProjectionContract>,
 }
 
 impl<'a> ExecutionMaterializationContract<'a> {
+    // Project the shared predicate/projection contract into one terminal
+    // capability bundle without introducing another request DTO.
+    const fn capabilities(
+        &self,
+        cursor_emission: CursorEmissionMode,
+    ) -> ScalarMaterializationCapabilities<'a> {
+        ScalarMaterializationCapabilities {
+            residual_filter_program: self.residual_filter_program,
+            validate_projection: self.validate_projection,
+            retain_slot_rows: self.retain_slot_rows,
+            retained_slot_layout: self.retained_slot_layout,
+            prepared_projection_validation: self.prepared_projection_validation,
+            cursor_emission,
+        }
+    }
+
     // Materialize one resolved scalar key stream through the aligned
     // row-collector or canonical page runtime lane without rebuilding the
     // shared predicate/projection/retained-slot contract twice.
@@ -111,6 +127,7 @@ impl<'a> ExecutionMaterializationContract<'a> {
     const fn row_collector_request(
         &self,
         continuation: &'a ScalarContinuationContext,
+        consistency: MissingRowPolicy,
         key_stream: &'a mut OrderedKeyStreamBox,
     ) -> RowCollectorMaterializationRequest<'a> {
         RowCollectorMaterializationRequest {
@@ -119,48 +136,9 @@ impl<'a> ExecutionMaterializationContract<'a> {
             load_order_route_mode: self.load_order_route_mode,
             continuation,
             cursor_boundary: continuation.cursor_boundary(),
-            capabilities: ScalarMaterializationCapabilities {
-                residual_filter_program: self.residual_filter_program,
-                validate_projection: self.validate_projection,
-                retain_slot_rows: self.retain_slot_rows,
-                retained_slot_layout: self.retained_slot_layout,
-                prepared_projection_validation: self.prepared_projection_validation,
-                cursor_emission: CursorEmissionMode::Suppress,
-            },
-            key_stream,
-        }
-    }
-
-    // Build the canonical scalar page materialization request from one
-    // already-aligned scalar materialization contract.
-    const fn runtime_page_request(
-        &self,
-        emit_cursor: bool,
-        consistency: MissingRowPolicy,
-        continuation: &'a ScalarContinuationContext,
-        direction: Direction,
-        key_stream: &'a mut OrderedKeyStreamBox,
-    ) -> RuntimePageMaterializationRequest<'a> {
-        RuntimePageMaterializationRequest {
-            plan: self.plan,
-            key_stream,
-            scan_budget_hint: self.scan_budget_hint,
-            load_order_route_mode: self.load_order_route_mode,
-            capabilities: ScalarMaterializationCapabilities {
-                residual_filter_program: self.residual_filter_program,
-                validate_projection: self.validate_projection,
-                retain_slot_rows: self.retain_slot_rows,
-                retained_slot_layout: self.retained_slot_layout,
-                prepared_projection_validation: self.prepared_projection_validation,
-                cursor_emission: if emit_cursor {
-                    CursorEmissionMode::Emit
-                } else {
-                    CursorEmissionMode::Suppress
-                },
-            },
+            capabilities: self.capabilities(CursorEmissionMode::Suppress),
             consistency,
-            continuation,
-            direction,
+            key_stream,
         }
     }
 }
@@ -247,19 +225,20 @@ impl ExecutionRuntimeAdapter {
     ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
         if !emit_cursor
             && let Some(materialized) = self.try_materialize_load_via_row_collector(
-                contract.row_collector_request(continuation, key_stream),
+                contract.row_collector_request(continuation, consistency, key_stream),
             )?
         {
             return Ok(materialized);
         }
 
-        self.materialize_key_stream_into_structural_page(contract.runtime_page_request(
+        self.materialize_key_stream_into_structural_page(
+            contract,
             emit_cursor,
             consistency,
             continuation,
             direction,
             key_stream,
-        ))
+        )
     }
 
     // Materialize one ordered key stream into post-access scalar kernel rows for
@@ -273,13 +252,13 @@ impl ExecutionRuntimeAdapter {
         direction: Direction,
         key_stream: &'a mut OrderedKeyStreamBox,
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {
-        self.materialize_key_stream_into_kernel_rows(contract.runtime_page_request(
-            false,
+        self.materialize_key_stream_into_kernel_rows(
+            contract,
             consistency,
             continuation,
             direction,
             key_stream,
-        ))
+        )
     }
 
     /// Resolve one primary-key fast path when the route is already verified.
@@ -377,24 +356,34 @@ impl ExecutionRuntimeAdapter {
     }
 
     /// Materialize one ordered key stream into one structural scalar page payload.
-    fn materialize_key_stream_into_structural_page(
-        &self,
-        request: RuntimePageMaterializationRequest<'_>,
+    fn materialize_key_stream_into_structural_page<'a>(
+        &'a self,
+        contract: &ExecutionMaterializationContract<'a>,
+        emit_cursor: bool,
+        consistency: MissingRowPolicy,
+        continuation: &'a ScalarContinuationContext,
+        direction: Direction,
+        key_stream: &'a mut OrderedKeyStreamBox,
     ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
         let authority = self.authority()?;
+        let cursor_emission = if emit_cursor {
+            CursorEmissionMode::Emit
+        } else {
+            CursorEmissionMode::Suppress
+        };
 
         self.with_scalar_row_runtime_handle(|row_runtime| {
             materialize_key_stream_into_execution_payload(
                 KernelPageMaterializationRequest {
                     authority,
-                    plan: request.plan,
-                    key_stream: request.key_stream,
-                    scan_budget_hint: request.scan_budget_hint,
-                    load_order_route_mode: request.load_order_route_mode,
-                    capabilities: request.capabilities,
-                    consistency: request.consistency,
-                    continuation: request.continuation,
-                    direction: request.direction,
+                    plan: contract.plan,
+                    key_stream,
+                    scan_budget_hint: contract.scan_budget_hint,
+                    load_order_route_mode: contract.load_order_route_mode,
+                    capabilities: contract.capabilities(cursor_emission),
+                    consistency,
+                    continuation,
+                    direction,
                 },
                 row_runtime,
             )
@@ -403,9 +392,13 @@ impl ExecutionRuntimeAdapter {
 
     /// Materialize one ordered key stream into post-access kernel rows.
     #[cfg(feature = "sql")]
-    fn materialize_key_stream_into_kernel_rows(
-        &self,
-        request: RuntimePageMaterializationRequest<'_>,
+    fn materialize_key_stream_into_kernel_rows<'a>(
+        &'a self,
+        contract: &ExecutionMaterializationContract<'a>,
+        consistency: MissingRowPolicy,
+        continuation: &'a ScalarContinuationContext,
+        direction: Direction,
+        key_stream: &'a mut OrderedKeyStreamBox,
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {
         let authority = self.authority()?;
 
@@ -413,14 +406,14 @@ impl ExecutionRuntimeAdapter {
             materialize_key_stream_into_kernel_rows(
                 KernelPageMaterializationRequest {
                     authority,
-                    plan: request.plan,
-                    key_stream: request.key_stream,
-                    scan_budget_hint: request.scan_budget_hint,
-                    load_order_route_mode: request.load_order_route_mode,
-                    capabilities: request.capabilities,
-                    consistency: request.consistency,
-                    continuation: request.continuation,
-                    direction: request.direction,
+                    plan: contract.plan,
+                    key_stream,
+                    scan_budget_hint: contract.scan_budget_hint,
+                    load_order_route_mode: contract.load_order_route_mode,
+                    capabilities: contract.capabilities(CursorEmissionMode::Suppress),
+                    consistency,
+                    continuation,
+                    direction,
                 },
                 row_runtime,
             )

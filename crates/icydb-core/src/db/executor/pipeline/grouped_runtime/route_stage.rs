@@ -9,9 +9,7 @@ use crate::{
         executor::{
             GroupedContinuationContext, PreparedLoadPlan,
             diagnostics::execution_trace_for_access,
-            pipeline::contracts::{
-                GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage, IndexSpecBundle,
-            },
+            pipeline::contracts::{GroupedPlannerPayload, GroupedRouteStage, IndexSpecBundle},
             route::{RouteExecutionMode, RoutePlanRequest, build_execution_route_plan},
             validate_executor_plan_for_authority,
         },
@@ -54,7 +52,7 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
     )?;
 
     // The route plan remains the single owner of grouped execution mode.
-    let grouped_execution_mode = grouped_route_plan
+    grouped_route_plan
         .grouped_execution_mode()
         .ok_or_else(InternalError::query_executor_invariant)?;
     debug_assert!(
@@ -81,7 +79,7 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
     );
     let (grouped_aggregate_execution_specs, projection_layout, grouped_distinct_execution_strategy) =
         grouped_handoff.into_route_stage_residents();
-    let prepared = plan.into_access_plan_handoff()?;
+    let prepared = plan.into_access_plan_handoff();
 
     Ok(GroupedRouteStage {
         planner_payload: GroupedPlannerPayload {
@@ -95,14 +93,12 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
             grouped_having_expr,
             grouped_distinct_execution_strategy,
         },
-        route_payload: GroupedRoutePayload { grouped_route_plan },
+        grouped_route_plan,
         index_specs: IndexSpecBundle {
             index_prefix_specs: prepared.index_prefix_specs,
             index_range_specs: prepared.index_range_specs,
         },
         continuation,
-        direction,
-        grouped_execution_mode,
         execution_trace,
     })
 }

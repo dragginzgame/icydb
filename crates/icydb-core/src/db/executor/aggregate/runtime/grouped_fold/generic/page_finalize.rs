@@ -203,9 +203,15 @@ enum GroupedPageCandidateRanking {
         direction: Direction,
     },
     TopK {
-        order_values: Vec<Value>,
-        directions: Vec<OrderDirection>,
+        terms: Vec<ResolvedGroupedTopKOrderTerm>,
     },
+}
+
+/// One evaluated grouped top-k order value paired with its comparison direction.
+#[derive(Eq, PartialEq)]
+struct ResolvedGroupedTopKOrderTerm {
+    value: Value,
+    direction: OrderDirection,
 }
 
 struct CompiledGroupedTopKOrder {
@@ -505,23 +511,20 @@ fn compile_grouped_page_candidate_top_k_ranking(
         group_fields,
         &[],
     );
-    let mut order_values = Vec::with_capacity(compiled_order.terms.len());
-    let mut directions = Vec::with_capacity(compiled_order.terms.len());
+    let mut terms = Vec::with_capacity(compiled_order.terms.len());
 
     for term in &compiled_order.terms {
-        order_values.push(
-            term.expr
+        terms.push(ResolvedGroupedTopKOrderTerm {
+            value: term
+                .expr
                 .evaluate(&grouped_row)
                 .map(Cow::into_owned)
                 .map_err(ProjectionEvalError::into_grouped_projection_internal_error)?,
-        );
-        directions.push(term.direction);
+            direction: term.direction,
+        });
     }
 
-    Ok(GroupedPageCandidateRanking::TopK {
-        order_values,
-        directions,
-    })
+    Ok(GroupedPageCandidateRanking::TopK { terms })
 }
 
 ///
@@ -723,23 +726,18 @@ fn compare_grouped_page_candidate_order(
             right.group_key.canonical_value(),
         ),
         (
-            GroupedPageCandidateRanking::TopK {
-                order_values: left_values,
-                directions,
-            },
-            GroupedPageCandidateRanking::TopK {
-                order_values: right_values,
-                directions: right_directions,
-            },
-        ) if directions == right_directions => {
-            for ((left_value, right_value), direction) in left_values
+            GroupedPageCandidateRanking::TopK { terms: left_terms },
+            GroupedPageCandidateRanking::TopK { terms: right_terms },
+        ) if left_terms.len() == right_terms.len()
+            && left_terms
                 .iter()
-                .zip(right_values.iter())
-                .zip(directions.iter())
-            {
-                let cmp = match direction {
-                    OrderDirection::Asc => canonical_value_compare(left_value, right_value),
-                    OrderDirection::Desc => canonical_value_compare(right_value, left_value),
+                .zip(right_terms)
+                .all(|(left, right)| left.direction == right.direction) =>
+        {
+            for (left, right) in left_terms.iter().zip(right_terms) {
+                let cmp = match left.direction {
+                    OrderDirection::Asc => canonical_value_compare(&left.value, &right.value),
+                    OrderDirection::Desc => canonical_value_compare(&right.value, &left.value),
                 };
                 if !cmp.is_eq() {
                     return cmp;

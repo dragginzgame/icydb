@@ -4,13 +4,16 @@
 //! Boundary: key-stream decoration, materialization, and residual retry behavior.
 
 #[cfg(feature = "sql")]
-use crate::db::executor::pipeline::contracts::KernelRowsExecutionAttempt;
+use crate::db::executor::{pipeline::contracts::KernelRowsExecutionAttempt, terminal::KernelRow};
 use crate::{
     db::{
         executor::{
             ExecutionRoutePlan, ScalarContinuationContext,
             pipeline::{
-                contracts::{ExecutionInputs, MaterializedExecutionAttempt},
+                contracts::{
+                    ExecutionInputs, ExecutionOutcomeMetrics, MaterializedExecutionAttempt,
+                    StructuralCursorPage,
+                },
                 runtime::ExecutionAttemptKernel,
             },
             route::{IndexRangeLimitSpec, widened_residual_filter_predicate_pushdown_fetch},
@@ -38,13 +41,11 @@ impl ExecutionKernel {
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
         let route_attempt_materializer =
             RouteAttemptMaterializer::new(inputs, continuation, predicate_compile_mode);
-        if route_attempt_materializer.residual_retry_impossible(route_plan) {
-            return route_attempt_materializer.materialize_route_attempt(route_plan);
-        }
-
         let residual_retry = ResidualRetrySession::new(&route_attempt_materializer);
 
-        residual_retry.materialize(route_plan)
+        residual_retry.materialize(route_plan, |retry_route_plan| {
+            route_attempt_materializer.materialize_route_attempt(retry_route_plan)
+        })
     }
 
     /// Materialize one load execution attempt into post-access kernel rows.
@@ -57,13 +58,11 @@ impl ExecutionKernel {
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {
         let route_attempt_materializer =
             RouteAttemptMaterializer::new(inputs, continuation, predicate_compile_mode);
-        if route_attempt_materializer.residual_retry_impossible(route_plan) {
-            return route_attempt_materializer.materialize_route_attempt_kernel_rows(route_plan);
-        }
+        let residual_retry = ResidualRetrySession::new(&route_attempt_materializer);
 
-        let residual_retry = KernelRowsResidualRetrySession::new(&route_attempt_materializer);
-
-        residual_retry.materialize(route_plan)
+        residual_retry.materialize(route_plan, |retry_route_plan| {
+            route_attempt_materializer.materialize_route_attempt_kernel_rows(retry_route_plan)
+        })
     }
 }
 
@@ -91,19 +90,34 @@ impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
 
     // Materialize one kernel attempt, widening bounded residual fetch only
     // while the retry policy still prefers the limited route.
-    fn materialize(
+    fn materialize<A, MaterializeAttempt>(
         &self,
         route_plan: &ExecutionRoutePlan,
-    ) -> Result<MaterializedExecutionAttempt, InternalError> {
+        materialize_attempt: MaterializeAttempt,
+    ) -> Result<A, InternalError>
+    where
+        A: ResidualRetryAttempt,
+        MaterializeAttempt: Fn(&ExecutionRoutePlan) -> Result<A, InternalError>,
+    {
+        if self
+            .route_attempt_materializer
+            .residual_retry_impossible(route_plan)
+        {
+            return materialize_attempt(route_plan);
+        }
+
         // Phase 1: materialize the planned route once and decide whether the
         // residual underfill is already satisfied.
-        let probe_attempt = self
-            .route_attempt_materializer
-            .materialize_route_attempt(route_plan)?;
+        let probe_attempt = materialize_attempt(route_plan)?;
         let initial_retry_decision = self.retry_decision(route_plan, &probe_attempt);
         let mut accumulated_attempt = probe_attempt;
         let Some(mut retry_fetch) = initial_retry_decision.widened_fetch() else {
-            return self.finish(route_plan, accumulated_attempt, initial_retry_decision);
+            return Self::finish(
+                route_plan,
+                accumulated_attempt,
+                initial_retry_decision,
+                &materialize_attempt,
+            );
         };
 
         // Phase 2: widen the bounded pushdown fetch while it remains under the
@@ -112,69 +126,52 @@ impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
         let mut retry_route_plan = route_plan.clone();
         loop {
             Self::apply_retry_fetch(&mut retry_route_plan, retry_fetch);
-            let retry_attempt = self
-                .route_attempt_materializer
-                .materialize_route_attempt(&retry_route_plan)?;
+            let retry_attempt = materialize_attempt(&retry_route_plan)?;
             let retry_decision = self.retry_decision(&retry_route_plan, &retry_attempt);
-            accumulated_attempt = Self::merge_attempts(accumulated_attempt, retry_attempt);
+            accumulated_attempt = accumulated_attempt.merge_latest(retry_attempt);
 
             if let Some(next_retry_fetch) = retry_decision.widened_fetch() {
                 retry_fetch = next_retry_fetch;
                 continue;
             }
 
-            return self.finish(route_plan, accumulated_attempt, retry_decision);
+            return Self::finish(
+                route_plan,
+                accumulated_attempt,
+                retry_decision,
+                &materialize_attempt,
+            );
         }
     }
 
     // Finish one retry session either by returning the accumulated bounded
     // attempt or by appending the terminal unbounded fallback attempt.
-    fn finish(
-        &self,
+    fn finish<A, MaterializeAttempt>(
         route_plan: &ExecutionRoutePlan,
-        accumulated_attempt: MaterializedExecutionAttempt,
+        accumulated_attempt: A,
         retry_decision: ResidualRetryDecision,
-    ) -> Result<MaterializedExecutionAttempt, InternalError> {
+        materialize_attempt: &MaterializeAttempt,
+    ) -> Result<A, InternalError>
+    where
+        A: ResidualRetryAttempt,
+        MaterializeAttempt: Fn(&ExecutionRoutePlan) -> Result<A, InternalError>,
+    {
         if retry_decision.requires_unbounded_fallback() {
-            let fallback_attempt = self
-                .route_attempt_materializer
-                .materialize_unbounded_retry_fallback(route_plan)?;
+            let fallback_route_plan = Self::unbounded_retry_route_plan(route_plan);
+            let fallback_attempt = materialize_attempt(&fallback_route_plan)?;
 
-            return Ok(Self::merge_attempts(accumulated_attempt, fallback_attempt));
+            return Ok(accumulated_attempt.merge_latest(fallback_attempt));
         }
 
         Ok(accumulated_attempt)
     }
 
-    // Merge retry attempts under canonical residual-retry accounting.
-    fn merge_attempts(
-        mut accumulated_attempt: MaterializedExecutionAttempt,
-        latest_attempt: MaterializedExecutionAttempt,
-    ) -> MaterializedExecutionAttempt {
-        accumulated_attempt.rows_scanned = accumulated_attempt
-            .rows_scanned
-            .saturating_add(latest_attempt.rows_scanned);
-        accumulated_attempt.optimization = latest_attempt.optimization;
-        accumulated_attempt.index_predicate_applied =
-            accumulated_attempt.index_predicate_applied || latest_attempt.index_predicate_applied;
-        accumulated_attempt.index_predicate_keys_rejected = accumulated_attempt
-            .index_predicate_keys_rejected
-            .saturating_add(latest_attempt.index_predicate_keys_rejected);
-        accumulated_attempt.distinct_keys_deduped = accumulated_attempt
-            .distinct_keys_deduped
-            .saturating_add(latest_attempt.distinct_keys_deduped);
-        accumulated_attempt.payload = latest_attempt.payload;
-        accumulated_attempt.post_access_rows = latest_attempt.post_access_rows;
-
-        accumulated_attempt
-    }
-
     // Decide whether residual underfill should stop, widen the bounded fetch,
     // or fall back to an unbounded retry.
-    fn retry_decision(
+    fn retry_decision<A: ResidualRetryAttempt>(
         &self,
         route_plan: &ExecutionRoutePlan,
-        attempt: &MaterializedExecutionAttempt,
+        attempt: &A,
     ) -> ResidualRetryDecision {
         let plan = self.route_attempt_materializer.inputs.plan();
         let logical = plan.scalar_plan();
@@ -202,25 +199,22 @@ impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
         if keep_count == 0 {
             return ResidualRetryDecision::None;
         }
-        if attempt.rows_scanned < fetch {
+        let (rows_scanned, post_access_rows) = attempt.retry_counts();
+        if rows_scanned < fetch {
             return ResidualRetryDecision::None;
         }
 
         // A bounded retry cannot stop merely because it filled the visible
         // page window. Load pagination also needs one lookahead row to decide
         // whether a continuation cursor must be emitted.
-        if attempt.post_access_rows > keep_count {
+        if post_access_rows > keep_count {
             return ResidualRetryDecision::None;
         }
 
-        widened_residual_filter_predicate_pushdown_fetch(
-            fetch,
-            keep_count,
-            attempt.post_access_rows,
-        )
-        .map_or(ResidualRetryDecision::FallbackUnbounded, |fetch| {
-            ResidualRetryDecision::WidenBoundedFetch { fetch }
-        })
+        widened_residual_filter_predicate_pushdown_fetch(fetch, keep_count, post_access_rows)
+            .map_or(ResidualRetryDecision::FallbackUnbounded, |fetch| {
+                ResidualRetryDecision::WidenBoundedFetch { fetch }
+            })
     }
 
     // Resolve the current bounded retry fetch across both index-range limit
@@ -260,130 +254,81 @@ impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
             route_plan.scan_hints.physical_fetch_hint = Some(fetch);
         }
     }
+
+    // Build the terminal residual-retry fallback plan by clearing the bounded
+    // pushdown spec and coupled scan-budget hints before re-materialization.
+    fn unbounded_retry_route_plan(route_plan: &ExecutionRoutePlan) -> ExecutionRoutePlan {
+        let mut fallback_route_plan = route_plan.clone();
+        fallback_route_plan.index_range_limit_spec = None;
+        fallback_route_plan.top_n_seek_spec = None;
+        fallback_route_plan.scan_hints.load_scan_budget_hint = None;
+        fallback_route_plan.scan_hints.physical_fetch_hint = None;
+
+        fallback_route_plan
+    }
 }
 
+/// Output-specific mechanics consumed by the single residual-retry loop.
 ///
-/// KernelRowsResidualRetrySession
-///
-/// KernelRowsResidualRetrySession applies the same bounded residual-retry policy
-/// as page materialization while preserving kernel rows for aggregate reducers
-/// instead of finalizing an outward structural cursor page.
-///
+/// Implementations split the attempt into its payload and shared metrics so
+/// retry orchestration can discard earlier outputs without knowing their row
+/// representation.
+trait ResidualRetryAttempt: Sized {
+    type Payload;
 
-#[cfg(feature = "sql")]
-struct KernelRowsResidualRetrySession<'a, 'b, 'c> {
-    route_attempt_materializer: &'c RouteAttemptMaterializer<'a, 'b>,
-}
+    fn metrics(&self) -> &ExecutionOutcomeMetrics;
 
-#[cfg(feature = "sql")]
-impl<'a, 'b, 'c> KernelRowsResidualRetrySession<'a, 'b, 'c> {
-    // Build one retry-session controller for the scalar aggregate row sink.
-    const fn new(route_attempt_materializer: &'c RouteAttemptMaterializer<'a, 'b>) -> Self {
-        Self {
-            route_attempt_materializer,
-        }
+    fn into_retry_parts(self) -> (Self::Payload, ExecutionOutcomeMetrics);
+
+    fn from_retry_parts(payload: Self::Payload, metrics: ExecutionOutcomeMetrics) -> Self;
+
+    fn retry_counts(&self) -> (usize, usize) {
+        (self.metrics().rows_scanned, self.metrics().post_access_rows)
     }
 
-    // Materialize one kernel-row attempt, widening bounded residual fetch with
-    // the same decision contract used by structural page materialization.
-    fn materialize(
-        &self,
-        route_plan: &ExecutionRoutePlan,
-    ) -> Result<KernelRowsExecutionAttempt, InternalError> {
-        let probe_attempt = self
-            .route_attempt_materializer
-            .materialize_route_attempt_kernel_rows(route_plan)?;
-        let initial_retry_decision = self.retry_decision(route_plan, &probe_attempt);
-        let mut accumulated_attempt = probe_attempt;
-        let Some(mut retry_fetch) = initial_retry_decision.widened_fetch() else {
-            return self.finish(route_plan, accumulated_attempt, initial_retry_decision);
-        };
+    // Preserve only the latest semantic output while accumulating work and
+    // rejection metrics from every attempt in the session.
+    fn merge_latest(self, latest: Self) -> Self {
+        let (_, accumulated_metrics) = self.into_retry_parts();
+        let (latest_payload, latest_metrics) = latest.into_retry_parts();
 
-        let mut retry_route_plan = route_plan.clone();
-        loop {
-            ResidualRetrySession::apply_retry_fetch(&mut retry_route_plan, retry_fetch);
-            let retry_attempt = self
-                .route_attempt_materializer
-                .materialize_route_attempt_kernel_rows(&retry_route_plan)?;
-            let retry_decision = self.retry_decision(&retry_route_plan, &retry_attempt);
-            accumulated_attempt = Self::merge_attempts(accumulated_attempt, retry_attempt);
-
-            if let Some(next_retry_fetch) = retry_decision.widened_fetch() {
-                retry_fetch = next_retry_fetch;
-                continue;
-            }
-
-            return self.finish(route_plan, accumulated_attempt, retry_decision);
-        }
-    }
-
-    // Finish one kernel-row retry session, appending unbounded fallback rows when
-    // the residual retry policy requires the same terminal attempt as page loads.
-    fn finish(
-        &self,
-        route_plan: &ExecutionRoutePlan,
-        accumulated_attempt: KernelRowsExecutionAttempt,
-        retry_decision: ResidualRetryDecision,
-    ) -> Result<KernelRowsExecutionAttempt, InternalError> {
-        if retry_decision.requires_unbounded_fallback() {
-            let fallback_attempt = self
-                .route_attempt_materializer
-                .materialize_unbounded_retry_fallback_kernel_rows(route_plan)?;
-
-            return Ok(Self::merge_attempts(accumulated_attempt, fallback_attempt));
-        }
-
-        Ok(accumulated_attempt)
-    }
-
-    // Merge retry attempts under the same accounting policy as structural pages,
-    // with the latest attempt's post-access kernel rows as the semantic output.
-    fn merge_attempts(
-        mut accumulated_attempt: KernelRowsExecutionAttempt,
-        latest_attempt: KernelRowsExecutionAttempt,
-    ) -> KernelRowsExecutionAttempt {
-        accumulated_attempt.rows_scanned = accumulated_attempt
-            .rows_scanned
-            .saturating_add(latest_attempt.rows_scanned);
-        accumulated_attempt.optimization = latest_attempt.optimization;
-        accumulated_attempt.index_predicate_applied =
-            accumulated_attempt.index_predicate_applied || latest_attempt.index_predicate_applied;
-        accumulated_attempt.index_predicate_keys_rejected = accumulated_attempt
-            .index_predicate_keys_rejected
-            .saturating_add(latest_attempt.index_predicate_keys_rejected);
-        accumulated_attempt.distinct_keys_deduped = accumulated_attempt
-            .distinct_keys_deduped
-            .saturating_add(latest_attempt.distinct_keys_deduped);
-        accumulated_attempt.rows = latest_attempt.rows;
-        accumulated_attempt.post_access_rows = latest_attempt.post_access_rows;
-
-        accumulated_attempt
-    }
-
-    // Reuse the page retry decision by projecting the shared attempt metrics.
-    fn retry_decision(
-        &self,
-        route_plan: &ExecutionRoutePlan,
-        attempt: &KernelRowsExecutionAttempt,
-    ) -> ResidualRetryDecision {
-        ResidualRetrySession {
-            route_attempt_materializer: self.route_attempt_materializer,
-        }
-        .retry_decision(
-            route_plan,
-            &MaterializedExecutionAttempt {
-                payload: crate::db::executor::pipeline::contracts::StructuralCursorPage::new(
-                    Vec::new(),
-                    None,
-                ),
-                rows_scanned: attempt.rows_scanned,
-                post_access_rows: attempt.post_access_rows,
-                optimization: attempt.optimization,
-                index_predicate_applied: attempt.index_predicate_applied,
-                index_predicate_keys_rejected: attempt.index_predicate_keys_rejected,
-                distinct_keys_deduped: attempt.distinct_keys_deduped,
-            },
+        Self::from_retry_parts(
+            latest_payload,
+            accumulated_metrics.merge_residual_retry_attempt(latest_metrics),
         )
+    }
+}
+
+#[cfg(feature = "sql")]
+impl ResidualRetryAttempt for KernelRowsExecutionAttempt {
+    type Payload = Vec<KernelRow>;
+
+    fn metrics(&self) -> &ExecutionOutcomeMetrics {
+        &self.metrics
+    }
+
+    fn into_retry_parts(self) -> (Self::Payload, ExecutionOutcomeMetrics) {
+        (self.rows, self.metrics)
+    }
+
+    fn from_retry_parts(rows: Self::Payload, metrics: ExecutionOutcomeMetrics) -> Self {
+        Self { rows, metrics }
+    }
+}
+
+impl ResidualRetryAttempt for MaterializedExecutionAttempt {
+    type Payload = StructuralCursorPage;
+
+    fn metrics(&self) -> &ExecutionOutcomeMetrics {
+        &self.metrics
+    }
+
+    fn into_retry_parts(self) -> (Self::Payload, ExecutionOutcomeMetrics) {
+        (self.payload, self.metrics)
+    }
+
+    fn from_retry_parts(payload: Self::Payload, metrics: ExecutionOutcomeMetrics) -> Self {
+        Self { payload, metrics }
     }
 }
 
@@ -463,36 +408,6 @@ impl<'a, 'b> RouteAttemptMaterializer<'a, 'b> {
         };
 
         self.continuation.keep_count_for_limit_window(plan, limit) == 0
-    }
-
-    // Materialize the terminal residual-retry fallback route by clearing the
-    // bounded pushdown spec and coupled scan-budget hints first.
-    fn materialize_unbounded_retry_fallback(
-        &self,
-        route_plan: &ExecutionRoutePlan,
-    ) -> Result<MaterializedExecutionAttempt, InternalError> {
-        self.materialize_route_attempt(&Self::unbounded_retry_route_plan(route_plan))
-    }
-
-    // Materialize the terminal residual-retry fallback route into kernel rows.
-    #[cfg(feature = "sql")]
-    fn materialize_unbounded_retry_fallback_kernel_rows(
-        &self,
-        route_plan: &ExecutionRoutePlan,
-    ) -> Result<KernelRowsExecutionAttempt, InternalError> {
-        self.materialize_route_attempt_kernel_rows(&Self::unbounded_retry_route_plan(route_plan))
-    }
-
-    // Build the terminal residual-retry fallback plan by clearing the bounded
-    // pushdown spec and coupled scan-budget hints before re-materialization.
-    fn unbounded_retry_route_plan(route_plan: &ExecutionRoutePlan) -> ExecutionRoutePlan {
-        let mut fallback_route_plan = route_plan.clone();
-        fallback_route_plan.index_range_limit_spec = None;
-        fallback_route_plan.top_n_seek_spec = None;
-        fallback_route_plan.scan_hints.load_scan_budget_hint = None;
-        fallback_route_plan.scan_hints.physical_fetch_hint = None;
-
-        fallback_route_plan
     }
 }
 

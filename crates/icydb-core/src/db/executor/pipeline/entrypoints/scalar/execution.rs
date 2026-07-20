@@ -4,26 +4,23 @@
 //! Boundary: prepares route hints, continuation checks, traces, and execution inputs.
 
 use crate::{
-    db::{
-        executor::{
-            AccessStreamBindings, ExecutionProfileStats, ExecutionRoutePlan, ExecutionTrace,
-            ScalarContinuationContext, TraversalRuntime,
-            diagnostics::execution_trace_for_access,
-            pipeline::timing::{elapsed_execution_micros, start_execution_timer},
-            pipeline::{
-                contracts::{
-                    ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
-                    PreparedExecutionInputContext,
-                },
-                entrypoints::scalar::{
-                    hints::apply_unpaged_top_n_seek_hints, runtime::PreparedScalarRouteRuntime,
-                },
+    db::executor::{
+        AccessStreamBindings, ExecutionProfileStats, ExecutionRoutePlan, ExecutionTrace,
+        ScalarContinuationContext, TraversalRuntime,
+        diagnostics::execution_trace_for_access,
+        pipeline::timing::{elapsed_execution_micros, start_execution_timer},
+        pipeline::{
+            contracts::{
+                ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
+                PreparedExecutionInputContext,
             },
-            plan_metrics::record_plan_metrics,
-            planning::route::top_n_seek_lookahead_required_for_shape,
-            with_execution_stats_capture,
+            entrypoints::scalar::{
+                hints::{ScalarRouteTerminal, normalize_scalar_route_for_execution},
+                runtime::PreparedScalarRouteRuntime,
+            },
         },
-        query::plan::AccessPlannedQuery,
+        plan_metrics::record_plan_metrics,
+        with_execution_stats_capture,
     },
     error::InternalError,
 };
@@ -73,37 +70,11 @@ pub(super) fn finish_scalar_kernel_observability(
     attach_execution_stats_to_trace(execution_trace, execution_stats);
 }
 
-// Apply route hints and continuation invariants shared by scalar materialized
-// pages and aggregate row sinks before the kernel receives the route plan.
-const fn prepare_scalar_route_for_execution(
-    route_plan: &mut ExecutionRoutePlan,
-    continuation: &ScalarContinuationContext,
-    unpaged_rows_mode: bool,
-    top_n_seek_requires_lookahead: bool,
-    suppress_route_scan_hints: bool,
-) {
-    apply_unpaged_top_n_seek_hints(
-        continuation,
-        unpaged_rows_mode,
-        top_n_seek_requires_lookahead,
-        route_plan,
-    );
-    if suppress_route_scan_hints {
-        route_plan.scan_hints.physical_fetch_hint = None;
-        route_plan.scan_hints.load_scan_budget_hint = None;
-    }
-}
-
 // Run one prepared scalar runtime through shared route/input setup, then let
 // the caller choose which scalar kernel terminal to invoke.
 pub(super) fn execute_prepared_scalar_kernel<T>(
     prepared: PreparedScalarRouteRuntime,
-    adjust_route: impl FnOnce(
-        &mut ExecutionRoutePlan,
-        &AccessPlannedQuery,
-        &ScalarContinuationContext,
-        &crate::db::executor::ExecutionPreparation,
-    ),
+    terminal: ScalarRouteTerminal,
     execute: impl FnOnce(
         &ExecutionInputs<'_>,
         &ExecutionRoutePlan,
@@ -131,25 +102,22 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         authority,
     )?;
     let plan = plan_core.plan();
-    let index_prefix_specs = plan_core.index_prefix_specs()?;
-    let index_range_specs = plan_core.index_range_specs()?;
-    let top_n_seek_requires_lookahead = plan
-        .access_shape_facts()
-        .single_path_facts()
-        .is_some_and(|shape_facts| top_n_seek_lookahead_required_for_shape(&shape_facts));
-    prepare_scalar_route_for_execution(
+    let index_prefix_specs = plan_core.index_prefix_specs();
+    let index_range_specs = plan_core.index_range_specs();
+    normalize_scalar_route_for_execution(
         &mut route_plan,
+        plan,
         &continuation,
         unpaged_rows_mode,
-        top_n_seek_requires_lookahead,
         suppress_route_scan_hints,
+        terminal,
+        &prep,
     );
 
     let route_continuation = route_plan.continuation();
     let continuation_applied = route_continuation.applied();
     continuation.debug_assert_route_continuation_invariants(plan, route_continuation);
     let direction = route_plan.direction();
-    adjust_route(&mut route_plan, plan, &continuation, &prep);
     let mut execution_trace =
         debug.then(|| execution_trace_for_access(&plan.access, direction, continuation_applied));
     let execution_started_at = start_execution_timer();

@@ -11,8 +11,8 @@ use crate::{
             ExecutionRoutePlan, OrderedKeyStreamBox, ScalarContinuationContext,
             pipeline::{
                 contracts::{
-                    ExecutionInputs, MaterializedExecutionAttempt, ResolvedExecutionKeyStream,
-                    StructuralCursorPage,
+                    ExecutionInputs, ExecutionOutcomeMetrics, MaterializedExecutionAttempt,
+                    ResolvedExecutionKeyStream, StructuralCursorPage,
                 },
                 operators::decorate_resolved_execution_key_stream,
                 runtime::ExecutionMaterializationContract,
@@ -119,12 +119,14 @@ impl<'a> ExecutionAttemptKernel<'a> {
 
         Ok(MaterializedExecutionAttempt {
             payload,
-            rows_scanned,
-            post_access_rows,
-            optimization: resolved.optimization(),
-            index_predicate_applied: resolved.index_predicate_applied(),
-            index_predicate_keys_rejected: resolved.index_predicate_keys_rejected(),
-            distinct_keys_deduped: resolved.distinct_keys_deduped(),
+            metrics: ExecutionOutcomeMetrics {
+                rows_scanned,
+                post_access_rows,
+                optimization: resolved.optimization(),
+                index_predicate_applied: resolved.index_predicate_applied(),
+                index_predicate_keys_rejected: resolved.index_predicate_keys_rejected(),
+                distinct_keys_deduped: resolved.distinct_keys_deduped(),
+            },
         })
     }
 
@@ -146,13 +148,13 @@ impl<'a> ExecutionAttemptKernel<'a> {
                 route_plan.direction(),
                 resolved.key_stream_mut(),
             )?;
-        attempt.rows_scanned = resolved
+        attempt.metrics.rows_scanned = resolved
             .rows_scanned_override()
-            .unwrap_or(attempt.rows_scanned);
-        attempt.optimization = resolved.optimization();
-        attempt.index_predicate_applied = resolved.index_predicate_applied();
-        attempt.index_predicate_keys_rejected = resolved.index_predicate_keys_rejected();
-        attempt.distinct_keys_deduped = resolved.distinct_keys_deduped();
+            .unwrap_or(attempt.metrics.rows_scanned);
+        attempt.metrics.optimization = resolved.optimization();
+        attempt.metrics.index_predicate_applied = resolved.index_predicate_applied();
+        attempt.metrics.index_predicate_keys_rejected = resolved.index_predicate_keys_rejected();
+        attempt.metrics.distinct_keys_deduped = resolved.distinct_keys_deduped();
 
         Ok(attempt)
     }

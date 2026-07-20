@@ -32,11 +32,10 @@ pub(in crate::db::executor) use execution::{
     CursorEmissionMode, ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
     MaterializedExecutionAttempt, PreparedExecutionInputContext, PreparedExecutionProjection,
     ProjectionMaterializationMode, ResolvedExecutionKeyStream, RowCollectorMaterializationRequest,
-    RuntimePageMaterializationRequest,
 };
 pub(in crate::db::executor) use fast_stream::{FastStreamRouteKind, FastStreamRouteRequest};
 pub(in crate::db::executor) use grouped::{
-    GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage, IndexSpecBundle,
+    GroupedPlannerPayload, GroupedRouteStage, IndexSpecBundle,
 };
 pub(in crate::db::executor) use materialization::{
     KernelPageMaterializationRequest, ScalarMaterializationCapabilities,

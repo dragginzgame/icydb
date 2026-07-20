@@ -3733,9 +3733,7 @@ fn load_index_prefix_spec_closed_bounds_preserve_prefix_window_end_to_end() {
         .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("pushdown plan should build");
-    let prefix_specs = pushdown_plan
-        .index_prefix_specs()
-        .expect("prefix specs should materialize");
+    let prefix_specs = pushdown_plan.index_prefix_specs();
     assert_eq!(
         prefix_specs.len(),
         1,

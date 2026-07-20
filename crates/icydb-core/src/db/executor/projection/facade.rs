@@ -73,7 +73,6 @@ where
         covering_metrics,
         materialization_metrics,
     } = request;
-    prepared_plan.validate_lowered_access_specs()?;
     let distinct = prepared_plan.logical_plan().scalar_plan().distinct;
 
     // Phase 1: choose the covering projection lane only for non-DISTINCT
@@ -81,8 +80,8 @@ where
     // before executor-owned deduplication and windowing.
     if !distinct {
         let covering = prepared_plan.projection_covering_read_execution_plan();
-        let index_prefix_specs = prepared_plan.index_prefix_specs()?;
-        let index_range_specs = prepared_plan.index_range_specs()?;
+        let index_prefix_specs = prepared_plan.index_prefix_specs();
+        let index_range_specs = prepared_plan.index_range_specs();
         let covering_execution_preparation = prepared_plan
             .logical_plan()
             .has_residual_filter_predicate()

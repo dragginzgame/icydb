@@ -484,26 +484,6 @@ impl InternalError {
         Self::query_executor_invariant()
     }
 
-    /// Construct a query-origin load-runtime invariant for scalar-mode payload mismatch.
-    pub(crate) fn load_runtime_scalar_payload_required() -> Self {
-        Self::query_executor_invariant()
-    }
-
-    /// Construct a query-origin load-runtime invariant for grouped-mode payload mismatch.
-    pub(crate) fn load_runtime_grouped_payload_required() -> Self {
-        Self::query_executor_invariant()
-    }
-
-    /// Construct a query-origin load-surface invariant for scalar-page payload mismatch.
-    pub(crate) fn load_runtime_scalar_surface_payload_required() -> Self {
-        Self::query_executor_invariant()
-    }
-
-    /// Construct a query-origin load-surface invariant for grouped-page payload mismatch.
-    pub(crate) fn load_runtime_grouped_surface_payload_required() -> Self {
-        Self::query_executor_invariant()
-    }
-
     /// Construct a query-origin load-entrypoint invariant for non-load plans.
     pub(crate) fn load_executor_load_plan_required() -> Self {
         Self::query_executor_invariant()

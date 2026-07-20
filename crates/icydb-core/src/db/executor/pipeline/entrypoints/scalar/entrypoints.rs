@@ -84,14 +84,14 @@ impl PreparedScalarMaterializedBoundary<'_> {
     /// Borrow the canonical lowered index-prefix specs prepared with this plan.
     pub(in crate::db::executor) fn index_prefix_specs(
         &self,
-    ) -> Result<&[crate::db::executor::LoweredIndexPrefixSpec], InternalError> {
+    ) -> &[crate::db::executor::LoweredIndexPrefixSpec] {
         self.plan.index_prefix_specs()
     }
 
     /// Borrow the canonical lowered index-range specs prepared with this plan.
     pub(in crate::db::executor) fn index_range_specs(
         &self,
-    ) -> Result<&[crate::db::executor::LoweredIndexRangeSpec], InternalError> {
+    ) -> &[crate::db::executor::LoweredIndexRangeSpec] {
         self.plan.index_range_specs()
     }
 
@@ -147,7 +147,7 @@ where
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
         match surface {
             LoadExecutionSurface::ScalarPageWithTrace(page, trace) => {
-                let (data_rows, next_cursor) = page.into_data_rows_and_cursor();
+                let (data_rows, next_cursor) = page.require_data_rows_and_cursor()?;
 
                 Ok((
                     decode_data_rows_into_cursor_page::<E>(row_layout, data_rows, next_cursor)?,
@@ -320,10 +320,6 @@ where
         let store = self.db.recovered_store(plan.authority().store_path())?;
         let store_resolver = self.db.store_resolver();
 
-        // Validate the canonical lowered specs once while retaining the prepared
-        // load plan for any later materialized-page fallback.
-        let _ = plan.index_prefix_specs()?;
-        let _ = plan.index_range_specs()?;
         let authority = plan.authority();
 
         Ok(PreparedScalarMaterializedBoundary {

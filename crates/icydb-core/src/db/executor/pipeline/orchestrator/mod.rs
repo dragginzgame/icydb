@@ -6,7 +6,6 @@
 
 mod contracts;
 mod guards;
-mod state;
 mod strategy;
 
 use crate::{
@@ -16,7 +15,6 @@ use crate::{
     metrics::sink::{ExecKind, record_exec_error_for_path},
 };
 pub(in crate::db::executor) use contracts::{LoadExecutionSurface, LoadSurfaceMode};
-pub(in crate::db::executor::pipeline) use state::{LoadExecutionPayload, LoadPayloadState};
 
 impl<E> LoadExecutor<E>
 where
@@ -32,10 +30,7 @@ where
         let result = (|| {
             let prepared_runtime =
                 self.prepare_load_surface_runtime(plan, cursor, execution_mode)?;
-            let payload_state = prepared_runtime.execute(execution_mode)?;
-            let payload_state = payload_state.apply_paging()?;
-
-            payload_state.into_surface()
+            prepared_runtime.execute()
         })();
         if let Err(err) = &result {
             record_exec_error_for_path(ExecKind::Load, E::PATH, err);

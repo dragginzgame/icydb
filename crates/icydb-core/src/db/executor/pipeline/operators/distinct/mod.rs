@@ -52,28 +52,13 @@ pub(in crate::db::executor) fn decorate_resolved_execution_key_stream(
     plan: &AccessPlannedQuery,
     direction: Direction,
 ) -> ResolvedExecutionKeyStream {
-    let (
-        key_stream,
-        optimization,
-        rows_scanned_override,
-        index_predicate_applied,
-        index_predicate_keys_rejected,
-        _distinct_keys_deduped_counter,
-    ) = resolved.into_stream_resolution_fields();
     let key_comparator = key_stream_comparator_from_direction(direction);
     let strategy = plan.distinct_execution_strategy();
     let dedup_counter = strategy.is_enabled().then(|| Rc::new(Cell::new(0u64)));
-    let (key_stream, dedup_counter) =
-        wrap_distinct_ordered_key_stream(key_stream, strategy, key_comparator, dedup_counter);
 
-    ResolvedExecutionKeyStream::new(
-        key_stream,
-        optimization,
-        rows_scanned_override,
-        index_predicate_applied,
-        index_predicate_keys_rejected,
-        dedup_counter,
-    )
+    resolved.decorate_key_stream(|key_stream| {
+        wrap_distinct_ordered_key_stream(key_stream, strategy, key_comparator, dedup_counter)
+    })
 }
 
 /// Decorate one ordered key stream with DISTINCT behavior using planner strategy.

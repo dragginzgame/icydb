@@ -16,12 +16,16 @@ use crate::db::executor::{ExecutionOptimization, pipeline::contracts::Structural
 
 pub(in crate::db::executor) struct MaterializedExecutionAttempt {
     pub(in crate::db::executor) payload: StructuralCursorPage,
-    pub(in crate::db::executor) rows_scanned: usize,
-    pub(in crate::db::executor) post_access_rows: usize,
-    pub(in crate::db::executor) optimization: Option<ExecutionOptimization>,
-    pub(in crate::db::executor) index_predicate_applied: bool,
-    pub(in crate::db::executor) index_predicate_keys_rejected: u64,
-    pub(in crate::db::executor) distinct_keys_deduped: u64,
+    pub(in crate::db::executor) metrics: ExecutionOutcomeMetrics,
+}
+
+impl MaterializedExecutionAttempt {
+    // Split one materialized execution attempt into payload + observability metrics.
+    pub(in crate::db::executor) fn into_payload_and_metrics(
+        self,
+    ) -> (StructuralCursorPage, ExecutionOutcomeMetrics) {
+        (self.payload, self.metrics)
+    }
 }
 
 ///
@@ -36,19 +40,15 @@ pub(in crate::db::executor) struct MaterializedExecutionAttempt {
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) struct KernelRowsExecutionAttempt {
     pub(in crate::db::executor) rows: Vec<KernelRow>,
-    pub(in crate::db::executor) rows_scanned: usize,
-    pub(in crate::db::executor) post_access_rows: usize,
-    pub(in crate::db::executor) optimization: Option<ExecutionOptimization>,
-    pub(in crate::db::executor) index_predicate_applied: bool,
-    pub(in crate::db::executor) index_predicate_keys_rejected: u64,
-    pub(in crate::db::executor) distinct_keys_deduped: u64,
+    pub(in crate::db::executor) metrics: ExecutionOutcomeMetrics,
 }
 
 ///
 /// ExecutionOutcomeMetrics
 ///
-/// Finalization-time observability metrics for one materialized load execution
-/// attempt. Keeps path-outcome reporting fields grouped as one boundary payload.
+/// Shared attempt and finalization observability metrics for scalar execution.
+/// Keeps path-outcome reporting and residual-retry accounting fields grouped
+/// as one boundary payload.
 ///
 
 pub(in crate::db::executor) struct ExecutionOutcomeMetrics {
@@ -60,20 +60,21 @@ pub(in crate::db::executor) struct ExecutionOutcomeMetrics {
     pub(in crate::db::executor) distinct_keys_deduped: u64,
 }
 
-impl MaterializedExecutionAttempt {
-    // Split one materialized execution attempt into payload + observability metrics.
-    pub(in crate::db::executor) fn into_payload_and_metrics(
-        self,
-    ) -> (StructuralCursorPage, ExecutionOutcomeMetrics) {
-        let metrics = ExecutionOutcomeMetrics {
-            optimization: self.optimization,
-            rows_scanned: self.rows_scanned,
-            post_access_rows: self.post_access_rows,
-            index_predicate_applied: self.index_predicate_applied,
-            index_predicate_keys_rejected: self.index_predicate_keys_rejected,
-            distinct_keys_deduped: self.distinct_keys_deduped,
-        };
-
-        (self.payload, metrics)
+impl ExecutionOutcomeMetrics {
+    // Accumulate residual-retry work counters while retaining terminal-state
+    // metrics from the latest attempt.
+    pub(in crate::db::executor) const fn merge_residual_retry_attempt(self, latest: Self) -> Self {
+        Self {
+            optimization: latest.optimization,
+            rows_scanned: self.rows_scanned.saturating_add(latest.rows_scanned),
+            post_access_rows: latest.post_access_rows,
+            index_predicate_applied: self.index_predicate_applied || latest.index_predicate_applied,
+            index_predicate_keys_rejected: self
+                .index_predicate_keys_rejected
+                .saturating_add(latest.index_predicate_keys_rejected),
+            distinct_keys_deduped: self
+                .distinct_keys_deduped
+                .saturating_add(latest.distinct_keys_deduped),
+        }
     }
 }

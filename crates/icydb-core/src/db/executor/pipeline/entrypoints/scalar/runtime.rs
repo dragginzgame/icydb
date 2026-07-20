@@ -22,7 +22,6 @@ use crate::{
             projection::PreparedProjectionContract,
             validate_executor_plan_for_authority,
         },
-        query::plan::AccessPlannedQuery,
         registry::StoreHandle,
     },
     error::InternalError,
@@ -91,9 +90,9 @@ pub(super) struct ScalarRuntimePreparePhaseAttribution {
 ///
 
 pub(super) struct InitialScalarPlanRuntimeOptions {
-    pub(super) unpaged_rows_mode: bool,
-    pub(super) projection_runtime_mode: ProjectionMaterializationMode,
-    pub(super) suppress_route_scan_hints: bool,
+    unpaged_rows_mode: bool,
+    projection_runtime_mode: ProjectionMaterializationMode,
+    suppress_route_scan_hints: bool,
 }
 
 impl InitialScalarPlanRuntimeOptions {
@@ -185,7 +184,7 @@ where
         measure_local_instruction_delta(|| {
             prepare_initial_scalar_route_plan_from_handoff(&prepared)
         });
-    let prebuilt_route_plan = Some(prebuilt_route_plan?);
+    let prebuilt_route_plan = prebuilt_route_plan?;
     let InitialScalarPlanRuntimeOptions {
         unpaged_rows_mode,
         projection_runtime_mode,
@@ -200,7 +199,7 @@ where
             prepared.prepared_projection_contract,
             prepared.retained_slot_layout,
             prepared.plan_core,
-            ScalarPreparedRuntimeOptions::initial_suppressed(
+            ScalarPreparedRuntimeOptions::initial(
                 continuation,
                 unpaged_rows_mode,
                 projection_runtime_mode,
@@ -277,7 +276,7 @@ where
         prepared.prepared_projection_contract,
         prepared.retained_slot_layout,
         prepared.plan_core,
-        ScalarPreparedRuntimeOptions::resumed_emit(
+        ScalarPreparedRuntimeOptions::resumed(
             continuation,
             unpaged_rows_mode,
             ProjectionMaterializationMode::SharedValidation,
@@ -391,7 +390,7 @@ where
         projection_runtime_mode,
         suppress_route_scan_hints,
     } = options;
-    let prebuilt_route_plan = Some(prepare_initial_scalar_route_plan_from_handoff(&prepared)?);
+    let prebuilt_route_plan = prepare_initial_scalar_route_plan_from_handoff(&prepared)?;
 
     prepare_scalar_route_runtime_from_inputs(
         db,
@@ -401,7 +400,7 @@ where
         prepared.prepared_projection_contract,
         prepared.retained_slot_layout,
         prepared.plan_core,
-        ScalarPreparedRuntimeOptions::initial_suppressed(
+        ScalarPreparedRuntimeOptions::initial(
             continuation,
             unpaged_rows_mode,
             projection_runtime_mode,
@@ -414,7 +413,7 @@ where
 // Return the cached deterministic initial route plan for an already-prepared
 // scalar handoff. Diagnostics can measure this same helper without duplicating
 // the route-plan extraction contract.
-pub(super) fn prepare_initial_scalar_route_plan_from_handoff(
+fn prepare_initial_scalar_route_plan_from_handoff(
     prepared: &PreparedScalarRuntimeHandoff,
 ) -> Result<ExecutionRoutePlan, InternalError> {
     prepared
@@ -423,33 +422,26 @@ pub(super) fn prepare_initial_scalar_route_plan_from_handoff(
 }
 
 ///
-/// ScalarRoutePlanFamily
+/// ScalarRouteSource
 ///
-/// ScalarRoutePlanFamily selects whether one scalar prepared runtime should
-/// derive an initial route plan or retain a resumed continuation-aware route
-/// plan during shared preparation.
-/// Scalar entrypoint families use this to keep route-plan selection on one
-/// helper instead of rebuilding authority/store setup in parallel flows.
-///
-
-pub(super) enum ScalarRoutePlanFamily {
-    Initial,
-    Resumed,
-}
-
-///
-/// ScalarPlanValidationMode
-///
-/// ScalarPlanValidationMode records whether scalar runtime preparation still
-/// needs to run the executor authority/access validation guard.
-/// Prepared-load entrypoints already cross the shared planning boundary before
-/// reaching this helper, while raw retained-slot helpers still require the
-/// guard at the executor boundary.
+/// ScalarRouteSource keeps each route family with the state required to
+/// resolve it. Initial execution carries its already-prepared deterministic
+/// route, while resumed execution carries the continuation from which its
+/// route must be rebuilt.
 ///
 
-pub(super) enum ScalarPlanValidationMode {
-    Required,
-    AlreadyValidated,
+#[expect(
+    clippy::large_enum_variant,
+    reason = "keeping the prepared route inline avoids a hot-path allocation while the variants make invalid route-source states unrepresentable"
+)]
+enum ScalarRouteSource {
+    Initial {
+        route_plan: ExecutionRoutePlan,
+        continuation: ScalarContinuationContext,
+    },
+    Resumed {
+        continuation: ScalarContinuationContext,
+    },
 }
 
 ///
@@ -463,51 +455,45 @@ pub(super) enum ScalarPlanValidationMode {
 /// path.
 ///
 
-pub(super) struct ScalarPreparedRuntimeOptions {
-    pub(super) continuation: ScalarContinuationContext,
-    pub(super) unpaged_rows_mode: bool,
-    pub(super) cursor_emission: CursorEmissionMode,
-    pub(super) projection_runtime_mode: ProjectionMaterializationMode,
-    pub(super) route_plan_family: ScalarRoutePlanFamily,
-    pub(super) prebuilt_route_plan: Option<ExecutionRoutePlan>,
-    pub(super) suppress_route_scan_hints: bool,
-    pub(super) plan_validation: ScalarPlanValidationMode,
+struct ScalarPreparedRuntimeOptions {
+    unpaged_rows_mode: bool,
+    cursor_emission: CursorEmissionMode,
+    projection_runtime_mode: ProjectionMaterializationMode,
+    route_source: ScalarRouteSource,
+    suppress_route_scan_hints: bool,
 }
 
 impl ScalarPreparedRuntimeOptions {
-    pub(super) const fn initial_suppressed(
+    const fn initial(
         continuation: ScalarContinuationContext,
         unpaged_rows_mode: bool,
         projection_runtime_mode: ProjectionMaterializationMode,
-        prebuilt_route_plan: Option<ExecutionRoutePlan>,
+        route_plan: ExecutionRoutePlan,
         suppress_route_scan_hints: bool,
     ) -> Self {
         Self {
-            continuation,
             unpaged_rows_mode,
             cursor_emission: CursorEmissionMode::Suppress,
             projection_runtime_mode,
-            route_plan_family: ScalarRoutePlanFamily::Initial,
-            prebuilt_route_plan,
+            route_source: ScalarRouteSource::Initial {
+                route_plan,
+                continuation,
+            },
             suppress_route_scan_hints,
-            plan_validation: ScalarPlanValidationMode::AlreadyValidated,
         }
     }
 
-    pub(super) const fn resumed_emit(
+    const fn resumed(
         continuation: ScalarContinuationContext,
         unpaged_rows_mode: bool,
         projection_runtime_mode: ProjectionMaterializationMode,
     ) -> Self {
         Self {
-            continuation,
             unpaged_rows_mode,
             cursor_emission: CursorEmissionMode::Emit,
             projection_runtime_mode,
-            route_plan_family: ScalarRoutePlanFamily::Resumed,
-            prebuilt_route_plan: None,
+            route_source: ScalarRouteSource::Resumed { continuation },
             suppress_route_scan_hints: false,
-            plan_validation: ScalarPlanValidationMode::Required,
         }
     }
 }
@@ -561,7 +547,7 @@ fn build_prepared_scalar_route_runtime(
 // structural inputs that stay constant across initial, resumed, retained-slot,
 // and materialized scalar entrypoint families.
 #[expect(clippy::too_many_arguments)]
-pub(super) fn prepare_scalar_route_runtime_from_inputs<C>(
+fn prepare_scalar_route_runtime_from_inputs<C>(
     db: &Db<C>,
     debug: bool,
     authority: EntityAuthority,
@@ -575,45 +561,39 @@ where
     C: CanisterKind,
 {
     let ScalarPreparedRuntimeOptions {
-        continuation,
         unpaged_rows_mode,
         cursor_emission,
         projection_runtime_mode,
-        route_plan_family,
-        prebuilt_route_plan,
+        route_source,
         suppress_route_scan_hints,
-        plan_validation,
     } = options;
 
-    // Phase 1: resolve structural store authority and derive the route plan.
+    // Phase 1: validate structural authority once, resolve the store, and
+    // consume the variant-owned route source.
     let logical_plan = plan_core.plan();
-    if matches!(plan_validation, ScalarPlanValidationMode::Required) {
-        validate_executor_plan_for_authority(&authority, logical_plan)?;
-    }
+    validate_executor_plan_for_authority(&authority, logical_plan)?;
     let store = db.recovered_store(authority.store_path())?;
-    let mut route_plan = match route_plan_family {
-        ScalarRoutePlanFamily::Initial => match prebuilt_route_plan {
-            Some(route_plan) => route_plan,
-            None => build_initial_scalar_route_plan(logical_plan, authority.clone())?,
-        },
-        ScalarRoutePlanFamily::Resumed => build_execution_route_plan(
-            logical_plan,
-            RoutePlanRequest::Load {
-                continuation: &continuation,
-                probe_fetch_hint: None,
-                authority: Some(authority.clone()),
-                load_terminal_fast_path: None,
-            },
-        )?,
+    let (route_plan, continuation) = match route_source {
+        ScalarRouteSource::Initial {
+            route_plan,
+            continuation,
+        } => (route_plan, continuation),
+        ScalarRouteSource::Resumed { continuation } => {
+            let route_plan = build_execution_route_plan(
+                logical_plan,
+                RoutePlanRequest::Load {
+                    continuation: &continuation,
+                    probe_fetch_hint: None,
+                    authority: Some(authority.clone()),
+                    load_terminal_fast_path: None,
+                },
+            )?;
+            (route_plan, continuation)
+        }
     };
 
-    // Phase 2: apply any route-local hint adjustments required by the caller.
-    if suppress_route_scan_hints {
-        route_plan.scan_hints.physical_fetch_hint = None;
-        route_plan.scan_hints.load_scan_budget_hint = None;
-    }
-
-    // Phase 3: hand off one canonical prepared runtime bundle to scalar execution.
+    // Phase 2: hand off one canonical prepared runtime bundle. Execution owns
+    // the single final route-hint normalization pass.
     build_prepared_scalar_route_runtime(
         store,
         authority,
@@ -628,23 +608,5 @@ where
         projection_runtime_mode,
         suppress_route_scan_hints,
         debug,
-    )
-}
-
-// Build the deterministic no-cursor load route for initial scalar execution.
-// This isolates the reusable route-plan input shape from the resumed cursor path,
-// where route derivation must stay tied to the resolved continuation.
-pub(super) fn build_initial_scalar_route_plan(
-    logical_plan: &AccessPlannedQuery,
-    authority: EntityAuthority,
-) -> Result<ExecutionRoutePlan, InternalError> {
-    build_execution_route_plan(
-        logical_plan,
-        RoutePlanRequest::Load {
-            continuation: &ScalarContinuationContext::initial(),
-            probe_fetch_hint: None,
-            authority: Some(authority),
-            load_terminal_fast_path: None,
-        },
     )
 }
