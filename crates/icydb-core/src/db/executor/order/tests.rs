@@ -290,8 +290,14 @@ fn bounded_order_window_caches_expression_keys_once_and_keeps_complete_order() {
         "each candidate should evaluate two expression slots and one tie-break slot exactly once",
     );
 
-    let mut rows = window.into_rows();
-    apply_structural_order_window(&mut rows, &order, Some(3));
+    let rows = window
+        .into_pending_rows()
+        .apply_order(&order, Some(3))
+        .expect("matching cached expression order should remain valid");
+    assert!(
+        reads.iter().all(|reads| reads.get() == 3),
+        "canonical final ordering should reuse the scan-evaluated expression tuples",
+    );
     let ids = rows
         .iter()
         .map(|row| row.read_order_slot(2))
@@ -303,6 +309,49 @@ fn bounded_order_window_caches_expression_keys_once_and_keeps_complete_order() {
             Some(Value::Nat64(4)),
             Some(Value::Nat64(2)),
         ],
+    );
+}
+
+#[test]
+fn cached_bounded_order_window_rejects_a_different_order_contract() {
+    let order = ResolvedOrder::new(vec![ResolvedOrderField::new(
+        ResolvedOrderValueSource::expression(CompiledExpr::Add {
+            left_slot: 0,
+            left_field: "age".to_string(),
+            right_slot: 1,
+            right_field: "rank".to_string(),
+        }),
+        OrderDirection::Asc,
+    )]);
+    let mut window = BoundedOrderWindow::new(2, &order);
+    window.push(TestRow::new(vec![
+        Some(Value::Nat64(3)),
+        Some(Value::Nat64(2)),
+    ]));
+    window.push(TestRow::new(vec![
+        Some(Value::Nat64(1)),
+        Some(Value::Nat64(1)),
+    ]));
+
+    let descending_order = ResolvedOrder::new(vec![ResolvedOrderField::new(
+        ResolvedOrderValueSource::expression(CompiledExpr::Add {
+            left_slot: 0,
+            left_field: "age".to_string(),
+            right_slot: 1,
+            right_field: "rank".to_string(),
+        }),
+        OrderDirection::Desc,
+    )]);
+    let Err(error) = window
+        .into_pending_rows()
+        .apply_order(&descending_order, Some(2))
+    else {
+        panic!("a different resolved order must not consume cached values");
+    };
+
+    assert_eq!(
+        error.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
     );
 }
 

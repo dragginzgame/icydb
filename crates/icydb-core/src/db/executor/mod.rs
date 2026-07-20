@@ -94,7 +94,7 @@ pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub use mutation::save::MutationMode;
 pub(super) use mutation::save::SaveExecutor;
 pub(in crate::db::executor) use order::{
-    BoundedOrderWindow, OrderReadableRow, apply_structural_order_window,
+    BoundedOrderWindow, OrderReadableRow, PendingOrderRows, apply_structural_order_window,
     apply_structural_order_window_to_data_rows, compare_orderable_row_with_boundary,
 };
 pub(super) use pipeline::contracts::LoadExecutor;

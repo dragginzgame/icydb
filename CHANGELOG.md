@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.206.md](docs/changelog/0.206.md)
 
+- `0.206.2` reuses scan-evaluated expression-order tuples during canonical
+  final ordering and supports immutable previous-source performance subjects,
+  removing duplicate small-page work without weakening strict comparison.
+
 - `0.206.1` bounds unindexed expression-ordered initial SQL pages to the
   requested window plus continuation lookahead while preserving the required
   scan, canonical ordering, route selection, and cursor behavior.

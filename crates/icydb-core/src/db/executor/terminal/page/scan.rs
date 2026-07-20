@@ -2,7 +2,7 @@ use crate::{
     db::{
         data::{DataRow, DecodedDataStoreKey},
         executor::{
-            BoundedOrderWindow, OrderedKeyStreamBox, ScalarContinuationContext,
+            BoundedOrderWindow, OrderedKeyStreamBox, PendingOrderRows, ScalarContinuationContext,
             exact_output_key_count_hint, key_stream_budget_is_redundant,
             measure_execution_stats_phase, record_key_stream_micros, record_key_stream_yield,
             route::LoadOrderRouteMode,
@@ -122,14 +122,14 @@ pub(in crate::db::executor) struct KernelRowScanRequest<'a, 'r> {
 
 pub(in crate::db::executor) fn execute_kernel_row_scan(
     request: KernelRowScanRequest<'_, '_>,
-) -> Result<(Vec<KernelRow>, usize), InternalError> {
+) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
     #[cfg(feature = "diagnostics")]
     {
         let (scan_local_instructions, result) =
             measure_kernel_row_phase(|| execute_kernel_row_scan_inner(request));
         record_kernel_row_scan_local_instructions(scan_local_instructions);
         let result = result?;
-        record_kernel_row_peak_retained_candidates(result.0.len());
+        record_kernel_row_peak_retained_candidates(result.0.retained_count());
 
         Ok(result)
     }
@@ -141,7 +141,7 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
 #[expect(clippy::too_many_lines)]
 fn execute_kernel_row_scan_inner(
     request: KernelRowScanRequest<'_, '_>,
-) -> Result<(Vec<KernelRow>, usize), InternalError> {
+) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
     let KernelRowScanRequest {
         key_stream,
         scan_budget_hint,
@@ -292,8 +292,8 @@ fn execute_retained_kernel_scan(
     mut scan_rows: impl FnMut(
         &mut OrderedKeyStreamBox,
         &RetainedSlotLayout,
-    ) -> Result<(Vec<KernelRow>, usize), InternalError>,
-) -> Result<(Vec<KernelRow>, usize), InternalError> {
+    ) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError>,
+) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
     let retained_slot_layout =
         retained_slot_layout.ok_or_else(InternalError::query_executor_invariant)?;
 
@@ -304,7 +304,7 @@ fn execute_retained_kernel_scan(
 
 pub(super) fn execute_scalar_page_kernel_dyn(
     request: ScalarPageKernelRequest<'_, '_>,
-) -> Result<(Vec<KernelRow>, usize), InternalError> {
+) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
     let ScalarPageKernelRequest {
         key_stream,
         scan_budget_hint,
@@ -357,7 +357,7 @@ fn scan_kernel_rows_with(
     key_stream: &mut OrderedKeyStreamBox,
     bounds: KernelRowScanBounds<'_>,
     mut read_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<KernelRow>, InternalError>,
-) -> Result<(Vec<KernelRow>, usize), InternalError> {
+) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
     if let Some(order_window) = bounds.order_window {
         return scan_kernel_rows_with_bounded_order_window(
             key_stream,
@@ -375,7 +375,7 @@ fn scan_kernel_rows_with(
         |key| read_kernel_scan_row(key, &mut read_row),
     )?;
 
-    Ok((result.rows, result.rows_scanned))
+    Ok((PendingOrderRows::plain(result.rows), result.rows_scanned))
 }
 
 fn scan_kernel_rows_with_bounded_order_window(
@@ -383,7 +383,7 @@ fn scan_kernel_rows_with_bounded_order_window(
     bounds: KernelRowScanBounds<'_>,
     order_window: KernelRowOrderWindow<'_>,
     mut read_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<KernelRow>, InternalError>,
-) -> Result<(Vec<KernelRow>, usize), InternalError> {
+) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
     if bounds.row_keep_cap.is_some() || bounds.row_skip_count != 0 {
         return Err(InternalError::query_executor_invariant());
     }
@@ -405,7 +405,7 @@ fn scan_kernel_rows_with_bounded_order_window(
         window.push(row);
     }
 
-    Ok((window.into_rows(), rows_scanned))
+    Ok((window.into_pending_rows(), rows_scanned))
 }
 
 // Scan one ordered key stream into caller-owned row payloads while preserving
@@ -666,7 +666,7 @@ fn scan_data_rows_only_into_kernel(
     consistency: MissingRowPolicy,
     bounds: KernelRowScanBounds<'_>,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
-) -> Result<(Vec<KernelRow>, usize), InternalError> {
+) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
     scan_kernel_rows_with(key_stream, bounds, |key| {
         row_runtime.read_data_row_only(consistency, key)
     })
@@ -680,7 +680,7 @@ fn scan_data_rows_only_into_kernel_with_filter_program(
     filter_program: &EffectiveRuntimeFilterProgram,
     bounds: KernelRowScanBounds<'_>,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
-) -> Result<(Vec<KernelRow>, usize), InternalError> {
+) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
     scan_kernel_rows_with(key_stream, bounds, |key| {
         row_runtime
             .read_data_row_with_filter_program(consistency, key, filter_program)
@@ -696,7 +696,7 @@ fn scan_full_retained_rows_into_kernel(
     retained_slot_layout: &RetainedSlotLayout,
     bounds: KernelRowScanBounds<'_>,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
-) -> Result<(Vec<KernelRow>, usize), InternalError> {
+) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
     scan_full_retained_rows_into_kernel_with_reader(key_stream, bounds, |key| {
         row_runtime.read_full_row_retained(consistency, key, retained_slot_layout)
     })
@@ -708,7 +708,7 @@ fn scan_full_retained_rows_into_kernel_with_reader(
     key_stream: &mut OrderedKeyStreamBox,
     bounds: KernelRowScanBounds<'_>,
     read_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<KernelRow>, InternalError>,
-) -> Result<(Vec<KernelRow>, usize), InternalError> {
+) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
     scan_kernel_rows_with(key_stream, bounds, read_row)
 }
 
@@ -721,7 +721,7 @@ fn scan_full_retained_rows_into_kernel_with_filter_program(
     retained_slot_layout: &RetainedSlotLayout,
     bounds: KernelRowScanBounds<'_>,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
-) -> Result<(Vec<KernelRow>, usize), InternalError> {
+) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
     scan_full_retained_rows_into_kernel_with_reader(key_stream, bounds, |key| {
         row_runtime.read_full_row_retained_with_filter_program(
             consistency,
@@ -740,7 +740,7 @@ fn scan_slot_rows_into_kernel(
     retained_slot_layout: &RetainedSlotLayout,
     bounds: KernelRowScanBounds<'_>,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
-) -> Result<(Vec<KernelRow>, usize), InternalError> {
+) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
     scan_slot_rows_into_kernel_with_reader(key_stream, bounds, |key| {
         row_runtime.read_slot_only(consistency, &key, retained_slot_layout)
     })
@@ -752,7 +752,7 @@ fn scan_slot_rows_into_kernel_with_reader(
     key_stream: &mut OrderedKeyStreamBox,
     bounds: KernelRowScanBounds<'_>,
     read_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<KernelRow>, InternalError>,
-) -> Result<(Vec<KernelRow>, usize), InternalError> {
+) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
     scan_kernel_rows_with(key_stream, bounds, read_row)
 }
 
@@ -765,7 +765,7 @@ fn scan_slot_rows_into_kernel_with_filter_program(
     retained_slot_layout: &RetainedSlotLayout,
     bounds: KernelRowScanBounds<'_>,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
-) -> Result<(Vec<KernelRow>, usize), InternalError> {
+) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
     scan_slot_rows_into_kernel_with_reader(key_stream, bounds, |key| {
         row_runtime.read_slot_only_with_filter_program(
             consistency,

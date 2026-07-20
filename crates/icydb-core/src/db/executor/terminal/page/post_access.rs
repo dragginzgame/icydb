@@ -3,7 +3,7 @@ use crate::{
         cursor::CursorBoundary,
         data::DataRow,
         executor::{
-            ExecutionKernel, apply_structural_order_window, compare_orderable_row_with_boundary,
+            ExecutionKernel, PendingOrderRows, compare_orderable_row_with_boundary,
             record_rows_after_predicate, route::access_order_satisfied_by_route_mode,
             terminal::page::KernelRow,
         },
@@ -20,41 +20,44 @@ use super::metrics::{
 // Run canonical load post-access phases over kernel rows.
 pub(super) fn apply_post_access_to_kernel_rows_dyn(
     plan: &AccessPlannedQuery,
-    rows: &mut Vec<KernelRow>,
+    scan_rows: PendingOrderRows<KernelRow>,
     cursor: Option<&CursorBoundary>,
     defer_retained_slot_distinct_window: bool,
-) -> Result<usize, InternalError> {
+) -> Result<(Vec<KernelRow>, usize), InternalError> {
     let logical = plan.scalar_plan();
+    let retained_count = scan_rows.retained_count();
 
     // Phase 1: residual predicates are always applied while the raw row is
     // open. Post-access records the resulting cardinality but never re-runs
     // semantic filtering against a second row representation.
-    record_rows_after_predicate(rows.len());
+    record_rows_after_predicate(retained_count);
 
     // Phase 2: ordering.
-    let mut ordered = false;
-    let mut rows_after_order = rows.len();
-    if let Some(order) = logical.order.as_ref()
-        && !order.fields.is_empty()
-    {
-        ordered = true;
-        if !access_order_satisfied_by_route_mode(plan) {
+    let ordered = logical
+        .order
+        .as_ref()
+        .is_some_and(|order| !order.fields.is_empty());
+    let rows_after_order = retained_count;
+    let mut rows = if ordered {
+        if access_order_satisfied_by_route_mode(plan) {
+            scan_rows.into_plain_rows()?
+        } else {
             let resolved_order = plan.require_resolved_order()?;
-            let ordered_total = rows.len();
-
-            if rows.len() > 1 {
-                if rows.iter().any(|row| !row.has_materialized_slots()) {
-                    return Err(InternalError::query_executor_invariant());
-                }
-                apply_measured_structural_order_window(
-                    rows,
-                    resolved_order,
-                    ExecutionKernel::bounded_order_keep_count(plan, cursor),
-                );
+            if scan_rows
+                .plain_rows()
+                .is_some_and(|rows| rows.iter().any(|row| !row.has_materialized_slots()))
+            {
+                return Err(InternalError::query_executor_invariant());
             }
-            rows_after_order = ordered_total;
+            apply_measured_structural_order_window(
+                scan_rows,
+                resolved_order,
+                ExecutionKernel::bounded_order_keep_count(plan, cursor),
+            )?
         }
-    }
+    } else {
+        scan_rows.into_plain_rows()?
+    };
 
     // Phase 3: continuation boundary.
     let rows_after_cursor = {
@@ -79,7 +82,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
             let resolved_order = cursor.map(|_| plan.require_resolved_order()).transpose()?;
 
             apply_measured_load_cursor_and_pagination_window(
-                rows,
+                &mut rows,
                 cursor
                     .zip(resolved_order)
                     .map(|(boundary, resolved_order)| (resolved_order, boundary)),
@@ -89,22 +92,23 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
         }
     };
 
-    Ok(rows_after_cursor)
+    Ok((rows, rows_after_cursor))
 }
 
 fn apply_measured_structural_order_window(
-    rows: &mut Vec<KernelRow>,
+    rows: PendingOrderRows<KernelRow>,
     resolved_order: &ResolvedOrder,
     keep_count: Option<usize>,
-) {
+) -> Result<Vec<KernelRow>, InternalError> {
     #[cfg(feature = "diagnostics")]
-    let (order_window_local_instructions, ()) = measure_kernel_row_phase(|| {
-        apply_structural_order_window(rows, resolved_order, keep_count);
-    });
+    let (order_window_local_instructions, result) =
+        measure_kernel_row_phase(|| rows.apply_order(resolved_order, keep_count));
     #[cfg(feature = "diagnostics")]
     record_kernel_row_order_window_local_instructions(order_window_local_instructions);
     #[cfg(not(feature = "diagnostics"))]
-    apply_structural_order_window(rows, resolved_order, keep_count);
+    let result = rows.apply_order(resolved_order, keep_count);
+
+    result
 }
 
 fn apply_measured_load_cursor_and_pagination_window(

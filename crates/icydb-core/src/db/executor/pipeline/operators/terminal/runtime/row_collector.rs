@@ -51,16 +51,17 @@ impl ExecutionKernel {
         // consistency only, then let the resolved short-path plan build the
         // exact kernel request it wants to run.
         let consistency = row_read_consistency_for_plan(plan);
-        let (rows, keys_scanned) = execute_kernel_row_scan(short_path_plan.scan_request(
+        let (rows, rows_scanned) = execute_kernel_row_scan(short_path_plan.scan_request(
             key_stream,
             scan_budget_hint,
             consistency,
             row_runtime,
         ))?;
+        let rows = rows.into_plain_rows()?;
 
         // Phase 4: the short-path plan owns post-access shaping and final
         // payload selection from here onward.
         let (payload, post_access_rows) = short_path_plan.materialize_rows(plan, rows)?;
-        Ok(Some((payload, keys_scanned, post_access_rows)))
+        Ok(Some((payload, rows_scanned, post_access_rows)))
     }
 }

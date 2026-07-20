@@ -660,6 +660,16 @@ dispatches supply the same cohort plus one exact run ordinal; they retain tagged
 evidence but skip the inapplicable ordinary comparison. No workflow run blesses a
 baseline automatically.
 
+A reviewed previous-source bridge may set `subject_revision` to one exact
+40-character commit SHA. Every code-bearing job checks out that immutable
+revision while retaining the workflow's strict environment comparison. The
+override may identify the exact historical source for an explicit three-run
+calibration cohort, allowing the existing strict reviewer to establish the
+previous-source side of an environment bridge. It does not relax lockfile
+checks or create another baseline-selection path. Reused ordinal-two and
+ordinal-three subjects must match the ordinal-one artifact's recorded source
+revision and raw Wasm SHA-256 before measurement begins.
+
 The separate manual `SQL Performance Calibration Review` workflow downloads
 three explicitly named evidence runs, invokes the same strict reviewer, and
 retains only its diagnostic projection. Supplying three run IDs is not itself

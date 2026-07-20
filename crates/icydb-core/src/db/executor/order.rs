@@ -198,6 +198,117 @@ fn apply_structural_order_window_inner<R>(
 }
 
 ///
+/// PendingOrderRows
+///
+/// Rows retained by a structural scan before canonical post-access ordering.
+/// Expression-order rows remain inseparably paired with their evaluated
+/// values and originating order contract until that phase consumes them.
+///
+
+pub(in crate::db::executor) struct PendingOrderRows<R> {
+    storage: PendingOrderRowStorage<R>,
+}
+
+impl<R> PendingOrderRows<R> {
+    /// Wrap rows that carry no scan-evaluated expression-order values.
+    #[must_use]
+    pub(in crate::db::executor) const fn plain(rows: Vec<R>) -> Self {
+        Self {
+            storage: PendingOrderRowStorage::Plain(rows),
+        }
+    }
+
+    /// Apply canonical ordering, consuming any scan-evaluated order values.
+    ///
+    /// # Errors
+    ///
+    /// Returns a query-executor invariant error when cached values were
+    /// produced under a different resolved order or bounded keep count.
+    pub(in crate::db::executor) fn apply_order(
+        self,
+        resolved_order: &ResolvedOrder,
+        keep_count: Option<usize>,
+    ) -> Result<Vec<R>, InternalError>
+    where
+        R: OrderReadableRow,
+    {
+        match self.storage {
+            PendingOrderRowStorage::Plain(mut rows) => {
+                apply_structural_order_window(&mut rows, resolved_order, keep_count);
+                Ok(rows)
+            }
+            PendingOrderRowStorage::Cached {
+                resolved_order: cached_order,
+                mut rows,
+                keep_count: cached_keep_count,
+            } => {
+                if &cached_order != resolved_order
+                    || keep_count != Some(cached_keep_count)
+                    || rows.len() > cached_keep_count
+                {
+                    return Err(InternalError::query_executor_invariant());
+                }
+
+                let rows_sorted = rows.len();
+                if rows_sorted > 1 {
+                    let ((), ordering_micros) = measure_execution_stats_phase(|| {
+                        rows.sort_by(|left, right| {
+                            compare_cached_orderable_rows(&left.1, &right.1, resolved_order)
+                        });
+                    });
+                    record_ordering(rows_sorted, ordering_micros);
+                }
+
+                Ok(rows.into_iter().map(|(row, _)| row).collect())
+            }
+        }
+    }
+
+    /// Borrow plain rows when no scan-evaluated order values are attached.
+    #[must_use]
+    pub(in crate::db::executor) const fn plain_rows(&self) -> Option<&[R]> {
+        match &self.storage {
+            PendingOrderRowStorage::Plain(rows) => Some(rows.as_slice()),
+            PendingOrderRowStorage::Cached { .. } => None,
+        }
+    }
+
+    /// Return the number of retained rows independent of storage strategy.
+    #[must_use]
+    pub(in crate::db::executor) const fn retained_count(&self) -> usize {
+        match &self.storage {
+            PendingOrderRowStorage::Plain(rows) => rows.len(),
+            PendingOrderRowStorage::Cached { rows, .. } => rows.len(),
+        }
+    }
+
+    /// Consume rows that must not carry pending expression-order values.
+    ///
+    /// # Errors
+    ///
+    /// Returns a query-executor invariant error when canonical ordering has
+    /// not yet consumed cached expression-order values.
+    pub(in crate::db::executor) fn into_plain_rows(self) -> Result<Vec<R>, InternalError> {
+        match self.storage {
+            PendingOrderRowStorage::Plain(rows) => Ok(rows),
+            PendingOrderRowStorage::Cached { .. } => Err(InternalError::query_executor_invariant()),
+        }
+    }
+}
+
+/// Internal storage for rows awaiting canonical structural ordering.
+enum PendingOrderRowStorage<R> {
+    /// Rows without scan-evaluated expression-order values.
+    Plain(Vec<R>),
+    /// Bounded rows paired with values evaluated under one exact contract.
+    Cached {
+        resolved_order: ResolvedOrder,
+        rows: Vec<(R, CachedOrderValues)>,
+        keep_count: usize,
+    },
+}
+
+///
 /// BoundedOrderWindow
 ///
 /// BoundedOrderWindow retains the best `keep_count` rows while a scan is still
@@ -244,12 +355,19 @@ where
         }
     }
 
-    /// Consume the retained, not-yet-final-sorted rows.
+    /// Consume retained rows while preserving expression-order values for
+    /// canonical post-access ordering.
     #[must_use]
-    pub(in crate::db::executor) fn into_rows(self) -> Vec<R> {
+    pub(in crate::db::executor) fn into_pending_rows(self) -> PendingOrderRows<R> {
         match self.candidates {
-            BoundedOrderCandidates::Direct(window) => window.into_rows(),
-            BoundedOrderCandidates::Cached(window) => window.into_rows(),
+            BoundedOrderCandidates::Direct(window) => PendingOrderRows::plain(window.into_rows()),
+            BoundedOrderCandidates::Cached(window) => PendingOrderRows {
+                storage: PendingOrderRowStorage::Cached {
+                    resolved_order: self.resolved_order.clone(),
+                    keep_count: window.keep_count,
+                    rows: window.into_rows_with_cached_values(),
+                },
+            },
         }
     }
 }
@@ -399,8 +517,8 @@ where
         }
     }
 
-    fn into_rows(self) -> Vec<R> {
-        self.rows.into_iter().map(|(row, _)| row).collect()
+    fn into_rows_with_cached_values(self) -> Vec<(R, CachedOrderValues)> {
+        self.rows
     }
 
     fn update_worst_after_append(&mut self, resolved_order: &ResolvedOrder) {

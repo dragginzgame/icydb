@@ -1,7 +1,8 @@
 # 0.206 SQL Performance Remediation Investigation
 
-Status: Slice 1 selection frozen; Slice 2 implementation validated locally;
-exact post-change evidence pending.
+Status: Slice 1 selection frozen; Slice 2 implementation corrected after its
+first diagnostic run and validated locally; exact comparable post-change
+evidence pending.
 
 ## Decision
 
@@ -56,6 +57,79 @@ the typed artifact shape; there is no schema-1 compatibility decoder. The
 first Scale shard 5 attempt failed before IcyDB execution while downloading
 PocketIC; the failed job alone was rerun, passed, and the complete workflow
 then succeeded against the same revision and Wasm.
+
+## Post-Change Diagnostic Attempts
+
+Scheduled run `29714691461` correctly rejected the former diagnostics-schema-1
+repository baseline before comparison; there is no compatibility decoder for
+the removed artifact shape. Manual run `29731714587` instead selected exact
+schema-2 baseline run `29696076149`. Its shared Wasm and all eight P1 and scale
+shards passed, but P1 merge correctly rejected the tagged `0.206.1` subject as
+incomparable because the release commit changed workspace versions in
+`Cargo.lock`.
+
+The rejected run is diagnostic evidence only. Its raw non-gzipped Wasm is
+3,916,944 bytes with SHA-256
+`70cfa769bf5a44d469ba0d4c8eb9eae687240ca2b26e355f8869e3dc05637abd`:
+1,256 bytes above the exact selection subject. Its shard observations exposed
+both the intended large-input gain and one small-input guard miss:
+
+| Rows | Peak retained | Total instructions | Total delta | Order-window instructions | Order-window delta | Data gets | Result |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 16 | `16 -> 11` | 1,776,019 | `+5.20%` | 135,934 | `-40.29%` | 16 | unchanged IDs 1-10 |
+| 256 | `256 -> 11` | 11,398,295 | `-13.93%` | 137,682 | `-96.77%` | 256 | unchanged IDs 1-10 |
+| 2,048 | `2,048 -> 11` | 87,494,924 | `-16.12%` | 137,607 | `-99.61%` | 2,048 | unchanged IDs 1-10 |
+
+At 16 rows, scan-time expression-key evaluation added 179,555 scan-phase
+instructions while canonical final ordering evaluated the 11 retained tuples
+again. That duplicate work violated the predeclared no-increase guard even
+though the ordinary regression threshold would not reject an 87,846-instruction
+increase. The corrected implementation now carries the already-evaluated tuple
+cache to canonical post-access ordering under an exact resolved-order and keep-
+count proof; mismatches fail closed with the existing query-executor invariant.
+
+Focused local measurement of the corrected candidate passes every selected
+guard cardinality. This is source-dirty diagnostic evidence captured while two
+registry packages had transiently refreshed, not the final comparable workflow
+verdict:
+
+| Rows | Peak retained | Total instructions | Total delta | Order-window instructions | Order-window delta | Data gets | Result |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 16 | 11 | 1,680,600 | `-0.45%` | 55,896 | `-75.45%` | 16 | unchanged IDs 1-10 |
+| 256 | 11 | 11,430,062 | `-13.69%` | 58,121 | `-98.64%` | 256 | unchanged IDs 1-10 |
+| 2,048 | 11 | 88,472,993 | `-15.18%` | 58,022 | `-99.84%` | 2,048 | unchanged IDs 1-10 |
+
+The measurement subject's raw non-gzipped Wasm is 3,921,878 bytes with SHA-256
+`8f17d067a0ab5d88d5d328d2c7762284d91376c0c4c8419990253cbe30376944`:
+4,934 bytes above tagged `0.206.1` and 6,190 bytes above the exact selection
+subject. After restoring the checked-in lockfile, the final local candidate
+build is 3,919,866 raw bytes with SHA-256
+`51e3323de6ac2ee4b14098732f43181667b9ce78148ed048e3bb79e91f818d3d`:
+2,922 bytes above tagged `0.206.1` and 4,178 bytes above selection. Its focused
+shard attempt stopped before sampling when PocketIC could not bind its ephemeral
+loopback listener, so only the raw-byte result is current-lockfile evidence.
+Both local size identities remain provisional until the clean remote subject is
+recorded. A focused complexity pass replaced the earlier cache DTO plus scan-row
+enum with one opaque pending-row container, reducing the correction from about
+211 to 123 net production lines and removing 1,571 raw Wasm bytes from the prior
+current-lockfile candidate.
+
+The workflow now accepts an immutable 40-character `subject_revision` for the
+documented previous-source bridge. All code-bearing jobs check out that same
+revision. An explicit three-run calibration cohort can therefore measure the
+previous accepted implementation under the candidate's lockfile identity and
+pass through the existing strict reviewer before the candidate comparison. No
+lockfile comparison is weakened and no compatibility lane is created. Exact
+bridge and corrected-cache evidence are still required.
+
+The remaining bridge must use one reviewable synthetic source whose production
+code is exact selection revision
+`a30b71d27e2c6d3611217357a2f9c8c9c2a96a9c` and whose release-only workspace
+version files match the `0.206.1` candidate environment. Three calibration
+ordinals must measure that same source revision and raw Wasm, followed by the
+existing strict calibration review. The corrected candidate then names the
+accepted ordinal-one run as its baseline. The bridge commit is evidence-only;
+it is not merged, tagged, published, or treated as a supported source state.
 
 ## Deterministic Leading Set
 
@@ -188,7 +262,11 @@ The initial cursorless materialized-order scan now retains at most
 planner-resolved orders. Expression-backed collection evaluates and caches the
 complete resolved ordering tuple once for each candidate during scan-time
 selection. The tuple includes every declared term, direction, null behavior,
-and the planner-appended primary-key tie-breaker.
+and the planner-appended primary-key tie-breaker. One opaque pending-row
+container keeps retained rows paired with those tuples until canonical
+post-access ordering consumes them, so there is no optional cache DTO,
+parallel-vector split/rejoin, empty-vector sentinel, or repeated expression
+evaluation during final sorting.
 
 The change preserves the existing authority boundaries:
 
@@ -196,8 +274,8 @@ The change preserves the existing authority boundaries:
 - the existing kernel window contract remains the sole source of the bounded
   keep count;
 - the scan collector reduces only the retained working set;
-- the canonical post-access phase still performs final ordering and page
-  projection; and
+- the canonical post-access phase validates the cache contract and remains the
+  sole owner of final ordering and page projection; and
 - continuation queries, route-ordered queries, DISTINCT queries, and shapes
   without a materialized slot layout retain their existing paths.
 
@@ -205,9 +283,11 @@ There is no scenario-specific dispatch, route forcing, hidden index, feature
 flag, compatibility path, or retained full-collection expression-order branch.
 Focused executor and session coverage passes for cached complete keys,
 ascending and descending scalar expressions, nullable text expressions,
-unindexed materialization, expression-index covering routes, and paged result
-parity. The exact workflow rerun remains required before the structural target,
-instruction guardrails, raw Wasm delta, and Slice 2 acceptance can be recorded.
+unindexed materialization, expression-index covering routes, paged result
+parity, one-evaluation cache reuse, and fail-closed cache-contract mismatch.
+The exact workflow rerun remains required before the structural target,
+instruction guardrails, final raw Wasm delta, and Slice 2 acceptance can be
+recorded.
 
 ## Remaining Risks
 

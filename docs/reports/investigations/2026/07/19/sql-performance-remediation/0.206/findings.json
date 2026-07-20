@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "design": "0.206",
-  "status": "primary_implementation_validated_measurement_pending",
+  "status": "primary_correction_validated_measurement_pending",
   "leading_set_frozen": true,
   "selection_frozen": true,
   "opening_evidence": {
@@ -26,6 +26,89 @@
     "scale_artifact_sha256": "05a972becb1721f6195952855539b69050dcb2ad6b3e17353bc4f9202f9f5b97",
     "p2_artifact_sha256": "4a174b383b2de9773ad9bfab4f281d682783d9ee0ecea4776c9960c894e19f82",
     "instrumentation_artifact_sha256": "b7c79f4677c84e6903864339478eaf3472804ef03198e9876087f4fc177cb86c"
+  },
+  "post_change_diagnostic": {
+    "schema_mismatch_run_id": "29714691461",
+    "lockfile_mismatch_run_id": "29731714587",
+    "source_revision": "5ebb3d43e67711a71d3c26f52caff8f818daa3ad",
+    "raw_wasm_sha256": "70cfa769bf5a44d469ba0d4c8eb9eae687240ca2b26e355f8869e3dc05637abd",
+    "raw_wasm_bytes": 3916944,
+    "authority": "diagnostic_only_incomparable_lockfile",
+    "guard_observations": [
+      {
+        "rows": 16,
+        "peak_retained_before": 16,
+        "peak_retained_after": 11,
+        "total_instructions_before": 1688173,
+        "total_instructions_after": 1776019,
+        "order_window_instructions_before": 227659,
+        "order_window_instructions_after": 135934,
+        "result_signature_unchanged": true
+      },
+      {
+        "rows": 256,
+        "peak_retained_before": 256,
+        "peak_retained_after": 11,
+        "total_instructions_before": 13242665,
+        "total_instructions_after": 11398295,
+        "order_window_instructions_before": 4267209,
+        "order_window_instructions_after": 137682,
+        "result_signature_unchanged": true
+      },
+      {
+        "rows": 2048,
+        "peak_retained_before": 2048,
+        "peak_retained_after": 11,
+        "total_instructions_before": 104312717,
+        "total_instructions_after": 87494924,
+        "order_window_instructions_before": 35243583,
+        "order_window_instructions_after": 137607,
+        "result_signature_unchanged": true
+      }
+    ],
+    "guard_miss": "rows16_total_instructions_increased_by_87846",
+    "correction": "reuse_scan_evaluated_expression_order_tuples_in_canonical_post_access_ordering",
+    "corrected_local_evidence": {
+      "authority": "diagnostic_only_source_dirty_and_transient_lockfile",
+      "raw_wasm_sha256": "8f17d067a0ab5d88d5d328d2c7762284d91376c0c4c8419990253cbe30376944",
+      "raw_wasm_bytes": 3921878,
+      "guard_observations": [
+        {
+          "rows": 16,
+          "peak_retained": 11,
+          "total_instructions": 1680600,
+          "order_window_instructions": 55896,
+          "data_store_get_calls": 16,
+          "result_signature_unchanged": true
+        },
+        {
+          "rows": 256,
+          "peak_retained": 11,
+          "total_instructions": 11430062,
+          "order_window_instructions": 58121,
+          "data_store_get_calls": 256,
+          "result_signature_unchanged": true
+        },
+        {
+          "rows": 2048,
+          "peak_retained": 11,
+          "total_instructions": 88472993,
+          "order_window_instructions": 58022,
+          "data_store_get_calls": 2048,
+          "result_signature_unchanged": true
+        }
+      ]
+    },
+    "locked_local_candidate": {
+      "authority": "raw_wasm_only",
+      "raw_wasm_sha256": "51e3323de6ac2ee4b14098732f43181667b9ce78148ed048e3bb79e91f818d3d",
+      "raw_wasm_bytes": 3919866,
+      "raw_wasm_bytes_below_prior_correction": 1571,
+      "production_net_line_delta": 123,
+      "implementation_shape": "one_opaque_pending_order_rows_container",
+      "focused_scale_status": "blocked_before_sampling_pocket_ic_loopback_bind_failure"
+    },
+    "exact_comparable_rerun_required": true
   },
   "primary_budget": {
     "finding_id": "206-003",
@@ -74,8 +157,8 @@
         "crates/icydb-core/src/db/executor/order.rs"
       ],
       "disposition": "OptimizeNow",
-      "selection_state": "primary_implemented_measurement_pending",
-      "evidence": "run 29696076149 records 2048 peak retained candidates, 104312717 total instructions, 35243583 kernel order-window instructions, 2048 data gets, and 10 rows returned"
+      "selection_state": "primary_corrected_measurement_pending",
+      "evidence": "selection run 29696076149 records 2048 peak retained candidates; lockfile-incomparable run 29731714587 reaches 11 but exposed duplicate final expression-key evaluation at the 16-row guard; the corrected allocation-free cache handoff passes all three focused local guards, including a 15.18 percent 2048-row total reduction, and awaits exact comparable evidence"
     },
     {
       "id": "206-004",

@@ -229,7 +229,7 @@ fn scan_key_stream_into_windowed_kernel_rows<'a>(
         row_runtime,
     } = request;
 
-    let (mut rows, rows_scanned) =
+    let (scan_rows, rows_scanned) =
         execute_scalar_page_kernel_dyn(scalar_materialization_plan.kernel_request(
             plan,
             key_stream,
@@ -239,9 +239,9 @@ fn scan_key_stream_into_windowed_kernel_rows<'a>(
             continuation,
             row_runtime,
         )?)?;
-    let rows_after_cursor = apply_post_access_to_kernel_rows_dyn(
+    let (mut rows, rows_after_cursor) = apply_post_access_to_kernel_rows_dyn(
         plan,
-        &mut rows,
+        scan_rows,
         continuation.cursor_boundary(),
         scalar_materialization_plan.defer_retained_slot_distinct_window(),
     )?;
