@@ -29,7 +29,18 @@ pub(in crate::db) fn rebuild_secondary_indexes_from_rows(
     // accepted schema plus authoritative rows. Failure leaves the store
     // non-Ready so guarded retry starts forward from another complete clear.
     let stores = sorted_store_handles(db);
-    rebuild_secondary_indexes_in_place(db, &stores)
+    match rebuild_secondary_indexes_in_place(db, &stores) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            // Discard any prefix derived before rejection. This is not
+            // rollback to a before-image: the stores remain Building and the
+            // next guarded recovery attempt starts forward from empty state.
+            for (_, handle) in &stores {
+                handle.with_index_mut(IndexStore::clear);
+            }
+            Err(error)
+        }
+    }
 }
 
 /// Collect store handles in deterministic path order for stable rebuild behavior.

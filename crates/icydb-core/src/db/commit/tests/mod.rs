@@ -3721,6 +3721,11 @@ fn recovery_replay_interrupted_conflicting_unique_batch_fails_closed() {
         index_key_bytes_snapshot().is_empty(),
         "failed rebuild must not leave partially rebuilt unique index state",
     );
+    assert_eq!(
+        recovery_index_state(),
+        IndexState::Building,
+        "failed unique rebuild must remain non-ready for guarded retry",
+    );
 
     let retry_err = ensure_recovered(&DB)
         .expect_err("repeated recovery attempts should remain fail-closed until marker is fixed");

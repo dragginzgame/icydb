@@ -21,7 +21,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   forward recovery after interruption.
 - Makes secondary-index recovery forward-only by deleting full-store snapshot
   restoration and the unreachable dropping lifecycle state; interrupted or
-  invalid rebuilds now remain non-ready until guarded retry succeeds.
+  invalid rebuilds now discard partial derived entries and remain non-ready
+  until guarded retry succeeds.
 
 ### 🗑️ Removed
 
