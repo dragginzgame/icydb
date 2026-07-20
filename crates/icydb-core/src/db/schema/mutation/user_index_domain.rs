@@ -106,6 +106,8 @@ impl StagedUserIndexDomainEntry {
 pub(in crate::db) struct StagedUserIndexDomainUsage {
     source_rows: usize,
     source_row_bytes: usize,
+    accepted_before_entries: usize,
+    accepted_after_entries: usize,
     projection_entries: usize,
     deletion_keys: usize,
     staged_raw_bytes: usize,
@@ -118,6 +120,20 @@ impl StagedUserIndexDomainUsage {
     #[must_use]
     pub(in crate::db) const fn source_rows(self) -> usize {
         self.source_rows
+    }
+
+    /// Return the number of entries in the row-derived accepted-before domain.
+    #[cfg(any(test, feature = "sql"))]
+    #[must_use]
+    pub(in crate::db) const fn accepted_before_entries(self) -> usize {
+        self.accepted_before_entries
+    }
+
+    /// Return the number of entries in the row-derived accepted-after domain.
+    #[cfg(any(test, feature = "sql"))]
+    #[must_use]
+    pub(in crate::db) const fn accepted_after_entries(self) -> usize {
+        self.accepted_after_entries
     }
 
     /// Return the peak raw payload and deterministic-sort workspace charge.
@@ -152,79 +168,6 @@ pub(in crate::db) struct StagedUserIndexDomainReplacement {
 }
 
 impl StagedUserIndexDomainReplacement {
-    /// Derive and validate a complete user-index-domain replacement without
-    /// changing physical index state.
-    pub(in crate::db) fn stage<'a>(
-        accepted_before_identity: AcceptedCatalogIdentity,
-        accepted_before: &PersistedSchemaSnapshot,
-        accepted_after: &PersistedSchemaSnapshot,
-        predicate_row_contract: Option<&StructuralRowContract>,
-        rows: impl IntoIterator<Item = SchemaUserIndexDomainRow<'a>>,
-        index_store: &IndexStore,
-    ) -> Result<Self, StagedUserIndexDomainError> {
-        validate_stage_authority(
-            accepted_before_identity,
-            accepted_before,
-            accepted_after,
-            predicate_row_contract,
-            index_store,
-        )?;
-
-        let entity_tag = accepted_before_identity.entity_tag();
-        let before_projection = PreparedUserIndexProjection::from_snapshot(
-            entity_tag,
-            accepted_before,
-            predicate_row_contract,
-        )?;
-        let after_projection = PreparedUserIndexProjection::from_snapshot(
-            entity_tag,
-            accepted_after,
-            predicate_row_contract,
-        )?;
-        let mut budget = StagedUserIndexDomainBudget::standard();
-        let mut expected_before = Vec::new();
-        let mut final_entries = Vec::new();
-
-        for row in rows {
-            budget.consume_source_row(row.encoded_row_bytes)?;
-            before_projection.derive_row(entity_tag, &row, &mut expected_before, &mut budget)?;
-            after_projection.derive_row(entity_tag, &row, &mut final_entries, &mut budget)?;
-        }
-
-        validate_projection(&mut expected_before, &before_projection.unique_index_ids)?;
-        validate_projection(&mut final_entries, &after_projection.unique_index_ids)?;
-        let observed_before =
-            observe_current_user_index_domain(index_store, entity_tag, &mut budget)?;
-        if observed_before != expected_before {
-            return Err(StagedUserIndexDomainError::CurrentDomainMismatch);
-        }
-
-        let deletion_keys = observed_before
-            .into_iter()
-            .map(|entry| entry.key)
-            .collect::<Vec<_>>();
-        validate_insertion_collisions(index_store, &deletion_keys, &final_entries)?;
-        budget.finish_sort_workspace(
-            expected_before.len(),
-            final_entries.len(),
-            deletion_keys.len(),
-        )?;
-
-        Ok(Self {
-            store_path: accepted_before_identity.store_path(),
-            entity_tag,
-            accepted_before_identity,
-            accepted_after_version: accepted_after.version(),
-            accepted_after_fingerprint: accepted_schema_cache_fingerprint_for_persisted_snapshot(
-                accepted_after,
-            )
-            .map_err(StagedUserIndexDomainError::Fingerprint)?,
-            deletion_keys,
-            final_entries,
-            usage: budget.usage(),
-        })
-    }
-
     /// Borrow the backing store path captured from accepted-before authority.
     #[must_use]
     pub(in crate::db) const fn store_path(&self) -> &'static str {
@@ -263,7 +206,7 @@ impl StagedUserIndexDomainReplacement {
     }
 
     /// Borrow the complete sorted accepted-after raw projection.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn final_entries(&self) -> &[StagedUserIndexDomainEntry] {
         self.final_entries.as_slice()
@@ -281,6 +224,146 @@ impl StagedUserIndexDomainReplacement {
         self,
     ) -> (Vec<RawIndexStoreKey>, Vec<StagedUserIndexDomainEntry>) {
         (self.deletion_keys, self.final_entries)
+    }
+}
+
+///
+/// StagedUserIndexDomainReplacementBuilder
+///
+/// Incremental, zero-write builder for one complete user-index-domain stage.
+/// Schema reconciliation feeds authoritative rows directly into this owner so
+/// aggregate bounds are enforced before projection state is retained.
+///
+
+pub(in crate::db) struct StagedUserIndexDomainReplacementBuilder {
+    store_path: &'static str,
+    entity_tag: EntityTag,
+    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_after_version: SchemaVersion,
+    accepted_after_fingerprint: CommitSchemaFingerprint,
+    before_projection: PreparedUserIndexProjection,
+    after_projection: PreparedUserIndexProjection,
+    expected_before: Vec<StagedUserIndexDomainEntry>,
+    final_entries: Vec<StagedUserIndexDomainEntry>,
+    budget: StagedUserIndexDomainBudget,
+}
+
+impl StagedUserIndexDomainReplacementBuilder {
+    /// Begin one stage from accepted schema authority and a Ready physical view.
+    pub(in crate::db) fn new(
+        accepted_before_identity: AcceptedCatalogIdentity,
+        accepted_before: &PersistedSchemaSnapshot,
+        accepted_after: &PersistedSchemaSnapshot,
+        predicate_row_contract: Option<&StructuralRowContract>,
+        index_store: &IndexStore,
+    ) -> Result<Self, StagedUserIndexDomainError> {
+        validate_stage_authority(
+            accepted_before_identity,
+            accepted_before,
+            accepted_after,
+            predicate_row_contract,
+            index_store,
+        )?;
+
+        let entity_tag = accepted_before_identity.entity_tag();
+        let before_projection = PreparedUserIndexProjection::from_snapshot(
+            entity_tag,
+            accepted_before,
+            predicate_row_contract,
+        )?;
+        let after_projection = PreparedUserIndexProjection::from_snapshot(
+            entity_tag,
+            accepted_after,
+            predicate_row_contract,
+        )?;
+        Ok(Self {
+            store_path: accepted_before_identity.store_path(),
+            entity_tag,
+            accepted_before_identity,
+            accepted_after_version: accepted_after.version(),
+            accepted_after_fingerprint: accepted_schema_cache_fingerprint_for_persisted_snapshot(
+                accepted_after,
+            )
+            .map_err(StagedUserIndexDomainError::Fingerprint)?,
+            before_projection,
+            after_projection,
+            expected_before: Vec::new(),
+            final_entries: Vec::new(),
+            budget: StagedUserIndexDomainBudget::standard(),
+        })
+    }
+
+    /// Consume one authoritative row, enforcing aggregate bounds before
+    /// retaining its accepted-before or accepted-after entries.
+    pub(in crate::db) fn observe_row(
+        &mut self,
+        row: &SchemaUserIndexDomainRow<'_>,
+    ) -> Result<(), StagedUserIndexDomainError> {
+        self.budget.consume_source_row(row.encoded_row_bytes)?;
+        self.before_projection.derive_row(
+            self.entity_tag,
+            row,
+            &mut self.expected_before,
+            &mut self.budget,
+        )?;
+        self.after_projection.derive_row(
+            self.entity_tag,
+            row,
+            &mut self.final_entries,
+            &mut self.budget,
+        )
+    }
+
+    /// Finish exact physical validation and produce the allocation-complete
+    /// replacement without changing `IndexStore` state.
+    pub(in crate::db) fn finish(
+        mut self,
+        index_store: &IndexStore,
+    ) -> Result<StagedUserIndexDomainReplacement, StagedUserIndexDomainError> {
+        if index_store.state() != IndexState::Ready {
+            return Err(StagedUserIndexDomainError::IndexStoreNotReady);
+        }
+        validate_projection(
+            &mut self.expected_before,
+            &self.before_projection.unique_index_ids,
+            ProjectionAuthority::AcceptedBefore,
+            self.accepted_before_identity.entity_path(),
+        )?;
+        validate_projection(
+            &mut self.final_entries,
+            &self.after_projection.unique_index_ids,
+            ProjectionAuthority::CandidateAfter,
+            self.accepted_before_identity.entity_path(),
+        )?;
+        let observed_before =
+            observe_current_user_index_domain(index_store, self.entity_tag, &mut self.budget)?;
+        if observed_before != self.expected_before {
+            return Err(StagedUserIndexDomainError::CurrentDomainMismatch);
+        }
+
+        let deletion_keys = observed_before
+            .into_iter()
+            .map(|entry| entry.key)
+            .collect::<Vec<_>>();
+        validate_insertion_collisions(index_store, &deletion_keys, &self.final_entries)?;
+        self.budget.finish_sort_workspace(
+            self.expected_before.len(),
+            self.final_entries.len(),
+            deletion_keys.len(),
+        )?;
+        self.budget
+            .record_projection_counts(self.expected_before.len(), self.final_entries.len());
+
+        Ok(StagedUserIndexDomainReplacement {
+            store_path: self.store_path,
+            entity_tag: self.entity_tag,
+            accepted_before_identity: self.accepted_before_identity,
+            accepted_after_version: self.accepted_after_version,
+            accepted_after_fingerprint: self.accepted_after_fingerprint,
+            deletion_keys,
+            final_entries: self.final_entries,
+            usage: self.budget.usage(),
+        })
     }
 }
 
@@ -312,6 +395,9 @@ pub(in crate::db) enum StagedUserIndexDomainError {
 
     /// A unique index produced equal component tuples for distinct rows.
     DuplicateUniqueKey,
+
+    /// The accepted-after candidate would violate one unique index.
+    CandidateUniqueConflict { entity_path: &'static str },
 
     /// Accepted-schema fingerprint construction failed.
     Fingerprint(InternalError),
@@ -370,6 +456,9 @@ impl StagedUserIndexDomainError {
             Self::Fingerprint(error)
             | Self::KeyDerivation(error)
             | Self::PredicateEvaluation(error) => error,
+            Self::CandidateUniqueConflict { entity_path } => {
+                InternalError::index_violation(entity_path, &[])
+            }
             Self::CurrentDomainMismatch
             | Self::DuplicateRawKey
             | Self::DuplicateUniqueKey
@@ -394,13 +483,25 @@ impl StagedUserIndexDomainError {
     }
 }
 
-// Concrete key-shape distinction used only while deriving one projection.
+///
+/// PreparedUserIndexTarget
+///
+/// Concrete accepted key shape used only while deriving one staged projection.
+///
+
 enum PreparedUserIndexTarget {
+    /// Accepted field-path key derivation.
     FieldPath(SchemaFieldPathIndexRebuildTarget),
+    /// Accepted expression or mixed-key derivation.
     Expression(SchemaExpressionIndexRebuildTarget),
 }
 
-// One accepted index with its precompiled optional membership predicate.
+///
+/// PreparedUserIndex
+///
+/// One accepted index plus its precompiled optional membership predicate.
+///
+
 struct PreparedUserIndex {
     target: PreparedUserIndexTarget,
     predicate: Option<PredicateProgram>,
@@ -442,7 +543,26 @@ impl PreparedUserIndex {
     }
 }
 
-// Complete accepted index set prepared for one row traversal.
+///
+/// ProjectionAuthority
+///
+/// Trust role used to preserve the typed cause of uniqueness rejection.
+///
+
+#[derive(Clone, Copy)]
+enum ProjectionAuthority {
+    /// Already accepted physical truth; violations indicate corruption.
+    AcceptedBefore,
+    /// Proposed accepted-after truth; uniqueness violations are conflicts.
+    CandidateAfter,
+}
+
+///
+/// PreparedUserIndexProjection
+///
+/// Complete accepted index set prepared for one authoritative row traversal.
+///
+
 struct PreparedUserIndexProjection {
     indexes: Vec<PreparedUserIndex>,
     unique_index_ids: BTreeSet<IndexId>,
@@ -572,6 +692,8 @@ fn validate_stage_authority(
 fn validate_projection(
     entries: &mut [StagedUserIndexDomainEntry],
     unique_index_ids: &BTreeSet<IndexId>,
+    authority: ProjectionAuthority,
+    entity_path: &'static str,
 ) -> Result<(), StagedUserIndexDomainError> {
     entries.sort_unstable_by(|left, right| left.key.cmp(&right.key));
     for pair in entries.windows(2) {
@@ -586,7 +708,14 @@ fn validate_projection(
             && unique_index_ids.contains(left.index_id())
             && left.has_same_components(&right)
         {
-            return Err(StagedUserIndexDomainError::DuplicateUniqueKey);
+            return Err(match authority {
+                ProjectionAuthority::AcceptedBefore => {
+                    StagedUserIndexDomainError::DuplicateUniqueKey
+                }
+                ProjectionAuthority::CandidateAfter => {
+                    StagedUserIndexDomainError::CandidateUniqueConflict { entity_path }
+                }
+            });
         }
     }
 
@@ -633,7 +762,12 @@ fn validate_insertion_collisions(
     Ok(())
 }
 
-// Incremental private budget shared by both projections and physical observation.
+///
+/// StagedUserIndexDomainBudget
+///
+/// Incremental private budget shared by both projections and physical observation.
+///
+
 struct StagedUserIndexDomainBudget {
     usage: StagedUserIndexDomainUsage,
 }
@@ -644,6 +778,8 @@ impl StagedUserIndexDomainBudget {
             usage: StagedUserIndexDomainUsage {
                 source_rows: 0,
                 source_row_bytes: 0,
+                accepted_before_entries: 0,
+                accepted_after_entries: 0,
                 projection_entries: 0,
                 deletion_keys: 0,
                 staged_raw_bytes: 0,
@@ -757,6 +893,15 @@ impl StagedUserIndexDomainBudget {
         }
 
         Ok(())
+    }
+
+    const fn record_projection_counts(
+        &mut self,
+        accepted_before_entries: usize,
+        accepted_after_entries: usize,
+    ) {
+        self.usage.accepted_before_entries = accepted_before_entries;
+        self.usage.accepted_after_entries = accepted_after_entries;
     }
 
     const fn usage(&self) -> StagedUserIndexDomainUsage {

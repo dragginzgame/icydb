@@ -3,7 +3,7 @@
 use super::{
     AcceptedSchemaMutationError, SchemaExpressionIndexRebuildTarget, SchemaFieldAdditionTarget,
     SchemaFieldDefaultTarget, SchemaFieldDropTarget, SchemaFieldNullabilityTarget,
-    SchemaFieldPathIndexRebuildTarget, SchemaFieldRenameTarget, SchemaSecondaryIndexDropTarget,
+    SchemaFieldPathIndexRebuildTarget, SchemaFieldRenameTarget,
 };
 use crate::db::schema::{
     AcceptedSchemaSnapshot, SchemaVersion,
@@ -54,7 +54,7 @@ impl SchemaDdlMutationAdmission {
             | SchemaDdlMutationTarget::FieldDrop(_)
             | SchemaDdlMutationTarget::FieldNullabilityChange(_)
             | SchemaDdlMutationTarget::FieldRename(_)
-            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
+            | SchemaDdlMutationTarget::SecondaryDrop => None,
         }
     }
 
@@ -71,13 +71,13 @@ impl SchemaDdlMutationAdmission {
             | SchemaDdlMutationTarget::FieldDrop(_)
             | SchemaDdlMutationTarget::FieldNullabilityChange(_)
             | SchemaDdlMutationTarget::FieldRename(_)
-            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
+            | SchemaDdlMutationTarget::SecondaryDrop => None,
         }
     }
 
-    /// Borrow the admitted secondary-index drop target.
+    /// Return whether this admission represents a secondary-index drop.
     #[must_use]
-    pub(in crate::db) const fn drop_target(&self) -> Option<&SchemaSecondaryIndexDropTarget> {
+    pub(in crate::db) const fn is_secondary_drop(&self) -> bool {
         match &self.target {
             SchemaDdlMutationTarget::FieldPathAddition(_)
             | SchemaDdlMutationTarget::FieldAddition(_)
@@ -85,8 +85,8 @@ impl SchemaDdlMutationAdmission {
             | SchemaDdlMutationTarget::FieldDrop(_)
             | SchemaDdlMutationTarget::FieldNullabilityChange(_)
             | SchemaDdlMutationTarget::FieldRename(_)
-            | SchemaDdlMutationTarget::ExpressionAddition(_) => None,
-            SchemaDdlMutationTarget::SecondaryDrop(target) => Some(target),
+            | SchemaDdlMutationTarget::ExpressionAddition(_) => false,
+            SchemaDdlMutationTarget::SecondaryDrop => true,
         }
     }
 
@@ -101,7 +101,7 @@ impl SchemaDdlMutationAdmission {
             | SchemaDdlMutationTarget::FieldNullabilityChange(_)
             | SchemaDdlMutationTarget::FieldRename(_)
             | SchemaDdlMutationTarget::ExpressionAddition(_)
-            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
+            | SchemaDdlMutationTarget::SecondaryDrop => None,
         }
     }
 
@@ -116,7 +116,7 @@ impl SchemaDdlMutationAdmission {
             | SchemaDdlMutationTarget::FieldNullabilityChange(_)
             | SchemaDdlMutationTarget::FieldRename(_)
             | SchemaDdlMutationTarget::ExpressionAddition(_)
-            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
+            | SchemaDdlMutationTarget::SecondaryDrop => None,
         }
     }
 
@@ -133,7 +133,7 @@ impl SchemaDdlMutationAdmission {
             | SchemaDdlMutationTarget::FieldPathAddition(_)
             | SchemaDdlMutationTarget::FieldRename(_)
             | SchemaDdlMutationTarget::ExpressionAddition(_)
-            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
+            | SchemaDdlMutationTarget::SecondaryDrop => None,
         }
     }
 
@@ -148,7 +148,7 @@ impl SchemaDdlMutationAdmission {
             | SchemaDdlMutationTarget::FieldNullabilityChange(_)
             | SchemaDdlMutationTarget::FieldPathAddition(_)
             | SchemaDdlMutationTarget::ExpressionAddition(_)
-            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
+            | SchemaDdlMutationTarget::SecondaryDrop => None,
         }
     }
 
@@ -163,7 +163,7 @@ impl SchemaDdlMutationAdmission {
             | SchemaDdlMutationTarget::FieldRename(_)
             | SchemaDdlMutationTarget::FieldPathAddition(_)
             | SchemaDdlMutationTarget::ExpressionAddition(_)
-            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
+            | SchemaDdlMutationTarget::SecondaryDrop => None,
         }
     }
 }
@@ -183,7 +183,7 @@ pub(in crate::db) enum SchemaDdlMutationTarget {
     FieldRename(SchemaFieldRenameTarget),
     FieldPathAddition(SchemaFieldPathIndexRebuildTarget),
     ExpressionAddition(SchemaExpressionIndexRebuildTarget),
-    SecondaryDrop(SchemaSecondaryIndexDropTarget),
+    SecondaryDrop,
 }
 
 ///

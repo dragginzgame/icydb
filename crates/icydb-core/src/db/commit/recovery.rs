@@ -4,8 +4,8 @@
 //! Boundary: db entrypoints -> commit::recovery -> commit::{rebuild,store} + journal fold (one-way).
 //!
 //! This module implements a **system recovery step** that restores global
-//! database invariants by completing or rolling back a previously started
-//! commit before any new operation proceeds.
+//! database invariants by completing marker-owned work forward and rebuilding
+//! derived state before any new operation proceeds.
 //!
 //! Important semantic notes:
 //! - Recovery runs once at startup.
@@ -86,7 +86,7 @@ struct RecoveryDomainKey {
 /// Ensure global database invariants are restored before proceeding.
 ///
 /// This function performs a **system recovery step**:
-/// - It completes or rolls back any previously started commit.
+/// - It completes any marker-owned commit and derived-state rebuild forward.
 /// - It leaves the database in a fully consistent state on return.
 ///
 /// This function is:

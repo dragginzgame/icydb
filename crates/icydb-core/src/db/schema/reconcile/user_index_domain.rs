@@ -6,14 +6,14 @@
 use crate::{
     db::{
         data::{
-            AcceptedStructuralRowAuthority, DecodedDataStoreKey, RawRow, StoreVisit,
-            StructuralRowContract, StructuralSlotReader,
+            AcceptedStructuralRowAuthority, DecodedDataStoreKey, StoreVisit, StructuralRowContract,
+            StructuralSlotReader,
         },
-        key_taxonomy::PrimaryKeyValue,
         registry::StoreHandle,
         schema::{
             AcceptedCatalogIdentity, PersistedSchemaSnapshot, SchemaUserIndexDomainRow,
             StagedUserIndexDomainError, StagedUserIndexDomainReplacement,
+            StagedUserIndexDomainReplacementBuilder,
         },
     },
     error::InternalError,
@@ -117,49 +117,17 @@ fn stage_user_index_domain_replacement(
 ) -> Result<StagedUserIndexDomainReplacement, InternalError> {
     let entity_tag = accepted_before_identity.entity_tag();
     let entity_path = accepted_before_identity.entity_path();
-    let raw_rows = user_index_domain_raw_rows(store, entity_tag, entity_path)?;
-    let decoded_rows =
-        decode_user_index_domain_rows(raw_rows.as_slice(), entity_tag, row_contract.clone())?;
-    let rows = decoded_rows
-        .iter()
-        .zip(raw_rows.iter())
-        .map(|(decoded, raw)| {
-            SchemaUserIndexDomainRow::new(decoded.primary_key_value, &decoded.slots, raw.row.len())
-        });
-
-    store.with_index(|index_store| {
-        StagedUserIndexDomainReplacement::stage(
+    let mut builder = store.with_index(|index_store| {
+        StagedUserIndexDomainReplacementBuilder::new(
             accepted_before_identity,
             accepted_before,
             accepted_after,
             Some(&row_contract),
-            rows,
             index_store,
         )
         .map_err(StagedUserIndexDomainError::into_internal_error)
-    })
-}
-
-// Raw rows remain owned until all borrowed structural slot readers finish
-// complete-domain derivation.
-struct UserIndexDomainRawRow {
-    primary_key_value: PrimaryKeyValue,
-    row: RawRow,
-}
-
-// The decoded reader borrows the raw row and carries the accepted row layout.
-struct DecodedUserIndexDomainRow<'a> {
-    primary_key_value: PrimaryKeyValue,
-    slots: StructuralSlotReader<'a>,
-}
-
-fn user_index_domain_raw_rows(
-    store: StoreHandle,
-    entity_tag: EntityTag,
-    entity_path: &'static str,
-) -> Result<Vec<UserIndexDomainRawRow>, InternalError> {
+    })?;
     store.with_data(|data_store| {
-        let mut rows = Vec::new();
         data_store.visit_entries(|raw_key, raw_row| {
             let data_key = DecodedDataStoreKey::try_from_raw(raw_key).map_err(|error| {
                 let _ = (&error, entity_path);
@@ -168,36 +136,22 @@ fn user_index_domain_raw_rows(
             if data_key.entity_tag() != entity_tag {
                 return Ok::<StoreVisit, InternalError>(StoreVisit::Continue);
             }
-            rows.push(UserIndexDomainRawRow {
-                primary_key_value: data_key.primary_key_value(),
-                row: raw_row.clone(),
-            });
-            Ok::<StoreVisit, InternalError>(StoreVisit::Continue)
-        })?;
-
-        Ok::<_, InternalError>(rows)
-    })
-}
-
-fn decode_user_index_domain_rows(
-    rows: &[UserIndexDomainRawRow],
-    entity_tag: EntityTag,
-    row_contract: StructuralRowContract,
-) -> Result<Vec<DecodedUserIndexDomainRow<'_>>, InternalError> {
-    rows.iter()
-        .map(|row| {
             let slots = StructuralSlotReader::from_raw_row_with_validated_contract(
-                &row.row,
+                raw_row,
                 row_contract.clone(),
             )?;
-            let data_key =
-                DecodedDataStoreKey::new_primary_key_value(entity_tag, &row.primary_key_value);
             slots.validate_primary_key(&data_key)?;
-
-            Ok(DecodedUserIndexDomainRow {
-                primary_key_value: row.primary_key_value,
-                slots,
-            })
+            let row =
+                SchemaUserIndexDomainRow::new(data_key.primary_key_value(), &slots, raw_row.len());
+            builder
+                .observe_row(&row)
+                .map_err(StagedUserIndexDomainError::into_internal_error)?;
+            Ok::<StoreVisit, InternalError>(StoreVisit::Continue)
         })
-        .collect()
+    })?;
+    store.with_index(|index_store| {
+        builder
+            .finish(index_store)
+            .map_err(StagedUserIndexDomainError::into_internal_error)
+    })
 }

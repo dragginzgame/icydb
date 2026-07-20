@@ -2,7 +2,7 @@ use super::*;
 
 use crate::{
     db::{
-        data::{CanonicalSlotReader, ScalarSlotValueRef, SlotReader},
+        data::{CanonicalSlotReader, ScalarSlotValueRef, SlotReader, StructuralRowContract},
         index::{
             IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore,
             RawIndexStoreKey,

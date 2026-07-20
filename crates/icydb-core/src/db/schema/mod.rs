@@ -140,6 +140,7 @@ pub(in crate::db) use mutation::{
 pub(in crate::db) use mutation::{
     SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget, SchemaUserIndexDomainRow,
     StagedUserIndexDomainError, StagedUserIndexDomainReplacement,
+    StagedUserIndexDomainReplacementBuilder,
 };
 #[cfg(test)]
 pub(in crate::db::schema) use mutation::{SchemaMutationDelta, classify_schema_mutation_delta};

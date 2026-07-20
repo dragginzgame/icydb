@@ -10,7 +10,6 @@ use super::{
 };
 use crate::{
     db::{
-        index::{IndexId, IndexKey},
         registry::StoreHandle,
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, PersistedSchemaSnapshot,
@@ -63,7 +62,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_path_index_addition(
         envelope.after(),
     )?;
     let rows_scanned = replacement.usage().source_rows();
-    let index_keys_written = staged_target_entry_count(&replacement, entity_tag, target.ordinal())?;
+    let index_keys_written = staged_added_entry_count(&replacement)?;
     publish_accepted_entity_snapshot_revision_with_user_index_domain(
         envelope.store(),
         accepted_before_identity,
@@ -110,7 +109,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_expression_index_addition(
         envelope.after(),
     )?;
     let rows_scanned = replacement.usage().source_rows();
-    let index_keys_written = staged_target_entry_count(&replacement, entity_tag, target.ordinal())?;
+    let index_keys_written = staged_added_entry_count(&replacement)?;
     publish_accepted_entity_snapshot_revision_with_user_index_domain(
         envelope.store(),
         accepted_before_identity,
@@ -121,24 +120,14 @@ pub(in crate::db) fn execute_admin_sql_ddl_expression_index_addition(
     Ok((rows_scanned, index_keys_written))
 }
 
-fn staged_target_entry_count(
+fn staged_added_entry_count(
     replacement: &StagedUserIndexDomainReplacement,
-    entity_tag: EntityTag,
-    ordinal: u16,
 ) -> Result<usize, InternalError> {
-    let target = IndexId::new(entity_tag, ordinal);
-    let mut count = 0usize;
-    for entry in replacement.final_entries() {
-        let key =
-            IndexKey::try_from_raw(entry.key()).map_err(|_| InternalError::store_corruption())?;
-        if *key.index_id() == target {
-            count = count
-                .checked_add(1)
-                .ok_or_else(InternalError::store_unsupported)?;
-        }
-    }
-
-    Ok(count)
+    let usage = replacement.usage();
+    usage
+        .accepted_after_entries()
+        .checked_sub(usage.accepted_before_entries())
+        .ok_or_else(InternalError::store_invariant)
 }
 
 /// Execute one metadata-only SQL DDL additive-field publication.
@@ -310,7 +299,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_secondary_index_drop(
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
-) -> Result<usize, InternalError> {
+) -> Result<(), InternalError> {
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         entity_tag,
@@ -319,16 +308,15 @@ pub(in crate::db) fn execute_admin_sql_ddl_secondary_index_drop(
         accepted_before_identity,
         derivation,
     );
-    let Some(target) = derivation.admission().drop_target() else {
+    if !derivation.admission().is_secondary_drop() {
         return Err(InternalError::store_unsupported());
-    };
+    }
     let replacement = stage_sql_ddl_user_index_domain_replacement(
         envelope.store(),
         accepted_before_identity,
         envelope.before(),
         envelope.after(),
     )?;
-    let removed = staged_target_entry_count(&replacement, entity_tag, target.ordinal())?;
     publish_accepted_entity_snapshot_revision_with_user_index_domain(
         envelope.store(),
         accepted_before_identity,
@@ -336,7 +324,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_secondary_index_drop(
         replacement,
     )?;
 
-    Ok(removed)
+    Ok(())
 }
 
 fn validate_sql_ddl_drop_schema_gate(

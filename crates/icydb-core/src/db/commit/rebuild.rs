@@ -8,7 +8,7 @@ use crate::db::commit::failpoint::{CommitFailpoint, hit_commit_failpoint};
 use crate::{
     db::{
         Db,
-        commit::CommitRowOp,
+        commit::{CommitRowOp, CommitSchemaFingerprint},
         data::{DataStore, DecodedDataStoreKey, StoreVisit},
         index::IndexStore,
         registry::{StoreHandle, StoreRecoveryCapability},
@@ -16,7 +16,22 @@ use crate::{
     },
     error::InternalError,
     traits::CanisterKind,
+    types::EntityTag,
 };
+use std::collections::{BTreeMap, btree_map::Entry};
+
+///
+/// RebuildEntityAuthority
+///
+/// Accepted per-entity facts reused while one recovery scan rebuilds indexes.
+/// Recovery owns this transient cache; rows never reconstruct schema identity.
+///
+
+#[derive(Clone, Copy)]
+struct RebuildEntityAuthority {
+    entity_path: &'static str,
+    schema_fingerprint: CommitSchemaFingerprint,
+}
 
 /// Rebuild all secondary indexes from authoritative data rows.
 ///
@@ -82,42 +97,49 @@ fn rebuild_secondary_indexes_in_place(
 
     // Phase 3: rebuild index entries from authoritative row stores.
     for (_, handle) in stores {
-        let rows = handle.with_data(|data_store| {
-            let mut rows = Vec::new();
-            let _: Result<(), InternalError> = data_store.visit_entries(|raw_key, raw_row| {
-                rows.push((raw_key.clone(), raw_row.clone()));
-                Ok(StoreVisit::Continue)
-            });
-            rows
-        });
+        let mut authorities = BTreeMap::<EntityTag, RebuildEntityAuthority>::new();
+        handle.with_data(|data_store| {
+            data_store.visit_entries(|raw_key, raw_row| {
+                let data_key = DecodedDataStoreKey::try_from_raw(raw_key)
+                    .map_err(|_| InternalError::startup_index_rebuild_invalid_data_key())?;
+                let entity_tag = data_key.entity_tag();
+                let authority = match authorities.entry(entity_tag) {
+                    Entry::Occupied(entry) => *entry.get(),
+                    Entry::Vacant(entry) => {
+                        let hooks = db.runtime_hook_for_entity_tag(entity_tag)?;
+                        let accepted_schema = handle.with_schema_mut(|schema_store| {
+                            ensure_accepted_schema_snapshot(
+                                schema_store,
+                                hooks.entity_tag,
+                                hooks.entity_path,
+                                hooks.store_path,
+                                hooks.model,
+                            )
+                        })?;
+                        *entry.insert(RebuildEntityAuthority {
+                            entity_path: hooks.entity_path,
+                            schema_fingerprint: accepted_commit_schema_fingerprint(
+                                &accepted_schema,
+                            )?,
+                        })
+                    }
+                };
+                let row_op = CommitRowOp::new(
+                    authority.entity_path,
+                    raw_key.clone(),
+                    None,
+                    Some(raw_row.as_bytes().to_vec()),
+                    authority.schema_fingerprint,
+                );
+                let prepared = db.prepare_row_commit_op(&row_op)?;
 
-        for (raw_key, raw_row) in rows {
-            let data_key = DecodedDataStoreKey::try_from_raw(&raw_key)
-                .map_err(|_| InternalError::startup_index_rebuild_invalid_data_key())?;
-            let hooks = db.runtime_hook_for_entity_tag(data_key.entity_tag())?;
-            let accepted_schema = handle.with_schema_mut(|schema_store| {
-                ensure_accepted_schema_snapshot(
-                    schema_store,
-                    hooks.entity_tag,
-                    hooks.entity_path,
-                    hooks.store_path,
-                    hooks.model,
-                )
-            })?;
-            let schema_fingerprint = accepted_commit_schema_fingerprint(&accepted_schema)?;
-            let row_op = CommitRowOp::new(
-                hooks.entity_path,
-                raw_key,
-                None,
-                Some(raw_row.as_bytes().to_vec()),
-                schema_fingerprint,
-            );
-            let prepared = db.prepare_row_commit_op(&row_op)?;
+                for index_op in prepared.index_ops {
+                    index_op.apply();
+                }
 
-            for index_op in prepared.index_ops {
-                index_op.apply();
-            }
-        }
+                Ok::<StoreVisit, InternalError>(StoreVisit::Continue)
+            })
+        })?;
 
         let data_generation = handle.with_data(DataStore::generation);
         handle.with_index_mut(|index_store| {

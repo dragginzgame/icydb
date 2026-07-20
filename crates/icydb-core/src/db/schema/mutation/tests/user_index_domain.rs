@@ -29,7 +29,7 @@ fn complete_domain_stage_builds_field_and_expression_projection_without_writes()
     store.insert(other_entity_key.clone(), IndexEntryValue::presence());
     let physical_before = index_store_entries(&store);
 
-    let staged = super::StagedUserIndexDomainReplacement::stage(
+    let staged = stage_domain(
         accepted_identity(&before),
         &before,
         &after,
@@ -44,6 +44,8 @@ fn complete_domain_stage_builds_field_and_expression_projection_without_writes()
     assert_eq!(staged.deletion_keys().len(), 2);
     assert_eq!(staged.final_entries().len(), 4);
     assert_eq!(staged.usage().source_rows(), 2);
+    assert_eq!(staged.usage().accepted_before_entries(), 2);
+    assert_eq!(staged.usage().accepted_after_entries(), 4);
     assert!(staged.usage().staged_raw_bytes() > 0);
     assert!(
         staged
@@ -83,7 +85,7 @@ fn complete_domain_stage_rejects_physical_before_projection_mismatch() {
     };
     let store = IndexStore::init_heap();
 
-    let result = super::StagedUserIndexDomainReplacement::stage(
+    let result = stage_domain(
         accepted_identity(&before),
         &before,
         &after,
@@ -117,7 +119,7 @@ fn complete_domain_stage_rejects_index_owned_by_another_store() {
     };
     let store = IndexStore::init_heap();
 
-    let result = super::StagedUserIndexDomainReplacement::stage(
+    let result = stage_domain(
         accepted_identity(&before),
         &before,
         &after,
@@ -149,7 +151,7 @@ fn complete_domain_stage_rejects_duplicate_unique_expression_components() {
     };
     let store = IndexStore::init_heap();
 
-    let result = super::StagedUserIndexDomainReplacement::stage(
+    let result = stage_domain(
         accepted_identity(&before),
         &before,
         &after,
@@ -160,7 +162,7 @@ fn complete_domain_stage_rejects_duplicate_unique_expression_components() {
 
     assert!(matches!(
         result,
-        Err(super::StagedUserIndexDomainError::DuplicateUniqueKey),
+        Err(super::StagedUserIndexDomainError::CandidateUniqueConflict { .. }),
     ));
     assert!(store.is_empty());
     assert_eq!(store.state(), IndexState::Ready);
@@ -175,7 +177,7 @@ fn complete_domain_stage_preserves_mixed_key_component_order() {
     };
     let store = IndexStore::init_heap();
 
-    let staged = super::StagedUserIndexDomainReplacement::stage(
+    let staged = stage_domain(
         accepted_identity(&before),
         &before,
         &after,
@@ -207,7 +209,7 @@ fn complete_domain_stage_requires_row_contract_for_filtered_indexes() {
     );
     let store = IndexStore::init_heap();
 
-    let result = super::StagedUserIndexDomainReplacement::stage(
+    let result = stage_domain(
         accepted_identity(&before),
         &before,
         &after,
@@ -253,7 +255,7 @@ fn complete_domain_stage_derives_drop_ordinal_compaction_as_final_projection() {
     );
     let physical_before = index_store_entries(&store);
 
-    let staged = super::StagedUserIndexDomainReplacement::stage(
+    let staged = stage_domain(
         accepted_identity(&before),
         &before,
         &after,
@@ -293,6 +295,27 @@ fn accepted_identity(
         snapshot.version(),
         fingerprint,
     )
+}
+
+fn stage_domain<'a>(
+    identity: crate::db::schema::AcceptedCatalogIdentity,
+    before: &PersistedSchemaSnapshot,
+    after: &PersistedSchemaSnapshot,
+    row_contract: Option<&StructuralRowContract>,
+    rows: impl IntoIterator<Item = super::SchemaUserIndexDomainRow<'a>>,
+    store: &IndexStore,
+) -> Result<super::StagedUserIndexDomainReplacement, super::StagedUserIndexDomainError> {
+    let mut builder = super::StagedUserIndexDomainReplacementBuilder::new(
+        identity,
+        before,
+        after,
+        row_contract,
+        store,
+    )?;
+    for row in rows {
+        builder.observe_row(&row)?;
+    }
+    builder.finish(store)
 }
 
 fn domain_row(primary_key: u64, slots: &RebuildSlotReader) -> super::SchemaUserIndexDomainRow<'_> {

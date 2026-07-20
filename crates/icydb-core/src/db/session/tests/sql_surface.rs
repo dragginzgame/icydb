@@ -41,7 +41,9 @@ use crate::{
             parser::parse_sql,
         },
     },
-    error::{ErrorClass, ErrorDetail, QueryErrorDetail, SchemaDdlAdmissionError, StoreError},
+    error::{
+        ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail, SchemaDdlAdmissionError, StoreError,
+    },
 };
 use icydb_diagnostic_code::{SqlLoweringCode, SqlSurfaceMismatchCode};
 use std::{
@@ -7345,7 +7347,7 @@ fn execute_admin_sql_ddl_rejects_duplicate_unique_expression_values_without_publ
     let session = sql_session();
     seed_session_sql_entities(&session, &[("Ada", 21), ("ada", 34), ("Cyd", 55)]);
 
-    session
+    let error = session
         .execute_admin_sql_ddl::<SessionSqlEntity>(
             &ddl_transition_sql(
                 "CREATE UNIQUE INDEX session_sql_lower_name_unique_idx ON SessionSqlEntity (LOWER(name))",
@@ -7353,6 +7355,11 @@ fn execute_admin_sql_ddl_rejects_duplicate_unique_expression_values_without_publ
             ),
         )
         .expect_err("duplicate normalized values should reject unique expression index publication");
+    let QueryError::Execute(execution) = error else {
+        panic!("duplicate unique expression values should be an execution rejection");
+    };
+    assert_eq!(execution.as_internal().class(), ErrorClass::Conflict);
+    assert_eq!(execution.as_internal().origin(), ErrorOrigin::Index);
 
     assert!(
         !commit_marker_present().expect("commit marker should decode after rejected DDL"),
@@ -8090,6 +8097,13 @@ fn execute_admin_sql_ddl_drop_index_recovers_marker_authorized_domain_after_inte
         SESSION_SQL_INDEX_STORE.with_borrow(|store| {
             assert_eq!(store.state(), IndexState::Ready);
         });
+        SESSION_SQL_INDEX_STORE.with_borrow_mut(|store| {
+            store.mark_building();
+            assert!(
+                store.remove(&physical_before[0].0).is_some(),
+                "partial physical replacement fixture should remove one accepted-before key",
+            );
+        });
         let accepted_before = SESSION_SQL_SCHEMA_STORE
             .with_borrow(|store| {
                 store.current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
@@ -8240,12 +8254,17 @@ fn execute_admin_sql_ddl_rejects_duplicate_unique_field_path_values_without_publ
     let session = sql_session();
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("cyd", 55)]);
 
-    session
+    let error = session
         .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE UNIQUE INDEX session_sql_age_unique_idx ON SessionSqlEntity (age)",
             1,
         ))
         .expect_err("duplicate values should reject unique field-path index publication");
+    let QueryError::Execute(execution) = error else {
+        panic!("duplicate unique field-path values should be an execution rejection");
+    };
+    assert_eq!(execution.as_internal().class(), ErrorClass::Conflict);
+    assert_eq!(execution.as_internal().origin(), ErrorOrigin::Index);
 
     assert!(
         !commit_marker_present().expect("commit marker should decode after rejected DDL"),
@@ -8451,6 +8470,8 @@ fn execute_admin_sql_ddl_drops_supported_unique_ddl_published_index() {
     assert_eq!(report.target_index(), "session_sql_name_unique_idx");
     assert_eq!(report.field_path(), ["name".to_string()]);
     assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    assert_eq!(report.rows_scanned(), 0);
+    assert_eq!(report.index_keys_written(), 0);
     let SqlStatementResult::ShowIndexes(indexes) = session
         .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should remain readable after unique index drop")

@@ -140,11 +140,13 @@ pub(in crate::db) struct SchemaExpressionIndexRebuildTarget {
 }
 
 impl SchemaExpressionIndexRebuildTarget {
+    /// Return the accepted dense index ordinal used to encode physical keys.
     #[must_use]
     pub(in crate::db) const fn ordinal(&self) -> u16 {
         self.ordinal
     }
 
+    /// Borrow the accepted index name used for derivation diagnostics.
     #[must_use]
     pub(in crate::db) const fn name(&self) -> &str {
         self.name.as_str()
@@ -165,6 +167,7 @@ impl SchemaExpressionIndexRebuildTarget {
         }
     }
 
+    /// Borrow the accepted ordered key-item contract.
     #[must_use]
     pub(in crate::db) const fn key_items(&self) -> &[SchemaExpressionIndexRebuildKey] {
         self.key_items.as_slice()
@@ -200,11 +203,13 @@ pub(in crate::db) struct SchemaExpressionIndexRebuildExpression {
 }
 
 impl SchemaExpressionIndexRebuildExpression {
+    /// Return the accepted expression operation.
     #[must_use]
     pub(in crate::db) const fn op(&self) -> PersistedIndexExpressionOp {
         self.op
     }
 
+    /// Borrow the accepted source field-path contract.
     #[must_use]
     pub(in crate::db) const fn source(&self) -> &SchemaFieldPathIndexRebuildKey {
         &self.source
@@ -226,35 +231,6 @@ impl SchemaExpressionIndexRebuildExpression {
     #[cfg(test)]
     pub(in crate::db) const fn canonical_text(&self) -> &str {
         self.canonical_text.as_str()
-    }
-}
-
-///
-/// SchemaSecondaryIndexDropTarget
-///
-/// Accepted schema-owned ordinal identity for dropping a secondary index.
-/// The accepted-after snapshot and complete user-index-domain stage own dense
-/// ordinal derivation; this target carries no physical cleanup instructions.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg(any(test, feature = "sql"))]
-pub(in crate::db) struct SchemaSecondaryIndexDropTarget {
-    ordinal: u16,
-}
-
-#[cfg(any(test, feature = "sql"))]
-impl SchemaSecondaryIndexDropTarget {
-    const fn from_accepted_index(index: &PersistedIndexSnapshot) -> Self {
-        Self {
-            ordinal: index.ordinal(),
-        }
-    }
-
-    #[must_use]
-    #[cfg(any(test, feature = "sql"))]
-    pub(in crate::db) const fn ordinal(&self) -> u16 {
-        self.ordinal
     }
 }
 
@@ -376,13 +352,10 @@ pub(in crate::db) fn admit_sql_ddl_expression_index_candidate(
 /// Admit one SQL DDL secondary-index drop candidate through the schema-owned
 /// mutation request boundary.
 #[cfg(feature = "sql")]
-pub(in crate::db) const fn admit_sql_ddl_secondary_index_drop_candidate(
-    index: &PersistedIndexSnapshot,
-) -> SchemaDdlMutationAdmission {
+pub(in crate::db) const fn admit_sql_ddl_secondary_index_drop_candidate()
+-> SchemaDdlMutationAdmission {
     SchemaDdlMutationAdmission {
-        target: SchemaDdlMutationTarget::SecondaryDrop(
-            SchemaSecondaryIndexDropTarget::from_accepted_index(index),
-        ),
+        target: SchemaDdlMutationTarget::SecondaryDrop,
     }
 }
 
@@ -552,7 +525,7 @@ pub(in crate::db) fn derive_sql_ddl_secondary_index_drop_accepted_after(
     .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
-    let admission = admit_sql_ddl_secondary_index_drop_candidate(index);
+    let admission = admit_sql_ddl_secondary_index_drop_candidate();
 
     Ok(SchemaDdlAcceptedSnapshotDerivation {
         accepted_after,

@@ -78,8 +78,6 @@ pub(in crate::db) use rollback::rollback_prepared_row_ops_reverse;
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate;
 #[cfg(feature = "sql")]
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate_with_row_puts;
-#[cfg(feature = "sql")]
-pub(in crate::db) use schema_publication::publish_accepted_schema_candidate_with_user_index_domain;
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate_with_user_index_domains;
 #[cfg(test)]
 pub(in crate::db) use store::validate_commit_marker_envelope_for_tests;

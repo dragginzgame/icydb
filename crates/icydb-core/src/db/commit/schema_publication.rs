@@ -60,33 +60,6 @@ pub(in crate::db) fn publish_accepted_schema_candidate_with_row_puts(
     )
 }
 
-/// Publish one accepted-schema candidate and its prevalidated user-index
-/// domain through the same marker window.
-#[cfg(feature = "sql")]
-pub(in crate::db) fn publish_accepted_schema_candidate_with_user_index_domain(
-    store_path: &'static str,
-    store: StoreHandle,
-    expected_revision: AcceptedSchemaRevision,
-    candidate: &CandidateSchemaRevision,
-    replacement: StagedUserIndexDomainReplacement,
-) -> Result<(), InternalError> {
-    validate_user_index_domain_candidates(
-        store_path,
-        store,
-        expected_revision,
-        candidate,
-        std::slice::from_ref(&replacement),
-    )?;
-    publish_accepted_schema_candidate_with_prepared_domains(
-        store_path,
-        store,
-        expected_revision,
-        candidate,
-        Vec::new(),
-        vec![replacement],
-    )
-}
-
 /// Publish one accepted-schema candidate and its prevalidated per-entity
 /// user-index domains through the same marker window.
 pub(in crate::db) fn publish_accepted_schema_candidate_with_user_index_domains(

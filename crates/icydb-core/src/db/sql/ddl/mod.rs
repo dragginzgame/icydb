@@ -453,9 +453,7 @@ pub(in crate::db) fn lower_bound_sql_ddl_to_schema_mutation_admission(
                 admit_sql_ddl_expression_index_candidate(create.candidate_index())
             }
         }
-        BoundSqlDdlStatement::DropIndex(drop) => Ok(admit_sql_ddl_secondary_index_drop_candidate(
-            drop.dropped_index(),
-        )),
+        BoundSqlDdlStatement::DropIndex(_) => Ok(admit_sql_ddl_secondary_index_drop_candidate()),
         BoundSqlDdlStatement::NoOp(_) => return Err(SqlDdlLoweringError::UnsupportedStatement),
     }
     .map_err(SqlDdlLoweringError::MutationAdmission)

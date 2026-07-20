@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🔧 Changed
 
+- Completes the 0.207 closeout hard cut by enforcing domain-stage bounds while
+  authoritative rows are streamed, streaming forward recovery with one cached
+  accepted authority per entity, preserving typed unique-index conflicts, and
+  deleting redundant DROP metrics/ordinal state and singular publication flow.
 - Adds one bounded, zero-write schema-owned stage for complete user-index
   domain replacement, with exact accepted-before physical validation and a
   deterministic accepted-after projection across field-path and expression

@@ -90,8 +90,6 @@ pub(in crate::db) use index_candidate::{
 };
 
 mod index;
-#[cfg(feature = "sql")]
-pub(in crate::db) use index::SchemaSecondaryIndexDropTarget;
 pub(in crate::db) use index::{
     SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
 };
@@ -112,7 +110,10 @@ pub(in crate::db) use index::{
 };
 
 mod user_index_domain;
-pub(in crate::db) use user_index_domain::*;
+pub(in crate::db) use user_index_domain::{
+    SchemaUserIndexDomainRow, StagedUserIndexDomainError, StagedUserIndexDomainReplacement,
+    StagedUserIndexDomainReplacementBuilder,
+};
 
 ///
 /// SchemaMutationRequest
