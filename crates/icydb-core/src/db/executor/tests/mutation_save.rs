@@ -8,7 +8,8 @@ use crate::{
         Db, DbSession, EntityRuntimeHooks, PersistedRow, PersistedStructuralValueCodec, QueryError,
         codec::serialize_row_payload,
         commit::{
-            CommitRowOp, commit_marker_present, ensure_recovered, init_commit_store_for_tests,
+            CommitFailpoint, CommitFailpointMode, CommitRowOp, arm_commit_failpoint_for_tests,
+            commit_marker_present, ensure_recovered, init_commit_store_for_tests,
             reset_commit_marker_test_journal_sequence,
         },
         data::{
@@ -60,7 +61,7 @@ use crate::{
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
 };
 
@@ -1374,8 +1375,18 @@ impl crate::entity::EntityValue for SanitizerProvenanceEntity {
 
 impl SanitizeAuto for SanitizerProvenanceEntity {}
 
+thread_local! {
+    static SANITIZER_PROVENANCE_INVOCATIONS: Cell<usize> = const { Cell::new(0) };
+}
+
 impl SanitizeCustom for SanitizerProvenanceEntity {
     fn sanitize_custom(&mut self, ctx: &mut dyn crate::visitor::VisitorContext) {
+        SANITIZER_PROVENANCE_INVOCATIONS.set(
+            SANITIZER_PROVENANCE_INVOCATIONS
+                .get()
+                .checked_add(1)
+                .expect("sanitizer invocation count should remain bounded"),
+        );
         self.score = match ctx
             .sanitize_write_context()
             .map(crate::sanitize::SanitizeWriteContext::mode)
@@ -3469,6 +3480,56 @@ fn typed_create_allows_sanitizer_changes_to_authored_values() {
         .expect("sanitizer may transform caller-authored input");
 
     assert_eq!(created.score, 99);
+}
+
+#[test]
+fn marker_recovery_replays_resolved_bytes_without_reinvoking_sanitizer() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+    SANITIZER_PROVENANCE_INVOCATIONS.set(0);
+
+    let id = Ulid::from_u128(162);
+    let expected =
+        CanonicalRow::from_entity_with_model_proposal_for_test(&SanitizerProvenanceEntity {
+            id,
+            score: 99,
+        })
+        .expect("resolved sanitizer row should encode")
+        .into_raw_row();
+    arm_commit_failpoint_for_tests(
+        CommitFailpoint::AfterMarkerWrite,
+        CommitFailpointMode::ReturnError,
+    );
+    DbSession::new(DB)
+        .insert(SanitizerProvenanceEntity { id, score: 42 })
+        .expect_err("post-marker interruption should surface to the caller");
+
+    assert_eq!(SANITIZER_PROVENANCE_INVOCATIONS.get(), 1);
+    assert!(
+        commit_marker_present().expect("commit marker probe should succeed"),
+        "post-marker interruption must retain marker-owned candidate bytes",
+    );
+    ensure_recovered(&DB).expect("marker-owned candidate should recover");
+
+    assert_eq!(
+        SANITIZER_PROVENANCE_INVOCATIONS.get(),
+        1,
+        "recovery must not invoke the sanitizer again",
+    );
+    let raw_key = DecodedDataStoreKey::try_new::<SanitizerProvenanceEntity>(id)
+        .expect("recovered sanitizer key should build")
+        .to_raw()
+        .expect("recovered sanitizer key should encode");
+    let recovered = with_data_store(SourceStore::PATH, |store| {
+        store
+            .get(&raw_key)
+            .expect("marker-owned sanitizer row should recover")
+    });
+    assert_eq!(recovered.as_bytes(), expected.as_bytes());
+    assert!(
+        !commit_marker_present().expect("commit marker probe should succeed"),
+        "successful recovery must clear the marker",
+    );
 }
 
 #[test]

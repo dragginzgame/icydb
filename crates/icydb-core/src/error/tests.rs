@@ -2,6 +2,8 @@
 //! Covers the error taxonomy mapping and constructor invariants defined by the
 //! core error surface.
 
+use std::mem::size_of;
+
 use super::*;
 use crate::db::{
     access::AccessPlanError,
@@ -11,6 +13,14 @@ use crate::db::{
         validate::{GroupPlanError, OrderPlanError, PlanPolicyError, PlanUserError},
     },
 };
+
+#[test]
+fn internal_error_taxonomy_axes_remain_one_byte() {
+    assert_eq!(size_of::<ErrorClass>(), 1);
+    assert_eq!(size_of::<ErrorOrigin>(), 1);
+    assert_eq!(format!("{:?}", ErrorClass::Corruption), "0");
+    assert_eq!(format!("{:?}", ErrorOrigin::Serialize), "0");
+}
 
 fn from_group_plan_error(err: PlanError) -> InternalError {
     match err {

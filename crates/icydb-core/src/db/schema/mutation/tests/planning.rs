@@ -229,8 +229,9 @@ fn physical_field_changes_preserve_row_layout_exhaustion_causes() {
         base.entity_name().to_string(),
         base.primary_key_field_ids().to_vec(),
         SchemaRowLayout::new(
-            RowLayoutVersion::new(u32::MAX).expect("maximum layout version should be valid"),
-            RowLayoutVersion::INITIAL,
+            crate::db::schema::RowLayoutVersion::new(u32::MAX)
+                .expect("maximum layout version should be valid"),
+            crate::db::schema::RowLayoutVersion::INITIAL,
             base.row_layout().field_to_slot().to_vec(),
         ),
         base.fields().to_vec(),

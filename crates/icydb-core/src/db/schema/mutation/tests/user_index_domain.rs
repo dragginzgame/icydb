@@ -156,6 +156,65 @@ fn complete_domain_stage_uses_candidate_logical_rows_for_new_index_fields() {
 }
 
 #[test]
+fn complete_domain_stage_uses_historical_fill_in_composite_index_key() {
+    let before = base_snapshot();
+    let added_field = nullable_text_field("nickname", 3, 2);
+    let added = append_fields_snapshot(&before, std::slice::from_ref(&added_field));
+    let composite = PersistedIndexSnapshot::new(
+        1,
+        "by_name_nickname".to_string(),
+        STORE_PATH.to_string(),
+        false,
+        PersistedIndexKeySnapshot::FieldPath(vec![
+            name_key_path(),
+            PersistedIndexFieldPathSnapshot::new(
+                FieldId::new(3),
+                SchemaFieldSlot::new(2),
+                vec!["nickname".to_string()],
+                AcceptedFieldKind::Text { max_len: None },
+                true,
+            ),
+        ]),
+        None,
+    );
+    let after = snapshot_with_indexes(&added, vec![composite]);
+    let accepted_before_slots = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Ada".to_string()))],
+    };
+    let accepted_after_slots = RebuildSlotReader {
+        values: vec![
+            None,
+            Some(Value::Text("Ada".to_string())),
+            Some(Value::Text("historical".to_string())),
+        ],
+    };
+    let row = super::SchemaUserIndexDomainRow::new(
+        PrimaryKeyComponent::Nat64(1),
+        &accepted_before_slots,
+        &accepted_after_slots,
+        32,
+    );
+    let store = IndexStore::init_heap();
+
+    let staged = stage_domain(
+        accepted_identity(&before),
+        &before,
+        &after,
+        None,
+        [row],
+        &store,
+    )
+    .unwrap_or_else(|_| {
+        panic!("composite candidate key should consume the historical logical value")
+    });
+
+    assert_eq!(staged.usage().accepted_before_entries(), 0);
+    assert_eq!(staged.usage().accepted_after_entries(), 1);
+    assert_eq!(staged.final_entries().len(), 1);
+    assert!(store.is_empty(), "staging must remain zero-write");
+}
+
+#[test]
 fn complete_domain_stage_rejects_unique_collision_from_candidate_logical_fill() {
     let before = base_snapshot();
     let added_field = nullable_text_field("nickname", 3, 2);

@@ -6105,6 +6105,58 @@ fn seed_successive_default_layout_rows(session: &DbSession<SessionSqlCanister>) 
     [early_id, middle_id, current_id]
 }
 
+fn advance_successive_layout_history_floor(
+    session: &DbSession<SessionSqlCanister>,
+    ids: [Ulid; 3],
+) {
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN floor_guard text",
+            6,
+        ))
+        .expect("nullable floor guard should allocate layout four");
+    for name in ["Early", "Middle", "Current"] {
+        execute_sql_statement_for_tests::<SessionSqlEntity>(
+            session,
+            &format!("UPDATE SessionSqlEntity SET floor_guard = 'sealed' WHERE name = '{name}'"),
+        )
+        .expect("each admitted row era should promote before floor advancement");
+    }
+    let SqlStatementResult::Ddl(report) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN floor_guard SET NOT NULL",
+            7,
+        ))
+        .expect("complete promoted domain should admit floor advancement")
+    else {
+        panic!("SET NOT NULL floor advancement should return a DDL report");
+    };
+    assert_eq!(report.rows_scanned(), 3);
+
+    for id in ids {
+        let raw_row = session_sql_raw_row_for_test(id);
+        let payload = decode_row_payload_bytes(raw_row.as_bytes())
+            .expect("floor-advanced current row should decode");
+        assert_eq!(payload.layout_version().get(), 4);
+        assert_eq!(raw_row_slot_count_for_test(&raw_row), 6);
+    }
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("floor-advanced schema should remain readable")
+            .expect("floor-advanced schema should remain published");
+
+        assert_eq!(latest.row_layout().current_version().get(), 4);
+        assert_eq!(latest.row_layout().history_floor().get(), 4);
+        assert!(latest.fields().iter().all(|field| {
+            matches!(
+                field.historical_fill(),
+                crate::db::schema::SchemaHistoricalFill::Reject
+            )
+        }));
+    });
+}
+
 #[test]
 fn execute_admin_sql_ddl_successive_layouts_freeze_fills_and_promote_old_rows() {
     reset_session_sql_store();
@@ -6181,6 +6233,8 @@ fn execute_admin_sql_ddl_successive_layouts_freeze_fills_and_promote_old_rows() 
         assert_eq!(latest.row_layout().current_version().get(), 3);
         assert_eq!(latest.row_layout().history_floor().get(), 1);
     });
+
+    advance_successive_layout_history_floor(&session, [early_id, middle_id, current_id]);
 }
 
 #[test]
@@ -10909,13 +10963,7 @@ fn primary_key_literal_sql_cache_identity_keeps_concrete_key_values_distinct() {
     let first_id = Ulid::from_u128(19_721);
     let second_id = Ulid::from_u128(19_722);
     for (id, name, age) in [(first_id, "first", 30), (second_id, "second", 40)] {
-        session
-            .insert(SessionSqlEntity {
-                id,
-                name: name.to_string(),
-                age,
-            })
-            .expect("test row should insert");
+        insert_fixed_session_sql_entity_for_test(id, name, age);
     }
     let first_sql = format!("SELECT name FROM SessionSqlEntity WHERE id = '{first_id}'");
     let second_sql = format!("SELECT name FROM SessionSqlEntity WHERE id = '{second_id}'");

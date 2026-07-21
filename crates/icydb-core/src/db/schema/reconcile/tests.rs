@@ -1037,7 +1037,7 @@ fn install_additive_relation_accepted_prefixes() {
     });
 }
 
-fn insert_additive_relation_fixture_rows() {
+fn insert_additive_relation_target_fixture_row() {
     let target_id = Ulid::from_u128(1);
     let target_key = DecodedDataStoreKey::try_new::<SchemaReconcileRelationTargetEntity>(target_id)
         .expect("relation target key should encode")
@@ -1052,7 +1052,9 @@ fn insert_additive_relation_fixture_rows() {
             .fold_recovered_journal_put(target_key.clone(), target_row.into_raw_row())
             .expect("relation target row should enter the canonical test base");
     });
+}
 
+fn insert_additive_relation_source_fixture_row() {
     let source_id = Ulid::from_u128(2);
     let source_key = DecodedDataStoreKey::try_new::<AdditiveRelationSourceEntity>(source_id)
         .expect("relation source key should encode")
@@ -1074,6 +1076,58 @@ fn insert_additive_relation_fixture_rows() {
             .fold_recovered_journal_put(source_key, source_row.into_raw_row())
             .expect("relation source row should enter the canonical test base");
     });
+}
+
+fn insert_additive_relation_fixture_rows() {
+    insert_additive_relation_target_fixture_row();
+    insert_additive_relation_source_fixture_row();
+}
+
+#[test]
+fn generated_additive_relation_fill_missing_target_rejects_all_publication() {
+    reset_reconcile_stores();
+    reset_reconcile_relation_target_store();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    install_additive_relation_accepted_prefixes();
+    insert_additive_relation_source_fixture_row();
+
+    let accepted_before = RECONCILE_SCHEMA_STORE
+        .with_borrow(|schema_store| {
+            schema_store
+                .current_accepted_persisted_snapshot(AdditiveRelationSourceEntity::ENTITY_TAG)
+        })
+        .expect("accepted relation-source prefix should decode")
+        .expect("accepted relation-source prefix should exist");
+    super::reconcile_runtime_schemas(
+        &ADDITIVE_RELATION_RECONCILE_DB,
+        ADDITIVE_RELATION_RUNTIME_HOOKS,
+    )
+    .expect_err("candidate logical relation fill must reject a missing target");
+
+    let accepted_after = RECONCILE_SCHEMA_STORE
+        .with_borrow(|schema_store| {
+            schema_store
+                .current_accepted_persisted_snapshot(AdditiveRelationSourceEntity::ENTITY_TAG)
+        })
+        .expect("rejected relation-source prefix should remain readable")
+        .expect("rejected relation-source prefix should remain selected");
+    assert_eq!(accepted_after, accepted_before);
+    assert_eq!(RECONCILE_DATA_STORE.with_borrow(DataStore::len), 1);
+    assert_eq!(
+        RECONCILE_RELATION_TARGET_DATA_STORE.with_borrow(DataStore::len),
+        0,
+    );
+    assert_eq!(RECONCILE_INDEX_STORE.with_borrow(IndexStore::len), 0);
+    assert_eq!(
+        RECONCILE_RELATION_TARGET_INDEX_STORE.with_borrow(IndexStore::len),
+        0,
+    );
+    assert!(
+        !commit_marker_present().expect("commit marker probe should succeed"),
+        "prepublication relation rejection must publish no marker",
+    );
 }
 
 #[test]

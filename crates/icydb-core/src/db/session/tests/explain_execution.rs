@@ -646,20 +646,8 @@ fn execute_sql_projection_primary_key_covering_full_scan_returns_ordered_ids() {
     let session = sql_session();
 
     // Phase 1: seed deterministic primary-key order.
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::from_u128(9_801),
-            name: "alpha".to_string(),
-            age: 21,
-        })
-        .expect("PK-covering session seed should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::from_u128(9_802),
-            name: "beta".to_string(),
-            age: 22,
-        })
-        .expect("PK-covering session seed should succeed");
+    insert_fixed_session_sql_entity_for_test(Ulid::from_u128(9_801), "alpha", 21);
+    insert_fixed_session_sql_entity_for_test(Ulid::from_u128(9_802), "beta", 22);
 
     // Phase 2: execute the PK-only projection through the SQL statement execution lane.
     let rows = statement_projection_rows::<SessionSqlEntity>(

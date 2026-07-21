@@ -41,18 +41,12 @@ fn encoded_scalar_cursor(page: &PagedLoadExecution<SessionSqlEntity>, context: &
 }
 
 fn insert_fixed_session_sql_entity(
-    session: &DbSession<SessionSqlCanister>,
+    _session: &DbSession<SessionSqlCanister>,
     id: u128,
-    name: &'static str,
+    name: &str,
     age: u64,
 ) {
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::from_u128(id),
-            name: name.to_string(),
-            age,
-        })
-        .unwrap_or_else(|err| panic!("fixed cursor mutation insert should succeed: {err}"));
+    insert_fixed_session_sql_entity_for_test(Ulid::from_u128(id), name, age);
 }
 
 fn delete_fixed_session_sql_entity(session: &DbSession<SessionSqlCanister>, id: u128) {
@@ -138,16 +132,9 @@ fn seed_fixed_session_sql_entities(
     session: &DbSession<SessionSqlCanister>,
     rows: &[(u128, &'static str, u64)],
 ) {
-    insert_session_fixture_rows(
-        session,
-        rows.iter().copied(),
-        |(id, name, age)| SessionSqlEntity {
-            id: Ulid::from_u128(id),
-            name: name.to_string(),
-            age,
-        },
-        "fixed convergence seed",
-    );
+    for (id, name, age) in rows.iter().copied() {
+        insert_fixed_session_sql_entity(session, id, name, age);
+    }
 }
 
 // Seed enough deterministic primary-key rows to cross multiple physical stream
@@ -162,16 +149,14 @@ fn seed_chunked_session_sql_entities(
         .map(|offset| Ulid::from_u128(base + offset as u128))
         .collect::<Vec<_>>();
 
-    insert_session_fixture_rows(
-        session,
-        ids.iter().enumerate(),
-        |(offset, id)| SessionSqlEntity {
-            id: *id,
-            name: format!("{name_prefix}-{offset:03}"),
-            age: offset as u64,
-        },
-        "chunked primary stream seed",
-    );
+    for offset in 0..count {
+        insert_fixed_session_sql_entity(
+            session,
+            base + offset as u128,
+            format!("{name_prefix}-{offset:03}").as_str(),
+            offset as u64,
+        );
+    }
 
     ids
 }

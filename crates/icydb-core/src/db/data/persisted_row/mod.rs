@@ -27,7 +27,7 @@ pub(in crate::db) use canonical::{
     encode_accepted_value_ref_for_accepted_field_contract,
     encode_canonical_value_for_accepted_field_contract,
 };
-#[cfg(all(test, feature = "sql"))]
+#[cfg(test)]
 pub(in crate::db) use contract::emit_raw_row_from_slot_payloads;
 #[cfg(test)]
 pub(in crate::db) use contract::encode_value_with_model_proposal_for_test;

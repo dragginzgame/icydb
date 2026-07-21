@@ -1,7 +1,7 @@
 use super::{
     AcceptedRelationInfo, AcceptedRelationLocalComponentSpec, AcceptedRelationLocalComponents,
     AcceptedRelationTargetIdentity, RelationTargetKeys, ReverseRelationSourceInfo,
-    relation_scalar_slot_fast_path_key_kind_supported,
+    SchemaRelationStageBudget, relation_scalar_slot_fast_path_key_kind_supported,
     reverse_index_key_bounds_for_target_primary_key_value,
     reverse_index_key_for_target_and_source_primary_key_value,
     validate_scalar_relation_target_primary_key_kind,
@@ -24,9 +24,32 @@ use crate::db::{
         enum_catalog::build_initial_accepted_enum_catalog,
     },
 };
+use crate::error::{ErrorDetail, SchemaTransitionBudgetResource, StoreError};
 use crate::model::field::{FieldStorageDecode, LeafCodec, ScalarCodec};
 use crate::traits::{CanisterKind, Path};
 use crate::types::EntityTag;
+
+#[test]
+fn schema_relation_stage_capacity_rejection_preserves_typed_resource() {
+    let mut budget = SchemaRelationStageBudget {
+        effects: crate::db::schema::MAX_SCHEMA_PROJECTION_ENTRIES,
+        projection_work_units: 0,
+        staged_raw_bytes: 0,
+    };
+
+    let error = budget
+        .consume_effect(0, 0)
+        .expect_err("one relation effect beyond the exact cap must reject");
+
+    assert!(matches!(
+        error.detail(),
+        Some(ErrorDetail::Store(
+            StoreError::SchemaTransitionBudgetExceeded {
+                resource: SchemaTransitionBudgetResource::ProjectionEntries,
+            }
+        )),
+    ));
+}
 
 struct RelationTestCanister;
 

@@ -2064,20 +2064,8 @@ fn execute_sql_projection_ulid_string_literal_predicate_matches_single_row() {
     let other_id = Ulid::from_u128(9_912);
     let sql = format!("SELECT name FROM SessionSqlEntity WHERE id = '{target_id}'");
 
-    session
-        .insert(SessionSqlEntity {
-            id: target_id,
-            name: "ulid-target".to_string(),
-            age: 21,
-        })
-        .expect("target ULID seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: other_id,
-            name: "ulid-other".to_string(),
-            age: 22,
-        })
-        .expect("other ULID seed insert should succeed");
+    insert_fixed_session_sql_entity_for_test(target_id, "ulid-target", 21);
+    insert_fixed_session_sql_entity_for_test(other_id, "ulid-other", 22);
 
     let rows = statement_projection_rows::<SessionSqlEntity>(&session, sql.as_str())
         .expect("quoted ULID projection predicate should execute");

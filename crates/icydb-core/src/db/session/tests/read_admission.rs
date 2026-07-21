@@ -9,8 +9,8 @@ use super::{
     JournaledSessionSqlEntity, SessionPrincipalKeyEntity, SessionSqlCompositeWriteEntity,
     SessionSqlEntity, SessionSqlSignedWriteEntity, SessionUniquePrefixOffsetEntity,
     assert_query_plan_expr_unknown_field, heap_sql_session, indexed_sql_session,
-    journaled_sql_session, reset_heap_session_sql_store, reset_indexed_session_sql_store,
-    reset_journaled_session_sql_store, reset_session_sql_store,
+    insert_fixed_session_sql_entity_for_test, journaled_sql_session, reset_heap_session_sql_store,
+    reset_indexed_session_sql_store, reset_journaled_session_sql_store, reset_session_sql_store,
     seed_filtered_composite_indexed_session_sql_entities, seed_indexed_session_sql_entities,
     seed_session_sql_entities, seed_unique_prefix_offset_session_entities, sql_session,
 };
@@ -727,13 +727,7 @@ fn default_fluent_execute_rows_applies_residual_after_primary_key_filter_without
     reset_session_sql_store();
     let session = sql_session();
     let id = crate::types::Ulid::from_u128(18_816);
-    session
-        .insert(SessionSqlEntity {
-            id,
-            name: "Sasha".to_string(),
-            age: 24,
-        })
-        .expect("test row should insert");
+    insert_fixed_session_sql_entity_for_test(id, "Sasha", 24);
 
     let rejected_by_residual = session
         .load::<SessionSqlEntity>()
@@ -848,13 +842,7 @@ fn default_fluent_count_exact_counts_primary_key_filters_without_limit() {
     reset_session_sql_store();
     let session = sql_session();
     let id = crate::types::Ulid::from_u128(19_756);
-    session
-        .insert(SessionSqlEntity {
-            id,
-            name: "Sam".to_string(),
-            age: 30,
-        })
-        .expect("test row should insert");
+    insert_fixed_session_sql_entity_for_test(id, "Sam", 30);
 
     let existing = session
         .load::<SessionSqlEntity>()
@@ -876,13 +864,7 @@ fn default_fluent_exact_aggregate_explain_reports_read_intent() {
     reset_session_sql_store();
     let session = sql_session();
     let id = crate::types::Ulid::from_u128(19_760);
-    session
-        .insert(SessionSqlEntity {
-            id,
-            name: "Sam".to_string(),
-            age: 30,
-        })
-        .expect("test row should insert");
+    insert_fixed_session_sql_entity_for_test(id, "Sam", 30);
 
     let count_plan = session
         .load::<SessionSqlEntity>()
@@ -972,13 +954,7 @@ fn default_fluent_sum_exact_sums_primary_key_filters_without_limit() {
     reset_session_sql_store();
     let session = sql_session();
     let id = crate::types::Ulid::from_u128(19_758);
-    session
-        .insert(SessionSqlEntity {
-            id,
-            name: "Sam".to_string(),
-            age: 30,
-        })
-        .expect("test row should insert");
+    insert_fixed_session_sql_entity_for_test(id, "Sam", 30);
 
     let existing = session
         .load::<SessionSqlEntity>()
@@ -1001,13 +977,7 @@ fn default_fluent_min_max_avg_exact_use_primary_key_filters_without_limit() {
     let session = sql_session();
     let id = crate::types::Ulid::from_u128(19_761);
     let missing_id = crate::types::Ulid::from_u128(19_762);
-    session
-        .insert(SessionSqlEntity {
-            id,
-            name: "Sam".to_string(),
-            age: 30,
-        })
-        .expect("test row should insert");
+    insert_fixed_session_sql_entity_for_test(id, "Sam", 30);
 
     let expected_id = crate::types::Id::<SessionSqlEntity>::from_key(id);
     let existing_min = session
@@ -1329,13 +1299,7 @@ fn default_fluent_execute_rows_applies_residual_after_primary_key_in_filter_with
         (third_id, "Mira", 40),
         (outside_id, "Quinn", 55),
     ] {
-        session
-            .insert(SessionSqlEntity {
-                id,
-                name: name.to_string(),
-                age,
-            })
-            .expect("test row should insert");
+        insert_fixed_session_sql_entity_for_test(id, name, age);
     }
 
     let response = session

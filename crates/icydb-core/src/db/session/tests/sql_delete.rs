@@ -503,20 +503,8 @@ fn execute_sql_delete_ulid_string_literal_predicate_removes_matching_row() {
     let other_id = Ulid::from_u128(9_922);
     let sql = format!("DELETE FROM SessionSqlEntity WHERE id = '{target_id}'");
 
-    session
-        .insert(SessionSqlEntity {
-            id: target_id,
-            name: "delete-target".to_string(),
-            age: 21,
-        })
-        .expect("target ULID delete seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: other_id,
-            name: "delete-other".to_string(),
-            age: 22,
-        })
-        .expect("other ULID delete seed insert should succeed");
+    insert_fixed_session_sql_entity_for_test(target_id, "delete-target", 21);
+    insert_fixed_session_sql_entity_for_test(other_id, "delete-other", 22);
 
     let row_count = execute_sql_statement_delete_count(&session, sql.as_str());
     let remaining = remaining_session_name_age_rows(&session);

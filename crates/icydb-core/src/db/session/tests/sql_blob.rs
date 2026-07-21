@@ -1,6 +1,11 @@
 use super::*;
 use crate::db::{
-    data::with_structural_read_metrics, session::sql::with_sql_projection_materialization_metrics,
+    commit::{
+        CommitFailpoint, CommitFailpointMode, arm_commit_failpoint_for_tests, commit_marker_present,
+    },
+    data::{DecodedDataStoreKey, RawRow, with_structural_read_metrics},
+    index::{IndexEntryValue, IndexStoreVisit, RawIndexStoreKey},
+    session::sql::with_sql_projection_materialization_metrics,
 };
 
 const SMALL_THUMBNAIL_BYTES: usize = 1_024;
@@ -150,6 +155,31 @@ fn select_blob_rows(
 
     statement_projection_rows::<SessionSqlBlobEntity>(session, sql.as_str())
         .expect("large blob SQL SELECT should succeed")
+}
+
+fn blob_index_entries_for_test() -> Vec<(RawIndexStoreKey, IndexEntryValue)> {
+    SESSION_SQL_INDEX_STORE.with_borrow(|index_store| {
+        let mut entries = Vec::new();
+        index_store
+            .visit_entries(|raw_key, value| {
+                entries.push((raw_key.clone(), value.clone()));
+                Ok::<_, ()>(IndexStoreVisit::Continue)
+            })
+            .expect("infallible blob index-store visitor should complete");
+        entries
+    })
+}
+
+fn blob_raw_row_for_test(id: Ulid) -> RawRow {
+    let raw_key = DecodedDataStoreKey::try_new::<SessionSqlBlobEntity>(id)
+        .expect("blob fixture key should build")
+        .to_raw()
+        .expect("blob fixture key should encode");
+    SESSION_SQL_DATA_STORE.with_borrow(|store| {
+        store
+            .get(&raw_key)
+            .expect("blob fixture row should remain present")
+    })
 }
 
 #[test]
@@ -787,5 +817,48 @@ fn typed_replace_then_sql_select_and_delete_large_blobs() {
             LARGE_CHUNK_BYTES,
         )],
         "DELETE should leave only the non-windowed blob row",
+    );
+}
+
+#[test]
+fn generated_key_replace_pre_marker_failure_preserves_row_and_index_bytes() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let seeded = seed_blob_rows(&session);
+    let selected = seeded[1].clone();
+    let original_row = blob_raw_row_for_test(selected.id);
+    let original_indexes = blob_index_entries_for_test();
+    let replacement = blob_row(
+        selected.id,
+        "hero-thumb-b-rejected",
+        17,
+        81,
+        MEDIUM_THUMBNAIL_BYTES,
+        91,
+        XL_CHUNK_BYTES,
+    );
+
+    arm_commit_failpoint_for_tests(
+        CommitFailpoint::BeforeMarkerWrite,
+        CommitFailpointMode::ReturnError,
+    );
+    session
+        .replace(replacement)
+        .expect_err("pre-marker interruption should reject the resolved replacement");
+
+    assert!(
+        !commit_marker_present().expect("commit marker probe should succeed"),
+        "pre-marker failure must publish no recovery authority",
+    );
+    assert_eq!(blob_raw_row_for_test(selected.id), original_row);
+    assert_eq!(blob_index_entries_for_test(), original_indexes);
+    assert_eq!(
+        blob_row_summaries(select_blob_rows(&session, "WHERE label = 'hero-thumb-b'")),
+        vec![(
+            "hero-thumb-b".to_string(),
+            7,
+            MEDIUM_THUMBNAIL_BYTES,
+            XL_CHUNK_BYTES,
+        )],
     );
 }

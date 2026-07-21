@@ -75,8 +75,8 @@ use crate::{
         },
         cursor::CursorPlanError,
         data::{
-            DataStore, DecodedDataStoreKey, decode_structural_value_storage_bytes,
-            encode_structural_value_storage_bytes,
+            DataStore, DecodedDataStoreKey, canonical_row_from_entity_for_model_proposal_for_test,
+            decode_structural_value_storage_bytes, encode_structural_value_storage_bytes,
         },
         direction::Direction,
         executor::ExecutorPlanError,
@@ -1877,6 +1877,13 @@ static JOURNALED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::genera
     &JOURNALED_SESSION_SQL_INDEX_FIELDS,
     false,
 )];
+static SESSION_SQL_BLOB_BUCKET_INDEX_FIELDS: [&str; 1] = ["bucket"];
+static SESSION_SQL_BLOB_BUCKET_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
+    "bucket",
+    SessionSqlStore::PATH,
+    &SESSION_SQL_BLOB_BUCKET_INDEX_FIELDS,
+    false,
+)];
 
 crate::test_entity! {
     ident = SessionSqlEntity,
@@ -2103,7 +2110,7 @@ crate::test_entity! {
         crate::test_field! { thumbnail: Blob => FieldKind::Blob { max_len: None } },
         crate::test_field! { chunk: Blob => FieldKind::Blob { max_len: None } },
     ],
-    indexes = [],
+    indexes = [&SESSION_SQL_BLOB_BUCKET_INDEX_MODELS[0]],
     relations = [],
     entity_value = id_field(id),
 }
@@ -3670,6 +3677,32 @@ fn insert_session_fixture_rows<E, R>(
             .insert(build(row))
             .unwrap_or_else(|err| panic!("{context} fixture insert should succeed: {err}"));
     }
+}
+
+// Seed one current-layout `SessionSqlEntity` with an exact generated-key value.
+// Query/cursor tests that need chosen key boundaries cannot obtain those keys
+// through the public insert lane because accepted mutation authority correctly
+// replaces authored values for the generated primary key.
+fn insert_fixed_session_sql_entity_for_test(id: Ulid, name: &str, age: u64) {
+    let entity = SessionSqlEntity {
+        id,
+        name: name.to_string(),
+        age,
+    };
+    let key = DecodedDataStoreKey::try_new::<SessionSqlEntity>(id)
+        .expect("fixed session SQL fixture key should build")
+        .to_raw()
+        .expect("fixed session SQL fixture key should encode");
+    let row = canonical_row_from_entity_for_model_proposal_for_test(&entity)
+        .expect("fixed session SQL fixture row should encode")
+        .into_raw_row();
+
+    SESSION_SQL_DATA_STORE.with_borrow_mut(|store| {
+        assert!(
+            store.insert_raw_for_test(key, row).is_none(),
+            "fixed session SQL fixture keys must be unique",
+        );
+    });
 }
 
 // Seed one deterministic SQL fixture dataset used by matrix tests.

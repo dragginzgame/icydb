@@ -2110,7 +2110,7 @@ impl SchemaDdlAdmissionError {
 /// Not a stable API; may change without notice.
 ///
 
-#[repr(u16)]
+#[repr(u8)]
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum ErrorClass {
     Corruption,
@@ -2154,7 +2154,7 @@ impl ErrorClass {
 
 impl fmt::Debug for ErrorClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", *self as u16)
+        write!(f, "{}", *self as u8)
     }
 }
 
@@ -2164,7 +2164,7 @@ impl fmt::Debug for ErrorClass {
 /// Not a stable API; may change without notice.
 ///
 
-#[repr(u16)]
+#[repr(u8)]
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum ErrorOrigin {
     Serialize,
@@ -2202,6 +2202,6 @@ impl ErrorOrigin {
 
 impl fmt::Debug for ErrorOrigin {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", *self as u16)
+        write!(f, "{}", *self as u8)
     }
 }

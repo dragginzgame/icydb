@@ -58,12 +58,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### 🩹 Fixed
 
 - Completes CLI rendering for every current typed runtime-boundary diagnostic.
+- Restores core unit-test compilation without optional SQL support and repairs
+  fixed-boundary fixtures without weakening generated-key mutation semantics.
 
 ### 🧹 Cleanup
 
 - Makes each staged schema-derived domain inseparable and consolidates shared
   transition limits, removing parallel collections and duplicate identity and
-  error transport.
+  error transport. Compact one-byte internal error axes preserve the full
+  taxonomy while reducing code generated for runtime error propagation.
 
 ## [0.208.x] 🧩 - 2026-07-21 - Exact Composite Contracts
 
