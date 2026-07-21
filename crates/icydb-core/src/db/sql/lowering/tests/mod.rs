@@ -3785,23 +3785,40 @@ fn bind_sql_select_with_schema_allows_selectable_accepted_nested_leaf() {
 }
 
 #[test]
-fn bind_sql_select_with_schema_rejects_non_selectable_accepted_nested_leaf() {
+fn bind_sql_select_with_schema_allows_composite_accepted_nested_leaf() {
     let select = lower_sql_select_shape_for_test(
         "SELECT name.leaf FROM SqlLowerEntity",
-        "accepted non-selectable nested projection",
+        "accepted composite nested projection",
     );
     let schema =
         accepted_sql_lower_schema_with_name_nested_leaf_kind(AcceptedFieldKind::test_composite());
 
-    let err = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
+    let query = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
         SqlLowerEntity::MODEL,
         select,
         MissingRowPolicy::Ignore,
         &schema,
     )
-    .expect_err("accepted non-queryable nested field should not be selectable");
+    .expect("accepted composite nested leaf should be projectable as a SQL result value");
 
-    std::assert_matches!(err, SqlLoweringError::UnsupportedSelectProjection);
+    let projection = query
+        .build_plan()
+        .expect("composite nested leaf projection plan should build")
+        .projection_spec(SqlLowerEntity::MODEL);
+    let fields = projection.fields().collect::<Vec<_>>();
+
+    assert_eq!(fields.len(), 1);
+    assert!(
+        matches!(
+            fields[0],
+            ProjectionField::Scalar {
+                expr: Expr::FieldPath(_),
+                alias: None,
+            }
+        ),
+        "composite nested leaf projection should remain a field-path expression: {:?}",
+        fields[0]
+    );
 }
 
 #[test]

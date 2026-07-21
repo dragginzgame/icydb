@@ -593,9 +593,8 @@ pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
     Ok(fields)
 }
 
-// Build field descriptors with an injected top-level slot lookup. Generated
-// model introspection uses generated positions; live-schema introspection uses
-// accepted persisted row layout metadata while preserving nested-field behavior.
+// Build model-only field descriptors with an injected top-level slot lookup.
+// Accepted-schema introspection has a separate catalog-backed entrypoint above.
 fn describe_entity_fields_with_slot_lookup(
     model: &EntityModel,
     mut slot_for_field: impl FnMut(usize, &FieldModel) -> Option<u16>,
@@ -624,9 +623,7 @@ fn describe_entity_fields_with_slot_lookup(
 ///
 /// DescribeFieldMetadata
 ///
-/// Field-description metadata selected before recursive field rendering.
-/// Accepted-schema metadata can override generated model facts for top-level
-/// fields and, when available, nested leaf rows.
+/// Field-description metadata selected before one field row is rendered.
 ///
 
 struct DescribeFieldMetadata {
@@ -704,9 +701,8 @@ fn push_described_field_row(
     ));
 }
 
-// Render generated nested field metadata recursively. Generated and accepted
-// top-level describe paths both use this fallback when no accepted nested leaf
-// descriptors are available yet.
+// Render generated nested field metadata recursively for model-only
+// introspection. Accepted introspection consumes persisted catalog-owned leaves.
 fn describe_generated_nested_fields(
     fields: &mut Vec<EntityFieldDescription>,
     nested_fields: &[FieldModel],

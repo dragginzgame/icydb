@@ -17,8 +17,8 @@ use crate::{
 };
 
 static PROFILE_COMPOSITE_FIELDS: [CompositeFieldModel; 2] = [
-    CompositeFieldModel::generated("nickname", FieldKind::Text { max_len: None }, false),
     CompositeFieldModel::generated("score", FieldKind::Nat64, false),
+    CompositeFieldModel::generated("nickname", FieldKind::Text { max_len: None }, false),
 ];
 static PROFILE_COMPOSITE_SHAPE: CompositeShapeModel =
     CompositeShapeModel::Record(&PROFILE_COMPOSITE_FIELDS);

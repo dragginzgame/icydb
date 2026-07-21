@@ -7,7 +7,8 @@
 mod tests;
 
 use super::{
-    AcceptedEnumCatalog, decode_accepted_enum_catalog, encode_accepted_enum_catalog,
+    AcceptedEnumCatalog, AcceptedEnumVariantBody, decode_accepted_enum_catalog,
+    encode_accepted_enum_catalog,
     equality_key::{EqualityCapability, enum_equality_capability},
 };
 use crate::db::schema::composite_catalog::{
@@ -175,6 +176,12 @@ impl AcceptedSchemaRevisionBundle {
         {
             return Err(InternalError::store_invariant());
         }
+        if !catalog_relation_key_contracts_are_supported(
+            &self.enum_catalog,
+            &self.composite_catalog,
+        ) {
+            return Err(InternalError::store_invariant());
+        }
         for snapshot in self.entity_snapshots.values() {
             let encoded = encode_persisted_schema_snapshot(snapshot)?;
             if encoded.len() > MAX_SCHEMA_SNAPSHOT_BYTES as usize {
@@ -280,12 +287,13 @@ fn nested_leaf_contract_matches(
         return false;
     }
     path.push(name.to_string());
+    let leaf_index = *expected_count;
     let Some(next_count) = expected_count.checked_add(1) else {
         path.pop();
         return false;
     };
     *expected_count = next_count;
-    let matches = field.nested_leaves().iter().any(|leaf| {
+    let matches = field.nested_leaves().get(leaf_index).is_some_and(|leaf| {
         let path_matches = leaf.path() == path.as_slice();
         let kind_matches = leaf.kind() == contract.kind();
         let nullability_matches = leaf.nullable() == contract.nullable();
@@ -318,6 +326,45 @@ fn nested_leaf_contract_matches(
         };
     path.pop();
     nested_matches
+}
+
+// Relation roles may be nested inside nominal catalog definitions rather than
+// appearing directly in an entity field. Validate every definition once at the
+// publication boundary so runtime capability projection never sees a relation
+// whose key contract is unsupported.
+fn catalog_relation_key_contracts_are_supported(
+    enum_catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
+) -> bool {
+    let enum_contracts_are_supported = enum_catalog.by_id.values().all(|definition| {
+        definition
+            .variants_by_id
+            .values()
+            .all(|variant| match variant.body() {
+                AcceptedEnumVariantBody::Unit => true,
+                AcceptedEnumVariantBody::Payload { contract } => {
+                    relation_key_contracts_are_supported(contract.kind())
+                }
+            })
+    });
+    let composite_contracts_are_supported =
+        composite_catalog.id_by_path().values().all(|type_id| {
+            composite_catalog
+                .composite_type(*type_id)
+                .is_some_and(|definition| match definition.shape() {
+                    AcceptedCompositeShape::Record(fields) => fields
+                        .iter()
+                        .all(|field| relation_key_contracts_are_supported(field.contract().kind())),
+                    AcceptedCompositeShape::Tuple(elements) => elements
+                        .iter()
+                        .all(|element| relation_key_contracts_are_supported(element.kind())),
+                    AcceptedCompositeShape::Newtype(inner) => {
+                        relation_key_contracts_are_supported(inner.kind())
+                    }
+                })
+        });
+
+    enum_contracts_are_supported && composite_contracts_are_supported
 }
 
 fn relation_key_contracts_are_supported(kind: &AcceptedFieldKind) -> bool {

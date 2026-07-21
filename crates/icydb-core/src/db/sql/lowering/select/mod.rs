@@ -440,9 +440,8 @@ fn lower_grouped_aggregate_calls(
         .collect()
 }
 
-// Validate SQL field-capability rules that can safely use the accepted schema
-// snapshot today. Runtime row-layout and path execution still stay generated
-// until live layout authority exists.
+// Validate every clause against the revision-scoped accepted capability view
+// before projection planning can admit it.
 fn validate_select_sql_capabilities(
     schema: &SchemaInfo,
     projection_selection: &LoweredSqlProjectionSelection,
@@ -456,9 +455,8 @@ fn validate_select_sql_capabilities(
     Ok(())
 }
 
-// Check SELECT output admission against schema-owned SQL capabilities. This
-// keeps non-queryable composite fields and other unsupported field families
-// from entering projection planning through accepted live schema metadata.
+// Check SELECT output admission against schema-owned SQL capabilities before
+// unsupported field families can enter projection planning.
 fn validate_projection_sql_capabilities(
     schema: &SchemaInfo,
     selection: &LoweredSqlProjectionSelection,

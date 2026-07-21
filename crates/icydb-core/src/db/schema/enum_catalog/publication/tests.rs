@@ -19,8 +19,8 @@ use crate::{
         },
     },
     model::field::{
-        CompositeCodec, CompositeFieldModel, CompositeShapeModel, EnumVariantModel, FieldKind,
-        FieldStorageDecode, LeafCodec, ScalarCodec,
+        CompositeCodec, CompositeElementModel, CompositeFieldModel, CompositeShapeModel,
+        EnumVariantModel, FieldKind, FieldStorageDecode, LeafCodec, ScalarCodec,
     },
     types::EntityTag,
     value::EnumTypeId,
@@ -55,6 +55,65 @@ static PROFILE_KIND: FieldKind = FieldKind::Composite {
     path: "test::Profile",
     codec: CompositeCodec::StructuralV1,
     shape: &PROFILE_SHAPE,
+};
+static NONCANONICAL_PROFILE_FIELDS: [CompositeFieldModel; 2] = [
+    CompositeFieldModel::generated("zeta", FieldKind::Nat64, false),
+    CompositeFieldModel::generated("alpha", FieldKind::Bool, true),
+];
+static NONCANONICAL_PROFILE_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Record(&NONCANONICAL_PROFILE_FIELDS);
+static NONCANONICAL_PROFILE_KIND: FieldKind = FieldKind::Composite {
+    path: "test::NoncanonicalProfile",
+    codec: CompositeCodec::StructuralV1,
+    shape: &NONCANONICAL_PROFILE_SHAPE,
+};
+static INVALID_COMPOSITE_RELATION_KIND: FieldKind = FieldKind::Relation {
+    target_path: "test::Owner",
+    target_entity_name: "Owner",
+    target_entity_tag: EntityTag::new(8),
+    target_store_path: "test::Store",
+    key_kind: &PROFILE_KIND,
+};
+static INVALID_RELATION_RECORD_FIELDS: [CompositeFieldModel; 1] = [CompositeFieldModel::generated(
+    "owner",
+    INVALID_COMPOSITE_RELATION_KIND,
+    false,
+)];
+static INVALID_RELATION_RECORD_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Record(&INVALID_RELATION_RECORD_FIELDS);
+static INVALID_RELATION_RECORD_KIND: FieldKind = FieldKind::Composite {
+    path: "test::InvalidRelationRecord",
+    codec: CompositeCodec::StructuralV1,
+    shape: &INVALID_RELATION_RECORD_SHAPE,
+};
+static INVALID_RELATION_TUPLE_ELEMENTS: [CompositeElementModel; 1] =
+    [CompositeElementModel::generated(
+        INVALID_COMPOSITE_RELATION_KIND,
+        false,
+    )];
+static INVALID_RELATION_TUPLE_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Tuple(&INVALID_RELATION_TUPLE_ELEMENTS);
+static INVALID_RELATION_TUPLE_KIND: FieldKind = FieldKind::Composite {
+    path: "test::InvalidRelationTuple",
+    codec: CompositeCodec::StructuralV1,
+    shape: &INVALID_RELATION_TUPLE_SHAPE,
+};
+static INVALID_RELATION_NEWTYPE_SHAPE: CompositeShapeModel = CompositeShapeModel::Newtype(
+    CompositeElementModel::generated(INVALID_COMPOSITE_RELATION_KIND, false),
+);
+static INVALID_RELATION_NEWTYPE_KIND: FieldKind = FieldKind::Composite {
+    path: "test::InvalidRelationNewtype",
+    codec: CompositeCodec::StructuralV1,
+    shape: &INVALID_RELATION_NEWTYPE_SHAPE,
+};
+static INVALID_RELATION_ENUM_VARIANTS: [EnumVariantModel; 1] = [EnumVariantModel::new(
+    "Owned",
+    Some(&INVALID_COMPOSITE_RELATION_KIND),
+    FieldStorageDecode::ByKind,
+)];
+static INVALID_RELATION_ENUM_KIND: FieldKind = FieldKind::Enum {
+    path: "test::InvalidRelationEnum",
+    variants: &INVALID_RELATION_ENUM_VARIANTS,
 };
 static NESTED_STATUS_FIELDS: [CompositeFieldModel; 1] =
     [CompositeFieldModel::generated("status", STATUS_KIND, false)];
@@ -417,6 +476,79 @@ fn accepted_schema_bundle_requires_nested_leaves_to_match_composite_authority() 
         .is_err(),
         "missing catalog-derived nested leaf metadata must reject",
     );
+}
+
+#[test]
+fn accepted_schema_bundle_requires_canonical_nested_leaf_order() {
+    let (enum_catalog, composite_catalog) =
+        build_initial_accepted_catalogs_from_kinds_for_tests(&[NONCANONICAL_PROFILE_KIND])
+            .expect("profile catalogs should build");
+    let profile_kind = AcceptedFieldKind::from_model_kind(NONCANONICAL_PROFILE_KIND);
+    let alpha =
+        PersistedNestedLeafSnapshot::new(vec!["alpha".to_string()], AcceptedFieldKind::Bool, true);
+    let zeta =
+        PersistedNestedLeafSnapshot::new(vec!["zeta".to_string()], AcceptedFieldKind::Nat64, false);
+    let snapshot_with_leaves = |nested_leaves| {
+        snapshot_with_non_key_field(
+            "test::Item",
+            "profile",
+            profile_kind.clone(),
+            nested_leaves,
+            FieldStorageDecode::CatalogValue,
+            LeafCodec::Structural,
+        )
+    };
+
+    assert!(
+        AcceptedSchemaRevisionBundle::new(
+            AcceptedSchemaRevision::INITIAL,
+            "test::Store",
+            enum_catalog.clone(),
+            composite_catalog.clone(),
+            BTreeMap::from([(
+                EntityTag::new(7),
+                snapshot_with_leaves(vec![alpha.clone(), zeta.clone()]),
+            )]),
+        )
+        .is_ok(),
+        "catalog-order nested leaf metadata should publish",
+    );
+    assert!(
+        AcceptedSchemaRevisionBundle::new(
+            AcceptedSchemaRevision::INITIAL,
+            "test::Store",
+            enum_catalog,
+            composite_catalog,
+            BTreeMap::from([(EntityTag::new(7), snapshot_with_leaves(vec![zeta, alpha]),)]),
+        )
+        .is_err(),
+        "declaration-order nested leaf metadata must fail closed",
+    );
+}
+
+#[test]
+fn accepted_schema_bundle_rejects_nested_unsupported_relation_key_contracts() {
+    for kind in [
+        INVALID_RELATION_RECORD_KIND,
+        INVALID_RELATION_TUPLE_KIND,
+        INVALID_RELATION_NEWTYPE_KIND,
+        INVALID_RELATION_ENUM_KIND,
+    ] {
+        let (enum_catalog, composite_catalog) =
+            build_initial_accepted_catalogs_from_kinds_for_tests(&[kind])
+                .expect("catalog candidate should build before publication-role validation");
+        assert!(
+            AcceptedSchemaRevisionBundle::new(
+                AcceptedSchemaRevision::INITIAL,
+                "test::Store",
+                enum_catalog,
+                composite_catalog,
+                BTreeMap::from([(EntityTag::new(7), snapshot("test::Item"))]),
+            )
+            .is_err(),
+            "unsupported relation keys nested in catalog definitions must fail publication",
+        );
+    }
 }
 
 #[test]

@@ -1101,6 +1101,7 @@ fn compiled_nested_leaf_proposals_from_kind(kind: FieldKind) -> Vec<CompiledNest
             );
         }
     }
+    leaves.sort_by(|left, right| left.path.cmp(&right.path));
     leaves
 }
 
