@@ -4,7 +4,7 @@ use crate::db::{
     data::encode_input_value_for_accepted_field_contract,
     schema::{
         AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedFieldPersistenceContract,
-        AcceptedValueCatalogHandle, PersistedFieldSnapshot, SchemaFieldDefault,
+        AcceptedValueCatalogHandle, PersistedFieldSnapshot, SchemaInsertDefault,
         enum_catalog::ValueAdmissionBudget, input_value_from_strict_sql_literal_for_persisted_kind,
     },
 };
@@ -30,9 +30,9 @@ pub(in crate::db) fn encode_sql_ddl_add_column_default(
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
     catalog: Option<&AcceptedValueCatalogHandle>,
-) -> Result<SchemaFieldDefault, SchemaDdlFieldDefaultEncodingError> {
+) -> Result<SchemaInsertDefault, SchemaDdlFieldDefaultEncodingError> {
     let Some(default) = default else {
-        return Ok(SchemaFieldDefault::None);
+        return Ok(SchemaInsertDefault::None);
     };
     encode_sql_ddl_field_default_payload(
         column_name,
@@ -51,7 +51,11 @@ pub(in crate::db) fn encode_sql_ddl_alter_column_default(
     field: &PersistedFieldSnapshot,
     default: &Value,
     catalog: Option<&AcceptedValueCatalogHandle>,
-) -> Result<SchemaFieldDefault, SchemaDdlFieldDefaultEncodingError> {
+) -> Result<SchemaInsertDefault, SchemaDdlFieldDefaultEncodingError> {
+    if matches!(default, Value::Null) && field.nullable() {
+        return Ok(SchemaInsertDefault::None);
+    }
+
     encode_sql_ddl_field_default_payload(
         field.name(),
         default,
@@ -71,7 +75,7 @@ fn encode_sql_ddl_field_default_payload(
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
     catalog: Option<&AcceptedValueCatalogHandle>,
-) -> Result<SchemaFieldDefault, SchemaDdlFieldDefaultEncodingError> {
+) -> Result<SchemaInsertDefault, SchemaDdlFieldDefaultEncodingError> {
     if matches!(default, Value::Null) {
         return Err(SchemaDdlFieldDefaultEncodingError::NullDefault);
     }
@@ -87,7 +91,7 @@ fn encode_sql_ddl_field_default_payload(
     let payload = encode_input_value_for_accepted_field_contract(encoding, input, &mut budget)
         .map_err(|_| SchemaDdlFieldDefaultEncodingError::Encoding)?;
 
-    Ok(SchemaFieldDefault::SlotPayload(payload))
+    Ok(SchemaInsertDefault::SlotPayload(payload))
 }
 
 #[cfg(test)]
@@ -113,14 +117,14 @@ mod tests {
     };
 
     fn enum_field(kind: AcceptedFieldKind) -> PersistedFieldSnapshot {
-        PersistedFieldSnapshot::new(
+        PersistedFieldSnapshot::new_initial(
             FieldId::new(1),
             "status".to_string(),
             SchemaFieldSlot::new(0),
             kind,
             Vec::new(),
             false,
-            SchemaFieldDefault::None,
+            SchemaInsertDefault::None,
             FieldStorageDecode::ByKind,
             LeafCodec::Structural,
         )

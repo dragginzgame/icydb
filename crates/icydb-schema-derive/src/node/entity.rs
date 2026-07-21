@@ -773,33 +773,26 @@ fn entity_create_tokens(entity: &Entity) -> TokenStream {
             pub #field_ident: Option<#field_ty>
         }
     });
-    let entity_field_assignments = entity.fields.iter().enumerate().map(|(index, field)| {
-        let field_ident = &field.ident;
-        let index = syn::LitInt::new(&index.to_string(), Span::call_site());
-        let field_name = field_ident.to_string();
-        let fallback = field.rust_default_expr().unwrap_or_else(|| {
-            quote! {
-                return Err(::icydb::__macro::InternalError::mutation_create_missing_authored_fields(
-                    <Self::Entity as ::icydb::__macro::Path>::PATH,
-                    #field_name,
-                ))
+    let authored_field_inputs = entity
+        .fields
+        .iter()
+        .enumerate()
+        .filter_map(|(index, field)| {
+            if !field_is_insert_authorable(field) {
+                return None;
             }
-        });
+            let field_ident = &field.ident;
+            let index = syn::LitInt::new(&index.to_string(), Span::call_site());
+            let input = crate::imp::owned_value_to_input_expr(&field.value, quote!(value));
 
-        if field_is_insert_authorable(field) {
-            quote! {
-                #field_ident: match self.#field_ident {
-                    Some(value) => {
-                        authored_slots.push(#index);
-                        value
-                    }
-                    None => #fallback,
+            Some(quote! {
+                if let Some(value) = self.#field_ident {
+                    authored_fields.push(
+                        ::icydb::__macro::EntityCreateFieldInput::new(#index, #input)
+                    );
                 }
-            }
-        } else {
-            quote!(#field_ident: #fallback)
-        }
-    });
+            })
+        });
 
     quote! {
         #[doc = ""]
@@ -824,13 +817,11 @@ fn entity_create_tokens(entity: &Entity) -> TokenStream {
         impl ::icydb::__macro::EntityCreateInput for #create_ident {
             type Entity = #ident;
 
-            fn materialize_create(self) -> Result<::icydb::__macro::EntityCreateMaterialization<Self::Entity>, ::icydb::__macro::InternalError> {
-                let mut authored_slots = ::std::vec::Vec::new();
-                let entity = #ident {
-                    #(#entity_field_assignments),*
-                };
+            fn into_authored_fields(self) -> ::std::vec::Vec<::icydb::__macro::EntityCreateFieldInput> {
+                let mut authored_fields = ::std::vec::Vec::new();
+                #(#authored_field_inputs)*
 
-                Ok(::icydb::__macro::EntityCreateMaterialization::new(entity, authored_slots))
+                authored_fields
             }
         }
 

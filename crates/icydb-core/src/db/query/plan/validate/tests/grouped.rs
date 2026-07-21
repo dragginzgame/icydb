@@ -23,8 +23,8 @@ use crate::{
         },
         schema::{
             AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId as SchemaFieldId,
-            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot,
-            SchemaInfo, SchemaRowLayout, SchemaVersion,
+            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaInfo,
+            SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
         },
     },
     entity::EntityDeclaration,
@@ -219,15 +219,12 @@ fn accepted_schema_with_team_layout_slot(team_slot: SchemaFieldSlot) -> SchemaIn
         "query::plan::validate::tests::GroupedPolicyValidateEntity".to_string(),
         "GroupedPolicyValidateEntity".to_string(),
         SchemaFieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (SchemaFieldId::new(1), SchemaFieldSlot::new(0)),
-                (SchemaFieldId::new(2), team_slot),
-                (SchemaFieldId::new(3), SchemaFieldSlot::new(2)),
-                (SchemaFieldId::new(4), SchemaFieldSlot::new(3)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (SchemaFieldId::new(1), SchemaFieldSlot::new(0)),
+            (SchemaFieldId::new(2), team_slot),
+            (SchemaFieldId::new(3), SchemaFieldSlot::new(2)),
+            (SchemaFieldId::new(4), SchemaFieldSlot::new(3)),
+        ]),
         vec![
             accepted_field(1, "id", SchemaFieldSlot::new(0), AcceptedFieldKind::Ulid),
             accepted_field(
@@ -262,14 +259,14 @@ fn accepted_field(
     slot: SchemaFieldSlot,
     kind: AcceptedFieldKind,
 ) -> PersistedFieldSnapshot {
-    PersistedFieldSnapshot::new(
+    PersistedFieldSnapshot::new_initial(
         SchemaFieldId::new(id),
         name.to_string(),
         slot,
         kind,
         Vec::new(),
         false,
-        SchemaFieldDefault::None,
+        SchemaInsertDefault::None,
         FieldStorageDecode::CatalogValue,
         LeafCodec::Structural,
     )

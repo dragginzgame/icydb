@@ -18,15 +18,29 @@ pub(in crate::db) use crate::db::key_taxonomy::PrimaryKeyComponent;
 pub(crate) use crate::db::key_taxonomy::RawDataStoreKey;
 pub(in crate::db) use entity_decode::decode_raw_row_for_entity_key_with_contract;
 pub(in crate::db) use key::{DecodedDataStoreKey, primary_key_value_from_structural_value};
-#[cfg(feature = "sql")]
-pub(in crate::db) use persisted_row::canonical_row_from_dense_slot_payloads;
+pub(in crate::db) use persisted_row::decode_admitted_value_from_accepted_field_contract;
+#[cfg(all(test, feature = "sql"))]
+pub(in crate::db) use persisted_row::emit_raw_row_from_slot_payloads;
 pub(in crate::db) use persisted_row::encode_accepted_value_ref_for_accepted_field_contract;
 pub(in crate::db) use persisted_row::encode_canonical_value_for_accepted_field_contract;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use persisted_row::encode_input_value_for_accepted_field_contract;
 #[cfg(test)]
 pub(in crate::db) use persisted_row::encode_value_with_model_proposal_for_test;
 pub(in crate::db) use persisted_row::validate_default_payload_for_accepted_field_contract;
+pub(in crate::db) use persisted_row::{
+    AcceptedFieldWriteProvenance, AcceptedMutationFieldWriteIntent, AcceptedMutationIntentPatch,
+    CanonicalSlotReader, FieldSlot, ResolvedAcceptedMutationRow, StructuralSlotReader,
+    canonical_row_from_entity_with_accepted_contract,
+    canonical_row_from_raw_row_with_accepted_decode_contract,
+    canonical_row_from_raw_row_with_structural_contract, canonical_row_from_stored_raw_row,
+    canonical_row_from_structural_slot_reader_with_accepted_contract,
+    decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
+    decode_sparse_raw_row_with_contract, decode_sparse_required_slot_with_contract,
+    merge_non_generated_slots_into_canonical_row_with_accepted_contract,
+    resolve_insert_structural_patch_with_accepted_contract,
+    resolve_update_structural_patch_with_accepted_contract,
+};
 pub use persisted_row::{
     AuthoredStructuralPatch, PersistedByKindCodec, PersistedRow, PersistedScalar,
     PersistedStructuralValueCodec, ScalarSlotValueRef, ScalarValueRef, SlotReader,
@@ -36,20 +50,6 @@ pub use persisted_row::{
     encode_persisted_option_scalar_slot_payload, encode_persisted_scalar_slot_payload,
     encode_persisted_slot_payload_by_kind, encode_persisted_structured_many_slot_payload,
     encode_persisted_structured_slot_payload,
-};
-pub(in crate::db) use persisted_row::{
-    CanonicalSlotReader, FieldSlot, SerializedStructuralPatch, StructuralSlotReader,
-    apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
-    canonical_row_from_complete_serialized_structural_patch_with_accepted_contract,
-    canonical_row_from_entity_with_accepted_contract,
-    canonical_row_from_raw_row_with_accepted_decode_contract,
-    canonical_row_from_raw_row_with_structural_contract, canonical_row_from_stored_raw_row,
-    canonical_row_from_structural_slot_reader_with_accepted_contract,
-    decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
-    decode_sparse_raw_row_with_contract, decode_sparse_required_slot_with_contract,
-    merge_non_generated_slots_into_canonical_row_with_accepted_contract,
-    serialize_complete_structural_patch_fields_with_accepted_contract,
-    serialize_structural_patch_fields_with_accepted_contract,
 };
 pub(in crate::db) use persisted_row::{
     decode_runtime_value_from_accepted_field_contract, decode_runtime_value_from_row_contract,

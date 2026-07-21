@@ -1,8 +1,9 @@
 use crate::db::{
-    sql::parser::{Parser, SqlInsertSource, SqlInsertStatement, SqlReturningProjection},
+    sql::parser::{
+        Parser, SqlInsertSource, SqlInsertStatement, SqlReturningProjection, SqlWriteValue,
+    },
     sql_shared::{Keyword, SqlParseError, SqlSyntaxErrorKind},
 };
-use crate::value::Value;
 use icydb_diagnostic_code::SqlFeatureCode;
 
 impl Parser {
@@ -21,6 +22,9 @@ impl Parser {
         };
         let source = if self.eat_keyword(Keyword::Select) {
             SqlInsertSource::Select(Box::new(self.parse_select_statement()?))
+        } else if columns.is_empty() && self.eat_keyword(Keyword::Default) {
+            self.expect_identifier_keyword("VALUES")?;
+            SqlInsertSource::DefaultValues
         } else {
             self.expect_identifier_keyword("VALUES")?;
             let values =
@@ -47,14 +51,18 @@ impl Parser {
     fn parse_insert_values_tuples(
         &mut self,
         expected_columns: Option<usize>,
-    ) -> Result<Vec<Vec<Value>>, SqlParseError> {
+    ) -> Result<Vec<Vec<SqlWriteValue>>, SqlParseError> {
         let mut tuples = Vec::new();
 
         loop {
             self.expect_lparen()?;
             let mut tuple = Vec::new();
             loop {
-                tuple.push(self.parse_literal()?);
+                tuple.push(if self.eat_keyword(Keyword::Default) {
+                    SqlWriteValue::Default
+                } else {
+                    SqlWriteValue::Literal(self.parse_literal()?)
+                });
 
                 if self.eat_comma() {
                     continue;

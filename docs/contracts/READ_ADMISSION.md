@@ -47,6 +47,21 @@ post-access route. The fallback route must either be independently admitted by
 the same policy, or execution must fail closed with the shared read-admission
 diagnostic before doing the broader work.
 
+## Persisted Row Admission
+
+Read-policy admission and persisted-row admission are separate boundaries. A
+row is readable only when its envelope carries a layout version inside the
+accepted entity-local history window and its physical slot count exactly
+matches that stamped layout. Slot count is validation evidence; it never
+selects or infers the layout.
+
+Fields introduced after the stamped version materialize only from their frozen
+accepted historical fill. A current-layout row with a missing slot, an initial
+field missing from any row, an unknown layout version, or a layout/slot-count
+mismatch is corruption. Reads do not consult current insert defaults or
+generated models to repair malformed rows, and any successful rewrite of a
+historical row emits a complete current-layout row.
+
 ## Read Surface Inventory
 
 | Surface | Admission or bypass | Guard | Query execution authority |

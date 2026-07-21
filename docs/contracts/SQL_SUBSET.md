@@ -237,6 +237,14 @@ SQL DDL.
 `DESCRIBE` includes the same generated-vs-DDL index origin metadata in its
 structured index payload and shell rendering, so schema tooling can distinguish
 model-owned indexes from DDL-created indexes without scraping `SHOW INDEXES`.
+`DESCRIBE` and `SHOW COLUMNS` also expose accepted insertion policy separately
+from historical physical absence. Field rows report `insert_omission`, a
+bounded canonical `insert_default` plus its byte count and hash,
+`introduced_in_layout`, and a separately decoded `historical_fill` plus its
+byte count and hash. `DESCRIBE` additionally reports the current row-layout
+version and admitted history floor. Corrupt accepted temporal payloads reject
+introspection rather than falling back to generated metadata or a byte-only
+display.
 
 <!-- icydb-sql-feature id="introspection.unsupported_modifiers" kind="syntax" status="rejected" -->
 Introspection modifiers not listed above are outside the current subset. In
@@ -360,6 +368,16 @@ Supported public mutation shapes are:
 - `DELETE`
 <!-- icydb-sql-feature id="mutation.returning" kind="syntax" status="accepted" -->
 - admitted narrow `... RETURNING`
+
+`INSERT` accepts `DEFAULT` in direct `VALUES` positions and accepts
+`INSERT INTO entity DEFAULT VALUES` without an explicit column list. `UPDATE`
+accepts `SET field = DEFAULT`. These are write-intent forms, not general scalar
+expressions: `DEFAULT` in predicates, projections, function arguments, or
+nested expressions fails closed. Insert omission and explicit insert
+`DEFAULT` use the same current accepted insertion policy while preserving
+request-specific diagnostics. Update omission preserves the current value;
+`SET field = DEFAULT` applies the current accepted ordinary default or nullable
+`NULL`, and rejects required, generated, or managed fields.
 
 Mutation ownership still primarily lives on typed and fluent APIs:
 

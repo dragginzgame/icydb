@@ -4,7 +4,9 @@
 //! Boundary: verifies this module API while keeping fixture details internal.
 
 #[cfg(feature = "sql")]
-use crate::error::{ErrorDetail, QueryErrorDetail, SchemaDdlAdmissionError};
+use crate::error::{
+    ErrorDetail, QueryErrorDetail, SchemaDdlAdmissionError, SchemaTransitionBudgetResource,
+};
 use crate::{
     db::{
         cursor::CursorDecodeError,
@@ -483,6 +485,27 @@ fn sql_ddl_publication_race_maps_to_query_admission_detail() {
         "SQL DDL race loss should surface as a DDL admission detail, got {:?}",
         inner.detail(),
     );
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn sql_ddl_transition_budget_maps_to_query_admission_detail() {
+    let query_err =
+        QueryError::from_sql_ddl_execution_error(InternalError::schema_transition_budget_exceeded(
+            SchemaTransitionBudgetResource::SourceRows,
+        ));
+
+    let QueryError::Execute(QueryExecutionError::Unsupported(inner)) = query_err else {
+        panic!("schema transition budget rejection must stay unsupported");
+    };
+    assert!(matches!(
+        inner.detail(),
+        Some(ErrorDetail::Query(QueryErrorDetail::SchemaDdlAdmission {
+            error: SchemaDdlAdmissionError::SchemaTransitionBudgetExceeded {
+                resource: SchemaTransitionBudgetResource::SourceRows,
+            }
+        }))
+    ));
 }
 
 #[cfg(feature = "sql")]

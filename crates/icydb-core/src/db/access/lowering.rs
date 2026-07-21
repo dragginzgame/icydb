@@ -930,7 +930,7 @@ mod accepted_enum_tests {
                 AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
                 AcceptedValueCatalogHandle, FieldId, PersistedFieldSnapshot,
                 PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-                PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
+                PersistedSchemaSnapshot, SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout,
                 SchemaVersion, build_initial_accepted_enum_catalog_from_kinds_for_tests,
             },
         },
@@ -987,33 +987,30 @@ mod accepted_enum_tests {
             "access::Item".to_string(),
             "Item".to_string(),
             FieldId::new(1),
-            SchemaRowLayout::new(
-                SchemaVersion::initial(),
-                vec![
-                    (FieldId::new(1), SchemaFieldSlot::new(0)),
-                    (FieldId::new(2), SchemaFieldSlot::new(1)),
-                ],
-            ),
+            SchemaRowLayout::initial(vec![
+                (FieldId::new(1), SchemaFieldSlot::new(0)),
+                (FieldId::new(2), SchemaFieldSlot::new(1)),
+            ]),
             vec![
-                PersistedFieldSnapshot::new(
+                PersistedFieldSnapshot::new_initial(
                     FieldId::new(1),
                     "id".to_string(),
                     SchemaFieldSlot::new(0),
                     AcceptedFieldKind::Ulid,
                     Vec::new(),
                     false,
-                    SchemaFieldDefault::None,
+                    SchemaInsertDefault::None,
                     FieldStorageDecode::ByKind,
                     LeafCodec::Structural,
                 ),
-                PersistedFieldSnapshot::new(
+                PersistedFieldSnapshot::new_initial(
                     FieldId::new(2),
                     "status".to_string(),
                     SchemaFieldSlot::new(1),
                     persisted_kind.clone(),
                     Vec::new(),
                     false,
-                    SchemaFieldDefault::None,
+                    SchemaInsertDefault::None,
                     FieldStorageDecode::ByKind,
                     LeafCodec::Structural,
                 ),

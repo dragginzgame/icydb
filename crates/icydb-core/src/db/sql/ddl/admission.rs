@@ -149,6 +149,9 @@ impl SqlDdlBindError {
             Self::InvalidAlterTableAlterColumnDefault { .. } => {
                 SchemaDdlAdmissionError::InvalidAlterColumnDefault
             }
+            Self::RowLayoutVersionExhausted { .. } => {
+                SchemaDdlAdmissionError::RowLayoutVersionExhausted
+            }
             Self::InvalidFilteredIndexPredicate
             | Self::DuplicateIndexName { .. }
             | Self::DuplicateFieldPathIndex { .. }
@@ -162,20 +165,15 @@ impl SqlDdlBindError {
             Self::FieldPathNotIndexable { .. }
             | Self::FieldPathNotAcceptedCatalogBacked { .. }
             | Self::UnsupportedDropIndex { .. }
-            | Self::UnsupportedAlterTableAddColumnNotNull { .. }
             | Self::UnsupportedAlterTableAddColumnType { .. }
             | Self::PrimaryKeyFieldDropRejected { .. }
             | Self::GeneratedFieldDropRejected { .. }
             | Self::IndexedFieldDropRejected { .. }
-            | Self::IndexedFieldDefaultChangeRejected { .. }
             | Self::GeneratedFieldRenameRejected { .. } => {
                 SchemaDdlAdmissionError::UnsupportedTransitionClass
             }
             Self::GeneratedIndexDropRejected { .. } => {
                 SchemaDdlAdmissionError::GeneratedIndexDropRejected
-            }
-            Self::UnsupportedAlterTableDropDefaultRequired { .. } => {
-                SchemaDdlAdmissionError::RequiredDropDefaultUnsupported
             }
             Self::GeneratedFieldDefaultChangeRejected { .. } => {
                 SchemaDdlAdmissionError::GeneratedFieldDefaultChangeRejected

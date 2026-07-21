@@ -9,16 +9,18 @@ use crate::{
     db::{
         PersistedRow,
         data::{
-            AuthoredStructuralPatch, DecodedDataStoreKey, RawRow, StructuralRowContract,
-            StructuralSlotReader,
+            AcceptedFieldWriteProvenance, AcceptedMutationFieldWriteIntent,
+            AcceptedMutationIntentPatch, CanonicalRow, DecodedDataStoreKey, RawRow, SlotReader,
+            StructuralRowContract, StructuralSlotReader,
+            canonical_row_from_entity_with_accepted_contract,
         },
         executor::mutation::save::SaveExecutor,
         predicate::canonical_cmp,
         relation::validate_save_relations_with_accepted_contract,
         schema::{
-            AcceptedFieldAbsencePolicy, AcceptedFieldKind, AcceptedFieldKindCategory,
+            AcceptedFieldKind, AcceptedFieldKindCategory, AcceptedInsertOmissionPolicy,
             AcceptedRowDecodeContract, AcceptedScalarClass, SchemaInfo,
-            accepted_insert_field_is_omittable, classify_accepted_field_kind, literal_matches_type,
+            classify_accepted_field_kind, literal_matches_type,
         },
     },
     error::InternalError,
@@ -28,36 +30,13 @@ use crate::{
 };
 use std::cmp::Ordering;
 
-// Resolve typed-create omissions exclusively from the accepted insert
-// contract. Generated create DTOs retain authored-slot provenance, but they do
-// not decide whether an omitted field is legal at runtime.
-fn missing_create_authored_fields(
-    accepted_contract: &AcceptedRowDecodeContract,
-    authored_create_slots: &[usize],
-) -> Vec<String> {
-    let mut missing = Vec::new();
-    for slot in 0..accepted_contract.required_slot_count() {
-        let Some(field) = accepted_contract.field_for_slot(slot) else {
-            continue;
-        };
-        if accepted_insert_field_is_omittable(field.absence_policy(), field.write_policy()) {
-            continue;
-        }
-        if !authored_create_slots.contains(&slot) {
-            missing.push(field.field_name().to_string());
-        }
-    }
-
-    missing
-}
-
 impl<E: PersistedRow> SaveExecutor<E> {
     // Enforce accepted-contract scalar bounds before structural patch values are
     // serialized into persisted-row payloads. The accepted lane uses only the
     // selected schema snapshot's field contracts, so out-of-range slots fail
     // before write encoding.
     pub(in crate::db::executor::mutation) fn validate_structural_patch_write_bounds_with_accepted_contract(
-        patch: &AuthoredStructuralPatch,
+        patch: &AcceptedMutationIntentPatch,
         accepted_row_decode_contract: &AcceptedRowDecodeContract,
     ) -> Result<(), InternalError> {
         let contract = StructuralRowContract::from_accepted_decode_contract(
@@ -72,13 +51,16 @@ impl<E: PersistedRow> SaveExecutor<E> {
     // The accepted lane uses only the selected schema snapshot's field
     // contracts, so out-of-range slots fail before write encoding.
     fn validate_structural_patch_write_bounds_for_accepted_row_contract(
-        patch: &AuthoredStructuralPatch,
+        patch: &AcceptedMutationIntentPatch,
         contract: &StructuralRowContract,
     ) -> Result<(), InternalError> {
         for entry in patch.entries() {
             let slot = entry.slot().index();
             let accepted_field = contract.required_accepted_field_decode_contract(slot)?;
-            let Some(value) = entry.value().clone().try_into_runtime_non_enum() else {
+            let AcceptedMutationFieldWriteIntent::Authored(input) = entry.intent() else {
+                continue;
+            };
+            let Some(value) = input.clone().try_into_runtime_non_enum() else {
                 // Canonical enum admission owns enum and recursive payload
                 // validation during accepted patch serialization.
                 continue;
@@ -119,22 +101,31 @@ impl<E: PersistedRow> SaveExecutor<E> {
         Self::validate_structural_row_invariants_with_accepted_contract(&row_fields, schema)
     }
 
-    // Execute save preflight using already-resolved schema and relation metadata.
-    //
-    // Batch save lanes call this helper so they do not repay the schema-cache
-    // mutex lookup and relation capability probe for every row.
-    pub(in crate::db::executor::mutation) fn preflight_entity_with_cached_schema(
+    // Run typed preflight for an after-image whose accepted field provenance
+    // was resolved before materialization. Protected database values must stay
+    // byte-identical across application sanitization.
+    pub(in crate::db::executor::mutation) fn preflight_resolved_entity_with_provenance(
         &self,
         entity: &mut E,
+        resolved_row: &RawRow,
+        provenance: &[Option<AcceptedFieldWriteProvenance>],
         schema: &SchemaInfo,
         validate_relations: bool,
         write_context: SanitizeWriteContext,
-        authored_create_slots: Option<&[usize]>,
-    ) -> Result<(), InternalError> {
-        self.validate_create_authorship(authored_create_slots)?;
+    ) -> Result<CanonicalRow, InternalError> {
         sanitize_with_context(entity, Some(write_context))?;
         validate(entity)?;
         self.validate_entity_invariants(entity, schema)?;
+        let normalized = canonical_row_from_entity_with_accepted_contract(
+            E::PATH,
+            self.accepted_row_decode_contract().clone(),
+            entity,
+        )?;
+        self.validate_sanitizer_preserved_protected_fields(
+            resolved_row,
+            normalized.as_raw_row(),
+            provenance,
+        )?;
         if validate_relations {
             validate_save_relations_with_accepted_contract::<E>(
                 &self.db,
@@ -143,33 +134,50 @@ impl<E: PersistedRow> SaveExecutor<E> {
             )?;
         }
 
-        Ok(())
+        Ok(normalized)
     }
 
-    // Enforce the typed create authorship contract for generated create-input
-    // payloads. Accepted null/default policy and database-owned generation may
-    // satisfy an omission; every other user-authorable field must be present.
-    fn validate_create_authorship(
+    // Compare canonical slot payloads instead of re-decoded runtime values so
+    // protection also covers canonical representation and enum identity.
+    fn validate_sanitizer_preserved_protected_fields(
         &self,
-        authored_create_slots: Option<&[usize]>,
+        before_sanitize: &RawRow,
+        after_sanitize: &RawRow,
+        provenance: &[Option<AcceptedFieldWriteProvenance>],
     ) -> Result<(), InternalError> {
-        let Some(authored_create_slots) = authored_create_slots else {
-            return Ok(());
-        };
-
-        let missing_fields = missing_create_authored_fields(
-            self.accepted_row_decode_contract(),
-            authored_create_slots,
+        let contract = StructuralRowContract::from_accepted_decode_contract(
+            E::PATH,
+            self.accepted_row_decode_contract().clone(),
         );
+        if provenance.len() != contract.field_count() {
+            return Err(InternalError::executor_invariant());
+        }
+        let before = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+            before_sanitize,
+            &contract,
+        )?;
+        let after = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+            after_sanitize,
+            &contract,
+        )?;
 
-        if missing_fields.is_empty() {
-            return Ok(());
+        for (slot, provenance) in provenance.iter().copied().enumerate() {
+            let Some(provenance) = provenance else {
+                continue;
+            };
+            let field = contract.required_accepted_field_contract(slot)?;
+            if !field.generated() || provenance.sanitizer_may_transform() {
+                continue;
+            }
+            if before.get_bytes(slot) != after.get_bytes(slot) {
+                return Err(InternalError::mutation_sanitizer_protected_field_changed(
+                    E::PATH,
+                    field.field_name(),
+                ));
+            }
         }
 
-        Err(InternalError::mutation_create_missing_authored_fields(
-            E::PATH,
-            &missing_fields.join(", "),
-        ))
+        Ok(())
     }
 
     // Enforce trait boundary invariants for user-provided entities.
@@ -357,7 +365,10 @@ impl<E: PersistedRow> SaveExecutor<E> {
             let field_name = field.field_name();
             let field_kind = field.kind();
             if !field.generated()
-                && !matches!(field.absence_policy(), AcceptedFieldAbsencePolicy::Required)
+                && !matches!(
+                    field.insert_omission_policy(),
+                    AcceptedInsertOmissionPolicy::Required
+                )
             {
                 continue;
             }
@@ -896,63 +907,8 @@ fn persisted_collection_kind_accepts_value(kind: &AcceptedFieldKind, value: &Val
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        missing_create_authored_fields, persisted_field_kind_accepts_value,
-        persisted_field_kind_is_queryable,
-    };
-    use crate::{
-        db::schema::{AcceptedFieldKind, AcceptedRowDecodeContract},
-        model::{
-            EntityModel, IndexModel,
-            field::{
-                FieldDatabaseDefault, FieldInsertGeneration, FieldKind, FieldModel,
-                FieldStorageDecode,
-            },
-        },
-        types::EntityTag,
-        value::Value,
-    };
-
-    static CREATE_DEFAULT_PAYLOAD: &[u8] = &[0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0];
-    static CREATE_FIELDS: [FieldModel; 4] = [
-        FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
-            "id",
-            FieldKind::Ulid,
-            FieldStorageDecode::ByKind,
-            false,
-            Some(FieldInsertGeneration::Ulid),
-            None,
-            FieldDatabaseDefault::None,
-            &[],
-        ),
-        FieldModel::generated("name", FieldKind::Text { max_len: None }),
-        FieldModel::generated_with_storage_decode_and_nullability(
-            "note",
-            FieldKind::Text { max_len: None },
-            FieldStorageDecode::ByKind,
-            true,
-        ),
-        FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
-            "score",
-            FieldKind::Nat64,
-            FieldStorageDecode::ByKind,
-            false,
-            None,
-            None,
-            FieldDatabaseDefault::EncodedSlotPayload(CREATE_DEFAULT_PAYLOAD),
-            &[],
-        ),
-    ];
-    static CREATE_INDEXES: [&IndexModel; 0] = [];
-    static CREATE_MODEL: EntityModel = EntityModel::generated(
-        "tests::CreateDefaultEntity",
-        "create_default_entity",
-        1,
-        &CREATE_FIELDS[0],
-        0,
-        &CREATE_FIELDS,
-        &CREATE_INDEXES,
-    );
+    use super::{persisted_field_kind_accepts_value, persisted_field_kind_is_queryable};
+    use crate::{db::schema::AcceptedFieldKind, types::EntityTag, value::Value};
 
     fn relation_to_key(key_kind: AcceptedFieldKind) -> AcceptedFieldKind {
         AcceptedFieldKind::Relation {
@@ -962,17 +918,6 @@ mod tests {
             target_store_path: "target::Store".into(),
             key_kind: Box::new(key_kind),
         }
-    }
-
-    #[test]
-    fn typed_create_omissions_follow_accepted_insert_policy() {
-        let contract = AcceptedRowDecodeContract::from_model_proposal_for_test(&CREATE_MODEL);
-
-        assert!(missing_create_authored_fields(&contract, &[1]).is_empty());
-        assert_eq!(
-            missing_create_authored_fields(&contract, &[]),
-            vec!["name".to_string()],
-        );
     }
 
     #[test]

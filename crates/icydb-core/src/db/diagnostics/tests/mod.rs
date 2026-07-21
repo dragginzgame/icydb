@@ -407,9 +407,14 @@ fn insert_integrity_entity_row_with_format_version(entity: &IntegrityIndexedEnti
         .into_raw_row();
     let payload = decode_row_payload_bytes(row.as_bytes())
         .expect("integrity test row payload should decode")
+        .into_payload()
         .into_owned();
-    let encoded = serialize_row_payload_with_version(payload, version)
-        .expect("integrity test row envelope should encode");
+    let encoded = serialize_row_payload_with_version(
+        crate::db::schema::RowLayoutVersion::INITIAL,
+        payload,
+        version,
+    )
+    .expect("integrity test row envelope should encode");
     let raw_row = RawRow::try_new(encoded).expect("integrity test row envelope should fit bounds");
 
     with_data_store_mut(STORE_A_PATH, |store| {

@@ -238,14 +238,13 @@ pub(in crate::db) enum SqlDdlBindError {
         column_name: String,
     },
 
-    UnsupportedAlterTableAddColumnNotNull {
+    DuplicateColumn {
         entity_name: String,
         column_name: String,
     },
 
-    DuplicateColumn {
+    RowLayoutVersionExhausted {
         entity_name: String,
-        column_name: String,
     },
 
     UnsupportedAlterTableAddColumnType {
@@ -264,20 +263,9 @@ pub(in crate::db) enum SqlDdlBindError {
         column_name: String,
     },
 
-    UnsupportedAlterTableDropDefaultRequired {
-        entity_name: String,
-        column_name: String,
-    },
-
     GeneratedFieldDefaultChangeRejected {
         entity_name: String,
         column_name: String,
-    },
-
-    IndexedFieldDefaultChangeRejected {
-        entity_name: String,
-        column_name: String,
-        index_name: String,
     },
 
     GeneratedFieldNullabilityChangeRejected {

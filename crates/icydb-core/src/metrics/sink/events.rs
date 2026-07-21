@@ -152,8 +152,9 @@ pub enum SchemaReconcileOutcome {
 pub enum SchemaTransitionOutcome {
     AddExpressionIndex,
     AddFieldPathIndex,
-    AppendOnlyNullableFields,
+    AppendOnlyFields,
     ExactMatch,
+    MetadataOnlyFieldDefault,
     MetadataOnlyIndexRename,
     RejectedEntityIdentity,
     RejectedFieldContract,

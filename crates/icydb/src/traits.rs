@@ -6,8 +6,8 @@
 
 pub use icydb_core::db::{EntityKey, EntityKeyBytes, EntityKeyBytesError};
 pub use icydb_core::entity::{
-    EntityCreateInput, EntityCreateMaterialization, EntityCreateType, EntityDeclaration,
-    EntityKind, EntityPlacement, SingletonEntity,
+    EntityCreateInput, EntityCreateType, EntityDeclaration, EntityKind, EntityPlacement,
+    SingletonEntity,
 };
 pub use icydb_core::traits::{CanisterKind, FieldTypeMeta, Inner, Kind, Path, StoreKind, TypeKind};
 pub use icydb_core::types::NumericValue;

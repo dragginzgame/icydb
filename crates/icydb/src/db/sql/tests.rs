@@ -26,6 +26,26 @@ fn text(value: &str) -> OutputValue {
     OutputValue::Text(value.to_string())
 }
 
+fn required_field(name: &str, slot: u16, kind: &str, primary_key: bool) -> EntityFieldDescription {
+    EntityFieldDescription::new(
+        name.to_string(),
+        Some(slot),
+        kind.to_string(),
+        false,
+        primary_key,
+        true,
+        "generated".to_string(),
+        Some("required".to_string()),
+        None,
+        None,
+        None,
+        Some(1),
+        Some("reject".to_string()),
+        None,
+        None,
+    )
+}
+
 #[test]
 fn render_describe_lines_output_contract_vector_is_stable() {
     let description = EntitySchemaDescription::new(
@@ -33,24 +53,8 @@ fn render_describe_lines_output_contract_vector_is_stable() {
         "ExampleEntity".to_string(),
         "id".to_string(),
         vec![
-            EntityFieldDescription::new(
-                "id".to_string(),
-                Some(0),
-                "Ulid".to_string(),
-                false,
-                true,
-                true,
-                "generated".to_string(),
-            ),
-            EntityFieldDescription::new(
-                "name".to_string(),
-                Some(1),
-                "Text".to_string(),
-                false,
-                false,
-                true,
-                "generated".to_string(),
-            ),
+            required_field("id", 0, "Ulid", true),
+            required_field("name", 1, "Text", false),
         ],
         vec![
             EntityIndexDescription::new(
@@ -73,6 +77,8 @@ fn render_describe_lines_output_contract_vector_is_stable() {
             "user_store".to_string(),
             EntityRelationCardinality::Single,
         )],
+        1,
+        1,
     );
 
     assert_eq!(
@@ -80,14 +86,15 @@ fn render_describe_lines_output_contract_vector_is_stable() {
         vec![
             "entity: ExampleEntity".to_string(),
             "path: schema.public.ExampleEntity".to_string(),
+            "row layout: current=1 history_floor=1".to_string(),
             String::new(),
             "fields:".to_string(),
-            "+------+------+------+----------+-----+-----------+-----------+".to_string(),
-            "| name | slot | type | nullable | pk  | queryable | origin    |".to_string(),
-            "+------+------+------+----------+-----+-----------+-----------+".to_string(),
-            "| id   | 0    | Ulid | no       | yes | yes       | generated |".to_string(),
-            "| name | 1    | Text | no       | no  | yes       | generated |".to_string(),
-            "+------+------+------+----------+-----+-----------+-----------+".to_string(),
+            "+------+------+------+----------+-----+-----------+-----------+-----------------+----------------+---------------+--------------+-------------------+-----------------+------------+-----------+".to_string(),
+            "| name | slot | type | nullable | pk  | queryable | origin    | insert omission | insert default | default bytes | default hash | introduced layout | historical fill | fill bytes | fill hash |".to_string(),
+            "+------+------+------+----------+-----+-----------+-----------+-----------------+----------------+---------------+--------------+-------------------+-----------------+------------+-----------+".to_string(),
+            "| id   | 0    | Ulid | no       | yes | yes       | generated | required        | -              | -             | -            | 1                 | reject          | -          | -         |".to_string(),
+            "| name | 1    | Text | no       | no  | yes       | generated | required        | -              | -             | -            | 1                 | reject          | -          | -         |".to_string(),
+            "+------+------+------+----------+-----+-----------+-----------+-----------------+----------------+---------------+--------------+-------------------+-----------------+------------+-----------+".to_string(),
             String::new(),
             "indexes:".to_string(),
             "+-------------------------+--------+--------+-----------+".to_string(),
@@ -129,24 +136,8 @@ fn render_show_indexes_lines_output_contract_vector_is_stable() {
 #[test]
 fn render_show_columns_lines_output_contract_vector_is_stable() {
     let columns = vec![
-        EntityFieldDescription::new(
-            "id".to_string(),
-            Some(0),
-            "Ulid".to_string(),
-            false,
-            true,
-            true,
-            "generated".to_string(),
-        ),
-        EntityFieldDescription::new(
-            "name".to_string(),
-            Some(1),
-            "Text".to_string(),
-            false,
-            false,
-            true,
-            "generated".to_string(),
-        ),
+        required_field("id", 0, "Ulid", true),
+        required_field("name", 1, "Text", false),
     ];
 
     assert_eq!(
@@ -155,12 +146,12 @@ fn render_show_columns_lines_output_contract_vector_is_stable() {
             "entity: ExampleEntity".to_string(),
             String::new(),
             "fields:".to_string(),
-            "+------+------+------+----------+-----+-----------+-----------+".to_string(),
-            "| name | slot | type | nullable | pk  | queryable | origin    |".to_string(),
-            "+------+------+------+----------+-----+-----------+-----------+".to_string(),
-            "| id   | 0    | Ulid | no       | yes | yes       | generated |".to_string(),
-            "| name | 1    | Text | no       | no  | yes       | generated |".to_string(),
-            "+------+------+------+----------+-----+-----------+-----------+".to_string(),
+            "+------+------+------+----------+-----+-----------+-----------+-----------------+----------------+---------------+--------------+-------------------+-----------------+------------+-----------+".to_string(),
+            "| name | slot | type | nullable | pk  | queryable | origin    | insert omission | insert default | default bytes | default hash | introduced layout | historical fill | fill bytes | fill hash |".to_string(),
+            "+------+------+------+----------+-----+-----------+-----------+-----------------+----------------+---------------+--------------+-------------------+-----------------+------------+-----------+".to_string(),
+            "| id   | 0    | Ulid | no       | yes | yes       | generated | required        | -              | -             | -            | 1                 | reject          | -          | -         |".to_string(),
+            "| name | 1    | Text | no       | no  | yes       | generated | required        | -              | -             | -            | 1                 | reject          | -          | -         |".to_string(),
+            "+------+------+------+----------+-----+-----------+-----------+-----------------+----------------+---------------+--------------+-------------------+-----------------+------------+-----------+".to_string(),
         ],
         "show-columns shell output must remain contract-stable across release lines",
     );

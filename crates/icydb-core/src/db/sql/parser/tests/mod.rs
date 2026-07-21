@@ -13,7 +13,8 @@ use super::{
     SqlExprBinaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
     SqlParseError, SqlProjection, SqlReturningProjection, SqlScalarFunction, SqlSelectItem,
     SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
-    SqlShowMemoryStatement, SqlShowStoresStatement, SqlStatement, SqlUpdateStatement, parse_sql,
+    SqlShowMemoryStatement, SqlShowStoresStatement, SqlStatement, SqlUpdateStatement,
+    SqlWriteValue, parse_sql,
 };
 #[cfg(feature = "sql-explain")]
 use super::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget};
@@ -26,6 +27,10 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::SqlFeatureCode;
+
+fn sql_write_literal(value: Value) -> SqlWriteValue {
+    SqlWriteValue::Literal(value)
+}
 
 fn ddl_field_paths(paths: &[&str]) -> Vec<SqlCreateIndexKeyItem> {
     paths
@@ -3769,10 +3774,45 @@ fn parse_insert_statement_with_explicit_columns_and_values() {
             entity: "users".to_string(),
             columns: vec!["id".to_string(), "name".to_string(), "age".to_string()],
             source: SqlInsertSource::Values(vec![vec![
-                Value::Int64(7),
-                Value::Text("Ada".to_string()),
-                Value::Int64(21),
+                sql_write_literal(Value::Int64(7)),
+                sql_write_literal(Value::Text("Ada".to_string())),
+                sql_write_literal(Value::Int64(21)),
             ]]),
+            returning: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_insert_statement_preserves_explicit_default_values() {
+    let statement = parse_sql("INSERT INTO users (id, name) VALUES (DEFAULT, 'Ada')")
+        .expect("insert DEFAULT should parse only as write intent");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Insert(SqlInsertStatement {
+            entity: "users".to_string(),
+            columns: vec!["id".to_string(), "name".to_string()],
+            source: SqlInsertSource::Values(vec![vec![
+                SqlWriteValue::Default,
+                sql_write_literal(Value::Text("Ada".to_string())),
+            ]]),
+            returning: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_insert_statement_preserves_default_values_source() {
+    let statement = parse_sql("INSERT INTO users DEFAULT VALUES")
+        .expect("DEFAULT VALUES should parse as its own source");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Insert(SqlInsertStatement {
+            entity: "users".to_string(),
+            columns: Vec::new(),
+            source: SqlInsertSource::DefaultValues,
             returning: None,
         }),
     );
@@ -3789,8 +3829,8 @@ fn parse_insert_statement_with_hex_blob_literal_values() {
             entity: "files".to_string(),
             columns: vec!["id".to_string(), "thumbnail".to_string()],
             source: SqlInsertSource::Values(vec![vec![
-                Value::Int64(7),
-                Value::Blob(vec![0x0A, 0x0B, 0xFF]),
+                sql_write_literal(Value::Int64(7)),
+                sql_write_literal(Value::Blob(vec![0x0A, 0x0B, 0xFF])),
             ]]),
             returning: None,
         }),
@@ -3810,14 +3850,14 @@ fn parse_insert_statement_with_multiple_values_tuples() {
             columns: vec!["id".to_string(), "name".to_string(), "age".to_string()],
             source: SqlInsertSource::Values(vec![
                 vec![
-                    Value::Int64(7),
-                    Value::Text("Ada".to_string()),
-                    Value::Int64(21)
+                    sql_write_literal(Value::Int64(7)),
+                    sql_write_literal(Value::Text("Ada".to_string())),
+                    sql_write_literal(Value::Int64(21))
                 ],
                 vec![
-                    Value::Int64(8),
-                    Value::Text("Bea".to_string()),
-                    Value::Int64(22)
+                    sql_write_literal(Value::Int64(8)),
+                    sql_write_literal(Value::Text("Bea".to_string())),
+                    sql_write_literal(Value::Int64(22))
                 ],
             ]),
             returning: None,
@@ -3838,11 +3878,11 @@ fn parse_update_statement_with_assignments_and_predicate() {
             assignments: vec![
                 SqlAssignment {
                     field: "name".to_string(),
-                    value: Value::Text("Ada".to_string()),
+                    value: sql_write_literal(Value::Text("Ada".to_string())),
                 },
                 SqlAssignment {
                     field: "age".to_string(),
-                    value: Value::Int64(21),
+                    value: sql_write_literal(Value::Int64(21)),
                 },
             ],
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
@@ -3860,6 +3900,38 @@ fn parse_update_statement_with_assignments_and_predicate() {
 }
 
 #[test]
+fn parse_update_statement_preserves_explicit_default_assignment() {
+    let statement = parse_sql("UPDATE users SET name = DEFAULT WHERE id = 7")
+        .expect("update DEFAULT should parse only as assignment intent");
+
+    let SqlStatement::Update(statement) = statement else {
+        panic!("expected UPDATE statement");
+    };
+    assert_eq!(
+        statement.assignments,
+        vec![SqlAssignment {
+            field: "name".to_string(),
+            value: SqlWriteValue::Default,
+        }]
+    );
+}
+
+#[test]
+fn parse_default_rejects_non_write_positions() {
+    for sql in [
+        "SELECT DEFAULT FROM users",
+        "SELECT id FROM users WHERE id = DEFAULT",
+        "INSERT INTO users (id) VALUES (DEFAULT + 1)",
+        "UPDATE users SET name = COALESCE(DEFAULT, 'Ada') WHERE id = 7",
+    ] {
+        assert!(
+            parse_sql(sql).is_err(),
+            "DEFAULT outside a direct write position must reject: {sql}"
+        );
+    }
+}
+
+#[test]
 fn parse_update_statement_accepts_single_table_alias() {
     let statement = parse_sql("UPDATE users u SET u.name = 'Ada', u.age = 21 WHERE u.id = 7")
         .expect("update statement with one table alias should parse");
@@ -3872,11 +3944,11 @@ fn parse_update_statement_accepts_single_table_alias() {
             assignments: vec![
                 SqlAssignment {
                     field: "u.name".to_string(),
-                    value: Value::Text("Ada".to_string()),
+                    value: sql_write_literal(Value::Text("Ada".to_string())),
                 },
                 SqlAssignment {
                     field: "u.age".to_string(),
-                    value: Value::Int64(21),
+                    value: sql_write_literal(Value::Int64(21)),
                 },
             ],
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
@@ -3907,7 +3979,7 @@ fn parse_update_statement_with_order_limit_and_offset() {
             table_alias: None,
             assignments: vec![SqlAssignment {
                 field: "age".to_string(),
-                value: Value::Int64(22),
+                value: sql_write_literal(Value::Int64(22)),
             }],
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "active",
@@ -3968,8 +4040,8 @@ fn parse_insert_statement_with_returning_field_list_parses() {
             entity: "users".to_string(),
             columns: vec!["id".to_string(), "name".to_string()],
             source: SqlInsertSource::Values(vec![vec![
-                Value::Int64(1),
-                Value::Text("Ada".to_string())
+                sql_write_literal(Value::Int64(1)),
+                sql_write_literal(Value::Text("Ada".to_string()))
             ]]),
             returning: Some(SqlReturningProjection::Fields(vec![
                 "id".to_string(),
@@ -3992,7 +4064,7 @@ fn parse_update_statement_with_returning_star_parses() {
             table_alias: Some("alias".to_string()),
             assignments: vec![SqlAssignment {
                 field: "alias.name".to_string(),
-                value: Value::Text("Ada".to_string()),
+                value: sql_write_literal(Value::Text("Ada".to_string())),
             }],
             predicate: option_sql_pred!(Predicate::eq("alias.id".to_string(), Value::Int64(1))),
             order_by: vec![],
@@ -4055,7 +4127,7 @@ fn parse_insert_statement_without_column_list_parses() {
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
             columns: vec![],
-            source: SqlInsertSource::Values(vec![vec![Value::Int64(1)]]),
+            source: SqlInsertSource::Values(vec![vec![sql_write_literal(Value::Int64(1))]]),
             returning: None,
         }),
     );
@@ -4155,8 +4227,8 @@ fn parse_insert_statement_accepts_single_table_alias() {
             entity: "users".to_string(),
             columns: vec!["id".to_string(), "name".to_string()],
             source: SqlInsertSource::Values(vec![vec![
-                Value::Int64(1),
-                Value::Text("Ada".to_string()),
+                sql_write_literal(Value::Int64(1)),
+                sql_write_literal(Value::Text("Ada".to_string())),
             ]]),
             returning: None,
         }),
@@ -4173,7 +4245,7 @@ fn parse_insert_statement_accepts_as_table_alias_without_column_list() {
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
             columns: vec![],
-            source: SqlInsertSource::Values(vec![vec![Value::Int64(1)]]),
+            source: SqlInsertSource::Values(vec![vec![sql_write_literal(Value::Int64(1))]]),
             returning: None,
         }),
     );
@@ -4204,14 +4276,14 @@ fn parse_insert_statement_without_column_list_accepts_multiple_values_tuples() {
             columns: vec![],
             source: SqlInsertSource::Values(vec![
                 vec![
-                    Value::Int64(1),
-                    Value::Text("Ada".to_string()),
-                    Value::Int64(21)
+                    sql_write_literal(Value::Int64(1)),
+                    sql_write_literal(Value::Text("Ada".to_string())),
+                    sql_write_literal(Value::Int64(21))
                 ],
                 vec![
-                    Value::Int64(2),
-                    Value::Text("Bea".to_string()),
-                    Value::Int64(22)
+                    sql_write_literal(Value::Int64(2)),
+                    sql_write_literal(Value::Text("Bea".to_string())),
+                    sql_write_literal(Value::Int64(22))
                 ],
             ]),
             returning: None,

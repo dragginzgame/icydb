@@ -19,7 +19,7 @@ use crate::{
         schema::{
             AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId as SchemaFieldId,
             PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-            SchemaFieldDefault, SchemaFieldSlot, SchemaInfo, SchemaRowLayout, SchemaVersion,
+            SchemaFieldSlot, SchemaInfo, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
         },
     },
     model::{
@@ -92,26 +92,23 @@ fn accepted_profile_schema_with_nested_rank(kind: AcceptedFieldKind) -> SchemaIn
         PROFILE_MODEL.path().to_string(),
         PROFILE_MODEL.name().to_string(),
         SchemaFieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (SchemaFieldId::new(1), SchemaFieldSlot::new(0)),
-                (SchemaFieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (SchemaFieldId::new(1), SchemaFieldSlot::new(0)),
+            (SchemaFieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 SchemaFieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Structural,
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 SchemaFieldId::new(2),
                 "profile".to_string(),
                 SchemaFieldSlot::new(1),
@@ -122,7 +119,7 @@ fn accepted_profile_schema_with_nested_rank(kind: AcceptedFieldKind) -> SchemaIn
                     false,
                 )],
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::CatalogValue,
                 LeafCodec::Structural,
             ),
@@ -162,18 +159,15 @@ fn infer_field_type_uses_accepted_schema_field_type() {
         model.path().to_string(),
         model.name().to_string(),
         SchemaFieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![(SchemaFieldId::new(2), SchemaFieldSlot::new(1))],
-        ),
-        vec![PersistedFieldSnapshot::new(
+        SchemaRowLayout::initial(vec![(SchemaFieldId::new(2), SchemaFieldSlot::new(1))]),
+        vec![PersistedFieldSnapshot::new_initial(
             SchemaFieldId::new(2),
             "rank".to_string(),
             SchemaFieldSlot::new(1),
             AcceptedFieldKind::Blob { max_len: None },
             Vec::new(),
             false,
-            SchemaFieldDefault::None,
+            SchemaInsertDefault::None,
             FieldStorageDecode::ByKind,
             LeafCodec::Structural,
         )],

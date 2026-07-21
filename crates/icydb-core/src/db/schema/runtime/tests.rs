@@ -1,5 +1,5 @@
 #[cfg(feature = "sql")]
-use crate::db::schema::runtime::{AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeField};
+use crate::db::schema::runtime::{AcceptedInsertOmissionPolicy, AcceptedRowLayoutRuntimeField};
 use crate::{
     db::{
         data::{
@@ -10,8 +10,8 @@ use crate::{
         schema::{
             AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
             AcceptedValueCatalogHandle, FieldId, PersistedFieldSnapshot,
-            PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
-            SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout, SchemaVersion,
+            PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
+            SchemaFieldWritePolicy, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
             authored_projection::{AcceptedAuthoredFieldProjection, AuthoredFieldAdmissionError},
             enum_catalog::{
                 ValueAdmissionBudget, ValueAdmissionError, build_initial_accepted_enum_catalog,
@@ -100,33 +100,30 @@ fn accepted_schema_fixture() -> AcceptedSchemaSnapshot {
         "schema::tests::RuntimeEntity".to_string(),
         "RuntimeEntity".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(9)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(9)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "nickname".to_string(),
                 SchemaFieldSlot::new(1),
                 AcceptedFieldKind::Text { max_len: Some(32) },
                 Vec::new(),
                 true,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Text),
             ),
@@ -140,33 +137,30 @@ fn generated_compatible_accepted_schema_fixture() -> AcceptedSchemaSnapshot {
         "schema::tests::RuntimeEntity".to_string(),
         "RuntimeEntity".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "nickname".to_string(),
                 SchemaFieldSlot::new(1),
                 AcceptedFieldKind::Text { max_len: Some(32) },
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Text),
             ),
@@ -180,33 +174,30 @@ fn accepted_composite_primary_key_schema_fixture() -> AcceptedSchemaSnapshot {
         "schema::tests::RuntimeEntity".to_string(),
         "RuntimeEntity".to_string(),
         vec![FieldId::new(1), FieldId::new(2)],
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "nickname".to_string(),
                 SchemaFieldSlot::new(1),
                 AcceptedFieldKind::Text { max_len: Some(32) },
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Text),
             ),
@@ -237,33 +228,30 @@ fn generated_slot_compatible_accepted_schema_with_nickname_decode(
         "schema::tests::RuntimeEntity".to_string(),
         "RuntimeEntity".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "nickname".to_string(),
                 SchemaFieldSlot::new(1),
                 AcceptedFieldKind::Text { max_len: Some(32) },
                 Vec::new(),
                 nullable,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 storage_decode,
                 leaf_codec,
             ),
@@ -277,34 +265,31 @@ fn write_policy_accepted_schema_fixture() -> AcceptedSchemaSnapshot {
         "schema::tests::WritePolicyEntity".to_string(),
         "WritePolicyEntity".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-                (FieldId::new(3), SchemaFieldSlot::new(2)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+            (FieldId::new(3), SchemaFieldSlot::new(2)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new_with_write_policy(
+            PersistedFieldSnapshot::new_initial_with_write_policy(
                 FieldId::new(2),
                 "token".to_string(),
                 SchemaFieldSlot::new(1),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 SchemaFieldWritePolicy::from_model_policies(
                     Some(FieldInsertGeneration::Ulid),
                     None,
@@ -312,14 +297,14 @@ fn write_policy_accepted_schema_fixture() -> AcceptedSchemaSnapshot {
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new_with_write_policy(
+            PersistedFieldSnapshot::new_initial_with_write_policy(
                 FieldId::new(3),
                 "updated_at".to_string(),
                 SchemaFieldSlot::new(2),
                 AcceptedFieldKind::Timestamp,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 SchemaFieldWritePolicy::from_model_policies(
                     None,
                     Some(FieldWriteManagement::UpdatedAt),
@@ -338,7 +323,10 @@ fn accepted_row_layout_runtime_contract_uses_row_layout_slot_authority() {
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted runtime contract should build");
 
-    assert_eq!(descriptor.version(), SchemaVersion::initial());
+    assert_eq!(
+        descriptor.current_layout_version(),
+        crate::db::schema::RowLayoutVersion::INITIAL
+    );
     assert_eq!(descriptor.required_slot_count(), 10);
     assert_eq!(descriptor.primary_key_names(), ["id"]);
     assert_eq!(descriptor.first_primary_key_slot_index(), 0);
@@ -353,10 +341,10 @@ fn accepted_row_layout_runtime_contract_uses_row_layout_slot_authority() {
     assert_eq!(nickname.field_id(), FieldId::new(2));
     assert_eq!(nickname.slot(), SchemaFieldSlot::new(9));
     assert_eq!(
-        nickname.absence_policy(),
-        AcceptedFieldAbsencePolicy::NullIfMissing
+        nickname.insert_omission_policy(),
+        AcceptedInsertOmissionPolicy::NullIfMissing
     );
-    assert_eq!(nickname.default(), &SchemaFieldDefault::None);
+    assert_eq!(nickname.insert_default(), &SchemaInsertDefault::None);
     let nickname_decode_contract = nickname.decode_contract();
     assert!(nickname_decode_contract.nullable());
     assert_eq!(
@@ -752,14 +740,14 @@ fn accepted_row_layout_runtime_contract_rejects_extra_generated_field_layout() {
         .persisted_snapshot()
         .clone();
     let mut fields = snapshot.fields().to_vec();
-    fields.push(PersistedFieldSnapshot::new(
+    fields.push(PersistedFieldSnapshot::new_initial(
         FieldId::new(3),
         "generated_extra".to_string(),
         SchemaFieldSlot::new(2),
         AcceptedFieldKind::Text { max_len: None },
         Vec::new(),
         true,
-        SchemaFieldDefault::None,
+        SchemaInsertDefault::None,
         FieldStorageDecode::ByKind,
         LeafCodec::Scalar(ScalarCodec::Text),
     ));
@@ -768,14 +756,11 @@ fn accepted_row_layout_runtime_contract_rejects_extra_generated_field_layout() {
         snapshot.entity_path().to_string(),
         snapshot.entity_name().to_string(),
         snapshot.first_primary_key_field_id(),
-        SchemaRowLayout::new(
-            snapshot.row_layout().version(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-                (FieldId::new(3), SchemaFieldSlot::new(2)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+            (FieldId::new(3), SchemaFieldSlot::new(2)),
+        ]),
         fields,
     );
     let accepted = AcceptedSchemaSnapshot::new(snapshot);
@@ -867,30 +852,27 @@ fn accepted_row_layout_runtime_contract_rejects_missing_layout_slot() {
         "schema::tests::BrokenEntity".to_string(),
         "BrokenEntity".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
-        ),
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "nickname".to_string(),
                 SchemaFieldSlot::new(1),
                 AcceptedFieldKind::Text { max_len: None },
                 Vec::new(),
                 true,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Text),
             ),

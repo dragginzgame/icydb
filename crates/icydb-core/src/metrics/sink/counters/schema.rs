@@ -118,13 +118,17 @@ pub(in crate::metrics::sink) const fn record_global_schema_transition_outcome(
             ops.schema_transition_add_field_path_index =
                 ops.schema_transition_add_field_path_index.saturating_add(1);
         }
-        SchemaTransitionOutcome::AppendOnlyNullableFields => {
-            ops.schema_transition_append_only_nullable_fields = ops
-                .schema_transition_append_only_nullable_fields
-                .saturating_add(1);
+        SchemaTransitionOutcome::AppendOnlyFields => {
+            ops.schema_transition_append_only_fields =
+                ops.schema_transition_append_only_fields.saturating_add(1);
         }
         SchemaTransitionOutcome::ExactMatch => {
             ops.schema_transition_exact_match = ops.schema_transition_exact_match.saturating_add(1);
+        }
+        SchemaTransitionOutcome::MetadataOnlyFieldDefault => {
+            ops.schema_transition_metadata_only_field_default = ops
+                .schema_transition_metadata_only_field_default
+                .saturating_add(1);
         }
         SchemaTransitionOutcome::MetadataOnlyIndexRename => {
             ops.schema_transition_metadata_only_index_rename = ops
@@ -180,13 +184,17 @@ pub(in crate::metrics::sink) const fn record_entity_schema_transition_outcome(
             ops.schema_transition_add_field_path_index =
                 ops.schema_transition_add_field_path_index.saturating_add(1);
         }
-        SchemaTransitionOutcome::AppendOnlyNullableFields => {
-            ops.schema_transition_append_only_nullable_fields = ops
-                .schema_transition_append_only_nullable_fields
-                .saturating_add(1);
+        SchemaTransitionOutcome::AppendOnlyFields => {
+            ops.schema_transition_append_only_fields =
+                ops.schema_transition_append_only_fields.saturating_add(1);
         }
         SchemaTransitionOutcome::ExactMatch => {
             ops.schema_transition_exact_match = ops.schema_transition_exact_match.saturating_add(1);
+        }
+        SchemaTransitionOutcome::MetadataOnlyFieldDefault => {
+            ops.schema_transition_metadata_only_field_default = ops
+                .schema_transition_metadata_only_field_default
+                .saturating_add(1);
         }
         SchemaTransitionOutcome::MetadataOnlyIndexRename => {
             ops.schema_transition_metadata_only_index_rename = ops

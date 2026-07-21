@@ -372,12 +372,12 @@ impl InternalError {
         Self::executor_invariant()
     }
 
-    /// Construct an executor-origin sparse structural patch required-field invariant.
+    /// Construct an executor-origin sparse structural patch required-field rejection.
     pub(crate) fn mutation_structural_patch_required_field_missing(
-        _entity_path: &str,
-        _field_name: &str,
+        entity_path: &str,
+        field_name: &str,
     ) -> Self {
-        Self::executor_invariant()
+        Self::mutation_required_field_missing(entity_path, field_name)
     }
 
     /// Construct an executor-origin save-preflight field-type mismatch invariant.
@@ -389,15 +389,32 @@ impl InternalError {
         Self::executor_invariant()
     }
 
-    /// Construct an executor-origin generated-field authored-write rejection.
-    pub(crate) fn mutation_generated_field_explicit(_entity_path: &str, _field_name: &str) -> Self {
+    /// Construct an executor-origin database-owned-field authorship rejection.
+    pub(crate) fn mutation_database_owned_field_explicit(
+        _entity_path: &str,
+        _field_name: &str,
+    ) -> Self {
         Self::executor_unsupported()
     }
 
-    /// Construct an executor-origin typed create omission rejection.
-    #[must_use]
-    pub fn mutation_create_missing_authored_fields(_entity_path: &str, _field_names: &str) -> Self {
+    /// Construct an executor-origin protected-field sanitizer rejection.
+    pub(crate) fn mutation_sanitizer_protected_field_changed(
+        _entity_path: &str,
+        _field_name: &str,
+    ) -> Self {
         Self::executor_unsupported()
+    }
+
+    /// Construct an executor-origin required-field omission rejection.
+    #[must_use]
+    pub fn mutation_required_field_missing(_entity_path: &str, _field_names: &str) -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Executor,
+            detail: Some(ErrorDetail::Executor(
+                ExecutorErrorDetail::MutationRequiredFieldMissing,
+            )),
+        }
     }
 
     /// Construct an executor-origin mutation result invariant.
@@ -911,6 +928,44 @@ impl InternalError {
         Self::serialize_corruption()
     }
 
+    /// Construct a persisted-row layout-window corruption error.
+    pub(crate) fn persisted_row_layout_outside_accepted_window(
+        stamped_layout: u32,
+        current_layout: u32,
+        history_floor: u32,
+    ) -> Self {
+        Self {
+            class: ErrorClass::Corruption,
+            origin: ErrorOrigin::Serialize,
+            detail: Some(ErrorDetail::Serialize(
+                SerializeErrorDetail::PersistedRowLayoutOutsideAcceptedWindow {
+                    stamped_layout,
+                    current_layout,
+                    history_floor,
+                },
+            )),
+        }
+    }
+
+    /// Construct a persisted-row stamped-layout slot-count corruption error.
+    pub(crate) fn persisted_row_slot_count_mismatch(
+        stamped_layout: u32,
+        expected_slot_count: usize,
+        actual_slot_count: usize,
+    ) -> Self {
+        Self {
+            class: ErrorClass::Corruption,
+            origin: ErrorOrigin::Serialize,
+            detail: Some(ErrorDetail::Serialize(
+                SerializeErrorDetail::PersistedRowSlotCountMismatch {
+                    stamped_layout,
+                    expected_slot_count,
+                    actual_slot_count,
+                },
+            )),
+        }
+    }
+
     /// Construct the canonical persisted-row field decode corruption error.
     pub(crate) fn persisted_row_field_decode_failed(field_name: &str, _detail: impl Sized) -> Self {
         Self::persisted_row_field_decode_corruption(field_name)
@@ -1163,6 +1218,54 @@ impl InternalError {
         }
     }
 
+    /// Construct the canonical V1 physical-rewrite migration rejection.
+    #[cfg(feature = "sql")]
+    pub(crate) fn schema_ddl_rewrite_requires_migration(_entity_path: &'static str) -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Store,
+            detail: Some(ErrorDetail::Store(
+                StoreError::SchemaDdlRewriteRequiresMigration,
+            )),
+        }
+    }
+
+    /// Construct a schema-transition row-layout identity exhaustion error.
+    pub(crate) fn schema_row_layout_version_exhausted() -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Store,
+            detail: Some(ErrorDetail::Store(
+                StoreError::SchemaRowLayoutVersionExhausted,
+            )),
+        }
+    }
+
+    /// Construct the hard-cut rejection for a generated field that would
+    /// collide with an already accepted SQL-DDL-owned slot.
+    pub(crate) fn schema_generated_field_after_ddl_field() -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Store,
+            detail: Some(ErrorDetail::Store(
+                StoreError::SchemaGeneratedFieldAfterDdlField,
+            )),
+        }
+    }
+
+    /// Construct a bounded schema-transition resource rejection.
+    pub(crate) fn schema_transition_budget_exceeded(
+        resource: SchemaTransitionBudgetResource,
+    ) -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Store,
+            detail: Some(ErrorDetail::Store(
+                StoreError::SchemaTransitionBudgetExceeded { resource },
+            )),
+        }
+    }
+
     /// Construct the canonical SQL DDL SET NOT NULL validation failure.
     #[cfg(feature = "sql")]
     pub(crate) fn schema_ddl_set_not_null_validation_failed(
@@ -1298,7 +1401,6 @@ impl InternalError {
     }
 
     /// Construct a query-origin unsupported SQL write boundary error.
-    #[cfg(feature = "sql")]
     pub(crate) fn query_sql_write_boundary(
         boundary: diagnostic_code::SqlWriteBoundaryCode,
     ) -> Self {
@@ -1415,13 +1517,43 @@ impl std::error::Error for InternalError {}
 ///
 
 pub enum ErrorDetail {
+    /// Executor-owned mutation and query execution details.
+    Executor(ExecutorErrorDetail),
     Store(StoreError),
     Query(QueryErrorDetail),
     Recovery(RecoveryErrorDetail),
+    /// Persisted-row serialization and decoding details.
+    Serialize(SerializeErrorDetail),
     // Future-proofing:
     // Index(IndexError),
-    //
-    // Executor(ExecutorErrorDetail),
+}
+
+/// Executor-specific structured error detail.
+pub enum ExecutorErrorDetail {
+    /// A complete insert or replacement omitted one or more required fields.
+    MutationRequiredFieldMissing,
+}
+
+/// Persisted-row serialization and decoding error detail.
+pub enum SerializeErrorDetail {
+    /// The row stamp is older or newer than the accepted layout window.
+    PersistedRowLayoutOutsideAcceptedWindow {
+        /// Layout version carried by the row envelope.
+        stamped_layout: u32,
+        /// Current accepted layout version.
+        current_layout: u32,
+        /// Oldest accepted layout version.
+        history_floor: u32,
+    },
+    /// The physical slot count does not match the row's stamped layout.
+    PersistedRowSlotCountMismatch {
+        /// Layout version carried by the row envelope.
+        stamped_layout: u32,
+        /// Exact physical slot count required by that layout.
+        expected_slot_count: usize,
+        /// Physical slot count carried by the row.
+        actual_slot_count: usize,
+    },
 }
 
 ///
@@ -1460,7 +1592,18 @@ pub enum StoreError {
 
     SchemaDdlPublicationRaceLost,
 
+    SchemaDdlRewriteRequiresMigration,
+
+    SchemaRowLayoutVersionExhausted,
+
+    SchemaTransitionBudgetExceeded {
+        resource: SchemaTransitionBudgetResource,
+    },
+
     SchemaDdlSetNotNullValidationFailed,
+
+    /// A generated field would collide with an accepted DDL-owned slot.
+    SchemaGeneratedFieldAfterDdlField,
 }
 
 ///
@@ -1520,6 +1663,29 @@ impl fmt::Display for QueryErrorDetail {
 impl std::error::Error for QueryErrorDetail {}
 
 ///
+/// SchemaTransitionBudgetResource
+///
+/// Query-visible identity of the exact schema-transition resource cap that
+/// rejected a complete validation or derived-state stage.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SchemaTransitionBudgetResource {
+    /// Number of physical deletion keys retained for replacement.
+    DeletionKeys,
+    /// Number of row-derived projection entries retained for validation.
+    ProjectionEntries,
+    /// Deterministic projection and physical-classification work units.
+    ProjectionWorkUnits,
+    /// Number of authoritative source rows.
+    SourceRows,
+    /// Cumulative bytes of authoritative source rows.
+    SourceRowBytes,
+    /// Retained raw payloads plus deterministic-sort workspace bytes.
+    StagedRawBytes,
+}
+
+///
 /// SchemaDdlAdmissionError
 ///
 /// Stable query-visible SQL DDL admission reason. Human diagnostics may carry
@@ -1561,9 +1727,15 @@ pub enum SchemaDdlAdmissionError {
 
     InvalidAlterColumnDefault,
 
+    RowLayoutVersionExhausted,
+
     GeneratedIndexDropRejected,
 
-    RequiredDropDefaultUnsupported,
+    SchemaRewriteRequiresMigration,
+
+    SchemaTransitionBudgetExceeded {
+        resource: SchemaTransitionBudgetResource,
+    },
 
     GeneratedFieldDefaultChangeRejected,
 
@@ -1586,6 +1758,12 @@ impl fmt::Debug for ErrorDetail {
     }
 }
 
+impl fmt::Debug for ExecutorErrorDetail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_diagnostic(f, self.diagnostic_code(), self.diagnostic_detail())
+    }
+}
+
 impl fmt::Debug for StoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt_compact_diagnostic(f, self.diagnostic_code(), self.diagnostic_detail())
@@ -1599,6 +1777,12 @@ impl fmt::Debug for QueryErrorDetail {
 }
 
 impl fmt::Debug for RecoveryErrorDetail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_diagnostic(f, self.diagnostic_code(), self.diagnostic_detail())
+    }
+}
+
+impl fmt::Debug for SerializeErrorDetail {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt_compact_diagnostic(f, self.diagnostic_code(), self.diagnostic_detail())
     }
@@ -1645,9 +1829,11 @@ impl ErrorDetail {
     #[must_use]
     pub const fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
         match self {
+            Self::Executor(error) => error.diagnostic_code(),
             Self::Store(error) => error.diagnostic_code(),
             Self::Query(error) => error.diagnostic_code(),
             Self::Recovery(error) => error.diagnostic_code(),
+            Self::Serialize(error) => error.diagnostic_code(),
         }
     }
 
@@ -1655,9 +1841,35 @@ impl ErrorDetail {
     #[must_use]
     pub const fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
         match self {
+            Self::Executor(error) => error.diagnostic_detail(),
             Self::Store(error) => error.diagnostic_detail(),
             Self::Query(error) => error.diagnostic_detail(),
             Self::Recovery(error) => error.diagnostic_detail(),
+            Self::Serialize(error) => error.diagnostic_detail(),
+        }
+    }
+}
+
+impl ExecutorErrorDetail {
+    /// Return the compact diagnostic code for this executor detail.
+    #[must_use]
+    pub const fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
+        match self {
+            Self::MutationRequiredFieldMissing => {
+                diagnostic_code::DiagnosticCode::RuntimeUnsupported
+            }
+        }
+    }
+
+    /// Return compact structured diagnostic detail for this executor detail.
+    #[must_use]
+    pub const fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
+        match self {
+            Self::MutationRequiredFieldMissing => {
+                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                    boundary: diagnostic_code::RuntimeBoundaryCode::MutationRequiredFieldMissing,
+                })
+            }
         }
     }
 }
@@ -1690,6 +1902,34 @@ impl RecoveryErrorDetail {
     }
 }
 
+impl SerializeErrorDetail {
+    /// Return the compact diagnostic code for this serialization detail.
+    #[must_use]
+    pub const fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
+        match self {
+            Self::PersistedRowLayoutOutsideAcceptedWindow { .. }
+            | Self::PersistedRowSlotCountMismatch { .. } => {
+                diagnostic_code::DiagnosticCode::RuntimeCorruption
+            }
+        }
+    }
+
+    /// Return compact structured diagnostic detail for this serialization detail.
+    #[must_use]
+    pub const fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
+        let boundary = match self {
+            Self::PersistedRowLayoutOutsideAcceptedWindow { .. } => {
+                diagnostic_code::RuntimeBoundaryCode::PersistedRowLayoutOutsideAcceptedWindow
+            }
+            Self::PersistedRowSlotCountMismatch { .. } => {
+                diagnostic_code::RuntimeBoundaryCode::PersistedRowSlotCountMismatch
+            }
+        };
+
+        Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary { boundary })
+    }
+}
+
 impl StoreError {
     /// Return the compact diagnostic code for this store detail.
     #[must_use]
@@ -1698,8 +1938,15 @@ impl StoreError {
             Self::NotFound => diagnostic_code::DiagnosticCode::StoreNotFound,
             Self::Corrupt => diagnostic_code::DiagnosticCode::StoreCorruption,
             Self::InvariantViolation => diagnostic_code::DiagnosticCode::StoreInvariantViolation,
-            Self::SchemaDdlPublicationRaceLost | Self::SchemaDdlSetNotNullValidationFailed => {
+            Self::SchemaDdlPublicationRaceLost
+            | Self::SchemaDdlRewriteRequiresMigration
+            | Self::SchemaRowLayoutVersionExhausted
+            | Self::SchemaTransitionBudgetExceeded { .. }
+            | Self::SchemaDdlSetNotNullValidationFailed => {
                 diagnostic_code::DiagnosticCode::SchemaDdlAdmission
+            }
+            Self::SchemaGeneratedFieldAfterDdlField => {
+                diagnostic_code::DiagnosticCode::RuntimeUnsupported
             }
         }
     }
@@ -1713,9 +1960,29 @@ impl StoreError {
                     reason: diagnostic_code::SchemaDdlAdmissionCode::PublicationRaceLost,
                 })
             }
+            Self::SchemaDdlRewriteRequiresMigration => {
+                Some(diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
+                    reason: diagnostic_code::SchemaDdlAdmissionCode::SchemaRewriteRequiresMigration,
+                })
+            }
+            Self::SchemaRowLayoutVersionExhausted => {
+                Some(diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
+                    reason: diagnostic_code::SchemaDdlAdmissionCode::RowLayoutVersionExhausted,
+                })
+            }
+            Self::SchemaTransitionBudgetExceeded { .. } => {
+                Some(diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
+                    reason: diagnostic_code::SchemaDdlAdmissionCode::SchemaTransitionBudgetExceeded,
+                })
+            }
             Self::SchemaDdlSetNotNullValidationFailed => {
                 Some(diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
                     reason: diagnostic_code::SchemaDdlAdmissionCode::SetNotNullValidationFailed,
+                })
+            }
+            Self::SchemaGeneratedFieldAfterDdlField => {
+                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                    boundary: diagnostic_code::RuntimeBoundaryCode::GeneratedFieldAfterDdlField,
                 })
             }
             Self::NotFound | Self::Corrupt | Self::InvariantViolation => None,
@@ -1845,8 +2112,11 @@ impl SchemaDdlAdmissionError {
             Self::GeneratedIndexDropRejected => {
                 diagnostic_code::SchemaDdlAdmissionCode::GeneratedIndexDropRejected
             }
-            Self::RequiredDropDefaultUnsupported => {
-                diagnostic_code::SchemaDdlAdmissionCode::RequiredDropDefaultUnsupported
+            Self::SchemaRewriteRequiresMigration => {
+                diagnostic_code::SchemaDdlAdmissionCode::SchemaRewriteRequiresMigration
+            }
+            Self::SchemaTransitionBudgetExceeded { .. } => {
+                diagnostic_code::SchemaDdlAdmissionCode::SchemaTransitionBudgetExceeded
             }
             Self::GeneratedFieldDefaultChangeRejected => {
                 diagnostic_code::SchemaDdlAdmissionCode::GeneratedFieldDefaultChangeRejected
@@ -1856,6 +2126,9 @@ impl SchemaDdlAdmissionError {
             }
             Self::SetNotNullValidationFailed => {
                 diagnostic_code::SchemaDdlAdmissionCode::SetNotNullValidationFailed
+            }
+            Self::RowLayoutVersionExhausted => {
+                diagnostic_code::SchemaDdlAdmissionCode::RowLayoutVersionExhausted
             }
         }
     }

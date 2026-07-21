@@ -2,7 +2,8 @@
 
 use crate::db::schema::{
     AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId, PersistedFieldOrigin,
-    PersistedFieldSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
+    PersistedFieldSnapshot, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill,
+    SchemaInsertDefault,
 };
 use crate::model::field::{FieldStorageDecode, LeafCodec};
 
@@ -12,8 +13,8 @@ use crate::model::field::{FieldStorageDecode, LeafCodec};
 pub(in crate::db) enum SchemaDdlFieldAdditionCandidateError {
     /// An accepted field already uses the requested SQL column name.
     Duplicate,
-    /// Required ADD COLUMN without a database default cannot backfill existing rows.
-    RequiredWithoutDefault,
+    /// The entity cannot allocate another physical row-layout identity.
+    RowLayoutVersionExhausted,
 }
 
 /// Resolve the accepted name boundary for one SQL DDL field addition before
@@ -42,15 +43,23 @@ pub(in crate::db) fn build_sql_ddl_field_addition_candidate(
     name: String,
     kind: AcceptedFieldKind,
     nullable: bool,
-    default: SchemaFieldDefault,
+    default: SchemaInsertDefault,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
 ) -> Result<PersistedFieldSnapshot, SchemaDdlFieldAdditionCandidateError> {
     resolve_sql_ddl_field_addition_name_candidate(accepted_before, name.as_str())?;
 
-    if !nullable && default.is_none() {
-        return Err(SchemaDdlFieldAdditionCandidateError::RequiredWithoutDefault);
-    }
+    let introduced_in_layout = accepted_before
+        .persisted_snapshot()
+        .row_layout()
+        .current_version()
+        .checked_next()
+        .ok_or(SchemaDdlFieldAdditionCandidateError::RowLayoutVersionExhausted)?;
+    let historical_fill = match default.slot_payload() {
+        Some(payload) => SchemaHistoricalFill::SlotPayload(payload.to_vec()),
+        None if nullable => SchemaHistoricalFill::Null,
+        None => SchemaHistoricalFill::Reject,
+    };
 
     Ok(PersistedFieldSnapshot::new_with_write_policy_and_origin(
         next_sql_ddl_field_id(accepted_before),
@@ -59,7 +68,9 @@ pub(in crate::db) fn build_sql_ddl_field_addition_candidate(
         kind,
         Vec::new(),
         nullable,
+        introduced_in_layout,
         default,
+        historical_fill,
         SchemaFieldWritePolicy::from_model_policies(None, None),
         PersistedFieldOrigin::SqlDdl,
         storage_decode,

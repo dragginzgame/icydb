@@ -92,6 +92,8 @@ pub(in crate::db::executor) use index_prefix_cardinality::{
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub use mutation::save::MutationMode;
 pub(super) use mutation::save::SaveExecutor;
+#[cfg(feature = "sql")]
+pub(in crate::db) use mutation::save::StructuralMutationTargetKey;
 pub(in crate::db::executor) use order::{
     BoundedOrderWindow, OrderReadableRow, PendingOrderRows, apply_structural_order_window,
     apply_structural_order_window_to_data_rows, compare_orderable_row_with_boundary,

@@ -49,7 +49,7 @@ fn validate_structural_patch_schema_policy<E>(
 where
     E: PersistedRow,
 {
-    reject_explicit_generated_fields_from_accepted_patch::<E>(descriptor, patch)?;
+    reject_explicit_database_owned_fields_from_accepted_patch::<E>(descriptor, patch)?;
 
     if matches!(mode, MutationMode::Update) {
         return Ok(());
@@ -72,7 +72,8 @@ where
             continue;
         }
 
-        if !accepted_insert_field_is_omittable(field.absence_policy(), field.write_policy()) {
+        if !accepted_insert_field_is_omittable(field.insert_omission_policy(), field.write_policy())
+        {
             return Err(
                 InternalError::mutation_structural_patch_required_field_missing(
                     E::PATH,
@@ -85,12 +86,10 @@ where
     Ok(())
 }
 
-// Preserve generated-field ownership diagnostics ahead of sparse-patch
+// Preserve database-owned-field diagnostics ahead of sparse-patch
 // required-field diagnostics. Public structural writes must not author fields
-// whose values are owned by accepted schema write policy, except for the
-// redundant primary-key slot because the structural API already carries the
-// authoritative key separately.
-fn reject_explicit_generated_fields_from_accepted_patch<E>(
+// whose values are owned by accepted schema write policy.
+fn reject_explicit_database_owned_fields_from_accepted_patch<E>(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     patch: &AuthoredStructuralPatch,
 ) -> Result<(), InternalError>
@@ -104,10 +103,8 @@ where
         };
         let write_policy = accepted_field.write_policy();
 
-        if write_policy.insert_generation().is_some()
-            && !descriptor.is_primary_key_field_name(accepted_field.name())
-        {
-            return Err(InternalError::mutation_generated_field_explicit(
+        if write_policy.insert_generation().is_some() || write_policy.write_management().is_some() {
+            return Err(InternalError::mutation_database_owned_field_explicit(
                 E::PATH,
                 accepted_field.name(),
             ));

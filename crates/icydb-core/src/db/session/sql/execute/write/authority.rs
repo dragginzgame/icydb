@@ -7,7 +7,7 @@
 use crate::{
     db::{
         DbSession, KeyValueCodec, PersistedRow, QueryError,
-        data::{AuthoredStructuralPatch, FieldSlot},
+        data::{AcceptedMutationIntentPatch, FieldSlot},
         executor::EntityAuthority,
         schema::{
             AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, SchemaFieldWritePolicy,
@@ -162,13 +162,33 @@ fn accepted_write_field_slot(
 
 pub(super) fn sql_write_patch_set_accepted_field(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    patch: AuthoredStructuralPatch,
+    patch: AcceptedMutationIntentPatch,
     field_name: &str,
     value: InputValue,
-) -> Result<AuthoredStructuralPatch, QueryError> {
+) -> Result<AcceptedMutationIntentPatch, QueryError> {
     let slot = accepted_write_field_slot(descriptor, field_name)?;
 
-    Ok(patch.set(slot, value))
+    Ok(patch.set_authored(slot, value))
+}
+
+pub(super) fn sql_write_patch_set_insert_default(
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    patch: AcceptedMutationIntentPatch,
+    field_name: &str,
+) -> Result<AcceptedMutationIntentPatch, QueryError> {
+    let slot = accepted_write_field_slot(descriptor, field_name)?;
+
+    Ok(patch.set_explicit_insert_default(slot))
+}
+
+pub(super) fn sql_write_patch_set_update_default(
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    patch: AcceptedMutationIntentPatch,
+    field_name: &str,
+) -> Result<AcceptedMutationIntentPatch, QueryError> {
+    let slot = accepted_write_field_slot(descriptor, field_name)?;
+
+    Ok(patch.set_explicit_update_default(slot))
 }
 
 fn write_policy_for_accepted_name(

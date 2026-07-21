@@ -532,15 +532,48 @@ fn seed_generated_timestamp_entity(
     session: &DbSession<SessionSqlCanister>,
     id: u64,
     name: &str,
-    created_on_insert_nanos: i64,
-) {
+) -> Timestamp {
     session
         .insert(SessionSqlGeneratedTimestampEntity {
             id,
-            created_on_insert: Timestamp::from_nanos(created_on_insert_nanos),
+            created_on_insert: Timestamp::default(),
             name: name.to_string(),
         })
-        .expect("generated timestamp setup insert should succeed");
+        .expect("generated timestamp setup insert should succeed")
+        .created_on_insert
+}
+
+#[test]
+fn full_typed_insert_resolves_generated_and_managed_fields_from_accepted_policy() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let generated = session
+        .insert(SessionSqlGeneratedTimestampEntity {
+            id: 1,
+            created_on_insert: Timestamp::from_nanos(1),
+            name: "Ada".to_string(),
+        })
+        .expect("full typed insert should resolve insert generation");
+    assert_ne!(
+        generated.created_on_insert,
+        Timestamp::from_nanos(1),
+        "caller input must not author an insert-generated field",
+    );
+
+    let managed = session
+        .insert(SessionSqlManagedWriteEntity {
+            id: 2,
+            name: "Bea".to_string(),
+            created_at: Timestamp::from_nanos(1),
+            updated_at: Timestamp::from_nanos(2),
+        })
+        .expect("full typed insert should resolve managed timestamps");
+    assert_ne!(managed.created_at, Timestamp::from_nanos(1));
+    assert_ne!(managed.updated_at, Timestamp::from_nanos(2));
+    assert_eq!(
+        managed.created_at, managed.updated_at,
+        "one accepted write context must own both managed timestamps",
+    );
 }
 
 fn seed_composite_key_terminal_entities(
@@ -1559,6 +1592,157 @@ fn execute_sql_statement_insert_synthesizes_schema_generated_fields_matrix() {
 }
 
 #[test]
+fn execute_sql_statement_insert_default_forms_share_accepted_policy() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (sql, expected_nickname, context) in [
+        (
+            "INSERT INTO SessionSqlDefaultWriteEntity (nickname) VALUES ('omitted') RETURNING score, nickname",
+            Value::Text("omitted".to_string()),
+            "omitted insert field",
+        ),
+        (
+            "INSERT INTO SessionSqlDefaultWriteEntity (score, nickname) VALUES (DEFAULT, 'explicit') RETURNING score, nickname",
+            Value::Text("explicit".to_string()),
+            "explicit insert DEFAULT",
+        ),
+        (
+            "INSERT INTO SessionSqlDefaultWriteEntity (id, score, nickname) VALUES (DEFAULT, DEFAULT, DEFAULT) RETURNING score, nickname",
+            Value::Null,
+            "generated/default/null explicit DEFAULT tuple",
+        ),
+        (
+            "INSERT INTO SessionSqlDefaultWriteEntity DEFAULT VALUES RETURNING score, nickname",
+            Value::Null,
+            "DEFAULT VALUES",
+        ),
+    ] {
+        assert_statement_returning_rows::<SessionSqlDefaultWriteEntity>(
+            &session,
+            sql,
+            &[vec![Value::Nat64(7), expected_nickname]],
+            context,
+        );
+    }
+
+    let ids = statement_projection_rows::<SessionSqlDefaultWriteEntity>(
+        &session,
+        "SELECT id FROM SessionSqlDefaultWriteEntity ORDER BY id ASC",
+    )
+    .expect("DEFAULT insert post-state should project generated keys");
+    assert_eq!(ids.len(), 4);
+    assert!(
+        ids.iter()
+            .all(|row| matches!(row.as_slice(), [Value::Ulid(_)]))
+    );
+}
+
+#[test]
+fn execute_sql_statement_bulk_default_rows_share_one_accepted_after_image_policy() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_statement_returning_rows::<SessionSqlDefaultWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlDefaultWriteEntity (score, nickname) VALUES (DEFAULT, 'bulk-a'), (DEFAULT, 'bulk-b') RETURNING score, nickname",
+        &[
+            vec![Value::Nat64(7), Value::Text("bulk-a".to_string())],
+            vec![Value::Nat64(7), Value::Text("bulk-b".to_string())],
+        ],
+        "test-owned bulk default consumer",
+    );
+
+    let rows = statement_projection_rows::<SessionSqlDefaultWriteEntity>(
+        &session,
+        "SELECT score, nickname FROM SessionSqlDefaultWriteEntity ORDER BY nickname ASC",
+    )
+    .expect("bulk default post-state should project both accepted after-images");
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Nat64(7), Value::Text("bulk-a".to_string())],
+            vec![Value::Nat64(7), Value::Text("bulk-b".to_string())],
+        ],
+    );
+}
+
+#[test]
+fn execute_sql_statement_update_default_uses_current_ordinary_policy() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let entity = session
+        .insert(SessionSqlDefaultWriteEntity {
+            id: Ulid::generate(),
+            score: 99,
+            nickname: Some("Ada".to_string()),
+        })
+        .expect("default-update setup insert should succeed");
+
+    let sql = format!(
+        "UPDATE SessionSqlDefaultWriteEntity SET score = DEFAULT, nickname = DEFAULT WHERE id = '{}' RETURNING score, nickname",
+        entity.id,
+    );
+    assert_statement_returning_rows::<SessionSqlDefaultWriteEntity>(
+        &session,
+        sql.as_str(),
+        &[vec![Value::Nat64(7), Value::Null]],
+        "ordinary update DEFAULT",
+    );
+}
+
+#[test]
+fn execute_sql_statement_default_rejections_keep_request_specific_codes() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_statement_write_boundary::<SessionSqlWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', DEFAULT)",
+        SqlWriteBoundaryCode::InsertDefaultRequiredField,
+        "insert DEFAULT on a required ordinary field",
+    );
+    assert_statement_write_boundary::<SessionSqlWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlWriteEntity DEFAULT VALUES",
+        SqlWriteBoundaryCode::InsertDefaultRequiredField,
+        "DEFAULT VALUES on a required ordinary field",
+    );
+    assert!(persisted_write_rows(&session).is_empty());
+
+    seed_write_entities(&session, &[(2, "Bea", 22)]);
+    assert_statement_write_boundary::<SessionSqlWriteEntity>(
+        &session,
+        "UPDATE SessionSqlWriteEntity SET age = DEFAULT WHERE id = 2",
+        SqlWriteBoundaryCode::UpdateDefaultRequiredField,
+        "update DEFAULT on a required ordinary field",
+    );
+
+    seed_generated_timestamp_entity(&session, 3, "Cid");
+    assert_statement_write_boundary::<SessionSqlGeneratedTimestampEntity>(
+        &session,
+        "UPDATE SessionSqlGeneratedTimestampEntity SET created_on_insert = DEFAULT WHERE id = 3",
+        SqlWriteBoundaryCode::UpdateDefaultDatabaseOwnedField,
+        "update DEFAULT on an insert-generated field",
+    );
+
+    session
+        .insert(SessionSqlManagedWriteEntity {
+            id: 4,
+            name: "Dee".to_string(),
+            created_at: Timestamp::EPOCH,
+            updated_at: Timestamp::EPOCH,
+        })
+        .expect("managed DEFAULT rejection setup insert should succeed");
+    assert_statement_write_boundary::<SessionSqlManagedWriteEntity>(
+        &session,
+        "UPDATE SessionSqlManagedWriteEntity SET updated_at = DEFAULT WHERE id = 4",
+        SqlWriteBoundaryCode::UpdateDefaultDatabaseOwnedField,
+        "update DEFAULT on a managed field",
+    );
+}
+
+#[test]
 fn structural_create_rejects_explicit_generated_insert_fields_matrix() {
     let cases = [
         (
@@ -1600,7 +1784,7 @@ fn structural_create_rejects_explicit_generated_insert_fields_matrix() {
 fn execute_sql_statement_update_rejects_explicit_generated_fields_matrix() {
     reset_session_sql_store();
     let session = sql_session();
-    seed_generated_timestamp_entity(&session, 1, "Ada", 1);
+    seed_generated_timestamp_entity(&session, 1, "Ada");
 
     let err = execute_sql_statement_for_tests::<SessionSqlGeneratedTimestampEntity>(
         &session,
@@ -1626,7 +1810,7 @@ fn structural_rewrite_rejects_explicit_generated_insert_fields_matrix() {
     for (mode, context) in cases {
         reset_session_sql_store();
         let session = sql_session();
-        seed_generated_timestamp_entity(&session, 1, "Ada", 1);
+        seed_generated_timestamp_entity(&session, 1, "Ada");
 
         let patch = session
             .structural_patch::<SessionSqlGeneratedTimestampEntity, _, _, _>([(
@@ -2096,7 +2280,7 @@ fn execute_sql_public_primary_key_update_rejects_non_pk_where_without_mutation()
 fn execute_sql_public_primary_key_update_rejects_schema_owned_assignments_before_execution() {
     reset_session_sql_store();
     let session = sql_session();
-    seed_generated_timestamp_entity(&session, 1, "Ada", 1);
+    seed_generated_timestamp_entity(&session, 1, "Ada");
 
     let err = session
         .execute_sql_public_primary_key_update::<SessionSqlGeneratedTimestampEntity>(
@@ -2136,7 +2320,7 @@ fn execute_sql_public_primary_key_update_rejects_schema_owned_assignments_before
 fn execute_validated_sql_public_primary_key_update_allows_generated_returning_all() {
     reset_session_sql_store();
     let session = sql_session();
-    seed_generated_timestamp_entity(&session, 1, "Ada", 1);
+    let generated_at = seed_generated_timestamp_entity(&session, 1, "Ada");
 
     let plan = public_primary_key_update_plan(
         "UPDATE SessionSqlGeneratedTimestampEntity SET name = 'Bea' WHERE id = 1 RETURNING *",
@@ -2161,7 +2345,7 @@ fn execute_validated_sql_public_primary_key_update_allows_generated_returning_al
         rows,
         vec![vec![
             output(Value::Nat64(1)),
-            output(Value::Timestamp(Timestamp::from_nanos(1))),
+            output(Value::Timestamp(generated_at)),
             output(Value::Text("Bea".to_string())),
         ]],
     );
@@ -2170,7 +2354,7 @@ fn execute_validated_sql_public_primary_key_update_allows_generated_returning_al
         persisted_generated_timestamp_rows(&session),
         vec![vec![
             Value::Nat64(1),
-            Value::Timestamp(Timestamp::from_nanos(1)),
+            Value::Timestamp(generated_at),
             Value::Text("Bea".to_string()),
         ]],
     );
@@ -2180,7 +2364,7 @@ fn execute_validated_sql_public_primary_key_update_allows_generated_returning_al
 fn execute_sql_public_primary_key_update_allows_generated_returning_field() {
     reset_session_sql_store();
     let session = sql_session();
-    seed_generated_timestamp_entity(&session, 1, "Ada", 1);
+    let generated_at = seed_generated_timestamp_entity(&session, 1, "Ada");
 
     let result = session
         .execute_sql_public_primary_key_update::<SessionSqlGeneratedTimestampEntity>(
@@ -2199,16 +2383,13 @@ fn execute_sql_public_primary_key_update_allows_generated_returning_field() {
     };
 
     assert_eq!(columns, ["created_on_insert"]);
-    assert_eq!(
-        rows,
-        vec![vec![output(Value::Timestamp(Timestamp::from_nanos(1)))]],
-    );
+    assert_eq!(rows, vec![vec![output(Value::Timestamp(generated_at))]],);
     assert_eq!(row_count, 1);
     assert_eq!(
         persisted_generated_timestamp_rows(&session),
         vec![vec![
             Value::Nat64(1),
-            Value::Timestamp(Timestamp::from_nanos(1)),
+            Value::Timestamp(generated_at),
             Value::Text("Bea".to_string()),
         ]],
     );
@@ -2218,7 +2399,7 @@ fn execute_sql_public_primary_key_update_allows_generated_returning_field() {
 fn execute_sql_public_primary_key_update_allows_visible_returning_fields() {
     reset_session_sql_store();
     let session = sql_session();
-    seed_generated_timestamp_entity(&session, 1, "Ada", 1);
+    let generated_at = seed_generated_timestamp_entity(&session, 1, "Ada");
 
     let result = session
         .execute_sql_public_primary_key_update::<SessionSqlGeneratedTimestampEntity>(
@@ -2249,7 +2430,7 @@ fn execute_sql_public_primary_key_update_allows_visible_returning_fields() {
         persisted_generated_timestamp_rows(&session),
         vec![vec![
             Value::Nat64(1),
-            Value::Timestamp(Timestamp::from_nanos(1)),
+            Value::Timestamp(generated_at),
             Value::Text("Bea".to_string()),
         ]],
     );
@@ -2259,7 +2440,7 @@ fn execute_sql_public_primary_key_update_allows_visible_returning_fields() {
 fn execute_sql_public_bounded_update_allows_managed_returning_all() {
     reset_session_sql_store();
     let session = sql_session();
-    session
+    let inserted = session
         .insert_many_atomic([
             SessionSqlManagedWriteEntity {
                 id: 1,
@@ -2274,7 +2455,9 @@ fn execute_sql_public_bounded_update_allows_managed_returning_all() {
                 updated_at: Timestamp::from_nanos(2),
             },
         ])
-        .expect("managed-field setup insert should succeed");
+        .expect("managed-field setup insert should succeed")
+        .entities();
+    let inserted_created_at = [inserted[0].created_at, inserted[1].created_at];
 
     let result = session
         .execute_sql_public_bounded_update::<SessionSqlManagedWriteEntity>(
@@ -2293,41 +2476,19 @@ fn execute_sql_public_bounded_update_allows_managed_returning_all() {
     };
 
     assert_eq!(columns, ["id", "name", "created_at", "updated_at"]);
+    let persisted = persisted_managed_write_rows(&session);
+    assert_eq!(persisted[0][2], Value::Timestamp(inserted_created_at[0]));
+    assert_eq!(persisted[1][2], Value::Timestamp(inserted_created_at[1]));
     assert_eq!(
-        rows,
-        vec![
-            vec![
-                output(Value::Nat64(1)),
-                output(Value::Text("Cid".to_string())),
-                output(Value::Timestamp(Timestamp::from_nanos(1))),
-                output(Value::Timestamp(Timestamp::from_nanos(1))),
-            ],
-            vec![
-                output(Value::Nat64(2)),
-                output(Value::Text("Cid".to_string())),
-                output(Value::Timestamp(Timestamp::from_nanos(2))),
-                output(Value::Timestamp(Timestamp::from_nanos(2))),
-            ],
-        ],
+        persisted[0][3], persisted[1][3],
+        "one bounded update must share one managed write context",
     );
+    let expected_rows = persisted
+        .iter()
+        .map(|row| row.iter().cloned().map(output).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    assert_eq!(rows, expected_rows);
     assert_eq!(row_count, 2);
-    assert_eq!(
-        persisted_managed_write_rows(&session),
-        vec![
-            vec![
-                Value::Nat64(1),
-                Value::Text("Cid".to_string()),
-                Value::Timestamp(Timestamp::from_nanos(1)),
-                Value::Timestamp(Timestamp::from_nanos(1)),
-            ],
-            vec![
-                Value::Nat64(2),
-                Value::Text("Cid".to_string()),
-                Value::Timestamp(Timestamp::from_nanos(2)),
-                Value::Timestamp(Timestamp::from_nanos(2)),
-            ],
-        ],
-    );
 }
 
 #[test]

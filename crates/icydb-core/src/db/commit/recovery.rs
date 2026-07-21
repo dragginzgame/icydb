@@ -44,6 +44,7 @@ use crate::{
             AcceptedCatalogSnapshotSelection, CandidateSchemaRevision, SchemaStore,
             accepted_commit_schema_fingerprint, decode_persisted_schema_snapshot,
             ensure_accepted_schema_snapshot, reconcile_runtime_schemas,
+            reconcile_runtime_schemas_before_recovery_rebuild,
         },
     },
     error::{ErrorOrigin, InternalError},
@@ -173,7 +174,7 @@ fn recover_domain<C: CanisterKind>(
         .as_ref()
         .is_some_and(marker_authorizes_schema_publication)
     {
-        ensure_schema_reconciled(db)?;
+        ensure_schema_reconciled_before_rebuild(db)?;
     }
     perform_recovery(db, marker)?;
     mark_recovery_domain_recovered(recovery_key)
@@ -988,13 +989,43 @@ fn recovery_runtime_hook_for_entity_path<'a, C: CanisterKind>(
 // independent test registries and canister domains to initialize their own
 // schema metadata.
 fn ensure_schema_reconciled<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
+    ensure_schema_reconciled_for_phase(db, SchemaReconciliationPhase::Ordinary)
+}
+
+fn ensure_schema_reconciled_before_rebuild<C: CanisterKind>(
+    db: &Db<C>,
+) -> Result<(), InternalError> {
+    ensure_schema_reconciled_for_phase(db, SchemaReconciliationPhase::BeforeRecoveryRebuild)
+}
+
+/// Derived-state phase paired with one schema-reconciliation invocation.
+///
+/// Recovery owns this distinction so schema code never infers rebuild
+/// authority from marker presence or index readiness.
+#[derive(Clone, Copy)]
+enum SchemaReconciliationPhase {
+    Ordinary,
+    BeforeRecoveryRebuild,
+}
+
+fn ensure_schema_reconciled_for_phase<C: CanisterKind>(
+    db: &Db<C>,
+    phase: SchemaReconciliationPhase,
+) -> Result<(), InternalError> {
     let key = schema_reconciliation_key(db);
     if schema_reconciliation_clean(key) {
         return Ok(());
     }
 
-    reconcile_runtime_schemas(db, db.entity_runtime_hooks)
-        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    match phase {
+        SchemaReconciliationPhase::Ordinary => {
+            reconcile_runtime_schemas(db, db.entity_runtime_hooks)
+        }
+        SchemaReconciliationPhase::BeforeRecoveryRebuild => {
+            reconcile_runtime_schemas_before_recovery_rebuild(db, db.entity_runtime_hooks)
+        }
+    }
+    .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     mark_schema_reconciliation_clean(key);
 
     Ok(())

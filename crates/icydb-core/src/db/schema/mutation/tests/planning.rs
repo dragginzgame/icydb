@@ -218,3 +218,48 @@ fn snapshot_delta_classifier_rejects_non_prefix_field_changes() {
         None
     );
 }
+
+#[test]
+#[cfg(feature = "sql")]
+fn physical_field_changes_preserve_row_layout_exhaustion_causes() {
+    let base = base_snapshot();
+    let max_layout_snapshot = PersistedSchemaSnapshot::new(
+        base.version(),
+        base.entity_path().to_string(),
+        base.entity_name().to_string(),
+        base.primary_key_field_ids().to_vec(),
+        SchemaRowLayout::new(
+            RowLayoutVersion::new(u32::MAX).expect("maximum layout version should be valid"),
+            RowLayoutVersion::INITIAL,
+            base.row_layout().field_to_slot().to_vec(),
+        ),
+        base.fields().to_vec(),
+    );
+    let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(max_layout_snapshot.clone())
+        .expect("maximum-version snapshot should remain internally valid");
+
+    assert_eq!(
+        derive_sql_ddl_field_drop_accepted_after(&accepted, "name"),
+        Err(SchemaDdlMutationAdmissionError::RowLayoutVersionExhausted),
+        "DROP COLUMN must not collapse layout exhaustion into a missing runner",
+    );
+
+    let added = nullable_text_field("nickname", 3, 2);
+    let generated = PersistedSchemaSnapshot::new(
+        SchemaVersion::new(2),
+        base.entity_path().to_string(),
+        base.entity_name().to_string(),
+        base.primary_key_field_ids().to_vec(),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+            (FieldId::new(3), SchemaFieldSlot::new(2)),
+        ]),
+        [base.fields(), std::slice::from_ref(&added)].concat(),
+    );
+    assert_eq!(
+        derive_generated_accepted_candidate(&max_layout_snapshot, &generated),
+        Err(GeneratedAcceptedCandidateError::RowLayoutVersionExhausted),
+        "generated additive reconciliation must preserve the same typed cause",
+    );
+}

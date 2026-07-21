@@ -488,6 +488,14 @@ pub enum RuntimeBoundaryCode {
     QueryResponseGroupedRowsRequired,
     RowProjectionFieldNotConfigured,
     SqlIntrospectionDisabled,
+    /// A complete accepted mutation omitted a required field.
+    MutationRequiredFieldMissing,
+    /// A persisted row's stamp falls outside the accepted layout window.
+    PersistedRowLayoutOutsideAcceptedWindow,
+    /// A persisted row's physical slot count disagrees with its layout stamp.
+    PersistedRowSlotCountMismatch,
+    /// A generated field would collide with an accepted DDL-owned slot.
+    GeneratedFieldAfterDdlField,
 }
 
 impl fmt::Debug for RuntimeBoundaryCode {
@@ -670,6 +678,9 @@ pub enum SqlWriteBoundaryCode {
     ReturningResponseTooLarge,
     ReturningRowsTooMany,
     StagedRowsTooMany,
+    InsertDefaultRequiredField,
+    UpdateDefaultRequiredField,
+    UpdateDefaultDatabaseOwnedField,
 }
 
 impl fmt::Debug for SqlWriteBoundaryCode {
@@ -705,10 +716,12 @@ pub enum SchemaDdlAdmissionCode {
     InvalidAddColumnDefault,
     InvalidAlterColumnDefault,
     GeneratedIndexDropRejected,
-    RequiredDropDefaultUnsupported,
+    SchemaRewriteRequiresMigration,
+    SchemaTransitionBudgetExceeded,
     GeneratedFieldDefaultChangeRejected,
     GeneratedFieldNullabilityChangeRejected,
     SetNotNullValidationFailed,
+    RowLayoutVersionExhausted,
 }
 
 impl fmt::Debug for SchemaDdlAdmissionCode {
@@ -920,7 +933,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 190);
+        assert_eq!(last, 199);
     }
 
     #[test]

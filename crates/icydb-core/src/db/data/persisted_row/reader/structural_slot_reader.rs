@@ -170,6 +170,41 @@ impl<'a> StructuralSlotReader<'a> {
         self.contract.field_count()
     }
 
+    /// Return the accepted row-layout identity stamped in the physical row.
+    ///
+    /// Construction has already admitted this version against the selected
+    /// accepted row contract.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "0.209 exposes this accepted-native fact for the 0.212 integrity consumer"
+        )
+    )]
+    #[must_use]
+    pub(in crate::db) const fn stamped_layout_version(
+        &self,
+    ) -> crate::db::schema::RowLayoutVersion {
+        self.field_bytes.layout_version()
+    }
+
+    /// Return the exact physical slot count admitted for the stamped layout.
+    ///
+    /// This can be smaller than `field_count` only for a valid historical row;
+    /// logical reads still materialize later fields from frozen historical
+    /// fill authority.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "0.209 exposes this accepted-native fact for the 0.212 integrity consumer"
+        )
+    )]
+    #[must_use]
+    pub(in crate::db) fn physical_slot_count(&self) -> usize {
+        self.field_bytes.physical_slot_count()
+    }
+
     /// Borrow the structural row contract selected for this reader.
     #[must_use]
     pub(in crate::db) fn contract(&self) -> &StructuralRowContract {
@@ -293,7 +328,10 @@ impl<'a> StructuralSlotReader<'a> {
             } => {
                 if self.field_bytes.field(slot).is_none() {
                     if materialized.get().is_none() {
-                        let _ = materialized.set(self.contract.missing_slot_value(slot)?);
+                        let _ = materialized.set(
+                            self.contract
+                                .historical_slot_value(slot, self.field_bytes.layout_version())?,
+                        );
                     }
 
                     return materialized
@@ -320,7 +358,10 @@ impl<'a> StructuralSlotReader<'a> {
             CachedSlotValue::Deferred { materialized } => {
                 if self.field_bytes.field(slot).is_none() {
                     if materialized.get().is_none() {
-                        let _ = materialized.set(self.contract.missing_slot_value(slot)?);
+                        let _ = materialized.set(
+                            self.contract
+                                .historical_slot_value(slot, self.field_bytes.layout_version())?,
+                        );
                     }
 
                     return materialized
@@ -461,7 +502,10 @@ impl<'a> StructuralSlotReader<'a> {
             return Ok(None);
         }
         if self.field_bytes.field(slot).is_none() {
-            return match self.contract.missing_slot_value(slot)? {
+            return match self
+                .contract
+                .historical_slot_value(slot, self.field_bytes.layout_version())?
+            {
                 Value::Null => Ok(Some(ScalarSlotValueRef::Null)),
                 _ => Err(InternalError::persisted_row_decode_corruption()),
             };
@@ -515,7 +559,9 @@ impl<'a> StructuralSlotReader<'a> {
             }
 
             let Some(raw_value) = self.field_bytes.field(slot) else {
-                let _ = self.contract.missing_slot_value(slot)?;
+                let _ = self
+                    .contract
+                    .historical_slot_value(slot, self.field_bytes.layout_version())?;
                 continue;
             };
 
@@ -564,7 +610,10 @@ impl SlotReader for StructuralSlotReader<'_> {
             LeafCodec::Scalar(_) => match self.cached_values.get(slot) {
                 Some(CachedSlotValue::Scalar { validated, .. }) => {
                     if self.field_bytes.field(slot).is_none() {
-                        return match self.contract.missing_slot_value(slot)? {
+                        return match self
+                            .contract
+                            .historical_slot_value(slot, self.field_bytes.layout_version())?
+                        {
                             Value::Null => Ok(Some(ScalarSlotValueRef::Null)),
                             _ => Err(InternalError::persisted_row_decode_corruption()),
                         };

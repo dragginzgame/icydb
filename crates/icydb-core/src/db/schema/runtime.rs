@@ -8,8 +8,8 @@ use crate::{
         AcceptedCompositeCatalog, AcceptedEnumCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
         AcceptedSchemaSnapshot, AcceptedValueAdmissionContract, AcceptedValueCatalogHandle,
         AcceptedValueContract, FieldId, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
-        SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaVersion,
-        enum_catalog::EnumCatalogBuildError,
+        RowLayoutVersion, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill,
+        SchemaInsertDefault, enum_catalog::EnumCatalogBuildError,
     },
     error::InternalError,
     model::{
@@ -36,17 +36,14 @@ pub(in crate::db) fn generated_compatible_row_layout_proof_count_for_tests() -> 
 }
 
 ///
-/// AcceptedFieldAbsencePolicy
+/// AcceptedInsertOmissionPolicy
 ///
-/// AcceptedFieldAbsencePolicy describes how runtime row materialization should
-/// treat a missing physical payload slot for one accepted field. It exists so
-/// additive-field support has an explicit schema-owned contract instead of
-/// asking row decode code to infer missing-field behavior from generated
-/// nullable flags or Rust defaults.
+/// Accepted insertion policy for an omitted ordinary field. Historical
+/// physical absence is owned separately by `SchemaHistoricalFill`.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum AcceptedFieldAbsencePolicy {
+pub(in crate::db) enum AcceptedInsertOmissionPolicy {
     NullIfMissing,
     DefaultIfMissing,
     Required,
@@ -58,10 +55,10 @@ pub(in crate::db) enum AcceptedFieldAbsencePolicy {
 /// omission authorities. Rust `Default` and generated construction values do
 /// not participate.
 pub(in crate::db) const fn accepted_insert_field_is_omittable(
-    absence_policy: AcceptedFieldAbsencePolicy,
+    omission_policy: AcceptedInsertOmissionPolicy,
     write_policy: SchemaFieldWritePolicy,
 ) -> bool {
-    !matches!(absence_policy, AcceptedFieldAbsencePolicy::Required)
+    !matches!(omission_policy, AcceptedInsertOmissionPolicy::Required)
         || write_policy.insert_generation().is_some()
         || write_policy.write_management().is_some()
 }
@@ -83,11 +80,13 @@ pub(in crate::db) struct AcceptedRowLayoutRuntimeField<'a> {
     kind: &'a AcceptedFieldKind,
     nested_leaves: &'a [PersistedNestedLeafSnapshot],
     nullable: bool,
-    default: &'a SchemaFieldDefault,
+    introduced_in_layout: RowLayoutVersion,
+    insert_default: &'a SchemaInsertDefault,
+    historical_fill: &'a SchemaHistoricalFill,
     write_policy: SchemaFieldWritePolicy,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
-    absence_policy: AcceptedFieldAbsencePolicy,
+    insert_omission_policy: AcceptedInsertOmissionPolicy,
     generated: bool,
 }
 
@@ -130,10 +129,22 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
         self.nullable
     }
 
-    /// Return the accepted database-level default contract.
+    /// Return the physical layout that first contained this field.
     #[must_use]
-    pub(in crate::db) const fn default(&self) -> &'a SchemaFieldDefault {
-        self.default
+    pub(in crate::db) const fn introduced_in_layout(&self) -> RowLayoutVersion {
+        self.introduced_in_layout
+    }
+
+    /// Return the accepted future insertion-default contract.
+    #[must_use]
+    pub(in crate::db) const fn insert_default(&self) -> &'a SchemaInsertDefault {
+        self.insert_default
+    }
+
+    /// Return the accepted frozen historical-absence contract.
+    #[must_use]
+    pub(in crate::db) const fn historical_fill(&self) -> &'a SchemaHistoricalFill {
+        self.historical_fill
     }
 
     /// Return the accepted database-level write policy for this field.
@@ -142,10 +153,10 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
         self.write_policy
     }
 
-    /// Return the accepted missing-slot policy for this field.
+    /// Return the accepted insertion-omission policy for this field.
     #[must_use]
-    pub(in crate::db) const fn absence_policy(&self) -> AcceptedFieldAbsencePolicy {
-        self.absence_policy
+    pub(in crate::db) const fn insert_omission_policy(&self) -> AcceptedInsertOmissionPolicy {
+        self.insert_omission_policy
     }
 
     /// Return whether this accepted field is generated-schema owned.
@@ -317,8 +328,10 @@ pub(in crate::db) struct OwnedAcceptedFieldDecodeContract {
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
     write_policy: SchemaFieldWritePolicy,
-    absence_policy: AcceptedFieldAbsencePolicy,
-    default: SchemaFieldDefault,
+    insert_omission_policy: AcceptedInsertOmissionPolicy,
+    introduced_in_layout: RowLayoutVersion,
+    insert_default: SchemaInsertDefault,
+    historical_fill: SchemaHistoricalFill,
     generated: bool,
 }
 
@@ -335,8 +348,10 @@ impl OwnedAcceptedFieldDecodeContract {
             storage_decode: contract.storage_decode(),
             leaf_codec: contract.leaf_codec(),
             write_policy: field.write_policy(),
-            absence_policy: field.absence_policy(),
-            default: field.default().clone(),
+            insert_omission_policy: field.insert_omission_policy(),
+            introduced_in_layout: field.introduced_in_layout(),
+            insert_default: field.insert_default().clone(),
+            historical_fill: field.historical_fill().clone(),
             generated: field.generated(),
         }
     }
@@ -353,10 +368,10 @@ impl OwnedAcceptedFieldDecodeContract {
         )
     }
 
-    /// Return the accepted missing-slot behavior for this field.
+    /// Return the accepted insertion-omission behavior for this field.
     #[must_use]
-    pub(in crate::db) const fn absence_policy(&self) -> AcceptedFieldAbsencePolicy {
-        self.absence_policy
+    pub(in crate::db) const fn insert_omission_policy(&self) -> AcceptedInsertOmissionPolicy {
+        self.insert_omission_policy
     }
 
     /// Return the accepted database write policy for this field.
@@ -365,10 +380,22 @@ impl OwnedAcceptedFieldDecodeContract {
         self.write_policy
     }
 
-    /// Borrow the accepted database default payload contract.
+    /// Return the physical layout that first contained this field.
     #[must_use]
-    pub(in crate::db) const fn default(&self) -> &SchemaFieldDefault {
-        &self.default
+    pub(in crate::db) const fn introduced_in_layout(&self) -> RowLayoutVersion {
+        self.introduced_in_layout
+    }
+
+    /// Borrow the accepted future insertion-default payload contract.
+    #[must_use]
+    pub(in crate::db) const fn insert_default(&self) -> &SchemaInsertDefault {
+        &self.insert_default
+    }
+
+    /// Borrow the frozen historical-absence contract.
+    #[must_use]
+    pub(in crate::db) const fn historical_fill(&self) -> &SchemaHistoricalFill {
+        &self.historical_fill
     }
 
     /// Borrow the accepted persisted field name.
@@ -456,8 +483,9 @@ impl OwnedAcceptedRelationEdgeContract {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AcceptedRowDecodeContract {
+    current_layout_version: RowLayoutVersion,
+    history_floor: RowLayoutVersion,
     required_slot_count: usize,
-    max_physical_slot_count: usize,
     primary_key_slot_index: usize,
     primary_key_slot_indices: Vec<usize>,
     fields_by_slot: Vec<Option<OwnedAcceptedFieldDecodeContract>>,
@@ -480,8 +508,9 @@ impl AcceptedRowDecodeContract {
         }
 
         Self {
+            current_layout_version: descriptor.current_layout_version(),
+            history_floor: descriptor.history_floor(),
             required_slot_count: descriptor.required_slot_count(),
-            max_physical_slot_count: descriptor.max_physical_slot_count(),
             primary_key_slot_index: descriptor.first_primary_key_slot_index(),
             primary_key_slot_indices: descriptor.primary_key_slot_indices().to_vec(),
             fields_by_slot,
@@ -529,10 +558,31 @@ impl AcceptedRowDecodeContract {
         self.required_slot_count
     }
 
-    /// Return the maximum physical row slot count accepted for older rows.
+    /// Return the physical layout stamped by every current canonical writer.
     #[must_use]
-    pub(in crate::db) const fn max_physical_slot_count(&self) -> usize {
-        self.max_physical_slot_count
+    pub(in crate::db) const fn current_layout_version(&self) -> RowLayoutVersion {
+        self.current_layout_version
+    }
+
+    /// Derive the exact physical slot count for one admitted layout identity.
+    pub(in crate::db) fn expected_slot_count(
+        &self,
+        version: RowLayoutVersion,
+    ) -> Result<usize, InternalError> {
+        if version < self.history_floor || version > self.current_layout_version {
+            return Err(InternalError::persisted_row_layout_outside_accepted_window(
+                version.get(),
+                self.current_layout_version.get(),
+                self.history_floor.get(),
+            ));
+        }
+
+        Ok(self
+            .fields_by_slot
+            .iter()
+            .filter_map(Option::as_ref)
+            .filter(|field| field.introduced_in_layout() <= version)
+            .count())
     }
 
     /// Return the accepted primary-key physical slot index.
@@ -647,9 +697,9 @@ impl AcceptedGeneratedRowCompatibilityProof {
 
 #[derive(Debug, Eq, PartialEq)]
 pub(in crate::db) struct AcceptedRowLayoutRuntimeContract<'a> {
-    version: SchemaVersion,
+    current_layout_version: RowLayoutVersion,
+    history_floor: RowLayoutVersion,
     required_slot_count: usize,
-    max_physical_slot_count: usize,
     primary_key_names: Vec<&'a str>,
     primary_key_kinds: Vec<&'a AcceptedFieldKind>,
     primary_key_slot_indices: Vec<usize>,
@@ -689,11 +739,16 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
                 kind: field.kind(),
                 nested_leaves: field.nested_leaves(),
                 nullable: field.nullable(),
-                default: field.default(),
+                introduced_in_layout: field.introduced_in_layout(),
+                insert_default: field.insert_default(),
+                historical_fill: field.historical_fill(),
                 write_policy: field.write_policy(),
                 storage_decode: field.storage_decode(),
                 leaf_codec: field.leaf_codec(),
-                absence_policy: accepted_field_absence_policy(field.nullable(), field.default()),
+                insert_omission_policy: accepted_insert_omission_policy(
+                    field.nullable(),
+                    field.insert_default(),
+                ),
                 generated: field.generated(),
             });
         }
@@ -721,9 +776,9 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Self {
-            version: row_layout.version(),
+            current_layout_version: row_layout.current_version(),
+            history_floor: row_layout.history_floor(),
             required_slot_count,
-            max_physical_slot_count: row_layout.allocated_slot_count().max(required_slot_count),
             primary_key_names,
             primary_key_kinds,
             primary_key_slot_indices,
@@ -758,23 +813,22 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
         Ok((descriptor, row_proof))
     }
 
-    /// Return the accepted schema version backing this runtime layout.
-    #[cfg(test)]
+    /// Return the current accepted physical row-layout identity.
     #[must_use]
-    pub(in crate::db) const fn version(&self) -> SchemaVersion {
-        self.version
+    pub(in crate::db) const fn current_layout_version(&self) -> RowLayoutVersion {
+        self.current_layout_version
+    }
+
+    /// Return the oldest accepted physical row-layout identity.
+    #[must_use]
+    pub(in crate::db) const fn history_floor(&self) -> RowLayoutVersion {
+        self.history_floor
     }
 
     /// Return the minimum physical slot count required by this layout.
     #[must_use]
     pub(in crate::db) const fn required_slot_count(&self) -> usize {
         self.required_slot_count
-    }
-
-    /// Return the maximum physical row slot count tolerated for older rows.
-    #[must_use]
-    pub(in crate::db) const fn max_physical_slot_count(&self) -> usize {
-        self.max_physical_slot_count
     }
 
     /// Borrow accepted primary-key field names in key order.
@@ -785,6 +839,7 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
 
     /// Return whether one accepted field name belongs to the primary key.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn is_primary_key_field_name(&self, field_name: &str) -> bool {
         self.primary_key_names.contains(&field_name)
     }
@@ -935,7 +990,9 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
         // Phase 2: require the accepted row layout to cover every generated
         // slot. Extra trailing DDL-owned slots may exist after SQL ADD COLUMN;
         // they remain accepted-runtime fields and are not exposed through the
-        // generated typed materializer.
+        // generated typed materializer. Required insertion policy does not
+        // affect decode compatibility; each write ingress validates omission
+        // against the accepted contract before constructing an after-image.
         if self.required_slot_count() < model.fields().len() {
             return Err(InternalError::store_invariant());
         }
@@ -965,12 +1022,6 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
                 continue;
             };
             if extra_field.generated() {
-                return Err(InternalError::store_invariant());
-            }
-            if matches!(
-                extra_field.absence_policy(),
-                AcceptedFieldAbsencePolicy::Required
-            ) {
                 return Err(InternalError::store_invariant());
             }
         }
@@ -1018,14 +1069,14 @@ fn ensure_generated_field_decode_contract_compatible(
 
 // Decide the missing-slot behavior from accepted database metadata only. Rust
 // struct defaults are deliberately absent from this calculation.
-const fn accepted_field_absence_policy(
+const fn accepted_insert_omission_policy(
     nullable: bool,
-    default: &SchemaFieldDefault,
-) -> AcceptedFieldAbsencePolicy {
+    default: &SchemaInsertDefault,
+) -> AcceptedInsertOmissionPolicy {
     match (nullable, default) {
-        (true, SchemaFieldDefault::None) => AcceptedFieldAbsencePolicy::NullIfMissing,
-        (false, SchemaFieldDefault::None) => AcceptedFieldAbsencePolicy::Required,
-        (_, SchemaFieldDefault::SlotPayload(_)) => AcceptedFieldAbsencePolicy::DefaultIfMissing,
+        (true, SchemaInsertDefault::None) => AcceptedInsertOmissionPolicy::NullIfMissing,
+        (false, SchemaInsertDefault::None) => AcceptedInsertOmissionPolicy::Required,
+        (_, SchemaInsertDefault::SlotPayload(_)) => AcceptedInsertOmissionPolicy::DefaultIfMissing,
     }
 }
 

@@ -7,8 +7,8 @@
 use crate::db::predicate::{relabel_sql_predicate_field_root, sql_predicate_references_field_root};
 use crate::{
     db::schema::{
-        AcceptedFieldKind, FieldId, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
-        schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
+        AcceptedFieldKind, FieldId, RowLayoutVersion, SchemaFieldSlot, SchemaRowLayout,
+        SchemaVersion, schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
         schema_snapshot_relation_integrity_detail,
     },
     error::InternalError,
@@ -390,7 +390,7 @@ impl PersistedSchemaSnapshot {
             self.entity_path.clone(),
             self.entity_name.clone(),
             self.primary_key_field_ids.clone(),
-            self.row_layout.clone_with_version(version),
+            self.row_layout.clone(),
             self.fields.clone(),
             self.indexes.clone(),
         )
@@ -1068,7 +1068,7 @@ pub(in crate::db) enum PersistedFieldOrigin {
 ///
 /// Owned schema snapshot for one live field.
 /// It carries durable identity, current slot placement, type/storage metadata,
-/// and the database-level default contract used by reconciliation and runtime
+/// and the independent temporal contracts used by reconciliation and runtime
 /// value admission.
 ///
 
@@ -1080,7 +1080,9 @@ pub(in crate::db) struct PersistedFieldSnapshot {
     kind: AcceptedFieldKind,
     nested_leaves: Vec<PersistedNestedLeafSnapshot>,
     nullable: bool,
-    default: SchemaFieldDefault,
+    introduced_in_layout: RowLayoutVersion,
+    insert_default: SchemaInsertDefault,
+    historical_fill: SchemaHistoricalFill,
     write_policy: SchemaFieldWritePolicy,
     origin: PersistedFieldOrigin,
     storage_decode: FieldStorageDecode,
@@ -1095,14 +1097,14 @@ impl PersistedFieldSnapshot {
         reason = "schema snapshot construction keeps every persisted field contract explicit"
     )]
     #[must_use]
-    pub(in crate::db) const fn new(
+    pub(in crate::db) const fn new_initial(
         id: FieldId,
         name: String,
         slot: SchemaFieldSlot,
         kind: AcceptedFieldKind,
         nested_leaves: Vec<PersistedNestedLeafSnapshot>,
         nullable: bool,
-        default: SchemaFieldDefault,
+        insert_default: SchemaInsertDefault,
         storage_decode: FieldStorageDecode,
         leaf_codec: LeafCodec,
     ) -> Self {
@@ -1113,8 +1115,82 @@ impl PersistedFieldSnapshot {
             kind,
             nested_leaves,
             nullable,
-            default,
+            RowLayoutVersion::INITIAL,
+            insert_default,
+            SchemaHistoricalFill::Reject,
             SchemaFieldWritePolicy::none(),
+            storage_decode,
+            leaf_codec,
+        )
+    }
+
+    /// Build one initial generated field with explicit database write policy.
+    #[cfg(test)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "schema snapshot construction keeps every persisted field contract explicit"
+    )]
+    #[must_use]
+    pub(in crate::db) const fn new_initial_with_write_policy(
+        id: FieldId,
+        name: String,
+        slot: SchemaFieldSlot,
+        kind: AcceptedFieldKind,
+        nested_leaves: Vec<PersistedNestedLeafSnapshot>,
+        nullable: bool,
+        insert_default: SchemaInsertDefault,
+        write_policy: SchemaFieldWritePolicy,
+        storage_decode: FieldStorageDecode,
+        leaf_codec: LeafCodec,
+    ) -> Self {
+        Self::new_with_write_policy(
+            id,
+            name,
+            slot,
+            kind,
+            nested_leaves,
+            nullable,
+            RowLayoutVersion::INITIAL,
+            insert_default,
+            SchemaHistoricalFill::Reject,
+            write_policy,
+            storage_decode,
+            leaf_codec,
+        )
+    }
+
+    /// Build one initial field with explicit write policy and durable origin.
+    #[cfg(test)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "schema snapshot construction keeps every persisted field contract explicit"
+    )]
+    #[must_use]
+    pub(in crate::db) const fn new_initial_with_write_policy_and_origin(
+        id: FieldId,
+        name: String,
+        slot: SchemaFieldSlot,
+        kind: AcceptedFieldKind,
+        nested_leaves: Vec<PersistedNestedLeafSnapshot>,
+        nullable: bool,
+        insert_default: SchemaInsertDefault,
+        write_policy: SchemaFieldWritePolicy,
+        origin: PersistedFieldOrigin,
+        storage_decode: FieldStorageDecode,
+        leaf_codec: LeafCodec,
+    ) -> Self {
+        Self::new_with_write_policy_and_origin(
+            id,
+            name,
+            slot,
+            kind,
+            nested_leaves,
+            nullable,
+            RowLayoutVersion::INITIAL,
+            insert_default,
+            SchemaHistoricalFill::Reject,
+            write_policy,
+            origin,
             storage_decode,
             leaf_codec,
         )
@@ -1133,7 +1209,9 @@ impl PersistedFieldSnapshot {
         kind: AcceptedFieldKind,
         nested_leaves: Vec<PersistedNestedLeafSnapshot>,
         nullable: bool,
-        default: SchemaFieldDefault,
+        introduced_in_layout: RowLayoutVersion,
+        insert_default: SchemaInsertDefault,
+        historical_fill: SchemaHistoricalFill,
         write_policy: SchemaFieldWritePolicy,
         storage_decode: FieldStorageDecode,
         leaf_codec: LeafCodec,
@@ -1145,7 +1223,9 @@ impl PersistedFieldSnapshot {
             kind,
             nested_leaves,
             nullable,
-            default,
+            introduced_in_layout,
+            insert_default,
+            historical_fill,
             write_policy,
             PersistedFieldOrigin::Generated,
             storage_decode,
@@ -1166,7 +1246,9 @@ impl PersistedFieldSnapshot {
         kind: AcceptedFieldKind,
         nested_leaves: Vec<PersistedNestedLeafSnapshot>,
         nullable: bool,
-        default: SchemaFieldDefault,
+        introduced_in_layout: RowLayoutVersion,
+        insert_default: SchemaInsertDefault,
+        historical_fill: SchemaHistoricalFill,
         write_policy: SchemaFieldWritePolicy,
         origin: PersistedFieldOrigin,
         storage_decode: FieldStorageDecode,
@@ -1179,7 +1261,9 @@ impl PersistedFieldSnapshot {
             kind,
             nested_leaves,
             nullable,
-            default,
+            introduced_in_layout,
+            insert_default,
+            historical_fill,
             write_policy,
             origin,
             storage_decode,
@@ -1223,16 +1307,30 @@ impl PersistedFieldSnapshot {
         self.nullable
     }
 
-    /// Return the database-level default contract for this field.
+    /// Return the layout version that first physically contained this field.
     #[must_use]
-    pub(in crate::db) const fn default(&self) -> &SchemaFieldDefault {
-        &self.default
+    pub(in crate::db) const fn introduced_in_layout(&self) -> RowLayoutVersion {
+        self.introduced_in_layout
     }
 
-    /// Return a copy of this field with an updated database-level default.
+    /// Return the future insertion-default contract for this field.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
-    pub(in crate::db) fn clone_with_default(&self, default: SchemaFieldDefault) -> Self {
+    pub(in crate::db) const fn insert_default(&self) -> &SchemaInsertDefault {
+        &self.insert_default
+    }
+
+    /// Return the frozen historical-absence contract for this field.
+    #[must_use]
+    pub(in crate::db) const fn historical_fill(&self) -> &SchemaHistoricalFill {
+        &self.historical_fill
+    }
+
+    /// Return a copy of this field with an updated future insertion default.
+    #[must_use]
+    pub(in crate::db) fn clone_with_insert_default(
+        &self,
+        insert_default: SchemaInsertDefault,
+    ) -> Self {
         Self {
             id: self.id,
             name: self.name.clone(),
@@ -1240,26 +1338,9 @@ impl PersistedFieldSnapshot {
             kind: self.kind.clone(),
             nested_leaves: self.nested_leaves.clone(),
             nullable: self.nullable,
-            default,
-            write_policy: self.write_policy,
-            origin: self.origin,
-            storage_decode: self.storage_decode,
-            leaf_codec: self.leaf_codec,
-        }
-    }
-
-    /// Return a copy of this field with an updated nullability contract.
-    #[must_use]
-    #[cfg(any(test, feature = "sql"))]
-    pub(in crate::db) fn clone_with_nullable(&self, nullable: bool) -> Self {
-        Self {
-            id: self.id,
-            name: self.name.clone(),
-            slot: self.slot,
-            kind: self.kind.clone(),
-            nested_leaves: self.nested_leaves.clone(),
-            nullable,
-            default: self.default.clone(),
+            introduced_in_layout: self.introduced_in_layout,
+            insert_default,
+            historical_fill: self.historical_fill.clone(),
             write_policy: self.write_policy,
             origin: self.origin,
             storage_decode: self.storage_decode,
@@ -1278,7 +1359,9 @@ impl PersistedFieldSnapshot {
             kind: self.kind.clone(),
             nested_leaves: self.nested_leaves.clone(),
             nullable: self.nullable,
-            default: self.default.clone(),
+            introduced_in_layout: self.introduced_in_layout,
+            insert_default: self.insert_default.clone(),
+            historical_fill: self.historical_fill.clone(),
             write_policy: self.write_policy,
             origin: self.origin,
             storage_decode: self.storage_decode,
@@ -1297,12 +1380,31 @@ impl PersistedFieldSnapshot {
             kind: self.kind.clone(),
             nested_leaves: self.nested_leaves.clone(),
             nullable: self.nullable,
-            default: self.default.clone(),
+            introduced_in_layout: self.introduced_in_layout,
+            insert_default: self.insert_default.clone(),
+            historical_fill: self.historical_fill.clone(),
             write_policy: self.write_policy,
             origin: self.origin,
             storage_decode: self.storage_decode,
             leaf_codec: self.leaf_codec,
         }
+    }
+
+    /// Return a densely reassigned field after an exact full-layout rewrite.
+    ///
+    /// Once the accepted history floor advances to the rewritten layout, no
+    /// admitted row may omit this retained field, so historical fill becomes
+    /// `Reject` independently of its future insertion default.
+    #[must_use]
+    #[cfg(any(test, feature = "sql"))]
+    pub(in crate::db) fn clone_for_full_layout_rewrite(
+        &self,
+        id: FieldId,
+        slot: SchemaFieldSlot,
+    ) -> Self {
+        let mut field = self.clone_with_identity(id, slot);
+        field.historical_fill = SchemaHistoricalFill::Reject;
+        field
     }
 
     /// Return the accepted database-level write policy for this field.
@@ -1387,33 +1489,57 @@ impl PersistedNestedLeafSnapshot {
 }
 
 ///
-/// SchemaFieldDefault
+/// SchemaInsertDefault
 ///
-/// Database-level default contract for one persisted field.
-/// Defaults are stored as already-validated slot payload bytes instead of as
-/// runtime `Value` data so persisted schema metadata remains tied to field
-/// codecs rather than to the query/runtime value union.
+/// Canonical accepted payload used only to resolve future insert omission or
+/// an explicit supported default request. It never owns historical row decode.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) enum SchemaFieldDefault {
+pub(in crate::db) enum SchemaInsertDefault {
     None,
     SlotPayload(Vec<u8>),
 }
 
-impl SchemaFieldDefault {
-    /// Return whether this field declares no database-level default.
+impl SchemaInsertDefault {
+    /// Return whether this field declares no future insertion default.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn is_none(&self) -> bool {
         matches!(self, Self::None)
     }
 
-    /// Borrow the encoded slot payload for a persisted database default.
+    /// Borrow the encoded slot payload for a future insertion default.
     #[must_use]
     pub(in crate::db) const fn slot_payload(&self) -> Option<&[u8]> {
         match self {
             Self::None => None,
             Self::SlotPayload(bytes) => Some(bytes.as_slice()),
+        }
+    }
+}
+
+///
+/// SchemaHistoricalFill
+///
+/// Frozen accepted response to physical absence in an admitted older row
+/// layout. This fact remains independent when the insertion default changes.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum SchemaHistoricalFill {
+    Reject,
+    Null,
+    SlotPayload(Vec<u8>),
+}
+
+impl SchemaHistoricalFill {
+    /// Borrow the canonical payload when historical absence owns one.
+    #[must_use]
+    pub(in crate::db) const fn slot_payload(&self) -> Option<&[u8]> {
+        match self {
+            Self::Reject | Self::Null => None,
+            Self::SlotPayload(payload) => Some(payload.as_slice()),
         }
     }
 }

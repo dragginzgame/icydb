@@ -49,15 +49,13 @@ pub(super) fn analyze_entity_schema_fields(
 
     for (name, accepted_field) in &accepted_fields {
         match generated_fields.get(name) {
-            Some(generated_field) if *generated_field == *accepted_field => {}
+            Some(generated_field) if fields_match(generated_field, accepted_field) => {}
             Some(generated_field) => {
                 mismatches += 1;
                 if generated_field.nullable() != accepted_field.nullable() {
                     nullability_mismatches += 1;
                 }
-                if field_default_signature(generated_field)
-                    != field_default_signature(accepted_field)
-                {
+                if !field_defaults_match(generated_field, accepted_field) {
                     default_mismatches += 1;
                 }
                 mismatch_rows.push(schema_check_detail_row(
@@ -115,7 +113,7 @@ pub(super) fn analyze_entity_schema_fields(
 
 fn field_signature(field: &EntityFieldDescription) -> String {
     format!(
-        "{}:{}:{}:{}:{}:{}:{}",
+        "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
         field.name(),
         field
             .slot()
@@ -125,12 +123,41 @@ fn field_signature(field: &EntityFieldDescription) -> String {
         yes_no(field.primary_key()),
         yes_no(field.queryable()),
         field.origin(),
+        field.insert_omission().unwrap_or("-"),
+        field.insert_default().unwrap_or("-"),
+        field
+            .insert_default_bytes()
+            .map_or_else(|| "-".to_string(), |bytes| bytes.to_string()),
+        field.insert_default_hash().unwrap_or("-"),
+        field
+            .introduced_in_layout()
+            .map_or_else(|| "-".to_string(), |layout| layout.to_string()),
+        field.historical_fill().unwrap_or("-"),
+        field
+            .historical_fill_bytes()
+            .map_or_else(|| "-".to_string(), |bytes| bytes.to_string()),
+        field.historical_fill_hash().unwrap_or("-"),
     )
 }
 
-fn field_default_signature(field: &EntityFieldDescription) -> &str {
-    field
-        .kind()
-        .split_once(" default=")
-        .map_or("", |(_, default)| default)
+fn fields_match(generated: &EntityFieldDescription, accepted: &EntityFieldDescription) -> bool {
+    generated.name() == accepted.name()
+        && generated.slot() == accepted.slot()
+        && generated.kind() == accepted.kind()
+        && generated.nullable() == accepted.nullable()
+        && generated.primary_key() == accepted.primary_key()
+        && generated.queryable() == accepted.queryable()
+        && generated.origin() == accepted.origin()
+        && generated.insert_omission() == accepted.insert_omission()
+        && field_defaults_match(generated, accepted)
+}
+
+fn field_defaults_match(
+    generated: &EntityFieldDescription,
+    accepted: &EntityFieldDescription,
+) -> bool {
+    match generated.insert_default_hash() {
+        Some(generated_hash) => accepted.insert_default_hash() == Some(generated_hash),
+        None => generated.insert_default() == accepted.insert_default(),
+    }
 }

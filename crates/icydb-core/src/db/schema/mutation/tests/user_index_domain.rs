@@ -103,6 +103,129 @@ fn complete_domain_stage_rejects_physical_before_projection_mismatch() {
 }
 
 #[test]
+fn complete_domain_stage_uses_candidate_logical_rows_for_new_index_fields() {
+    let before = base_snapshot();
+    let added_field = nullable_text_field("nickname", 3, 2);
+    let added = append_fields_snapshot(&before, std::slice::from_ref(&added_field));
+    let nickname_index = PersistedIndexSnapshot::new(
+        1,
+        "by_nickname".to_string(),
+        STORE_PATH.to_string(),
+        false,
+        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+            FieldId::new(3),
+            SchemaFieldSlot::new(2),
+            vec!["nickname".to_string()],
+            AcceptedFieldKind::Text { max_len: None },
+            true,
+        )]),
+        None,
+    );
+    let after = snapshot_with_indexes(&added, vec![nickname_index]);
+    let accepted_before_slots = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Ada".to_string()))],
+    };
+    let accepted_after_slots = RebuildSlotReader {
+        values: vec![
+            None,
+            Some(Value::Text("Ada".to_string())),
+            Some(Value::Text("historical".to_string())),
+        ],
+    };
+    let row = super::SchemaUserIndexDomainRow::new(
+        PrimaryKeyComponent::Nat64(1),
+        &accepted_before_slots,
+        &accepted_after_slots,
+        32,
+    );
+    let store = IndexStore::init_heap();
+
+    let staged = stage_domain(
+        accepted_identity(&before),
+        &before,
+        &after,
+        None,
+        [row],
+        &store,
+    )
+    .unwrap_or_else(|_| panic!("candidate logical row should supply the new indexed field"));
+
+    assert_eq!(staged.usage().accepted_before_entries(), 0);
+    assert_eq!(staged.usage().accepted_after_entries(), 1);
+    assert_eq!(staged.final_entries().len(), 1);
+}
+
+#[test]
+fn complete_domain_stage_rejects_unique_collision_from_candidate_logical_fill() {
+    let before = base_snapshot();
+    let added_field = nullable_text_field("nickname", 3, 2);
+    let added = append_fields_snapshot(&before, std::slice::from_ref(&added_field));
+    let unique_nickname = PersistedIndexSnapshot::new(
+        1,
+        "unique_nickname".to_string(),
+        STORE_PATH.to_string(),
+        true,
+        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+            FieldId::new(3),
+            SchemaFieldSlot::new(2),
+            vec!["nickname".to_string()],
+            AcceptedFieldKind::Text { max_len: None },
+            true,
+        )]),
+        None,
+    );
+    let after = snapshot_with_indexes(&added, vec![unique_nickname]);
+    let first_before = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Ada".to_string()))],
+    };
+    let second_before = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Grace".to_string()))],
+    };
+    let first_after = RebuildSlotReader {
+        values: vec![
+            None,
+            Some(Value::Text("Ada".to_string())),
+            Some(Value::Text("historical".to_string())),
+        ],
+    };
+    let second_after = RebuildSlotReader {
+        values: vec![
+            None,
+            Some(Value::Text("Grace".to_string())),
+            Some(Value::Text("historical".to_string())),
+        ],
+    };
+    let first = super::SchemaUserIndexDomainRow::new(
+        PrimaryKeyComponent::Nat64(1),
+        &first_before,
+        &first_after,
+        32,
+    );
+    let second = super::SchemaUserIndexDomainRow::new(
+        PrimaryKeyComponent::Nat64(2),
+        &second_before,
+        &second_after,
+        32,
+    );
+    let store = IndexStore::init_heap();
+
+    let result = stage_domain(
+        accepted_identity(&before),
+        &before,
+        &after,
+        None,
+        [first, second],
+        &store,
+    );
+
+    assert!(matches!(
+        result,
+        Err(super::StagedUserIndexDomainError::CandidateUniqueConflict { .. }),
+    ));
+    assert!(store.is_empty());
+}
+
+#[test]
 fn complete_domain_stage_rejects_index_owned_by_another_store() {
     let before = base_snapshot();
     let foreign_index = PersistedIndexSnapshot::new(
@@ -310,6 +433,7 @@ fn stage_domain<'a>(
         before,
         after,
         row_contract,
+        row_contract,
         store,
     )?;
     for row in rows {
@@ -319,7 +443,7 @@ fn stage_domain<'a>(
 }
 
 fn domain_row(primary_key: u64, slots: &RebuildSlotReader) -> super::SchemaUserIndexDomainRow<'_> {
-    super::SchemaUserIndexDomainRow::new(PrimaryKeyComponent::Nat64(primary_key), slots, 32)
+    super::SchemaUserIndexDomainRow::new(PrimaryKeyComponent::Nat64(primary_key), slots, slots, 32)
 }
 
 fn domain_field_index(ordinal: u16, name: &str, unique: bool) -> PersistedIndexSnapshot {

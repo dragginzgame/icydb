@@ -389,8 +389,8 @@ define_error_code_registry! {
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::InvalidAlterColumnDefault });
     SCHEMA_DDL_GENERATED_INDEX_DROP_REJECTED = 124 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::GeneratedIndexDropRejected });
-    SCHEMA_DDL_REQUIRED_DROP_DEFAULT_UNSUPPORTED = 125 => SchemaDdlAdmission,
-        detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::RequiredDropDefaultUnsupported });
+    SCHEMA_DDL_REWRITE_REQUIRES_MIGRATION = 125 => SchemaDdlAdmission,
+        detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::SchemaRewriteRequiresMigration });
     SCHEMA_DDL_GENERATED_FIELD_DEFAULT_CHANGE_REJECTED = 126 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::GeneratedFieldDefaultChangeRejected });
     SCHEMA_DDL_GENERATED_FIELD_NULLABILITY_CHANGE_REJECTED = 127 => SchemaDdlAdmission,
@@ -523,4 +523,23 @@ define_error_code_registry! {
         detail(QueryReadAdmission { reason: QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy });
     QUERY_READ_PRIMARY_KEY_INPUT_EXCEEDS_POLICY = 190 => QueryReadAdmission,
         detail(QueryReadAdmission { reason: QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy });
+
+    SCHEMA_DDL_ROW_LAYOUT_VERSION_EXHAUSTED = 191 => SchemaDdlAdmission,
+        detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::RowLayoutVersionExhausted });
+    SCHEMA_DDL_TRANSITION_BUDGET_EXCEEDED = 192 => SchemaDdlAdmission,
+        detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::SchemaTransitionBudgetExceeded });
+    SQL_WRITE_INSERT_DEFAULT_REQUIRED_FIELD = 193 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::InsertDefaultRequiredField });
+    SQL_WRITE_UPDATE_DEFAULT_REQUIRED_FIELD = 194 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::UpdateDefaultRequiredField });
+    SQL_WRITE_UPDATE_DEFAULT_DATABASE_OWNED_FIELD = 195 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::UpdateDefaultDatabaseOwnedField });
+    RUNTIME_BOUNDARY_MUTATION_REQUIRED_FIELD_MISSING = 196 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationRequiredFieldMissing });
+    RUNTIME_BOUNDARY_PERSISTED_ROW_LAYOUT_OUTSIDE_ACCEPTED_WINDOW = 197 => RuntimeCorruption,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::PersistedRowLayoutOutsideAcceptedWindow });
+    RUNTIME_BOUNDARY_PERSISTED_ROW_SLOT_COUNT_MISMATCH = 198 => RuntimeCorruption,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::PersistedRowSlotCountMismatch });
+    RUNTIME_BOUNDARY_GENERATED_FIELD_AFTER_DDL_FIELD = 199 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::GeneratedFieldAfterDdlField });
 }

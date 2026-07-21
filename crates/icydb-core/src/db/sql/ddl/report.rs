@@ -88,7 +88,7 @@ impl SqlDdlPreparationReport {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SqlDdlMutationKind {
     AddDefaultedField,
-    AddNullableField,
+    AddField,
     SetFieldDefault,
     DropFieldDefault,
     SetFieldNotNull,
@@ -106,7 +106,7 @@ impl SqlDdlMutationKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::AddDefaultedField => "add_defaulted_field",
-            Self::AddNullableField => "add_nullable_field",
+            Self::AddField => "add_field",
             Self::SetFieldDefault => "set_field_default",
             Self::DropFieldDefault => "drop_field_default",
             Self::SetFieldNotNull => "set_field_not_null",
@@ -147,8 +147,8 @@ impl SqlDdlExecutionStatus {
 pub(in crate::db) fn ddl_preparation_report(bound: &BoundSqlDdlRequest) -> SqlDdlPreparationReport {
     match bound.statement() {
         BoundSqlDdlStatement::AddColumn(add) => SqlDdlPreparationReport {
-            mutation_kind: if add.field().default().is_none() {
-                SqlDdlMutationKind::AddNullableField
+            mutation_kind: if add.field().insert_default().is_none() {
+                SqlDdlMutationKind::AddField
             } else {
                 SqlDdlMutationKind::AddDefaultedField
             },

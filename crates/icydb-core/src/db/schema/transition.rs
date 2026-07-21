@@ -27,7 +27,8 @@ pub(in crate::db::schema) use admission::{
 use compatibility::{
     accepted_snapshot_extends_generated_indexes,
     accepted_snapshot_extends_generated_with_ddl_fields, accepted_snapshot_matches_generated_shape,
-    field_has_supported_missing_absence_policy, generated_index_names_only_changed,
+    field_has_supported_historical_fill, generated_field_defaults_only_changed,
+    generated_field_follows_accepted_ddl_extension, generated_index_names_only_changed,
 };
 
 #[cfg(test)]
@@ -74,8 +75,9 @@ pub(in crate::db::schema) enum SchemaTransitionDecision {
 pub(in crate::db::schema) enum SchemaTransitionPlanKind {
     AddExpressionIndex,
     AddFieldPathIndex,
-    AppendOnlyNullableFields,
+    AppendOnlyFields,
     ExactMatch,
+    MetadataOnlyFieldDefault,
     MetadataOnlyIndexRename,
 }
 
@@ -163,6 +165,7 @@ pub(in crate::db::schema) enum SchemaTransitionRejectionDetailCode {
     EntityPath,
     EntityName,
     PrimaryKeyFields,
+    GeneratedFieldAfterDdlField { field_index: usize },
     UnsupportedAdditiveField { field_index: usize },
     UnsupportedRemovedField { field_index: usize },
     RowLayout,
@@ -210,6 +213,11 @@ impl SchemaTransitionRejectionDetail {
     const fn as_str(&self) -> &str {
         self.rich.as_str()
     }
+
+    // Return the compact first-difference code used by runtime error mapping.
+    pub(in crate::db::schema) const fn code(&self) -> SchemaTransitionRejectionDetailCode {
+        self.code
+    }
 }
 
 ///
@@ -247,6 +255,11 @@ impl SchemaTransitionRejection {
         self.kind
     }
 
+    // Return the compact first-difference code for typed runtime mapping.
+    pub(in crate::db::schema) const fn detail_code(&self) -> SchemaTransitionRejectionDetailCode {
+        self.detail.code()
+    }
+
     // Borrow the first rejected transition detail for final error formatting.
     #[cfg(test)]
     pub(in crate::db::schema) const fn detail(&self) -> &str {
@@ -273,6 +286,13 @@ pub(in crate::db::schema) fn decide_schema_transition(
     if generated_index_names_only_changed(actual, expected) {
         return SchemaTransitionDecision::Accepted(SchemaTransitionPlan::from_mutation_request(
             SchemaTransitionPlanKind::MetadataOnlyIndexRename,
+            SchemaMutationRequest::ExactMatch,
+        ));
+    }
+
+    if generated_field_defaults_only_changed(actual, expected) {
+        return SchemaTransitionDecision::Accepted(SchemaTransitionPlan::from_mutation_request(
+            SchemaTransitionPlanKind::MetadataOnlyFieldDefault,
             SchemaMutationRequest::ExactMatch,
         ));
     }
@@ -308,13 +328,13 @@ pub(in crate::db::schema) fn decide_schema_transition(
             );
         }
         Some(SchemaMutationRequest::AppendOnlyFields(added_fields))
-            if added_fields
-                .iter()
-                .all(field_has_supported_missing_absence_policy) =>
+            if added_fields.iter().all(|field| {
+                field_has_supported_historical_fill(field, expected.row_layout().history_floor())
+            }) =>
         {
             return SchemaTransitionDecision::Accepted(
                 SchemaTransitionPlan::from_mutation_request(
-                    SchemaTransitionPlanKind::AppendOnlyNullableFields,
+                    SchemaTransitionPlanKind::AppendOnlyFields,
                     SchemaMutationRequest::AppendOnlyFields(added_fields),
                 ),
             );
@@ -417,6 +437,19 @@ fn schema_snapshot_structural_mismatch_detail(
         );
     }
 
+    if let Some(field_index) = generated_field_follows_accepted_ddl_extension(actual, expected) {
+        return (
+            SchemaTransitionRejectionKind::FieldSlot,
+            transition_detail!(
+                SchemaTransitionRejectionDetailCode::GeneratedFieldAfterDdlField { field_index },
+                format!(
+                    "generated field[{field_index}] '{}' cannot claim a slot already owned by accepted SQL DDL",
+                    expected.fields()[field_index].name(),
+                )
+            ),
+        );
+    }
+
     if let Some(detail) = unsupported_generated_additive_field_detail(actual, expected) {
         return (SchemaTransitionRejectionKind::FieldContract, detail);
     }
@@ -464,9 +497,9 @@ fn schema_snapshot_structural_mismatch_detail(
     )
 }
 
-// Detect an append-only additive-field transition shape that still cannot be
-// accepted. Nullable no-default additions are accepted earlier; this diagnostic
-// names additive fields whose absence policy is not supported yet.
+// Detect a freshly versioned append-only candidate whose historical-fill
+// contract still cannot be accepted. Unlowered generated proposals fail the
+// row-layout boundary before reaching this diagnostic.
 fn unsupported_generated_additive_field_detail(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
@@ -494,7 +527,7 @@ fn unsupported_generated_additive_field_detail(
                 field.name(),
                 field.kind(),
                 field.nullable(),
-                field.default(),
+                field.insert_default(),
             )
         }
     ))
@@ -565,14 +598,18 @@ fn row_layout_mismatch_detail(
         let stored_count = actual.row_layout().field_to_slot().len();
         let generated_count = expected.row_layout().field_to_slot().len();
         let prefix = format!(
-            "row layout changed: stored_version={} generated_version={} stored_fields={} generated_fields={}",
-            actual.row_layout().version().get(),
-            expected.row_layout().version().get(),
+            "row layout changed: stored_current={} generated_current={} stored_floor={} generated_floor={} stored_fields={} generated_fields={}",
+            actual.row_layout().current_version().get(),
+            expected.row_layout().current_version().get(),
+            actual.row_layout().history_floor().get(),
+            expected.row_layout().history_floor().get(),
             stored_count,
             generated_count,
         );
 
-        if actual.row_layout().version() != expected.row_layout().version() {
+        if actual.row_layout().current_version() != expected.row_layout().current_version()
+            || actual.row_layout().history_floor() != expected.row_layout().history_floor()
+        {
             prefix
         } else if let Some(detail) = row_layout_first_pair_mismatch_detail(actual, expected) {
             format!("{prefix}; {detail}")
@@ -886,15 +923,15 @@ fn field_snapshot_storage_mismatch_detail(
         ));
     }
 
-    if actual.default() != expected.default() {
+    if actual.insert_default() != expected.insert_default() {
         return Some((
             SchemaTransitionRejectionKind::FieldContract,
             transition_detail!(
                 SchemaTransitionRejectionDetailCode::FieldDefault { field_index: index },
                 format!(
                     "field[{index}] default changed: stored={:?} generated={:?}",
-                    actual.default(),
-                    expected.default(),
+                    actual.insert_default(),
+                    expected.insert_default(),
                 )
             ),
         ));

@@ -180,7 +180,10 @@ fn input_value_impl_tokens(def: &Def, conversion: TokenStream) -> TokenStream {
     }
 }
 
-fn owned_value_to_input_expr(value: &crate::node::Value, access: TokenStream) -> TokenStream {
+pub(crate) fn owned_value_to_input_expr(
+    value: &crate::node::Value,
+    access: TokenStream,
+) -> TokenStream {
     match value.cardinality() {
         Cardinality::One => quote!(::icydb::__macro::InputValue::from(#access)),
         Cardinality::Opt => quote! {

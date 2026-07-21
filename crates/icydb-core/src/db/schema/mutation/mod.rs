@@ -5,20 +5,23 @@
 
 use crate::db::schema::PersistedFieldSnapshot;
 
+mod budget;
+pub(in crate::db) use budget::{SchemaTransitionSourceBudget, SchemaTransitionSourceBudgetError};
+
 #[cfg(feature = "sql")]
 mod field;
 #[cfg(feature = "sql")]
 pub(in crate::db) use field::{
     SchemaDdlFieldDefaultCandidateError, SchemaDdlFieldDropCandidateError,
     SchemaDdlFieldNullabilityCandidateError, SchemaDdlFieldRenameCandidateError,
-    SchemaFieldAdditionTarget, SchemaFieldDefaultTarget, SchemaFieldDropTarget,
-    SchemaFieldNullabilityTarget, SchemaFieldRenameTarget,
+    SchemaFieldAdditionTarget, SchemaFieldDropTarget, SchemaFieldNullabilityTarget,
+    SchemaFieldRenameTarget, SchemaInsertDefaultTarget,
     derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
     derive_sql_ddl_field_drop_accepted_after, derive_sql_ddl_field_nullability_accepted_after,
-    derive_sql_ddl_field_rename_accepted_after, resolve_sql_ddl_field_drop_candidate,
-    resolve_sql_ddl_field_drop_default_candidate, resolve_sql_ddl_field_nullability_candidate,
-    resolve_sql_ddl_field_rename_candidate, resolve_sql_ddl_field_set_default_candidate,
-    validate_sql_ddl_field_default_change_candidate,
+    derive_sql_ddl_field_nullability_persisted_after, derive_sql_ddl_field_rename_accepted_after,
+    resolve_sql_ddl_field_drop_candidate, resolve_sql_ddl_field_drop_default_candidate,
+    resolve_sql_ddl_field_nullability_candidate, resolve_sql_ddl_field_rename_candidate,
+    resolve_sql_ddl_field_set_default_candidate, validate_sql_ddl_field_default_change_candidate,
 };
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use field::{
@@ -76,6 +79,11 @@ mod delta;
 )]
 pub(in crate::db::schema) use delta::{
     SchemaMutationDelta, classify_schema_mutation_delta, schema_mutation_request_for_snapshots,
+};
+
+mod generated_candidate;
+pub(in crate::db::schema) use generated_candidate::{
+    GeneratedAcceptedCandidateError, derive_generated_accepted_candidate,
 };
 
 #[cfg(feature = "sql")]

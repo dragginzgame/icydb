@@ -3,13 +3,13 @@ use super::{
     reject_explicit_sql_write_to_managed_field, require_sql_write_policy_plan,
     sql_update_candidate_bounds, sql_write_input_for_accepted_field,
     sql_write_key_from_component_literals, sql_write_key_from_literal,
-    sql_write_patch_set_accepted_field,
+    sql_write_patch_set_accepted_field, sql_write_patch_set_update_default,
 };
 use crate::{
     db::{
         DbSession, MissingRowPolicy, PersistedRow, QueryError,
-        data::AuthoredStructuralPatch,
-        executor::MutationMode,
+        data::AcceptedMutationIntentPatch,
+        executor::{MutationMode, StructuralMutationTargetKey},
         query::intent::StructuralQuery,
         schema::{AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField},
         session::{
@@ -22,7 +22,7 @@ use crate::{
         },
         sql::{
             lowering::bind_sql_update_selector_query_structural_with_schema,
-            parser::SqlUpdateStatement,
+            parser::{SqlUpdateStatement, SqlWriteValue},
         },
     },
     entity::EntityKind,
@@ -38,28 +38,42 @@ impl<C: CanisterKind> DbSession<C> {
     fn sql_structural_patch(
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         statement: &SqlUpdateStatement,
-    ) -> Result<AuthoredStructuralPatch, QueryError> {
-        let mut patch = AuthoredStructuralPatch::new();
+    ) -> Result<AcceptedMutationIntentPatch, QueryError> {
+        let mut patch = AcceptedMutationIntentPatch::new();
         for assignment in &statement.assignments {
             if descriptor.is_primary_key_field_name(assignment.field.as_str()) {
                 return Err(QueryError::sql_write_boundary(
                     SqlWriteBoundaryCode::UpdatePrimaryKeyMutation,
                 ));
             }
-            reject_explicit_sql_write_to_generated_field(descriptor, assignment.field.as_str())?;
-            reject_explicit_sql_write_to_managed_field(descriptor, assignment.field.as_str())?;
-            let input = sql_write_input_for_accepted_field(
-                descriptor,
-                assignment.field.as_str(),
-                &assignment.value,
-            )?;
-
-            patch = sql_write_patch_set_accepted_field(
-                descriptor,
-                patch,
-                assignment.field.as_str(),
-                input,
-            )?;
+            patch = match &assignment.value {
+                SqlWriteValue::Literal(value) => {
+                    reject_explicit_sql_write_to_generated_field(
+                        descriptor,
+                        assignment.field.as_str(),
+                    )?;
+                    reject_explicit_sql_write_to_managed_field(
+                        descriptor,
+                        assignment.field.as_str(),
+                    )?;
+                    let input = sql_write_input_for_accepted_field(
+                        descriptor,
+                        assignment.field.as_str(),
+                        value,
+                    )?;
+                    sql_write_patch_set_accepted_field(
+                        descriptor,
+                        patch,
+                        assignment.field.as_str(),
+                        input,
+                    )?
+                }
+                SqlWriteValue::Default => sql_write_patch_set_update_default(
+                    descriptor,
+                    patch,
+                    assignment.field.as_str(),
+                )?,
+            };
         }
 
         Ok(patch)
@@ -157,7 +171,7 @@ impl<C: CanisterKind> DbSession<C> {
                             let key =
                                 Self::sql_write_key_from_projected_row::<E>(&descriptor, row)?;
 
-                            Ok((key, patch.clone()))
+                            Ok((StructuralMutationTargetKey::expected(key), patch.clone()))
                         },
                     )?;
                 self.execute_sql_write_mutation_batch::<E>(

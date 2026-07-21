@@ -4,6 +4,7 @@ mod tests {
     use crate::test::{List, Map, Set};
     use icydb::__macro::FieldTypeMeta;
     use icydb::model::field::{CompositeCodec, CompositeShapeModel, FieldKind};
+    use icydb::traits::EntityCreateInput;
     use icydb::types::Principal;
 
     #[record(
@@ -219,5 +220,17 @@ mod tests {
         let create = ExplicitDefaultEntity_Create::default();
         assert_eq!(create.label, None);
         assert_eq!(create.note, None);
+        assert!(
+            EntityCreateInput::into_authored_fields(create).is_empty(),
+            "an empty create DTO must preserve omission for accepted-schema resolution",
+        );
+
+        let authored = ExplicitDefaultEntity_Create {
+            label: Some("authored".to_string()),
+            ..Default::default()
+        };
+        let fields = EntityCreateInput::into_authored_fields(authored);
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].slot(), 1);
     }
 }

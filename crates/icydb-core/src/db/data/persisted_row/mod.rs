@@ -19,36 +19,32 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use canonical::encode_input_value_for_accepted_field_contract;
 pub(in crate::db) use canonical::validate_default_payload_for_accepted_field_contract;
 pub(in crate::db) use canonical::{
+    decode_admitted_value_from_accepted_field_contract,
     encode_accepted_value_ref_for_accepted_field_contract,
     encode_canonical_value_for_accepted_field_contract,
 };
+#[cfg(all(test, feature = "sql"))]
+pub(in crate::db) use contract::emit_raw_row_from_slot_payloads;
 #[cfg(test)]
 pub(in crate::db) use contract::encode_value_with_model_proposal_for_test;
 pub(in crate::db) use contract::{
     decode_runtime_value_from_accepted_field_contract, decode_runtime_value_from_row_contract,
 };
-#[cfg(feature = "sql")]
-pub(in crate::db) use patch::canonical_row_from_dense_slot_payloads;
+#[cfg(test)]
+pub(in crate::db) use patch::canonical_row_from_entity_for_model_proposal_for_test;
 pub(in crate::db) use patch::{
-    apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
-    canonical_row_from_complete_serialized_structural_patch_with_accepted_contract,
+    AcceptedFieldWriteProvenance, ResolvedAcceptedMutationRow,
     canonical_row_from_entity_with_accepted_contract,
     canonical_row_from_raw_row_with_accepted_decode_contract,
     canonical_row_from_raw_row_with_structural_contract, canonical_row_from_stored_raw_row,
     canonical_row_from_structural_slot_reader_with_accepted_contract,
     merge_non_generated_slots_into_canonical_row_with_accepted_contract,
-    serialize_complete_structural_patch_fields_with_accepted_contract,
-    serialize_structural_patch_fields_with_accepted_contract,
-};
-#[cfg(test)]
-pub(in crate::db) use patch::{
-    canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test,
-    canonical_row_from_entity_for_model_proposal_for_test,
-    materialize_entity_from_serialized_structural_patch_for_model_proposal_for_test,
+    resolve_insert_structural_patch_with_accepted_contract,
+    resolve_update_structural_patch_with_accepted_contract,
 };
 #[cfg(feature = "diagnostics")]
 pub use reader::{StructuralReadMetrics, with_structural_read_metrics};
@@ -59,8 +55,10 @@ pub(in crate::db) use reader::{
     decode_sparse_indexed_raw_row_with_contract, decode_sparse_raw_row_with_contract,
     decode_sparse_required_slot_with_contract,
 };
+pub(in crate::db) use types::{
+    AcceptedMutationFieldWriteIntent, AcceptedMutationIntentPatch, CanonicalSlotReader, FieldSlot,
+};
 pub use types::{AuthoredStructuralPatch, PersistedRow, SlotReader};
-pub(in crate::db) use types::{CanonicalSlotReader, FieldSlot, SerializedStructuralPatch};
 // These helpers remain public inside `icydb-core` because the cross-crate
 // `icydb::__macro` boundary still needs a stable path for generated code.
 pub use codec::{

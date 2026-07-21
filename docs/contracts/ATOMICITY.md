@@ -159,6 +159,19 @@ Commit markers are **authoritative**, not diagnostic.
   present, recovery publishes and folds its journal batches before read or
   mutation execution proceeds
 
+### Marker-bound schema publication
+
+A schema mutation that changes row layout or derived state prepares one
+accepted-after candidate and all row, index, and relation effects before marker
+publication. The marker binds those effects to the accepted schema identity.
+Recovery replays the prepared bytes and metadata; it does not reevaluate
+defaults, historical fills, generation, sanitizers, or mutation policy.
+
+Publication is redo-only. Rejection before the marker leaves the accepted-before
+schema and physical state authoritative; interruption after the marker is
+completed by recovery. Operation-specific rollback is not a second atomicity
+path.
+
 ---
 
 ## 5. Executor Guarantees
@@ -237,6 +250,8 @@ The following invariants are **mandatory and non-negotiable**:
 * No durable mutation before pre-commit completes successfully
 * No commit marker publication before applicable write admission and commit
   preparation complete
+* No row-layout or accepted-schema publication may be separated from its
+  marker-bound row and derived-state effects
 * No fallible work after the commit boundary
 * Apply phase must be infallible by construction
 * Commit marker application must not depend on IC trap rollback

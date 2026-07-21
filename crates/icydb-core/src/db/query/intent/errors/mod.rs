@@ -283,6 +283,27 @@ impl QueryError {
         if matches!(
             err.detail(),
             Some(ErrorDetail::Store(
+                StoreError::SchemaDdlRewriteRequiresMigration
+            ))
+        ) {
+            return Self::execute(InternalError::query_schema_ddl_admission(
+                SchemaDdlAdmissionError::SchemaRewriteRequiresMigration,
+            ));
+        }
+
+        if let Some(ErrorDetail::Store(StoreError::SchemaTransitionBudgetExceeded { resource })) =
+            err.detail()
+        {
+            return Self::execute(InternalError::query_schema_ddl_admission(
+                SchemaDdlAdmissionError::SchemaTransitionBudgetExceeded {
+                    resource: *resource,
+                },
+            ));
+        }
+
+        if matches!(
+            err.detail(),
+            Some(ErrorDetail::Store(
                 StoreError::SchemaDdlSetNotNullValidationFailed
             ))
         ) {

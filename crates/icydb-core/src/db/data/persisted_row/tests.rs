@@ -1,15 +1,11 @@
 use super::{
-    AuthoredStructuralPatch, PersistedByKindCodec, PersistedStructuralValueCodec, SlotReader,
-    apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
-    canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test,
-    canonical_row_from_complete_serialized_structural_patch_with_accepted_contract,
-    canonical_row_from_raw_row_with_structural_contract, decode_persisted_slot_payload_by_kind,
-    decode_persisted_structured_many_slot_payload, decode_persisted_structured_slot_payload,
-    decode_sparse_required_slot_with_contract, encode_persisted_slot_payload_by_kind,
-    encode_persisted_structured_many_slot_payload, encode_persisted_structured_slot_payload,
-    materialize_entity_from_serialized_structural_patch_for_model_proposal_for_test,
-    serialize_complete_structural_patch_fields_with_accepted_contract,
-    serialize_structural_patch_fields_with_accepted_contract, with_structural_read_metrics,
+    PersistedByKindCodec, PersistedStructuralValueCodec, SlotReader,
+    canonical_row_from_raw_row_with_structural_contract,
+    canonical_row_from_structural_slot_reader_with_accepted_contract,
+    decode_persisted_slot_payload_by_kind, decode_persisted_structured_many_slot_payload,
+    decode_persisted_structured_slot_payload, decode_sparse_required_slot_with_contract,
+    encode_persisted_slot_payload_by_kind, encode_persisted_structured_many_slot_payload,
+    encode_persisted_structured_slot_payload, with_structural_read_metrics,
 };
 use super::{
     codec::{ScalarSlotValueRef, ScalarValueRef, encode_scalar_slot_value},
@@ -18,7 +14,6 @@ use super::{
         encode_value_with_model_proposal_for_test,
     },
     reader::{CachedSlotValue, StructuralSlotReader},
-    types::{FieldSlot, SerializedStructuralFieldUpdate, SerializedStructuralPatch},
 };
 use crate::{
     db::key_taxonomy::PrimaryKeyComponent,
@@ -35,7 +30,8 @@ use crate::{
         predicate::{ComparePredicate, Predicate, PredicateProgram},
         schema::{
             AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
-            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
+            PersistedFieldSnapshot, PersistedSchemaSnapshot, RowLayoutVersion,
+            SchemaHistoricalFill, SchemaInsertDefault, SchemaRowLayout,
             compiled_schema_proposal_for_model,
         },
     },
@@ -54,7 +50,7 @@ use crate::{
         Account, Blob, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal,
         Subaccount, Timestamp, Ulid, Unit,
     },
-    value::{InputValue, InputValueEnum, RuntimeValueDecode, RuntimeValueEncode, Value, ValueEnum},
+    value::{RuntimeValueDecode, RuntimeValueEncode, Value, ValueEnum},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
@@ -344,11 +340,6 @@ static STATE_VARIANTS: &[EnumVariantModel] = &[EnumVariantModel::new(
     Some(&FieldKind::Nat64),
     FieldStorageDecode::ByKind,
 )];
-static DEFAULTED_STATE_VARIANTS: &[EnumVariantModel] = &[EnumVariantModel::new(
-    "Pending",
-    None,
-    FieldStorageDecode::ByKind,
-)];
 static FIELD_MODELS: [FieldModel; 2] = [
     FieldModel::generated("name", FieldKind::Text { max_len: None }),
     FieldModel::generated_with_storage_decode(
@@ -366,10 +357,6 @@ static ADDITIVE_NULLABLE_FIELD_MODELS: [FieldModel; 3] = [
         FieldStorageDecode::ByKind,
         true,
     ),
-];
-static ADDITIVE_PREFIX_FIELD_MODELS: [FieldModel; 2] = [
-    FieldModel::generated("id", FieldKind::Ulid),
-    FieldModel::generated("name", FieldKind::Text { max_len: None }),
 ];
 static ADDITIVE_REQUIRED_FIELD_MODELS: [FieldModel; 3] = [
     FieldModel::generated("id", FieldKind::Ulid),
@@ -409,24 +396,6 @@ static ENUM_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
         variants: STATE_VARIANTS,
     },
 )];
-static DEFAULTED_ENUM_FIELD_MODELS: [FieldModel; 1] = [
-    FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
-        "state",
-        FieldKind::Enum {
-            path: "tests::DefaultState",
-            variants: DEFAULTED_STATE_VARIANTS,
-        },
-        FieldStorageDecode::ByKind,
-        false,
-        None,
-        None,
-        FieldDatabaseDefault::AuthoredEnumUnit {
-            enum_path: "tests::DefaultState",
-            variant: "Pending",
-        },
-        &[],
-    ),
-];
 static ACCOUNT_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated("owner", FieldKind::Account)];
 static OPTIONAL_ACCOUNT_FIELD_MODELS: [FieldModel; 1] =
     [FieldModel::generated_with_storage_decode_and_nullability(
@@ -472,15 +441,6 @@ static ADDITIVE_NULLABLE_MODEL: EntityModel = EntityModel::generated(
     &ADDITIVE_NULLABLE_FIELD_MODELS,
     &INDEX_MODELS,
 );
-static ADDITIVE_PREFIX_MODEL: EntityModel = EntityModel::generated(
-    "tests::PersistedRowAdditiveNullableEntity",
-    "persisted_row_additive_nullable_entity",
-    1,
-    &ADDITIVE_PREFIX_FIELD_MODELS[0],
-    0,
-    &ADDITIVE_PREFIX_FIELD_MODELS,
-    &INDEX_MODELS,
-);
 static ADDITIVE_REQUIRED_MODEL: EntityModel = EntityModel::generated(
     "tests::PersistedRowAdditiveRequiredEntity",
     "persisted_row_additive_required_entity",
@@ -524,15 +484,6 @@ static ENUM_MODEL: EntityModel = EntityModel::generated(
     &ENUM_FIELD_MODELS[0],
     0,
     &ENUM_FIELD_MODELS,
-    &INDEX_MODELS,
-);
-static DEFAULTED_ENUM_MODEL: EntityModel = EntityModel::generated(
-    "tests::PersistedRowDefaultedEnumFieldCodecEntity",
-    "persisted_row_defaulted_enum_field_codec_entity",
-    1,
-    &DEFAULTED_ENUM_FIELD_MODELS[0],
-    0,
-    &DEFAULTED_ENUM_FIELD_MODELS,
     &INDEX_MODELS,
 );
 static ACCOUNT_MODEL: EntityModel = EntityModel::generated(
@@ -664,8 +615,11 @@ fn raw_row_from_dense_slot_payloads_for_tests(
     let slot_payload =
         encode_dense_slot_payload_for_tests(model, slots).expect("encode dense slot payload");
 
-    RawRow::try_new(serialize_row_payload(slot_payload).expect("serialize row payload"))
-        .expect("build raw row")
+    RawRow::try_new(
+        serialize_row_payload(crate::db::schema::RowLayoutVersion::INITIAL, slot_payload)
+            .expect("serialize row payload"),
+    )
+    .expect("build raw row")
 }
 
 // Build one accepted row-decode contract from a model proposal for tests.
@@ -673,6 +627,13 @@ fn accepted_row_decode_contract_for_model(
     model: &'static EntityModel,
 ) -> AcceptedRowDecodeContract {
     let snapshot = compiled_schema_proposal_for_model(model).initial_persisted_schema_snapshot();
+    accepted_row_decode_contract_for_snapshot(model, snapshot)
+}
+
+fn accepted_row_decode_contract_for_snapshot(
+    model: &'static EntityModel,
+    snapshot: PersistedSchemaSnapshot,
+) -> AcceptedRowDecodeContract {
     let accepted =
         AcceptedSchemaSnapshot::try_new(snapshot).expect("accepted schema fixture should validate");
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
@@ -690,41 +651,67 @@ fn accepted_row_decode_contract_for_model(
     descriptor.row_decode_contract(catalog)
 }
 
+fn accepted_additive_row_decode_contract_for_tests(
+    model: &'static EntityModel,
+    insert_default: SchemaInsertDefault,
+    historical_fill: SchemaHistoricalFill,
+) -> AcceptedRowDecodeContract {
+    let expected = compiled_schema_proposal_for_model(model).initial_persisted_schema_snapshot();
+    let current = RowLayoutVersion::INITIAL
+        .checked_next()
+        .expect("additive test layout should advance");
+    let mut fields = expected.fields().to_vec();
+    let added = &expected.fields()[2];
+    fields[2] = PersistedFieldSnapshot::new_with_write_policy(
+        added.id(),
+        added.name().to_string(),
+        added.slot(),
+        added.kind().clone(),
+        added.nested_leaves().to_vec(),
+        added.nullable(),
+        current,
+        insert_default,
+        historical_fill,
+        added.write_policy(),
+        added.storage_decode(),
+        added.leaf_codec(),
+    );
+    let snapshot = PersistedSchemaSnapshot::new(
+        expected.version(),
+        expected.entity_path().to_string(),
+        expected.entity_name().to_string(),
+        expected.first_primary_key_field_id(),
+        SchemaRowLayout::new(
+            current,
+            RowLayoutVersion::INITIAL,
+            expected.row_layout().field_to_slot().to_vec(),
+        ),
+        fields,
+    );
+
+    accepted_row_decode_contract_for_snapshot(model, snapshot)
+}
+
+fn accepted_nullable_additive_row_decode_contract_for_tests() -> AcceptedRowDecodeContract {
+    accepted_additive_row_decode_contract_for_tests(
+        &ADDITIVE_NULLABLE_MODEL,
+        SchemaInsertDefault::None,
+        SchemaHistoricalFill::Null,
+    )
+}
+
+fn accepted_nullable_additive_row_contract_for_tests() -> StructuralRowContract {
+    StructuralRowContract::from_accepted_decode_contract(
+        ADDITIVE_NULLABLE_MODEL.path(),
+        accepted_nullable_additive_row_decode_contract_for_tests(),
+    )
+}
+
 // Build one accepted structural row contract from a model proposal for tests.
 fn accepted_row_contract_for_model(model: &'static EntityModel) -> StructuralRowContract {
     StructuralRowContract::from_accepted_decode_contract(
         model.path(),
         accepted_row_decode_contract_for_model(model),
-    )
-}
-
-// Serialize one structural patch through the accepted-schema fixture contract.
-// Tests use this helper instead of the removed generated serializer so write
-// boundary coverage exercises the same authority production save paths use.
-fn serialize_structural_patch_fields_for_accepted_test_model(
-    model: &'static EntityModel,
-    patch: &AuthoredStructuralPatch,
-) -> Result<SerializedStructuralPatch, InternalError> {
-    serialize_structural_patch_fields_with_accepted_contract(
-        model.path(),
-        accepted_row_decode_contract_for_model(model),
-        patch,
-    )
-}
-
-// Replay one serialized structural patch through the accepted-schema fixture
-// contract. This keeps patch replay tests on the accepted after-image path
-// rather than preserving the old generated-row replay helper.
-fn apply_serialized_structural_patch_to_raw_row_for_accepted_test_model(
-    model: &'static EntityModel,
-    raw_row: &RawRow,
-    patch: &SerializedStructuralPatch,
-) -> Result<CanonicalRow, InternalError> {
-    apply_serialized_structural_patch_to_raw_row_with_accepted_contract(
-        model.path(),
-        accepted_row_decode_contract_for_model(model),
-        raw_row,
-        patch,
     )
 }
 
@@ -740,53 +727,19 @@ fn canonical_row_from_raw_row_for_accepted_test_model(
 }
 
 // Build one accepted row contract for the additive required-field fixture with
-// an explicit schema-owned default payload on the appended score slot.
+// the same insert-default and historical-fill payload on the appended score.
 fn accepted_defaulted_required_score_row_decode_contract_for_tests(
     score_payload: Vec<u8>,
 ) -> AcceptedRowDecodeContract {
-    let proposal = compiled_schema_proposal_for_model(&ADDITIVE_REQUIRED_MODEL);
-    let expected = proposal.initial_persisted_schema_snapshot();
-    let mut fields = expected.fields().to_vec();
-    let score = &expected.fields()[2];
-    fields[2] = PersistedFieldSnapshot::new_with_write_policy(
-        score.id(),
-        score.name().to_string(),
-        score.slot(),
-        score.kind().clone(),
-        score.nested_leaves().to_vec(),
-        score.nullable(),
-        SchemaFieldDefault::SlotPayload(score_payload),
-        score.write_policy(),
-        score.storage_decode(),
-        score.leaf_codec(),
-    );
-    let defaulted_snapshot = PersistedSchemaSnapshot::new(
-        expected.version(),
-        expected.entity_path().to_string(),
-        expected.entity_name().to_string(),
-        expected.first_primary_key_field_id(),
-        expected.row_layout().clone(),
-        fields,
-    );
-    let accepted = AcceptedSchemaSnapshot::try_new(defaulted_snapshot)
-        .expect("accepted defaulted schema fixture should validate");
-    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
-        .expect("accepted defaulted runtime contract should build");
-
-    let (catalog, composite_catalog) =
-        crate::db::schema::build_initial_accepted_catalogs_for_tests(&[&ADDITIVE_REQUIRED_MODEL])
-            .expect("accepted catalog fixture should build");
-    let catalog = crate::db::schema::AcceptedValueCatalogHandle::new_for_tests(
-        catalog,
-        composite_catalog,
-        crate::db::schema::AcceptedSchemaRevision::INITIAL,
-    );
-
-    descriptor.row_decode_contract(catalog)
+    accepted_additive_row_decode_contract_for_tests(
+        &ADDITIVE_REQUIRED_MODEL,
+        SchemaInsertDefault::SlotPayload(score_payload.clone()),
+        SchemaHistoricalFill::SlotPayload(score_payload),
+    )
 }
 
-// Build one accepted row contract for the additive required-field fixture with
-// an explicit schema-owned default payload on the appended score slot.
+// Build one accepted structural contract with matching insert and historical
+// payloads on the appended score slot.
 fn accepted_defaulted_required_score_row_contract_for_tests(
     score_payload: Vec<u8>,
 ) -> StructuralRowContract {
@@ -804,14 +757,14 @@ fn generated_default_model_with_no_accepted_default_contract_for_tests() -> Stru
     let expected = proposal.initial_persisted_schema_snapshot();
     let mut fields = expected.fields().to_vec();
     let score = &expected.fields()[2];
-    fields[2] = PersistedFieldSnapshot::new_with_write_policy(
+    fields[2] = PersistedFieldSnapshot::new_initial_with_write_policy(
         score.id(),
         score.name().to_string(),
         score.slot(),
         score.kind().clone(),
         score.nested_leaves().to_vec(),
         score.nullable(),
-        SchemaFieldDefault::None,
+        SchemaInsertDefault::None,
         score.write_policy(),
         score.storage_decode(),
         score.leaf_codec(),
@@ -867,8 +820,11 @@ fn old_two_slot_additive_raw_row_for_tests(id: Ulid) -> RawRow {
     )
     .expect("old two-slot payload should encode");
 
-    RawRow::try_new(serialize_row_payload(slot_payload).expect("old two-slot row should serialize"))
-        .expect("old two-slot row should be accepted as raw bytes")
+    RawRow::try_new(
+        serialize_row_payload(crate::db::schema::RowLayoutVersion::INITIAL, slot_payload)
+            .expect("old two-slot row should serialize"),
+    )
+    .expect("old two-slot row should be accepted as raw bytes")
 }
 
 // Build a malformed old two-slot row whose existing second slot span points
@@ -894,8 +850,23 @@ fn malformed_old_two_slot_additive_raw_row_for_tests(id: Ulid) -> RawRow {
     )
     .expect("malformed old two-slot payload should encode");
 
-    RawRow::try_new(serialize_row_payload(slot_payload).expect("malformed row should serialize"))
-        .expect("malformed old two-slot row should stay bounded raw bytes")
+    RawRow::try_new(
+        serialize_row_payload(crate::db::schema::RowLayoutVersion::INITIAL, slot_payload)
+            .expect("malformed row should serialize"),
+    )
+    .expect("malformed old two-slot row should stay bounded raw bytes")
+}
+
+fn restamp_raw_row_for_tests(raw_row: &RawRow, layout_version: RowLayoutVersion) -> RawRow {
+    let payload = decode_structural_row_payload(raw_row)
+        .expect("source row envelope should decode")
+        .into_payload()
+        .into_owned();
+
+    RawRow::try_new(
+        serialize_row_payload(layout_version, payload).expect("restamped row should serialize"),
+    )
+    .expect("restamped row should remain bounded")
 }
 
 fn assert_direct_persisted_structured_roundtrip<T>(value: T)
@@ -1593,7 +1564,7 @@ fn structural_slot_reader_and_direct_decode_share_the_same_field_codec_boundary(
 fn accepted_row_contract_reads_missing_trailing_nullable_slots_as_null() {
     let id = Ulid::from_u128(147);
     let raw_row = old_two_slot_additive_raw_row_for_tests(id);
-    let contract = accepted_row_contract_for_model(&ADDITIVE_NULLABLE_MODEL);
+    let contract = accepted_nullable_additive_row_contract_for_tests();
 
     let mut reader =
         StructuralSlotReader::from_raw_row_with_validated_contract(&raw_row, contract.clone())
@@ -1651,94 +1622,129 @@ fn accepted_row_contract_reads_missing_trailing_nullable_slots_as_null() {
 fn accepted_row_contract_reemits_canonical_rows_with_accepted_slot_count() {
     let id = Ulid::from_u128(148);
     let raw_row = old_two_slot_additive_raw_row_for_tests(id);
-    let accepted_decode_contract = accepted_row_decode_contract_for_model(&ADDITIVE_NULLABLE_MODEL);
     let contract = StructuralRowContract::from_accepted_decode_contract(
         ADDITIVE_NULLABLE_MODEL.path(),
-        accepted_decode_contract.clone(),
+        accepted_nullable_additive_row_decode_contract_for_tests(),
     );
-    let canonical_from_reader =
-        canonical_row_from_raw_row_with_structural_contract(&raw_row, &contract)
-            .expect("accepted structural contract should re-emit the current slot count");
-    let canonical_from_patch = apply_serialized_structural_patch_to_raw_row_with_accepted_contract(
-        ADDITIVE_NULLABLE_MODEL.path(),
-        accepted_decode_contract,
-        &raw_row,
-        &SerializedStructuralPatch::default(),
+    let canonical = canonical_row_from_raw_row_with_structural_contract(&raw_row, &contract)
+        .expect("accepted structural contract should re-emit the current slot count");
+    let row_payload =
+        decode_structural_row_payload(canonical.as_raw_row()).expect("decode row payload");
+    assert_eq!(
+        row_payload.layout_version(),
+        contract.current_layout_version(),
+        "canonical writeback must promote a historical row to the current layout",
+    );
+    let slot_count = u16::from_be_bytes(
+        row_payload.payload()[0..2]
+            .try_into()
+            .expect("slot count prefix should be present"),
+    );
+    let mut reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+        canonical.as_raw_row(),
+        &contract,
     )
-    .expect("accepted patch replay should re-emit the current slot count");
+    .expect("canonical accepted row should reopen through accepted contract");
 
-    for canonical in [canonical_from_reader, canonical_from_patch] {
-        let row_payload =
-            decode_structural_row_payload(canonical.as_raw_row()).expect("decode row payload");
-        let slot_count = u16::from_be_bytes(
-            row_payload.as_ref()[0..2]
-                .try_into()
-                .expect("slot count prefix should be present"),
-        );
-        let mut reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-            canonical.as_raw_row(),
-            &contract,
-        )
-        .expect("canonical accepted row should reopen through accepted contract");
-
-        assert_eq!(slot_count, 3);
-        assert_eq!(
-            reader.get_value(2).expect("accepted appended slot"),
-            Some(Value::Null),
-        );
-    }
+    assert_eq!(slot_count, 3);
+    assert_eq!(
+        reader.get_value(2).expect("accepted appended slot"),
+        Some(Value::Null),
+    );
 }
 
 #[test]
-fn accepted_row_contract_reemits_defaulted_rows_with_accepted_default() {
+fn accepted_row_contract_reemits_historically_filled_rows_with_current_layout() {
     let id = Ulid::from_u128(149);
     let score_payload =
         encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Nat(99)));
     let raw_row = old_two_slot_additive_raw_row_for_tests(id);
-    let accepted_decode_contract =
-        accepted_defaulted_required_score_row_decode_contract_for_tests(score_payload);
     let contract = StructuralRowContract::from_accepted_decode_contract(
         ADDITIVE_REQUIRED_MODEL.path(),
-        accepted_decode_contract.clone(),
+        accepted_defaulted_required_score_row_decode_contract_for_tests(score_payload),
     );
-    let canonical_from_reader =
-        canonical_row_from_raw_row_with_structural_contract(&raw_row, &contract)
-            .expect("accepted structural contract should re-emit defaulted slot count");
-    let canonical_from_patch = apply_serialized_structural_patch_to_raw_row_with_accepted_contract(
-        ADDITIVE_REQUIRED_MODEL.path(),
-        accepted_decode_contract,
-        &raw_row,
-        &SerializedStructuralPatch::default(),
+    let canonical = canonical_row_from_raw_row_with_structural_contract(&raw_row, &contract)
+        .expect("accepted structural contract should re-emit defaulted slot count");
+    let row_payload =
+        decode_structural_row_payload(canonical.as_raw_row()).expect("decode row payload");
+    assert_eq!(
+        row_payload.layout_version(),
+        contract.current_layout_version(),
+        "historical fill writeback must emit the current layout stamp",
+    );
+    let slot_count = u16::from_be_bytes(
+        row_payload.payload()[0..2]
+            .try_into()
+            .expect("slot count prefix should be present"),
+    );
+    let mut reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+        canonical.as_raw_row(),
+        &contract,
     )
-    .expect("accepted patch replay should re-emit defaulted slot count");
+    .expect("canonical accepted row should reopen through accepted contract");
 
-    for canonical in [canonical_from_reader, canonical_from_patch] {
-        let row_payload =
-            decode_structural_row_payload(canonical.as_raw_row()).expect("decode row payload");
-        let slot_count = u16::from_be_bytes(
-            row_payload.as_ref()[0..2]
-                .try_into()
-                .expect("slot count prefix should be present"),
-        );
-        let mut reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-            canonical.as_raw_row(),
-            &contract,
+    assert_eq!(slot_count, 3);
+    assert_eq!(
+        reader.get_value(2).expect("accepted defaulted slot"),
+        Some(Value::Nat64(99)),
+    );
+}
+
+#[test]
+fn accepted_native_verification_facts_preserve_one_logical_historical_row_view() {
+    let id = Ulid::from_u128(150);
+    let score_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Nat(99)));
+    let contract = accepted_defaulted_required_score_row_contract_for_tests(score_payload);
+    let historical = old_two_slot_additive_raw_row_for_tests(id);
+    let historical_reader =
+        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(&historical, &contract)
+            .expect("historical row should satisfy the accepted verification boundary");
+    let current =
+        canonical_row_from_structural_slot_reader_with_accepted_contract(&historical_reader)
+            .expect("historical logical row should emit as the current layout");
+    let current_reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+        current.as_raw_row(),
+        &contract,
+    )
+    .expect("current row should satisfy the same accepted verification boundary");
+
+    let test_constraint = |reader: &StructuralSlotReader<'_>| {
+        let name = reader.required_cached_value(1)?;
+        let score = reader.required_cached_value(2)?;
+        Ok::<bool, InternalError>(
+            name == &Value::Text("Ada".to_string()) && score == &Value::Nat64(99),
         )
-        .expect("canonical accepted row should reopen through accepted contract");
+    };
 
-        assert_eq!(slot_count, 3);
-        assert_eq!(
-            reader.get_value(2).expect("accepted defaulted slot"),
-            Some(Value::Nat64(99)),
-        );
-    }
+    assert_eq!(
+        historical_reader.stamped_layout_version(),
+        RowLayoutVersion::INITIAL,
+    );
+    assert_eq!(historical_reader.physical_slot_count(), 2);
+    assert_eq!(
+        current_reader.stamped_layout_version(),
+        contract.current_layout_version(),
+    );
+    assert_eq!(current_reader.physical_slot_count(), 3);
+    assert!(test_constraint(&historical_reader).expect("historical logical constraint view"));
+    assert!(test_constraint(&current_reader).expect("current logical constraint view"));
+    assert_eq!(
+        historical_reader
+            .required_cached_value(2)
+            .expect("historical logical score"),
+        current_reader
+            .required_cached_value(2)
+            .expect("current logical score"),
+        "frozen historical fill and equivalent physical value must expose one logical fact",
+    );
 }
 
 #[test]
 fn accepted_row_contract_validates_primary_key_with_accepted_contract() {
     let id = Ulid::from_u128(149);
     let raw_row = old_two_slot_additive_raw_row_for_tests(id);
-    let contract = accepted_row_contract_for_model(&ADDITIVE_NULLABLE_MODEL);
+    let contract = accepted_nullable_additive_row_contract_for_tests();
 
     let decoded = super::decode_dense_raw_row_with_contract(
         &raw_row,
@@ -1761,7 +1767,7 @@ fn accepted_row_contract_validates_primary_key_with_accepted_contract() {
 fn accepted_row_contract_preserves_malformed_present_slot_corruption_taxonomy() {
     let id = Ulid::from_u128(151);
     let raw_row = malformed_old_two_slot_additive_raw_row_for_tests(id);
-    let contract = accepted_row_contract_for_model(&ADDITIVE_NULLABLE_MODEL);
+    let contract = accepted_nullable_additive_row_contract_for_tests();
 
     let Err(lazy_err) =
         StructuralSlotReader::from_raw_row_with_validated_contract(&raw_row, contract.clone())
@@ -1793,7 +1799,7 @@ fn accepted_row_contract_rejects_missing_trailing_required_slots() {
 }
 
 #[test]
-fn accepted_row_contract_reads_missing_trailing_defaulted_slots_as_default() {
+fn accepted_row_contract_reads_missing_trailing_slots_from_historical_fill() {
     let id = Ulid::from_u128(46);
     let score_payload =
         encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Nat(99)));
@@ -1810,6 +1816,99 @@ fn accepted_row_contract_reads_missing_trailing_defaulted_slots_as_default() {
 }
 
 #[test]
+fn accepted_row_contract_keeps_insert_default_distinct_from_historical_fill() {
+    let current_default =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Nat(88)));
+    let historical_fill =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Nat(99)));
+    let accepted_decode_contract = accepted_additive_row_decode_contract_for_tests(
+        &ADDITIVE_REQUIRED_MODEL,
+        SchemaInsertDefault::SlotPayload(current_default),
+        SchemaHistoricalFill::SlotPayload(historical_fill),
+    );
+    let contract = StructuralRowContract::from_accepted_decode_contract(
+        ADDITIVE_REQUIRED_MODEL.path(),
+        accepted_decode_contract,
+    );
+    let raw_row = old_two_slot_additive_raw_row_for_tests(Ulid::from_u128(46));
+    let mut reader = StructuralSlotReader::from_raw_row_with_contract(&raw_row, contract.clone())
+        .expect("historical row should open through its admitted layout");
+
+    assert_eq!(
+        reader.get_value(2).expect("historical score should decode"),
+        Some(Value::Nat64(99)),
+    );
+    assert_eq!(
+        contract
+            .insert_omission_value(2)
+            .expect("future insert omission should resolve"),
+        Value::Nat64(88),
+    );
+}
+
+#[test]
+fn accepted_row_contract_rejects_future_and_below_floor_layout_stamps() {
+    let id = Ulid::from_u128(47);
+    let raw_row = old_two_slot_additive_raw_row_for_tests(id);
+    let current_contract = accepted_nullable_additive_row_contract_for_tests();
+    let future = current_contract
+        .current_layout_version()
+        .checked_next()
+        .expect("future test layout should advance");
+    let future_row = restamp_raw_row_for_tests(&raw_row, future);
+    let Err(future_error) =
+        StructuralSlotReader::from_raw_row_with_contract(&future_row, current_contract)
+    else {
+        panic!("future row layout must reject");
+    };
+
+    let expected = compiled_schema_proposal_for_model(&ADDITIVE_NULLABLE_MODEL)
+        .initial_persisted_schema_snapshot();
+    let floor = RowLayoutVersion::INITIAL
+        .checked_next()
+        .expect("floor test layout should advance");
+    let floor_snapshot = PersistedSchemaSnapshot::new(
+        expected.version(),
+        expected.entity_path().to_string(),
+        expected.entity_name().to_string(),
+        expected.first_primary_key_field_id(),
+        SchemaRowLayout::single_version(floor, expected.row_layout().field_to_slot().to_vec()),
+        expected.fields().to_vec(),
+    );
+    let floor_contract = StructuralRowContract::from_accepted_decode_contract(
+        ADDITIVE_NULLABLE_MODEL.path(),
+        accepted_row_decode_contract_for_snapshot(&ADDITIVE_NULLABLE_MODEL, floor_snapshot),
+    );
+    let Err(below_floor_error) =
+        StructuralSlotReader::from_raw_row_with_contract(&raw_row, floor_contract)
+    else {
+        panic!("row layout below accepted history floor must reject");
+    };
+
+    assert_error_taxonomy(
+        &future_error,
+        ErrorClass::Corruption,
+        ErrorOrigin::Serialize,
+    );
+    assert_error_taxonomy(
+        &below_floor_error,
+        ErrorClass::Corruption,
+        ErrorOrigin::Serialize,
+    );
+    for error in [&future_error, &below_floor_error] {
+        assert_eq!(
+            error.diagnostic().detail(),
+            Some(
+                &icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                    boundary: icydb_diagnostic_code::RuntimeBoundaryCode::
+                        PersistedRowLayoutOutsideAcceptedWindow,
+                },
+            ),
+        );
+    }
+}
+
+#[test]
 fn accepted_row_contract_ignores_generated_default_when_accepted_default_is_none() {
     let id = Ulid::from_u128(48);
     let contract = generated_default_model_with_no_accepted_default_contract_for_tests();
@@ -1822,17 +1921,25 @@ fn accepted_row_contract_ignores_generated_default_when_accepted_default_is_none
     };
 
     assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
+    assert_eq!(
+        err.diagnostic().detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+            boundary: icydb_diagnostic_code::RuntimeBoundaryCode::PersistedRowSlotCountMismatch,
+        },),
+    );
 }
 
 #[test]
-fn accepted_row_contract_rejects_malformed_missing_default_payload() {
+fn accepted_row_contract_rejects_malformed_historical_fill_payload() {
     let id = Ulid::from_u128(47);
     let contract = accepted_defaulted_required_score_row_contract_for_tests(vec![0xFE]);
     let raw_row = old_two_slot_additive_raw_row_for_tests(id);
 
-    let Err(err) = StructuralSlotReader::from_raw_row_with_contract(&raw_row, contract) else {
-        panic!("malformed schema default payload should reject old row materialization");
-    };
+    let mut reader = StructuralSlotReader::from_raw_row_with_contract(&raw_row, contract)
+        .expect("row envelope and stamped historical shape should open");
+    let err = reader
+        .get_value(2)
+        .expect_err("malformed historical fill must reject logical materialization");
 
     assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
@@ -2096,340 +2203,6 @@ fn structural_slot_reader_rejects_malformed_unused_value_storage_slot_on_first_a
 }
 
 #[test]
-fn apply_structural_patch_to_raw_row_updates_only_targeted_slots() {
-    let name_payload =
-        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
-    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
-    let raw_row = raw_row_from_dense_slot_payloads_for_tests(
-        &TEST_MODEL,
-        &[name_payload.as_slice(), payload.as_slice()],
-    );
-    let patch = AuthoredStructuralPatch::new().set(
-        FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot"),
-        Value::Text("Grace".to_string()),
-    );
-
-    let serialized = serialize_structural_patch_fields_for_accepted_test_model(&TEST_MODEL, &patch)
-        .expect("serialize patch");
-    let patched = apply_serialized_structural_patch_to_raw_row_for_accepted_test_model(
-        &TEST_MODEL,
-        &raw_row,
-        &serialized,
-    )
-    .expect("apply patch");
-    let mut reader = StructuralSlotReader::from_raw_row_with_model_proposal_for_test(
-        patched.as_raw_row(),
-        &TEST_MODEL,
-    )
-    .expect("decode row");
-
-    assert_eq!(
-        reader.get_value(0).expect("decode slot"),
-        Some(Value::Text("Grace".to_string()))
-    );
-    assert_eq!(
-        reader.get_value(1).expect("decode slot"),
-        Some(Value::Text("payload".to_string()))
-    );
-}
-
-#[test]
-fn serialize_structural_patch_fields_encodes_canonical_slot_payloads() {
-    let patch = AuthoredStructuralPatch::new()
-        .set(
-            FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot"),
-            Value::Text("Grace".to_string()),
-        )
-        .set(
-            FieldSlot::from_index(&TEST_MODEL, 1).expect("resolve slot"),
-            Value::Text("payload".to_string()),
-        );
-
-    let serialized = serialize_structural_patch_fields_for_accepted_test_model(&TEST_MODEL, &patch)
-        .expect("serialize patch");
-
-    assert_eq!(serialized.entries().len(), 2);
-    assert_eq!(
-        decode_slot_into_runtime_value(
-            &TEST_MODEL,
-            serialized.entries()[0].slot().index(),
-            serialized.entries()[0].payload(),
-        )
-        .expect("decode slot payload"),
-        Value::Text("Grace".to_string())
-    );
-    assert_eq!(
-        decode_slot_into_runtime_value(
-            &TEST_MODEL,
-            serialized.entries()[1].slot().index(),
-            serialized.entries()[1].payload(),
-        )
-        .expect("decode slot payload"),
-        Value::Text("payload".to_string())
-    );
-}
-
-#[test]
-fn serialize_structural_patch_preserves_authored_admission_classification() {
-    let patch = AuthoredStructuralPatch::new().set(
-        FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve text slot"),
-        Value::Bool(true),
-    );
-
-    let error = serialize_structural_patch_fields_for_accepted_test_model(&TEST_MODEL, &patch)
-        .expect_err("a bool must not admit into an accepted text field");
-
-    assert_error_taxonomy(&error, ErrorClass::Unsupported, ErrorOrigin::Executor);
-}
-
-#[test]
-fn serialize_authored_enum_patch_resolves_names_to_canonical_ids() {
-    let patch = AuthoredStructuralPatch::new().set(
-        FieldSlot::from_index(&ENUM_MODEL, 0).expect("resolve enum slot"),
-        InputValue::Enum(InputValueEnum::loose("Loaded").with_payload(InputValue::Nat64(7))),
-    );
-
-    let serialized = serialize_structural_patch_fields_for_accepted_test_model(&ENUM_MODEL, &patch)
-        .expect("accepted enum patch should serialize");
-
-    assert_eq!(serialized.entries().len(), 1);
-    assert_eq!(serialized.entries()[0].payload().first(), Some(&0x84));
-
-    let raw_row = raw_row_from_dense_slot_payloads_for_tests(
-        &ENUM_MODEL,
-        &[serialized.entries()[0].payload()],
-    );
-    let mut reader = StructuralSlotReader::from_raw_row_with_validated_contract(
-        &raw_row,
-        accepted_row_contract_for_model(&ENUM_MODEL),
-    )
-    .expect("canonical enum row should open through accepted authority");
-    assert_eq!(
-        reader.get_value(0).expect("canonical enum should decode"),
-        Some(Value::Enum(
-            ValueEnum::test_unit(1, 1).test_with_payload(Value::Nat64(7))
-        ))
-    );
-}
-
-#[test]
-fn serialize_structural_patch_fields_with_accepted_contract_rejects_unaccepted_slots() {
-    let accepted_decode_contract = accepted_row_decode_contract_for_model(&ADDITIVE_PREFIX_MODEL);
-    let patch = AuthoredStructuralPatch::new().set(
-        FieldSlot::from_index(&ADDITIVE_NULLABLE_MODEL, 2).expect("resolve generated slot"),
-        Value::Text("Ada".to_string()),
-    );
-
-    let err = serialize_structural_patch_fields_with_accepted_contract(
-        ADDITIVE_NULLABLE_MODEL.path(),
-        accepted_decode_contract,
-        &patch,
-    )
-    .expect_err("accepted serializer must reject slots outside accepted layout");
-
-    assert_eq!(err.class, ErrorClass::InvariantViolation);
-}
-
-#[test]
-fn serialize_structural_patch_fields_with_accepted_contract_normalizes_decimal_scale() {
-    let accepted_decode_contract = accepted_row_decode_contract_for_model(&OPTIONAL_DECIMAL_MODEL);
-    let patch = AuthoredStructuralPatch::new().set(
-        FieldSlot::from_index(&OPTIONAL_DECIMAL_MODEL, 0).expect("resolve decimal slot"),
-        Value::Decimal(Decimal::from_i128_with_scale(140, 0)),
-    );
-
-    let serialized = serialize_structural_patch_fields_with_accepted_contract(
-        OPTIONAL_DECIMAL_MODEL.path(),
-        accepted_decode_contract,
-        &patch,
-    )
-    .expect("accepted decimal patch should serialize");
-    let decoded = decode_slot_into_runtime_value(
-        &OPTIONAL_DECIMAL_MODEL,
-        serialized.entries()[0].slot().index(),
-        serialized.entries()[0].payload(),
-    )
-    .expect("accepted decimal patch payload should decode");
-    let Value::Decimal(decimal) = decoded else {
-        panic!("accepted decimal patch payload should decode as Decimal");
-    };
-
-    assert_eq!(decimal, Decimal::from_i128_with_scale(140_000, 3));
-    assert_eq!(decimal.scale(), 3);
-}
-
-#[test]
-fn serialize_complete_structural_patch_with_accepted_contract_fills_missing_database_defaults() {
-    let score_payload =
-        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Nat(99)));
-    let accepted_decode_contract =
-        accepted_defaulted_required_score_row_decode_contract_for_tests(score_payload);
-    let id = Ulid::from_u128(149);
-    let patch = AuthoredStructuralPatch::new()
-        .set(
-            FieldSlot::from_index(&ADDITIVE_REQUIRED_MODEL, 0).expect("resolve id slot"),
-            Value::Ulid(id),
-        )
-        .set(
-            FieldSlot::from_index(&ADDITIVE_REQUIRED_MODEL, 1).expect("resolve name slot"),
-            Value::Text("Ada".to_string()),
-        );
-
-    let serialized = serialize_complete_structural_patch_fields_with_accepted_contract(
-        ADDITIVE_REQUIRED_MODEL.path(),
-        accepted_decode_contract,
-        &patch,
-    )
-    .expect("complete accepted structural patch should fill missing defaulted slots");
-
-    assert_eq!(serialized.entries().len(), 3);
-    assert_eq!(
-        decode_slot_into_runtime_value(
-            &ADDITIVE_REQUIRED_MODEL,
-            serialized.entries()[2].slot().index(),
-            serialized.entries()[2].payload(),
-        )
-        .expect("default payload should decode"),
-        Value::Nat64(99),
-    );
-}
-
-#[test]
-fn serialize_complete_structural_patch_reuses_catalog_backed_enum_default_payload() {
-    let accepted_decode_contract = accepted_row_decode_contract_for_model(&DEFAULTED_ENUM_MODEL);
-    let expected_payload = accepted_decode_contract
-        .field_for_slot(0)
-        .and_then(|field| field.default().slot_payload())
-        .expect("accepted enum field should carry its catalog-backed default")
-        .to_vec();
-
-    let serialized = serialize_complete_structural_patch_fields_with_accepted_contract(
-        DEFAULTED_ENUM_MODEL.path(),
-        accepted_decode_contract,
-        &AuthoredStructuralPatch::new(),
-    )
-    .expect("complete structural patch should fill the omitted enum default");
-
-    assert_eq!(serialized.entries().len(), 1);
-    assert_eq!(serialized.entries()[0].payload(), expected_payload);
-}
-
-#[test]
-fn apply_structural_patch_to_raw_row_uses_last_write_wins() {
-    let name_payload =
-        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
-    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
-    let raw_row = raw_row_from_dense_slot_payloads_for_tests(
-        &TEST_MODEL,
-        &[name_payload.as_slice(), payload.as_slice()],
-    );
-    let slot = FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot");
-    let patch = AuthoredStructuralPatch::new()
-        .set(slot, Value::Text("Grace".to_string()))
-        .set(slot, Value::Text("Lin".to_string()));
-
-    let serialized = serialize_structural_patch_fields_for_accepted_test_model(&TEST_MODEL, &patch)
-        .expect("serialize patch");
-    let patched = apply_serialized_structural_patch_to_raw_row_for_accepted_test_model(
-        &TEST_MODEL,
-        &raw_row,
-        &serialized,
-    )
-    .expect("apply patch");
-    let mut reader = StructuralSlotReader::from_raw_row_with_model_proposal_for_test(
-        patched.as_raw_row(),
-        &TEST_MODEL,
-    )
-    .expect("decode row");
-
-    assert_eq!(
-        reader.get_value(0).expect("decode slot"),
-        Some(Value::Text("Lin".to_string()))
-    );
-}
-
-#[test]
-fn apply_structural_patch_to_raw_row_rejects_noncanonical_missing_slot_baseline() {
-    let empty_slots = vec![None::<&[u8]>; TEST_MODEL.fields().len()];
-    let raw_row = RawRow::try_new(
-        serialize_row_payload(
-            encode_slot_payload_allowing_missing_for_tests(&TEST_MODEL, empty_slots.as_slice())
-                .expect("encode malformed slot payload"),
-        )
-        .expect("serialize row payload"),
-    )
-    .expect("build raw row");
-    let patch = AuthoredStructuralPatch::new().set(
-        FieldSlot::from_index(&TEST_MODEL, 1).expect("resolve slot"),
-        Value::Text("payload".to_string()),
-    );
-
-    let serialized = serialize_structural_patch_fields_for_accepted_test_model(&TEST_MODEL, &patch)
-        .expect("serialize patch");
-    let err = apply_serialized_structural_patch_to_raw_row_for_accepted_test_model(
-        &TEST_MODEL,
-        &raw_row,
-        &serialized,
-    )
-    .expect_err("noncanonical rows with missing slots must fail closed");
-
-    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
-}
-
-#[test]
-fn apply_serialized_structural_patch_to_raw_row_rejects_noncanonical_scalar_baseline() {
-    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
-    let malformed_slots = [Some([0xF6].as_slice()), Some(payload.as_slice())];
-    let raw_row = RawRow::try_new(
-        serialize_row_payload(
-            encode_slot_payload_allowing_missing_for_tests(&TEST_MODEL, &malformed_slots)
-                .expect("encode malformed slot payload"),
-        )
-        .expect("serialize row payload"),
-    )
-    .expect("build raw row");
-    let patch = AuthoredStructuralPatch::new().set(
-        FieldSlot::from_index(&TEST_MODEL, 1).expect("resolve slot"),
-        Value::Text("patched".to_string()),
-    );
-    let serialized = serialize_structural_patch_fields_for_accepted_test_model(&TEST_MODEL, &patch)
-        .expect("serialize patch");
-
-    let err = apply_serialized_structural_patch_to_raw_row_for_accepted_test_model(
-        &TEST_MODEL,
-        &raw_row,
-        &serialized,
-    )
-    .expect_err("noncanonical scalar baseline must fail closed");
-
-    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
-}
-
-#[test]
-fn apply_serialized_structural_patch_to_raw_row_rejects_noncanonical_scalar_patch_payload() {
-    let name_payload =
-        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
-    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
-    let raw_row = raw_row_from_dense_slot_payloads_for_tests(
-        &TEST_MODEL,
-        &[name_payload.as_slice(), payload.as_slice()],
-    );
-    let serialized = SerializedStructuralPatch::new(vec![SerializedStructuralFieldUpdate::new(
-        FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot"),
-        vec![0xF6],
-    )]);
-
-    let err = apply_serialized_structural_patch_to_raw_row_for_accepted_test_model(
-        &TEST_MODEL,
-        &raw_row,
-        &serialized,
-    )
-    .expect_err("noncanonical serialized patch payload must fail closed");
-
-    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
-}
-
-#[test]
 fn structural_slot_reader_rejects_slot_count_mismatch() {
     let name_payload =
         encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
@@ -2440,9 +2213,11 @@ fn structural_slot_reader_rejects_slot_count_mismatch() {
     )
     .expect("finish slot payload");
     slot_payload[..2].copy_from_slice(&1_u16.to_be_bytes());
-    let raw_row =
-        RawRow::try_new(serialize_row_payload(slot_payload).expect("serialize row payload"))
-            .expect("build raw row");
+    let raw_row = RawRow::try_new(
+        serialize_row_payload(crate::db::schema::RowLayoutVersion::INITIAL, slot_payload)
+            .expect("serialize row payload"),
+    )
+    .expect("build raw row");
 
     let err =
         StructuralSlotReader::from_raw_row_with_model_proposal_for_test(&raw_row, &TEST_MODEL)
@@ -2466,9 +2241,11 @@ fn structural_slot_reader_rejects_slot_span_exceeds_payload_length() {
     // Corrupt the second slot span so the payload table points past the
     // available data section.
     slot_payload[14..18].copy_from_slice(&u32::MAX.to_be_bytes());
-    let raw_row =
-        RawRow::try_new(serialize_row_payload(slot_payload).expect("serialize row payload"))
-            .expect("build raw row");
+    let raw_row = RawRow::try_new(
+        serialize_row_payload(crate::db::schema::RowLayoutVersion::INITIAL, slot_payload)
+            .expect("serialize row payload"),
+    )
+    .expect("build raw row");
 
     let err =
         StructuralSlotReader::from_raw_row_with_model_proposal_for_test(&raw_row, &TEST_MODEL)
@@ -2485,6 +2262,7 @@ fn dense_row_decode_materializes_relation_primary_key_from_authoritative_primary
         encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(token_id)));
     let raw_row = RawRow::try_new(
         serialize_row_payload(
+            crate::db::schema::RowLayoutVersion::INITIAL,
             encode_slot_payload_from_table_and_bytes(
                 1,
                 &[(
@@ -2519,6 +2297,7 @@ fn sparse_required_slot_decode_materializes_relation_primary_key_from_authoritat
         encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(token_id)));
     let raw_row = RawRow::try_new(
         serialize_row_payload(
+            crate::db::schema::RowLayoutVersion::INITIAL,
             encode_slot_payload_from_table_and_bytes(
                 1,
                 &[(
@@ -2554,6 +2333,7 @@ fn sparse_indexed_slot_decode_materializes_relation_primary_key_from_authoritati
         encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(token_id)));
     let raw_row = RawRow::try_new(
         serialize_row_payload(
+            crate::db::schema::RowLayoutVersion::INITIAL,
             encode_slot_payload_from_table_and_bytes(
                 1,
                 &[(
@@ -2579,39 +2359,6 @@ fn sparse_indexed_slot_decode_materializes_relation_primary_key_from_authoritati
     .expect("relation primary-key sparse indexed decode should succeed");
 
     assert_eq!(decoded, vec![Some(Value::Ulid(token_id))]);
-}
-
-#[test]
-fn apply_serialized_structural_patch_to_raw_row_replays_preencoded_slots() {
-    let name_payload =
-        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
-    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
-    let raw_row = raw_row_from_dense_slot_payloads_for_tests(
-        &TEST_MODEL,
-        &[name_payload.as_slice(), payload.as_slice()],
-    );
-    let patch = AuthoredStructuralPatch::new().set(
-        FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot"),
-        Value::Text("Grace".to_string()),
-    );
-    let serialized = serialize_structural_patch_fields_for_accepted_test_model(&TEST_MODEL, &patch)
-        .expect("serialize patch");
-    let patched = apply_serialized_structural_patch_to_raw_row_for_accepted_test_model(
-        &TEST_MODEL,
-        &raw_row,
-        &serialized,
-    )
-    .expect("apply serialized patch");
-    let mut reader = StructuralSlotReader::from_raw_row_with_model_proposal_for_test(
-        patched.as_raw_row(),
-        &TEST_MODEL,
-    )
-    .expect("decode row");
-
-    assert_eq!(
-        reader.get_value(0).expect("decode slot"),
-        Some(Value::Text("Grace".to_string()))
-    );
 }
 
 #[test]
@@ -2672,9 +2419,11 @@ fn typed_meta_field_decodes_matching_field_slot_payload() {
         &[id_payload.as_slice(), payload_bytes.as_slice()].concat(),
     )
     .expect("test row payload should encode");
-    let raw_row =
-        RawRow::try_new(serialize_row_payload(payload).expect("test row bytes should serialize"))
-            .expect("test row should encode");
+    let raw_row = RawRow::try_new(
+        serialize_row_payload(crate::db::schema::RowLayoutVersion::INITIAL, payload)
+            .expect("test row bytes should serialize"),
+    )
+    .expect("test row should encode");
     let decoded = raw_row
         .try_decode_with_model_proposal_for_test::<PersistedRowTypedMetaEntity>()
         .expect("derived typed metadata field should decode matching field payload");
@@ -2756,9 +2505,11 @@ fn many_typed_meta_decodes_matching_container_slot_payload() {
         &[id_payload.as_slice(), payload_bytes.as_slice()].concat(),
     )
     .expect("test row payload should encode");
-    let raw_row =
-        RawRow::try_new(serialize_row_payload(payload).expect("test row bytes should serialize"))
-            .expect("test row should encode");
+    let raw_row = RawRow::try_new(
+        serialize_row_payload(crate::db::schema::RowLayoutVersion::INITIAL, payload)
+            .expect("test row bytes should serialize"),
+    )
+    .expect("test row should encode");
     let decoded = raw_row
         .try_decode_with_model_proposal_for_test::<PersistedRowManyTypedMetaEntity>()
         .expect("derived many typed field should decode matching container payload");
@@ -2769,206 +2520,6 @@ fn many_typed_meta_decodes_matching_container_slot_payload() {
             id,
             payloads: payload_values,
         }
-    );
-}
-
-#[test]
-fn materialize_entity_from_serialized_structural_patch_rejects_missing_required_field() {
-    let patch = AuthoredStructuralPatch::new().set(
-        FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
-        Value::Text("Ada".to_string()),
-    );
-    let serialized = serialize_structural_patch_fields_for_accepted_test_model(
-        PersistedRowPatchBridgeEntity::MODEL,
-        &patch,
-    )
-    .expect("serialize sparse patch");
-
-    let err = materialize_entity_from_serialized_structural_patch_for_model_proposal_for_test::<
-        PersistedRowPatchBridgeEntity,
-    >(&serialized)
-    .expect_err("sparse typed bridge must fail closed when a required slot is absent");
-
-    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
-}
-
-#[test]
-fn canonical_row_from_complete_serialized_structural_patch_with_accepted_contract_matches_model_proposal()
- {
-    let patch = AuthoredStructuralPatch::new()
-        .set(
-            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 0).expect("resolve slot"),
-            Value::Ulid(crate::types::Ulid::from_u128(7)),
-        )
-        .set(
-            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
-            Value::Text("Ada".to_string()),
-        );
-    let serialized = serialize_structural_patch_fields_for_accepted_test_model(
-        PersistedRowPatchBridgeEntity::MODEL,
-        &patch,
-    )
-    .expect("serialize accepted patch");
-
-    let projected =
-        canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test(
-            PersistedRowPatchBridgeEntity::MODEL,
-            &serialized,
-        )
-        .expect("model proposal should emit one canonical patch row");
-    let accepted = canonical_row_from_complete_serialized_structural_patch_with_accepted_contract(
-        PersistedRowPatchBridgeEntity::MODEL.path(),
-        accepted_row_decode_contract_for_model(PersistedRowPatchBridgeEntity::MODEL),
-        &serialized,
-    )
-    .expect("accepted contract should emit one canonical patch row");
-
-    assert_eq!(accepted, projected);
-}
-
-#[test]
-fn materialize_entity_from_serialized_structural_patch_rejects_noncanonical_scalar_payload() {
-    let patch = AuthoredStructuralPatch::new()
-        .set(
-            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 0).expect("resolve slot"),
-            Value::Ulid(crate::types::Ulid::from_u128(7)),
-        )
-        .set(
-            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
-            Value::Text("Ada".to_string()),
-        );
-    let valid = serialize_structural_patch_fields_for_accepted_test_model(
-        PersistedRowPatchBridgeEntity::MODEL,
-        &patch,
-    )
-    .expect("serialize valid patch");
-    let serialized = SerializedStructuralPatch::new(vec![
-        SerializedStructuralFieldUpdate::new(
-            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 0).expect("resolve slot"),
-            vec![0xF6],
-        ),
-        SerializedStructuralFieldUpdate::new(
-            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
-            valid.entries()[1].payload().to_vec(),
-        ),
-    ]);
-
-    let err = materialize_entity_from_serialized_structural_patch_for_model_proposal_for_test::<
-        PersistedRowPatchBridgeEntity,
-    >(&serialized)
-    .expect_err("typed sparse patch bridge must reject malformed scalar payloads");
-
-    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
-}
-
-#[test]
-fn canonical_row_from_complete_serialized_structural_patch_rejects_noncanonical_scalar_payload() {
-    let patch = AuthoredStructuralPatch::new()
-        .set(
-            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 0).expect("resolve slot"),
-            Value::Ulid(crate::types::Ulid::from_u128(7)),
-        )
-        .set(
-            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
-            Value::Text("Ada".to_string()),
-        );
-    let valid = serialize_structural_patch_fields_for_accepted_test_model(
-        PersistedRowPatchBridgeEntity::MODEL,
-        &patch,
-    )
-    .expect("serialize valid patch");
-    let serialized = SerializedStructuralPatch::new(vec![
-        SerializedStructuralFieldUpdate::new(
-            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 0).expect("resolve slot"),
-            vec![0xF6],
-        ),
-        SerializedStructuralFieldUpdate::new(
-            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
-            valid.entries()[1].payload().to_vec(),
-        ),
-    ]);
-
-    let err = canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test(
-        PersistedRowPatchBridgeEntity::MODEL,
-        &serialized,
-    )
-    .expect_err("complete serialized patch row emission must reject malformed scalar payloads");
-
-    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
-}
-
-#[test]
-fn canonical_row_from_complete_serialized_structural_patch_rejects_incomplete_slot_image() {
-    let patch = AuthoredStructuralPatch::new().set(
-        FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
-        Value::Text("Ada".to_string()),
-    );
-    let serialized = serialize_structural_patch_fields_for_accepted_test_model(
-        PersistedRowPatchBridgeEntity::MODEL,
-        &patch,
-    )
-    .expect("serialize sparse patch");
-
-    let err = canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test(
-        PersistedRowPatchBridgeEntity::MODEL,
-        &serialized,
-    )
-    .expect_err("complete serialized patch row emission must reject missing declared slots");
-
-    assert_error_taxonomy(&err, ErrorClass::Internal, ErrorOrigin::Serialize);
-}
-
-#[test]
-fn materialize_entity_from_serialized_structural_patch_duplicate_slot_prefers_last_payload() {
-    let first_name_patch = AuthoredStructuralPatch::new().set(
-        FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
-        Value::Text("Ada".to_string()),
-    );
-    let final_patch = AuthoredStructuralPatch::new()
-        .set(
-            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 0).expect("resolve slot"),
-            Value::Ulid(crate::types::Ulid::from_u128(7)),
-        )
-        .set(
-            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
-            Value::Text("Grace".to_string()),
-        );
-    let first_name_serialized = serialize_structural_patch_fields_for_accepted_test_model(
-        PersistedRowPatchBridgeEntity::MODEL,
-        &first_name_patch,
-    )
-    .expect("serialize first-name patch");
-    let final_serialized = serialize_structural_patch_fields_for_accepted_test_model(
-        PersistedRowPatchBridgeEntity::MODEL,
-        &final_patch,
-    )
-    .expect("serialize final patch");
-    let serialized = SerializedStructuralPatch::new(vec![
-        SerializedStructuralFieldUpdate::new(
-            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 0).expect("resolve slot"),
-            final_serialized.entries()[0].payload().to_vec(),
-        ),
-        SerializedStructuralFieldUpdate::new(
-            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
-            first_name_serialized.entries()[0].payload().to_vec(),
-        ),
-        SerializedStructuralFieldUpdate::new(
-            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
-            final_serialized.entries()[1].payload().to_vec(),
-        ),
-    ]);
-
-    let entity = materialize_entity_from_serialized_structural_patch_for_model_proposal_for_test::<
-        PersistedRowPatchBridgeEntity,
-    >(&serialized)
-    .expect("duplicate sparse patch slot should keep the last payload");
-
-    assert_eq!(
-        entity,
-        PersistedRowPatchBridgeEntity {
-            id: crate::types::Ulid::from_u128(7),
-            name: "Grace".to_string(),
-        },
     );
 }
 
@@ -3004,43 +2555,4 @@ fn canonical_row_from_raw_row_rejects_noncanonical_scalar_payload() {
         .expect_err("canonical raw-row rebuild must reject malformed scalar payloads");
 
     assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
-}
-
-#[test]
-fn raw_row_from_complete_serialized_structural_patch_rejects_noncanonical_scalar_payload() {
-    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
-    let serialized = SerializedStructuralPatch::new(vec![
-        SerializedStructuralFieldUpdate::new(
-            FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot"),
-            vec![0xF6],
-        ),
-        SerializedStructuralFieldUpdate::new(
-            FieldSlot::from_index(&TEST_MODEL, 1).expect("resolve slot"),
-            payload,
-        ),
-    ]);
-
-    let err = RawRow::from_complete_serialized_structural_patch_for_model_proposal_for_test(
-        &TEST_MODEL,
-        &serialized,
-    )
-    .expect_err("fresh row emission must reject noncanonical serialized patch payloads");
-
-    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
-}
-
-#[test]
-fn raw_row_from_complete_serialized_structural_patch_rejects_incomplete_slot_image() {
-    let serialized = SerializedStructuralPatch::new(vec![SerializedStructuralFieldUpdate::new(
-        FieldSlot::from_index(&TEST_MODEL, 1).expect("resolve slot"),
-        encode_value_storage_payload(&Value::Text("payload".to_string())),
-    )]);
-
-    let err = RawRow::from_complete_serialized_structural_patch_for_model_proposal_for_test(
-        &TEST_MODEL,
-        &serialized,
-    )
-    .expect_err("fresh row emission must reject missing declared slots");
-
-    assert_error_taxonomy(&err, ErrorClass::Internal, ErrorOrigin::Serialize);
 }

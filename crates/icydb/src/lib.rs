@@ -244,8 +244,8 @@ pub mod __macro {
         sql_statement_entity_name,
     };
     pub use icydb_core::entity::{
-        EntityCreateInput, EntityCreateMaterialization, EntityCreateType, EntityDeclaration,
-        EntityKind, EntityPlacement, EntityValue,
+        EntityCreateFieldInput, EntityCreateInput, EntityCreateType, EntityDeclaration, EntityKind,
+        EntityPlacement, EntityValue,
     };
     pub use icydb_core::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use icydb_core::value::{InputValue, InputValueEnum, Value, ValueEnum};

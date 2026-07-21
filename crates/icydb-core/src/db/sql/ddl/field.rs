@@ -7,7 +7,7 @@ use crate::db::{
         AcceptedSchemaSnapshot, PersistedFieldSnapshot, SchemaDdlFieldAdditionCandidateError,
         SchemaDdlFieldDefaultCandidateError, SchemaDdlFieldDropCandidateError,
         SchemaDdlFieldNullabilityCandidateError, SchemaDdlFieldRenameCandidateError,
-        SchemaDdlFieldTypeContract, SchemaFieldDefault, SchemaInfo,
+        SchemaDdlFieldTypeContract, SchemaInfo, SchemaInsertDefault,
         build_sql_ddl_field_addition_candidate, encode_sql_ddl_add_column_default,
         encode_sql_ddl_alter_column_default, resolve_sql_ddl_field_addition_name_candidate,
         resolve_sql_ddl_field_drop_candidate, resolve_sql_ddl_field_drop_default_candidate,
@@ -59,7 +59,7 @@ impl BoundSqlAddColumnRequest {
 pub(in crate::db) struct BoundSqlAlterColumnDefaultRequest {
     entity_name: String,
     field: PersistedFieldSnapshot,
-    default: SchemaFieldDefault,
+    default: SchemaInsertDefault,
     mutation_kind: SqlDdlMutationKind,
 }
 
@@ -85,7 +85,7 @@ impl BoundSqlAlterColumnDefaultRequest {
 
     /// Borrow the default contract to publish.
     #[must_use]
-    pub(in crate::db) const fn default(&self) -> &SchemaFieldDefault {
+    pub(in crate::db) const fn default(&self) -> &SchemaInsertDefault {
         &self.default
     }
 
@@ -382,7 +382,7 @@ fn bind_alter_column_drop_default(
     Ok(bind_alter_table_alter_column_default(
         entity_name,
         &field,
-        SchemaFieldDefault::None,
+        SchemaInsertDefault::None,
         SqlDdlMutationKind::DropFieldDefault,
     ))
 }
@@ -511,10 +511,10 @@ pub(super) fn bind_alter_table_rename_column_statement(
 fn bind_alter_table_alter_column_default(
     entity_name: &str,
     field: &PersistedFieldSnapshot,
-    default: SchemaFieldDefault,
+    default: SchemaInsertDefault,
     mutation_kind: SqlDdlMutationKind,
 ) -> BoundSqlDdlRequest {
-    if field.default() == &default {
+    if field.insert_default() == &default {
         return BoundSqlDdlRequest {
             schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
             statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
@@ -580,10 +580,9 @@ fn sql_field_addition_candidate_error(
             entity_name: entity_name.to_string(),
             column_name: column_name.to_string(),
         },
-        SchemaDdlFieldAdditionCandidateError::RequiredWithoutDefault => {
-            SqlDdlBindError::UnsupportedAlterTableAddColumnNotNull {
+        SchemaDdlFieldAdditionCandidateError::RowLayoutVersionExhausted => {
+            SqlDdlBindError::RowLayoutVersionExhausted {
                 entity_name: entity_name.to_string(),
-                column_name: column_name.to_string(),
             }
         }
     }
@@ -603,19 +602,6 @@ fn sql_field_default_candidate_error(
             SqlDdlBindError::GeneratedFieldDefaultChangeRejected {
                 entity_name: entity_name.to_string(),
                 column_name: column_name.to_string(),
-            }
-        }
-        SchemaDdlFieldDefaultCandidateError::Required => {
-            SqlDdlBindError::UnsupportedAlterTableDropDefaultRequired {
-                entity_name: entity_name.to_string(),
-                column_name: column_name.to_string(),
-            }
-        }
-        SchemaDdlFieldDefaultCandidateError::Indexed(index_name) => {
-            SqlDdlBindError::IndexedFieldDefaultChangeRejected {
-                entity_name: entity_name.to_string(),
-                column_name: column_name.to_string(),
-                index_name,
             }
         }
     }
@@ -671,7 +657,7 @@ fn schema_field_default_for_sql_default(
     contract: &SchemaDdlFieldTypeContract,
     nullable: bool,
     catalog: Option<&crate::db::schema::AcceptedValueCatalogHandle>,
-) -> Result<SchemaFieldDefault, SqlDdlBindError> {
+) -> Result<SchemaInsertDefault, SqlDdlBindError> {
     encode_sql_ddl_add_column_default(
         column_name,
         default,
@@ -692,7 +678,7 @@ fn schema_field_default_for_alter_column_default(
     field: &PersistedFieldSnapshot,
     default: &crate::value::Value,
     catalog: Option<&crate::db::schema::AcceptedValueCatalogHandle>,
-) -> Result<SchemaFieldDefault, SqlDdlBindError> {
+) -> Result<SchemaInsertDefault, SqlDdlBindError> {
     encode_sql_ddl_alter_column_default(field, default, catalog).map_err(|_| {
         SqlDdlBindError::InvalidAlterTableAlterColumnDefault {
             entity_name: entity_name.to_string(),

@@ -5,11 +5,70 @@
 
 use candid::Encode;
 use icydb::db::{
-    EntityFieldDescription, EntityIndexDescription, EntitySchemaCheckDescription,
-    EntitySchemaDescription,
+    EntityFieldDescription, EntityIndexDescription, EntityRelationDescription,
+    EntitySchemaCheckDescription, EntitySchemaDescription,
 };
 
 use crate::observability::test_support::{decode_schema_check_report, render_schema_check_report};
+
+fn field(
+    name: String,
+    slot: Option<u16>,
+    kind: String,
+    nullable: bool,
+    primary_key: bool,
+    queryable: bool,
+    origin: String,
+) -> EntityFieldDescription {
+    EntityFieldDescription::new(
+        name,
+        slot,
+        kind,
+        nullable,
+        primary_key,
+        queryable,
+        origin,
+        Some(if nullable { "null" } else { "required" }.to_string()),
+        None,
+        None,
+        None,
+        Some(1),
+        Some("reject".to_string()),
+        None,
+        None,
+    )
+}
+
+fn defaulted_field(name: &str, slot: u16, hash: &str) -> EntityFieldDescription {
+    EntityFieldDescription::new(
+        name.to_string(),
+        Some(slot),
+        "nat16".to_string(),
+        false,
+        false,
+        true,
+        "generated".to_string(),
+        Some("default".to_string()),
+        Some(format!("slot_payload(bytes=4, sha256={hash})")),
+        Some(4),
+        Some(hash.to_string()),
+        Some(1),
+        Some("reject".to_string()),
+        None,
+        None,
+    )
+}
+
+fn entity(
+    path: String,
+    name: String,
+    primary_key: String,
+    fields: Vec<EntityFieldDescription>,
+    indexes: Vec<EntityIndexDescription>,
+    relations: Vec<EntityRelationDescription>,
+) -> EntitySchemaDescription {
+    EntitySchemaDescription::new(path, name, primary_key, fields, indexes, relations, 1, 1)
+}
 
 #[test]
 fn decode_schema_check_report_accepts_generated_response_shape() {
@@ -24,12 +83,12 @@ fn decode_schema_check_report_accepts_generated_response_shape() {
 
 #[test]
 fn schema_check_report_renders_generated_accepted_drift() {
-    let generated = EntitySchemaDescription::new(
+    let generated = entity(
         "demo::Character".to_string(),
         "Character".to_string(),
         "id".to_string(),
         vec![
-            EntityFieldDescription::new(
+            field(
                 "id".to_string(),
                 Some(0),
                 "Id".to_string(),
@@ -38,7 +97,7 @@ fn schema_check_report_renders_generated_accepted_drift() {
                 true,
                 "generated".to_string(),
             ),
-            EntityFieldDescription::new(
+            field(
                 "name".to_string(),
                 Some(1),
                 "Text".to_string(),
@@ -56,12 +115,12 @@ fn schema_check_report_renders_generated_accepted_drift() {
         )],
         Vec::new(),
     );
-    let accepted = EntitySchemaDescription::new(
+    let accepted = entity(
         "demo::Character".to_string(),
         "Character".to_string(),
         "id".to_string(),
         vec![
-            EntityFieldDescription::new(
+            field(
                 "id".to_string(),
                 Some(0),
                 "Id".to_string(),
@@ -70,7 +129,7 @@ fn schema_check_report_renders_generated_accepted_drift() {
                 true,
                 "generated".to_string(),
             ),
-            EntityFieldDescription::new(
+            field(
                 "name".to_string(),
                 Some(1),
                 "Text".to_string(),
@@ -79,7 +138,7 @@ fn schema_check_report_renders_generated_accepted_drift() {
                 true,
                 "generated".to_string(),
             ),
-            EntityFieldDescription::new(
+            field(
                 "nickname".to_string(),
                 Some(2),
                 "Text".to_string(),
@@ -150,6 +209,8 @@ fn schema_check_report_compares_ordered_primary_key_fields() {
         Vec::new(),
         Vec::new(),
         Vec::new(),
+        1,
+        1,
     );
     let accepted = EntitySchemaDescription::new_with_primary_key_fields(
         "demo::Placement".to_string(),
@@ -159,6 +220,8 @@ fn schema_check_report_compares_ordered_primary_key_fields() {
         Vec::new(),
         Vec::new(),
         Vec::new(),
+        1,
+        1,
     );
     let text =
         render_schema_check_report(&[EntitySchemaCheckDescription::new(generated, accepted)]);
@@ -171,11 +234,11 @@ fn schema_check_report_compares_ordered_primary_key_fields() {
 
 #[test]
 fn schema_check_report_treats_accepted_only_generated_fields_as_mismatch() {
-    let generated = EntitySchemaDescription::new(
+    let generated = entity(
         "demo::Character".to_string(),
         "Character".to_string(),
         "id".to_string(),
-        vec![EntityFieldDescription::new(
+        vec![field(
             "id".to_string(),
             Some(0),
             "Id".to_string(),
@@ -187,12 +250,12 @@ fn schema_check_report_treats_accepted_only_generated_fields_as_mismatch() {
         Vec::new(),
         Vec::new(),
     );
-    let accepted = EntitySchemaDescription::new(
+    let accepted = entity(
         "demo::Character".to_string(),
         "Character".to_string(),
         "id".to_string(),
         vec![
-            EntityFieldDescription::new(
+            field(
                 "id".to_string(),
                 Some(0),
                 "Id".to_string(),
@@ -201,7 +264,7 @@ fn schema_check_report_treats_accepted_only_generated_fields_as_mismatch() {
                 true,
                 "generated".to_string(),
             ),
-            EntityFieldDescription::new(
+            field(
                 "retired_generated".to_string(),
                 Some(1),
                 "Text".to_string(),
@@ -234,12 +297,12 @@ fn schema_check_report_treats_accepted_only_generated_fields_as_mismatch() {
 
 #[test]
 fn schema_check_report_recommends_additive_transition_for_generated_only_fields() {
-    let generated = EntitySchemaDescription::new(
+    let generated = entity(
         "demo::Character".to_string(),
         "Character".to_string(),
         "id".to_string(),
         vec![
-            EntityFieldDescription::new(
+            field(
                 "id".to_string(),
                 Some(0),
                 "Id".to_string(),
@@ -248,7 +311,7 @@ fn schema_check_report_recommends_additive_transition_for_generated_only_fields(
                 true,
                 "generated".to_string(),
             ),
-            EntityFieldDescription::new(
+            field(
                 "title".to_string(),
                 Some(1),
                 "Text".to_string(),
@@ -261,11 +324,11 @@ fn schema_check_report_recommends_additive_transition_for_generated_only_fields(
         Vec::new(),
         Vec::new(),
     );
-    let accepted = EntitySchemaDescription::new(
+    let accepted = entity(
         "demo::Character".to_string(),
         "Character".to_string(),
         "id".to_string(),
-        vec![EntityFieldDescription::new(
+        vec![field(
             "id".to_string(),
             Some(0),
             "Id".to_string(),
@@ -290,21 +353,13 @@ fn schema_check_report_recommends_additive_transition_for_generated_only_fields(
 
 #[test]
 fn schema_check_report_recommends_explicit_flows_for_default_and_nullability_drift() {
-    let generated = EntitySchemaDescription::new(
+    let generated = entity(
         "demo::Character".to_string(),
         "Character".to_string(),
         "id".to_string(),
         vec![
-            EntityFieldDescription::new(
-                "level".to_string(),
-                Some(1),
-                "nat16 default=slot_payload(bytes=4, sha256=aaaaaaaaaaaaaaaa)".to_string(),
-                false,
-                false,
-                true,
-                "generated".to_string(),
-            ),
-            EntityFieldDescription::new(
+            defaulted_field("level", 1, "aaaaaaaaaaaaaaaa"),
+            field(
                 "nickname".to_string(),
                 Some(2),
                 "Text".to_string(),
@@ -317,21 +372,13 @@ fn schema_check_report_recommends_explicit_flows_for_default_and_nullability_dri
         Vec::new(),
         Vec::new(),
     );
-    let accepted = EntitySchemaDescription::new(
+    let accepted = entity(
         "demo::Character".to_string(),
         "Character".to_string(),
         "id".to_string(),
         vec![
-            EntityFieldDescription::new(
-                "level".to_string(),
-                Some(1),
-                "nat16 default=slot_payload(bytes=4, sha256=bbbbbbbbbbbbbbbb)".to_string(),
-                false,
-                false,
-                true,
-                "generated".to_string(),
-            ),
-            EntityFieldDescription::new(
+            defaulted_field("level", 1, "bbbbbbbbbbbbbbbb"),
+            field(
                 "nickname".to_string(),
                 Some(2),
                 "Text".to_string(),
@@ -359,7 +406,7 @@ fn schema_check_report_recommends_explicit_flows_for_default_and_nullability_dri
 
 #[test]
 fn schema_check_report_recommends_explicit_flows_for_generated_index_drift() {
-    let generated = EntitySchemaDescription::new(
+    let generated = entity(
         "demo::Character".to_string(),
         "Character".to_string(),
         "id".to_string(),
@@ -380,7 +427,7 @@ fn schema_check_report_recommends_explicit_flows_for_generated_index_drift() {
         ],
         Vec::new(),
     );
-    let accepted = EntitySchemaDescription::new(
+    let accepted = entity(
         "demo::Character".to_string(),
         "Character".to_string(),
         "id".to_string(),
@@ -422,7 +469,7 @@ fn schema_check_report_recommends_explicit_flows_for_generated_index_drift() {
 
 #[test]
 fn schema_check_report_treats_generated_index_origin_drift_as_mismatch() {
-    let generated = EntitySchemaDescription::new(
+    let generated = entity(
         "demo::Character".to_string(),
         "Character".to_string(),
         "id".to_string(),
@@ -435,7 +482,7 @@ fn schema_check_report_treats_generated_index_origin_drift_as_mismatch() {
         )],
         Vec::new(),
     );
-    let accepted = EntitySchemaDescription::new(
+    let accepted = entity(
         "demo::Character".to_string(),
         "Character".to_string(),
         "id".to_string(),
@@ -462,35 +509,19 @@ fn schema_check_report_treats_generated_index_origin_drift_as_mismatch() {
 
 #[test]
 fn schema_check_report_renders_readable_default_mismatch() {
-    let generated = EntitySchemaDescription::new(
+    let generated = entity(
         "demo::Character".to_string(),
         "Character".to_string(),
         "id".to_string(),
-        vec![EntityFieldDescription::new(
-            "level".to_string(),
-            Some(1),
-            "nat16 default=slot_payload(bytes=4, sha256=aaaaaaaaaaaaaaaa)".to_string(),
-            false,
-            false,
-            true,
-            "generated".to_string(),
-        )],
+        vec![defaulted_field("level", 1, "aaaaaaaaaaaaaaaa")],
         Vec::new(),
         Vec::new(),
     );
-    let accepted = EntitySchemaDescription::new(
+    let accepted = entity(
         "demo::Character".to_string(),
         "Character".to_string(),
         "id".to_string(),
-        vec![EntityFieldDescription::new(
-            "level".to_string(),
-            Some(1),
-            "nat16 default=slot_payload(bytes=4, sha256=bbbbbbbbbbbbbbbb)".to_string(),
-            false,
-            false,
-            true,
-            "generated".to_string(),
-        )],
+        vec![defaulted_field("level", 1, "bbbbbbbbbbbbbbbb")],
         Vec::new(),
         Vec::new(),
     );
@@ -499,6 +530,6 @@ fn schema_check_report_renders_readable_default_mismatch() {
         render_schema_check_report(&[EntitySchemaCheckDescription::new(generated, accepted)]);
 
     assert!(text.contains("status: mismatch"));
-    assert!(text.contains("default=slot_payload(bytes=4, sha256=aaaaaaaaaaaaaaaa)"));
-    assert!(text.contains("default=slot_payload(bytes=4, sha256=bbbbbbbbbbbbbbbb)"));
+    assert!(text.contains("slot_payload(bytes=4, sha256=aaaaaaaaaaaaaaaa)"));
+    assert!(text.contains("slot_payload(bytes=4, sha256=bbbbbbbbbbbbbbbb)"));
 }

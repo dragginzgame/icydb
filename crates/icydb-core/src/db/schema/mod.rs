@@ -107,14 +107,15 @@ pub(in crate::db::schema) use integrity::{
     schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
     schema_snapshot_relation_integrity_detail,
 };
-pub(in crate::db) use layout::{SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
+pub(in crate::db) use layout::{RowLayoutVersion, SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
 #[cfg(test)]
 pub(in crate::db::schema) use mutation::AcceptedSchemaMutationError;
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use mutation::SchemaDdlSchemaVersionAdmissionError;
 pub(in crate::db::schema) use mutation::{
-    MutationPlan, MutationPublicationPreflight, SchemaMutationRequest,
-    schema_mutation_request_for_snapshots,
+    GeneratedAcceptedCandidateError, MutationPlan, MutationPublicationPreflight,
+    SchemaMutationRequest, SchemaTransitionSourceBudget, SchemaTransitionSourceBudgetError,
+    derive_generated_accepted_candidate, schema_mutation_request_for_snapshots,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use mutation::{
@@ -126,11 +127,12 @@ pub(in crate::db) use mutation::{
     SchemaDdlSecondaryIndexExpressionIntent, SchemaDdlSecondaryIndexExpressionOpIntent,
     SchemaDdlSecondaryIndexFieldPathIntent, SchemaDdlSecondaryIndexKeyCandidateError,
     SchemaDdlSecondaryIndexKeyIntent, SchemaDdlVersionContractPreflightError,
-    SchemaFieldDefaultTarget, SchemaFieldDropTarget, SchemaFieldNullabilityTarget,
-    SchemaFieldRenameTarget, build_sql_ddl_field_addition_candidate,
+    SchemaFieldDropTarget, SchemaFieldNullabilityTarget, SchemaFieldRenameTarget,
+    SchemaInsertDefaultTarget, build_sql_ddl_field_addition_candidate,
     build_sql_ddl_secondary_index_candidate, derive_sql_ddl_expression_index_accepted_after,
     derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
     derive_sql_ddl_field_drop_accepted_after, derive_sql_ddl_field_nullability_accepted_after,
+    derive_sql_ddl_field_nullability_persisted_after,
     derive_sql_ddl_field_path_index_accepted_after, derive_sql_ddl_field_rename_accepted_after,
     derive_sql_ddl_secondary_index_drop_accepted_after, encode_sql_ddl_add_column_default,
     encode_sql_ddl_alter_column_default, resolve_sql_ddl_field_addition_name_candidate,
@@ -167,7 +169,7 @@ pub(in crate::db) use reconcile::{
 };
 pub(in crate::db) use reconcile::{
     ensure_accepted_catalog_snapshot_selection, ensure_accepted_schema_snapshot,
-    reconcile_runtime_schemas,
+    reconcile_runtime_schemas, reconcile_runtime_schemas_before_recovery_rebuild,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use reconcile::{
@@ -180,9 +182,9 @@ pub(in crate::db) use reconcile::{
 #[cfg(feature = "sql")]
 pub(in crate::db) use runtime::AcceptedRowLayoutRuntimeField;
 pub(in crate::db) use runtime::{
-    AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract,
-    AcceptedGeneratedRowCompatibilityProof, AcceptedRowDecodeContract,
-    AcceptedRowLayoutRuntimeContract, OwnedAcceptedFieldDecodeContract,
+    AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract,
+    AcceptedGeneratedRowCompatibilityProof, AcceptedInsertOmissionPolicy,
+    AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract, OwnedAcceptedFieldDecodeContract,
     OwnedAcceptedRelationEdgeContract, accepted_insert_field_is_omittable,
 };
 #[cfg(test)]
@@ -195,7 +197,7 @@ pub(in crate::db) use snapshot::{
     PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
     PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexOrigin,
     PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
-    PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldWritePolicy,
+    PersistedSchemaSnapshot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaInsertDefault,
 };
 pub use store::SchemaStore;
 pub(in crate::db) use store::{

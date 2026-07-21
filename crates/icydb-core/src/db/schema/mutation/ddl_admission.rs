@@ -2,8 +2,8 @@
 
 use super::{
     AcceptedSchemaMutationError, SchemaExpressionIndexRebuildTarget, SchemaFieldAdditionTarget,
-    SchemaFieldDefaultTarget, SchemaFieldDropTarget, SchemaFieldNullabilityTarget,
-    SchemaFieldPathIndexRebuildTarget, SchemaFieldRenameTarget,
+    SchemaFieldDropTarget, SchemaFieldNullabilityTarget, SchemaFieldPathIndexRebuildTarget,
+    SchemaFieldRenameTarget, SchemaInsertDefaultTarget,
 };
 use crate::db::schema::{
     AcceptedSchemaSnapshot, SchemaVersion,
@@ -107,7 +107,7 @@ impl SchemaDdlMutationAdmission {
 
     /// Borrow the admitted field-default metadata target.
     #[must_use]
-    pub(in crate::db) const fn field_default_target(&self) -> Option<&SchemaFieldDefaultTarget> {
+    pub(in crate::db) const fn field_default_target(&self) -> Option<&SchemaInsertDefaultTarget> {
         match &self.target {
             SchemaDdlMutationTarget::FieldDefaultChange(target) => Some(target),
             SchemaDdlMutationTarget::FieldAddition(_)
@@ -177,7 +177,7 @@ impl SchemaDdlMutationAdmission {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SchemaDdlMutationTarget {
     FieldAddition(SchemaFieldAdditionTarget),
-    FieldDefaultChange(SchemaFieldDefaultTarget),
+    FieldDefaultChange(SchemaInsertDefaultTarget),
     FieldDrop(SchemaFieldDropTarget),
     FieldNullabilityChange(SchemaFieldNullabilityTarget),
     FieldRename(SchemaFieldRenameTarget),
@@ -255,6 +255,7 @@ impl SchemaDdlAcceptedSnapshotDerivation {
 pub(in crate::db) enum SchemaDdlMutationAdmissionError {
     AcceptedIndex(AcceptedSchemaMutationError),
     AcceptedAfterRejected,
+    RowLayoutVersionExhausted,
     SchemaVersionAdmission(SchemaDdlSchemaVersionAdmissionError),
     UnsupportedExecutionPath,
 }
@@ -264,6 +265,7 @@ impl SchemaDdlMutationAdmissionError {
         match self {
             Self::AcceptedIndex(_) => SchemaDdlAdmissionError::UnsupportedTransitionClass,
             Self::AcceptedAfterRejected => SchemaDdlAdmissionError::ValidationFailed,
+            Self::RowLayoutVersionExhausted => SchemaDdlAdmissionError::RowLayoutVersionExhausted,
             Self::SchemaVersionAdmission(reason) => reason.schema_ddl_admission_error(),
             Self::UnsupportedExecutionPath => SchemaDdlAdmissionError::PhysicalRunnerMissing,
         }

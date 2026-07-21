@@ -5,7 +5,7 @@ use crate::{
         data::decode_runtime_value_from_accepted_field_contract,
         schema::{
             AcceptedFieldDecodeContract, PersistedFieldSnapshot, PersistedIndexSnapshot,
-            PersistedSchemaSnapshot, SchemaMutationRequest,
+            PersistedSchemaSnapshot, SchemaHistoricalFill, SchemaMutationRequest,
         },
     },
     value::Value,
@@ -26,8 +26,8 @@ pub(super) fn generated_index_names_only_changed(
         || actual.entity_path() != expected.entity_path()
         || actual.entity_name() != expected.entity_name()
         || actual.primary_key_field_ids() != expected.primary_key_field_ids()
-        || !active_row_layout_matches(actual, expected)
-        || actual.fields() != expected.fields()
+        || !generated_row_shape_matches(actual, expected)
+        || !generated_current_fields_match(actual.fields(), expected.fields())
     {
         return false;
     }
@@ -60,6 +60,79 @@ pub(super) fn generated_index_names_only_changed(
             .all(is_supported_extra_accepted_index)
 }
 
+// Generated-owned insertion defaults are future write policy. A candidate may
+// change only those defaults while every accepted temporal, physical, index,
+// and relation fact remains exact.
+pub(super) fn generated_field_defaults_only_changed(
+    actual: &PersistedSchemaSnapshot,
+    expected: &PersistedSchemaSnapshot,
+) -> bool {
+    if actual == expected
+        || actual.entity_path() != expected.entity_path()
+        || actual.entity_name() != expected.entity_name()
+        || actual.primary_key_field_ids() != expected.primary_key_field_ids()
+        || actual.row_layout() != expected.row_layout()
+        || actual.fields().len() != expected.fields().len()
+        || actual.indexes() != expected.indexes()
+        || actual.relations() != expected.relations()
+    {
+        return false;
+    }
+
+    let mut changed = false;
+    for (actual_field, expected_field) in actual.fields().iter().zip(expected.fields()) {
+        if actual_field.clone_with_insert_default(expected_field.insert_default().clone())
+            != *expected_field
+        {
+            return false;
+        }
+        if actual_field.insert_default() != expected_field.insert_default() {
+            if !actual_field.generated() || !expected_field.generated() {
+                return false;
+            }
+            changed = true;
+        }
+    }
+
+    changed
+}
+
+// Identify the hard-cut slot collision where accepted SQL DDL already owns a
+// trailing field identity that a later generated declaration would claim.
+pub(super) fn generated_field_follows_accepted_ddl_extension(
+    actual: &PersistedSchemaSnapshot,
+    expected: &PersistedSchemaSnapshot,
+) -> Option<usize> {
+    if actual.entity_path() != expected.entity_path()
+        || actual.entity_name() != expected.entity_name()
+        || actual.primary_key_field_ids() != expected.primary_key_field_ids()
+    {
+        return None;
+    }
+    let ddl_index = actual
+        .fields()
+        .iter()
+        .position(|field| !field.generated())?;
+    let generated_field = expected.fields().get(ddl_index)?;
+    if !generated_field.generated()
+        || actual.fields()[..ddl_index]
+            .iter()
+            .zip(&expected.fields()[..ddl_index])
+            .any(|(accepted, generated)| !generated_current_field_matches(accepted, generated))
+        || actual
+            .row_layout()
+            .field_to_slot()
+            .iter()
+            .zip(expected.row_layout().field_to_slot())
+            .take(ddl_index)
+            .any(|(accepted, generated)| accepted != generated)
+    {
+        return None;
+    }
+
+    Some(ddl_index)
+}
+
 fn index_contract_matches_ignoring_name(
     actual: &PersistedIndexSnapshot,
     expected: &PersistedIndexSnapshot,
@@ -87,7 +160,7 @@ pub(super) fn accepted_snapshot_extends_generated_indexes(
         || actual.entity_name() != expected.entity_name()
         || actual.primary_key_field_ids() != expected.primary_key_field_ids()
         || actual.row_layout().field_to_slot() != expected.row_layout().field_to_slot()
-        || actual.fields() != expected.fields()
+        || !generated_current_fields_match(actual.fields(), expected.fields())
     {
         return false;
     }
@@ -135,7 +208,9 @@ pub(super) fn accepted_snapshot_extends_generated_with_ddl_fields(
         .fields()
         .iter()
         .zip(expected.fields())
-        .all(|(actual_field, expected_field)| actual_field == expected_field)
+        .all(|(actual_field, expected_field)| {
+            generated_current_field_matches(actual_field, expected_field)
+        })
     {
         return false;
     }
@@ -188,17 +263,49 @@ pub(super) fn accepted_snapshot_matches_generated_shape(
         && actual.row_layout().field_to_slot() == expected.row_layout().field_to_slot()
         && actual.row_layout().allocated_slot_count()
             == expected.row_layout().allocated_slot_count()
-        && actual.fields() == expected.fields()
+        && generated_current_fields_match(actual.fields(), expected.fields())
         && actual.indexes() == expected.indexes()
         && actual.relations() == expected.relations()
 }
 
-fn active_row_layout_matches(
+fn generated_row_shape_matches(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
 ) -> bool {
-    actual.row_layout().version() == expected.row_layout().version()
-        && actual.row_layout().field_to_slot() == expected.row_layout().field_to_slot()
+    actual.row_layout().field_to_slot() == expected.row_layout().field_to_slot()
+        && actual.row_layout().allocated_slot_count()
+            == expected.row_layout().allocated_slot_count()
+}
+
+// Generated metadata proposes current field intent but cannot reproduce the
+// accepted introduction layout or frozen historical fill. Every other durable
+// field fact remains exact at this compatibility boundary.
+fn generated_current_fields_match(
+    accepted: &[PersistedFieldSnapshot],
+    generated: &[PersistedFieldSnapshot],
+) -> bool {
+    accepted.len() == generated.len()
+        && accepted
+            .iter()
+            .zip(generated)
+            .all(|(accepted, generated)| generated_current_field_matches(accepted, generated))
+}
+
+fn generated_current_field_matches(
+    accepted: &PersistedFieldSnapshot,
+    generated: &PersistedFieldSnapshot,
+) -> bool {
+    accepted.id() == generated.id()
+        && accepted.name() == generated.name()
+        && accepted.slot() == generated.slot()
+        && accepted.kind() == generated.kind()
+        && accepted.nested_leaves() == generated.nested_leaves()
+        && accepted.nullable() == generated.nullable()
+        && accepted.insert_default() == generated.insert_default()
+        && accepted.write_policy() == generated.write_policy()
+        && accepted.origin() == generated.origin()
+        && accepted.storage_decode() == generated.storage_decode()
+        && accepted.leaf_codec() == generated.leaf_codec()
 }
 
 fn is_supported_extra_accepted_index(index: &PersistedIndexSnapshot) -> bool {
@@ -208,17 +315,26 @@ fn is_supported_extra_accepted_index(index: &PersistedIndexSnapshot) -> bool {
 
 // Decide whether one added field can be absent from older physical rows.
 // Nullable no-default fields materialize as `NULL`; fields with explicit
-// persisted default payloads materialize from that slot payload.
-pub(super) fn field_has_supported_missing_absence_policy(field: &PersistedFieldSnapshot) -> bool {
-    (field.nullable() && field.default().is_none()) || field_default_payload_is_valid(field)
+// persisted default payloads materialize from that slot payload. A rejecting
+// fill is valid only when the history floor proves no admitted row predates
+// the field.
+pub(super) fn field_has_supported_historical_fill(
+    field: &PersistedFieldSnapshot,
+    history_floor: crate::db::schema::RowLayoutVersion,
+) -> bool {
+    match field.historical_fill() {
+        SchemaHistoricalFill::Reject => field.introduced_in_layout() <= history_floor,
+        SchemaHistoricalFill::Null => field.nullable(),
+        SchemaHistoricalFill::SlotPayload(_) => field_historical_fill_payload_is_valid(field),
+    }
 }
 
 // Validate one accepted default payload before a schema transition can rely on
 // it for missing-slot materialization. Defaults are persisted bytes, so policy
 // must ask the accepted field-codec boundary to prove the payload is decodable
 // and non-null instead of trusting the schema metadata blindly.
-fn field_default_payload_is_valid(field: &PersistedFieldSnapshot) -> bool {
-    let Some(payload) = field.default().slot_payload() else {
+fn field_historical_fill_payload_is_valid(field: &PersistedFieldSnapshot) -> bool {
+    let Some(payload) = field.historical_fill().slot_payload() else {
         return false;
     };
 

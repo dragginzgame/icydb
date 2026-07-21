@@ -5,16 +5,17 @@
 
 use crate::{
     db::{
-        codec::decode_row_payload_bytes,
+        codec::{DecodedRowPayload, decode_row_payload_bytes},
         data::{
             RawRow, decode_runtime_value_from_row_contract,
             encode_canonical_value_for_accepted_field_contract,
         },
         schema::{
-            AcceptedCatalogSnapshotSelection, AcceptedFieldAbsencePolicy,
-            AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract,
+            AcceptedCatalogSnapshotSelection, AcceptedFieldDecodeContract,
+            AcceptedFieldPersistenceContract, AcceptedInsertOmissionPolicy,
             AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
-            OwnedAcceptedRelationEdgeContract,
+            OwnedAcceptedFieldDecodeContract, OwnedAcceptedRelationEdgeContract, RowLayoutVersion,
+            SchemaHistoricalFill,
         },
     },
     error::InternalError,
@@ -28,7 +29,7 @@ type SlotSpans = Vec<SlotSpan>;
 type RowFieldSpans<'a> = (Cow<'a, [u8]>, SlotSpans);
 type RowSlotTableSections<'a> = (usize, usize, &'a [u8], &'a [u8]);
 
-enum MissingSlotMaterialization<'a> {
+enum FieldMaterialization<'a> {
     Null,
     DefaultPayload(&'a [u8]),
 }
@@ -78,6 +79,25 @@ impl AcceptedStructuralRowAuthority {
         })
     }
 
+    /// Build candidate row authority from an accepted snapshot and the exact
+    /// value catalogs that will be published with it.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn from_candidate_snapshot(
+        entity_path: &'static str,
+        accepted_schema: AcceptedSchemaSnapshot,
+        value_catalog: crate::db::schema::AcceptedValueCatalogHandle,
+    ) -> Result<Self, InternalError> {
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted_schema)?;
+        let row_decode_contract = descriptor.row_decode_contract(value_catalog);
+        let row_contract =
+            StructuralRowContract::from_accepted_decode_contract(entity_path, row_decode_contract);
+
+        Ok(Self {
+            accepted_schema,
+            row_contract,
+        })
+    }
+
     fn catalog_backed_row_contract(
         entity_path: &'static str,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
@@ -98,6 +118,7 @@ impl AcceptedStructuralRowAuthority {
     }
 
     /// Borrow the accepted snapshot selected with this row contract.
+    #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db) const fn accepted_schema(&self) -> &AcceptedSchemaSnapshot {
         &self.accepted_schema
@@ -129,7 +150,6 @@ impl AcceptedStructuralRowAuthority {
 pub(in crate::db) struct StructuralRowContract {
     entity_path: &'static str,
     field_count: usize,
-    max_physical_slot_count: usize,
     primary_key_slot: usize,
     accepted_decode_contract: Rc<AcceptedRowDecodeContract>,
 }
@@ -155,7 +175,6 @@ impl StructuralRowContract {
         Self {
             entity_path,
             field_count: accepted_decode_contract.required_slot_count(),
-            max_physical_slot_count: accepted_decode_contract.max_physical_slot_count(),
             primary_key_slot: accepted_decode_contract.first_primary_key_slot_index(),
             accepted_decode_contract: Rc::new(accepted_decode_contract),
         }
@@ -173,10 +192,10 @@ impl StructuralRowContract {
         self.field_count
     }
 
-    /// Return the maximum current physical slot count this row contract accepts.
+    /// Return the layout identity stamped by every current canonical writer.
     #[must_use]
-    pub(in crate::db) const fn max_physical_slot_count(&self) -> usize {
-        self.max_physical_slot_count
+    pub(in crate::db) fn current_layout_version(&self) -> RowLayoutVersion {
+        self.accepted_decode_contract.current_layout_version()
     }
 
     /// Return the authoritative primary-key slot.
@@ -199,6 +218,15 @@ impl StructuralRowContract {
             .accepted_decode_contract
             .required_field_for_slot(self.entity_path(), slot)?
             .decode_contract())
+    }
+
+    /// Borrow one complete accepted field contract by stable physical slot.
+    pub(in crate::db) fn required_accepted_field_contract(
+        &self,
+        slot: usize,
+    ) -> Result<&OwnedAcceptedFieldDecodeContract, InternalError> {
+        self.accepted_decode_contract
+            .required_field_for_slot(self.entity_path(), slot)
     }
 
     /// Borrow one accepted field with the catalog authority that admitted it.
@@ -267,78 +295,93 @@ impl StructuralRowContract {
         ))
     }
 
-    /// Materialize the logical runtime value for an absent accepted slot.
-    ///
-    /// Only accepted-schema row contracts may synthesize missing fields.
-    /// Nullable slots materialize as `NULL`, slots with explicit database
-    /// defaults materialize through the accepted default payload, and required
-    /// accepted slots remain fail-closed.
-    pub(in crate::db) fn missing_slot_value(&self, slot: usize) -> Result<Value, InternalError> {
-        match self.missing_slot_materialization(slot)? {
-            MissingSlotMaterialization::Null => Ok(Value::Null),
-            MissingSlotMaterialization::DefaultPayload(payload) => {
+    /// Resolve an omitted field for a future logical insert after-image.
+    pub(in crate::db) fn insert_omission_value(&self, slot: usize) -> Result<Value, InternalError> {
+        match self.insert_omission_materialization(slot)? {
+            FieldMaterialization::Null => Ok(Value::Null),
+            FieldMaterialization::DefaultPayload(payload) => {
                 decode_runtime_value_from_row_contract(self, slot, payload)
             }
         }
     }
 
-    /// Materialize the physical payload for an absent accepted slot.
-    ///
-    /// Accepted default bytes are already canonical and bundle-validated, so
-    /// complete writes reuse them directly. Nullable omissions are encoded
-    /// through the accepted persistence contract.
-    pub(in crate::db) fn missing_slot_payload(
+    /// Resolve an omitted field into a current canonical insertion payload.
+    pub(in crate::db) fn insert_omission_payload(
         &self,
         slot: usize,
     ) -> Result<Vec<u8>, InternalError> {
-        match self.missing_slot_materialization(slot)? {
-            MissingSlotMaterialization::Null => {
+        match self.insert_omission_materialization(slot)? {
+            FieldMaterialization::Null => {
                 let encoding = self.required_accepted_field_persistence_contract(slot)?;
                 encode_canonical_value_for_accepted_field_contract(encoding, &Value::Null)
             }
-            MissingSlotMaterialization::DefaultPayload(payload) => Ok(payload.to_vec()),
+            FieldMaterialization::DefaultPayload(payload) => Ok(payload.to_vec()),
         }
     }
 
-    fn missing_slot_materialization(
+    fn insert_omission_materialization(
         &self,
         slot: usize,
-    ) -> Result<MissingSlotMaterialization<'_>, InternalError> {
+    ) -> Result<FieldMaterialization<'_>, InternalError> {
         let field = self
             .accepted_decode_contract
             .required_field_for_slot(self.entity_path(), slot)?;
-        match field.absence_policy() {
-            AcceptedFieldAbsencePolicy::NullIfMissing => Ok(MissingSlotMaterialization::Null),
-            AcceptedFieldAbsencePolicy::DefaultIfMissing => field
-                .default()
+        match field.insert_omission_policy() {
+            AcceptedInsertOmissionPolicy::NullIfMissing => Ok(FieldMaterialization::Null),
+            AcceptedInsertOmissionPolicy::DefaultIfMissing => field
+                .insert_default()
                 .slot_payload()
-                .map(MissingSlotMaterialization::DefaultPayload)
+                .map(FieldMaterialization::DefaultPayload)
                 .ok_or_else(|| {
                     InternalError::persisted_row_declared_field_missing(field.field_name())
                 }),
-            AcceptedFieldAbsencePolicy::Required => Err(
+            AcceptedInsertOmissionPolicy::Required => Err(
                 InternalError::persisted_row_declared_field_missing(field.field_name()),
             ),
         }
     }
 
-    // Validate that one physical row slot count can be read through this
-    // structural contract. Rows may be short when trailing additions can
-    // materialize from schema metadata, but current rows cannot be longer than
-    // the accepted dense layout.
-    fn validate_physical_slot_count(&self, physical_count: usize) -> Result<(), InternalError> {
-        if physical_count > self.max_physical_slot_count() {
+    /// Materialize a logically present value from legitimate historical absence.
+    pub(in crate::db) fn historical_slot_value(
+        &self,
+        slot: usize,
+        row_layout_version: RowLayoutVersion,
+    ) -> Result<Value, InternalError> {
+        let field = self
+            .accepted_decode_contract
+            .required_field_for_slot(self.entity_path(), slot)?;
+        if field.introduced_in_layout() <= row_layout_version {
             return Err(InternalError::persisted_row_decode_corruption());
         }
 
-        for slot in physical_count..self.field_count() {
-            if !self.has_active_field_slot(slot) {
-                continue;
+        match field.historical_fill() {
+            SchemaHistoricalFill::Reject => Err(InternalError::persisted_row_decode_corruption()),
+            SchemaHistoricalFill::Null => Ok(Value::Null),
+            SchemaHistoricalFill::SlotPayload(payload) => {
+                decode_runtime_value_from_row_contract(self, slot, payload)
             }
-            let _ = self.missing_slot_value(slot)?;
         }
+    }
 
-        Ok(())
+    // Require the stamped layout to be admitted and its physical slot count to
+    // match exactly before any full or sparse reader traverses the slot table.
+    fn validate_physical_slot_count(
+        &self,
+        layout_version: RowLayoutVersion,
+        physical_count: usize,
+    ) -> Result<(), InternalError> {
+        let expected = self
+            .accepted_decode_contract
+            .expected_slot_count(layout_version)?;
+        if physical_count == expected {
+            Ok(())
+        } else {
+            Err(InternalError::persisted_row_slot_count_mismatch(
+                layout_version.get(),
+                expected,
+                physical_count,
+            ))
+        }
     }
 }
 
@@ -353,6 +396,7 @@ impl StructuralRowContract {
 
 #[derive(Clone, Debug)]
 pub(in crate::db::data) struct StructuralRowFieldBytes<'a> {
+    layout_version: RowLayoutVersion,
     payload: Cow<'a, [u8]>,
     spans: SlotSpans,
 }
@@ -363,10 +407,16 @@ impl<'a> StructuralRowFieldBytes<'a> {
         row_bytes: &'a [u8],
         contract: &StructuralRowContract,
     ) -> Result<Self, InternalError> {
-        let payload = decode_structural_row_payload_bytes(row_bytes)?;
-        let (payload, spans) = decode_row_field_spans(payload, contract)?;
+        let decoded = decode_structural_row_payload_bytes(row_bytes)?;
+        let layout_version = decoded.layout_version();
+        let (payload, spans) =
+            decode_row_field_spans(decoded.into_payload(), layout_version, contract)?;
 
-        Ok(Self { payload, spans })
+        Ok(Self {
+            layout_version,
+            payload,
+            spans,
+        })
     }
 
     /// Decode one raw row into contract slot-aligned encoded field payload spans.
@@ -384,6 +434,18 @@ impl<'a> StructuralRowFieldBytes<'a> {
 
         Some(&self.payload[start..end])
     }
+
+    /// Return the stamped physical row-layout identity.
+    #[must_use]
+    pub(in crate::db::data) const fn layout_version(&self) -> RowLayoutVersion {
+        self.layout_version
+    }
+
+    /// Return the exact physical slot count admitted for the stamped layout.
+    #[must_use]
+    pub(in crate::db::data) fn physical_slot_count(&self) -> usize {
+        self.spans.iter().filter(|span| span.is_some()).count()
+    }
 }
 
 ///
@@ -397,6 +459,7 @@ impl<'a> StructuralRowFieldBytes<'a> {
 
 #[derive(Clone, Debug)]
 pub(in crate::db::data) struct SparseRequiredRowFieldBytes<'a> {
+    layout_version: RowLayoutVersion,
     payload: Cow<'a, [u8]>,
     required_span: Option<(usize, usize)>,
     primary_key_span: (usize, usize),
@@ -410,11 +473,17 @@ impl<'a> SparseRequiredRowFieldBytes<'a> {
         contract: &StructuralRowContract,
         required_slot: usize,
     ) -> Result<Self, InternalError> {
-        let payload = decode_structural_row_payload_bytes(raw_row.as_bytes())?;
-        let (payload, required_span, primary_key_span) =
-            decode_sparse_required_row_field_spans(payload, contract, required_slot)?;
+        let decoded = decode_structural_row_payload_bytes(raw_row.as_bytes())?;
+        let layout_version = decoded.layout_version();
+        let (payload, required_span, primary_key_span) = decode_sparse_required_row_field_spans(
+            decoded.into_payload(),
+            layout_version,
+            contract,
+            required_slot,
+        )?;
 
         Ok(Self {
+            layout_version,
             payload,
             required_span,
             primary_key_span,
@@ -434,6 +503,12 @@ impl<'a> SparseRequiredRowFieldBytes<'a> {
     pub(in crate::db::data) fn primary_key_field(&self) -> &[u8] {
         &self.payload[self.primary_key_span.0..self.primary_key_span.1]
     }
+
+    /// Return the stamped physical row-layout identity.
+    #[must_use]
+    pub(in crate::db::data) const fn layout_version(&self) -> RowLayoutVersion {
+        self.layout_version
+    }
 }
 
 /// Decode one persisted row through the structural row-envelope validation path.
@@ -442,23 +517,26 @@ impl<'a> SparseRequiredRowFieldBytes<'a> {
 /// so this helper returns the validated enclosed payload bytes directly.
 pub(in crate::db) fn decode_structural_row_payload(
     raw_row: &RawRow,
-) -> Result<Cow<'_, [u8]>, InternalError> {
+) -> Result<DecodedRowPayload<'_>, InternalError> {
     decode_structural_row_payload_bytes(raw_row.as_bytes())
 }
 
 // Decode one persisted row envelope into the enclosed slot payload bytes.
-fn decode_structural_row_payload_bytes(bytes: &[u8]) -> Result<Cow<'_, [u8]>, InternalError> {
+fn decode_structural_row_payload_bytes(
+    bytes: &[u8],
+) -> Result<DecodedRowPayload<'_>, InternalError> {
     decode_row_payload_bytes(bytes)
 }
 
 // Decode the canonical slot-container header into slot-aligned payload spans.
 fn decode_row_field_spans<'payload>(
     payload: Cow<'payload, [u8]>,
+    layout_version: RowLayoutVersion,
     contract: &StructuralRowContract,
 ) -> Result<RowFieldSpans<'payload>, InternalError> {
     let bytes = payload.as_ref();
     let (data_start, physical_count, table, data_section) =
-        decode_slot_table_sections(bytes, contract)?;
+        decode_slot_table_sections(bytes, layout_version, contract)?;
     let mut spans: SlotSpans = vec![None; contract.field_count()];
 
     for (slot, span) in spans.iter_mut().take(physical_count).enumerate() {
@@ -499,12 +577,13 @@ type SparseRequiredRowFieldSpans<'a> =
 // slot span plus the primary-key span for sparse direct slot reads.
 fn decode_sparse_required_row_field_spans<'payload>(
     payload: Cow<'payload, [u8]>,
+    layout_version: RowLayoutVersion,
     contract: &StructuralRowContract,
     required_slot: usize,
 ) -> SparseRequiredRowFieldSpans<'payload> {
     let bytes = payload.as_ref();
     let (data_start, physical_count, table, data_section) =
-        decode_slot_table_sections(bytes, contract)?;
+        decode_slot_table_sections(bytes, layout_version, contract)?;
     let primary_key_slot = contract.primary_key_slot();
     let mut required_span = None;
     let mut primary_key_span = None;
@@ -537,9 +616,6 @@ fn decode_sparse_required_row_field_spans<'payload>(
         }
     }
 
-    if required_span.is_none() {
-        let _ = contract.missing_slot_value(required_slot)?;
-    }
     let primary_key_span =
         primary_key_span.ok_or_else(InternalError::persisted_row_decode_corruption)?;
     let payload = match payload {
@@ -555,6 +631,7 @@ fn decode_sparse_required_row_field_spans<'payload>(
 // walks the table. This keeps accepted raw-row shape authority in one place.
 fn decode_slot_table_sections<'bytes>(
     bytes: &'bytes [u8],
+    layout_version: RowLayoutVersion,
     contract: &StructuralRowContract,
 ) -> Result<RowSlotTableSections<'bytes>, InternalError> {
     let field_count_bytes = bytes
@@ -564,7 +641,7 @@ fn decode_slot_table_sections<'bytes>(
         field_count_bytes[0],
         field_count_bytes[1],
     ]));
-    contract.validate_physical_slot_count(field_count)?;
+    contract.validate_physical_slot_count(layout_version, field_count)?;
     let table_len = field_count
         .checked_mul(8)
         .ok_or_else(InternalError::persisted_row_decode_corruption)?;

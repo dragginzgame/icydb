@@ -31,7 +31,9 @@ pub(in crate::db) use metadata::{
     RelationFieldCardinality, RelationFieldMetadata, relation_field_metadata_for_model_iter,
 };
 pub(crate) use reverse_index::{
-    ReverseRelationSourceInfo, prepare_reverse_relation_index_mutations_for_source_slot_readers,
+    ReverseRelationSourceInfo, StagedReverseRelationDomainEffects,
+    StagedReverseRelationDomainEffectsBuilder,
+    prepare_reverse_relation_index_mutations_for_source_slot_readers,
 };
 pub(in crate::db) use save_validate::validate_save_relations_with_accepted_contract;
 pub(in crate::db) use validate::validate_delete_relations_for_source;

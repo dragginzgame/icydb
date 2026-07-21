@@ -13,9 +13,9 @@ use crate::{
         schema::{
             AcceptedCompositeCatalog, AcceptedFieldKind, FieldId, PersistedFieldSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
-            SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
-            build_initial_accepted_catalogs_from_kinds_for_tests,
+            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, RowLayoutVersion,
+            SchemaFieldSlot, SchemaHistoricalFill, SchemaInsertDefault, SchemaRowLayout,
+            SchemaVersion, build_initial_accepted_catalogs_from_kinds_for_tests,
         },
     },
     model::field::{
@@ -156,7 +156,7 @@ fn snapshot_with_field(
         kind,
         nested_leaves,
         leaf_codec,
-        SchemaFieldDefault::None,
+        SchemaInsertDefault::None,
     )
 }
 
@@ -165,18 +165,15 @@ fn snapshot_with_field_and_default(
     kind: AcceptedFieldKind,
     nested_leaves: Vec<PersistedNestedLeafSnapshot>,
     leaf_codec: LeafCodec,
-    default: SchemaFieldDefault,
+    default: SchemaInsertDefault,
 ) -> PersistedSchemaSnapshot {
     PersistedSchemaSnapshot::new(
         SchemaVersion::initial(),
         entity_path.to_string(),
         "Item".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
-        ),
-        vec![PersistedFieldSnapshot::new(
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
+        vec![PersistedFieldSnapshot::new_initial(
             FieldId::new(1),
             "id".to_string(),
             SchemaFieldSlot::new(0),
@@ -201,18 +198,15 @@ fn snapshot_with_indexed_enum(
         "test::Item".to_string(),
         "Item".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
-        ),
-        vec![PersistedFieldSnapshot::new(
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
+        vec![PersistedFieldSnapshot::new_initial(
             FieldId::new(1),
             "status".to_string(),
             SchemaFieldSlot::new(0),
             persisted_kind.clone(),
             Vec::new(),
             false,
-            SchemaFieldDefault::None,
+            SchemaInsertDefault::None,
             FieldStorageDecode::ByKind,
             LeafCodec::Structural,
         )],
@@ -266,33 +260,30 @@ fn snapshot_with_non_key_field(
         entity_path.to_string(),
         "Item".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 field_name.to_string(),
                 SchemaFieldSlot::new(1),
                 kind,
                 nested_leaves,
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 storage_decode,
                 leaf_codec,
             ),
@@ -647,7 +638,61 @@ fn accepted_schema_bundle_rejects_malformed_default_payload() {
         AcceptedFieldKind::Ulid,
         Vec::new(),
         LeafCodec::Scalar(ScalarCodec::Ulid),
-        SchemaFieldDefault::SlotPayload(vec![0xFE]),
+        SchemaInsertDefault::SlotPayload(vec![0xFE]),
+    );
+
+    assert!(
+        AcceptedSchemaRevisionBundle::new(
+            AcceptedSchemaRevision::INITIAL,
+            "test::Store",
+            empty_catalog(),
+            empty_composite_catalog(),
+            BTreeMap::from([(EntityTag::new(7), snapshot)]),
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn accepted_schema_bundle_rejects_malformed_historical_fill_payload() {
+    let base = snapshot_with_non_key_field(
+        "test::Item",
+        "score",
+        AcceptedFieldKind::Nat64,
+        Vec::new(),
+        FieldStorageDecode::ByKind,
+        LeafCodec::Scalar(ScalarCodec::Nat64),
+    );
+    let current = RowLayoutVersion::INITIAL
+        .checked_next()
+        .expect("temporal fixture layout should advance");
+    let mut fields = base.fields().to_vec();
+    let score = &base.fields()[1];
+    fields[1] = PersistedFieldSnapshot::new_with_write_policy(
+        score.id(),
+        score.name().to_string(),
+        score.slot(),
+        score.kind().clone(),
+        score.nested_leaves().to_vec(),
+        score.nullable(),
+        current,
+        SchemaInsertDefault::None,
+        SchemaHistoricalFill::SlotPayload(vec![0xFE]),
+        score.write_policy(),
+        score.storage_decode(),
+        score.leaf_codec(),
+    );
+    let snapshot = PersistedSchemaSnapshot::new(
+        base.version(),
+        base.entity_path().to_string(),
+        base.entity_name().to_string(),
+        base.primary_key_field_ids().to_vec(),
+        SchemaRowLayout::new(
+            current,
+            RowLayoutVersion::INITIAL,
+            base.row_layout().field_to_slot().to_vec(),
+        ),
+        fields,
     );
 
     assert!(

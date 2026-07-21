@@ -316,8 +316,9 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
         "schema_transition_checks",
         "schema_transition_add_expression_index",
         "schema_transition_add_field_path_index",
-        "schema_transition_append_only_nullable_fields",
+        "schema_transition_append_only_fields",
         "schema_transition_exact_match",
+        "schema_transition_metadata_only_field_default",
         "schema_transition_metadata_only_index_rename",
         "schema_transition_rejected_entity_identity",
         "schema_transition_rejected_field_contract",
@@ -486,8 +487,9 @@ fn schema_transition_metrics_accumulate_by_outcome_and_entity() {
     for outcome in [
         SchemaTransitionOutcome::AddExpressionIndex,
         SchemaTransitionOutcome::AddFieldPathIndex,
-        SchemaTransitionOutcome::AppendOnlyNullableFields,
+        SchemaTransitionOutcome::AppendOnlyFields,
         SchemaTransitionOutcome::ExactMatch,
+        SchemaTransitionOutcome::MetadataOnlyFieldDefault,
         SchemaTransitionOutcome::MetadataOnlyIndexRename,
         SchemaTransitionOutcome::RejectedEntityIdentity,
         SchemaTransitionOutcome::RejectedFieldContract,
@@ -507,11 +509,12 @@ fn schema_transition_metrics_accumulate_by_outcome_and_entity() {
         .counters()
         .expect("schema transition fixture should produce counters");
     let ops = counters.ops();
-    assert_eq!(ops.schema_transition_checks(), 11);
+    assert_eq!(ops.schema_transition_checks(), 12);
     assert_eq!(ops.schema_transition_add_expression_index(), 1);
     assert_eq!(ops.schema_transition_add_field_path_index(), 1);
-    assert_eq!(ops.schema_transition_append_only_nullable_fields(), 1);
+    assert_eq!(ops.schema_transition_append_only_fields(), 1);
     assert_eq!(ops.schema_transition_exact_match(), 1);
+    assert_eq!(ops.schema_transition_metadata_only_field_default(), 1);
     assert_eq!(ops.schema_transition_metadata_only_index_rename(), 1);
     assert_eq!(ops.schema_transition_rejected_entity_identity(), 1);
     assert_eq!(ops.schema_transition_rejected_field_contract(), 1);
@@ -523,8 +526,9 @@ fn schema_transition_metrics_accumulate_by_outcome_and_entity() {
         ops.schema_transition_checks(),
         ops.schema_transition_add_expression_index()
             .saturating_add(ops.schema_transition_add_field_path_index())
-            .saturating_add(ops.schema_transition_append_only_nullable_fields())
+            .saturating_add(ops.schema_transition_append_only_fields())
             .saturating_add(ops.schema_transition_exact_match())
+            .saturating_add(ops.schema_transition_metadata_only_field_default())
             .saturating_add(ops.schema_transition_metadata_only_index_rename())
             .saturating_add(ops.schema_transition_rejected_entity_identity())
             .saturating_add(ops.schema_transition_rejected_field_contract())
@@ -540,11 +544,12 @@ fn schema_transition_metrics_accumulate_by_outcome_and_entity() {
         .first()
         .expect("schema transition fixture should produce an entity summary");
     assert_eq!(summary.path(), "metrics::tests::SchemaEntity");
-    assert_eq!(summary.schema_transition_checks(), 11);
+    assert_eq!(summary.schema_transition_checks(), 12);
     assert_eq!(summary.schema_transition_add_expression_index(), 1);
     assert_eq!(summary.schema_transition_add_field_path_index(), 1);
-    assert_eq!(summary.schema_transition_append_only_nullable_fields(), 1);
+    assert_eq!(summary.schema_transition_append_only_fields(), 1);
     assert_eq!(summary.schema_transition_exact_match(), 1);
+    assert_eq!(summary.schema_transition_metadata_only_field_default(), 1);
     assert_eq!(summary.schema_transition_metadata_only_index_rename(), 1);
     assert_eq!(summary.schema_transition_rejected_entity_identity(), 1);
     assert_eq!(summary.schema_transition_rejected_field_contract(), 1);
@@ -557,8 +562,9 @@ fn schema_transition_metrics_accumulate_by_outcome_and_entity() {
         summary
             .schema_transition_add_expression_index()
             .saturating_add(summary.schema_transition_add_field_path_index())
-            .saturating_add(summary.schema_transition_append_only_nullable_fields())
+            .saturating_add(summary.schema_transition_append_only_fields())
             .saturating_add(summary.schema_transition_exact_match())
+            .saturating_add(summary.schema_transition_metadata_only_field_default())
             .saturating_add(summary.schema_transition_metadata_only_index_rename())
             .saturating_add(summary.schema_transition_rejected_entity_identity())
             .saturating_add(summary.schema_transition_rejected_field_contract())
@@ -1035,8 +1041,9 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         schema_transition_checks: 191,
         schema_transition_add_expression_index: 200,
         schema_transition_add_field_path_index: 201,
-        schema_transition_append_only_nullable_fields: 199,
+        schema_transition_append_only_fields: 199,
         schema_transition_exact_match: 192,
+        schema_transition_metadata_only_field_default: 203,
         schema_transition_metadata_only_index_rename: 202,
         schema_transition_rejected_entity_identity: 193,
         schema_transition_rejected_field_contract: 194,
@@ -1175,8 +1182,9 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "schema_transition_checks",
         "schema_transition_add_expression_index",
         "schema_transition_add_field_path_index",
-        "schema_transition_append_only_nullable_fields",
+        "schema_transition_append_only_fields",
         "schema_transition_exact_match",
+        "schema_transition_metadata_only_field_default",
         "schema_transition_metadata_only_index_rename",
         "schema_transition_rejected_entity_identity",
         "schema_transition_rejected_field_contract",
@@ -1338,8 +1346,9 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.schema_transition_checks(), 191);
     assert_eq!(summary.schema_transition_add_expression_index(), 200);
     assert_eq!(summary.schema_transition_add_field_path_index(), 201);
-    assert_eq!(summary.schema_transition_append_only_nullable_fields(), 199);
+    assert_eq!(summary.schema_transition_append_only_fields(), 199);
     assert_eq!(summary.schema_transition_exact_match(), 192);
+    assert_eq!(summary.schema_transition_metadata_only_field_default(), 203);
     assert_eq!(summary.schema_transition_metadata_only_index_rename(), 202);
     assert_eq!(summary.schema_transition_rejected_entity_identity(), 193);
     assert_eq!(summary.schema_transition_rejected_field_contract(), 194);

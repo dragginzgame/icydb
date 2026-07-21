@@ -12,15 +12,15 @@ use crate::{
         Db, EntityRuntimeHooks,
         registry::StoreHandle,
         schema::{
-            AcceptedCatalogSnapshotSelection, AcceptedSchemaSnapshot, MutationPublicationPreflight,
-            PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaStore, SchemaTransitionDecision,
-            SchemaTransitionPlanKind, StagedUserIndexDomainReplacement,
-            compiled_schema_proposal_for_model,
+            AcceptedCatalogSnapshotSelection, AcceptedSchemaSnapshot,
+            GeneratedAcceptedCandidateError, MutationPublicationPreflight, PersistedIndexSnapshot,
+            PersistedSchemaSnapshot, SchemaStore, SchemaTransitionDecision,
+            SchemaTransitionPlanKind, compiled_schema_proposal_for_model,
             composite_catalog::{
                 AcceptedCompositeCatalog, build_initial_accepted_composite_catalog,
                 generated_composite_type_ids, reconcile_accepted_composite_catalog,
             },
-            decide_schema_transition,
+            decide_schema_transition, derive_generated_accepted_candidate,
             enum_catalog::{
                 AcceptedEnumCatalog, AcceptedSchemaRevision, AcceptedSchemaRevisionBundle,
                 CandidateSchemaRevision, build_initial_accepted_enum_catalog_with_composite_ids,
@@ -47,11 +47,33 @@ use std::collections::{BTreeMap, BTreeSet};
 #[cfg(test)]
 use crate::db::schema::build_initial_accepted_catalogs_for_tests;
 
-use user_index_domain::stage_startup_user_index_domain_replacement;
+use user_index_domain::stage_startup_derived_domain_replacement;
 
 struct ReconciledRuntimeSchema {
     accepted: AcceptedSchemaSnapshot,
-    pending_publication: Option<StagedUserIndexDomainReplacement>,
+    pending_publication: Option<PendingUserIndexDomainStage>,
+}
+
+///
+/// PendingUserIndexDomainStage
+///
+/// Store-candidate staging request retained until the complete accepted bundle
+/// provides the exact after-catalog authority. Reconciliation owns this token.
+///
+
+#[derive(Clone, Copy)]
+struct PendingUserIndexDomainStage {
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+}
+
+impl PendingUserIndexDomainStage {
+    const fn new(entity_tag: EntityTag, entity_path: &'static str) -> Self {
+        Self {
+            entity_tag,
+            entity_path,
+        }
+    }
 }
 
 struct GeneratedCatalogCandidates {
@@ -77,11 +99,50 @@ pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
     db: &Db<C>,
     entity_runtime_hooks: &[EntityRuntimeHooks<C>],
 ) -> Result<(), InternalError> {
+    reconcile_runtime_schemas_with_derived_state(
+        db,
+        entity_runtime_hooks,
+        SchemaReconcileDerivedState::StageAgainstReadyDomains,
+    )
+}
+
+/// Reconcile accepted schema immediately before recovery's canonical complete
+/// derived-state rebuild. The recovery gate remains closed until that rebuild
+/// succeeds, so candidate domains must not be compared with stale indexes.
+pub(in crate::db) fn reconcile_runtime_schemas_before_recovery_rebuild<C: CanisterKind>(
+    db: &Db<C>,
+    entity_runtime_hooks: &[EntityRuntimeHooks<C>],
+) -> Result<(), InternalError> {
+    reconcile_runtime_schemas_with_derived_state(
+        db,
+        entity_runtime_hooks,
+        SchemaReconcileDerivedState::RecoveryRebuildOwnsDomains,
+    )
+}
+
+///
+/// SchemaReconcileDerivedState
+///
+/// Authority selected for derived state after accepted-schema reconciliation.
+/// Ordinary startup stages exact domains; guarded recovery owns a full rebuild.
+///
+
+#[derive(Clone, Copy)]
+enum SchemaReconcileDerivedState {
+    StageAgainstReadyDomains,
+    RecoveryRebuildOwnsDomains,
+}
+
+fn reconcile_runtime_schemas_with_derived_state<C: CanisterKind>(
+    db: &Db<C>,
+    entity_runtime_hooks: &[EntityRuntimeHooks<C>],
+    derived_state: SchemaReconcileDerivedState,
+) -> Result<(), InternalError> {
     let catalogs_by_store = build_generated_catalog_candidates(db, entity_runtime_hooks)?;
     let mut accepted_snapshots_by_store =
         BTreeMap::<&'static str, BTreeMap<EntityTag, PersistedSchemaSnapshot>>::new();
     let mut pending_publications =
-        BTreeMap::<&'static str, Vec<StagedUserIndexDomainReplacement>>::new();
+        BTreeMap::<&'static str, Vec<PendingUserIndexDomainStage>>::new();
 
     for hooks in entity_runtime_hooks {
         let catalogs = catalogs_by_store
@@ -92,6 +153,7 @@ pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
             hooks,
             &catalogs.enum_catalog,
             &catalogs.composite_catalog,
+            derived_state,
         )?;
         if accepted_snapshots_by_store
             .entry(hooks.store_path)
@@ -124,6 +186,7 @@ pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
             .ok_or_else(InternalError::store_invariant)?;
         let store_pending = pending_publications.remove(store_path).unwrap_or_default();
         publish_generated_accepted_schema_bundle(
+            db,
             db.store_handle(store_path)?,
             store_path,
             catalogs.enum_catalog,
@@ -137,34 +200,6 @@ pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
     }
 
     Ok(())
-}
-
-// Return whether a failed accepted-schema publication is proven to have
-// rejected before any durable commit authority or accepted-after root exists.
-// Physical rollback is unsafe while a marker remains: recovery owns that
-// candidate and may still publish it. Inspection failures are likewise
-// commit-in-doubt and conservatively retain accepted-after physical work.
-#[cfg(any(test, feature = "sql"))]
-fn schema_publication_error_allows_physical_rollback(
-    store: StoreHandle,
-    entity_tag: EntityTag,
-    accepted_before: &PersistedSchemaSnapshot,
-) -> bool {
-    if store.storage_capabilities().recovery()
-        == crate::db::registry::StoreRecoveryCapability::StableBasePlusJournalReplay
-    {
-        match crate::db::commit::commit_marker_present() {
-            Ok(false) => {}
-            Ok(true) | Err(_) => return false,
-        }
-    }
-
-    matches!(
-        store.with_schema(|schema_store| {
-            schema_store.current_accepted_persisted_snapshot(entity_tag)
-        }),
-        Ok(Some(current)) if current == *accepted_before
-    )
 }
 
 // Construct every store-local type-catalog candidate before any entity
@@ -225,13 +260,14 @@ fn build_generated_catalog_candidates<C: CanisterKind>(
     Ok(catalogs_by_store)
 }
 
-fn publish_generated_accepted_schema_bundle(
+fn publish_generated_accepted_schema_bundle<C: CanisterKind>(
+    db: &Db<C>,
     store: StoreHandle,
     store_path: &'static str,
     enum_catalog: AcceptedEnumCatalog,
     composite_catalog: AcceptedCompositeCatalog,
     entity_snapshots: BTreeMap<EntityTag, PersistedSchemaSnapshot>,
-    replacements: Vec<StagedUserIndexDomainReplacement>,
+    pending_domains: Vec<PendingUserIndexDomainStage>,
 ) -> Result<(), InternalError> {
     let current = store.with_schema(SchemaStore::current_accepted_schema_bundle)?;
     if current
@@ -256,7 +292,7 @@ fn publish_generated_accepted_schema_bundle(
         entity_snapshots.clone(),
     )?;
     if current.as_ref() == Some(&comparison) {
-        return if replacements.is_empty() {
+        return if pending_domains.is_empty() {
             Ok(())
         } else {
             Err(InternalError::store_invariant())
@@ -274,14 +310,14 @@ fn publish_generated_accepted_schema_bundle(
     )?;
     let candidate = CandidateSchemaRevision::new(bundle)?;
     if current.is_none() {
-        if !replacements.is_empty() {
+        if !pending_domains.is_empty() {
             return Err(InternalError::store_invariant());
         }
         return store.with_schema_mut(|schema_store| {
             schema_store.publish_accepted_schema_candidate(expected_revision, &candidate)
         });
     }
-    if replacements.is_empty() {
+    if pending_domains.is_empty() {
         crate::db::commit::publish_accepted_schema_candidate(
             store_path,
             store,
@@ -289,12 +325,32 @@ fn publish_generated_accepted_schema_bundle(
             &candidate,
         )
     } else {
-        crate::db::commit::publish_accepted_schema_candidate_with_user_index_domains(
+        let staged_domains = pending_domains
+            .into_iter()
+            .map(|pending| {
+                stage_startup_derived_domain_replacement(
+                    db,
+                    store,
+                    pending.entity_tag,
+                    store_path,
+                    pending.entity_path,
+                    &candidate,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut user_index_domains = Vec::with_capacity(staged_domains.len());
+        let mut reverse_relation_domains = Vec::with_capacity(staged_domains.len());
+        for (user_indexes, reverse_relations) in staged_domains {
+            user_index_domains.push(user_indexes);
+            reverse_relation_domains.push(reverse_relations);
+        }
+        crate::db::commit::publish_accepted_schema_candidate_with_derived_domains(
             store_path,
             store,
             expected_revision,
             &candidate,
-            replacements,
+            user_index_domains,
+            reverse_relation_domains,
         )
     }
 }
@@ -383,32 +439,16 @@ fn publish_accepted_entity_snapshot_revision(
     expected_identity: crate::db::schema::AcceptedCatalogIdentity,
     accepted_after: &PersistedSchemaSnapshot,
 ) -> Result<(), InternalError> {
-    publish_accepted_entity_snapshot_revision_with_row_puts(
-        store,
-        expected_identity,
-        accepted_after,
-        Vec::new(),
-    )
-}
-
-#[cfg(feature = "sql")]
-fn publish_accepted_entity_snapshot_revision_with_row_puts(
-    store: StoreHandle,
-    expected_identity: crate::db::schema::AcceptedCatalogIdentity,
-    accepted_after: &PersistedSchemaSnapshot,
-    row_puts: Vec<crate::db::journal::JournalRecord>,
-) -> Result<(), InternalError> {
     let Some((expected_revision, candidate)) =
         prepare_accepted_entity_snapshot_revision(store, expected_identity, accepted_after)?
     else {
         return Ok(());
     };
-    crate::db::commit::publish_accepted_schema_candidate_with_row_puts(
+    crate::db::commit::publish_accepted_schema_candidate(
         expected_identity.store_path(),
         store,
         expected_revision,
         &candidate,
-        row_puts,
     )
 }
 
@@ -524,6 +564,7 @@ fn reconcile_runtime_schema<C: CanisterKind>(
     hooks: &EntityRuntimeHooks<C>,
     enum_catalog: &AcceptedEnumCatalog,
     composite_catalog: &AcceptedCompositeCatalog,
+    derived_state: SchemaReconcileDerivedState,
 ) -> Result<ReconciledRuntimeSchema, InternalError> {
     let store = db.store_handle(hooks.store_path)?;
 
@@ -531,10 +572,10 @@ fn reconcile_runtime_schema<C: CanisterKind>(
         store,
         hooks.entity_tag,
         hooks.entity_path,
-        hooks.store_path,
         hooks.model,
         enum_catalog,
         composite_catalog,
+        derived_state,
     )
 }
 
@@ -681,6 +722,9 @@ fn reconcile_staged_schema_snapshot(
     };
 
     if let Some(actual) = latest {
+        let expected = derive_generated_accepted_candidate(&actual, &expected)
+            .map_err(generated_accepted_candidate_error)?
+            .unwrap_or(expected);
         let plan = match validate_existing_schema_snapshot(entity_path, &actual, &expected) {
             Ok(plan) => plan,
             Err(error) => {
@@ -697,7 +741,8 @@ fn reconcile_staged_schema_snapshot(
             SchemaTransitionPlanKind::AddExpressionIndex
             | SchemaTransitionPlanKind::AddFieldPathIndex
             | SchemaTransitionPlanKind::ExactMatch => actual,
-            SchemaTransitionPlanKind::AppendOnlyNullableFields => {
+            SchemaTransitionPlanKind::AppendOnlyFields
+            | SchemaTransitionPlanKind::MetadataOnlyFieldDefault => {
                 if let Err(error) = schema_store.insert_persisted_snapshot(entity_tag, &expected) {
                     record_schema_store_footprint(schema_store, entity_tag, entity_path);
                     record_schema_reconcile(entity_path, SchemaReconcileOutcome::StoreWriteError);
@@ -744,10 +789,10 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
     store: StoreHandle,
     entity_tag: EntityTag,
     entity_path: &'static str,
-    store_path: &'static str,
     model: &EntityModel,
     enum_catalog: &AcceptedEnumCatalog,
     composite_catalog: &AcceptedCompositeCatalog,
+    derived_state: SchemaReconcileDerivedState,
 ) -> Result<ReconciledRuntimeSchema, InternalError> {
     let proposal = compiled_schema_proposal_for_model(model);
     let expected = proposal
@@ -767,6 +812,9 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
     };
 
     if let Some(actual) = latest {
+        let expected = derive_generated_accepted_candidate(&actual, &expected)
+            .map_err(generated_accepted_candidate_error)?
+            .unwrap_or(expected);
         let plan = match validate_existing_schema_snapshot(entity_path, &actual, &expected) {
             Ok(plan) => plan,
             Err(error) => {
@@ -782,11 +830,18 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
                 validate_publishable_transition_plan(entity_path, &plan)?;
                 (actual, None)
             }
-            SchemaTransitionPlanKind::AppendOnlyNullableFields => {
+            SchemaTransitionPlanKind::AppendOnlyFields => {
                 validate_publishable_transition_plan(entity_path, &plan)?;
-                store.with_schema_mut(|schema_store| {
-                    schema_store.insert_persisted_snapshot(entity_tag, &expected)
-                })?;
+                let pending = match derived_state {
+                    SchemaReconcileDerivedState::StageAgainstReadyDomains => {
+                        Some(PendingUserIndexDomainStage::new(entity_tag, entity_path))
+                    }
+                    SchemaReconcileDerivedState::RecoveryRebuildOwnsDomains => None,
+                };
+                (expected, pending)
+            }
+            SchemaTransitionPlanKind::MetadataOnlyFieldDefault => {
+                validate_publishable_transition_plan(entity_path, &plan)?;
                 (expected, None)
             }
             SchemaTransitionPlanKind::MetadataOnlyIndexRename => {
@@ -800,15 +855,13 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
             }
             SchemaTransitionPlanKind::AddFieldPathIndex => {
                 validate_startup_field_path_target(&plan, &expected)?;
-                let replacement = stage_startup_user_index_domain_replacement(
-                    store,
-                    entity_tag,
-                    store_path,
-                    entity_path,
-                    &actual,
-                    &expected,
-                )?;
-                (expected, Some(replacement))
+                let pending = match derived_state {
+                    SchemaReconcileDerivedState::StageAgainstReadyDomains => {
+                        Some(PendingUserIndexDomainStage::new(entity_tag, entity_path))
+                    }
+                    SchemaReconcileDerivedState::RecoveryRebuildOwnsDomains => None,
+                };
+                (expected, pending)
             }
         };
 
@@ -905,6 +958,14 @@ fn validate_publishable_transition_plan(
     }
 }
 
+fn generated_accepted_candidate_error(error: GeneratedAcceptedCandidateError) -> InternalError {
+    match error {
+        GeneratedAcceptedCandidateError::RowLayoutVersionExhausted => {
+            InternalError::schema_row_layout_version_exhausted()
+        }
+    }
+}
+
 // Keep schema reconciliation instrumentation at the reconciliation boundary so
 // store/codec helpers remain persistence-focused and do not depend on metrics.
 fn record_schema_reconcile(entity_path: &'static str, outcome: SchemaReconcileOutcome) {
@@ -975,10 +1036,11 @@ const fn schema_transition_plan_outcome(kind: SchemaTransitionPlanKind) -> Schem
     match kind {
         SchemaTransitionPlanKind::AddExpressionIndex => SchemaTransitionOutcome::AddExpressionIndex,
         SchemaTransitionPlanKind::AddFieldPathIndex => SchemaTransitionOutcome::AddFieldPathIndex,
-        SchemaTransitionPlanKind::AppendOnlyNullableFields => {
-            SchemaTransitionOutcome::AppendOnlyNullableFields
-        }
+        SchemaTransitionPlanKind::AppendOnlyFields => SchemaTransitionOutcome::AppendOnlyFields,
         SchemaTransitionPlanKind::ExactMatch => SchemaTransitionOutcome::ExactMatch,
+        SchemaTransitionPlanKind::MetadataOnlyFieldDefault => {
+            SchemaTransitionOutcome::MetadataOnlyFieldDefault
+        }
         SchemaTransitionPlanKind::MetadataOnlyIndexRename => {
             SchemaTransitionOutcome::MetadataOnlyIndexRename
         }
@@ -1065,7 +1127,16 @@ fn validate_existing_schema_snapshot(
             record_schema_transition(entity_path, transition_outcome);
             record_schema_reconcile(entity_path, outcome);
 
-            Err(InternalError::store_unsupported())
+            if matches!(
+                rejection.detail_code(),
+                super::transition::SchemaTransitionRejectionDetailCode::GeneratedFieldAfterDdlField {
+                    ..
+                }
+            ) {
+                Err(InternalError::schema_generated_field_after_ddl_field())
+            } else {
+                Err(InternalError::store_unsupported())
+            }
         }
     }
 }

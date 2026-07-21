@@ -205,14 +205,20 @@ impl AcceptedSchemaRevisionBundle {
                 {
                     return Err(InternalError::store_invariant());
                 }
-                if let Some(payload) = field.default().slot_payload() {
-                    let contract = AcceptedFieldDecodeContract::new(
-                        field.name(),
-                        field.kind(),
-                        field.nullable(),
-                        field.storage_decode(),
-                        field.leaf_codec(),
-                    );
+                let contract = AcceptedFieldDecodeContract::new(
+                    field.name(),
+                    field.kind(),
+                    field.nullable(),
+                    field.storage_decode(),
+                    field.leaf_codec(),
+                );
+                for payload in [
+                    field.insert_default().slot_payload(),
+                    field.historical_fill().slot_payload(),
+                ]
+                .into_iter()
+                .flatten()
+                {
                     validate_default_payload_for_accepted_field_contract(
                         &self.enum_catalog,
                         &self.composite_catalog,

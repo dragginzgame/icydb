@@ -1,4 +1,7 @@
-use super::{SaveExecutor, SaveMode, SavePreflightInputs, SaveRule};
+use super::{
+    MutationMode, SaveExecutor, SaveMode, SavePreflightInputs, SaveRule,
+    structural::{StructuralMutationRequest, StructuralMutationTargetKey},
+};
 
 use crate::{
     db::{
@@ -6,24 +9,19 @@ use crate::{
             CommitRowOp,
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
         },
-        data::{
-            DecodedDataStoreKey, PersistedRow, RawRow,
-            canonical_row_from_entity_with_accepted_contract,
-            canonical_row_from_raw_row_with_accepted_decode_contract,
-        },
+        data::{AcceptedMutationIntentPatch, AuthoredStructuralPatch, FieldSlot, PersistedRow},
         executor::{
             Context,
             mutation::{emit_index_delta_metrics, mutation_write_context},
         },
-        schema::AcceptedRowDecodeContract,
     },
     entity::EntityCreateInput,
     error::InternalError,
     metrics::sink::{ExecKind, Span},
     sanitize::SanitizeWriteContext,
+    traits::AuthoredFieldProjection,
     types::Timestamp,
 };
-use ic_stable_structures::Storable;
 
 impl<E: PersistedRow> SaveExecutor<E> {
     // Create one authored typed input after materializing its typed entity and
@@ -32,90 +30,55 @@ impl<E: PersistedRow> SaveExecutor<E> {
     where
         I: EntityCreateInput<Entity = E>,
     {
-        let materialized = input.materialize_create()?;
-        let authored_create_slots = materialized.authored_slots().to_vec();
-        let entity = materialized.into_entity();
-        let ctx = mutation_write_context::<E>(&self.db)?;
-        let schema = self.accepted_schema_info();
-        let preflight = SavePreflightInputs {
-            schema,
-            schema_fingerprint: self.accepted_schema_fingerprint(),
-            validate_relations: schema.has_any_relations(),
-            write_context: Self::save_write_context(SaveMode::Insert, Timestamp::now()),
-            authored_create_slots: Some(authored_create_slots.as_slice()),
-        };
+        let authored_fields = input.into_authored_fields();
+        let mut patch = AuthoredStructuralPatch::new();
+        for field in authored_fields {
+            patch = patch.set(
+                FieldSlot::from_validated_index(field.slot()),
+                field.into_value(),
+            );
+        }
+        let write_context = Self::save_write_context(SaveMode::Insert, Timestamp::now());
+        let mut span = Span::<E>::new(ExecKind::Save);
+        let result =
+            (|| {
+                let ctx = mutation_write_context::<E>(&self.db)?;
+                let schema = self.accepted_schema_info();
+                let schema_fingerprint = self.accepted_schema_fingerprint();
+                let request = StructuralMutationRequest::accepted_lowered(
+                    MutationMode::Insert,
+                    StructuralMutationTargetKey::ResolveFromAfterImage,
+                    AcceptedMutationIntentPatch::from_authored(patch),
+                    write_context,
+                    self.accepted_row_decode_contract().clone(),
+                );
+                let (entity, marker_row_op) = self.prepare_structural_mutation_row_op(
+                    &ctx,
+                    schema,
+                    schema_fingerprint,
+                    schema.has_any_relations(),
+                    request,
+                )?;
+                let prepared_row_op =
+                    prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<
+                        E,
+                    >(&self.db, &marker_row_op, &ctx, &ctx, schema_fingerprint)?;
+                Self::commit_prepared_single_row(
+                    &self.db,
+                    marker_row_op,
+                    prepared_row_op,
+                    |delta| emit_index_delta_metrics::<E>(delta),
+                    || span.set_rows(1),
+                )?;
+                Self::record_save_mutation(SaveRule::RequireAbsent.save_mutation_kind(), 1);
 
-        self.save_entity_with_context_and_schema(
-            &ctx,
-            SaveRule::from_mode(SaveMode::Insert),
-            preflight,
-            entity,
-        )
-    }
+                Ok(entity)
+            })();
+        if let Err(err) = &result {
+            span.set_error(err);
+        }
 
-    // Build one logical row operation from a full typed after-image.
-    pub(super) fn prepare_typed_entity_row_op(
-        &self,
-        ctx: &Context<'_, E>,
-        save_rule: SaveRule,
-        entity: &E,
-        schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
-    ) -> Result<CommitRowOp, InternalError> {
-        // Phase 1: resolve key + current-store baseline from the canonical save rule.
-        let data_key = DecodedDataStoreKey::try_new::<E>(entity.id().key())?;
-        let raw_key = data_key.to_raw()?;
-        let accepted_row_decode_contract = self.accepted_row_decode_contract();
-        let old_raw = Self::resolve_existing_row_for_rule_with_accepted_contract(
-            ctx,
-            &data_key,
-            save_rule,
-            accepted_row_decode_contract,
-            self.accepted_schema_info(),
-        )?;
-
-        // Phase 2: typed save lanes already own a complete after-image, so
-        // emit the canonical row directly instead of replaying a dense slot
-        // patch back into the same full row image.
-        let row_bytes = canonical_row_from_entity_with_accepted_contract(
-            E::PATH,
-            accepted_row_decode_contract.clone(),
-            entity,
-        )?
-        .into_raw_row()
-        .into_bytes();
-        let before_bytes = old_raw
-            .map(|old_raw| {
-                Self::build_typed_before_image_bytes_with_accepted_contract(
-                    &old_raw,
-                    accepted_row_decode_contract,
-                )
-            })
-            .transpose()?;
-        let row_op = CommitRowOp::new(
-            E::PATH,
-            raw_key,
-            before_bytes,
-            Some(row_bytes),
-            schema_fingerprint,
-        );
-
-        Ok(row_op)
-    }
-
-    // Build one accepted-layout before image for typed commit markers. Older
-    // physical rows are normalized into the current generated-compatible dense
-    // layout before index and relation delta planning consume them.
-    fn build_typed_before_image_bytes_with_accepted_contract(
-        old_row: &RawRow,
-        accepted_row_decode_contract: &AcceptedRowDecodeContract,
-    ) -> Result<Vec<u8>, InternalError> {
-        let canonical = canonical_row_from_raw_row_with_accepted_decode_contract(
-            E::PATH,
-            accepted_row_decode_contract.clone(),
-            old_row,
-        )?;
-
-        Ok(canonical.into_raw_row().into_bytes())
+        result
     }
 
     pub(super) fn save_entity(&self, mode: SaveMode, entity: E) -> Result<E, InternalError> {
@@ -141,7 +104,6 @@ impl<E: PersistedRow> SaveExecutor<E> {
             schema_fingerprint: self.accepted_schema_fingerprint(),
             validate_relations: schema.has_any_relations(),
             write_context,
-            authored_create_slots: None,
         };
 
         self.save_entity_with_context_and_schema(ctx, save_rule, preflight, entity)
@@ -200,24 +162,57 @@ impl<E: PersistedRow> SaveExecutor<E> {
         preflight: SavePreflightInputs<'_>,
         entity: E,
     ) -> Result<(E, CommitRowOp), InternalError> {
-        let mut entity = entity;
-
-        // Phase 1: run canonical save preflight before key extraction so
-        // typed validation still owns the write contract.
-        self.preflight_entity_with_cached_schema(
-            &mut entity,
-            preflight.schema,
-            preflight.validate_relations,
+        let patch = self.typed_entity_authored_patch(&entity)?;
+        let mode = save_rule.mutation_mode();
+        let target_key = match mode {
+            MutationMode::Insert => StructuralMutationTargetKey::ResolveFromAfterImage,
+            MutationMode::Update | MutationMode::Replace => {
+                StructuralMutationTargetKey::Expected(entity.id().key())
+            }
+        };
+        let request = StructuralMutationRequest::accepted_lowered(
+            mode,
+            target_key,
+            AcceptedMutationIntentPatch::from_authored(patch),
             preflight.write_context,
-            preflight.authored_create_slots,
-        )?;
-        let marker_row_op = self.prepare_typed_entity_row_op(
-            ctx,
-            save_rule,
-            &entity,
-            preflight.schema_fingerprint,
-        )?;
+            self.accepted_row_decode_contract().clone(),
+        );
 
-        Ok((entity, marker_row_op))
+        self.prepare_structural_mutation_row_op(
+            ctx,
+            preflight.schema,
+            preflight.schema_fingerprint,
+            preflight.validate_relations,
+            request,
+        )
+    }
+
+    // Lower one full typed value into exact authored accepted inputs. Ordinary
+    // generated-schema fields remain fully authored, including values produced
+    // by Rust `Default`; accepted generation, management, and DDL-only fields
+    // stay absent so the canonical mutation resolver retains their authority.
+    fn typed_entity_authored_patch(
+        &self,
+        entity: &E,
+    ) -> Result<AuthoredStructuralPatch, InternalError> {
+        let accepted = self.accepted_row_decode_contract();
+        let mut patch = AuthoredStructuralPatch::new();
+        for slot in 0..accepted.required_slot_count() {
+            let Some(field) = accepted.field_for_slot(slot) else {
+                continue;
+            };
+            let write_policy = field.write_policy();
+            if !field.generated()
+                || write_policy.insert_generation().is_some()
+                || write_policy.write_management().is_some()
+            {
+                continue;
+            }
+            let value = AuthoredFieldProjection::get_input_value_by_index(entity, slot)
+                .ok_or_else(InternalError::executor_invariant)?;
+            patch = patch.set(FieldSlot::from_validated_index(slot), value);
+        }
+
+        Ok(patch)
     }
 }

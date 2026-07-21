@@ -7,8 +7,8 @@ mod update;
 use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
-        data::AuthoredStructuralPatch,
-        executor::{EntityAuthority, MutationMode},
+        data::AcceptedMutationIntentPatch,
+        executor::{EntityAuthority, MutationMode, StructuralMutationTargetKey},
         query::intent::StructuralQuery,
         response::ResponseError,
         schema::{AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot},
@@ -36,6 +36,7 @@ use authority::{
     reject_explicit_sql_write_to_managed_field, require_sql_write_policy_plan,
     sql_write_input_for_accepted_field, sql_write_key_from_component_literals,
     sql_write_key_from_literal, sql_write_patch_set_accepted_field,
+    sql_write_patch_set_insert_default, sql_write_patch_set_update_default,
 };
 use candidate::{
     SqlWriteCandidateAccounting, SqlWriteCandidateBoundCheck, SqlWriteCandidateBounds,
@@ -62,7 +63,7 @@ const fn sql_write_error_class(error: &QueryError) -> ErrorClass {
 // has very different execution and debugging characteristics from VALUES.
 const fn sql_insert_write_kind(statement: &SqlInsertStatement) -> SqlWriteKind {
     match &statement.source {
-        SqlInsertSource::Values(_) => SqlWriteKind::Insert,
+        SqlInsertSource::Values(_) | SqlInsertSource::DefaultValues => SqlWriteKind::Insert,
         SqlInsertSource::Select(_) => SqlWriteKind::InsertSelect,
     }
 }
@@ -211,7 +212,7 @@ struct SqlWriteMutationExecution<E>
 where
     E: PersistedRow,
 {
-    rows: SqlWriteMutationBatch<E::Key>,
+    rows: SqlWriteMutationBatch<StructuralMutationTargetKey<E::Key>>,
     staged_rows: SqlWriteCandidateRows,
     kind: SqlWriteKind,
     mode: MutationMode,
@@ -224,7 +225,7 @@ where
     E: PersistedRow,
 {
     fn from_bounded_collection(
-        mut collection: SqlWriteCandidateCollection<E::Key>,
+        mut collection: SqlWriteCandidateCollection<StructuralMutationTargetKey<E::Key>>,
         bounds: SqlWriteCandidateBounds,
         kind: SqlWriteKind,
         mode: MutationMode,
@@ -253,7 +254,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         query: &StructuralQuery,
         bounds: SqlWriteCandidateBounds,
-        mut row_to_patch: impl FnMut(&[Value]) -> Result<(K, AuthoredStructuralPatch), QueryError>,
+        mut row_to_patch: impl FnMut(&[Value]) -> Result<(K, AcceptedMutationIntentPatch), QueryError>,
     ) -> Result<SqlWriteCandidateCollection<K>, QueryError> {
         self.collect_sql_write_candidate_collection_from_structural_query_with_bounds(
             schema,
@@ -270,7 +271,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         query: &StructuralQuery,
         bounds: SqlWriteCandidateBounds,
-        row_to_patch: &mut impl FnMut(&[Value]) -> Result<(K, AuthoredStructuralPatch), QueryError>,
+        row_to_patch: &mut impl FnMut(&[Value]) -> Result<(K, AcceptedMutationIntentPatch), QueryError>,
     ) -> Result<SqlWriteCandidateCollection<K>, QueryError> {
         let (payload, _) = self
             .execute_sql_projection_from_structural_query_without_sql_compiled_cache(

@@ -18,8 +18,7 @@ use crate::{
             SchemaDdlMutationAdmissionError, SchemaDdlSchemaVersionAdmissionError, SchemaInfo,
             SchemaVersion, accepted_schema_cache_fingerprint,
             accepted_schema_cache_fingerprint_method_version, compiled_schema_proposal_for_model,
-            execute_admin_sql_ddl_field_addition, execute_admin_sql_ddl_field_drop,
-            execute_admin_sql_ddl_secondary_index_drop,
+            execute_admin_sql_ddl_field_addition, execute_admin_sql_ddl_secondary_index_drop,
             persisted_schema_snapshot_decode_count_for_tests,
             reset_persisted_schema_snapshot_decode_count_for_tests,
         },
@@ -245,8 +244,11 @@ fn old_nullable_sql_raw_row_for_test(id: Ulid, name: &str) -> RawRow {
     let slot_payload =
         encode_sql_surface_slot_payload_for_test(&[id_payload.as_slice(), name_payload.as_slice()]);
 
-    RawRow::try_new(serialize_row_payload(slot_payload).expect("old nullable row should serialize"))
-        .expect("old nullable row should be valid raw row bytes")
+    RawRow::try_new(
+        serialize_row_payload(crate::db::schema::RowLayoutVersion::INITIAL, slot_payload)
+            .expect("old nullable row should serialize"),
+    )
+    .expect("old nullable row should be valid raw row bytes")
 }
 
 // Build the slot-framed row payload used by one owner-local old-row fixture.
@@ -275,6 +277,35 @@ fn encode_sql_surface_slot_payload_for_test(slots: &[&[u8]]) -> Vec<u8> {
 // Publish the complete post-transition store contract while row fixtures retain
 // the old two-slot layout. Runtime operations must use accepted nullable-slot semantics.
 fn install_nullable_sql_post_transition_schema() {
+    let proposal = compiled_schema_proposal_for_model(SessionNullableSqlEntity::MODEL);
+    let expected = proposal.initial_persisted_schema_snapshot();
+    let stored_prefix = crate::db::schema::PersistedSchemaSnapshot::new(
+        SchemaVersion::new(
+            expected
+                .version()
+                .get()
+                .checked_sub(1)
+                .expect("nullable transition fixture should declare a prior schema version"),
+        ),
+        expected.entity_path().to_string(),
+        expected.entity_name().to_string(),
+        expected.first_primary_key_field_id(),
+        crate::db::schema::SchemaRowLayout::initial(
+            expected.row_layout().field_to_slot()[..2].to_vec(),
+        ),
+        expected.fields()[..2].to_vec(),
+    );
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
+        crate::db::schema::publish_test_accepted_schema_snapshot(
+            store,
+            SessionNullableSqlEntity::ENTITY_TAG,
+            SessionNullableSqlEntity::PATH,
+            SessionSqlStore::PATH,
+            SessionNullableSqlEntity::MODEL,
+            stored_prefix,
+        )
+        .expect("pre-transition nullable SQL schema prefix should publish");
+    });
     crate::db::schema::reconcile_runtime_schemas(&SESSION_SQL_DB, SESSION_SQL_RUNTIME_HOOKS)
         .expect("post-transition nullable SQL schema bundle should publish");
     DbSession::<SessionSqlCanister>::clear_accepted_schema_query_cache_for_tests();
@@ -309,6 +340,21 @@ fn nullable_sql_raw_row_for_test(id: Ulid) -> RawRow {
     })
 }
 
+// Load one raw `SessionSqlEntity` row so temporal-layout tests can inspect its
+// durable stamp without decoding through the generated initial proposal.
+fn session_sql_raw_row_for_test(id: Ulid) -> RawRow {
+    let key = DecodedDataStoreKey::try_new::<SessionSqlEntity>(id)
+        .expect("session SQL data key should build")
+        .to_raw()
+        .expect("session SQL data key should encode");
+
+    SESSION_SQL_DATA_STORE.with_borrow(|store| {
+        store
+            .get(&key)
+            .expect("session SQL row should exist in data store")
+    })
+}
+
 // Read the dense slot-count header from one raw persisted row. This keeps
 // write-layout tests precise without routing through typed decode, which would
 // hide whether the physical row was rewritten to the current accepted layout.
@@ -316,10 +362,31 @@ fn raw_row_slot_count_for_test(raw_row: &RawRow) -> u16 {
     let payload = decode_row_payload_bytes(raw_row.as_bytes())
         .expect("nullable SQL raw row envelope should decode");
     let count_bytes = payload
+        .payload()
         .get(..2)
         .expect("nullable SQL raw row should include slot-count header");
 
     u16::from_be_bytes([count_bytes[0], count_bytes[1]])
+}
+
+// Assert physical promotion against accepted layout authority without routing
+// the row through the initial generated-model proposal.
+fn assert_nullable_sql_current_layout_row(id: Ulid) {
+    let raw_row = nullable_sql_raw_row_for_test(id);
+    let payload = decode_row_payload_bytes(raw_row.as_bytes())
+        .expect("nullable SQL current row envelope should decode");
+
+    assert_eq!(
+        payload.layout_version(),
+        crate::db::schema::RowLayoutVersion::new(2)
+            .expect("nullable SQL current layout version should be valid"),
+        "rewritten row must carry accepted current layout identity",
+    );
+    assert_eq!(
+        raw_row_slot_count_for_test(&raw_row),
+        3,
+        "rewritten row must carry every accepted current-layout slot",
+    );
 }
 
 // Assert a projection result with a compact expected-column call site for the
@@ -1855,16 +1922,11 @@ fn compiled_sql_update_rewrites_old_rows_after_nullable_additive_schema_transiti
     let SqlStatementResult::Count { row_count } = result else {
         panic!("compiled SQL UPDATE over old nullable row should emit count result");
     };
-    let raw_row = nullable_sql_raw_row_for_test(id);
-    let decoded = raw_row
-        .try_decode_with_model_proposal_for_test::<SessionNullableSqlEntity>()
-        .expect("compiled SQL UPDATE should write back a current-layout row");
+    assert_nullable_sql_current_layout_row(id);
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
 
     assert_eq!(row_count, 1);
-    assert_eq!(decoded.name, "Ada Lovelace");
-    assert_eq!(decoded.nickname, None);
 }
 
 #[test]
@@ -2167,10 +2229,7 @@ fn structural_update_rewrites_old_rows_after_nullable_additive_schema_transition
     let updated = session
         .mutate_structural::<SessionNullableSqlEntity>(id, patch, MutationMode::Update)
         .expect("structural update should rewrite old row through accepted nullable transition");
-    let raw_row = nullable_sql_raw_row_for_test(id);
-    let decoded = raw_row
-        .try_decode_with_model_proposal_for_test::<SessionNullableSqlEntity>()
-        .expect("structural update should write back a current-layout row");
+    assert_nullable_sql_current_layout_row(id);
     let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
         &session,
         "SELECT name, nickname FROM SessionNullableSqlEntity",
@@ -2184,8 +2243,6 @@ fn structural_update_rewrites_old_rows_after_nullable_additive_schema_transition
 
     assert_eq!(updated.name, "Ada Byron");
     assert_eq!(updated.nickname, None);
-    assert_eq!(decoded.name, "Ada Byron");
-    assert_eq!(decoded.nickname, None);
     assert_eq!(
         rows,
         vec![vec![
@@ -2213,10 +2270,7 @@ fn structural_update_sets_appended_nullable_field_after_nullable_additive_schema
     let updated = session
         .mutate_structural::<SessionNullableSqlEntity>(id, patch, MutationMode::Update)
         .expect("structural update should set appended nullable field on old row");
-    let raw_row = nullable_sql_raw_row_for_test(id);
-    let decoded = raw_row
-        .try_decode_with_model_proposal_for_test::<SessionNullableSqlEntity>()
-        .expect("structural update of appended field should write current-layout row");
+    assert_nullable_sql_current_layout_row(id);
     let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
         &session,
         "SELECT name, nickname FROM SessionNullableSqlEntity",
@@ -2230,8 +2284,6 @@ fn structural_update_sets_appended_nullable_field_after_nullable_additive_schema
 
     assert_eq!(updated.name, "Ada");
     assert_eq!(updated.nickname.as_deref(), Some("Countess"));
-    assert_eq!(decoded.name, "Ada");
-    assert_eq!(decoded.nickname.as_deref(), Some("Countess"));
     assert_eq!(
         rows,
         vec![vec![
@@ -2257,10 +2309,7 @@ fn typed_update_rewrites_old_rows_after_nullable_additive_schema_transition() {
             nickname: None,
         })
         .expect("typed update should rewrite old row through accepted nullable transition");
-    let raw_row = nullable_sql_raw_row_for_test(id);
-    let decoded = raw_row
-        .try_decode_with_model_proposal_for_test::<SessionNullableSqlEntity>()
-        .expect("typed update should write back a current-layout row");
+    assert_nullable_sql_current_layout_row(id);
     let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
         &session,
         "SELECT name, nickname FROM SessionNullableSqlEntity",
@@ -2274,8 +2323,6 @@ fn typed_update_rewrites_old_rows_after_nullable_additive_schema_transition() {
 
     assert_eq!(updated.name, "Ada King");
     assert_eq!(updated.nickname, None);
-    assert_eq!(decoded.name, "Ada King");
-    assert_eq!(decoded.nickname, None);
     assert_eq!(
         rows,
         vec![vec![
@@ -2301,10 +2348,7 @@ fn typed_replace_rewrites_old_rows_after_nullable_additive_schema_transition() {
             nickname: Some("Enchantress".to_string()),
         })
         .expect("typed replace should rewrite old row through accepted nullable transition");
-    let raw_row = nullable_sql_raw_row_for_test(id);
-    let decoded = raw_row
-        .try_decode_with_model_proposal_for_test::<SessionNullableSqlEntity>()
-        .expect("typed replace should write back a current-layout row");
+    assert_nullable_sql_current_layout_row(id);
     let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
         &session,
         "SELECT name, nickname FROM SessionNullableSqlEntity",
@@ -2318,8 +2362,6 @@ fn typed_replace_rewrites_old_rows_after_nullable_additive_schema_transition() {
 
     assert_eq!(replaced.name, "Ada Augusta");
     assert_eq!(replaced.nickname.as_deref(), Some("Enchantress"));
-    assert_eq!(decoded.name, "Ada Augusta");
-    assert_eq!(decoded.nickname.as_deref(), Some("Enchantress"));
     assert_eq!(
         rows,
         vec![vec![
@@ -2344,22 +2386,12 @@ fn typed_insert_writes_current_layout_after_nullable_additive_schema_transition(
             nickname: None,
         })
         .expect("typed insert should write current layout after nullable transition");
-    let raw_row = nullable_sql_raw_row_for_test(id);
-    let decoded = raw_row
-        .try_decode_with_model_proposal_for_test::<SessionNullableSqlEntity>()
-        .expect("typed insert should emit a current-layout row");
+    assert_nullable_sql_current_layout_row(id);
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
 
     assert_eq!(inserted.name, "Ada Fresh");
     assert_eq!(inserted.nickname, None);
-    assert_eq!(decoded.name, "Ada Fresh");
-    assert_eq!(decoded.nickname, None);
-    assert_eq!(
-        raw_row_slot_count_for_test(&raw_row),
-        3,
-        "fresh inserts after transition must emit the current accepted slot count",
-    );
 }
 
 #[test]
@@ -2424,20 +2456,33 @@ fn typed_update_many_atomic_rewrites_old_rows_after_nullable_additive_schema_tra
             },
         ])
         .expect("typed atomic update batch should rewrite old rows through accepted nullable transition");
-    let first_decoded = nullable_sql_raw_row_for_test(first_id)
-        .try_decode_with_model_proposal_for_test::<SessionNullableSqlEntity>()
-        .expect("typed atomic update batch should rewrite first row to current layout");
-    let second_decoded = nullable_sql_raw_row_for_test(second_id)
-        .try_decode_with_model_proposal_for_test::<SessionNullableSqlEntity>()
-        .expect("typed atomic update batch should rewrite second row to current layout");
+    assert_nullable_sql_current_layout_row(first_id);
+    assert_nullable_sql_current_layout_row(second_id);
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
 
     assert_eq!(updated.len(), 2);
-    assert_eq!(first_decoded.name, "Ada King");
-    assert_eq!(first_decoded.nickname.as_deref(), Some("Countess"));
-    assert_eq!(second_decoded.name, "Grace Hopper");
-    assert_eq!(second_decoded.nickname, None);
+    assert_eq!(
+        updated.iter().next().expect("first updated row").name,
+        "Ada King"
+    );
+    assert_eq!(
+        updated
+            .iter()
+            .next()
+            .expect("first updated row")
+            .nickname
+            .as_deref(),
+        Some("Countess"),
+    );
+    assert_eq!(
+        updated.iter().nth(1).expect("second updated row").name,
+        "Grace Hopper"
+    );
+    assert_eq!(
+        updated.iter().nth(1).expect("second updated row").nickname,
+        None,
+    );
 }
 
 #[test]
@@ -2465,20 +2510,33 @@ fn typed_replace_many_non_atomic_rewrites_old_rows_after_nullable_additive_schem
             },
         ])
         .expect("typed non-atomic replace batch should rewrite old rows through accepted nullable transition");
-    let first_decoded = nullable_sql_raw_row_for_test(first_id)
-        .try_decode_with_model_proposal_for_test::<SessionNullableSqlEntity>()
-        .expect("typed non-atomic replace batch should rewrite first row to current layout");
-    let second_decoded = nullable_sql_raw_row_for_test(second_id)
-        .try_decode_with_model_proposal_for_test::<SessionNullableSqlEntity>()
-        .expect("typed non-atomic replace batch should rewrite second row to current layout");
+    assert_nullable_sql_current_layout_row(first_id);
+    assert_nullable_sql_current_layout_row(second_id);
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
 
     assert_eq!(replaced.len(), 2);
-    assert_eq!(first_decoded.name, "Ada Byron");
-    assert_eq!(first_decoded.nickname, None);
-    assert_eq!(second_decoded.name, "Grace Brewster");
-    assert_eq!(second_decoded.nickname.as_deref(), Some("Amazing Grace"));
+    assert_eq!(
+        replaced.iter().next().expect("first replaced row").name,
+        "Ada Byron",
+    );
+    assert_eq!(
+        replaced.iter().next().expect("first replaced row").nickname,
+        None,
+    );
+    assert_eq!(
+        replaced.iter().nth(1).expect("second replaced row").name,
+        "Grace Brewster",
+    );
+    assert_eq!(
+        replaced
+            .iter()
+            .nth(1)
+            .expect("second replaced row")
+            .nickname
+            .as_deref(),
+        Some("Amazing Grace"),
+    );
 }
 
 #[test]
@@ -2498,10 +2556,7 @@ fn execute_trusted_sql_mutation_rewrites_old_rows_after_nullable_additive_schema
     let SqlStatementResult::Count { row_count } = result else {
         panic!("SQL UPDATE over old nullable row should emit a count result");
     };
-    let raw_row = nullable_sql_raw_row_for_test(id);
-    let decoded = raw_row
-        .try_decode_with_model_proposal_for_test::<SessionNullableSqlEntity>()
-        .expect("SQL UPDATE should rewrite the old short row as a current-layout row");
+    assert_nullable_sql_current_layout_row(id);
     let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
         &session,
         "SELECT name, nickname FROM SessionNullableSqlEntity",
@@ -2514,8 +2569,6 @@ fn execute_trusted_sql_mutation_rewrites_old_rows_after_nullable_additive_schema
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
 
     assert_eq!(row_count, 1);
-    assert_eq!(decoded.name, "Ada Lovelace");
-    assert_eq!(decoded.nickname, None);
     assert_eq!(
         rows,
         vec![vec![
@@ -4331,7 +4384,7 @@ fn sql_ddl_alter_table_add_nullable_column_binds_against_accepted_catalog() {
     );
     assert_eq!(add_column.field().origin(), PersistedFieldOrigin::SqlDdl);
     assert!(add_column.field().nullable());
-    assert!(add_column.field().default().is_none());
+    assert!(add_column.field().insert_default().is_none());
 }
 
 #[test]
@@ -4354,7 +4407,7 @@ fn sql_ddl_alter_table_add_defaulted_column_binds_against_accepted_catalog() {
     assert_eq!(add_column.field().kind(), &AcceptedFieldKind::Nat64);
     assert_eq!(add_column.field().origin(), PersistedFieldOrigin::SqlDdl);
     assert!(!add_column.field().nullable());
-    assert!(!add_column.field().default().is_none());
+    assert!(!add_column.field().insert_default().is_none());
 }
 
 #[test]
@@ -4398,7 +4451,7 @@ fn sql_ddl_alter_table_add_big_int_column_binds_max_bytes_contract() {
         &AcceptedFieldKind::NatBig { max_bytes: 512 },
     );
     assert!(add_column.field().nullable());
-    assert!(add_column.field().default().is_none());
+    assert!(add_column.field().insert_default().is_none());
 }
 
 #[test]
@@ -4425,27 +4478,29 @@ fn sql_ddl_alter_table_add_big_int_column_rejects_zero_max_bytes() {
 }
 
 #[test]
-fn sql_ddl_alter_table_add_column_rejects_unsupported_shapes() {
+fn sql_ddl_alter_table_add_column_binds_empty_only_required_shape() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
 
     let not_null_statement =
         parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN title text NOT NULL")
             .expect("ALTER TABLE ADD COLUMN NOT NULL should parse before DDL binding");
-    let err = bind_sql_ddl_statement(
+    let bound = bind_sql_ddl_statement(
         &not_null_statement,
         &accepted_before,
         &schema,
         SessionSqlStore::PATH,
     )
-    .expect_err("required SQL-added columns should fail closed until default/backfill lands");
-    std::assert_matches!(
-        err,
-        SqlDdlBindError::UnsupportedAlterTableAddColumnNotNull {
-            entity_name,
-            column_name,
-        } if entity_name == "SessionSqlEntity" && column_name == "title"
-    );
+    .expect("required SQL-added columns should bind before the store proves exact emptiness");
+    let BoundSqlDdlStatement::AddColumn(add_column) = bound.statement() else {
+        panic!("required ADD COLUMN should bind to an additive field DDL request");
+    };
+    assert!(!add_column.field().nullable());
+    assert!(add_column.field().insert_default().is_none());
+    assert!(matches!(
+        add_column.field().historical_fill(),
+        crate::db::schema::SchemaHistoricalFill::Reject
+    ));
 
     let invalid_default_statement =
         parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 DEFAULT 'seven'")
@@ -5252,7 +5307,7 @@ fn execute_admin_sql_ddl_publishes_supported_nullable_add_column() {
         panic!("ADD COLUMN should return a DDL report");
     };
 
-    assert_eq!(report.mutation_kind(), SqlDdlMutationKind::AddNullableField);
+    assert_eq!(report.mutation_kind(), SqlDdlMutationKind::AddField);
     assert_eq!(report.target_index(), "nickname");
     assert_eq!(report.field_path(), ["nickname".to_string()]);
     assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
@@ -5271,7 +5326,7 @@ fn execute_admin_sql_ddl_publishes_supported_nullable_add_column() {
         assert_eq!(nickname.origin(), PersistedFieldOrigin::SqlDdl);
         assert_eq!(nickname.kind(), &AcceptedFieldKind::Text { max_len: None });
         assert!(nickname.nullable());
-        assert!(nickname.default().is_none());
+        assert!(nickname.insert_default().is_none());
     });
     let columns =
         statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
@@ -5716,7 +5771,7 @@ fn execute_admin_sql_ddl_publishes_supported_defaulted_add_column() {
         assert_eq!(score.origin(), PersistedFieldOrigin::SqlDdl);
         assert_eq!(score.kind(), &AcceptedFieldKind::Nat64);
         assert!(!score.nullable());
-        assert!(!score.default().is_none());
+        assert!(!score.insert_default().is_none());
     });
     let columns =
         statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
@@ -5731,7 +5786,7 @@ fn execute_admin_sql_ddl_publishes_supported_defaulted_add_column() {
     );
     assert!(
         columns.iter().any(|field| field.name() == "score"
-            && field.kind().starts_with("nat64 default=slot_payload(")
+            && field.insert_default().is_some()
             && !field.nullable()
             && field.origin() == "ddl"),
         "metadata surfaces should expose the DDL-published defaulted column",
@@ -5791,6 +5846,84 @@ fn execute_admin_sql_ddl_publishes_supported_defaulted_add_column() {
 }
 
 #[test]
+fn execute_admin_sql_ddl_publishes_required_add_column_for_empty_entity() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    let SqlStatementResult::Ddl(report) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 NOT NULL",
+            1,
+        ))
+        .expect("required ADD COLUMN should publish after exact empty-entity proof")
+    else {
+        panic!("required ADD COLUMN should return a DDL report");
+    };
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    assert_eq!(report.rows_scanned(), 0);
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema should remain readable")
+            .expect("required field should be published");
+        let score = latest
+            .fields()
+            .iter()
+            .find(|field| field.name() == "score")
+            .expect("required field should be active");
+
+        assert_eq!(
+            latest.row_layout().history_floor(),
+            latest.row_layout().current_version(),
+        );
+        assert_eq!(
+            score.introduced_in_layout(),
+            latest.row_layout().current_version()
+        );
+        assert!(score.insert_default().is_none());
+        assert!(matches!(
+            score.historical_fill(),
+            crate::db::schema::SchemaHistoricalFill::Reject
+        ));
+    });
+}
+
+#[test]
+fn execute_admin_sql_ddl_rejects_required_add_column_for_nonempty_entity() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(15_820),
+            name: "Ada".to_string(),
+            age: 36,
+        })
+        .expect("setup row should persist before required ADD COLUMN");
+    let error = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 NOT NULL",
+            1,
+        ))
+        .expect_err("nonempty required ADD COLUMN should require a migration");
+
+    assert_sql_ddl_admission_detail(
+        error,
+        SchemaDdlAdmissionError::SchemaRewriteRequiresMigration,
+    );
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema should remain readable")
+            .expect("accepted-before schema should remain published");
+        assert!(latest.fields().iter().all(|field| field.name() != "score"));
+    });
+}
+
+#[test]
 fn execute_admin_sql_ddl_publishes_supported_set_default() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
@@ -5830,17 +5963,224 @@ fn execute_admin_sql_ddl_publishes_supported_set_default() {
 
         assert_eq!(score.origin(), PersistedFieldOrigin::SqlDdl);
         assert_eq!(score.kind(), &AcceptedFieldKind::Nat64);
-        assert!(!score.default().is_none());
+        assert!(!score.insert_default().is_none());
     });
     let columns =
         statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
             .expect("SHOW COLUMNS should read DDL-published default changes");
     assert!(
         columns.iter().any(|field| field.name() == "score"
-            && field.kind().starts_with("nat64 default=slot_payload(")
+            && field.kind() == "nat64"
+            && field.insert_default().is_some()
             && field.origin() == "ddl"),
         "metadata surfaces should expose the DDL-published default change",
     );
+}
+
+#[test]
+fn execute_admin_sql_ddl_default_changes_preserve_frozen_historical_fill() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "INSERT INTO SessionSqlEntity (name, age) VALUES ('Historical', 36)",
+    )
+    .expect("historical row should persist before ADD COLUMN");
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 NOT NULL DEFAULT 7",
+            1,
+        ))
+        .expect("defaulted ADD COLUMN should freeze its historical fill");
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN score SET DEFAULT 8",
+            2,
+        ))
+        .expect("SET DEFAULT should change only future omission policy");
+    execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "INSERT INTO SessionSqlEntity (name, age) VALUES ('Future', 37)",
+    )
+    .expect("future row should use the changed insert default");
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN score DROP DEFAULT",
+            3,
+        ))
+        .expect("DROP DEFAULT should leave historical values unchanged");
+
+    let rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name, score FROM SessionSqlEntity ORDER BY name ASC",
+    )
+    .expect("historical and future rows should remain readable after default changes");
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Text("Future".to_string()), Value::Nat64(8)],
+            vec![Value::Text("Historical".to_string()), Value::Nat64(7)],
+        ],
+    );
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema should remain readable")
+            .expect("default changes should remain published");
+        let score = latest
+            .fields()
+            .iter()
+            .find(|field| field.name() == "score")
+            .expect("score should remain active");
+
+        assert!(score.insert_default().is_none());
+        assert!(matches!(
+            score.historical_fill(),
+            crate::db::schema::SchemaHistoricalFill::SlotPayload(_)
+        ));
+    });
+}
+
+// Seed one row under each of three accepted layouts while changing the live
+// insert defaults between writes. The caller owns read and promotion checks.
+fn seed_successive_default_layout_rows(session: &DbSession<SessionSqlCanister>) -> [Ulid; 3] {
+    let early_id = session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(15_840),
+            name: "Early".to_string(),
+            age: 31,
+        })
+        .expect("layout-one row should persist before additive DDL")
+        .id;
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 NOT NULL DEFAULT 7",
+            1,
+        ))
+        .expect("first additive field should allocate layout two");
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN score SET DEFAULT 8",
+            2,
+        ))
+        .expect("score default change should affect only future writes");
+    let middle_id = session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(15_841),
+            name: "Middle".to_string(),
+            age: 32,
+        })
+        .expect("layout-two row should use the current score default")
+        .id;
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text DEFAULT 'historical'",
+            3,
+        ))
+        .expect("second additive field should allocate layout three");
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN score SET DEFAULT 9",
+            4,
+        ))
+        .expect("second score default change should remain future-only");
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname SET DEFAULT 'current'",
+            5,
+        ))
+        .expect("nickname default change should remain future-only");
+    let current_id = session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(15_842),
+            name: "Current".to_string(),
+            age: 33,
+        })
+        .expect("layout-three row should use both current defaults")
+        .id;
+
+    [early_id, middle_id, current_id]
+}
+
+#[test]
+fn execute_admin_sql_ddl_successive_layouts_freeze_fills_and_promote_old_rows() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    let [early_id, middle_id, current_id] = seed_successive_default_layout_rows(&session);
+
+    let rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name, score, nickname FROM SessionSqlEntity ORDER BY name ASC",
+    )
+    .expect("all admitted layouts should share one logical projection");
+    assert_eq!(
+        rows,
+        vec![
+            vec![
+                Value::Text("Current".to_string()),
+                Value::Nat64(9),
+                Value::Text("current".to_string()),
+            ],
+            vec![
+                Value::Text("Early".to_string()),
+                Value::Nat64(7),
+                Value::Text("historical".to_string()),
+            ],
+            vec![
+                Value::Text("Middle".to_string()),
+                Value::Nat64(8),
+                Value::Text("historical".to_string()),
+            ],
+        ],
+    );
+
+    for (id, expected_layout, expected_slots) in
+        [(early_id, 1, 3), (middle_id, 2, 4), (current_id, 3, 5)]
+    {
+        let raw_row = session_sql_raw_row_for_test(id);
+        let payload = decode_row_payload_bytes(raw_row.as_bytes())
+            .expect("admitted temporal row envelope should decode");
+
+        assert_eq!(payload.layout_version().get(), expected_layout);
+        assert_eq!(raw_row_slot_count_for_test(&raw_row), expected_slots);
+    }
+
+    execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "UPDATE SessionSqlEntity SET age = 40 WHERE name = 'Early'",
+    )
+    .expect("updating a historical row should promote it to the current layout");
+    let promoted = session_sql_raw_row_for_test(early_id);
+    let promoted_payload =
+        decode_row_payload_bytes(promoted.as_bytes()).expect("promoted row envelope should decode");
+    assert_eq!(promoted_payload.layout_version().get(), 3);
+    assert_eq!(raw_row_slot_count_for_test(&promoted), 5);
+    assert_eq!(
+        statement_projection_rows::<SessionSqlEntity>(
+            &session,
+            "SELECT age, score, nickname FROM SessionSqlEntity WHERE name = 'Early'",
+        )
+        .expect("promoted historical values should remain readable"),
+        vec![vec![
+            Value::Nat64(40),
+            Value::Nat64(7),
+            Value::Text("historical".to_string()),
+        ]],
+    );
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("successive accepted schema should remain readable")
+            .expect("successive accepted schema should remain published");
+
+        assert_eq!(latest.row_layout().current_version().get(), 3);
+        assert_eq!(latest.row_layout().history_floor().get(), 1);
+    });
 }
 
 #[test]
@@ -5920,7 +6260,7 @@ fn sql_insert_distinguishes_omitted_database_default_from_explicit_null() {
 }
 
 #[test]
-fn execute_admin_sql_ddl_rejects_index_key_default_changes_without_rebuild() {
+fn execute_admin_sql_ddl_changes_indexed_field_default_without_rebuild() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     let session = sql_session();
@@ -5949,58 +6289,41 @@ fn execute_admin_sql_ddl_rejects_index_key_default_changes_without_rebuild() {
     };
     assert_eq!(report.execution_status(), SqlDdlExecutionStatus::NoOp);
 
-    let catalog = session
-        .accepted_schema_catalog_context_for_query::<SessionSqlEntity>()
-        .expect("accepted schema catalog after setup DDL should load");
-    let schema = catalog.accepted_schema_info_for::<SessionSqlEntity>();
-    let statement = parse_sql(&ddl_transition_sql(
-        "ALTER TABLE SessionSqlEntity ALTER COLUMN score SET DEFAULT 8",
-        3,
-    ))
-    .expect("indexed-field SET DEFAULT should parse before binding");
-    let bind_error = bind_sql_ddl_statement(
-        &statement,
-        catalog.snapshot(),
-        &schema,
-        SessionSqlStore::PATH,
-    )
-    .expect_err("indexed-field SET DEFAULT should preserve the typed dependency cause");
-    std::assert_matches!(
-        bind_error,
-        SqlDdlBindError::IndexedFieldDefaultChangeRejected {
-            entity_name,
-            column_name,
-            index_name,
-        } if entity_name == "SessionSqlEntity"
-            && column_name == "score"
-            && index_name == "session_sql_score_idx"
-    );
-
-    let set_error = session
+    let SqlStatementResult::Ddl(set_report) = session
         .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ALTER COLUMN score SET DEFAULT 8",
             3,
         ))
-        .expect_err("field-key SET DEFAULT should reject without an index rebuild path");
-    assert_sql_ddl_admission_detail(
-        set_error,
-        SchemaDdlAdmissionError::UnsupportedTransitionClass,
+        .expect("future-only SET DEFAULT should not rebuild an existing index")
+    else {
+        panic!("indexed-field SET DEFAULT should return a DDL report");
+    };
+    assert_eq!(
+        set_report.execution_status(),
+        SqlDdlExecutionStatus::Published
     );
+    assert_eq!(set_report.rows_scanned(), 0);
+    assert_eq!(set_report.index_keys_written(), 0);
 
-    let drop_error = session
+    let SqlStatementResult::Ddl(drop_report) = session
         .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ALTER COLUMN score DROP DEFAULT",
-            3,
+            4,
         ))
-        .expect_err("field-key DROP DEFAULT should reject without an index rebuild path");
-    assert_sql_ddl_admission_detail(
-        drop_error,
-        SchemaDdlAdmissionError::UnsupportedTransitionClass,
+        .expect("future-only DROP DEFAULT should not rebuild an existing index")
+    else {
+        panic!("indexed-field DROP DEFAULT should return a DDL report");
+    };
+    assert_eq!(
+        drop_report.execution_status(),
+        SqlDdlExecutionStatus::Published
     );
+    assert_eq!(drop_report.rows_scanned(), 0);
+    assert_eq!(drop_report.index_keys_written(), 0);
 }
 
 #[test]
-fn execute_admin_sql_ddl_rejects_index_predicate_default_changes_without_rebuild() {
+fn execute_admin_sql_ddl_changes_predicate_field_default_without_rebuild() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     let session = sql_session();
@@ -6029,27 +6352,37 @@ fn execute_admin_sql_ddl_rejects_index_predicate_default_changes_without_rebuild
     };
     assert_eq!(report.execution_status(), SqlDdlExecutionStatus::NoOp);
 
-    let set_error = session
+    let SqlStatementResult::Ddl(set_report) = session
         .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname SET DEFAULT 'guest'",
             3,
         ))
-        .expect_err("predicate-field SET DEFAULT should reject without an index rebuild path");
-    assert_sql_ddl_admission_detail(
-        set_error,
-        SchemaDdlAdmissionError::UnsupportedTransitionClass,
+        .expect("future-only SET DEFAULT should not rebuild a predicate index")
+    else {
+        panic!("predicate-field SET DEFAULT should return a DDL report");
+    };
+    assert_eq!(
+        set_report.execution_status(),
+        SqlDdlExecutionStatus::Published
     );
+    assert_eq!(set_report.rows_scanned(), 0);
+    assert_eq!(set_report.index_keys_written(), 0);
 
-    let drop_error = session
+    let SqlStatementResult::Ddl(drop_report) = session
         .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname DROP DEFAULT",
-            3,
+            4,
         ))
-        .expect_err("predicate-field DROP DEFAULT should reject without an index rebuild path");
-    assert_sql_ddl_admission_detail(
-        drop_error,
-        SchemaDdlAdmissionError::UnsupportedTransitionClass,
+        .expect("future-only DROP DEFAULT should not rebuild a predicate index")
+    else {
+        panic!("predicate-field DROP DEFAULT should return a DDL report");
+    };
+    assert_eq!(
+        drop_report.execution_status(),
+        SqlDdlExecutionStatus::Published
     );
+    assert_eq!(drop_report.rows_scanned(), 0);
+    assert_eq!(drop_report.index_keys_written(), 0);
 }
 
 #[test]
@@ -6113,7 +6446,7 @@ fn execute_admin_sql_ddl_rejects_unencodable_set_default_without_publication() {
             .find(|field| field.name() == "score")
             .expect("setup field should remain present");
 
-        assert!(score.default().is_none());
+        assert!(score.insert_default().is_none());
     });
 }
 
@@ -6156,7 +6489,7 @@ fn execute_admin_sql_ddl_publishes_supported_nullable_drop_default() {
             .expect("DDL-published schema should include the altered field");
 
         assert!(nickname.nullable());
-        assert!(nickname.default().is_none());
+        assert!(nickname.insert_default().is_none());
     });
 
     session
@@ -6180,7 +6513,7 @@ fn execute_admin_sql_ddl_publishes_supported_nullable_drop_default() {
 }
 
 #[test]
-fn execute_admin_sql_ddl_rejects_required_drop_default_without_publication() {
+fn execute_admin_sql_ddl_drops_required_insert_default_future_only() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     let session = sql_session();
@@ -6191,18 +6524,23 @@ fn execute_admin_sql_ddl_rejects_required_drop_default_without_publication() {
             1,
         ))
         .expect("setup required defaulted ADD COLUMN should publish");
-    let err = session
+    let SqlStatementResult::Ddl(report) = session
         .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ALTER COLUMN score DROP DEFAULT",
             2,
         ))
-        .expect_err("DROP DEFAULT should fail closed for required defaulted fields");
+        .expect("DROP DEFAULT should make future omission required without changing history")
+    else {
+        panic!("required-field DROP DEFAULT should return a DDL report");
+    };
 
-    assert_sql_ddl_admission_detail(err, SchemaDdlAdmissionError::RequiredDropDefaultUnsupported);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    assert_eq!(report.rows_scanned(), 0);
+    assert_eq!(report.index_keys_written(), 0);
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
             .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
-            .expect("schema should remain readable after rejected DROP DEFAULT")
+            .expect("schema should remain readable after DROP DEFAULT")
             .expect("schema should remain published after setup ADD COLUMN");
         let score = latest
             .fields()
@@ -6210,8 +6548,78 @@ fn execute_admin_sql_ddl_rejects_required_drop_default_without_publication() {
             .find(|field| field.name() == "score")
             .expect("setup field should remain present");
 
-        assert!(!score.default().is_none());
+        assert!(score.insert_default().is_none());
     });
+
+    let err = execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "INSERT INTO SessionSqlEntity (name, age) VALUES ('MissingScore', 38)",
+    )
+    .expect_err("future omission should reject after a required field loses its default");
+    assert_sql_write_boundary_detail(
+        err,
+        icydb_diagnostic_code::SqlWriteBoundaryCode::MissingRequiredFields,
+    );
+}
+
+#[test]
+fn execute_admin_sql_ddl_nullable_set_default_null_is_drop_default() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text DEFAULT 'anonymous'",
+            1,
+        ))
+        .expect("setup nullable default should publish");
+    let SqlStatementResult::Ddl(report) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname SET DEFAULT NULL",
+            2,
+        ))
+        .expect("nullable SET DEFAULT NULL should canonicalize to no insert default")
+    else {
+        panic!("nullable SET DEFAULT NULL should return a DDL report");
+    };
+
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema should remain readable")
+            .expect("schema should remain published");
+        let nickname = latest
+            .fields()
+            .iter()
+            .find(|field| field.name() == "nickname")
+            .expect("nullable field should remain published");
+
+        assert!(nickname.insert_default().is_none());
+    });
+}
+
+#[test]
+fn execute_admin_sql_ddl_rejects_required_set_default_null() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 NOT NULL DEFAULT 7",
+            1,
+        ))
+        .expect("setup required default should publish");
+    let error = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN score SET DEFAULT NULL",
+            2,
+        ))
+        .expect_err("required SET DEFAULT NULL should reject at default encoding");
+
+    assert_sql_ddl_admission_detail(error, SchemaDdlAdmissionError::InvalidAlterColumnDefault);
 }
 
 #[test]
@@ -6253,7 +6661,7 @@ fn execute_admin_sql_ddl_publishes_supported_drop_not_null() {
             .expect("DDL-published schema should include the altered field");
 
         assert!(score.nullable());
-        assert!(!score.default().is_none());
+        assert!(!score.insert_default().is_none());
     });
 }
 
@@ -6333,7 +6741,58 @@ fn execute_admin_sql_ddl_publishes_supported_set_not_null_after_row_scan() {
             .expect("DDL-published schema should include the altered field");
 
         assert!(!nickname.nullable());
-        assert!(!nickname.default().is_none());
+        assert!(!nickname.insert_default().is_none());
+    });
+}
+
+#[test]
+fn execute_admin_sql_ddl_set_not_null_closes_historical_null_fill() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+            1,
+        ))
+        .expect("setup nullable additive field should publish");
+    execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "INSERT INTO SessionSqlEntity (name, age, nickname) VALUES ('Ada', 36, 'ada')",
+    )
+    .expect("explicit non-null value should persist before SET NOT NULL");
+
+    let SqlStatementResult::Ddl(report) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname SET NOT NULL",
+            2,
+        ))
+        .expect("complete validation should admit SET NOT NULL")
+    else {
+        panic!("SET NOT NULL should return a DDL report");
+    };
+    assert_eq!(report.rows_scanned(), 1);
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema should remain readable")
+            .expect("SET NOT NULL schema should be published");
+        let nickname = latest
+            .fields()
+            .iter()
+            .find(|field| field.name() == "nickname")
+            .expect("field should remain active");
+
+        assert_eq!(
+            latest.row_layout().history_floor(),
+            nickname.introduced_in_layout(),
+        );
+        assert!(matches!(
+            nickname.historical_fill(),
+            crate::db::schema::SchemaHistoricalFill::Reject
+        ));
     });
 }
 
@@ -6380,7 +6839,7 @@ fn execute_admin_sql_ddl_rejects_set_not_null_when_rows_materialize_null() {
 }
 
 #[test]
-fn execute_admin_sql_ddl_publishes_drop_column_for_ddl_owned_trailing_field() {
+fn execute_admin_sql_ddl_rejects_nonempty_drop_column_before_rewrite() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     let session = sql_session();
@@ -6391,232 +6850,48 @@ fn execute_admin_sql_ddl_publishes_drop_column_for_ddl_owned_trailing_field() {
             1,
         ))
         .expect("setup nullable ADD COLUMN should publish before DROP COLUMN");
-    session
+    let inserted = session
         .insert(SessionSqlEntity {
             id: Ulid::from_u128(15_808),
             name: "Ada".to_string(),
             age: 36,
         })
         .expect("typed inserts should remain valid before DROP COLUMN");
-    let nickname_slot = SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+    let key = DecodedDataStoreKey::try_new::<SessionSqlEntity>(inserted.id)
+        .expect("test row key should build")
+        .to_raw()
+        .expect("test row key should encode");
+    let row_before = SESSION_SQL_DATA_STORE.with_borrow(|store| {
         store
-            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
-            .expect("schema should remain readable after setup ADD COLUMN")
-            .expect("schema should be published after setup ADD COLUMN")
-            .fields()
-            .iter()
-            .find(|field| field.name() == "nickname")
-            .expect("setup DDL field should be visible before DROP COLUMN")
-            .slot()
+            .get(&key)
+            .expect("test row should exist before rejected DROP COLUMN")
     });
-    let before =
-        statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
-            .expect("SHOW COLUMNS should read accepted schema before DROP COLUMN");
-    let SqlStatementResult::Ddl(report) = session
+    let error = session
         .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity DROP COLUMN nickname",
             2,
         ))
-        .expect("DROP COLUMN should publish dense field removal")
-    else {
-        panic!("DROP COLUMN should return a DDL report");
-    };
+        .expect_err("nonempty DROP COLUMN should require the future migration protocol");
 
-    assert_eq!(report.mutation_kind(), SqlDdlMutationKind::DropField);
-    assert_eq!(report.target_index(), "nickname");
-    assert_eq!(report.field_path(), ["nickname".to_string()]);
-    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
-    assert_eq!(report.rows_scanned(), 1);
-    let after =
-        statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
-            .expect("SHOW COLUMNS should read accepted schema after DROP COLUMN");
-
-    assert!(
-        before.iter().any(|field| field.name() == "nickname"),
-        "setup ADD COLUMN should make the DDL field visible",
+    assert_sql_ddl_admission_detail(
+        error,
+        SchemaDdlAdmissionError::SchemaRewriteRequiresMigration,
     );
-    assert!(
-        !after.iter().any(|field| field.name() == "nickname"),
-        "published DROP COLUMN should remove the DDL field from active metadata",
-    );
+    SESSION_SQL_DATA_STORE.with_borrow(|store| {
+        assert_eq!(store.get(&key), Some(row_before));
+    });
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
             .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
-            .expect("schema should remain readable after DROP COLUMN")
-            .expect("schema should remain published after DROP COLUMN");
-
-        assert_eq!(
-            latest.row_layout().allocated_slot_count(),
-            nickname_slot.get() as usize
-        );
-    });
-    let SqlStatementResult::Projection {
-        columns,
-        rows,
-        row_count,
-        ..
-    } = execute_sql_statement_for_tests::<SessionSqlEntity>(
-        &session,
-        "SELECT name FROM SessionSqlEntity WHERE name = 'Ada'",
-    )
-    .expect("remaining active fields should query after DROP COLUMN")
-    else {
-        panic!("SELECT after DROP COLUMN should emit projection rows");
-    };
-    assert_eq!(columns, vec!["name".to_string()]);
-    assert_eq!(rows, vec![vec![output(Value::Text("Ada".to_string()))]]);
-    assert_eq!(row_count, 1);
-}
-
-#[test]
-fn execute_admin_sql_ddl_drop_column_rolls_back_rows_when_publication_rejects() {
-    reset_session_sql_store();
-    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    let session = sql_session();
-
-    session
-        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
-            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
-            1,
-        ))
-        .expect("setup nullable ADD COLUMN should publish before rejected DROP COLUMN");
-    let id = Ulid::from_u128(15_818);
-    session
-        .insert(SessionSqlEntity {
-            id,
-            name: "Ada".to_string(),
-            age: 36,
-        })
-        .expect("typed insert should persist the accepted-before row shape");
-
-    let catalog = session
-        .accepted_schema_catalog_context_for_query::<SessionSqlEntity>()
-        .expect("accepted schema catalog should load before rejected DROP COLUMN");
-    let accepted_before = catalog.snapshot().clone();
-    let rejecting_identity = publication_rejecting_identity(catalog.identity());
-    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
-        SessionSqlEntity::MODEL,
-        &accepted_before,
-    );
-    let statement = parse_sql(&ddl_transition_sql(
-        "ALTER TABLE SessionSqlEntity DROP COLUMN nickname",
-        2,
-    ))
-    .expect("DROP COLUMN should parse before rollback validation");
-    let bound =
-        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
-            .expect("DROP COLUMN should bind against the current accepted schema");
-    let derivation = derive_bound_sql_ddl_accepted_after(&accepted_before, &bound)
-        .expect("DROP COLUMN should derive an accepted-after candidate");
-    let raw_key = DecodedDataStoreKey::try_new::<SessionSqlEntity>(id)
-        .expect("test entity key should build")
-        .to_raw()
-        .expect("test entity key should encode");
-    let row_before = SESSION_SQL_DATA_STORE.with_borrow(|data_store| {
-        data_store
-            .get(&raw_key)
-            .expect("test entity row should exist before rejected DROP COLUMN")
-    });
-    let store = SESSION_SQL_DB
-        .recovered_store(SessionSqlStore::PATH)
-        .expect("session SQL store should be recovered for rejected DROP COLUMN");
-
-    let error = execute_admin_sql_ddl_field_drop(
-        store,
-        SessionSqlEntity::ENTITY_TAG,
-        SessionSqlEntity::PATH,
-        &accepted_before,
-        rejecting_identity,
-        &derivation,
-    )
-    .expect_err("publication rejection should fail DROP COLUMN after its physical attempt");
-
-    assert!(matches!(
-        error.detail(),
-        Some(ErrorDetail::Store(StoreError::SchemaDdlPublicationRaceLost))
-    ));
-    SESSION_SQL_DATA_STORE.with_borrow(|data_store| {
-        assert_eq!(
-            data_store.get(&raw_key),
-            Some(row_before),
-            "rejected DROP COLUMN must restore the accepted-before row bytes",
-        );
-    });
-    SESSION_SQL_SCHEMA_STORE.with_borrow(|schema_store| {
-        let latest = schema_store
-            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
-            .expect("accepted schema should remain readable after rejected DROP COLUMN")
+            .expect("schema should remain readable after rejected DROP COLUMN")
             .expect("accepted-before schema should remain published");
-        assert_eq!(&latest, accepted_before.persisted_snapshot());
+        assert!(
+            latest
+                .fields()
+                .iter()
+                .any(|field| field.name() == "nickname")
+        );
     });
-}
-
-#[test]
-fn execute_admin_sql_ddl_drop_column_keeps_rows_when_publication_is_commit_authorized() {
-    reset_session_sql_store();
-    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    let session = sql_session();
-
-    session
-        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
-            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
-            1,
-        ))
-        .expect("setup nullable ADD COLUMN should publish before interrupted DROP COLUMN");
-    let id = Ulid::from_u128(15_819);
-    session
-        .insert(SessionSqlEntity {
-            id,
-            name: "Ada".to_string(),
-            age: 36,
-        })
-        .expect("typed insert should persist the accepted-before row shape");
-    let raw_key = DecodedDataStoreKey::try_new::<SessionSqlEntity>(id)
-        .expect("test entity key should build")
-        .to_raw()
-        .expect("test entity key should encode");
-    let row_before = SESSION_SQL_DATA_STORE.with_borrow(|data_store| {
-        data_store
-            .get(&raw_key)
-            .expect("test entity row should exist before interrupted DROP COLUMN")
-    });
-
-    arm_commit_failpoint_for_tests(
-        CommitFailpoint::BeforeMarkerClear,
-        CommitFailpointMode::ReturnError,
-    );
-    session
-        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
-            "ALTER TABLE SessionSqlEntity DROP COLUMN nickname",
-            2,
-        ))
-        .expect_err("marker-clear interruption should surface the commit error");
-
-    assert!(commit_marker_present().expect("commit marker should decode"));
-    let row_after_error = SESSION_SQL_DATA_STORE.with_borrow(|data_store| {
-        data_store
-            .get(&raw_key)
-            .expect("rewritten row should remain while publication is commit-authorized")
-    });
-    assert_ne!(row_after_error, row_before);
-
-    ensure_recovered(&SESSION_SQL_DB).expect("marker-authorized DDL should recover");
-    assert!(!commit_marker_present().expect("commit marker should decode"));
-    SESSION_SQL_DATA_STORE.with_borrow(|data_store| {
-        assert_eq!(data_store.get(&raw_key), Some(row_after_error));
-    });
-    let accepted = SESSION_SQL_SCHEMA_STORE
-        .with_borrow(|schema_store| {
-            schema_store.current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
-        })
-        .expect("accepted schema should remain readable after recovery")
-        .expect("accepted-after schema should remain published");
-    assert!(
-        accepted
-            .fields()
-            .iter()
-            .all(|field| field.name() != "nickname")
-    );
 }
 
 #[test]
@@ -6666,12 +6941,16 @@ fn execute_admin_sql_ddl_add_column_reuses_compacted_drop_column_slot() {
             .expect("setup field should be active before DROP COLUMN")
             .slot()
     });
-    session
+    let SqlStatementResult::Ddl(drop_report) = session
         .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity DROP COLUMN nickname",
             2,
         ))
-        .expect("DROP COLUMN should publish dense field removal");
+        .expect("empty DROP COLUMN should publish dense field removal")
+    else {
+        panic!("empty DROP COLUMN should return a DDL report");
+    };
+    assert_eq!(drop_report.rows_scanned(), 0);
     session
         .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN handle text",
@@ -6705,13 +6984,6 @@ fn execute_admin_sql_ddl_publishes_drop_column_for_non_trailing_ddl_owned_field(
     let session = sql_session();
 
     session
-        .insert(SessionSqlEntity {
-            id: Ulid::from_u128(15_809),
-            name: "Ada".to_string(),
-            age: 36,
-        })
-        .expect("typed insert should persist the pre-ADD COLUMN row shape");
-    session
         .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
             1,
@@ -6742,34 +7014,16 @@ fn execute_admin_sql_ddl_publishes_drop_column_for_non_trailing_ddl_owned_field(
         (nickname.slot(), handle.slot())
     });
 
-    session
+    let SqlStatementResult::Ddl(report) = session
         .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity DROP COLUMN nickname",
             3,
         ))
-        .expect("DROP COLUMN should publish non-trailing dense field removal");
-    let SqlStatementResult::Projection {
-        columns,
-        rows,
-        row_count,
-        ..
-    } = execute_sql_statement_for_tests::<SessionSqlEntity>(
-        &session,
-        "SELECT name, handle FROM SessionSqlEntity WHERE name = 'Ada'",
-    )
-    .expect("later active DDL field should query through its compacted slot")
+        .expect("empty DROP COLUMN should publish non-trailing dense field removal")
     else {
-        panic!("SELECT after non-trailing DROP COLUMN should emit projection rows");
+        panic!("empty non-trailing DROP COLUMN should return a DDL report");
     };
-    assert_eq!(columns, vec!["name".to_string(), "handle".to_string()]);
-    assert_eq!(
-        rows,
-        vec![vec![
-            output(Value::Text("Ada".to_string())),
-            output(Value::Null)
-        ]],
-    );
-    assert_eq!(row_count, 1);
+    assert_eq!(report.rows_scanned(), 0);
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
             .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)

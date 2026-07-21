@@ -1,17 +1,13 @@
 use crate::{
     db::{
-        data::{
-            CanonicalRow, DecodedDataStoreKey, RawDataStoreKey, RawRow, SlotReader, StoreVisit,
-            StructuralSlotReader, canonical_row_from_dense_slot_payloads,
-            canonical_row_from_stored_raw_row,
-        },
-        journal::JournalRecord,
+        data::{DecodedDataStoreKey, SlotReader, StoreVisit, StructuralSlotReader},
         registry::StoreHandle,
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
-            PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation, SchemaFieldDefaultTarget,
-            SchemaFieldDropTarget, SchemaFieldNullabilityTarget, SchemaFieldRenameTarget,
-            SchemaRowLayout, accepted_commit_schema_fingerprint,
+            PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation, SchemaFieldDropTarget,
+            SchemaFieldNullabilityTarget, SchemaFieldRenameTarget, SchemaInsertDefaultTarget,
+            SchemaRowLayout, SchemaTransitionSourceBudget,
+            derive_sql_ddl_field_nullability_persisted_after,
         },
     },
     error::InternalError,
@@ -21,19 +17,12 @@ use crate::{
 
 use super::{
     super::user_index_domain::catalog_backed_row_contract_for_sql_ddl, SqlDdlPublicationEnvelope,
-    validate_sql_ddl_drop_schema_gate,
+    require_exact_empty_sql_ddl_entity, validate_sql_ddl_drop_schema_gate,
 };
 
-/// One pending dense-row rewrite retaining the exact accepted-before bytes
-/// until accepted-schema publication commits the new layout.
-struct SqlDdlFieldDropRowRewrite {
-    key: RawDataStoreKey,
-    before: RawRow,
-    after: CanonicalRow,
-}
-
-/// Execute one SQL DDL field drop by rewriting rows to the accepted dense
-/// layout before publishing the compacted catalog snapshot.
+/// Execute one SQL DDL field drop after proving no physical row requires the
+/// dense-layout rewrite. Nonempty rewrites belong to the later migration
+/// protocol and reject before publication in 0.209.
 pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
     store: StoreHandle,
     entity_tag: EntityTag,
@@ -66,110 +55,10 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
         envelope.before(),
         "before row rewrite",
     )?;
-    let contract = catalog_backed_row_contract_for_sql_ddl(
-        store,
-        accepted_before_identity,
-        accepted_before.persisted_snapshot(),
-    )?;
-    let rewrite_slots = envelope
-        .after()
-        .fields()
-        .iter()
-        .map(|after_field| {
-            envelope
-                .before()
-                .fields()
-                .iter()
-                .find(|before_field| before_field.name() == after_field.name())
-                .map(|before_field| usize::from(before_field.slot().get()))
-                .ok_or_else(InternalError::store_unsupported)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let rewritten = store.with_data(|data_store| {
-        let mut rewritten = Vec::new();
-        data_store.visit_entries(|raw_key, raw_row| {
-            let key = DecodedDataStoreKey::try_from_raw(raw_key)
-                .map_err(|_error| InternalError::store_corruption())?;
-            if key.entity_tag() != entity_tag {
-                return Ok::<StoreVisit, InternalError>(StoreVisit::Continue);
-            }
-            let reader = StructuralSlotReader::from_raw_row_with_validated_contract(
-                raw_row,
-                contract.clone(),
-            )?;
-            reader.validate_primary_key(&key)?;
-            let payloads = rewrite_slots
-                .iter()
-                .map(|slot| match reader.get_bytes(*slot) {
-                    Some(payload) => Ok(Vec::from(payload)),
-                    None => contract.missing_slot_payload(*slot),
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            rewritten.push(SqlDdlFieldDropRowRewrite {
-                key: raw_key.clone(),
-                before: raw_row.clone(),
-                after: canonical_row_from_dense_slot_payloads(&payloads)?,
-            });
-            Ok::<StoreVisit, InternalError>(StoreVisit::Continue)
-        })?;
+    require_exact_empty_sql_ddl_entity(store, entity_tag, entity_path)?;
+    envelope.publish()?;
 
-        Ok::<_, InternalError>(rewritten)
-    })?;
-    let rows_scanned = rewritten.len();
-    let row_puts = sql_ddl_field_drop_row_puts(entity_path, derivation, &rewritten)?;
-    let rewrite_result = store.with_data_mut(|data_store| {
-        for rewrite in &rewritten {
-            if data_store.insert(rewrite.key.clone(), rewrite.after.clone())
-                != Some(rewrite.before.clone())
-            {
-                return Err(InternalError::store_corruption());
-            }
-        }
-        Ok::<_, InternalError>(())
-    });
-    if let Err(error) = rewrite_result {
-        rollback_sql_ddl_field_drop_rows(store, &rewritten);
-        return Err(error);
-    }
-    if let Err(error) = envelope.publish_with_row_puts(row_puts) {
-        if envelope.publication_error_allows_physical_rollback() {
-            rollback_sql_ddl_field_drop_rows(store, &rewritten);
-        }
-        return Err(error);
-    }
-
-    Ok(rows_scanned)
-}
-
-fn sql_ddl_field_drop_row_puts(
-    entity_path: &'static str,
-    derivation: &SchemaDdlAcceptedSnapshotDerivation,
-    rewritten: &[SqlDdlFieldDropRowRewrite],
-) -> Result<Vec<JournalRecord>, InternalError> {
-    let accepted_after_fingerprint =
-        accepted_commit_schema_fingerprint(derivation.accepted_after())?;
-    rewritten
-        .iter()
-        .map(|rewrite| {
-            JournalRecord::row_put(
-                entity_path,
-                rewrite.key.clone(),
-                rewrite.after.as_raw_row().as_bytes().to_vec(),
-                accepted_after_fingerprint,
-            )
-        })
-        .collect()
-}
-
-fn rollback_sql_ddl_field_drop_rows(store: StoreHandle, rewritten: &[SqlDdlFieldDropRowRewrite]) {
-    store.with_data_mut(|data_store| {
-        for rewrite in rewritten {
-            data_store.insert(
-                rewrite.key.clone(),
-                canonical_row_from_stored_raw_row(rewrite.before.clone()),
-            );
-        }
-    });
+    Ok(0)
 }
 
 fn validate_sql_ddl_field_drop_metadata_change(
@@ -234,15 +123,9 @@ fn validate_sql_ddl_field_drop_metadata_change(
     let expected_fields = retained_fields
         .iter()
         .zip(&identities)
-        .map(|(field, (_, id, slot))| field.clone_with_identity(*id, *slot))
+        .map(|(field, (_, id, slot))| field.clone_for_full_layout_rewrite(*id, *slot))
         .collect::<Vec<_>>();
-    let expected_layout = SchemaRowLayout::new(
-        after.row_layout().version(),
-        identities
-            .iter()
-            .map(|(_, id, slot)| (*id, *slot))
-            .collect(),
-    );
+    let expected_layout = after.row_layout().clone();
     let expected_primary_key = before
         .primary_key_field_ids()
         .iter()
@@ -305,7 +188,7 @@ fn validate_sql_ddl_field_default_metadata_change(
     entity_path: &'static str,
     before: &PersistedSchemaSnapshot,
     after: &PersistedSchemaSnapshot,
-    target: &SchemaFieldDefaultTarget,
+    target: &SchemaInsertDefaultTarget,
 ) -> Result<(), InternalError> {
     validate_sql_ddl_single_field_metadata_change(
         entity_path,
@@ -366,22 +249,31 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_nullability_change(
 }
 
 fn validate_sql_ddl_field_nullability_metadata_change(
-    entity_path: &'static str,
+    _entity_path: &'static str,
     before: &PersistedSchemaSnapshot,
     after: &PersistedSchemaSnapshot,
     target: &SchemaFieldNullabilityTarget,
 ) -> Result<(), InternalError> {
-    validate_sql_ddl_single_field_metadata_change(
-        entity_path,
+    let after_field = after
+        .fields()
+        .iter()
+        .find(|field| field.id() == target.field_id())
+        .ok_or_else(InternalError::store_unsupported)?;
+    if after_field.name() != target.name() {
+        return Err(InternalError::store_unsupported());
+    }
+    let expected = derive_sql_ddl_field_nullability_persisted_after(
         before,
-        after,
-        SqlDdlSingleFieldMetadataTarget {
-            field_id: target.field_id(),
-            before_name: target.name(),
-            after_name: target.name(),
-        },
-        SqlDdlSingleFieldMetadataChange::Nullability,
+        target.field_id(),
+        after_field.nullable(),
+        after.version(),
     )
+    .ok_or_else(InternalError::store_unsupported)?;
+    if &expected != after {
+        return Err(InternalError::store_unsupported());
+    }
+
+    Ok(())
 }
 
 fn target_field_is_required(
@@ -418,14 +310,16 @@ fn validate_sql_ddl_set_not_null_rows(
     let required_slot = usize::from(field.slot().get());
 
     store.with_data(|data_store| {
-        let mut scanned = 0usize;
+        let mut budget = SchemaTransitionSourceBudget::standard();
         data_store.visit_entries(|raw_key, raw_row| {
             let key = DecodedDataStoreKey::try_from_raw(raw_key)
                 .map_err(|_error| InternalError::store_unsupported())?;
             if key.entity_tag() != entity_tag {
                 return Ok(StoreVisit::Continue);
             }
-            scanned = scanned.saturating_add(1);
+            budget.consume_source_row(raw_row.len()).map_err(|error| {
+                InternalError::schema_transition_budget_exceeded(error.resource())
+            })?;
             let mut reader = StructuralSlotReader::from_raw_row_with_validated_contract(
                 raw_row,
                 contract.clone(),
@@ -441,7 +335,7 @@ fn validate_sql_ddl_set_not_null_rows(
             Ok(StoreVisit::Continue)
         })?;
 
-        Ok(scanned)
+        Ok(budget.source_rows())
     })
 }
 
@@ -515,7 +409,6 @@ struct SqlDdlSingleFieldMetadataTarget<'a> {
 #[derive(Clone, Copy)]
 enum SqlDdlSingleFieldMetadataChange {
     Default,
-    Nullability,
     Rename,
 }
 
@@ -531,10 +424,8 @@ impl SqlDdlSingleFieldMetadataChange {
     ) -> bool {
         match self {
             Self::Default => {
-                before_field.clone_with_default(after_field.default().clone()) == *after_field
-            }
-            Self::Nullability => {
-                before_field.clone_with_nullable(after_field.nullable()) == *after_field
+                before_field.clone_with_insert_default(after_field.insert_default().clone())
+                    == *after_field
             }
             Self::Rename => {
                 before_field.clone_with_name(after_field.name().to_string()) == *after_field
@@ -548,8 +439,7 @@ impl SqlDdlSingleFieldMetadataChange {
         after_field: &PersistedFieldSnapshot,
     ) -> bool {
         match self {
-            Self::Default => before_field.default() != after_field.default(),
-            Self::Nullability => before_field.nullable() != after_field.nullable(),
+            Self::Default => before_field.insert_default() != after_field.insert_default(),
             Self::Rename => before_field.name() != after_field.name(),
         }
     }
@@ -603,7 +493,7 @@ fn validate_sql_ddl_single_field_metadata_change(
 }
 
 fn row_layout_allocation_matches(left: &SchemaRowLayout, right: &SchemaRowLayout) -> bool {
-    left.field_to_slot() == right.field_to_slot()
+    left == right
 }
 
 fn execute_admin_sql_ddl_checked_field_metadata_publication<T>(

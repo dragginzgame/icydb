@@ -377,6 +377,7 @@ static SESSION_SQL_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCanister>] = &[
     EntityRuntimeHooks::for_entity::<SessionSqlRecordFieldPathEntity>(),
     EntityRuntimeHooks::for_entity::<SessionNullableSqlEntity>(),
     EntityRuntimeHooks::for_entity::<SessionSqlWriteEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionSqlDefaultWriteEntity>(),
     EntityRuntimeHooks::for_entity::<SessionSqlCompositeWriteEntity>(),
     EntityRuntimeHooks::for_entity::<SessionSqlBlobEntity>(),
     EntityRuntimeHooks::for_entity::<SessionSqlGeneratedFieldEntity>(),
@@ -1154,6 +1155,20 @@ struct SessionSqlWriteEntity {
     id: u64,
     name: String,
     age: u64,
+}
+
+///
+/// SessionSqlDefaultWriteEntity
+///
+/// SQL write fixture whose accepted insertion policy spans generation,
+/// canonical default payloads, and nullable omission.
+///
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct SessionSqlDefaultWriteEntity {
+    id: Ulid,
+    score: u64,
+    nickname: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -2013,6 +2028,40 @@ crate::test_entity! {
     entity_value = id_field(id),
 }
 
+static SESSION_SQL_DEFAULT_SCORE_PAYLOAD: &[u8] = &[0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0];
+
+crate::test_entity! {
+    ident = SessionSqlDefaultWriteEntity,
+    entity_name = "SessionSqlDefaultWriteEntity",
+    tag = EntityTag::new(0x10E9),
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! {
+            id: Ulid => FieldKind::Ulid,
+            options = crate::testing::TestFieldModelOptions::DEFAULT
+                .with_insert_generation(crate::model::field::FieldInsertGeneration::Ulid),
+        },
+        crate::test_field! {
+            score: u64 => FieldKind::Nat64,
+            options = crate::testing::TestFieldModelOptions::DEFAULT.with_database_default(
+                crate::model::field::FieldDatabaseDefault::EncodedSlotPayload(
+                    SESSION_SQL_DEFAULT_SCORE_PAYLOAD,
+                ),
+            ),
+        },
+        crate::test_field! {
+            nickname: Option<String> => FieldKind::Text { max_len: None },
+            options = crate::testing::TestFieldModelOptions::DEFAULT.with_nullable(true),
+        },
+    ],
+    indexes = [],
+    relations = [],
+    entity_value = id_field(id),
+}
+
 crate::test_entity! {
     ident = SessionSqlCompositeWriteEntity,
     entity_name = "SessionSqlCompositeWriteEntity",
@@ -2816,10 +2865,8 @@ fn install_session_sql_write_old_accepted_schema_prefix() {
     let proposal =
         compiled_schema_proposal_for_model(<SessionSqlWriteEntity as EntityDeclaration>::MODEL);
     let expected = proposal.initial_persisted_schema_snapshot();
-    let stored_prefix_row_layout = SchemaRowLayout::new(
-        expected.row_layout().version(),
-        vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
-    );
+    let stored_prefix_row_layout =
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]);
     let stored_prefix = PersistedSchemaSnapshot::new(
         expected.version(),
         expected.entity_path().to_string(),

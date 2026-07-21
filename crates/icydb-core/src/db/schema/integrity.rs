@@ -6,7 +6,10 @@
 mod index;
 mod relation;
 
-use crate::db::schema::{FieldId, PersistedFieldSnapshot, SchemaRowLayout, SchemaVersion};
+use crate::db::schema::{
+    FieldId, PersistedFieldSnapshot, RowLayoutVersion, SchemaHistoricalFill, SchemaRowLayout,
+    SchemaVersion,
+};
 
 pub(in crate::db::schema) use index::schema_snapshot_index_integrity_detail;
 pub(in crate::db::schema) use relation::schema_snapshot_relation_integrity_detail;
@@ -25,7 +28,7 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
         return Some(());
     }
 
-    if row_layout.version() != version {
+    if row_layout.history_floor() > row_layout.current_version() {
         return Some(());
     }
 
@@ -55,6 +58,7 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
         return Some(());
     }
 
+    let mut prior_introduction = RowLayoutVersion::INITIAL;
     for (index, ((field_id, slot), field)) in
         row_layout.field_to_slot().iter().zip(fields).enumerate()
     {
@@ -67,12 +71,36 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
         {
             return Some(());
         }
+
+        let introduced = field.introduced_in_layout();
+        if introduced > row_layout.current_version() || introduced < prior_introduction {
+            return Some(());
+        }
+        prior_introduction = introduced;
+
+        match field.historical_fill() {
+            SchemaHistoricalFill::Reject if introduced > row_layout.history_floor() => {
+                return Some(());
+            }
+            SchemaHistoricalFill::Null if !field.nullable() => return Some(()),
+            SchemaHistoricalFill::Null | SchemaHistoricalFill::SlotPayload(_)
+                if introduced <= row_layout.history_floor() =>
+            {
+                return Some(());
+            }
+            SchemaHistoricalFill::Reject
+            | SchemaHistoricalFill::Null
+            | SchemaHistoricalFill::SlotPayload(_) => {}
+        }
     }
 
     let mut matched_primary_key_fields = 0usize;
     for field in fields {
         if primary_key_field_ids.contains(&field.id()) {
             matched_primary_key_fields += 1;
+            if !matches!(field.historical_fill(), SchemaHistoricalFill::Reject) {
+                return Some(());
+            }
         }
 
         let Some(row_layout_slot) = row_layout.slot_for_field(field.id()) else {

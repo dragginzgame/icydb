@@ -15,7 +15,8 @@ use crate::{
         predicate::{PredicateProgram, normalize, parse_sql_predicate},
         schema::{
             AcceptedCatalogIdentity, PersistedSchemaSnapshot, SchemaExpressionIndexRebuildTarget,
-            SchemaFieldPathIndexRebuildTarget, SchemaVersion,
+            SchemaFieldPathIndexRebuildTarget, SchemaTransitionSourceBudget,
+            SchemaTransitionSourceBudgetError, SchemaVersion,
             accepted_schema_cache_fingerprint_for_persisted_snapshot,
             mutation::SchemaMutationRequest,
         },
@@ -25,8 +26,6 @@ use crate::{
 };
 use std::{collections::BTreeSet, mem::size_of};
 
-const MAX_SOURCE_ROWS: usize = 65_536;
-const MAX_SOURCE_ROW_BYTES: usize = 256 * 1024 * 1024;
 const MAX_PROJECTION_ENTRIES: usize = 131_072;
 const MAX_DELETION_KEYS: usize = 65_536;
 const MAX_STAGED_RAW_BYTES: usize = 256 * 1024 * 1024;
@@ -42,7 +41,8 @@ const MAX_PROJECTION_WORK_UNITS: usize = 262_144;
 #[derive(Clone, Copy)]
 pub(in crate::db) struct SchemaUserIndexDomainRow<'a> {
     primary_key_value: PrimaryKeyValue,
-    slots: &'a dyn CanonicalSlotReader,
+    accepted_before_slots: &'a dyn CanonicalSlotReader,
+    accepted_after_slots: &'a dyn CanonicalSlotReader,
     encoded_row_bytes: usize,
 }
 
@@ -51,12 +51,14 @@ impl<'a> SchemaUserIndexDomainRow<'a> {
     #[must_use]
     pub(in crate::db) fn new(
         primary_key_value: impl Into<PrimaryKeyValue>,
-        slots: &'a dyn CanonicalSlotReader,
+        accepted_before_slots: &'a dyn CanonicalSlotReader,
+        accepted_after_slots: &'a dyn CanonicalSlotReader,
         encoded_row_bytes: usize,
     ) -> Self {
         Self {
             primary_key_value: primary_key_value.into(),
-            slots,
+            accepted_before_slots,
+            accepted_after_slots,
             encoded_row_bytes,
         }
     }
@@ -137,7 +139,6 @@ impl StagedUserIndexDomainUsage {
     }
 
     /// Return the peak raw payload and deterministic-sort workspace charge.
-    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn staged_raw_bytes(self) -> usize {
         self.staged_raw_bytes
@@ -213,7 +214,6 @@ impl StagedUserIndexDomainReplacement {
     }
 
     /// Return deterministic staging resource usage.
-    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) const fn usage(&self) -> StagedUserIndexDomainUsage {
         self.usage
@@ -254,14 +254,16 @@ impl StagedUserIndexDomainReplacementBuilder {
         accepted_before_identity: AcceptedCatalogIdentity,
         accepted_before: &PersistedSchemaSnapshot,
         accepted_after: &PersistedSchemaSnapshot,
-        predicate_row_contract: Option<&StructuralRowContract>,
+        accepted_before_row_contract: Option<&StructuralRowContract>,
+        accepted_after_row_contract: Option<&StructuralRowContract>,
         index_store: &IndexStore,
     ) -> Result<Self, StagedUserIndexDomainError> {
         validate_stage_authority(
             accepted_before_identity,
             accepted_before,
             accepted_after,
-            predicate_row_contract,
+            accepted_before_row_contract,
+            accepted_after_row_contract,
             index_store,
         )?;
 
@@ -269,12 +271,12 @@ impl StagedUserIndexDomainReplacementBuilder {
         let before_projection = PreparedUserIndexProjection::from_snapshot(
             entity_tag,
             accepted_before,
-            predicate_row_contract,
+            accepted_before_row_contract,
         )?;
         let after_projection = PreparedUserIndexProjection::from_snapshot(
             entity_tag,
             accepted_after,
-            predicate_row_contract,
+            accepted_after_row_contract,
         )?;
         Ok(Self {
             store_path: accepted_before_identity.store_path(),
@@ -303,12 +305,14 @@ impl StagedUserIndexDomainReplacementBuilder {
         self.before_projection.derive_row(
             self.entity_tag,
             row,
+            row.accepted_before_slots,
             &mut self.expected_before,
             &mut self.budget,
         )?;
         self.after_projection.derive_row(
             self.entity_tag,
             row,
+            row.accepted_after_slots,
             &mut self.final_entries,
             &mut self.budget,
         )
@@ -468,16 +472,28 @@ impl StagedUserIndexDomainError {
             | Self::AcceptedBeforeIdentityMismatch
             | Self::AcceptedIndexStoreMismatch
             | Self::RowContractEntityMismatch => InternalError::store_invariant(),
-            Self::DeletionKeyLimitExceeded
-            | Self::IndexStoreNotReady
+            Self::DeletionKeyLimitExceeded => InternalError::schema_transition_budget_exceeded(
+                crate::error::SchemaTransitionBudgetResource::DeletionKeys,
+            ),
+            Self::ProjectionEntryLimitExceeded => InternalError::schema_transition_budget_exceeded(
+                crate::error::SchemaTransitionBudgetResource::ProjectionEntries,
+            ),
+            Self::ProjectionWorkLimitExceeded => InternalError::schema_transition_budget_exceeded(
+                crate::error::SchemaTransitionBudgetResource::ProjectionWorkUnits,
+            ),
+            Self::SourceRowBytesLimitExceeded => InternalError::schema_transition_budget_exceeded(
+                crate::error::SchemaTransitionBudgetResource::SourceRowBytes,
+            ),
+            Self::SourceRowLimitExceeded => InternalError::schema_transition_budget_exceeded(
+                crate::error::SchemaTransitionBudgetResource::SourceRows,
+            ),
+            Self::StagedRawBytesLimitExceeded => InternalError::schema_transition_budget_exceeded(
+                crate::error::SchemaTransitionBudgetResource::StagedRawBytes,
+            ),
+            Self::IndexStoreNotReady
             | Self::KeyEncode
             | Self::MissingPredicateRowContract
             | Self::PredicateParse
-            | Self::ProjectionEntryLimitExceeded
-            | Self::ProjectionWorkLimitExceeded
-            | Self::SourceRowBytesLimitExceeded
-            | Self::SourceRowLimitExceeded
-            | Self::StagedRawBytesLimitExceeded
             | Self::UnsupportedAcceptedIndex => InternalError::store_unsupported(),
         }
     }
@@ -512,10 +528,11 @@ impl PreparedUserIndex {
         &self,
         entity_tag: EntityTag,
         row: &SchemaUserIndexDomainRow<'_>,
+        slots: &dyn CanonicalSlotReader,
     ) -> Result<Option<IndexKey>, StagedUserIndexDomainError> {
         if let Some(predicate) = self.predicate.as_ref()
             && !predicate
-                .eval_with_structural_slot_reader(row.slots)
+                .eval_with_structural_slot_reader(slots)
                 .map_err(StagedUserIndexDomainError::PredicateEvaluation)?
         {
             return Ok(None);
@@ -527,7 +544,7 @@ impl PreparedUserIndex {
                     entity_tag,
                     row.primary_key_value,
                     target,
-                    row.slots,
+                    slots,
                 )
             }
             PreparedUserIndexTarget::Expression(target) => {
@@ -535,7 +552,7 @@ impl PreparedUserIndex {
                     entity_tag,
                     row.primary_key_value,
                     target,
-                    row.slots,
+                    slots,
                 )
             }
         }
@@ -626,12 +643,13 @@ impl PreparedUserIndexProjection {
         &self,
         entity_tag: EntityTag,
         row: &SchemaUserIndexDomainRow<'_>,
+        slots: &dyn CanonicalSlotReader,
         entries: &mut Vec<StagedUserIndexDomainEntry>,
         budget: &mut StagedUserIndexDomainBudget,
     ) -> Result<(), StagedUserIndexDomainError> {
         for index in &self.indexes {
             budget.consume_projection_work()?;
-            let Some(key) = index.derive_key(entity_tag, row)? else {
+            let Some(key) = index.derive_key(entity_tag, row, slots)? else {
                 continue;
             };
             let key = key
@@ -650,7 +668,8 @@ fn validate_stage_authority(
     accepted_before_identity: AcceptedCatalogIdentity,
     accepted_before: &PersistedSchemaSnapshot,
     accepted_after: &PersistedSchemaSnapshot,
-    predicate_row_contract: Option<&StructuralRowContract>,
+    accepted_before_row_contract: Option<&StructuralRowContract>,
+    accepted_after_row_contract: Option<&StructuralRowContract>,
     index_store: &IndexStore,
 ) -> Result<(), StagedUserIndexDomainError> {
     let accepted_before_fingerprint =
@@ -677,9 +696,11 @@ fn validate_stage_authority(
     {
         return Err(StagedUserIndexDomainError::AcceptedIndexStoreMismatch);
     }
-    if predicate_row_contract.is_some_and(|row_contract| {
-        row_contract.entity_path() != accepted_before_identity.entity_path()
-    }) {
+    if [accepted_before_row_contract, accepted_after_row_contract]
+        .into_iter()
+        .flatten()
+        .any(|row_contract| row_contract.entity_path() != accepted_before_identity.entity_path())
+    {
         return Err(StagedUserIndexDomainError::RowContractEntityMismatch);
     }
     if index_store.state() != IndexState::Ready {
@@ -769,12 +790,14 @@ fn validate_insertion_collisions(
 ///
 
 struct StagedUserIndexDomainBudget {
+    source: SchemaTransitionSourceBudget,
     usage: StagedUserIndexDomainUsage,
 }
 
 impl StagedUserIndexDomainBudget {
     const fn standard() -> Self {
         Self {
+            source: SchemaTransitionSourceBudget::standard(),
             usage: StagedUserIndexDomainUsage {
                 source_rows: 0,
                 source_row_bytes: 0,
@@ -792,24 +815,16 @@ impl StagedUserIndexDomainBudget {
         &mut self,
         encoded_row_bytes: usize,
     ) -> Result<(), StagedUserIndexDomainError> {
-        self.usage.source_rows = self
-            .usage
-            .source_rows
-            .checked_add(1)
-            .ok_or(StagedUserIndexDomainError::SourceRowLimitExceeded)?;
-        if self.usage.source_rows > MAX_SOURCE_ROWS {
-            return Err(StagedUserIndexDomainError::SourceRowLimitExceeded);
-        }
-        self.usage.source_row_bytes = self
-            .usage
-            .source_row_bytes
-            .checked_add(encoded_row_bytes)
-            .ok_or(StagedUserIndexDomainError::SourceRowBytesLimitExceeded)?;
-        if self.usage.source_row_bytes > MAX_SOURCE_ROW_BYTES {
-            return Err(StagedUserIndexDomainError::SourceRowBytesLimitExceeded);
-        }
-
-        Ok(())
+        self.source
+            .consume_source_row(encoded_row_bytes)
+            .map_err(|error| match error {
+                SchemaTransitionSourceBudgetError::Rows => {
+                    StagedUserIndexDomainError::SourceRowLimitExceeded
+                }
+                SchemaTransitionSourceBudgetError::RowBytes => {
+                    StagedUserIndexDomainError::SourceRowBytesLimitExceeded
+                }
+            })
     }
 
     fn consume_projection_work(&mut self) -> Result<(), StagedUserIndexDomainError> {
@@ -905,13 +920,57 @@ impl StagedUserIndexDomainBudget {
     }
 
     const fn usage(&self) -> StagedUserIndexDomainUsage {
-        self.usage
+        StagedUserIndexDomainUsage {
+            source_rows: self.source.source_rows(),
+            source_row_bytes: self.source.source_row_bytes(),
+            ..self.usage
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stage_budget_rejections_preserve_the_exact_resource() {
+        for (error, resource) in [
+            (
+                StagedUserIndexDomainError::SourceRowLimitExceeded,
+                crate::error::SchemaTransitionBudgetResource::SourceRows,
+            ),
+            (
+                StagedUserIndexDomainError::SourceRowBytesLimitExceeded,
+                crate::error::SchemaTransitionBudgetResource::SourceRowBytes,
+            ),
+            (
+                StagedUserIndexDomainError::ProjectionEntryLimitExceeded,
+                crate::error::SchemaTransitionBudgetResource::ProjectionEntries,
+            ),
+            (
+                StagedUserIndexDomainError::DeletionKeyLimitExceeded,
+                crate::error::SchemaTransitionBudgetResource::DeletionKeys,
+            ),
+            (
+                StagedUserIndexDomainError::ProjectionWorkLimitExceeded,
+                crate::error::SchemaTransitionBudgetResource::ProjectionWorkUnits,
+            ),
+            (
+                StagedUserIndexDomainError::StagedRawBytesLimitExceeded,
+                crate::error::SchemaTransitionBudgetResource::StagedRawBytes,
+            ),
+        ] {
+            let internal = error.into_internal_error();
+            assert!(matches!(
+                internal.detail(),
+                Some(crate::error::ErrorDetail::Store(
+                    crate::error::StoreError::SchemaTransitionBudgetExceeded {
+                        resource: actual,
+                    }
+                )) if *actual == resource
+            ));
+        }
+    }
 
     #[test]
     fn standard_budget_fixes_and_admits_the_design_measurement_point() {
@@ -921,13 +980,16 @@ mod tests {
         let design_projection_entries = design_domain_entries * 2;
         let design_work_units = design_domain_entries * 3;
 
-        assert_eq!(MAX_SOURCE_ROWS, 65_536);
-        assert_eq!(MAX_SOURCE_ROW_BYTES, 256 * 1024 * 1024);
         assert_eq!(MAX_PROJECTION_ENTRIES, 131_072);
         assert_eq!(MAX_DELETION_KEYS, 65_536);
         assert_eq!(MAX_STAGED_RAW_BYTES, 256 * 1024 * 1024);
         assert_eq!(MAX_PROJECTION_WORK_UNITS, 262_144);
-        assert!(MAX_SOURCE_ROWS >= design_rows);
+        let mut source = SchemaTransitionSourceBudget::standard();
+        for _ in 0..design_rows {
+            source
+                .consume_source_row(0)
+                .expect("the design row count should fit the shared source budget");
+        }
         assert!(MAX_PROJECTION_ENTRIES >= design_projection_entries);
         assert!(MAX_DELETION_KEYS >= design_domain_entries);
         assert!(MAX_PROJECTION_WORK_UNITS >= design_work_units);
@@ -935,21 +997,6 @@ mod tests {
 
     #[test]
     fn standard_budget_rejects_each_aggregate_dimension_at_its_boundary() {
-        let mut row_count = StagedUserIndexDomainBudget::standard();
-        for _ in 0..MAX_SOURCE_ROWS {
-            assert!(row_count.consume_source_row(0).is_ok());
-        }
-        assert!(matches!(
-            row_count.consume_source_row(0),
-            Err(StagedUserIndexDomainError::SourceRowLimitExceeded),
-        ));
-
-        let mut row_bytes = StagedUserIndexDomainBudget::standard();
-        assert!(matches!(
-            row_bytes.consume_source_row(MAX_SOURCE_ROW_BYTES + 1),
-            Err(StagedUserIndexDomainError::SourceRowBytesLimitExceeded),
-        ));
-
         let mut entry_count = StagedUserIndexDomainBudget::standard();
         for _ in 0..MAX_PROJECTION_ENTRIES {
             assert!(entry_count.consume_projection_entry(0).is_ok());

@@ -452,7 +452,7 @@ mod tests {
             },
             schema::{
                 AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
-                PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaInfo,
+                PersistedSchemaSnapshot, SchemaFieldSlot, SchemaInfo, SchemaInsertDefault,
                 SchemaRowLayout, SchemaVersion,
             },
         },
@@ -493,33 +493,30 @@ mod tests {
             "executor::authority::tests::Entity".to_string(),
             "Entity".to_string(),
             FieldId::new(1),
-            SchemaRowLayout::new(
-                SchemaVersion::initial(),
-                vec![
-                    (FieldId::new(1), SchemaFieldSlot::new(0)),
-                    (FieldId::new(2), slot),
-                ],
-            ),
+            SchemaRowLayout::initial(vec![
+                (FieldId::new(1), SchemaFieldSlot::new(0)),
+                (FieldId::new(2), slot),
+            ]),
             vec![
-                PersistedFieldSnapshot::new(
+                PersistedFieldSnapshot::new_initial(
                     FieldId::new(1),
                     "id".to_string(),
                     SchemaFieldSlot::new(0),
                     AcceptedFieldKind::Ulid,
                     Vec::new(),
                     false,
-                    SchemaFieldDefault::None,
+                    SchemaInsertDefault::None,
                     FieldStorageDecode::ByKind,
                     LeafCodec::Structural,
                 ),
-                PersistedFieldSnapshot::new(
+                PersistedFieldSnapshot::new_initial(
                     FieldId::new(2),
                     "profile".to_string(),
                     SchemaFieldSlot::new(1),
                     AcceptedFieldKind::test_composite(),
                     Vec::new(),
                     false,
-                    SchemaFieldDefault::None,
+                    SchemaInsertDefault::None,
                     FieldStorageDecode::CatalogValue,
                     LeafCodec::Structural,
                 ),

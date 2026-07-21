@@ -145,7 +145,17 @@ An import/restore feature must define:
 - corruption-detection requirements;
 - version-gap behavior;
 - recovery-size and resource limits;
-- accepted-schema write admission for every imported row after-image.
+- accepted-schema write admission for every logical imported row after-image;
+- a durable authenticated manifest for any physical backup replay, binding the
+  source accepted-schema fingerprint and method version, store/entity/layout
+  identity, restore authorization, artifact/chunk identities, lengths and
+  cryptographic hashes, and the ordered key domain; and
+- fail-closed verification of that manifest, every row envelope and slot
+  count, and exact key identity before physical replay.
+
+Supplying arbitrary bytes with caller-asserted schema or row-layout metadata is
+not a restore lane. Cross-schema restore requires an explicit migration; a
+source artifact cannot be relabeled as another accepted schema.
 
 ## Checksum Decision
 

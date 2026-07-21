@@ -31,13 +31,14 @@ use crate::{
             validate_delete_relations_for_source, validate_save_relations_with_accepted_contract,
         },
         schema::{
-            AcceptedRowDecodeContract, FieldId, PersistedSchemaSnapshot, SchemaFieldSlot,
+            AcceptedRowDecodeContract, FieldId, PersistedFieldSnapshot, PersistedSchemaSnapshot,
+            RowLayoutVersion, SchemaFieldSlot, SchemaHistoricalFill, SchemaInsertDefault,
             SchemaRowLayout, SchemaStore, accepted_commit_schema_fingerprint,
             compiled_schema_proposal_for_model, ensure_accepted_schema_snapshot,
             publish_test_accepted_schema_snapshot,
         },
     },
-    entity::EntityKind,
+    entity::{EntityCreateFieldInput, EntityCreateInput, EntityKind},
     error::{ErrorClass, ErrorOrigin},
     metrics::{metrics_report, metrics_reset_all},
     model::{
@@ -54,6 +55,7 @@ use crate::{
         InputValue, InputValueEnum, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
         RuntimeValueMeta, Value,
     },
+    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
@@ -971,6 +973,20 @@ fn load_database_default_write_entity(id: Ulid) -> Option<DatabaseDefaultWriteEn
     })
 }
 
+fn load_sanitizer_provenance_entity(id: Ulid) -> Option<SanitizerProvenanceEntity> {
+    let data_key = DecodedDataStoreKey::try_new::<SanitizerProvenanceEntity>(id)
+        .expect("sanitizer provenance data key should build")
+        .to_raw()
+        .expect("sanitizer provenance data key should encode");
+
+    with_data_store(SourceStore::PATH, |data_store| {
+        data_store.get(&data_key).map(|row| {
+            row.try_decode_with_model_proposal_for_test::<SanitizerProvenanceEntity>()
+                .expect("sanitizer provenance row decode should succeed")
+        })
+    })
+}
+
 fn accepted_structural_patch<E, I, S>(
     session: &DbSession<TestCanister>,
     fields: I,
@@ -1006,10 +1022,8 @@ fn install_unique_email_old_accepted_schema_prefix() {
         <UniqueEmailEntity as crate::entity::EntityDeclaration>::MODEL,
     );
     let expected = proposal.initial_persisted_schema_snapshot();
-    let stored_prefix_row_layout = SchemaRowLayout::new(
-        expected.row_layout().version(),
-        vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
-    );
+    let stored_prefix_row_layout =
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]);
     let stored_prefix = PersistedSchemaSnapshot::new(
         expected.version(),
         expected.entity_path().to_string(),
@@ -1030,6 +1044,80 @@ fn install_unique_email_old_accepted_schema_prefix() {
         .expect("unsupported but well-formed old schema snapshot should publish");
     });
     DbSession::<TestCanister>::clear_accepted_schema_query_cache_for_tests();
+}
+
+fn install_sanitizer_provenance_historical_score_schema() {
+    let model = <SanitizerProvenanceEntity as crate::entity::EntityDeclaration>::MODEL;
+    let expected = compiled_schema_proposal_for_model(model).initial_persisted_schema_snapshot();
+    let current = RowLayoutVersion::INITIAL
+        .checked_next()
+        .expect("historical sanitizer fixture layout should advance");
+    let mut fields = expected.fields().to_vec();
+    let score = &expected.fields()[1];
+    fields[1] = PersistedFieldSnapshot::new_with_write_policy(
+        score.id(),
+        score.name().to_string(),
+        score.slot(),
+        score.kind().clone(),
+        score.nested_leaves().to_vec(),
+        score.nullable(),
+        current,
+        SchemaInsertDefault::SlotPayload(DATABASE_DEFAULT_SCORE_PAYLOAD.to_vec()),
+        SchemaHistoricalFill::SlotPayload(DATABASE_DEFAULT_SCORE_PAYLOAD.to_vec()),
+        score.write_policy(),
+        score.storage_decode(),
+        score.leaf_codec(),
+    );
+    let snapshot = PersistedSchemaSnapshot::new(
+        expected.version(),
+        expected.entity_path().to_string(),
+        expected.entity_name().to_string(),
+        expected.first_primary_key_field_id(),
+        SchemaRowLayout::new(
+            current,
+            RowLayoutVersion::INITIAL,
+            expected.row_layout().field_to_slot().to_vec(),
+        ),
+        fields,
+    );
+
+    SOURCE_SCHEMA_STORE.with_borrow_mut(|store| {
+        publish_test_accepted_schema_snapshot(
+            store,
+            SanitizerProvenanceEntity::ENTITY_TAG,
+            SanitizerProvenanceEntity::PATH,
+            SourceStore::PATH,
+            model,
+            snapshot,
+        )
+        .expect("historical sanitizer fixture schema should publish");
+    });
+}
+
+fn insert_historical_sanitizer_provenance_row(id: Ulid) {
+    let id_payload =
+        encode_persisted_scalar_slot_payload(&id, "id").expect("id slot payload should encode");
+    let mut row_payload = Vec::new();
+    row_payload.extend_from_slice(&1_u16.to_be_bytes());
+    row_payload.extend_from_slice(&0_u32.to_be_bytes());
+    row_payload.extend_from_slice(
+        &u32::try_from(id_payload.len())
+            .expect("id payload length should fit")
+            .to_be_bytes(),
+    );
+    row_payload.extend_from_slice(id_payload.as_slice());
+    let raw_row = RawRow::try_new(
+        serialize_row_payload(RowLayoutVersion::INITIAL, row_payload)
+            .expect("historical row should encode"),
+    )
+    .expect("historical row should satisfy row bounds");
+    let raw_key = DecodedDataStoreKey::try_new::<SanitizerProvenanceEntity>(id)
+        .expect("historical row key should build")
+        .to_raw()
+        .expect("historical row key should encode");
+    with_data_store_mut(SourceStore::PATH, |store| {
+        store.insert_raw_for_test(raw_key, raw_row);
+    });
 }
 
 fn load_source_set_entity(id: Ulid) -> Option<SourceSetEntity> {
@@ -1221,6 +1309,118 @@ struct DatabaseDefaultWriteEntity {
     score: i32,
 }
 
+struct DatabaseDefaultWriteCreate {
+    id: Ulid,
+    score: Option<i32>,
+}
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct SanitizerProvenanceEntity {
+    id: Ulid,
+    score: i32,
+}
+
+crate::__icydb_test_entity_model!(
+    SanitizerProvenanceEntity,
+    "SanitizerProvenanceEntity",
+    version = 1,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! {
+            score: i32 => FieldKind::Int64,
+            options = crate::testing::TestFieldModelOptions::DEFAULT.with_database_default(
+                FieldDatabaseDefault::EncodedSlotPayload(DATABASE_DEFAULT_SCORE_PAYLOAD),
+            ),
+        },
+    ],
+    indexes = [],
+    relations = [],
+);
+
+impl crate::db::EntityKey for SanitizerProvenanceEntity {
+    type Key = Ulid;
+}
+
+impl Path for SanitizerProvenanceEntity {
+    const PATH: &'static str = concat!(module_path!(), "::SanitizerProvenanceEntity");
+}
+
+impl crate::entity::EntityDeclaration for SanitizerProvenanceEntity {
+    const NAME: &'static str = "SanitizerProvenanceEntity";
+    const MODEL: &'static crate::model::entity::EntityModel = &Self::MODEL_DEF;
+}
+
+impl crate::entity::EntityPlacement for SanitizerProvenanceEntity {
+    type Store = SourceStore;
+    type Canister = TestCanister;
+}
+
+impl EntityKind for SanitizerProvenanceEntity {
+    const ENTITY_TAG: EntityTag = EntityTag::new(9_000_209);
+}
+
+impl crate::traits::AuthoredFieldProjection for SanitizerProvenanceEntity {
+    fn get_input_value_by_index(&self, index: usize) -> Option<InputValue> {
+        crate::traits::FieldProjection::get_value_by_index(self, index).map(InputValue::from)
+    }
+}
+
+impl crate::entity::EntityValue for SanitizerProvenanceEntity {
+    fn id(&self) -> crate::types::Id<Self> {
+        crate::types::Id::from_key(self.id)
+    }
+}
+
+impl SanitizeAuto for SanitizerProvenanceEntity {}
+
+impl SanitizeCustom for SanitizerProvenanceEntity {
+    fn sanitize_custom(&mut self, ctx: &mut dyn crate::visitor::VisitorContext) {
+        self.score = match ctx
+            .sanitize_write_context()
+            .map(crate::sanitize::SanitizeWriteContext::mode)
+        {
+            Some(crate::sanitize::SanitizeWriteMode::Update) => 100,
+            _ => 99,
+        };
+    }
+}
+
+impl ValidateAuto for SanitizerProvenanceEntity {}
+impl ValidateCustom for SanitizerProvenanceEntity {}
+impl Visitable for SanitizerProvenanceEntity {}
+
+struct SanitizerProvenanceCreate {
+    id: Ulid,
+    score: Option<i32>,
+}
+
+impl EntityCreateInput for SanitizerProvenanceCreate {
+    type Entity = SanitizerProvenanceEntity;
+
+    fn into_authored_fields(self) -> Vec<EntityCreateFieldInput> {
+        let mut fields = vec![EntityCreateFieldInput::new(0, self.id.into())];
+        if let Some(score) = self.score {
+            fields.push(EntityCreateFieldInput::new(1, score.into()));
+        }
+
+        fields
+    }
+}
+
+impl EntityCreateInput for DatabaseDefaultWriteCreate {
+    type Entity = DatabaseDefaultWriteEntity;
+
+    fn into_authored_fields(self) -> Vec<EntityCreateFieldInput> {
+        let mut fields = vec![EntityCreateFieldInput::new(0, self.id.into())];
+        if let Some(score) = self.score {
+            fields.push(EntityCreateFieldInput::new(1, score.into()));
+        }
+
+        fields
+    }
+}
+
 static DATABASE_DEFAULT_SCORE_PAYLOAD: &[u8] = &[0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0];
 
 crate::test_entity! {
@@ -1385,6 +1585,13 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         DatabaseDefaultWriteEntity::PATH,
         SourceStore::PATH,
         validate_delete_relations_for_source::<DatabaseDefaultWriteEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        SanitizerProvenanceEntity::ENTITY_TAG,
+        <SanitizerProvenanceEntity as crate::entity::EntityDeclaration>::MODEL,
+        SanitizerProvenanceEntity::PATH,
+        SourceStore::PATH,
+        validate_delete_relations_for_source::<SanitizerProvenanceEntity>,
     ),
     EntityRuntimeHooks::new(
         NullableAccountEventEntity::ENTITY_TAG,
@@ -2931,9 +3138,11 @@ fn save_update_rejects_persisted_row_with_decimal_scale_drift() {
     for payload in &slot_payloads {
         row_payload.extend_from_slice(payload);
     }
-    let raw_row =
-        RawRow::try_new(serialize_row_payload(row_payload).expect("row payload should serialize"))
-            .expect("malformed row bytes should satisfy row bound");
+    let raw_row = RawRow::try_new(
+        serialize_row_payload(crate::db::schema::RowLayoutVersion::INITIAL, row_payload)
+            .expect("row payload should serialize"),
+    )
+    .expect("malformed row bytes should satisfy row bound");
     with_data_store_mut(SourceStore::PATH, |data_store| {
         data_store.insert_raw_for_test(data_key, raw_row);
     });
@@ -3118,12 +3327,18 @@ fn structural_insert_rejects_missing_required_rust_default_fields() {
         .insert_structural::<UniqueEmailEntity>(id, patch)
         .expect_err("structural insert must not fill missing fields from Rust defaults");
 
-    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Executor);
     assert_error_diagnostic(
         &err,
-        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
         "missing required structural insert field",
+    );
+    assert_eq!(
+        err.diagnostic().detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+            boundary: icydb_diagnostic_code::RuntimeBoundaryCode::MutationRequiredFieldMissing,
+        },),
     );
 }
 
@@ -3147,6 +3362,203 @@ fn structural_insert_fills_omitted_database_default_fields() {
     assert_eq!(
         load_database_default_write_entity(id).expect("inserted row should persist"),
         DatabaseDefaultWriteEntity { id, score: 7 },
+    );
+}
+
+#[test]
+fn typed_create_resolves_omitted_fields_from_accepted_database_defaults() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let id = Ulid::from_u128(151);
+    let created = DbSession::new(DB)
+        .create(DatabaseDefaultWriteCreate { id, score: None })
+        .expect("typed create should resolve the accepted database default");
+
+    assert_eq!(created, DatabaseDefaultWriteEntity { id, score: 7 });
+    assert_eq!(
+        load_database_default_write_entity(id).expect("created row should persist"),
+        created,
+    );
+}
+
+#[test]
+fn typed_create_preserves_explicit_authored_values_over_database_defaults() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let id = Ulid::from_u128(152);
+    let created = DbSession::new(DB)
+        .create(DatabaseDefaultWriteCreate {
+            id,
+            score: Some(42),
+        })
+        .expect("typed create should preserve explicit authored input");
+
+    assert_eq!(created, DatabaseDefaultWriteEntity { id, score: 42 });
+}
+
+#[test]
+fn full_typed_insert_keeps_concrete_rust_values_authored() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let id = Ulid::from_u128(155);
+    let inserted = DbSession::new(DB)
+        .insert(DatabaseDefaultWriteEntity { id, score: 0 })
+        .expect("full typed insert should keep the concrete Rust value authored");
+
+    assert_eq!(inserted, DatabaseDefaultWriteEntity { id, score: 0 });
+}
+
+#[test]
+fn atomic_typed_insert_uses_the_same_accepted_after_image_resolver() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let rows = [
+        DatabaseDefaultWriteEntity {
+            id: Ulid::from_u128(156),
+            score: 0,
+        },
+        DatabaseDefaultWriteEntity {
+            id: Ulid::from_u128(157),
+            score: 42,
+        },
+    ];
+    let inserted = DbSession::new(DB)
+        .insert_many_atomic(rows.clone())
+        .expect("atomic typed insert should resolve the same authored after-images");
+
+    assert_eq!(inserted.entities(), rows);
+}
+
+#[test]
+fn typed_create_rejects_sanitizer_changes_to_accepted_default_values() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let id = Ulid::from_u128(153);
+    let err = DbSession::new(DB)
+        .create(SanitizerProvenanceCreate { id, score: None })
+        .expect_err("sanitizer must not transform an accepted database default");
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    let data_key = DecodedDataStoreKey::try_new::<SanitizerProvenanceEntity>(id)
+        .expect("test key should encode");
+    let raw_key = data_key
+        .to_raw()
+        .expect("test key should encode to raw bytes");
+    assert!(
+        with_data_store(SourceStore::PATH, |store| store.get(&raw_key).is_none()),
+        "sanitizer provenance rejection must happen before commit staging",
+    );
+}
+
+#[test]
+fn typed_create_allows_sanitizer_changes_to_authored_values() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let id = Ulid::from_u128(154);
+    let created = DbSession::new(DB)
+        .create(SanitizerProvenanceCreate {
+            id,
+            score: Some(42),
+        })
+        .expect("sanitizer may transform caller-authored input");
+
+    assert_eq!(created.score, 99);
+}
+
+#[test]
+fn structural_insert_rejects_sanitizer_changes_to_accepted_default_values() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let id = Ulid::from_u128(158);
+    let patch = accepted_structural_patch::<SanitizerProvenanceEntity, _, _>(
+        &session,
+        [("id", Value::Ulid(id))],
+    );
+    let err = session
+        .insert_structural::<SanitizerProvenanceEntity>(id, patch)
+        .expect_err("structural omission must retain protected default provenance");
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert!(load_sanitizer_provenance_entity(id).is_none());
+}
+
+#[test]
+fn structural_insert_allows_sanitizer_changes_to_authored_values() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let id = Ulid::from_u128(159);
+    let patch = accepted_structural_patch::<SanitizerProvenanceEntity, _, _>(
+        &session,
+        [("id", Value::Ulid(id)), ("score", Value::Int64(42))],
+    );
+    let inserted = session
+        .insert_structural::<SanitizerProvenanceEntity>(id, patch)
+        .expect("structural authored input may be sanitized");
+
+    assert_eq!(inserted.score, 99);
+}
+
+#[test]
+fn structural_update_rejects_sanitizer_changes_to_preserved_values() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let id = Ulid::from_u128(160);
+    session
+        .insert(SanitizerProvenanceEntity { id, score: 42 })
+        .expect("authored baseline should insert");
+    let err = session
+        .update_structural::<SanitizerProvenanceEntity>(id, AuthoredStructuralPatch::new())
+        .expect_err("sanitizer must not transform an unassigned preserved field");
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(
+        load_sanitizer_provenance_entity(id)
+            .expect("rejected update must retain the exact baseline")
+            .score,
+        99,
+    );
+}
+
+#[test]
+fn structural_update_rejects_sanitizer_changes_to_historical_fills() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+    install_sanitizer_provenance_historical_score_schema();
+
+    let session = DbSession::new(DB);
+    let id = Ulid::from_u128(161);
+    insert_historical_sanitizer_provenance_row(id);
+    let err = session
+        .update_structural::<SanitizerProvenanceEntity>(id, AuthoredStructuralPatch::new())
+        .expect_err("sanitizer must not transform a frozen historical fill");
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    let raw_key = DecodedDataStoreKey::try_new::<SanitizerProvenanceEntity>(id)
+        .expect("historical row key should build")
+        .to_raw()
+        .expect("historical row key should encode");
+    let layout_version = with_data_store(SourceStore::PATH, |store| {
+        let raw_row = store.get(&raw_key).expect("historical row should remain");
+        crate::db::data::decode_structural_row_payload(&raw_row)
+            .expect("historical row should decode")
+            .layout_version()
+    });
+    assert_eq!(
+        layout_version,
+        RowLayoutVersion::INITIAL,
+        "rejected historical update must not promote or rewrite the row",
     );
 }
 
@@ -3336,12 +3748,18 @@ fn structural_replace_rejects_missing_required_fields_after_sparse_materializati
         .replace_structural::<UniqueEmailEntity>(id, patch)
         .expect_err("structural replace without required fields must still fail");
 
-    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Executor);
     assert_error_diagnostic(
         &err,
-        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
         "missing required structural replace field",
+    );
+    assert_eq!(
+        err.diagnostic().detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+            boundary: icydb_diagnostic_code::RuntimeBoundaryCode::MutationRequiredFieldMissing,
+        },),
     );
 }
 

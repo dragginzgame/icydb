@@ -48,7 +48,6 @@ impl<E: PersistedRow> SaveExecutor<E> {
             schema_fingerprint,
             validate_relations,
             write_context,
-            authored_create_slots: None,
         };
         let mut batch_span = None;
         let mut batch_delta = PreparedRowOpDelta {
@@ -227,24 +226,12 @@ impl<E: PersistedRow> SaveExecutor<E> {
                 schema_fingerprint,
                 validate_relations,
                 write_context,
-                authored_create_slots: None,
             };
 
             // Validate and stage all row ops before opening the commit window.
-            for mut entity in entities {
-                self.preflight_entity_with_cached_schema(
-                    &mut entity,
-                    preflight.schema,
-                    preflight.validate_relations,
-                    preflight.write_context,
-                    preflight.authored_create_slots,
-                )?;
-                let marker_row_op = self.prepare_typed_entity_row_op(
-                    &ctx,
-                    save_rule,
-                    &entity,
-                    preflight.schema_fingerprint,
-                )?;
+            for entity in entities {
+                let (entity, marker_row_op) =
+                    self.prepare_entity_save_row_op(&ctx, save_rule, preflight, entity)?;
                 if !seen_row_keys.insert(marker_row_op.key.clone()) {
                     let data_key = DecodedDataStoreKey::try_new::<E>(entity.id().key())?;
                     return Err(InternalError::mutation_atomic_save_duplicate_key(

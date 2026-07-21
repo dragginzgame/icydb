@@ -8,6 +8,9 @@ mod shared;
 mod structural;
 mod typed;
 
+#[cfg(feature = "sql")]
+pub(in crate::db) use structural::StructuralMutationTargetKey;
+
 use crate::{
     db::{
         Db,
@@ -83,6 +86,14 @@ impl SaveRule {
             Self::AllowAny => SaveMutationKind::Replace,
         }
     }
+
+    const fn mutation_mode(self) -> MutationMode {
+        match self {
+            Self::RequireAbsent => MutationMode::Insert,
+            Self::RequirePresent => MutationMode::Update,
+            Self::AllowAny => MutationMode::Replace,
+        }
+    }
 }
 
 ///
@@ -97,7 +108,6 @@ struct SavePreflightInputs<'a> {
     schema_fingerprint: CommitSchemaFingerprint,
     validate_relations: bool,
     write_context: SanitizeWriteContext,
-    authored_create_slots: Option<&'a [usize]>,
 }
 
 //

@@ -13,8 +13,8 @@ use crate::{
     table::{ColumnAlign, append_indented_table},
 };
 
-type SchemaEntityRow = [String; 6];
-type SchemaFieldRow = [String; 8];
+type SchemaEntityRow = [String; 8];
+type SchemaFieldRow = [String; 16];
 type SchemaIndexRow = [String; 5];
 type SchemaRelationRow = [String; 4];
 
@@ -78,6 +78,8 @@ fn schema_entity_row(entity: &EntitySchemaDescription) -> SchemaEntityRow {
         entity.indexes().len().to_string(),
         entity.relations().len().to_string(),
         render_field_list(entity.primary_key_fields()),
+        entity.row_layout_current().to_string(),
+        entity.row_layout_history_floor().to_string(),
         entity.entity_path().to_string(),
     ]
 }
@@ -94,6 +96,20 @@ fn schema_field_row(entity_name: &str, field: &EntityFieldDescription) -> Schema
         yes_no(field.primary_key()).to_string(),
         yes_no(field.queryable()).to_string(),
         field.origin().to_string(),
+        field.insert_omission().unwrap_or("-").to_string(),
+        field.insert_default().unwrap_or("-").to_string(),
+        field
+            .insert_default_bytes()
+            .map_or_else(|| "-".to_string(), |bytes| bytes.to_string()),
+        field.insert_default_hash().unwrap_or("-").to_string(),
+        field
+            .introduced_in_layout()
+            .map_or_else(|| "-".to_string(), |layout| layout.to_string()),
+        field.historical_fill().unwrap_or("-").to_string(),
+        field
+            .historical_fill_bytes()
+            .map_or_else(|| "-".to_string(), |bytes| bytes.to_string()),
+        field.historical_fill_hash().unwrap_or("-").to_string(),
     ]
 }
 
@@ -129,6 +145,8 @@ fn append_schema_entity_table(output: &mut String, rows: &[SchemaEntityRow]) {
             "indexes",
             "relations",
             "primary key",
+            "layout",
+            "history floor",
             "path",
         ],
         rows,
@@ -138,6 +156,8 @@ fn append_schema_entity_table(output: &mut String, rows: &[SchemaEntityRow]) {
             ColumnAlign::Right,
             ColumnAlign::Right,
             ColumnAlign::Left,
+            ColumnAlign::Right,
+            ColumnAlign::Right,
             ColumnAlign::Left,
         ],
     );
@@ -156,6 +176,14 @@ fn append_schema_field_table(output: &mut String, rows: &[SchemaFieldRow]) {
             "pk",
             "queryable",
             "origin",
+            "insert omission",
+            "insert default",
+            "default bytes",
+            "default hash",
+            "introduced layout",
+            "historical fill",
+            "fill bytes",
+            "fill hash",
         ],
         rows,
         &[
@@ -166,6 +194,14 @@ fn append_schema_field_table(output: &mut String, rows: &[SchemaFieldRow]) {
             ColumnAlign::Left,
             ColumnAlign::Left,
             ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Right,
+            ColumnAlign::Left,
+            ColumnAlign::Right,
+            ColumnAlign::Left,
+            ColumnAlign::Right,
             ColumnAlign::Left,
         ],
     );

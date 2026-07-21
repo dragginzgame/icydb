@@ -35,6 +35,11 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
     // Phase 1: emit top-level entity identity metadata.
     lines.push(format!("entity: {}", description.entity_name()));
     lines.push(format!("path: {}", description.entity_path()));
+    lines.push(format!(
+        "row layout: current={} history_floor={}",
+        description.row_layout_current(),
+        description.row_layout_history_floor(),
+    ));
 
     // Phase 2: emit field descriptors in stable model order using the same
     // padded ASCII table shape as shell query results.
@@ -136,6 +141,20 @@ fn render_describe_field_section(lines: &mut Vec<String>, fields: &[EntityFieldD
                     "no".to_string()
                 },
                 field.origin().to_string(),
+                field.insert_omission().unwrap_or("-").to_string(),
+                field.insert_default().unwrap_or("-").to_string(),
+                field
+                    .insert_default_bytes()
+                    .map_or_else(|| "-".to_string(), |bytes| bytes.to_string()),
+                field.insert_default_hash().unwrap_or("-").to_string(),
+                field
+                    .introduced_in_layout()
+                    .map_or_else(|| "-".to_string(), |layout| layout.to_string()),
+                field.historical_fill().unwrap_or("-").to_string(),
+                field
+                    .historical_fill_bytes()
+                    .map_or_else(|| "-".to_string(), |bytes| bytes.to_string()),
+                field.historical_fill_hash().unwrap_or("-").to_string(),
             ]
         })
         .collect::<Vec<_>>();
@@ -149,6 +168,14 @@ fn render_describe_field_section(lines: &mut Vec<String>, fields: &[EntityFieldD
             "pk".to_string(),
             "queryable".to_string(),
             "origin".to_string(),
+            "insert omission".to_string(),
+            "insert default".to_string(),
+            "default bytes".to_string(),
+            "default hash".to_string(),
+            "introduced layout".to_string(),
+            "historical fill".to_string(),
+            "fill bytes".to_string(),
+            "fill hash".to_string(),
         ],
         &field_rows,
     );

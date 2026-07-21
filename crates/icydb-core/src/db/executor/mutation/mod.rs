@@ -11,18 +11,12 @@ use crate::{
     db::{
         Db,
         commit::ensure_recovered,
-        data::{
-            AuthoredStructuralPatch, DecodedDataStoreKey, PersistedRow, SerializedStructuralPatch,
-            serialize_complete_structural_patch_fields_with_accepted_contract,
-            serialize_structural_patch_fields_with_accepted_contract,
-        },
         executor::{
             Context, EntityAuthority,
             route::{RoutePlanRequest, build_execution_route_plan},
             validate_executor_plan_for_authority,
         },
         query::plan::AccessPlannedQuery,
-        schema::AcceptedRowDecodeContract,
     },
     entity::{EntityKind, EntityValue},
     error::InternalError,
@@ -34,88 +28,6 @@ pub(super) use commit_window::{
     commit_save_row_ops_with_window_and_schema_fingerprint, emit_index_delta_metrics,
     record_mutation_commit_plan, synchronized_store_handles_for_prepared_row_ops,
 };
-
-///
-/// MutationInput
-///
-///
-/// MutationInput is the shared internal mutation payload staged above
-/// the persisted-row patch boundary.
-/// It carries only the structural row key and the already serialized slots so
-/// later write-path stages do not need to keep full typed entities alive once
-/// save/update preflight has completed.
-/// Those slots may describe either one sparse structural patch or one complete
-/// typed after-image, depending on the ingress surface.
-///
-
-pub(in crate::db::executor) struct MutationInput {
-    data_key: DecodedDataStoreKey,
-    serialized_slots: SerializedStructuralPatch,
-}
-
-impl MutationInput {
-    /// Build one structural mutation input from already lowered key + patch data.
-    #[must_use]
-    pub(in crate::db::executor) const fn new(
-        data_key: DecodedDataStoreKey,
-        serialized_slots: SerializedStructuralPatch,
-    ) -> Self {
-        Self {
-            data_key,
-            serialized_slots,
-        }
-    }
-
-    /// Lower one accepted-schema key + sparse structural patch pair.
-    pub(in crate::db::executor) fn from_accepted_sparse_structural_patch<E>(
-        key: E::Key,
-        patch: &AuthoredStructuralPatch,
-        accepted_row_decode_contract: AcceptedRowDecodeContract,
-    ) -> Result<Self, InternalError>
-    where
-        E: PersistedRow,
-    {
-        let data_key = DecodedDataStoreKey::try_new::<E>(key)?;
-        let serialized_slots = serialize_structural_patch_fields_with_accepted_contract(
-            E::PATH,
-            accepted_row_decode_contract,
-            patch,
-        )?;
-
-        Ok(Self::new(data_key, serialized_slots))
-    }
-
-    /// Lower one accepted-schema key + complete after-image structural patch pair.
-    pub(in crate::db::executor) fn from_accepted_complete_structural_patch<E>(
-        key: E::Key,
-        patch: &AuthoredStructuralPatch,
-        accepted_row_decode_contract: AcceptedRowDecodeContract,
-    ) -> Result<Self, InternalError>
-    where
-        E: PersistedRow,
-    {
-        let data_key = DecodedDataStoreKey::try_new::<E>(key)?;
-        let serialized_slots = serialize_complete_structural_patch_fields_with_accepted_contract(
-            E::PATH,
-            accepted_row_decode_contract,
-            patch,
-        )?;
-
-        Ok(Self::new(data_key, serialized_slots))
-    }
-
-    /// Borrow the target row key for this mutation input.
-    #[must_use]
-    pub(in crate::db::executor) const fn data_key(&self) -> &DecodedDataStoreKey {
-        &self.data_key
-    }
-
-    /// Borrow the serialized slots for this mutation input.
-    #[must_use]
-    pub(in crate::db::executor) const fn serialized_slots(&self) -> &SerializedStructuralPatch {
-        &self.serialized_slots
-    }
-}
 
 /// Run mutation write-entry recovery checks and return a write-ready context.
 pub(in crate::db::executor) fn mutation_write_context<E>(

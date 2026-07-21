@@ -144,7 +144,9 @@ impl<'row, 'contract> DirectSparseRequiredRowField<'row, 'contract> {
         }
 
         let Some(raw_value) = self.field_bytes.required_field() else {
-            return self.contract.missing_slot_value(self.required_slot);
+            return self
+                .contract
+                .historical_slot_value(self.required_slot, self.field_bytes.layout_version());
         };
 
         decode_slot_with_contract(
@@ -316,7 +318,7 @@ fn decode_selected_slot_value(
     }
 
     let Some(raw_value) = field_bytes.field(slot) else {
-        return contract.missing_slot_value(slot);
+        return contract.historical_slot_value(slot, field_bytes.layout_version());
     };
 
     decode_slot_with_contract(

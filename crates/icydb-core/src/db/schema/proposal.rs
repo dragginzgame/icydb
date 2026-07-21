@@ -9,8 +9,8 @@ use crate::{
         PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
         PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
         PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
-        SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout,
-        SchemaVersion,
+        RowLayoutVersion, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill,
+        SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
         composite_catalog::AcceptedCompositeCatalog,
         enum_catalog::{
             AcceptedEnumCatalog, encode_unit_enum_default_in_catalog,
@@ -113,7 +113,7 @@ impl CompiledSchemaProposal {
             .map(|field| (field.id(), field.slot()))
             .collect::<Vec<_>>();
 
-        SchemaRowLayout::new(self.declared_schema_version(), field_to_slot)
+        SchemaRowLayout::single_version(RowLayoutVersion::INITIAL, field_to_slot)
     }
 
     /// Build the initial persisted-schema snapshot implied by this proposal.
@@ -322,7 +322,7 @@ impl CompiledFieldProposal {
             self.kind(),
         )
         .map_err(|_| InternalError::store_unsupported())?;
-        let default = self.persisted_database_default(enum_catalog, &kind)?;
+        let insert_default = self.persisted_database_default(enum_catalog, &kind)?;
         let nested_leaves = self
             .nested_leaves()
             .iter()
@@ -337,7 +337,9 @@ impl CompiledFieldProposal {
             kind,
             nested_leaves,
             self.nullable(),
-            default,
+            RowLayoutVersion::INITIAL,
+            insert_default,
+            SchemaHistoricalFill::Reject,
             self.write_policy(),
             self.storage_decode(),
             self.leaf_codec(),
@@ -348,11 +350,11 @@ impl CompiledFieldProposal {
         &self,
         enum_catalog: &AcceptedEnumCatalog,
         kind: &AcceptedFieldKind,
-    ) -> Result<SchemaFieldDefault, InternalError> {
+    ) -> Result<SchemaInsertDefault, InternalError> {
         let (enum_path, variant) = match self.database_default() {
-            FieldDatabaseDefault::None => return Ok(SchemaFieldDefault::None),
+            FieldDatabaseDefault::None => return Ok(SchemaInsertDefault::None),
             FieldDatabaseDefault::EncodedSlotPayload(bytes) => {
-                return Ok(SchemaFieldDefault::SlotPayload(Vec::from(bytes)));
+                return Ok(SchemaInsertDefault::SlotPayload(Vec::from(bytes)));
             }
             FieldDatabaseDefault::AuthoredEnumUnit { enum_path, variant } => (enum_path, variant),
         };
@@ -365,7 +367,7 @@ impl CompiledFieldProposal {
 
         let payload = encode_unit_enum_default_in_catalog(enum_catalog, enum_path, variant)
             .map_err(|_| InternalError::store_unsupported())?;
-        Ok(SchemaFieldDefault::SlotPayload(payload))
+        Ok(SchemaInsertDefault::SlotPayload(payload))
     }
 }
 
@@ -778,11 +780,8 @@ fn debug_assert_compiled_schema_proposal_invariants(
         debug_assert!(false, "generated defaults should admit through the catalog");
         return;
     };
-    debug_assert_eq!(layout.version(), proposal.declared_schema_version());
-    debug_assert_eq!(
-        layout.version().get(),
-        proposal.declared_schema_version().get()
-    );
+    debug_assert_eq!(layout.current_version(), RowLayoutVersion::INITIAL);
+    debug_assert_eq!(layout.history_floor(), RowLayoutVersion::INITIAL);
     debug_assert_eq!(layout.field_to_slot().len(), proposal.fields().len());
     debug_assert_eq!(snapshot.version(), proposal.declared_schema_version());
     debug_assert_eq!(snapshot.entity_path(), proposal.entity_path());
@@ -820,7 +819,9 @@ fn debug_assert_compiled_schema_proposal_members(
             field.kind(),
             field.nested_leaves(),
             field.nullable(),
-            field.default(),
+            field.introduced_in_layout(),
+            field.insert_default(),
+            field.historical_fill(),
             field.storage_decode(),
             field.leaf_codec(),
         );

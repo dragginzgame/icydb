@@ -1,5 +1,3 @@
-#[cfg(test)]
-use crate::model::entity::EntityModel;
 use crate::{
     db::data::persisted_row::codec::ScalarSlotValueRef,
     entity::{EntityKind, EntityValue},
@@ -12,8 +10,7 @@ use crate::{
 /// FieldSlot
 ///
 ///
-/// FieldSlot is the structural stable slot reference used by the `0.64`
-/// patching path.
+/// FieldSlot is the structural stable slot reference used by accepted writes.
 /// It intentionally carries only the model-local slot index so field-level
 /// mutation stays structural instead of reintroducing typed entity helpers.
 ///
@@ -24,19 +21,6 @@ pub(in crate::db) struct FieldSlot {
 }
 
 impl FieldSlot {
-    /// Build one stable field slot from an already validated index.
-    #[cfg(test)]
-    pub(in crate::db) fn from_index(
-        model: &'static EntityModel,
-        index: usize,
-    ) -> Result<Self, InternalError> {
-        model.fields().get(index).ok_or_else(|| {
-            InternalError::persisted_row_slot_lookup_out_of_bounds(model.path(), index)
-        })?;
-
-        Ok(Self { index })
-    }
-
     /// Build one stable field slot from a non-generated authority.
     ///
     /// Accepted-schema write paths use this after the session has validated the
@@ -82,6 +66,7 @@ impl AuthoredStructuralFieldUpdate {
     }
 
     /// Return the unresolved authored value payload for this update.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn value(&self) -> &InputValue {
         &self.value
@@ -127,78 +112,170 @@ impl AuthoredStructuralPatch {
     pub(in crate::db) const fn entries(&self) -> &[AuthoredStructuralFieldUpdate] {
         self.entries.as_slice()
     }
-
-    /// Return whether this patch carries no field updates.
-    #[must_use]
-    pub(in crate::db) const fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
 }
 
+/// Accepted insertion-policy request carried by one unresolved field intent.
 ///
-/// SerializedStructuralFieldUpdate
-///
-/// SerializedStructuralFieldUpdate carries one ordered field-level mutation after the
-/// owning persisted-row field codec has already lowered the runtime `Value`
-/// into canonical slot payload bytes.
-/// This lets later patch-application stages consume one mechanical slot-patch
-/// artifact instead of rebuilding per-field encode dispatch.
-///
+/// Omission remains represented by the absence of an entry. Explicit SQL
+/// `DEFAULT` requests use the exact variants below so the accepted resolver
+/// never has to reconstruct request provenance from an empty value or flag.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(
+    not(any(test, feature = "sql")),
+    expect(
+        dead_code,
+        reason = "explicit DEFAULT request variants are constructed only by the SQL frontend"
+    )
+)]
+pub(in crate::db) enum AcceptedInsertPolicyRequest {
+    /// Field omitted while constructing an insert or replacement after-image.
+    OmittedInsert,
+    /// Explicit `DEFAULT` in an insert or replacement value position.
+    ExplicitInsertDefault,
+    /// Explicit `DEFAULT` in an update assignment.
+    ExplicitUpdateDefault,
+}
 
+/// One field intent admitted to the accepted mutation resolver.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::data::persisted_row) struct SerializedStructuralFieldUpdate {
-    slot: FieldSlot,
-    payload: Vec<u8>,
+#[cfg_attr(
+    not(any(test, feature = "sql")),
+    expect(
+        dead_code,
+        reason = "unresolved DEFAULT intent is constructed only by the SQL frontend"
+    )
+)]
+pub(in crate::db) enum AcceptedMutationFieldWriteIntent {
+    /// Exact caller-authored input, including explicit `NULL`.
+    Authored(InputValue),
+    /// Database-owned primary-key value selected by replacement identity.
+    ///
+    /// This is not caller authorship: the keyed replacement boundary has
+    /// already selected the row identity, and the accepted resolver must carry
+    /// that identity through without rerunning insert generation.
+    PreservedReplacementIdentity(InputValue),
+    /// Resolve through the accepted policy appropriate to this exact request.
+    Resolve(AcceptedInsertPolicyRequest),
 }
 
-impl SerializedStructuralFieldUpdate {
-    /// Build one serialized structural field update.
+/// One stable-slot field intent admitted to accepted mutation resolution.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedMutationFieldUpdate {
+    slot: FieldSlot,
+    intent: AcceptedMutationFieldWriteIntent,
+}
+
+impl AcceptedMutationFieldUpdate {
+    /// Build one unresolved accepted mutation field update.
     #[must_use]
-    pub(in crate::db::data::persisted_row) const fn new(slot: FieldSlot, payload: Vec<u8>) -> Self {
-        Self { slot, payload }
+    const fn new(slot: FieldSlot, intent: AcceptedMutationFieldWriteIntent) -> Self {
+        Self { slot, intent }
     }
 
     /// Return the stable target slot.
     #[must_use]
-    pub(in crate::db::data::persisted_row) const fn slot(&self) -> FieldSlot {
+    pub(in crate::db) const fn slot(&self) -> FieldSlot {
         self.slot
     }
 
-    /// Borrow the canonical slot payload bytes for this update when present.
+    /// Borrow the exact unresolved write intent.
     #[must_use]
-    pub(in crate::db::data::persisted_row) const fn payload(&self) -> &[u8] {
-        self.payload.as_slice()
+    pub(in crate::db) const fn intent(&self) -> &AcceptedMutationFieldWriteIntent {
+        &self.intent
     }
 }
 
+/// Ordered unresolved field intents consumed by accepted mutation resolution.
 ///
-/// SerializedStructuralPatch
-///
-/// SerializedStructuralPatch is the canonical serialized form of `AuthoredStructuralPatch`
-/// over persisted-row slot payload bytes.
-/// This is the structural patch artifact later write-path stages can stage or
-/// replay without re-entering field-contract encode logic.
-///
-
+/// This is private to the database implementation. Public structural callers
+/// can author values only through [`AuthoredStructuralPatch`]; SQL lowering may
+/// additionally construct exact contextual `DEFAULT` requests.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(in crate::db) struct SerializedStructuralPatch {
-    entries: Vec<SerializedStructuralFieldUpdate>,
+pub(in crate::db) struct AcceptedMutationIntentPatch {
+    entries: Vec<AcceptedMutationFieldUpdate>,
 }
 
-impl SerializedStructuralPatch {
-    /// Build one serialized patch from already encoded slot payloads.
+impl AcceptedMutationIntentPatch {
+    /// Convert one authored-only public patch without changing authorship.
     #[must_use]
-    pub(in crate::db::data::persisted_row) const fn new(
-        entries: Vec<SerializedStructuralFieldUpdate>,
-    ) -> Self {
+    pub(in crate::db) fn from_authored(patch: AuthoredStructuralPatch) -> Self {
+        let entries = patch
+            .entries
+            .into_iter()
+            .map(|entry| {
+                AcceptedMutationFieldUpdate::new(
+                    entry.slot,
+                    AcceptedMutationFieldWriteIntent::Authored(entry.value),
+                )
+            })
+            .collect();
+
         Self { entries }
     }
 
-    /// Borrow the ordered serialized field updates carried by this patch.
+    /// Build one empty accepted mutation intent patch.
+    #[cfg(any(test, feature = "sql"))]
     #[must_use]
-    pub(in crate::db::data::persisted_row) const fn entries(
-        &self,
-    ) -> &[SerializedStructuralFieldUpdate] {
+    pub(in crate::db) const fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+
+    /// Append one authored field input.
+    #[cfg(any(test, feature = "sql"))]
+    #[must_use]
+    pub(in crate::db) fn set_authored(mut self, slot: FieldSlot, value: InputValue) -> Self {
+        self.entries.push(AcceptedMutationFieldUpdate::new(
+            slot,
+            AcceptedMutationFieldWriteIntent::Authored(value),
+        ));
+        self
+    }
+
+    /// Append one protected database-owned replacement identity component.
+    #[must_use]
+    pub(in crate::db) fn set_preserved_replacement_identity(
+        mut self,
+        slot: FieldSlot,
+        value: InputValue,
+    ) -> Self {
+        self.entries.push(AcceptedMutationFieldUpdate::new(
+            slot,
+            AcceptedMutationFieldWriteIntent::PreservedReplacementIdentity(value),
+        ));
+        self
+    }
+
+    /// Append one explicit insert `DEFAULT` request.
+    #[cfg(any(test, feature = "sql"))]
+    #[must_use]
+    pub(in crate::db) fn set_explicit_insert_default(mut self, slot: FieldSlot) -> Self {
+        self.entries.push(AcceptedMutationFieldUpdate::new(
+            slot,
+            AcceptedMutationFieldWriteIntent::Resolve(
+                AcceptedInsertPolicyRequest::ExplicitInsertDefault,
+            ),
+        ));
+        self
+    }
+
+    /// Append one explicit update `DEFAULT` request.
+    #[cfg(any(test, feature = "sql"))]
+    #[must_use]
+    pub(in crate::db) fn set_explicit_update_default(mut self, slot: FieldSlot) -> Self {
+        self.entries.push(AcceptedMutationFieldUpdate::new(
+            slot,
+            AcceptedMutationFieldWriteIntent::Resolve(
+                AcceptedInsertPolicyRequest::ExplicitUpdateDefault,
+            ),
+        ));
+        self
+    }
+
+    /// Borrow the ordered unresolved field intents.
+    #[must_use]
+    pub(in crate::db) const fn entries(&self) -> &[AcceptedMutationFieldUpdate] {
         self.entries.as_slice()
     }
 }

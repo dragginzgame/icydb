@@ -90,13 +90,13 @@ fn seed_blob_rows(session: &DbSession<SessionSqlCanister>) -> Vec<SessionSqlBlob
         ),
     ];
 
-    for row in rows.iter().cloned() {
-        session
-            .insert(row)
-            .expect("large blob setup insert should succeed");
-    }
-
-    rows
+    rows.into_iter()
+        .map(|row| {
+            session
+                .insert(row)
+                .expect("large blob setup insert should succeed")
+        })
+        .collect()
 }
 
 // Return one compact `(label, bucket, thumbnail_len, chunk_len)` summary
@@ -701,9 +701,9 @@ fn sql_order_by_blob_field_is_rejected() {
 fn typed_replace_then_sql_select_and_delete_large_blobs() {
     reset_session_sql_store();
     let session = sql_session();
-    seed_blob_rows(&session);
+    let seeded = seed_blob_rows(&session);
     let replacement = blob_row(
-        Ulid::from_u128(9_102),
+        seeded[1].id,
         "hero-thumb-b-replaced",
         11,
         61,

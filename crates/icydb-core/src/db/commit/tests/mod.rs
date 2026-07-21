@@ -23,7 +23,7 @@ use crate::{
         },
         data::{
             CanonicalRow, DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow, StoreVisit,
-            encode_value_with_model_proposal_for_test,
+            emit_raw_row_from_slot_payloads, encode_value_with_model_proposal_for_test,
         },
         executor::SaveExecutor,
         index::{
@@ -1033,9 +1033,63 @@ fn old_nullable_indexed_raw_row_for_test(id: Ulid, group: u32) -> RawRow {
         encode_commit_test_slot_payload(&[id_payload.as_slice(), group_payload.as_slice()]);
 
     RawRow::try_new(
-        serialize_row_payload(slot_payload).expect("old nullable indexed row should serialize"),
+        serialize_row_payload(crate::db::schema::RowLayoutVersion::INITIAL, slot_payload)
+            .expect("old nullable indexed row should serialize"),
     )
     .expect("old nullable indexed row should be valid raw row bytes")
+}
+
+// Encode the exact accepted current layout for the nullable recovery fixture.
+// Recovery must replay these resolved bytes without consulting insertion or
+// historical-fill policy again.
+fn current_nullable_indexed_raw_row_for_test(entity: &RecoveryNullableIndexedEntity) -> RawRow {
+    let id_payload = encode_value_with_model_proposal_for_test(
+        RecoveryNullableIndexedEntity::MODEL,
+        0,
+        &Value::Ulid(entity.id),
+    )
+    .expect("current nullable indexed id payload should encode");
+    let group_payload = encode_value_with_model_proposal_for_test(
+        RecoveryNullableIndexedEntity::MODEL,
+        1,
+        &Value::Nat64(u64::from(entity.group)),
+    )
+    .expect("current nullable indexed group payload should encode");
+    let nickname_value = entity
+        .nickname
+        .as_ref()
+        .map_or(Value::Null, |nickname| Value::Text(nickname.clone()));
+    let nickname_payload = encode_value_with_model_proposal_for_test(
+        RecoveryNullableIndexedEntity::MODEL,
+        2,
+        &nickname_value,
+    )
+    .expect("current nullable indexed nickname payload should encode");
+
+    emit_raw_row_from_slot_payloads(
+        crate::db::schema::RowLayoutVersion::new(2)
+            .expect("nullable indexed current layout should be valid"),
+        3,
+        &[id_payload, group_payload, nickname_payload],
+    )
+    .expect("current nullable indexed row should emit")
+    .into_raw_row()
+}
+
+fn current_nullable_indexed_schema_fingerprint_for_test() -> [u8; 16] {
+    let current = with_recovery_store(|store| {
+        store.with_schema(|schema_store| {
+            schema_store
+                .current_accepted_persisted_snapshot(RecoveryNullableIndexedEntity::ENTITY_TAG)
+        })
+    })
+    .expect("nullable indexed accepted snapshot should decode")
+    .expect("nullable indexed accepted snapshot should exist");
+    let accepted = AcceptedSchemaSnapshot::try_new(current)
+        .expect("nullable indexed current snapshot should be accepted");
+
+    accepted_commit_schema_fingerprint(&accepted)
+        .expect("nullable indexed current schema fingerprint should derive")
 }
 
 // Build one dense slot-framed payload for owner-local row-layout fixtures.
@@ -1074,18 +1128,16 @@ fn install_nullable_indexed_old_accepted_schema_prefix() {
         expected.entity_path().to_string(),
         expected.entity_name().to_string(),
         expected.first_primary_key_field_id(),
-        SchemaRowLayout::new(
-            stored_version,
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
         expected.fields()[..2].to_vec(),
     );
 
     with_recovery_store(|store| {
         store.with_schema_mut(|schema_store| {
+            schema_store.clear();
             schema_store
                 .insert_persisted_snapshot(
                     RecoveryNullableIndexedEntity::ENTITY_TAG,
@@ -1094,6 +1146,7 @@ fn install_nullable_indexed_old_accepted_schema_prefix() {
                 .expect("old nullable indexed schema prefix should persist");
         });
     });
+    mark_schema_reconciliation_dirty_for_tests(&DB);
 }
 
 fn conditional_indexed_ids_for(entity: &RecoveryConditionalEntity) -> Option<BTreeSet<Ulid>> {
@@ -1673,6 +1726,7 @@ fn canonical_row_payload_bytes<E: crate::db::PersistedRow>(entity: &E) -> Vec<u8
 
     decode_row_payload_bytes(row.as_bytes())
         .expect("canonical row payload should decode")
+        .into_payload()
         .into_owned()
 }
 
@@ -4646,6 +4700,10 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_old_nullable_rows() {
 fn recovery_replay_updates_old_nullable_row_before_image_with_accepted_contract() {
     reset_recovery_state();
     install_nullable_indexed_old_accepted_schema_prefix();
+    begin_commit(CommitMarker::new(Vec::new()).expect("reconcile marker should build"))
+        .expect("reconcile marker should persist");
+    ensure_recovered(&DB)
+        .expect("nullable recovery fixture should publish the accepted current layout");
 
     let old = RecoveryNullableIndexedEntity {
         id: Ulid::from_u128(12_120),
@@ -4664,7 +4722,9 @@ fn recovery_replay_updates_old_nullable_row_before_image_with_accepted_contract(
         .expect("nullable update data key should encode");
     let old_raw_row = old_nullable_indexed_raw_row_for_test(old.id, old.group);
     let old_row_bytes = old_raw_row.as_bytes().to_vec();
-    let new_row_bytes = canonical_row_bytes(&new);
+    let new_row_bytes = current_nullable_indexed_raw_row_for_test(&new)
+        .as_bytes()
+        .to_vec();
 
     let index = RecoveryNullableIndexedEntity::MODEL.indexes()[0];
     let old_index_key = IndexKey::new(&old, index)
@@ -4685,11 +4745,12 @@ fn recovery_replay_updates_old_nullable_row_before_image_with_accepted_contract(
         });
     });
 
-    let marker = CommitMarker::new(vec![row_op_for_path(
+    let marker = CommitMarker::new(vec![row_op_for_path_with_schema(
         RecoveryNullableIndexedEntity::PATH,
         data_key.as_bytes().to_vec(),
         Some(old_row_bytes),
         Some(new_row_bytes.clone()),
+        current_nullable_indexed_schema_fingerprint_for_test(),
     )])
     .expect("nullable update marker creation should succeed");
     begin_commit(marker).expect("nullable update begin_commit should persist marker");
@@ -4923,8 +4984,12 @@ fn recovery_startup_rebuild_rejects_future_row_format_fail_closed() {
         .expect("row key should encode");
     let payload = canonical_row_payload_bytes(&entity);
     let future_version = ROW_FORMAT_VERSION_CURRENT.saturating_add(1);
-    let future_version_row = serialize_row_payload_with_version(payload, future_version)
-        .expect("future-version row envelope should encode");
+    let future_version_row = serialize_row_payload_with_version(
+        crate::db::schema::RowLayoutVersion::INITIAL,
+        payload,
+        future_version,
+    )
+    .expect("future-version row envelope should encode");
 
     with_recovery_store(|store| {
         store.with_data_mut(|data_store| {
@@ -4976,8 +5041,12 @@ fn recovery_reconciles_schema_before_rebuilding_indexes_from_rows() {
         .expect("row key should encode");
     let payload = canonical_row_payload_bytes(&entity);
     let future_version = ROW_FORMAT_VERSION_CURRENT.saturating_add(1);
-    let future_version_row = serialize_row_payload_with_version(payload, future_version)
-        .expect("future-version row envelope should encode");
+    let future_version_row = serialize_row_payload_with_version(
+        crate::db::schema::RowLayoutVersion::INITIAL,
+        payload,
+        future_version,
+    )
+    .expect("future-version row envelope should encode");
 
     let proposal = compiled_schema_proposal_for_model(RecoveryIndexedEntity::MODEL);
     let expected = proposal.initial_persisted_schema_snapshot();
@@ -4986,10 +5055,7 @@ fn recovery_reconciles_schema_before_rebuilding_indexes_from_rows() {
         expected.entity_path().to_string(),
         "ChangedRecoveryIndexedEntity".to_string(),
         expected.first_primary_key_field_id(),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            expected.row_layout().field_to_slot().to_vec(),
-        ),
+        SchemaRowLayout::initial(expected.row_layout().field_to_slot().to_vec()),
         expected.fields().to_vec(),
     );
 

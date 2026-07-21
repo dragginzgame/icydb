@@ -231,23 +231,29 @@ where
             value_for_slot,
         )?;
 
-    emit_raw_row_from_slot_payloads(contract.field_count(), slot_payloads.as_slice())
+    emit_raw_row_from_slot_payloads(
+        contract.current_layout_version(),
+        contract.field_count(),
+        slot_payloads.as_slice(),
+    )
 }
 
 // Wrap one already-encoded canonical slot payload container in the shared row
 // envelope so callers that already own a dense slot payload image do not have
 // to rebuild the row wrapper choreography themselves.
 fn canonical_row_from_slot_payload_bytes(
+    layout_version: crate::db::schema::RowLayoutVersion,
     row_payload: Vec<u8>,
 ) -> Result<CanonicalRow, InternalError> {
-    let encoded = serialize_row_payload(row_payload)?;
+    let encoded = serialize_row_payload(layout_version, row_payload)?;
     let raw_row = RawRow::from_untrusted_bytes(encoded).map_err(InternalError::from)?;
 
     Ok(CanonicalRow::from_canonical_raw_row(raw_row))
 }
 
 // Emit one raw row from a dense canonical slot image.
-pub(in crate::db::data::persisted_row) fn emit_raw_row_from_slot_payloads(
+pub(in crate::db) fn emit_raw_row_from_slot_payloads(
+    layout_version: crate::db::schema::RowLayoutVersion,
     expected_slot_count: usize,
     slot_payloads: &[Vec<u8>],
 ) -> Result<CanonicalRow, InternalError> {
@@ -265,7 +271,7 @@ pub(in crate::db::data::persisted_row) fn emit_raw_row_from_slot_payloads(
     )?;
 
     // Phase 2: wrap the canonical slot container in the shared row envelope.
-    canonical_row_from_slot_payload_bytes(row_payload)
+    canonical_row_from_slot_payload_bytes(layout_version, row_payload)
 }
 
 // Decode one non-scalar slot through the accepted persisted schema contract.

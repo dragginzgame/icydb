@@ -5,15 +5,18 @@
 
 use crate::{
     db::{
+        data::decode_admitted_value_from_accepted_field_contract,
         relation::{
             RelationFieldCardinality, RelationFieldMetadata, relation_field_metadata_for_model_iter,
         },
         schema::{
-            AcceptedFieldKind, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
+            AcceptedFieldKind, AcceptedFieldPersistenceContract, AcceptedInsertOmissionPolicy,
+            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
             PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedNestedLeafSnapshot,
-            SchemaFieldDefault, SchemaFieldSlot,
+            SchemaHistoricalFill,
             composite_catalog::{AcceptedCompositeElement, AcceptedCompositeShape},
-            field_type_from_persisted_kind,
+            field_type_from_persisted_kind, output_value_from_runtime,
+            runtime::AcceptedRowLayoutRuntimeField,
         },
     },
     error::InternalError,
@@ -24,13 +27,16 @@ use crate::{
             FieldKind, FieldModel,
         },
     },
+    value::{OutputValue, render_output_value_text},
 };
+use std::fmt::Write;
+
 use candid::CandidType;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use std::fmt::Write;
 
 const ENTITY_FIELD_DESCRIPTION_NO_SLOT: u16 = u16::MAX;
+const MAX_SCHEMA_VALUE_RENDER_CHARS: usize = 128;
 
 #[cfg_attr(
     doc,
@@ -45,6 +51,8 @@ pub struct EntitySchemaDescription {
     pub(crate) fields: Vec<EntityFieldDescription>,
     pub(crate) indexes: Vec<EntityIndexDescription>,
     pub(crate) relations: Vec<EntityRelationDescription>,
+    pub(crate) row_layout_current: u32,
+    pub(crate) row_layout_history_floor: u32,
 }
 
 #[cfg_attr(
@@ -85,6 +93,10 @@ impl EntitySchemaCheckDescription {
 
 impl EntitySchemaDescription {
     /// Construct one scalar-compatible entity schema description payload.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "schema description construction keeps identity, collections, and layout explicit"
+    )]
     #[must_use]
     pub fn new(
         entity_path: String,
@@ -93,6 +105,8 @@ impl EntitySchemaDescription {
         fields: Vec<EntityFieldDescription>,
         indexes: Vec<EntityIndexDescription>,
         relations: Vec<EntityRelationDescription>,
+        row_layout_current: u32,
+        row_layout_history_floor: u32,
     ) -> Self {
         Self::new_with_primary_key_fields(
             entity_path,
@@ -102,11 +116,17 @@ impl EntitySchemaDescription {
             fields,
             indexes,
             relations,
+            row_layout_current,
+            row_layout_history_floor,
         )
     }
 
     /// Construct one entity schema description payload with ordered
     /// primary-key fields.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "schema description construction keeps identity, collections, and layout explicit"
+    )]
     #[must_use]
     pub const fn new_with_primary_key_fields(
         entity_path: String,
@@ -116,6 +136,8 @@ impl EntitySchemaDescription {
         fields: Vec<EntityFieldDescription>,
         indexes: Vec<EntityIndexDescription>,
         relations: Vec<EntityRelationDescription>,
+        row_layout_current: u32,
+        row_layout_history_floor: u32,
     ) -> Self {
         Self {
             entity_path,
@@ -125,6 +147,8 @@ impl EntitySchemaDescription {
             fields,
             indexes,
             relations,
+            row_layout_current,
+            row_layout_history_floor,
         }
     }
 
@@ -169,6 +193,18 @@ impl EntitySchemaDescription {
     pub const fn relations(&self) -> &[EntityRelationDescription] {
         self.relations.as_slice()
     }
+
+    /// Return the current accepted physical row-layout identity.
+    #[must_use]
+    pub const fn row_layout_current(&self) -> u32 {
+        self.row_layout_current
+    }
+
+    /// Return the oldest admitted physical row-layout identity.
+    #[must_use]
+    pub const fn row_layout_history_floor(&self) -> u32 {
+        self.row_layout_history_floor
+    }
 }
 
 #[cfg_attr(
@@ -184,12 +220,85 @@ pub struct EntityFieldDescription {
     pub(crate) primary_key: bool,
     pub(crate) queryable: bool,
     pub(crate) origin: String,
+    pub(crate) insert_omission: Option<String>,
+    pub(crate) insert_default: Option<String>,
+    pub(crate) insert_default_bytes: Option<u32>,
+    pub(crate) insert_default_hash: Option<String>,
+    pub(crate) introduced_in_layout: Option<u32>,
+    pub(crate) historical_fill: Option<String>,
+    pub(crate) historical_fill_bytes: Option<u32>,
+    pub(crate) historical_fill_hash: Option<String>,
+}
+
+///
+/// EntityFieldTemporalFacts
+///
+/// One internally assembled projection of the independent accepted insert and
+/// historical-absence contracts. Nested rows carry an explicitly empty bundle.
+///
+
+struct EntityFieldTemporalFacts {
+    insert_omission: Option<String>,
+    insert_default: Option<String>,
+    insert_default_bytes: Option<u32>,
+    insert_default_hash: Option<String>,
+    introduced_in_layout: Option<u32>,
+    historical_fill: Option<String>,
+    historical_fill_bytes: Option<u32>,
+    historical_fill_hash: Option<String>,
+}
+
+impl EntityFieldTemporalFacts {
+    const fn nested() -> Self {
+        Self {
+            insert_omission: None,
+            insert_default: None,
+            insert_default_bytes: None,
+            insert_default_hash: None,
+            introduced_in_layout: None,
+            historical_fill: None,
+            historical_fill_bytes: None,
+            historical_fill_hash: None,
+        }
+    }
+
+    fn generated(field: &FieldModel) -> Self {
+        let insert_omission = if field.insert_generation().is_some() {
+            "generated"
+        } else if field.write_management().is_some() {
+            "managed"
+        } else {
+            match field.database_default() {
+                FieldDatabaseDefault::EncodedSlotPayload(_)
+                | FieldDatabaseDefault::AuthoredEnumUnit { .. } => "default",
+                FieldDatabaseDefault::None if field.nullable() => "null",
+                FieldDatabaseDefault::None => "required",
+            }
+        };
+        let (insert_default, insert_default_bytes, insert_default_hash) =
+            generated_insert_default_facts(field.database_default());
+
+        Self {
+            insert_omission: Some(insert_omission.to_string()),
+            insert_default,
+            insert_default_bytes,
+            insert_default_hash,
+            introduced_in_layout: Some(1),
+            historical_fill: Some("reject".to_string()),
+            historical_fill_bytes: None,
+            historical_fill_hash: None,
+        }
+    }
 }
 
 impl EntityFieldDescription {
     /// Construct one field description entry.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "schema description construction keeps every temporal field fact explicit"
+    )]
     #[must_use]
-    pub const fn new(
+    pub fn new(
         name: String,
         slot: Option<u16>,
         kind: String,
@@ -197,6 +306,39 @@ impl EntityFieldDescription {
         primary_key: bool,
         queryable: bool,
         origin: String,
+        insert_omission: Option<String>,
+        insert_default: Option<String>,
+        insert_default_bytes: Option<u32>,
+        insert_default_hash: Option<String>,
+        introduced_in_layout: Option<u32>,
+        historical_fill: Option<String>,
+        historical_fill_bytes: Option<u32>,
+        historical_fill_hash: Option<String>,
+    ) -> Self {
+        Self::new_with_temporal_facts(
+            name,
+            slot,
+            primary_key,
+            DescribeFieldMetadata::new(kind, nullable, queryable, origin),
+            EntityFieldTemporalFacts {
+                insert_omission,
+                insert_default,
+                insert_default_bytes,
+                insert_default_hash,
+                introduced_in_layout,
+                historical_fill,
+                historical_fill_bytes,
+                historical_fill_hash,
+            },
+        )
+    }
+
+    fn new_with_temporal_facts(
+        name: String,
+        slot: Option<u16>,
+        primary_key: bool,
+        metadata: DescribeFieldMetadata,
+        temporal: EntityFieldTemporalFacts,
     ) -> Self {
         let slot = match slot {
             Some(slot) => slot,
@@ -206,11 +348,19 @@ impl EntityFieldDescription {
         Self {
             name,
             slot,
-            kind,
-            nullable,
+            kind: metadata.kind,
+            nullable: metadata.nullable,
             primary_key,
-            queryable,
-            origin,
+            queryable: metadata.queryable,
+            origin: metadata.origin,
+            insert_omission: temporal.insert_omission,
+            insert_default: temporal.insert_default,
+            insert_default_bytes: temporal.insert_default_bytes,
+            insert_default_hash: temporal.insert_default_hash,
+            introduced_in_layout: temporal.introduced_in_layout,
+            historical_fill: temporal.historical_fill,
+            historical_fill_bytes: temporal.historical_fill_bytes,
+            historical_fill_hash: temporal.historical_fill_hash,
         }
     }
 
@@ -258,6 +408,54 @@ impl EntityFieldDescription {
     #[must_use]
     pub const fn origin(&self) -> &str {
         self.origin.as_str()
+    }
+
+    /// Borrow the accepted insert-omission policy label for a top-level field.
+    #[must_use]
+    pub fn insert_omission(&self) -> Option<&str> {
+        self.insert_omission.as_deref()
+    }
+
+    /// Borrow the bounded canonical accepted insert-default rendering.
+    #[must_use]
+    pub fn insert_default(&self) -> Option<&str> {
+        self.insert_default.as_deref()
+    }
+
+    /// Return the accepted insert-default payload byte count.
+    #[must_use]
+    pub const fn insert_default_bytes(&self) -> Option<u32> {
+        self.insert_default_bytes
+    }
+
+    /// Borrow the stable accepted insert-default payload hash.
+    #[must_use]
+    pub fn insert_default_hash(&self) -> Option<&str> {
+        self.insert_default_hash.as_deref()
+    }
+
+    /// Return the row layout that first physically contained this field.
+    #[must_use]
+    pub const fn introduced_in_layout(&self) -> Option<u32> {
+        self.introduced_in_layout
+    }
+
+    /// Borrow the accepted frozen historical-absence rendering.
+    #[must_use]
+    pub fn historical_fill(&self) -> Option<&str> {
+        self.historical_fill.as_deref()
+    }
+
+    /// Return the historical-fill payload byte count when one is stored.
+    #[must_use]
+    pub const fn historical_fill_bytes(&self) -> Option<u32> {
+        self.historical_fill_bytes
+    }
+
+    /// Borrow the stable historical-fill payload hash.
+    #[must_use]
+    pub fn historical_fill_hash(&self) -> Option<&str> {
+        self.historical_fill_hash.as_deref()
     }
 }
 
@@ -402,6 +600,8 @@ pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaD
         fields,
         describe_entity_indexes_from_model(model),
         describe_entity_relations_from_model(model),
+        1,
+        1,
     )
 }
 
@@ -414,7 +614,8 @@ pub(in crate::db) fn describe_entity_model_with_persisted_schema(
     schema: &AcceptedSchemaSnapshot,
     value_catalog: &AcceptedValueCatalogHandle,
 ) -> Result<EntitySchemaDescription, InternalError> {
-    let fields = describe_entity_fields_with_persisted_schema(schema, value_catalog)?;
+    let row_layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(schema)?;
+    let fields = describe_entity_fields_with_runtime_contract(schema, &row_layout, value_catalog)?;
     let primary_key_fields = schema.primary_key_field_names();
     let primary_key_fields = if primary_key_fields.is_empty() {
         vec![model.primary_key.name.to_string()]
@@ -434,6 +635,8 @@ pub(in crate::db) fn describe_entity_model_with_persisted_schema(
         fields,
         describe_entity_indexes_with_persisted_schema(schema),
         describe_entity_relations_with_persisted_schema(schema),
+        row_layout.current_layout_version().get(),
+        row_layout.history_floor().get(),
     ))
 }
 
@@ -441,6 +644,10 @@ pub(in crate::db) fn describe_entity_model_with_persisted_schema(
 // Callers project relation descriptions from the same authority as their field
 // and index rows, so accepted DESCRIBE output does not fall back to generated
 // relation metadata.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one final schema DTO assembly keeps every already-owned section explicit"
+)]
 fn describe_entity_model_from_description_rows(
     entity_path: &str,
     entity_name: &str,
@@ -449,6 +656,8 @@ fn describe_entity_model_from_description_rows(
     fields: Vec<EntityFieldDescription>,
     indexes: Vec<EntityIndexDescription>,
     relations: Vec<EntityRelationDescription>,
+    row_layout_current: u32,
+    row_layout_history_floor: u32,
 ) -> EntitySchemaDescription {
     EntitySchemaDescription::new_with_primary_key_fields(
         entity_path.to_string(),
@@ -458,6 +667,8 @@ fn describe_entity_model_from_description_rows(
         fields,
         indexes,
         relations,
+        row_layout_current,
+        row_layout_history_floor,
     )
 }
 
@@ -556,29 +767,48 @@ pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
     schema: &AcceptedSchemaSnapshot,
     value_catalog: &AcceptedValueCatalogHandle,
 ) -> Result<Vec<EntityFieldDescription>, InternalError> {
+    let row_layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(schema)?;
+    describe_entity_fields_with_runtime_contract(schema, &row_layout, value_catalog)
+}
+
+fn describe_entity_fields_with_runtime_contract(
+    schema: &AcceptedSchemaSnapshot,
+    row_layout: &AcceptedRowLayoutRuntimeContract<'_>,
+    value_catalog: &AcceptedValueCatalogHandle,
+) -> Result<Vec<EntityFieldDescription>, InternalError> {
     let snapshot = schema.persisted_snapshot();
+    if snapshot.fields().len() != row_layout.fields().len() {
+        return Err(InternalError::store_invariant());
+    }
     let mut fields = Vec::with_capacity(snapshot.fields().len());
 
     // Accepted-schema describe surfaces must follow the stored schema payload,
     // not the generated model's current field order.
-    for field in snapshot.fields() {
+    for (field, runtime_field) in snapshot.fields().iter().zip(row_layout.fields()) {
+        if field.id() != runtime_field.field_id() {
+            return Err(InternalError::store_invariant());
+        }
         let primary_key = snapshot.primary_key_field_ids().contains(&field.id());
-        let slot = snapshot
-            .row_layout()
-            .slot_for_field(field.id())
-            .map(SchemaFieldSlot::get);
-        let mut kind = summarize_persisted_field_kind(field.kind(), value_catalog)?;
-        write_schema_default_summary(&mut kind, field.default());
+        let slot = Some(runtime_field.slot().get());
         let metadata = DescribeFieldMetadata::new(
-            kind,
+            summarize_persisted_field_kind(field.kind(), value_catalog)?,
             field.nullable(),
             field_type_from_persisted_kind(field.kind())
                 .value_kind()
                 .is_queryable(),
             field_origin_label(field.generated()),
         );
+        let temporal = accepted_field_temporal_facts(runtime_field, value_catalog)?;
 
-        push_described_field_row(&mut fields, field.name(), slot, primary_key, None, metadata);
+        push_described_field_row(
+            &mut fields,
+            field.name(),
+            slot,
+            primary_key,
+            None,
+            metadata,
+            temporal,
+        );
 
         if !field.nested_leaves().is_empty() {
             describe_persisted_nested_leaves(
@@ -656,19 +886,29 @@ fn describe_field_recursive(
     tree_prefix: Option<&'static str>,
     metadata_override: Option<DescribeFieldMetadata>,
 ) {
+    let temporal = if slot.is_some() {
+        EntityFieldTemporalFacts::generated(field)
+    } else {
+        EntityFieldTemporalFacts::nested()
+    };
     let metadata = metadata_override.unwrap_or_else(|| {
-        let mut kind = summarize_field_kind(&field.kind);
-        write_model_default_summary(&mut kind, field.database_default());
-
         DescribeFieldMetadata::new(
-            kind,
+            summarize_field_kind(&field.kind),
             field.nullable(),
             field.kind.value_kind().is_queryable(),
             "generated".to_string(),
         )
     });
 
-    push_described_field_row(fields, name, slot, primary_key, tree_prefix, metadata);
+    push_described_field_row(
+        fields,
+        name,
+        slot,
+        primary_key,
+        tree_prefix,
+        metadata,
+        temporal,
+    );
     describe_generated_nested_fields(fields, field.nested_fields());
 }
 
@@ -681,6 +921,7 @@ fn push_described_field_row(
     primary_key: bool,
     tree_prefix: Option<&'static str>,
     metadata: DescribeFieldMetadata,
+    temporal: EntityFieldTemporalFacts,
 ) {
     // Nested field rows keep a compact tree marker so table-oriented describe
     // output scans as a hierarchy without assigning nested leaves row slots.
@@ -690,14 +931,12 @@ fn push_described_field_row(
         name.to_string()
     };
 
-    fields.push(EntityFieldDescription::new(
+    fields.push(EntityFieldDescription::new_with_temporal_facts(
         display_name,
         slot,
-        metadata.kind,
-        metadata.nullable,
         primary_key,
-        metadata.queryable,
-        metadata.origin,
+        metadata,
+        temporal,
     ));
 }
 
@@ -749,7 +988,15 @@ fn describe_persisted_nested_leaves(
             origin.clone(),
         );
 
-        push_described_field_row(fields, name, None, false, Some(prefix), metadata);
+        push_described_field_row(
+            fields,
+            name,
+            None,
+            false,
+            Some(prefix),
+            metadata,
+            EntityFieldTemporalFacts::nested(),
+        );
     }
 
     Ok(())
@@ -1115,44 +1362,164 @@ fn write_byte_bounded_field_kind_summary(out: &mut String, kind_name: &str, max_
     out.push(')');
 }
 
-// Append database-default metadata without decoding the stored payload back
-// into a runtime value. Schema describe owns metadata projection, while field
-// codecs own payload interpretation.
-fn write_model_default_summary(out: &mut String, default: FieldDatabaseDefault) {
+// Project generated proposal metadata without pretending that generated code
+// owns accepted runtime semantics. Encoded generated defaults can expose their
+// exact byte identity; accepted introspection below additionally decodes them.
+fn generated_insert_default_facts(
+    default: FieldDatabaseDefault,
+) -> (Option<String>, Option<u32>, Option<String>) {
     match default {
-        FieldDatabaseDefault::None => {}
+        FieldDatabaseDefault::None => (None, None, None),
         FieldDatabaseDefault::EncodedSlotPayload(payload) => {
-            write_encoded_default_payload_summary(out, payload);
+            let bytes = u32::try_from(payload.len()).ok();
+            (
+                Some(encoded_payload_summary(payload)),
+                bytes,
+                Some(short_default_payload_fingerprint(payload)),
+            )
         }
         FieldDatabaseDefault::AuthoredEnumUnit { enum_path, variant } => {
-            out.push_str(" default=enum_unit(");
-            out.push_str(enum_path);
-            out.push_str("::");
-            out.push_str(variant);
-            out.push(')');
+            (Some(format!("{enum_path}::{variant}")), None, None)
         }
     }
 }
 
-// Append accepted-schema database-default metadata from its persisted payload.
-// Generated authored enum defaults remain name-based proposal metadata until
-// catalog admission, so only accepted schema exposes their durable byte shape.
-fn write_schema_default_summary(out: &mut String, default: &SchemaFieldDefault) {
-    if let Some(payload) = default.slot_payload() {
-        write_encoded_default_payload_summary(out, payload);
+///
+/// RenderedTemporalPayload
+///
+/// One accepted temporal payload projected as an inseparable bounded value,
+/// byte count, and stable diagnostic hash.
+///
+
+struct RenderedTemporalPayload {
+    value: String,
+    bytes: u32,
+    hash: String,
+}
+
+fn accepted_field_temporal_facts(
+    field: &AcceptedRowLayoutRuntimeField<'_>,
+    value_catalog: &AcceptedValueCatalogHandle,
+) -> Result<EntityFieldTemporalFacts, InternalError> {
+    let write_policy = field.write_policy();
+    let insert_omission = if write_policy.insert_generation().is_some() {
+        "generated"
+    } else if write_policy.write_management().is_some() {
+        "managed"
+    } else {
+        match field.insert_omission_policy() {
+            AcceptedInsertOmissionPolicy::NullIfMissing => "null",
+            AcceptedInsertOmissionPolicy::DefaultIfMissing => "default",
+            AcceptedInsertOmissionPolicy::Required => "required",
+        }
+    };
+    let insert_default = field
+        .insert_default()
+        .slot_payload()
+        .map(|payload| accepted_payload_facts(field, value_catalog, payload))
+        .transpose()?;
+    let (insert_default, insert_default_bytes, insert_default_hash) = match insert_default {
+        Some(payload) => (Some(payload.value), Some(payload.bytes), Some(payload.hash)),
+        None => (None, None, None),
+    };
+    let (historical_fill, historical_fill_bytes, historical_fill_hash) =
+        match field.historical_fill() {
+            SchemaHistoricalFill::Reject => (Some("reject".to_string()), None, None),
+            SchemaHistoricalFill::Null => (Some("null".to_string()), None, None),
+            SchemaHistoricalFill::SlotPayload(payload) => {
+                let rendered = accepted_payload_facts(field, value_catalog, payload.as_slice())?;
+                (
+                    Some(rendered.value),
+                    Some(rendered.bytes),
+                    Some(rendered.hash),
+                )
+            }
+        };
+
+    Ok(EntityFieldTemporalFacts {
+        insert_omission: Some(insert_omission.to_string()),
+        insert_default,
+        insert_default_bytes,
+        insert_default_hash,
+        introduced_in_layout: Some(field.introduced_in_layout().get()),
+        historical_fill,
+        historical_fill_bytes,
+        historical_fill_hash,
+    })
+}
+
+fn accepted_payload_facts(
+    field: &AcceptedRowLayoutRuntimeField<'_>,
+    value_catalog: &AcceptedValueCatalogHandle,
+    payload: &[u8],
+) -> Result<RenderedTemporalPayload, InternalError> {
+    let persistence = AcceptedFieldPersistenceContract::new(value_catalog, field.decode_contract())
+        .map_err(|_| InternalError::store_invariant())?;
+    let admitted = decode_admitted_value_from_accepted_field_contract(persistence, payload)?;
+    let output = output_value_from_runtime(value_catalog.enum_catalog(), admitted.value())
+        .map_err(|_| InternalError::store_invariant())?;
+    let rendered = bounded_schema_value_rendering(&output, payload);
+    let bytes = u32::try_from(payload.len()).map_err(|_| InternalError::store_invariant())?;
+
+    Ok(RenderedTemporalPayload {
+        value: rendered,
+        bytes,
+        hash: short_default_payload_fingerprint(payload),
+    })
+}
+
+fn bounded_schema_value_rendering(value: &OutputValue, payload: &[u8]) -> String {
+    let rendered = match value {
+        OutputValue::Text(value) => format!("'{}'", value.escape_default()),
+        _ => render_output_value_text(value),
+    };
+    if rendered.len() <= MAX_SCHEMA_VALUE_RENDER_CHARS {
+        return rendered;
+    }
+
+    format!(
+        "{}(bytes={}, sha256={})",
+        output_value_kind_label(value),
+        payload.len(),
+        short_default_payload_fingerprint(payload),
+    )
+}
+
+const fn output_value_kind_label(value: &OutputValue) -> &'static str {
+    match value {
+        OutputValue::Account(_) => "account",
+        OutputValue::Blob(_) => "blob",
+        OutputValue::Bool(_) => "bool",
+        OutputValue::Date(_) => "date",
+        OutputValue::Decimal(_) => "decimal",
+        OutputValue::Duration(_) => "duration",
+        OutputValue::Enum(_) => "enum",
+        OutputValue::Float32(_) => "float32",
+        OutputValue::Float64(_) => "float64",
+        OutputValue::Int64(_) => "int64",
+        OutputValue::Int128(_) => "int128",
+        OutputValue::IntBig(_) => "int_big",
+        OutputValue::List(_) => "list",
+        OutputValue::Map(_) => "map",
+        OutputValue::Null => "null",
+        OutputValue::Principal(_) => "principal",
+        OutputValue::Subaccount(_) => "subaccount",
+        OutputValue::Text(_) => "text",
+        OutputValue::Timestamp(_) => "timestamp",
+        OutputValue::Nat64(_) => "nat64",
+        OutputValue::Nat128(_) => "nat128",
+        OutputValue::NatBig(_) => "nat_big",
+        OutputValue::Ulid(_) => "ulid",
+        OutputValue::Unit => "unit",
     }
 }
 
-// Keep default rendering compact and byte-oriented. Persisted schema defaults
-// are field-codec payloads, not SQL literals, so the describe surface reports
-// their presence and a stable fingerprint rather than inventing a lossy value.
-fn write_encoded_default_payload_summary(out: &mut String, payload: &[u8]) {
-    let _ = write!(
-        out,
-        " default=slot_payload(bytes={}, sha256={})",
+fn encoded_payload_summary(payload: &[u8]) -> String {
+    format!(
+        "slot_payload(bytes={}, sha256={})",
         payload.len(),
         short_default_payload_fingerprint(payload),
-    );
+    )
 }
 
 fn short_default_payload_fingerprint(payload: &[u8]) -> String {

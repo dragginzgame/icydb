@@ -4,15 +4,9 @@
 //! Boundary: data::store persists RawRow values produced by higher layers.
 
 #[cfg(test)]
-use crate::{
-    db::data::{
-        PersistedRow, SerializedStructuralPatch, StructuralSlotReader,
-        persisted_row::{
-            canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test,
-            canonical_row_from_entity_for_model_proposal_for_test,
-        },
-    },
-    model::entity::EntityModel,
+use crate::db::data::{
+    PersistedRow, StructuralSlotReader,
+    persisted_row::canonical_row_from_entity_for_model_proposal_for_test,
 };
 use crate::{
     db::{codec::MAX_ROW_BYTES, data::DecodedDataStoreKey},
@@ -64,17 +58,6 @@ impl CanonicalRow {
     {
         canonical_row_from_entity_for_model_proposal_for_test(entity)
     }
-
-    /// Build one canonical row from one complete serialized slot image.
-    #[cfg(test)]
-    pub(in crate::db) fn from_complete_serialized_structural_patch_for_model_proposal_for_test(
-        model: &'static EntityModel,
-        patch: &SerializedStructuralPatch,
-    ) -> Result<Self, InternalError> {
-        canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test(
-            model, patch,
-        )
-    }
 }
 
 ///
@@ -125,17 +108,6 @@ impl RawRow {
     #[cfg(test)]
     pub(in crate::db) fn try_new(bytes: Vec<u8>) -> Result<Self, RawRowError> {
         Self::from_untrusted_bytes(bytes)
-    }
-
-    /// Build one raw row from one complete serialized slot image.
-    #[cfg(test)]
-    pub(in crate::db) fn from_complete_serialized_structural_patch_for_model_proposal_for_test(
-        model: &'static EntityModel,
-        patch: &SerializedStructuralPatch,
-    ) -> Result<CanonicalRow, InternalError> {
-        CanonicalRow::from_complete_serialized_structural_patch_for_model_proposal_for_test(
-            model, patch,
-        )
     }
 
     #[must_use]

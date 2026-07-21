@@ -114,7 +114,7 @@ fn first_delete_parameter_index(statement: &SqlDeleteStatement) -> Option<usize>
 // literal VALUES are already parsed as concrete runtime values.
 fn first_insert_parameter_index(statement: &SqlInsertStatement) -> Option<usize> {
     match &statement.source {
-        SqlInsertSource::Values(_) => None,
+        SqlInsertSource::Values(_) | SqlInsertSource::DefaultValues => None,
         SqlInsertSource::Select(select) => first_select_parameter_index(select),
     }
 }

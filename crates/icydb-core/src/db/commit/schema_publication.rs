@@ -9,6 +9,7 @@ use crate::{
         data::DataStore,
         journal::{JournalBatch, JournalRecord},
         registry::{StoreHandle, StoreRecoveryCapability},
+        relation::StagedReverseRelationDomainEffects,
         schema::{
             AcceptedSchemaRevision, CandidateSchemaRevision, StagedUserIndexDomainReplacement,
             accepted_schema_cache_fingerprint_for_persisted_snapshot,
@@ -24,29 +25,7 @@ pub(in crate::db) fn publish_accepted_schema_candidate(
     expected_revision: AcceptedSchemaRevision,
     candidate: &CandidateSchemaRevision,
 ) -> Result<(), InternalError> {
-    publish_accepted_schema_candidate_with_row_puts(
-        store_path,
-        store,
-        expected_revision,
-        candidate,
-        Vec::new(),
-    )
-}
-
-pub(in crate::db) fn publish_accepted_schema_candidate_with_row_puts(
-    store_path: &'static str,
-    store: StoreHandle,
-    expected_revision: AcceptedSchemaRevision,
-    candidate: &CandidateSchemaRevision,
-    row_puts: Vec<JournalRecord>,
-) -> Result<(), InternalError> {
     if candidate.store_path() != store_path {
-        return Err(InternalError::store_invariant());
-    }
-    if row_puts
-        .iter()
-        .any(|record| !matches!(record, JournalRecord::RowPut { .. }))
-    {
         return Err(InternalError::store_invariant());
     }
 
@@ -55,13 +34,14 @@ pub(in crate::db) fn publish_accepted_schema_candidate_with_row_puts(
         store,
         expected_revision,
         candidate,
-        row_puts,
+        Vec::new(),
         Vec::new(),
     )
 }
 
 /// Publish one accepted-schema candidate and its prevalidated per-entity
 /// user-index domains through the same marker window.
+#[cfg(feature = "sql")]
 pub(in crate::db) fn publish_accepted_schema_candidate_with_user_index_domains(
     store_path: &'static str,
     store: StoreHandle,
@@ -81,8 +61,52 @@ pub(in crate::db) fn publish_accepted_schema_candidate_with_user_index_domains(
         store,
         expected_revision,
         candidate,
-        Vec::new(),
         replacements,
+        Vec::new(),
+    )
+}
+
+/// Publish one accepted-schema candidate with complete user-index domains and
+/// candidate-logical reverse-relation effects through the same marker window.
+pub(in crate::db) fn publish_accepted_schema_candidate_with_derived_domains(
+    store_path: &'static str,
+    store: StoreHandle,
+    expected_revision: AcceptedSchemaRevision,
+    candidate: &CandidateSchemaRevision,
+    user_index_domains: Vec<StagedUserIndexDomainReplacement>,
+    reverse_relation_domains: Vec<StagedReverseRelationDomainEffects>,
+) -> Result<(), InternalError> {
+    validate_user_index_domain_candidates(
+        store_path,
+        store,
+        expected_revision,
+        candidate,
+        user_index_domains.as_slice(),
+    )?;
+    validate_reverse_relation_domain_candidates(
+        store_path,
+        expected_revision,
+        candidate,
+        reverse_relation_domains.as_slice(),
+    )?;
+    let user_entities = user_index_domains
+        .iter()
+        .map(StagedUserIndexDomainReplacement::entity_tag)
+        .collect::<BTreeSet<_>>();
+    let relation_entities = reverse_relation_domains
+        .iter()
+        .map(StagedReverseRelationDomainEffects::entity_tag)
+        .collect::<BTreeSet<_>>();
+    if user_entities != relation_entities {
+        return Err(InternalError::store_invariant());
+    }
+    publish_accepted_schema_candidate_with_prepared_domains(
+        store_path,
+        store,
+        expected_revision,
+        candidate,
+        user_index_domains,
+        reverse_relation_domains,
     )
 }
 
@@ -91,8 +115,8 @@ fn publish_accepted_schema_candidate_with_prepared_domains(
     store: StoreHandle,
     expected_revision: AcceptedSchemaRevision,
     candidate: &CandidateSchemaRevision,
-    row_puts: Vec<JournalRecord>,
     replacements: Vec<StagedUserIndexDomainReplacement>,
+    reverse_relation_domains: Vec<StagedReverseRelationDomainEffects>,
 ) -> Result<(), InternalError> {
     match store.storage_capabilities().recovery() {
         StoreRecoveryCapability::None => {
@@ -102,6 +126,7 @@ fn publish_accepted_schema_candidate_with_prepared_domains(
             if !replacements.is_empty() {
                 apply_user_index_domain_replacements(store, replacements);
             }
+            apply_reverse_relation_domain_effects(reverse_relation_domains);
             Ok(())
         }
         StoreRecoveryCapability::StableBasePlusJournalReplay => publish_journaled_candidate(
@@ -109,8 +134,8 @@ fn publish_accepted_schema_candidate_with_prepared_domains(
             store,
             expected_revision,
             candidate,
-            row_puts,
             replacements,
+            reverse_relation_domains,
         ),
     }
 }
@@ -120,8 +145,8 @@ fn publish_journaled_candidate(
     store: StoreHandle,
     expected_revision: AcceptedSchemaRevision,
     candidate: &CandidateSchemaRevision,
-    row_puts: Vec<JournalRecord>,
     replacements: Vec<StagedUserIndexDomainReplacement>,
+    reverse_relation_domains: Vec<StagedReverseRelationDomainEffects>,
 ) -> Result<(), InternalError> {
     let journal_store = store
         .journal_tail_store()
@@ -135,10 +160,7 @@ fn publish_journaled_candidate(
         candidate.encoded_bundle().to_vec(),
         candidate.encoded_root().to_vec(),
     )?;
-    let mut records = Vec::with_capacity(row_puts.len().saturating_add(1));
-    records.push(schema_record);
-    records.extend(row_puts);
-    let batch = JournalBatch::new(marker_id, marker_id, sequence, records)?;
+    let batch = JournalBatch::new(marker_id, marker_id, sequence, vec![schema_record])?;
     let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])?;
     let commit = begin_commit(marker)?;
 
@@ -150,6 +172,7 @@ fn publish_journaled_candidate(
         if !replacements.is_empty() {
             apply_user_index_domain_replacements(store, replacements);
         }
+        apply_reverse_relation_domain_effects(reverse_relation_domains);
         Ok(())
     })
 }
@@ -211,6 +234,45 @@ fn validate_user_index_domain_candidates(
     Ok(())
 }
 
+fn validate_reverse_relation_domain_candidates(
+    store_path: &'static str,
+    expected_revision: AcceptedSchemaRevision,
+    candidate: &CandidateSchemaRevision,
+    domains: &[StagedReverseRelationDomainEffects],
+) -> Result<(), InternalError> {
+    if domains.is_empty() || candidate.store_path() != store_path {
+        return Err(InternalError::store_invariant());
+    }
+    let mut entities = BTreeSet::new();
+    for domain in domains {
+        let accepted_before_identity = domain.accepted_before_identity();
+        if !entities.insert(domain.entity_tag())
+            || domain.store_path() != store_path
+            || accepted_before_identity.store_path() != store_path
+            || accepted_before_identity.accepted_schema_revision() != expected_revision
+        {
+            return Err(InternalError::store_invariant());
+        }
+        let accepted_after = candidate
+            .bundle()
+            .entity_snapshots()
+            .get(&domain.entity_tag())
+            .ok_or_else(InternalError::store_corruption)?;
+        let accepted_after_fingerprint =
+            accepted_schema_cache_fingerprint_for_persisted_snapshot(accepted_after)?;
+        let entity_path_matches =
+            accepted_after.entity_path() == accepted_before_identity.entity_path();
+        let schema_version_matches = accepted_after.version() == domain.accepted_after_version();
+        let schema_fingerprint_matches =
+            accepted_after_fingerprint == domain.accepted_after_fingerprint();
+        if !(entity_path_matches && schema_version_matches && schema_fingerprint_matches) {
+            return Err(InternalError::store_invariant());
+        }
+    }
+
+    Ok(())
+}
+
 fn apply_user_index_domain_replacements(
     store: StoreHandle,
     replacements: Vec<StagedUserIndexDomainReplacement>,
@@ -231,4 +293,12 @@ fn apply_user_index_domain_replacements(
         index_store.mark_prefix_cardinality_data_generation(data_generation);
         index_store.mark_ready();
     });
+}
+
+fn apply_reverse_relation_domain_effects(domains: Vec<StagedReverseRelationDomainEffects>) {
+    for domain in domains {
+        for effect in domain.into_effects() {
+            effect.apply();
+        }
+    }
 }

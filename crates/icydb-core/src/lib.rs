@@ -91,8 +91,8 @@ pub mod __macro {
         validate_entity_key_bytes_buffer,
     };
     pub use crate::entity::{
-        EntityCreateInput, EntityCreateMaterialization, EntityCreateType, EntityDeclaration,
-        EntityKind, EntityPlacement, EntityValue,
+        EntityCreateFieldInput, EntityCreateInput, EntityCreateType, EntityDeclaration, EntityKind,
+        EntityPlacement, EntityValue,
     };
     pub use crate::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use crate::traits::{

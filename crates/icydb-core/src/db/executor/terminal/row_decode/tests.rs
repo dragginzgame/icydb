@@ -187,7 +187,8 @@ fn raw_row_from_encoded_slot_payloads(slot_payloads: &[Vec<u8>]) -> RawRow {
     row_payload.extend_from_slice(&payload_bytes);
 
     RawRow::from_untrusted_bytes(
-        serialize_row_payload(row_payload).expect("row decode test payload should serialize"),
+        serialize_row_payload(crate::db::schema::RowLayoutVersion::INITIAL, row_payload)
+            .expect("row decode test payload should serialize"),
     )
     .expect("row decode test raw row should be bounded")
 }
@@ -199,45 +200,42 @@ fn composite_row_decode_layout() -> (RowLayout, crate::types::EntityTag) {
         "row_decode::tests::CompositeKeyEntity".to_string(),
         "CompositeKeyEntity".to_string(),
         vec![FieldId::new(1), FieldId::new(2)],
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-                (FieldId::new(3), SchemaFieldSlot::new(2)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+            (FieldId::new(3), SchemaFieldSlot::new(2)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "tenant_id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Nat64,
                 Vec::new(),
                 false,
-                crate::db::schema::SchemaFieldDefault::None,
+                crate::db::schema::SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Nat64),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "local_id".to_string(),
                 SchemaFieldSlot::new(1),
                 AcceptedFieldKind::Nat64,
                 Vec::new(),
                 false,
-                crate::db::schema::SchemaFieldDefault::None,
+                crate::db::schema::SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Nat64),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(3),
                 "label".to_string(),
                 SchemaFieldSlot::new(2),
                 AcceptedFieldKind::Text { max_len: Some(64) },
                 Vec::new(),
                 false,
-                crate::db::schema::SchemaFieldDefault::None,
+                crate::db::schema::SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Text),
             ),
@@ -401,15 +399,12 @@ fn row_layout_rejects_accepted_slot_reorder_at_generated_compatibility_proof() {
         snapshot.entity_path().to_string(),
         snapshot.entity_name().to_string(),
         snapshot.first_primary_key_field_id(),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(2)),
-                (FieldId::new(3), SchemaFieldSlot::new(1)),
-                (FieldId::new(4), SchemaFieldSlot::new(3)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(2)),
+            (FieldId::new(3), SchemaFieldSlot::new(1)),
+            (FieldId::new(4), SchemaFieldSlot::new(3)),
+        ]),
         snapshot.fields().to_vec(),
     );
     let accepted = AcceptedSchemaSnapshot::new(changed);
@@ -429,14 +424,14 @@ fn row_layout_rejects_accepted_payload_contract_drift_at_generated_compatibility
     let title = fields
         .get_mut(1)
         .expect("row decode test schema should include title");
-    *title = PersistedFieldSnapshot::new(
+    *title = PersistedFieldSnapshot::new_initial(
         title.id(),
         title.name().to_string(),
         title.slot(),
         AcceptedFieldKind::Text { max_len: None },
         title.nested_leaves().to_vec(),
         title.nullable(),
-        title.default().clone(),
+        title.insert_default().clone(),
         FieldStorageDecode::CatalogValue,
         LeafCodec::Structural,
     );

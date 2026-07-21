@@ -257,7 +257,7 @@ impl Parser {
         let mut default = None;
 
         loop {
-            if self.eat_identifier_keyword("DEFAULT") {
+            if self.eat_keyword(Keyword::Default) {
                 if default.is_some() {
                     return Err(SqlParseError::unsupported_feature(
                         SqlFeatureCode::AlterTableAddColumnDuplicateDefault,
@@ -316,7 +316,7 @@ impl Parser {
         }
         let column_name = self.expect_identifier()?;
         let action = if self.eat_identifier_keyword("SET") {
-            if self.eat_identifier_keyword("DEFAULT") {
+            if self.eat_keyword(Keyword::Default) {
                 SqlAlterColumnAction::SetDefault(self.parse_literal()?)
             } else if self.eat_keyword(Keyword::Not) {
                 self.expect_keyword(Keyword::Null)?;
@@ -327,7 +327,7 @@ impl Parser {
                 ));
             }
         } else if self.eat_keyword(Keyword::Drop) {
-            if self.eat_identifier_keyword("DEFAULT") {
+            if self.eat_keyword(Keyword::Default) {
                 SqlAlterColumnAction::DropDefault
             } else if self.eat_keyword(Keyword::Not) {
                 self.expect_keyword(Keyword::Null)?;

@@ -100,8 +100,9 @@ pub struct EventOps {
     pub(crate) schema_transition_checks: u64,
     pub(crate) schema_transition_add_expression_index: u64,
     pub(crate) schema_transition_add_field_path_index: u64,
-    pub(crate) schema_transition_append_only_nullable_fields: u64,
+    pub(crate) schema_transition_append_only_fields: u64,
     pub(crate) schema_transition_exact_match: u64,
+    pub(crate) schema_transition_metadata_only_field_default: u64,
     pub(crate) schema_transition_metadata_only_index_rename: u64,
     pub(crate) schema_transition_rejected_entity_identity: u64,
     pub(crate) schema_transition_rejected_field_contract: u64,
@@ -415,13 +416,18 @@ impl EventOps {
     }
 
     #[must_use]
-    pub const fn schema_transition_append_only_nullable_fields(&self) -> u64 {
-        self.schema_transition_append_only_nullable_fields
+    pub const fn schema_transition_append_only_fields(&self) -> u64 {
+        self.schema_transition_append_only_fields
     }
 
     #[must_use]
     pub const fn schema_transition_exact_match(&self) -> u64 {
         self.schema_transition_exact_match
+    }
+
+    #[must_use]
+    pub const fn schema_transition_metadata_only_field_default(&self) -> u64 {
+        self.schema_transition_metadata_only_field_default
     }
 
     #[must_use]

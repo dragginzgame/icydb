@@ -1123,8 +1123,25 @@ pub(crate) struct SqlDeleteStatement {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SqlInsertSource {
-    Values(Vec<Vec<Value>>),
+    Values(Vec<Vec<SqlWriteValue>>),
+    DefaultValues,
     Select(Box<SqlSelectStatement>),
+}
+
+///
+/// SqlWriteValue
+///
+/// One reduced-SQL write-position value.
+///
+/// `DEFAULT` remains contextual write intent instead of becoming a scalar
+/// `Value`, so lowering cannot accidentally admit it in expressions or lose
+/// its request provenance before accepted-schema resolution.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SqlWriteValue {
+    Literal(Value),
+    Default,
 }
 
 ///
@@ -1148,13 +1165,13 @@ pub(crate) struct SqlInsertStatement {
 ///
 /// SqlAssignment
 ///
-/// One parsed `UPDATE ... SET field = literal` assignment.
+/// One parsed `UPDATE ... SET field = value-or-default` assignment.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlAssignment {
     pub(crate) field: String,
-    pub(crate) value: Value,
+    pub(crate) value: SqlWriteValue,
 }
 
 ///

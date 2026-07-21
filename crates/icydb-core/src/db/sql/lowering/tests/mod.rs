@@ -20,7 +20,7 @@ use crate::{
         schema::{
             AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId as SchemaFieldId,
             PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-            SchemaFieldDefault, SchemaFieldSlot, SchemaInfo, SchemaRowLayout, SchemaVersion,
+            SchemaFieldSlot, SchemaInfo, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
         },
         sql::{
             lowering::{
@@ -378,45 +378,42 @@ fn accepted_sql_lower_schema_with_name_kind(kind: AcceptedFieldKind) -> SchemaIn
         SqlLowerEntity::MODEL.path().to_string(),
         SqlLowerEntity::MODEL.name().to_string(),
         SchemaFieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (SchemaFieldId::new(1), SchemaFieldSlot::new(0)),
-                (SchemaFieldId::new(2), SchemaFieldSlot::new(1)),
-                (SchemaFieldId::new(3), SchemaFieldSlot::new(2)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (SchemaFieldId::new(1), SchemaFieldSlot::new(0)),
+            (SchemaFieldId::new(2), SchemaFieldSlot::new(1)),
+            (SchemaFieldId::new(3), SchemaFieldSlot::new(2)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 SchemaFieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Structural,
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 SchemaFieldId::new(2),
                 "name".to_string(),
                 SchemaFieldSlot::new(1),
                 kind,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Structural,
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 SchemaFieldId::new(3),
                 "age".to_string(),
                 SchemaFieldSlot::new(2),
                 AcceptedFieldKind::Nat64,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Structural,
             ),
@@ -435,33 +432,30 @@ fn accepted_sql_lower_schema_without_name() -> SchemaInfo {
         SqlLowerEntity::MODEL.path().to_string(),
         SqlLowerEntity::MODEL.name().to_string(),
         SchemaFieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (SchemaFieldId::new(1), SchemaFieldSlot::new(0)),
-                (SchemaFieldId::new(3), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (SchemaFieldId::new(1), SchemaFieldSlot::new(0)),
+            (SchemaFieldId::new(3), SchemaFieldSlot::new(1)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 SchemaFieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Structural,
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 SchemaFieldId::new(3),
                 "age".to_string(),
                 SchemaFieldSlot::new(1),
                 AcceptedFieldKind::Nat64,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Structural,
             ),
@@ -485,27 +479,24 @@ fn accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent(
         SqlLowerEntity::MODEL.path().to_string(),
         SqlLowerEntity::MODEL.name().to_string(),
         SchemaFieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (SchemaFieldId::new(1), SchemaFieldSlot::new(0)),
-                (SchemaFieldId::new(2), SchemaFieldSlot::new(1)),
-                (SchemaFieldId::new(3), SchemaFieldSlot::new(2)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (SchemaFieldId::new(1), SchemaFieldSlot::new(0)),
+            (SchemaFieldId::new(2), SchemaFieldSlot::new(1)),
+            (SchemaFieldId::new(3), SchemaFieldSlot::new(2)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 SchemaFieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Structural,
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 SchemaFieldId::new(2),
                 "name".to_string(),
                 SchemaFieldSlot::new(1),
@@ -516,18 +507,18 @@ fn accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent(
                     false,
                 )],
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::CatalogValue,
                 LeafCodec::Structural,
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 SchemaFieldId::new(3),
                 "age".to_string(),
                 SchemaFieldSlot::new(2),
                 AcceptedFieldKind::Nat64,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Structural,
             ),

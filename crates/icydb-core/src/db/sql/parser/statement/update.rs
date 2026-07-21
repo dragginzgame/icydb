@@ -1,5 +1,5 @@
 use crate::db::{
-    sql::parser::{Parser, SqlAssignment, SqlUpdateStatement},
+    sql::parser::{Parser, SqlAssignment, SqlUpdateStatement, SqlWriteValue},
     sql_shared::{Keyword, SqlExpectedToken, SqlIntegerLiteralClause, SqlParseError, TokenKind},
 };
 
@@ -67,7 +67,11 @@ impl Parser {
                     self.peek_kind(),
                 ));
             }
-            let value = self.parse_literal()?;
+            let value = if self.eat_keyword(Keyword::Default) {
+                SqlWriteValue::Default
+            } else {
+                SqlWriteValue::Literal(self.parse_literal()?)
+            };
             assignments.push(SqlAssignment { field, value });
 
             if self.eat_comma() {

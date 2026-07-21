@@ -12,10 +12,11 @@ are defined in `DURABILITY.md`. SQL syntax and exposure policy are defined in
 
 ## Core Rule
 
-Every accepted persisted field has exactly one accepted field kind and one
-schema-derived absence policy. Every supported logical mutation ingress that
-produces a row after-image must canonicalize and admit that after-image against
-the current accepted schema before publishing its commit marker.
+Every accepted persisted field has exactly one accepted field kind, one future
+insert policy, and one historical-fill contract. Every supported logical
+mutation ingress that produces a row after-image must canonicalize and admit
+that after-image against the current accepted schema before publishing its
+commit marker.
 
 IcyDB has no non-strict entity or table mode. There is no trusted row-write
 bypass that disables accepted-schema validation.
@@ -33,7 +34,9 @@ Each accepted field contributes:
 
 - one exact accepted persisted kind;
 - one physical row slot;
-- one absence policy: `Required`, `NullIfMissing`, or `DefaultIfMissing`;
+- one future insert-omission policy: `Required`, `NullIfMissing`, or
+  `DefaultIfMissing`;
+- one field-introduction layout version and one frozen historical fill;
 - any database-owned generation or managed-write policy;
 - any scalar bounds, decimal scale, text limit, collection encoding, enum or
   exact-composite catalog identity, index, or relation facts that apply to the
@@ -44,9 +47,12 @@ complete accepted record, tuple, or newtype definition. Record member names,
 tuple arity, nested kinds, and nested nullability are admission facts. Generated
 Rust codecs may confirm that contract but may not reconstruct it at runtime.
 
-The absence policy is derived exhaustively from accepted nullability and
-database-default metadata. Rust `Default`, generated construction values, and
-the physical length of an older row do not independently authorize omission.
+Future insertion policy is derived exhaustively from accepted nullability,
+database-default metadata, and database-owned write policy. Historical fill is
+derived once when a physical slot is introduced and does not follow later
+default changes. Rust `Default`, generated construction values, and the
+physical length of an older row do not independently authorize either kind of
+absence.
 
 Omission and explicit `NULL` are distinct. Omission is admitted only when the
 accepted absence or write policy can materialize the field. Explicit `NULL` is
@@ -106,16 +112,19 @@ and exposure policy; it does not weaken schema admission.
 Schema mutation remains catalog-native. SQL DDL is a frontend, not the source
 of mutation semantics.
 
-Current additive fields use explicit accepted missing-slot behavior rather than
-a general physical backfill executor. Nullable fields without defaults
-materialize older rows as `NULL`; fields with accepted database defaults
-materialize the accepted default. Required additions without a database default
-reject.
+Current additive fields use a stamped row-layout version and a separately
+frozen historical fill rather than a general physical backfill executor.
+Nullable fields without defaults freeze `NULL`; fields with an accepted
+database default freeze that field-addition value. Later `SET DEFAULT` or `DROP
+DEFAULT` changes future writes only. Required additions without a historical
+fill reject when rows exist.
 
 `SET NOT NULL` must validate existing rows through the accepted contract before
 publication. A row-layout rewrite such as `DROP COLUMN` must validate the
-accepted-before row, construct the constrained accepted-after row, retain the
-rollback image, and publish the row effects with the accepted schema candidate.
+accepted-before row, construct the constrained accepted-after row, and publish
+the fully prepared row, derived-state, and accepted-schema effects through one
+marker-bound redo-only candidate. It must not depend on operation-specific
+rollback after physical state changes.
 
 Any future general backfill surface must be treated as row ingress. It must
 either use the normal structural write-admission pipeline or provide an

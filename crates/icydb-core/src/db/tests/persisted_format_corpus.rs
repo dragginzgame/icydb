@@ -41,10 +41,17 @@ fn assert_err<T, E>(label: &str, result: Result<T, E>) {
     assert!(result.is_err(), "{label} should fail closed");
 }
 
-fn row_envelope(magic: [u8; 2], version: u8, declared_len: u32, payload: &[u8]) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(7 + payload.len());
+fn row_envelope(
+    magic: [u8; 2],
+    version: u8,
+    layout_version: u32,
+    declared_len: u32,
+    payload: &[u8],
+) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(11 + payload.len());
     bytes.extend_from_slice(&magic);
     bytes.push(version);
+    bytes.extend_from_slice(&layout_version.to_be_bytes());
     bytes.extend_from_slice(&declared_len.to_be_bytes());
     bytes.extend_from_slice(payload);
     bytes
@@ -172,23 +179,33 @@ fn persisted_row_envelope_malformed_corpus_fails_closed() {
         ("truncated row magic", vec![b'I']),
         (
             "bad row magic",
-            row_envelope(*b"XX", ROW_FORMAT_VERSION_CURRENT, 0, &[]),
+            row_envelope(*b"XX", ROW_FORMAT_VERSION_CURRENT, 1, 0, &[]),
         ),
         (
             "future row version",
-            row_envelope(*b"IR", ROW_FORMAT_VERSION_CURRENT.saturating_add(1), 0, &[]),
+            row_envelope(
+                *b"IY",
+                ROW_FORMAT_VERSION_CURRENT.saturating_add(1),
+                1,
+                0,
+                &[],
+            ),
+        ),
+        (
+            "zero row layout version",
+            row_envelope(*b"IY", ROW_FORMAT_VERSION_CURRENT, 0, 0, &[]),
         ),
         (
             "declared row payload too long",
-            row_envelope(*b"IR", ROW_FORMAT_VERSION_CURRENT, 4, &[0xAA]),
+            row_envelope(*b"IY", ROW_FORMAT_VERSION_CURRENT, 1, 4, &[0xAA]),
         ),
         (
             "trailing row payload bytes",
-            row_envelope(*b"IR", ROW_FORMAT_VERSION_CURRENT, 0, &[0xAA]),
+            row_envelope(*b"IY", ROW_FORMAT_VERSION_CURRENT, 1, 0, &[0xAA]),
         ),
         (
             "huge declared row payload without bytes",
-            row_envelope(*b"IR", ROW_FORMAT_VERSION_CURRENT, u32::MAX, &[]),
+            row_envelope(*b"IY", ROW_FORMAT_VERSION_CURRENT, 1, u32::MAX, &[]),
         ),
     ];
 

@@ -53,7 +53,7 @@ fn validate_delete_statement_depth(statement: &SqlDeleteStatement) -> Result<(),
 
 fn validate_insert_statement_depth(statement: &SqlInsertStatement) -> Result<(), SqlLoweringError> {
     match &statement.source {
-        SqlInsertSource::Values(_) => Ok(()),
+        SqlInsertSource::Values(_) | SqlInsertSource::DefaultValues => Ok(()),
         SqlInsertSource::Select(select) => validate_select_statement_depth(select),
     }
 }

@@ -38,7 +38,7 @@ pub(crate) use model::{
     SqlOrderTerm, SqlProjection, SqlReturningProjection, SqlScalarFunction,
     SqlScalarFunctionCallShape, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
     SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlShowMemoryStatement,
-    SqlShowStoresStatement, SqlStatement, SqlUpdateStatement,
+    SqlShowStoresStatement, SqlStatement, SqlUpdateStatement, SqlWriteValue,
 };
 #[cfg(feature = "sql-explain")]
 pub(crate) use model::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget};

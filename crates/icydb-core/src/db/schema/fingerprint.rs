@@ -8,8 +8,8 @@ use crate::{
         codec::{finalize_hash_sha256, new_hash_sha256},
         commit::CommitSchemaFingerprint,
         schema::{
-            AcceptedSchemaSnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
-            SchemaRowLayout, SchemaVersion, encode_persisted_schema_snapshot,
+            AcceptedSchemaSnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaVersion,
+            encode_persisted_schema_snapshot,
         },
     },
     error::InternalError,
@@ -147,7 +147,7 @@ fn schema_with_fingerprint_version_and_indexes(
 ) -> PersistedSchemaSnapshot {
     // Canonical hash sentinel only: this is not an inferred persisted version.
     let version = SchemaVersion::initial();
-    let row_layout = SchemaRowLayout::new(version, schema.row_layout().field_to_slot().to_vec());
+    let row_layout = schema.row_layout().clone();
 
     PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         version,
@@ -208,12 +208,14 @@ fn truncate_sha256_commit_schema_fingerprint(hasher: Sha256) -> CommitSchemaFing
 mod tests {
     use crate::{
         db::schema::{
-            AcceptedSchemaSnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
-            SchemaRowLayout, SchemaVersion, compiled_schema_proposal_for_model,
+            AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
+            PersistedIndexSnapshot, PersistedSchemaSnapshot, RowLayoutVersion, SchemaFieldSlot,
+            SchemaHistoricalFill, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+            compiled_schema_proposal_for_model,
         },
         model::{
             EntityModel,
-            field::{FieldKind, FieldModel},
+            field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec},
             index::IndexModel,
         },
     };
@@ -273,8 +275,7 @@ mod tests {
         snapshot: &PersistedSchemaSnapshot,
         version: SchemaVersion,
     ) -> PersistedSchemaSnapshot {
-        let row_layout =
-            SchemaRowLayout::new(version, snapshot.row_layout().field_to_slot().to_vec());
+        let row_layout = snapshot.row_layout().clone();
 
         PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
             version,
@@ -314,6 +315,56 @@ mod tests {
             indexes,
         )
         .with_relations(snapshot.relations().to_vec())
+    }
+
+    fn temporal_fingerprint_snapshot(
+        current: RowLayoutVersion,
+        floor: RowLayoutVersion,
+        introduced: RowLayoutVersion,
+        insert_default: SchemaInsertDefault,
+        historical_fill: SchemaHistoricalFill,
+    ) -> PersistedSchemaSnapshot {
+        PersistedSchemaSnapshot::new(
+            SchemaVersion::new(2),
+            "fingerprint::TemporalEntity".to_string(),
+            "TemporalEntity".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                current,
+                floor,
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new_initial(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    AcceptedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaInsertDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new_with_write_policy(
+                    FieldId::new(2),
+                    "score".to_string(),
+                    SchemaFieldSlot::new(1),
+                    AcceptedFieldKind::Nat64,
+                    Vec::new(),
+                    false,
+                    introduced,
+                    insert_default,
+                    historical_fill,
+                    crate::db::schema::SchemaFieldWritePolicy::none(),
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Nat64),
+                ),
+            ],
+        )
     }
 
     #[test]
@@ -372,6 +423,91 @@ mod tests {
             ))
             .expect("indexed admission fingerprint should hash"),
             "accepted index contract changes must change the admission shape fingerprint",
+        );
+    }
+
+    #[test]
+    fn schema_fingerprints_track_each_temporal_contract() {
+        let layout_2 = RowLayoutVersion::INITIAL.checked_next().expect("layout 2");
+        let layout_3 = layout_2.checked_next().expect("layout 3");
+        let layout_4 = layout_3.checked_next().expect("layout 4");
+        let payload = |value: u64| {
+            let mut bytes = vec![0xFF, 0x01];
+            bytes.extend_from_slice(&value.to_be_bytes());
+            bytes
+        };
+        let base = temporal_fingerprint_snapshot(
+            layout_3,
+            RowLayoutVersion::INITIAL,
+            layout_2,
+            SchemaInsertDefault::SlotPayload(payload(7)),
+            SchemaHistoricalFill::SlotPayload(payload(8)),
+        );
+        let fingerprint = |snapshot: &PersistedSchemaSnapshot| {
+            super::accepted_schema_admission_fingerprint(snapshot)
+                .expect("temporal schema fingerprint should hash")
+        };
+        let cache_fingerprint = |snapshot: &PersistedSchemaSnapshot| {
+            super::accepted_schema_cache_fingerprint_for_persisted_snapshot(snapshot)
+                .expect("temporal cache fingerprint should hash")
+        };
+
+        let changed_insert = temporal_fingerprint_snapshot(
+            layout_3,
+            RowLayoutVersion::INITIAL,
+            layout_2,
+            SchemaInsertDefault::SlotPayload(payload(9)),
+            SchemaHistoricalFill::SlotPayload(payload(8)),
+        );
+        let changed_fill = temporal_fingerprint_snapshot(
+            layout_3,
+            RowLayoutVersion::INITIAL,
+            layout_2,
+            SchemaInsertDefault::SlotPayload(payload(7)),
+            SchemaHistoricalFill::SlotPayload(payload(10)),
+        );
+        let changed_introduction = temporal_fingerprint_snapshot(
+            layout_3,
+            RowLayoutVersion::INITIAL,
+            layout_3,
+            SchemaInsertDefault::SlotPayload(payload(7)),
+            SchemaHistoricalFill::SlotPayload(payload(8)),
+        );
+        let changed_current = temporal_fingerprint_snapshot(
+            layout_4,
+            RowLayoutVersion::INITIAL,
+            layout_2,
+            SchemaInsertDefault::SlotPayload(payload(7)),
+            SchemaHistoricalFill::SlotPayload(payload(8)),
+        );
+        let floor_base = temporal_fingerprint_snapshot(
+            layout_3,
+            RowLayoutVersion::INITIAL,
+            layout_3,
+            SchemaInsertDefault::SlotPayload(payload(7)),
+            SchemaHistoricalFill::SlotPayload(payload(8)),
+        );
+        let changed_floor = temporal_fingerprint_snapshot(
+            layout_3,
+            layout_2,
+            layout_3,
+            SchemaInsertDefault::SlotPayload(payload(7)),
+            SchemaHistoricalFill::SlotPayload(payload(8)),
+        );
+
+        for changed in [
+            &changed_insert,
+            &changed_fill,
+            &changed_introduction,
+            &changed_current,
+        ] {
+            assert_ne!(fingerprint(&base), fingerprint(changed));
+            assert_ne!(cache_fingerprint(&base), cache_fingerprint(changed));
+        }
+        assert_ne!(fingerprint(&floor_base), fingerprint(&changed_floor));
+        assert_ne!(
+            cache_fingerprint(&floor_base),
+            cache_fingerprint(&changed_floor)
         );
     }
 

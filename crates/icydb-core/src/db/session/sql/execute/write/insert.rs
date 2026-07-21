@@ -2,14 +2,14 @@ use super::{
     SqlWriteCandidateBoundCheck, SqlWriteCandidateBounds, SqlWriteCandidateCollection,
     SqlWriteCandidateRows, SqlWriteMutationExecution, reject_explicit_sql_write_to_generated_field,
     reject_explicit_sql_write_to_managed_field, sql_insert_candidate_bounds,
-    sql_write_input_for_accepted_field, sql_write_key_from_component_literals,
-    sql_write_patch_set_accepted_field,
+    sql_write_input_for_accepted_field, sql_write_patch_set_accepted_field,
+    sql_write_patch_set_insert_default,
 };
 use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
-        data::AuthoredStructuralPatch,
-        executor::MutationMode,
+        data::AcceptedMutationIntentPatch,
+        executor::{MutationMode, StructuralMutationTargetKey},
         query::intent::StructuralQuery,
         schema::{
             AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
@@ -26,16 +26,14 @@ use crate::{
                 },
             },
         },
-        sql::parser::{SqlInsertSource, SqlInsertStatement, SqlProjection},
+        sql::parser::{SqlInsertSource, SqlInsertStatement, SqlProjection, SqlWriteValue},
         sql_shared::SqlSyntaxErrorKind,
     },
-    error::InternalError,
     metrics::sink::SqlWriteKind,
-    model::field::{FieldInsertGeneration, FieldWriteManagement},
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
     traits::CanisterKind,
-    types::{Timestamp, Ulid},
-    value::{InputValue, Value},
+    types::Timestamp,
+    value::Value,
 };
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
 
@@ -65,26 +63,8 @@ const fn write_policy_for_accepted_field(
     field.write_policy()
 }
 
-fn sql_write_generated_field_value(generation: FieldInsertGeneration) -> Value {
-    match generation {
-        FieldInsertGeneration::Ulid => Value::Ulid(Ulid::generate()),
-        FieldInsertGeneration::Timestamp => Value::Timestamp(Timestamp::now()),
-    }
-}
-
-const fn sql_write_managed_field_value(
-    management: FieldWriteManagement,
-    context: SanitizeWriteContext,
-) -> Value {
-    match management {
-        FieldWriteManagement::CreatedAt | FieldWriteManagement::UpdatedAt => {
-            Value::Timestamp(context.now())
-        }
-    }
-}
-
 const fn sql_insert_accepted_field_is_omittable(field: &AcceptedRowLayoutRuntimeField<'_>) -> bool {
-    accepted_insert_field_is_omittable(field.absence_policy(), field.write_policy())
+    accepted_insert_field_is_omittable(field.insert_omission_policy(), field.write_policy())
 }
 
 fn ensure_sql_insert_required_fields(
@@ -128,6 +108,7 @@ fn sql_insert_source_width_hint(
 ) -> Option<usize> {
     match source {
         SqlInsertSource::Values(values) => values.first().map(Vec::len),
+        SqlInsertSource::DefaultValues => None,
         SqlInsertSource::Select(select) => match &select.projection {
             SqlProjection::All => {
                 let mut count = 0usize;
@@ -174,6 +155,9 @@ fn sql_insert_columns(
     if !statement.columns.is_empty() {
         return statement.columns.clone();
     }
+    if matches!(statement.source, SqlInsertSource::DefaultValues) {
+        return Vec::new();
+    }
 
     let columns = accepted_insert_columns(descriptor, false);
     let full_columns = accepted_insert_columns(descriptor, true);
@@ -186,89 +170,73 @@ fn sql_insert_columns(
     full_columns
 }
 
-fn sql_insert_primary_key_values(
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    columns: &[String],
-    values: &[Value],
-    synthesized_fields: &[(&str, Value)],
-) -> Result<Vec<Value>, QueryError> {
-    let mut key_values = Vec::with_capacity(descriptor.primary_key_names().len());
-    for primary_key_name in descriptor.primary_key_names() {
-        if let Some(pk_index) = columns.iter().position(|field| field == primary_key_name) {
-            let pk_value = values.get(pk_index).ok_or_else(QueryError::invariant)?;
-            key_values.push(pk_value.clone());
-            continue;
-        }
-
-        if let Some((_, pk_value)) = synthesized_fields
-            .iter()
-            .find(|(field_name, _)| *field_name == *primary_key_name)
-        {
-            key_values.push(pk_value.clone());
-            continue;
-        }
-
-        return Err(QueryError::sql_write_boundary(
-            SqlWriteBoundaryCode::MissingPrimaryKey,
-        ));
-    }
-
-    Ok(key_values)
-}
-
 impl<C: CanisterKind> DbSession<C> {
-    fn sql_insert_patch_and_key<E>(
+    fn sql_insert_literal_patch(
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         columns: &[String],
         values: &[Value],
-        write_context: SanitizeWriteContext,
-    ) -> Result<(E::Key, AuthoredStructuralPatch), QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let mut synthesized_fields = Vec::new();
-        for accepted_field in descriptor.fields() {
-            if columns.iter().any(|column| column == accepted_field.name()) {
-                continue;
-            }
-
-            let policy = write_policy_for_accepted_field(accepted_field);
-            if let Some(generation) = policy.insert_generation() {
-                synthesized_fields.push((
-                    accepted_field.name(),
-                    sql_write_generated_field_value(generation),
-                ));
-            }
-            if let Some(management) = policy.write_management() {
-                synthesized_fields.push((
-                    accepted_field.name(),
-                    sql_write_managed_field_value(management, write_context),
-                ));
-            }
-        }
-        let key_values =
-            sql_insert_primary_key_values(descriptor, columns, values, &synthesized_fields)?;
-        let key = sql_write_key_from_component_literals::<E>(descriptor, key_values.as_slice())?;
-
-        let mut patch = AuthoredStructuralPatch::new();
-        for (field_name, synthesized_value) in &synthesized_fields {
-            patch = sql_write_patch_set_accepted_field(
-                descriptor,
-                patch,
-                field_name,
-                InputValue::try_from_runtime_non_enum(synthesized_value).ok_or_else(|| {
-                    QueryError::execute(InternalError::query_executor_invariant())
-                })?,
-            )?;
-        }
+    ) -> Result<AcceptedMutationIntentPatch, QueryError> {
+        let mut patch = AcceptedMutationIntentPatch::new();
         for (field, value) in columns.iter().zip(values.iter()) {
             reject_explicit_sql_write_to_generated_field(descriptor, field)?;
             reject_explicit_sql_write_to_managed_field(descriptor, field)?;
-            let input = sql_write_input_for_accepted_field(descriptor, field, value)?;
+            let input =
+                sql_write_input_for_accepted_field(descriptor, field, value).map_err(|error| {
+                    if descriptor.is_primary_key_field_name(field) {
+                        QueryError::sql_write_boundary(
+                            SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible,
+                        )
+                    } else {
+                        error
+                    }
+                })?;
             patch = sql_write_patch_set_accepted_field(descriptor, patch, field, input)?;
         }
 
-        Ok((key, patch))
+        Ok(patch)
+    }
+
+    fn sql_insert_values_patch(
+        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+        columns: &[String],
+        values: &[SqlWriteValue],
+    ) -> Result<AcceptedMutationIntentPatch, QueryError> {
+        let mut patch = AcceptedMutationIntentPatch::new();
+        for (field, value) in columns.iter().zip(values.iter()) {
+            patch = match value {
+                SqlWriteValue::Literal(value) => {
+                    reject_explicit_sql_write_to_generated_field(descriptor, field)?;
+                    reject_explicit_sql_write_to_managed_field(descriptor, field)?;
+                    let input = sql_write_input_for_accepted_field(descriptor, field, value)
+                        .map_err(|error| {
+                            if descriptor.is_primary_key_field_name(field) {
+                                QueryError::sql_write_boundary(
+                                    SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible,
+                                )
+                            } else {
+                                error
+                            }
+                        })?;
+                    sql_write_patch_set_accepted_field(descriptor, patch, field, input)?
+                }
+                SqlWriteValue::Default => {
+                    sql_write_patch_set_insert_default(descriptor, patch, field)?
+                }
+            };
+        }
+
+        Ok(patch)
+    }
+
+    fn sql_insert_default_values_patch(
+        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    ) -> Result<AcceptedMutationIntentPatch, QueryError> {
+        let mut patch = AcceptedMutationIntentPatch::new();
+        for field in descriptor.fields() {
+            patch = sql_write_patch_set_insert_default(descriptor, patch, field.name())?;
+        }
+
+        Ok(patch)
     }
 
     // Execute the SELECT source for `INSERT ... SELECT` and consume the
@@ -282,8 +250,7 @@ impl<C: CanisterKind> DbSession<C> {
         source_query: &StructuralQuery,
         columns: &[String],
         candidate_bounds: SqlWriteCandidateBounds,
-        write_context: SanitizeWriteContext,
-    ) -> Result<SqlWriteCandidateCollection<E::Key>, QueryError>
+    ) -> Result<SqlWriteCandidateCollection<StructuralMutationTargetKey<E::Key>>, QueryError>
     where
         E: PersistedRow<Canister = C>,
     {
@@ -301,7 +268,11 @@ impl<C: CanisterKind> DbSession<C> {
                     ));
                 }
 
-                Self::sql_insert_patch_and_key::<E>(descriptor, columns, row, write_context)
+                let patch = Self::sql_insert_literal_patch(descriptor, columns, row)?;
+                Ok((
+                    StructuralMutationTargetKey::resolve_from_after_image(),
+                    patch,
+                ))
             },
         )?;
 
@@ -314,17 +285,18 @@ impl<C: CanisterKind> DbSession<C> {
     // whole source row set behind a shared temporary vector.
     fn sql_insert_push_patch_row<E>(
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-        rows: &mut SqlWriteCandidateCollection<E::Key>,
+        rows: &mut SqlWriteCandidateCollection<StructuralMutationTargetKey<E::Key>>,
         columns: &[String],
-        values: &[Value],
-        write_context: SanitizeWriteContext,
+        values: &[SqlWriteValue],
     ) -> Result<(), QueryError>
     where
         E: PersistedRow<Canister = C>,
     {
-        let (key, patch) =
-            Self::sql_insert_patch_and_key::<E>(descriptor, columns, values, write_context)?;
-        rows.push(key, patch);
+        let patch = Self::sql_insert_values_patch(descriptor, columns, values)?;
+        rows.push(
+            StructuralMutationTargetKey::resolve_from_after_image(),
+            patch,
+        );
 
         Ok(())
     }
@@ -382,7 +354,9 @@ impl<C: CanisterKind> DbSession<C> {
             statement.returning.as_ref(),
             |catalog, descriptor| {
                 let columns = sql_insert_columns(&descriptor, statement);
-                ensure_sql_insert_required_fields(&descriptor, columns.as_slice())?;
+                if !matches!(statement.source, SqlInsertSource::DefaultValues) {
+                    ensure_sql_insert_required_fields(&descriptor, columns.as_slice())?;
+                }
                 let write_context =
                     SanitizeWriteContext::new(SanitizeWriteMode::Insert, Timestamp::now());
                 let candidate_bounds =
@@ -411,9 +385,18 @@ impl<C: CanisterKind> DbSession<C> {
                                 &mut collection,
                                 columns.as_slice(),
                                 tuple.as_slice(),
-                                write_context,
                             )?;
                         }
+                    }
+                    SqlInsertSource::DefaultValues => {
+                        candidate_bounds.validate_at(
+                            SqlWriteCandidateRows::from_len(1),
+                            SqlWriteCandidateBoundCheck::InsertValuesSource,
+                        )?;
+                        collection.push(
+                            StructuralMutationTargetKey::resolve_from_after_image(),
+                            Self::sql_insert_default_values_patch(&descriptor)?,
+                        );
                     }
                     SqlInsertSource::Select(_) => {
                         let source_query = source_query.ok_or_else(QueryError::invariant)?;
@@ -423,12 +406,13 @@ impl<C: CanisterKind> DbSession<C> {
                             source_query,
                             columns.as_slice(),
                             candidate_bounds,
-                            write_context,
                         )?;
                     }
                 }
                 let kind = match &statement.source {
-                    SqlInsertSource::Values(_) => SqlWriteKind::Insert,
+                    SqlInsertSource::Values(_) | SqlInsertSource::DefaultValues => {
+                        SqlWriteKind::Insert
+                    }
                     SqlInsertSource::Select(_) => SqlWriteKind::InsertSelect,
                 };
                 self.execute_sql_write_mutation_batch::<E>(

@@ -1,10 +1,5 @@
 #[cfg(test)]
-use crate::db::data::persisted_row::{
-    codec::ScalarSlotValueRef, contract::decode_scalar_slot_value_from_row_contract,
-    types::PersistedRow,
-};
-#[cfg(test)]
-use crate::model::entity::EntityModel;
+use crate::db::data::PersistedRow;
 use crate::{
     db::{
         data::{
@@ -15,242 +10,89 @@ use crate::{
                 contract::{
                     RETIRED_SLOT_PLACEHOLDER_PAYLOAD,
                     canonical_row_from_runtime_value_source_with_accepted_contract,
-                    decode_runtime_value_from_row_contract, emit_raw_row_from_slot_payloads,
+                    emit_raw_row_from_slot_payloads,
                 },
                 reader::StructuralSlotReader,
                 types::{
-                    AuthoredStructuralPatch, FieldSlot, SerializedStructuralFieldUpdate,
-                    SerializedStructuralPatch, SlotReader,
+                    AcceptedInsertPolicyRequest, AcceptedMutationFieldWriteIntent,
+                    AcceptedMutationIntentPatch, SlotReader,
                 },
             },
         },
         schema::{
-            AcceptedFieldPersistenceContract, AcceptedRowDecodeContract,
+            AcceptedFieldPersistenceContract, AcceptedInsertOmissionPolicy,
+            AcceptedRowDecodeContract,
             authored_projection::{AcceptedAuthoredFieldProjection, AuthoredFieldAdmissionError},
             enum_catalog::{ValueAdmissionBudget, ValueAdmissionError},
         },
     },
     error::InternalError,
+    model::field::{FieldInsertGeneration, FieldWriteManagement},
+    sanitize::SanitizeWriteContext,
     traits::AuthoredFieldProjection,
+    types::Ulid,
     value::{InputValue, Value},
 };
 use std::borrow::Cow;
 
+/// Provenance of one resolved accepted field in a mutation after-image.
 ///
-/// SerializedPatchPayloads
+/// Sanitizer validation uses this transient fact to distinguish caller-authored
+/// values from canonical database values that application code may not alter.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum AcceptedFieldWriteProvenance {
+    /// Exact caller-authored field input.
+    Authored,
+    /// Accepted default selected for one exact insertion-policy request.
+    ResolvedDefault(AcceptedInsertPolicyRequest),
+    /// Accepted nullable policy materialized as canonical `NULL`.
+    ResolvedNull(AcceptedInsertPolicyRequest),
+    /// Accepted insert generator evaluated exactly once for this after-image.
+    InsertGenerated(AcceptedInsertPolicyRequest),
+    /// Accepted insert-management policy evaluated for this after-image.
+    InsertManaged(AcceptedInsertPolicyRequest),
+    /// Accepted update-management policy evaluated for this after-image.
+    UpdateManaged,
+    /// Existing logical value preserved by an unassigned update field.
+    Preserved,
+    /// Database-owned primary-key value preserved by keyed replacement.
+    PreservedReplacementIdentity,
+    /// Frozen historical fill materialized from a legitimately shorter row.
+    HistoricalFill,
+}
+
+impl AcceptedFieldWriteProvenance {
+    /// Return whether an application sanitizer may transform this field.
+    #[must_use]
+    pub(in crate::db) const fn sanitizer_may_transform(self) -> bool {
+        matches!(self, Self::Authored)
+    }
+}
+
+/// Complete canonical accepted row paired with per-slot write provenance.
 ///
-/// SerializedPatchPayloads owns the slot-indexed view of one serialized
-/// structural patch.
-/// It centralizes duplicate-slot last-write-wins handling and the difference
-/// between complete after-image payloads and sparse baseline-overlay replay.
-///
-
-struct SerializedPatchPayloads<'a> {
-    contract: StructuralRowContract,
-    payloads: Vec<Option<&'a [u8]>>,
+/// Construction resolves every active slot before typed materialization, so a
+/// caller cannot separate canonical database values from the provenance proof
+/// required at the sanitizer boundary.
+pub(in crate::db) struct ResolvedAcceptedMutationRow {
+    row: CanonicalRow,
+    provenance: Vec<Option<AcceptedFieldWriteProvenance>>,
 }
 
-impl<'a> SerializedPatchPayloads<'a> {
-    // Materialize the last-write-wins serialized patch view indexed by stable
-    // slot so later replay paths do not each rebuild that policy locally.
-    #[cfg(test)]
-    fn new_for_model_proposal_for_test(
-        model: &'static EntityModel,
-        patch: &'a SerializedStructuralPatch,
-    ) -> Result<Self, InternalError> {
-        Self::from_contract(
-            StructuralRowContract::from_model_proposal_for_test(model),
-            patch,
-        )
+impl ResolvedAcceptedMutationRow {
+    /// Build one resolved row after canonical slot emission succeeds.
+    #[must_use]
+    const fn new(row: CanonicalRow, provenance: Vec<Option<AcceptedFieldWriteProvenance>>) -> Self {
+        Self { row, provenance }
     }
 
-    // Materialize one patch payload view over an accepted schema row contract.
-    fn new_with_accepted_contract(
-        entity_path: &'static str,
-        accepted_decode_contract: AcceptedRowDecodeContract,
-        patch: &'a SerializedStructuralPatch,
-    ) -> Result<Self, InternalError> {
-        Self::from_contract(
-            StructuralRowContract::from_accepted_decode_contract(
-                entity_path,
-                accepted_decode_contract,
-            ),
-            patch,
-        )
+    /// Consume the invariant-bearing row into its paired artifacts.
+    #[must_use]
+    pub(in crate::db) fn into_parts(
+        self,
+    ) -> (CanonicalRow, Vec<Option<AcceptedFieldWriteProvenance>>) {
+        (self.row, self.provenance)
     }
-
-    // Materialize the slot-indexed payload view from an already selected row
-    // contract so every materialization boundary shares duplicate-slot policy.
-    fn from_contract(
-        contract: StructuralRowContract,
-        patch: &'a SerializedStructuralPatch,
-    ) -> Result<Self, InternalError> {
-        let mut payloads = vec![None; contract.field_count()];
-
-        for entry in patch.entries() {
-            let slot = entry.slot().index();
-            let _ = contract.required_accepted_field_decode_contract(slot)?;
-            payloads[slot] = Some(entry.payload());
-        }
-
-        Ok(Self { contract, payloads })
-    }
-
-    // Return whether this patch after-image currently carries a payload for
-    // the requested slot.
-    #[cfg(test)]
-    fn has(&self, slot: usize) -> bool {
-        self.payloads.get(slot).is_some_and(Option::is_some)
-    }
-
-    // Borrow one patch payload by stable slot index.
-    fn get(&self, slot: usize) -> Option<&[u8]> {
-        self.payloads.get(slot).copied().flatten()
-    }
-
-    // Borrow one complete after-image payload, rejecting sparse patches at the
-    // fresh-row emission boundary where every declared slot must be present.
-    fn required_complete_payload(&self, slot: usize) -> Result<&[u8], InternalError> {
-        self.get(slot)
-            .ok_or_else(InternalError::persisted_row_encode_internal)
-    }
-}
-
-///
-/// SerializedPatchSlotReader
-///
-/// Adapts a sparse serialized structural patch to the slot-reader contract so
-/// typed materialization can apply derive-owned missing-slot semantics before
-/// any dense row image is emitted.
-///
-#[cfg(test)]
-struct SerializedPatchSlotReader<'a> {
-    payloads: SerializedPatchPayloads<'a>,
-    decoded: Vec<Option<Value>>,
-}
-
-#[cfg(test)]
-impl<'a> SerializedPatchSlotReader<'a> {
-    // Build one sparse patch-backed reader after projecting a model proposal
-    // into an accepted test contract.
-    #[cfg(test)]
-    fn new_for_model_proposal_for_test(
-        model: &'static EntityModel,
-        patch: &'a SerializedStructuralPatch,
-    ) -> Result<Self, InternalError> {
-        let payloads = SerializedPatchPayloads::new_for_model_proposal_for_test(model, patch)?;
-        let decoded = vec![None; payloads.contract.field_count()];
-
-        Ok(Self { payloads, decoded })
-    }
-}
-
-#[cfg(test)]
-impl SlotReader for SerializedPatchSlotReader<'_> {
-    fn has(&self, slot: usize) -> bool {
-        self.payloads.has(slot)
-    }
-
-    fn get_bytes(&self, slot: usize) -> Option<&[u8]> {
-        self.payloads.get(slot)
-    }
-
-    fn get_scalar(&self, slot: usize) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
-        let Some(raw_value) = self.get_bytes(slot) else {
-            return Ok(None);
-        };
-        let crate::model::field::LeafCodec::Scalar(_) =
-            self.payloads.contract.field_leaf_codec(slot)?
-        else {
-            return Ok(None);
-        };
-
-        decode_scalar_slot_value_from_row_contract(&self.payloads.contract, slot, raw_value)
-            .map(Some)
-    }
-
-    fn get_value(&mut self, slot: usize) -> Result<Option<Value>, InternalError> {
-        if slot >= self.decoded.len() {
-            return Ok(None);
-        }
-
-        if self.decoded[slot].is_none()
-            && let Some(raw_value) = self.get_bytes(slot)
-        {
-            self.decoded[slot] = Some(decode_runtime_value_from_row_contract(
-                &self.payloads.contract,
-                slot,
-                raw_value,
-            )?);
-        }
-
-        Ok(self.decoded[slot].clone())
-    }
-
-    fn runtime_enum_context(&self) -> Option<&dyn crate::value::RuntimeEnumContext> {
-        Some(
-            self.payloads
-                .contract
-                .accepted_value_catalog_handle()
-                .enum_catalog() as &dyn crate::value::RuntimeEnumContext,
-        )
-    }
-}
-
-// Materialize one typed entity directly from a sparse serialized structural
-// patch so derive-owned missing-slot semantics run before final row emission.
-#[cfg(test)]
-pub(in crate::db) fn materialize_entity_from_serialized_structural_patch_for_model_proposal_for_test<
-    E,
->(
-    patch: &SerializedStructuralPatch,
-) -> Result<E, InternalError>
-where
-    E: PersistedRow,
-{
-    let mut slots = SerializedPatchSlotReader::new_for_model_proposal_for_test(E::MODEL, patch)?;
-
-    E::materialize_from_slots(&mut slots)
-}
-
-/// Build one canonical row from one complete accepted structural slot image.
-pub(in crate::db) fn canonical_row_from_complete_serialized_structural_patch_with_accepted_contract(
-    entity_path: &'static str,
-    accepted_decode_contract: AcceptedRowDecodeContract,
-    patch: &SerializedStructuralPatch,
-) -> Result<CanonicalRow, InternalError> {
-    let patch_payloads = SerializedPatchPayloads::new_with_accepted_contract(
-        entity_path,
-        accepted_decode_contract,
-        patch,
-    )?;
-    let slot_payloads = (0..patch_payloads.contract.field_count())
-        .map(|slot| {
-            patch_payloads
-                .required_complete_payload(slot)
-                .map(Vec::from)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let staged = emit_raw_row_from_slot_payloads(
-        patch_payloads.contract.field_count(),
-        slot_payloads.as_slice(),
-    )?
-    .into_raw_row();
-
-    canonical_row_from_raw_row_with_structural_contract(&staged, &patch_payloads.contract)
-}
-
-/// Build one canonical row from one complete model-proposal slot image.
-#[cfg(test)]
-pub(in crate::db) fn canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test(
-    model: &'static EntityModel,
-    patch: &SerializedStructuralPatch,
-) -> Result<CanonicalRow, InternalError> {
-    canonical_row_from_complete_serialized_structural_patch_with_accepted_contract(
-        model.path(),
-        AcceptedRowDecodeContract::from_model_proposal_for_test(model),
-        patch,
-    )
 }
 
 /// Build one canonical row from a model proposal through accepted field contracts.
@@ -309,14 +151,18 @@ where
             continue;
         }
 
-        let value = contract.missing_slot_value(slot)?;
+        let value = contract.insert_omission_value(slot)?;
         let encoding = contract.required_accepted_field_persistence_contract(slot)?;
         slot_payloads.push(encode_canonical_value_for_accepted_field_contract(
             encoding, &value,
         )?);
     }
 
-    emit_raw_row_from_slot_payloads(contract.field_count(), slot_payloads.as_slice())
+    emit_raw_row_from_slot_payloads(
+        contract.current_layout_version(),
+        contract.field_count(),
+        slot_payloads.as_slice(),
+    )
 }
 
 // Preserve authored-input rejection as caller-unsupported while classifying
@@ -399,7 +245,11 @@ pub(in crate::db) fn merge_non_generated_slots_into_canonical_row_with_accepted_
         slot_payloads.push(payload.to_vec());
     }
 
-    emit_raw_row_from_slot_payloads(contract.field_count(), slot_payloads.as_slice())
+    emit_raw_row_from_slot_payloads(
+        contract.current_layout_version(),
+        contract.field_count(),
+        slot_payloads.as_slice(),
+    )
 }
 
 /// Build one canonical row from one accepted-contract structural slot reader.
@@ -446,18 +296,6 @@ pub(in crate::db) const fn canonical_row_from_stored_raw_row(raw_row: RawRow) ->
     CanonicalRow::from_canonical_raw_row(raw_row)
 }
 
-/// Re-emit one dense row from already validated canonical slot payloads.
-///
-/// Schema-owned physical rewrites use this after reading every payload through
-/// the accepted-before row contract and selecting the accepted-after slot
-/// order.
-#[cfg(feature = "sql")]
-pub(in crate::db) fn canonical_row_from_dense_slot_payloads(
-    slot_payloads: &[Vec<u8>],
-) -> Result<CanonicalRow, InternalError> {
-    emit_raw_row_from_slot_payloads(slot_payloads.len(), slot_payloads)
-}
-
 // Admit every authored value before selecting its accepted storage codec.
 fn encode_authored_value_for_accepted_field_contract(
     encoding: AcceptedFieldPersistenceContract<'_>,
@@ -474,161 +312,325 @@ fn encode_authored_value_for_accepted_field_contract(
         .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))
 }
 
-/// Serialize one structural patch through an accepted row-decode contract.
-///
-/// Write target-slot admission and value-to-bytes encoding remain on the
-/// selected accepted row contract.
-pub(in crate::db) fn serialize_structural_patch_fields_with_accepted_contract(
+// Resolve one active insert slot while keeping field-policy branching inside
+// the accepted row boundary. The caller owns only dense slot assembly.
+fn resolve_insert_active_slot(
     entity_path: &'static str,
-    accepted_decode_contract: AcceptedRowDecodeContract,
-    patch: &AuthoredStructuralPatch,
-) -> Result<SerializedStructuralPatch, InternalError> {
-    let contract =
-        StructuralRowContract::from_accepted_decode_contract(entity_path, accepted_decode_contract);
-
-    serialize_structural_patch_fields_for_accepted_contract(&contract, patch)
-}
-
-/// Serialize one structural insert/replace after-image through an accepted
-/// row-decode contract.
-///
-/// Unlike sparse update serialization, this fills omitted accepted slots using
-/// the schema-owned missing-slot policy before typed materialization. That
-/// keeps insert/replace omissions on accepted database defaults instead of
-/// falling through to generated Rust `Default` behavior.
-pub(in crate::db) fn serialize_complete_structural_patch_fields_with_accepted_contract(
-    entity_path: &'static str,
-    accepted_decode_contract: AcceptedRowDecodeContract,
-    patch: &AuthoredStructuralPatch,
-) -> Result<SerializedStructuralPatch, InternalError> {
-    let contract =
-        StructuralRowContract::from_accepted_decode_contract(entity_path, accepted_decode_contract);
-
-    serialize_complete_structural_patch_fields_for_accepted_contract(&contract, patch)
-}
-
-// Serialize accepted-schema structural patch entries through accepted field
-// contracts only. Missing accepted contracts are rejected as slot-boundary
-// errors instead of falling back to generated field metadata.
-fn serialize_structural_patch_fields_for_accepted_contract(
     contract: &StructuralRowContract,
-    patch: &AuthoredStructuralPatch,
-) -> Result<SerializedStructuralPatch, InternalError> {
-    if patch.is_empty() {
-        return Ok(SerializedStructuralPatch::default());
+    slot: usize,
+    intent: Option<AcceptedMutationFieldWriteIntent>,
+    write_context: SanitizeWriteContext,
+) -> Result<(Vec<u8>, AcceptedFieldWriteProvenance), InternalError> {
+    let field = contract.required_accepted_field_contract(slot)?;
+    let write_policy = field.write_policy();
+    let request = match intent {
+        Some(AcceptedMutationFieldWriteIntent::Authored(input)) => {
+            if write_policy.insert_generation().is_some()
+                || write_policy.write_management().is_some()
+            {
+                return Err(InternalError::mutation_database_owned_field_explicit(
+                    entity_path,
+                    field.field_name(),
+                ));
+            }
+            let encoding = contract.required_accepted_field_persistence_contract(slot)?;
+            let payload = encode_authored_value_for_accepted_field_contract(encoding, input)?;
+
+            return Ok((payload, AcceptedFieldWriteProvenance::Authored));
+        }
+        Some(AcceptedMutationFieldWriteIntent::PreservedReplacementIdentity(input)) => {
+            if !contract.primary_key_slot_indices().contains(&slot)
+                || (write_policy.insert_generation().is_none()
+                    && write_policy.write_management().is_none())
+            {
+                return Err(InternalError::executor_invariant());
+            }
+            let encoding = contract.required_accepted_field_persistence_contract(slot)?;
+            let payload = encode_authored_value_for_accepted_field_contract(encoding, input)?;
+
+            return Ok((
+                payload,
+                AcceptedFieldWriteProvenance::PreservedReplacementIdentity,
+            ));
+        }
+        Some(AcceptedMutationFieldWriteIntent::Resolve(
+            AcceptedInsertPolicyRequest::ExplicitInsertDefault,
+        )) => AcceptedInsertPolicyRequest::ExplicitInsertDefault,
+        Some(AcceptedMutationFieldWriteIntent::Resolve(
+            AcceptedInsertPolicyRequest::OmittedInsert
+            | AcceptedInsertPolicyRequest::ExplicitUpdateDefault,
+        )) => return Err(InternalError::executor_invariant()),
+        None => AcceptedInsertPolicyRequest::OmittedInsert,
+    };
+
+    if let Some(generation) = write_policy.insert_generation() {
+        let value = accepted_insert_generated_value(generation, write_context);
+        let encoding = contract.required_accepted_field_persistence_contract(slot)?;
+        let payload = encode_canonical_value_for_accepted_field_contract(encoding, &value)?;
+
+        return Ok((
+            payload,
+            AcceptedFieldWriteProvenance::InsertGenerated(request),
+        ));
+    }
+    if let Some(management) = write_policy.write_management() {
+        let value = accepted_insert_managed_value(management, write_context);
+        let encoding = contract.required_accepted_field_persistence_contract(slot)?;
+        let payload = encode_canonical_value_for_accepted_field_contract(encoding, &value)?;
+
+        return Ok((
+            payload,
+            AcceptedFieldWriteProvenance::InsertManaged(request),
+        ));
     }
 
-    let mut entries = Vec::with_capacity(patch.entries().len());
+    let provenance = match field.insert_omission_policy() {
+        AcceptedInsertOmissionPolicy::NullIfMissing => {
+            AcceptedFieldWriteProvenance::ResolvedNull(request)
+        }
+        AcceptedInsertOmissionPolicy::DefaultIfMissing => {
+            AcceptedFieldWriteProvenance::ResolvedDefault(request)
+        }
+        AcceptedInsertOmissionPolicy::Required => {
+            if matches!(request, AcceptedInsertPolicyRequest::ExplicitInsertDefault) {
+                return Err(InternalError::query_sql_write_boundary(
+                    icydb_diagnostic_code::SqlWriteBoundaryCode::InsertDefaultRequiredField,
+                ));
+            }
+            return Err(InternalError::mutation_required_field_missing(
+                entity_path,
+                field.field_name(),
+            ));
+        }
+    };
 
-    // Phase 1: validate and encode each ordered field update through the
-    // accepted field contract selected by the database schema snapshot.
-    for entry in patch.entries() {
-        let slot = entry.slot();
-        let encoding = contract.required_accepted_field_persistence_contract(slot.index())?;
-        let payload =
-            encode_authored_value_for_accepted_field_contract(encoding, entry.value().clone())?;
-        entries.push(SerializedStructuralFieldUpdate::new(slot, payload));
-    }
-
-    Ok(SerializedStructuralPatch::new(entries))
+    Ok((contract.insert_omission_payload(slot)?, provenance))
 }
 
-// Serialize one sparse structural patch as a complete after-image by applying
-// accepted-schema default/null policy for every omitted slot. This is only used
-// at insert/replace staging, where the next materialization step expects a
-// dense logical row image rather than update-style sparse intent.
-fn serialize_complete_structural_patch_fields_for_accepted_contract(
-    contract: &StructuralRowContract,
-    patch: &AuthoredStructuralPatch,
-) -> Result<SerializedStructuralPatch, InternalError> {
+/// Resolve one sparse insert patch through accepted insertion authority.
+///
+/// Authored inputs remain distinct from omission, while accepted generation,
+/// management, default, and nullable policies produce canonical protected
+/// values before any typed entity or sanitizer can observe the after-image.
+pub(in crate::db) fn resolve_insert_structural_patch_with_accepted_contract(
+    entity_path: &'static str,
+    accepted_decode_contract: AcceptedRowDecodeContract,
+    patch: &AcceptedMutationIntentPatch,
+    write_context: SanitizeWriteContext,
+) -> Result<ResolvedAcceptedMutationRow, InternalError> {
+    let contract =
+        StructuralRowContract::from_accepted_decode_contract(entity_path, accepted_decode_contract);
     let mut payloads = vec![None; contract.field_count()];
+    let mut provenance = vec![None; contract.field_count()];
+    let mut intents = vec![None; contract.field_count()];
 
-    // Phase 1: encode explicit user-provided assignments with last-write-wins
-    // semantics per physical slot.
+    // Phase 1: retain exact last-write-wins request intent without evaluating
+    // policy or encoding a value that a later assignment replaces.
     for entry in patch.entries() {
         let slot = entry.slot().index();
-        let encoding = contract.required_accepted_field_persistence_contract(slot)?;
-        let payload =
-            encode_authored_value_for_accepted_field_contract(encoding, entry.value().clone())?;
-        payloads[slot] = Some(payload);
+        let _ = contract.required_accepted_field_contract(slot)?;
+        intents[slot] = Some(entry.intent().clone());
     }
 
-    // Phase 2: fill every omitted accepted slot using schema-owned absence
-    // policy. Required fields still fail closed here.
-    for (slot, payload) in payloads.iter_mut().enumerate() {
-        if payload.is_some() {
-            continue;
-        }
+    // Phase 2: resolve every exact authored/default/omitted request from the
+    // accepted field policy selected for this operation.
+    // Retired slots retain their canonical placeholder but carry no field
+    // provenance because no logical field exists at that slot.
+    for slot in 0..contract.field_count() {
         if !contract.has_active_field_slot(slot) {
-            *payload = Some(RETIRED_SLOT_PLACEHOLDER_PAYLOAD.to_vec());
+            payloads[slot] = Some(RETIRED_SLOT_PLACEHOLDER_PAYLOAD.to_vec());
             continue;
         }
-        *payload = Some(contract.missing_slot_payload(slot)?);
+
+        let (payload, source) = resolve_insert_active_slot(
+            entity_path,
+            &contract,
+            slot,
+            intents[slot].take(),
+            write_context,
+        )?;
+        payloads[slot] = Some(payload);
+        provenance[slot] = Some(source);
     }
 
-    let entries = payloads
+    let slot_payloads = payloads
         .into_iter()
-        .enumerate()
-        .map(|(slot, payload)| {
-            let payload = payload.ok_or_else(|| {
-                InternalError::persisted_row_slot_lookup_out_of_bounds(contract.entity_path(), slot)
-            })?;
+        .map(|payload| payload.ok_or_else(InternalError::persisted_row_encode_internal))
+        .collect::<Result<Vec<_>, _>>()?;
+    let row = emit_raw_row_from_slot_payloads(
+        contract.current_layout_version(),
+        contract.field_count(),
+        slot_payloads.as_slice(),
+    )?;
 
-            Ok(SerializedStructuralFieldUpdate::new(
-                FieldSlot::from_validated_index(slot),
-                payload,
-            ))
-        })
-        .collect::<Result<Vec<_>, InternalError>>()?;
-
-    Ok(SerializedStructuralPatch::new(entries))
+    Ok(ResolvedAcceptedMutationRow::new(row, provenance))
 }
 
-/// Apply one serialized structural patch through an accepted row-decode contract.
+/// Resolve one sparse update patch over an accepted logical before-image.
 ///
-/// It materializes the old row through the accepted contract first
-/// so missing append-only nullable slots become ordinary `NULL` values, then
-/// overlays sparse current-layout patch payloads through accepted field decode
-/// contracts before final accepted-contract row emission.
-pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row_with_accepted_contract(
+/// Unassigned fields preserve their accepted logical values, including frozen
+/// historical fills, while update-managed fields resolve from the operation's
+/// stable write context before sanitizer execution.
+pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
     entity_path: &'static str,
     accepted_decode_contract: AcceptedRowDecodeContract,
     raw_row: &RawRow,
-    patch: &SerializedStructuralPatch,
-) -> Result<CanonicalRow, InternalError> {
+    patch: &AcceptedMutationIntentPatch,
+    write_context: SanitizeWriteContext,
+) -> Result<ResolvedAcceptedMutationRow, InternalError> {
     let contract =
         StructuralRowContract::from_accepted_decode_contract(entity_path, accepted_decode_contract);
-    let row_fields =
+    let baseline =
         StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(raw_row, &contract)?;
-    let mut values = Vec::with_capacity(contract.field_count());
+    let mut payloads = vec![None; contract.field_count()];
+    let mut provenance = vec![None; contract.field_count()];
+    let mut intents = vec![None; contract.field_count()];
 
-    // Phase 1: materialize the accepted baseline into current generated slot
-    // order, including any nullable appended slots that are absent on disk.
-    for slot in 0..contract.field_count() {
-        if contract.has_active_field_slot(slot) {
-            values.push(row_fields.required_cached_value(slot)?.clone());
-        } else {
-            values.push(Value::Null);
-        }
-    }
-
-    // Phase 2: overlay the sparse current-layout patch. Payloads are already
-    // encoded bytes, so accepted field decode can materialize them directly
-    // before final canonical row emission.
+    // Phase 1: retain exact last-write-wins assignment provenance.
     for entry in patch.entries() {
         let slot = entry.slot().index();
-        let value = values
-            .get_mut(slot)
-            .ok_or_else(InternalError::persisted_row_encode_internal)?;
-        *value = decode_runtime_value_from_row_contract(&contract, slot, entry.payload())?;
+        let _ = contract.required_accepted_field_contract(slot)?;
+        intents[slot] = Some(entry.intent().clone());
     }
 
-    canonical_row_from_runtime_value_source_with_accepted_contract(&contract, |slot| {
-        values
-            .get(slot)
-            .map(Cow::Borrowed)
-            .ok_or_else(InternalError::persisted_row_encode_internal)
-    })
+    // Phase 2: resolve updated-at policy and preserve every other unassigned
+    // logical value. Historical absence is classified before canonical current
+    // layout emission so its frozen provenance is not lost.
+    for slot in 0..contract.field_count() {
+        if payloads[slot].is_some() {
+            continue;
+        }
+        if !contract.has_active_field_slot(slot) {
+            payloads[slot] = Some(RETIRED_SLOT_PLACEHOLDER_PAYLOAD.to_vec());
+            continue;
+        }
+
+        let field = contract.required_accepted_field_contract(slot)?;
+        let write_policy = field.write_policy();
+        match intents[slot].take() {
+            Some(AcceptedMutationFieldWriteIntent::Authored(input)) => {
+                if write_policy.insert_generation().is_some()
+                    || write_policy.write_management().is_some()
+                {
+                    return Err(InternalError::mutation_database_owned_field_explicit(
+                        entity_path,
+                        field.field_name(),
+                    ));
+                }
+                let encoding = contract.required_accepted_field_persistence_contract(slot)?;
+                payloads[slot] = Some(encode_authored_value_for_accepted_field_contract(
+                    encoding, input,
+                )?);
+                provenance[slot] = Some(AcceptedFieldWriteProvenance::Authored);
+                continue;
+            }
+            Some(AcceptedMutationFieldWriteIntent::PreservedReplacementIdentity(_)) => {
+                return Err(InternalError::executor_invariant());
+            }
+            Some(AcceptedMutationFieldWriteIntent::Resolve(
+                AcceptedInsertPolicyRequest::ExplicitUpdateDefault,
+            )) => {
+                let (payload, resolved_provenance) =
+                    resolve_explicit_update_default(&contract, slot)?;
+                payloads[slot] = Some(payload);
+                provenance[slot] = Some(resolved_provenance);
+                continue;
+            }
+            Some(AcceptedMutationFieldWriteIntent::Resolve(
+                AcceptedInsertPolicyRequest::OmittedInsert
+                | AcceptedInsertPolicyRequest::ExplicitInsertDefault,
+            )) => return Err(InternalError::executor_invariant()),
+            None => {}
+        }
+        if matches!(
+            write_policy.write_management(),
+            Some(FieldWriteManagement::UpdatedAt)
+        ) {
+            let value = Value::Timestamp(write_context.now());
+            let encoding = contract.required_accepted_field_persistence_contract(slot)?;
+            payloads[slot] = Some(encode_canonical_value_for_accepted_field_contract(
+                encoding, &value,
+            )?);
+            provenance[slot] = Some(AcceptedFieldWriteProvenance::UpdateManaged);
+            continue;
+        }
+
+        let value = baseline.required_cached_value(slot)?;
+        let encoding = contract.required_accepted_field_persistence_contract(slot)?;
+        payloads[slot] = Some(encode_canonical_value_for_accepted_field_contract(
+            encoding, value,
+        )?);
+        provenance[slot] = Some(if baseline.get_bytes(slot).is_some() {
+            AcceptedFieldWriteProvenance::Preserved
+        } else {
+            AcceptedFieldWriteProvenance::HistoricalFill
+        });
+    }
+
+    let slot_payloads = payloads
+        .into_iter()
+        .map(|payload| payload.ok_or_else(InternalError::persisted_row_encode_internal))
+        .collect::<Result<Vec<_>, _>>()?;
+    let row = emit_raw_row_from_slot_payloads(
+        contract.current_layout_version(),
+        contract.field_count(),
+        slot_payloads.as_slice(),
+    )?;
+
+    Ok(ResolvedAcceptedMutationRow::new(row, provenance))
+}
+
+// Resolve one update-default request through the ordinary accepted insertion
+// policy without permitting generation or management to become update owners.
+fn resolve_explicit_update_default(
+    contract: &StructuralRowContract,
+    slot: usize,
+) -> Result<(Vec<u8>, AcceptedFieldWriteProvenance), InternalError> {
+    let field = contract.required_accepted_field_contract(slot)?;
+    let write_policy = field.write_policy();
+    if write_policy.insert_generation().is_some() || write_policy.write_management().is_some() {
+        return Err(InternalError::query_sql_write_boundary(
+            icydb_diagnostic_code::SqlWriteBoundaryCode::UpdateDefaultDatabaseOwnedField,
+        ));
+    }
+    let provenance = match field.insert_omission_policy() {
+        AcceptedInsertOmissionPolicy::NullIfMissing => AcceptedFieldWriteProvenance::ResolvedNull(
+            AcceptedInsertPolicyRequest::ExplicitUpdateDefault,
+        ),
+        AcceptedInsertOmissionPolicy::DefaultIfMissing => {
+            AcceptedFieldWriteProvenance::ResolvedDefault(
+                AcceptedInsertPolicyRequest::ExplicitUpdateDefault,
+            )
+        }
+        AcceptedInsertOmissionPolicy::Required => {
+            return Err(InternalError::query_sql_write_boundary(
+                icydb_diagnostic_code::SqlWriteBoundaryCode::UpdateDefaultRequiredField,
+            ));
+        }
+    };
+
+    Ok((contract.insert_omission_payload(slot)?, provenance))
+}
+
+fn accepted_insert_generated_value(
+    generation: FieldInsertGeneration,
+    write_context: SanitizeWriteContext,
+) -> Value {
+    match generation {
+        FieldInsertGeneration::Ulid => Value::Ulid(Ulid::generate()),
+        FieldInsertGeneration::Timestamp => Value::Timestamp(write_context.now()),
+    }
+}
+
+const fn accepted_insert_managed_value(
+    management: FieldWriteManagement,
+    write_context: SanitizeWriteContext,
+) -> Value {
+    match management {
+        FieldWriteManagement::CreatedAt | FieldWriteManagement::UpdatedAt => {
+            Value::Timestamp(write_context.now())
+        }
+    }
 }
 
 // Borrow one decoded structural value by slot for canonical row emission.

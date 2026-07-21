@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### ⚠️ Breaking
+
+- Hard-cuts accepted schemas and rows to separate future insert defaults from
+  frozen historical fills and to require an exact stamped row-layout version;
+  pre-0.209 persisted schema and row encodings now fail closed.
+- Hard-cuts generated create inputs to authored fields only: they no longer
+  materialize entities or evaluate Rust-side database defaults before accepted
+  schema resolution.
+- Hard-cuts schema-description DTOs to explicit row-layout, insert-policy, and
+  historical-fill facts; the former default-in-type-string shape is removed.
+
+### 🔧 Changed
+
+- Makes additive fields allocate one accepted physical layout, preserves old
+  logical values across later default changes, and keeps current-row omission
+  corrupt rather than treating every missing slot as a default request.
+- Makes SQL `SET/DROP DEFAULT` future-only and scan-free, permits required
+  fields without defaults, restricts physical shape removal to exactly empty
+  entities, and stages generated additive index domains from the final
+  candidate catalog and logical-row view. Candidate-logical relation fills now
+  validate target existence and stage bounded reverse-index effects in the
+  same marker window; rejection leaves both schema and derived state unchanged.
+- Converges generated create, full typed, structural, SQL, and atomic-batch
+  writes on one accepted after-image resolver. Ordinary full-entity values stay
+  authored, while defaulted, generated, managed, preserved, and historical
+  values retain provenance and cannot be changed by application sanitizers.
+- Adds direct SQL insert `DEFAULT`, `DEFAULT VALUES`, and update assignment
+  `DEFAULT` over that same accepted resolver, and makes `DESCRIBE`/`SHOW
+  COLUMNS` expose bounded canonical insert defaults separately from frozen
+  historical fills and row-layout history.
+- Exposes accepted-native row stamp and physical-slot verification facts on the
+  canonical structural reader, proves candidate logical fills through unique
+  indexes and reverse relations, and keeps recovery byte-exact without a raw
+  import/restore surface or mutation-policy reevaluation.
+- Completes focused 0.209 closeout by preserving generated replacement keys,
+  reconciling generated default changes as future-only metadata, typing layout
+  and row-corruption failures, and proving frozen values across three admitted
+  row layouts and recovery replay.
+
+### 🗑️ Removed
+
+- Removes the serialized structural-patch DTO/replay layer and its test-only
+  materialization path after accepted mutation resolution became authoritative.
+- Removes the retired unstamped-row corpus breadcrumb; maintained malformed
+  current-envelope cases remain the fail-closed persisted-row contract.
+
 ## [0.208.x] 🧩 - 2026-07-21 - Exact Composite Contracts
 
 Detailed notes: [docs/changelog/0.208.md](docs/changelog/0.208.md)

@@ -464,8 +464,11 @@ const fn schema_ddl_text(reason: SchemaDdlAdmissionCode) -> &'static str {
         SchemaDdlAdmissionCode::GeneratedIndexDropRejected => {
             "generated index cannot be dropped by SQL DDL"
         }
-        SchemaDdlAdmissionCode::RequiredDropDefaultUnsupported => {
-            "DROP DEFAULT is not supported for required fields"
+        SchemaDdlAdmissionCode::SchemaRewriteRequiresMigration => {
+            "nonempty physical schema rewrite requires a migration"
+        }
+        SchemaDdlAdmissionCode::SchemaTransitionBudgetExceeded => {
+            "schema transition exceeded its bounded resource budget"
         }
         SchemaDdlAdmissionCode::GeneratedFieldDefaultChangeRejected => {
             "generated field default cannot be changed by SQL DDL"
@@ -475,6 +478,9 @@ const fn schema_ddl_text(reason: SchemaDdlAdmissionCode) -> &'static str {
         }
         SchemaDdlAdmissionCode::SetNotNullValidationFailed => {
             "SET NOT NULL validation found existing NULL values"
+        }
+        SchemaDdlAdmissionCode::RowLayoutVersionExhausted => {
+            "row-layout version space is exhausted"
         }
     }
 }
@@ -564,6 +570,15 @@ const fn sql_write_boundary_text(boundary: SqlWriteBoundaryCode) -> &'static str
         }
         SqlWriteBoundaryCode::StagedRowsTooMany => {
             "SQL write stages more rows than this endpoint's row budget"
+        }
+        SqlWriteBoundaryCode::InsertDefaultRequiredField => {
+            "INSERT DEFAULT cannot resolve a required ordinary field"
+        }
+        SqlWriteBoundaryCode::UpdateDefaultRequiredField => {
+            "UPDATE DEFAULT cannot resolve a required ordinary field"
+        }
+        SqlWriteBoundaryCode::UpdateDefaultDatabaseOwnedField => {
+            "UPDATE DEFAULT cannot assign a generated or managed field"
         }
     }
 }

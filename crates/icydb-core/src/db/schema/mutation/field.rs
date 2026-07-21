@@ -4,7 +4,7 @@ use super::{
 };
 use crate::db::schema::{
     AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot, PersistedSchemaSnapshot,
-    SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
+    SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout,
 };
 
 ///
@@ -94,18 +94,18 @@ impl SchemaFieldDropTarget {
 }
 
 ///
-/// SchemaFieldDefaultTarget
+/// SchemaInsertDefaultTarget
 ///
 /// Accepted field-default metadata target admitted for SQL DDL publication.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct SchemaFieldDefaultTarget {
+pub(in crate::db) struct SchemaInsertDefaultTarget {
     field_id: FieldId,
     name: String,
 }
 
-impl SchemaFieldDefaultTarget {
+impl SchemaInsertDefaultTarget {
     /// Build one field-default DDL target from accepted field metadata.
     #[must_use]
     fn from_field(field: &PersistedFieldSnapshot) -> Self {
@@ -229,11 +229,6 @@ pub(in crate::db) enum SchemaDdlFieldDefaultCandidateError {
     Unknown,
     /// The requested accepted field is generated-owned.
     Generated,
-    /// The requested accepted field is required and currently has a default.
-    Required,
-    /// The requested accepted field is referenced by an accepted index whose
-    /// physical entries would require rebuilding after a default change.
-    Indexed(String),
 }
 
 /// Field nullability candidate resolution failures for SQL DDL-authored schema
@@ -286,7 +281,7 @@ pub(in crate::db) fn admit_sql_ddl_field_default_candidate(
     field: &PersistedFieldSnapshot,
 ) -> SchemaDdlMutationAdmission {
     SchemaDdlMutationAdmission {
-        target: SchemaDdlMutationTarget::FieldDefaultChange(SchemaFieldDefaultTarget::from_field(
+        target: SchemaDdlMutationTarget::FieldDefaultChange(SchemaInsertDefaultTarget::from_field(
             field,
         )),
     }
@@ -377,33 +372,26 @@ pub(in crate::db) fn resolve_sql_ddl_field_set_default_candidate(
 
 /// Validate one actual accepted field-default change.
 ///
-/// Exact no-ops remain legal. Real changes reject generated-owned fields,
-/// required fields losing their only absence policy, and fields whose logical
-/// missing-slot value participates in an accepted index.
+/// Exact no-ops remain legal. Real changes reject generated-owned fields.
+/// Insert defaults affect only future after-images, so changing one neither
+/// rewrites historical rows nor rebuilds accepted indexes.
 pub(in crate::db) fn validate_sql_ddl_field_default_change_candidate(
-    accepted_before: &AcceptedSchemaSnapshot,
+    _accepted_before: &AcceptedSchemaSnapshot,
     field: &PersistedFieldSnapshot,
-    default: &SchemaFieldDefault,
+    default: &SchemaInsertDefault,
 ) -> Result<(), SchemaDdlFieldDefaultCandidateError> {
-    if field.default() == default {
+    if field.insert_default() == default {
         return Ok(());
     }
     if field.generated() {
         return Err(SchemaDdlFieldDefaultCandidateError::Generated);
     }
-    if default.is_none() && !field.nullable() {
-        return Err(SchemaDdlFieldDefaultCandidateError::Required);
-    }
-    if let Some(index_name) = resolve_sql_ddl_field_dependent_index(accepted_before, field) {
-        return Err(SchemaDdlFieldDefaultCandidateError::Indexed(index_name));
-    }
-
     Ok(())
 }
 
 /// Resolve one accepted SQL DDL DROP DEFAULT candidate. Missing defaults are
-/// returned so SQL can report the existing true no-op behavior, while real
-/// generated-owned or required-field changes reject before mutation derivation.
+/// returned so SQL can report the existing true no-op behavior. A required
+/// field may lose its insert default: future omission then rejects as missing.
 pub(in crate::db) fn resolve_sql_ddl_field_drop_default_candidate(
     accepted_before: &AcceptedSchemaSnapshot,
     field_name: &str,
@@ -418,7 +406,7 @@ pub(in crate::db) fn resolve_sql_ddl_field_drop_default_candidate(
     validate_sql_ddl_field_default_change_candidate(
         accepted_before,
         field,
-        &SchemaFieldDefault::None,
+        &SchemaInsertDefault::None,
     )?;
 
     Ok(field.clone())
@@ -495,7 +483,18 @@ pub(in crate::db) fn derive_sql_ddl_field_addition_accepted_after(
         before.entity_path().to_string(),
         before.entity_name().to_string(),
         before.primary_key_field_ids().to_vec(),
-        SchemaRowLayout::new(before.row_layout().version(), field_to_slot),
+        SchemaRowLayout::new(
+            field.introduced_in_layout(),
+            if matches!(
+                field.historical_fill(),
+                crate::db::schema::SchemaHistoricalFill::Reject
+            ) {
+                field.introduced_in_layout()
+            } else {
+                before.row_layout().history_floor()
+            },
+            field_to_slot,
+        ),
         fields,
         before.indexes().to_vec(),
     )
@@ -551,10 +550,15 @@ pub(in crate::db) fn derive_sql_ddl_field_drop_accepted_after(
     let fields = retained_fields
         .iter()
         .zip(&dense_identities)
-        .map(|(field, (_, id, slot))| field.clone_with_identity(*id, *slot))
+        .map(|(field, (_, id, slot))| field.clone_for_full_layout_rewrite(*id, *slot))
         .collect::<Vec<_>>();
-    let row_layout = SchemaRowLayout::new(
-        before.row_layout().version(),
+    let rewritten_layout_version = before
+        .row_layout()
+        .current_version()
+        .checked_next()
+        .ok_or(SchemaDdlMutationAdmissionError::RowLayoutVersionExhausted)?;
+    let row_layout = SchemaRowLayout::single_version(
+        rewritten_layout_version,
         dense_identities
             .iter()
             .map(|(_, id, slot)| (*id, *slot))
@@ -607,7 +611,7 @@ pub(in crate::db) fn derive_sql_ddl_field_drop_accepted_after(
 pub(in crate::db) fn derive_sql_ddl_field_default_accepted_after(
     accepted_before: &AcceptedSchemaSnapshot,
     field_name: &str,
-    default: SchemaFieldDefault,
+    default: SchemaInsertDefault,
 ) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
     let before = accepted_before.persisted_snapshot();
     let before_field = before
@@ -622,7 +626,7 @@ pub(in crate::db) fn derive_sql_ddl_field_default_accepted_after(
         .iter()
         .map(|field| {
             if field.id() == before_field.id() {
-                field.clone_with_default(default.clone())
+                field.clone_with_insert_default(default.clone())
             } else {
                 field.clone()
             }
@@ -667,27 +671,13 @@ pub(in crate::db) fn derive_sql_ddl_field_nullability_accepted_after(
         .iter()
         .find(|field| field.name() == field_name)
         .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
-    let fields = before
-        .fields()
-        .iter()
-        .map(|field| {
-            if field.id() == before_field.id() {
-                field.clone_with_nullable(nullable)
-            } else {
-                field.clone()
-            }
-        })
-        .collect();
-    let persisted_after = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+    let persisted_after = derive_sql_ddl_field_nullability_persisted_after(
+        before,
+        before_field.id(),
+        nullable,
         before.version(),
-        before.entity_path().to_string(),
-        before.entity_name().to_string(),
-        before.primary_key_field_ids().to_vec(),
-        before.row_layout().clone(),
-        fields,
-        before.indexes().to_vec(),
     )
-    .with_relations(before.relations().to_vec());
+    .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
     let after_field = accepted_after
@@ -702,6 +692,80 @@ pub(in crate::db) fn derive_sql_ddl_field_nullability_accepted_after(
         accepted_after,
         admission,
     })
+}
+
+/// Derive the one accepted snapshot shape for a SQL nullability change.
+///
+/// Closing a nullable historical fill after a successful `SET NOT NULL` scan
+/// advances the history floor to that field's introduction. Every fill made
+/// unreachable by the new floor is closed to `Reject` in the same candidate.
+pub(in crate::db) fn derive_sql_ddl_field_nullability_persisted_after(
+    before: &PersistedSchemaSnapshot,
+    target_field_id: FieldId,
+    nullable: bool,
+    version: crate::db::schema::SchemaVersion,
+) -> Option<PersistedSchemaSnapshot> {
+    let target = before
+        .fields()
+        .iter()
+        .find(|field| field.id() == target_field_id)?;
+    let history_floor = if !nullable
+        && matches!(
+            target.historical_fill(),
+            crate::db::schema::SchemaHistoricalFill::Null
+        ) {
+        target
+            .introduced_in_layout()
+            .max(before.row_layout().history_floor())
+    } else {
+        before.row_layout().history_floor()
+    };
+    let fields = before
+        .fields()
+        .iter()
+        .map(|field| {
+            PersistedFieldSnapshot::new_with_write_policy_and_origin(
+                field.id(),
+                field.name().to_string(),
+                field.slot(),
+                field.kind().clone(),
+                field.nested_leaves().to_vec(),
+                if field.id() == target_field_id {
+                    nullable
+                } else {
+                    field.nullable()
+                },
+                field.introduced_in_layout(),
+                field.insert_default().clone(),
+                if field.introduced_in_layout() <= history_floor {
+                    crate::db::schema::SchemaHistoricalFill::Reject
+                } else {
+                    field.historical_fill().clone()
+                },
+                field.write_policy(),
+                field.origin(),
+                field.storage_decode(),
+                field.leaf_codec(),
+            )
+        })
+        .collect();
+
+    Some(
+        PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+            version,
+            before.entity_path().to_string(),
+            before.entity_name().to_string(),
+            before.primary_key_field_ids().to_vec(),
+            SchemaRowLayout::new(
+                before.row_layout().current_version(),
+                history_floor,
+                before.row_layout().field_to_slot().to_vec(),
+            ),
+            fields,
+            before.indexes().to_vec(),
+        )
+        .with_relations(before.relations().to_vec()),
+    )
 }
 
 /// Derive and admit the accepted-after schema snapshot for one SQL DDL

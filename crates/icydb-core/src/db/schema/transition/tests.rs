@@ -7,9 +7,10 @@ use crate::{
         AcceptedFieldKind, FieldId, MutationPublicationPreflight, PersistedFieldOrigin,
         PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-        SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout,
+        SchemaFieldSlot, SchemaFieldWritePolicy, SchemaInsertDefault, SchemaRowLayout,
         SchemaTransitionDecision, SchemaTransitionPlanKind, SchemaVersion,
-        decide_schema_transition, transition::SchemaTransitionRejectionKind,
+        decide_schema_transition, derive_generated_accepted_candidate,
+        transition::SchemaTransitionRejectionKind,
     },
     model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
 };
@@ -22,38 +23,44 @@ fn expected_snapshot() -> PersistedSchemaSnapshot {
         "test::SchemaReconcileEntity".to_string(),
         "SchemaReconcileEntity".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "name".to_string(),
                 SchemaFieldSlot::new(1),
                 AcceptedFieldKind::Text { max_len: None },
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Text),
             ),
         ],
     )
+}
+
+fn accepted_generated_additive_candidate(
+    stored: &PersistedSchemaSnapshot,
+    generated: PersistedSchemaSnapshot,
+) -> PersistedSchemaSnapshot {
+    derive_generated_accepted_candidate(stored, &generated)
+        .expect("test layout version should advance")
+        .expect("generated append-only fixture should derive accepted temporal facts")
 }
 
 // Preserve the expected snapshot shape except for entity name so tests can
@@ -78,7 +85,7 @@ fn snapshot_with_version(
         snapshot.entity_path().to_string(),
         snapshot.entity_name().to_string(),
         snapshot.primary_key_field_ids().to_vec(),
-        SchemaRowLayout::new(version, snapshot.row_layout().field_to_slot().to_vec()),
+        snapshot.row_layout().clone(),
         snapshot.fields().to_vec(),
         snapshot.indexes().to_vec(),
     )
@@ -90,33 +97,32 @@ fn snapshot_with_ddl_nickname_field(
     version: SchemaVersion,
 ) -> PersistedSchemaSnapshot {
     let mut fields = snapshot.fields().to_vec();
-    fields.push(PersistedFieldSnapshot::new_with_write_policy_and_origin(
-        FieldId::new(3),
-        "nickname".to_string(),
-        SchemaFieldSlot::new(2),
-        AcceptedFieldKind::Text { max_len: None },
-        Vec::new(),
-        true,
-        SchemaFieldDefault::None,
-        SchemaFieldWritePolicy::none(),
-        PersistedFieldOrigin::SqlDdl,
-        FieldStorageDecode::ByKind,
-        LeafCodec::Scalar(ScalarCodec::Text),
-    ));
+    fields.push(
+        PersistedFieldSnapshot::new_initial_with_write_policy_and_origin(
+            FieldId::new(3),
+            "nickname".to_string(),
+            SchemaFieldSlot::new(2),
+            AcceptedFieldKind::Text { max_len: None },
+            Vec::new(),
+            true,
+            SchemaInsertDefault::None,
+            SchemaFieldWritePolicy::none(),
+            PersistedFieldOrigin::SqlDdl,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Text),
+        ),
+    );
 
     PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         version,
         snapshot.entity_path().to_string(),
         snapshot.entity_name().to_string(),
         snapshot.primary_key_field_ids().to_vec(),
-        SchemaRowLayout::new(
-            version,
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-                (FieldId::new(3), SchemaFieldSlot::new(2)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+            (FieldId::new(3), SchemaFieldSlot::new(2)),
+        ]),
         fields,
         snapshot.indexes().to_vec(),
     )
@@ -128,14 +134,14 @@ fn snapshot_with_renamed_name_field(
     name: &str,
 ) -> PersistedSchemaSnapshot {
     let mut changed_fields = snapshot.fields().to_vec();
-    changed_fields[1] = PersistedFieldSnapshot::new(
+    changed_fields[1] = PersistedFieldSnapshot::new_initial(
         FieldId::new(2),
         name.to_string(),
         SchemaFieldSlot::new(1),
         AcceptedFieldKind::Text { max_len: None },
         Vec::new(),
         false,
-        SchemaFieldDefault::None,
+        SchemaInsertDefault::None,
         FieldStorageDecode::ByKind,
         LeafCodec::Scalar(ScalarCodec::Text),
     );
@@ -155,14 +161,14 @@ fn snapshot_with_name_kind(
     kind: AcceptedFieldKind,
 ) -> PersistedSchemaSnapshot {
     let mut fields = snapshot.fields().to_vec();
-    fields[1] = PersistedFieldSnapshot::new(
+    fields[1] = PersistedFieldSnapshot::new_initial(
         FieldId::new(2),
         "name".to_string(),
         SchemaFieldSlot::new(1),
         kind,
         Vec::new(),
         false,
-        SchemaFieldDefault::None,
+        SchemaInsertDefault::None,
         FieldStorageDecode::ByKind,
         LeafCodec::Structural,
     );
@@ -524,34 +530,34 @@ fn schema_transition_policy_accepts_supported_ddl_fields_absent_from_generated_m
 }
 
 #[test]
-fn schema_transition_policy_accepts_append_only_nullable_fields() {
+fn schema_transition_policy_accepts_append_only_fields() {
     let stored = expected_snapshot();
     let mut generated_fields = stored.fields().to_vec();
-    generated_fields.push(PersistedFieldSnapshot::new(
+    generated_fields.push(PersistedFieldSnapshot::new_initial(
         FieldId::new(3),
         "nickname".to_string(),
         SchemaFieldSlot::new(2),
         AcceptedFieldKind::Text { max_len: None },
         Vec::new(),
         true,
-        SchemaFieldDefault::None,
+        SchemaInsertDefault::None,
         FieldStorageDecode::ByKind,
         LeafCodec::Scalar(ScalarCodec::Text),
     ));
-    let generated = PersistedSchemaSnapshot::new(
-        stored.version(),
-        stored.entity_path().to_string(),
-        stored.entity_name().to_string(),
-        stored.first_primary_key_field_id(),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
+    let generated = accepted_generated_additive_candidate(
+        &stored,
+        PersistedSchemaSnapshot::new(
+            stored.version(),
+            stored.entity_path().to_string(),
+            stored.entity_name().to_string(),
+            stored.first_primary_key_field_id(),
+            SchemaRowLayout::initial(vec![
                 (FieldId::new(1), SchemaFieldSlot::new(0)),
                 (FieldId::new(2), SchemaFieldSlot::new(1)),
                 (FieldId::new(3), SchemaFieldSlot::new(2)),
-            ],
+            ]),
+            generated_fields,
         ),
-        generated_fields,
     );
 
     let SchemaTransitionDecision::Accepted(plan) = decide_schema_transition(&stored, &generated)
@@ -559,10 +565,7 @@ fn schema_transition_policy_accepts_append_only_nullable_fields() {
         panic!("append-only nullable generated field should be an accepted transition");
     };
 
-    assert_eq!(
-        plan.kind(),
-        SchemaTransitionPlanKind::AppendOnlyNullableFields
-    );
+    assert_eq!(plan.kind(), SchemaTransitionPlanKind::AppendOnlyFields);
     assert_eq!(
         plan.publication_preflight(),
         MutationPublicationPreflight::PublishableNow
@@ -595,31 +598,31 @@ fn schema_transition_policy_rejects_existing_enum_field_type_rebind() {
 fn schema_transition_policy_accepts_append_only_defaulted_fields() {
     let stored = expected_snapshot();
     let mut generated_fields = stored.fields().to_vec();
-    generated_fields.push(PersistedFieldSnapshot::new(
+    generated_fields.push(PersistedFieldSnapshot::new_initial(
         FieldId::new(3),
         "score".to_string(),
         SchemaFieldSlot::new(2),
         AcceptedFieldKind::Nat64,
         Vec::new(),
         false,
-        SchemaFieldDefault::SlotPayload(vec![0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0]),
+        SchemaInsertDefault::SlotPayload(vec![0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0]),
         FieldStorageDecode::ByKind,
         LeafCodec::Scalar(ScalarCodec::Nat64),
     ));
-    let generated = PersistedSchemaSnapshot::new(
-        stored.version(),
-        stored.entity_path().to_string(),
-        stored.entity_name().to_string(),
-        stored.first_primary_key_field_id(),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
+    let generated = accepted_generated_additive_candidate(
+        &stored,
+        PersistedSchemaSnapshot::new(
+            stored.version(),
+            stored.entity_path().to_string(),
+            stored.entity_name().to_string(),
+            stored.first_primary_key_field_id(),
+            SchemaRowLayout::initial(vec![
                 (FieldId::new(1), SchemaFieldSlot::new(0)),
                 (FieldId::new(2), SchemaFieldSlot::new(1)),
                 (FieldId::new(3), SchemaFieldSlot::new(2)),
-            ],
+            ]),
+            generated_fields,
         ),
-        generated_fields,
     );
 
     let SchemaTransitionDecision::Accepted(plan) = decide_schema_transition(&stored, &generated)
@@ -627,41 +630,38 @@ fn schema_transition_policy_accepts_append_only_defaulted_fields() {
         panic!("append-only defaulted generated field should be an accepted transition");
     };
 
-    assert_eq!(
-        plan.kind(),
-        SchemaTransitionPlanKind::AppendOnlyNullableFields
-    );
+    assert_eq!(plan.kind(), SchemaTransitionPlanKind::AppendOnlyFields);
 }
 
 #[test]
 fn schema_transition_policy_rejects_malformed_append_only_default_payloads() {
     let stored = expected_snapshot();
     let mut generated_fields = stored.fields().to_vec();
-    generated_fields.push(PersistedFieldSnapshot::new(
+    generated_fields.push(PersistedFieldSnapshot::new_initial(
         FieldId::new(3),
         "score".to_string(),
         SchemaFieldSlot::new(2),
         AcceptedFieldKind::Nat64,
         Vec::new(),
         false,
-        SchemaFieldDefault::SlotPayload(vec![0x00]),
+        SchemaInsertDefault::SlotPayload(vec![0x00]),
         FieldStorageDecode::ByKind,
         LeafCodec::Scalar(ScalarCodec::Nat64),
     ));
-    let generated = PersistedSchemaSnapshot::new(
-        stored.version(),
-        stored.entity_path().to_string(),
-        stored.entity_name().to_string(),
-        stored.first_primary_key_field_id(),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
+    let generated = accepted_generated_additive_candidate(
+        &stored,
+        PersistedSchemaSnapshot::new(
+            stored.version(),
+            stored.entity_path().to_string(),
+            stored.entity_name().to_string(),
+            stored.first_primary_key_field_id(),
+            SchemaRowLayout::initial(vec![
                 (FieldId::new(1), SchemaFieldSlot::new(0)),
                 (FieldId::new(2), SchemaFieldSlot::new(1)),
                 (FieldId::new(3), SchemaFieldSlot::new(2)),
-            ],
+            ]),
+            generated_fields,
         ),
-        generated_fields,
     );
 
     let SchemaTransitionDecision::Rejected(rejection) =
@@ -691,13 +691,10 @@ fn schema_transition_policy_reports_row_layout_mismatch_after_entity_identity() 
         expected.entity_path().to_string(),
         expected.entity_name().to_string(),
         expected.first_primary_key_field_id(),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(1)),
-                (FieldId::new(2), SchemaFieldSlot::new(0)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(1)),
+            (FieldId::new(2), SchemaFieldSlot::new(0)),
+        ]),
         expected.fields().to_vec(),
     );
 
@@ -763,14 +760,14 @@ fn schema_transition_policy_rejects_primary_key_field_changes() {
 fn schema_transition_policy_rejects_field_type_changes() {
     let expected = expected_snapshot();
     let mut changed_fields = expected.fields().to_vec();
-    changed_fields[1] = PersistedFieldSnapshot::new(
+    changed_fields[1] = PersistedFieldSnapshot::new_initial(
         FieldId::new(2),
         "name".to_string(),
         SchemaFieldSlot::new(1),
         AcceptedFieldKind::Nat64,
         Vec::new(),
         false,
-        SchemaFieldDefault::None,
+        SchemaInsertDefault::None,
         FieldStorageDecode::ByKind,
         LeafCodec::Scalar(ScalarCodec::Nat64),
     );
@@ -802,22 +799,22 @@ fn schema_transition_policy_rejects_field_type_changes() {
 }
 
 #[test]
-fn schema_transition_policy_rejects_existing_field_default_changes() {
+fn schema_transition_policy_accepts_generated_field_default_changes_as_metadata_only() {
     let stored = expected_snapshot();
     let mut generated_fields = stored.fields().to_vec();
-    generated_fields[1] = PersistedFieldSnapshot::new(
+    generated_fields[1] = PersistedFieldSnapshot::new_initial(
         FieldId::new(2),
         "name".to_string(),
         SchemaFieldSlot::new(1),
         AcceptedFieldKind::Text { max_len: None },
         Vec::new(),
         false,
-        SchemaFieldDefault::SlotPayload(vec![0xFF, 0x01, b'A', b'd', b'a']),
+        SchemaInsertDefault::SlotPayload(vec![0xFF, 0x01, b'A', b'd', b'a']),
         FieldStorageDecode::ByKind,
         LeafCodec::Scalar(ScalarCodec::Text),
     );
     let generated = PersistedSchemaSnapshot::new(
-        stored.version(),
+        SchemaVersion::new(2),
         stored.entity_path().to_string(),
         stored.entity_name().to_string(),
         stored.first_primary_key_field_id(),
@@ -825,21 +822,76 @@ fn schema_transition_policy_rejects_existing_field_default_changes() {
         generated_fields,
     );
 
-    let SchemaTransitionDecision::Rejected(rejection) =
-        decide_schema_transition(&stored, &generated)
+    let candidate = derive_generated_accepted_candidate(&stored, &generated)
+        .expect("metadata-only default change should not allocate a layout")
+        .expect("generated default change should derive an accepted candidate");
+    let SchemaTransitionDecision::Accepted(plan) = decide_schema_transition(&stored, &candidate)
     else {
-        panic!("existing field default drift should be rejected");
+        panic!("generated default change should be accepted");
     };
 
     assert_eq!(
-        rejection.kind(),
-        SchemaTransitionRejectionKind::FieldContract
+        plan.kind(),
+        SchemaTransitionPlanKind::MetadataOnlyFieldDefault,
     );
+    assert_eq!(candidate.row_layout(), stored.row_layout());
+    assert_eq!(
+        candidate.fields()[1].historical_fill(),
+        stored.fields()[1].historical_fill(),
+        "future default changes must retain frozen historical fill",
+    );
+    assert_eq!(
+        candidate.fields()[1].insert_default(),
+        generated.fields()[1].insert_default(),
+    );
+}
+
+#[test]
+fn schema_transition_policy_types_generated_field_after_ddl_slot_collision() {
+    let generated_before = expected_snapshot();
+    let accepted = snapshot_with_ddl_nickname_field(&generated_before, SchemaVersion::new(2));
+    let mut generated_fields = generated_before.fields().to_vec();
+    generated_fields.push(PersistedFieldSnapshot::new_initial(
+        FieldId::new(3),
+        "score".to_string(),
+        SchemaFieldSlot::new(2),
+        AcceptedFieldKind::Nat64,
+        Vec::new(),
+        true,
+        SchemaInsertDefault::None,
+        FieldStorageDecode::ByKind,
+        LeafCodec::Scalar(ScalarCodec::Nat64),
+    ));
+    let generated_after = PersistedSchemaSnapshot::new(
+        SchemaVersion::new(3),
+        generated_before.entity_path().to_string(),
+        generated_before.entity_name().to_string(),
+        generated_before.first_primary_key_field_id(),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+            (FieldId::new(3), SchemaFieldSlot::new(2)),
+        ]),
+        generated_fields,
+    );
+
+    assert!(
+        derive_generated_accepted_candidate(&accepted, &generated_after)
+            .expect("collision classification should not allocate a layout")
+            .is_none(),
+        "slot collisions must not be lowered into an accepted candidate",
+    );
+    let SchemaTransitionDecision::Rejected(rejection) =
+        decide_schema_transition(&accepted, &generated_after)
+    else {
+        panic!("generated field after a DDL field must reject");
+    };
+    assert_eq!(rejection.kind(), SchemaTransitionRejectionKind::FieldSlot);
     assert!(
         rejection
             .detail()
-            .contains("field[1] default changed: stored=None generated=SlotPayload"),
-        "default drift should name the existing field contract: {}",
+            .contains("cannot claim a slot already owned by accepted SQL DDL"),
+        "collision rejection must retain its typed slot-owner explanation: {}",
         rejection.detail(),
     );
 }
@@ -851,26 +903,23 @@ fn schema_transition_policy_reports_first_nested_leaf_mismatch() {
         "test::NestedSchemaEntity".to_string(),
         "NestedSchemaEntity".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "profile".to_string(),
                 SchemaFieldSlot::new(1),
@@ -881,14 +930,14 @@ fn schema_transition_policy_reports_first_nested_leaf_mismatch() {
                     false,
                 )],
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Structural,
             ),
         ],
     );
     let mut generated_fields = stored.fields().to_vec();
-    generated_fields[1] = PersistedFieldSnapshot::new(
+    generated_fields[1] = PersistedFieldSnapshot::new_initial(
         FieldId::new(2),
         "profile".to_string(),
         SchemaFieldSlot::new(1),
@@ -899,7 +948,7 @@ fn schema_transition_policy_reports_first_nested_leaf_mismatch() {
             false,
         )],
         false,
-        SchemaFieldDefault::None,
+        SchemaInsertDefault::None,
         FieldStorageDecode::ByKind,
         LeafCodec::Structural,
     );
@@ -947,14 +996,14 @@ fn schema_transition_policy_reports_first_nested_leaf_mismatch() {
 fn schema_transition_policy_names_unsupported_generated_removed_fields() {
     let expected = expected_snapshot();
     let mut stored_fields = expected.fields().to_vec();
-    stored_fields.push(PersistedFieldSnapshot::new(
+    stored_fields.push(PersistedFieldSnapshot::new_initial(
         FieldId::new(3),
         "removed_score".to_string(),
         SchemaFieldSlot::new(2),
         AcceptedFieldKind::Nat64,
         Vec::new(),
         false,
-        SchemaFieldDefault::None,
+        SchemaInsertDefault::None,
         FieldStorageDecode::ByKind,
         LeafCodec::Scalar(ScalarCodec::Nat64),
     ));
@@ -963,14 +1012,11 @@ fn schema_transition_policy_names_unsupported_generated_removed_fields() {
         expected.entity_path().to_string(),
         expected.entity_name().to_string(),
         expected.first_primary_key_field_id(),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-                (FieldId::new(3), SchemaFieldSlot::new(2)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+            (FieldId::new(3), SchemaFieldSlot::new(2)),
+        ]),
         stored_fields,
     );
 
@@ -999,17 +1045,17 @@ fn schema_transition_policy_names_unsupported_generated_removed_fields() {
 }
 
 #[test]
-fn schema_transition_policy_names_unsupported_generated_additive_fields() {
+fn schema_transition_policy_rejects_unlowered_generated_additive_layout() {
     let stored = expected_snapshot();
     let mut generated_fields = stored.fields().to_vec();
-    generated_fields.push(PersistedFieldSnapshot::new(
+    generated_fields.push(PersistedFieldSnapshot::new_initial(
         FieldId::new(3),
         "new_score".to_string(),
         SchemaFieldSlot::new(2),
         AcceptedFieldKind::Nat64,
         Vec::new(),
         false,
-        SchemaFieldDefault::None,
+        SchemaInsertDefault::None,
         FieldStorageDecode::ByKind,
         LeafCodec::Scalar(ScalarCodec::Nat64),
     ));
@@ -1018,14 +1064,11 @@ fn schema_transition_policy_names_unsupported_generated_additive_fields() {
         stored.entity_path().to_string(),
         stored.entity_name().to_string(),
         stored.first_primary_key_field_id(),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-                (FieldId::new(3), SchemaFieldSlot::new(2)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+            (FieldId::new(3), SchemaFieldSlot::new(2)),
+        ]),
         generated_fields,
     );
 
@@ -1037,14 +1080,14 @@ fn schema_transition_policy_names_unsupported_generated_additive_fields() {
 
     assert!(
         rejection.detail().contains(
-            "unsupported additive field transition: generated field[2] id=3 slot=2 name='new_score' kind=Nat64 nullable=false default=None; field must be nullable without a default or carry a valid explicit persisted default payload"
+            "row layout changed: stored_current=1 generated_current=1 stored_floor=1 generated_floor=1 stored_fields=2 generated_fields=3"
         ),
-        "additive field drift should be named as an unsupported transition shape",
+        "an unlowered generated proposal must not masquerade as accepted temporal authority",
     );
     assert_eq!(
         rejection.kind(),
-        SchemaTransitionRejectionKind::FieldContract,
-        "unsupported additive fields are field-contract transitions, not a generic row-layout mismatch",
+        SchemaTransitionRejectionKind::RowLayout,
+        "the generated proposal failed to acquire a fresh accepted layout identity",
     );
     assert_eq!(
         rejection.admission(),

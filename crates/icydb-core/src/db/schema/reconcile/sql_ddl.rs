@@ -2,9 +2,7 @@ mod field_metadata;
 
 use super::{
     publish_accepted_entity_snapshot_revision,
-    publish_accepted_entity_snapshot_revision_with_row_puts,
     publish_accepted_entity_snapshot_revision_with_user_index_domain,
-    schema_publication_error_allows_physical_rollback,
     user_index_domain::stage_sql_ddl_user_index_domain_replacement,
     validate_publishable_transition_plan,
 };
@@ -152,8 +150,8 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_addition(
     };
     let plan = envelope.require_transition_plan(
         "field-addition",
-        SchemaTransitionPlanKind::AppendOnlyNullableFields,
-        "append-only nullable fields",
+        SchemaTransitionPlanKind::AppendOnlyFields,
+        "append-only fields",
     )?;
     validate_publishable_transition_plan(entity_path, &plan)?;
 
@@ -166,8 +164,30 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_addition(
     if added_field.name() != target.name() || added_field.slot() != target.slot() {
         return Err(InternalError::store_unsupported());
     }
+    if matches!(
+        added_field.historical_fill(),
+        crate::db::schema::SchemaHistoricalFill::Reject
+    ) {
+        require_exact_empty_sql_ddl_entity(store, entity_tag, entity_path)?;
+    }
 
     envelope.publish()
+}
+
+/// Require an exact empty-entity proof for one V1 physical-shape transition.
+/// Missing or invalid cardinality metadata is conservatively nonempty.
+pub(super) fn require_exact_empty_sql_ddl_entity(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+) -> Result<(), InternalError> {
+    if store.with_data(|data_store| data_store.exact_entity_count(entity_tag)) == Some(0) {
+        return Ok(());
+    }
+
+    Err(InternalError::schema_ddl_rewrite_requires_migration(
+        entity_path,
+    ))
 }
 
 pub(super) struct SqlDdlPublicationEnvelope<'a> {
@@ -237,23 +257,6 @@ impl<'a> SqlDdlPublicationEnvelope<'a> {
             self.accepted_before_identity,
             self.after,
         )
-    }
-
-    pub(super) fn publish_with_row_puts(
-        &self,
-        row_puts: Vec<crate::db::journal::JournalRecord>,
-    ) -> Result<(), InternalError> {
-        debug_assert_eq!(self.entity_tag, self.accepted_before_identity.entity_tag());
-        publish_accepted_entity_snapshot_revision_with_row_puts(
-            self.store,
-            self.accepted_before_identity,
-            self.after,
-            row_puts,
-        )
-    }
-
-    pub(super) fn publication_error_allows_physical_rollback(&self) -> bool {
-        schema_publication_error_allows_physical_rollback(self.store, self.entity_tag, self.before)
     }
 }
 

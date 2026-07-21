@@ -4,6 +4,7 @@
 //! Boundary: maps durable schema field identity to physical row slots.
 
 use crate::db::schema::FieldId;
+use std::num::NonZeroU32;
 
 ///
 /// SchemaVersion
@@ -33,6 +34,46 @@ impl SchemaVersion {
     #[must_use]
     pub(in crate::db) const fn get(self) -> u32 {
         self.0
+    }
+}
+
+///
+/// RowLayoutVersion
+///
+/// Non-zero entity-local identity for one exact physical row-slot shape.
+/// Unlike `SchemaVersion`, this identity advances only when the accepted
+/// physical layout changes and is persisted in every canonical row envelope.
+///
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(in crate::db) struct RowLayoutVersion(NonZeroU32);
+
+impl RowLayoutVersion {
+    /// First admitted physical layout identity for a newly initialized entity.
+    pub(in crate::db) const INITIAL: Self = Self(NonZeroU32::MIN);
+
+    /// Admit one non-zero persisted layout identity.
+    #[must_use]
+    pub(in crate::db) const fn new(raw: u32) -> Option<Self> {
+        match NonZeroU32::new(raw) {
+            Some(raw) => Some(Self(raw)),
+            None => None,
+        }
+    }
+
+    /// Return the persisted integer identity.
+    #[must_use]
+    pub(in crate::db) const fn get(self) -> u32 {
+        self.0.get()
+    }
+
+    /// Allocate the next physical layout identity without wrapping or reuse.
+    #[must_use]
+    pub(in crate::db) const fn checked_next(self) -> Option<Self> {
+        match self.get().checked_add(1) {
+            Some(raw) => Self::new(raw),
+            None => None,
+        }
     }
 }
 
@@ -79,41 +120,58 @@ impl SchemaFieldSlot {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SchemaRowLayout {
-    version: SchemaVersion,
+    current_version: RowLayoutVersion,
+    history_floor: RowLayoutVersion,
     field_to_slot: Vec<(FieldId, SchemaFieldSlot)>,
 }
 
 impl SchemaRowLayout {
-    /// Build one schema row layout from already-validated field-to-slot pairs.
+    /// Build one schema row layout with an explicit admitted history window.
     #[must_use]
     pub(in crate::db) const fn new(
-        version: SchemaVersion,
+        current_version: RowLayoutVersion,
+        history_floor: RowLayoutVersion,
         field_to_slot: Vec<(FieldId, SchemaFieldSlot)>,
     ) -> Self {
         Self {
-            version,
+            current_version,
+            history_floor,
             field_to_slot,
         }
     }
 
-    /// Return the schema version associated with this layout.
+    /// Build one layout whose current shape is its only admitted history.
     #[must_use]
-    pub(in crate::db) const fn version(&self) -> SchemaVersion {
-        self.version
+    pub(in crate::db) const fn single_version(
+        version: RowLayoutVersion,
+        field_to_slot: Vec<(FieldId, SchemaFieldSlot)>,
+    ) -> Self {
+        Self::new(version, version, field_to_slot)
+    }
+
+    /// Build the sole initial physical layout for a new accepted entity.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn initial(field_to_slot: Vec<(FieldId, SchemaFieldSlot)>) -> Self {
+        Self::single_version(RowLayoutVersion::INITIAL, field_to_slot)
+    }
+
+    /// Return the physical layout stamped by every current canonical writer.
+    #[must_use]
+    pub(in crate::db) const fn current_version(&self) -> RowLayoutVersion {
+        self.current_version
+    }
+
+    /// Return the oldest physical layout version admitted for row decoding.
+    #[must_use]
+    pub(in crate::db) const fn history_floor(&self) -> RowLayoutVersion {
+        self.history_floor
     }
 
     /// Return the durable field-ID to physical-slot mapping.
     #[must_use]
     pub(in crate::db) const fn field_to_slot(&self) -> &[(FieldId, SchemaFieldSlot)] {
         self.field_to_slot.as_slice()
-    }
-
-    /// Clone this row layout with a new declared schema version while
-    /// preserving the dense active slot allocation.
-    #[must_use]
-    #[cfg(any(test, feature = "sql"))]
-    pub(in crate::db) fn clone_with_version(&self, version: SchemaVersion) -> Self {
-        Self::new(version, self.field_to_slot.clone())
     }
 
     /// Return the next dense physical slot index for additive field DDL.

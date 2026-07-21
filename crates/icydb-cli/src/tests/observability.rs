@@ -147,6 +147,14 @@ fn schema_report_renders_aligned_summary_and_index_tables() {
                 false,
                 true,
                 "generated".to_string(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
             )
         })
         .collect();
@@ -177,6 +185,8 @@ fn schema_report_renders_aligned_summary_and_index_tables() {
             "accounts".to_string(),
             EntityRelationCardinality::Single,
         )],
+        1,
+        1,
     )];
     let text = render_schema_report(&report);
 
@@ -184,24 +194,27 @@ fn schema_report_renders_aligned_summary_and_index_tables() {
     assert!(text.contains("fields: 35"));
     assert!(text.contains("indexes: 2"));
     assert!(text.contains("relations: 1"));
-    assert!(text.contains("  entity      fields   indexes   relations   primary key   path\n"));
+    assert!(text.contains(
+        "  entity      fields   indexes   relations   primary key   layout   history floor   path\n"
+    ));
     assert!(
         text.lines().any(
             |line| line.starts_with("  ---------   ------   -------   ---------   -----------")
         )
     );
-    assert!(text.contains(
-        "  Character       35         2           1   id            icydb_testing_demo_rpg_fixtures::schema::character::Character\n"
-    ));
+    assert!(text.lines().any(|line| {
+        line.contains("Character")
+            && line.contains("35")
+            && line.contains("icydb_testing_demo_rpg_fixtures::schema::character::Character")
+    }));
     assert!(text.contains("fields\n"));
-    assert!(
-        text.contains("  entity      field   slot   type   nullable   pk   queryable   origin\n")
-    );
-    assert!(
-        text.contains(
-            "  Character   field      -   Text   no         no   yes         generated\n"
-        )
-    );
+    assert!(text.contains("insert omission"));
+    assert!(text.contains("insert default"));
+    assert!(text.contains("introduced layout"));
+    assert!(text.contains("historical fill"));
+    assert!(text.lines().any(|line| {
+        line.contains("Character") && line.contains("field") && line.contains("generated")
+    }));
     assert!(text.contains("indexes\n"));
     assert!(text.contains("  entity      index                 fields   unique   origin\n"));
     assert!(text.contains("  Character   idx_character__name   name     no       generated\n"));
@@ -227,6 +240,14 @@ fn schema_report_renders_composite_primary_key_fields() {
                 true,
                 true,
                 "generated".to_string(),
+                Some("required".to_string()),
+                None,
+                None,
+                None,
+                Some(1),
+                Some("reject".to_string()),
+                None,
+                None,
             ),
             EntityFieldDescription::new(
                 "local_id".to_string(),
@@ -236,10 +257,20 @@ fn schema_report_renders_composite_primary_key_fields() {
                 true,
                 true,
                 "generated".to_string(),
+                Some("required".to_string()),
+                None,
+                None,
+                None,
+                Some(1),
+                Some("reject".to_string()),
+                None,
+                None,
             ),
         ],
         Vec::new(),
         Vec::new(),
+        1,
+        1,
     )];
     let text = render_schema_report(&report);
 

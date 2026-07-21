@@ -13,8 +13,8 @@ use crate::{
             AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
             AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, FieldId, PersistedFieldSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
-            SchemaFieldSlot, SchemaRowLayout, SchemaVersion, accepted_schema_cache_fingerprint,
+            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
+            SchemaInsertDefault, SchemaRowLayout, SchemaVersion, accepted_schema_cache_fingerprint,
             composite_catalog::CompositeTypeId, empty_accepted_schema_candidate_for_tests,
             encode_persisted_schema_snapshot, enum_catalog::AcceptedSchemaFingerprint,
         },
@@ -868,26 +868,6 @@ fn schema_store_allocation_metadata_uses_role_specific_fingerprints() {
 }
 
 #[test]
-fn schema_store_rejects_mismatched_snapshot_and_layout_versions() {
-    let mut store = SchemaStore::init_journaled(test_memory(253));
-    let invalid = persisted_schema_snapshot_with_layout_version_for_test(
-        SchemaVersion::new(2),
-        SchemaVersion::initial(),
-        "Invalid",
-    );
-
-    let err = store
-        .insert_persisted_snapshot(EntityTag::new(43), &invalid)
-        .expect_err("schema store should reject mismatched snapshot/layout versions");
-
-    assert_eq!(
-        err.diagnostic_code(),
-        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
-        "schema store should preserve the version mismatch diagnostic"
-    );
-}
-
-#[test]
 fn schema_store_rejects_typed_snapshot_with_zero_schema_version() {
     let mut store = SchemaStore::init_journaled(test_memory(254));
     let invalid = persisted_schema_snapshot_for_test(SchemaVersion::new(0), "ZeroSchemaVersion");
@@ -912,13 +892,10 @@ fn schema_store_rejects_typed_snapshot_with_divergent_field_slots() {
         base.entity_path().to_string(),
         base.entity_name().to_string(),
         base.first_primary_key_field_id(),
-        SchemaRowLayout::new(
-            base.version(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(3)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(3)),
+        ]),
         base.fields().to_vec(),
     );
 
@@ -942,13 +919,10 @@ fn schema_store_rejects_typed_snapshot_with_duplicate_row_layout_slot() {
         base.entity_path().to_string(),
         base.entity_name().to_string(),
         base.first_primary_key_field_id(),
-        SchemaRowLayout::new(
-            base.version(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(0)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(0)),
+        ]),
         base.fields().to_vec(),
     );
 
@@ -1021,13 +995,10 @@ fn schema_store_rejects_raw_snapshot_with_divergent_field_slots() {
         base.entity_path().to_string(),
         base.entity_name().to_string(),
         base.first_primary_key_field_id(),
-        SchemaRowLayout::new(
-            base.version(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(3)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(3)),
+        ]),
         base.fields().to_vec(),
     );
     let raw = encode_persisted_schema_snapshot(&invalid)
@@ -1087,14 +1058,14 @@ fn schema_store_rejects_raw_snapshot_with_duplicate_field_name() {
     let mut store = SchemaStore::init_journaled(test_memory(245));
     let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "DuplicateFieldName");
     let mut fields = base.fields().to_vec();
-    let duplicate = PersistedFieldSnapshot::new(
+    let duplicate = PersistedFieldSnapshot::new_initial(
         fields[1].id(),
         fields[0].name().to_string(),
         fields[1].slot(),
         fields[1].kind().clone(),
         fields[1].nested_leaves().to_vec(),
         fields[1].nullable(),
-        fields[1].default().clone(),
+        fields[1].insert_default().clone(),
         fields[1].storage_decode(),
         fields[1].leaf_codec(),
     );
@@ -1132,7 +1103,7 @@ fn schema_store_rejects_typed_snapshot_with_empty_nested_leaf_path() {
     let mut store = SchemaStore::init_journaled(test_memory(244));
     let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "EmptyNestedLeaf");
     let mut fields = base.fields().to_vec();
-    let invalid_field = PersistedFieldSnapshot::new(
+    let invalid_field = PersistedFieldSnapshot::new_initial(
         fields[1].id(),
         fields[1].name().to_string(),
         fields[1].slot(),
@@ -1143,7 +1114,7 @@ fn schema_store_rejects_typed_snapshot_with_empty_nested_leaf_path() {
             false,
         )],
         fields[1].nullable(),
-        fields[1].default().clone(),
+        fields[1].insert_default().clone(),
         fields[1].storage_decode(),
         fields[1].leaf_codec(),
     );
@@ -1185,14 +1156,14 @@ fn schema_store_rejects_raw_snapshot_with_duplicate_nested_leaf_path() {
             false,
         ),
     ];
-    let invalid_field = PersistedFieldSnapshot::new(
+    let invalid_field = PersistedFieldSnapshot::new_initial(
         fields[1].id(),
         fields[1].name().to_string(),
         fields[1].slot(),
         fields[1].kind().clone(),
         duplicate_leaves,
         fields[1].nullable(),
-        fields[1].default().clone(),
+        fields[1].insert_default().clone(),
         fields[1].storage_decode(),
         fields[1].leaf_codec(),
     );
@@ -1311,7 +1282,17 @@ fn persisted_schema_snapshot_for_test(
     version: SchemaVersion,
     entity_name: &str,
 ) -> PersistedSchemaSnapshot {
-    persisted_schema_snapshot_with_layout_version_for_test(version, version, entity_name)
+    PersistedSchemaSnapshot::new(
+        version,
+        format!("entities::{entity_name}"),
+        entity_name.to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
+        persisted_schema_fields_for_test(),
+    )
 }
 
 fn persisted_schema_snapshot_with_index_for_test(
@@ -1345,56 +1326,36 @@ fn persisted_schema_snapshot_with_index_for_test(
     )
 }
 
-// Build one typed schema snapshot with independently selectable snapshot
-// and row-layout versions. Production snapshots should keep these aligned;
-// tests can deliberately break that invariant at the store boundary.
-fn persisted_schema_snapshot_with_layout_version_for_test(
-    version: SchemaVersion,
-    layout_version: SchemaVersion,
-    entity_name: &str,
-) -> PersistedSchemaSnapshot {
-    PersistedSchemaSnapshot::new(
-        version,
-        format!("entities::{entity_name}"),
-        entity_name.to_string(),
-        FieldId::new(1),
-        SchemaRowLayout::new(
-            layout_version,
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
+fn persisted_schema_fields_for_test() -> Vec<PersistedFieldSnapshot> {
+    vec![
+        PersistedFieldSnapshot::new_initial(
+            FieldId::new(1),
+            "id".to_string(),
+            SchemaFieldSlot::new(0),
+            AcceptedFieldKind::Ulid,
+            Vec::new(),
+            false,
+            SchemaInsertDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Ulid),
         ),
-        vec![
-            PersistedFieldSnapshot::new(
-                FieldId::new(1),
-                "id".to_string(),
-                SchemaFieldSlot::new(0),
-                AcceptedFieldKind::Ulid,
-                Vec::new(),
+        PersistedFieldSnapshot::new_initial(
+            FieldId::new(2),
+            "payload".to_string(),
+            SchemaFieldSlot::new(1),
+            AcceptedFieldKind::Map {
+                key: Box::new(AcceptedFieldKind::Text { max_len: None }),
+                value: Box::new(AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Nat64))),
+            },
+            vec![PersistedNestedLeafSnapshot::new(
+                vec!["bytes".to_string()],
+                AcceptedFieldKind::Blob { max_len: None },
                 false,
-                SchemaFieldDefault::None,
-                FieldStorageDecode::ByKind,
-                LeafCodec::Scalar(ScalarCodec::Ulid),
-            ),
-            PersistedFieldSnapshot::new(
-                FieldId::new(2),
-                "payload".to_string(),
-                SchemaFieldSlot::new(1),
-                AcceptedFieldKind::Map {
-                    key: Box::new(AcceptedFieldKind::Text { max_len: None }),
-                    value: Box::new(AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Nat64))),
-                },
-                vec![PersistedNestedLeafSnapshot::new(
-                    vec!["bytes".to_string()],
-                    AcceptedFieldKind::Blob { max_len: None },
-                    false,
-                )],
-                false,
-                SchemaFieldDefault::None,
-                FieldStorageDecode::ByKind,
-                LeafCodec::Structural,
-            ),
-        ],
-    )
+            )],
+            false,
+            SchemaInsertDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Structural,
+        ),
+    ]
 }

@@ -8,10 +8,10 @@ mod target_keys;
 use crate::{
     db::{
         Db,
-        commit::PreparedIndexMutation,
+        commit::{CommitSchemaFingerprint, PreparedIndexMutation},
         data::{
             CanonicalSlotReader, DecodedDataStoreKey, RawDataStoreKey, RawRow, ScalarSlotValueRef,
-            ScalarValueRef, StructuralRowContract, StructuralSlotReader,
+            ScalarValueRef, SlotReader, StructuralRowContract, StructuralSlotReader,
             decode_accepted_relation_target_primary_key_components_bytes,
             decode_runtime_value_from_accepted_field_contract,
         },
@@ -20,6 +20,7 @@ use crate::{
             RawIndexStoreKey, raw_keys_for_component_prefix_with_kind,
         },
         key_taxonomy::{EncodedPrimaryKey, PrimaryKeyComponent, PrimaryKeyValue},
+        registry::{StoreHandle, StoreRelationSourceCapability, StoreRelationTargetCapability},
         relation::{
             AcceptedRelationCardinality, AcceptedRelationTargetAuthority,
             AcceptedRelationTargetContract, AcceptedRelationTupleEdgeLocalComponent,
@@ -29,7 +30,11 @@ use crate::{
             validate_relation_primary_key_component_kind,
         },
         schema::AcceptedFieldKind,
-        schema::{AcceptedFieldDecodeContract, OwnedAcceptedRelationEdgeContract},
+        schema::{
+            AcceptedCatalogIdentity, AcceptedFieldDecodeContract,
+            OwnedAcceptedRelationEdgeContract, PersistedSchemaSnapshot, SchemaVersion,
+            accepted_schema_cache_fingerprint_for_persisted_snapshot,
+        },
     },
     entity::EntityKind,
     error::InternalError,
@@ -37,9 +42,13 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
-use std::{cell::RefCell, thread::LocalKey};
+use std::{cell::RefCell, mem::size_of, thread::LocalKey};
 
 use target_keys::RelationTargetKeys;
+
+const MAX_SCHEMA_RELATION_EFFECTS: usize = 131_072;
+const MAX_SCHEMA_RELATION_PROJECTION_WORK_UNITS: usize = 262_144;
+const MAX_SCHEMA_STAGED_RAW_BYTES: usize = 256 * 1024 * 1024;
 
 ///
 /// ReverseRelationSourceInfo
@@ -80,6 +89,152 @@ impl ReverseRelationSourceInfo {
 }
 
 ///
+/// StagedReverseRelationDomainEffects
+///
+/// Bounded, zero-write reverse-index effects for one accepted-schema candidate.
+/// Relation staging owns the exact source/candidate identity and prevalidated
+/// mechanical mutations until marker-bound schema publication consumes them.
+///
+
+pub(crate) struct StagedReverseRelationDomainEffects {
+    store_path: &'static str,
+    source_entity_tag: EntityTag,
+    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_after_version: SchemaVersion,
+    accepted_after_fingerprint: CommitSchemaFingerprint,
+    effects: Vec<PreparedIndexMutation>,
+}
+
+impl StagedReverseRelationDomainEffects {
+    /// Return the source store path captured from accepted-before authority.
+    #[must_use]
+    pub(in crate::db) const fn store_path(&self) -> &'static str {
+        self.store_path
+    }
+
+    /// Return the affected source entity identity.
+    #[must_use]
+    pub(in crate::db) const fn entity_tag(&self) -> EntityTag {
+        self.source_entity_tag
+    }
+
+    /// Return the exact accepted-before identity used during derivation.
+    #[must_use]
+    pub(in crate::db) const fn accepted_before_identity(&self) -> AcceptedCatalogIdentity {
+        self.accepted_before_identity
+    }
+
+    /// Return the accepted-after schema version used during derivation.
+    #[must_use]
+    pub(in crate::db) const fn accepted_after_version(&self) -> SchemaVersion {
+        self.accepted_after_version
+    }
+
+    /// Return the accepted-after fingerprint used during derivation.
+    #[must_use]
+    pub(in crate::db) const fn accepted_after_fingerprint(&self) -> CommitSchemaFingerprint {
+        self.accepted_after_fingerprint
+    }
+
+    /// Consume the stage into its prevalidated mechanical effects.
+    pub(in crate::db) fn into_effects(self) -> Vec<PreparedIndexMutation> {
+        self.effects
+    }
+}
+
+///
+/// StagedReverseRelationDomainEffectsBuilder
+///
+/// Candidate-aware relation projector consumed during the same authoritative
+/// row traversal as complete user-index staging. It performs no store writes.
+///
+
+pub(crate) struct StagedReverseRelationDomainEffectsBuilder<'db, C>
+where
+    C: CanisterKind,
+{
+    db: &'db Db<C>,
+    source: ReverseRelationSourceInfo,
+    store_path: &'static str,
+    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_after_version: SchemaVersion,
+    accepted_after_fingerprint: CommitSchemaFingerprint,
+    before_projection: PreparedReverseRelationProjection,
+    after_projection: PreparedReverseRelationProjection,
+    effects: Vec<PreparedIndexMutation>,
+    budget: SchemaRelationStageBudget,
+}
+
+struct SchemaRelationStageBudget {
+    effects: usize,
+    projection_work_units: usize,
+    staged_raw_bytes: usize,
+}
+
+impl SchemaRelationStageBudget {
+    const fn standard() -> Self {
+        Self {
+            effects: 0,
+            projection_work_units: 0,
+            staged_raw_bytes: 0,
+        }
+    }
+
+    fn consume_projection_work(&mut self) -> Result<(), InternalError> {
+        self.projection_work_units =
+            self.projection_work_units.checked_add(1).ok_or_else(|| {
+                InternalError::schema_transition_budget_exceeded(
+                    crate::error::SchemaTransitionBudgetResource::ProjectionWorkUnits,
+                )
+            })?;
+        if self.projection_work_units > MAX_SCHEMA_RELATION_PROJECTION_WORK_UNITS {
+            return Err(InternalError::schema_transition_budget_exceeded(
+                crate::error::SchemaTransitionBudgetResource::ProjectionWorkUnits,
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn consume_effect(
+        &mut self,
+        key_bytes: usize,
+        value_bytes: usize,
+    ) -> Result<(), InternalError> {
+        self.effects = self.effects.checked_add(1).ok_or_else(|| {
+            InternalError::schema_transition_budget_exceeded(
+                crate::error::SchemaTransitionBudgetResource::ProjectionEntries,
+            )
+        })?;
+        if self.effects > MAX_SCHEMA_RELATION_EFFECTS {
+            return Err(InternalError::schema_transition_budget_exceeded(
+                crate::error::SchemaTransitionBudgetResource::ProjectionEntries,
+            ));
+        }
+        let bytes = key_bytes
+            .checked_add(value_bytes)
+            .and_then(|bytes| bytes.checked_add(size_of::<PreparedIndexMutation>()))
+            .ok_or_else(|| {
+                InternalError::schema_transition_budget_exceeded(
+                    crate::error::SchemaTransitionBudgetResource::StagedRawBytes,
+                )
+            })?;
+        self.staged_raw_bytes = self.staged_raw_bytes.checked_add(bytes).ok_or_else(|| {
+            InternalError::schema_transition_budget_exceeded(
+                crate::error::SchemaTransitionBudgetResource::StagedRawBytes,
+            )
+        })?;
+        if self.staged_raw_bytes > MAX_SCHEMA_STAGED_RAW_BYTES {
+            return Err(InternalError::schema_transition_budget_exceeded(
+                crate::error::SchemaTransitionBudgetResource::StagedRawBytes,
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+///
 /// ReverseRelationMutationTarget
 ///
 /// Shared reverse-index mutation context for one touched target key.
@@ -107,6 +262,31 @@ struct ReverseRelationSourceTransition<'row, 'slots> {
     source_row_contract: StructuralRowContract,
     old_row_fields: Option<&'slots StructuralSlotReader<'row>>,
     new_row_fields: Option<&'slots StructuralSlotReader<'row>>,
+}
+
+struct PreparedReverseRelationProjection {
+    relations: Vec<PreparedReverseRelation>,
+    row_contract: StructuralRowContract,
+}
+
+struct PreparedReverseRelation {
+    relation: AcceptedRelationInfo,
+    target_store_path: &'static str,
+    target_store: StoreHandle,
+}
+
+struct ProjectedReverseRelationEntry {
+    target_store_path: &'static str,
+    target_index_store: &'static LocalKey<RefCell<IndexStore>>,
+    key: RawIndexStoreKey,
+}
+
+impl ProjectedReverseRelationEntry {
+    fn cmp_identity(&self, other: &Self) -> std::cmp::Ordering {
+        self.target_store_path
+            .cmp(other.target_store_path)
+            .then_with(|| self.key.cmp(&other.key))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -722,21 +902,34 @@ pub(super) fn relation_target_store<C>(
 where
     C: CanisterKind,
 {
-    // Accepted relation discovery validates runtime target identity before any
-    // relation info can reach this store-resolution boundary.
-    let target = relation.target();
+    relation_target_store_binding(db, source, relation).map(|(_, store)| store.index_store())
+}
 
-    db.with_store_registry(|reg| reg.try_get_store(target.store_path()))
-        .map(|store| store.index_store())
-        .map_err(|err| {
-            InternalError::relation_target_store_missing(
-                source.path,
-                relation.field_name(),
-                target.path(),
-                target.store_path(),
-                err,
-            )
-        })
+// Resolve the registry-owned static path together with its store handle so a
+// staged relation projection has deterministic cross-store ordering identity.
+fn relation_target_store_binding<C>(
+    db: &Db<C>,
+    source: ReverseRelationSourceInfo,
+    relation: &AcceptedRelationInfo,
+) -> Result<(&'static str, StoreHandle), InternalError>
+where
+    C: CanisterKind,
+{
+    let target = relation.target();
+    db.with_store_registry(|registry| {
+        registry
+            .iter()
+            .find(|(path, _)| *path == target.store_path())
+            .ok_or_else(|| {
+                InternalError::relation_target_store_missing(
+                    source.path,
+                    relation.field_name(),
+                    target.path(),
+                    target.store_path(),
+                    "accepted relation target store is not registered",
+                )
+            })
+    })
 }
 
 /// Decode one raw relation target key and enforce reverse-index target invariants.
@@ -939,6 +1132,29 @@ fn relation_target_keys_from_scalar_slot(
         return Ok(None);
     }
 
+    // A candidate-logical row may supply a frozen historical scalar without
+    // carrying physical bytes for the newly introduced slot. Consume that
+    // semantic value through the same accepted row contract instead of
+    // misclassifying legitimate historical absence as scalar corruption.
+    if row_fields.get_bytes(relation.field_index()).is_none() {
+        return match row_fields.required_value_by_contract(relation.field_index())? {
+            crate::value::Value::Null => Ok(Some(RelationTargetKeys::none())),
+            value => {
+                let component =
+                    PrimaryKeyComponent::from_runtime_value(&value).ok_or_else(|| {
+                        InternalError::relation_source_row_unsupported_scalar_relation_key(
+                            source.path,
+                            relation.field_name(),
+                            relation.target().path(),
+                        )
+                    })?;
+                let key = PrimaryKeyValue::Scalar(component);
+
+                Ok(Some(RelationTargetKeys::one(&key)))
+            }
+        };
+    }
+
     match row_fields.required_scalar(relation.field_index())? {
         ScalarSlotValueRef::Null => Ok(Some(RelationTargetKeys::none())),
         ScalarSlotValueRef::Value(value) => {
@@ -1055,6 +1271,310 @@ fn validate_scalar_relation_target_primary_key_kind(
     };
 
     validate_relation_primary_key_component_kind(key_kind)
+}
+
+#[derive(Clone, Copy)]
+enum SchemaRelationProjectionAuthority {
+    AcceptedBefore,
+    CandidateAfter,
+}
+
+impl<'db, C> StagedReverseRelationDomainEffectsBuilder<'db, C>
+where
+    C: CanisterKind,
+{
+    /// Prepare both accepted relation projections before authoritative rows
+    /// are traversed. Construction validates catalog and store capability
+    /// identity but performs no data or index writes.
+    pub(in crate::db) fn new(
+        db: &'db Db<C>,
+        source: ReverseRelationSourceInfo,
+        accepted_before_identity: AcceptedCatalogIdentity,
+        accepted_before: &PersistedSchemaSnapshot,
+        accepted_after: &PersistedSchemaSnapshot,
+        accepted_before_row_contract: StructuralRowContract,
+        accepted_after_row_contract: StructuralRowContract,
+    ) -> Result<Self, InternalError> {
+        let accepted_before_fingerprint =
+            accepted_schema_cache_fingerprint_for_persisted_snapshot(accepted_before)?;
+        if accepted_before_identity.entity_tag() != source.entity_tag
+            || accepted_before_identity.entity_path() != source.path
+            || accepted_before_identity.entity_path() != accepted_before.entity_path()
+            || accepted_before_identity.accepted_schema_version() != accepted_before.version()
+            || accepted_before_identity.accepted_schema_fingerprint() != accepted_before_fingerprint
+            || accepted_after.entity_path() != accepted_before.entity_path()
+            || accepted_before_row_contract.entity_path() != source.path
+            || accepted_after_row_contract.entity_path() != source.path
+        {
+            return Err(InternalError::store_invariant());
+        }
+        let store_path = accepted_before_identity.store_path();
+        let before_projection = PreparedReverseRelationProjection::new(
+            db,
+            source,
+            store_path,
+            accepted_before_row_contract,
+        )?;
+        let after_projection = PreparedReverseRelationProjection::new(
+            db,
+            source,
+            store_path,
+            accepted_after_row_contract,
+        )?;
+
+        Ok(Self {
+            db,
+            source,
+            store_path,
+            accepted_before_identity,
+            accepted_after_version: accepted_after.version(),
+            accepted_after_fingerprint: accepted_schema_cache_fingerprint_for_persisted_snapshot(
+                accepted_after,
+            )?,
+            before_projection,
+            after_projection,
+            effects: Vec::new(),
+            budget: SchemaRelationStageBudget::standard(),
+        })
+    }
+
+    /// Project one authoritative row through accepted-before and candidate-
+    /// after relation contracts, retaining only the exact membership delta.
+    pub(in crate::db) fn observe_row(
+        &mut self,
+        source_primary_key: &PrimaryKeyValue,
+        accepted_before_slots: &StructuralSlotReader<'_>,
+        accepted_after_slots: &StructuralSlotReader<'_>,
+    ) -> Result<(), InternalError> {
+        let before = self.before_projection.project_row(
+            self.db,
+            self.source,
+            source_primary_key,
+            accepted_before_slots,
+            SchemaRelationProjectionAuthority::AcceptedBefore,
+            &mut self.budget,
+        )?;
+        let after = self.after_projection.project_row(
+            self.db,
+            self.source,
+            source_primary_key,
+            accepted_after_slots,
+            SchemaRelationProjectionAuthority::CandidateAfter,
+            &mut self.budget,
+        )?;
+        merge_schema_relation_projection_delta(before, after, &mut self.effects, &mut self.budget)
+    }
+
+    /// Finish the allocation-complete relation stage after enforcing the one
+    /// shared staged-raw-byte cap with the sibling user-index replacement.
+    pub(in crate::db) fn finish(
+        self,
+        user_index_staged_raw_bytes: usize,
+    ) -> Result<StagedReverseRelationDomainEffects, InternalError> {
+        let combined = user_index_staged_raw_bytes
+            .checked_add(self.budget.staged_raw_bytes)
+            .ok_or_else(|| {
+                InternalError::schema_transition_budget_exceeded(
+                    crate::error::SchemaTransitionBudgetResource::StagedRawBytes,
+                )
+            })?;
+        if combined > MAX_SCHEMA_STAGED_RAW_BYTES {
+            return Err(InternalError::schema_transition_budget_exceeded(
+                crate::error::SchemaTransitionBudgetResource::StagedRawBytes,
+            ));
+        }
+
+        Ok(StagedReverseRelationDomainEffects {
+            store_path: self.store_path,
+            source_entity_tag: self.source.entity_tag,
+            accepted_before_identity: self.accepted_before_identity,
+            accepted_after_version: self.accepted_after_version,
+            accepted_after_fingerprint: self.accepted_after_fingerprint,
+            effects: self.effects,
+        })
+    }
+}
+
+impl PreparedReverseRelationProjection {
+    fn new<C>(
+        db: &Db<C>,
+        source: ReverseRelationSourceInfo,
+        source_store_path: &'static str,
+        row_contract: StructuralRowContract,
+    ) -> Result<Self, InternalError>
+    where
+        C: CanisterKind,
+    {
+        let source_store =
+            db.with_store_registry(|registry| registry.try_get_store(source_store_path))?;
+        let source_capability = source_store.storage_capabilities().relation_source();
+        let mut relations = Vec::new();
+        for relation in accepted_relations_for_row_contract(db, source.path, &row_contract, None)? {
+            let (target_store_path, target_store) =
+                relation_target_store_binding(db, source, &relation)?;
+            if matches!(
+                (
+                    source_capability,
+                    target_store.storage_capabilities().relation_target(),
+                ),
+                (
+                    StoreRelationSourceCapability::DurableSource,
+                    StoreRelationTargetCapability::VolatileTarget,
+                )
+            ) {
+                return Err(InternalError::relation_volatile_target_unsupported(
+                    source.path,
+                    relation.field_name(),
+                    relation.target().path(),
+                    source_store_path,
+                    target_store_path,
+                ));
+            }
+            relations.push(PreparedReverseRelation {
+                relation,
+                target_store_path,
+                target_store,
+            });
+        }
+
+        Ok(Self {
+            relations,
+            row_contract,
+        })
+    }
+
+    fn project_row<C>(
+        &self,
+        _db: &Db<C>,
+        source: ReverseRelationSourceInfo,
+        source_primary_key: &PrimaryKeyValue,
+        slots: &StructuralSlotReader<'_>,
+        authority: SchemaRelationProjectionAuthority,
+        budget: &mut SchemaRelationStageBudget,
+    ) -> Result<Vec<ProjectedReverseRelationEntry>, InternalError>
+    where
+        C: CanisterKind,
+    {
+        if slots.contract().entity_path() != self.row_contract.entity_path() {
+            return Err(InternalError::store_invariant());
+        }
+        let mut entries = Vec::new();
+        for prepared in &self.relations {
+            budget.consume_projection_work()?;
+            let relation = &prepared.relation;
+            let target_raw_keys =
+                relation_target_raw_keys_for_source_slots(slots, source, relation)?;
+            for target_raw_key in target_raw_keys {
+                budget.consume_projection_work()?;
+                let target_exists = prepared
+                    .target_store
+                    .with_data(|store| store.get(&target_raw_key).is_some());
+                if !target_exists {
+                    return Err(match authority {
+                        SchemaRelationProjectionAuthority::AcceptedBefore => {
+                            InternalError::store_corruption()
+                        }
+                        SchemaRelationProjectionAuthority::CandidateAfter => {
+                            let target = DecodedDataStoreKey::try_from_raw(&target_raw_key)
+                                .map_err(|_| InternalError::store_corruption())?;
+                            InternalError::relation_target_missing(
+                                source.path,
+                                relation.field_name(),
+                                relation.target().path(),
+                                &target.primary_key_value().as_runtime_value(),
+                            )
+                        }
+                    });
+                }
+                let target = decode_relation_target_data_key(
+                    source,
+                    relation,
+                    &target_raw_key,
+                    RelationTargetDecodeContext::ReverseIndexPrepare,
+                    RelationTargetMismatchPolicy::Reject,
+                )?
+                .ok_or_else(InternalError::store_invariant)?;
+                let Some(key) = reverse_index_key_for_target_and_source_primary_key_value(
+                    source,
+                    relation,
+                    &target.primary_key_value(),
+                    source_primary_key,
+                )?
+                else {
+                    continue;
+                };
+                entries.push(ProjectedReverseRelationEntry {
+                    target_store_path: prepared.target_store_path,
+                    target_index_store: prepared.target_store.index_store(),
+                    key,
+                });
+            }
+        }
+        entries.sort_unstable_by(ProjectedReverseRelationEntry::cmp_identity);
+        entries.dedup_by(|left, right| left.cmp_identity(right).is_eq());
+
+        Ok(entries)
+    }
+}
+
+fn merge_schema_relation_projection_delta(
+    before: Vec<ProjectedReverseRelationEntry>,
+    after: Vec<ProjectedReverseRelationEntry>,
+    effects: &mut Vec<PreparedIndexMutation>,
+    budget: &mut SchemaRelationStageBudget,
+) -> Result<(), InternalError> {
+    let mut before = before.into_iter().peekable();
+    let mut after = after.into_iter().peekable();
+    while before.peek().is_some() || after.peek().is_some() {
+        let ordering = match (before.peek(), after.peek()) {
+            (Some(old), Some(new)) => old.cmp_identity(new),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => break,
+        };
+        let (entry, old_contains, new_contains) = match ordering {
+            std::cmp::Ordering::Less => (
+                before.next().ok_or_else(InternalError::store_invariant)?,
+                true,
+                false,
+            ),
+            std::cmp::Ordering::Greater => (
+                after.next().ok_or_else(InternalError::store_invariant)?,
+                false,
+                true,
+            ),
+            std::cmp::Ordering::Equal => {
+                let old = before.next().ok_or_else(InternalError::store_invariant)?;
+                let new = after.next().ok_or_else(InternalError::store_invariant)?;
+                if !std::ptr::eq(old.target_index_store, new.target_index_store) {
+                    return Err(InternalError::store_invariant());
+                }
+                continue;
+            }
+        };
+        let value = new_contains.then(IndexEntryValue::presence);
+        let current_matches = entry.target_index_store.with_borrow(|store| {
+            store.get(&entry.key).map_or(!old_contains, |current| {
+                old_contains && current == IndexEntryValue::presence()
+            })
+        });
+        if !current_matches {
+            return Err(InternalError::store_corruption());
+        }
+        budget.consume_effect(
+            entry.key.as_bytes().len(),
+            value.as_ref().map_or(0, IndexEntryValue::len),
+        )?;
+        effects.push(PreparedIndexMutation::from_reverse_index_membership(
+            entry.target_index_store,
+            entry.key,
+            value,
+            old_contains,
+            new_contains,
+        ));
+    }
+
+    Ok(())
 }
 
 /// Build one reverse-index mutation for one touched target key.

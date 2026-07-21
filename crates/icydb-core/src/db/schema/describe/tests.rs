@@ -6,11 +6,12 @@ use crate::{
         schema::{
             AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
             AcceptedValueCatalogHandle, FieldId, PersistedFieldSnapshot, PersistedSchemaSnapshot,
-            SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+            RowLayoutVersion, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill,
+            SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
             build_initial_accepted_catalogs_for_tests, compiled_schema_proposal_for_model,
             describe::{
-                describe_entity_fields_with_persisted_schema, describe_entity_model,
-                describe_entity_model_with_persisted_schema,
+                bounded_schema_value_rendering, describe_entity_fields_with_persisted_schema,
+                describe_entity_model, describe_entity_model_with_persisted_schema,
             },
         },
     },
@@ -23,6 +24,7 @@ use crate::{
         },
     },
     types::EntityTag,
+    value::OutputValue,
 };
 use candid::types::{CandidType, Label, Type, TypeInner};
 
@@ -235,6 +237,8 @@ fn entity_schema_description_candid_shape_is_stable() {
         "fields",
         "indexes",
         "relations",
+        "row_layout_current",
+        "row_layout_history_floor",
     ] {
         assert!(
             fields.iter().any(|candidate| candidate == field),
@@ -247,7 +251,22 @@ fn entity_schema_description_candid_shape_is_stable() {
 fn entity_field_description_candid_shape_is_stable() {
     let fields = expect_record_fields(EntityFieldDescription::ty());
 
-    for field in ["name", "slot", "kind", "primary_key", "queryable", "origin"] {
+    for field in [
+        "name",
+        "slot",
+        "kind",
+        "primary_key",
+        "queryable",
+        "origin",
+        "insert_omission",
+        "insert_default",
+        "insert_default_bytes",
+        "insert_default_hash",
+        "introduced_in_layout",
+        "historical_fill",
+        "historical_fill_bytes",
+        "historical_fill_hash",
+    ] {
         assert!(
             fields.iter().any(|candidate| candidate == field),
             "EntityFieldDescription must keep `{field}` field key",
@@ -310,18 +329,15 @@ fn accepted_schema_describe_fails_closed_for_unresolved_composite_identity() {
         "entities::UnresolvedComposite".to_string(),
         "UnresolvedComposite".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
-        ),
-        vec![PersistedFieldSnapshot::new(
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
+        vec![PersistedFieldSnapshot::new_initial(
             FieldId::new(1),
             "value".to_string(),
             SchemaFieldSlot::new(0),
             AcceptedFieldKind::test_composite(),
             Vec::new(),
             false,
-            SchemaFieldDefault::None,
+            SchemaInsertDefault::None,
             FieldStorageDecode::CatalogValue,
             LeafCodec::Structural,
         )],
@@ -349,6 +365,14 @@ fn describe_fixture_constructors_stay_usable() {
             true,
             true,
             "generated".to_string(),
+            Some("required".to_string()),
+            None,
+            None,
+            None,
+            Some(1),
+            Some("reject".to_string()),
+            None,
+            None,
         )],
         vec![EntityIndexDescription::new(
             "idx_email".to_string(),
@@ -363,6 +387,8 @@ fn describe_fixture_constructors_stay_usable() {
             "accounts".to_string(),
             EntityRelationCardinality::Single,
         )],
+        1,
+        1,
     );
 
     assert_eq!(payload.entity_name(), "User");
@@ -371,6 +397,8 @@ fn describe_fixture_constructors_stay_usable() {
     assert_eq!(payload.fields().len(), 1);
     assert_eq!(payload.indexes().len(), 1);
     assert_eq!(payload.relations().len(), 1);
+    assert_eq!(payload.row_layout_current(), 1);
+    assert_eq!(payload.row_layout_history_floor(), 1);
 }
 
 #[test]
@@ -423,26 +451,23 @@ fn accepted_schema_describe_relations_use_persisted_relation_authority() {
         "entities::AcceptedSource".to_string(),
         "AcceptedSource".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Structural,
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "accepted_targets".to_string(),
                 SchemaFieldSlot::new(1),
@@ -455,7 +480,7 @@ fn accepted_schema_describe_relations_use_persisted_relation_authority() {
                 })),
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Structural,
             ),
@@ -589,14 +614,19 @@ fn schema_describe_includes_generated_database_default_metadata() {
         .find(|field| field.name() == "score")
         .expect("database-defaulted score field should be described");
 
+    assert_eq!(score_field.kind(), "nat64");
+    assert_eq!(score_field.insert_omission(), Some("default"));
     assert_eq!(
-        score_field.kind(),
-        "nat64 default=slot_payload(bytes=10, sha256=37746b8fe16bb6b4)"
+        score_field.insert_default(),
+        Some("slot_payload(bytes=10, sha256=37746b8fe16bb6b4)")
     );
+    assert_eq!(score_field.insert_default_bytes(), Some(10));
+    assert_eq!(score_field.insert_default_hash(), Some("37746b8fe16bb6b4"));
 }
 
 #[test]
 fn schema_describe_uses_accepted_top_level_field_metadata() {
+    const DEFAULT_PAYLOAD: &[u8] = &[0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0];
     let id_slot = SchemaFieldSlot::new(0);
     let payload_slot = SchemaFieldSlot::new(7);
     // The accepted wrapper below is intentionally inconsistent so this
@@ -607,40 +637,41 @@ fn schema_describe_uses_accepted_top_level_field_metadata() {
         "entities::BlobEvent".to_string(),
         "BlobEvent".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![(FieldId::new(1), id_slot), (FieldId::new(2), payload_slot)],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), id_slot),
+            (FieldId::new(2), payload_slot),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 id_slot,
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Structural,
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "payload".to_string(),
                 stale_payload_field_slot,
-                AcceptedFieldKind::Blob { max_len: None },
+                AcceptedFieldKind::Nat64,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::SlotPayload(vec![0x10, 0x20, 0x30]),
+                SchemaInsertDefault::SlotPayload(DEFAULT_PAYLOAD.to_vec()),
                 FieldStorageDecode::ByKind,
-                LeafCodec::Structural,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
             ),
         ],
     ));
 
     let value_catalog = accepted_value_catalog_for_models(&[]);
     let described = describe_entity_fields_with_persisted_schema(&snapshot, &value_catalog)
-        .expect("accepted field metadata should describe")
-        .into_iter()
+        .expect("accepted field metadata should describe");
+    let described_identity = described
+        .iter()
         .map(|field| {
             (
                 field.name().to_string(),
@@ -651,16 +682,134 @@ fn schema_describe_uses_accepted_top_level_field_metadata() {
         .collect::<Vec<_>>();
 
     assert_eq!(
-        described,
+        described_identity,
         vec![
             ("id".to_string(), Some(0), "ulid".to_string()),
-            (
-                "payload".to_string(),
-                Some(7),
-                "blob(unbounded) default=slot_payload(bytes=3, sha256=8e1336ab78ebe687)"
-                    .to_string()
+            ("payload".to_string(), Some(7), "nat64".to_string()),
+        ],
+    );
+    let payload = described
+        .iter()
+        .find(|field| field.name() == "payload")
+        .expect("defaulted payload field should describe");
+    assert_eq!(payload.insert_omission(), Some("default"));
+    assert_eq!(payload.insert_default(), Some("7"));
+    assert_eq!(payload.insert_default_bytes(), Some(10));
+    assert_eq!(payload.insert_default_hash(), Some("37746b8fe16bb6b4"));
+    assert_eq!(payload.introduced_in_layout(), Some(1));
+    assert_eq!(payload.historical_fill(), Some("reject"));
+}
+
+#[test]
+fn accepted_schema_describe_keeps_future_default_and_historical_fill_distinct() {
+    const CURRENT_DEFAULT: &[u8] = &[0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0];
+    const HISTORICAL_FILL: &[u8] = &[0xFF, 0x01, 9, 0, 0, 0, 0, 0, 0, 0];
+    let current_layout = RowLayoutVersion::new(2).expect("layout two should be valid");
+    let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+        SchemaVersion::new(2),
+        "entities::TemporalScore".to_string(),
+        "TemporalScore".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::new(
+            current_layout,
+            RowLayoutVersion::INITIAL,
+            vec![
+                (FieldId::new(1), SchemaFieldSlot::new(0)),
+                (FieldId::new(2), SchemaFieldSlot::new(1)),
+            ],
+        ),
+        vec![
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                AcceptedFieldKind::Nat64,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
+            ),
+            PersistedFieldSnapshot::new_with_write_policy(
+                FieldId::new(2),
+                "score".to_string(),
+                SchemaFieldSlot::new(1),
+                AcceptedFieldKind::Nat64,
+                Vec::new(),
+                false,
+                current_layout,
+                SchemaInsertDefault::SlotPayload(CURRENT_DEFAULT.to_vec()),
+                SchemaHistoricalFill::SlotPayload(HISTORICAL_FILL.to_vec()),
+                SchemaFieldWritePolicy::none(),
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
             ),
         ],
+    ));
+    let value_catalog = accepted_value_catalog_for_models(&[]);
+
+    let described = describe_entity_model_with_persisted_schema(
+        &DESCRIBE_EXACT_MODEL,
+        &snapshot,
+        &value_catalog,
+    )
+    .expect("accepted temporal facts should describe");
+    let score = described
+        .fields()
+        .iter()
+        .find(|field| field.name() == "score")
+        .expect("temporal score should describe");
+
+    assert_eq!(described.row_layout_current(), 2);
+    assert_eq!(described.row_layout_history_floor(), 1);
+    assert_eq!(score.insert_omission(), Some("default"));
+    assert_eq!(score.insert_default(), Some("7"));
+    assert_eq!(score.introduced_in_layout(), Some(2));
+    assert_eq!(score.historical_fill(), Some("9"));
+    assert_ne!(score.insert_default_hash(), score.historical_fill_hash());
+}
+
+#[test]
+fn accepted_schema_describe_rejects_malformed_temporal_payload() {
+    let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "entities::MalformedDefault".to_string(),
+        "MalformedDefault".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
+        vec![PersistedFieldSnapshot::new_initial(
+            FieldId::new(1),
+            "score".to_string(),
+            SchemaFieldSlot::new(0),
+            AcceptedFieldKind::Nat64,
+            Vec::new(),
+            false,
+            SchemaInsertDefault::SlotPayload(vec![0x00]),
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Nat64),
+        )],
+    ));
+    let value_catalog = accepted_value_catalog_for_models(&[]);
+
+    let error = describe_entity_fields_with_persisted_schema(&snapshot, &value_catalog)
+        .expect_err("malformed accepted default payload must fail introspection closed");
+
+    assert_eq!(error.class(), crate::error::ErrorClass::Corruption);
+    assert_eq!(error.origin(), crate::error::ErrorOrigin::Serialize);
+}
+
+#[test]
+fn schema_temporal_text_rendering_cannot_collide_with_sentinel_labels() {
+    assert_eq!(
+        bounded_schema_value_rendering(&OutputValue::Text("null".to_string()), b"null"),
+        "'null'",
+    );
+    assert_eq!(
+        bounded_schema_value_rendering(
+            &OutputValue::Text("reject\n'value'".to_string()),
+            b"reject-value",
+        ),
+        "'reject\\n\\'value\\''",
     );
 }
 
@@ -673,30 +822,27 @@ fn schema_describe_preserves_accepted_fixed_width_numeric_kind_labels() {
         "entities::Grid".to_string(),
         "Grid".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![(FieldId::new(1), id_slot), (FieldId::new(2), x_slot)],
-        ),
+        SchemaRowLayout::initial(vec![(FieldId::new(1), id_slot), (FieldId::new(2), x_slot)]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 id_slot,
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Structural,
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "x".to_string(),
                 x_slot,
                 AcceptedFieldKind::Nat16,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Nat64),
             ),
@@ -736,6 +882,9 @@ fn schema_describe_uses_accepted_nested_leaf_metadata() {
     assert_eq!(rank.kind(), "nat64");
     assert!(rank.nullable());
     assert!(rank.queryable());
+    assert_eq!(rank.insert_omission(), None);
+    assert_eq!(rank.introduced_in_layout(), None);
+    assert_eq!(rank.historical_fill(), None);
 }
 
 #[test]

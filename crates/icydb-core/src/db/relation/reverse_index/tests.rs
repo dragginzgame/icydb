@@ -20,7 +20,7 @@ use crate::db::{
         AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedRowLayoutRuntimeContract,
         AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, FieldId,
         PersistedFieldSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
-        SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+        SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
         enum_catalog::build_initial_accepted_enum_catalog,
     },
 };
@@ -171,33 +171,30 @@ fn accepted_relations_require_registered_target_authority() {
         "Source".to_string(),
         "Source".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(4)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(4)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "target_id".to_string(),
                 SchemaFieldSlot::new(4),
                 relation_kind,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Structural,
             ),

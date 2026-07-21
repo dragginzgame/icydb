@@ -9,9 +9,9 @@ use crate::{
         PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexOrigin, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
-        PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
-        SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout, SchemaVersion,
-        composite_catalog::CompositeTypeId, schema_snapshot_index_integrity_detail,
+        PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RowLayoutVersion, SchemaFieldSlot,
+        SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaInsertDefault, SchemaRowLayout,
+        SchemaVersion, composite_catalog::CompositeTypeId, schema_snapshot_index_integrity_detail,
         schema_snapshot_integrity_detail, schema_snapshot_relation_integrity_detail,
     },
     error::InternalError,
@@ -42,7 +42,7 @@ use candid::{CandidType, Decode, Encode};
 use serde::Deserialize;
 
 const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 1;
-const SCHEMA_SNAPSHOT_CONTRACT_PROFILE: u32 = u32::from_be_bytes(*b"ICYX");
+const SCHEMA_SNAPSHOT_CONTRACT_PROFILE: u32 = u32::from_be_bytes(*b"ICYT");
 
 // Candid wire container for one persisted schema snapshot.
 //
@@ -65,7 +65,8 @@ struct PersistedSchemaSnapshotWire {
 // Candid wire container for schema row-layout identity.
 #[derive(CandidType, Deserialize)]
 struct SchemaRowLayoutWire {
-    version: u32,
+    current_version: u32,
+    history_floor: u32,
     field_to_slot: Vec<(u32, u16)>,
 }
 
@@ -78,7 +79,9 @@ struct PersistedFieldSnapshotWire {
     kind: AcceptedFieldKindWire,
     nested_leaves: Vec<PersistedNestedLeafSnapshotWire>,
     nullable: bool,
-    default: SchemaFieldDefaultWire,
+    introduced_in_layout: u32,
+    insert_default: SchemaInsertDefaultWire,
+    historical_fill: SchemaHistoricalFillWire,
     write_policy: SchemaFieldWritePolicyWire,
     origin: PersistedFieldOriginWire,
     storage_decode: FieldStorageDecodeWire,
@@ -176,8 +179,16 @@ enum PersistedIndexExpressionOpWire {
 
 // Candid wire enum for database-level default metadata.
 #[derive(CandidType, Deserialize)]
-enum SchemaFieldDefaultWire {
+enum SchemaInsertDefaultWire {
     None,
+    SlotPayload(Vec<u8>),
+}
+
+// Candid wire enum for one frozen historical physical-absence response.
+#[derive(CandidType, Deserialize)]
+enum SchemaHistoricalFillWire {
+    Reject,
+    Null,
     SlotPayload(Vec<u8>),
 }
 
@@ -357,7 +368,7 @@ impl PersistedSchemaSnapshotWire {
         }
 
         let version = SchemaVersion::new(self.version);
-        let row_layout = self.row_layout.into_layout();
+        let row_layout = self.row_layout.into_layout()?;
         let fields = self
             .fields
             .into_iter()
@@ -430,7 +441,8 @@ impl PersistedSchemaSnapshotWire {
 impl SchemaRowLayoutWire {
     fn from_layout(layout: &SchemaRowLayout) -> Self {
         Self {
-            version: layout.version().get(),
+            current_version: layout.current_version().get(),
+            history_floor: layout.history_floor().get(),
             field_to_slot: layout
                 .field_to_slot()
                 .iter()
@@ -439,14 +451,20 @@ impl SchemaRowLayoutWire {
         }
     }
 
-    fn into_layout(self) -> SchemaRowLayout {
-        SchemaRowLayout::new(
-            SchemaVersion::new(self.version),
+    fn into_layout(self) -> Result<SchemaRowLayout, InternalError> {
+        let current_version = RowLayoutVersion::new(self.current_version)
+            .ok_or_else(InternalError::store_corruption)?;
+        let history_floor = RowLayoutVersion::new(self.history_floor)
+            .ok_or_else(InternalError::store_corruption)?;
+
+        Ok(SchemaRowLayout::new(
+            current_version,
+            history_floor,
             self.field_to_slot
                 .into_iter()
                 .map(|(field_id, slot)| (FieldId::new(field_id), SchemaFieldSlot::new(slot)))
                 .collect(),
-        )
+        ))
     }
 }
 
@@ -463,7 +481,9 @@ impl PersistedFieldSnapshotWire {
                 .map(PersistedNestedLeafSnapshotWire::from_leaf)
                 .collect(),
             nullable: field.nullable(),
-            default: SchemaFieldDefaultWire::from_default(field.default()),
+            introduced_in_layout: field.introduced_in_layout().get(),
+            insert_default: SchemaInsertDefaultWire::from_default(field.insert_default()),
+            historical_fill: SchemaHistoricalFillWire::from_fill(field.historical_fill()),
             write_policy: SchemaFieldWritePolicyWire::from_policy(field.write_policy()),
             origin: PersistedFieldOriginWire::from_origin(field.origin()),
             storage_decode: FieldStorageDecodeWire::from_storage_decode(field.storage_decode()),
@@ -472,6 +492,9 @@ impl PersistedFieldSnapshotWire {
     }
 
     fn into_field(self) -> Result<PersistedFieldSnapshot, InternalError> {
+        let introduced_in_layout = RowLayoutVersion::new(self.introduced_in_layout)
+            .ok_or_else(InternalError::store_corruption)?;
+
         Ok(PersistedFieldSnapshot::new_with_write_policy_and_origin(
             FieldId::new(self.id),
             self.name,
@@ -482,7 +505,9 @@ impl PersistedFieldSnapshotWire {
                 .map(PersistedNestedLeafSnapshotWire::into_leaf)
                 .collect::<Result<Vec<_>, _>>()?,
             self.nullable,
-            self.default.into_default(),
+            introduced_in_layout,
+            self.insert_default.into_default(),
+            self.historical_fill.into_fill(),
             self.write_policy.into_policy(),
             self.origin.into_origin(),
             self.storage_decode.into_storage_decode(),
@@ -721,8 +746,8 @@ impl PersistedIndexExpressionOpWire {
     }
 }
 
-impl SchemaFieldDefaultWire {
-    fn from_default(default: &SchemaFieldDefault) -> Self {
+impl SchemaInsertDefaultWire {
+    fn from_default(default: &SchemaInsertDefault) -> Self {
         if let Some(bytes) = default.slot_payload() {
             Self::SlotPayload(bytes.to_vec())
         } else {
@@ -730,10 +755,28 @@ impl SchemaFieldDefaultWire {
         }
     }
 
-    fn into_default(self) -> SchemaFieldDefault {
+    fn into_default(self) -> SchemaInsertDefault {
         match self {
-            Self::None => SchemaFieldDefault::None,
-            Self::SlotPayload(bytes) => SchemaFieldDefault::SlotPayload(bytes),
+            Self::None => SchemaInsertDefault::None,
+            Self::SlotPayload(bytes) => SchemaInsertDefault::SlotPayload(bytes),
+        }
+    }
+}
+
+impl SchemaHistoricalFillWire {
+    fn from_fill(fill: &SchemaHistoricalFill) -> Self {
+        match fill {
+            SchemaHistoricalFill::Reject => Self::Reject,
+            SchemaHistoricalFill::Null => Self::Null,
+            SchemaHistoricalFill::SlotPayload(bytes) => Self::SlotPayload(bytes.clone()),
+        }
+    }
+
+    fn into_fill(self) -> SchemaHistoricalFill {
+        match self {
+            Self::Reject => SchemaHistoricalFill::Reject,
+            Self::Null => SchemaHistoricalFill::Null,
+            Self::SlotPayload(bytes) => SchemaHistoricalFill::SlotPayload(bytes),
         }
     }
 }

@@ -180,7 +180,12 @@ also declares which query operations each exact field kind supports.
 Accepted schema defines:
 
 - every persisted field and physical slot;
-- the exact current persisted field kind and absence policy;
+- the exact current persisted field kind;
+- the current insertion-omission policy and optional canonical insert-default
+  payload used only for future writes;
+- the row-layout version that introduced each field and the separate frozen
+  historical fill used only when an admitted older physical layout lacks it;
+- the current physical row-layout version and oldest admitted history version;
 - nominal composite identity and complete record, tuple, or newtype shape;
 - fields admitted in predicates and access paths;
 - fields eligible for comparison, ordering, grouping, or indexing; and
@@ -188,6 +193,12 @@ Accepted schema defines:
 
 Generated models may propose or reconcile these facts, but they are not runtime
 fallback authority.
+
+Changing an accepted insert default does not reinterpret historical rows.
+Likewise, decoding a physically short historical row never asks the current
+insert policy to fill the field. SQL omission and explicit `DEFAULT` requests
+are resolved only while constructing a new accepted after-image; persisted-row
+decoding consumes the row's stamped layout and the frozen historical fill.
 
 ---
 

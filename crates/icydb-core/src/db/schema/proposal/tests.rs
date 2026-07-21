@@ -1,7 +1,7 @@
 use crate::{
     db::schema::{
         AcceptedFieldKind, FieldId, PersistedIndexExpressionOp, PersistedIndexKeyItemSnapshot,
-        PersistedIndexKeySnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaVersion,
+        PersistedIndexKeySnapshot, SchemaFieldSlot, SchemaInsertDefault, SchemaVersion,
         compiled_schema_proposal_for_model,
     },
     model::{
@@ -187,7 +187,7 @@ fn compiled_enum_default_persists_catalog_ids() {
         .expect("authored enum default should admit through its store catalog");
     let field = &snapshot.fields()[1];
     let payload = field
-        .default()
+        .insert_default()
         .slot_payload()
         .expect("accepted enum default should persist one slot payload");
 
@@ -248,11 +248,14 @@ fn compiled_schema_proposal_carries_declared_schema_version() {
 
     assert_eq!(proposal.declared_schema_version(), SchemaVersion::new(4));
     assert_eq!(
-        proposal.initial_row_layout().version(),
-        SchemaVersion::new(4)
+        proposal.initial_row_layout().current_version(),
+        crate::db::schema::RowLayoutVersion::INITIAL
     );
     assert_eq!(snapshot.version(), SchemaVersion::new(4));
-    assert_eq!(snapshot.row_layout().version(), SchemaVersion::new(4));
+    assert_eq!(
+        snapshot.row_layout().current_version(),
+        crate::db::schema::RowLayoutVersion::INITIAL
+    );
 }
 
 #[test]
@@ -313,7 +316,10 @@ fn compiled_schema_proposal_builds_initial_row_layout() {
     let proposal = compiled_schema_proposal_for_model(&MODEL);
     let layout = proposal.initial_row_layout();
 
-    assert_eq!(layout.version(), SchemaVersion::initial());
+    assert_eq!(
+        layout.current_version(),
+        crate::db::schema::RowLayoutVersion::INITIAL
+    );
     assert_eq!(
         layout.field_to_slot(),
         &[
@@ -343,7 +349,7 @@ fn compiled_schema_proposal_builds_initial_persisted_snapshot() {
     assert_eq!(name.slot(), SchemaFieldSlot::from_generated_index(1));
     std::assert_matches!(name.kind(), AcceptedFieldKind::Text { max_len: None });
     assert!(name.nullable());
-    assert_eq!(name.default(), &SchemaFieldDefault::None);
+    assert_eq!(name.insert_default(), &SchemaInsertDefault::None);
     assert_eq!(name.storage_decode(), FieldStorageDecode::ByKind);
     assert_eq!(name.leaf_codec(), LeafCodec::Scalar(ScalarCodec::Text));
 

@@ -7,14 +7,18 @@ use crate::{
             commit_marker_present, ensure_recovered, generate_commit_id,
             init_commit_store_for_tests,
         },
-        data::{CanonicalRow, DataStore, DecodedDataStoreKey},
+        data::{
+            CanonicalRow, DataStore, DecodedDataStoreKey, emit_raw_row_from_slot_payloads,
+            encode_persisted_scalar_slot_payload,
+        },
         index::{IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore},
         journal::{JournalBatch, JournalRecord, JournalTailStore},
         registry::StoreRegistry,
         schema::{
-            AcceptedFieldKind, FieldId, PersistedFieldSnapshot, PersistedIndexSnapshot,
-            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
-            SchemaFieldSlot, SchemaRowLayout, SchemaStore, SchemaTransitionPlanKind, SchemaVersion,
+            AcceptedFieldKind, FieldId, PersistedFieldOrigin, PersistedFieldSnapshot,
+            PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
+            RowLayoutVersion, SchemaFieldSlot, SchemaHistoricalFill, SchemaInsertDefault,
+            SchemaRowLayout, SchemaStore, SchemaTransitionPlanKind, SchemaVersion,
             compiled_schema_proposal_for_model,
         },
     },
@@ -24,8 +28,8 @@ use crate::{
     model::{
         entity::EntityModel,
         field::{
-            CompositeCodec, CompositeFieldModel, CompositeShapeModel, FieldKind, FieldModel,
-            FieldStorageDecode, LeafCodec, ScalarCodec,
+            CompositeCodec, CompositeFieldModel, CompositeShapeModel, FieldDatabaseDefault,
+            FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec,
         },
         index::IndexModel,
     },
@@ -55,6 +59,11 @@ crate::test_store! {
     canister = SchemaReconcileTestCanister,
 }
 
+crate::test_store! {
+    ident = SchemaReconcileRelationTargetStore,
+    canister = SchemaReconcileTestCanister,
+}
+
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SchemaReconcileEntity {
     id: Ulid,
@@ -72,6 +81,69 @@ crate::test_entity! {
     fields = [
         crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+    ],
+    indexes = [],
+    relations = [],
+    entity_value = id_field(id),
+}
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct SchemaReconcileRelationTargetEntity {
+    id: Ulid,
+}
+
+crate::test_entity! {
+    ident = SchemaReconcileRelationTargetEntity,
+    entity_name = "SchemaReconcileRelationTargetEntity",
+    tag = EntityTag::new(0x7265_6c5f_7461_7267),
+    store = SchemaReconcileRelationTargetStore,
+    canister = SchemaReconcileTestCanister,
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+    ],
+    indexes = [],
+    relations = [],
+    entity_value = id_field(id),
+}
+
+static ADDITIVE_RELATION_TARGET_DEFAULT_PAYLOAD: &[u8] =
+    &[0xFF, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct AdditiveRelationSourceEntity {
+    id: Ulid,
+    name: String,
+    target: Ulid,
+}
+
+crate::test_entity! {
+    ident = AdditiveRelationSourceEntity,
+    entity_name = "AdditiveRelationSourceEntity",
+    tag = EntityTag::new(0x6164_645f_7265_6c73),
+    store = SchemaReconcileTestStore,
+    canister = SchemaReconcileTestCanister,
+    version = 2,
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        crate::test_field! {
+            target: Ulid => FieldKind::Relation {
+                target_path: SchemaReconcileRelationTargetEntity::PATH,
+                target_entity_name: <SchemaReconcileRelationTargetEntity as crate::entity::EntityDeclaration>::MODEL.name(),
+                target_entity_tag: SchemaReconcileRelationTargetEntity::ENTITY_TAG,
+                target_store_path: SchemaReconcileRelationTargetStore::PATH,
+                key_kind: &FieldKind::Ulid,
+            },
+            options = crate::testing::TestFieldModelOptions::DEFAULT.with_database_default(
+                FieldDatabaseDefault::EncodedSlotPayload(
+                    ADDITIVE_RELATION_TARGET_DEFAULT_PAYLOAD,
+                ),
+            ),
+        },
     ],
     indexes = [],
     relations = [],
@@ -167,6 +239,54 @@ static ADDITIVE_NULLABLE_SCHEMA_MODEL: EntityModel = EntityModel::generated(
     &ADDITIVE_NULLABLE_SCHEMA_INDEXES,
 );
 const ADDITIVE_NULLABLE_ENTITY_TAG: EntityTag = EntityTag::new(0x6164_6469_7469_7665);
+static GENERATED_DEFAULT_BEFORE_PAYLOAD: &[u8] = &[0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0];
+static GENERATED_DEFAULT_AFTER_PAYLOAD: &[u8] = &[0xFF, 0x01, 9, 0, 0, 0, 0, 0, 0, 0];
+static GENERATED_DEFAULT_BEFORE_FIELDS: [FieldModel; 2] = [
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
+        "score",
+        FieldKind::Nat64,
+        FieldStorageDecode::ByKind,
+        false,
+        None,
+        None,
+        FieldDatabaseDefault::EncodedSlotPayload(GENERATED_DEFAULT_BEFORE_PAYLOAD),
+        &[],
+    ),
+];
+static GENERATED_DEFAULT_AFTER_FIELDS: [FieldModel; 2] = [
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
+        "score",
+        FieldKind::Nat64,
+        FieldStorageDecode::ByKind,
+        false,
+        None,
+        None,
+        FieldDatabaseDefault::EncodedSlotPayload(GENERATED_DEFAULT_AFTER_PAYLOAD),
+        &[],
+    ),
+];
+static GENERATED_DEFAULT_INDEXES: [&IndexModel; 0] = [];
+static GENERATED_DEFAULT_BEFORE_MODEL: EntityModel = EntityModel::generated(
+    "schema::reconcile::tests::GeneratedDefaultSchemaEntity",
+    "GeneratedDefaultSchemaEntity",
+    1,
+    &GENERATED_DEFAULT_BEFORE_FIELDS[0],
+    0,
+    &GENERATED_DEFAULT_BEFORE_FIELDS,
+    &GENERATED_DEFAULT_INDEXES,
+);
+static GENERATED_DEFAULT_AFTER_MODEL: EntityModel = EntityModel::generated(
+    "schema::reconcile::tests::GeneratedDefaultSchemaEntity",
+    "GeneratedDefaultSchemaEntity",
+    2,
+    &GENERATED_DEFAULT_AFTER_FIELDS[0],
+    0,
+    &GENERATED_DEFAULT_AFTER_FIELDS,
+    &GENERATED_DEFAULT_INDEXES,
+);
+const GENERATED_DEFAULT_ENTITY_TAG: EntityTag = EntityTag::new(0x6765_6e64_6465_6661);
 thread_local! {
     static RECONCILE_DATA_STORE: RefCell<DataStore> =
         RefCell::new(DataStore::init_journaled(test_memory(252)));
@@ -176,6 +296,14 @@ thread_local! {
         RefCell::new(SchemaStore::init_journaled(test_memory(254)));
     static RECONCILE_JOURNAL_STORE: RefCell<JournalTailStore> =
         RefCell::new(JournalTailStore::init(test_memory(250)));
+    static RECONCILE_RELATION_TARGET_DATA_STORE: RefCell<DataStore> =
+        RefCell::new(DataStore::init_journaled(test_memory(245)));
+    static RECONCILE_RELATION_TARGET_INDEX_STORE: RefCell<IndexStore> =
+        RefCell::new(IndexStore::init_journaled(test_memory(246)));
+    static RECONCILE_RELATION_TARGET_SCHEMA_STORE: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init_journaled(test_memory(247)));
+    static RECONCILE_RELATION_TARGET_JOURNAL_STORE: RefCell<JournalTailStore> =
+        RefCell::new(JournalTailStore::init(test_memory(248)));
     static RECONCILE_STORE_REGISTRY: StoreRegistry = {
         let mut registry = StoreRegistry::new();
         registry
@@ -207,6 +335,34 @@ thread_local! {
             )
             .expect("schema reconcile test store should register");
         registry
+            .register_journaled_store(
+                SchemaReconcileRelationTargetStore::PATH,
+                &RECONCILE_RELATION_TARGET_DATA_STORE,
+                &RECONCILE_RELATION_TARGET_INDEX_STORE,
+                &RECONCILE_RELATION_TARGET_SCHEMA_STORE,
+                &RECONCILE_RELATION_TARGET_JOURNAL_STORE,
+                crate::db::StoreAllocationIdentities::new_journaled(
+                    crate::db::StoreAllocationIdentity::new(
+                        245,
+                        "icydb.test.reconcile.relation_target.data.v1",
+                    ),
+                    crate::db::StoreAllocationIdentity::new(
+                        246,
+                        "icydb.test.reconcile.relation_target.index.v1",
+                    ),
+                    crate::db::StoreAllocationIdentity::new(
+                        247,
+                        "icydb.test.reconcile.relation_target.schema.v1",
+                    ),
+                    crate::db::StoreAllocationIdentity::new(
+                        248,
+                        "icydb.test.reconcile.relation_target.journal.v1",
+                    ),
+                ),
+                crate::db::StoreRuntimeStorageCapabilities::journaled(),
+            )
+            .expect("schema reconcile relation target store should register");
+        registry
     };
 }
 
@@ -218,6 +374,12 @@ static INDEXED_RECONCILE_RUNTIME_HOOKS: &[EntityRuntimeHooks<SchemaReconcileTest
     &[EntityRuntimeHooks::for_entity::<IndexedSchemaEntity>()];
 static INDEXED_RECONCILE_DB: Db<SchemaReconcileTestCanister> =
     Db::new_with_hooks(&RECONCILE_STORE_REGISTRY, INDEXED_RECONCILE_RUNTIME_HOOKS);
+static ADDITIVE_RELATION_RUNTIME_HOOKS: &[EntityRuntimeHooks<SchemaReconcileTestCanister>] = &[
+    EntityRuntimeHooks::for_entity::<AdditiveRelationSourceEntity>(),
+    EntityRuntimeHooks::for_entity::<SchemaReconcileRelationTargetEntity>(),
+];
+static ADDITIVE_RELATION_RECONCILE_DB: Db<SchemaReconcileTestCanister> =
+    Db::new_with_hooks(&RECONCILE_STORE_REGISTRY, ADDITIVE_RELATION_RUNTIME_HOOKS);
 
 fn reset_schema_store() {
     RECONCILE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
@@ -232,6 +394,16 @@ fn reset_reconcile_stores() {
     });
 }
 
+fn reset_reconcile_relation_target_store() {
+    RECONCILE_RELATION_TARGET_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    RECONCILE_RELATION_TARGET_DATA_STORE.with_borrow_mut(DataStore::clear);
+    RECONCILE_RELATION_TARGET_INDEX_STORE.with_borrow_mut(|store| {
+        store.clear();
+        store.mark_ready();
+    });
+    RECONCILE_RELATION_TARGET_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+}
+
 fn indexed_schema_snapshot_without_indexes() -> PersistedSchemaSnapshot {
     let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
     let expected = proposal.initial_persisted_schema_snapshot();
@@ -241,10 +413,7 @@ fn indexed_schema_snapshot_without_indexes() -> PersistedSchemaSnapshot {
         expected.entity_path().to_string(),
         expected.entity_name().to_string(),
         expected.primary_key_field_ids().to_vec(),
-        SchemaRowLayout::new(
-            stored_version,
-            expected.row_layout().field_to_slot().to_vec(),
-        ),
+        expected.row_layout().clone(),
         expected.fields().to_vec(),
         Vec::new(),
     )
@@ -416,7 +585,10 @@ fn reconcile_runtime_schemas_publishes_declared_version_on_first_contact() {
         .expect("initial-version schema snapshot lookup should decode");
 
     assert_eq!(latest.version(), declared_version);
-    assert_eq!(latest.row_layout().version(), declared_version);
+    assert_eq!(
+        latest.row_layout().current_version(),
+        crate::db::schema::RowLayoutVersion::INITIAL
+    );
     assert_eq!(by_declared_version.version(), declared_version);
     assert!(
         initial_version_snapshot.is_none(),
@@ -482,8 +654,8 @@ fn transition_metrics_preserve_current_plan_identity() {
         crate::metrics::SchemaTransitionOutcome::AddFieldPathIndex,
     );
     assert_eq!(
-        super::schema_transition_plan_outcome(SchemaTransitionPlanKind::AppendOnlyNullableFields),
-        crate::metrics::SchemaTransitionOutcome::AppendOnlyNullableFields,
+        super::schema_transition_plan_outcome(SchemaTransitionPlanKind::AppendOnlyFields),
+        crate::metrics::SchemaTransitionOutcome::AppendOnlyFields,
     );
     assert_eq!(
         super::schema_transition_plan_outcome(SchemaTransitionPlanKind::ExactMatch),
@@ -514,6 +686,7 @@ fn accepted_schema_post_root_change_publishes_through_marker_bound_journal() {
         .initial_persisted_schema_snapshot()
         .clone_with_version(SchemaVersion::new(2));
     super::publish_generated_accepted_schema_bundle(
+        &RECONCILE_DB,
         RECONCILE_DB
             .store_handle(SchemaReconcileTestStore::PATH)
             .expect("store should resolve"),
@@ -616,13 +789,10 @@ fn reconcile_staged_schema_snapshot_accepts_append_only_nullable_field() {
         expected.entity_path().to_string(),
         expected.entity_name().to_string(),
         expected.primary_key_field_ids().to_vec(),
-        SchemaRowLayout::new(
-            stored_version,
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
         expected.fields()[..2].to_vec(),
     );
     schema_store
@@ -644,6 +814,17 @@ fn reconcile_staged_schema_snapshot_accepts_append_only_nullable_field() {
     assert_eq!(accepted.footprint().fields(), 3);
     assert_eq!(latest.fields().len(), 3);
     assert_eq!(
+        latest.row_layout().current_version().get(),
+        2,
+        "generated addition should allocate one accepted physical layout",
+    );
+    assert_eq!(latest.row_layout().history_floor().get(), 1);
+    assert_eq!(latest.fields()[2].introduced_in_layout().get(), 2);
+    assert_eq!(
+        latest.fields()[2].historical_fill(),
+        &crate::db::schema::SchemaHistoricalFill::Null,
+    );
+    assert_eq!(
         schema_store.len(),
         2,
         "schema-versioned publication should retain the stored v1 prefix and accepted v2 snapshot",
@@ -654,12 +835,7 @@ fn reconcile_staged_schema_snapshot_accepts_append_only_nullable_field() {
         .counters()
         .expect("schema reconciliation should record metrics");
     assert_eq!(counters.ops().schema_transition_checks(), 1);
-    assert_eq!(
-        counters
-            .ops()
-            .schema_transition_append_only_nullable_fields(),
-        1
-    );
+    assert_eq!(counters.ops().schema_transition_append_only_fields(), 1);
     assert_eq!(
         counters.ops().schema_transition_rejected_field_contract(),
         0
@@ -668,7 +844,294 @@ fn reconcile_staged_schema_snapshot_accepts_append_only_nullable_field() {
 }
 
 #[test]
-fn valid_version_bump_still_rejects_unsupported_field_contract_transition() {
+fn reconcile_staged_schema_snapshot_publishes_generated_default_change_without_layout_change() {
+    let mut schema_store = SchemaStore::init_journaled(test_memory(242));
+    metrics_reset_all();
+
+    let stored = compiled_schema_proposal_for_model(&GENERATED_DEFAULT_BEFORE_MODEL)
+        .initial_persisted_schema_snapshot();
+    let stored_layout = stored.row_layout().clone();
+    let stored_historical_fill = stored.fields()[1].historical_fill().clone();
+    schema_store
+        .insert_persisted_snapshot(GENERATED_DEFAULT_ENTITY_TAG, &stored)
+        .expect("stored generated-default schema should encode");
+
+    let accepted = super::reconcile_staged_schema_snapshot(
+        &mut schema_store,
+        GENERATED_DEFAULT_ENTITY_TAG,
+        GENERATED_DEFAULT_AFTER_MODEL.path(),
+        &GENERATED_DEFAULT_AFTER_MODEL,
+    )
+    .expect("generated default change should publish as metadata only");
+    let latest = schema_store
+        .latest_staged_persisted_snapshot(GENERATED_DEFAULT_ENTITY_TAG)
+        .expect("latest generated-default snapshot should decode")
+        .expect("generated-default snapshot should remain staged");
+
+    assert_eq!(accepted.persisted_snapshot().row_layout(), &stored_layout);
+    assert_eq!(latest.row_layout(), &stored_layout);
+    assert_eq!(
+        latest.fields()[1].historical_fill(),
+        &stored_historical_fill,
+        "future default changes must not rewrite historical interpretation",
+    );
+    assert_eq!(
+        latest.fields()[1].insert_default(),
+        &SchemaInsertDefault::SlotPayload(GENERATED_DEFAULT_AFTER_PAYLOAD.to_vec()),
+    );
+    let report = metrics_report(None);
+    assert_eq!(
+        report
+            .counters()
+            .expect("metadata transition should emit counters")
+            .ops()
+            .schema_transition_metadata_only_field_default(),
+        1,
+    );
+}
+
+#[test]
+fn validate_existing_schema_snapshot_preserves_generated_after_ddl_diagnostic() {
+    let expected = compiled_schema_proposal_for_model(&ADDITIVE_NULLABLE_SCHEMA_MODEL)
+        .initial_persisted_schema_snapshot();
+    let generated = &expected.fields()[2];
+    let ddl_field = PersistedFieldSnapshot::new_with_write_policy_and_origin(
+        generated.id(),
+        "ddl_nickname".to_string(),
+        generated.slot(),
+        generated.kind().clone(),
+        generated.nested_leaves().to_vec(),
+        true,
+        RowLayoutVersion::new(2).expect("test DDL layout should be valid"),
+        SchemaInsertDefault::None,
+        SchemaHistoricalFill::Null,
+        generated.write_policy(),
+        PersistedFieldOrigin::SqlDdl,
+        generated.storage_decode(),
+        generated.leaf_codec(),
+    );
+    let mut actual_fields = expected.fields()[..2].to_vec();
+    actual_fields.push(ddl_field);
+    let actual = PersistedSchemaSnapshot::new(
+        SchemaVersion::new(1),
+        expected.entity_path().to_string(),
+        expected.entity_name().to_string(),
+        expected.primary_key_field_ids().to_vec(),
+        SchemaRowLayout::new(
+            RowLayoutVersion::new(2).expect("test DDL layout should be valid"),
+            RowLayoutVersion::INITIAL,
+            expected.row_layout().field_to_slot().to_vec(),
+        ),
+        actual_fields,
+    );
+
+    let error = super::validate_existing_schema_snapshot(
+        ADDITIVE_NULLABLE_SCHEMA_MODEL.path(),
+        &actual,
+        &expected,
+    )
+    .expect_err("a generated field must not claim an accepted DDL-owned slot");
+
+    assert_eq!(error.class(), ErrorClass::Unsupported);
+    assert_eq!(error.origin(), crate::error::ErrorOrigin::Store);
+    assert_eq!(
+        error.diagnostic().detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+            boundary: icydb_diagnostic_code::RuntimeBoundaryCode::GeneratedFieldAfterDdlField,
+        },),
+    );
+}
+
+#[test]
+fn ordinary_generated_addition_requires_ready_complete_domain_staging() {
+    reset_reconcile_stores();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+
+    let proposal = compiled_schema_proposal_for_model(&ADDITIVE_NULLABLE_SCHEMA_MODEL);
+    let expected = proposal.initial_persisted_schema_snapshot();
+    let stored_prefix = PersistedSchemaSnapshot::new(
+        SchemaVersion::new(expected.version().get().saturating_sub(1)),
+        expected.entity_path().to_string(),
+        expected.entity_name().to_string(),
+        expected.primary_key_field_ids().to_vec(),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
+        expected.fields()[..2].to_vec(),
+    );
+    RECONCILE_SCHEMA_STORE.with_borrow_mut(|schema_store| {
+        super::publish_test_accepted_schema_snapshot(
+            schema_store,
+            ADDITIVE_NULLABLE_ENTITY_TAG,
+            ADDITIVE_NULLABLE_SCHEMA_MODEL.path(),
+            SchemaReconcileTestStore::PATH,
+            &ADDITIVE_NULLABLE_SCHEMA_MODEL,
+            stored_prefix.clone(),
+        )
+        .expect("accepted prefix should publish");
+    });
+    RECONCILE_INDEX_STORE.with_borrow_mut(IndexStore::mark_building);
+
+    let hooks = [EntityRuntimeHooks::new(
+        ADDITIVE_NULLABLE_ENTITY_TAG,
+        &ADDITIVE_NULLABLE_SCHEMA_MODEL,
+        ADDITIVE_NULLABLE_SCHEMA_MODEL.path(),
+        SchemaReconcileTestStore::PATH,
+        crate::db::relation::validate_delete_relations_for_source::<SchemaReconcileEntity>,
+    )];
+    super::reconcile_runtime_schemas(&RECONCILE_DB, &hooks)
+        .expect_err("ordinary additive publication must not bypass a non-ready index domain");
+
+    let accepted = RECONCILE_SCHEMA_STORE
+        .with_borrow(|schema_store| {
+            schema_store.current_accepted_persisted_snapshot(ADDITIVE_NULLABLE_ENTITY_TAG)
+        })
+        .expect("accepted prefix should decode")
+        .expect("accepted prefix should remain selected");
+    assert_eq!(accepted, stored_prefix);
+    RECONCILE_INDEX_STORE.with_borrow_mut(IndexStore::mark_ready);
+}
+
+fn install_additive_relation_accepted_prefixes() {
+    let source_proposal = compiled_schema_proposal_for_model(AdditiveRelationSourceEntity::MODEL);
+    let source_expected = source_proposal.initial_persisted_schema_snapshot();
+    let source_prefix = PersistedSchemaSnapshot::new(
+        SchemaVersion::new(source_expected.version().get().saturating_sub(1)),
+        source_expected.entity_path().to_string(),
+        source_expected.entity_name().to_string(),
+        source_expected.primary_key_field_ids().to_vec(),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
+        source_expected.fields()[..2].to_vec(),
+    );
+    RECONCILE_SCHEMA_STORE.with_borrow_mut(|schema_store| {
+        super::publish_test_accepted_schema_snapshot(
+            schema_store,
+            AdditiveRelationSourceEntity::ENTITY_TAG,
+            AdditiveRelationSourceEntity::PATH,
+            SchemaReconcileTestStore::PATH,
+            AdditiveRelationSourceEntity::MODEL,
+            source_prefix,
+        )
+        .expect("accepted relation-source prefix should publish");
+    });
+
+    let target_expected =
+        compiled_schema_proposal_for_model(SchemaReconcileRelationTargetEntity::MODEL)
+            .initial_persisted_schema_snapshot();
+    RECONCILE_RELATION_TARGET_SCHEMA_STORE.with_borrow_mut(|schema_store| {
+        super::publish_test_accepted_schema_snapshot(
+            schema_store,
+            SchemaReconcileRelationTargetEntity::ENTITY_TAG,
+            SchemaReconcileRelationTargetEntity::PATH,
+            SchemaReconcileRelationTargetStore::PATH,
+            SchemaReconcileRelationTargetEntity::MODEL,
+            target_expected,
+        )
+        .expect("accepted relation target should publish");
+    });
+}
+
+fn insert_additive_relation_fixture_rows() {
+    let target_id = Ulid::from_u128(1);
+    let target_key = DecodedDataStoreKey::try_new::<SchemaReconcileRelationTargetEntity>(target_id)
+        .expect("relation target key should encode")
+        .to_raw()
+        .expect("relation target raw key should encode");
+    let target_row = CanonicalRow::from_entity_with_model_proposal_for_test(
+        &SchemaReconcileRelationTargetEntity { id: target_id },
+    )
+    .expect("relation target row should encode");
+    RECONCILE_RELATION_TARGET_DATA_STORE.with_borrow_mut(|store| {
+        store
+            .fold_recovered_journal_put(target_key.clone(), target_row.into_raw_row())
+            .expect("relation target row should enter the canonical test base");
+    });
+
+    let source_id = Ulid::from_u128(2);
+    let source_key = DecodedDataStoreKey::try_new::<AdditiveRelationSourceEntity>(source_id)
+        .expect("relation source key should encode")
+        .to_raw()
+        .expect("relation source raw key should encode");
+    let source_row = emit_raw_row_from_slot_payloads(
+        crate::db::schema::RowLayoutVersion::INITIAL,
+        2,
+        &[
+            encode_persisted_scalar_slot_payload(&source_id, "id")
+                .expect("source id should encode"),
+            encode_persisted_scalar_slot_payload(&"source".to_string(), "name")
+                .expect("source name should encode"),
+        ],
+    )
+    .expect("accepted-prefix source row should encode");
+    RECONCILE_DATA_STORE.with_borrow_mut(|store| {
+        store
+            .fold_recovered_journal_put(source_key, source_row.into_raw_row())
+            .expect("relation source row should enter the canonical test base");
+    });
+}
+
+#[test]
+fn generated_additive_relation_fill_stages_reverse_effect_before_publication() {
+    reset_reconcile_stores();
+    reset_reconcile_relation_target_store();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    install_additive_relation_accepted_prefixes();
+    insert_additive_relation_fixture_rows();
+
+    arm_commit_failpoint_for_tests(
+        CommitFailpoint::BeforeMarkerWrite,
+        CommitFailpointMode::ReturnError,
+    );
+    super::reconcile_runtime_schemas(
+        &ADDITIVE_RELATION_RECONCILE_DB,
+        ADDITIVE_RELATION_RUNTIME_HOOKS,
+    )
+    .expect_err("marker rejection must keep the staged reverse relation effect invisible");
+    assert_eq!(
+        RECONCILE_RELATION_TARGET_INDEX_STORE.with_borrow(IndexStore::len),
+        0,
+        "rejected schema publication must not apply a reverse relation membership",
+    );
+    let accepted_before_retry = RECONCILE_SCHEMA_STORE
+        .with_borrow(|schema_store| {
+            schema_store
+                .current_accepted_persisted_snapshot(AdditiveRelationSourceEntity::ENTITY_TAG)
+        })
+        .expect("accepted relation-source prefix should decode")
+        .expect("accepted relation-source prefix should remain selected");
+    assert_eq!(accepted_before_retry.fields().len(), 2);
+
+    super::reconcile_runtime_schemas(
+        &ADDITIVE_RELATION_RECONCILE_DB,
+        ADDITIVE_RELATION_RUNTIME_HOOKS,
+    )
+    .expect("additive relation fill should publish with its reverse effect");
+
+    assert_eq!(
+        RECONCILE_RELATION_TARGET_INDEX_STORE.with_borrow(IndexStore::len),
+        1,
+        "candidate logical fill must create the reverse relation membership",
+    );
+    let accepted = RECONCILE_SCHEMA_STORE
+        .with_borrow(|schema_store| {
+            schema_store
+                .current_accepted_persisted_snapshot(AdditiveRelationSourceEntity::ENTITY_TAG)
+        })
+        .expect("accepted relation-source schema should decode")
+        .expect("accepted relation-source schema should exist");
+    assert_eq!(accepted.fields().len(), 3);
+}
+
+#[test]
+fn valid_version_bump_still_rejects_unlowered_additive_layout() {
     metrics_reset_all();
 
     let proposal = compiled_schema_proposal_for_model(&ADDITIVE_NULLABLE_SCHEMA_MODEL);
@@ -679,24 +1142,21 @@ fn valid_version_bump_still_rejects_unsupported_field_contract_transition() {
         expected.entity_path().to_string(),
         expected.entity_name().to_string(),
         expected.primary_key_field_ids().to_vec(),
-        SchemaRowLayout::new(
-            stored_version,
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
         expected.fields()[..2].to_vec(),
     );
     let mut unsupported_fields = expected.fields().to_vec();
-    unsupported_fields[2] = PersistedFieldSnapshot::new(
+    unsupported_fields[2] = PersistedFieldSnapshot::new_initial(
         FieldId::new(3),
         "nickname".to_string(),
         SchemaFieldSlot::new(2),
         AcceptedFieldKind::Text { max_len: None },
         Vec::new(),
         false,
-        SchemaFieldDefault::None,
+        SchemaInsertDefault::None,
         FieldStorageDecode::ByKind,
         LeafCodec::Scalar(ScalarCodec::Text),
     );
@@ -714,11 +1174,11 @@ fn valid_version_bump_still_rejects_unsupported_field_contract_transition() {
         &stored_prefix,
         &unsupported_required_field,
     )
-    .expect_err("valid version bump must not publish unsupported additive fields");
+    .expect_err("valid version bump must not publish unlowered additive layout facts");
 
     assert_runtime_unsupported_diagnostic(
         &err,
-        "valid N+1 schema version bump should reach compatibility rejection",
+        "valid N+1 schema version bump should reach row-layout rejection",
     );
 
     let report = metrics_report(None);
@@ -733,15 +1193,17 @@ fn valid_version_bump_still_rejects_unsupported_field_contract_transition() {
     );
     assert_eq!(
         counters.ops().schema_transition_rejected_field_contract(),
-        1,
-        "unsupported additive field must stay a compatibility rejection after the gate",
+        0,
+        "an unlowered proposal must not be classified as an accepted field contract",
     );
+    assert_eq!(counters.ops().schema_transition_rejected_row_layout(), 1);
     assert_eq!(
         counters.ops().schema_reconcile_rejected_schema_version(),
         0,
         "schema-version admission should not own valid-bump compatibility failures",
     );
-    assert_eq!(counters.ops().schema_reconcile_rejected_other(), 1);
+    assert_eq!(counters.ops().schema_reconcile_rejected_other(), 0);
+    assert_eq!(counters.ops().schema_reconcile_rejected_row_layout(), 1);
 }
 
 #[test]
@@ -1138,7 +1600,7 @@ fn reconcile_staged_schema_snapshot_rejects_nested_leaf_drift_as_field_contract(
     let expected = proposal.initial_persisted_schema_snapshot();
     let mut stored_fields = expected.fields().to_vec();
     let profile = &expected.fields()[1];
-    stored_fields[1] = PersistedFieldSnapshot::new(
+    stored_fields[1] = PersistedFieldSnapshot::new_initial(
         profile.id(),
         profile.name().to_string(),
         profile.slot(),
@@ -1149,7 +1611,7 @@ fn reconcile_staged_schema_snapshot_rejects_nested_leaf_drift_as_field_contract(
             false,
         )],
         profile.nullable(),
-        profile.default().clone(),
+        profile.insert_default().clone(),
         profile.storage_decode(),
         profile.leaf_codec(),
     );
@@ -1263,10 +1725,7 @@ fn reconcile_runtime_schemas_rejects_generated_additive_field_as_field_contract(
         expected.entity_path().to_string(),
         expected.entity_name().to_string(),
         expected.primary_key_field_ids().to_vec(),
-        SchemaRowLayout::new(
-            expected.row_layout().version(),
-            vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
-        ),
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
         expected.fields()[..1].to_vec(),
     );
     RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
@@ -1317,14 +1776,14 @@ fn reconcile_runtime_schemas_rejects_generated_removed_field_as_field_contract()
     let proposal = compiled_schema_proposal_for_model(SchemaReconcileEntity::MODEL);
     let expected = proposal.initial_persisted_schema_snapshot();
     let mut stored_fields = expected.fields().to_vec();
-    stored_fields.push(PersistedFieldSnapshot::new(
+    stored_fields.push(PersistedFieldSnapshot::new_initial(
         FieldId::new(3),
         "removed_score".to_string(),
         SchemaFieldSlot::new(2),
         AcceptedFieldKind::Nat64,
         Vec::new(),
         false,
-        SchemaFieldDefault::None,
+        SchemaInsertDefault::None,
         FieldStorageDecode::ByKind,
         LeafCodec::Scalar(ScalarCodec::Nat64),
     ));
@@ -1333,14 +1792,11 @@ fn reconcile_runtime_schemas_rejects_generated_removed_field_as_field_contract()
         expected.entity_path().to_string(),
         expected.entity_name().to_string(),
         expected.primary_key_field_ids().to_vec(),
-        SchemaRowLayout::new(
-            expected.row_layout().version(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-                (FieldId::new(3), SchemaFieldSlot::new(2)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+            (FieldId::new(3), SchemaFieldSlot::new(2)),
+        ]),
         stored_fields,
     );
     RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
@@ -1392,10 +1848,7 @@ fn reconcile_runtime_schemas_preserves_newer_matching_accepted_snapshot() {
 
     let proposal = compiled_schema_proposal_for_model(SchemaReconcileEntity::MODEL);
     let expected = proposal.initial_persisted_schema_snapshot();
-    let newer_row_layout = SchemaRowLayout::new(
-        SchemaVersion::new(2),
-        expected.row_layout().field_to_slot().to_vec(),
-    );
+    let newer_row_layout = expected.row_layout().clone();
     let newer = PersistedSchemaSnapshot::new(
         SchemaVersion::new(2),
         expected.entity_path().to_string(),
@@ -1441,10 +1894,7 @@ fn runtime_schema_reads_ignore_unpublished_staged_snapshot() {
 
     let proposal = compiled_schema_proposal_for_model(SchemaReconcileEntity::MODEL);
     let accepted = proposal.initial_persisted_schema_snapshot();
-    let staged_row_layout = SchemaRowLayout::new(
-        SchemaVersion::new(2),
-        accepted.row_layout().field_to_slot().to_vec(),
-    );
+    let staged_row_layout = accepted.row_layout().clone();
     let staged = PersistedSchemaSnapshot::new(
         SchemaVersion::new(2),
         accepted.entity_path().to_string(),

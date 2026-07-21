@@ -79,8 +79,13 @@ fn append_only_additive_fields<'a>(
     actual: &PersistedSchemaSnapshot,
     expected: &'a PersistedSchemaSnapshot,
 ) -> Option<&'a [PersistedFieldSnapshot]> {
+    let next_layout_version = actual.row_layout().current_version().checked_next()?;
     if actual.fields().len() >= expected.fields().len()
         || actual.row_layout().field_to_slot().len() >= expected.row_layout().field_to_slot().len()
+        || expected.row_layout().current_version() != next_layout_version
+        || actual.entity_path() != expected.entity_path()
+        || actual.entity_name() != expected.entity_name()
+        || actual.primary_key_field_ids() != expected.primary_key_field_ids()
     {
         return None;
     }

@@ -8,10 +8,10 @@
 
 use crate::{
     db::EntityKey,
-    error::InternalError,
     model::EntityModel,
     traits::{AuthoredFieldProjection, CanisterKind, FieldProjection, StoreKind, TypeKind},
     types::{EntityTag, Id},
+    value::InputValue,
 };
 
 /// Generated declaration facts for an entity type.
@@ -55,35 +55,32 @@ pub trait EntityValue: EntityKey + AuthoredFieldProjection + FieldProjection + S
     fn id(&self) -> Id<Self>;
 }
 
-/// Materialized authored create payload produced by one generated create input.
+/// One authored field carried by a generated typed create input.
 ///
-/// Carries both the fully typed entity after-image and authored field slots so
-/// save preflight can distinguish omission from authorship.
-pub struct EntityCreateMaterialization<E> {
-    entity: E,
-    authored_slots: Vec<usize>,
+/// The stable slot identifies the generated field proposal; the accepted row
+/// contract validates that identity before admitting the unresolved value.
+pub struct EntityCreateFieldInput {
+    slot: usize,
+    value: InputValue,
 }
 
-impl<E> EntityCreateMaterialization<E> {
-    /// Build one materialized typed create payload.
+impl EntityCreateFieldInput {
+    /// Build one authored create-field input from a generated stable slot.
     #[must_use]
-    pub const fn new(entity: E, authored_slots: Vec<usize>) -> Self {
-        Self {
-            entity,
-            authored_slots,
-        }
+    pub const fn new(slot: usize, value: InputValue) -> Self {
+        Self { slot, value }
     }
 
-    /// Consume and return the typed entity after-image.
+    /// Return the generated stable field slot.
     #[must_use]
-    pub fn into_entity(self) -> E {
-        self.entity
+    pub const fn slot(&self) -> usize {
+        self.slot
     }
 
-    /// Borrow the authored field slots carried by this insert payload.
+    /// Consume and return the unresolved authored value.
     #[must_use]
-    pub const fn authored_slots(&self) -> &[usize] {
-        self.authored_slots.as_slice()
+    pub fn into_value(self) -> InputValue {
+        self.value
     }
 }
 
@@ -95,9 +92,8 @@ pub trait EntityCreateInput: Sized {
     /// Entity materialized by this input.
     type Entity: EntityValue;
 
-    /// Materialize one typed create payload plus authored-slot provenance.
-    fn materialize_create(self)
-    -> Result<EntityCreateMaterialization<Self::Entity>, InternalError>;
+    /// Lower this DTO to exact authored field inputs without resolving omissions.
+    fn into_authored_fields(self) -> Vec<EntityCreateFieldInput>;
 }
 
 /// Entity-owned association with its generated create-input shape.

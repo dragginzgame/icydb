@@ -19,26 +19,23 @@ fn accepted_schema_fixture_with_payload_slots(
         "schema::snapshot::tests::Asset".to_string(),
         "Asset".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), layout_slot),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), layout_slot),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "payload".to_string(),
                 field_slot,
@@ -49,7 +46,7 @@ fn accepted_schema_fixture_with_payload_slots(
                     false,
                 )],
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Blob),
             ),
@@ -82,33 +79,30 @@ fn accepted_schema_snapshot_exposes_ordered_primary_key_field_names() {
         "schema::snapshot::tests::Placement".to_string(),
         "Placement".to_string(),
         vec![FieldId::new(2), FieldId::new(1)],
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "entity_id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "battle_id".to_string(),
                 SchemaFieldSlot::new(1),
                 AcceptedFieldKind::Nat64,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Nat64),
             ),
@@ -137,18 +131,15 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_metadata() {
         "schema::snapshot::tests::Invalid".to_string(),
         "Invalid".to_string(),
         FieldId::new(99),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
-        ),
-        vec![PersistedFieldSnapshot::new(
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
+        vec![PersistedFieldSnapshot::new_initial(
             FieldId::new(1),
             "id".to_string(),
             SchemaFieldSlot::new(0),
             AcceptedFieldKind::Ulid,
             Vec::new(),
             false,
-            SchemaFieldDefault::None,
+            SchemaInsertDefault::None,
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Ulid),
         )],
@@ -171,18 +162,15 @@ fn accepted_schema_snapshot_try_new_rejects_zero_schema_version() {
         "schema::snapshot::tests::ZeroVersion".to_string(),
         "ZeroVersion".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::new(0),
-            vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
-        ),
-        vec![PersistedFieldSnapshot::new(
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
+        vec![PersistedFieldSnapshot::new_initial(
             FieldId::new(1),
             "id".to_string(),
             SchemaFieldSlot::new(0),
             AcceptedFieldKind::Ulid,
             Vec::new(),
             false,
-            SchemaFieldDefault::None,
+            SchemaInsertDefault::None,
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Ulid),
         )],
@@ -205,18 +193,15 @@ fn accepted_schema_snapshot_try_new_rejects_duplicate_primary_key_fields() {
         "schema::snapshot::tests::DuplicatePk".to_string(),
         "DuplicatePk".to_string(),
         vec![FieldId::new(1), FieldId::new(1)],
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
-        ),
-        vec![PersistedFieldSnapshot::new(
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
+        vec![PersistedFieldSnapshot::new_initial(
             FieldId::new(1),
             "id".to_string(),
             SchemaFieldSlot::new(0),
             AcceptedFieldKind::Ulid,
             Vec::new(),
             false,
-            SchemaFieldDefault::None,
+            SchemaInsertDefault::None,
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Ulid),
         )],
@@ -239,33 +224,30 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_index_contract() {
         "schema::snapshot::tests::Indexed".to_string(),
         "Indexed".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "email".to_string(),
                 SchemaFieldSlot::new(1),
                 AcceptedFieldKind::Text { max_len: None },
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Text),
             ),
@@ -328,33 +310,30 @@ fn accepted_schema_snapshot_try_new_rejects_index_source_contract_drift() {
             "schema::snapshot::tests::Indexed".to_string(),
             "Indexed".to_string(),
             FieldId::new(1),
-            SchemaRowLayout::new(
-                SchemaVersion::initial(),
-                vec![
-                    (FieldId::new(1), SchemaFieldSlot::new(0)),
-                    (FieldId::new(2), SchemaFieldSlot::new(1)),
-                ],
-            ),
+            SchemaRowLayout::initial(vec![
+                (FieldId::new(1), SchemaFieldSlot::new(0)),
+                (FieldId::new(2), SchemaFieldSlot::new(1)),
+            ]),
             vec![
-                PersistedFieldSnapshot::new(
+                PersistedFieldSnapshot::new_initial(
                     FieldId::new(1),
                     "id".to_string(),
                     SchemaFieldSlot::new(0),
                     AcceptedFieldKind::Ulid,
                     Vec::new(),
                     false,
-                    SchemaFieldDefault::None,
+                    SchemaInsertDefault::None,
                     FieldStorageDecode::ByKind,
                     LeafCodec::Scalar(ScalarCodec::Ulid),
                 ),
-                PersistedFieldSnapshot::new(
+                PersistedFieldSnapshot::new_initial(
                     FieldId::new(2),
                     "email".to_string(),
                     SchemaFieldSlot::new(1),
                     AcceptedFieldKind::Text { max_len: None },
                     Vec::new(),
                     false,
-                    SchemaFieldDefault::None,
+                    SchemaInsertDefault::None,
                     FieldStorageDecode::ByKind,
                     LeafCodec::Scalar(ScalarCodec::Text),
                 ),
@@ -385,33 +364,30 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_relation_contract() {
         "schema::snapshot::tests::Related".to_string(),
         "Related".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "owner_id".to_string(),
                 SchemaFieldSlot::new(1),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
@@ -448,18 +424,15 @@ fn accepted_schema_snapshot_try_new_rejects_relation_missing_local_field() {
         "schema::snapshot::tests::Related".to_string(),
         "Related".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
-        ),
-        vec![PersistedFieldSnapshot::new(
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
+        vec![PersistedFieldSnapshot::new_initial(
             FieldId::new(1),
             "id".to_string(),
             SchemaFieldSlot::new(0),
             AcceptedFieldKind::Ulid,
             Vec::new(),
             false,
-            SchemaFieldDefault::None,
+            SchemaInsertDefault::None,
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Ulid),
         )],
@@ -488,33 +461,30 @@ fn accepted_schema_snapshot_try_new_rejects_composite_relation_local_field() {
         "schema::snapshot::tests::RelatedComposite".to_string(),
         "RelatedComposite".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "owner".to_string(),
                 SchemaFieldSlot::new(1),
                 AcceptedFieldKind::test_composite(),
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::CatalogValue,
                 LeafCodec::Structural,
             ),
@@ -543,33 +513,30 @@ fn accepted_schema_snapshot_exposes_relation_edges() {
         "schema::snapshot::tests::Related".to_string(),
         "Related".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "owner_id".to_string(),
                 SchemaFieldSlot::new(1),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
@@ -607,33 +574,30 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_expression_index_contract() 
         "schema::snapshot::tests::ExpressionIndexed".to_string(),
         "ExpressionIndexed".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "email".to_string(),
                 SchemaFieldSlot::new(1),
                 AcceptedFieldKind::Text { max_len: None },
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Text),
             ),

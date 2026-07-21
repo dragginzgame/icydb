@@ -176,6 +176,11 @@ The active delivery sequence is intentionally serial:
    [0.213 exact unsigned identity
    generation](design/0.213-exact-unsigned-identity-generation/0.213-design.md)
    then consume those accepted contracts in order.
+7. [0.214 SQL structural coverage and range
+   remediation](design/0.214-sql-structural-coverage-and-range-remediation/0.214-design.md)
+   then expands typed SQL interaction evidence, establishes a fresh
+   post-0.213 performance profile, and hard-cuts one proven duplicate
+   compound-range traversal without reopening 0.204 or 0.206.
 
 All proposed lines remain subject to review at their implementation boundary.
 Before 1.0, format and protocol replacements are hard cuts: one current form,

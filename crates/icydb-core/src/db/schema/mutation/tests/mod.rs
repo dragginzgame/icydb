@@ -13,8 +13,8 @@ use crate::{
             PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
             PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
-            SchemaFieldDefault, SchemaFieldSlot, SchemaMutationDelta, SchemaMutationRequest,
-            SchemaRowLayout, SchemaVersion, classify_schema_mutation_delta,
+            RowLayoutVersion, SchemaFieldSlot, SchemaInsertDefault, SchemaMutationDelta,
+            SchemaMutationRequest, SchemaRowLayout, SchemaVersion, classify_schema_mutation_delta,
             schema_mutation_request_for_snapshots,
         },
     },
@@ -74,14 +74,14 @@ impl CanonicalSlotReader for RebuildSlotReader {
 }
 
 fn nullable_text_field(name: &str, id: u32, slot: u16) -> PersistedFieldSnapshot {
-    PersistedFieldSnapshot::new(
+    PersistedFieldSnapshot::new_initial(
         FieldId::new(id),
         name.to_string(),
         SchemaFieldSlot::new(slot),
         AcceptedFieldKind::Text { max_len: None },
         Vec::new(),
         true,
-        SchemaFieldDefault::None,
+        SchemaInsertDefault::None,
         FieldStorageDecode::ByKind,
         LeafCodec::Scalar(ScalarCodec::Text),
     )
@@ -139,33 +139,30 @@ fn base_snapshot() -> PersistedSchemaSnapshot {
         "test::MutationEntity".to_string(),
         "MutationEntity".to_string(),
         FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
         vec![
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new(
+            PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "name".to_string(),
                 SchemaFieldSlot::new(1),
                 AcceptedFieldKind::Text { max_len: None },
                 Vec::new(),
                 false,
-                SchemaFieldDefault::None,
+                SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Text),
             ),
@@ -188,8 +185,12 @@ fn append_fields_snapshot(
         snapshot.entity_path().to_string(),
         snapshot.entity_name().to_string(),
         snapshot.first_primary_key_field_id(),
-        SchemaRowLayout::new(
-            SchemaVersion::new(snapshot.row_layout().version().get() + 1),
+        SchemaRowLayout::single_version(
+            snapshot
+                .row_layout()
+                .current_version()
+                .checked_next()
+                .expect("test layout version should advance"),
             next_layout_entries,
         ),
         next_fields,
@@ -205,10 +206,7 @@ fn snapshot_with_indexes(
         snapshot.entity_path().to_string(),
         snapshot.entity_name().to_string(),
         snapshot.first_primary_key_field_id(),
-        SchemaRowLayout::new(
-            SchemaVersion::new(snapshot.row_layout().version().get() + 1),
-            snapshot.row_layout().field_to_slot().to_vec(),
-        ),
+        snapshot.row_layout().clone(),
         snapshot.fields().to_vec(),
         indexes,
     )

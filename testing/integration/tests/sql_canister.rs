@@ -1866,7 +1866,11 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_default() {
     assert!(
         describe_after_set.fields().iter().any(|field| {
             field.name() == "bonus"
-                && field.kind().starts_with("nat64 default=slot_payload(")
+                && field.kind() == "nat64"
+                && field.insert_omission() == Some("default")
+                && field.insert_default() == Some("7")
+                && field.insert_default_bytes().is_some()
+                && field.insert_default_hash().is_some()
                 && field.origin() == "ddl"
         }),
         "DESCRIBE should expose the accepted default change: {describe_after_set:?}",
@@ -1966,9 +1970,10 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_nullability() {
         describe_after_set.fields().iter().any(|field| {
             field.name() == "nickname"
                 && !field.nullable()
-                && field
-                    .kind()
-                    .starts_with("text(unbounded) default=slot_payload(")
+                && field.kind() == "text(unbounded)"
+                && field.insert_omission() == Some("default")
+                && field.insert_default() == Some("'anonymous'")
+                && field.insert_default_hash().is_some()
                 && field.origin() == "ddl"
         }),
         "DESCRIBE should expose the accepted nullability change: {describe_after_set:?}",
@@ -2038,10 +2043,6 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publicatio
         (
             "ALTER TABLE SqlTestUser ALTER COLUMN bonus SET NOT NULL",
             ErrorCode::SCHEMA_DDL_SET_NOT_NULL_VALIDATION_FAILED,
-        ),
-        (
-            "ALTER TABLE SqlTestUser ALTER COLUMN required_score DROP DEFAULT",
-            ErrorCode::SCHEMA_DDL_REQUIRED_DROP_DEFAULT_UNSUPPORTED,
         ),
     ] {
         let before = expect_describe(
