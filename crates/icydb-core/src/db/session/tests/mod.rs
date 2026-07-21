@@ -896,8 +896,8 @@ impl Default for SessionSqlFieldPathEntity {
 ///
 /// SessionSqlFieldPathProfile
 ///
-/// SessionSqlFieldPathProfile is the typed structured field used by scan-only
-/// FieldPath predicate tests.
+/// SessionSqlFieldPathProfile is the exact record composite used by scan-only
+/// field-path predicate tests.
 /// The rank state lets tests distinguish a missing `rank` key from an explicit
 /// SQL NULL while keeping the persisted field statically typed.
 ///
@@ -978,9 +978,9 @@ impl RuntimeValueDecode for SessionSqlFieldPathProfile {
 ///
 /// SessionSqlProfileRecord
 ///
-/// SessionSqlProfileRecord is the typed structured field fixture used by SQL
-/// FieldPath projection tests.
-/// It persists through the same structured value-storage lane as generated
+/// SessionSqlProfileRecord is the exact record composite used by SQL field-path
+/// projection tests.
+/// It persists through the same structural value-storage lane as generated
 /// records while keeping this core test module independent from schema macro
 /// expansion.
 ///
@@ -4661,8 +4661,8 @@ fn assert_query_plan_expr_unknown_field(err: QueryError, expected_field: &str, c
     );
 }
 
-// Assert one SQL predicate/schema validation failure stays attached to a
-// structured field identity instead of relying on rendered text.
+// Assert one SQL predicate/schema validation failure stays attached to its
+// field identity instead of relying on rendered text.
 fn assert_query_plan_predicate_invalid_field(err: QueryError, expected_field: &str, context: &str) {
     let diagnostic = err.diagnostic();
     assert_eq!(

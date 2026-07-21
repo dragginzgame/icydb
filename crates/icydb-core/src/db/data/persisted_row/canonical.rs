@@ -5,6 +5,8 @@
 
 #[cfg(test)]
 use crate::db::schema::AcceptedValueCatalogHandle;
+#[cfg(any(test, feature = "sql"))]
+use crate::value::InputValue;
 use crate::{
     db::{
         data::{
@@ -31,10 +33,11 @@ use crate::{
     },
     error::InternalError,
     model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
-    value::{InputValue, Value},
+    value::Value,
 };
 
 /// Normalize and encode one authored input through an accepted field contract.
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn encode_input_value_for_accepted_field_contract(
     encoding: AcceptedFieldPersistenceContract<'_>,
     input: InputValue,
@@ -64,7 +67,7 @@ pub(in crate::db) fn encode_canonical_value_for_accepted_field_contract(
         .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?
 }
 
-fn encode_accepted_value_ref_for_accepted_field_contract(
+pub(in crate::db) fn encode_accepted_value_ref_for_accepted_field_contract(
     field: AcceptedFieldDecodeContract<'_>,
     accepted: &AcceptedValueRef<'_>,
 ) -> Result<Vec<u8>, InternalError> {

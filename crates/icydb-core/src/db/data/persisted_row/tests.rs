@@ -2170,6 +2170,19 @@ fn serialize_structural_patch_fields_encodes_canonical_slot_payloads() {
 }
 
 #[test]
+fn serialize_structural_patch_preserves_authored_admission_classification() {
+    let patch = AuthoredStructuralPatch::new().set(
+        FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve text slot"),
+        Value::Bool(true),
+    );
+
+    let error = serialize_structural_patch_fields_for_accepted_test_model(&TEST_MODEL, &patch)
+        .expect_err("a bool must not admit into an accepted text field");
+
+    assert_error_taxonomy(&error, ErrorClass::Unsupported, ErrorOrigin::Executor);
+}
+
+#[test]
 fn serialize_authored_enum_patch_resolves_names_to_canonical_ids() {
     let patch = AuthoredStructuralPatch::new().set(
         FieldSlot::from_index(&ENUM_MODEL, 0).expect("resolve enum slot"),

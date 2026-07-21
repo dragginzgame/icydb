@@ -3,7 +3,9 @@ use crate::db::schema::runtime::{AcceptedFieldAbsencePolicy, AcceptedRowLayoutRu
 use crate::{
     db::{
         data::{
-            decode_runtime_value_from_accepted_field_contract, encode_persisted_scalar_slot_payload,
+            canonical_row_from_entity_with_accepted_contract,
+            decode_runtime_value_from_accepted_field_contract,
+            encode_persisted_scalar_slot_payload,
         },
         schema::{
             AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
@@ -527,6 +529,23 @@ fn accepted_authored_projection_admits_fields_against_row_catalog_authority() {
             ValueAdmissionError::ScalarConstraint,
         )),
     );
+    let mut encode_rejected_budget = ValueAdmissionBudget::standard();
+    assert_eq!(
+        projection.encode_field(&too_long, 1, &mut encode_rejected_budget),
+        Err(AuthoredFieldAdmissionError::Admission(
+            ValueAdmissionError::ScalarConstraint,
+        )),
+        "encoding must preserve the admission cause",
+    );
+
+    let error = canonical_row_from_entity_with_accepted_contract(
+        RUNTIME_ENTITY_MODEL.path(),
+        row_contract,
+        &too_long,
+    )
+    .expect_err("the production typed-row boundary must reject invalid authored input");
+    assert_eq!(error.class(), ErrorClass::Unsupported);
+    assert_eq!(error.origin(), ErrorOrigin::Executor);
 }
 
 #[test]

@@ -184,11 +184,60 @@ fn snapshot_with_nested_status(
     status_kind: AcceptedFieldKind,
 ) -> PersistedSchemaSnapshot {
     let nested = PersistedNestedLeafSnapshot::new(vec!["status".to_string()], status_kind, false);
-    snapshot_with_field(
+    snapshot_with_non_key_field(
         "test::Item",
+        "profile",
         composite_kind,
         vec![nested],
+        FieldStorageDecode::CatalogValue,
         LeafCodec::Structural,
+    )
+}
+
+fn snapshot_with_non_key_field(
+    entity_path: &str,
+    field_name: &str,
+    kind: AcceptedFieldKind,
+    nested_leaves: Vec<PersistedNestedLeafSnapshot>,
+    storage_decode: FieldStorageDecode,
+    leaf_codec: LeafCodec,
+) -> PersistedSchemaSnapshot {
+    PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        entity_path.to_string(),
+        "Item".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::new(
+            SchemaVersion::initial(),
+            vec![
+                (FieldId::new(1), SchemaFieldSlot::new(0)),
+                (FieldId::new(2), SchemaFieldSlot::new(1)),
+            ],
+        ),
+        vec![
+            PersistedFieldSnapshot::new(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                AcceptedFieldKind::Ulid,
+                Vec::new(),
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Ulid),
+            ),
+            PersistedFieldSnapshot::new(
+                FieldId::new(2),
+                field_name.to_string(),
+                SchemaFieldSlot::new(1),
+                kind,
+                nested_leaves,
+                false,
+                SchemaFieldDefault::None,
+                storage_decode,
+                leaf_codec,
+            ),
+        ],
     )
 }
 
@@ -258,10 +307,17 @@ fn accepted_schema_bundle_requires_field_composite_type_to_exist() {
         build_initial_accepted_catalogs_from_kinds_for_tests(&[PROFILE_KIND])
             .expect("profile catalogs should build");
     let profile_kind = AcceptedFieldKind::from_model_kind(PROFILE_KIND);
-    let exact = snapshot_with_field(
+    let profile_leaf = PersistedNestedLeafSnapshot::new(
+        vec!["name".to_string()],
+        AcceptedFieldKind::Text { max_len: Some(32) },
+        false,
+    );
+    let exact = snapshot_with_non_key_field(
         "test::Item",
+        "profile",
         profile_kind.clone(),
-        Vec::new(),
+        vec![profile_leaf.clone()],
+        FieldStorageDecode::CatalogValue,
         LeafCodec::Structural,
     );
     assert!(
@@ -275,10 +331,12 @@ fn accepted_schema_bundle_requires_field_composite_type_to_exist() {
         .is_ok()
     );
 
-    let missing = snapshot_with_field(
+    let missing = snapshot_with_non_key_field(
         "test::Item",
+        "profile",
         profile_kind,
-        Vec::new(),
+        vec![profile_leaf],
+        FieldStorageDecode::CatalogValue,
         LeafCodec::Structural,
     );
     assert!(
@@ -290,6 +348,163 @@ fn accepted_schema_bundle_requires_field_composite_type_to_exist() {
             BTreeMap::from([(EntityTag::new(7), missing)]),
         )
         .is_err()
+    );
+}
+
+#[test]
+fn accepted_schema_bundle_requires_nested_leaves_to_match_composite_authority() {
+    let (enum_catalog, composite_catalog) =
+        build_initial_accepted_catalogs_from_kinds_for_tests(&[PROFILE_KIND])
+            .expect("profile catalogs should build");
+    let profile_kind = AcceptedFieldKind::from_model_kind(PROFILE_KIND);
+    let snapshot_with_leaf = |leaf| {
+        snapshot_with_non_key_field(
+            "test::Item",
+            "profile",
+            profile_kind.clone(),
+            vec![leaf],
+            FieldStorageDecode::CatalogValue,
+            LeafCodec::Structural,
+        )
+    };
+
+    for mismatched_leaf in [
+        PersistedNestedLeafSnapshot::new(
+            vec!["other".to_string()],
+            AcceptedFieldKind::Text { max_len: Some(32) },
+            false,
+        ),
+        PersistedNestedLeafSnapshot::new(
+            vec!["name".to_string()],
+            AcceptedFieldKind::Blob { max_len: Some(32) },
+            false,
+        ),
+        PersistedNestedLeafSnapshot::new(
+            vec!["name".to_string()],
+            AcceptedFieldKind::Text { max_len: Some(32) },
+            true,
+        ),
+    ] {
+        assert!(
+            AcceptedSchemaRevisionBundle::new(
+                AcceptedSchemaRevision::INITIAL,
+                "test::Store",
+                enum_catalog.clone(),
+                composite_catalog.clone(),
+                BTreeMap::from([(EntityTag::new(7), snapshot_with_leaf(mismatched_leaf))]),
+            )
+            .is_err(),
+            "catalog-disconnected nested leaf metadata must reject",
+        );
+    }
+
+    let missing_leaf = snapshot_with_non_key_field(
+        "test::Item",
+        "profile",
+        profile_kind,
+        Vec::new(),
+        FieldStorageDecode::CatalogValue,
+        LeafCodec::Structural,
+    );
+    assert!(
+        AcceptedSchemaRevisionBundle::new(
+            AcceptedSchemaRevision::INITIAL,
+            "test::Store",
+            enum_catalog,
+            composite_catalog,
+            BTreeMap::from([(EntityTag::new(7), missing_leaf)]),
+        )
+        .is_err(),
+        "missing catalog-derived nested leaf metadata must reject",
+    );
+}
+
+#[test]
+fn accepted_schema_bundle_rejects_composite_key_index_and_relation_contracts() {
+    let (enum_catalog, composite_catalog) =
+        build_initial_accepted_catalogs_from_kinds_for_tests(&[PROFILE_KIND])
+            .expect("profile catalogs should build");
+    let profile_kind = AcceptedFieldKind::from_model_kind(PROFILE_KIND);
+    let profile_leaf = || {
+        PersistedNestedLeafSnapshot::new(
+            vec!["name".to_string()],
+            AcceptedFieldKind::Text { max_len: Some(32) },
+            false,
+        )
+    };
+    let bundle_with = |snapshot| {
+        AcceptedSchemaRevisionBundle::new(
+            AcceptedSchemaRevision::INITIAL,
+            "test::Store",
+            enum_catalog.clone(),
+            composite_catalog.clone(),
+            BTreeMap::from([(EntityTag::new(7), snapshot)]),
+        )
+    };
+
+    let composite_primary_key = snapshot_with_field(
+        "test::Item",
+        profile_kind.clone(),
+        vec![profile_leaf()],
+        LeafCodec::Structural,
+    );
+    assert!(
+        bundle_with(composite_primary_key).is_err(),
+        "whole composites must not become primary keys",
+    );
+
+    let indexed = snapshot_with_non_key_field(
+        "test::Item",
+        "profile",
+        profile_kind.clone(),
+        vec![profile_leaf()],
+        FieldStorageDecode::CatalogValue,
+        LeafCodec::Structural,
+    );
+    let composite_index = PersistedSchemaSnapshot::new_with_indexes(
+        indexed.version(),
+        indexed.entity_path().to_string(),
+        indexed.entity_name().to_string(),
+        indexed.primary_key_field_ids().to_vec(),
+        indexed.row_layout().clone(),
+        indexed.fields().to_vec(),
+        vec![PersistedIndexSnapshot::new(
+            1,
+            "idx_item__profile".to_string(),
+            "test::Item::profile".to_string(),
+            false,
+            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+                FieldId::new(2),
+                SchemaFieldSlot::new(1),
+                vec!["profile".to_string()],
+                profile_kind.clone(),
+                false,
+            )]),
+            None,
+        )],
+    );
+    assert!(
+        bundle_with(composite_index).is_err(),
+        "whole composites must not become index leaves",
+    );
+
+    let composite_relation_key = snapshot_with_non_key_field(
+        "test::Item",
+        "owner",
+        AcceptedFieldKind::Relation {
+            target_path: "test::Owner".to_string(),
+            target_entity_name: "Owner".to_string(),
+            target_entity_tag: EntityTag::new(8),
+            target_store_path: "test::Store".to_string(),
+            key_kind: Box::new(profile_kind),
+        },
+        Vec::new(),
+        FieldStorageDecode::ByKind,
+        LeafCodec::Structural,
+    );
+    assert!(
+        bundle_with(composite_relation_key).is_err(),
+        "whole composites must not become relation keys",
     );
 }
 

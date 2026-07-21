@@ -297,6 +297,88 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_index_contract() {
 }
 
 #[test]
+fn accepted_schema_snapshot_try_new_rejects_index_source_contract_drift() {
+    let invalid_sources = [
+        PersistedIndexFieldPathSnapshot::new(
+            FieldId::new(2),
+            SchemaFieldSlot::new(1),
+            vec!["renamed_email".to_string()],
+            AcceptedFieldKind::Text { max_len: None },
+            false,
+        ),
+        PersistedIndexFieldPathSnapshot::new(
+            FieldId::new(2),
+            SchemaFieldSlot::new(1),
+            vec!["email".to_string()],
+            AcceptedFieldKind::Nat64,
+            false,
+        ),
+        PersistedIndexFieldPathSnapshot::new(
+            FieldId::new(2),
+            SchemaFieldSlot::new(1),
+            vec!["email".to_string()],
+            AcceptedFieldKind::Text { max_len: None },
+            true,
+        ),
+    ];
+
+    for source in invalid_sources {
+        let snapshot = PersistedSchemaSnapshot::new_with_indexes(
+            SchemaVersion::initial(),
+            "schema::snapshot::tests::Indexed".to_string(),
+            "Indexed".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    AcceptedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "email".to_string(),
+                    SchemaFieldSlot::new(1),
+                    AcceptedFieldKind::Text { max_len: None },
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Text),
+                ),
+            ],
+            vec![PersistedIndexSnapshot::new(
+                1,
+                "idx_indexed__email".to_string(),
+                "indexed::email".to_string(),
+                false,
+                PersistedIndexKeySnapshot::FieldPath(vec![source]),
+                None,
+            )],
+        );
+
+        let error = AcceptedSchemaSnapshot::try_new(snapshot)
+            .expect_err("accepted schema construction should reject index source drift");
+        assert_eq!(
+            error.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
+        );
+    }
+}
+
+#[test]
 fn accepted_schema_snapshot_try_new_rejects_invalid_relation_contract() {
     let snapshot = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         SchemaVersion::initial(),
@@ -396,6 +478,61 @@ fn accepted_schema_snapshot_try_new_rejects_relation_missing_local_field() {
         err.diagnostic_code(),
         icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "accepted schema construction should report missing relation local fields"
+    );
+}
+
+#[test]
+fn accepted_schema_snapshot_try_new_rejects_composite_relation_local_field() {
+    let snapshot = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+        SchemaVersion::initial(),
+        "schema::snapshot::tests::RelatedComposite".to_string(),
+        "RelatedComposite".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::new(
+            SchemaVersion::initial(),
+            vec![
+                (FieldId::new(1), SchemaFieldSlot::new(0)),
+                (FieldId::new(2), SchemaFieldSlot::new(1)),
+            ],
+        ),
+        vec![
+            PersistedFieldSnapshot::new(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                AcceptedFieldKind::Ulid,
+                Vec::new(),
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Ulid),
+            ),
+            PersistedFieldSnapshot::new(
+                FieldId::new(2),
+                "owner".to_string(),
+                SchemaFieldSlot::new(1),
+                AcceptedFieldKind::test_composite(),
+                Vec::new(),
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::CatalogValue,
+                LeafCodec::Structural,
+            ),
+        ],
+        Vec::new(),
+    )
+    .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+        "owner".to_string(),
+        "schema::snapshot::tests::Owner".to_string(),
+        vec![FieldId::new(2)],
+    )]);
+
+    let error = AcceptedSchemaSnapshot::try_new(snapshot)
+        .expect_err("whole composites must not become relation local fields");
+
+    assert_eq!(
+        error.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
     );
 }
 

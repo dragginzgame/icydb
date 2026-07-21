@@ -20,7 +20,9 @@ pub(in crate::db) use entity_decode::decode_raw_row_for_entity_key_with_contract
 pub(in crate::db) use key::{DecodedDataStoreKey, primary_key_value_from_structural_value};
 #[cfg(feature = "sql")]
 pub(in crate::db) use persisted_row::canonical_row_from_dense_slot_payloads;
+pub(in crate::db) use persisted_row::encode_accepted_value_ref_for_accepted_field_contract;
 pub(in crate::db) use persisted_row::encode_canonical_value_for_accepted_field_contract;
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use persisted_row::encode_input_value_for_accepted_field_contract;
 #[cfg(test)]
 pub(in crate::db) use persisted_row::encode_value_with_model_proposal_for_test;

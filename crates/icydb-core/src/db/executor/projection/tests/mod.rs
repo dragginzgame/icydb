@@ -95,7 +95,7 @@ impl Default for ProjectionEvalEntity {
 ///
 /// ProjectionEvalProfile
 ///
-/// ProjectionEvalProfile is the typed structured field used by projection
+/// ProjectionEvalProfile is the exact record composite used by projection
 /// evaluator tests.
 /// It lowers to the runtime `Value::Map` shape needed by expression tests
 /// without making the dynamic `Value` union a persisted field type.

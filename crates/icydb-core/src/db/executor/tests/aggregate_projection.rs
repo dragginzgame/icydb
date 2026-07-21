@@ -588,7 +588,7 @@ fn aggregate_projection_count_distinct_supports_non_orderable_fields() {
 
     assert_eq!(
         distinct_count, 2,
-        "count_distinct_by(tags) should support structured field equality",
+        "count_distinct_by(tags) should support list field equality",
     );
 }
 

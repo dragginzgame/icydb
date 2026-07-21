@@ -144,9 +144,12 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let snapshot = self.ensure_accepted_schema_snapshot::<E>()?;
+        let catalog = self.accepted_schema_catalog_context_for_query::<E>()?;
 
-        Ok(describe_entity_fields_with_persisted_schema(&snapshot))
+        describe_entity_fields_with_persisted_schema(
+            catalog.snapshot(),
+            catalog.value_catalog_handle(),
+        )
     }
 
     /// Return one stable list of runtime-registered entity catalog entries.
@@ -264,12 +267,13 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let snapshot = self.ensure_accepted_schema_snapshot::<E>()?;
+        let catalog = self.accepted_schema_catalog_context_for_query::<E>()?;
 
-        Ok(describe_entity_model_with_persisted_schema(
+        describe_entity_model_with_persisted_schema(
             E::MODEL,
-            &snapshot,
-        ))
+            catalog.snapshot(),
+            catalog.value_catalog_handle(),
+        )
     }
 
     /// Build one point-in-time storage report for observability endpoints.

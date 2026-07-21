@@ -1080,7 +1080,7 @@ fn execute_sql_projection_selects_record_root_as_subtree() {
         &session,
         "SELECT profile FROM SessionSqlRecordFieldPathEntity",
     )
-    .expect("record root projection should project a structured subtree");
+    .expect("record root projection should project the exact composite value");
 
     assert_eq!(columns, vec!["profile".to_string()]);
     assert_eq!(
@@ -1092,7 +1092,7 @@ fn execute_sql_projection_selects_record_root_as_subtree() {
             ),
             (Value::Text("rank".to_string()), Value::Int64(7)),
         ])]],
-        "record root projection should return the stored structured subtree",
+        "record root projection should return the stored composite value",
     );
 }
 
@@ -1122,7 +1122,7 @@ fn execute_sql_projection_select_star_includes_record_roots() {
     assert_eq!(
         rows[0].len(),
         3,
-        "SELECT * should materialize scalar fields and structured subtrees",
+        "SELECT * should materialize scalar fields and composite record values",
     );
     assert_eq!(rows[0][1], Value::Text("Ada".to_string()));
     assert_eq!(

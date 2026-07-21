@@ -17,8 +17,7 @@ use crate::{
             AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract, AcceptedSchemaAuthority,
             AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, SchemaInfo,
             SchemaStore, SchemaVersion, authored_projection::AcceptedAuthoredFieldProjection,
-            ensure_accepted_schema_snapshot, enum_catalog::ValueAdmissionBudget,
-            output_value_from_runtime,
+            enum_catalog::ValueAdmissionBudget, output_value_from_runtime,
         },
     },
     entity::EntityKind,
@@ -96,7 +95,6 @@ impl AcceptedSchemaCatalogContext {
     }
 
     #[must_use]
-    #[cfg(feature = "sql")]
     pub(in crate::db) const fn value_catalog_handle(&self) -> &AcceptedValueCatalogHandle {
         &self.value_catalog
     }
@@ -393,38 +391,6 @@ impl<C: CanisterKind> DbSession<C> {
             debug_assert_eq!(context.identity.store_path(), hooks.store_path);
         }
         Ok(context)
-    }
-
-    // Load one accepted schema snapshot for a generated entity from the
-    // current immutable root.
-    pub(in crate::db::session) fn ensure_accepted_schema_snapshot<E>(
-        &self,
-    ) -> Result<AcceptedSchemaSnapshot, InternalError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let store = self.db.recovered_store(E::Store::PATH)?;
-
-        #[cfg(test)]
-        store.with_schema_mut(|schema_store| {
-            crate::db::schema::bootstrap_test_accepted_schema_snapshot(
-                schema_store,
-                E::ENTITY_TAG,
-                E::PATH,
-                E::Store::PATH,
-                E::MODEL,
-            )
-        })?;
-
-        store.with_schema_mut(|schema_store| {
-            ensure_accepted_schema_snapshot(
-                schema_store,
-                E::ENTITY_TAG,
-                E::PATH,
-                E::Store::PATH,
-                E::MODEL,
-            )
-        })
     }
 
     fn accepted_schema_query_cache_key(

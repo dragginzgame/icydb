@@ -19,10 +19,12 @@ mod types;
 #[cfg(test)]
 mod tests;
 
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use canonical::encode_input_value_for_accepted_field_contract;
 pub(in crate::db) use canonical::validate_default_payload_for_accepted_field_contract;
 pub(in crate::db) use canonical::{
+    encode_accepted_value_ref_for_accepted_field_contract,
     encode_canonical_value_for_accepted_field_contract,
-    encode_input_value_for_accepted_field_contract,
 };
 #[cfg(test)]
 pub(in crate::db) use contract::encode_value_with_model_proposal_for_test;

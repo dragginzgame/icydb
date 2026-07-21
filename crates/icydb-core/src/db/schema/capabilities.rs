@@ -149,12 +149,11 @@ pub(in crate::db) fn sql_capabilities(kind: &AcceptedFieldKind) -> SqlCapabiliti
         AcceptedFieldKindCategory::Relation(None) => {
             unreachable!("schema capability invariant")
         }
-        AcceptedFieldKindCategory::Collection => SqlCapabilities::new(
-            SQL_CAPABILITY_SELECTABLE,
-            SqlAggregateInputCapabilities::new(false, false, false),
-        ),
-        AcceptedFieldKindCategory::Composite => {
-            SqlCapabilities::new(0, SqlAggregateInputCapabilities::new(false, false, false))
+        AcceptedFieldKindCategory::Collection | AcceptedFieldKindCategory::Composite => {
+            SqlCapabilities::new(
+                SQL_CAPABILITY_SELECTABLE,
+                SqlAggregateInputCapabilities::new(false, false, false),
+            )
         }
     }
 }
@@ -164,13 +163,13 @@ pub(in crate::db) fn sql_capabilities(kind: &AcceptedFieldKind) -> SqlCapabiliti
 #[cfg(feature = "sql")]
 pub(in crate::db) fn sql_capabilities_for_model_kind(kind: &FieldKind) -> SqlCapabilities {
     match kind {
-        FieldKind::List(_) | FieldKind::Set(_) | FieldKind::Map { .. } => SqlCapabilities::new(
+        FieldKind::List(_)
+        | FieldKind::Set(_)
+        | FieldKind::Map { .. }
+        | FieldKind::Composite { .. } => SqlCapabilities::new(
             SQL_CAPABILITY_SELECTABLE,
             SqlAggregateInputCapabilities::new(false, false, false),
         ),
-        FieldKind::Composite { .. } => {
-            SqlCapabilities::new(0, SqlAggregateInputCapabilities::new(false, false, false))
-        }
         FieldKind::Relation { key_kind, .. } => sql_capabilities_for_model_kind(key_kind),
         _ => {
             let semantics = classify_field_kind(kind);
@@ -299,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn sql_capabilities_reject_collection_and_composite_predicates() {
+    fn sql_capabilities_transport_collections_and_composites_without_scalar_operations() {
         let list = sql_capabilities(&AcceptedFieldKind::List(Box::new(
             AcceptedFieldKind::Text { max_len: None },
         )));
@@ -309,8 +308,11 @@ mod tests {
         assert!(!list.comparable());
         assert!(!list.orderable());
         assert!(!list.groupable());
-        assert!(!composite.selectable());
+        assert!(composite.selectable());
         assert!(!composite.comparable());
+        assert!(!composite.orderable());
+        assert!(!composite.groupable());
+        assert!(!composite.aggregate_input().count());
     }
 
     #[test]

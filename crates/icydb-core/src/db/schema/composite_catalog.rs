@@ -180,6 +180,16 @@ pub(in crate::db::schema) struct AcceptedCompositeType {
 
 impl AcceptedCompositeType {
     #[must_use]
+    pub(in crate::db::schema) const fn path(&self) -> &str {
+        self.path.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn codec(&self) -> CompositeCodec {
+        self.codec
+    }
+
+    #[must_use]
     pub(in crate::db::schema) const fn shape(&self) -> &AcceptedCompositeShape {
         &self.shape
     }

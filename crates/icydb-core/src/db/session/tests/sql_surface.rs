@@ -755,6 +755,33 @@ fn sql_metadata_surfaces_match_typed_payloads() {
 }
 
 #[test]
+fn accepted_sql_metadata_resolves_composite_catalog_identity_and_shape() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let described = statement_describe_sql::<SessionSqlRecordFieldPathEntity>(
+        &session,
+        "DESCRIBE SessionSqlRecordFieldPathEntity",
+    )
+    .expect("DESCRIBE should resolve the accepted composite catalog");
+    let columns = statement_show_columns_sql::<SessionSqlRecordFieldPathEntity>(
+        &session,
+        "SHOW COLUMNS SessionSqlRecordFieldPathEntity",
+    )
+    .expect("SHOW COLUMNS should resolve the accepted composite catalog");
+
+    assert_eq!(described.fields(), columns.as_slice());
+    let profile = columns
+        .iter()
+        .find(|field| field.name() == "profile")
+        .expect("accepted profile field should be described");
+    assert_eq!(
+        profile.kind(),
+        "composite(path=session::tests::SessionSqlProfileRecord, codec=structural_v1, shape=record{nickname:text(unbounded), rank:int64})",
+    );
+}
+
+#[test]
 fn sql_metadata_surfaces_execute_through_public_query_entrypoint() {
     reset_session_sql_store();
     let session = sql_session();

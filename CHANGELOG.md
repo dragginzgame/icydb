@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.208.md](docs/changelog/0.208.md)
 
+- `0.208.1` completes the pre-1.0 exact-composite hard cut by enforcing complete
+  accepted catalog authority across publication, writes, SQL projection, and
+  schema introspection, with malformed or inconsistent contracts failing closed.
+
 - `0.208.0` is a breaking pre-1.0 hard cut from generic structured fields to
   exact nominal composites owned by one accepted value-catalog authority.
 

@@ -9,14 +9,20 @@ use crate::{
             RelationFieldCardinality, RelationFieldMetadata, relation_field_metadata_for_model_iter,
         },
         schema::{
-            AcceptedFieldKind, AcceptedSchemaSnapshot, PersistedIndexKeyItemSnapshot,
-            PersistedIndexKeySnapshot, PersistedNestedLeafSnapshot, SchemaFieldDefault,
-            SchemaFieldSlot, field_type_from_persisted_kind,
+            AcceptedFieldKind, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
+            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedNestedLeafSnapshot,
+            SchemaFieldDefault, SchemaFieldSlot,
+            composite_catalog::{AcceptedCompositeElement, AcceptedCompositeShape},
+            field_type_from_persisted_kind,
         },
     },
+    error::InternalError,
     model::{
         entity::EntityModel,
-        field::{FieldDatabaseDefault, FieldKind, FieldModel},
+        field::{
+            CompositeCodec, CompositeElementModel, CompositeShapeModel, FieldDatabaseDefault,
+            FieldKind, FieldModel,
+        },
     },
 };
 use candid::CandidType;
@@ -403,12 +409,12 @@ pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaD
     doc,
     doc = "Build one entity-schema description using accepted persisted schema slot metadata."
 )]
-#[must_use]
 pub(in crate::db) fn describe_entity_model_with_persisted_schema(
     model: &EntityModel,
     schema: &AcceptedSchemaSnapshot,
-) -> EntitySchemaDescription {
-    let fields = describe_entity_fields_with_persisted_schema(schema);
+    value_catalog: &AcceptedValueCatalogHandle,
+) -> Result<EntitySchemaDescription, InternalError> {
+    let fields = describe_entity_fields_with_persisted_schema(schema, value_catalog)?;
     let primary_key_fields = schema.primary_key_field_names();
     let primary_key_fields = if primary_key_fields.is_empty() {
         vec![model.primary_key.name.to_string()]
@@ -420,7 +426,7 @@ pub(in crate::db) fn describe_entity_model_with_persisted_schema(
     };
     let primary_key = render_primary_key_fields(primary_key_fields.as_slice());
 
-    describe_entity_model_from_description_rows(
+    Ok(describe_entity_model_from_description_rows(
         schema.entity_path(),
         schema.entity_name(),
         primary_key.as_str(),
@@ -428,7 +434,7 @@ pub(in crate::db) fn describe_entity_model_with_persisted_schema(
         fields,
         describe_entity_indexes_with_persisted_schema(schema),
         describe_entity_relations_with_persisted_schema(schema),
-    )
+    ))
 }
 
 // Assemble the common DESCRIBE payload once field rows have already been built.
@@ -546,10 +552,10 @@ pub(in crate::db) fn describe_entity_fields(model: &EntityModel) -> Vec<EntityFi
     doc,
     doc = "Build field descriptors using accepted persisted schema slot metadata."
 )]
-#[must_use]
 pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
     schema: &AcceptedSchemaSnapshot,
-) -> Vec<EntityFieldDescription> {
+    value_catalog: &AcceptedValueCatalogHandle,
+) -> Result<Vec<EntityFieldDescription>, InternalError> {
     let snapshot = schema.persisted_snapshot();
     let mut fields = Vec::with_capacity(snapshot.fields().len());
 
@@ -561,7 +567,7 @@ pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
             .row_layout()
             .slot_for_field(field.id())
             .map(SchemaFieldSlot::get);
-        let mut kind = summarize_persisted_field_kind(field.kind());
+        let mut kind = summarize_persisted_field_kind(field.kind(), value_catalog)?;
         write_schema_default_summary(&mut kind, field.default());
         let metadata = DescribeFieldMetadata::new(
             kind,
@@ -579,11 +585,12 @@ pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
                 &mut fields,
                 field.nested_leaves(),
                 field_origin_label(field.generated()),
-            );
+                value_catalog,
+            )?;
         }
     }
 
-    fields
+    Ok(fields)
 }
 
 // Build field descriptors with an injected top-level slot lookup. Generated
@@ -728,7 +735,8 @@ fn describe_persisted_nested_leaves(
     fields: &mut Vec<EntityFieldDescription>,
     nested_leaves: &[PersistedNestedLeafSnapshot],
     origin: String,
-) {
+    value_catalog: &AcceptedValueCatalogHandle,
+) -> Result<(), InternalError> {
     for (index, leaf) in nested_leaves.iter().enumerate() {
         let prefix = if index + 1 == nested_leaves.len() {
             "└─ "
@@ -737,7 +745,7 @@ fn describe_persisted_nested_leaves(
         };
         let name = leaf.path().last().map_or("", String::as_str);
         let metadata = DescribeFieldMetadata::new(
-            summarize_persisted_field_kind(leaf.kind()),
+            summarize_persisted_field_kind(leaf.kind(), value_catalog)?,
             leaf.nullable(),
             field_type_from_persisted_kind(leaf.kind())
                 .value_kind()
@@ -747,6 +755,8 @@ fn describe_persisted_nested_leaves(
 
         push_described_field_row(fields, name, None, false, Some(prefix), metadata);
     }
+
+    Ok(())
 }
 
 fn field_origin_label(generated: bool) -> String {
@@ -907,9 +917,13 @@ fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
             write_field_kind_summary(out, value);
             out.push('>');
         }
-        FieldKind::Composite { path, .. } => {
-            out.push_str("composite(");
+        FieldKind::Composite { path, codec, shape } => {
+            out.push_str("composite(path=");
             out.push_str(path);
+            out.push_str(", codec=");
+            write_composite_codec_summary(out, *codec);
+            out.push_str(", shape=");
+            write_generated_composite_shape_summary(out, shape);
             out.push(')');
         }
         FieldKind::Account
@@ -936,6 +950,104 @@ fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
         FieldKind::NatBig { max_bytes } => {
             write_byte_bounded_field_kind_summary(out, "nat_big", *max_bytes);
         }
+    }
+}
+
+fn write_composite_codec_summary(out: &mut String, codec: CompositeCodec) {
+    match codec {
+        CompositeCodec::StructuralV1 => out.push_str("structural_v1"),
+    }
+}
+
+fn write_generated_composite_shape_summary(out: &mut String, shape: &CompositeShapeModel) {
+    match shape {
+        CompositeShapeModel::Record(fields) => {
+            out.push_str("record{");
+            for (index, field) in fields.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(field.name());
+                out.push(':');
+                write_field_kind_summary(out, &field.kind());
+                write_composite_nullability_summary(out, field.nullable());
+            }
+            out.push('}');
+        }
+        CompositeShapeModel::Tuple(elements) => {
+            out.push_str("tuple<");
+            for (index, element) in elements.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(", ");
+                }
+                write_generated_composite_element_summary(out, element);
+            }
+            out.push('>');
+        }
+        CompositeShapeModel::Newtype(inner) => {
+            out.push_str("newtype<");
+            write_generated_composite_element_summary(out, inner);
+            out.push('>');
+        }
+    }
+}
+
+fn write_generated_composite_element_summary(out: &mut String, element: &CompositeElementModel) {
+    write_field_kind_summary(out, &element.kind());
+    write_composite_nullability_summary(out, element.nullable());
+}
+
+fn write_accepted_composite_shape_summary(
+    out: &mut String,
+    shape: &AcceptedCompositeShape,
+    value_catalog: &AcceptedValueCatalogHandle,
+) -> Result<(), InternalError> {
+    match shape {
+        AcceptedCompositeShape::Record(fields) => {
+            out.push_str("record{");
+            for (index, field) in fields.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(field.name());
+                out.push(':');
+                write_accepted_composite_element_summary(out, field.contract(), value_catalog)?;
+            }
+            out.push('}');
+        }
+        AcceptedCompositeShape::Tuple(elements) => {
+            out.push_str("tuple<");
+            for (index, element) in elements.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(", ");
+                }
+                write_accepted_composite_element_summary(out, element, value_catalog)?;
+            }
+            out.push('>');
+        }
+        AcceptedCompositeShape::Newtype(inner) => {
+            out.push_str("newtype<");
+            write_accepted_composite_element_summary(out, inner, value_catalog)?;
+            out.push('>');
+        }
+    }
+
+    Ok(())
+}
+
+fn write_accepted_composite_element_summary(
+    out: &mut String,
+    element: &AcceptedCompositeElement,
+    value_catalog: &AcceptedValueCatalogHandle,
+) -> Result<(), InternalError> {
+    write_persisted_field_kind_summary(out, element.kind(), value_catalog)?;
+    write_composite_nullability_summary(out, element.nullable());
+    Ok(())
+}
+
+fn write_composite_nullability_summary(out: &mut String, nullable: bool) {
+    if nullable {
+        out.push('?');
     }
 }
 
@@ -1060,20 +1172,27 @@ fn short_default_payload_fingerprint(payload: &[u8]) -> String {
     doc,
     doc = "Render one stable field-kind label from accepted persisted schema metadata."
 )]
-fn summarize_persisted_field_kind(kind: &AcceptedFieldKind) -> String {
+fn summarize_persisted_field_kind(
+    kind: &AcceptedFieldKind,
+    value_catalog: &AcceptedValueCatalogHandle,
+) -> Result<String, InternalError> {
     let mut out = String::new();
-    write_persisted_field_kind_summary(&mut out, kind);
+    write_persisted_field_kind_summary(&mut out, kind, value_catalog)?;
 
-    out
+    Ok(out)
 }
 
 // Stream the accepted persisted field-kind label in the same public format as
 // generated `FieldKind` summaries. Top-level live-schema metadata can then
 // drive DESCRIBE output without converting back into generated static types.
-fn write_persisted_field_kind_summary(out: &mut String, kind: &AcceptedFieldKind) {
+fn write_persisted_field_kind_summary(
+    out: &mut String,
+    kind: &AcceptedFieldKind,
+    value_catalog: &AcceptedValueCatalogHandle,
+) -> Result<(), InternalError> {
     if let Some(name) = kind.describe_kind_name() {
         out.push_str(name);
-        return;
+        return Ok(());
     }
 
     match kind {
@@ -1087,7 +1206,13 @@ fn write_persisted_field_kind_summary(out: &mut String, kind: &AcceptedFieldKind
             write_byte_bounded_field_kind_summary(out, "int_big", *max_bytes);
         }
         AcceptedFieldKind::Enum { type_id } => {
-            let _ = write!(out, "enum(type_id={})", type_id.get());
+            let definition = value_catalog
+                .enum_catalog()
+                .enum_type(*type_id)
+                .ok_or_else(InternalError::store_invariant)?;
+            out.push_str("enum(");
+            out.push_str(definition.path());
+            out.push(')');
         }
         AcceptedFieldKind::Text { max_len } => {
             write_length_bounded_field_kind_summary(out, "text", *max_len);
@@ -1100,28 +1225,38 @@ fn write_persisted_field_kind_summary(out: &mut String, kind: &AcceptedFieldKind
             out.push_str("relation(target=");
             out.push_str(target_entity_name);
             out.push_str(", key=");
-            write_persisted_field_kind_summary(out, key_kind);
+            write_persisted_field_kind_summary(out, key_kind, value_catalog)?;
             out.push(')');
         }
         AcceptedFieldKind::List(inner) => {
             out.push_str("list<");
-            write_persisted_field_kind_summary(out, inner);
+            write_persisted_field_kind_summary(out, inner, value_catalog)?;
             out.push('>');
         }
         AcceptedFieldKind::Set(inner) => {
             out.push_str("set<");
-            write_persisted_field_kind_summary(out, inner);
+            write_persisted_field_kind_summary(out, inner, value_catalog)?;
             out.push('>');
         }
         AcceptedFieldKind::Map { key, value } => {
             out.push_str("map<");
-            write_persisted_field_kind_summary(out, key);
+            write_persisted_field_kind_summary(out, key, value_catalog)?;
             out.push_str(", ");
-            write_persisted_field_kind_summary(out, value);
+            write_persisted_field_kind_summary(out, value, value_catalog)?;
             out.push('>');
         }
         AcceptedFieldKind::Composite { type_id } => {
-            let _ = write!(out, "composite(type_id={})", type_id.get());
+            let composite_catalog = value_catalog.composite_catalog();
+            let definition = composite_catalog
+                .composite_type(*type_id)
+                .ok_or_else(InternalError::store_invariant)?;
+            out.push_str("composite(path=");
+            out.push_str(definition.path());
+            out.push_str(", codec=");
+            write_composite_codec_summary(out, definition.codec());
+            out.push_str(", shape=");
+            write_accepted_composite_shape_summary(out, definition.shape(), value_catalog)?;
+            out.push(')');
         }
         AcceptedFieldKind::Account
         | AcceptedFieldKind::Bool
@@ -1148,6 +1283,8 @@ fn write_persisted_field_kind_summary(out: &mut String, kind: &AcceptedFieldKind
             write_byte_bounded_field_kind_summary(out, "nat_big", *max_bytes);
         }
     }
+
+    Ok(())
 }
 
 impl DescribeKindName for AcceptedFieldKind {

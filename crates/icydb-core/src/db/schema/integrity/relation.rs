@@ -1,6 +1,9 @@
 //! Persisted schema relation integrity checks.
 
-use crate::db::schema::{PersistedFieldSnapshot, PersistedRelationEdgeSnapshot, SchemaRowLayout};
+use crate::db::schema::{
+    PersistedFieldSnapshot, PersistedRelationEdgeSnapshot, SchemaRowLayout,
+    classify_accepted_field_kind,
+};
 
 // Build the first deterministic accepted-relation integrity diagnostic.
 // Relation edges are owned by the source entity snapshot; target compatibility
@@ -45,6 +48,10 @@ pub(in crate::db::schema) fn schema_snapshot_relation_integrity_detail(
             };
 
             if field.slot() != row_layout_slot {
+                return Some(());
+            }
+
+            if classify_accepted_field_kind(field.kind()).is_composite() {
                 return Some(());
             }
         }

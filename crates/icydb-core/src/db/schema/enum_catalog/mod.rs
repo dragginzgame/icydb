@@ -361,6 +361,11 @@ pub(in crate::db) struct AcceptedEnumType {
 }
 
 impl AcceptedEnumType {
+    #[must_use]
+    pub(in crate::db::schema) const fn path(&self) -> &str {
+        self.path.as_str()
+    }
+
     fn lookup_maps_are_bijective(&self) -> bool {
         self.variants_by_id.len() == self.variant_id_by_name.len()
             && self.variant_id_by_name.iter().all(|(name, variant_id)| {

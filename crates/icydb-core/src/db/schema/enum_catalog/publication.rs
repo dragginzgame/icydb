@@ -11,7 +11,8 @@ use super::{
     equality_key::{EqualityCapability, enum_equality_capability},
 };
 use crate::db::schema::composite_catalog::{
-    AcceptedCompositeCatalog, decode_accepted_composite_catalog, encode_accepted_composite_catalog,
+    AcceptedCompositeCatalog, AcceptedCompositeElement, AcceptedCompositeShape,
+    decode_accepted_composite_catalog, encode_accepted_composite_catalog,
 };
 use crate::{
     db::{
@@ -19,10 +20,11 @@ use crate::{
         data::validate_default_payload_for_accepted_field_contract,
         database_format::crc32c,
         schema::{
-            AcceptedFieldDecodeContract, AcceptedFieldKind, MAX_SCHEMA_SNAPSHOT_BYTES,
+            AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedSchemaSnapshot,
+            MAX_ACCEPTED_RECURSIVE_DEPTH, MAX_SCHEMA_SNAPSHOT_BYTES, PersistedFieldSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
-            PersistedIndexKeySnapshot, PersistedSchemaSnapshot, decode_persisted_schema_snapshot,
-            encode_persisted_schema_snapshot,
+            PersistedIndexKeySnapshot, PersistedSchemaSnapshot, classify_accepted_field_kind,
+            decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
         },
     },
     error::InternalError,
@@ -178,6 +180,7 @@ impl AcceptedSchemaRevisionBundle {
             if encoded.len() > MAX_SCHEMA_SNAPSHOT_BYTES as usize {
                 return Err(InternalError::store_unsupported());
             }
+            AcceptedSchemaSnapshot::try_new(snapshot.clone())?;
             for field in snapshot.fields() {
                 if !self
                     .composite_catalog
@@ -187,6 +190,11 @@ impl AcceptedSchemaRevisionBundle {
                             .composite_catalog
                             .matches_kind(&self.enum_catalog, leaf.kind())
                     })
+                {
+                    return Err(InternalError::store_invariant());
+                }
+                if !nested_leaf_contracts_match_composite_catalog(&self.composite_catalog, field)
+                    || !relation_key_contracts_are_supported(field.kind())
                 {
                     return Err(InternalError::store_invariant());
                 }
@@ -206,7 +214,8 @@ impl AcceptedSchemaRevisionBundle {
                     )?;
                 }
             }
-            validate_enum_index_capabilities(&self.enum_catalog, snapshot)?;
+            validate_primary_key_capabilities(snapshot)?;
+            validate_index_capabilities(&self.enum_catalog, snapshot)?;
         }
         Ok(())
     }
@@ -229,7 +238,130 @@ impl AcceptedSchemaRevisionBundle {
     }
 }
 
-fn validate_enum_index_capabilities(
+fn nested_leaf_contracts_match_composite_catalog(
+    catalog: &AcceptedCompositeCatalog,
+    field: &PersistedFieldSnapshot,
+) -> bool {
+    let AcceptedFieldKind::Composite { type_id } = field.kind() else {
+        return field.nested_leaves().is_empty();
+    };
+    let Some(definition) = catalog.composite_type(*type_id) else {
+        return false;
+    };
+    let AcceptedCompositeShape::Record(fields) = definition.shape() else {
+        return field.nested_leaves().is_empty();
+    };
+
+    let mut path = Vec::new();
+    let mut expected_count = 0usize;
+    fields.iter().all(|member| {
+        nested_leaf_contract_matches(
+            catalog,
+            field,
+            member.name(),
+            member.contract(),
+            &mut path,
+            &mut expected_count,
+            0,
+        )
+    }) && expected_count == field.nested_leaves().len()
+}
+
+fn nested_leaf_contract_matches(
+    catalog: &AcceptedCompositeCatalog,
+    field: &PersistedFieldSnapshot,
+    name: &str,
+    contract: &AcceptedCompositeElement,
+    path: &mut Vec<String>,
+    expected_count: &mut usize,
+    depth: usize,
+) -> bool {
+    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
+        return false;
+    }
+    path.push(name.to_string());
+    let Some(next_count) = expected_count.checked_add(1) else {
+        path.pop();
+        return false;
+    };
+    *expected_count = next_count;
+    let matches = field.nested_leaves().iter().any(|leaf| {
+        let path_matches = leaf.path() == path.as_slice();
+        let kind_matches = leaf.kind() == contract.kind();
+        let nullability_matches = leaf.nullable() == contract.nullable();
+        path_matches && kind_matches && nullability_matches
+    });
+    if !matches {
+        path.pop();
+        return false;
+    }
+
+    let nested_matches =
+        match contract.kind() {
+            AcceptedFieldKind::Composite { type_id } => catalog
+                .composite_type(*type_id)
+                .is_some_and(|definition| match definition.shape() {
+                    AcceptedCompositeShape::Record(fields) => fields.iter().all(|member| {
+                        nested_leaf_contract_matches(
+                            catalog,
+                            field,
+                            member.name(),
+                            member.contract(),
+                            path,
+                            expected_count,
+                            depth.saturating_add(1),
+                        )
+                    }),
+                    AcceptedCompositeShape::Tuple(_) | AcceptedCompositeShape::Newtype(_) => true,
+                }),
+            _ => true,
+        };
+    path.pop();
+    nested_matches
+}
+
+fn relation_key_contracts_are_supported(kind: &AcceptedFieldKind) -> bool {
+    match kind {
+        AcceptedFieldKind::Relation { key_kind, .. } => {
+            classify_accepted_field_kind(key_kind).is_relation_key_eligible()
+        }
+        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
+            relation_key_contracts_are_supported(inner)
+        }
+        AcceptedFieldKind::Map { key, value } => {
+            relation_key_contracts_are_supported(key) && relation_key_contracts_are_supported(value)
+        }
+        _ => true,
+    }
+}
+
+fn validate_primary_key_capabilities(
+    snapshot: &PersistedSchemaSnapshot,
+) -> Result<(), InternalError> {
+    for field_id in snapshot.primary_key_field_ids() {
+        let Some(field) = snapshot
+            .fields()
+            .iter()
+            .find(|field| field.id() == *field_id)
+        else {
+            return Err(InternalError::store_invariant());
+        };
+        let semantics = classify_accepted_field_kind(field.kind());
+        if semantics.is_collection()
+            || semantics.is_composite()
+            || matches!(
+                semantics.category(),
+                crate::db::schema::AcceptedFieldKindCategory::Relation(None)
+            )
+        {
+            return Err(InternalError::store_unsupported());
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_index_capabilities(
     catalog: &AcceptedEnumCatalog,
     snapshot: &PersistedSchemaSnapshot,
 ) -> Result<(), InternalError> {
@@ -237,24 +369,18 @@ fn validate_enum_index_capabilities(
         match index.key() {
             PersistedIndexKeySnapshot::FieldPath(paths) => {
                 for path in paths {
-                    validate_enum_index_path(catalog, path)?;
+                    validate_index_path(catalog, path)?;
                 }
             }
             PersistedIndexKeySnapshot::Items(items) => {
                 for item in items {
                     match item {
                         PersistedIndexKeyItemSnapshot::FieldPath(path) => {
-                            validate_enum_index_path(catalog, path)?;
+                            validate_index_path(catalog, path)?;
                         }
-                        PersistedIndexKeyItemSnapshot::Expression(expression)
-                            if matches!(
-                                expression.source().kind(),
-                                AcceptedFieldKind::Enum { .. }
-                            ) =>
-                        {
-                            return Err(InternalError::store_unsupported());
+                        PersistedIndexKeyItemSnapshot::Expression(expression) => {
+                            validate_index_path(catalog, expression.source())?;
                         }
-                        PersistedIndexKeyItemSnapshot::Expression(_) => {}
                     }
                 }
             }
@@ -264,10 +390,14 @@ fn validate_enum_index_capabilities(
     Ok(())
 }
 
-fn validate_enum_index_path(
+fn validate_index_path(
     catalog: &AcceptedEnumCatalog,
     path: &PersistedIndexFieldPathSnapshot,
 ) -> Result<(), InternalError> {
+    let semantics = classify_accepted_field_kind(path.kind());
+    if semantics.is_collection() || semantics.is_composite() {
+        return Err(InternalError::store_unsupported());
+    }
     let AcceptedFieldKind::Enum { type_id } = path.kind() else {
         return Ok(());
     };

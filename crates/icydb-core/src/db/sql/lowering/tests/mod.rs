@@ -3708,10 +3708,10 @@ fn compile_sql_command_rejects_round_with_negative_scale() {
 }
 
 #[test]
-fn bind_sql_select_with_schema_allows_structured_parent_projection() {
+fn bind_sql_select_with_schema_allows_composite_parent_projection() {
     let select = lower_sql_select_shape_for_test(
         "SELECT name FROM SqlLowerEntity",
-        "accepted structured parent projection",
+        "accepted composite parent projection",
     );
     let schema =
         accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent(AcceptedFieldKind::Text {
@@ -3724,11 +3724,11 @@ fn bind_sql_select_with_schema_allows_structured_parent_projection() {
         MissingRowPolicy::Ignore,
         &schema,
     )
-    .expect("accepted structured parent should be projectable as a SQL result value");
+    .expect("accepted composite parent should be projectable as a SQL result value");
 
     let projection = query
         .build_plan()
-        .expect("structured parent projection plan should build")
+        .expect("composite parent projection plan should build")
         .projection_spec(SqlLowerEntity::MODEL);
     let fields = projection.fields().collect::<Vec<_>>();
 
@@ -3741,7 +3741,7 @@ fn bind_sql_select_with_schema_allows_structured_parent_projection() {
                 alias: None,
             } if field.as_str() == "name"
         ),
-        "structured parent projection should remain a direct field projection: {:?}",
+        "composite parent projection should remain a direct field projection: {:?}",
         fields[0]
     );
 }

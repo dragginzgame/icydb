@@ -53,14 +53,17 @@ impl<C: CanisterKind> DbSession<C> {
 
     fn describe_entity_sql_statement_result_with_catalog<E>(
         catalog: &AcceptedSchemaCatalogContext,
-    ) -> SqlStatementResult
+    ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C>,
     {
-        SqlStatementResult::Describe(describe_entity_model_with_persisted_schema(
+        describe_entity_model_with_persisted_schema(
             E::MODEL,
             catalog.snapshot(),
-        ))
+            catalog.value_catalog_handle(),
+        )
+        .map(SqlStatementResult::Describe)
+        .map_err(QueryError::execute)
     }
 
     pub(super) fn show_indexes_sql_statement_result<E>(
@@ -87,10 +90,13 @@ impl<C: CanisterKind> DbSession<C> {
 
     fn show_columns_sql_statement_result_with_catalog(
         catalog: &AcceptedSchemaCatalogContext,
-    ) -> SqlStatementResult {
-        SqlStatementResult::ShowColumns(describe_entity_fields_with_persisted_schema(
+    ) -> Result<SqlStatementResult, QueryError> {
+        describe_entity_fields_with_persisted_schema(
             catalog.snapshot(),
-        ))
+            catalog.value_catalog_handle(),
+        )
+        .map(SqlStatementResult::ShowColumns)
+        .map_err(QueryError::execute)
     }
 
     pub(super) fn show_entities_sql_statement_result(
@@ -150,15 +156,13 @@ impl<C: CanisterKind> DbSession<C> {
         let result = match compiled {
             CompiledSqlCommand::DescribeEntity => match catalog {
                 Some(catalog) => {
-                    Ok(Self::describe_entity_sql_statement_result_with_catalog::<E>(catalog))
+                    Self::describe_entity_sql_statement_result_with_catalog::<E>(catalog)
                 }
                 None => self.describe_entity_sql_statement_result::<E>(),
             },
             CompiledSqlCommand::ShowIndexesEntity => self.show_indexes_sql_statement_result::<E>(),
             CompiledSqlCommand::ShowColumnsEntity => match catalog {
-                Some(catalog) => Ok(Self::show_columns_sql_statement_result_with_catalog(
-                    catalog,
-                )),
+                Some(catalog) => Self::show_columns_sql_statement_result_with_catalog(catalog),
                 None => self.show_columns_sql_statement_result::<E>(),
             },
             CompiledSqlCommand::ShowEntities { entity, verbose } => {

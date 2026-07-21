@@ -1,6 +1,7 @@
 #[cfg(test)]
 use crate::db::data::persisted_row::{
     codec::ScalarSlotValueRef, contract::decode_scalar_slot_value_from_row_contract,
+    types::PersistedRow,
 };
 #[cfg(test)]
 use crate::model::entity::EntityModel;
@@ -8,8 +9,8 @@ use crate::{
     db::{
         data::{
             CanonicalRow, RawRow, StructuralRowContract,
+            encode_accepted_value_ref_for_accepted_field_contract,
             encode_canonical_value_for_accepted_field_contract,
-            encode_input_value_for_accepted_field_contract,
             persisted_row::{
                 contract::{
                     RETIRED_SLOT_PLACEHOLDER_PAYLOAD,
@@ -18,18 +19,19 @@ use crate::{
                 },
                 reader::StructuralSlotReader,
                 types::{
-                    AuthoredStructuralPatch, FieldSlot, PersistedRow,
-                    SerializedStructuralFieldUpdate, SerializedStructuralPatch, SlotReader,
+                    AuthoredStructuralPatch, FieldSlot, SerializedStructuralFieldUpdate,
+                    SerializedStructuralPatch, SlotReader,
                 },
             },
         },
         schema::{
             AcceptedFieldPersistenceContract, AcceptedRowDecodeContract,
-            authored_projection::AcceptedAuthoredFieldProjection,
-            enum_catalog::ValueAdmissionBudget,
+            authored_projection::{AcceptedAuthoredFieldProjection, AuthoredFieldAdmissionError},
+            enum_catalog::{ValueAdmissionBudget, ValueAdmissionError},
         },
     },
     error::InternalError,
+    traits::AuthoredFieldProjection,
     value::{InputValue, Value},
 };
 use std::borrow::Cow;
@@ -280,7 +282,7 @@ pub(in crate::db) fn canonical_row_from_entity_with_accepted_contract<E>(
     entity: &E,
 ) -> Result<CanonicalRow, InternalError>
 where
-    E: PersistedRow,
+    E: AuthoredFieldProjection,
 {
     let authored = AcceptedAuthoredFieldProjection::new(&accepted_decode_contract);
     let contract = StructuralRowContract::from_accepted_decode_contract(
@@ -302,7 +304,7 @@ where
             slot_payloads.push(
                 authored
                     .encode_field(entity, slot, &mut budget)
-                    .map_err(|_| InternalError::persisted_row_encode_internal())?,
+                    .map_err(authored_field_admission_error)?,
             );
             continue;
         }
@@ -315,6 +317,45 @@ where
     }
 
     emit_raw_row_from_slot_payloads(contract.field_count(), slot_payloads.as_slice())
+}
+
+// Preserve authored-input rejection as caller-unsupported while classifying
+// accepted/generated authority drift as an invariant failure. Encoding begins
+// only after exact admission succeeds, so codec failures retain serialize
+// ownership.
+fn authored_field_admission_error(error: AuthoredFieldAdmissionError) -> InternalError {
+    match error {
+        AuthoredFieldAdmissionError::Admission(error) => value_admission_error(error),
+        AuthoredFieldAdmissionError::FieldNotGenerated { .. }
+        | AuthoredFieldAdmissionError::MissingAuthoredValue { .. }
+        | AuthoredFieldAdmissionError::MissingFieldContract { .. } => {
+            InternalError::executor_invariant()
+        }
+        AuthoredFieldAdmissionError::PersistenceEncoding { .. } => {
+            InternalError::persisted_row_encode_internal()
+        }
+    }
+}
+
+fn value_admission_error(error: ValueAdmissionError) -> InternalError {
+    match error {
+        ValueAdmissionError::InvalidAcceptedContract
+        | ValueAdmissionError::MissingSchemaRevision
+        | ValueAdmissionError::UnknownCompositeType => InternalError::executor_invariant(),
+        ValueAdmissionError::DepthExceeded
+        | ValueAdmissionError::SizeExceeded
+        | ValueAdmissionError::TypeMismatch
+        | ValueAdmissionError::ScalarConstraint
+        | ValueAdmissionError::EnumPathMismatch
+        | ValueAdmissionError::EnumTypeMismatch
+        | ValueAdmissionError::UnknownEnumType
+        | ValueAdmissionError::UnknownEnumVariant
+        | ValueAdmissionError::EnumBodyMismatch
+        | ValueAdmissionError::CompositeShapeMismatch
+        | ValueAdmissionError::CompositeFieldMismatch
+        | ValueAdmissionError::DuplicateSetItem
+        | ValueAdmissionError::DuplicateMapKey => InternalError::executor_unsupported(),
+    }
 }
 
 /// Merge accepted non-generated slots from a structural after-image into a
@@ -424,7 +465,12 @@ fn encode_authored_value_for_accepted_field_contract(
 ) -> Result<Vec<u8>, InternalError> {
     let field = encoding.field();
     let mut budget = ValueAdmissionBudget::standard();
-    encode_input_value_for_accepted_field_contract(encoding, input, &mut budget)
+    encoding
+        .admission_contract()
+        .with_normalized(input, &mut budget, |accepted| {
+            encode_accepted_value_ref_for_accepted_field_contract(field, &accepted)
+        })
+        .map_err(value_admission_error)?
         .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))
 }
 

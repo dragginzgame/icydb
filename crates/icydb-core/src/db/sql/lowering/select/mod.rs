@@ -24,9 +24,9 @@ use crate::{
         query::{
             builder::AggregateExpr,
             intent::{QueryError, StructuralQuery},
-            plan::expr::{Expr, FieldId, FieldPath, ProjectionSelection},
+            plan::expr::{Expr, FieldPath, ProjectionSelection},
         },
-        schema::{SchemaInfo, SqlCapabilities},
+        schema::SchemaInfo,
         sql::parser::{
             SqlDeleteStatement, SqlExpr, SqlOrderDirection, SqlOrderTerm, SqlReturningProjection,
             SqlSelectStatement, SqlUpdateStatement,
@@ -390,9 +390,6 @@ fn apply_lowered_select_shape_with_schema(
         limit,
         offset,
     } = lowered;
-    let model = query.model();
-    let projection_selection =
-        normalize_select_star_projection(schema, model, projection_selection)?;
     validate_select_sql_capabilities(
         schema,
         &projection_selection,
@@ -443,34 +440,6 @@ fn lower_grouped_aggregate_calls(
         .collect()
 }
 
-// Expand scalar `SELECT *` to the selectable top-level field subset when a
-// mixed schema also contains structured fields that SQL cannot transport
-// directly. Simple all-selectable entities keep the compact `All` shape.
-fn normalize_select_star_projection(
-    schema: &SchemaInfo,
-    model: &'static EntityModel,
-    selection: LoweredSqlProjectionSelection,
-) -> Result<LoweredSqlProjectionSelection, SqlLoweringError> {
-    if !matches!(selection.selection(), ProjectionSelection::All)
-        || schema.first_non_sql_selectable_field().is_none()
-    {
-        return Ok(selection);
-    }
-
-    let fields = model
-        .fields()
-        .iter()
-        .filter(|field| sql_result_projectable_field(schema, field.name()))
-        .map(|field| FieldId::new(field.name().to_string()))
-        .collect::<Vec<_>>();
-
-    if fields.is_empty() {
-        return Err(SqlLoweringError::unsupported_select_projection());
-    }
-
-    Ok(LoweredSqlProjectionSelection::fields(fields))
-}
-
 // Validate SQL field-capability rules that can safely use the accepted schema
 // snapshot today. Runtime row-layout and path execution still stay generated
 // until live layout authority exists.
@@ -495,11 +464,7 @@ fn validate_projection_sql_capabilities(
     selection: &LoweredSqlProjectionSelection,
 ) -> Result<(), SqlLoweringError> {
     match selection.selection() {
-        ProjectionSelection::All => {
-            if schema.first_non_sql_selectable_field().is_some() {
-                return Err(SqlLoweringError::unsupported_select_projection());
-            }
-        }
+        ProjectionSelection::All => {}
         ProjectionSelection::Fields(fields) => {
             for field in fields {
                 ensure_sql_selectable_field(schema, field.as_str())?;
@@ -613,25 +578,10 @@ fn ensure_sql_selectable_field(
         return Err(SqlLoweringError::unknown_field(field_name));
     };
     if !capabilities.selectable() {
-        if sql_result_projectable_field(schema, field_name) {
-            return Ok(());
-        }
-
         return Err(SqlLoweringError::unsupported_select_projection());
     }
 
     Ok(())
-}
-
-// Direct SELECT result projection may return an exact composite when the
-// accepted schema exposes nested field metadata. Predicate, ordering, grouping,
-// and aggregate admission still use their narrower scalar capability checks.
-fn sql_result_projectable_field(schema: &SchemaInfo, field_name: &str) -> bool {
-    schema
-        .sql_capabilities(field_name)
-        .is_some_and(SqlCapabilities::selectable)
-        || schema.field_is_composite_value(field_name)
-        || schema.field_has_nested_paths(field_name)
 }
 
 fn render_field_path(path: &FieldPath) -> String {

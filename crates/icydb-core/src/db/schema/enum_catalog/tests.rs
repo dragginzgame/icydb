@@ -1350,13 +1350,71 @@ fn exact_composite_admission_enforces_shared_depth_and_byte_budgets() {
     );
 }
 
+const EXACT_COMPOSITE_BENCH_ITERATIONS: u32 = 20_000;
+
+fn exact_composite_normalize_ns_per_op(
+    catalog: &AcceptedValueCatalogHandle,
+    contract: &AcceptedValueContract,
+    input: &InputValue,
+) -> u128 {
+    use std::{hint::black_box, time::Instant};
+
+    let start = Instant::now();
+    for _ in 0..EXACT_COMPOSITE_BENCH_ITERATIONS {
+        let admitted = normalize_and_admit_value(
+            catalog,
+            contract,
+            black_box(input.clone()),
+            &mut ValueAdmissionBudget::standard(),
+        )
+        .expect("benchmark value should admit");
+        black_box(admitted);
+    }
+    start.elapsed().as_nanos() / u128::from(EXACT_COMPOSITE_BENCH_ITERATIONS)
+}
+
+fn exact_composite_validate_ns_per_op(
+    catalog: &AcceptedValueCatalogHandle,
+    contract: &AcceptedValueContract,
+    value: &CanonicalValue,
+) -> u128 {
+    use std::{hint::black_box, time::Instant};
+
+    let start = Instant::now();
+    for _ in 0..EXACT_COMPOSITE_BENCH_ITERATIONS {
+        black_box(
+            validate_canonical_value(
+                catalog,
+                contract,
+                value,
+                &mut ValueAdmissionBudget::standard(),
+            )
+            .expect("benchmark canonical value should validate"),
+        );
+    }
+    start.elapsed().as_nanos() / u128::from(EXACT_COMPOSITE_BENCH_ITERATIONS)
+}
+
+fn admitted_benchmark_value(
+    catalog: &AcceptedValueCatalogHandle,
+    contract: &AcceptedValueContract,
+    input: &InputValue,
+) -> AdmittedOwnedValue {
+    normalize_and_admit_value(
+        catalog,
+        contract,
+        input.clone(),
+        &mut ValueAdmissionBudget::standard(),
+    )
+    .expect("benchmark value should admit for canonical validation")
+}
+
 #[test]
 #[ignore = "native microbenchmark: run explicitly with --ignored --nocapture"]
 fn exact_composite_admission_microbenchmark_report() {
-    use std::{hint::black_box, time::Instant};
-
-    const ITERATIONS: u32 = 20_000;
     let (catalog, composite_contract) = accepted_composite_contract(BENCH_RECORD_KIND);
+    let (tuple_catalog, tuple_contract) = accepted_composite_contract(PAIR_KIND);
+    let (nested_catalog, nested_contract) = accepted_composite_contract(NESTED_KIND);
     let map_kind = AcceptedFieldKind::Map {
         key: Box::new(AcceptedFieldKind::Text { max_len: Some(8) }),
         value: Box::new(AcceptedFieldKind::Nat64),
@@ -1372,84 +1430,48 @@ fn exact_composite_admission_microbenchmark_report() {
         (InputValue::Text("alpha".to_string()), InputValue::Nat64(1)),
         (InputValue::Text("beta".to_string()), InputValue::Nat64(2)),
     ]);
-
-    let start = Instant::now();
-    for _ in 0..ITERATIONS {
-        let admitted = normalize_and_admit_value(
-            &catalog,
-            &composite_contract,
-            black_box(input.clone()),
-            &mut ValueAdmissionBudget::standard(),
-        )
-        .expect("exact record should admit");
-        black_box(admitted);
-    }
-    let composite_normalize = start.elapsed();
-
-    let start = Instant::now();
-    for _ in 0..ITERATIONS {
-        let admitted = normalize_and_admit_value(
-            &catalog,
-            &map_contract,
-            black_box(input.clone()),
-            &mut ValueAdmissionBudget::standard(),
-        )
-        .expect("typed map should admit");
-        black_box(admitted);
-    }
-    let map_normalize = start.elapsed();
-
-    let canonical = normalize_and_admit_value(
-        &catalog,
-        &composite_contract,
-        input,
-        &mut ValueAdmissionBudget::standard(),
-    )
-    .expect("exact record should admit for validation benchmark");
-    let start = Instant::now();
-    for _ in 0..ITERATIONS {
-        black_box(
-            validate_canonical_value(
-                &catalog,
-                &composite_contract,
-                canonical.value(),
-                &mut ValueAdmissionBudget::standard(),
-            )
-            .expect("exact canonical record should validate"),
-        );
-    }
-    let composite_validate = start.elapsed();
-
-    let start = Instant::now();
-    for _ in 0..ITERATIONS {
-        black_box(
-            validate_canonical_value(
-                &catalog,
-                &map_contract,
-                canonical.value(),
-                &mut ValueAdmissionBudget::standard(),
-            )
-            .expect("typed canonical map should validate"),
-        );
-    }
-    let map_validate = start.elapsed();
+    let tuple_input = InputValue::List(vec![InputValue::Nat64(7), InputValue::Bool(true)]);
+    let nested_input = InputValue::Map(vec![(
+        InputValue::Text("pair".to_string()),
+        tuple_input.clone(),
+    )]);
+    let record = admitted_benchmark_value(&catalog, &composite_contract, &input);
+    let map = admitted_benchmark_value(&catalog, &map_contract, &input);
+    let tuple = admitted_benchmark_value(&tuple_catalog, &tuple_contract, &tuple_input);
+    let nested = admitted_benchmark_value(&nested_catalog, &nested_contract, &nested_input);
 
     println!("Exact composite accepted-admission microbenchmark");
-    println!("iterations={ITERATIONS}");
+    println!("iterations={EXACT_COMPOSITE_BENCH_ITERATIONS}");
     println!(
         "record_normalize_ns_per_op={}",
-        composite_normalize.as_nanos() / u128::from(ITERATIONS),
+        exact_composite_normalize_ns_per_op(&catalog, &composite_contract, &input),
     );
     println!(
         "typed_map_normalize_ns_per_op={}",
-        map_normalize.as_nanos() / u128::from(ITERATIONS),
+        exact_composite_normalize_ns_per_op(&catalog, &map_contract, &input),
+    );
+    println!(
+        "tuple_normalize_ns_per_op={}",
+        exact_composite_normalize_ns_per_op(&tuple_catalog, &tuple_contract, &tuple_input),
+    );
+    println!(
+        "nested_normalize_ns_per_op={}",
+        exact_composite_normalize_ns_per_op(&nested_catalog, &nested_contract, &nested_input),
     );
     println!(
         "record_validate_ns_per_op={}",
-        composite_validate.as_nanos() / u128::from(ITERATIONS),
+        exact_composite_validate_ns_per_op(&catalog, &composite_contract, record.value()),
     );
     println!(
         "typed_map_validate_ns_per_op={}",
-        map_validate.as_nanos() / u128::from(ITERATIONS),
+        exact_composite_validate_ns_per_op(&catalog, &map_contract, map.value()),
+    );
+    println!(
+        "tuple_validate_ns_per_op={}",
+        exact_composite_validate_ns_per_op(&tuple_catalog, &tuple_contract, tuple.value()),
+    );
+    println!(
+        "nested_validate_ns_per_op={}",
+        exact_composite_validate_ns_per_op(&nested_catalog, &nested_contract, nested.value()),
     );
 }

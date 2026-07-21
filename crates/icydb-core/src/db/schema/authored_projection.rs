@@ -4,7 +4,7 @@
 //! Boundary: stable generated field slots -> admitted owned values.
 use crate::{
     db::{
-        data::encode_input_value_for_accepted_field_contract,
+        data::encode_accepted_value_ref_for_accepted_field_contract,
         schema::{
             AcceptedFieldPersistenceContract, AcceptedRowDecodeContract,
             enum_catalog::{AdmittedOwnedValue, ValueAdmissionBudget, ValueAdmissionError},
@@ -61,8 +61,13 @@ impl<'a> AcceptedAuthoredFieldProjection<'a> {
         E: AuthoredFieldProjection,
     {
         let (encoding, input) = self.authored_field_input(entity, slot)?;
-
-        encode_input_value_for_accepted_field_contract(encoding, input, budget)
+        let field = encoding.field();
+        encoding
+            .admission_contract()
+            .with_normalized(input, budget, |accepted| {
+                encode_accepted_value_ref_for_accepted_field_contract(field, &accepted)
+            })
+            .map_err(AuthoredFieldAdmissionError::Admission)?
             .map_err(|_| AuthoredFieldAdmissionError::PersistenceEncoding { slot })
     }
 

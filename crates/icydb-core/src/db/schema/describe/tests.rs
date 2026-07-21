@@ -4,9 +4,10 @@ use crate::{
         EntityRelationDescription, EntitySchemaDescription,
         relation::{RelationFieldCardinality, relation_field_metadata_for_model_iter},
         schema::{
-            AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
-            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
-            SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+            AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
+            AcceptedValueCatalogHandle, FieldId, PersistedFieldSnapshot, PersistedSchemaSnapshot,
+            SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+            build_initial_accepted_catalogs_for_tests, compiled_schema_proposal_for_model,
             describe::{
                 describe_entity_fields_with_persisted_schema, describe_entity_model,
                 describe_entity_model_with_persisted_schema,
@@ -16,8 +17,9 @@ use crate::{
     model::{
         entity::{EntityModel, PrimaryKeyModel},
         field::{
-            CompositeCodec, CompositeFieldModel, CompositeShapeModel, FieldDatabaseDefault,
-            FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec,
+            CompositeCodec, CompositeElementModel, CompositeFieldModel, CompositeShapeModel,
+            FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode, LeafCodec,
+            ScalarCodec,
         },
     },
     types::EntityTag,
@@ -82,6 +84,105 @@ static DESCRIBE_COMPOSITE_PK_MODEL: EntityModel = EntityModel::generated_with_pr
     &DESCRIBE_COMPOSITE_PK_FIELDS,
     &DESCRIBE_RELATION_INDEXES,
 );
+static DESCRIBE_EXACT_RECORD_FIELDS: [CompositeFieldModel; 2] = [
+    CompositeFieldModel::generated("name", FieldKind::Text { max_len: Some(32) }, false),
+    CompositeFieldModel::generated("rank", FieldKind::Nat64, true),
+];
+static DESCRIBE_EXACT_RECORD_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Record(&DESCRIBE_EXACT_RECORD_FIELDS);
+static DESCRIBE_EXACT_TUPLE_ELEMENTS: [CompositeElementModel; 2] = [
+    CompositeElementModel::generated(FieldKind::Int64, false),
+    CompositeElementModel::generated(FieldKind::Bool, true),
+];
+static DESCRIBE_EXACT_TUPLE_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Tuple(&DESCRIBE_EXACT_TUPLE_ELEMENTS);
+static DESCRIBE_EXACT_NEWTYPE_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Newtype(CompositeElementModel::generated(FieldKind::Nat128, false));
+static DESCRIBE_EXACT_FIELDS: [FieldModel; 4] = [
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated(
+        "profile",
+        FieldKind::Composite {
+            path: "schema::describe::tests::Profile",
+            codec: CompositeCodec::StructuralV1,
+            shape: &DESCRIBE_EXACT_RECORD_SHAPE,
+        },
+    ),
+    FieldModel::generated(
+        "coordinates",
+        FieldKind::Composite {
+            path: "schema::describe::tests::Coordinates",
+            codec: CompositeCodec::StructuralV1,
+            shape: &DESCRIBE_EXACT_TUPLE_SHAPE,
+        },
+    ),
+    FieldModel::generated(
+        "customer_id",
+        FieldKind::Composite {
+            path: "schema::describe::tests::CustomerId",
+            codec: CompositeCodec::StructuralV1,
+            shape: &DESCRIBE_EXACT_NEWTYPE_SHAPE,
+        },
+    ),
+];
+static DESCRIBE_EXACT_MODEL: EntityModel = EntityModel::generated(
+    "entities::DescribeExactComposite",
+    "DescribeExactComposite",
+    1,
+    &DESCRIBE_EXACT_FIELDS[0],
+    0,
+    &DESCRIBE_EXACT_FIELDS,
+    &DESCRIBE_RELATION_INDEXES,
+);
+
+fn accepted_value_catalog_for_models(models: &[&EntityModel]) -> AcceptedValueCatalogHandle {
+    let (enum_catalog, composite_catalog) = build_initial_accepted_catalogs_for_tests(models)
+        .expect("accepted value catalogs should build");
+    AcceptedValueCatalogHandle::new_for_tests(
+        enum_catalog,
+        composite_catalog,
+        AcceptedSchemaRevision::INITIAL,
+    )
+}
+
+#[test]
+fn accepted_schema_describe_resolves_exact_composite_catalog_contracts() {
+    let value_catalog = accepted_value_catalog_for_models(&[&DESCRIBE_EXACT_MODEL]);
+    let snapshot = compiled_schema_proposal_for_model(&DESCRIBE_EXACT_MODEL)
+        .initial_persisted_schema_snapshot_with_catalogs(
+            value_catalog.enum_catalog(),
+            value_catalog.composite_catalog(),
+        )
+        .expect("exact composite proposal should resolve through accepted catalogs");
+    let snapshot = AcceptedSchemaSnapshot::try_new(snapshot)
+        .expect("exact composite proposal should produce a valid accepted snapshot");
+
+    let described = describe_entity_fields_with_persisted_schema(&snapshot, &value_catalog)
+        .expect("accepted exact composites should describe");
+    let top_level = described
+        .iter()
+        .filter_map(|field| field.slot().map(|_| (field.name(), field.kind())))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        top_level,
+        vec![
+            ("id", "ulid"),
+            (
+                "profile",
+                "composite(path=schema::describe::tests::Profile, codec=structural_v1, shape=record{name:text(max_len=32), rank:nat64?})",
+            ),
+            (
+                "coordinates",
+                "composite(path=schema::describe::tests::Coordinates, codec=structural_v1, shape=tuple<int64, bool?>)",
+            ),
+            (
+                "customer_id",
+                "composite(path=schema::describe::tests::CustomerId, codec=structural_v1, shape=newtype<nat128>)",
+            ),
+        ],
+    );
+}
 
 fn expect_record_fields(ty: Type) -> Vec<String> {
     match ty.as_ref() {
@@ -200,6 +301,38 @@ fn relation_cardinality_variant_labels_are_stable() {
         cardinality_labels,
         vec!["List".to_string(), "Set".to_string(), "Single".to_string()],
     );
+}
+
+#[test]
+fn accepted_schema_describe_fails_closed_for_unresolved_composite_identity() {
+    let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "entities::UnresolvedComposite".to_string(),
+        "UnresolvedComposite".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::new(
+            SchemaVersion::initial(),
+            vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
+        ),
+        vec![PersistedFieldSnapshot::new(
+            FieldId::new(1),
+            "value".to_string(),
+            SchemaFieldSlot::new(0),
+            AcceptedFieldKind::test_composite(),
+            Vec::new(),
+            false,
+            SchemaFieldDefault::None,
+            FieldStorageDecode::CatalogValue,
+            LeafCodec::Structural,
+        )],
+    ));
+    let value_catalog = accepted_value_catalog_for_models(&[]);
+
+    let error = describe_entity_fields_with_persisted_schema(&snapshot, &value_catalog)
+        .expect_err("unresolved accepted composite identities must fail closed");
+
+    assert_eq!(error.class(), crate::error::ErrorClass::InvariantViolation,);
+    assert_eq!(error.origin(), crate::error::ErrorOrigin::Store);
 }
 
 #[test]
@@ -329,8 +462,13 @@ fn accepted_schema_describe_relations_use_persisted_relation_authority() {
         ],
     ));
 
-    let described =
-        describe_entity_model_with_persisted_schema(&DESCRIBE_RELATION_MODEL, &snapshot);
+    let value_catalog = accepted_value_catalog_for_models(&[&DESCRIBE_RELATION_MODEL]);
+    let described = describe_entity_model_with_persisted_schema(
+        &DESCRIBE_RELATION_MODEL,
+        &snapshot,
+        &value_catalog,
+    )
+    .expect("accepted relation schema should describe");
 
     assert_eq!(described.entity_path(), "entities::AcceptedSource");
     assert_eq!(described.entity_name(), "AcceptedSource");
@@ -499,7 +637,9 @@ fn schema_describe_uses_accepted_top_level_field_metadata() {
         ],
     ));
 
-    let described = describe_entity_fields_with_persisted_schema(&snapshot)
+    let value_catalog = accepted_value_catalog_for_models(&[]);
+    let described = describe_entity_fields_with_persisted_schema(&snapshot, &value_catalog)
+        .expect("accepted field metadata should describe")
         .into_iter()
         .map(|field| {
             (
@@ -563,7 +703,9 @@ fn schema_describe_preserves_accepted_fixed_width_numeric_kind_labels() {
         ],
     ));
 
-    let described = describe_entity_fields_with_persisted_schema(&snapshot);
+    let value_catalog = accepted_value_catalog_for_models(&[]);
+    let described = describe_entity_fields_with_persisted_schema(&snapshot, &value_catalog)
+        .expect("accepted numeric field should describe");
     let x = described
         .iter()
         .find(|field| field.name() == "x")
@@ -574,56 +716,25 @@ fn schema_describe_preserves_accepted_fixed_width_numeric_kind_labels() {
 
 #[test]
 fn schema_describe_uses_accepted_nested_leaf_metadata() {
-    let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
-        SchemaVersion::initial(),
-        "entities::AcceptedProfile".to_string(),
-        "AcceptedProfile".to_string(),
-        FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
-        vec![
-            PersistedFieldSnapshot::new(
-                FieldId::new(1),
-                "id".to_string(),
-                SchemaFieldSlot::new(0),
-                AcceptedFieldKind::Ulid,
-                Vec::new(),
-                false,
-                SchemaFieldDefault::None,
-                FieldStorageDecode::ByKind,
-                LeafCodec::Structural,
-            ),
-            PersistedFieldSnapshot::new(
-                FieldId::new(2),
-                "profile".to_string(),
-                SchemaFieldSlot::new(1),
-                AcceptedFieldKind::test_composite(),
-                vec![PersistedNestedLeafSnapshot::new(
-                    vec!["rank".to_string()],
-                    AcceptedFieldKind::Blob { max_len: None },
-                    false,
-                )],
-                false,
-                SchemaFieldDefault::None,
-                FieldStorageDecode::CatalogValue,
-                LeafCodec::Structural,
-            ),
-        ],
-    ));
-
-    let described = describe_entity_fields_with_persisted_schema(&snapshot);
+    let value_catalog = accepted_value_catalog_for_models(&[&DESCRIBE_EXACT_MODEL]);
+    let snapshot = compiled_schema_proposal_for_model(&DESCRIBE_EXACT_MODEL)
+        .initial_persisted_schema_snapshot_with_catalogs(
+            value_catalog.enum_catalog(),
+            value_catalog.composite_catalog(),
+        )
+        .expect("exact composite proposal should resolve through accepted catalogs");
+    let snapshot = AcceptedSchemaSnapshot::try_new(snapshot)
+        .expect("exact composite proposal should produce a valid accepted snapshot");
+    let described = describe_entity_fields_with_persisted_schema(&snapshot, &value_catalog)
+        .expect("accepted nested leaf metadata should describe");
     let rank = described
         .iter()
         .find(|field| field.name() == "└─ rank")
         .expect("accepted nested leaf should be described");
 
     assert_eq!(rank.slot(), None);
-    assert_eq!(rank.kind(), "blob(unbounded)");
+    assert_eq!(rank.kind(), "nat64");
+    assert!(rank.nullable());
     assert!(rank.queryable());
 }
 
@@ -682,7 +793,7 @@ fn schema_describe_expands_generated_composite_field_leaves() {
             (
                 "mentor",
                 Some(1),
-                "composite(schema::describe::tests::Mentor)",
+                "composite(path=schema::describe::tests::Mentor, codec=structural_v1, shape=record{name:text(unbounded), level:nat64, pid:principal})",
                 false,
             ),
             ("├─ name", None, "text(unbounded)", true),

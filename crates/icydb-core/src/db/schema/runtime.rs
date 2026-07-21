@@ -553,7 +553,8 @@ impl AcceptedRowDecodeContract {
         self.relation_edges.as_slice()
     }
 
-    /// Borrow the immutable enum catalog admitted with this row contract.
+    /// Borrow the immutable enum catalog within this row contract's accepted
+    /// value catalog.
     #[must_use]
     pub(in crate::db) fn enum_catalog(&self) -> &AcceptedEnumCatalog {
         self.value_catalog.enum_catalog()

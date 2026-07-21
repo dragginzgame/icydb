@@ -143,7 +143,27 @@ fn index_field_path_detail(
         return Some(());
     }
 
-    if !fields.iter().any(|field| field.id() == path.field_id()) {
+    let Some(field) = fields.iter().find(|field| field.id() == path.field_id()) else {
+        return Some(());
+    };
+
+    if path.path().first().map(String::as_str) != Some(field.name()) {
+        return Some(());
+    }
+
+    let expected = match path.path().get(1..) {
+        Some([]) => Some((field.kind(), field.nullable())),
+        Some(relative_path) => field
+            .nested_leaves()
+            .iter()
+            .find(|leaf| leaf.path() == relative_path)
+            .map(|leaf| (leaf.kind(), leaf.nullable())),
+        None => None,
+    };
+    let Some((expected_kind, expected_nullable)) = expected else {
+        return Some(());
+    };
+    if path.kind() != expected_kind || path.nullable() != expected_nullable {
         return Some(());
     }
 

@@ -148,7 +148,7 @@ fn persisted_kind_has_relation(kind: &AcceptedFieldKind) -> bool {
 ///
 /// Compact per-field schema entry used by `SchemaInfo`.
 /// Generated field kinds and nested models exist only on model-only views;
-/// accepted views carry persisted contracts and an accepted enum catalog.
+/// accepted views carry persisted contracts and one accepted value catalog.
 ///
 
 #[derive(Clone, Debug)]
@@ -739,14 +739,6 @@ impl SchemaInfo {
         schema_field_info(self.fields.as_slice(), name).map(|field| field.sql_capabilities)
     }
 
-    /// Return whether one top-level field stores an exact composite value.
-    #[must_use]
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn field_is_composite_value(&self, name: &str) -> bool {
-        schema_field_info(self.fields.as_slice(), name)
-            .is_some_and(|field| matches!(field.ty, FieldType::Composite))
-    }
-
     /// Return SQL operation capabilities for one nested field path.
     ///
     /// Accepted schema views resolve nested paths from persisted nested leaf
@@ -770,16 +762,6 @@ impl SchemaInfo {
 
         resolve_nested_field_path_kind(field.nested_fields, segments)
             .map(|kind| sql_capabilities_for_model_kind(&kind))
-    }
-
-    /// Return the first top-level field that SQL cannot project directly.
-    #[must_use]
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn first_non_sql_selectable_field(&self) -> Option<&str> {
-        self.fields
-            .iter()
-            .find(|(_, field)| !field.sql_capabilities.selectable())
-            .map(|(field_name, _)| field_name.as_str())
     }
 
     /// Return the type for one nested field path rooted at a top-level field.
@@ -870,7 +852,7 @@ impl SchemaInfo {
         Self::from_snapshot_for_model(model, schema, None, false)
     }
 
-    /// Build one accepted schema view retaining its immutable enum catalog.
+    /// Build one accepted schema view retaining its immutable value catalog.
     #[must_use]
     pub(in crate::db) fn from_accepted_snapshot_and_catalog_for_model(
         model: &EntityModel,
