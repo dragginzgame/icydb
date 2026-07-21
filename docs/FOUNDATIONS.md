@@ -181,6 +181,7 @@ Accepted schema defines:
 
 - every persisted field and physical slot;
 - the exact current persisted field kind and absence policy;
+- nominal composite identity and complete record, tuple, or newtype shape;
 - fields admitted in predicates and access paths;
 - fields eligible for comparison, ordering, grouping, or indexing; and
 - fields participating in integrity checks.
@@ -198,6 +199,10 @@ its exact accepted kind, and preserved by normal row admission.
 
 Unsupported operations on such a field fail closed. IcyDB does not preserve an
 out-of-schema opaque payload as a compatibility fallback.
+
+Ordinary Rust records, tuples, and newtypes use exact nominal composite
+contracts from accepted schema. IcyDB has no open-ended persisted field kind:
+every stored field is admitted against one complete accepted contract.
 
 ---
 

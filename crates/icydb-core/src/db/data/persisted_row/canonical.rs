@@ -20,7 +20,8 @@ use crate::{
             },
         },
         schema::{
-            AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract,
+            AcceptedCompositeCatalog, AcceptedFieldDecodeContract,
+            AcceptedFieldPersistenceContract,
             enum_catalog::validate_decoded_persisted_field_value_in_catalog,
             enum_catalog::{
                 AcceptedEnumCatalog, AcceptedValueRef, AdmittedOwnedValue, CanonicalValue,
@@ -77,9 +78,9 @@ fn encode_accepted_value_ref_for_accepted_field_contract(
     }
 
     match field.storage_decode() {
-        FieldStorageDecode::Value => Err(InternalError::persisted_row_field_encode_internal(
-            field.field_name(),
-        )),
+        FieldStorageDecode::CatalogValue => Err(
+            InternalError::persisted_row_field_encode_internal(field.field_name()),
+        ),
         FieldStorageDecode::ByKind => match field.leaf_codec() {
             LeafCodec::Scalar(codec) => {
                 let scalar =
@@ -89,7 +90,7 @@ fn encode_accepted_value_ref_for_accepted_field_contract(
 
                 Ok(encode_scalar_slot_value(scalar))
             }
-            LeafCodec::StructuralFallback => encode_structural_field_by_accepted_kind_bytes(
+            LeafCodec::Structural => encode_structural_field_by_accepted_kind_bytes(
                 field.kind(),
                 value,
                 field.field_name(),
@@ -109,12 +110,12 @@ fn encode_accepted_null_slot_value(
     }
 
     match field.storage_decode() {
-        FieldStorageDecode::Value => Err(InternalError::persisted_row_field_encode_internal(
-            field.field_name(),
-        )),
+        FieldStorageDecode::CatalogValue => Err(
+            InternalError::persisted_row_field_encode_internal(field.field_name()),
+        ),
         FieldStorageDecode::ByKind => match field.leaf_codec() {
             LeafCodec::Scalar(_) => Ok(encode_scalar_slot_value(ScalarSlotValueRef::Null)),
-            LeafCodec::StructuralFallback
+            LeafCodec::Structural
                 if accepted_kind_supports_primary_key_component_binary(field.kind()) =>
             {
                 encode_structural_field_by_accepted_kind_bytes(
@@ -123,7 +124,7 @@ fn encode_accepted_null_slot_value(
                     field.field_name(),
                 )
             }
-            LeafCodec::StructuralFallback => Ok(encode_structural_value_storage_null_bytes()),
+            LeafCodec::Structural => Ok(encode_structural_value_storage_null_bytes()),
         },
     }
 }
@@ -172,6 +173,7 @@ pub(in crate::db) fn decode_admitted_value_from_accepted_field_contract(
 /// Validate one persisted default before it becomes accepted schema content.
 pub(in crate::db) fn validate_default_payload_for_accepted_field_contract(
     catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
     field: AcceptedFieldDecodeContract<'_>,
     raw_value: &[u8],
 ) -> Result<(), InternalError> {
@@ -190,6 +192,7 @@ pub(in crate::db) fn validate_default_payload_for_accepted_field_contract(
     let mut budget = ValueAdmissionBudget::standard();
     validate_decoded_persisted_field_value_in_catalog(
         catalog,
+        composite_catalog,
         field.kind(),
         field.storage_decode(),
         field.nullable(),
@@ -208,14 +211,14 @@ fn decode_canonical_value_from_accepted_field_contract(
             .map_err(|_| InternalError::persisted_row_decode_corruption())?
     } else {
         match field.storage_decode() {
-            FieldStorageDecode::Value => decode_canonical_value_storage_bytes(raw_value)
+            FieldStorageDecode::CatalogValue => decode_canonical_value_storage_bytes(raw_value)
                 .map_err(|_| InternalError::persisted_row_decode_corruption())?,
             FieldStorageDecode::ByKind => match field.leaf_codec() {
                 LeafCodec::Scalar(codec) => {
                     let value = decode_scalar_slot_value(raw_value, codec, field.field_name())?;
                     canonical_value_from_scalar_slot(value)
                 }
-                LeafCodec::StructuralFallback => {
+                LeafCodec::Structural => {
                     return Err(InternalError::persisted_row_decode_corruption());
                 }
             },
@@ -261,12 +264,15 @@ mod tests {
     use super::*;
     use crate::{
         db::schema::{
-            AcceptedFieldKind,
+            AcceptedFieldKind, build_initial_accepted_catalogs_from_kinds_for_tests,
             enum_catalog::{
                 AcceptedSchemaRevision, build_initial_accepted_enum_catalog_from_kinds_for_tests,
             },
         },
-        model::field::{EnumVariantModel, FieldKind, ScalarCodec},
+        model::field::{
+            CompositeCodec, CompositeFieldModel, CompositeShapeModel, EnumVariantModel, FieldKind,
+            ScalarCodec,
+        },
         value::{InputValue, InputValueEnum},
     };
 
@@ -279,12 +285,25 @@ mod tests {
         path: "tests::CanonicalStatus",
         variants: &STATUS_VARIANTS,
     };
-
+    static PROFILE_FIELDS: [CompositeFieldModel; 1] = [CompositeFieldModel::generated(
+        "name",
+        FieldKind::Text { max_len: Some(8) },
+        false,
+    )];
+    static PROFILE_SHAPE: CompositeShapeModel = CompositeShapeModel::Record(&PROFILE_FIELDS);
+    static PROFILE_KIND: FieldKind = FieldKind::Composite {
+        path: "tests::CanonicalProfile",
+        codec: CompositeCodec::StructuralV1,
+        shape: &PROFILE_SHAPE,
+    };
     fn accepted_enum_fixture() -> (AcceptedEnumCatalogHandle, AcceptedFieldKind) {
         let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[STATUS_KIND])
             .expect("accepted enum catalog should build");
-        let catalog =
-            AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+        let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+            catalog,
+            crate::db::schema::AcceptedCompositeCatalog::empty(),
+            AcceptedSchemaRevision::INITIAL,
+        );
         let kind = AcceptedFieldKind::from_model_kind(STATUS_KIND);
 
         (catalog, kind)
@@ -305,8 +324,8 @@ mod tests {
             "status",
             &kind,
             false,
-            FieldStorageDecode::Value,
-            LeafCodec::StructuralFallback,
+            FieldStorageDecode::CatalogValue,
+            LeafCodec::Structural,
         );
         let mut budget = ValueAdmissionBudget::standard();
         let encoded = encode_input_value_for_accepted_field_contract(
@@ -396,6 +415,109 @@ mod tests {
             )
             .is_err(),
             "required fields must reject null before persistence",
+        );
+    }
+
+    #[test]
+    fn accepted_composite_slot_decode_rejects_shape_drift_from_persisted_bytes() {
+        let (enum_catalog, composite_catalog) =
+            build_initial_accepted_catalogs_from_kinds_for_tests(&[PROFILE_KIND])
+                .expect("exact composite catalogs should build");
+        let kind = AcceptedFieldKind::from_model_kind(PROFILE_KIND);
+        let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+            enum_catalog,
+            composite_catalog,
+            AcceptedSchemaRevision::INITIAL,
+        );
+        let field = AcceptedFieldDecodeContract::new(
+            "profile",
+            &kind,
+            false,
+            FieldStorageDecode::CatalogValue,
+            LeafCodec::Structural,
+        );
+        let invalid = CanonicalValue::Map(vec![
+            (
+                CanonicalValue::Text("extra".to_string()),
+                CanonicalValue::Bool(true),
+            ),
+            (
+                CanonicalValue::Text("name".to_string()),
+                CanonicalValue::Text("Ada".to_string()),
+            ),
+        ]);
+        let encoded = encode_canonical_value_storage_bytes(&invalid)
+            .expect("malformed-shape fixture should remain valid canonical bytes");
+
+        assert!(
+            decode_admitted_value_from_accepted_field_contract(
+                test_encoding(&catalog, field),
+                &encoded,
+            )
+            .is_err(),
+            "canonical bytes that drift from accepted composite shape must fail closed",
+        );
+    }
+
+    #[test]
+    #[ignore = "native microbenchmark: run explicitly with --ignored --nocapture"]
+    fn accepted_composite_persisted_decode_microbenchmark_report() {
+        use std::{hint::black_box, time::Instant};
+
+        const ITERATIONS: u32 = 20_000;
+        let (enum_catalog, composite_catalog) =
+            build_initial_accepted_catalogs_from_kinds_for_tests(&[PROFILE_KIND])
+                .expect("exact composite catalogs should build");
+        let kind = AcceptedFieldKind::from_model_kind(PROFILE_KIND);
+        let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+            enum_catalog,
+            composite_catalog,
+            AcceptedSchemaRevision::INITIAL,
+        );
+        let field = AcceptedFieldDecodeContract::new(
+            "profile",
+            &kind,
+            false,
+            FieldStorageDecode::CatalogValue,
+            LeafCodec::Structural,
+        );
+        let encoded = encode_input_value_for_accepted_field_contract(
+            test_encoding(&catalog, field),
+            InputValue::Map(vec![(
+                InputValue::Text("name".to_string()),
+                InputValue::Text("Ada".to_string()),
+            )]),
+            &mut ValueAdmissionBudget::standard(),
+        )
+        .expect("exact composite should encode");
+
+        let start = Instant::now();
+        for _ in 0..ITERATIONS {
+            black_box(
+                decode_canonical_value_storage_bytes(black_box(encoded.as_slice()))
+                    .expect("canonical composite payload should decode"),
+            );
+        }
+        let canonical_decode = start.elapsed();
+
+        let start = Instant::now();
+        for _ in 0..ITERATIONS {
+            black_box(
+                decode_admitted_value_from_accepted_field_contract(
+                    test_encoding(&catalog, field),
+                    black_box(encoded.as_slice()),
+                )
+                .expect("accepted composite payload should decode"),
+            );
+        }
+        let admitted_decode = start.elapsed();
+
+        println!(
+            "exact composite persisted decode ({} iterations, {} payload bytes): canonical={} ns/op accepted={} ns/op",
+            ITERATIONS,
+            encoded.len(),
+            canonical_decode.as_nanos() / u128::from(ITERATIONS),
+            admitted_decode.as_nanos() / u128::from(ITERATIONS),
         );
     }
 }

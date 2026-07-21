@@ -281,7 +281,7 @@ impl FieldTypeMeta for RecoveryStatus {
         path: RECOVERY_STATUS_ENUM_PATH,
         variants: &RECOVERY_STATUS_VARIANTS,
     };
-    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::CatalogValue;
 }
 
 impl RuntimeValueEncode for RecoveryStatus {
@@ -590,7 +590,7 @@ crate::test_entity! {
             path: RECOVERY_STATUS_ENUM_PATH,
             variants: &RECOVERY_STATUS_VARIANTS,
         }, options = crate::testing::TestFieldModelOptions::DEFAULT
-            .with_storage_decode(crate::model::field::FieldStorageDecode::Value) },
+            .with_storage_decode(crate::model::field::FieldStorageDecode::CatalogValue) },
         crate::test_field! { active: bool => FieldKind::Bool },
     ],
     indexes = [&RECOVERY_CONDITIONAL_UNIQUE_ENUM_INDEX_MODELS[0]],

@@ -9,7 +9,7 @@ Pin IcyDB by tag in the canister crate:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.204.16" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.207.0" }
 ```
 
 The default crate feature set is typed/fluent-only. Enable SQL explicitly when
@@ -17,7 +17,7 @@ the canister uses session/library SQL APIs or generated SQL endpoints:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.204.16", features = ["sql"] }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.207.0", features = ["sql"] }
 ```
 
 The public `icydb` crate path supports Rust `1.88.0` and newer. Repository

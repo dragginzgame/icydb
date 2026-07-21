@@ -149,7 +149,7 @@ pub(in crate::db) enum AcceptedFieldKindCategory {
     Scalar(AcceptedScalarClass),
     Relation(Option<AcceptedScalarClass>),
     Collection,
-    Structured { queryable: bool },
+    Composite,
 }
 
 impl AcceptedFieldKindCategory {
@@ -157,7 +157,7 @@ impl AcceptedFieldKindCategory {
     const fn scalar_class(self) -> Option<AcceptedScalarClass> {
         match self {
             Self::Scalar(class) | Self::Relation(Some(class)) => Some(class),
-            Self::Relation(None) | Self::Collection | Self::Structured { .. } => None,
+            Self::Relation(None) | Self::Collection | Self::Composite => None,
         }
     }
 }
@@ -280,10 +280,10 @@ impl AcceptedFieldKindSemantics {
         matches!(self.category, AcceptedFieldKindCategory::Collection)
     }
 
-    /// Return true when the field kind is structured.
+    /// Return true when the field kind is an exact composite.
     #[must_use]
-    pub(in crate::db) const fn is_structured(self) -> bool {
-        matches!(self.category, AcceptedFieldKindCategory::Structured { .. })
+    pub(in crate::db) const fn is_composite(self) -> bool {
+        matches!(self.category, AcceptedFieldKindCategory::Composite)
     }
 }
 
@@ -368,10 +368,8 @@ pub(in crate::db) const fn classify_accepted_field_kind(
         AcceptedFieldKind::List(_) | AcceptedFieldKind::Set(_) | AcceptedFieldKind::Map { .. } => {
             AcceptedFieldKindSemantics::new(AcceptedFieldKindCategory::Collection)
         }
-        AcceptedFieldKind::Structured { queryable } => {
-            AcceptedFieldKindSemantics::new(AcceptedFieldKindCategory::Structured {
-                queryable: *queryable,
-            })
+        AcceptedFieldKind::Composite { .. } => {
+            AcceptedFieldKindSemantics::new(AcceptedFieldKindCategory::Composite)
         }
     }
 }
@@ -382,7 +380,7 @@ const fn classify_relation_scalar_class(kind: &AcceptedFieldKind) -> Option<Acce
         | AcceptedFieldKindCategory::Relation(Some(class)) => Some(class),
         AcceptedFieldKindCategory::Relation(None)
         | AcceptedFieldKindCategory::Collection
-        | AcceptedFieldKindCategory::Structured { .. } => None,
+        | AcceptedFieldKindCategory::Composite => None,
     }
 }
 
@@ -440,20 +438,19 @@ mod tests {
     }
 
     #[test]
-    fn classify_collection_and_structured_kinds_stay_non_scalar() {
+    fn classify_collection_and_composite_kinds_stay_non_scalar() {
         let collection = classify_accepted_field_kind(&AcceptedFieldKind::List(Box::new(
             AcceptedFieldKind::Text { max_len: None },
         )));
-        let structured =
-            classify_accepted_field_kind(&AcceptedFieldKind::Structured { queryable: true });
+        let composite = classify_accepted_field_kind(&AcceptedFieldKind::test_composite());
 
         assert!(collection.is_collection());
         assert!(!collection.is_scalar());
         assert!(!collection.is_sql_comparable());
 
-        assert!(structured.is_structured());
-        assert!(!structured.is_collection());
-        assert!(!structured.is_orderable());
+        assert!(composite.is_composite());
+        assert!(!composite.is_collection());
+        assert!(!composite.is_orderable());
     }
 
     #[test]

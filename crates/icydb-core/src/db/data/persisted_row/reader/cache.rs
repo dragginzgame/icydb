@@ -79,7 +79,7 @@ pub(super) fn build_initial_slot_cache(contract: &StructuralRowContract) -> Vec<
                     validated: OnceCell::new(),
                     materialized: OnceCell::new(),
                 },
-                LeafCodec::StructuralFallback => CachedSlotValue::Deferred {
+                LeafCodec::Structural => CachedSlotValue::Deferred {
                     materialized: OnceCell::new(),
                 },
             }

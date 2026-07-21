@@ -161,7 +161,7 @@ pub(crate) enum FieldType {
     List(Box<Self>),
     Set(Box<Self>),
     Map { key: Box<Self>, value: Box<Self> },
-    Structured { queryable: bool },
+    Composite,
 }
 
 impl FieldType {
@@ -170,10 +170,7 @@ impl FieldType {
         match self {
             Self::Scalar(_) => RuntimeValueKind::Atomic,
             Self::List(_) | Self::Set(_) => RuntimeValueKind::Structured { queryable: true },
-            Self::Map { .. } => RuntimeValueKind::Structured { queryable: false },
-            Self::Structured { queryable } => RuntimeValueKind::Structured {
-                queryable: *queryable,
-            },
+            Self::Map { .. } | Self::Composite => RuntimeValueKind::Structured { queryable: false },
         }
     }
 
@@ -182,7 +179,7 @@ impl FieldType {
         match self {
             Self::Scalar(inner) => Some(inner.coercion_family()),
             Self::List(_) | Self::Set(_) | Self::Map { .. } => Some(CoercionFamily::Collection),
-            Self::Structured { .. } => None,
+            Self::Composite => None,
         }
     }
 
@@ -250,8 +247,8 @@ pub(crate) fn literal_matches_type(literal: &Value, field_type: &FieldType) -> b
             }
             _ => false,
         },
-        FieldType::Structured { .. } => {
-            // NOTE: non-queryable structured field types never match predicate literals.
+        FieldType::Composite => {
+            // NOTE: exact composite field types never match predicate literals.
             false
         }
     }
@@ -291,9 +288,7 @@ pub(crate) fn field_type_from_model_kind(kind: &FieldKind) -> FieldType {
             key: Box::new(field_type_from_model_kind(key)),
             value: Box::new(field_type_from_model_kind(value)),
         },
-        FieldKind::Structured { queryable } => FieldType::Structured {
-            queryable: *queryable,
-        },
+        FieldKind::Composite { .. } => FieldType::Composite,
     }
 }
 
@@ -325,7 +320,7 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
             AcceptedFieldKind::Map { .. } => None,
             _ => unreachable!("persisted kind invariant"),
         },
-        AcceptedFieldKindCategory::Structured { .. }
+        AcceptedFieldKindCategory::Composite
         | AcceptedFieldKindCategory::Scalar(
             AcceptedScalarClass::Account
             | AcceptedScalarClass::Blob
@@ -466,8 +461,8 @@ pub(in crate::db) fn field_type_from_persisted_kind(kind: &AcceptedFieldKind) ->
         AcceptedFieldKindCategory::Collection => {
             debug_assert!(semantics.is_collection());
         }
-        AcceptedFieldKindCategory::Structured { .. } => {
-            debug_assert!(semantics.is_structured());
+        AcceptedFieldKindCategory::Composite => {
+            debug_assert!(semantics.is_composite());
         }
     }
 
@@ -482,9 +477,7 @@ pub(in crate::db) fn field_type_from_persisted_kind(kind: &AcceptedFieldKind) ->
             key: Box::new(field_type_from_persisted_kind(key)),
             value: Box::new(field_type_from_persisted_kind(value)),
         },
-        AcceptedFieldKind::Structured { queryable } => FieldType::Structured {
-            queryable: *queryable,
-        },
+        AcceptedFieldKind::Composite { .. } => FieldType::Composite,
         AcceptedFieldKind::Account
         | AcceptedFieldKind::Blob { .. }
         | AcceptedFieldKind::Bool
@@ -649,9 +642,7 @@ impl fmt::Display for FieldType {
             Self::List(inner) => write!(f, "List<{inner}>"),
             Self::Set(inner) => write!(f, "Set<{inner}>"),
             Self::Map { key, value } => write!(f, "Map<{key}, {value}>"),
-            Self::Structured { queryable } => {
-                write!(f, "Structured<queryable={queryable}>")
-            }
+            Self::Composite => f.write_str("Composite"),
         }
     }
 }

@@ -121,7 +121,7 @@ fn validate_primary_key_value_from_slot_bytes_with_accepted_field(
                     })?,
             }
         }
-        LeafCodec::StructuralFallback => {
+        LeafCodec::Structural => {
             let value = decode_runtime_value_from_accepted_field_contract(field, raw_value)
                 .map_err(|err| {
                     InternalError::persisted_row_primary_key_not_primary_key_encodable(
@@ -158,7 +158,7 @@ pub(super) fn materialize_primary_key_slot_value_from_expected_component_with_ac
     probe: &StructuralReadProbe,
 ) -> Result<Value, InternalError> {
     probe.record_validated_slot();
-    if matches!(field.leaf_codec(), LeafCodec::StructuralFallback) {
+    if matches!(field.leaf_codec(), LeafCodec::Structural) {
         probe.record_validated_non_scalar();
         probe.record_materialized_non_scalar();
     }

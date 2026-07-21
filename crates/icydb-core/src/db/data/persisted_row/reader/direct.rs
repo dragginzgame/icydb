@@ -372,7 +372,7 @@ fn decode_slot_with_accepted_field(
                 ScalarSlotValueRef::Value(value) => Ok(value.into_value()),
             }
         }
-        LeafCodec::StructuralFallback => {
+        LeafCodec::Structural => {
             probe.record_validated_slot();
             probe.record_validated_non_scalar();
             probe.record_materialized_non_scalar();

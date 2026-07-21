@@ -44,7 +44,8 @@ use crate::{
     model::{
         EntityModel,
         field::{
-            EnumVariantModel, FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode,
+            CompositeCodec, CompositeFieldModel, CompositeShapeModel, EnumVariantModel,
+            FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode,
         },
     },
     testing::SIMPLE_ENTITY_TAG,
@@ -198,13 +199,25 @@ impl PersistedStructuralValueCodec for PersistedRowProfileValue {
 }
 
 impl FieldTypeMeta for PersistedRowProfileValue {
-    const KIND: FieldKind = FieldKind::Structured { queryable: false };
-    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+    const KIND: FieldKind = FieldKind::Composite {
+        path: "data::persisted_row::tests::PersistedRowProfileValue",
+        codec: CompositeCodec::StructuralV1,
+        shape: &PERSISTED_ROW_PROFILE_SHAPE,
+    };
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::CatalogValue;
     const NESTED_FIELDS: &'static [FieldModel] = &[FieldModel::generated(
         "bio",
         FieldKind::Text { max_len: None },
     )];
 }
+
+static PERSISTED_ROW_PROFILE_FIELDS: [CompositeFieldModel; 1] = [CompositeFieldModel::generated(
+    "bio",
+    FieldKind::Text { max_len: None },
+    false,
+)];
+static PERSISTED_ROW_PROFILE_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Record(&PERSISTED_ROW_PROFILE_FIELDS);
 
 impl RuntimeValueEncode for PersistedRowProfileValue {
     fn to_value(&self) -> Value {
@@ -238,16 +251,10 @@ impl PersistedByKindCodec for PersistedRowProfileValue {
         field_name: &'static str,
     ) -> Result<Vec<u8>, InternalError> {
         match kind {
-            FieldKind::Structured { queryable } => {
-                if queryable {
-                    return Err(InternalError::persisted_row_field_encode_failed(
-                        field_name,
-                        "structured by-kind queryability mismatch",
-                    ));
-                }
-
-                self.encode_persisted_structured_payload()
-            }
+            FieldKind::Composite {
+                path: "data::persisted_row::tests::PersistedRowProfileValue",
+                ..
+            } => self.encode_persisted_structured_payload(),
             other => Err(InternalError::persisted_row_field_encode_failed(
                 field_name,
                 format!("field kind {other:?} does not accept structured profile payload"),
@@ -261,16 +268,10 @@ impl PersistedByKindCodec for PersistedRowProfileValue {
         field_name: &'static str,
     ) -> Result<Option<Self>, InternalError> {
         match kind {
-            FieldKind::Structured { queryable } => {
-                if queryable {
-                    return Err(InternalError::persisted_row_field_decode_failed(
-                        field_name,
-                        "structured by-kind queryability mismatch",
-                    ));
-                }
-
-                Self::decode_persisted_structured_payload(bytes).map(Some)
-            }
+            FieldKind::Composite {
+                path: "data::persisted_row::tests::PersistedRowProfileValue",
+                ..
+            } => Self::decode_persisted_structured_payload(bytes).map(Some),
             other => Err(InternalError::persisted_row_field_decode_failed(
                 field_name,
                 format!("field kind {other:?} does not accept structured profile payload"),
@@ -307,9 +308,9 @@ crate::test_entity! {
     fields = [
         crate::test_field! { id: crate::types::Ulid => FieldKind::Ulid },
         crate::test_field! {
-            payload: PersistedRowProfileValue => FieldKind::Structured { queryable: false },
+            payload: PersistedRowProfileValue => PersistedRowProfileValue::KIND,
             options = crate::testing::TestFieldModelOptions::DEFAULT
-                .with_storage_decode(FieldStorageDecode::Value),
+                .with_storage_decode(FieldStorageDecode::CatalogValue),
         },
     ],
     indexes = [],
@@ -328,9 +329,9 @@ crate::test_entity! {
     fields = [
         crate::test_field! { id: crate::types::Ulid => FieldKind::Ulid },
         crate::test_field! {
-            payloads: Vec<PersistedRowProfileValue> => FieldKind::List(&FieldKind::Structured { queryable: false }),
+            payloads: Vec<PersistedRowProfileValue> => FieldKind::List(&PersistedRowProfileValue::KIND),
             options = crate::testing::TestFieldModelOptions::DEFAULT
-                .with_storage_decode(FieldStorageDecode::Value),
+                .with_storage_decode(FieldStorageDecode::CatalogValue),
         },
     ],
     indexes = [],
@@ -353,7 +354,7 @@ static FIELD_MODELS: [FieldModel; 2] = [
     FieldModel::generated_with_storage_decode(
         "payload",
         FieldKind::Text { max_len: None },
-        FieldStorageDecode::Value,
+        FieldStorageDecode::CatalogValue,
     ),
 ];
 static ADDITIVE_NULLABLE_FIELD_MODELS: [FieldModel; 3] = [
@@ -443,12 +444,12 @@ static OPTIONAL_DECIMAL_FIELD_MODELS: [FieldModel; 1] =
     )];
 static REQUIRED_STRUCTURED_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
     "profile",
-    FieldKind::Structured { queryable: false },
+    PersistedRowProfileValue::KIND,
 )];
 static OPTIONAL_STRUCTURED_FIELD_MODELS: [FieldModel; 1] =
     [FieldModel::generated_with_storage_decode_and_nullability(
         "profile",
-        FieldKind::Structured { queryable: false },
+        PersistedRowProfileValue::KIND,
         FieldStorageDecode::ByKind,
         true,
     )];
@@ -600,7 +601,7 @@ static RELATION_PK_MODEL: EntityModel = EntityModel::generated(
     &INDEX_MODELS,
 );
 
-// Encode one persisted `FieldStorageDecode::Value` fixture payload through the
+// Encode one persisted `FieldStorageDecode::CatalogValue` fixture payload through the
 // owner-local structural value-storage boundary.
 fn encode_value_storage_payload(value: &Value) -> Vec<u8> {
     encode_structural_value_storage_bytes(value)
@@ -677,10 +678,12 @@ fn accepted_row_decode_contract_for_model(
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted runtime contract should build");
 
-    let catalog = crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog(&[model])
-        .expect("accepted enum catalog fixture should build");
+    let (catalog, composite_catalog) =
+        crate::db::schema::build_initial_accepted_catalogs_for_tests(&[model])
+            .expect("accepted catalog fixture should build");
     let catalog = crate::db::schema::AcceptedEnumCatalogHandle::new_for_tests(
         catalog,
+        composite_catalog,
         crate::db::schema::AcceptedSchemaRevision::INITIAL,
     );
 
@@ -770,12 +773,12 @@ fn accepted_defaulted_required_score_row_decode_contract_for_tests(
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted defaulted runtime contract should build");
 
-    let catalog = crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog(&[
-        &ADDITIVE_REQUIRED_MODEL,
-    ])
-    .expect("accepted enum catalog fixture should build");
+    let (catalog, composite_catalog) =
+        crate::db::schema::build_initial_accepted_catalogs_for_tests(&[&ADDITIVE_REQUIRED_MODEL])
+            .expect("accepted catalog fixture should build");
     let catalog = crate::db::schema::AcceptedEnumCatalogHandle::new_for_tests(
         catalog,
+        composite_catalog,
         crate::db::schema::AcceptedSchemaRevision::INITIAL,
     );
 
@@ -825,12 +828,14 @@ fn generated_default_model_with_no_accepted_default_contract_for_tests() -> Stru
         .expect("accepted no-default schema fixture should validate");
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted no-default runtime contract should build");
-    let catalog = crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog(&[
-        &ADDITIVE_REQUIRED_GENERATED_DEFAULT_MODEL,
-    ])
-    .expect("accepted enum catalog fixture should build");
+    let (catalog, composite_catalog) =
+        crate::db::schema::build_initial_accepted_catalogs_for_tests(&[
+            &ADDITIVE_REQUIRED_GENERATED_DEFAULT_MODEL,
+        ])
+        .expect("accepted catalog fixture should build");
     let catalog = crate::db::schema::AcceptedEnumCatalogHandle::new_for_tests(
         catalog,
+        composite_catalog,
         crate::db::schema::AcceptedSchemaRevision::INITIAL,
     );
 
@@ -1383,7 +1388,7 @@ fn structured_many_slot_payload_roundtrips_structured_value_lists() {
 fn decode_persisted_slot_payload_by_kind_rejects_malformed_structured_null_payload() {
     let err = decode_persisted_slot_payload_by_kind::<PersistedRowProfileValue>(
         &[0xF6],
-        FieldKind::Structured { queryable: false },
+        PersistedRowProfileValue::KIND,
         "profile",
     )
     .expect_err("structured payload must reject malformed null bytes");

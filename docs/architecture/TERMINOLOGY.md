@@ -21,6 +21,9 @@ These labels describe persisted schema and storage contracts. `int_big` and
 `nat_big` are bounded big-integer contracts; `max_bytes` is part of the schema
 contract.
 
+Ordinary records, tuples, and newtypes are exact nominal composites. There is
+no open-ended persisted field contract.
+
 In Rust schema declarations and derive internals, use the matching enum variant
 names such as `Primitive::IntBig`, `Primitive::NatBig`, `FieldKind::IntBig`,
 and `FieldKind::NatBig`.

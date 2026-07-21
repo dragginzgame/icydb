@@ -776,7 +776,7 @@ const fn persisted_field_kind_is_queryable(kind: &AcceptedFieldKind) -> bool {
     match classify_accepted_field_kind(kind).category() {
         AcceptedFieldKindCategory::Scalar(_) | AcceptedFieldKindCategory::Relation(_) => true,
         AcceptedFieldKindCategory::Collection => !matches!(kind, AcceptedFieldKind::Map { .. }),
-        AcceptedFieldKindCategory::Structured { queryable } => queryable,
+        AcceptedFieldKindCategory::Composite => false,
     }
 }
 
@@ -798,9 +798,7 @@ fn persisted_field_kind_accepts_value(kind: &AcceptedFieldKind, value: &Value) -
         AcceptedFieldKindCategory::Collection => {
             persisted_collection_kind_accepts_value(kind, value)
         }
-        AcceptedFieldKindCategory::Structured { .. } => {
-            matches!(value, Value::List(_) | Value::Map(_))
-        }
+        AcceptedFieldKindCategory::Composite => false,
     }
 }
 
@@ -983,16 +981,14 @@ mod tests {
             key: Box::new(AcceptedFieldKind::Text { max_len: None }),
             value: Box::new(AcceptedFieldKind::Nat64),
         };
-        let shown_structured = AcceptedFieldKind::Structured { queryable: true };
-        let hidden_structured = AcceptedFieldKind::Structured { queryable: false };
+        let composite = AcceptedFieldKind::test_composite();
 
         assert!(persisted_field_kind_is_queryable(&scalar_kind));
         assert!(persisted_field_kind_is_queryable(&relation_kind));
         assert!(persisted_field_kind_is_queryable(&list_kind));
         assert!(persisted_field_kind_is_queryable(&set_kind));
         assert!(!persisted_field_kind_is_queryable(&map_kind));
-        assert!(persisted_field_kind_is_queryable(&shown_structured));
-        assert!(!persisted_field_kind_is_queryable(&hidden_structured));
+        assert!(!persisted_field_kind_is_queryable(&composite));
     }
 
     #[test]
@@ -1006,7 +1002,6 @@ mod tests {
             key: Box::new(AcceptedFieldKind::Text { max_len: None }),
             value: Box::new(AcceptedFieldKind::Nat8),
         };
-        let structured_kind = AcceptedFieldKind::Structured { queryable: false };
 
         assert!(persisted_field_kind_accepts_value(
             &nat8_kind,
@@ -1043,14 +1038,6 @@ mod tests {
         assert!(!persisted_field_kind_accepts_value(
             &map_kind,
             &Value::Map(vec![(Value::Text("alpha".into()), Value::Nat64(300))]),
-        ));
-        assert!(persisted_field_kind_accepts_value(
-            &structured_kind,
-            &Value::Map(Vec::new()),
-        ));
-        assert!(!persisted_field_kind_accepts_value(
-            &structured_kind,
-            &Value::Nat64(7),
         ));
     }
 }

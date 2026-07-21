@@ -6,7 +6,6 @@ use crate::db::query::plan::covering_hybrid_projection_execution_plan_with_schem
 use crate::db::schema::{
     AcceptedEnumCatalogHandle, AcceptedRowLayoutRuntimeContract, AcceptedSchemaRevision,
     AcceptedSchemaSnapshot, compiled_schema_proposal_for_model,
-    enum_catalog::build_initial_accepted_enum_catalog,
 };
 #[cfg(test)]
 use crate::entity::EntityKind;
@@ -110,16 +109,27 @@ impl EntityAuthority {
     #[cfg(test)]
     pub(in crate::db) fn for_accepted_generated_type_for_test<E: EntityKind>() -> Self {
         let proposal = compiled_schema_proposal_for_model(E::MODEL);
-        let accepted =
-            AcceptedSchemaSnapshot::try_new(proposal.initial_persisted_schema_snapshot())
-                .expect("generated model proposal should produce an accepted test schema");
+        let (catalog, composite_catalog) =
+            crate::db::schema::build_initial_accepted_catalogs_for_tests(&[E::MODEL])
+                .expect("generated model catalogs should build");
+        let snapshot = proposal
+            .initial_persisted_schema_snapshot_with_catalogs(&catalog, &composite_catalog)
+            .expect("generated model proposal should resolve through its test catalogs");
+        let accepted = AcceptedSchemaSnapshot::try_new(snapshot)
+            .expect("generated model proposal should produce an accepted test schema");
         let (descriptor, row_proof) =
-            AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(&accepted, E::MODEL)
-                .expect("generated model should match its accepted test schema");
-        let catalog = build_initial_accepted_enum_catalog(&[E::MODEL])
-            .expect("generated model enum catalog should build");
-        let catalog =
-            AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+            AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
+                &accepted,
+                E::MODEL,
+                &catalog,
+                &composite_catalog,
+            )
+            .expect("generated model should match its accepted test schema");
+        let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+            catalog,
+            composite_catalog,
+            AcceptedSchemaRevision::INITIAL,
+        );
         let row_contract = descriptor.row_decode_contract(catalog.clone());
         let schema_info = SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
             E::MODEL,
@@ -460,7 +470,10 @@ mod tests {
 
     static FIELDS: [FieldModel; 2] = [
         FieldModel::generated("id", FieldKind::Ulid),
-        FieldModel::generated("profile", FieldKind::Structured { queryable: true }),
+        FieldModel::generated(
+            "profile",
+            FieldKind::empty_test_composite("executor::authority::tests::Profile"),
+        ),
     ];
     static INDEXES: [&IndexModel; 0] = [];
     static MODEL: EntityModel = entity_model_from_static(
@@ -497,18 +510,18 @@ mod tests {
                     false,
                     SchemaFieldDefault::None,
                     FieldStorageDecode::ByKind,
-                    LeafCodec::StructuralFallback,
+                    LeafCodec::Structural,
                 ),
                 PersistedFieldSnapshot::new(
                     FieldId::new(2),
                     "profile".to_string(),
                     SchemaFieldSlot::new(1),
-                    AcceptedFieldKind::Structured { queryable: true },
+                    AcceptedFieldKind::test_composite(),
                     Vec::new(),
                     false,
                     SchemaFieldDefault::None,
-                    FieldStorageDecode::Value,
-                    LeafCodec::StructuralFallback,
+                    FieldStorageDecode::CatalogValue,
+                    LeafCodec::Structural,
                 ),
             ],
         ));

@@ -36,6 +36,27 @@ fn decode_persisted_schema_snapshot_rejects_future_codec_version() {
 }
 
 #[test]
+fn decode_persisted_schema_snapshot_rejects_wrong_contract_profile() {
+    let snapshot = PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "entities::WrongProfile".to_string(),
+        "WrongProfile".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::new(SchemaVersion::initial(), Vec::new()),
+        Vec::new(),
+    );
+    let mut wire = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
+    wire.contract_profile ^= 1;
+    let encoded = candid::encode_one(&wire).expect("wrong schema profile fixture should encode");
+
+    let error = decode_persisted_schema_snapshot(&encoded)
+        .expect_err("wrong schema contract profile must fail closed");
+
+    assert_eq!(error.class(), ErrorClass::IncompatiblePersistedFormat);
+    assert_eq!(error.origin(), ErrorOrigin::Serialize);
+}
+
+#[test]
 fn decode_persisted_schema_snapshot_rejects_zero_schema_version() {
     let snapshot = PersistedSchemaSnapshot::new(
         SchemaVersion::new(0),
@@ -382,7 +403,7 @@ fn persisted_schema_snapshot_round_trips_big_integer_max_bytes_contracts() {
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
             PersistedFieldSnapshot::new(
                 FieldId::new(2),
@@ -393,7 +414,7 @@ fn persisted_schema_snapshot_round_trips_big_integer_max_bytes_contracts() {
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
         ],
     );

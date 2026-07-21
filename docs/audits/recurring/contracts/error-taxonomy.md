@@ -87,7 +87,7 @@ Enumerate or sample with explicit coverage for:
 - serialize/storage key/index key/row decode errors
 - store registry errors
 - commit marker and recovery errors
-- schema reconciliation and schema mutation runner errors
+- schema reconciliation and schema mutation publication errors
 - public `icydb::Error`, `RuntimeErrorKind`, `QueryErrorKind`, and
   `icydb::ErrorOrigin`
 
@@ -302,5 +302,5 @@ Start with:
 - `bash scripts/ci/check-layer-authority-invariants.sh`
 
 Add targeted tests for any new public error kind, internal error class,
-origin, schema mutation runner failure, persisted decode path, recovery replay
+origin, schema mutation publication failure, persisted decode path, recovery replay
 path, or facade mapping.

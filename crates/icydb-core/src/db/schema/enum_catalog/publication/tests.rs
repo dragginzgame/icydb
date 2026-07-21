@@ -11,13 +11,17 @@ use crate::{
     db::{
         database_format::crc32c,
         schema::{
-            AcceptedFieldKind, FieldId, PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot,
-            PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
-            PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
-            SchemaVersion,
+            AcceptedCompositeCatalog, AcceptedFieldKind, FieldId, PersistedFieldSnapshot,
+            PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
+            SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+            build_initial_accepted_catalogs_from_kinds_for_tests,
         },
     },
-    model::field::{EnumVariantModel, FieldKind, FieldStorageDecode, LeafCodec, ScalarCodec},
+    model::field::{
+        CompositeCodec, CompositeFieldModel, CompositeShapeModel, EnumVariantModel, FieldKind,
+        FieldStorageDecode, LeafCodec, ScalarCodec,
+    },
     types::EntityTag,
     value::EnumTypeId,
 };
@@ -41,12 +45,27 @@ const PAYLOAD_STATUS_KIND: FieldKind = FieldKind::Enum {
     path: "test::Status",
     variants: &PAYLOAD_STATUS_VARIANTS,
 };
+static PROFILE_FIELDS: [CompositeFieldModel; 1] = [CompositeFieldModel::generated(
+    "name",
+    FieldKind::Text { max_len: Some(32) },
+    false,
+)];
+static PROFILE_SHAPE: CompositeShapeModel = CompositeShapeModel::Record(&PROFILE_FIELDS);
+static PROFILE_KIND: FieldKind = FieldKind::Composite {
+    path: "test::Profile",
+    codec: CompositeCodec::StructuralV1,
+    shape: &PROFILE_SHAPE,
+};
 
 fn empty_catalog() -> super::AcceptedEnumCatalog {
     super::AcceptedEnumCatalog {
         by_id: BTreeMap::new(),
         id_by_path: BTreeMap::new(),
     }
+}
+
+fn empty_composite_catalog() -> AcceptedCompositeCatalog {
+    AcceptedCompositeCatalog::empty()
 }
 
 fn snapshot(entity_path: &str) -> PersistedSchemaSnapshot {
@@ -127,7 +146,7 @@ fn snapshot_with_indexed_enum(
             false,
             SchemaFieldDefault::None,
             FieldStorageDecode::ByKind,
-            LeafCodec::StructuralFallback,
+            LeafCodec::Structural,
         )],
         vec![PersistedIndexSnapshot::new(
             1,
@@ -152,18 +171,12 @@ fn status_catalog() -> super::super::AcceptedEnumCatalog {
 }
 
 fn snapshot_with_nested_status(kind: AcceptedFieldKind) -> PersistedSchemaSnapshot {
-    let nested = PersistedNestedLeafSnapshot::new(
-        vec!["status".to_string()],
-        kind,
-        false,
-        FieldStorageDecode::ByKind,
-        LeafCodec::StructuralFallback,
-    );
+    let nested = PersistedNestedLeafSnapshot::new(vec!["status".to_string()], kind, false);
     snapshot_with_field(
         "test::Item",
-        AcceptedFieldKind::Structured { queryable: true },
+        AcceptedFieldKind::test_composite(),
         vec![nested],
-        LeafCodec::StructuralFallback,
+        LeafCodec::Structural,
     )
 }
 
@@ -172,6 +185,7 @@ fn bundle(revision: u64) -> AcceptedSchemaRevisionBundle {
         AcceptedSchemaRevision::new(revision),
         "test::Store",
         empty_catalog(),
+        empty_composite_catalog(),
         BTreeMap::from([(EntityTag::new(7), snapshot("test::Item"))]),
     )
     .expect("accepted schema bundle should build")
@@ -193,13 +207,14 @@ fn accepted_schema_bundle_requires_field_enum_type_to_exist() {
             type_id: status_type_id,
         },
         Vec::new(),
-        LeafCodec::StructuralFallback,
+        LeafCodec::Structural,
     );
     assert!(
         AcceptedSchemaRevisionBundle::new(
             AcceptedSchemaRevision::INITIAL,
             "test::Store",
             catalog.clone(),
+            empty_composite_catalog(),
             BTreeMap::from([(EntityTag::new(7), exact)]),
         )
         .is_ok()
@@ -211,14 +226,56 @@ fn accepted_schema_bundle_requires_field_enum_type_to_exist() {
             type_id: EnumTypeId::new(999).expect("test enum type ID should be valid"),
         },
         Vec::new(),
-        LeafCodec::StructuralFallback,
+        LeafCodec::Structural,
     );
     assert!(
         AcceptedSchemaRevisionBundle::new(
             AcceptedSchemaRevision::INITIAL,
             "test::Store",
             catalog,
+            empty_composite_catalog(),
             BTreeMap::from([(EntityTag::new(7), mismatched)]),
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn accepted_schema_bundle_requires_field_composite_type_to_exist() {
+    let (enum_catalog, composite_catalog) =
+        build_initial_accepted_catalogs_from_kinds_for_tests(&[PROFILE_KIND])
+            .expect("profile catalogs should build");
+    let profile_kind = AcceptedFieldKind::from_model_kind(PROFILE_KIND);
+    let exact = snapshot_with_field(
+        "test::Item",
+        profile_kind.clone(),
+        Vec::new(),
+        LeafCodec::Structural,
+    );
+    assert!(
+        AcceptedSchemaRevisionBundle::new(
+            AcceptedSchemaRevision::INITIAL,
+            "test::Store",
+            enum_catalog.clone(),
+            composite_catalog,
+            BTreeMap::from([(EntityTag::new(7), exact)]),
+        )
+        .is_ok()
+    );
+
+    let missing = snapshot_with_field(
+        "test::Item",
+        profile_kind,
+        Vec::new(),
+        LeafCodec::Structural,
+    );
+    assert!(
+        AcceptedSchemaRevisionBundle::new(
+            AcceptedSchemaRevision::INITIAL,
+            "test::Store",
+            enum_catalog,
+            empty_composite_catalog(),
+            BTreeMap::from([(EntityTag::new(7), missing)]),
         )
         .is_err()
     );
@@ -239,6 +296,7 @@ fn accepted_schema_bundle_rejects_malformed_default_payload() {
             AcceptedSchemaRevision::INITIAL,
             "test::Store",
             empty_catalog(),
+            empty_composite_catalog(),
             BTreeMap::from([(EntityTag::new(7), snapshot)]),
         )
         .is_err()
@@ -258,6 +316,7 @@ fn accepted_schema_bundle_checks_nested_enum_type_ids() {
             AcceptedSchemaRevision::INITIAL,
             "test::Store",
             catalog.clone(),
+            empty_composite_catalog(),
             BTreeMap::from([(EntityTag::new(7), snapshot_with_nested_status(status_kind),)]),
         )
         .is_ok()
@@ -268,6 +327,7 @@ fn accepted_schema_bundle_checks_nested_enum_type_ids() {
             AcceptedSchemaRevision::INITIAL,
             "test::Store",
             catalog,
+            empty_composite_catalog(),
             BTreeMap::from([(
                 EntityTag::new(7),
                 snapshot_with_nested_status(AcceptedFieldKind::Enum {
@@ -287,6 +347,7 @@ fn accepted_schema_bundle_admits_only_stable_key_enum_indexes() {
             AcceptedSchemaRevision::INITIAL,
             "test::Store",
             catalog.clone(),
+            empty_composite_catalog(),
             BTreeMap::from([(
                 EntityTag::new(7),
                 snapshot_with_indexed_enum(&catalog, STATUS_KIND),
@@ -304,6 +365,7 @@ fn accepted_schema_bundle_admits_only_stable_key_enum_indexes() {
             AcceptedSchemaRevision::INITIAL,
             "test::Store",
             payload_catalog.clone(),
+            empty_composite_catalog(),
             BTreeMap::from([(
                 EntityTag::new(7),
                 snapshot_with_indexed_enum(&payload_catalog, PAYLOAD_STATUS_KIND),
@@ -337,6 +399,7 @@ fn accepted_schema_empty_bundle_wire_vector_is_frozen() {
         AcceptedSchemaRevision::INITIAL,
         "s",
         empty_catalog(),
+        empty_composite_catalog(),
         BTreeMap::new(),
     )
     .expect("empty accepted schema bundle should build");
@@ -344,10 +407,11 @@ fn accepted_schema_empty_bundle_wire_vector_is_frozen() {
     assert_eq!(
         encode_accepted_schema_revision_bundle(&bundle).expect("bundle should encode"),
         vec![
-            0x49, 0x43, 0x59, 0x44, 0x42, 0x41, 0x53, 0x42, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+            0x49, 0x43, 0x59, 0x44, 0x42, 0x41, 0x45, 0x42, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x73, 0x00, 0x00, 0x00, 0x0e, 0x49,
-            0x43, 0x59, 0x44, 0x42, 0x45, 0x4e, 0x43, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00,
+            0x43, 0x59, 0x44, 0x42, 0x45, 0x4e, 0x58, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x0e, 0x49, 0x43, 0x59, 0x44, 0x42, 0x43, 0x4d, 0x50, 0x00, 0x01, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     );
 }
@@ -387,13 +451,13 @@ fn accepted_schema_root_wire_vector_is_frozen() {
         bundle_hash: [0x22; 32],
     };
     let mut expected = vec![
-        0x49, 0x43, 0x59, 0x44, 0x42, 0x41, 0x53, 0x52, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x49, 0x43, 0x59, 0x44, 0x42, 0x41, 0x45, 0x52, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x01,
     ];
     expected.extend_from_slice(&[0x11; 32]);
     expected.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
     expected.extend_from_slice(&[0x22; 32]);
-    expected.extend_from_slice(&[0xaa, 0x2c, 0xa2, 0x69]);
+    expected.extend_from_slice(&[0x22, 0x63, 0xad, 0x22]);
 
     assert_eq!(
         encode_accepted_schema_root(root).expect("root should encode"),

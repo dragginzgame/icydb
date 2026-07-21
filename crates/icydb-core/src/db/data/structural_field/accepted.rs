@@ -34,7 +34,9 @@ pub(in crate::db) fn decode_structural_field_by_accepted_kind_bytes(
     }
 
     match kind {
-        AcceptedFieldKind::Enum { .. } => Err(FieldDecodeError::new()),
+        AcceptedFieldKind::Composite { .. } | AcceptedFieldKind::Enum { .. } => {
+            Err(FieldDecodeError::new())
+        }
         AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
             decode_accepted_list_bytes(raw_bytes, inner.as_ref())
         }
@@ -59,7 +61,6 @@ pub(in crate::db) fn decode_structural_field_by_accepted_kind_bytes(
         | AcceptedFieldKind::Int128
         | AcceptedFieldKind::IntBig { .. }
         | AcceptedFieldKind::Principal
-        | AcceptedFieldKind::Structured { .. }
         | AcceptedFieldKind::Subaccount
         | AcceptedFieldKind::Text { .. }
         | AcceptedFieldKind::Timestamp
@@ -105,7 +106,9 @@ pub(in crate::db) fn validate_structural_field_by_accepted_kind_bytes(
     }
 
     match kind {
-        AcceptedFieldKind::Enum { .. } => Err(FieldDecodeError::new()),
+        AcceptedFieldKind::Composite { .. } | AcceptedFieldKind::Enum { .. } => {
+            Err(FieldDecodeError::new())
+        }
         AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
             validate_accepted_list_bytes(raw_bytes, inner.as_ref())
         }
@@ -130,7 +133,6 @@ pub(in crate::db) fn validate_structural_field_by_accepted_kind_bytes(
         | AcceptedFieldKind::Int128
         | AcceptedFieldKind::IntBig { .. }
         | AcceptedFieldKind::Principal
-        | AcceptedFieldKind::Structured { .. }
         | AcceptedFieldKind::Subaccount
         | AcceptedFieldKind::Text { .. }
         | AcceptedFieldKind::Timestamp
@@ -203,9 +205,6 @@ const fn generated_compatible_simple_kind_from_accepted_kind(
             max_bytes: *max_bytes,
         }),
         AcceptedFieldKind::Principal => Some(FieldKind::Principal),
-        AcceptedFieldKind::Structured { queryable } => Some(FieldKind::Structured {
-            queryable: *queryable,
-        }),
         AcceptedFieldKind::Subaccount => Some(FieldKind::Subaccount),
         AcceptedFieldKind::Text { max_len } => Some(FieldKind::Text { max_len: *max_len }),
         AcceptedFieldKind::Timestamp => Some(FieldKind::Timestamp),
@@ -219,7 +218,8 @@ const fn generated_compatible_simple_kind_from_accepted_kind(
         }),
         AcceptedFieldKind::Ulid => Some(FieldKind::Ulid),
         AcceptedFieldKind::Unit => Some(FieldKind::Unit),
-        AcceptedFieldKind::Enum { .. }
+        AcceptedFieldKind::Composite { .. }
+        | AcceptedFieldKind::Enum { .. }
         | AcceptedFieldKind::List(_)
         | AcceptedFieldKind::Map { .. }
         | AcceptedFieldKind::Relation { .. }
@@ -241,9 +241,9 @@ fn encode_accepted_binary_field_into(
     }
 
     match kind {
-        AcceptedFieldKind::Enum { .. } => Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        )),
+        AcceptedFieldKind::Composite { .. } | AcceptedFieldKind::Enum { .. } => Err(
+            InternalError::persisted_row_field_encode_internal(field_name),
+        ),
         AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
             encode_accepted_list_bytes(out, inner.as_ref(), value, field_name)
         }
@@ -268,7 +268,6 @@ fn encode_accepted_binary_field_into(
         | AcceptedFieldKind::Int128
         | AcceptedFieldKind::IntBig { .. }
         | AcceptedFieldKind::Principal
-        | AcceptedFieldKind::Structured { .. }
         | AcceptedFieldKind::Subaccount
         | AcceptedFieldKind::Text { .. }
         | AcceptedFieldKind::Timestamp

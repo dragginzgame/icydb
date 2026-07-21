@@ -15,11 +15,16 @@ use crate::{
             AcceptedCatalogSnapshotSelection, AcceptedSchemaSnapshot, MutationPublicationPreflight,
             PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaStore, SchemaTransitionDecision,
             SchemaTransitionPlanKind, StagedUserIndexDomainReplacement,
-            compiled_schema_proposal_for_model, decide_schema_transition,
+            compiled_schema_proposal_for_model,
+            composite_catalog::{
+                AcceptedCompositeCatalog, build_initial_accepted_composite_catalog,
+                generated_composite_type_ids, reconcile_accepted_composite_catalog,
+            },
+            decide_schema_transition,
             enum_catalog::{
                 AcceptedEnumCatalog, AcceptedSchemaRevision, AcceptedSchemaRevisionBundle,
-                CandidateSchemaRevision, build_initial_accepted_enum_catalog,
-                reconcile_accepted_enum_catalog,
+                CandidateSchemaRevision, build_initial_accepted_enum_catalog_with_composite_ids,
+                reconcile_accepted_enum_catalog_with_composite_ids,
             },
             runtime::AcceptedRowLayoutRuntimeContract,
             transition::{
@@ -39,11 +44,19 @@ use crate::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+#[cfg(test)]
+use crate::db::schema::build_initial_accepted_catalogs_for_tests;
+
 use user_index_domain::stage_startup_user_index_domain_replacement;
 
 struct ReconciledRuntimeSchema {
     accepted: AcceptedSchemaSnapshot,
     pending_publication: Option<StagedUserIndexDomainReplacement>,
+}
+
+struct GeneratedCatalogCandidates {
+    enum_catalog: AcceptedEnumCatalog,
+    composite_catalog: AcceptedCompositeCatalog,
 }
 
 #[cfg(feature = "sql")]
@@ -57,24 +70,29 @@ pub(in crate::db) use sql_ddl::{
 
 /// Reconcile registered runtime schemas with the schema metadata store.
 ///
-/// Initial contact publishes one deterministic store-local enum catalog.
-/// Later contacts rebuild the current-only dense catalog candidate and fail
-/// closed if any surviving persisted enum identity would move.
+/// Initial contact publishes deterministic store-local type catalogs.
+/// Later contacts rebuild current-only dense catalog candidates and fail
+/// closed if any surviving persisted type identity would move.
 pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
     db: &Db<C>,
     entity_runtime_hooks: &[EntityRuntimeHooks<C>],
 ) -> Result<(), InternalError> {
-    let catalogs_by_store = build_generated_enum_catalog_candidates(db, entity_runtime_hooks)?;
+    let catalogs_by_store = build_generated_catalog_candidates(db, entity_runtime_hooks)?;
     let mut accepted_snapshots_by_store =
         BTreeMap::<&'static str, BTreeMap<EntityTag, PersistedSchemaSnapshot>>::new();
     let mut pending_publications =
         BTreeMap::<&'static str, Vec<StagedUserIndexDomainReplacement>>::new();
 
     for hooks in entity_runtime_hooks {
-        let enum_catalog = catalogs_by_store
+        let catalogs = catalogs_by_store
             .get(hooks.store_path)
             .ok_or_else(InternalError::store_invariant)?;
-        let reconciled = reconcile_runtime_schema(db, hooks, enum_catalog)?;
+        let reconciled = reconcile_runtime_schema(
+            db,
+            hooks,
+            &catalogs.enum_catalog,
+            &catalogs.composite_catalog,
+        )?;
         if accepted_snapshots_by_store
             .entry(hooks.store_path)
             .or_default()
@@ -100,7 +118,7 @@ pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
         }
     }
 
-    for (store_path, enum_catalog) in catalogs_by_store {
+    for (store_path, catalogs) in catalogs_by_store {
         let entity_snapshots = accepted_snapshots_by_store
             .remove(store_path)
             .ok_or_else(InternalError::store_invariant)?;
@@ -108,7 +126,8 @@ pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
         publish_generated_accepted_schema_bundle(
             db.store_handle(store_path)?,
             store_path,
-            enum_catalog,
+            catalogs.enum_catalog,
+            catalogs.composite_catalog,
             entity_snapshots,
             store_pending,
         )?;
@@ -148,14 +167,14 @@ fn schema_publication_error_allows_physical_rollback(
     )
 }
 
-// Construct every store-local enum catalog candidate before any entity
+// Construct every store-local type-catalog candidate before any entity
 // snapshot is published into the immutable accepted bundle. Every candidate
 // is dense in current canonical order; existing stores additionally prove that
 // surviving row-visible identities remain unchanged.
-fn build_generated_enum_catalog_candidates<C: CanisterKind>(
+fn build_generated_catalog_candidates<C: CanisterKind>(
     db: &Db<C>,
     entity_runtime_hooks: &[EntityRuntimeHooks<C>],
-) -> Result<BTreeMap<&'static str, AcceptedEnumCatalog>, InternalError> {
+) -> Result<BTreeMap<&'static str, GeneratedCatalogCandidates>, InternalError> {
     let mut models_by_store = BTreeMap::<&'static str, Vec<&EntityModel>>::new();
     for hooks in entity_runtime_hooks {
         models_by_store
@@ -169,17 +188,38 @@ fn build_generated_enum_catalog_candidates<C: CanisterKind>(
         let current = db
             .store_handle(store_path)?
             .with_schema(SchemaStore::current_accepted_schema_bundle)?;
-        let catalog = match current {
+        let composite_ids = generated_composite_type_ids(&models)
+            .map_err(|_error| InternalError::store_unsupported())?;
+        let enum_catalog = match current.as_ref() {
             Some(current) => {
                 if current.store_path() != store_path {
                     return Err(InternalError::store_corruption());
                 }
-                reconcile_accepted_enum_catalog(current.enum_catalog(), &models)
+                reconcile_accepted_enum_catalog_with_composite_ids(
+                    current.enum_catalog(),
+                    &models,
+                    &composite_ids,
+                )
             }
-            None => build_initial_accepted_enum_catalog(&models),
+            None => build_initial_accepted_enum_catalog_with_composite_ids(&models, &composite_ids),
         }
         .map_err(|_error| InternalError::store_unsupported())?;
-        catalogs_by_store.insert(store_path, catalog);
+        let composite_catalog = match current.as_ref() {
+            Some(current) => reconcile_accepted_composite_catalog(
+                current.composite_catalog(),
+                &models,
+                &enum_catalog,
+            ),
+            None => build_initial_accepted_composite_catalog(&models, &enum_catalog),
+        }
+        .map_err(|_error| InternalError::store_unsupported())?;
+        catalogs_by_store.insert(
+            store_path,
+            GeneratedCatalogCandidates {
+                enum_catalog,
+                composite_catalog,
+            },
+        );
     }
 
     Ok(catalogs_by_store)
@@ -189,6 +229,7 @@ fn publish_generated_accepted_schema_bundle(
     store: StoreHandle,
     store_path: &'static str,
     enum_catalog: AcceptedEnumCatalog,
+    composite_catalog: AcceptedCompositeCatalog,
     entity_snapshots: BTreeMap<EntityTag, PersistedSchemaSnapshot>,
     replacements: Vec<StagedUserIndexDomainReplacement>,
 ) -> Result<(), InternalError> {
@@ -211,6 +252,7 @@ fn publish_generated_accepted_schema_bundle(
         comparison_revision,
         store_path,
         enum_catalog.clone(),
+        composite_catalog.clone(),
         entity_snapshots.clone(),
     )?;
     if current.as_ref() == Some(&comparison) {
@@ -227,6 +269,7 @@ fn publish_generated_accepted_schema_bundle(
         candidate_revision,
         store_path,
         enum_catalog,
+        composite_catalog,
         entity_snapshots,
     )?;
     let candidate = CandidateSchemaRevision::new(bundle)?;
@@ -271,10 +314,10 @@ pub(in crate::db) fn bootstrap_test_accepted_schema_snapshot(
         return Ok(());
     }
 
-    let catalog = build_initial_accepted_enum_catalog(&[model])
-        .map_err(|_| InternalError::store_unsupported())?;
+    let (catalog, composite_catalog) = build_initial_accepted_catalogs_for_tests(&[model])
+        .map_err(|()| InternalError::store_unsupported())?;
     let snapshot = compiled_schema_proposal_for_model(model)
-        .initial_persisted_schema_snapshot_with_enum_catalog(&catalog)?;
+        .initial_persisted_schema_snapshot_with_catalogs(&catalog, &composite_catalog)?;
     publish_test_accepted_schema_snapshot(
         schema_store,
         entity_tag,
@@ -294,20 +337,24 @@ pub(in crate::db) fn publish_test_accepted_schema_snapshot(
     model: &'static EntityModel,
     snapshot: PersistedSchemaSnapshot,
 ) -> Result<(), InternalError> {
-    let proposed_catalog = build_initial_accepted_enum_catalog(&[model])
-        .map_err(|_error| InternalError::store_unsupported())?;
+    let (proposed_catalog, proposed_composite_catalog) =
+        build_initial_accepted_catalogs_for_tests(&[model])
+            .map_err(|_error| InternalError::store_unsupported())?;
     let current = schema_store.current_accepted_schema_bundle()?;
     let expected_revision = current.as_ref().map_or(
         AcceptedSchemaRevision::NONE,
         AcceptedSchemaRevisionBundle::revision,
     );
-    let catalog = if let Some(current) = &current {
+    let (catalog, composite_catalog) = if let Some(current) = &current {
         if current.store_path() != store_path {
             return Err(InternalError::store_corruption());
         }
-        current.enum_catalog().clone()
+        (
+            current.enum_catalog().clone(),
+            current.composite_catalog().clone(),
+        )
     } else {
-        proposed_catalog
+        (proposed_catalog, proposed_composite_catalog)
     };
     let mut entity_snapshots = current
         .as_ref()
@@ -319,8 +366,13 @@ pub(in crate::db) fn publish_test_accepted_schema_snapshot(
     let revision = expected_revision
         .checked_next()
         .ok_or_else(InternalError::store_unsupported)?;
-    let bundle =
-        AcceptedSchemaRevisionBundle::new(revision, store_path, catalog, entity_snapshots)?;
+    let bundle = AcceptedSchemaRevisionBundle::new(
+        revision,
+        store_path,
+        catalog,
+        composite_catalog,
+        entity_snapshots,
+    )?;
     let candidate = CandidateSchemaRevision::new(bundle)?;
     schema_store.publish_accepted_schema_candidate(expected_revision, &candidate)
 }
@@ -427,6 +479,7 @@ fn prepare_accepted_entity_snapshot_revision(
         candidate_revision,
         expected_identity.store_path(),
         current.enum_catalog().clone(),
+        current.composite_catalog().clone(),
         entity_snapshots,
     )?;
     let candidate = CandidateSchemaRevision::new(bundle)?;
@@ -470,6 +523,7 @@ fn reconcile_runtime_schema<C: CanisterKind>(
     db: &Db<C>,
     hooks: &EntityRuntimeHooks<C>,
     enum_catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
 ) -> Result<ReconciledRuntimeSchema, InternalError> {
     let store = db.store_handle(hooks.store_path)?;
 
@@ -480,6 +534,7 @@ fn reconcile_runtime_schema<C: CanisterKind>(
         hooks.store_path,
         hooks.model,
         enum_catalog,
+        composite_catalog,
     )
 }
 
@@ -577,16 +632,25 @@ fn load_current_accepted_schema_snapshot(
     entity_path: &'static str,
     model: &'static EntityModel,
 ) -> Result<AcceptedSchemaSnapshot, InternalError> {
-    let snapshot = schema_store
-        .current_accepted_persisted_snapshot(entity_tag)?
+    let bundle = schema_store
+        .current_accepted_schema_bundle()?
+        .ok_or_else(InternalError::store_corruption)?;
+    let snapshot = bundle
+        .entity_snapshots()
+        .get(&entity_tag)
+        .cloned()
         .ok_or_else(InternalError::store_corruption)?;
     if snapshot.entity_path() != entity_path {
         return Err(InternalError::store_corruption());
     }
     let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
-    let _runtime_contract =
-        AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(&accepted, model)
-            .map_err(|_error| InternalError::store_unsupported())?;
+    let _runtime_contract = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
+        &accepted,
+        model,
+        bundle.enum_catalog(),
+        bundle.composite_catalog(),
+    )
+    .map_err(|_error| InternalError::store_unsupported())?;
     validate_accepted_runtime_descriptor(&accepted)?;
 
     Ok(accepted)
@@ -602,9 +666,10 @@ fn reconcile_staged_schema_snapshot(
     model: &EntityModel,
 ) -> Result<AcceptedSchemaSnapshot, InternalError> {
     let proposal = compiled_schema_proposal_for_model(model);
-    let catalog = build_initial_accepted_enum_catalog(&[model])
-        .map_err(|_| InternalError::store_unsupported())?;
-    let expected = proposal.initial_persisted_schema_snapshot_with_enum_catalog(&catalog)?;
+    let (catalog, composite_catalog) = build_initial_accepted_catalogs_for_tests(&[model])
+        .map_err(|()| InternalError::store_unsupported())?;
+    let expected =
+        proposal.initial_persisted_schema_snapshot_with_catalogs(&catalog, &composite_catalog)?;
 
     let latest = match schema_store.latest_staged_persisted_snapshot(entity_tag) {
         Ok(latest) => latest,
@@ -682,9 +747,11 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
     store_path: &'static str,
     model: &EntityModel,
     enum_catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
 ) -> Result<ReconciledRuntimeSchema, InternalError> {
     let proposal = compiled_schema_proposal_for_model(model);
-    let expected = proposal.initial_persisted_schema_snapshot_with_enum_catalog(enum_catalog)?;
+    let expected = proposal
+        .initial_persisted_schema_snapshot_with_catalogs(enum_catalog, composite_catalog)?;
 
     let latest = match store
         .with_schema_mut(|schema_store| schema_store.latest_staged_persisted_snapshot(entity_tag))

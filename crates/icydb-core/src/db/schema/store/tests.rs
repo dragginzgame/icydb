@@ -8,8 +8,8 @@ use crate::{
     db::{
         direction::Direction,
         schema::{
-            AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedSchemaRevision,
-            AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
+            AcceptedCompositeCatalog, AcceptedEnumCatalogHandle, AcceptedFieldKind,
+            AcceptedSchemaRevision, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
             PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
             SchemaFieldSlot, SchemaRowLayout, SchemaVersion, accepted_schema_cache_fingerprint,
@@ -64,6 +64,7 @@ fn schema_store_matches_only_its_current_root_authority() {
     let root = initial.root();
     let current = AcceptedEnumCatalogHandle::new(
         initial.bundle().enum_catalog().clone(),
+        initial.bundle().composite_catalog().clone(),
         store_scope.clone(),
         root.revision(),
         root.fingerprint(),
@@ -83,6 +84,7 @@ fn schema_store_matches_only_its_current_root_authority() {
 
     let foreign_store = AcceptedEnumCatalogHandle::new(
         initial.bundle().enum_catalog().clone(),
+        AcceptedCompositeCatalog::empty(),
         AcceptedStoreCatalogScope::new(),
         root.revision(),
         root.fingerprint(),
@@ -97,6 +99,7 @@ fn schema_store_matches_only_its_current_root_authority() {
     wrong_fingerprint_bytes[0] ^= 1;
     let wrong_fingerprint = AcceptedEnumCatalogHandle::new(
         initial.bundle().enum_catalog().clone(),
+        AcceptedCompositeCatalog::empty(),
         store_scope,
         root.revision(),
         AcceptedSchemaFingerprint::new(wrong_fingerprint_bytes),
@@ -144,12 +147,12 @@ fn raw_schema_key_round_trips_entity_and_version() {
 
 #[test]
 fn raw_schema_control_record_round_trips_opaque_bytes() {
-    let snapshot = RawSchemaSnapshot::from_encoded_control_record(b"ICYDBASB\x01\x02\x03".to_vec());
+    let snapshot = RawSchemaSnapshot::from_encoded_control_record(b"ICYDBAEB\x01\x02\x03".to_vec());
     let encoded = snapshot.to_bytes().into_owned();
     let decoded = <RawSchemaSnapshot as Storable>::from_bytes(Cow::Owned(encoded));
 
-    assert_eq!(decoded.as_bytes(), b"ICYDBASB\x01\x02\x03");
-    assert_eq!(decoded.into_bytes(), b"ICYDBASB\x01\x02\x03");
+    assert_eq!(decoded.as_bytes(), b"ICYDBAEB\x01\x02\x03");
+    assert_eq!(decoded.into_bytes(), b"ICYDBAEB\x01\x02\x03");
 }
 
 #[test]
@@ -1106,8 +1109,6 @@ fn schema_store_rejects_typed_snapshot_with_empty_nested_leaf_path() {
             Vec::new(),
             AcceptedFieldKind::Blob { max_len: None },
             false,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Blob),
         )],
         fields[1].nullable(),
         fields[1].default().clone(),
@@ -1145,15 +1146,11 @@ fn schema_store_rejects_raw_snapshot_with_duplicate_nested_leaf_path() {
             vec!["bytes".to_string()],
             AcceptedFieldKind::Blob { max_len: None },
             false,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Blob),
         ),
         PersistedNestedLeafSnapshot::new(
             vec!["bytes".to_string()],
             AcceptedFieldKind::Text { max_len: None },
             false,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Text),
         ),
     ];
     let invalid_field = PersistedFieldSnapshot::new(
@@ -1211,7 +1208,7 @@ fn raw_schema_snapshot_encodes_and_decodes_typed_snapshot() {
 
 // Build one typed schema snapshot used by schema-store tests. The exact
 // field contracts are intentionally rich enough to cover nested metadata,
-// scalar codecs, and structural fallback payloads through the raw store.
+// scalar codecs, and structural payloads through the raw store.
 fn assert_latest_schema(
     store: &SchemaStore,
     entity: EntityTag,
@@ -1360,13 +1357,11 @@ fn persisted_schema_snapshot_with_layout_version_for_test(
                     vec!["bytes".to_string()],
                     AcceptedFieldKind::Blob { max_len: None },
                     false,
-                    FieldStorageDecode::ByKind,
-                    LeafCodec::Scalar(ScalarCodec::Blob),
                 )],
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
         ],
     )

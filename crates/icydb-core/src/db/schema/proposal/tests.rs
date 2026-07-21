@@ -7,18 +7,26 @@ use crate::{
     model::{
         entity::{EntityModel, PrimaryKeyModel, RelationEdgeModel},
         field::{
-            EnumVariantModel, FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode,
-            LeafCodec, ScalarCodec,
+            CompositeCodec, CompositeFieldModel, CompositeShapeModel, EnumVariantModel,
+            FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode, LeafCodec,
+            ScalarCodec,
         },
         index::{IndexExpression, IndexKeyItem, IndexModel},
     },
     testing::entity_model_from_static,
 };
 
-static PROFILE_FIELDS: [FieldModel; 2] = [
-    FieldModel::generated("nickname", FieldKind::Text { max_len: None }),
-    FieldModel::generated("score", FieldKind::Nat64),
+static PROFILE_COMPOSITE_FIELDS: [CompositeFieldModel; 2] = [
+    CompositeFieldModel::generated("nickname", FieldKind::Text { max_len: None }, false),
+    CompositeFieldModel::generated("score", FieldKind::Nat64, false),
 ];
+static PROFILE_COMPOSITE_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Record(&PROFILE_COMPOSITE_FIELDS);
+static PROFILE_COMPOSITE_KIND: FieldKind = FieldKind::Composite {
+    path: "schema::proposal::tests::Profile",
+    codec: CompositeCodec::StructuralV1,
+    shape: &PROFILE_COMPOSITE_SHAPE,
+};
 static FIELDS: [FieldModel; 4] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated_with_storage_decode_and_nullability(
@@ -28,14 +36,11 @@ static FIELDS: [FieldModel; 4] = [
         true,
     ),
     FieldModel::generated("rank", FieldKind::Nat64),
-    FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
+    FieldModel::generated_with_storage_decode_and_nullability(
         "profile",
-        FieldKind::Structured { queryable: true },
-        FieldStorageDecode::Value,
+        PROFILE_COMPOSITE_KIND,
+        FieldStorageDecode::CatalogValue,
         false,
-        None,
-        None,
-        &PROFILE_FIELDS,
     ),
 ];
 static NAME_INDEX: IndexModel =
@@ -174,12 +179,11 @@ fn compiled_schema_proposal_assigns_initial_field_ids_from_slots() {
 #[test]
 fn compiled_enum_default_persists_catalog_ids() {
     let proposal = compiled_schema_proposal_for_model(&ENUM_DEFAULT_MODEL);
-    let catalog = crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog(&[
-        &ENUM_DEFAULT_MODEL,
-    ])
-    .expect("generated enum catalog should build");
+    let (catalog, composite_catalog) =
+        crate::db::schema::build_initial_accepted_catalogs_for_tests(&[&ENUM_DEFAULT_MODEL])
+            .expect("generated accepted catalogs should build");
     let snapshot = proposal
-        .initial_persisted_schema_snapshot_with_enum_catalog(&catalog)
+        .initial_persisted_schema_snapshot_with_catalogs(&catalog, &composite_catalog)
         .expect("authored enum default should admit through its store catalog");
     let field = &snapshot.fields()[1];
     let payload = field
@@ -196,7 +200,10 @@ fn compiled_enum_default_persists_catalog_ids() {
         field.leaf_codec(),
     );
     crate::db::data::validate_default_payload_for_accepted_field_contract(
-        &catalog, contract, payload,
+        &catalog,
+        &composite_catalog,
+        contract,
+        payload,
     )
     .expect("generated enum default bytes should satisfy bundle validation");
 }
@@ -224,7 +231,7 @@ fn compiled_enum_default_rejects_unknown_and_payload_variants() {
             },
             write_policy: crate::db::schema::SchemaFieldWritePolicy::none(),
             storage_decode: FieldStorageDecode::ByKind,
-            leaf_codec: LeafCodec::StructuralFallback,
+            leaf_codec: LeafCodec::Structural,
         };
 
         assert!(

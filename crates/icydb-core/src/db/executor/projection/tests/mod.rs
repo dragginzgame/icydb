@@ -25,7 +25,10 @@ use crate::{
     },
     entity::{EntityDeclaration, EntityValue},
     error::{ErrorClass, ErrorOrigin, InternalError},
-    model::field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
+    model::field::{
+        CompositeCodec, CompositeFieldModel, CompositeShapeModel, FieldKind, FieldModel,
+        FieldStorageDecode, LeafCodec,
+    },
     traits::FieldTypeMeta,
     types::Ulid,
     value::{RuntimeValueDecode, RuntimeValueEncode, Value},
@@ -108,6 +111,19 @@ struct ProjectionEvalProfile {
 
 static PROJECTION_EVAL_DETAILS_FIELDS: [FieldModel; 1] =
     [FieldModel::generated("flag", FieldKind::Bool)];
+static PROJECTION_EVAL_DETAILS_COMPOSITE_FIELDS: [CompositeFieldModel; 1] =
+    [CompositeFieldModel::generated(
+        "flag",
+        FieldKind::Bool,
+        false,
+    )];
+static PROJECTION_EVAL_DETAILS_COMPOSITE_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Record(&PROJECTION_EVAL_DETAILS_COMPOSITE_FIELDS);
+static PROJECTION_EVAL_DETAILS_KIND: FieldKind = FieldKind::Composite {
+    path: "executor::projection::tests::ProjectionEvalDetails",
+    codec: CompositeCodec::StructuralV1,
+    shape: &PROJECTION_EVAL_DETAILS_COMPOSITE_SHAPE,
+};
 
 static PROJECTION_EVAL_PROFILE_FIELDS: [FieldModel; 4] = [
     FieldModel::generated("name", FieldKind::Text { max_len: None }),
@@ -115,17 +131,30 @@ static PROJECTION_EVAL_PROFILE_FIELDS: [FieldModel; 4] = [
     FieldModel::generated("score", FieldKind::Nat64),
     crate::testing::test_field_model(
         "details",
-        FieldKind::Structured { queryable: false },
+        PROJECTION_EVAL_DETAILS_KIND,
         crate::testing::TestFieldModelOptions::DEFAULT
-            .with_storage_decode(FieldStorageDecode::Value)
+            .with_storage_decode(FieldStorageDecode::CatalogValue)
             .with_nested_fields(&PROJECTION_EVAL_DETAILS_FIELDS),
     ),
 ];
 
+static PROJECTION_EVAL_PROFILE_COMPOSITE_FIELDS: [CompositeFieldModel; 4] = [
+    CompositeFieldModel::generated("name", FieldKind::Text { max_len: None }, false),
+    CompositeFieldModel::generated("rank", FieldKind::Int64, false),
+    CompositeFieldModel::generated("score", FieldKind::Nat64, false),
+    CompositeFieldModel::generated("details", PROJECTION_EVAL_DETAILS_KIND, false),
+];
+static PROJECTION_EVAL_PROFILE_COMPOSITE_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Record(&PROJECTION_EVAL_PROFILE_COMPOSITE_FIELDS);
+
 impl FieldTypeMeta for ProjectionEvalProfile {
-    const KIND: FieldKind = FieldKind::Structured { queryable: false };
+    const KIND: FieldKind = FieldKind::Composite {
+        path: "executor::projection::tests::ProjectionEvalProfile",
+        codec: CompositeCodec::StructuralV1,
+        shape: &PROJECTION_EVAL_PROFILE_COMPOSITE_SHAPE,
+    };
     const NESTED_FIELDS: &'static [FieldModel] = &PROJECTION_EVAL_PROFILE_FIELDS;
-    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::CatalogValue;
 }
 
 impl RuntimeValueEncode for ProjectionEvalProfile {
@@ -214,9 +243,9 @@ crate::test_entity! {
         crate::test_field! { flag: bool => FieldKind::Bool },
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
         crate::test_field! {
-            profile: ProjectionEvalProfile => FieldKind::Structured { queryable: false },
+            profile: ProjectionEvalProfile => ProjectionEvalProfile::KIND,
             options = crate::testing::TestFieldModelOptions::DEFAULT
-                .with_storage_decode(FieldStorageDecode::Value)
+                .with_storage_decode(FieldStorageDecode::CatalogValue)
                 .with_nested_fields(&PROJECTION_EVAL_PROFILE_FIELDS),
         },
     ],

@@ -35,8 +35,14 @@ Each accepted field contributes:
 - one physical row slot;
 - one absence policy: `Required`, `NullIfMissing`, or `DefaultIfMissing`;
 - any database-owned generation or managed-write policy;
-- any scalar bounds, decimal scale, text limit, collection encoding, enum
-  catalog, index, or relation facts that apply to the field.
+- any scalar bounds, decimal scale, text limit, collection encoding, enum or
+  exact-composite catalog identity, index, or relation facts that apply to the
+  field.
+
+An accepted composite field resolves to one store-local nominal type ID and a
+complete accepted record, tuple, or newtype definition. Record member names,
+tuple arity, nested kinds, and nested nullability are admission facts. Generated
+Rust codecs may confirm that contract but may not reconstruct it at runtime.
 
 The absence policy is derived exhaustively from accepted nullability and
 database-default metadata. Rust `Default`, generated construction values, and
@@ -60,8 +66,8 @@ complete all fallible work required by that mutation, including:
 - accepted input encoding and complete canonical after-image construction;
 - sanitization and user validation;
 - primary-key shape, type, and row-identity validation;
-- field-kind, nullability, scalar-bound, decimal, text, enum, collection, and
-  deterministic-encoding validation;
+- field-kind, nullability, scalar-bound, decimal, text, enum, exact-composite,
+  collection, and deterministic-encoding validation;
 - relation target-existence or delete-safety validation;
 - uniqueness, index, reverse-relation, and commit-row preparation;
 - request and response bounds that are part of the mutation's atomic result.
@@ -147,6 +153,9 @@ mutation.
 External import, restore, general data-migration, and bulk APIs must not be
 documented as supported until their trust, resource, schema-version, failure,
 and write-admission rules are normative and implemented.
+
+Those absent surfaces reject by non-exposure rather than sharing an unchecked
+internal write path.
 
 ## Mandatory Invariants
 

@@ -112,7 +112,7 @@ pub(super) const fn expr_type_from_field_type(field_type: &FieldType) -> ExprTyp
         FieldType::Scalar(ScalarType::Decimal) => ExprType::Numeric(NumericSubtype::Decimal),
         FieldType::Scalar(ScalarType::Enum | ScalarType::Text) => ExprType::Text,
         FieldType::List(_) | FieldType::Set(_) | FieldType::Map { .. } => ExprType::Collection,
-        FieldType::Structured { .. } => ExprType::Structured,
+        FieldType::Composite => ExprType::Structured,
         FieldType::Scalar(
             ScalarType::Account
             | ScalarType::Date

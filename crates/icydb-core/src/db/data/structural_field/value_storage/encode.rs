@@ -1,7 +1,7 @@
 //! Module: data::structural_field::value_storage::encode
 //! Responsibility: structural value-storage byte encoding for runtime `Value` payloads.
 //! Does not own: field-kind routing, row encoding, or borrowed decode traversal.
-//! Boundary: writes the owner-local value-storage envelope used by `FieldStorageDecode::Value`.
+//! Boundary: writes the owner-local value-storage envelope used by `FieldStorageDecode::CatalogValue`.
 
 use crate::{
     db::data::structural_field::{
@@ -33,7 +33,7 @@ use crate::{
     value::Value,
 };
 
-/// Encode one persisted `FieldStorageDecode::Value` payload through the
+/// Encode one persisted `FieldStorageDecode::CatalogValue` payload through the
 /// owner-local structural value-storage contract.
 pub(in crate::db) fn encode_structural_value_storage_bytes(
     value: &Value,
@@ -299,7 +299,9 @@ fn encode_value_storage_binary_into(out: &mut Vec<u8>, value: &Value) -> Result<
         Value::Date(value) => push_date_payload(out, *value),
         Value::Decimal(value) => push_decimal_payload(out, *value),
         Value::Duration(value) => push_duration_payload(out, *value),
-        Value::Enum(_) => return Err(InternalError::serialize_unsupported()),
+        Value::Enum(_) => {
+            return Err(InternalError::serialize_unsupported());
+        }
         Value::Float32(value) => push_float32_payload(out, *value),
         Value::Float64(value) => push_float64_payload(out, *value),
         Value::Int128(value) => push_int128_payload(out, *value),

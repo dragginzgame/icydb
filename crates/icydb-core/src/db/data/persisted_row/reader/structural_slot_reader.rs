@@ -359,7 +359,7 @@ impl<'a> StructuralSlotReader<'a> {
         // Phase 1: value-storage scalar fields can project directly from the
         // validated byte view when the persisted tag matches the declared
         // scalar kind. Mismatches fall through to preserve the existing
-        // permissive `FieldStorageDecode::Value` materialization behavior.
+        // full catalog-backed materialization and validation behavior.
         let accepted_field = self.required_accepted_field_decode_contract(slot)?;
         if let Some(value) = self.required_accepted_value_storage_scalar(slot, accepted_field)? {
             #[cfg(any(test, feature = "diagnostics"))]
@@ -457,7 +457,7 @@ impl<'a> StructuralSlotReader<'a> {
         slot: usize,
         field: AcceptedFieldDecodeContract<'_>,
     ) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
-        if !matches!(field.storage_decode(), FieldStorageDecode::Value) {
+        if !matches!(field.storage_decode(), FieldStorageDecode::CatalogValue) {
             return Ok(None);
         }
         if self.field_bytes.field(slot).is_none() {
@@ -525,7 +525,7 @@ impl<'a> StructuralSlotReader<'a> {
                     self.metrics.record_validated_slot();
                     self.decode_scalar_slot_value_for_slot(slot, raw_value)?;
                 }
-                LeafCodec::StructuralFallback => {
+                LeafCodec::Structural => {
                     #[cfg(any(test, feature = "diagnostics"))]
                     {
                         self.metrics.record_validated_slot();
@@ -591,7 +591,7 @@ impl SlotReader for StructuralSlotReader<'_> {
                     ),
                 ),
             },
-            LeafCodec::StructuralFallback => Ok(None),
+            LeafCodec::Structural => Ok(None),
         }
     }
 

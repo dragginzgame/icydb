@@ -196,11 +196,12 @@ impl<E: PersistedRow> SaveExecutor<E> {
         let descriptor =
             crate::db::schema::AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
                 .expect("test save executor runtime contract should build");
-        let catalog =
-            crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog(&[E::MODEL])
-                .expect("test save executor enum catalog should build");
+        let (catalog, composite_catalog) =
+            crate::db::schema::build_initial_accepted_catalogs_for_tests(&[E::MODEL])
+                .expect("test save executor catalogs should build");
         let catalog = crate::db::schema::AcceptedEnumCatalogHandle::new_for_tests(
             catalog,
+            composite_catalog,
             crate::db::schema::AcceptedSchemaRevision::INITIAL,
         );
         let accepted_row_decode_contract = descriptor.row_decode_contract(catalog);

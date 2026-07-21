@@ -1004,7 +1004,7 @@ mod accepted_enum_tests {
                     false,
                     SchemaFieldDefault::None,
                     FieldStorageDecode::ByKind,
-                    LeafCodec::StructuralFallback,
+                    LeafCodec::Structural,
                 ),
                 PersistedFieldSnapshot::new(
                     FieldId::new(2),
@@ -1015,7 +1015,7 @@ mod accepted_enum_tests {
                     false,
                     SchemaFieldDefault::None,
                     FieldStorageDecode::ByKind,
-                    LeafCodec::StructuralFallback,
+                    LeafCodec::Structural,
                 ),
             ],
             vec![PersistedIndexSnapshot::new(
@@ -1038,7 +1038,11 @@ mod accepted_enum_tests {
         let schema_info = SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
             &MODEL,
             &snapshot,
-            AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL),
+            AcceptedEnumCatalogHandle::new_for_tests(
+                catalog,
+                crate::db::schema::AcceptedCompositeCatalog::empty(),
+                AcceptedSchemaRevision::INITIAL,
+            ),
             false,
         );
         let index = SemanticIndexAccessContract::from_accepted_field_path_index(

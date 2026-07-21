@@ -11,8 +11,8 @@ use crate::{
         PersistedIndexOrigin, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
         PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
         SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout, SchemaVersion,
-        schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
-        schema_snapshot_relation_integrity_detail,
+        composite_catalog::CompositeTypeId, schema_snapshot_index_integrity_detail,
+        schema_snapshot_integrity_detail, schema_snapshot_relation_integrity_detail,
     },
     error::InternalError,
     model::field::{
@@ -42,6 +42,7 @@ use candid::{CandidType, Decode, Encode};
 use serde::Deserialize;
 
 const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 1;
+const SCHEMA_SNAPSHOT_CONTRACT_PROFILE: u32 = u32::from_be_bytes(*b"ICYX");
 
 // Candid wire container for one persisted schema snapshot.
 //
@@ -50,6 +51,7 @@ const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 1;
 #[derive(CandidType, Deserialize)]
 struct PersistedSchemaSnapshotWire {
     codec_version: u32,
+    contract_profile: u32,
     version: u32,
     entity_path: String,
     entity_name: String,
@@ -96,8 +98,6 @@ struct PersistedNestedLeafSnapshotWire {
     path: Vec<String>,
     kind: AcceptedFieldKindWire,
     nullable: bool,
-    storage_decode: FieldStorageDecodeWire,
-    leaf_codec: LeafCodecWire,
 }
 
 // Candid wire container for one accepted index contract.
@@ -257,8 +257,8 @@ enum AcceptedFieldKindWire {
         key: Box<Self>,
         value: Box<Self>,
     },
-    Structured {
-        queryable: bool,
+    Composite {
+        type_id: u32,
     },
 }
 
@@ -266,14 +266,14 @@ enum AcceptedFieldKindWire {
 #[derive(CandidType, Deserialize)]
 enum FieldStorageDecodeWire {
     ByKind,
-    Value,
+    CatalogValue,
 }
 
 // Candid wire enum for leaf payload codecs.
 #[derive(CandidType, Deserialize)]
 enum LeafCodecWire {
     Scalar(ScalarCodecWire),
-    StructuralFallback,
+    Structural,
 }
 
 // Candid wire enum for scalar leaf payload codecs.
@@ -321,6 +321,7 @@ impl PersistedSchemaSnapshotWire {
     fn from_snapshot(snapshot: &PersistedSchemaSnapshot) -> Self {
         Self {
             codec_version: SCHEMA_SNAPSHOT_CODEC_VERSION,
+            contract_profile: SCHEMA_SNAPSHOT_CONTRACT_PROFILE,
             version: snapshot.version().get(),
             entity_path: snapshot.entity_path().to_string(),
             entity_name: snapshot.entity_name().to_string(),
@@ -349,7 +350,9 @@ impl PersistedSchemaSnapshotWire {
     }
 
     fn into_snapshot(self) -> Result<PersistedSchemaSnapshot, InternalError> {
-        if self.codec_version != SCHEMA_SNAPSHOT_CODEC_VERSION {
+        if self.codec_version != SCHEMA_SNAPSHOT_CODEC_VERSION
+            || self.contract_profile != SCHEMA_SNAPSHOT_CONTRACT_PROFILE
+        {
             return Err(InternalError::serialize_incompatible_persisted_format());
         }
 
@@ -510,8 +513,6 @@ impl PersistedNestedLeafSnapshotWire {
             path: leaf.path().to_vec(),
             kind: AcceptedFieldKindWire::from_kind(leaf.kind()),
             nullable: leaf.nullable(),
-            storage_decode: FieldStorageDecodeWire::from_storage_decode(leaf.storage_decode()),
-            leaf_codec: LeafCodecWire::from_leaf_codec(leaf.leaf_codec()),
         }
     }
 
@@ -520,8 +521,6 @@ impl PersistedNestedLeafSnapshotWire {
             self.path,
             self.kind.into_kind()?,
             self.nullable,
-            self.storage_decode.into_storage_decode(),
-            self.leaf_codec.into_leaf_codec(),
         ))
     }
 }
@@ -830,8 +829,8 @@ impl AcceptedFieldKindWire {
                 key: Box::new(Self::from_kind(key)),
                 value: Box::new(Self::from_kind(value)),
             },
-            AcceptedFieldKind::Structured { queryable } => Self::Structured {
-                queryable: *queryable,
+            AcceptedFieldKind::Composite { type_id } => Self::Composite {
+                type_id: type_id.get(),
             },
         }
     }
@@ -886,7 +885,10 @@ impl AcceptedFieldKindWire {
                 key: Box::new(key.into_kind()?),
                 value: Box::new(value.into_kind()?),
             },
-            Self::Structured { queryable } => AcceptedFieldKind::Structured { queryable },
+            Self::Composite { type_id } => AcceptedFieldKind::Composite {
+                type_id: CompositeTypeId::new(type_id)
+                    .ok_or_else(InternalError::store_corruption)?,
+            },
         })
     }
 }
@@ -895,14 +897,14 @@ impl FieldStorageDecodeWire {
     const fn from_storage_decode(storage_decode: FieldStorageDecode) -> Self {
         match storage_decode {
             FieldStorageDecode::ByKind => Self::ByKind,
-            FieldStorageDecode::Value => Self::Value,
+            FieldStorageDecode::CatalogValue => Self::CatalogValue,
         }
     }
 
     const fn into_storage_decode(self) -> FieldStorageDecode {
         match self {
             Self::ByKind => FieldStorageDecode::ByKind,
-            Self::Value => FieldStorageDecode::Value,
+            Self::CatalogValue => FieldStorageDecode::CatalogValue,
         }
     }
 }
@@ -911,14 +913,14 @@ impl LeafCodecWire {
     const fn from_leaf_codec(leaf_codec: LeafCodec) -> Self {
         match leaf_codec {
             LeafCodec::Scalar(scalar) => Self::Scalar(ScalarCodecWire::from_scalar_codec(scalar)),
-            LeafCodec::StructuralFallback => Self::StructuralFallback,
+            LeafCodec::Structural => Self::Structural,
         }
     }
 
     const fn into_leaf_codec(self) -> LeafCodec {
         match self {
             Self::Scalar(scalar) => LeafCodec::Scalar(scalar.into_scalar_codec()),
-            Self::StructuralFallback => LeafCodec::StructuralFallback,
+            Self::Structural => LeafCodec::Structural,
         }
     }
 }

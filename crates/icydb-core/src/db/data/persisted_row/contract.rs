@@ -56,7 +56,7 @@ pub(in crate::db) fn decode_runtime_value_from_accepted_field_contract(
                 ScalarSlotValueRef::Value(value) => Ok(value.into_value()),
             }
         }
-        LeafCodec::StructuralFallback => decode_non_scalar_accepted_slot_value(raw_value, field),
+        LeafCodec::Structural => decode_non_scalar_accepted_slot_value(raw_value, field),
     }
 }
 
@@ -289,15 +289,14 @@ fn decode_non_scalar_accepted_slot_value(
                 )
             })
         }
-        FieldStorageDecode::Value => {
-            decode_structural_value_storage_bytes(raw_value).map_err(|err| {
+        FieldStorageDecode::CatalogValue => decode_structural_value_storage_bytes(raw_value)
+            .map_err(|err| {
                 InternalError::persisted_row_field_kind_decode_failed(
                     field.field_name(),
                     field.kind(),
                     err,
                 )
-            })
-        }
+            }),
     }
 }
 
@@ -325,15 +324,14 @@ pub(in crate::db) fn validate_non_scalar_accepted_slot_value(
                 },
             )
         }
-        FieldStorageDecode::Value => {
-            validate_structural_value_storage_bytes(raw_value).map_err(|err| {
+        FieldStorageDecode::CatalogValue => validate_structural_value_storage_bytes(raw_value)
+            .map_err(|err| {
                 InternalError::persisted_row_field_kind_decode_failed(
                     field.field_name(),
                     field.kind(),
                     err,
                 )
-            })
-        }
+            }),
     }
 }
 

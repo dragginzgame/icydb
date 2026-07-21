@@ -5,7 +5,13 @@ use super::{
     EnumValueResolutionError,
 };
 use crate::{
-    db::schema::AcceptedFieldKind,
+    db::schema::{
+        AcceptedFieldKind,
+        composite_catalog::{
+            AcceptedCompositeCatalog, AcceptedCompositeElement, AcceptedCompositeShape,
+            CompositeTypeId,
+        },
+    },
     model::field::FieldStorageDecode,
     types::Decimal,
     value::{CanonicalEnumBody, CanonicalEnumValue, InputValue, InputValueEnum, Value, ValueEnum},
@@ -27,16 +33,33 @@ pub(in crate::db) enum ValueAdmissionError {
     SizeExceeded,
     TypeMismatch,
     ScalarConstraint,
-    EnumPathRequired,
     EnumPathMismatch,
     EnumTypeMismatch,
     UnknownEnumType,
     UnknownEnumVariant,
     EnumBodyMismatch,
+    UnknownCompositeType,
+    CompositeShapeMismatch,
+    CompositeFieldMismatch,
     DuplicateSetItem,
     DuplicateMapKey,
     InvalidAcceptedContract,
     MissingSchemaRevision,
+}
+
+#[derive(Clone, Copy)]
+struct AdmissionCatalogs<'a> {
+    enums: &'a AcceptedEnumCatalog,
+    composites: &'a AcceptedCompositeCatalog,
+}
+
+impl<'a> AdmissionCatalogs<'a> {
+    fn from_handle(handle: &'a AcceptedEnumCatalogHandle) -> Self {
+        Self {
+            enums: handle.catalog(),
+            composites: handle.composite_catalog(),
+        }
+    }
 }
 
 /// Shared recursion and encoded-size budget for one admission operation.
@@ -210,7 +233,13 @@ fn normalize_nullable_value(
         return Ok(CanonicalValue::Null);
     }
 
-    normalize_contract(catalog.catalog(), contract, input, 0, budget)
+    normalize_contract(
+        AdmissionCatalogs::from_handle(catalog),
+        contract,
+        input,
+        0,
+        budget,
+    )
 }
 
 /// Resolve and encode one generated unit-enum default through the candidate catalog.
@@ -260,6 +289,7 @@ pub(in crate::db::schema) fn admit_canonical_value(
 /// published-revision provenance to the value.
 pub(in crate::db) fn validate_decoded_persisted_field_value_in_catalog(
     catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
     kind: &AcceptedFieldKind,
     storage_decode: FieldStorageDecode,
     nullable: bool,
@@ -268,6 +298,7 @@ pub(in crate::db) fn validate_decoded_persisted_field_value_in_catalog(
 ) -> Result<(), ValueAdmissionError> {
     validate_persisted_field_value_in_catalog(
         catalog,
+        composite_catalog,
         kind,
         storage_decode,
         nullable,
@@ -278,6 +309,7 @@ pub(in crate::db) fn validate_decoded_persisted_field_value_in_catalog(
 
 fn validate_persisted_field_value_in_catalog(
     catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
     kind: &AcceptedFieldKind,
     storage_decode: FieldStorageDecode,
     nullable: bool,
@@ -291,9 +323,23 @@ fn validate_persisted_field_value_in_catalog(
         budget.enter(0)?;
         return budget.consume(1);
     }
-    let contract = AcceptedValueContract::from_accepted_field(catalog, kind, storage_decode)
-        .map_err(|_| ValueAdmissionError::InvalidAcceptedContract)?;
-    validate_contract(catalog, &contract, value, 0, budget)
+    let contract = AcceptedValueContract::from_candidate_catalogs(
+        catalog,
+        composite_catalog,
+        kind,
+        storage_decode,
+    )
+    .map_err(|_| ValueAdmissionError::InvalidAcceptedContract)?;
+    validate_contract(
+        AdmissionCatalogs {
+            enums: catalog,
+            composites: composite_catalog,
+        },
+        &contract,
+        value,
+        0,
+        budget,
+    )
 }
 
 #[cfg(test)]
@@ -324,7 +370,13 @@ pub(in crate::db::schema) fn validate_nullable_canonical_value<'a>(
         budget.enter(0)?;
         budget.consume(1)?;
     } else {
-        validate_contract(catalog.catalog(), contract, value, 0, budget)?;
+        validate_contract(
+            AdmissionCatalogs::from_handle(catalog),
+            contract,
+            value,
+            0,
+            budget,
+        )?;
     }
     Ok(AcceptedValueRef {
         catalog,
@@ -334,13 +386,13 @@ pub(in crate::db::schema) fn validate_nullable_canonical_value<'a>(
 }
 
 fn normalize_contract(
-    catalog: &AcceptedEnumCatalog,
+    catalogs: AdmissionCatalogs<'_>,
     contract: &AcceptedValueContract,
     input: InputValue,
     depth: u16,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<CanonicalValue, ValueAdmissionError> {
-    normalize_kind(catalog, contract.kind(), input, depth, budget)
+    normalize_kind(catalogs, contract.kind(), input, depth, budget)
 }
 
 #[expect(
@@ -348,7 +400,7 @@ fn normalize_contract(
     reason = "accepted kind normalization remains one exhaustive auditable match across every scalar and recursive kind"
 )]
 fn normalize_kind(
-    catalog: &AcceptedEnumCatalog,
+    catalogs: AdmissionCatalogs<'_>,
     kind: &AcceptedFieldKind,
     input: InputValue,
     depth: u16,
@@ -382,7 +434,7 @@ fn normalize_kind(
             Ok(CanonicalValue::Duration(value))
         }
         (AcceptedFieldKind::Enum { type_id }, InputValue::Enum(value)) => {
-            normalize_enum(catalog, *type_id, value, depth, budget).map(CanonicalValue::Enum)
+            normalize_enum(catalogs, *type_id, value, depth, budget).map(CanonicalValue::Enum)
         }
         (AcceptedFieldKind::Float32, InputValue::Float32(value)) => {
             budget.consume(5)?;
@@ -470,29 +522,29 @@ fn normalize_kind(
             Ok(CanonicalValue::Unit)
         }
         (AcceptedFieldKind::Relation { key_kind, .. }, input) => {
-            normalize_kind(catalog, key_kind, input, depth.saturating_add(1), budget)
+            normalize_kind(catalogs, key_kind, input, depth.saturating_add(1), budget)
         }
         (AcceptedFieldKind::List(inner), InputValue::List(items)) => {
             budget.consume(5)?;
-            normalize_list(catalog, inner, items, depth, budget, false)
+            normalize_list(catalogs, inner, items, depth, budget, false)
         }
         (AcceptedFieldKind::Set(inner), InputValue::List(items)) => {
             budget.consume(5)?;
-            normalize_list(catalog, inner, items, depth, budget, true)
+            normalize_list(catalogs, inner, items, depth, budget, true)
         }
         (AcceptedFieldKind::Map { key, value }, InputValue::Map(entries)) => {
             budget.consume(5)?;
-            normalize_map(catalog, key, value, entries, depth, budget)
+            normalize_map(catalogs, key, value, entries, depth, budget)
         }
-        (AcceptedFieldKind::Structured { .. }, input) => {
-            normalize_untyped(catalog, input, depth, budget)
+        (AcceptedFieldKind::Composite { type_id }, input) => {
+            normalize_composite(catalogs, *type_id, input, depth, budget)
         }
         _ => Err(ValueAdmissionError::TypeMismatch),
     }
 }
 
 fn normalize_list(
-    catalog: &AcceptedEnumCatalog,
+    catalogs: AdmissionCatalogs<'_>,
     kind: &AcceptedFieldKind,
     items: Vec<InputValue>,
     depth: u16,
@@ -503,7 +555,7 @@ fn normalize_list(
     let mut values = Vec::with_capacity(items.len());
     for item in items {
         values.push(normalize_kind(
-            catalog,
+            catalogs,
             kind,
             item,
             depth.saturating_add(1),
@@ -520,7 +572,7 @@ fn normalize_list(
 }
 
 fn normalize_map(
-    catalog: &AcceptedEnumCatalog,
+    catalogs: AdmissionCatalogs<'_>,
     key_kind: &AcceptedFieldKind,
     value_kind: &AcceptedFieldKind,
     entries: Vec<(InputValue, InputValue)>,
@@ -531,8 +583,8 @@ fn normalize_map(
     let mut values = Vec::with_capacity(entries.len());
     for (key, value) in entries {
         values.push((
-            normalize_kind(catalog, key_kind, key, depth.saturating_add(1), budget)?,
-            normalize_kind(catalog, value_kind, value, depth.saturating_add(1), budget)?,
+            normalize_kind(catalogs, key_kind, key, depth.saturating_add(1), budget)?,
+            normalize_kind(catalogs, value_kind, value, depth.saturating_add(1), budget)?,
         ));
     }
     values.sort_unstable_by(|left, right| Value::canonical_cmp(&left.0, &right.0));
@@ -546,7 +598,7 @@ fn normalize_map(
 }
 
 fn normalize_enum(
-    catalog: &AcceptedEnumCatalog,
+    catalogs: AdmissionCatalogs<'_>,
     expected_type_id: EnumTypeId,
     input: InputValueEnum,
     depth: u16,
@@ -555,14 +607,16 @@ fn normalize_enum(
     budget.consume(13)?;
     let (variant_name, path, payload) = input.into_parts();
     if let Some(path) = path.as_deref() {
-        let resolved = catalog
+        let resolved = catalogs
+            .enums
             .type_id(path)
             .ok_or(ValueAdmissionError::UnknownEnumType)?;
         if resolved != expected_type_id {
             return Err(ValueAdmissionError::EnumPathMismatch);
         }
     }
-    let definition = catalog
+    let definition = catalogs
+        .enums
         .enum_type(expected_type_id)
         .ok_or(ValueAdmissionError::UnknownEnumType)?;
     let variant_id = definition
@@ -575,7 +629,7 @@ fn normalize_enum(
         (AcceptedEnumVariantBody::Unit, None) => CanonicalEnumBody::Unit,
         (AcceptedEnumVariantBody::Payload { contract }, Some(payload)) => {
             CanonicalEnumBody::Payload(Box::new(normalize_contract(
-                catalog,
+                catalogs,
                 contract,
                 payload,
                 depth.saturating_add(1),
@@ -587,165 +641,113 @@ fn normalize_enum(
     Ok(ValueEnum::new(expected_type_id, variant_id, body))
 }
 
-fn normalize_untyped(
-    catalog: &AcceptedEnumCatalog,
+fn normalize_composite(
+    catalogs: AdmissionCatalogs<'_>,
+    type_id: CompositeTypeId,
     input: InputValue,
     depth: u16,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<CanonicalValue, ValueAdmissionError> {
-    budget.enter(depth)?;
-    match input {
-        InputValue::Enum(value) => {
-            let path = value.path().ok_or(ValueAdmissionError::EnumPathRequired)?;
-            let type_id = catalog
-                .type_id(path)
-                .ok_or(ValueAdmissionError::UnknownEnumType)?;
-            normalize_enum(catalog, type_id, value, depth, budget).map(CanonicalValue::Enum)
-        }
-        InputValue::List(items) => {
-            budget.consume(5)?;
-            budget.consume(items.len())?;
-            let mut values = Vec::with_capacity(items.len());
-            for item in items {
-                values.push(normalize_untyped(
-                    catalog,
-                    item,
-                    depth.saturating_add(1),
-                    budget,
-                )?);
-            }
-            Ok(CanonicalValue::List(values))
-        }
-        InputValue::Map(entries) => {
+    let definition = catalogs
+        .composites
+        .composite_type(type_id)
+        .ok_or(ValueAdmissionError::UnknownCompositeType)?;
+    match (definition.shape(), input) {
+        (AcceptedCompositeShape::Record(fields), InputValue::Map(entries)) => {
             budget.consume(5)?;
             budget.consume(entries.len().saturating_mul(2))?;
-            let mut values = Vec::with_capacity(entries.len());
-            for (key, value) in entries {
-                values.push((
-                    normalize_untyped(catalog, key, depth.saturating_add(1), budget)?,
-                    normalize_untyped(catalog, value, depth.saturating_add(1), budget)?,
-                ));
+            if entries.len() != fields.len() {
+                return Err(ValueAdmissionError::CompositeShapeMismatch);
             }
-            values.sort_unstable_by(|left, right| Value::canonical_cmp(&left.0, &right.0));
-            if values
-                .windows(2)
-                .any(|entries| entries[0].0 == entries[1].0)
-            {
-                return Err(ValueAdmissionError::DuplicateMapKey);
+            let mut authored = Vec::with_capacity(entries.len());
+            for (key, value) in entries {
+                let InputValue::Text(name) = key else {
+                    return Err(ValueAdmissionError::CompositeFieldMismatch);
+                };
+                budget.consume(5_usize.saturating_add(name.len()))?;
+                authored.push((name, value));
+            }
+            authored.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+            if authored.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+                return Err(ValueAdmissionError::CompositeFieldMismatch);
+            }
+
+            let mut values = Vec::with_capacity(fields.len());
+            for ((name, input), field) in authored.into_iter().zip(fields) {
+                if name != field.name() {
+                    return Err(ValueAdmissionError::CompositeFieldMismatch);
+                }
+                values.push((
+                    CanonicalValue::Text(name),
+                    normalize_composite_element(
+                        catalogs,
+                        field.contract(),
+                        input,
+                        depth.saturating_add(1),
+                        budget,
+                    )?,
+                ));
             }
             Ok(CanonicalValue::Map(values))
         }
-        InputValue::Null => {
-            budget.consume(1)?;
-            Ok(CanonicalValue::Null)
+        (AcceptedCompositeShape::Tuple(elements), InputValue::List(values)) => {
+            budget.consume(5)?;
+            budget.consume(values.len())?;
+            if values.len() != elements.len() {
+                return Err(ValueAdmissionError::CompositeShapeMismatch);
+            }
+            let values = values
+                .into_iter()
+                .zip(elements)
+                .map(|(input, element)| {
+                    normalize_composite_element(
+                        catalogs,
+                        element,
+                        input,
+                        depth.saturating_add(1),
+                        budget,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(CanonicalValue::List(values))
         }
-        other => normalize_untyped_scalar(other, budget),
+        (AcceptedCompositeShape::Newtype(inner), input) => {
+            normalize_composite_element(catalogs, inner, input, depth.saturating_add(1), budget)
+        }
+        _ => Err(ValueAdmissionError::CompositeShapeMismatch),
     }
 }
 
-fn normalize_untyped_scalar(
+fn normalize_composite_element(
+    catalogs: AdmissionCatalogs<'_>,
+    element: &AcceptedCompositeElement,
     input: InputValue,
+    depth: u16,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<CanonicalValue, ValueAdmissionError> {
-    match input {
-        InputValue::Account(value) => {
-            budget.consume(64)?;
-            Ok(CanonicalValue::Account(value))
+    if matches!(input, InputValue::Null) {
+        if !element.nullable() {
+            return Err(ValueAdmissionError::TypeMismatch);
         }
-        InputValue::Blob(value) => {
-            budget.consume(5_usize.saturating_add(value.len()))?;
-            Ok(CanonicalValue::Blob(value))
-        }
-        InputValue::Bool(value) => {
-            budget.consume(2)?;
-            Ok(CanonicalValue::Bool(value))
-        }
-        InputValue::Date(value) => {
-            budget.consume(9)?;
-            Ok(CanonicalValue::Date(value))
-        }
-        InputValue::Decimal(value) => {
-            budget.consume(21)?;
-            Ok(CanonicalValue::Decimal(value))
-        }
-        InputValue::Duration(value) => {
-            budget.consume(9)?;
-            Ok(CanonicalValue::Duration(value))
-        }
-        InputValue::Float32(value) => {
-            budget.consume(5)?;
-            Ok(CanonicalValue::Float32(value))
-        }
-        InputValue::Float64(value) => {
-            budget.consume(9)?;
-            Ok(CanonicalValue::Float64(value))
-        }
-        InputValue::Int64(value) => {
-            budget.consume(9)?;
-            Ok(CanonicalValue::Int64(value))
-        }
-        InputValue::Int128(value) => {
-            budget.consume(17)?;
-            Ok(CanonicalValue::Int128(value))
-        }
-        InputValue::IntBig(value) => {
-            budget.consume(5_usize.saturating_add(value.to_leb128().len()))?;
-            Ok(CanonicalValue::IntBig(value))
-        }
-        InputValue::Principal(value) => {
-            budget.consume(32)?;
-            Ok(CanonicalValue::Principal(value))
-        }
-        InputValue::Subaccount(value) => {
-            budget.consume(33)?;
-            Ok(CanonicalValue::Subaccount(value))
-        }
-        InputValue::Text(value) => {
-            budget.consume(5_usize.saturating_add(value.len()))?;
-            Ok(CanonicalValue::Text(value))
-        }
-        InputValue::Timestamp(value) => {
-            budget.consume(9)?;
-            Ok(CanonicalValue::Timestamp(value))
-        }
-        InputValue::Nat64(value) => {
-            budget.consume(9)?;
-            Ok(CanonicalValue::Nat64(value))
-        }
-        InputValue::Nat128(value) => {
-            budget.consume(17)?;
-            Ok(CanonicalValue::Nat128(value))
-        }
-        InputValue::NatBig(value) => {
-            budget.consume(5_usize.saturating_add(value.to_leb128().len()))?;
-            Ok(CanonicalValue::NatBig(value))
-        }
-        InputValue::Ulid(value) => {
-            budget.consume(17)?;
-            Ok(CanonicalValue::Ulid(value))
-        }
-        InputValue::Unit => {
-            budget.consume(1)?;
-            Ok(CanonicalValue::Unit)
-        }
-        InputValue::Enum(_) | InputValue::List(_) | InputValue::Map(_) | InputValue::Null => {
-            Err(ValueAdmissionError::TypeMismatch)
-        }
+        budget.enter(depth)?;
+        budget.consume(1)?;
+        return Ok(CanonicalValue::Null);
     }
+    normalize_kind(catalogs, element.kind(), input, depth, budget)
 }
 
 fn validate_contract(
-    catalog: &AcceptedEnumCatalog,
+    catalogs: AdmissionCatalogs<'_>,
     contract: &AcceptedValueContract,
     value: &CanonicalValue,
     depth: u16,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<(), ValueAdmissionError> {
-    validate_kind(catalog, contract.kind(), value, depth, budget)
+    validate_kind(catalogs, contract.kind(), value, depth, budget)
 }
 
 fn validate_kind(
-    catalog: &AcceptedEnumCatalog,
+    catalogs: AdmissionCatalogs<'_>,
     kind: &AcceptedFieldKind,
     value: &CanonicalValue,
     depth: u16,
@@ -772,7 +774,7 @@ fn validate_kind(
             budget.consume(21)
         }
         (AcceptedFieldKind::Enum { type_id }, CanonicalValue::Enum(value)) => {
-            validate_enum(catalog, *type_id, value, depth, budget)
+            validate_enum(catalogs, *type_id, value, depth, budget)
         }
         (AcceptedFieldKind::Float32, CanonicalValue::Float32(_)) => budget.consume(5),
         (AcceptedFieldKind::Int8, CanonicalValue::Int64(value)) if i8::try_from(*value).is_ok() => {
@@ -822,29 +824,29 @@ fn validate_kind(
         }
         (AcceptedFieldKind::Unit, CanonicalValue::Unit) => budget.consume(1),
         (AcceptedFieldKind::Relation { key_kind, .. }, value) => {
-            validate_kind(catalog, key_kind, value, depth.saturating_add(1), budget)
+            validate_kind(catalogs, key_kind, value, depth.saturating_add(1), budget)
         }
         (AcceptedFieldKind::List(inner), CanonicalValue::List(items)) => {
             budget.consume(5)?;
-            validate_list(catalog, inner, items, depth, budget, false)
+            validate_list(catalogs, inner, items, depth, budget, false)
         }
         (AcceptedFieldKind::Set(inner), CanonicalValue::List(items)) => {
             budget.consume(5)?;
-            validate_list(catalog, inner, items, depth, budget, true)
+            validate_list(catalogs, inner, items, depth, budget, true)
         }
         (AcceptedFieldKind::Map { key, value }, CanonicalValue::Map(entries)) => {
             budget.consume(5)?;
-            validate_map(catalog, key, value, entries, depth, budget)
+            validate_map(catalogs, key, value, entries, depth, budget)
         }
-        (AcceptedFieldKind::Structured { .. }, value) => {
-            validate_untyped(catalog, value, depth, budget)
+        (AcceptedFieldKind::Composite { type_id }, value) => {
+            validate_composite(catalogs, *type_id, value, depth, budget)
         }
         _ => Err(ValueAdmissionError::TypeMismatch),
     }
 }
 
 fn validate_list(
-    catalog: &AcceptedEnumCatalog,
+    catalogs: AdmissionCatalogs<'_>,
     kind: &AcceptedFieldKind,
     items: &[CanonicalValue],
     depth: u16,
@@ -859,13 +861,13 @@ fn validate_list(
         return Err(ValueAdmissionError::DuplicateSetItem);
     }
     for item in items {
-        validate_kind(catalog, kind, item, depth.saturating_add(1), budget)?;
+        validate_kind(catalogs, kind, item, depth.saturating_add(1), budget)?;
     }
     Ok(())
 }
 
 fn validate_map(
-    catalog: &AcceptedEnumCatalog,
+    catalogs: AdmissionCatalogs<'_>,
     key_kind: &AcceptedFieldKind,
     value_kind: &AcceptedFieldKind,
     entries: &[(CanonicalValue, CanonicalValue)],
@@ -879,14 +881,14 @@ fn validate_map(
         return Err(ValueAdmissionError::DuplicateMapKey);
     }
     for (key, value) in entries {
-        validate_kind(catalog, key_kind, key, depth.saturating_add(1), budget)?;
-        validate_kind(catalog, value_kind, value, depth.saturating_add(1), budget)?;
+        validate_kind(catalogs, key_kind, key, depth.saturating_add(1), budget)?;
+        validate_kind(catalogs, value_kind, value, depth.saturating_add(1), budget)?;
     }
     Ok(())
 }
 
 fn validate_enum(
-    catalog: &AcceptedEnumCatalog,
+    catalogs: AdmissionCatalogs<'_>,
     expected_type_id: EnumTypeId,
     value: &AdmittedEnumValue,
     depth: u16,
@@ -896,78 +898,98 @@ fn validate_enum(
     if value.type_id() != expected_type_id {
         return Err(ValueAdmissionError::EnumTypeMismatch);
     }
-    let selection = catalog
-        .resolve_value(value.canonical())
-        .map_err(|error| match error {
-            EnumValueResolutionError::UnknownType => ValueAdmissionError::UnknownEnumType,
-            EnumValueResolutionError::UnknownVariant => ValueAdmissionError::UnknownEnumVariant,
-        })?;
+    let selection =
+        catalogs
+            .enums
+            .resolve_value(value.canonical())
+            .map_err(|error| match error {
+                EnumValueResolutionError::UnknownType => ValueAdmissionError::UnknownEnumType,
+                EnumValueResolutionError::UnknownVariant => ValueAdmissionError::UnknownEnumVariant,
+            })?;
     match (selection.accepted_body(), selection.value_body()) {
         (AcceptedEnumVariantBody::Unit, CanonicalEnumBody::Unit) => Ok(()),
         (AcceptedEnumVariantBody::Payload { contract }, CanonicalEnumBody::Payload(payload)) => {
-            validate_contract(catalog, contract, payload, depth.saturating_add(1), budget)
+            validate_contract(catalogs, contract, payload, depth.saturating_add(1), budget)
         }
         _ => Err(ValueAdmissionError::EnumBodyMismatch),
     }
 }
 
-fn validate_untyped(
-    catalog: &AcceptedEnumCatalog,
+fn validate_composite(
+    catalogs: AdmissionCatalogs<'_>,
+    type_id: CompositeTypeId,
     value: &CanonicalValue,
     depth: u16,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<(), ValueAdmissionError> {
-    budget.enter(depth)?;
-    match value {
-        CanonicalValue::Enum(value) => {
-            validate_enum(catalog, value.type_id(), value, depth, budget)
-        }
-        CanonicalValue::List(items) => {
+    let definition = catalogs
+        .composites
+        .composite_type(type_id)
+        .ok_or(ValueAdmissionError::UnknownCompositeType)?;
+    match (definition.shape(), value) {
+        (AcceptedCompositeShape::Record(fields), CanonicalValue::Map(entries)) => {
             budget.consume(5)?;
-            for item in items {
-                validate_untyped(catalog, item, depth.saturating_add(1), budget)?;
+            budget.consume(entries.len().saturating_mul(2))?;
+            if entries.len() != fields.len() {
+                return Err(ValueAdmissionError::CompositeShapeMismatch);
+            }
+            for ((key, value), field) in entries.iter().zip(fields) {
+                let CanonicalValue::Text(name) = key else {
+                    return Err(ValueAdmissionError::CompositeFieldMismatch);
+                };
+                if name != field.name() {
+                    return Err(ValueAdmissionError::CompositeFieldMismatch);
+                }
+                budget.consume(5_usize.saturating_add(name.len()))?;
+                validate_composite_element(
+                    catalogs,
+                    field.contract(),
+                    value,
+                    depth.saturating_add(1),
+                    budget,
+                )?;
             }
             Ok(())
         }
-        CanonicalValue::Map(entries) => {
+        (AcceptedCompositeShape::Tuple(elements), CanonicalValue::List(values)) => {
             budget.consume(5)?;
-            if entries
-                .windows(2)
-                .any(|entries| Value::canonical_cmp(&entries[0].0, &entries[1].0) != Ordering::Less)
-            {
-                return Err(ValueAdmissionError::DuplicateMapKey);
+            budget.consume(values.len())?;
+            if values.len() != elements.len() {
+                return Err(ValueAdmissionError::CompositeShapeMismatch);
             }
-            for (key, value) in entries {
-                validate_untyped(catalog, key, depth.saturating_add(1), budget)?;
-                validate_untyped(catalog, value, depth.saturating_add(1), budget)?;
+            for (value, element) in values.iter().zip(elements) {
+                validate_composite_element(
+                    catalogs,
+                    element,
+                    value,
+                    depth.saturating_add(1),
+                    budget,
+                )?;
             }
             Ok(())
         }
-        CanonicalValue::Account(_) => budget.consume(64),
-        CanonicalValue::Blob(value) => budget.consume(5_usize.saturating_add(value.len())),
-        CanonicalValue::Bool(_) => budget.consume(2),
-        CanonicalValue::Date(_)
-        | CanonicalValue::Duration(_)
-        | CanonicalValue::Float64(_)
-        | CanonicalValue::Int64(_)
-        | CanonicalValue::Timestamp(_)
-        | CanonicalValue::Nat64(_) => budget.consume(9),
-        CanonicalValue::Decimal(_) => budget.consume(21),
-        CanonicalValue::Float32(_) => budget.consume(5),
-        CanonicalValue::Int128(_) | CanonicalValue::Nat128(_) | CanonicalValue::Ulid(_) => {
-            budget.consume(17)
+        (AcceptedCompositeShape::Newtype(inner), value) => {
+            validate_composite_element(catalogs, inner, value, depth.saturating_add(1), budget)
         }
-        CanonicalValue::IntBig(value) => {
-            budget.consume(5_usize.saturating_add(value.to_leb128().len()))
-        }
-        CanonicalValue::Null | CanonicalValue::Unit => budget.consume(1),
-        CanonicalValue::Principal(_) => budget.consume(32),
-        CanonicalValue::Subaccount(_) => budget.consume(33),
-        CanonicalValue::Text(value) => budget.consume(5_usize.saturating_add(value.len())),
-        CanonicalValue::NatBig(value) => {
-            budget.consume(5_usize.saturating_add(value.to_leb128().len()))
-        }
+        _ => Err(ValueAdmissionError::CompositeShapeMismatch),
     }
+}
+
+fn validate_composite_element(
+    catalogs: AdmissionCatalogs<'_>,
+    element: &AcceptedCompositeElement,
+    value: &CanonicalValue,
+    depth: u16,
+    budget: &mut ValueAdmissionBudget,
+) -> Result<(), ValueAdmissionError> {
+    if matches!(value, CanonicalValue::Null) {
+        if !element.nullable() {
+            return Err(ValueAdmissionError::TypeMismatch);
+        }
+        budget.enter(depth)?;
+        return budget.consume(1);
+    }
+    validate_kind(catalogs, element.kind(), value, depth, budget)
 }
 
 fn ensure_max_len(len: usize, max_len: Option<u32>) -> Result<(), ValueAdmissionError> {

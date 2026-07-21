@@ -292,9 +292,11 @@ fn predicate_admission_error(field: &str, error: ValueAdmissionError) -> Validat
         | ValueAdmissionError::SizeExceeded
         | ValueAdmissionError::TypeMismatch
         | ValueAdmissionError::ScalarConstraint
-        | ValueAdmissionError::EnumPathRequired
         | ValueAdmissionError::EnumTypeMismatch
         | ValueAdmissionError::UnknownEnumType
+        | ValueAdmissionError::UnknownCompositeType
+        | ValueAdmissionError::CompositeShapeMismatch
+        | ValueAdmissionError::CompositeFieldMismatch
         | ValueAdmissionError::DuplicateSetItem
         | ValueAdmissionError::DuplicateMapKey
         | ValueAdmissionError::InvalidAcceptedContract
@@ -516,7 +518,7 @@ fn normalize_value_for_accepted_kind(
         | AcceptedFieldKind::Timestamp
         | AcceptedFieldKind::Ulid
         | AcceptedFieldKind::Unit
-        | AcceptedFieldKind::Structured { .. } => Ok(value.clone()),
+        | AcceptedFieldKind::Composite { .. } => Ok(value.clone()),
     }
 }
 
@@ -645,7 +647,7 @@ fn normalize_value_for_kind(
         | FieldKind::Timestamp
         | FieldKind::Ulid
         | FieldKind::Unit
-        | FieldKind::Structured { .. } => Ok(value.clone()),
+        | FieldKind::Composite { .. } => Ok(value.clone()),
         FieldKind::Int8
         | FieldKind::Int16
         | FieldKind::Int32

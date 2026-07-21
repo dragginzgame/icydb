@@ -114,6 +114,7 @@ pub mod model {
 
     pub mod field {
         pub use icydb_core::model::{
+            CompositeCodec, CompositeElementModel, CompositeFieldModel, CompositeShapeModel,
             DEFAULT_BIG_INT_MAX_BYTES, EnumVariantModel, FieldDatabaseDefault,
             FieldInsertGeneration, FieldKind, FieldModel, FieldStorageDecode, FieldWriteManagement,
         };

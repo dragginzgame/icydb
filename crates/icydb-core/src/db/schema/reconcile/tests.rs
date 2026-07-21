@@ -23,7 +23,10 @@ use crate::{
     metrics::{metrics_report, metrics_reset_all},
     model::{
         entity::EntityModel,
-        field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec},
+        field::{
+            CompositeCodec, CompositeFieldModel, CompositeShapeModel, FieldKind, FieldModel,
+            FieldStorageDecode, LeafCodec, ScalarCodec,
+        },
         index::IndexModel,
     },
     testing::{entity_model_from_static, test_memory},
@@ -108,12 +111,25 @@ crate::test_entity! {
 }
 
 static NESTED_PROFILE_FIELDS: [FieldModel; 1] = [FieldModel::generated("rank", FieldKind::Nat64)];
+static NESTED_PROFILE_COMPOSITE_FIELDS: [CompositeFieldModel; 1] =
+    [CompositeFieldModel::generated(
+        "rank",
+        FieldKind::Nat64,
+        false,
+    )];
+static NESTED_PROFILE_COMPOSITE_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Record(&NESTED_PROFILE_COMPOSITE_FIELDS);
+static NESTED_PROFILE_COMPOSITE_KIND: FieldKind = FieldKind::Composite {
+    path: "schema::reconcile::tests::Profile",
+    codec: CompositeCodec::StructuralV1,
+    shape: &NESTED_PROFILE_COMPOSITE_SHAPE,
+};
 static NESTED_SCHEMA_FIELDS: [FieldModel; 2] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
         "profile",
-        FieldKind::Structured { queryable: true },
-        FieldStorageDecode::Value,
+        NESTED_PROFILE_COMPOSITE_KIND,
+        FieldStorageDecode::CatalogValue,
         false,
         None,
         None,
@@ -489,8 +505,8 @@ fn accepted_schema_post_root_change_publishes_through_marker_bound_journal() {
     super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
         .expect("initial schema reconciliation should publish revision one");
 
-    let catalog =
-        super::build_generated_enum_catalog_candidates(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    let catalogs =
+        super::build_generated_catalog_candidates(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
             .expect("generated catalog should build")
             .remove(SchemaReconcileTestStore::PATH)
             .expect("store catalog should exist");
@@ -502,7 +518,8 @@ fn accepted_schema_post_root_change_publishes_through_marker_bound_journal() {
             .store_handle(SchemaReconcileTestStore::PATH)
             .expect("store should resolve"),
         SchemaReconcileTestStore::PATH,
-        catalog,
+        catalogs.enum_catalog,
+        catalogs.composite_catalog,
         std::collections::BTreeMap::from([(SchemaReconcileEntity::ENTITY_TAG, changed_snapshot)]),
         Vec::new(),
     )
@@ -543,6 +560,7 @@ fn accepted_schema_marker_recovery_repairs_replays_and_folds_candidate() {
         super::AcceptedSchemaRevision::new(2),
         current.store_path(),
         current.enum_catalog().clone(),
+        current.composite_catalog().clone(),
         current.entity_snapshots().clone(),
     )
     .expect("next accepted schema bundle should build");
@@ -1129,8 +1147,6 @@ fn reconcile_staged_schema_snapshot_rejects_nested_leaf_drift_as_field_contract(
             vec!["removed_rank".to_string()],
             AcceptedFieldKind::Nat64,
             false,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
         )],
         profile.nullable(),
         profile.default().clone(),

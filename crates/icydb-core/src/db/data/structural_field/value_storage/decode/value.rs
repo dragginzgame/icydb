@@ -53,7 +53,7 @@ use num_bigint::{BigInt, BigUint, Sign as BigIntSign};
 // value-storage split helpers.
 type ValueStorageMapEntrySlices<'a> = Vec<(&'a [u8], &'a [u8])>;
 
-/// Decode one `FieldStorageDecode::Value` payload directly from the externally
+/// Decode one `FieldStorageDecode::CatalogValue` payload directly from the externally
 /// tagged `Value` wire shape without routing through serde's recursive enum
 /// visitor graph.
 pub(in crate::db) fn decode_structural_value_storage_bytes(
@@ -64,7 +64,7 @@ pub(in crate::db) fn decode_structural_value_storage_bytes(
     decode_value_storage_slice(slice)
 }
 
-/// Validate one `FieldStorageDecode::Value` payload through the canonical
+/// Validate one `FieldStorageDecode::CatalogValue` payload through the canonical
 /// Structural Binary v1 owner.
 pub(in crate::db) fn validate_structural_value_storage_bytes(
     raw_bytes: &[u8],
@@ -362,7 +362,7 @@ pub(in crate::db) fn decode_value_storage_map_entry_slices(
     Ok(entries)
 }
 
-/// Decode one `FieldStorageDecode::Value` payload from the parallel
+/// Decode one `FieldStorageDecode::CatalogValue` payload from the parallel
 /// Structural Binary v1 `Value` envelope.
 pub(super) fn decode_value_storage_slice(
     slice: ValueStorageSlice<'_>,

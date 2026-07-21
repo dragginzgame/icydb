@@ -124,7 +124,6 @@ impl AggregateValueKindCode {
     pub(in crate::db::executor) const NAT_BIG: Self = Self(21);
     pub(in crate::db::executor) const ULID: Self = Self(22);
     pub(in crate::db::executor) const UNIT: Self = Self(23);
-
     const fn from_value(value: &Value) -> Self {
         match value {
             Value::Account(_) => Self::ACCOUNT,
@@ -279,7 +278,7 @@ impl AggregateFieldValueContract {
             Accepted::List(_) => Self::exact(Field::LIST, Runtime::LIST),
             Accepted::Set(_) => Self::exact(Field::SET, Runtime::LIST),
             Accepted::Map { .. } => Self::exact(Field::MAP, Runtime::MAP),
-            Accepted::Structured { .. } => Self {
+            Accepted::Composite { .. } => Self {
                 diagnostic_kind: Field::STRUCTURED,
                 runtime_shape: AggregateRuntimeValueShape::Structured,
             },

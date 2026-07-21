@@ -91,6 +91,11 @@ impl AcceptedSchemaCatalogContext {
     }
 
     #[must_use]
+    pub(in crate::db) fn composite_catalog(&self) -> &crate::db::schema::AcceptedCompositeCatalog {
+        self.enum_catalog.composite_catalog()
+    }
+
+    #[must_use]
     #[cfg(feature = "sql")]
     pub(in crate::db) const fn enum_catalog_handle(&self) -> &AcceptedEnumCatalogHandle {
         &self.enum_catalog
@@ -154,6 +159,8 @@ impl AcceptedSchemaCatalogContext {
             AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
                 &self.snapshot,
                 E::MODEL,
+                self.enum_catalog(),
+                self.composite_catalog(),
             )?;
         let row_decode_contract =
             accepted_row_layout.row_decode_contract(self.enum_catalog.clone());
@@ -353,6 +360,8 @@ impl<C: CanisterKind> DbSession<C> {
         let _runtime_contract = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
             &snapshot,
             hooks.model,
+            selection.enum_catalog().catalog(),
+            selection.enum_catalog().composite_catalog(),
         )
         .map_err(|_error| InternalError::store_unsupported())?;
         let enum_catalog = selection.enum_catalog().clone();
@@ -521,9 +530,13 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         let snapshot = selection.decode_verified()?;
-        let _runtime_contract =
-            AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(&snapshot, E::MODEL)
-                .map_err(|_error| InternalError::store_unsupported())?;
+        let _runtime_contract = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
+            &snapshot,
+            E::MODEL,
+            selection.enum_catalog().catalog(),
+            selection.enum_catalog().composite_catalog(),
+        )
+        .map_err(|_error| InternalError::store_unsupported())?;
         let enum_catalog = selection.enum_catalog().clone();
         Self::insert_accepted_schema_query_cache(
             cache_key,
@@ -692,6 +705,8 @@ impl<C: CanisterKind> DbSession<C> {
             AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
                 context.snapshot(),
                 E::MODEL,
+                context.enum_catalog(),
+                context.composite_catalog(),
             )?;
         let (row_decode_contract, _, schema_info, schema_fingerprint) =
             accepted_save_contract_for_catalog_context::<E>(&context, &accepted_row_layout);

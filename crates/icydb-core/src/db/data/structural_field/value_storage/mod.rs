@@ -1,7 +1,7 @@
 //! Module: data::structural_field::value_storage
 //! Responsibility: owner-local binary `Value` envelope encode and decode.
 //! Does not own: top-level `ByKind` dispatch, typed wrapper payload definitions, or storage-key policy.
-//! Boundary: `FieldStorageDecode::Value` routes through this module without widening authority over sibling structural lanes.
+//! Boundary: `FieldStorageDecode::CatalogValue` routes through this module without widening authority over sibling structural lanes.
 
 mod canonical;
 mod decode;

@@ -270,8 +270,8 @@ fn accepted_field(
         Vec::new(),
         false,
         SchemaFieldDefault::None,
-        FieldStorageDecode::Value,
-        LeafCodec::StructuralFallback,
+        FieldStorageDecode::CatalogValue,
+        LeafCodec::Structural,
     )
 }
 
@@ -742,8 +742,8 @@ fn projection_expr_type_validation_rejects_unknown_generated_field_path_leaf() {
     static FIELDS: [FieldModel; 1] = [
         FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
             "profile",
-            FieldKind::Structured { queryable: false },
-            FieldStorageDecode::Value,
+            FieldKind::empty_test_composite("query::plan::tests::Profile"),
+            FieldStorageDecode::CatalogValue,
             false,
             None,
             None,

@@ -122,7 +122,7 @@ mod tests {
             false,
             SchemaFieldDefault::None,
             FieldStorageDecode::ByKind,
-            LeafCodec::StructuralFallback,
+            LeafCodec::Structural,
         )
     }
 
@@ -130,8 +130,11 @@ mod tests {
     fn sql_ddl_enum_default_is_catalog_admitted_and_id_backed() {
         let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[STATUS_KIND])
             .expect("enum catalog should build");
-        let catalog =
-            AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+        let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+            catalog,
+            crate::db::schema::AcceptedCompositeCatalog::empty(),
+            AcceptedSchemaRevision::INITIAL,
+        );
         let field = enum_field(AcceptedFieldKind::from_model_kind(STATUS_KIND));
 
         let default = encode_sql_ddl_alter_column_default(
@@ -152,16 +155,24 @@ mod tests {
             field.storage_decode(),
             field.leaf_codec(),
         );
-        validate_default_payload_for_accepted_field_contract(catalog.catalog(), contract, payload)
-            .expect("encoded default should pass bundle validation");
+        validate_default_payload_for_accepted_field_contract(
+            catalog.catalog(),
+            catalog.composite_catalog(),
+            contract,
+            payload,
+        )
+        .expect("encoded default should pass bundle validation");
     }
 
     #[test]
     fn sql_ddl_enum_default_requires_catalog_and_rejects_unknown_variant() {
         let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[STATUS_KIND])
             .expect("enum catalog should build");
-        let catalog =
-            AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+        let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+            catalog,
+            crate::db::schema::AcceptedCompositeCatalog::empty(),
+            AcceptedSchemaRevision::INITIAL,
+        );
         let field = enum_field(AcceptedFieldKind::from_model_kind(STATUS_KIND));
 
         assert_eq!(

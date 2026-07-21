@@ -52,7 +52,7 @@ fn canonicalize_grouped_having_numeric_literal_for_accepted_kind(
         },
         AcceptedFieldKind::Enum { .. }
         | AcceptedFieldKind::Map { .. }
-        | AcceptedFieldKind::Structured { .. } => None,
+        | AcceptedFieldKind::Composite { .. } => None,
         _ => canonicalize_grouped_having_numeric_literal_for_field_kind(
             accepted_scalar_as_model_kind(field_kind),
             value,
@@ -117,7 +117,7 @@ const fn accepted_scalar_as_model_kind(kind: &AcceptedFieldKind) -> Option<Field
         | AcceptedFieldKind::List(_)
         | AcceptedFieldKind::Set(_)
         | AcceptedFieldKind::Map { .. }
-        | AcceptedFieldKind::Structured { .. } => return None,
+        | AcceptedFieldKind::Composite { .. } => return None,
     })
 }
 

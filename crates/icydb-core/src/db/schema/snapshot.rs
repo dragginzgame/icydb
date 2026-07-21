@@ -1350,8 +1350,6 @@ pub(in crate::db) struct PersistedNestedLeafSnapshot {
     path: Vec<String>,
     kind: AcceptedFieldKind,
     nullable: bool,
-    storage_decode: FieldStorageDecode,
-    leaf_codec: LeafCodec,
 }
 
 impl PersistedNestedLeafSnapshot {
@@ -1361,15 +1359,11 @@ impl PersistedNestedLeafSnapshot {
         path: Vec<String>,
         kind: AcceptedFieldKind,
         nullable: bool,
-        storage_decode: FieldStorageDecode,
-        leaf_codec: LeafCodec,
     ) -> Self {
         Self {
             path,
             kind,
             nullable,
-            storage_decode,
-            leaf_codec,
         }
     }
 
@@ -1389,18 +1383,6 @@ impl PersistedNestedLeafSnapshot {
     #[must_use]
     pub(in crate::db) const fn nullable(&self) -> bool {
         self.nullable
-    }
-
-    /// Return the nested leaf payload decode contract.
-    #[must_use]
-    pub(in crate::db) const fn storage_decode(&self) -> FieldStorageDecode {
-        self.storage_decode
-    }
-
-    /// Return the nested leaf payload codec contract.
-    #[must_use]
-    pub(in crate::db) const fn leaf_codec(&self) -> LeafCodec {
-        self.leaf_codec
     }
 }
 

@@ -488,7 +488,7 @@ fn validate_select_sql_capabilities(
 }
 
 // Check SELECT output admission against schema-owned SQL capabilities. This
-// keeps non-queryable structured fields and other unsupported field families
+// keeps non-queryable composite fields and other unsupported field families
 // from entering projection planning through accepted live schema metadata.
 fn validate_projection_sql_capabilities(
     schema: &SchemaInfo,
@@ -623,14 +623,14 @@ fn ensure_sql_selectable_field(
     Ok(())
 }
 
-// Direct SELECT result projection may return a structured subtree when the
+// Direct SELECT result projection may return an exact composite when the
 // accepted schema exposes nested field metadata. Predicate, ordering, grouping,
 // and aggregate admission still use their narrower scalar capability checks.
 fn sql_result_projectable_field(schema: &SchemaInfo, field_name: &str) -> bool {
     schema
         .sql_capabilities(field_name)
         .is_some_and(SqlCapabilities::selectable)
-        || schema.field_is_structured_value(field_name)
+        || schema.field_is_composite_value(field_name)
         || schema.field_has_nested_paths(field_name)
 }
 

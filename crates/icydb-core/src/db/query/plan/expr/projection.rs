@@ -644,7 +644,10 @@ mod tests {
 
     static FIELDS: [FieldModel; 2] = [
         FieldModel::generated("id", FieldKind::Ulid),
-        FieldModel::generated("profile", FieldKind::Structured { queryable: true }),
+        FieldModel::generated(
+            "profile",
+            FieldKind::empty_test_composite("query::expr::projection::tests::Profile"),
+        ),
     ];
     static INDEXES: [&IndexModel; 0] = [];
     static MODEL: EntityModel = entity_model_from_static(
@@ -682,18 +685,18 @@ mod tests {
                     false,
                     SchemaFieldDefault::None,
                     FieldStorageDecode::ByKind,
-                    LeafCodec::StructuralFallback,
+                    LeafCodec::Structural,
                 ),
                 PersistedFieldSnapshot::new(
                     FieldId::new(2),
                     "profile".to_string(),
                     SchemaFieldSlot::new(1),
-                    AcceptedFieldKind::Structured { queryable: true },
+                    AcceptedFieldKind::test_composite(),
                     Vec::new(),
                     false,
                     SchemaFieldDefault::None,
-                    FieldStorageDecode::Value,
-                    LeafCodec::StructuralFallback,
+                    FieldStorageDecode::CatalogValue,
+                    LeafCodec::Structural,
                 ),
             ],
         ));

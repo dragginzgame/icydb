@@ -47,8 +47,6 @@ fn accepted_schema_fixture_with_payload_slots(
                     vec!["thumbnail".to_string()],
                     AcceptedFieldKind::Blob { max_len: None },
                     false,
-                    FieldStorageDecode::ByKind,
-                    LeafCodec::Scalar(ScalarCodec::Blob),
                 )],
                 false,
                 SchemaFieldDefault::None,
@@ -532,11 +530,11 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_expression_index_contract() 
 }
 
 #[test]
-fn structured_members_select_the_canonical_recursive_wire() {
-    let structured = AcceptedFieldKind::Structured { queryable: true };
-    let nested = AcceptedFieldKind::List(Box::new(structured.clone()));
+fn composite_members_select_the_canonical_recursive_wire() {
+    let composite = AcceptedFieldKind::test_composite();
+    let nested = AcceptedFieldKind::List(Box::new(composite.clone()));
 
-    assert!(structured.requires_canonical_value_wire());
+    assert!(composite.requires_canonical_value_wire());
     assert!(nested.requires_canonical_value_wire());
     assert!(!AcceptedFieldKind::Nat64.requires_canonical_value_wire());
 }

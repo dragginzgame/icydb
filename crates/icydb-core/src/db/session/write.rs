@@ -194,6 +194,8 @@ impl<C: CanisterKind> DbSession<C> {
         let (descriptor, _) = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
             context.snapshot(),
             E::MODEL,
+            context.enum_catalog(),
+            context.composite_catalog(),
         )?;
         validate_structural_patch_schema_policy::<E>(&descriptor, &patch, mode)?;
         let (
@@ -228,10 +230,12 @@ impl<C: CanisterKind> DbSession<C> {
         S: AsRef<str>,
         V: Into<InputValue>,
     {
-        let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
+        let context = self.accepted_schema_catalog_context_for_query::<E>()?;
         let (descriptor, _) = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
-            &accepted_schema,
+            context.snapshot(),
             E::MODEL,
+            context.enum_catalog(),
+            context.composite_catalog(),
         )?;
         let mut patch = AuthoredStructuralPatch::new();
 

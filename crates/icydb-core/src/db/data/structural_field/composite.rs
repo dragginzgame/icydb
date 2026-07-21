@@ -113,7 +113,7 @@ pub(super) fn decode_composite_field_binary_bytes(
         | FieldKind::Int128
         | FieldKind::IntBig { .. }
         | FieldKind::Principal
-        | FieldKind::Structured { .. }
+        | FieldKind::Composite { .. }
         | FieldKind::Subaccount
         | FieldKind::Text { .. }
         | FieldKind::Timestamp
@@ -158,7 +158,7 @@ pub(super) fn validate_composite_field_binary_bytes(
         | FieldKind::Int128
         | FieldKind::IntBig { .. }
         | FieldKind::Principal
-        | FieldKind::Structured { .. }
+        | FieldKind::Composite { .. }
         | FieldKind::Subaccount
         | FieldKind::Text { .. }
         | FieldKind::Timestamp

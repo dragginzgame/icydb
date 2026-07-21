@@ -67,6 +67,8 @@ impl AcceptedStructuralRowAuthority {
             AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
                 &accepted_schema,
                 model,
+                selection.enum_catalog().catalog(),
+                selection.enum_catalog().composite_catalog(),
             )?;
         let row_contract = Self::catalog_backed_row_contract(entity_path, &descriptor, selection);
 

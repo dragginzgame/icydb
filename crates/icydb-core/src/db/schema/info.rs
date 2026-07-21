@@ -738,12 +738,12 @@ impl SchemaInfo {
         schema_field_info(self.fields.as_slice(), name).map(|field| field.sql_capabilities)
     }
 
-    /// Return whether one top-level field stores a structured record value.
+    /// Return whether one top-level field stores an exact composite value.
     #[must_use]
     #[cfg(feature = "sql")]
-    pub(in crate::db) fn field_is_structured_value(&self, name: &str) -> bool {
+    pub(in crate::db) fn field_is_composite_value(&self, name: &str) -> bool {
         schema_field_info(self.fields.as_slice(), name)
-            .is_some_and(|field| matches!(field.ty, FieldType::Structured { .. }))
+            .is_some_and(|field| matches!(field.ty, FieldType::Composite))
     }
 
     /// Return SQL operation capabilities for one nested field path.
@@ -916,7 +916,7 @@ impl SchemaInfo {
                     });
                 let accepted_value_contract = enum_catalog.as_ref().and_then(|catalog| {
                     AcceptedValueContract::from_accepted_field(
-                        catalog.catalog(),
+                        catalog,
                         field.kind(),
                         field.storage_decode(),
                     )
@@ -1178,13 +1178,9 @@ fn schema_index_field_path_info_from_accepted(
         .unwrap_or_default()
         .to_string();
     let accepted_value_contract = enum_catalog.and_then(|catalog| {
-        AcceptedValueContract::from_accepted_field(
-            catalog.catalog(),
-            path.kind(),
-            FieldStorageDecode::ByKind,
-        )
-        .ok()
-        .map(Box::new)
+        AcceptedValueContract::from_accepted_field(catalog, path.kind(), FieldStorageDecode::ByKind)
+            .ok()
+            .map(Box::new)
     });
     debug_assert!(enum_catalog.is_none() || accepted_value_contract.is_some());
     let persisted_kind = accepted_value_contract

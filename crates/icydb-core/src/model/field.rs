@@ -29,17 +29,17 @@ pub const DEFAULT_BIG_INT_MAX_BYTES: u32 = 256;
 ///
 /// FieldStorageDecode captures how one persisted field payload must be
 /// interpreted at structural decode boundaries.
-/// Semantic `FieldKind` alone is not always authoritative for persisted decode:
-/// some fields intentionally store raw `Value` payloads even when their planner
-/// shape is narrower.
+/// Recursive enum, collection, and composite representations use canonical
+/// value decoding before accepted-schema admission proves exact shape; direct
+/// scalar and collection lanes remain kind-specific.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FieldStorageDecode {
     /// Decode the persisted field payload according to semantic `FieldKind`.
     ByKind,
-    /// Decode the persisted field payload directly into `Value`.
-    Value,
+    /// Decode a canonical recursive value, then apply its accepted catalog contract.
+    CatalogValue,
 }
 
 ///
@@ -73,15 +73,135 @@ pub enum ScalarCodec {
 /// LeafCodec
 ///
 /// LeafCodec declares whether one persisted field payload uses a dedicated
-/// scalar codec or falls back to structural leaf decoding.
+/// scalar codec or recursive structural decoding.
 /// The row container consults this metadata before deciding whether a slot can
 /// stay on the scalar fast path.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LeafCodec {
+    /// Dedicated scalar field codec selected by exact accepted kind.
     Scalar(ScalarCodec),
-    StructuralFallback,
+    /// Recursive structural field codec for accepted collections, enums, and
+    /// composites.
+    Structural,
+}
+
+///
+/// CompositeCodec
+///
+/// CompositeCodec identifies the canonical persisted grammar for one exact
+/// generated composite type. Accepted schema publication freezes this identity
+/// together with the nominal type path and complete member shape.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CompositeCodec {
+    /// Existing canonical generated record, tuple, and newtype encoding.
+    StructuralV1,
+}
+
+///
+/// CompositeFieldModel
+///
+/// CompositeFieldModel describes one named member of a generated record
+/// proposal. It carries only exact persisted-shape facts; queryable nested
+/// leaves remain a derived view owned by accepted schema publication.
+///
+
+#[derive(Clone, Copy, Debug)]
+pub struct CompositeFieldModel {
+    /// Stable persisted member name.
+    pub(crate) name: &'static str,
+    /// Exact generated kind of the member payload.
+    pub(crate) kind: FieldKind,
+    /// Whether the member may contain an explicit null value.
+    pub(crate) nullable: bool,
+}
+
+impl CompositeFieldModel {
+    /// Build one generated record-member descriptor.
+    #[must_use]
+    #[doc(hidden)]
+    pub const fn generated(name: &'static str, kind: FieldKind, nullable: bool) -> Self {
+        Self {
+            name,
+            kind,
+            nullable,
+        }
+    }
+
+    /// Return the stable persisted member name.
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// Return the exact generated member kind.
+    #[must_use]
+    pub const fn kind(&self) -> FieldKind {
+        self.kind
+    }
+
+    /// Return whether the member permits an explicit null value.
+    #[must_use]
+    pub const fn nullable(&self) -> bool {
+        self.nullable
+    }
+}
+
+///
+/// CompositeElementModel
+///
+/// CompositeElementModel describes one positional tuple element or the inner
+/// payload of a nominal generated newtype.
+///
+
+#[derive(Clone, Copy, Debug)]
+pub struct CompositeElementModel {
+    /// Exact generated kind of the positional payload.
+    pub(crate) kind: FieldKind,
+    /// Whether the payload may contain an explicit null value.
+    pub(crate) nullable: bool,
+}
+
+impl CompositeElementModel {
+    /// Build one generated tuple-element or newtype-inner descriptor.
+    #[must_use]
+    #[doc(hidden)]
+    pub const fn generated(kind: FieldKind, nullable: bool) -> Self {
+        Self { kind, nullable }
+    }
+
+    /// Return the exact generated payload kind.
+    #[must_use]
+    pub const fn kind(&self) -> FieldKind {
+        self.kind
+    }
+
+    /// Return whether the payload permits an explicit null value.
+    #[must_use]
+    pub const fn nullable(&self) -> bool {
+        self.nullable
+    }
+}
+
+///
+/// CompositeShapeModel
+///
+/// CompositeShapeModel is the complete generated proposal shape for one
+/// nominal record, tuple, or newtype. Empty records and empty tuples remain
+/// distinct variants.
+///
+
+#[derive(Clone, Copy, Debug)]
+pub enum CompositeShapeModel {
+    /// Named record members in persisted declaration order.
+    Record(&'static [CompositeFieldModel]),
+    /// Positional tuple members in persisted declaration order.
+    Tuple(&'static [CompositeElementModel]),
+    /// The single payload of a nominal newtype.
+    Newtype(CompositeElementModel),
 }
 
 ///
@@ -89,8 +209,8 @@ pub enum LeafCodec {
 ///
 /// EnumVariantModel carries structural decode metadata for one generated enum
 /// variant payload.
-/// Runtime structural decode uses this to stay on the field-kind contract for
-/// enum payloads instead of falling back to generic untyped structural decode.
+/// Runtime structural decode uses this to stay on the exact field-kind
+/// contract for enum payloads.
 ///
 
 #[derive(Clone, Copy, Debug)]
@@ -98,7 +218,7 @@ pub struct EnumVariantModel {
     /// Stable schema variant tag.
     pub(crate) ident: &'static str,
     /// Declared payload kind when this variant carries data.
-    pub(crate) payload_kind: Option<&'static FieldKind>,
+    payload_kind: Option<EnumPayloadKindModel>,
     /// Persisted payload decode contract for the carried data.
     pub(crate) payload_storage_decode: FieldStorageDecode,
 }
@@ -113,7 +233,29 @@ impl EnumVariantModel {
     ) -> Self {
         Self {
             ident,
-            payload_kind,
+            payload_kind: match payload_kind {
+                Some(kind) => Some(EnumPayloadKindModel::Static(kind)),
+                None => None,
+            },
+            payload_storage_decode,
+        }
+    }
+
+    /// Build one generated variant descriptor whose exact payload kind is
+    /// resolved lazily to avoid recursive associated-constant graphs.
+    #[must_use]
+    #[doc(hidden)]
+    pub const fn generated_with_payload_kind_resolver(
+        ident: &'static str,
+        payload_kind: Option<fn() -> FieldKind>,
+        payload_storage_decode: FieldStorageDecode,
+    ) -> Self {
+        Self {
+            ident,
+            payload_kind: match payload_kind {
+                Some(resolve) => Some(EnumPayloadKindModel::Generated(resolve)),
+                None => None,
+            },
             payload_storage_decode,
         }
     }
@@ -126,14 +268,29 @@ impl EnumVariantModel {
 
     /// Return the declared payload kind when this variant carries data.
     #[must_use]
-    pub const fn payload_kind(&self) -> Option<&'static FieldKind> {
-        self.payload_kind
+    pub fn payload_kind(&self) -> Option<FieldKind> {
+        self.payload_kind.map(EnumPayloadKindModel::resolve)
     }
 
     /// Return the persisted payload decode contract for this variant.
     #[must_use]
     pub const fn payload_storage_decode(&self) -> FieldStorageDecode {
         self.payload_storage_decode
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum EnumPayloadKindModel {
+    Static(&'static FieldKind),
+    Generated(fn() -> FieldKind),
+}
+
+impl EnumPayloadKindModel {
+    fn resolve(self) -> FieldKind {
+        match self {
+            Self::Static(kind) => *kind,
+            Self::Generated(resolve) => resolve(),
+        }
     }
 }
 
@@ -152,7 +309,7 @@ pub struct FieldModel {
     pub(crate) name: &'static str,
     /// Runtime type shape (no schema-layer graph nodes).
     pub(crate) kind: FieldKind,
-    /// Known nested fields when this field stores a generated structured record.
+    /// Generated nested-field projection for a composite record.
     pub(crate) nested_fields: &'static [Self],
     /// Whether the field may persist an explicit `NULL` payload.
     pub(crate) nullable: bool,
@@ -392,7 +549,7 @@ impl FieldModel {
         self.kind
     }
 
-    /// Return known nested fields for generated structured records.
+    /// Return the generated nested-field view for a composite record.
     #[must_use]
     pub const fn nested_fields(&self) -> &'static [Self] {
         self.nested_fields
@@ -438,9 +595,8 @@ impl FieldModel {
     ///
     /// This is the model-owned compatibility gate used before row bytes are
     /// emitted. It intentionally checks storage compatibility, not query
-    /// predicate compatibility, so `FieldStorageDecode::Value` can accept
-    /// open-ended structured payloads while still enforcing outer collection
-    /// shape, decimal scale, and deterministic set/map ordering.
+    /// predicate compatibility. Catalog-backed values retain recursive storage
+    /// decoding here; accepted-schema admission owns their exact nominal shape.
     #[cfg(test)]
     pub(crate) fn validate_runtime_value_for_storage(
         &self,
@@ -455,7 +611,7 @@ impl FieldModel {
         }
 
         let accepts = match self.storage_decode() {
-            FieldStorageDecode::Value => {
+            FieldStorageDecode::CatalogValue => {
                 value_storage_kind_accepts_runtime_value(self.kind(), value)
             }
             FieldStorageDecode::ByKind => {
@@ -473,11 +629,14 @@ impl FieldModel {
 }
 
 // Resolve the canonical leaf codec from semantic field kind plus storage
-// contract. Fields that intentionally persist as `Value` or that still require
-// recursive payload decoding remain on the shared structural fallback.
-const fn leaf_codec_for(kind: FieldKind, storage_decode: FieldStorageDecode) -> LeafCodec {
-    if matches!(storage_decode, FieldStorageDecode::Value) {
-        return LeafCodec::StructuralFallback;
+// contract. Fields that require recursive payload decoding use the shared
+// structural codec; accepted schema remains authoritative for exact shape.
+pub(crate) const fn leaf_codec_for(
+    kind: FieldKind,
+    storage_decode: FieldStorageDecode,
+) -> LeafCodec {
+    if matches!(storage_decode, FieldStorageDecode::CatalogValue) {
+        return LeafCodec::Structural;
     }
 
     match kind {
@@ -508,9 +667,9 @@ const fn leaf_codec_for(kind: FieldKind, storage_decode: FieldStorageDecode) -> 
         | FieldKind::List(_)
         | FieldKind::Map { .. }
         | FieldKind::Set(_)
-        | FieldKind::Structured { .. }
+        | FieldKind::Composite { .. }
         | FieldKind::Nat128
-        | FieldKind::NatBig { .. } => LeafCodec::StructuralFallback,
+        | FieldKind::NatBig { .. } => LeafCodec::Structural,
     }
 }
 
@@ -519,8 +678,9 @@ const fn leaf_codec_for(kind: FieldKind, storage_decode: FieldStorageDecode) -> 
 ///
 /// Minimal runtime type surface needed by planning, validation, and execution.
 ///
-/// This is aligned with `Value` variants and intentionally lossy: it encodes
-/// only the shape required for predicate compatibility and index planning.
+/// Scalar and collection variants align with runtime `Value` families. Enum
+/// and composite variants additionally carry complete generated proposal
+/// metadata that accepted catalog publication resolves into stable IDs.
 ///
 
 #[derive(Clone, Copy, Debug)]
@@ -598,15 +758,35 @@ pub enum FieldKind {
         value: &'static Self,
     },
 
-    /// Structured (non-atomic) value.
-    /// Queryability here controls whether predicates may target this field,
-    /// not whether it may be stored or updated.
-    Structured {
-        queryable: bool,
+    /// Exact nominal generated record, tuple, or newtype.
+    Composite {
+        /// Stable fully-qualified generated type path.
+        path: &'static str,
+        /// Canonical persisted composite grammar.
+        codec: CompositeCodec,
+        /// Complete generated proposal shape.
+        shape: &'static CompositeShapeModel,
     },
 }
 
+#[cfg(test)]
+static EMPTY_TEST_COMPOSITE_FIELDS: [CompositeFieldModel; 0] = [];
+#[cfg(test)]
+static EMPTY_TEST_COMPOSITE_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Record(&EMPTY_TEST_COMPOSITE_FIELDS);
+
 impl FieldKind {
+    /// Build one exact empty-record kind for metadata-only unit tests.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) const fn empty_test_composite(path: &'static str) -> Self {
+        Self::Composite {
+            path,
+            codec: CompositeCodec::StructuralV1,
+            shape: &EMPTY_TEST_COMPOSITE_SHAPE,
+        }
+    }
+
     #[must_use]
     pub const fn value_kind(&self) -> RuntimeValueKind {
         match self {
@@ -639,10 +819,9 @@ impl FieldKind {
             | Self::Decimal { .. }
             | Self::Relation { .. } => RuntimeValueKind::Atomic,
             Self::List(_) | Self::Set(_) => RuntimeValueKind::Structured { queryable: true },
-            Self::Map { .. } => RuntimeValueKind::Structured { queryable: false },
-            Self::Structured { queryable } => RuntimeValueKind::Structured {
-                queryable: *queryable,
-            },
+            Self::Map { .. } | Self::Composite { .. } => {
+                RuntimeValueKind::Structured { queryable: false }
+            }
         }
     }
 
@@ -677,7 +856,7 @@ impl FieldKind {
             Self::Enum { variants, .. } => variants.iter().all(|variant| {
                 variant
                     .payload_kind()
-                    .is_none_or(Self::supports_group_probe)
+                    .is_none_or(|kind| Self::supports_group_probe(&kind))
             }),
             Self::Relation { key_kind, .. } => key_kind.supports_group_probe(),
             Self::Decimal { .. } => true,
@@ -708,8 +887,7 @@ impl FieldKind {
             | (Self::Timestamp, Value::Timestamp(_))
             | (Self::Nat128, Value::Nat128(_))
             | (Self::Ulid, Value::Ulid(_))
-            | (Self::Unit, Value::Unit)
-            | (Self::Structured { .. }, Value::List(_) | Value::Map(_)) => true,
+            | (Self::Unit, Value::Unit) => true,
             (Self::Int8, Value::Int64(value)) => i8::try_from(*value).is_ok(),
             (Self::Int16, Value::Int64(value)) => i16::try_from(*value).is_ok(),
             (Self::Int32, Value::Int64(value)) => i32::try_from(*value).is_ok(),
@@ -732,16 +910,45 @@ impl FieldKind {
                         key.accepts_value(entry_key) && value.accepts_value(entry_value)
                     })
             }
+            (Self::Composite { shape, .. }, value) => shape.accepts_value(value),
             _ => false,
         }
     }
 }
 
+#[cfg(test)]
+impl CompositeShapeModel {
+    fn accepts_value(self, value: &Value) -> bool {
+        match (self, value) {
+            (Self::Record(fields), Value::Map(entries)) => {
+                entries.len() == fields.len()
+                    && entries.iter().zip(fields).all(|((key, value), field)| {
+                        matches!(key, Value::Text(name) if name == field.name())
+                            && accepts_nullable_value(field.kind(), field.nullable(), value)
+                    })
+            }
+            (Self::Tuple(elements), Value::List(values)) => {
+                values.len() == elements.len()
+                    && values.iter().zip(elements).all(|(value, element)| {
+                        accepts_nullable_value(element.kind(), element.nullable(), value)
+                    })
+            }
+            (Self::Newtype(inner), value) => {
+                accepts_nullable_value(inner.kind(), inner.nullable(), value)
+            }
+            _ => false,
+        }
+    }
+}
+
+#[cfg(test)]
+fn accepts_nullable_value(kind: FieldKind, nullable: bool, value: &Value) -> bool {
+    matches!(value, Value::Null) && nullable || kind.accepts_value(value)
+}
+
 // `FieldStorageDecode::ByKind` follows the same literal compatibility rule as
 // the schema predicate layer without routing the storage model through
-// `db::schema`. Structured field kinds are intentionally not accepted here;
-// fields that persist open-ended structured payloads use
-// `FieldStorageDecode::Value` instead.
+// `db::schema`.
 #[cfg(test)]
 fn by_kind_storage_kind_accepts_runtime_value(kind: FieldKind, value: &Value) -> bool {
     match (kind, value) {
@@ -767,18 +974,15 @@ fn by_kind_storage_kind_accepts_runtime_value(kind: FieldKind, value: &Value) ->
                     && by_kind_storage_kind_accepts_runtime_value(*value_kind, entry_value)
             })
         }
-        (FieldKind::Structured { .. }, _) => false,
         _ => kind.accepts_value(value),
     }
 }
 
-// `FieldStorageDecode::Value` fields persist an opaque runtime `Value` envelope,
-// so `FieldKind::Structured` must stay open-ended while outer collection/map
-// shapes still enforce the recursive structure the model owns.
+// `FieldStorageDecode::CatalogValue` fields use the canonical recursive value envelope
+// while exact `FieldKind` metadata still owns every admitted shape.
 #[cfg(test)]
 fn value_storage_kind_accepts_runtime_value(kind: FieldKind, value: &Value) -> bool {
     match (kind, value) {
-        (FieldKind::Structured { .. }, _) => true,
         (FieldKind::Relation { key_kind, .. }, value) => {
             value_storage_kind_accepts_runtime_value(*key_kind, value)
         }

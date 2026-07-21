@@ -10,6 +10,9 @@ use super::{
     AcceptedEnumCatalog, decode_accepted_enum_catalog, encode_accepted_enum_catalog,
     equality_key::{EqualityCapability, enum_equality_capability},
 };
+use crate::db::schema::composite_catalog::{
+    AcceptedCompositeCatalog, decode_accepted_composite_catalog, encode_accepted_composite_catalog,
+};
 use crate::{
     db::{
         codec::{finalize_hash_sha256, new_hash_sha256},
@@ -28,10 +31,10 @@ use crate::{
 use sha2::Digest;
 use std::collections::BTreeMap;
 
-const ACCEPTED_SCHEMA_BUNDLE_MAGIC: &[u8; 8] = b"ICYDBASB";
+const ACCEPTED_SCHEMA_BUNDLE_MAGIC: &[u8; 8] = b"ICYDBAEB";
 const ACCEPTED_SCHEMA_BUNDLE_CODEC_VERSION: u16 = 1;
 const ACCEPTED_SCHEMA_BUNDLE_HEADER_BYTES: usize = 30;
-const ACCEPTED_SCHEMA_ROOT_MAGIC: &[u8; 8] = b"ICYDBASR";
+const ACCEPTED_SCHEMA_ROOT_MAGIC: &[u8; 8] = b"ICYDBAER";
 const ACCEPTED_SCHEMA_ROOT_CODEC_VERSION: u16 = 1;
 const ACCEPTED_SCHEMA_ROOT_BYTES: usize = 94;
 const ACCEPTED_SCHEMA_ROOT_CHECKSUM_OFFSET: usize = ACCEPTED_SCHEMA_ROOT_BYTES - size_of::<u32>();
@@ -102,6 +105,7 @@ pub(in crate::db) struct AcceptedSchemaRevisionBundle {
     revision: AcceptedSchemaRevision,
     store_path: String,
     enum_catalog: AcceptedEnumCatalog,
+    composite_catalog: AcceptedCompositeCatalog,
     entity_snapshots: BTreeMap<EntityTag, PersistedSchemaSnapshot>,
 }
 
@@ -110,12 +114,14 @@ impl AcceptedSchemaRevisionBundle {
         revision: AcceptedSchemaRevision,
         store_path: impl Into<String>,
         enum_catalog: AcceptedEnumCatalog,
+        composite_catalog: AcceptedCompositeCatalog,
         entity_snapshots: BTreeMap<EntityTag, PersistedSchemaSnapshot>,
     ) -> Result<Self, InternalError> {
         let bundle = Self {
             revision,
             store_path: store_path.into(),
             enum_catalog,
+            composite_catalog,
             entity_snapshots,
         };
         bundle.validate()?;
@@ -138,6 +144,11 @@ impl AcceptedSchemaRevisionBundle {
     }
 
     #[must_use]
+    pub(in crate::db::schema) const fn composite_catalog(&self) -> &AcceptedCompositeCatalog {
+        &self.composite_catalog
+    }
+
+    #[must_use]
     pub(in crate::db) const fn entity_snapshots(
         &self,
     ) -> &BTreeMap<EntityTag, PersistedSchemaSnapshot> {
@@ -155,17 +166,27 @@ impl AcceptedSchemaRevisionBundle {
         if decode_accepted_enum_catalog(&catalog_bytes)? != self.enum_catalog {
             return Err(InternalError::store_invariant());
         }
+        let composite_catalog_bytes =
+            encode_accepted_composite_catalog(&self.composite_catalog, &self.enum_catalog)?;
+        if decode_accepted_composite_catalog(&composite_catalog_bytes, &self.enum_catalog)?
+            != self.composite_catalog
+        {
+            return Err(InternalError::store_invariant());
+        }
         for snapshot in self.entity_snapshots.values() {
             let encoded = encode_persisted_schema_snapshot(snapshot)?;
             if encoded.len() > MAX_SCHEMA_SNAPSHOT_BYTES as usize {
                 return Err(InternalError::store_unsupported());
             }
             for field in snapshot.fields() {
-                if !self.enum_catalog.matches_accepted_kind(field.kind())
-                    || field
-                        .nested_leaves()
-                        .iter()
-                        .any(|leaf| !self.enum_catalog.matches_accepted_kind(leaf.kind()))
+                if !self
+                    .composite_catalog
+                    .matches_kind(&self.enum_catalog, field.kind())
+                    || field.nested_leaves().iter().any(|leaf| {
+                        !self
+                            .composite_catalog
+                            .matches_kind(&self.enum_catalog, leaf.kind())
+                    })
                 {
                     return Err(InternalError::store_invariant());
                 }
@@ -179,6 +200,7 @@ impl AcceptedSchemaRevisionBundle {
                     );
                     validate_default_payload_for_accepted_field_contract(
                         &self.enum_catalog,
+                        &self.composite_catalog,
                         contract,
                         payload,
                     )?;
@@ -191,10 +213,13 @@ impl AcceptedSchemaRevisionBundle {
 
     fn semantic_fingerprint(&self) -> Result<AcceptedSchemaFingerprint, InternalError> {
         let catalog_bytes = encode_accepted_enum_catalog(&self.enum_catalog)?;
+        let composite_catalog_bytes =
+            encode_accepted_composite_catalog(&self.composite_catalog, &self.enum_catalog)?;
         let mut hasher = new_hash_sha256();
         hasher.update(ACCEPTED_SCHEMA_FINGERPRINT_PROFILE);
         hash_len_prefixed(&mut hasher, self.store_path.as_bytes())?;
         hash_len_prefixed(&mut hasher, &catalog_bytes)?;
+        hash_len_prefixed(&mut hasher, &composite_catalog_bytes)?;
         hash_len(&mut hasher, self.entity_snapshots.len())?;
         for (entity_tag, snapshot) in &self.entity_snapshots {
             hasher.update(entity_tag.value().to_be_bytes());
@@ -515,6 +540,8 @@ pub(in crate::db::schema) fn decode_accepted_schema_revision_bundle(
     let revision = AcceptedSchemaRevision::new(reader.read_u64()?);
     let store_path = reader.read_string()?;
     let catalog = decode_accepted_enum_catalog(reader.read_len_prefixed_bytes()?)?;
+    let composite_catalog =
+        decode_accepted_composite_catalog(reader.read_len_prefixed_bytes()?, &catalog)?;
     let entity_count = reader.read_count()?;
     let mut entity_snapshots = BTreeMap::new();
     let mut previous_entity_tag = None;
@@ -539,6 +566,7 @@ pub(in crate::db::schema) fn decode_accepted_schema_revision_bundle(
         revision,
         store_path,
         enum_catalog: catalog,
+        composite_catalog,
         entity_snapshots,
     };
     bundle
@@ -567,12 +595,15 @@ fn encode_accepted_schema_revision_bundle(
 ) -> Result<Vec<u8>, InternalError> {
     bundle.validate()?;
     let catalog_bytes = encode_accepted_enum_catalog(&bundle.enum_catalog)?;
+    let composite_catalog_bytes =
+        encode_accepted_composite_catalog(&bundle.composite_catalog, &bundle.enum_catalog)?;
     let mut writer = BundleWriter::new();
     writer.push_bytes(ACCEPTED_SCHEMA_BUNDLE_MAGIC);
     writer.push_u16(ACCEPTED_SCHEMA_BUNDLE_CODEC_VERSION);
     writer.push_u64(bundle.revision().get());
     writer.push_string(bundle.store_path())?;
     writer.push_len_prefixed_bytes(&catalog_bytes)?;
+    writer.push_len_prefixed_bytes(&composite_catalog_bytes)?;
     writer.push_len(bundle.entity_snapshots.len())?;
     for (entity_tag, snapshot) in &bundle.entity_snapshots {
         writer.push_u64(entity_tag.value());
@@ -842,6 +873,7 @@ pub(in crate::db) fn empty_accepted_schema_candidate_for_tests(
             by_id: BTreeMap::new(),
             id_by_path: BTreeMap::new(),
         },
+        AcceptedCompositeCatalog::empty(),
         BTreeMap::new(),
     )
     .expect("empty accepted schema candidate fixture should build");

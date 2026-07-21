@@ -46,7 +46,7 @@ pub(in crate::db::executor) const fn accepted_field_kind_has_identity_group_cano
             | AcceptedFieldKind::List(_)
             | AcceptedFieldKind::Set(_)
             | AcceptedFieldKind::Map { .. }
-            | AcceptedFieldKind::Structured { .. }
+            | AcceptedFieldKind::Composite { .. }
             | AcceptedFieldKind::Unit
     )
 }

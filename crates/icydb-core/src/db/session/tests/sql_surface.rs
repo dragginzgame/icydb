@@ -18,7 +18,6 @@ use crate::{
             SchemaDdlMutationAdmissionError, SchemaDdlSchemaVersionAdmissionError, SchemaInfo,
             SchemaVersion, accepted_schema_cache_fingerprint,
             accepted_schema_cache_fingerprint_method_version, compiled_schema_proposal_for_model,
-            enum_catalog::build_initial_accepted_enum_catalog,
             execute_admin_sql_ddl_field_addition, execute_admin_sql_ddl_field_drop,
             execute_admin_sql_ddl_secondary_index_drop,
             persisted_schema_snapshot_decode_count_for_tests,
@@ -84,15 +83,19 @@ fn accepted_schema_snapshot_for_entity<E: EntityDeclaration>() -> AcceptedSchema
 fn accepted_schema_snapshot_and_catalog_for_entity<E: EntityDeclaration>()
 -> (AcceptedSchemaSnapshot, AcceptedEnumCatalogHandle) {
     let proposal = compiled_schema_proposal_for_model(E::MODEL);
-    let catalog = build_initial_accepted_enum_catalog(&[E::MODEL])
-        .expect("session SQL test enum catalog should build");
+    let (catalog, composite_catalog) =
+        crate::db::schema::build_initial_accepted_catalogs_for_tests(&[E::MODEL])
+            .expect("session SQL test catalogs should build");
     let snapshot = proposal
-        .initial_persisted_schema_snapshot_with_enum_catalog(&catalog)
-        .expect("session SQL test schema should resolve through its enum catalog");
+        .initial_persisted_schema_snapshot_with_catalogs(&catalog, &composite_catalog)
+        .expect("session SQL test schema should resolve through its catalogs");
     let accepted = AcceptedSchemaSnapshot::try_new(snapshot)
         .expect("session SQL test schema snapshot should be accepted");
-    let catalog =
-        AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+    let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+        catalog,
+        composite_catalog,
+        AcceptedSchemaRevision::INITIAL,
+    );
 
     (accepted, catalog)
 }

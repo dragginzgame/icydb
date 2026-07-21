@@ -64,7 +64,7 @@ enum FieldKindCategory {
     Scalar(FieldKindScalarClass),
     Relation(FieldKindScalarClass),
     Collection,
-    Structured { queryable: bool },
+    Composite,
 }
 
 #[cfg(any(test, feature = "sql"))]
@@ -86,7 +86,7 @@ impl FieldKindCategory {
     const fn supports_aggregate_ordering(self) -> bool {
         match self {
             Self::Scalar(class) | Self::Relation(class) => scalar_class_supports_ordering(class),
-            Self::Collection | Self::Structured { .. } => false,
+            Self::Collection | Self::Composite => false,
         }
     }
 
@@ -174,7 +174,7 @@ pub(crate) const fn field_kind_has_identity_group_canonical_form(kind: FieldKind
             | FieldKind::List(_)
             | FieldKind::Set(_)
             | FieldKind::Map { .. }
-            | FieldKind::Structured { .. }
+            | FieldKind::Composite { .. }
             | FieldKind::Unit
     )
 }
@@ -288,11 +288,7 @@ pub(crate) const fn classify_field_kind(kind: &FieldKind) -> FieldKindSemantics 
         FieldKind::List(_) | FieldKind::Map { .. } | FieldKind::Set(_) => {
             FieldKindSemantics::new(FieldKindCategory::Collection)
         }
-        FieldKind::Structured { queryable } => {
-            FieldKindSemantics::new(FieldKindCategory::Structured {
-                queryable: *queryable,
-            })
-        }
+        FieldKind::Composite { .. } => FieldKindSemantics::new(FieldKindCategory::Composite),
     }
 }
 
@@ -302,7 +298,7 @@ pub(crate) const fn classify_field_kind(kind: &FieldKind) -> FieldKindSemantics 
 const fn classify_relation_scalar_class(kind: &FieldKind) -> FieldKindScalarClass {
     match classify_field_kind(kind).category() {
         FieldKindCategory::Scalar(class) | FieldKindCategory::Relation(class) => class,
-        FieldKindCategory::Collection | FieldKindCategory::Structured { .. } => {
+        FieldKindCategory::Collection | FieldKindCategory::Composite => {
             FieldKindScalarClass::Opaque
         }
     }

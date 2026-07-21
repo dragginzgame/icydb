@@ -396,7 +396,7 @@ fn accepted_sql_lower_schema_with_name_kind(kind: AcceptedFieldKind) -> SchemaIn
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
             PersistedFieldSnapshot::new(
                 SchemaFieldId::new(2),
@@ -407,7 +407,7 @@ fn accepted_sql_lower_schema_with_name_kind(kind: AcceptedFieldKind) -> SchemaIn
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
             PersistedFieldSnapshot::new(
                 SchemaFieldId::new(3),
@@ -418,7 +418,7 @@ fn accepted_sql_lower_schema_with_name_kind(kind: AcceptedFieldKind) -> SchemaIn
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
         ],
     ));
@@ -452,7 +452,7 @@ fn accepted_sql_lower_schema_without_name() -> SchemaInfo {
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
             PersistedFieldSnapshot::new(
                 SchemaFieldId::new(3),
@@ -463,7 +463,7 @@ fn accepted_sql_lower_schema_without_name() -> SchemaInfo {
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
         ],
     ));
@@ -474,12 +474,11 @@ fn accepted_sql_lower_schema_without_name() -> SchemaInfo {
 // Build an accepted schema variant where the `name` field exposes one nested
 // leaf whose capability facts deliberately differ from generated metadata.
 fn accepted_sql_lower_schema_with_name_nested_leaf_kind(kind: AcceptedFieldKind) -> SchemaInfo {
-    accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent_queryable(kind, true)
+    accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent(kind)
 }
 
-fn accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent_queryable(
+fn accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent(
     kind: AcceptedFieldKind,
-    parent_queryable: bool,
 ) -> SchemaInfo {
     let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
         SchemaVersion::initial(),
@@ -504,26 +503,22 @@ fn accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent_queryable(
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
             PersistedFieldSnapshot::new(
                 SchemaFieldId::new(2),
                 "name".to_string(),
                 SchemaFieldSlot::new(1),
-                AcceptedFieldKind::Structured {
-                    queryable: parent_queryable,
-                },
+                AcceptedFieldKind::test_composite(),
                 vec![PersistedNestedLeafSnapshot::new(
                     vec!["leaf".to_string()],
                     kind,
                     false,
-                    FieldStorageDecode::ByKind,
-                    LeafCodec::StructuralFallback,
                 )],
                 false,
                 SchemaFieldDefault::None,
-                FieldStorageDecode::Value,
-                LeafCodec::StructuralFallback,
+                FieldStorageDecode::CatalogValue,
+                LeafCodec::Structural,
             ),
             PersistedFieldSnapshot::new(
                 SchemaFieldId::new(3),
@@ -534,7 +529,7 @@ fn accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent_queryable(
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
         ],
     ));
@@ -3718,10 +3713,10 @@ fn bind_sql_select_with_schema_allows_structured_parent_projection() {
         "SELECT name FROM SqlLowerEntity",
         "accepted structured parent projection",
     );
-    let schema = accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent_queryable(
-        AcceptedFieldKind::Text { max_len: None },
-        false,
-    );
+    let schema =
+        accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent(AcceptedFieldKind::Text {
+            max_len: None,
+        });
 
     let query = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
         SqlLowerEntity::MODEL,
@@ -3796,9 +3791,7 @@ fn bind_sql_select_with_schema_rejects_non_selectable_accepted_nested_leaf() {
         "accepted non-selectable nested projection",
     );
     let schema =
-        accepted_sql_lower_schema_with_name_nested_leaf_kind(AcceptedFieldKind::Structured {
-            queryable: false,
-        });
+        accepted_sql_lower_schema_with_name_nested_leaf_kind(AcceptedFieldKind::test_composite());
 
     let err = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
         SqlLowerEntity::MODEL,

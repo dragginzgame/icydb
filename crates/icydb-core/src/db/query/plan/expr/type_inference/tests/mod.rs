@@ -24,7 +24,7 @@ use crate::{
     },
     model::{
         entity::EntityModel,
-        field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec},
+        field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
         index::IndexModel,
     },
     testing::entity_model_from_static,
@@ -63,8 +63,8 @@ static PROFILE_FIELDS: [FieldModel; 2] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
         "profile",
-        FieldKind::Structured { queryable: true },
-        FieldStorageDecode::Value,
+        FieldKind::empty_test_composite("query::expr::type_inference::tests::Profile"),
+        FieldStorageDecode::CatalogValue,
         false,
         None,
         None,
@@ -109,24 +109,22 @@ fn accepted_profile_schema_with_nested_rank(kind: AcceptedFieldKind) -> SchemaIn
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
             PersistedFieldSnapshot::new(
                 SchemaFieldId::new(2),
                 "profile".to_string(),
                 SchemaFieldSlot::new(1),
-                AcceptedFieldKind::Structured { queryable: true },
+                AcceptedFieldKind::test_composite(),
                 vec![PersistedNestedLeafSnapshot::new(
                     vec!["rank".to_string()],
                     kind,
                     false,
-                    FieldStorageDecode::ByKind,
-                    LeafCodec::Scalar(ScalarCodec::Blob),
                 )],
                 false,
                 SchemaFieldDefault::None,
-                FieldStorageDecode::Value,
-                LeafCodec::StructuralFallback,
+                FieldStorageDecode::CatalogValue,
+                LeafCodec::Structural,
             ),
         ],
     ));
@@ -177,7 +175,7 @@ fn infer_field_type_uses_accepted_schema_field_type() {
             false,
             SchemaFieldDefault::None,
             FieldStorageDecode::ByKind,
-            LeafCodec::StructuralFallback,
+            LeafCodec::Structural,
         )],
     ));
     let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(model, &accepted);

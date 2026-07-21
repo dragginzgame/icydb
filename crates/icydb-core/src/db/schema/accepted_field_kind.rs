@@ -3,7 +3,15 @@
 //! Does not own: generated enum proposals or catalog definition storage.
 //! Boundary: accepted snapshots and runtime contracts persist enum IDs only.
 
-use crate::{model::field::FieldKind, types::EntityTag, value::EnumTypeId};
+use crate::{
+    db::schema::{
+        composite_catalog::{AcceptedCompositeCatalog, CompositeTypeId},
+        enum_catalog::AcceptedEnumCatalog,
+    },
+    model::field::FieldKind,
+    types::EntityTag,
+    value::EnumTypeId,
+};
 
 /// Canonical field-kind shape stored by accepted schema snapshots.
 /// Enum references carry store-local catalog IDs and never embed definitions.
@@ -61,18 +69,32 @@ pub(in crate::db) enum AcceptedFieldKind {
         key: Box<Self>,
         value: Box<Self>,
     },
-    Structured {
-        queryable: bool,
+    Composite {
+        type_id: CompositeTypeId,
     },
 }
 
 impl AcceptedFieldKind {
+    /// Build one catalog-reference kind for metadata-only unit tests.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) const fn test_composite() -> Self {
+        Self::Composite {
+            type_id: CompositeTypeId::new(1).expect("test composite type ID is non-zero"),
+        }
+    }
+
     #[cfg(test)]
     pub(in crate::db) fn from_model_kind(kind: FieldKind) -> Self {
-        let catalog = crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog_from_kinds_for_tests(&[kind])
-            .expect("test field kind enum catalog should build");
-        crate::db::schema::enum_catalog::resolve_model_field_kind(&catalog, kind)
-            .expect("test field kind should resolve through its enum catalog")
+        let (enum_catalog, composite_catalog) =
+            crate::db::schema::build_initial_accepted_catalogs_from_kinds_for_tests(&[kind])
+                .expect("test field kind catalogs should build");
+        crate::db::schema::enum_catalog::resolve_model_field_kind_with_composite_catalog(
+            &enum_catalog,
+            &composite_catalog,
+            kind,
+        )
+        .expect("test field kind should resolve through its type catalogs")
     }
 
     /// Return whether this accepted kind contains catalog enum identity.
@@ -84,7 +106,8 @@ impl AcceptedFieldKind {
                 key_kind.contains_enum()
             }
             Self::Map { key, value } => key.contains_enum() || value.contains_enum(),
-            Self::Account
+            Self::Composite { .. }
+            | Self::Account
             | Self::Blob { .. }
             | Self::Bool
             | Self::Date
@@ -109,8 +132,7 @@ impl AcceptedFieldKind {
             | Self::Nat128
             | Self::NatBig { .. }
             | Self::Ulid
-            | Self::Unit
-            | Self::Structured { .. } => false,
+            | Self::Unit => false,
         }
     }
 
@@ -118,7 +140,7 @@ impl AcceptedFieldKind {
     #[must_use]
     pub(in crate::db) fn requires_canonical_value_wire(&self) -> bool {
         match self {
-            Self::Enum { .. } | Self::Structured { .. } => true,
+            Self::Enum { .. } | Self::Composite { .. } => true,
             Self::Relation { key_kind, .. } | Self::List(key_kind) | Self::Set(key_kind) => {
                 key_kind.requires_canonical_value_wire()
             }
@@ -157,7 +179,12 @@ impl AcceptedFieldKind {
     /// Compare generated decoder shape after catalog publication has already
     /// proven the exact enum path and variant contract.
     #[must_use]
-    pub(in crate::db) fn matches_generated_storage_shape(&self, generated: FieldKind) -> bool {
+    pub(in crate::db) fn matches_generated_storage_shape(
+        &self,
+        generated: FieldKind,
+        enum_catalog: &AcceptedEnumCatalog,
+        composite_catalog: &AcceptedCompositeCatalog,
+    ) -> bool {
         match (self, generated) {
             (Self::Account, FieldKind::Account)
             | (Self::Bool, FieldKind::Bool)
@@ -188,12 +215,18 @@ impl AcceptedFieldKind {
             | (Self::NatBig { max_bytes: left }, FieldKind::NatBig { max_bytes: right }) => {
                 *left == right
             }
-            (Self::Structured { queryable: left }, FieldKind::Structured { queryable: right }) => {
-                *left == right
+            (Self::Composite { type_id }, FieldKind::Composite { path, codec, shape }) => {
+                composite_catalog.matches_generated_composite(
+                    enum_catalog,
+                    *type_id,
+                    path,
+                    codec,
+                    shape,
+                )
             }
             (Self::List(left), FieldKind::List(right))
             | (Self::Set(left), FieldKind::Set(right)) => {
-                left.matches_generated_storage_shape(*right)
+                left.matches_generated_storage_shape(*right, enum_catalog, composite_catalog)
             }
             (
                 Self::Map {
@@ -205,32 +238,59 @@ impl AcceptedFieldKind {
                     value: right_value,
                 },
             ) => {
-                left_key.matches_generated_storage_shape(*right_key)
-                    && left_value.matches_generated_storage_shape(*right_value)
+                left_key.matches_generated_storage_shape(
+                    *right_key,
+                    enum_catalog,
+                    composite_catalog,
+                ) && left_value.matches_generated_storage_shape(
+                    *right_value,
+                    enum_catalog,
+                    composite_catalog,
+                )
             }
-            (
-                Self::Relation {
-                    target_path: left_path,
-                    target_entity_name: left_name,
-                    target_entity_tag: left_tag,
-                    target_store_path: left_store,
-                    key_kind: left_key,
-                },
-                FieldKind::Relation {
-                    target_path: right_path,
-                    target_entity_name: right_name,
-                    target_entity_tag: right_tag,
-                    target_store_path: right_store,
-                    key_kind: right_key,
-                },
-            ) => {
-                left_path == right_path
-                    && left_name == right_name
-                    && *left_tag == right_tag
-                    && left_store == right_store
-                    && left_key.matches_generated_storage_shape(*right_key)
-            }
+            (accepted @ Self::Relation { .. }, generated @ FieldKind::Relation { .. }) => accepted
+                .relation_matches_generated_storage_shape(
+                    generated,
+                    enum_catalog,
+                    composite_catalog,
+                ),
             _ => false,
         }
+    }
+
+    fn relation_matches_generated_storage_shape(
+        &self,
+        generated: FieldKind,
+        enum_catalog: &AcceptedEnumCatalog,
+        composite_catalog: &AcceptedCompositeCatalog,
+    ) -> bool {
+        let (
+            Self::Relation {
+                target_path: accepted_path,
+                target_entity_name: accepted_name,
+                target_entity_tag: accepted_tag,
+                target_store_path: accepted_store,
+                key_kind: accepted_key,
+            },
+            FieldKind::Relation {
+                target_path: generated_path,
+                target_entity_name: generated_name,
+                target_entity_tag: generated_tag,
+                target_store_path: generated_store,
+                key_kind: generated_key,
+            },
+        ) = (self, generated)
+        else {
+            return false;
+        };
+        accepted_path == generated_path
+            && accepted_name == generated_name
+            && *accepted_tag == generated_tag
+            && accepted_store == generated_store
+            && accepted_key.matches_generated_storage_shape(
+                *generated_key,
+                enum_catalog,
+                composite_catalog,
+            )
     }
 }

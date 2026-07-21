@@ -2,6 +2,8 @@
 mod tests {
     use crate::prelude::*;
     use crate::test::{List, Map, Set};
+    use icydb::__macro::FieldTypeMeta;
+    use icydb::model::field::{CompositeCodec, CompositeShapeModel, FieldKind};
     use icydb::types::Principal;
 
     #[record(
@@ -66,6 +68,15 @@ mod tests {
     #[enum_(variant(ident = "Pending"), variant(ident = "Active"))]
     pub struct NoDefaultStatus {}
 
+    #[enum_(
+        variant(ident = "Record", value(item(is = "ExplicitDefaultRecord"))),
+        variant(
+            ident = "Records",
+            value(many, item(is = "ExplicitDefaultRecord", indirect))
+        )
+    )]
+    pub struct CompositePayload {}
+
     #[tuple(
         value(item(prim = "Nat32")),
         value(item(prim = "Text", unbounded)),
@@ -126,6 +137,74 @@ mod tests {
             NoDefaultTuple(Principal::anonymous()),
             NoDefaultTuple(Principal::anonymous())
         );
+    }
+
+    #[test]
+    fn generated_composites_retain_nominal_exact_shape_metadata() {
+        let FieldKind::Composite {
+            path: record_path,
+            codec: CompositeCodec::StructuralV1,
+            shape: CompositeShapeModel::Record(record_fields),
+        } = ExplicitDefaultRecord::KIND
+        else {
+            panic!("record kind must retain an exact composite contract");
+        };
+        assert!(record_path.ends_with("ExplicitDefaultRecord"));
+        assert_eq!(record_fields.len(), 2);
+        assert_eq!(record_fields[0].name(), "label");
+        assert!(!record_fields[0].nullable());
+        assert_eq!(record_fields[1].name(), "note");
+        assert!(record_fields[1].nullable());
+
+        let FieldKind::Composite {
+            path: tuple_path,
+            codec: CompositeCodec::StructuralV1,
+            shape: CompositeShapeModel::Tuple(elements),
+        } = ExplicitDefaultTuple::KIND
+        else {
+            panic!("tuple kind must retain an exact composite contract");
+        };
+        assert!(tuple_path.ends_with("ExplicitDefaultTuple"));
+        assert_eq!(elements.len(), 2);
+        assert!(matches!(elements[0].kind(), FieldKind::Nat32));
+        assert!(matches!(elements[1].kind(), FieldKind::Text { .. }));
+
+        let FieldKind::Composite {
+            path: newtype_path,
+            codec: CompositeCodec::StructuralV1,
+            shape: CompositeShapeModel::Newtype(inner),
+        } = ExplicitDefaultFlag::KIND
+        else {
+            panic!("newtype kind must retain nominal composite identity");
+        };
+        assert!(newtype_path.ends_with("ExplicitDefaultFlag"));
+        assert!(matches!(inner.kind(), FieldKind::Bool));
+    }
+
+    #[test]
+    fn generated_enum_payloads_retain_wrapped_exact_composite_metadata() {
+        let FieldKind::Enum { variants, .. } = CompositePayload::KIND else {
+            panic!("payload enum kind should remain exact");
+        };
+
+        assert!(matches!(
+            variants[0].payload_kind(),
+            Some(FieldKind::Composite {
+                shape: CompositeShapeModel::Record(_),
+                ..
+            })
+        ));
+        assert!(matches!(
+            variants[1].payload_kind(),
+            Some(FieldKind::List(inner))
+                if matches!(
+                    *inner,
+                    FieldKind::Composite {
+                        shape: CompositeShapeModel::Record(_),
+                        ..
+                    }
+                )
+        ));
     }
 
     #[test]

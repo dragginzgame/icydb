@@ -13,7 +13,8 @@ use crate::{
     model::{
         entity::EntityModel,
         field::{
-            EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec,
+            CompositeCodec, CompositeFieldModel, CompositeShapeModel, EnumVariantModel, FieldKind,
+            FieldModel, FieldStorageDecode, LeafCodec,
         },
         index::IndexModel,
     },
@@ -27,12 +28,24 @@ static FIELDS: [FieldModel; 2] = [
     FieldModel::generated("id", FieldKind::Ulid),
 ];
 static PROFILE_NESTED_FIELDS: [FieldModel; 1] = [FieldModel::generated("rank", FieldKind::Nat64)];
+static PROFILE_COMPOSITE_FIELDS: [CompositeFieldModel; 1] = [CompositeFieldModel::generated(
+    "rank",
+    FieldKind::Nat64,
+    false,
+)];
+static PROFILE_COMPOSITE_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Record(&PROFILE_COMPOSITE_FIELDS);
+static PROFILE_COMPOSITE_KIND: FieldKind = FieldKind::Composite {
+    path: "schema::info::tests::Profile",
+    codec: CompositeCodec::StructuralV1,
+    shape: &PROFILE_COMPOSITE_SHAPE,
+};
 static PROFILE_FIELDS: [FieldModel; 2] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
         "profile",
-        FieldKind::Structured { queryable: true },
-        FieldStorageDecode::Value,
+        PROFILE_COMPOSITE_KIND,
+        FieldStorageDecode::CatalogValue,
         false,
         None,
         None,
@@ -90,7 +103,11 @@ fn accepted_status_schema_info() -> SchemaInfo {
     SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
         &MODEL,
         &snapshot,
-        AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL),
+        AcceptedEnumCatalogHandle::new_for_tests(
+            catalog,
+            crate::db::schema::AcceptedCompositeCatalog::empty(),
+            AcceptedSchemaRevision::INITIAL,
+        ),
         false,
     )
 }
@@ -132,7 +149,7 @@ fn accepted_schema_with_name_kind_and_slots(
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
             PersistedFieldSnapshot::new(
                 FieldId::new(2),
@@ -143,7 +160,7 @@ fn accepted_schema_with_name_kind_and_slots(
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
         ],
     ))
@@ -291,7 +308,7 @@ fn accepted_schema_with_name_index() -> AcceptedSchemaSnapshot {
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
             PersistedFieldSnapshot::new(
                 FieldId::new(2),
@@ -302,7 +319,7 @@ fn accepted_schema_with_name_index() -> AcceptedSchemaSnapshot {
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
         ],
         vec![PersistedIndexSnapshot::new(
@@ -346,7 +363,7 @@ fn accepted_schema_with_composite_primary_key() -> AcceptedSchemaSnapshot {
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
             PersistedFieldSnapshot::new(
                 FieldId::new(2),
@@ -357,7 +374,7 @@ fn accepted_schema_with_composite_primary_key() -> AcceptedSchemaSnapshot {
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
             PersistedFieldSnapshot::new(
                 FieldId::new(3),
@@ -368,7 +385,7 @@ fn accepted_schema_with_composite_primary_key() -> AcceptedSchemaSnapshot {
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
         ],
     ))
@@ -405,7 +422,7 @@ fn accepted_schema_with_lower_name_index() -> AcceptedSchemaSnapshot {
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
             PersistedFieldSnapshot::new(
                 FieldId::new(2),
@@ -416,7 +433,7 @@ fn accepted_schema_with_lower_name_index() -> AcceptedSchemaSnapshot {
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
         ],
         vec![PersistedIndexSnapshot::new(
@@ -557,8 +574,11 @@ fn accepted_index_field_contract_rejects_foreign_component_metadata() {
     let snapshot = accepted_schema_with_name_index();
     let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[])
         .expect("empty accepted enum catalog should build");
-    let catalog =
-        AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+    let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+        catalog,
+        crate::db::schema::AcceptedCompositeCatalog::empty(),
+        AcceptedSchemaRevision::INITIAL,
+    );
     let accepted = SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
         &MODEL,
         &snapshot,
@@ -707,24 +727,22 @@ fn accepted_snapshot_schema_info_uses_persisted_nested_leaf_type() {
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
             PersistedFieldSnapshot::new(
                 FieldId::new(2),
                 "profile".to_string(),
                 SchemaFieldSlot::new(1),
-                AcceptedFieldKind::Structured { queryable: true },
+                AcceptedFieldKind::test_composite(),
                 vec![PersistedNestedLeafSnapshot::new(
                     vec!["rank".to_string()],
                     AcceptedFieldKind::Blob { max_len: None },
                     false,
-                    FieldStorageDecode::ByKind,
-                    LeafCodec::Scalar(ScalarCodec::Blob),
                 )],
                 false,
                 SchemaFieldDefault::None,
-                FieldStorageDecode::Value,
-                LeafCodec::StructuralFallback,
+                FieldStorageDecode::CatalogValue,
+                LeafCodec::Structural,
             ),
         ],
     ));

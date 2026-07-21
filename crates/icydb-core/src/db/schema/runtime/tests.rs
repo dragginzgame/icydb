@@ -56,7 +56,11 @@ fn empty_accepted_enum_catalog_handle() -> AcceptedEnumCatalogHandle {
     let catalog =
         build_initial_accepted_enum_catalog(&[]).expect("empty accepted enum catalog should build");
 
-    AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL)
+    AcceptedEnumCatalogHandle::new_for_tests(
+        catalog,
+        crate::db::schema::AcceptedCompositeCatalog::empty(),
+        AcceptedSchemaRevision::INITIAL,
+    )
 }
 
 static WRITE_POLICY_ENTITY_FIELDS: [FieldModel; 3] = [
@@ -775,7 +779,7 @@ fn accepted_row_layout_runtime_contract_rejects_extra_generated_field_layout() {
 fn accepted_row_layout_runtime_contract_rejects_storage_decode_drift() {
     let accepted = generated_slot_compatible_accepted_schema_with_nickname_decode(
         false,
-        FieldStorageDecode::Value,
+        FieldStorageDecode::CatalogValue,
         LeafCodec::Scalar(ScalarCodec::Text),
     );
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)

@@ -5,8 +5,9 @@
 
 use crate::{
     db::schema::{
-        AcceptedEnumCatalog, AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedSchemaRevision,
-        AcceptedSchemaSnapshot, AcceptedValueAdmissionContract, AcceptedValueContract, FieldId,
+        AcceptedCompositeCatalog, AcceptedEnumCatalog, AcceptedEnumCatalogHandle,
+        AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
+        AcceptedValueAdmissionContract, AcceptedValueContract, FieldId,
         PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot, SchemaFieldDefault,
         SchemaFieldSlot, SchemaFieldWritePolicy, SchemaVersion,
         enum_catalog::EnumCatalogBuildError,
@@ -237,13 +238,13 @@ impl<'a> AcceptedFieldDecodeContract<'a> {
 
     /// Return whether this field uses the canonical recursive value wire.
     ///
-    /// Schema-native enums and generated structured values use the canonical
+    /// Schema-native enums and exact composite values use the canonical
     /// recursive wire even when proposal metadata classifies their dispatch
     /// lane as `ByKind`.
     #[must_use]
     pub(in crate::db) fn uses_canonical_value_wire(&self) -> bool {
         self.kind.requires_canonical_value_wire()
-            || matches!(self.storage_decode, FieldStorageDecode::Value)
+            || matches!(self.storage_decode, FieldStorageDecode::CatalogValue)
     }
 }
 
@@ -264,7 +265,7 @@ impl<'a> AcceptedFieldPersistenceContract<'a> {
         field: AcceptedFieldDecodeContract<'a>,
     ) -> Result<Self, EnumCatalogBuildError> {
         let value_contract = AcceptedValueContract::from_accepted_field(
-            enum_catalog.catalog(),
+            enum_catalog,
             field.kind(),
             field.storage_decode(),
         )?;
@@ -499,19 +500,26 @@ impl AcceptedRowDecodeContract {
     #[cfg(test)]
     pub(in crate::db) fn from_model_proposal_for_test(model: &'static EntityModel) -> Self {
         let proposal = crate::db::schema::compiled_schema_proposal_for_model(model);
-        let catalog =
-            crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog(&[model])
-                .expect("model proposal enum catalog should build for tests");
+        let (catalog, composite_catalog) =
+            crate::db::schema::build_initial_accepted_catalogs_for_tests(&[model])
+                .expect("model proposal catalogs should build for tests");
         let snapshot = proposal
-            .initial_persisted_schema_snapshot_with_enum_catalog(&catalog)
-            .expect("model proposal should resolve through its test enum catalog");
+            .initial_persisted_schema_snapshot_with_catalogs(&catalog, &composite_catalog)
+            .expect("model proposal should resolve through its test catalogs");
         let accepted = AcceptedSchemaSnapshot::try_new(snapshot)
             .expect("model proposal should produce an accepted test schema");
-        let (descriptor, _) =
-            AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(&accepted, model)
-                .expect("accepted test schema should match its model proposal");
-        let catalog =
-            AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+        let (descriptor, _) = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
+            &accepted,
+            model,
+            &catalog,
+            &composite_catalog,
+        )
+        .expect("accepted test schema should match its model proposal");
+        let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+            catalog,
+            composite_catalog,
+            AcceptedSchemaRevision::INITIAL,
+        );
 
         descriptor.row_decode_contract(catalog)
     }
@@ -733,13 +741,19 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     pub(in crate::db) fn from_generated_compatible_schema(
         accepted: &'a AcceptedSchemaSnapshot,
         model: &'static EntityModel,
+        enum_catalog: &AcceptedEnumCatalog,
+        composite_catalog: &AcceptedCompositeCatalog,
     ) -> Result<(Self, AcceptedGeneratedRowCompatibilityProof), InternalError> {
         #[cfg(test)]
         GENERATED_COMPATIBLE_ROW_LAYOUT_PROOFS
             .with(|proofs| proofs.set(proofs.get().saturating_add(1)));
 
         let descriptor = Self::from_accepted_schema(accepted)?;
-        let row_proof = descriptor.generated_row_compatibility_proof_for_model(model)?;
+        let row_proof = descriptor.generated_row_compatibility_proof_for_model_with_catalogs(
+            model,
+            enum_catalog,
+            composite_catalog,
+        )?;
 
         Ok((descriptor, row_proof))
     }
@@ -885,9 +899,26 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     /// bridged back to generated field codecs. Keeping this compatibility
     /// proof in the contract owner makes generated compatibility a
     /// schema-runtime contract instead of an executor side calculation.
+    #[cfg(test)]
     pub(in crate::db) fn generated_row_compatibility_proof_for_model(
         &self,
         model: &'static EntityModel,
+    ) -> Result<AcceptedGeneratedRowCompatibilityProof, InternalError> {
+        let (enum_catalog, composite_catalog) =
+            crate::db::schema::build_initial_accepted_catalogs_for_tests(&[model])
+                .map_err(|()| InternalError::store_invariant())?;
+        self.generated_row_compatibility_proof_for_model_with_catalogs(
+            model,
+            &enum_catalog,
+            &composite_catalog,
+        )
+    }
+
+    fn generated_row_compatibility_proof_for_model_with_catalogs(
+        &self,
+        model: &'static EntityModel,
+        enum_catalog: &AcceptedEnumCatalog,
+        composite_catalog: &AcceptedCompositeCatalog,
     ) -> Result<AcceptedGeneratedRowCompatibilityProof, InternalError> {
         // Phase 1: require primary-key identity and the accepted row layout to
         // match the generated decoder contract.
@@ -921,7 +952,12 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
                 return Err(InternalError::store_invariant());
             }
 
-            ensure_generated_field_decode_contract_compatible(accepted_field, field)?;
+            ensure_generated_field_decode_contract_compatible(
+                accepted_field,
+                field,
+                enum_catalog,
+                composite_catalog,
+            )?;
         }
 
         for slot in model.fields().len()..self.required_slot_count() {
@@ -953,12 +989,15 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
 fn ensure_generated_field_decode_contract_compatible(
     accepted_field: &AcceptedRowLayoutRuntimeField<'_>,
     generated_field: &FieldModel,
+    enum_catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
 ) -> Result<(), InternalError> {
     let accepted_contract = accepted_field.decode_contract();
-    if !accepted_contract
-        .kind()
-        .matches_generated_storage_shape(generated_field.kind())
-    {
+    if !accepted_contract.kind().matches_generated_storage_shape(
+        generated_field.kind(),
+        enum_catalog,
+        composite_catalog,
+    ) {
         return Err(InternalError::store_invariant());
     }
 

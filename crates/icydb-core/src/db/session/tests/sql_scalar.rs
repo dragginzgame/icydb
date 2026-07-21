@@ -82,7 +82,7 @@ fn execute_sql_scalar_field_path_where_matches_expected_rows() {
         &[
             ("Adam", profile_rank(Value::Int64(5))),
             ("Beth", profile_rank(Value::Int64(7))),
-            ("Cara", SessionSqlFieldPathProfile::default()),
+            ("Cara", profile_rank(Value::Int64(9))),
             ("Dina", profile_rank(Value::Null)),
         ],
     );

@@ -16,7 +16,8 @@ use crate::{
     model::{
         entity::{EntityModel, PrimaryKeyModel},
         field::{
-            FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec,
+            CompositeCodec, CompositeFieldModel, CompositeShapeModel, FieldDatabaseDefault,
+            FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec,
         },
     },
     types::EntityTag,
@@ -306,7 +307,7 @@ fn accepted_schema_describe_relations_use_persisted_relation_authority() {
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
             PersistedFieldSnapshot::new(
                 FieldId::new(2),
@@ -323,7 +324,7 @@ fn accepted_schema_describe_relations_use_persisted_relation_authority() {
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
         ],
     ));
@@ -482,7 +483,7 @@ fn schema_describe_uses_accepted_top_level_field_metadata() {
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
             PersistedFieldSnapshot::new(
                 FieldId::new(2),
@@ -493,7 +494,7 @@ fn schema_describe_uses_accepted_top_level_field_metadata() {
                 false,
                 SchemaFieldDefault::SlotPayload(vec![0x10, 0x20, 0x30]),
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
         ],
     ));
@@ -546,7 +547,7 @@ fn schema_describe_preserves_accepted_fixed_width_numeric_kind_labels() {
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
             PersistedFieldSnapshot::new(
                 FieldId::new(2),
@@ -595,24 +596,22 @@ fn schema_describe_uses_accepted_nested_leaf_metadata() {
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
             PersistedFieldSnapshot::new(
                 FieldId::new(2),
                 "profile".to_string(),
                 SchemaFieldSlot::new(1),
-                AcceptedFieldKind::Structured { queryable: true },
+                AcceptedFieldKind::test_composite(),
                 vec![PersistedNestedLeafSnapshot::new(
                     vec!["rank".to_string()],
                     AcceptedFieldKind::Blob { max_len: None },
                     false,
-                    FieldStorageDecode::ByKind,
-                    LeafCodec::Scalar(ScalarCodec::Blob),
                 )],
                 false,
                 SchemaFieldDefault::None,
-                FieldStorageDecode::Value,
-                LeafCodec::StructuralFallback,
+                FieldStorageDecode::CatalogValue,
+                LeafCodec::Structural,
             ),
         ],
     ));
@@ -635,12 +634,23 @@ fn schema_describe_expands_generated_structured_field_leaves() {
         FieldModel::generated("level", FieldKind::Nat64),
         FieldModel::generated("pid", FieldKind::Principal),
     ];
+    static COMPOSITE_FIELDS: [CompositeFieldModel; 3] = [
+        CompositeFieldModel::generated("name", FieldKind::Text { max_len: None }, false),
+        CompositeFieldModel::generated("level", FieldKind::Nat64, false),
+        CompositeFieldModel::generated("pid", FieldKind::Principal, false),
+    ];
+    static COMPOSITE_SHAPE: CompositeShapeModel = CompositeShapeModel::Record(&COMPOSITE_FIELDS);
+    static COMPOSITE_KIND: FieldKind = FieldKind::Composite {
+        path: "schema::describe::tests::Mentor",
+        codec: CompositeCodec::StructuralV1,
+        shape: &COMPOSITE_SHAPE,
+    };
     static FIELDS: [FieldModel; 2] = [
         FieldModel::generated("id", FieldKind::Ulid),
         FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
             "mentor",
-            FieldKind::Structured { queryable: false },
-            FieldStorageDecode::Value,
+            COMPOSITE_KIND,
+            FieldStorageDecode::CatalogValue,
             false,
             None,
             None,

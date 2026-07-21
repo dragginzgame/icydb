@@ -765,7 +765,7 @@ fn field_snapshot_contract_mismatch_detail(
 }
 
 // Summarize nested field-path drift on the owning top-level field. Nested
-// leaves do not carry physical row slots, so the first changed path/kind/codec
+// leaves do not carry physical row slots, so the first changed path/kind
 // fact is more useful than a raw debug dump when generated metadata drifts.
 #[cfg(test)]
 fn nested_leaf_mismatch_detail(
@@ -841,8 +841,8 @@ fn nested_leaf_first_mismatch_detail(
 }
 
 // Render one nested leaf descriptor without exposing the full debug shape.
-// Path/kind/nullability/codec are the facts needed to understand whether field
-// path planning or row-value decoding would need an explicit migration rule.
+// Path, kind, and nullability are the facts needed to understand whether field
+// path planning would need an explicit migration rule.
 #[cfg(test)]
 fn nested_leaf_detail(label: &str, leaf: &PersistedNestedLeafSnapshot) -> String {
     let path = if leaf.path().is_empty() {
@@ -852,11 +852,9 @@ fn nested_leaf_detail(label: &str, leaf: &PersistedNestedLeafSnapshot) -> String
     };
 
     format!(
-        "{label}_path='{path}' {label}_kind={:?} {label}_nullable={} {label}_storage_decode={:?} {label}_leaf_codec={:?}",
+        "{label}_path='{path}' {label}_kind={:?} {label}_nullable={}",
         leaf.kind(),
         leaf.nullable(),
-        leaf.storage_decode(),
-        leaf.leaf_codec(),
     )
 }
 

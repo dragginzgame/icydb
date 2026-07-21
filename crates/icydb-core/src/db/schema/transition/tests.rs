@@ -164,7 +164,7 @@ fn snapshot_with_name_kind(
         false,
         SchemaFieldDefault::None,
         FieldStorageDecode::ByKind,
-        LeafCodec::StructuralFallback,
+        LeafCodec::Structural,
     );
 
     PersistedSchemaSnapshot::new(
@@ -874,18 +874,16 @@ fn schema_transition_policy_reports_first_nested_leaf_mismatch() {
                 FieldId::new(2),
                 "profile".to_string(),
                 SchemaFieldSlot::new(1),
-                AcceptedFieldKind::Structured { queryable: false },
+                AcceptedFieldKind::test_composite(),
                 vec![PersistedNestedLeafSnapshot::new(
                     vec!["nickname".to_string()],
                     AcceptedFieldKind::Text { max_len: None },
                     false,
-                    FieldStorageDecode::ByKind,
-                    LeafCodec::Scalar(ScalarCodec::Text),
                 )],
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
         ],
     );
@@ -894,18 +892,16 @@ fn schema_transition_policy_reports_first_nested_leaf_mismatch() {
         FieldId::new(2),
         "profile".to_string(),
         SchemaFieldSlot::new(1),
-        AcceptedFieldKind::Structured { queryable: false },
+        AcceptedFieldKind::test_composite(),
         vec![PersistedNestedLeafSnapshot::new(
             vec!["score".to_string()],
             AcceptedFieldKind::Nat64,
             false,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
         )],
         false,
         SchemaFieldDefault::None,
         FieldStorageDecode::ByKind,
-        LeafCodec::StructuralFallback,
+        LeafCodec::Structural,
     );
     let generated = PersistedSchemaSnapshot::new(
         stored.version(),

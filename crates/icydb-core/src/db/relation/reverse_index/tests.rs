@@ -65,7 +65,7 @@ fn relation(field_index: usize, key_kind: AcceptedFieldKind) -> AcceptedRelation
         relation_ordinal: field_index,
         local_components: AcceptedRelationLocalComponents::scalar(
             field_index,
-            test_field_contract("target_id", &field_kind, LeafCodec::StructuralFallback),
+            test_field_contract("target_id", &field_kind, LeafCodec::Structural),
         ),
         target: AcceptedRelationTargetIdentity::try_new(
             "Source",
@@ -199,7 +199,7 @@ fn accepted_relations_require_registered_target_authority() {
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::StructuralFallback,
+                LeafCodec::Structural,
             ),
         ],
     )
@@ -213,8 +213,11 @@ fn accepted_relations_require_registered_target_authority() {
         .expect("accepted relation runtime contract should build");
     let catalog =
         build_initial_accepted_enum_catalog(&[]).expect("empty accepted enum catalog should build");
-    let catalog =
-        AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+    let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+        catalog,
+        crate::db::schema::AcceptedCompositeCatalog::empty(),
+        AcceptedSchemaRevision::INITIAL,
+    );
     let row_contract = StructuralRowContract::from_accepted_decode_contract(
         "Source",
         descriptor.row_decode_contract(catalog),
@@ -281,7 +284,7 @@ fn relation_validation_rejects_local_target_component_arity_mismatch() {
         relation_ordinal: 3,
         local_components: AcceptedRelationLocalComponents::scalar(
             3,
-            test_field_contract("target_id", &field_kind, LeafCodec::StructuralFallback),
+            test_field_contract("target_id", &field_kind, LeafCodec::Structural),
         ),
         target: AcceptedRelationTargetIdentity::try_new(
             "Source",

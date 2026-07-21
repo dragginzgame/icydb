@@ -8,6 +8,7 @@ mod accepted_value_admission;
 pub(in crate::db) mod authored_projection;
 mod capabilities;
 mod codec;
+mod composite_catalog;
 mod describe;
 pub(in crate::db) mod enum_catalog;
 mod errors;
@@ -45,6 +46,11 @@ pub(in crate::db) use codec::{decode_persisted_schema_snapshot, encode_persisted
 pub(in crate::db) use codec::{
     persisted_schema_snapshot_decode_count_for_tests,
     reset_persisted_schema_snapshot_decode_count_for_tests,
+};
+pub(in crate::db) use composite_catalog::AcceptedCompositeCatalog;
+#[cfg(test)]
+pub(in crate::db) use composite_catalog::{
+    build_initial_accepted_catalogs_for_tests, build_initial_accepted_catalogs_from_kinds_for_tests,
 };
 pub(in crate::db) use describe::{
     describe_entity_fields, describe_entity_fields_with_persisted_schema, describe_entity_model,

@@ -119,7 +119,10 @@ use crate::{
     error::{ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail},
     metrics::sink::{MetricsEvent, MetricsSink, PlanKind, with_shared_metrics_sink},
     model::{
-        field::{FieldKind, FieldModel, FieldStorageDecode},
+        field::{
+            CompositeCodec, CompositeFieldModel, CompositeShapeModel, FieldKind, FieldModel,
+            FieldStorageDecode,
+        },
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     testing::test_memory,
@@ -930,21 +933,23 @@ impl SessionSqlFieldPathProfile {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 enum SessionSqlFieldPathRank {
     #[default]
-    Missing,
     Null,
     Value(i64),
 }
 
 impl FieldTypeMeta for SessionSqlFieldPathProfile {
-    const KIND: FieldKind = FieldKind::Structured { queryable: false };
+    const KIND: FieldKind = FieldKind::Composite {
+        path: "session::tests::SessionSqlFieldPathProfile",
+        codec: CompositeCodec::StructuralV1,
+        shape: &SESSION_SQL_FIELD_PATH_PROFILE_SHAPE,
+    };
     const NESTED_FIELDS: &'static [FieldModel] = &[FieldModel::generated("rank", FieldKind::Int64)];
-    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::CatalogValue;
 }
 
 impl RuntimeValueEncode for SessionSqlFieldPathProfile {
     fn to_value(&self) -> Value {
         let rank = match self.rank {
-            SessionSqlFieldPathRank::Missing => return Value::Map(Vec::new()),
             SessionSqlFieldPathRank::Null => Value::Null,
             SessionSqlFieldPathRank::Value(value) => Value::Int64(value),
         };
@@ -963,8 +968,7 @@ impl RuntimeValueDecode for SessionSqlFieldPathProfile {
         let rank = match rank {
             Some(Value::Int64(rank)) => SessionSqlFieldPathRank::Value(*rank),
             Some(Value::Null) => SessionSqlFieldPathRank::Null,
-            Some(_) => return None,
-            None => SessionSqlFieldPathRank::Missing,
+            Some(_) | None => return None,
         };
 
         Some(Self { rank })
@@ -987,13 +991,33 @@ struct SessionSqlProfileRecord {
     nickname: String,
 }
 
+static SESSION_SQL_FIELD_PATH_PROFILE_FIELDS: [CompositeFieldModel; 1] =
+    [CompositeFieldModel::generated(
+        "rank",
+        FieldKind::Int64,
+        true,
+    )];
+static SESSION_SQL_FIELD_PATH_PROFILE_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Record(&SESSION_SQL_FIELD_PATH_PROFILE_FIELDS);
+
+static SESSION_SQL_PROFILE_RECORD_FIELDS: [CompositeFieldModel; 2] = [
+    CompositeFieldModel::generated("rank", FieldKind::Int64, false),
+    CompositeFieldModel::generated("nickname", FieldKind::Text { max_len: None }, false),
+];
+static SESSION_SQL_PROFILE_RECORD_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Record(&SESSION_SQL_PROFILE_RECORD_FIELDS);
+
 impl FieldTypeMeta for SessionSqlProfileRecord {
-    const KIND: FieldKind = FieldKind::Structured { queryable: false };
+    const KIND: FieldKind = FieldKind::Composite {
+        path: "session::tests::SessionSqlProfileRecord",
+        codec: CompositeCodec::StructuralV1,
+        shape: &SESSION_SQL_PROFILE_RECORD_SHAPE,
+    };
     const NESTED_FIELDS: &'static [FieldModel] = &[
         FieldModel::generated("rank", FieldKind::Int64),
         FieldModel::generated("nickname", FieldKind::Text { max_len: None }),
     ];
-    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::CatalogValue;
 }
 
 impl RuntimeValueEncode for SessionSqlProfileRecord {
@@ -1036,7 +1060,8 @@ impl PersistedByKindCodec for SessionSqlProfileRecord {
         kind: FieldKind,
         field_name: &'static str,
     ) -> Result<Vec<u8>, InternalError> {
-        if !matches!(kind, FieldKind::Structured { queryable: false }) {
+        if !matches!(kind, FieldKind::Composite { path, .. } if path == "session::tests::SessionSqlProfileRecord")
+        {
             return Err(InternalError::persisted_row_field_encode_failed(
                 field_name,
                 format!("field kind {kind:?} does not accept SQL profile record payload"),
@@ -1052,7 +1077,8 @@ impl PersistedByKindCodec for SessionSqlProfileRecord {
         kind: FieldKind,
         field_name: &'static str,
     ) -> Result<Option<Self>, InternalError> {
-        if !matches!(kind, FieldKind::Structured { queryable: false }) {
+        if !matches!(kind, FieldKind::Composite { path, .. } if path == "session::tests::SessionSqlProfileRecord")
+        {
             return Err(InternalError::persisted_row_field_decode_failed(
                 field_name,
                 format!("field kind {kind:?} does not decode as SQL profile record payload"),
@@ -1903,9 +1929,9 @@ crate::test_entity! {
         },
         crate::test_field! { name: String => FieldKind::Text { max_len: None } },
         crate::test_field! {
-            profile: SessionSqlProfileRecord => FieldKind::Structured { queryable: false },
+            profile: SessionSqlProfileRecord => SessionSqlProfileRecord::KIND,
             options = crate::testing::TestFieldModelOptions::DEFAULT
-                .with_storage_decode(FieldStorageDecode::Value),
+                .with_storage_decode(FieldStorageDecode::CatalogValue),
         },
     ],
     indexes = [],
@@ -1936,9 +1962,9 @@ crate::test_entity! {
         },
         crate::test_field! { name: String => FieldKind::Text { max_len: None } },
         crate::test_field! {
-            profile: SessionSqlProfileRecord => FieldKind::Structured { queryable: false },
+            profile: SessionSqlProfileRecord => SessionSqlProfileRecord::KIND,
             options = crate::testing::TestFieldModelOptions::DEFAULT
-                .with_storage_decode(FieldStorageDecode::Value)
+                .with_storage_decode(FieldStorageDecode::CatalogValue)
                 .with_nested_fields(&SessionSqlRecordFieldPathEntity::PROFILE_NESTED_FIELDS),
         },
     ],

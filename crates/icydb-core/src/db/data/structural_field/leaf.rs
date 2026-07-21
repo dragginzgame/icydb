@@ -46,7 +46,7 @@ pub(super) fn decode_leaf_field_by_kind_bytes(
         FieldKind::Decimal { .. } => decode_decimal_value_bytes(raw_bytes)?,
         FieldKind::Duration => decode_duration_value_bytes(raw_bytes)?,
         FieldKind::IntBig { max_bytes } => decode_int_big_value_bytes(raw_bytes, max_bytes)?,
-        FieldKind::Structured { .. } => decode_structured_leaf_null_value_bytes(raw_bytes)?,
+        FieldKind::Composite { .. } => decode_structured_leaf_null_value_bytes(raw_bytes)?,
         FieldKind::NatBig { max_bytes } => decode_nat_big_value_bytes(raw_bytes, max_bytes)?,
         FieldKind::Blob { .. }
         | FieldKind::Bool
@@ -97,7 +97,7 @@ pub(super) fn encode_leaf_field_binary_bytes(
         FieldKind::IntBig { max_bytes } => {
             Some(encode_int_big_value_bytes(value, max_bytes, field_name)?)
         }
-        FieldKind::Structured { .. } => Some(encode_structured_leaf_null_bytes(value, field_name)?),
+        FieldKind::Composite { .. } => Some(encode_structured_leaf_null_bytes(value, field_name)?),
         FieldKind::NatBig { max_bytes } => {
             Some(encode_nat_big_value_bytes(value, max_bytes, field_name)?)
         }
@@ -636,7 +636,10 @@ mod tests {
                 },
                 Value::NatBig(NatBig::from(987_654_321_u64)),
             ),
-            (FieldKind::Structured { queryable: false }, Value::Null),
+            (
+                FieldKind::empty_test_composite("structural_field::tests::Empty"),
+                Value::Null,
+            ),
         ];
 
         for (kind, value) in cases {
@@ -712,22 +715,22 @@ mod tests {
     }
 
     #[test]
-    fn leaf_field_binary_rejects_structured_non_null_payload() {
+    fn leaf_field_binary_rejects_composite_trailing_payload() {
         let mut bytes = Vec::new();
         push_binary_null(&mut bytes);
         bytes.push(TAG_NULL);
 
-        let kind = FieldKind::Structured { queryable: false };
+        let kind = FieldKind::empty_test_composite("structural_field::tests::Trailing");
         let decode = decode_leaf_field_by_kind_bytes(bytes.as_slice(), kind);
         let validate = validate_structural_field_by_kind_bytes(bytes.as_slice(), kind);
 
         assert!(
             decode.is_err(),
-            "structured leaf trailing bytes must fail decode"
+            "composite leaf trailing bytes must fail decode"
         );
         assert!(
             validate.is_err(),
-            "structured leaf trailing bytes must fail validate"
+            "composite leaf trailing bytes must fail validate"
         );
     }
 }

@@ -440,6 +440,7 @@ impl AcceptedCatalogSnapshotSelection {
             identity,
             AcceptedEnumCatalogHandle::new(
                 candidate.bundle().enum_catalog().clone(),
+                candidate.bundle().composite_catalog().clone(),
                 AcceptedStoreCatalogScope::new(),
                 candidate.revision(),
                 candidate.root().fingerprint(),
@@ -1094,6 +1095,7 @@ impl SchemaStore {
 
     /// Load one entity snapshot from the immutable bundle selected by the
     /// current accepted root.
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn current_accepted_persisted_snapshot(
         &self,
         entity: EntityTag,
@@ -1140,6 +1142,7 @@ impl SchemaStore {
             identity,
             AcceptedEnumCatalogHandle::new(
                 bundle.enum_catalog().clone(),
+                bundle.composite_catalog().clone(),
                 self.accepted_catalog_scope
                     .get_or_init(AcceptedStoreCatalogScope::new)
                     .clone(),
@@ -1202,6 +1205,7 @@ impl SchemaStore {
             identity,
             AcceptedEnumCatalogHandle::new(
                 bundle.enum_catalog().clone(),
+                bundle.composite_catalog().clone(),
                 self.accepted_catalog_scope
                     .get_or_init(AcceptedStoreCatalogScope::new)
                     .clone(),
@@ -2104,9 +2108,9 @@ fn hash_accepted_field_kind(hasher: &mut sha2::Sha256, kind: &AcceptedFieldKind)
             hash_accepted_field_kind(hasher, key);
             hash_accepted_field_kind(hasher, value);
         }
-        AcceptedFieldKind::Structured { queryable } => {
-            write_hash_tag_u8(hasher, 32);
-            write_hash_tag_u8(hasher, u8::from(*queryable));
+        AcceptedFieldKind::Composite { type_id } => {
+            write_hash_tag_u8(hasher, 31);
+            write_hash_u32(hasher, type_id.get());
         }
     }
 }

@@ -7,38 +7,24 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### ➕ Added
+
+- Adds accepted-schema-owned exact record, tuple, and newtype contracts with
+  nominal identities and complete recursive shapes.
+
 ### 🔧 Changed
 
-- Completes the 0.207 closeout hard cut by enforcing domain-stage bounds while
-  authoritative rows are streamed, streaming forward recovery with one cached
-  accepted authority per entity, preserving typed unique-index conflicts, and
-  deleting redundant DROP metrics/ordinal state and singular publication flow.
-- Adds one bounded, zero-write schema-owned stage for complete user-index
-  domain replacement, with exact accepted-before physical validation and a
-  deterministic accepted-after projection across field-path and expression
-  indexes.
-- Routes startup and SQL CREATE INDEX through one marker-first domain
-  replacement, deletes operation-specific create rollback machinery, and makes
-  interrupted publication recover forward to the accepted schema.
-- Moves DROP INDEX to the same accepted-after domain replacement, deleting
-  physical key remap and rollback state while preserving dense ordinals and
-  forward recovery after interruption.
-- Makes secondary-index recovery forward-only by deleting full-store snapshot
-  restoration and the unreachable dropping lifecycle state; interrupted or
-  invalid rebuilds now discard partial derived entries and remain non-ready
-  until guarded retry succeeds.
+- Hard-cuts the former generic structured-field contract and all affected
+  accepted metadata to one current pre-1.0 format. Existing development stores
+  using the prior accepted schema form must be recreated.
 
-### 🗑️ Removed
+## [0.207.x] 🔧 - 2026-07-21 - Redo-Only Schema Index Publication
 
-- Hard-cuts the public `IndexState::Dropping` variant because the current
-  marker-first DROP INDEX path never produces it; consumers should treat
-  `Building` as the sole non-ready lifecycle state.
+Detailed notes: [docs/changelog/0.207.md](docs/changelog/0.207.md)
 
-### 📚 Documentation
-
-- Opens 0.207 with an audited index-publication ownership, visibility,
-  failpoint, resource, and measurement baseline and extends the canonical SQL
-  evidence manifest without changing production behavior.
+- `0.207.0` makes user-index schema publication and recovery marker-first and
+  redo-only through one bounded domain replacement, removing operation-specific
+  rollback and the obsolete `IndexState::Dropping` lifecycle.
 
 ## [0.206.x] 🔧 - 2026-07-19 - SQL Performance Remediation
 

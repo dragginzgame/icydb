@@ -92,8 +92,11 @@ mod tests {
             .enum_type(type_id)
             .and_then(|definition| definition.variant_id("Ready"))
             .expect("output enum variant should exist");
-        let handle =
-            AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+        let handle = AcceptedEnumCatalogHandle::new_for_tests(
+            catalog,
+            crate::db::schema::AcceptedCompositeCatalog::empty(),
+            AcceptedSchemaRevision::INITIAL,
+        );
         let accepted = AcceptedExecutionOutput::new(
             vec![Value::Enum(ValueEnum::new(
                 type_id,

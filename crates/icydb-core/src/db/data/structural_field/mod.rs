@@ -105,7 +105,7 @@ pub(in crate::db) struct FieldDecodeError;
 impl FieldDecodeError {
     // Build one compact structural field-decode failure marker. Detailed
     // corruption taxonomy is added by row/store boundaries.
-    const fn new() -> Self {
+    pub(in crate::db) const fn new() -> Self {
         Self
     }
 }

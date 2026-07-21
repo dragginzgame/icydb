@@ -160,8 +160,8 @@ The active delivery sequence is intentionally serial:
 3. [0.207 redo-only schema index
    publication](design/0.207-redo-only-schema-index-publication/0.207-design.md)
    hard-cuts index publication to the maintained marker/recovery authority.
-4. [0.208 exact composite contracts and explicit
-   AnyValue](design/0.208-exact-composite-contracts-and-explicit-any-value/0.208-design.md)
+4. [0.208 exact composite
+   contracts](design/0.208-exact-composite-contracts/0.208-design.md)
    completes exact recursive field contracts.
 5. [0.209 temporal defaults and versioned row
    layouts](design/0.209-temporal-defaults-and-versioned-row-layouts/0.209-design.md)

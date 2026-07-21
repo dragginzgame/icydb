@@ -641,7 +641,7 @@ impl DescribeFieldMetadata {
     }
 }
 
-// Add one generated field and any generated structured-record leaves so
+// Add one generated field and any generated composite-record leaves so
 // DESCRIBE/SHOW COLUMNS expose the same nested rows SQL can project and filter.
 fn describe_field_recursive(
     fields: &mut Vec<EntityFieldDescription>,
@@ -907,8 +907,10 @@ fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
             write_field_kind_summary(out, value);
             out.push('>');
         }
-        FieldKind::Structured { .. } => {
-            out.push_str("structured");
+        FieldKind::Composite { path, .. } => {
+            out.push_str("composite(");
+            out.push_str(path);
+            out.push(')');
         }
         FieldKind::Account
         | FieldKind::Bool
@@ -975,7 +977,7 @@ impl DescribeKindName for FieldKind {
             | Self::List(_)
             | Self::Set(_)
             | Self::Map { .. }
-            | Self::Structured { .. } => return None,
+            | Self::Composite { .. } => return None,
         })
     }
 }
@@ -1118,8 +1120,8 @@ fn write_persisted_field_kind_summary(out: &mut String, kind: &AcceptedFieldKind
             write_persisted_field_kind_summary(out, value);
             out.push('>');
         }
-        AcceptedFieldKind::Structured { .. } => {
-            out.push_str("structured");
+        AcceptedFieldKind::Composite { type_id } => {
+            let _ = write!(out, "composite(type_id={})", type_id.get());
         }
         AcceptedFieldKind::Account
         | AcceptedFieldKind::Bool
@@ -1182,7 +1184,7 @@ impl DescribeKindName for AcceptedFieldKind {
             | Self::List(_)
             | Self::Set(_)
             | Self::Map { .. }
-            | Self::Structured { .. } => return None,
+            | Self::Composite { .. } => return None,
         })
     }
 }

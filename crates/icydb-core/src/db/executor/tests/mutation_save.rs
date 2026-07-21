@@ -41,7 +41,10 @@ use crate::{
     error::{ErrorClass, ErrorOrigin},
     metrics::{metrics_report, metrics_reset_all},
     model::{
-        field::{FieldDatabaseDefault, FieldKind, FieldStorageDecode},
+        field::{
+            CompositeCodec, CompositeFieldModel, CompositeShapeModel, FieldDatabaseDefault,
+            FieldKind, FieldStorageDecode,
+        },
         index::IndexModel,
     },
     testing::test_memory,
@@ -562,7 +565,17 @@ struct StructuredSelectionEntity {
 
 const STRUCTURED_SELECTION_ENTITY_TAG: EntityTag = EntityTag::new(0x1034);
 
-static STRUCTURED_SELECTED_PART_KIND: FieldKind = FieldKind::Structured { queryable: false };
+static STRUCTURED_SELECTED_PART_FIELDS: [CompositeFieldModel; 2] = [
+    CompositeFieldModel::generated("layer_id", FieldKind::Ulid, false),
+    CompositeFieldModel::generated("part_id", FieldKind::Ulid, false),
+];
+static STRUCTURED_SELECTED_PART_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Record(&STRUCTURED_SELECTED_PART_FIELDS);
+static STRUCTURED_SELECTED_PART_KIND: FieldKind = FieldKind::Composite {
+    path: "executor::tests::SaveSelectedPart",
+    codec: CompositeCodec::StructuralV1,
+    shape: &STRUCTURED_SELECTED_PART_SHAPE,
+};
 
 crate::test_entity! {
     ident = StructuredSelectionEntity,
@@ -577,7 +590,7 @@ crate::test_entity! {
         crate::test_field! {
             selected_parts: Vec<SaveSelectedPart> => FieldKind::List(&STRUCTURED_SELECTED_PART_KIND),
             options = crate::testing::TestFieldModelOptions::DEFAULT
-                .with_storage_decode(FieldStorageDecode::Value),
+                .with_storage_decode(FieldStorageDecode::CatalogValue),
         },
     ],
     indexes = [],
@@ -695,7 +708,7 @@ crate::test_entity! {
         crate::test_field! {
             selected_parts: SaveSelectedPartSet => STRUCTURED_SELECTION_SET_KIND,
             options = crate::testing::TestFieldModelOptions::DEFAULT
-                .with_storage_decode(FieldStorageDecode::Value),
+                .with_storage_decode(FieldStorageDecode::CatalogValue),
         },
     ],
     indexes = [],
@@ -836,7 +849,7 @@ crate::test_entity! {
         crate::test_field! {
             selected_parts_by_layer: SaveSelectedPartMap => STRUCTURED_SELECTION_MAP_KIND,
             options = crate::testing::TestFieldModelOptions::DEFAULT
-                .with_storage_decode(FieldStorageDecode::Value),
+                .with_storage_decode(FieldStorageDecode::CatalogValue),
         },
     ],
     indexes = [],

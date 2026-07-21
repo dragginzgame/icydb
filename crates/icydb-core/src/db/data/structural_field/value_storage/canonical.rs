@@ -1,4 +1,4 @@
-//! Canonical accepted-value encoding for `FieldStorageDecode::Value` payloads.
+//! Canonical accepted-value encoding for `FieldStorageDecode::CatalogValue` payloads.
 //!
 //! Non-enum values retain the existing Structural Binary v1 representation.
 //! Enums use the store-local type/variant ID envelope.

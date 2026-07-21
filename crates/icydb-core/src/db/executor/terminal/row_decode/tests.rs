@@ -10,7 +10,7 @@ use crate::{
             AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedRowLayoutRuntimeContract,
             AcceptedSchemaRevision, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
             PersistedSchemaSnapshot, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
-            compiled_schema_proposal_for_model, enum_catalog::build_initial_accepted_enum_catalog,
+            compiled_schema_proposal_for_model,
         },
     },
     entity::EntityDeclaration,
@@ -127,10 +127,15 @@ fn accepted_row_decode_schema() -> AcceptedSchemaSnapshot {
 }
 
 fn accepted_enum_catalog_handle(models: &[&'static EntityModel]) -> AcceptedEnumCatalogHandle {
-    let catalog = build_initial_accepted_enum_catalog(models)
-        .expect("accepted enum catalog fixture should build");
+    let (catalog, composite_catalog) =
+        crate::db::schema::build_initial_accepted_catalogs_for_tests(models)
+            .expect("accepted catalogs fixture should build");
 
-    AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL)
+    AcceptedEnumCatalogHandle::new_for_tests(
+        catalog,
+        composite_catalog,
+        AcceptedSchemaRevision::INITIAL,
+    )
 }
 
 fn accepted_row_decode_layout(
@@ -432,8 +437,8 @@ fn row_layout_rejects_accepted_payload_contract_drift_at_generated_compatibility
         title.nested_leaves().to_vec(),
         title.nullable(),
         title.default().clone(),
-        FieldStorageDecode::Value,
-        LeafCodec::StructuralFallback,
+        FieldStorageDecode::CatalogValue,
+        LeafCodec::Structural,
     );
     let changed = PersistedSchemaSnapshot::new(
         snapshot.version(),
@@ -662,7 +667,7 @@ crate::test_entity! {
         crate::test_field! {
             label: Text => FieldKind::Text { max_len: None },
             options = crate::testing::TestFieldModelOptions::DEFAULT
-                .with_storage_decode(crate::model::field::FieldStorageDecode::Value),
+                .with_storage_decode(crate::model::field::FieldStorageDecode::CatalogValue),
         },
     ],
     indexes = [],

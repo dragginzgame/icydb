@@ -20,6 +20,7 @@ pub use entity::{
     RelationEdgeModel,
 };
 pub use field::{
+    CompositeCodec, CompositeElementModel, CompositeFieldModel, CompositeShapeModel,
     DEFAULT_BIG_INT_MAX_BYTES, EnumVariantModel, FieldDatabaseDefault, FieldInsertGeneration,
     FieldKind, FieldModel, FieldStorageDecode, FieldWriteManagement,
 };

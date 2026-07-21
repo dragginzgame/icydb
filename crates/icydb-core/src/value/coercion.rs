@@ -22,7 +22,9 @@ pub enum CoercionFamily {
     Identifier, // Ulid, Principal, Subaccount
     Enum,       // Enum(type, variant)
     Collection, // List
-    Blob,       // Blob(Vec<u8>)
+    /// Explicit heterogeneous values with no coercion routes.
+    Opaque,
+    Blob, // Blob(Vec<u8>)
     Bool,
     Null, // Value::Null
     Unit, // Value::Unit

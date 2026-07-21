@@ -1357,15 +1357,18 @@ mod accepted_enum_tests {
     fn accepted_index_leaf_uses_catalog_ids_for_unit_enum_key() {
         let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[UNIT_KIND])
             .expect("unit enum catalog should build");
-        let handle =
-            AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+        let handle = AcceptedEnumCatalogHandle::new_for_tests(
+            catalog,
+            crate::db::schema::AcceptedCompositeCatalog::empty(),
+            AcceptedSchemaRevision::INITIAL,
+        );
         let kind = AcceptedFieldKind::from_model_kind(UNIT_KIND);
         let field = AcceptedFieldDecodeContract::new(
             "status",
             &kind,
             false,
             FieldStorageDecode::ByKind,
-            LeafCodec::StructuralFallback,
+            LeafCodec::Structural,
         );
         let persistence = AcceptedFieldPersistenceContract::new_for_tests(&handle, field)
             .expect("accepted index field should match the catalog");
@@ -1383,15 +1386,18 @@ mod accepted_enum_tests {
         let catalog =
             build_initial_accepted_enum_catalog_from_kinds_for_tests(&[PAYLOAD_ENUM_KIND])
                 .expect("payload enum catalog should build");
-        let handle =
-            AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+        let handle = AcceptedEnumCatalogHandle::new_for_tests(
+            catalog,
+            crate::db::schema::AcceptedCompositeCatalog::empty(),
+            AcceptedSchemaRevision::INITIAL,
+        );
         let kind = AcceptedFieldKind::from_model_kind(PAYLOAD_ENUM_KIND);
         let field = AcceptedFieldDecodeContract::new(
             "payload",
             &kind,
             false,
             FieldStorageDecode::ByKind,
-            LeafCodec::StructuralFallback,
+            LeafCodec::Structural,
         );
         let persistence = AcceptedFieldPersistenceContract::new_for_tests(&handle, field)
             .expect("accepted index field should match the catalog");

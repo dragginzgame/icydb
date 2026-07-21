@@ -82,7 +82,6 @@ impl ProjectionValueKindCode {
     const NAT_BIG: Self = Self(21);
     const ULID: Self = Self(22);
     const UNIT: Self = Self(23);
-
     pub(in crate::db) const fn from_value(value: &Value) -> Self {
         match value {
             Value::Account(_) => Self::ACCOUNT,

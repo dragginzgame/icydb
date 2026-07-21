@@ -119,14 +119,14 @@ where
 }
 
 // Standard containers mirror the generated collection-wrapper contract: their
-// semantic kind remains structural, but persisted decode routes through the
-// shared structural `Value` storage seam instead of leaf-by-leaf scalar decode.
+// exact recursive kind remains semantic authority while persisted decode uses
+// the shared catalog-value storage seam instead of leaf-by-leaf scalar decode.
 impl<T> FieldTypeMeta for Vec<T>
 where
     T: FieldTypeMeta,
 {
     const KIND: FieldKind = FieldKind::List(&T::KIND);
-    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::CatalogValue;
 }
 
 impl<T> FieldTypeMeta for BTreeSet<T>
@@ -134,7 +134,7 @@ where
     T: FieldTypeMeta,
 {
     const KIND: FieldKind = FieldKind::Set(&T::KIND);
-    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::CatalogValue;
 }
 
 impl<K, V> FieldTypeMeta for BTreeMap<K, V>
@@ -146,7 +146,7 @@ where
         key: &K::KIND,
         value: &V::KIND,
     };
-    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::CatalogValue;
 }
 
 /// ============================================================================

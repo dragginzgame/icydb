@@ -22,7 +22,6 @@ static ALPHA_REORDERED_KIND: FieldKind = FieldKind::Enum {
     path: "codec::Alpha",
     variants: &ALPHA_REORDERED_VARIANTS,
 };
-
 struct TestType<'a> {
     id: u32,
     path: &'a str,
@@ -126,7 +125,7 @@ fn accepted_enum_catalog_empty_wire_vector_is_frozen() {
     assert_eq!(
         encode_accepted_enum_catalog(&catalog).expect("empty catalog should encode"),
         [
-            0x49, 0x43, 0x59, 0x44, 0x42, 0x45, 0x4e, 0x43, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+            0x49, 0x43, 0x59, 0x44, 0x42, 0x45, 0x4e, 0x58, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
         ],
     );
 }

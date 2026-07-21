@@ -49,6 +49,40 @@ pub(crate) fn model_field_expr(field: &Field) -> TokenStream {
     ))
 }
 
+/// Returns one exact generated record-member descriptor.
+pub(crate) fn composite_field_model_expr(field: &Field) -> TokenStream {
+    let name = field.ident.to_string();
+    let kind = model_kind_from_value(&field.value);
+    let nullable = matches!(field.value.cardinality(), Cardinality::Opt);
+
+    quote!(::icydb::model::field::CompositeFieldModel::generated(
+        #name,
+        #kind,
+        #nullable,
+    ))
+}
+
+/// Returns one exact generated tuple-element descriptor.
+pub(crate) fn composite_element_model_expr(value: &Value) -> TokenStream {
+    let kind = model_kind_from_value(value);
+    let nullable = matches!(value.cardinality(), Cardinality::Opt);
+
+    quote!(::icydb::model::field::CompositeElementModel::generated(
+        #kind,
+        #nullable,
+    ))
+}
+
+/// Returns the exact generated newtype-inner descriptor.
+pub(crate) fn composite_newtype_inner_model_expr(item: &Item) -> TokenStream {
+    let kind = model_kind_from_item(item);
+
+    quote!(::icydb::model::field::CompositeElementModel::generated(
+        #kind,
+        false,
+    ))
+}
+
 /// Returns the persisted model kind for a nested value (e.g. map values).
 pub(crate) fn model_kind_from_nested_value(value: &Value) -> TokenStream {
     model_kind_from_value(value)

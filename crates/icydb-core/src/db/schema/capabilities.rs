@@ -153,14 +153,9 @@ pub(in crate::db) fn sql_capabilities(kind: &AcceptedFieldKind) -> SqlCapabiliti
             SQL_CAPABILITY_SELECTABLE,
             SqlAggregateInputCapabilities::new(false, false, false),
         ),
-        AcceptedFieldKindCategory::Structured { queryable } => SqlCapabilities::new(
-            if queryable {
-                SQL_CAPABILITY_SELECTABLE
-            } else {
-                0
-            },
-            SqlAggregateInputCapabilities::new(false, false, false),
-        ),
+        AcceptedFieldKindCategory::Composite => {
+            SqlCapabilities::new(0, SqlAggregateInputCapabilities::new(false, false, false))
+        }
     }
 }
 
@@ -173,14 +168,9 @@ pub(in crate::db) fn sql_capabilities_for_model_kind(kind: &FieldKind) -> SqlCap
             SQL_CAPABILITY_SELECTABLE,
             SqlAggregateInputCapabilities::new(false, false, false),
         ),
-        FieldKind::Structured { queryable } => SqlCapabilities::new(
-            if *queryable {
-                SQL_CAPABILITY_SELECTABLE
-            } else {
-                0
-            },
-            SqlAggregateInputCapabilities::new(false, false, false),
-        ),
+        FieldKind::Composite { .. } => {
+            SqlCapabilities::new(0, SqlAggregateInputCapabilities::new(false, false, false))
+        }
         FieldKind::Relation { key_kind, .. } => sql_capabilities_for_model_kind(key_kind),
         _ => {
             let semantics = classify_field_kind(kind);
@@ -309,18 +299,18 @@ mod tests {
     }
 
     #[test]
-    fn sql_capabilities_reject_collection_and_structured_predicates() {
+    fn sql_capabilities_reject_collection_and_composite_predicates() {
         let list = sql_capabilities(&AcceptedFieldKind::List(Box::new(
             AcceptedFieldKind::Text { max_len: None },
         )));
-        let structured = sql_capabilities(&AcceptedFieldKind::Structured { queryable: false });
+        let composite = sql_capabilities(&AcceptedFieldKind::test_composite());
 
         assert!(list.selectable());
         assert!(!list.comparable());
         assert!(!list.orderable());
         assert!(!list.groupable());
-        assert!(!structured.selectable());
-        assert!(!structured.comparable());
+        assert!(!composite.selectable());
+        assert!(!composite.comparable());
     }
 
     #[test]

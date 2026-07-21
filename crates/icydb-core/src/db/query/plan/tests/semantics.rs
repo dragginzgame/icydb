@@ -73,7 +73,9 @@ crate::test_schema_entity! {
     primary_key = [id],
     fields = [
         crate::test_field! { id: Ulid => FieldKind::Ulid },
-        crate::test_field! { profile: () => FieldKind::Structured { queryable: false } },
+        crate::test_field! {
+            profile: () => FieldKind::empty_test_composite("query::plan::tests::Profile")
+        },
     ],
     indexes = [],
 }

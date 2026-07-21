@@ -11,15 +11,20 @@ use crate::{
         PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
         SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout,
         SchemaVersion,
+        composite_catalog::AcceptedCompositeCatalog,
         enum_catalog::{
-            AcceptedEnumCatalog, encode_unit_enum_default_in_catalog, resolve_model_field_kind,
+            AcceptedEnumCatalog, encode_unit_enum_default_in_catalog,
+            resolve_model_field_kind_with_composite_catalog,
         },
         sql_capabilities,
     },
     error::InternalError,
     model::{
         entity::{EntityModel, RelationEdgeModel},
-        field::{FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
+        field::{
+            CompositeShapeModel, FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode,
+            LeafCodec,
+        },
         index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
 };
@@ -131,36 +136,31 @@ impl CompiledSchemaProposal {
                 )
             })
             .collect::<Vec<_>>();
-        let catalog = crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog_from_kinds_for_tests(
-            kinds.as_slice(),
-        )
-        .expect("test proposal enum catalog should build");
-        self.initial_persisted_schema_snapshot_with_enum_catalog(&catalog)
+        let (catalog, composite_catalog) =
+            crate::db::schema::build_initial_accepted_catalogs_from_kinds_for_tests(
+                kinds.as_slice(),
+            )
+            .expect("test proposal catalogs should build");
+        self.initial_persisted_schema_snapshot_with_catalogs(&catalog, &composite_catalog)
             .expect("test proposal should resolve through its enum catalog")
     }
 
     /// Build an initial persisted snapshot after catalog-native default admission.
-    pub(in crate::db) fn initial_persisted_schema_snapshot_with_enum_catalog(
+    pub(in crate::db) fn initial_persisted_schema_snapshot_with_catalogs(
         &self,
         enum_catalog: &AcceptedEnumCatalog,
-    ) -> Result<PersistedSchemaSnapshot, InternalError> {
-        self.initial_persisted_schema_snapshot_with_catalog(enum_catalog)
-    }
-
-    fn initial_persisted_schema_snapshot_with_catalog(
-        &self,
-        enum_catalog: &AcceptedEnumCatalog,
+        composite_catalog: &AcceptedCompositeCatalog,
     ) -> Result<PersistedSchemaSnapshot, InternalError> {
         let fields = self
             .fields()
             .iter()
-            .map(|field| field.initial_persisted_field_snapshot(enum_catalog))
+            .map(|field| field.initial_persisted_field_snapshot(enum_catalog, composite_catalog))
             .collect::<Result<Vec<_>, _>>()?;
 
         let indexes = self
             .indexes()
             .iter()
-            .map(|index| index.initial_persisted_index_snapshot(enum_catalog))
+            .map(|index| index.initial_persisted_index_snapshot(enum_catalog, composite_catalog))
             .collect::<Result<Vec<_>, _>>()?;
         let relations = self
             .relations()
@@ -210,8 +210,6 @@ pub(in crate::db) struct CompiledNestedLeafProposal {
     path: Vec<String>,
     kind: FieldKind,
     nullable: bool,
-    storage_decode: FieldStorageDecode,
-    leaf_codec: LeafCodec,
 }
 
 impl CompiledNestedLeafProposal {
@@ -233,15 +231,18 @@ impl CompiledNestedLeafProposal {
     fn initial_persisted_nested_leaf_snapshot(
         &self,
         enum_catalog: &AcceptedEnumCatalog,
+        composite_catalog: &AcceptedCompositeCatalog,
     ) -> Result<PersistedNestedLeafSnapshot, InternalError> {
-        let kind = resolve_model_field_kind(enum_catalog, self.kind())
-            .map_err(|_| InternalError::store_unsupported())?;
+        let kind = resolve_model_field_kind_with_composite_catalog(
+            enum_catalog,
+            composite_catalog,
+            self.kind(),
+        )
+        .map_err(|_| InternalError::store_unsupported())?;
         Ok(PersistedNestedLeafSnapshot::new(
             self.path.clone(),
             kind,
             self.nullable,
-            self.storage_decode,
-            self.leaf_codec,
         ))
     }
 }
@@ -313,14 +314,21 @@ impl CompiledFieldProposal {
     fn initial_persisted_field_snapshot(
         &self,
         enum_catalog: &AcceptedEnumCatalog,
+        composite_catalog: &AcceptedCompositeCatalog,
     ) -> Result<PersistedFieldSnapshot, InternalError> {
-        let kind = resolve_model_field_kind(enum_catalog, self.kind())
-            .map_err(|_| InternalError::store_unsupported())?;
+        let kind = resolve_model_field_kind_with_composite_catalog(
+            enum_catalog,
+            composite_catalog,
+            self.kind(),
+        )
+        .map_err(|_| InternalError::store_unsupported())?;
         let default = self.persisted_database_default(enum_catalog, &kind)?;
         let nested_leaves = self
             .nested_leaves()
             .iter()
-            .map(|leaf| leaf.initial_persisted_nested_leaf_snapshot(enum_catalog))
+            .map(|leaf| {
+                leaf.initial_persisted_nested_leaf_snapshot(enum_catalog, composite_catalog)
+            })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(PersistedFieldSnapshot::new_with_write_policy(
             self.id(),
@@ -418,13 +426,15 @@ impl CompiledIndexProposal {
     pub(in crate::db) fn initial_persisted_index_snapshot(
         &self,
         enum_catalog: &AcceptedEnumCatalog,
+        composite_catalog: &AcceptedCompositeCatalog,
     ) -> Result<PersistedIndexSnapshot, InternalError> {
         Ok(PersistedIndexSnapshot::new(
             self.ordinal(),
             self.name().to_string(),
             self.store().to_string(),
             self.unique(),
-            self.key().initial_persisted_key_snapshot(enum_catalog)?,
+            self.key()
+                .initial_persisted_key_snapshot(enum_catalog, composite_catalog)?,
             self.predicate_sql().map(str::to_string),
         ))
     }
@@ -494,18 +504,23 @@ impl CompiledIndexKeyProposal {
     fn initial_persisted_key_snapshot(
         &self,
         enum_catalog: &AcceptedEnumCatalog,
+        composite_catalog: &AcceptedCompositeCatalog,
     ) -> Result<PersistedIndexKeySnapshot, InternalError> {
         match self {
             Self::FieldPath(fields) => Ok(PersistedIndexKeySnapshot::FieldPath(
                 fields
                     .iter()
-                    .map(|field| field.initial_persisted_field_path_snapshot(enum_catalog))
+                    .map(|field| {
+                        field.initial_persisted_field_path_snapshot(enum_catalog, composite_catalog)
+                    })
                     .collect::<Result<Vec<_>, _>>()?,
             )),
             Self::Items(items) => Ok(PersistedIndexKeySnapshot::Items(
                 items
                     .iter()
-                    .map(|item| item.initial_persisted_key_item_snapshot(enum_catalog))
+                    .map(|item| {
+                        item.initial_persisted_key_item_snapshot(enum_catalog, composite_catalog)
+                    })
                     .collect::<Result<Vec<_>, _>>()?,
             )),
         }
@@ -528,14 +543,19 @@ impl CompiledIndexKeyItemProposal {
     fn initial_persisted_key_item_snapshot(
         &self,
         enum_catalog: &AcceptedEnumCatalog,
+        composite_catalog: &AcceptedCompositeCatalog,
     ) -> Result<PersistedIndexKeyItemSnapshot, InternalError> {
         match self {
             Self::FieldPath(field_path) => Ok(PersistedIndexKeyItemSnapshot::FieldPath(
-                field_path.initial_persisted_field_path_snapshot(enum_catalog)?,
+                field_path
+                    .initial_persisted_field_path_snapshot(enum_catalog, composite_catalog)?,
             )),
-            Self::Expression(expression) => Ok(PersistedIndexKeyItemSnapshot::Expression(
-                Box::new(expression.initial_persisted_expression_snapshot(enum_catalog)?),
-            )),
+            Self::Expression(expression) => {
+                Ok(PersistedIndexKeyItemSnapshot::Expression(Box::new(
+                    expression
+                        .initial_persisted_expression_snapshot(enum_catalog, composite_catalog)?,
+                )))
+            }
         }
     }
 }
@@ -590,9 +610,14 @@ impl CompiledIndexFieldPathProposal {
     fn initial_persisted_field_path_snapshot(
         &self,
         enum_catalog: &AcceptedEnumCatalog,
+        composite_catalog: &AcceptedCompositeCatalog,
     ) -> Result<PersistedIndexFieldPathSnapshot, InternalError> {
-        let kind = resolve_model_field_kind(enum_catalog, self.kind())
-            .map_err(|_| InternalError::store_unsupported())?;
+        let kind = resolve_model_field_kind_with_composite_catalog(
+            enum_catalog,
+            composite_catalog,
+            self.kind(),
+        )
+        .map_err(|_| InternalError::store_unsupported())?;
         Ok(PersistedIndexFieldPathSnapshot::new(
             self.field_id(),
             self.slot(),
@@ -622,15 +647,24 @@ impl CompiledIndexExpressionProposal {
     fn initial_persisted_expression_snapshot(
         &self,
         enum_catalog: &AcceptedEnumCatalog,
+        composite_catalog: &AcceptedCompositeCatalog,
     ) -> Result<PersistedIndexExpressionSnapshot, InternalError> {
-        let input_kind = resolve_model_field_kind(enum_catalog, self.source.kind())
-            .map_err(|_| InternalError::store_unsupported())?;
-        let output_kind = resolve_model_field_kind(enum_catalog, self.output_kind)
-            .map_err(|_| InternalError::store_unsupported())?;
+        let input_kind = resolve_model_field_kind_with_composite_catalog(
+            enum_catalog,
+            composite_catalog,
+            self.source.kind(),
+        )
+        .map_err(|_| InternalError::store_unsupported())?;
+        let output_kind = resolve_model_field_kind_with_composite_catalog(
+            enum_catalog,
+            composite_catalog,
+            self.output_kind,
+        )
+        .map_err(|_| InternalError::store_unsupported())?;
         Ok(PersistedIndexExpressionSnapshot::new(
             self.op,
             self.source
-                .initial_persisted_field_path_snapshot(enum_catalog)?,
+                .initial_persisted_field_path_snapshot(enum_catalog, composite_catalog)?,
             input_kind,
             output_kind,
             self.canonical_text.clone(),
@@ -714,13 +748,32 @@ fn debug_assert_compiled_schema_proposal_invariants(
     );
 
     let layout = proposal.initial_row_layout();
+    let Ok(composite_ids) =
+        crate::db::schema::composite_catalog::generated_composite_type_ids(&[model])
+    else {
+        debug_assert!(false, "generated composite identity map should build");
+        return;
+    };
     let Ok(catalog) =
-        crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog(&[model])
+        crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog_with_composite_ids(
+            &[model],
+            &composite_ids,
+        )
     else {
         debug_assert!(false, "generated enum catalog should build");
         return;
     };
-    let Ok(snapshot) = proposal.initial_persisted_schema_snapshot_with_enum_catalog(&catalog)
+    let Ok(composite_catalog) =
+        crate::db::schema::composite_catalog::build_initial_accepted_composite_catalog(
+            &[model],
+            &catalog,
+        )
+    else {
+        debug_assert!(false, "generated composite catalog should build");
+        return;
+    };
+    let Ok(snapshot) =
+        proposal.initial_persisted_schema_snapshot_with_catalogs(&catalog, &composite_catalog)
     else {
         debug_assert!(false, "generated defaults should admit through the catalog");
         return;
@@ -743,6 +796,22 @@ fn debug_assert_compiled_schema_proposal_invariants(
     debug_assert_eq!(snapshot.indexes().len(), proposal.indexes().len());
     debug_assert_eq!(snapshot.relations().len(), proposal.relations().len());
 
+    debug_assert_compiled_schema_proposal_members(
+        proposal,
+        &snapshot,
+        &catalog,
+        &composite_catalog,
+    );
+}
+
+// Exercise every generated-to-accepted projection while debug assertions are
+// enabled so additions cannot silently leave one metadata family disconnected.
+fn debug_assert_compiled_schema_proposal_members(
+    proposal: &CompiledSchemaProposal,
+    snapshot: &PersistedSchemaSnapshot,
+    catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
+) {
     for field in snapshot.fields() {
         let _ = (
             field.id(),
@@ -785,7 +854,7 @@ fn debug_assert_compiled_schema_proposal_invariants(
             field.storage_decode(),
             field.leaf_codec(),
             field.nested_leaves(),
-            field.initial_persisted_field_snapshot(&catalog),
+            field.initial_persisted_field_snapshot(catalog, composite_catalog),
         );
     }
 
@@ -797,7 +866,7 @@ fn debug_assert_compiled_schema_proposal_invariants(
             index.unique(),
             index.key(),
             index.predicate_sql(),
-            index.initial_persisted_index_snapshot(&catalog),
+            index.initial_persisted_index_snapshot(catalog, composite_catalog),
         );
     }
 
@@ -824,7 +893,7 @@ fn compiled_field_proposal_from_model_field(
         name: field.name(),
         slot,
         kind: field.kind(),
-        nested_leaves: persisted_nested_leaf_snapshots_from_model_fields(field.nested_fields()),
+        nested_leaves: compiled_nested_leaf_proposals_from_kind(field.kind()),
         nullable: field.nullable(),
         database_default: field.database_default(),
         write_policy: SchemaFieldWritePolicy::from_model_policies(
@@ -1012,39 +1081,59 @@ fn compiled_index_field_path_proposal_from_name(
     })
 }
 
-// Flatten generated nested field metadata into path-addressed persisted leaf
-// descriptors rooted at one top-level field. The top-level field owns the
-// physical slot; nested entries only carry planning metadata for field paths.
-fn persisted_nested_leaf_snapshots_from_model_fields(
-    fields: &[FieldModel],
-) -> Vec<CompiledNestedLeafProposal> {
+// Derive path-addressed leaf proposals from the complete generated composite
+// shape. The accepted composite catalog resolves the same shape into stable
+// identities before these planning-only views are persisted.
+fn compiled_nested_leaf_proposals_from_kind(kind: FieldKind) -> Vec<CompiledNestedLeafProposal> {
     let mut leaves = Vec::new();
-
-    for field in fields {
-        push_persisted_nested_leaf_snapshots(field, Vec::new(), &mut leaves);
+    if let FieldKind::Composite {
+        shape: CompositeShapeModel::Record(fields),
+        ..
+    } = kind
+    {
+        for field in *fields {
+            push_compiled_nested_leaf_proposals(
+                field.name(),
+                field.kind(),
+                field.nullable(),
+                Vec::new(),
+                &mut leaves,
+            );
+        }
     }
-
     leaves
 }
 
-// Record one nested field itself, then recurse through its children so every
-// queryable path segment chain has an accepted-schema descriptor.
-fn push_persisted_nested_leaf_snapshots(
-    field: &FieldModel,
+// Record one exact record member, then recurse only through nested records so
+// every queryable member path has one catalog-derived schema descriptor.
+fn push_compiled_nested_leaf_proposals(
+    name: &str,
+    kind: FieldKind,
+    nullable: bool,
     mut path: Vec<String>,
     leaves: &mut Vec<CompiledNestedLeafProposal>,
 ) {
-    path.push(field.name().to_string());
+    path.push(name.to_string());
     leaves.push(CompiledNestedLeafProposal {
         path: path.clone(),
-        kind: field.kind(),
-        nullable: field.nullable(),
-        storage_decode: field.storage_decode(),
-        leaf_codec: field.leaf_codec(),
+        kind,
+        nullable,
     });
 
-    for nested in field.nested_fields() {
-        push_persisted_nested_leaf_snapshots(nested, path.clone(), leaves);
+    if let FieldKind::Composite {
+        shape: CompositeShapeModel::Record(fields),
+        ..
+    } = kind
+    {
+        for field in *fields {
+            push_compiled_nested_leaf_proposals(
+                field.name(),
+                field.kind(),
+                field.nullable(),
+                path.clone(),
+                leaves,
+            );
+        }
     }
 }
 

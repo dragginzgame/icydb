@@ -10,8 +10,8 @@ use crate::{
         data::{AuthoredStructuralPatch, FieldSlot},
         executor::EntityAuthority,
         schema::{
-            AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
-            SchemaFieldWritePolicy, SchemaInfo, canonicalize_strict_sql_literal_for_persisted_kind,
+            AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, SchemaFieldWritePolicy,
+            SchemaInfo, canonicalize_strict_sql_literal_for_persisted_kind,
             input_value_from_strict_sql_literal_for_persisted_kind,
         },
         session::{
@@ -99,26 +99,30 @@ where
 }
 
 fn checked_accepted_write_descriptor<E>(
-    schema: &AcceptedSchemaSnapshot,
+    catalog: &AcceptedSchemaCatalogContext,
 ) -> Result<AcceptedRowLayoutRuntimeContract<'_>, QueryError>
 where
     E: EntityKind,
 {
-    let (descriptor, _) =
-        AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(schema, E::MODEL)
-            .map_err(QueryError::execute)?;
+    let (descriptor, _) = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
+        catalog.snapshot(),
+        E::MODEL,
+        catalog.enum_catalog(),
+        catalog.composite_catalog(),
+    )
+    .map_err(QueryError::execute)?;
 
     Ok(descriptor)
 }
 
 fn checked_accepted_write_descriptor_for_returning<'a, E>(
-    schema: &'a AcceptedSchemaSnapshot,
+    catalog: &'a AcceptedSchemaCatalogContext,
     returning: Option<&SqlReturningProjection>,
 ) -> Result<AcceptedRowLayoutRuntimeContract<'a>, QueryError>
 where
     E: EntityKind,
 {
-    let descriptor = checked_accepted_write_descriptor::<E>(schema)?;
+    let descriptor = checked_accepted_write_descriptor::<E>(catalog)?;
     validate_sql_returning_projection_fields(&descriptor, returning)?;
 
     Ok(descriptor)
@@ -268,18 +272,15 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C>,
     {
         if let Some(catalog) = catalog {
-            let descriptor = checked_accepted_write_descriptor_for_returning::<E>(
-                catalog.snapshot(),
-                returning,
-            )?;
+            let descriptor =
+                checked_accepted_write_descriptor_for_returning::<E>(catalog, returning)?;
             return run(catalog, descriptor);
         }
 
         let catalog = self
             .accepted_schema_catalog_context_for_query::<E>()
             .map_err(QueryError::execute)?;
-        let descriptor =
-            checked_accepted_write_descriptor_for_returning::<E>(catalog.snapshot(), returning)?;
+        let descriptor = checked_accepted_write_descriptor_for_returning::<E>(&catalog, returning)?;
 
         run(&catalog, descriptor)
     }

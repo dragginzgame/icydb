@@ -6,12 +6,16 @@ use crate::{
     db::schema::{AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract},
     model::{
         entity::EntityModel,
-        field::{EnumVariantModel, FieldModel, LeafCodec},
+        field::{
+            CompositeCodec, CompositeElementModel, CompositeFieldModel, CompositeShapeModel,
+            EnumVariantModel, FieldModel, LeafCodec,
+        },
         index::IndexModel,
     },
     testing::entity_model_from_static,
     value::{
-        CanonicalEnumBody, CanonicalEnumValue, InputValue, InputValueEnum, OutputValue, ValueTag,
+        CanonicalEnumBody, CanonicalEnumValue, InputValue, InputValueEnum, OutputValue, Value,
+        ValueTag,
     },
 };
 
@@ -28,7 +32,7 @@ fn accepted_field_contract<'a>(
         kind,
         nullable,
         storage_decode,
-        LeafCodec::StructuralFallback,
+        LeafCodec::Structural,
     );
     AcceptedFieldPersistenceContract::new_for_tests(catalog, field)
         .expect("accepted test field should match its catalog")
@@ -114,7 +118,7 @@ static PAYLOAD_BY_KIND: FieldKind = FieldKind::Enum {
 static PAYLOAD_VALUE_VARIANTS: [EnumVariantModel; 1] = [EnumVariantModel::new(
     "Value",
     Some(&PAYLOAD_KIND),
-    FieldStorageDecode::Value,
+    FieldStorageDecode::CatalogValue,
 )];
 static PAYLOAD_VALUE: FieldKind = FieldKind::Enum {
     path: "catalog::PayloadDecode",
@@ -163,7 +167,66 @@ static ENUM_MODEL: EntityModel = entity_model_from_static(
     &MODEL_FIELDS,
     &MODEL_INDEXES,
 );
-
+static PROFILE_FIELDS: [CompositeFieldModel; 2] = [
+    CompositeFieldModel::generated("name", FieldKind::Text { max_len: Some(16) }, false),
+    CompositeFieldModel::generated("score", FieldKind::Nat64, true),
+];
+static PROFILE_SHAPE: CompositeShapeModel = CompositeShapeModel::Record(&PROFILE_FIELDS);
+static PROFILE_KIND: FieldKind = FieldKind::Composite {
+    path: "catalog::Profile",
+    codec: CompositeCodec::StructuralV1,
+    shape: &PROFILE_SHAPE,
+};
+static PAIR_ELEMENTS: [CompositeElementModel; 2] = [
+    CompositeElementModel::generated(FieldKind::Nat64, false),
+    CompositeElementModel::generated(FieldKind::Bool, false),
+];
+static PAIR_SHAPE: CompositeShapeModel = CompositeShapeModel::Tuple(&PAIR_ELEMENTS);
+static PAIR_KIND: FieldKind = FieldKind::Composite {
+    path: "catalog::Pair",
+    codec: CompositeCodec::StructuralV1,
+    shape: &PAIR_SHAPE,
+};
+static IDENTIFIER_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Newtype(CompositeElementModel::generated(FieldKind::Nat64, false));
+static IDENTIFIER_KIND: FieldKind = FieldKind::Composite {
+    path: "catalog::Identifier",
+    codec: CompositeCodec::StructuralV1,
+    shape: &IDENTIFIER_SHAPE,
+};
+static NESTED_FIELDS: [CompositeFieldModel; 1] =
+    [CompositeFieldModel::generated("pair", PAIR_KIND, false)];
+static NESTED_SHAPE: CompositeShapeModel = CompositeShapeModel::Record(&NESTED_FIELDS);
+static NESTED_KIND: FieldKind = FieldKind::Composite {
+    path: "catalog::Nested",
+    codec: CompositeCodec::StructuralV1,
+    shape: &NESTED_SHAPE,
+};
+static EMPTY_RECORD_FIELDS: [CompositeFieldModel; 0] = [];
+static EMPTY_RECORD_SHAPE: CompositeShapeModel = CompositeShapeModel::Record(&EMPTY_RECORD_FIELDS);
+static EMPTY_RECORD_KIND: FieldKind = FieldKind::Composite {
+    path: "catalog::EmptyRecord",
+    codec: CompositeCodec::StructuralV1,
+    shape: &EMPTY_RECORD_SHAPE,
+};
+static EMPTY_TUPLE_ELEMENTS: [CompositeElementModel; 0] = [];
+static EMPTY_TUPLE_SHAPE: CompositeShapeModel = CompositeShapeModel::Tuple(&EMPTY_TUPLE_ELEMENTS);
+static EMPTY_TUPLE_KIND: FieldKind = FieldKind::Composite {
+    path: "catalog::EmptyTuple",
+    codec: CompositeCodec::StructuralV1,
+    shape: &EMPTY_TUPLE_SHAPE,
+};
+static BENCH_RECORD_FIELDS: [CompositeFieldModel; 3] = [
+    CompositeFieldModel::generated("alpha", FieldKind::Nat64, false),
+    CompositeFieldModel::generated("beta", FieldKind::Nat64, false),
+    CompositeFieldModel::generated("gamma", FieldKind::Nat64, false),
+];
+static BENCH_RECORD_SHAPE: CompositeShapeModel = CompositeShapeModel::Record(&BENCH_RECORD_FIELDS);
+static BENCH_RECORD_KIND: FieldKind = FieldKind::Composite {
+    path: "catalog::BenchRecord",
+    codec: CompositeCodec::StructuralV1,
+    shape: &BENCH_RECORD_SHAPE,
+};
 #[test]
 fn enum_ids_are_non_zero_by_construction() {
     assert_eq!(EnumTypeId::new(0), None);
@@ -195,7 +258,11 @@ fn accepted_catalog_handle(
     catalog: &AcceptedEnumCatalog,
     revision: AcceptedSchemaRevision,
 ) -> AcceptedEnumCatalogHandle {
-    AcceptedEnumCatalogHandle::new_for_tests(catalog.clone(), revision)
+    AcceptedEnumCatalogHandle::new_for_tests(
+        catalog.clone(),
+        AcceptedCompositeCatalog::empty(),
+        revision,
+    )
 }
 
 fn admitted_unit_equality_key(
@@ -368,34 +435,12 @@ fn persisted_field_admission_resolves_enum_contract_and_nullable_null() {
         &invalid_kind,
         false,
         FieldStorageDecode::ByKind,
-        LeafCodec::StructuralFallback,
+        LeafCodec::Structural,
     );
     assert!(
         AcceptedFieldPersistenceContract::new_for_tests(&catalog_handle, invalid_field).is_err(),
         "unknown enum IDs must not produce accepted field authority",
     );
-}
-
-#[test]
-fn persisted_field_admission_accepts_by_kind_structured_values() {
-    let catalog =
-        build_initial_accepted_enum_catalog_from_kinds(&[]).expect("empty catalog should build");
-    let catalog_handle = accepted_catalog_handle(&catalog, AcceptedSchemaRevision::INITIAL);
-    let kind = AcceptedFieldKind::Structured { queryable: true };
-    let contract =
-        accepted_field_contract(&catalog_handle, &kind, false, FieldStorageDecode::ByKind);
-    let mut budget = ValueAdmissionBudget::standard();
-    let input = InputValue::Map(vec![(
-        InputValue::Text("name".to_string()),
-        InputValue::Text("mentor".to_string()),
-    )]);
-
-    let admitted = contract
-        .admission_contract()
-        .normalize_and_admit(input, &mut budget)
-        .expect("structured authored input should admit to the canonical recursive value");
-
-    assert!(matches!(admitted.value(), CanonicalValue::Map(_)));
 }
 
 #[test]
@@ -445,24 +490,28 @@ fn admitted_owned_value_requires_exact_store_revision_and_fingerprint_authority(
     let store_scope = AcceptedStoreCatalogScope::new();
     let authority = AcceptedEnumCatalogHandle::new(
         catalog.clone(),
+        AcceptedCompositeCatalog::empty(),
         store_scope.clone(),
         AcceptedSchemaRevision::INITIAL,
         AcceptedSchemaFingerprint::new([0x11; 32]),
     );
     let other_store = AcceptedEnumCatalogHandle::new(
         catalog.clone(),
+        AcceptedCompositeCatalog::empty(),
         AcceptedStoreCatalogScope::new(),
         AcceptedSchemaRevision::INITIAL,
         AcceptedSchemaFingerprint::new([0x11; 32]),
     );
     let other_revision = AcceptedEnumCatalogHandle::new(
         catalog.clone(),
+        AcceptedCompositeCatalog::empty(),
         store_scope.clone(),
         AcceptedSchemaRevision::new(2),
         AcceptedSchemaFingerprint::new([0x11; 32]),
     );
     let other_fingerprint = AcceptedEnumCatalogHandle::new(
         catalog,
+        AcceptedCompositeCatalog::empty(),
         store_scope,
         AcceptedSchemaRevision::INITIAL,
         AcceptedSchemaFingerprint::new([0x22; 32]),
@@ -668,15 +717,21 @@ fn accepted_value_admission_rejects_path_variant_and_body_mismatches() {
 fn accepted_value_admission_enforces_depth_and_size_budgets() {
     let catalog =
         build_initial_accepted_enum_catalog_from_kinds(&[]).expect("empty catalog should build");
-    let structured = AcceptedValueContract {
-        kind: AcceptedFieldKind::Structured { queryable: false },
-        storage_decode: FieldStorageDecode::Value,
+    let nested_list = AcceptedValueContract {
+        kind: AcceptedFieldKind::List(Box::new(AcceptedFieldKind::List(Box::new(
+            AcceptedFieldKind::Unit,
+        )))),
+        storage_decode: FieldStorageDecode::ByKind,
+    };
+    let bounded_text = AcceptedValueContract {
+        kind: AcceptedFieldKind::Text { max_len: None },
+        storage_decode: FieldStorageDecode::ByKind,
     };
     let catalog_handle = accepted_catalog_handle(&catalog, AcceptedSchemaRevision::INITIAL);
     let nested = InputValue::List(vec![InputValue::List(vec![InputValue::Unit])]);
     let mut shallow_budget = ValueAdmissionBudget::with_limits(2, 1024);
     assert_eq!(
-        normalize_and_admit_value(&catalog_handle, &structured, nested, &mut shallow_budget,),
+        normalize_and_admit_value(&catalog_handle, &nested_list, nested, &mut shallow_budget,),
         Err(ValueAdmissionError::DepthExceeded),
     );
 
@@ -684,7 +739,7 @@ fn accepted_value_admission_enforces_depth_and_size_budgets() {
     assert_eq!(
         normalize_and_admit_value(
             &catalog_handle,
-            &structured,
+            &bounded_text,
             InputValue::Text("larger than budget".to_string()),
             &mut small_budget,
         ),
@@ -1023,5 +1078,334 @@ fn checked_id_allocation_rejects_overflow_without_wrapping() {
         Err(EnumCatalogBuildError::EnumVariantIdExhausted {
             path: "catalog::Max".to_string(),
         }),
+    );
+}
+
+fn accepted_composite_contract(
+    kind: FieldKind,
+) -> (AcceptedEnumCatalogHandle, AcceptedValueContract) {
+    let (enum_catalog, composite_catalog) =
+        crate::db::schema::build_initial_accepted_catalogs_from_kinds_for_tests(&[kind])
+            .expect("composite catalogs should build");
+    let accepted_kind =
+        resolve_model_field_kind_with_composite_catalog(&enum_catalog, &composite_catalog, kind)
+            .expect("composite kind should resolve");
+    let handle = AcceptedEnumCatalogHandle::new_for_tests(
+        enum_catalog,
+        composite_catalog,
+        AcceptedSchemaRevision::INITIAL,
+    );
+    let contract = AcceptedValueContract::from_accepted_field(
+        &handle,
+        &accepted_kind,
+        FieldStorageDecode::CatalogValue,
+    )
+    .expect("accepted composite contract should build");
+    (handle, contract)
+}
+
+#[test]
+fn exact_record_admission_canonicalizes_declared_fields_and_rejects_shape_drift() {
+    let (catalog, contract) = accepted_composite_contract(PROFILE_KIND);
+    let admitted = normalize_and_admit_value(
+        &catalog,
+        &contract,
+        InputValue::Map(vec![
+            (InputValue::Text("score".to_string()), InputValue::Null),
+            (
+                InputValue::Text("name".to_string()),
+                InputValue::Text("Ada".to_string()),
+            ),
+        ]),
+        &mut ValueAdmissionBudget::standard(),
+    )
+    .expect("declared record should admit");
+    let Value::Map(entries) = admitted.value() else {
+        panic!("record should retain the canonical map envelope");
+    };
+    assert!(matches!(&entries[0].0, Value::Text(name) if name == "name"));
+    assert!(matches!(&entries[1].0, Value::Text(name) if name == "score"));
+
+    for invalid in [
+        InputValue::Map(vec![(
+            InputValue::Text("name".to_string()),
+            InputValue::Text("Ada".to_string()),
+        )]),
+        InputValue::Map(vec![
+            (
+                InputValue::Text("name".to_string()),
+                InputValue::Text("Ada".to_string()),
+            ),
+            (InputValue::Text("score".to_string()), InputValue::Null),
+            (
+                InputValue::Text("extra".to_string()),
+                InputValue::Bool(true),
+            ),
+        ]),
+    ] {
+        assert_eq!(
+            normalize_and_admit_value(
+                &catalog,
+                &contract,
+                invalid,
+                &mut ValueAdmissionBudget::standard(),
+            ),
+            Err(ValueAdmissionError::CompositeShapeMismatch),
+        );
+    }
+}
+
+#[test]
+fn exact_tuple_admission_rejects_wrong_arity_and_element_kind() {
+    let (catalog, contract) = accepted_composite_contract(PAIR_KIND);
+
+    assert!(
+        normalize_and_admit_value(
+            &catalog,
+            &contract,
+            InputValue::List(vec![InputValue::Nat64(7), InputValue::Bool(true)]),
+            &mut ValueAdmissionBudget::standard(),
+        )
+        .is_ok()
+    );
+    assert_eq!(
+        normalize_and_admit_value(
+            &catalog,
+            &contract,
+            InputValue::List(vec![InputValue::Nat64(7)]),
+            &mut ValueAdmissionBudget::standard(),
+        ),
+        Err(ValueAdmissionError::CompositeShapeMismatch),
+    );
+    assert_eq!(
+        normalize_and_admit_value(
+            &catalog,
+            &contract,
+            InputValue::List(vec![
+                InputValue::Nat64(7),
+                InputValue::Text("true".to_string())
+            ]),
+            &mut ValueAdmissionBudget::standard(),
+        ),
+        Err(ValueAdmissionError::TypeMismatch),
+    );
+}
+
+#[test]
+fn exact_newtype_nested_and_empty_composites_preserve_their_declared_shapes() {
+    let (catalog, identifier) = accepted_composite_contract(IDENTIFIER_KIND);
+    assert!(
+        normalize_and_admit_value(
+            &catalog,
+            &identifier,
+            InputValue::Nat64(7),
+            &mut ValueAdmissionBudget::standard(),
+        )
+        .is_ok()
+    );
+    assert_eq!(
+        normalize_and_admit_value(
+            &catalog,
+            &identifier,
+            InputValue::Text("7".to_string()),
+            &mut ValueAdmissionBudget::standard(),
+        ),
+        Err(ValueAdmissionError::TypeMismatch),
+    );
+
+    let (catalog, nested) = accepted_composite_contract(NESTED_KIND);
+    let nested_value = |pair| InputValue::Map(vec![(InputValue::Text("pair".to_string()), pair)]);
+    assert!(
+        normalize_and_admit_value(
+            &catalog,
+            &nested,
+            nested_value(InputValue::List(vec![
+                InputValue::Nat64(7),
+                InputValue::Bool(true),
+            ])),
+            &mut ValueAdmissionBudget::standard(),
+        )
+        .is_ok()
+    );
+    assert_eq!(
+        normalize_and_admit_value(
+            &catalog,
+            &nested,
+            nested_value(InputValue::List(vec![InputValue::Nat64(7)])),
+            &mut ValueAdmissionBudget::standard(),
+        ),
+        Err(ValueAdmissionError::CompositeShapeMismatch),
+    );
+
+    let (catalog, empty_record) = accepted_composite_contract(EMPTY_RECORD_KIND);
+    assert!(
+        normalize_and_admit_value(
+            &catalog,
+            &empty_record,
+            InputValue::Map(Vec::new()),
+            &mut ValueAdmissionBudget::standard(),
+        )
+        .is_ok()
+    );
+    assert_eq!(
+        normalize_and_admit_value(
+            &catalog,
+            &empty_record,
+            InputValue::List(Vec::new()),
+            &mut ValueAdmissionBudget::standard(),
+        ),
+        Err(ValueAdmissionError::CompositeShapeMismatch),
+    );
+
+    let (catalog, empty_tuple) = accepted_composite_contract(EMPTY_TUPLE_KIND);
+    assert!(
+        normalize_and_admit_value(
+            &catalog,
+            &empty_tuple,
+            InputValue::List(Vec::new()),
+            &mut ValueAdmissionBudget::standard(),
+        )
+        .is_ok()
+    );
+    assert_eq!(
+        normalize_and_admit_value(
+            &catalog,
+            &empty_tuple,
+            InputValue::Map(Vec::new()),
+            &mut ValueAdmissionBudget::standard(),
+        ),
+        Err(ValueAdmissionError::CompositeShapeMismatch),
+    );
+}
+
+#[test]
+fn exact_composite_admission_enforces_shared_depth_and_byte_budgets() {
+    let (catalog, nested) = accepted_composite_contract(NESTED_KIND);
+    let input = InputValue::Map(vec![(
+        InputValue::Text("pair".to_string()),
+        InputValue::List(vec![InputValue::Nat64(7), InputValue::Bool(true)]),
+    )]);
+
+    assert_eq!(
+        normalize_and_admit_value(
+            &catalog,
+            &nested,
+            input.clone(),
+            &mut ValueAdmissionBudget::with_limits(2, 1024),
+        ),
+        Err(ValueAdmissionError::DepthExceeded),
+    );
+    assert_eq!(
+        normalize_and_admit_value(
+            &catalog,
+            &nested,
+            input,
+            &mut ValueAdmissionBudget::with_limits(64, 8),
+        ),
+        Err(ValueAdmissionError::SizeExceeded),
+    );
+}
+
+#[test]
+#[ignore = "native microbenchmark: run explicitly with --ignored --nocapture"]
+fn exact_composite_admission_microbenchmark_report() {
+    use std::{hint::black_box, time::Instant};
+
+    const ITERATIONS: u32 = 20_000;
+    let (catalog, composite_contract) = accepted_composite_contract(BENCH_RECORD_KIND);
+    let map_kind = AcceptedFieldKind::Map {
+        key: Box::new(AcceptedFieldKind::Text { max_len: Some(8) }),
+        value: Box::new(AcceptedFieldKind::Nat64),
+    };
+    let map_contract = AcceptedValueContract::from_accepted_field(
+        &catalog,
+        &map_kind,
+        FieldStorageDecode::CatalogValue,
+    )
+    .expect("comparison map contract should build");
+    let input = InputValue::Map(vec![
+        (InputValue::Text("gamma".to_string()), InputValue::Nat64(3)),
+        (InputValue::Text("alpha".to_string()), InputValue::Nat64(1)),
+        (InputValue::Text("beta".to_string()), InputValue::Nat64(2)),
+    ]);
+
+    let start = Instant::now();
+    for _ in 0..ITERATIONS {
+        let admitted = normalize_and_admit_value(
+            &catalog,
+            &composite_contract,
+            black_box(input.clone()),
+            &mut ValueAdmissionBudget::standard(),
+        )
+        .expect("exact record should admit");
+        black_box(admitted);
+    }
+    let composite_normalize = start.elapsed();
+
+    let start = Instant::now();
+    for _ in 0..ITERATIONS {
+        let admitted = normalize_and_admit_value(
+            &catalog,
+            &map_contract,
+            black_box(input.clone()),
+            &mut ValueAdmissionBudget::standard(),
+        )
+        .expect("typed map should admit");
+        black_box(admitted);
+    }
+    let map_normalize = start.elapsed();
+
+    let canonical = normalize_and_admit_value(
+        &catalog,
+        &composite_contract,
+        input,
+        &mut ValueAdmissionBudget::standard(),
+    )
+    .expect("exact record should admit for validation benchmark");
+    let start = Instant::now();
+    for _ in 0..ITERATIONS {
+        black_box(
+            validate_canonical_value(
+                &catalog,
+                &composite_contract,
+                canonical.value(),
+                &mut ValueAdmissionBudget::standard(),
+            )
+            .expect("exact canonical record should validate"),
+        );
+    }
+    let composite_validate = start.elapsed();
+
+    let start = Instant::now();
+    for _ in 0..ITERATIONS {
+        black_box(
+            validate_canonical_value(
+                &catalog,
+                &map_contract,
+                canonical.value(),
+                &mut ValueAdmissionBudget::standard(),
+            )
+            .expect("typed canonical map should validate"),
+        );
+    }
+    let map_validate = start.elapsed();
+
+    println!("Exact composite accepted-admission microbenchmark");
+    println!("iterations={ITERATIONS}");
+    println!(
+        "record_normalize_ns_per_op={}",
+        composite_normalize.as_nanos() / u128::from(ITERATIONS),
+    );
+    println!(
+        "typed_map_normalize_ns_per_op={}",
+        map_normalize.as_nanos() / u128::from(ITERATIONS),
+    );
+    println!(
+        "record_validate_ns_per_op={}",
+        composite_validate.as_nanos() / u128::from(ITERATIONS),
+    );
+    println!(
+        "typed_map_validate_ns_per_op={}",
+        map_validate.as_nanos() / u128::from(ITERATIONS),
     );
 }

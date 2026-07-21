@@ -84,7 +84,7 @@ pub(in crate::db) fn resolve_sql_ddl_field_type_contract(
         "int128" => Some(SchemaDdlFieldTypeContract::new(
             AcceptedFieldKind::Int128,
             FieldStorageDecode::ByKind,
-            LeafCodec::StructuralFallback,
+            LeafCodec::Structural,
         )),
         "nat8" => Some(SchemaDdlFieldTypeContract::new(
             AcceptedFieldKind::Nat8,
@@ -109,7 +109,7 @@ pub(in crate::db) fn resolve_sql_ddl_field_type_contract(
         "nat128" => Some(SchemaDdlFieldTypeContract::new(
             AcceptedFieldKind::Nat128,
             FieldStorageDecode::ByKind,
-            LeafCodec::StructuralFallback,
+            LeafCodec::Structural,
         )),
         "text" | "string" => Some(SchemaDdlFieldTypeContract::new(
             AcceptedFieldKind::Text { max_len: None },
@@ -127,7 +127,7 @@ fn persisted_big_int_contract_for_sql_column_type(
         return Some(SchemaDdlFieldTypeContract::new(
             AcceptedFieldKind::IntBig { max_bytes },
             FieldStorageDecode::ByKind,
-            LeafCodec::StructuralFallback,
+            LeafCodec::Structural,
         ));
     }
 
@@ -135,7 +135,7 @@ fn persisted_big_int_contract_for_sql_column_type(
         SchemaDdlFieldTypeContract::new(
             AcceptedFieldKind::NatBig { max_bytes },
             FieldStorageDecode::ByKind,
-            LeafCodec::StructuralFallback,
+            LeafCodec::Structural,
         )
     })
 }
