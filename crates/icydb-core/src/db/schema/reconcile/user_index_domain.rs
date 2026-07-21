@@ -1,22 +1,20 @@
 //! Module: db::schema::reconcile::user_index_domain
-//! Responsibility: adapt authoritative stored rows to schema-owned index-domain staging.
+//! Responsibility: adapt authoritative stored rows to schema-owned derived-domain staging.
 //! Does not own: index derivation, physical apply, accepted-schema publication, or recovery.
-//! Boundary: accepted catalog + stored rows -> zero-write staged user-index domain.
+//! Boundary: accepted catalog + stored rows -> one zero-write staged derived domain.
 
 #[cfg(feature = "sql")]
 use crate::db::schema::AcceptedSchemaSnapshot;
 use crate::{
     db::{
         Db,
+        commit::PreparedIndexMutation,
         data::{
             AcceptedStructuralRowAuthority, DecodedDataStoreKey, StoreVisit, StructuralRowContract,
             StructuralSlotReader,
         },
         registry::StoreHandle,
-        relation::{
-            ReverseRelationSourceInfo, StagedReverseRelationDomainEffects,
-            StagedReverseRelationDomainEffectsBuilder,
-        },
+        relation::{ReverseRelationSourceInfo, StagedReverseRelationDomainEffectsBuilder},
         schema::{
             AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, CandidateSchemaRevision,
             PersistedSchemaSnapshot, SchemaUserIndexDomainRow, StagedUserIndexDomainError,
@@ -28,6 +26,34 @@ use crate::{
     types::EntityTag,
 };
 
+///
+/// StagedDerivedDomainReplacement
+///
+/// Inseparable user-index replacement and reverse-relation effects for one
+/// accepted entity candidate. The user-index stage owns candidate identity;
+/// reverse-relation effects are derived during the same row traversal.
+///
+
+pub(in crate::db) struct StagedDerivedDomainReplacement {
+    user_indexes: StagedUserIndexDomainReplacement,
+    reverse_relations: Vec<PreparedIndexMutation>,
+}
+
+impl StagedDerivedDomainReplacement {
+    /// Borrow the candidate identity owner used by publication validation.
+    #[must_use]
+    pub(in crate::db) const fn user_indexes(&self) -> &StagedUserIndexDomainReplacement {
+        &self.user_indexes
+    }
+
+    /// Consume the stage into its two mechanical apply payloads.
+    pub(in crate::db) fn into_apply_parts(
+        self,
+    ) -> (StagedUserIndexDomainReplacement, Vec<PreparedIndexMutation>) {
+        (self.user_indexes, self.reverse_relations)
+    }
+}
+
 /// Stage one complete accepted-after user-index domain for startup schema
 /// reconciliation without changing schema or physical index state.
 pub(super) fn stage_startup_derived_domain_replacement<C: CanisterKind>(
@@ -37,13 +63,7 @@ pub(super) fn stage_startup_derived_domain_replacement<C: CanisterKind>(
     store_path: &'static str,
     entity_path: &'static str,
     candidate: &CandidateSchemaRevision,
-) -> Result<
-    (
-        StagedUserIndexDomainReplacement,
-        StagedReverseRelationDomainEffects,
-    ),
-    InternalError,
-> {
+) -> Result<StagedDerivedDomainReplacement, InternalError> {
     let accepted_before_selection = store
         .with_schema(|schema_store| {
             schema_store.current_accepted_catalog_selection(entity_tag, entity_path, store_path)
@@ -234,13 +254,7 @@ fn stage_generated_derived_domain_replacement<C: CanisterKind>(
     accepted_after: &PersistedSchemaSnapshot,
     accepted_before_row_contract: StructuralRowContract,
     accepted_after_row_contract: StructuralRowContract,
-) -> Result<
-    (
-        StagedUserIndexDomainReplacement,
-        StagedReverseRelationDomainEffects,
-    ),
-    InternalError,
-> {
+) -> Result<StagedDerivedDomainReplacement, InternalError> {
     let entity_tag = accepted_before_identity.entity_tag();
     let entity_path = accepted_before_identity.entity_path();
     let mut user_indexes = store.with_index(|index_store| {
@@ -307,5 +321,8 @@ fn stage_generated_derived_domain_replacement<C: CanisterKind>(
     })?;
     let reverse_relations = reverse_relations.finish(user_indexes.usage().staged_raw_bytes())?;
 
-    Ok((user_indexes, reverse_relations))
+    Ok(StagedDerivedDomainReplacement {
+        user_indexes,
+        reverse_relations,
+    })
 }

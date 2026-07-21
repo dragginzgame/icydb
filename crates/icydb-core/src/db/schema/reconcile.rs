@@ -47,6 +47,7 @@ use std::collections::{BTreeMap, BTreeSet};
 #[cfg(test)]
 use crate::db::schema::build_initial_accepted_catalogs_for_tests;
 
+pub(in crate::db) use user_index_domain::StagedDerivedDomainReplacement;
 use user_index_domain::stage_startup_derived_domain_replacement;
 
 struct ReconciledRuntimeSchema {
@@ -338,19 +339,12 @@ fn publish_generated_accepted_schema_bundle<C: CanisterKind>(
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let mut user_index_domains = Vec::with_capacity(staged_domains.len());
-        let mut reverse_relation_domains = Vec::with_capacity(staged_domains.len());
-        for (user_indexes, reverse_relations) in staged_domains {
-            user_index_domains.push(user_indexes);
-            reverse_relation_domains.push(reverse_relations);
-        }
         crate::db::commit::publish_accepted_schema_candidate_with_derived_domains(
             store_path,
             store,
             expected_revision,
             &candidate,
-            user_index_domains,
-            reverse_relation_domains,
+            staged_domains,
         )
     }
 }

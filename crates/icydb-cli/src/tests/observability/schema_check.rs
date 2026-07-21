@@ -67,7 +67,18 @@ fn entity(
     indexes: Vec<EntityIndexDescription>,
     relations: Vec<EntityRelationDescription>,
 ) -> EntitySchemaDescription {
-    EntitySchemaDescription::new(path, name, primary_key, fields, indexes, relations, 1, 1)
+    let primary_key_fields = vec![primary_key.clone()];
+    EntitySchemaDescription::new(
+        path,
+        name,
+        primary_key,
+        primary_key_fields,
+        fields,
+        indexes,
+        relations,
+        1,
+        1,
+    )
 }
 
 #[test]
@@ -201,7 +212,7 @@ fn schema_check_report_renders_empty_report_sections() {
 
 #[test]
 fn schema_check_report_compares_ordered_primary_key_fields() {
-    let generated = EntitySchemaDescription::new_with_primary_key_fields(
+    let generated = EntitySchemaDescription::new(
         "demo::Placement".to_string(),
         "Placement".to_string(),
         "tenant_id, local_id".to_string(),
@@ -212,7 +223,7 @@ fn schema_check_report_compares_ordered_primary_key_fields() {
         1,
         1,
     );
-    let accepted = EntitySchemaDescription::new_with_primary_key_fields(
+    let accepted = EntitySchemaDescription::new(
         "demo::Placement".to_string(),
         "Placement".to_string(),
         "tenant_id, local_id".to_string(),

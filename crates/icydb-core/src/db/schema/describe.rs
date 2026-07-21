@@ -92,43 +92,13 @@ impl EntitySchemaCheckDescription {
 }
 
 impl EntitySchemaDescription {
-    /// Construct one scalar-compatible entity schema description payload.
+    /// Construct one entity schema description payload.
     #[expect(
         clippy::too_many_arguments,
         reason = "schema description construction keeps identity, collections, and layout explicit"
     )]
     #[must_use]
-    pub fn new(
-        entity_path: String,
-        entity_name: String,
-        primary_key: String,
-        fields: Vec<EntityFieldDescription>,
-        indexes: Vec<EntityIndexDescription>,
-        relations: Vec<EntityRelationDescription>,
-        row_layout_current: u32,
-        row_layout_history_floor: u32,
-    ) -> Self {
-        Self::new_with_primary_key_fields(
-            entity_path,
-            entity_name,
-            primary_key.clone(),
-            vec![primary_key],
-            fields,
-            indexes,
-            relations,
-            row_layout_current,
-            row_layout_history_floor,
-        )
-    }
-
-    /// Construct one entity schema description payload with ordered
-    /// primary-key fields.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "schema description construction keeps identity, collections, and layout explicit"
-    )]
-    #[must_use]
-    pub const fn new_with_primary_key_fields(
+    pub const fn new(
         entity_path: String,
         entity_name: String,
         primary_key: String,
@@ -659,7 +629,7 @@ fn describe_entity_model_from_description_rows(
     row_layout_current: u32,
     row_layout_history_floor: u32,
 ) -> EntitySchemaDescription {
-    EntitySchemaDescription::new_with_primary_key_fields(
+    EntitySchemaDescription::new(
         entity_path.to_string(),
         entity_name.to_string(),
         primary_key.to_string(),
@@ -1372,10 +1342,14 @@ fn generated_insert_default_facts(
         FieldDatabaseDefault::None => (None, None, None),
         FieldDatabaseDefault::EncodedSlotPayload(payload) => {
             let bytes = u32::try_from(payload.len()).ok();
+            let hash = short_default_payload_fingerprint(payload);
             (
-                Some(encoded_payload_summary(payload)),
+                Some(format!(
+                    "slot_payload(bytes={}, sha256={hash})",
+                    payload.len()
+                )),
                 bytes,
-                Some(short_default_payload_fingerprint(payload)),
+                Some(hash),
             )
         }
         FieldDatabaseDefault::AuthoredEnumUnit { enum_path, variant } => {
@@ -1458,17 +1432,18 @@ fn accepted_payload_facts(
     let admitted = decode_admitted_value_from_accepted_field_contract(persistence, payload)?;
     let output = output_value_from_runtime(value_catalog.enum_catalog(), admitted.value())
         .map_err(|_| InternalError::store_invariant())?;
-    let rendered = bounded_schema_value_rendering(&output, payload);
+    let hash = short_default_payload_fingerprint(payload);
+    let rendered = bounded_schema_value_rendering(&output, payload, hash.as_str());
     let bytes = u32::try_from(payload.len()).map_err(|_| InternalError::store_invariant())?;
 
     Ok(RenderedTemporalPayload {
         value: rendered,
         bytes,
-        hash: short_default_payload_fingerprint(payload),
+        hash,
     })
 }
 
-fn bounded_schema_value_rendering(value: &OutputValue, payload: &[u8]) -> String {
+fn bounded_schema_value_rendering(value: &OutputValue, payload: &[u8], hash: &str) -> String {
     let rendered = match value {
         OutputValue::Text(value) => format!("'{}'", value.escape_default()),
         _ => render_output_value_text(value),
@@ -1481,7 +1456,7 @@ fn bounded_schema_value_rendering(value: &OutputValue, payload: &[u8]) -> String
         "{}(bytes={}, sha256={})",
         output_value_kind_label(value),
         payload.len(),
-        short_default_payload_fingerprint(payload),
+        hash,
     )
 }
 
@@ -1512,14 +1487,6 @@ const fn output_value_kind_label(value: &OutputValue) -> &'static str {
         OutputValue::Ulid(_) => "ulid",
         OutputValue::Unit => "unit",
     }
-}
-
-fn encoded_payload_summary(payload: &[u8]) -> String {
-    format!(
-        "slot_payload(bytes={}, sha256={})",
-        payload.len(),
-        short_default_payload_fingerprint(payload),
-    )
 }
 
 fn short_default_payload_fingerprint(payload: &[u8]) -> String {

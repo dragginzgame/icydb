@@ -72,10 +72,9 @@ impl Error {
         boundary: icydb_diagnostic_code::RuntimeBoundaryCode,
         origin: ErrorOrigin,
     ) -> Self {
-        let error_code = icydb_diagnostic_code::ErrorCode::from_parts(
-            icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
-            Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary { boundary }),
-        );
+        let detail = icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary { boundary };
+        let error_code =
+            icydb_diagnostic_code::ErrorCode::from_parts(detail.diagnostic_code(), Some(detail));
 
         Self::from_error_code(error_code, origin)
     }

@@ -175,6 +175,36 @@ fn public_error_runtime_boundary_collapses_detail_to_leaf_code() {
 }
 
 #[test]
+fn public_error_runtime_corruption_boundary_preserves_its_broad_code() {
+    let facade = Error::from_runtime_boundary(
+        icydb_diagnostic_code::RuntimeBoundaryCode::PersistedRowLayoutOutsideAcceptedWindow,
+        ErrorOrigin::Serialize,
+    );
+
+    assert_eq!(
+        facade.code(),
+        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_PERSISTED_ROW_LAYOUT_OUTSIDE_ACCEPTED_WINDOW,
+    );
+    assert_eq!(
+        facade.class(),
+        icydb_diagnostic_code::ErrorClass::Corruption
+    );
+    assert_eq!(facade.origin(), ErrorOrigin::Serialize);
+    let diagnostic = facade.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeCorruption,
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+            boundary:
+                icydb_diagnostic_code::RuntimeBoundaryCode::PersistedRowLayoutOutsideAcceptedWindow,
+        }),
+    );
+}
+
+#[test]
 fn public_error_sql_write_boundary_collapses_detail_to_leaf_code() {
     let diagnostic = icydb_diagnostic_code::Diagnostic::new(
         icydb_diagnostic_code::DiagnosticCode::QuerySqlWriteBoundary,

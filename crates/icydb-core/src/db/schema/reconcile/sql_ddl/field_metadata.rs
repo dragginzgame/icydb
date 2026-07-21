@@ -317,9 +317,9 @@ fn validate_sql_ddl_set_not_null_rows(
             if key.entity_tag() != entity_tag {
                 return Ok(StoreVisit::Continue);
             }
-            budget.consume_source_row(raw_row.len()).map_err(|error| {
-                InternalError::schema_transition_budget_exceeded(error.resource())
-            })?;
+            budget
+                .consume_source_row(raw_row.len())
+                .map_err(InternalError::schema_transition_budget_exceeded)?;
             let mut reader = StructuralSlotReader::from_raw_row_with_validated_contract(
                 raw_row,
                 contract.clone(),

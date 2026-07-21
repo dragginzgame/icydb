@@ -426,6 +426,18 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::SqlIntrospectionDisabled => {
             "SQL introspection is disabled for this canister build target"
         }
+        RuntimeBoundaryCode::MutationRequiredFieldMissing => {
+            "mutation is missing one or more required fields"
+        }
+        RuntimeBoundaryCode::PersistedRowLayoutOutsideAcceptedWindow => {
+            "persisted row layout is outside the accepted layout window"
+        }
+        RuntimeBoundaryCode::PersistedRowSlotCountMismatch => {
+            "persisted row slot count does not match its stamped layout"
+        }
+        RuntimeBoundaryCode::GeneratedFieldAfterDdlField => {
+            "generated field would collide with an accepted SQL DDL field slot"
+        }
     }
 }
 
@@ -1010,16 +1022,34 @@ mod tests {
     }
 
     #[test]
-    fn renders_runtime_boundary_detail() {
-        let err = icydb::Error::from_runtime_boundary(
-            icydb::diagnostic::RuntimeBoundaryCode::SqlDdlTargetRequired,
-            icydb::ErrorOrigin::Interface,
-        );
+    fn renders_runtime_boundary_details() {
+        let cases = [
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::SqlDdlTargetRequired,
+                "E_RUNTIME_UNSUPPORTED: SQL DDL requires one target entity",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::MutationRequiredFieldMissing,
+                "E_RUNTIME_UNSUPPORTED: mutation is missing one or more required fields",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::PersistedRowLayoutOutsideAcceptedWindow,
+                "E_RUNTIME_CORRUPTION: persisted row layout is outside the accepted layout window",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::PersistedRowSlotCountMismatch,
+                "E_RUNTIME_CORRUPTION: persisted row slot count does not match its stamped layout",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::GeneratedFieldAfterDdlField,
+                "E_RUNTIME_UNSUPPORTED: generated field would collide with an accepted SQL DDL field slot",
+            ),
+        ];
 
-        assert_eq!(
-            render_error(&err),
-            "E_RUNTIME_UNSUPPORTED: SQL DDL requires one target entity",
-        );
+        for (boundary, expected) in cases {
+            let err = icydb::Error::from_runtime_boundary(boundary, icydb::ErrorOrigin::Interface);
+            assert_eq!(render_error(&err), expected);
+        }
     }
 
     #[test]

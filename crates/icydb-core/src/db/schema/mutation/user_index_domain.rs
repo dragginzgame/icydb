@@ -14,22 +14,20 @@ use crate::{
         key_taxonomy::PrimaryKeyValue,
         predicate::{PredicateProgram, normalize, parse_sql_predicate},
         schema::{
-            AcceptedCatalogIdentity, PersistedSchemaSnapshot, SchemaExpressionIndexRebuildTarget,
-            SchemaFieldPathIndexRebuildTarget, SchemaTransitionSourceBudget,
-            SchemaTransitionSourceBudgetError, SchemaVersion,
+            AcceptedCatalogIdentity, MAX_SCHEMA_PROJECTION_ENTRIES,
+            MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES, PersistedSchemaSnapshot,
+            SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildTarget,
+            SchemaTransitionSourceBudget, SchemaVersion,
             accepted_schema_cache_fingerprint_for_persisted_snapshot,
             mutation::SchemaMutationRequest,
         },
     },
-    error::InternalError,
+    error::{InternalError, SchemaTransitionBudgetResource},
     types::EntityTag,
 };
 use std::{collections::BTreeSet, mem::size_of};
 
-const MAX_PROJECTION_ENTRIES: usize = 131_072;
 const MAX_DELETION_KEYS: usize = 65_536;
-const MAX_STAGED_RAW_BYTES: usize = 256 * 1024 * 1024;
-const MAX_PROJECTION_WORK_UNITS: usize = 262_144;
 
 ///
 /// SchemaUserIndexDomainRow
@@ -385,14 +383,14 @@ pub(in crate::db) enum StagedUserIndexDomainError {
     /// The supplied accepted-before catalog identity does not match the snapshot.
     AcceptedBeforeIdentityMismatch,
 
+    /// Complete staging exceeded one canonical schema-transition resource.
+    BudgetExceeded(SchemaTransitionBudgetResource),
+
     /// An accepted index points outside the authoritative backing store.
     AcceptedIndexStoreMismatch,
 
     /// The current physical user-index domain differs from row-derived truth.
     CurrentDomainMismatch,
-
-    /// The current physical domain exceeds its private deletion-key bound.
-    DeletionKeyLimitExceeded,
 
     /// Two rows produced an identical complete raw key.
     DuplicateRawKey,
@@ -430,23 +428,8 @@ pub(in crate::db) enum StagedUserIndexDomainError {
     /// An accepted index predicate could not be parsed.
     PredicateParse,
 
-    /// The combined before/after projection exceeds its private entry bound.
-    ProjectionEntryLimitExceeded,
-
-    /// Derivation and physical-classification work exceeds its private bound.
-    ProjectionWorkLimitExceeded,
-
     /// The predicate row contract belongs to a different entity.
     RowContractEntityMismatch,
-
-    /// Aggregate authoritative-row bytes exceed the private staging bound.
-    SourceRowBytesLimitExceeded,
-
-    /// The authoritative row count exceeds the private staging bound.
-    SourceRowLimitExceeded,
-
-    /// Retained raw payload plus deterministic-sort workspace exceeds its bound.
-    StagedRawBytesLimitExceeded,
 
     /// Accepted index metadata cannot lower to a maintained key shape.
     UnsupportedAcceptedIndex,
@@ -472,24 +455,9 @@ impl StagedUserIndexDomainError {
             | Self::AcceptedBeforeIdentityMismatch
             | Self::AcceptedIndexStoreMismatch
             | Self::RowContractEntityMismatch => InternalError::store_invariant(),
-            Self::DeletionKeyLimitExceeded => InternalError::schema_transition_budget_exceeded(
-                crate::error::SchemaTransitionBudgetResource::DeletionKeys,
-            ),
-            Self::ProjectionEntryLimitExceeded => InternalError::schema_transition_budget_exceeded(
-                crate::error::SchemaTransitionBudgetResource::ProjectionEntries,
-            ),
-            Self::ProjectionWorkLimitExceeded => InternalError::schema_transition_budget_exceeded(
-                crate::error::SchemaTransitionBudgetResource::ProjectionWorkUnits,
-            ),
-            Self::SourceRowBytesLimitExceeded => InternalError::schema_transition_budget_exceeded(
-                crate::error::SchemaTransitionBudgetResource::SourceRowBytes,
-            ),
-            Self::SourceRowLimitExceeded => InternalError::schema_transition_budget_exceeded(
-                crate::error::SchemaTransitionBudgetResource::SourceRows,
-            ),
-            Self::StagedRawBytesLimitExceeded => InternalError::schema_transition_budget_exceeded(
-                crate::error::SchemaTransitionBudgetResource::StagedRawBytes,
-            ),
+            Self::BudgetExceeded(resource) => {
+                InternalError::schema_transition_budget_exceeded(resource)
+            }
             Self::IndexStoreNotReady
             | Self::KeyEncode
             | Self::MissingPredicateRowContract
@@ -817,24 +785,19 @@ impl StagedUserIndexDomainBudget {
     ) -> Result<(), StagedUserIndexDomainError> {
         self.source
             .consume_source_row(encoded_row_bytes)
-            .map_err(|error| match error {
-                SchemaTransitionSourceBudgetError::Rows => {
-                    StagedUserIndexDomainError::SourceRowLimitExceeded
-                }
-                SchemaTransitionSourceBudgetError::RowBytes => {
-                    StagedUserIndexDomainError::SourceRowBytesLimitExceeded
-                }
-            })
+            .map_err(StagedUserIndexDomainError::BudgetExceeded)
     }
 
     fn consume_projection_work(&mut self) -> Result<(), StagedUserIndexDomainError> {
-        self.usage.projection_work_units = self
-            .usage
-            .projection_work_units
-            .checked_add(1)
-            .ok_or(StagedUserIndexDomainError::ProjectionWorkLimitExceeded)?;
-        if self.usage.projection_work_units > MAX_PROJECTION_WORK_UNITS {
-            return Err(StagedUserIndexDomainError::ProjectionWorkLimitExceeded);
+        self.usage.projection_work_units = self.usage.projection_work_units.checked_add(1).ok_or(
+            StagedUserIndexDomainError::BudgetExceeded(
+                SchemaTransitionBudgetResource::ProjectionWorkUnits,
+            ),
+        )?;
+        if self.usage.projection_work_units > MAX_SCHEMA_PROJECTION_WORK_UNITS {
+            return Err(StagedUserIndexDomainError::BudgetExceeded(
+                SchemaTransitionBudgetResource::ProjectionWorkUnits,
+            ));
         }
 
         Ok(())
@@ -844,36 +807,44 @@ impl StagedUserIndexDomainBudget {
         &mut self,
         key_bytes: usize,
     ) -> Result<(), StagedUserIndexDomainError> {
-        self.usage.projection_entries = self
-            .usage
-            .projection_entries
-            .checked_add(1)
-            .ok_or(StagedUserIndexDomainError::ProjectionEntryLimitExceeded)?;
-        if self.usage.projection_entries > MAX_PROJECTION_ENTRIES {
-            return Err(StagedUserIndexDomainError::ProjectionEntryLimitExceeded);
+        self.usage.projection_entries = self.usage.projection_entries.checked_add(1).ok_or(
+            StagedUserIndexDomainError::BudgetExceeded(
+                SchemaTransitionBudgetResource::ProjectionEntries,
+            ),
+        )?;
+        if self.usage.projection_entries > MAX_SCHEMA_PROJECTION_ENTRIES {
+            return Err(StagedUserIndexDomainError::BudgetExceeded(
+                SchemaTransitionBudgetResource::ProjectionEntries,
+            ));
         }
         self.consume_staged_bytes(
             key_bytes
                 .checked_add(1)
                 .and_then(|bytes| bytes.checked_add(size_of::<StagedUserIndexDomainEntry>()))
-                .ok_or(StagedUserIndexDomainError::StagedRawBytesLimitExceeded)?,
+                .ok_or(StagedUserIndexDomainError::BudgetExceeded(
+                    SchemaTransitionBudgetResource::StagedRawBytes,
+                ))?,
         )
     }
 
     fn consume_deletion_key(&mut self, key_bytes: usize) -> Result<(), StagedUserIndexDomainError> {
-        self.usage.deletion_keys = self
-            .usage
-            .deletion_keys
-            .checked_add(1)
-            .ok_or(StagedUserIndexDomainError::DeletionKeyLimitExceeded)?;
+        self.usage.deletion_keys = self.usage.deletion_keys.checked_add(1).ok_or(
+            StagedUserIndexDomainError::BudgetExceeded(
+                SchemaTransitionBudgetResource::DeletionKeys,
+            ),
+        )?;
         if self.usage.deletion_keys > MAX_DELETION_KEYS {
-            return Err(StagedUserIndexDomainError::DeletionKeyLimitExceeded);
+            return Err(StagedUserIndexDomainError::BudgetExceeded(
+                SchemaTransitionBudgetResource::DeletionKeys,
+            ));
         }
         self.consume_staged_bytes(
             key_bytes
                 .checked_add(1)
                 .and_then(|bytes| bytes.checked_add(size_of::<StagedUserIndexDomainEntry>()))
-                .ok_or(StagedUserIndexDomainError::StagedRawBytesLimitExceeded)?,
+                .ok_or(StagedUserIndexDomainError::BudgetExceeded(
+                    SchemaTransitionBudgetResource::StagedRawBytes,
+                ))?,
         )
     }
 
@@ -886,25 +857,31 @@ impl StagedUserIndexDomainBudget {
         let entry_workspace = before_entries
             .checked_add(after_entries)
             .and_then(|count| count.checked_mul(size_of::<StagedUserIndexDomainEntry>()))
-            .ok_or(StagedUserIndexDomainError::StagedRawBytesLimitExceeded)?;
+            .ok_or(StagedUserIndexDomainError::BudgetExceeded(
+                SchemaTransitionBudgetResource::StagedRawBytes,
+            ))?;
         let deletion_workspace = deletion_keys
             .checked_mul(size_of::<RawIndexStoreKey>())
-            .ok_or(StagedUserIndexDomainError::StagedRawBytesLimitExceeded)?;
-        self.consume_staged_bytes(
-            entry_workspace
-                .checked_add(deletion_workspace)
-                .ok_or(StagedUserIndexDomainError::StagedRawBytesLimitExceeded)?,
-        )
+            .ok_or(StagedUserIndexDomainError::BudgetExceeded(
+                SchemaTransitionBudgetResource::StagedRawBytes,
+            ))?;
+        self.consume_staged_bytes(entry_workspace.checked_add(deletion_workspace).ok_or(
+            StagedUserIndexDomainError::BudgetExceeded(
+                SchemaTransitionBudgetResource::StagedRawBytes,
+            ),
+        )?)
     }
 
     fn consume_staged_bytes(&mut self, bytes: usize) -> Result<(), StagedUserIndexDomainError> {
-        self.usage.staged_raw_bytes = self
-            .usage
-            .staged_raw_bytes
-            .checked_add(bytes)
-            .ok_or(StagedUserIndexDomainError::StagedRawBytesLimitExceeded)?;
-        if self.usage.staged_raw_bytes > MAX_STAGED_RAW_BYTES {
-            return Err(StagedUserIndexDomainError::StagedRawBytesLimitExceeded);
+        self.usage.staged_raw_bytes = self.usage.staged_raw_bytes.checked_add(bytes).ok_or(
+            StagedUserIndexDomainError::BudgetExceeded(
+                SchemaTransitionBudgetResource::StagedRawBytes,
+            ),
+        )?;
+        if self.usage.staged_raw_bytes > MAX_SCHEMA_STAGED_RAW_BYTES {
+            return Err(StagedUserIndexDomainError::BudgetExceeded(
+                SchemaTransitionBudgetResource::StagedRawBytes,
+            ));
         }
 
         Ok(())
@@ -934,33 +911,16 @@ mod tests {
 
     #[test]
     fn stage_budget_rejections_preserve_the_exact_resource() {
-        for (error, resource) in [
-            (
-                StagedUserIndexDomainError::SourceRowLimitExceeded,
-                crate::error::SchemaTransitionBudgetResource::SourceRows,
-            ),
-            (
-                StagedUserIndexDomainError::SourceRowBytesLimitExceeded,
-                crate::error::SchemaTransitionBudgetResource::SourceRowBytes,
-            ),
-            (
-                StagedUserIndexDomainError::ProjectionEntryLimitExceeded,
-                crate::error::SchemaTransitionBudgetResource::ProjectionEntries,
-            ),
-            (
-                StagedUserIndexDomainError::DeletionKeyLimitExceeded,
-                crate::error::SchemaTransitionBudgetResource::DeletionKeys,
-            ),
-            (
-                StagedUserIndexDomainError::ProjectionWorkLimitExceeded,
-                crate::error::SchemaTransitionBudgetResource::ProjectionWorkUnits,
-            ),
-            (
-                StagedUserIndexDomainError::StagedRawBytesLimitExceeded,
-                crate::error::SchemaTransitionBudgetResource::StagedRawBytes,
-            ),
+        for resource in [
+            SchemaTransitionBudgetResource::SourceRows,
+            SchemaTransitionBudgetResource::SourceRowBytes,
+            SchemaTransitionBudgetResource::ProjectionEntries,
+            SchemaTransitionBudgetResource::DeletionKeys,
+            SchemaTransitionBudgetResource::ProjectionWorkUnits,
+            SchemaTransitionBudgetResource::StagedRawBytes,
         ] {
-            let internal = error.into_internal_error();
+            let internal =
+                StagedUserIndexDomainError::BudgetExceeded(resource).into_internal_error();
             assert!(matches!(
                 internal.detail(),
                 Some(crate::error::ErrorDetail::Store(
@@ -980,30 +940,32 @@ mod tests {
         let design_projection_entries = design_domain_entries * 2;
         let design_work_units = design_domain_entries * 3;
 
-        assert_eq!(MAX_PROJECTION_ENTRIES, 131_072);
+        assert_eq!(MAX_SCHEMA_PROJECTION_ENTRIES, 131_072);
         assert_eq!(MAX_DELETION_KEYS, 65_536);
-        assert_eq!(MAX_STAGED_RAW_BYTES, 256 * 1024 * 1024);
-        assert_eq!(MAX_PROJECTION_WORK_UNITS, 262_144);
+        assert_eq!(MAX_SCHEMA_STAGED_RAW_BYTES, 256 * 1024 * 1024);
+        assert_eq!(MAX_SCHEMA_PROJECTION_WORK_UNITS, 262_144);
         let mut source = SchemaTransitionSourceBudget::standard();
         for _ in 0..design_rows {
             source
                 .consume_source_row(0)
                 .expect("the design row count should fit the shared source budget");
         }
-        assert!(MAX_PROJECTION_ENTRIES >= design_projection_entries);
+        assert!(MAX_SCHEMA_PROJECTION_ENTRIES >= design_projection_entries);
         assert!(MAX_DELETION_KEYS >= design_domain_entries);
-        assert!(MAX_PROJECTION_WORK_UNITS >= design_work_units);
+        assert!(MAX_SCHEMA_PROJECTION_WORK_UNITS >= design_work_units);
     }
 
     #[test]
     fn standard_budget_rejects_each_aggregate_dimension_at_its_boundary() {
         let mut entry_count = StagedUserIndexDomainBudget::standard();
-        for _ in 0..MAX_PROJECTION_ENTRIES {
+        for _ in 0..MAX_SCHEMA_PROJECTION_ENTRIES {
             assert!(entry_count.consume_projection_entry(0).is_ok());
         }
         assert!(matches!(
             entry_count.consume_projection_entry(0),
-            Err(StagedUserIndexDomainError::ProjectionEntryLimitExceeded),
+            Err(StagedUserIndexDomainError::BudgetExceeded(
+                SchemaTransitionBudgetResource::ProjectionEntries,
+            )),
         ));
 
         let mut deletion_count = StagedUserIndexDomainBudget::standard();
@@ -1012,22 +974,28 @@ mod tests {
         }
         assert!(matches!(
             deletion_count.consume_deletion_key(0),
-            Err(StagedUserIndexDomainError::DeletionKeyLimitExceeded),
+            Err(StagedUserIndexDomainError::BudgetExceeded(
+                SchemaTransitionBudgetResource::DeletionKeys,
+            )),
         ));
 
         let mut work = StagedUserIndexDomainBudget::standard();
-        for _ in 0..MAX_PROJECTION_WORK_UNITS {
+        for _ in 0..MAX_SCHEMA_PROJECTION_WORK_UNITS {
             assert!(work.consume_projection_work().is_ok());
         }
         assert!(matches!(
             work.consume_projection_work(),
-            Err(StagedUserIndexDomainError::ProjectionWorkLimitExceeded),
+            Err(StagedUserIndexDomainError::BudgetExceeded(
+                SchemaTransitionBudgetResource::ProjectionWorkUnits,
+            )),
         ));
 
         let mut staged_bytes = StagedUserIndexDomainBudget::standard();
         assert!(matches!(
-            staged_bytes.consume_staged_bytes(MAX_STAGED_RAW_BYTES + 1),
-            Err(StagedUserIndexDomainError::StagedRawBytesLimitExceeded),
+            staged_bytes.consume_staged_bytes(MAX_SCHEMA_STAGED_RAW_BYTES + 1),
+            Err(StagedUserIndexDomainError::BudgetExceeded(
+                SchemaTransitionBudgetResource::StagedRawBytes,
+            )),
         ));
     }
 }

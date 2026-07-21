@@ -52,6 +52,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   materialization path after accepted mutation resolution became authoritative.
 - Removes the retired unstamped-row corpus breadcrumb; maintained malformed
   current-envelope cases remain the fail-closed persisted-row contract.
+- Removes the scalar-compatible schema-description constructor; callers now
+  provide the exact ordered primary-key field list.
+
+### 🩹 Fixed
+
+- Completes CLI rendering for every current typed runtime-boundary diagnostic.
+
+### 🧹 Cleanup
+
+- Makes each staged schema-derived domain inseparable and consolidates shared
+  transition limits, removing parallel collections and duplicate identity and
+  error transport.
 
 ## [0.208.x] 🧩 - 2026-07-21 - Exact Composite Contracts
 

@@ -6,7 +6,10 @@
 use crate::db::schema::PersistedFieldSnapshot;
 
 mod budget;
-pub(in crate::db) use budget::{SchemaTransitionSourceBudget, SchemaTransitionSourceBudgetError};
+pub(in crate::db) use budget::{
+    MAX_SCHEMA_PROJECTION_ENTRIES, MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES,
+    SchemaTransitionSourceBudget,
+};
 
 #[cfg(feature = "sql")]
 mod field;

@@ -1,41 +1,15 @@
 //! Module: db::schema::mutation::budget
-//! Responsibility: bound authoritative source rows consumed by complete schema work.
+//! Responsibility: own shared resource limits for complete schema-transition work.
 //! Does not own: operation-specific derived-state or publication accounting.
-//! Boundary: schema mutation controllers consume one shared row/byte budget.
+//! Boundary: schema mutation controllers consume canonical limits and resource identities.
 
-#[cfg(feature = "sql")]
 use crate::error::SchemaTransitionBudgetResource;
 
 const MAX_SOURCE_ROWS: usize = 65_536;
 const MAX_SOURCE_ROW_BYTES: usize = 256 * 1024 * 1024;
-
-///
-/// SchemaTransitionSourceBudgetError
-///
-/// Exact resource rejected by the shared source-domain budget.
-/// Schema mutation owns this classification before any physical write.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum SchemaTransitionSourceBudgetError {
-    /// Cumulative authoritative source-row bytes exceeded the cap.
-    RowBytes,
-
-    /// Number of authoritative source rows exceeded the cap.
-    Rows,
-}
-
-impl SchemaTransitionSourceBudgetError {
-    /// Return the public schema-transition resource identity.
-    #[must_use]
-    #[cfg(feature = "sql")]
-    pub(in crate::db) const fn resource(self) -> SchemaTransitionBudgetResource {
-        match self {
-            Self::Rows => SchemaTransitionBudgetResource::SourceRows,
-            Self::RowBytes => SchemaTransitionBudgetResource::SourceRowBytes,
-        }
-    }
-}
+pub(in crate::db) const MAX_SCHEMA_PROJECTION_ENTRIES: usize = 131_072;
+pub(in crate::db) const MAX_SCHEMA_PROJECTION_WORK_UNITS: usize = 262_144;
+pub(in crate::db) const MAX_SCHEMA_STAGED_RAW_BYTES: usize = 256 * 1024 * 1024;
 
 ///
 /// SchemaTransitionSourceBudget
@@ -63,21 +37,21 @@ impl SchemaTransitionSourceBudget {
     pub(in crate::db) fn consume_source_row(
         &mut self,
         encoded_row_bytes: usize,
-    ) -> Result<(), SchemaTransitionSourceBudgetError> {
+    ) -> Result<(), SchemaTransitionBudgetResource> {
         self.source_rows = self
             .source_rows
             .checked_add(1)
-            .ok_or(SchemaTransitionSourceBudgetError::Rows)?;
+            .ok_or(SchemaTransitionBudgetResource::SourceRows)?;
         if self.source_rows > MAX_SOURCE_ROWS {
-            return Err(SchemaTransitionSourceBudgetError::Rows);
+            return Err(SchemaTransitionBudgetResource::SourceRows);
         }
 
         self.source_row_bytes = self
             .source_row_bytes
             .checked_add(encoded_row_bytes)
-            .ok_or(SchemaTransitionSourceBudgetError::RowBytes)?;
+            .ok_or(SchemaTransitionBudgetResource::SourceRowBytes)?;
         if self.source_row_bytes > MAX_SOURCE_ROW_BYTES {
-            return Err(SchemaTransitionSourceBudgetError::RowBytes);
+            return Err(SchemaTransitionBudgetResource::SourceRowBytes);
         }
 
         Ok(())
@@ -109,13 +83,13 @@ mod tests {
         }
         assert_eq!(
             rows.consume_source_row(0),
-            Err(SchemaTransitionSourceBudgetError::Rows),
+            Err(SchemaTransitionBudgetResource::SourceRows),
         );
 
         let mut bytes = SchemaTransitionSourceBudget::standard();
         assert_eq!(
             bytes.consume_source_row(MAX_SOURCE_ROW_BYTES + 1),
-            Err(SchemaTransitionSourceBudgetError::RowBytes),
+            Err(SchemaTransitionBudgetResource::SourceRowBytes),
         );
     }
 }

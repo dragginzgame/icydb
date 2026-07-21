@@ -929,39 +929,23 @@ impl InternalError {
     }
 
     /// Construct a persisted-row layout-window corruption error.
-    pub(crate) fn persisted_row_layout_outside_accepted_window(
-        stamped_layout: u32,
-        current_layout: u32,
-        history_floor: u32,
-    ) -> Self {
+    pub(crate) fn persisted_row_layout_outside_accepted_window() -> Self {
         Self {
             class: ErrorClass::Corruption,
             origin: ErrorOrigin::Serialize,
             detail: Some(ErrorDetail::Serialize(
-                SerializeErrorDetail::PersistedRowLayoutOutsideAcceptedWindow {
-                    stamped_layout,
-                    current_layout,
-                    history_floor,
-                },
+                SerializeErrorDetail::PersistedRowLayoutOutsideAcceptedWindow,
             )),
         }
     }
 
     /// Construct a persisted-row stamped-layout slot-count corruption error.
-    pub(crate) fn persisted_row_slot_count_mismatch(
-        stamped_layout: u32,
-        expected_slot_count: usize,
-        actual_slot_count: usize,
-    ) -> Self {
+    pub(crate) fn persisted_row_slot_count_mismatch() -> Self {
         Self {
             class: ErrorClass::Corruption,
             origin: ErrorOrigin::Serialize,
             detail: Some(ErrorDetail::Serialize(
-                SerializeErrorDetail::PersistedRowSlotCountMismatch {
-                    stamped_layout,
-                    expected_slot_count,
-                    actual_slot_count,
-                },
+                SerializeErrorDetail::PersistedRowSlotCountMismatch,
             )),
         }
     }
@@ -1537,23 +1521,10 @@ pub enum ExecutorErrorDetail {
 /// Persisted-row serialization and decoding error detail.
 pub enum SerializeErrorDetail {
     /// The row stamp is older or newer than the accepted layout window.
-    PersistedRowLayoutOutsideAcceptedWindow {
-        /// Layout version carried by the row envelope.
-        stamped_layout: u32,
-        /// Current accepted layout version.
-        current_layout: u32,
-        /// Oldest accepted layout version.
-        history_floor: u32,
-    },
+    PersistedRowLayoutOutsideAcceptedWindow,
+
     /// The physical slot count does not match the row's stamped layout.
-    PersistedRowSlotCountMismatch {
-        /// Layout version carried by the row envelope.
-        stamped_layout: u32,
-        /// Exact physical slot count required by that layout.
-        expected_slot_count: usize,
-        /// Physical slot count carried by the row.
-        actual_slot_count: usize,
-    },
+    PersistedRowSlotCountMismatch,
 }
 
 ///
@@ -1907,8 +1878,7 @@ impl SerializeErrorDetail {
     #[must_use]
     pub const fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
         match self {
-            Self::PersistedRowLayoutOutsideAcceptedWindow { .. }
-            | Self::PersistedRowSlotCountMismatch { .. } => {
+            Self::PersistedRowLayoutOutsideAcceptedWindow | Self::PersistedRowSlotCountMismatch => {
                 diagnostic_code::DiagnosticCode::RuntimeCorruption
             }
         }
@@ -1918,10 +1888,10 @@ impl SerializeErrorDetail {
     #[must_use]
     pub const fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
         let boundary = match self {
-            Self::PersistedRowLayoutOutsideAcceptedWindow { .. } => {
+            Self::PersistedRowLayoutOutsideAcceptedWindow => {
                 diagnostic_code::RuntimeBoundaryCode::PersistedRowLayoutOutsideAcceptedWindow
             }
-            Self::PersistedRowSlotCountMismatch { .. } => {
+            Self::PersistedRowSlotCountMismatch => {
                 diagnostic_code::RuntimeBoundaryCode::PersistedRowSlotCountMismatch
             }
         };

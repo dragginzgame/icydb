@@ -52,6 +52,7 @@ fn render_describe_lines_output_contract_vector_is_stable() {
         "schema.public.ExampleEntity".to_string(),
         "ExampleEntity".to_string(),
         "id".to_string(),
+        vec!["id".to_string()],
         vec![
             required_field("id", 0, "Ulid", true),
             required_field("name", 1, "Text", false),

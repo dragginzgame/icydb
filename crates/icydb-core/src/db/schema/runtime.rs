@@ -570,11 +570,7 @@ impl AcceptedRowDecodeContract {
         version: RowLayoutVersion,
     ) -> Result<usize, InternalError> {
         if version < self.history_floor || version > self.current_layout_version {
-            return Err(InternalError::persisted_row_layout_outside_accepted_window(
-                version.get(),
-                self.current_layout_version.get(),
-                self.history_floor.get(),
-            ));
+            return Err(InternalError::persisted_row_layout_outside_accepted_window());
         }
 
         Ok(self

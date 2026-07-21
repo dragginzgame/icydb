@@ -12,6 +12,7 @@ use crate::{
             describe::{
                 bounded_schema_value_rendering, describe_entity_fields_with_persisted_schema,
                 describe_entity_model, describe_entity_model_with_persisted_schema,
+                short_default_payload_fingerprint,
             },
         },
     },
@@ -357,6 +358,7 @@ fn describe_fixture_constructors_stay_usable() {
         "entities::User".to_string(),
         "User".to_string(),
         "id".to_string(),
+        vec!["id".to_string()],
         vec![EntityFieldDescription::new(
             "id".to_string(),
             Some(0),
@@ -801,13 +803,18 @@ fn accepted_schema_describe_rejects_malformed_temporal_payload() {
 #[test]
 fn schema_temporal_text_rendering_cannot_collide_with_sentinel_labels() {
     assert_eq!(
-        bounded_schema_value_rendering(&OutputValue::Text("null".to_string()), b"null"),
+        bounded_schema_value_rendering(
+            &OutputValue::Text("null".to_string()),
+            b"null",
+            short_default_payload_fingerprint(b"null").as_str(),
+        ),
         "'null'",
     );
     assert_eq!(
         bounded_schema_value_rendering(
             &OutputValue::Text("reject\n'value'".to_string()),
             b"reject-value",
+            short_default_payload_fingerprint(b"reject-value").as_str(),
         ),
         "'reject\\n\\'value\\''",
     );

@@ -376,11 +376,7 @@ impl StructuralRowContract {
         if physical_count == expected {
             Ok(())
         } else {
-            Err(InternalError::persisted_row_slot_count_mismatch(
-                layout_version.get(),
-                expected,
-                physical_count,
-            ))
+            Err(InternalError::persisted_row_slot_count_mismatch())
         }
     }
 }

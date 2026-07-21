@@ -8,7 +8,7 @@ mod target_keys;
 use crate::{
     db::{
         Db,
-        commit::{CommitSchemaFingerprint, PreparedIndexMutation},
+        commit::PreparedIndexMutation,
         data::{
             CanonicalSlotReader, DecodedDataStoreKey, RawDataStoreKey, RawRow, ScalarSlotValueRef,
             ScalarValueRef, SlotReader, StructuralRowContract, StructuralSlotReader,
@@ -31,8 +31,9 @@ use crate::{
         },
         schema::AcceptedFieldKind,
         schema::{
-            AcceptedCatalogIdentity, AcceptedFieldDecodeContract,
-            OwnedAcceptedRelationEdgeContract, PersistedSchemaSnapshot, SchemaVersion,
+            AcceptedCatalogIdentity, AcceptedFieldDecodeContract, MAX_SCHEMA_PROJECTION_ENTRIES,
+            MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES,
+            OwnedAcceptedRelationEdgeContract, PersistedSchemaSnapshot,
             accepted_schema_cache_fingerprint_for_persisted_snapshot,
         },
     },
@@ -45,10 +46,6 @@ use crate::{
 use std::{cell::RefCell, mem::size_of, thread::LocalKey};
 
 use target_keys::RelationTargetKeys;
-
-const MAX_SCHEMA_RELATION_EFFECTS: usize = 131_072;
-const MAX_SCHEMA_RELATION_PROJECTION_WORK_UNITS: usize = 262_144;
-const MAX_SCHEMA_STAGED_RAW_BYTES: usize = 256 * 1024 * 1024;
 
 ///
 /// ReverseRelationSourceInfo
@@ -89,60 +86,6 @@ impl ReverseRelationSourceInfo {
 }
 
 ///
-/// StagedReverseRelationDomainEffects
-///
-/// Bounded, zero-write reverse-index effects for one accepted-schema candidate.
-/// Relation staging owns the exact source/candidate identity and prevalidated
-/// mechanical mutations until marker-bound schema publication consumes them.
-///
-
-pub(crate) struct StagedReverseRelationDomainEffects {
-    store_path: &'static str,
-    source_entity_tag: EntityTag,
-    accepted_before_identity: AcceptedCatalogIdentity,
-    accepted_after_version: SchemaVersion,
-    accepted_after_fingerprint: CommitSchemaFingerprint,
-    effects: Vec<PreparedIndexMutation>,
-}
-
-impl StagedReverseRelationDomainEffects {
-    /// Return the source store path captured from accepted-before authority.
-    #[must_use]
-    pub(in crate::db) const fn store_path(&self) -> &'static str {
-        self.store_path
-    }
-
-    /// Return the affected source entity identity.
-    #[must_use]
-    pub(in crate::db) const fn entity_tag(&self) -> EntityTag {
-        self.source_entity_tag
-    }
-
-    /// Return the exact accepted-before identity used during derivation.
-    #[must_use]
-    pub(in crate::db) const fn accepted_before_identity(&self) -> AcceptedCatalogIdentity {
-        self.accepted_before_identity
-    }
-
-    /// Return the accepted-after schema version used during derivation.
-    #[must_use]
-    pub(in crate::db) const fn accepted_after_version(&self) -> SchemaVersion {
-        self.accepted_after_version
-    }
-
-    /// Return the accepted-after fingerprint used during derivation.
-    #[must_use]
-    pub(in crate::db) const fn accepted_after_fingerprint(&self) -> CommitSchemaFingerprint {
-        self.accepted_after_fingerprint
-    }
-
-    /// Consume the stage into its prevalidated mechanical effects.
-    pub(in crate::db) fn into_effects(self) -> Vec<PreparedIndexMutation> {
-        self.effects
-    }
-}
-
-///
 /// StagedReverseRelationDomainEffectsBuilder
 ///
 /// Candidate-aware relation projector consumed during the same authoritative
@@ -155,10 +98,6 @@ where
 {
     db: &'db Db<C>,
     source: ReverseRelationSourceInfo,
-    store_path: &'static str,
-    accepted_before_identity: AcceptedCatalogIdentity,
-    accepted_after_version: SchemaVersion,
-    accepted_after_fingerprint: CommitSchemaFingerprint,
     before_projection: PreparedReverseRelationProjection,
     after_projection: PreparedReverseRelationProjection,
     effects: Vec<PreparedIndexMutation>,
@@ -187,7 +126,7 @@ impl SchemaRelationStageBudget {
                     crate::error::SchemaTransitionBudgetResource::ProjectionWorkUnits,
                 )
             })?;
-        if self.projection_work_units > MAX_SCHEMA_RELATION_PROJECTION_WORK_UNITS {
+        if self.projection_work_units > MAX_SCHEMA_PROJECTION_WORK_UNITS {
             return Err(InternalError::schema_transition_budget_exceeded(
                 crate::error::SchemaTransitionBudgetResource::ProjectionWorkUnits,
             ));
@@ -206,7 +145,7 @@ impl SchemaRelationStageBudget {
                 crate::error::SchemaTransitionBudgetResource::ProjectionEntries,
             )
         })?;
-        if self.effects > MAX_SCHEMA_RELATION_EFFECTS {
+        if self.effects > MAX_SCHEMA_PROJECTION_ENTRIES {
             return Err(InternalError::schema_transition_budget_exceeded(
                 crate::error::SchemaTransitionBudgetResource::ProjectionEntries,
             ));
@@ -1325,12 +1264,6 @@ where
         Ok(Self {
             db,
             source,
-            store_path,
-            accepted_before_identity,
-            accepted_after_version: accepted_after.version(),
-            accepted_after_fingerprint: accepted_schema_cache_fingerprint_for_persisted_snapshot(
-                accepted_after,
-            )?,
             before_projection,
             after_projection,
             effects: Vec::new(),
@@ -1370,7 +1303,7 @@ where
     pub(in crate::db) fn finish(
         self,
         user_index_staged_raw_bytes: usize,
-    ) -> Result<StagedReverseRelationDomainEffects, InternalError> {
+    ) -> Result<Vec<PreparedIndexMutation>, InternalError> {
         let combined = user_index_staged_raw_bytes
             .checked_add(self.budget.staged_raw_bytes)
             .ok_or_else(|| {
@@ -1384,14 +1317,7 @@ where
             ));
         }
 
-        Ok(StagedReverseRelationDomainEffects {
-            store_path: self.store_path,
-            source_entity_tag: self.source.entity_tag,
-            accepted_before_identity: self.accepted_before_identity,
-            accepted_after_version: self.accepted_after_version,
-            accepted_after_fingerprint: self.accepted_after_fingerprint,
-            effects: self.effects,
-        })
+        Ok(self.effects)
     }
 }
 

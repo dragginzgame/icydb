@@ -176,6 +176,7 @@ fn schema_report_renders_aligned_summary_and_index_tables() {
         "icydb_testing_demo_rpg_fixtures::schema::character::Character".to_string(),
         "Character".to_string(),
         "id".to_string(),
+        vec!["id".to_string()],
         fields,
         indexes,
         vec![EntityRelationDescription::new(
@@ -226,7 +227,7 @@ fn schema_report_renders_aligned_summary_and_index_tables() {
 
 #[test]
 fn schema_report_renders_composite_primary_key_fields() {
-    let report = [EntitySchemaDescription::new_with_primary_key_fields(
+    let report = [EntitySchemaDescription::new(
         "demo::Placement".to_string(),
         "Placement".to_string(),
         "tenant_id, local_id".to_string(),

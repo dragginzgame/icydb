@@ -114,8 +114,11 @@ pub(in crate::db::schema) use mutation::AcceptedSchemaMutationError;
 pub(in crate::db) use mutation::SchemaDdlSchemaVersionAdmissionError;
 pub(in crate::db::schema) use mutation::{
     GeneratedAcceptedCandidateError, MutationPlan, MutationPublicationPreflight,
-    SchemaMutationRequest, SchemaTransitionSourceBudget, SchemaTransitionSourceBudgetError,
-    derive_generated_accepted_candidate, schema_mutation_request_for_snapshots,
+    SchemaMutationRequest, SchemaTransitionSourceBudget, derive_generated_accepted_candidate,
+    schema_mutation_request_for_snapshots,
+};
+pub(in crate::db) use mutation::{
+    MAX_SCHEMA_PROJECTION_ENTRIES, MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use mutation::{
@@ -163,13 +166,14 @@ pub(in crate::db) use mutation::{
 #[cfg(test)]
 pub(in crate::db::schema) use mutation::{SchemaMutationDelta, classify_schema_mutation_delta};
 pub(in crate::db) use proposal::compiled_schema_proposal_for_model;
+pub(in crate::db) use reconcile::{
+    StagedDerivedDomainReplacement, ensure_accepted_catalog_snapshot_selection,
+    ensure_accepted_schema_snapshot, reconcile_runtime_schemas,
+    reconcile_runtime_schemas_before_recovery_rebuild,
+};
 #[cfg(test)]
 pub(in crate::db) use reconcile::{
     bootstrap_test_accepted_schema_snapshot, publish_test_accepted_schema_snapshot,
-};
-pub(in crate::db) use reconcile::{
-    ensure_accepted_catalog_snapshot_selection, ensure_accepted_schema_snapshot,
-    reconcile_runtime_schemas, reconcile_runtime_schemas_before_recovery_rebuild,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use reconcile::{
