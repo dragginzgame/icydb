@@ -912,9 +912,9 @@ const PROVIDERS: &[ProviderSpec] = &[
         [Lower]
     ),
     provider!(
-        "core.ddl.drop_column_rollback",
+        "core.ddl.drop_column_precommit_atomicity",
         "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_drop_column_rolls_back_rows_when_publication_rejects",
+        "execute_admin_sql_ddl_rejects_nonempty_drop_column_before_rewrite",
         ContractAssertion,
         [State]
     ),
@@ -1719,7 +1719,7 @@ const MANIFEST: &[CoverageCell] = &[
         PERF_NONE,
         ELIGIBLE_ICYDB,
         [
-            "core.ddl.drop_column_rollback",
+            "core.ddl.drop_column_precommit_atomicity",
             "core.ddl.drop_index_precommit_atomicity",
             "core.ddl.index_recovery_retry"
         ],
