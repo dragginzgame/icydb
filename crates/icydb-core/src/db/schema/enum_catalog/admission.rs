@@ -1,12 +1,11 @@
 //! Catalog-backed normalization and strict validation for canonical values.
 use super::{
-    AcceptedEnumCatalog, AcceptedEnumCatalogHandle, AcceptedEnumVariantBody,
-    AcceptedSchemaAuthority, AcceptedSchemaRevision, AcceptedValueContract, EnumTypeId,
-    EnumValueResolutionError,
+    AcceptedEnumCatalog, AcceptedEnumVariantBody, AcceptedSchemaAuthority, AcceptedSchemaRevision,
+    AcceptedValueCatalogHandle, AcceptedValueContract, EnumTypeId, EnumValueResolutionError,
 };
 use crate::{
     db::schema::{
-        AcceptedFieldKind,
+        AcceptedFieldKind, MAX_ACCEPTED_RECURSIVE_DEPTH_U16,
         composite_catalog::{
             AcceptedCompositeCatalog, AcceptedCompositeElement, AcceptedCompositeShape,
             CompositeTypeId,
@@ -18,7 +17,7 @@ use crate::{
 };
 use std::cmp::Ordering;
 
-pub(in crate::db) const MAX_ACCEPTED_VALUE_DEPTH: u16 = 64;
+const MAX_ACCEPTED_VALUE_DEPTH: u16 = MAX_ACCEPTED_RECURSIVE_DEPTH_U16;
 pub(in crate::db) const MAX_ACCEPTED_VALUE_BYTES: u32 = 4 * 1024 * 1024;
 
 /// Runtime `Value` is the canonical accepted-value domain.
@@ -54,9 +53,9 @@ struct AdmissionCatalogs<'a> {
 }
 
 impl<'a> AdmissionCatalogs<'a> {
-    fn from_handle(handle: &'a AcceptedEnumCatalogHandle) -> Self {
+    fn from_handle(handle: &'a AcceptedValueCatalogHandle) -> Self {
         Self {
-            enums: handle.catalog(),
+            enums: handle.enum_catalog(),
             composites: handle.composite_catalog(),
         }
     }
@@ -132,7 +131,7 @@ impl AdmittedOwnedValue {
 
 /// Borrowed proof that one canonical value matches one accepted contract.
 pub(in crate::db) struct AcceptedValueRef<'a> {
-    catalog: &'a AcceptedEnumCatalogHandle,
+    catalog: &'a AcceptedValueCatalogHandle,
     contract: &'a AcceptedValueContract,
     value: &'a CanonicalValue,
 }
@@ -152,7 +151,7 @@ impl<'a> AcceptedValueRef<'a> {
 
     #[must_use]
     pub(in crate::db) fn catalog(&self) -> &'a AcceptedEnumCatalog {
-        self.catalog.catalog()
+        self.catalog.enum_catalog()
     }
 
     #[must_use]
@@ -167,7 +166,7 @@ impl<'a> AcceptedValueRef<'a> {
 }
 
 pub(in crate::db) fn normalize_and_admit_value(
-    catalog: &AcceptedEnumCatalogHandle,
+    catalog: &AcceptedValueCatalogHandle,
     contract: &AcceptedValueContract,
     input: InputValue,
     budget: &mut ValueAdmissionBudget,
@@ -180,7 +179,7 @@ pub(in crate::db) fn normalize_and_admit_value(
 }
 
 pub(in crate::db::schema) fn normalize_and_admit_nullable_value(
-    catalog: &AcceptedEnumCatalogHandle,
+    catalog: &AcceptedValueCatalogHandle,
     contract: &AcceptedValueContract,
     nullable: bool,
     input: InputValue,
@@ -199,7 +198,7 @@ pub(in crate::db::schema) fn normalize_and_admit_nullable_value(
 
 /// Normalize one authored value and expose its short-lived accepted proof.
 pub(in crate::db::schema) fn with_normalized_accepted_value<R>(
-    catalog: &AcceptedEnumCatalogHandle,
+    catalog: &AcceptedValueCatalogHandle,
     contract: &AcceptedValueContract,
     nullable: bool,
     input: InputValue,
@@ -215,7 +214,7 @@ pub(in crate::db::schema) fn with_normalized_accepted_value<R>(
 }
 
 fn normalize_nullable_value(
-    catalog: &AcceptedEnumCatalogHandle,
+    catalog: &AcceptedValueCatalogHandle,
     contract: &AcceptedValueContract,
     nullable: bool,
     input: InputValue,
@@ -272,7 +271,7 @@ pub(in crate::db) fn encode_unit_enum_default_in_catalog(
 }
 
 pub(in crate::db::schema) fn admit_canonical_value(
-    catalog: &AcceptedEnumCatalogHandle,
+    catalog: &AcceptedValueCatalogHandle,
     contract: &AcceptedValueContract,
     nullable: bool,
     value: CanonicalValue,
@@ -344,7 +343,7 @@ fn validate_persisted_field_value_in_catalog(
 
 #[cfg(test)]
 pub(in crate::db) fn validate_canonical_value<'a>(
-    catalog: &'a AcceptedEnumCatalogHandle,
+    catalog: &'a AcceptedValueCatalogHandle,
     contract: &'a AcceptedValueContract,
     value: &'a CanonicalValue,
     budget: &mut ValueAdmissionBudget,
@@ -354,7 +353,7 @@ pub(in crate::db) fn validate_canonical_value<'a>(
 
 /// Strictly validate one canonical value with its accepted nullability rule.
 pub(in crate::db::schema) fn validate_nullable_canonical_value<'a>(
-    catalog: &'a AcceptedEnumCatalogHandle,
+    catalog: &'a AcceptedValueCatalogHandle,
     contract: &'a AcceptedValueContract,
     nullable: bool,
     value: &'a CanonicalValue,

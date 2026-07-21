@@ -85,7 +85,7 @@ impl<'a> AcceptedAuthoredFieldProjection<'a> {
             .get_input_value_by_index(slot)
             .ok_or(AuthoredFieldAdmissionError::MissingAuthoredValue { slot })?;
         let encoding = AcceptedFieldPersistenceContract::new(
-            self.row_contract.enum_catalog_handle(),
+            self.row_contract.value_catalog_handle(),
             field.decode_contract(),
         )
         .map_err(|_| {

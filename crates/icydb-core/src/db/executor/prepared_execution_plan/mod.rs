@@ -22,7 +22,7 @@ use crate::{
     db::{
         cursor::{ValidatedCursor, ValidatedGroupedCursor},
         executor::{EntityAuthority, ExecutorPlanError},
-        schema::{AcceptedEnumCatalogHandle, AcceptedSchemaAuthority},
+        schema::{AcceptedSchemaAuthority, AcceptedValueCatalogHandle},
     },
     entity::EntityKind,
     error::InternalError,
@@ -83,10 +83,10 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
     }
 
     /// Borrow the accepted catalog handle retained by this plan.
-    pub(in crate::db) fn accepted_enum_catalog_handle(
+    pub(in crate::db) fn accepted_value_catalog_handle(
         &self,
-    ) -> Result<&AcceptedEnumCatalogHandle, InternalError> {
-        self.authority.accepted_enum_catalog_handle()
+    ) -> Result<&AcceptedValueCatalogHandle, InternalError> {
+        self.authority.accepted_value_catalog_handle()
     }
 
     #[cfg(test)]

@@ -265,9 +265,32 @@ fn accepted_enum_catalog_decode_rejects_mutual_recursion() {
 }
 
 #[test]
+fn accepted_enum_catalog_decode_accepts_the_shared_recursive_depth_boundary() {
+    let mut kind = TestKind::Nat64;
+    for _ in 0..MAX_ACCEPTED_RECURSIVE_DEPTH - 1 {
+        kind = TestKind::List(Box::new(kind));
+    }
+    let encoded = encode_test_wire(
+        ACCEPTED_ENUM_CATALOG_CODEC_VERSION,
+        &[TestType {
+            id: 1,
+            path: "codec::DeepAllowed",
+            variants: vec![TestVariant {
+                id: 1,
+                name: "DeepAllowed",
+                body: TestVariantBody::Payload(kind),
+            }],
+        }],
+    );
+
+    decode_accepted_enum_catalog(&encoded)
+        .expect("the maximum admitted recursive depth should decode");
+}
+
+#[test]
 fn accepted_enum_catalog_decode_rejects_excessive_value_kind_depth() {
     let mut kind = TestKind::Nat64;
-    for _ in 0..=MAX_ENUM_CONTRACT_DEPTH {
+    for _ in 0..MAX_ACCEPTED_RECURSIVE_DEPTH {
         kind = TestKind::List(Box::new(kind));
     }
     let encoded = encode_test_wire(

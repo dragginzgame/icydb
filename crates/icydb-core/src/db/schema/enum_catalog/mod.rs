@@ -14,7 +14,7 @@ mod value_wire;
 
 use crate::{
     db::schema::{
-        AcceptedFieldKind,
+        AcceptedFieldKind, MAX_ACCEPTED_RECURSIVE_DEPTH,
         composite_catalog::{AcceptedCompositeCatalog, CompositeTypeId},
     },
     model::{
@@ -57,8 +57,6 @@ pub(in crate::db) use publication::{
 pub(in crate::db) use value_wire::{
     CanonicalEnumWireError, decode_canonical_enum_value, encode_canonical_enum_value,
 };
-
-const MAX_ENUM_CONTRACT_DEPTH: usize = 64;
 
 /// Canonical enum ordering contract.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -138,25 +136,25 @@ impl AcceptedSchemaAuthority {
     }
 }
 
-/// Shared immutable catalog authority retained by one accepted revision context.
+/// Shared immutable enum/composite catalog authority retained by one accepted revision.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct AcceptedEnumCatalogHandle {
-    catalog: Arc<AcceptedEnumCatalog>,
+pub(in crate::db) struct AcceptedValueCatalogHandle {
+    enum_catalog: Arc<AcceptedEnumCatalog>,
     composite_catalog: Arc<AcceptedCompositeCatalog>,
     authority: AcceptedSchemaAuthority,
 }
 
-impl AcceptedEnumCatalogHandle {
+impl AcceptedValueCatalogHandle {
     #[must_use]
     pub(in crate::db::schema) fn new(
-        catalog: AcceptedEnumCatalog,
+        enum_catalog: AcceptedEnumCatalog,
         composite_catalog: AcceptedCompositeCatalog,
         store_scope: AcceptedStoreCatalogScope,
         revision: AcceptedSchemaRevision,
         fingerprint: AcceptedSchemaFingerprint,
     ) -> Self {
         Self {
-            catalog: Arc::new(catalog),
+            enum_catalog: Arc::new(enum_catalog),
             composite_catalog: Arc::new(composite_catalog),
             authority: AcceptedSchemaAuthority {
                 store_scope,
@@ -169,12 +167,12 @@ impl AcceptedEnumCatalogHandle {
     #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn new_for_tests(
-        catalog: AcceptedEnumCatalog,
+        enum_catalog: AcceptedEnumCatalog,
         composite_catalog: AcceptedCompositeCatalog,
         revision: AcceptedSchemaRevision,
     ) -> Self {
         Self::new(
-            catalog,
+            enum_catalog,
             composite_catalog,
             AcceptedStoreCatalogScope::new(),
             revision,
@@ -183,8 +181,8 @@ impl AcceptedEnumCatalogHandle {
     }
 
     #[must_use]
-    pub(in crate::db) fn catalog(&self) -> &AcceptedEnumCatalog {
-        self.catalog.as_ref()
+    pub(in crate::db) fn enum_catalog(&self) -> &AcceptedEnumCatalog {
+        self.enum_catalog.as_ref()
     }
 
     #[must_use]
@@ -422,12 +420,12 @@ pub(in crate::db) struct AcceptedValueContract {
 
 impl AcceptedValueContract {
     pub(in crate::db) fn from_accepted_field(
-        catalog: &AcceptedEnumCatalogHandle,
+        catalog: &AcceptedValueCatalogHandle,
         kind: &AcceptedFieldKind,
         storage_decode: FieldStorageDecode,
     ) -> Result<Self, EnumCatalogBuildError> {
         Self::from_candidate_catalogs(
-            catalog.catalog(),
+            catalog.enum_catalog(),
             catalog.composite_catalog(),
             kind,
             storage_decode,
@@ -587,7 +585,7 @@ fn collect_enum_definitions_from_kind(
     active_paths: &mut Vec<String>,
     depth: usize,
 ) -> Result<(), EnumCatalogBuildError> {
-    if depth > MAX_ENUM_CONTRACT_DEPTH {
+    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
         return Err(EnumCatalogBuildError::ContractDepthExceeded);
     }
 
@@ -940,7 +938,7 @@ fn accepted_field_kind_from_model(
     composite_id_by_path: &BTreeMap<String, CompositeTypeId>,
     depth: usize,
 ) -> Result<AcceptedFieldKind, EnumCatalogBuildError> {
-    if depth > MAX_ENUM_CONTRACT_DEPTH {
+    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
         return Err(EnumCatalogBuildError::ContractDepthExceeded);
     }
 
@@ -1063,7 +1061,7 @@ fn accepted_kind_matches_catalog(
     kind: &AcceptedFieldKind,
     depth: usize,
 ) -> bool {
-    if depth > MAX_ENUM_CONTRACT_DEPTH {
+    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
         return false;
     }
     match kind {
@@ -1139,7 +1137,7 @@ fn validate_enum_type_graph(
     active: &mut BTreeSet<EnumTypeId>,
     depth: usize,
 ) -> bool {
-    if depth > MAX_ENUM_CONTRACT_DEPTH {
+    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
         return false;
     }
     if visited.contains(&type_id) {
@@ -1182,7 +1180,7 @@ fn collect_enum_type_references(
     references: &mut BTreeSet<EnumTypeId>,
     depth: usize,
 ) -> bool {
-    if depth > MAX_ENUM_CONTRACT_DEPTH {
+    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
         return false;
     }
     match kind {
@@ -1237,7 +1235,7 @@ fn collect_composite_type_references(
     active_enums: &mut BTreeSet<EnumTypeId>,
     depth: usize,
 ) -> bool {
-    if depth > MAX_ENUM_CONTRACT_DEPTH {
+    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
         return false;
     }
     let nested_depth = depth.saturating_add(1);

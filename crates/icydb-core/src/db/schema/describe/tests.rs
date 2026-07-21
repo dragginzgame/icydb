@@ -628,7 +628,7 @@ fn schema_describe_uses_accepted_nested_leaf_metadata() {
 }
 
 #[test]
-fn schema_describe_expands_generated_structured_field_leaves() {
+fn schema_describe_expands_generated_composite_field_leaves() {
     static NESTED_FIELDS: [FieldModel; 3] = [
         FieldModel::generated("name", FieldKind::Text { max_len: None }),
         FieldModel::generated("level", FieldKind::Nat64),
@@ -679,7 +679,12 @@ fn schema_describe_expands_generated_structured_field_leaves() {
         described_fields,
         vec![
             ("id", Some(0), "ulid", true),
-            ("mentor", Some(1), "structured", false),
+            (
+                "mentor",
+                Some(1),
+                "composite(schema::describe::tests::Mentor)",
+                false,
+            ),
             ("├─ name", None, "text(unbounded)", true),
             ("├─ level", None, "nat64", true),
             ("└─ pid", None, "principal", true),

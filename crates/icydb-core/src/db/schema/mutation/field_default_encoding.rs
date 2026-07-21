@@ -3,8 +3,8 @@
 use crate::db::{
     data::encode_input_value_for_accepted_field_contract,
     schema::{
-        AcceptedEnumCatalogHandle, AcceptedFieldDecodeContract, AcceptedFieldKind,
-        AcceptedFieldPersistenceContract, PersistedFieldSnapshot, SchemaFieldDefault,
+        AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedFieldPersistenceContract,
+        AcceptedValueCatalogHandle, PersistedFieldSnapshot, SchemaFieldDefault,
         enum_catalog::ValueAdmissionBudget, input_value_from_strict_sql_literal_for_persisted_kind,
     },
 };
@@ -29,7 +29,7 @@ pub(in crate::db) fn encode_sql_ddl_add_column_default(
     nullable: bool,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
-    catalog: Option<&AcceptedEnumCatalogHandle>,
+    catalog: Option<&AcceptedValueCatalogHandle>,
 ) -> Result<SchemaFieldDefault, SchemaDdlFieldDefaultEncodingError> {
     let Some(default) = default else {
         return Ok(SchemaFieldDefault::None);
@@ -50,7 +50,7 @@ pub(in crate::db) fn encode_sql_ddl_add_column_default(
 pub(in crate::db) fn encode_sql_ddl_alter_column_default(
     field: &PersistedFieldSnapshot,
     default: &Value,
-    catalog: Option<&AcceptedEnumCatalogHandle>,
+    catalog: Option<&AcceptedValueCatalogHandle>,
 ) -> Result<SchemaFieldDefault, SchemaDdlFieldDefaultEncodingError> {
     encode_sql_ddl_field_default_payload(
         field.name(),
@@ -70,7 +70,7 @@ fn encode_sql_ddl_field_default_payload(
     nullable: bool,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
-    catalog: Option<&AcceptedEnumCatalogHandle>,
+    catalog: Option<&AcceptedValueCatalogHandle>,
 ) -> Result<SchemaFieldDefault, SchemaDdlFieldDefaultEncodingError> {
     if matches!(default, Value::Null) {
         return Err(SchemaDdlFieldDefaultEncodingError::NullDefault);
@@ -130,7 +130,7 @@ mod tests {
     fn sql_ddl_enum_default_is_catalog_admitted_and_id_backed() {
         let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[STATUS_KIND])
             .expect("enum catalog should build");
-        let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+        let catalog = AcceptedValueCatalogHandle::new_for_tests(
             catalog,
             crate::db::schema::AcceptedCompositeCatalog::empty(),
             AcceptedSchemaRevision::INITIAL,
@@ -156,7 +156,7 @@ mod tests {
             field.leaf_codec(),
         );
         validate_default_payload_for_accepted_field_contract(
-            catalog.catalog(),
+            catalog.enum_catalog(),
             catalog.composite_catalog(),
             contract,
             payload,
@@ -168,7 +168,7 @@ mod tests {
     fn sql_ddl_enum_default_requires_catalog_and_rejects_unknown_variant() {
         let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[STATUS_KIND])
             .expect("enum catalog should build");
-        let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+        let catalog = AcceptedValueCatalogHandle::new_for_tests(
             catalog,
             crate::db::schema::AcceptedCompositeCatalog::empty(),
             AcceptedSchemaRevision::INITIAL,

@@ -22,7 +22,7 @@ use crate::{
 const UNIT_DECODE: FieldStorageDecode = FieldStorageDecode::ByKind;
 
 fn accepted_field_contract<'a>(
-    catalog: &'a AcceptedEnumCatalogHandle,
+    catalog: &'a AcceptedValueCatalogHandle,
     kind: &'a AcceptedFieldKind,
     nullable: bool,
     storage_decode: FieldStorageDecode,
@@ -257,8 +257,8 @@ fn enum_contract(type_id: EnumTypeId) -> AcceptedValueContract {
 fn accepted_catalog_handle(
     catalog: &AcceptedEnumCatalog,
     revision: AcceptedSchemaRevision,
-) -> AcceptedEnumCatalogHandle {
-    AcceptedEnumCatalogHandle::new_for_tests(
+) -> AcceptedValueCatalogHandle {
+    AcceptedValueCatalogHandle::new_for_tests(
         catalog.clone(),
         AcceptedCompositeCatalog::empty(),
         revision,
@@ -464,8 +464,8 @@ fn derived_collection_element_admission_retains_catalog_authority() {
         .expect("list fields should derive an element admission contract");
 
     assert!(std::ptr::eq(
-        element_contract.enum_catalog().catalog(),
-        catalog_handle.catalog(),
+        element_contract.catalogs().enum_catalog(),
+        catalog_handle.enum_catalog(),
     ));
     assert_eq!(
         element_contract.kind(),
@@ -488,28 +488,28 @@ fn admitted_owned_value_requires_exact_store_revision_and_fingerprint_authority(
         .type_id("catalog::Alpha")
         .expect("alpha type ID should exist");
     let store_scope = AcceptedStoreCatalogScope::new();
-    let authority = AcceptedEnumCatalogHandle::new(
+    let authority = AcceptedValueCatalogHandle::new(
         catalog.clone(),
         AcceptedCompositeCatalog::empty(),
         store_scope.clone(),
         AcceptedSchemaRevision::INITIAL,
         AcceptedSchemaFingerprint::new([0x11; 32]),
     );
-    let other_store = AcceptedEnumCatalogHandle::new(
+    let other_store = AcceptedValueCatalogHandle::new(
         catalog.clone(),
         AcceptedCompositeCatalog::empty(),
         AcceptedStoreCatalogScope::new(),
         AcceptedSchemaRevision::INITIAL,
         AcceptedSchemaFingerprint::new([0x11; 32]),
     );
-    let other_revision = AcceptedEnumCatalogHandle::new(
+    let other_revision = AcceptedValueCatalogHandle::new(
         catalog.clone(),
         AcceptedCompositeCatalog::empty(),
         store_scope.clone(),
         AcceptedSchemaRevision::new(2),
         AcceptedSchemaFingerprint::new([0x11; 32]),
     );
-    let other_fingerprint = AcceptedEnumCatalogHandle::new(
+    let other_fingerprint = AcceptedValueCatalogHandle::new(
         catalog,
         AcceptedCompositeCatalog::empty(),
         store_scope,
@@ -744,6 +744,50 @@ fn accepted_value_admission_enforces_depth_and_size_budgets() {
             &mut small_budget,
         ),
         Err(ValueAdmissionError::SizeExceeded),
+    );
+}
+
+fn nested_list_contract_and_input(depth: usize) -> (AcceptedValueContract, InputValue) {
+    let mut kind = AcceptedFieldKind::Unit;
+    let mut input = InputValue::Unit;
+    for _ in 0..depth {
+        kind = AcceptedFieldKind::List(Box::new(kind));
+        input = InputValue::List(vec![input]);
+    }
+    (
+        AcceptedValueContract {
+            kind,
+            storage_decode: FieldStorageDecode::ByKind,
+        },
+        input,
+    )
+}
+
+#[test]
+fn accepted_value_admission_uses_the_shared_recursive_depth_boundary() {
+    let catalog =
+        build_initial_accepted_enum_catalog_from_kinds(&[]).expect("empty catalog should build");
+    let catalog_handle = accepted_catalog_handle(&catalog, AcceptedSchemaRevision::INITIAL);
+    let (allowed_contract, allowed_input) =
+        nested_list_contract_and_input(MAX_ACCEPTED_RECURSIVE_DEPTH - 1);
+    let (excessive_contract, excessive_input) =
+        nested_list_contract_and_input(MAX_ACCEPTED_RECURSIVE_DEPTH);
+
+    normalize_and_admit_value(
+        &catalog_handle,
+        &allowed_contract,
+        allowed_input,
+        &mut ValueAdmissionBudget::standard(),
+    )
+    .expect("the maximum accepted recursive depth should admit");
+    assert_eq!(
+        normalize_and_admit_value(
+            &catalog_handle,
+            &excessive_contract,
+            excessive_input,
+            &mut ValueAdmissionBudget::standard(),
+        ),
+        Err(ValueAdmissionError::DepthExceeded),
     );
 }
 
@@ -1083,14 +1127,14 @@ fn checked_id_allocation_rejects_overflow_without_wrapping() {
 
 fn accepted_composite_contract(
     kind: FieldKind,
-) -> (AcceptedEnumCatalogHandle, AcceptedValueContract) {
+) -> (AcceptedValueCatalogHandle, AcceptedValueContract) {
     let (enum_catalog, composite_catalog) =
         crate::db::schema::build_initial_accepted_catalogs_from_kinds_for_tests(&[kind])
             .expect("composite catalogs should build");
     let accepted_kind =
         resolve_model_field_kind_with_composite_catalog(&enum_catalog, &composite_catalog, kind)
             .expect("composite kind should resolve");
-    let handle = AcceptedEnumCatalogHandle::new_for_tests(
+    let handle = AcceptedValueCatalogHandle::new_for_tests(
         enum_catalog,
         composite_catalog,
         AcceptedSchemaRevision::INITIAL,

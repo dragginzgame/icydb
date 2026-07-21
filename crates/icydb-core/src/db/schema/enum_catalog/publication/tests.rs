@@ -56,6 +56,15 @@ static PROFILE_KIND: FieldKind = FieldKind::Composite {
     codec: CompositeCodec::StructuralV1,
     shape: &PROFILE_SHAPE,
 };
+static NESTED_STATUS_FIELDS: [CompositeFieldModel; 1] =
+    [CompositeFieldModel::generated("status", STATUS_KIND, false)];
+static NESTED_STATUS_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Record(&NESTED_STATUS_FIELDS);
+static NESTED_STATUS_KIND: FieldKind = FieldKind::Composite {
+    path: "test::NestedStatus",
+    codec: CompositeCodec::StructuralV1,
+    shape: &NESTED_STATUS_SHAPE,
+};
 
 fn empty_catalog() -> super::AcceptedEnumCatalog {
     super::AcceptedEnumCatalog {
@@ -170,11 +179,14 @@ fn status_catalog() -> super::super::AcceptedEnumCatalog {
         .expect("status catalog should build")
 }
 
-fn snapshot_with_nested_status(kind: AcceptedFieldKind) -> PersistedSchemaSnapshot {
-    let nested = PersistedNestedLeafSnapshot::new(vec!["status".to_string()], kind, false);
+fn snapshot_with_nested_status(
+    composite_kind: AcceptedFieldKind,
+    status_kind: AcceptedFieldKind,
+) -> PersistedSchemaSnapshot {
+    let nested = PersistedNestedLeafSnapshot::new(vec!["status".to_string()], status_kind, false);
     snapshot_with_field(
         "test::Item",
-        AcceptedFieldKind::test_composite(),
+        composite_kind,
         vec![nested],
         LeafCodec::Structural,
     )
@@ -305,7 +317,15 @@ fn accepted_schema_bundle_rejects_malformed_default_payload() {
 
 #[test]
 fn accepted_schema_bundle_checks_nested_enum_type_ids() {
-    let catalog = status_catalog();
+    let (catalog, composite_catalog) =
+        build_initial_accepted_catalogs_from_kinds_for_tests(&[NESTED_STATUS_KIND])
+            .expect("nested status catalogs should build");
+    let composite_kind = super::super::resolve_model_field_kind_with_composite_catalog(
+        &catalog,
+        &composite_catalog,
+        NESTED_STATUS_KIND,
+    )
+    .expect("nested status composite kind should resolve");
     let status_kind = AcceptedFieldKind::Enum {
         type_id: catalog
             .type_id("test::Status")
@@ -316,8 +336,11 @@ fn accepted_schema_bundle_checks_nested_enum_type_ids() {
             AcceptedSchemaRevision::INITIAL,
             "test::Store",
             catalog.clone(),
-            empty_composite_catalog(),
-            BTreeMap::from([(EntityTag::new(7), snapshot_with_nested_status(status_kind),)]),
+            composite_catalog.clone(),
+            BTreeMap::from([(
+                EntityTag::new(7),
+                snapshot_with_nested_status(composite_kind.clone(), status_kind),
+            )]),
         )
         .is_ok()
     );
@@ -327,12 +350,15 @@ fn accepted_schema_bundle_checks_nested_enum_type_ids() {
             AcceptedSchemaRevision::INITIAL,
             "test::Store",
             catalog,
-            empty_composite_catalog(),
+            composite_catalog,
             BTreeMap::from([(
                 EntityTag::new(7),
-                snapshot_with_nested_status(AcceptedFieldKind::Enum {
-                    type_id: EnumTypeId::new(999).expect("test enum type ID should be valid"),
-                }),
+                snapshot_with_nested_status(
+                    composite_kind,
+                    AcceptedFieldKind::Enum {
+                        type_id: EnumTypeId::new(999).expect("test enum type ID should be valid"),
+                    },
+                ),
             )]),
         )
         .is_err()

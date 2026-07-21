@@ -203,7 +203,7 @@ where
         entities,
         returning,
         descriptor,
-        catalog.enum_catalog_handle(),
+        catalog.value_catalog_handle(),
     )
 }
 
@@ -327,7 +327,7 @@ impl<C: CanisterKind> DbSession<C> {
                                 entities,
                                 returning,
                                 descriptor,
-                                catalog.enum_catalog_handle(),
+                                catalog.value_catalog_handle(),
                                 execution.returning_bounds,
                             )
                         },

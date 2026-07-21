@@ -8,7 +8,9 @@ mod codec;
 mod tests;
 
 use crate::{
-    db::schema::{AcceptedFieldKind, enum_catalog::AcceptedEnumCatalog},
+    db::schema::{
+        AcceptedFieldKind, MAX_ACCEPTED_RECURSIVE_DEPTH, enum_catalog::AcceptedEnumCatalog,
+    },
     model::{
         entity::EntityModel,
         field::{CompositeCodec, CompositeShapeModel, EnumVariantModel, FieldKind},
@@ -22,8 +24,6 @@ use std::{
 pub(in crate::db::schema) use codec::{
     decode_accepted_composite_catalog, encode_accepted_composite_catalog,
 };
-
-const MAX_COMPOSITE_CONTRACT_DEPTH: usize = 64;
 
 ///
 /// CompositeTypeId
@@ -123,7 +123,7 @@ impl AcceptedCompositeCatalog {
         kind: &AcceptedFieldKind,
         depth: usize,
     ) -> bool {
-        if depth > MAX_COMPOSITE_CONTRACT_DEPTH {
+        if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
             return false;
         }
         let nested_depth = depth.saturating_add(1);
@@ -416,6 +416,14 @@ pub(in crate::db::schema) fn reconcile_accepted_composite_catalog(
     enum_catalog: &AcceptedEnumCatalog,
 ) -> Result<AcceptedCompositeCatalog, CompositeCatalogBuildError> {
     let candidate = build_initial_accepted_composite_catalog(models, enum_catalog)?;
+    reconcile_composite_catalog_candidate(accepted, candidate)
+}
+
+/// Preserve every surviving nominal composite identity and exact shape.
+fn reconcile_composite_catalog_candidate(
+    accepted: &AcceptedCompositeCatalog,
+    candidate: AcceptedCompositeCatalog,
+) -> Result<AcceptedCompositeCatalog, CompositeCatalogBuildError> {
     for (path, accepted_id) in &accepted.id_by_path {
         let Some(candidate_id) = candidate.id_by_path.get(path) else {
             continue;
@@ -468,7 +476,7 @@ fn collect_composite_definitions_from_kind(
     active_paths: &mut Vec<String>,
     depth: usize,
 ) -> Result<(), CompositeCatalogBuildError> {
-    if depth > MAX_COMPOSITE_CONTRACT_DEPTH {
+    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
         return Err(CompositeCatalogBuildError::ContractDepthExceeded);
     }
     let nested_depth = depth.saturating_add(1);
@@ -694,7 +702,7 @@ fn validate_composite_type_graph(
     active: &mut BTreeSet<CompositeTypeId>,
     depth: usize,
 ) -> bool {
-    if depth > MAX_COMPOSITE_CONTRACT_DEPTH {
+    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
         return false;
     }
     if visited.contains(&type_id) {

@@ -53,7 +53,10 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C>,
     {
         self.ensure_accepted_schema_authority_is_current::<E>(
-            context.accepted_catalog().enum_catalog_handle().authority(),
+            context
+                .accepted_catalog()
+                .value_catalog_handle()
+                .authority(),
         )
         .map_err(QueryError::execute)
     }

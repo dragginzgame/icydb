@@ -1,20 +1,22 @@
 use super::{
-    AcceptedStoreCatalogScope, RawSchemaKey, RawSchemaSnapshot,
-    SCHEMA_STORE_FINGERPRINT_METHOD_VERSION, SchemaStore, SchemaStoreBackend, SchemaStoreVisit,
-    accepted_schema_bundle_cache_miss_count_for_tests,
+    ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_BOOL, ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_LIST,
+    ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_SET, AcceptedStoreCatalogScope, RawSchemaKey,
+    RawSchemaSnapshot, SCHEMA_STORE_FINGERPRINT_METHOD_VERSION, SchemaStore, SchemaStoreBackend,
+    SchemaStoreVisit, accepted_schema_bundle_cache_miss_count_for_tests, hash_accepted_field_kind,
     reset_accepted_schema_bundle_cache_miss_count_for_tests,
 };
 use crate::{
     db::{
+        codec::{finalize_hash_sha256, new_hash_sha256},
         direction::Direction,
         schema::{
-            AcceptedCompositeCatalog, AcceptedEnumCatalogHandle, AcceptedFieldKind,
-            AcceptedSchemaRevision, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
+            AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
+            AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, FieldId, PersistedFieldSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
             PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
             SchemaFieldSlot, SchemaRowLayout, SchemaVersion, accepted_schema_cache_fingerprint,
-            empty_accepted_schema_candidate_for_tests, encode_persisted_schema_snapshot,
-            enum_catalog::AcceptedSchemaFingerprint,
+            composite_catalog::CompositeTypeId, empty_accepted_schema_candidate_for_tests,
+            encode_persisted_schema_snapshot, enum_catalog::AcceptedSchemaFingerprint,
         },
     },
     model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
@@ -24,6 +26,36 @@ use crate::{
 use ic_stable_structures::{Storable, storable::Bound};
 use std::borrow::Cow;
 use std::convert::Infallible;
+
+fn accepted_field_kind_fingerprint(kind: &AcceptedFieldKind) -> [u8; 32] {
+    let mut hasher = new_hash_sha256();
+    hash_accepted_field_kind(&mut hasher, kind);
+    finalize_hash_sha256(hasher)
+}
+
+#[test]
+fn accepted_field_kind_fingerprint_discriminates_maps_from_composites() {
+    let map = AcceptedFieldKind::Map {
+        key: Box::new(AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Bool))),
+        value: Box::new(AcceptedFieldKind::Set(Box::new(AcceptedFieldKind::Bool))),
+    };
+    let colliding_payload = u32::from_be_bytes([
+        ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_LIST,
+        ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_BOOL,
+        ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_SET,
+        ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_BOOL,
+    ]);
+    let composite = AcceptedFieldKind::Composite {
+        type_id: CompositeTypeId::new(colliding_payload)
+            .expect("the collision-proof test ID should be non-zero"),
+    };
+
+    assert_ne!(
+        accepted_field_kind_fingerprint(&map),
+        accepted_field_kind_fingerprint(&composite),
+        "semantic field-kind variants must have distinct fingerprint domains",
+    );
+}
 
 #[test]
 fn schema_store_catalog_scope_is_local_and_stable_for_its_lifetime() {
@@ -62,7 +94,7 @@ fn schema_store_matches_only_its_current_root_authority() {
         .get_or_init(AcceptedStoreCatalogScope::new)
         .clone();
     let root = initial.root();
-    let current = AcceptedEnumCatalogHandle::new(
+    let current = AcceptedValueCatalogHandle::new(
         initial.bundle().enum_catalog().clone(),
         initial.bundle().composite_catalog().clone(),
         store_scope.clone(),
@@ -82,7 +114,7 @@ fn schema_store_matches_only_its_current_root_authority() {
             .expect("current authority comparison should reuse the cached root"),
     );
 
-    let foreign_store = AcceptedEnumCatalogHandle::new(
+    let foreign_store = AcceptedValueCatalogHandle::new(
         initial.bundle().enum_catalog().clone(),
         AcceptedCompositeCatalog::empty(),
         AcceptedStoreCatalogScope::new(),
@@ -97,7 +129,7 @@ fn schema_store_matches_only_its_current_root_authority() {
 
     let mut wrong_fingerprint_bytes = root.fingerprint().as_bytes();
     wrong_fingerprint_bytes[0] ^= 1;
-    let wrong_fingerprint = AcceptedEnumCatalogHandle::new(
+    let wrong_fingerprint = AcceptedValueCatalogHandle::new(
         initial.bundle().enum_catalog().clone(),
         AcceptedCompositeCatalog::empty(),
         store_scope,

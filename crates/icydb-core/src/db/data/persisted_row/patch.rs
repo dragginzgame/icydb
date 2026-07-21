@@ -189,8 +189,8 @@ impl SlotReader for SerializedPatchSlotReader<'_> {
         Some(
             self.payloads
                 .contract
-                .accepted_enum_catalog_handle()
-                .catalog() as &dyn crate::value::RuntimeEnumContext,
+                .accepted_value_catalog_handle()
+                .enum_catalog() as &dyn crate::value::RuntimeEnumContext,
         )
     }
 }

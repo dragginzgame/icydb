@@ -199,7 +199,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
         let (catalog, composite_catalog) =
             crate::db::schema::build_initial_accepted_catalogs_for_tests(&[E::MODEL])
                 .expect("test save executor catalogs should build");
-        let catalog = crate::db::schema::AcceptedEnumCatalogHandle::new_for_tests(
+        let catalog = crate::db::schema::AcceptedValueCatalogHandle::new_for_tests(
             catalog,
             composite_catalog,
             crate::db::schema::AcceptedSchemaRevision::INITIAL,

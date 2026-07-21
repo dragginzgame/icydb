@@ -4,8 +4,8 @@ use crate::db::query::plan::CoveringHybridReadExecutionPlan;
 use crate::db::query::plan::covering_hybrid_projection_execution_plan_with_schema_info;
 #[cfg(test)]
 use crate::db::schema::{
-    AcceptedEnumCatalogHandle, AcceptedRowLayoutRuntimeContract, AcceptedSchemaRevision,
-    AcceptedSchemaSnapshot, compiled_schema_proposal_for_model,
+    AcceptedRowLayoutRuntimeContract, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
+    AcceptedValueCatalogHandle, compiled_schema_proposal_for_model,
 };
 #[cfg(test)]
 use crate::entity::EntityKind;
@@ -125,7 +125,7 @@ impl EntityAuthority {
                 &composite_catalog,
             )
             .expect("generated model should match its accepted test schema");
-        let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+        let catalog = AcceptedValueCatalogHandle::new_for_tests(
             catalog,
             composite_catalog,
             AcceptedSchemaRevision::INITIAL,
@@ -202,18 +202,18 @@ impl EntityAuthority {
     pub(in crate::db) fn accepted_schema_authority(
         &self,
     ) -> Result<&AcceptedSchemaAuthority, InternalError> {
-        Ok(self.accepted_enum_catalog_handle()?.authority())
+        Ok(self.accepted_value_catalog_handle()?.authority())
     }
 
     /// Borrow the immutable accepted catalog handle frozen into this
     /// executor's row layout.
-    pub(in crate::db) fn accepted_enum_catalog_handle(
+    pub(in crate::db) fn accepted_value_catalog_handle(
         &self,
-    ) -> Result<&crate::db::schema::AcceptedEnumCatalogHandle, InternalError> {
+    ) -> Result<&crate::db::schema::AcceptedValueCatalogHandle, InternalError> {
         Ok(self
             .row_layout_ref()?
             .contract()
-            .accepted_enum_catalog_handle())
+            .accepted_value_catalog_handle())
     }
 
     /// Borrow the accepted schema view attached to this executor authority.

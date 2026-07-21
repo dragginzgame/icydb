@@ -67,8 +67,8 @@ impl AcceptedStructuralRowAuthority {
             AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
                 &accepted_schema,
                 model,
-                selection.enum_catalog().catalog(),
-                selection.enum_catalog().composite_catalog(),
+                selection.value_catalog_handle().enum_catalog(),
+                selection.value_catalog_handle().composite_catalog(),
             )?;
         let row_contract = Self::catalog_backed_row_contract(entity_path, &descriptor, selection);
 
@@ -84,14 +84,15 @@ impl AcceptedStructuralRowAuthority {
         selection: &AcceptedCatalogSnapshotSelection,
     ) -> StructuralRowContract {
         let identity = selection.identity();
-        let row_decode_contract = descriptor.row_decode_contract(selection.enum_catalog().clone());
+        let row_decode_contract =
+            descriptor.row_decode_contract(selection.value_catalog_handle().clone());
         debug_assert_eq!(
             row_decode_contract.accepted_schema_revision(),
             identity.accepted_schema_revision()
         );
         debug_assert!(std::ptr::eq(
             row_decode_contract.enum_catalog(),
-            selection.enum_catalog().catalog(),
+            selection.value_catalog_handle().enum_catalog(),
         ));
         StructuralRowContract::from_accepted_decode_contract(entity_path, row_decode_contract)
     }
@@ -211,10 +212,10 @@ impl StructuralRowContract {
 
     /// Borrow the catalog authority carried by this accepted row contract.
     #[must_use]
-    pub(in crate::db) fn accepted_enum_catalog_handle(
+    pub(in crate::db) fn accepted_value_catalog_handle(
         &self,
-    ) -> &crate::db::schema::AcceptedEnumCatalogHandle {
-        self.accepted_decode_contract.enum_catalog_handle()
+    ) -> &crate::db::schema::AcceptedValueCatalogHandle {
+        self.accepted_decode_contract.value_catalog_handle()
     }
 
     /// Borrow accepted relation-edge metadata declared on this source row.

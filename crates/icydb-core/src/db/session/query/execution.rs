@@ -14,7 +14,7 @@ use crate::{
             StructuralGroupedProjectionResult,
         },
         query::plan::QueryMode,
-        schema::AcceptedEnumCatalogHandle,
+        schema::AcceptedValueCatalogHandle,
         session::finalize_structural_grouped_projection_result,
     },
     error::InternalError,
@@ -64,7 +64,7 @@ where
 /// guarded plan that produced it.
 pub(in crate::db) struct AcceptedExecutionOutput<T> {
     value: T,
-    enum_catalog: AcceptedEnumCatalogHandle,
+    value_catalog: AcceptedValueCatalogHandle,
 }
 
 pub(in crate::db) type AcceptedValuesOutput = AcceptedExecutionOutput<Vec<Value>>;
@@ -73,16 +73,16 @@ pub(in crate::db) type AcceptedOptionalValueOutput = AcceptedExecutionOutput<Opt
 
 impl<T> AcceptedExecutionOutput<T> {
     #[must_use]
-    pub(in crate::db) const fn new(value: T, enum_catalog: AcceptedEnumCatalogHandle) -> Self {
+    pub(in crate::db) const fn new(value: T, value_catalog: AcceptedValueCatalogHandle) -> Self {
         Self {
             value,
-            enum_catalog,
+            value_catalog,
         }
     }
 
     #[must_use]
-    pub(in crate::db) fn into_parts(self) -> (T, AcceptedEnumCatalogHandle) {
-        (self.value, self.enum_catalog)
+    pub(in crate::db) fn into_parts(self) -> (T, AcceptedValueCatalogHandle) {
+        (self.value, self.value_catalog)
     }
 
     #[must_use]
@@ -397,14 +397,14 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
         self.ensure_prepared_query_plan_is_current(&plan)?;
-        let enum_catalog = plan
-            .accepted_enum_catalog_handle()
+        let value_catalog = plan
+            .accepted_value_catalog_handle()
             .map_err(QueryError::execute)?
             .clone();
         let value = self
             .with_metrics(|| op(self.load_executor::<E>(), plan))
             .map_err(QueryError::execute)?;
 
-        Ok(AcceptedExecutionOutput::new(value, enum_catalog))
+        Ok(AcceptedExecutionOutput::new(value, value_catalog))
     }
 }

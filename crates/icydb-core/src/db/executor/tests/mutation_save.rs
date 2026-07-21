@@ -411,26 +411,26 @@ crate::test_entity! {
 }
 
 ///
-/// SaveSelectedPart
+/// CompositeSelectedPart
 ///
-/// SaveSelectedPart mirrors one nested record payload stored inside a queryable
-/// collection field so save preflight can prove it accepts structured leaves
+/// CompositeSelectedPart mirrors one exact record payload stored inside a queryable
+/// collection field so save preflight can prove it accepts composite leaves
 /// during typed writes instead of treating them as predicate literals.
 ///
 
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd)]
-struct SaveSelectedPart {
+struct CompositeSelectedPart {
     layer_id: Ulid,
     part_id: Ulid,
 }
 
-impl RuntimeValueMeta for SaveSelectedPart {
+impl RuntimeValueMeta for CompositeSelectedPart {
     fn kind() -> RuntimeValueKind {
         RuntimeValueKind::Structured { queryable: false }
     }
 }
 
-impl RuntimeValueEncode for SaveSelectedPart {
+impl RuntimeValueEncode for CompositeSelectedPart {
     fn to_value(&self) -> Value {
         Value::from_map(vec![
             (
@@ -446,7 +446,7 @@ impl RuntimeValueEncode for SaveSelectedPart {
     }
 }
 
-impl RuntimeValueDecode for SaveSelectedPart {
+impl RuntimeValueDecode for CompositeSelectedPart {
     fn from_value(value: &Value) -> Option<Self> {
         let Value::Map(entries) = value else {
             return None;
@@ -476,7 +476,7 @@ impl RuntimeValueDecode for SaveSelectedPart {
     }
 }
 
-impl PersistedStructuralValueCodec for SaveSelectedPart {
+impl PersistedStructuralValueCodec for CompositeSelectedPart {
     fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, crate::error::InternalError> {
         let layer_key = crate::db::encode_generated_structural_text_payload_bytes("layer_id");
         let layer_value = Ulid::encode_persisted_structured_payload(&self.layer_id)?;
@@ -550,37 +550,37 @@ impl PersistedStructuralValueCodec for SaveSelectedPart {
 }
 
 ///
-/// StructuredSelectionEntity
+/// CompositeCollectionEntity
 ///
-/// StructuredSelectionEntity keeps one repeated record field on the executor
+/// CompositeCollectionEntity keeps one repeated record field on the executor
 /// test surface so typed save preflight can exercise the same `Vec<Record>`
 /// contract that application entities use for `selected_parts`.
 ///
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
-struct StructuredSelectionEntity {
+struct CompositeCollectionEntity {
     id: Ulid,
-    selected_parts: Vec<SaveSelectedPart>,
+    selected_parts: Vec<CompositeSelectedPart>,
 }
 
-const STRUCTURED_SELECTION_ENTITY_TAG: EntityTag = EntityTag::new(0x1034);
+const COMPOSITE_COLLECTION_ENTITY_TAG: EntityTag = EntityTag::new(0x1034);
 
-static STRUCTURED_SELECTED_PART_FIELDS: [CompositeFieldModel; 2] = [
+static COMPOSITE_SELECTED_PART_FIELDS: [CompositeFieldModel; 2] = [
     CompositeFieldModel::generated("layer_id", FieldKind::Ulid, false),
     CompositeFieldModel::generated("part_id", FieldKind::Ulid, false),
 ];
-static STRUCTURED_SELECTED_PART_SHAPE: CompositeShapeModel =
-    CompositeShapeModel::Record(&STRUCTURED_SELECTED_PART_FIELDS);
-static STRUCTURED_SELECTED_PART_KIND: FieldKind = FieldKind::Composite {
-    path: "executor::tests::SaveSelectedPart",
+static COMPOSITE_SELECTED_PART_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Record(&COMPOSITE_SELECTED_PART_FIELDS);
+static COMPOSITE_SELECTED_PART_KIND: FieldKind = FieldKind::Composite {
+    path: "executor::tests::CompositeSelectedPart",
     codec: CompositeCodec::StructuralV1,
-    shape: &STRUCTURED_SELECTED_PART_SHAPE,
+    shape: &COMPOSITE_SELECTED_PART_SHAPE,
 };
 
 crate::test_entity! {
-    ident = StructuredSelectionEntity,
-    entity_name = "StructuredSelectionEntity",
-    tag = STRUCTURED_SELECTION_ENTITY_TAG,
+    ident = CompositeCollectionEntity,
+    entity_name = "CompositeCollectionEntity",
+    tag = COMPOSITE_COLLECTION_ENTITY_TAG,
     store = SourceStore,
     canister = TestCanister,
     key_type = Ulid,
@@ -588,7 +588,7 @@ crate::test_entity! {
     fields = [
         crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! {
-            selected_parts: Vec<SaveSelectedPart> => FieldKind::List(&STRUCTURED_SELECTED_PART_KIND),
+            selected_parts: Vec<CompositeSelectedPart> => FieldKind::List(&COMPOSITE_SELECTED_PART_KIND),
             options = crate::testing::TestFieldModelOptions::DEFAULT
                 .with_storage_decode(FieldStorageDecode::CatalogValue),
         },
@@ -598,7 +598,7 @@ crate::test_entity! {
     entity_value = id_field(id),
 }
 
-impl crate::db::PersistedRow for StructuredSelectionEntity {
+impl crate::db::PersistedRow for CompositeCollectionEntity {
     fn materialize_from_slots(
         slots: &mut dyn crate::db::SlotReader,
     ) -> Result<Self, crate::error::InternalError> {
@@ -608,126 +608,8 @@ impl crate::db::PersistedRow for StructuredSelectionEntity {
                 None => return Err(crate::error::InternalError::missing_persisted_slot("id")),
             },
             selected_parts: match slots.get_bytes(1) {
-                Some(bytes) => decode_persisted_structured_many_slot_payload::<SaveSelectedPart>(
-                    bytes,
-                    "selected_parts",
-                )?,
-                None => {
-                    return Err(crate::error::InternalError::missing_persisted_slot(
-                        "selected_parts",
-                    ));
-                }
-            },
-        })
-    }
-}
-
-fn load_structured_selection_entity(id: Ulid) -> Option<StructuredSelectionEntity> {
-    let data_key = DecodedDataStoreKey::try_new::<StructuredSelectionEntity>(id)
-        .expect("structured selection data key should build")
-        .to_raw()
-        .expect("structured selection data key should encode");
-
-    with_data_store(SourceStore::PATH, |data_store| {
-        data_store.get(&data_key).map(|row| {
-            row.try_decode_with_model_proposal_for_test::<StructuredSelectionEntity>()
-                .expect("structured selection row decode should succeed")
-        })
-    })
-}
-
-///
-/// SaveSelectedPartSet
-///
-/// SaveSelectedPartSet mirrors one generated set wrapper type so executor
-/// tests can prove non-empty `Set<Record>` writes persist and reload through
-/// the same typed save boundary as application entities.
-///
-
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
-struct SaveSelectedPartSet(BTreeSet<SaveSelectedPart>);
-
-impl RuntimeValueMeta for SaveSelectedPartSet {
-    fn kind() -> RuntimeValueKind {
-        RuntimeValueKind::Structured { queryable: true }
-    }
-}
-
-impl RuntimeValueEncode for SaveSelectedPartSet {
-    fn to_value(&self) -> Value {
-        crate::value::runtime_value_collection_to_value(&self.0)
-    }
-}
-
-impl RuntimeValueDecode for SaveSelectedPartSet {
-    fn from_value(value: &Value) -> Option<Self> {
-        crate::value::runtime_value_btree_set_from_value(value).map(Self)
-    }
-}
-
-impl PersistedStructuralValueCodec for SaveSelectedPartSet {
-    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, crate::error::InternalError> {
-        self.0.encode_persisted_structured_payload()
-    }
-
-    fn decode_persisted_structured_payload(
-        bytes: &[u8],
-    ) -> Result<Self, crate::error::InternalError> {
-        BTreeSet::<SaveSelectedPart>::decode_persisted_structured_payload(bytes).map(Self)
-    }
-}
-
-///
-/// StructuredSelectionSetEntity
-///
-/// StructuredSelectionSetEntity keeps one set-valued structured field on the
-/// executor test surface so save coverage now includes `Set<Record>` as well
-/// as `List<Record>` and `Map<..., Record>`.
-///
-
-#[derive(Clone, Debug, Deserialize, Eq, FieldProjection, PartialEq)]
-struct StructuredSelectionSetEntity {
-    id: Ulid,
-    selected_parts: SaveSelectedPartSet,
-}
-
-const STRUCTURED_SELECTION_SET_ENTITY_TAG: EntityTag = EntityTag::new(0x1036);
-
-static STRUCTURED_SELECTION_SET_KIND: FieldKind = FieldKind::Set(&STRUCTURED_SELECTED_PART_KIND);
-
-crate::test_entity! {
-    ident = StructuredSelectionSetEntity,
-    entity_name = "StructuredSelectionSetEntity",
-    tag = STRUCTURED_SELECTION_SET_ENTITY_TAG,
-    store = SourceStore,
-    canister = TestCanister,
-    key_type = Ulid,
-    primary_key = [id],
-    fields = [
-        crate::test_field! { id: Ulid => FieldKind::Ulid },
-        crate::test_field! {
-            selected_parts: SaveSelectedPartSet => STRUCTURED_SELECTION_SET_KIND,
-            options = crate::testing::TestFieldModelOptions::DEFAULT
-                .with_storage_decode(FieldStorageDecode::CatalogValue),
-        },
-    ],
-    indexes = [],
-    relations = [],
-    entity_value = id_field(id),
-}
-
-impl crate::db::PersistedRow for StructuredSelectionSetEntity {
-    fn materialize_from_slots(
-        slots: &mut dyn crate::db::SlotReader,
-    ) -> Result<Self, crate::error::InternalError> {
-        Ok(Self {
-            id: match slots.get_bytes(0) {
-                Some(bytes) => decode_persisted_scalar_slot_payload::<Ulid>(bytes, "id")?,
-                None => return Err(crate::error::InternalError::missing_persisted_slot("id")),
-            },
-            selected_parts: match slots.get_bytes(1) {
-                Some(bytes) => crate::db::decode_persisted_structured_slot_payload::<
-                    SaveSelectedPartSet,
+                Some(bytes) => decode_persisted_structured_many_slot_payload::<
+                    CompositeSelectedPart,
                 >(bytes, "selected_parts")?,
                 None => {
                     return Err(crate::error::InternalError::missing_persisted_slot(
@@ -739,38 +621,155 @@ impl crate::db::PersistedRow for StructuredSelectionSetEntity {
     }
 }
 
-fn load_structured_selection_set_entity(id: Ulid) -> Option<StructuredSelectionSetEntity> {
-    let data_key = DecodedDataStoreKey::try_new::<StructuredSelectionSetEntity>(id)
-        .expect("structured selection set data key should build")
+fn load_composite_collection_entity(id: Ulid) -> Option<CompositeCollectionEntity> {
+    let data_key = DecodedDataStoreKey::try_new::<CompositeCollectionEntity>(id)
+        .expect("composite collection data key should build")
         .to_raw()
-        .expect("structured selection set data key should encode");
+        .expect("composite collection data key should encode");
 
     with_data_store(SourceStore::PATH, |data_store| {
         data_store.get(&data_key).map(|row| {
-            row.try_decode_with_model_proposal_for_test::<StructuredSelectionSetEntity>()
-                .expect("structured selection set row decode should succeed")
+            row.try_decode_with_model_proposal_for_test::<CompositeCollectionEntity>()
+                .expect("composite collection row decode should succeed")
         })
     })
 }
 
 ///
-/// SaveSelectedPartMap
+/// CompositeSelectedPartSet
 ///
-/// SaveSelectedPartMap mirrors one generated map wrapper type so executor tests
+/// CompositeSelectedPartSet mirrors one generated set wrapper type so executor
+/// tests can prove non-empty `Set<Record>` writes persist and reload through
+/// the same typed save boundary as application entities.
+///
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+struct CompositeSelectedPartSet(BTreeSet<CompositeSelectedPart>);
+
+impl RuntimeValueMeta for CompositeSelectedPartSet {
+    fn kind() -> RuntimeValueKind {
+        RuntimeValueKind::Structured { queryable: true }
+    }
+}
+
+impl RuntimeValueEncode for CompositeSelectedPartSet {
+    fn to_value(&self) -> Value {
+        crate::value::runtime_value_collection_to_value(&self.0)
+    }
+}
+
+impl RuntimeValueDecode for CompositeSelectedPartSet {
+    fn from_value(value: &Value) -> Option<Self> {
+        crate::value::runtime_value_btree_set_from_value(value).map(Self)
+    }
+}
+
+impl PersistedStructuralValueCodec for CompositeSelectedPartSet {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, crate::error::InternalError> {
+        self.0.encode_persisted_structured_payload()
+    }
+
+    fn decode_persisted_structured_payload(
+        bytes: &[u8],
+    ) -> Result<Self, crate::error::InternalError> {
+        BTreeSet::<CompositeSelectedPart>::decode_persisted_structured_payload(bytes).map(Self)
+    }
+}
+
+///
+/// CompositeSetEntity
+///
+/// CompositeSetEntity keeps one set-valued exact composite field on the
+/// executor test surface so save coverage now includes `Set<Record>` as well
+/// as `List<Record>` and `Map<..., Record>`.
+///
+
+#[derive(Clone, Debug, Deserialize, Eq, FieldProjection, PartialEq)]
+struct CompositeSetEntity {
+    id: Ulid,
+    selected_parts: CompositeSelectedPartSet,
+}
+
+const COMPOSITE_SET_ENTITY_TAG: EntityTag = EntityTag::new(0x1036);
+
+static COMPOSITE_SET_KIND: FieldKind = FieldKind::Set(&COMPOSITE_SELECTED_PART_KIND);
+
+crate::test_entity! {
+    ident = CompositeSetEntity,
+    entity_name = "CompositeSetEntity",
+    tag = COMPOSITE_SET_ENTITY_TAG,
+    store = SourceStore,
+    canister = TestCanister,
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! {
+            selected_parts: CompositeSelectedPartSet => COMPOSITE_SET_KIND,
+            options = crate::testing::TestFieldModelOptions::DEFAULT
+                .with_storage_decode(FieldStorageDecode::CatalogValue),
+        },
+    ],
+    indexes = [],
+    relations = [],
+    entity_value = id_field(id),
+}
+
+impl crate::db::PersistedRow for CompositeSetEntity {
+    fn materialize_from_slots(
+        slots: &mut dyn crate::db::SlotReader,
+    ) -> Result<Self, crate::error::InternalError> {
+        Ok(Self {
+            id: match slots.get_bytes(0) {
+                Some(bytes) => decode_persisted_scalar_slot_payload::<Ulid>(bytes, "id")?,
+                None => return Err(crate::error::InternalError::missing_persisted_slot("id")),
+            },
+            selected_parts: match slots.get_bytes(1) {
+                Some(bytes) => crate::db::decode_persisted_structured_slot_payload::<
+                    CompositeSelectedPartSet,
+                >(bytes, "selected_parts")?,
+                None => {
+                    return Err(crate::error::InternalError::missing_persisted_slot(
+                        "selected_parts",
+                    ));
+                }
+            },
+        })
+    }
+}
+
+fn load_composite_set_entity(id: Ulid) -> Option<CompositeSetEntity> {
+    let data_key = DecodedDataStoreKey::try_new::<CompositeSetEntity>(id)
+        .expect("composite set data key should build")
+        .to_raw()
+        .expect("composite set data key should encode");
+
+    with_data_store(SourceStore::PATH, |data_store| {
+        data_store.get(&data_key).map(|row| {
+            row.try_decode_with_model_proposal_for_test::<CompositeSetEntity>()
+                .expect("composite set row decode should succeed")
+        })
+    })
+}
+
+///
+/// CompositeSelectedPartMap
+///
+/// CompositeSelectedPartMap mirrors one generated map wrapper type so executor tests
 /// can prove map-valued typed writes survive the full save path and persist
 /// with the expected canonical `Value::Map` payload shape.
 ///
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
-struct SaveSelectedPartMap(BTreeMap<Ulid, SaveSelectedPart>);
+struct CompositeSelectedPartMap(BTreeMap<Ulid, CompositeSelectedPart>);
 
-impl RuntimeValueMeta for SaveSelectedPartMap {
+impl RuntimeValueMeta for CompositeSelectedPartMap {
     fn kind() -> RuntimeValueKind {
         RuntimeValueKind::Structured { queryable: false }
     }
 }
 
-impl RuntimeValueEncode for SaveSelectedPartMap {
+impl RuntimeValueEncode for CompositeSelectedPartMap {
     fn to_value(&self) -> Value {
         let mut entries = self
             .0
@@ -784,7 +783,7 @@ impl RuntimeValueEncode for SaveSelectedPartMap {
     }
 }
 
-impl RuntimeValueDecode for SaveSelectedPartMap {
+impl RuntimeValueDecode for CompositeSelectedPartMap {
     fn from_value(value: &Value) -> Option<Self> {
         let Value::Map(entries) = value else {
             return None;
@@ -795,7 +794,7 @@ impl RuntimeValueDecode for SaveSelectedPartMap {
         for (entry_key, entry_value) in normalized {
             out.insert(
                 Ulid::from_value(&entry_key)?,
-                SaveSelectedPart::from_value(&entry_value)?,
+                CompositeSelectedPart::from_value(&entry_value)?,
             );
         }
 
@@ -803,7 +802,7 @@ impl RuntimeValueDecode for SaveSelectedPartMap {
     }
 }
 
-impl PersistedStructuralValueCodec for SaveSelectedPartMap {
+impl PersistedStructuralValueCodec for CompositeSelectedPartMap {
     fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, crate::error::InternalError> {
         self.0.encode_persisted_structured_payload()
     }
@@ -811,35 +810,36 @@ impl PersistedStructuralValueCodec for SaveSelectedPartMap {
     fn decode_persisted_structured_payload(
         bytes: &[u8],
     ) -> Result<Self, crate::error::InternalError> {
-        BTreeMap::<Ulid, SaveSelectedPart>::decode_persisted_structured_payload(bytes).map(Self)
+        BTreeMap::<Ulid, CompositeSelectedPart>::decode_persisted_structured_payload(bytes)
+            .map(Self)
     }
 }
 
 ///
-/// StructuredSelectionMapEntity
+/// CompositeMapEntity
 ///
-/// StructuredSelectionMapEntity keeps one map-valued field on the executor
+/// CompositeMapEntity keeps one map-valued field on the executor
 /// test surface so save tests cover the actual write boundary used for
 /// persisted `Map<..., ...>` fields.
 ///
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
-struct StructuredSelectionMapEntity {
+struct CompositeMapEntity {
     id: Ulid,
-    selected_parts_by_layer: SaveSelectedPartMap,
+    selected_parts_by_layer: CompositeSelectedPartMap,
 }
 
-const STRUCTURED_SELECTION_MAP_ENTITY_TAG: EntityTag = EntityTag::new(0x1035);
+const COMPOSITE_MAP_ENTITY_TAG: EntityTag = EntityTag::new(0x1035);
 
-static STRUCTURED_SELECTION_MAP_KIND: FieldKind = FieldKind::Map {
+static COMPOSITE_MAP_KIND: FieldKind = FieldKind::Map {
     key: &FieldKind::Ulid,
-    value: &STRUCTURED_SELECTED_PART_KIND,
+    value: &COMPOSITE_SELECTED_PART_KIND,
 };
 
 crate::test_entity! {
-    ident = StructuredSelectionMapEntity,
-    entity_name = "StructuredSelectionMapEntity",
-    tag = STRUCTURED_SELECTION_MAP_ENTITY_TAG,
+    ident = CompositeMapEntity,
+    entity_name = "CompositeMapEntity",
+    tag = COMPOSITE_MAP_ENTITY_TAG,
     store = SourceStore,
     canister = TestCanister,
     key_type = Ulid,
@@ -847,7 +847,7 @@ crate::test_entity! {
     fields = [
         crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! {
-            selected_parts_by_layer: SaveSelectedPartMap => STRUCTURED_SELECTION_MAP_KIND,
+            selected_parts_by_layer: CompositeSelectedPartMap => COMPOSITE_MAP_KIND,
             options = crate::testing::TestFieldModelOptions::DEFAULT
                 .with_storage_decode(FieldStorageDecode::CatalogValue),
         },
@@ -857,7 +857,7 @@ crate::test_entity! {
     entity_value = id_field(id),
 }
 
-impl crate::db::PersistedRow for StructuredSelectionMapEntity {
+impl crate::db::PersistedRow for CompositeMapEntity {
     fn materialize_from_slots(
         slots: &mut dyn crate::db::SlotReader,
     ) -> Result<Self, crate::error::InternalError> {
@@ -868,7 +868,7 @@ impl crate::db::PersistedRow for StructuredSelectionMapEntity {
             },
             selected_parts_by_layer: match slots.get_bytes(1) {
                 Some(bytes) => crate::db::decode_persisted_structured_slot_payload::<
-                    SaveSelectedPartMap,
+                    CompositeSelectedPartMap,
                 >(bytes, "selected_parts_by_layer")?,
                 None => {
                     return Err(crate::error::InternalError::missing_persisted_slot(
@@ -880,16 +880,16 @@ impl crate::db::PersistedRow for StructuredSelectionMapEntity {
     }
 }
 
-fn load_structured_selection_map_entity(id: Ulid) -> Option<StructuredSelectionMapEntity> {
-    let data_key = DecodedDataStoreKey::try_new::<StructuredSelectionMapEntity>(id)
-        .expect("structured selection map data key should build")
+fn load_composite_map_entity(id: Ulid) -> Option<CompositeMapEntity> {
+    let data_key = DecodedDataStoreKey::try_new::<CompositeMapEntity>(id)
+        .expect("composite map data key should build")
         .to_raw()
-        .expect("structured selection map data key should encode");
+        .expect("composite map data key should encode");
 
     with_data_store(SourceStore::PATH, |data_store| {
         data_store.get(&data_key).map(|row| {
-            row.try_decode_with_model_proposal_for_test::<StructuredSelectionMapEntity>()
-                .expect("structured selection map row decode should succeed")
+            row.try_decode_with_model_proposal_for_test::<CompositeMapEntity>()
+                .expect("composite map row decode should succeed")
         })
     })
 }
@@ -1331,6 +1331,27 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         validate_delete_relations_for_source::<SelfRelationEntity>,
     ),
     EntityRuntimeHooks::new(
+        CompositeCollectionEntity::ENTITY_TAG,
+        <CompositeCollectionEntity as crate::entity::EntityDeclaration>::MODEL,
+        CompositeCollectionEntity::PATH,
+        SourceStore::PATH,
+        validate_delete_relations_for_source::<CompositeCollectionEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        CompositeSetEntity::ENTITY_TAG,
+        <CompositeSetEntity as crate::entity::EntityDeclaration>::MODEL,
+        CompositeSetEntity::PATH,
+        SourceStore::PATH,
+        validate_delete_relations_for_source::<CompositeSetEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        CompositeMapEntity::ENTITY_TAG,
+        <CompositeMapEntity as crate::entity::EntityDeclaration>::MODEL,
+        CompositeMapEntity::PATH,
+        SourceStore::PATH,
+        validate_delete_relations_for_source::<CompositeMapEntity>,
+    ),
+    EntityRuntimeHooks::new(
         UniqueEmailEntity::ENTITY_TAG,
         <UniqueEmailEntity as crate::entity::EntityDeclaration>::MODEL,
         UniqueEmailEntity::PATH,
@@ -1567,51 +1588,51 @@ fn set_relation_all_present_save_succeeds() {
 }
 
 #[test]
-fn save_accepts_non_empty_queryable_collection_of_structured_values() {
+fn save_accepts_non_empty_queryable_collection_of_exact_composite_values() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
-    let entity = StructuredSelectionEntity {
+    let entity = CompositeCollectionEntity {
         id: Ulid::from_u128(70),
         selected_parts: vec![
-            SaveSelectedPart {
+            CompositeSelectedPart {
                 layer_id: Ulid::from_u128(701),
                 part_id: Ulid::from_u128(702),
             },
-            SaveSelectedPart {
+            CompositeSelectedPart {
                 layer_id: Ulid::from_u128(703),
                 part_id: Ulid::from_u128(704),
             },
         ],
     };
 
-    let save = SaveExecutor::<StructuredSelectionEntity>::new(DB, false);
+    let save = SaveExecutor::<CompositeCollectionEntity>::new(DB, false);
     let saved = save
         .insert(entity.clone())
-        .expect("structured collection save should succeed");
+        .expect("composite collection save should succeed");
 
     assert_eq!(saved, entity);
     assert_eq!(
-        load_structured_selection_entity(entity.id),
+        load_composite_collection_entity(entity.id),
         Some(entity),
-        "structured collection save should persist the typed after-image",
+        "composite collection save should persist the typed after-image",
     );
 }
 
 #[test]
-fn save_accepts_set_with_structured_values() {
+fn save_accepts_set_with_exact_composite_values() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
-    let entity = StructuredSelectionSetEntity {
+    let entity = CompositeSetEntity {
         id: Ulid::from_u128(75),
-        selected_parts: SaveSelectedPartSet(
+        selected_parts: CompositeSelectedPartSet(
             [
-                SaveSelectedPart {
+                CompositeSelectedPart {
                     layer_id: Ulid::from_u128(751),
                     part_id: Ulid::from_u128(752),
                 },
-                SaveSelectedPart {
+                CompositeSelectedPart {
                     layer_id: Ulid::from_u128(753),
                     part_id: Ulid::from_u128(754),
                 },
@@ -1621,55 +1642,55 @@ fn save_accepts_set_with_structured_values() {
         ),
     };
 
-    let save = SaveExecutor::<StructuredSelectionSetEntity>::new(DB, false);
+    let save = SaveExecutor::<CompositeSetEntity>::new(DB, false);
     let saved = save
         .insert(entity.clone())
-        .expect("structured set save should succeed");
+        .expect("composite set save should succeed");
 
     assert_eq!(saved, entity);
     assert_eq!(
-        load_structured_selection_set_entity(entity.id),
+        load_composite_set_entity(entity.id),
         Some(entity),
-        "structured set save should persist the typed after-image",
+        "composite set save should persist the typed after-image",
     );
 }
 
 #[test]
-fn save_accepts_map_with_structured_values() {
+fn save_accepts_map_with_exact_composite_values() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
     let mut selected_parts_by_layer = BTreeMap::new();
     selected_parts_by_layer.insert(
         Ulid::from_u128(801),
-        SaveSelectedPart {
+        CompositeSelectedPart {
             layer_id: Ulid::from_u128(801),
             part_id: Ulid::from_u128(802),
         },
     );
     selected_parts_by_layer.insert(
         Ulid::from_u128(803),
-        SaveSelectedPart {
+        CompositeSelectedPart {
             layer_id: Ulid::from_u128(803),
             part_id: Ulid::from_u128(804),
         },
     );
 
-    let entity = StructuredSelectionMapEntity {
+    let entity = CompositeMapEntity {
         id: Ulid::from_u128(80),
-        selected_parts_by_layer: SaveSelectedPartMap(selected_parts_by_layer),
+        selected_parts_by_layer: CompositeSelectedPartMap(selected_parts_by_layer),
     };
 
-    let save = SaveExecutor::<StructuredSelectionMapEntity>::new(DB, false);
+    let save = SaveExecutor::<CompositeMapEntity>::new(DB, false);
     let saved = save
         .insert(entity.clone())
-        .expect("structured map save should succeed");
+        .expect("composite map save should succeed");
 
     assert_eq!(saved, entity);
     assert_eq!(
-        load_structured_selection_map_entity(entity.id),
+        load_composite_map_entity(entity.id),
         Some(entity),
-        "structured map save should persist the typed after-image",
+        "composite map save should persist the typed after-image",
     );
 }
 

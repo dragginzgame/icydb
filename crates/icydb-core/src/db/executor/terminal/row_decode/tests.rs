@@ -7,8 +7,8 @@ use crate::{
             with_structural_read_metrics,
         },
         schema::{
-            AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedRowLayoutRuntimeContract,
-            AcceptedSchemaRevision, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
+            AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, AcceptedSchemaRevision,
+            AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, FieldId, PersistedFieldSnapshot,
             PersistedSchemaSnapshot, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
             compiled_schema_proposal_for_model,
         },
@@ -126,12 +126,12 @@ fn accepted_row_decode_schema() -> AcceptedSchemaSnapshot {
     AcceptedSchemaSnapshot::new(row_decode_schema_snapshot())
 }
 
-fn accepted_enum_catalog_handle(models: &[&'static EntityModel]) -> AcceptedEnumCatalogHandle {
+fn accepted_value_catalog_handle(models: &[&'static EntityModel]) -> AcceptedValueCatalogHandle {
     let (catalog, composite_catalog) =
         crate::db::schema::build_initial_accepted_catalogs_for_tests(models)
             .expect("accepted catalogs fixture should build");
 
-    AcceptedEnumCatalogHandle::new_for_tests(
+    AcceptedValueCatalogHandle::new_for_tests(
         catalog,
         composite_catalog,
         AcceptedSchemaRevision::INITIAL,
@@ -154,7 +154,7 @@ fn accepted_row_decode_layout_for_model(
         RowLayout::from_generated_compatible_accepted_decode_contract(
             model.path(),
             row_proof,
-            descriptor.row_decode_contract(accepted_enum_catalog_handle(&[model])),
+            descriptor.row_decode_contract(accepted_value_catalog_handle(&[model])),
         ),
     )
 }
@@ -247,7 +247,7 @@ fn composite_row_decode_layout() -> (RowLayout, crate::types::EntityTag) {
         .expect("accepted composite row-decode schema should build");
     let contract = StructuralRowContract::from_accepted_decode_contract(
         "row_decode::tests::CompositeKeyEntity",
-        descriptor.row_decode_contract(accepted_enum_catalog_handle(&[])),
+        descriptor.row_decode_contract(accepted_value_catalog_handle(&[])),
     );
 
     (RowLayout { contract }, entity_tag)

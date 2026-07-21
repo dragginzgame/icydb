@@ -1,8 +1,8 @@
 use crate::{
     db::predicate::{CompareOp, ComparePredicate, Predicate, normalize_enum_literals},
     db::schema::{
-        AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedSchemaRevision,
-        AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot, PersistedIndexExpressionOp,
+        AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
+        AcceptedValueCatalogHandle, FieldId, PersistedFieldSnapshot, PersistedIndexExpressionOp,
         PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
         PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
         PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
@@ -103,7 +103,7 @@ fn accepted_status_schema_info() -> SchemaInfo {
     SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
         &MODEL,
         &snapshot,
-        AcceptedEnumCatalogHandle::new_for_tests(
+        AcceptedValueCatalogHandle::new_for_tests(
             catalog,
             crate::db::schema::AcceptedCompositeCatalog::empty(),
             AcceptedSchemaRevision::INITIAL,
@@ -574,7 +574,7 @@ fn accepted_index_field_contract_rejects_foreign_component_metadata() {
     let snapshot = accepted_schema_with_name_index();
     let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[])
         .expect("empty accepted enum catalog should build");
-    let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+    let catalog = AcceptedValueCatalogHandle::new_for_tests(
         catalog,
         crate::db::schema::AcceptedCompositeCatalog::empty(),
         AcceptedSchemaRevision::INITIAL,

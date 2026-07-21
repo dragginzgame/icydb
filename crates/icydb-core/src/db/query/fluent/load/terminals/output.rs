@@ -17,11 +17,11 @@ use crate::{
 pub(super) fn output_values(
     accepted: AcceptedValuesOutput,
 ) -> Result<Vec<OutputValue>, QueryError> {
-    let (values, enum_catalog) = accepted.into_parts();
+    let (values, value_catalog) = accepted.into_parts();
     values
         .iter()
         .map(|value| {
-            output_value_from_runtime(enum_catalog.catalog(), value)
+            output_value_from_runtime(value_catalog.enum_catalog(), value)
                 .map_err(|_error| QueryError::invariant())
         })
         .collect()
@@ -31,11 +31,11 @@ pub(super) fn output_values(
 pub(super) fn output_values_with_ids<E: PersistedRow>(
     accepted: AcceptedIdValuesOutput<E>,
 ) -> Result<Vec<(Id<E>, OutputValue)>, QueryError> {
-    let (values, enum_catalog) = accepted.into_parts();
+    let (values, value_catalog) = accepted.into_parts();
     values
         .into_iter()
         .map(|(id, value)| {
-            output_value_from_runtime(enum_catalog.catalog(), &value)
+            output_value_from_runtime(value_catalog.enum_catalog(), &value)
                 .map(|output| (id, output))
                 .map_err(|_error| QueryError::invariant())
         })
@@ -47,12 +47,12 @@ pub(super) fn output_values_with_ids<E: PersistedRow>(
 pub(super) fn output_optional(
     accepted: AcceptedOptionalValueOutput,
 ) -> Result<Option<OutputValue>, QueryError> {
-    let (value, enum_catalog) = accepted.into_parts();
+    let (value, value_catalog) = accepted.into_parts();
 
     value
         .as_ref()
         .map(|value| {
-            output_value_from_runtime(enum_catalog.catalog(), value)
+            output_value_from_runtime(value_catalog.enum_catalog(), value)
                 .map_err(|_error| QueryError::invariant())
         })
         .transpose()
@@ -63,7 +63,7 @@ mod tests {
     use super::*;
     use crate::{
         db::schema::{
-            AcceptedEnumCatalogHandle, AcceptedSchemaRevision,
+            AcceptedSchemaRevision, AcceptedValueCatalogHandle,
             build_initial_accepted_enum_catalog_from_kinds_for_tests,
         },
         db::session::AcceptedExecutionOutput,
@@ -92,7 +92,7 @@ mod tests {
             .enum_type(type_id)
             .and_then(|definition| definition.variant_id("Ready"))
             .expect("output enum variant should exist");
-        let handle = AcceptedEnumCatalogHandle::new_for_tests(
+        let handle = AcceptedValueCatalogHandle::new_for_tests(
             catalog,
             crate::db::schema::AcceptedCompositeCatalog::empty(),
             AcceptedSchemaRevision::INITIAL,

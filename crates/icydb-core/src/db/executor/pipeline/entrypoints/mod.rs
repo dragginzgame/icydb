@@ -201,7 +201,7 @@ where
         let enum_catalog = plan
             .authority_ref()
             .accepted_schema_info()
-            .and_then(SchemaInfo::enum_catalog_handle)
+            .and_then(SchemaInfo::value_catalog_handle)
             .cloned()
             .ok_or_else(InternalError::query_executor_invariant)?;
         let (page, trace) = self.execute_load_grouped_page_with_trace(
@@ -233,7 +233,7 @@ where
         let enum_catalog = plan
             .authority_ref()
             .accepted_schema_info()
-            .and_then(SchemaInfo::enum_catalog_handle)
+            .and_then(SchemaInfo::value_catalog_handle)
             .cloned()
             .ok_or_else(InternalError::query_executor_invariant)?;
         let (page, trace, phase_attribution) = self

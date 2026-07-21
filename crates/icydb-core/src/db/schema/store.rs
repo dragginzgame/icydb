@@ -20,9 +20,9 @@ use crate::{
             accepted_schema_cache_fingerprint_method_version, decode_persisted_schema_snapshot,
             encode_persisted_schema_snapshot,
             enum_catalog::{
-                AcceptedEnumCatalogHandle, AcceptedSchemaAuthority, AcceptedSchemaPublicationError,
-                AcceptedSchemaRevision, AcceptedSchemaRevisionBundle, AcceptedSchemaRootSelection,
-                AcceptedStoreCatalogScope, CandidateSchemaRevision,
+                AcceptedSchemaAuthority, AcceptedSchemaPublicationError, AcceptedSchemaRevision,
+                AcceptedSchemaRevisionBundle, AcceptedSchemaRootSelection,
+                AcceptedStoreCatalogScope, AcceptedValueCatalogHandle, CandidateSchemaRevision,
                 decode_verified_accepted_schema_revision_bundle,
                 prepare_accepted_schema_root_publication, select_current_accepted_schema_root,
             },
@@ -57,6 +57,11 @@ const SCHEMA_STORE_FINGERPRINT_METHOD_VERSION: u8 = 1;
 const SCHEMA_STORE_CATALOG_FINGERPRINT_DOMAIN: u8 = 1;
 const SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_DOMAIN: u8 = 2;
 const SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_DOMAIN: u8 = 3;
+const ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_BOOL: u8 = 3;
+const ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_LIST: u8 = 29;
+const ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_SET: u8 = 30;
+const ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_MAP: u8 = 31;
+const ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_COMPOSITE: u8 = 32;
 const RAW_SCHEMA_SNAPSHOT_MAGIC: &[u8; 8] = b"ICYDBCAT";
 const RAW_SCHEMA_SNAPSHOT_VALUE_VERSION: u8 = 1;
 const RAW_SCHEMA_SNAPSHOT_HEADER_BYTES: usize = 25;
@@ -364,7 +369,7 @@ impl AcceptedCatalogIdentity {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AcceptedCatalogSnapshotSelection {
     identity: AcceptedCatalogIdentity,
-    enum_catalog: AcceptedEnumCatalogHandle,
+    value_catalog: AcceptedValueCatalogHandle,
     raw_snapshot: Vec<u8>,
 }
 
@@ -372,12 +377,12 @@ impl AcceptedCatalogSnapshotSelection {
     #[must_use]
     const fn new(
         identity: AcceptedCatalogIdentity,
-        enum_catalog: AcceptedEnumCatalogHandle,
+        value_catalog: AcceptedValueCatalogHandle,
         raw_snapshot: Vec<u8>,
     ) -> Self {
         Self {
             identity,
-            enum_catalog,
+            value_catalog,
             raw_snapshot,
         }
     }
@@ -388,14 +393,14 @@ impl AcceptedCatalogSnapshotSelection {
     }
 
     #[must_use]
-    pub(in crate::db) const fn enum_catalog(&self) -> &AcceptedEnumCatalogHandle {
-        &self.enum_catalog
+    pub(in crate::db) const fn value_catalog_handle(&self) -> &AcceptedValueCatalogHandle {
+        &self.value_catalog
     }
 
     /// Re-encode a cached accepted snapshot under its verified catalog identity.
     pub(in crate::db) fn from_accepted_snapshot(
         identity: AcceptedCatalogIdentity,
-        enum_catalog: AcceptedEnumCatalogHandle,
+        value_catalog: AcceptedValueCatalogHandle,
         snapshot: &AcceptedSchemaSnapshot,
     ) -> Result<Self, InternalError> {
         let raw_snapshot =
@@ -404,7 +409,11 @@ impl AcceptedCatalogSnapshotSelection {
             return Err(InternalError::store_invariant());
         }
 
-        Ok(Self::new(identity, enum_catalog, raw_snapshot.into_bytes()))
+        Ok(Self::new(
+            identity,
+            value_catalog,
+            raw_snapshot.into_bytes(),
+        ))
     }
 
     /// Select one entity snapshot and catalog directly from a verified schema
@@ -438,7 +447,7 @@ impl AcceptedCatalogSnapshotSelection {
 
         Ok(Some(Self::new(
             identity,
-            AcceptedEnumCatalogHandle::new(
+            AcceptedValueCatalogHandle::new(
                 candidate.bundle().enum_catalog().clone(),
                 candidate.bundle().composite_catalog().clone(),
                 AcceptedStoreCatalogScope::new(),
@@ -1140,7 +1149,7 @@ impl SchemaStore {
 
         Ok(Some(AcceptedCatalogSnapshotSelection::new(
             identity,
-            AcceptedEnumCatalogHandle::new(
+            AcceptedValueCatalogHandle::new(
                 bundle.enum_catalog().clone(),
                 bundle.composite_catalog().clone(),
                 self.accepted_catalog_scope
@@ -1203,7 +1212,7 @@ impl SchemaStore {
 
         Ok(Some(AcceptedCatalogSnapshotSelection::new(
             identity,
-            AcceptedEnumCatalogHandle::new(
+            AcceptedValueCatalogHandle::new(
                 bundle.enum_catalog().clone(),
                 bundle.composite_catalog().clone(),
                 self.accepted_catalog_scope
@@ -2041,7 +2050,9 @@ fn hash_accepted_field_kind(hasher: &mut sha2::Sha256, kind: &AcceptedFieldKind)
             write_hash_tag_u8(hasher, 2);
             hash_optional_u32(hasher, *max_len);
         }
-        AcceptedFieldKind::Bool => write_hash_tag_u8(hasher, 3),
+        AcceptedFieldKind::Bool => {
+            write_hash_tag_u8(hasher, ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_BOOL);
+        }
         AcceptedFieldKind::Date => write_hash_tag_u8(hasher, 4),
         AcceptedFieldKind::Decimal { scale } => {
             write_hash_tag_u8(hasher, 5);
@@ -2096,20 +2107,20 @@ fn hash_accepted_field_kind(hasher: &mut sha2::Sha256, kind: &AcceptedFieldKind)
             hash_accepted_field_kind(hasher, key_kind);
         }
         AcceptedFieldKind::List(inner) => {
-            write_hash_tag_u8(hasher, 29);
+            write_hash_tag_u8(hasher, ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_LIST);
             hash_accepted_field_kind(hasher, inner);
         }
         AcceptedFieldKind::Set(inner) => {
-            write_hash_tag_u8(hasher, 30);
+            write_hash_tag_u8(hasher, ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_SET);
             hash_accepted_field_kind(hasher, inner);
         }
         AcceptedFieldKind::Map { key, value } => {
-            write_hash_tag_u8(hasher, 31);
+            write_hash_tag_u8(hasher, ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_MAP);
             hash_accepted_field_kind(hasher, key);
             hash_accepted_field_kind(hasher, value);
         }
         AcceptedFieldKind::Composite { type_id } => {
-            write_hash_tag_u8(hasher, 31);
+            write_hash_tag_u8(hasher, ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_COMPOSITE);
             write_hash_u32(hasher, type_id.get());
         }
     }

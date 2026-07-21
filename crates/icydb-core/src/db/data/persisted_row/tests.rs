@@ -681,7 +681,7 @@ fn accepted_row_decode_contract_for_model(
     let (catalog, composite_catalog) =
         crate::db::schema::build_initial_accepted_catalogs_for_tests(&[model])
             .expect("accepted catalog fixture should build");
-    let catalog = crate::db::schema::AcceptedEnumCatalogHandle::new_for_tests(
+    let catalog = crate::db::schema::AcceptedValueCatalogHandle::new_for_tests(
         catalog,
         composite_catalog,
         crate::db::schema::AcceptedSchemaRevision::INITIAL,
@@ -776,7 +776,7 @@ fn accepted_defaulted_required_score_row_decode_contract_for_tests(
     let (catalog, composite_catalog) =
         crate::db::schema::build_initial_accepted_catalogs_for_tests(&[&ADDITIVE_REQUIRED_MODEL])
             .expect("accepted catalog fixture should build");
-    let catalog = crate::db::schema::AcceptedEnumCatalogHandle::new_for_tests(
+    let catalog = crate::db::schema::AcceptedValueCatalogHandle::new_for_tests(
         catalog,
         composite_catalog,
         crate::db::schema::AcceptedSchemaRevision::INITIAL,
@@ -833,7 +833,7 @@ fn generated_default_model_with_no_accepted_default_contract_for_tests() -> Stru
             &ADDITIVE_REQUIRED_GENERATED_DEFAULT_MODEL,
         ])
         .expect("accepted catalog fixture should build");
-    let catalog = crate::db::schema::AcceptedEnumCatalogHandle::new_for_tests(
+    let catalog = crate::db::schema::AcceptedValueCatalogHandle::new_for_tests(
         catalog,
         composite_catalog,
         crate::db::schema::AcceptedSchemaRevision::INITIAL,

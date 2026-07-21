@@ -128,7 +128,7 @@ fn schema_info_for_plan_cache_authority(
     }
 
     let enum_catalog = authority
-        .accepted_enum_catalog_handle()
+        .accepted_value_catalog_handle()
         .map_err(QueryError::execute)?
         .clone();
     Ok(SchemaInfo::from_accepted_snapshot_and_catalog_for_model(

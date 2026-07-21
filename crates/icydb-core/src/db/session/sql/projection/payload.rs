@@ -7,7 +7,7 @@
 use crate::{
     db::{
         QueryError,
-        schema::{AcceptedEnumCatalog, AcceptedEnumCatalogHandle, output_value_from_runtime},
+        schema::{AcceptedEnumCatalog, AcceptedValueCatalogHandle, output_value_from_runtime},
         session::sql::SqlStatementResult,
     },
     value::{OutputValue, Value},
@@ -29,7 +29,7 @@ pub(in crate::db::session::sql) struct SqlProjectionPayload {
     fixed_scales: Vec<Option<u32>>,
     rows: Vec<Vec<Value>>,
     row_count: u32,
-    enum_catalog: AcceptedEnumCatalogHandle,
+    value_catalog: AcceptedValueCatalogHandle,
 }
 
 impl SqlProjectionPayload {
@@ -39,14 +39,14 @@ impl SqlProjectionPayload {
         fixed_scales: Vec<Option<u32>>,
         rows: Vec<Vec<Value>>,
         row_count: u32,
-        enum_catalog: AcceptedEnumCatalogHandle,
+        value_catalog: AcceptedValueCatalogHandle,
     ) -> Self {
         Self {
             columns,
             fixed_scales,
             rows,
             row_count,
-            enum_catalog,
+            value_catalog,
         }
     }
 
@@ -59,7 +59,7 @@ impl SqlProjectionPayload {
         self,
     ) -> Result<SqlStatementResult, QueryError> {
         sql_projection_statement_result_from_value_rows(
-            self.enum_catalog.catalog(),
+            self.value_catalog.enum_catalog(),
             self.columns,
             self.fixed_scales,
             self.rows,

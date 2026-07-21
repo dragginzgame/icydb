@@ -248,7 +248,7 @@ pub(super) fn bind_alter_table_add_column_statement(
         statement.default.as_ref(),
         &contract,
         statement.nullable,
-        schema.enum_catalog_handle(),
+        schema.value_catalog_handle(),
     )?;
     let (kind, storage_decode, leaf_codec) = contract.into_parts();
     let field = build_sql_ddl_field_addition_candidate(
@@ -358,7 +358,7 @@ fn bind_alter_column_set_default(
         entity_name,
         &field,
         authored_default,
-        schema.enum_catalog_handle(),
+        schema.value_catalog_handle(),
     )?;
     validate_sql_ddl_field_default_change_candidate(accepted_before, &field, &default)
         .map_err(|error| sql_field_default_candidate_error(entity_name, column_name, error))?;
@@ -670,7 +670,7 @@ fn schema_field_default_for_sql_default(
     default: Option<&crate::value::Value>,
     contract: &SchemaDdlFieldTypeContract,
     nullable: bool,
-    catalog: Option<&crate::db::schema::AcceptedEnumCatalogHandle>,
+    catalog: Option<&crate::db::schema::AcceptedValueCatalogHandle>,
 ) -> Result<SchemaFieldDefault, SqlDdlBindError> {
     encode_sql_ddl_add_column_default(
         column_name,
@@ -691,7 +691,7 @@ fn schema_field_default_for_alter_column_default(
     entity_name: &str,
     field: &PersistedFieldSnapshot,
     default: &crate::value::Value,
-    catalog: Option<&crate::db::schema::AcceptedEnumCatalogHandle>,
+    catalog: Option<&crate::db::schema::AcceptedValueCatalogHandle>,
 ) -> Result<SchemaFieldDefault, SqlDdlBindError> {
     encode_sql_ddl_alter_column_default(field, default, catalog).map_err(|_| {
         SqlDdlBindError::InvalidAlterTableAlterColumnDefault {

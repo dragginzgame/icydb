@@ -10,12 +10,13 @@ use crate::db::schema::{
 };
 use crate::{
     db::schema::{
-        AcceptedEnumCatalog, AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedSchemaSnapshot,
-        AcceptedValueAdmissionContract, FieldId, FieldType, PersistedFieldSnapshot,
-        PersistedIndexExpressionOp, PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
-        PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
-        PersistedSchemaSnapshot, SchemaFieldSlot, enum_catalog::AcceptedValueContract,
-        field_type_from_model_kind, field_type_from_persisted_kind,
+        AcceptedEnumCatalog, AcceptedFieldKind, AcceptedSchemaSnapshot,
+        AcceptedValueAdmissionContract, AcceptedValueCatalogHandle, FieldId, FieldType,
+        PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexFieldPathSnapshot,
+        PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+        PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
+        enum_catalog::AcceptedValueContract, field_type_from_model_kind,
+        field_type_from_persisted_kind,
     },
     model::{
         entity::EntityModel,
@@ -42,11 +43,11 @@ const EMPTY_GENERATED_NESTED_FIELDS: &[FieldModel] = &[];
 #[cfg(feature = "sql")]
 fn accepted_sql_capabilities(
     kind: &AcceptedFieldKind,
-    enum_catalog: Option<&AcceptedEnumCatalogHandle>,
+    value_catalog: Option<&AcceptedValueCatalogHandle>,
 ) -> SqlCapabilities {
-    enum_catalog.map_or_else(
+    value_catalog.map_or_else(
         || sql_capabilities(kind),
-        |catalog| sql_capabilities_with_enum_catalog(kind, catalog.catalog()),
+        |catalog| sql_capabilities_with_enum_catalog(kind, catalog.enum_catalog()),
     )
 }
 
@@ -184,7 +185,7 @@ pub(in crate::db) struct SchemaIndexInfo {
     generated: bool,
     fields: Vec<SchemaIndexFieldPathInfo>,
     predicate_sql: Option<String>,
-    enum_catalog: Option<AcceptedEnumCatalogHandle>,
+    value_catalog: Option<AcceptedValueCatalogHandle>,
 }
 
 impl SchemaIndexInfo {
@@ -246,7 +247,7 @@ impl SchemaIndexInfo {
         {
             return None;
         }
-        field.accepted_value_contract(self.enum_catalog.as_ref())
+        field.accepted_value_contract(self.value_catalog.as_ref())
     }
 }
 
@@ -266,7 +267,7 @@ pub(in crate::db) struct SchemaExpressionIndexInfo {
     generated: bool,
     key_items: Vec<SchemaExpressionIndexKeyItemInfo>,
     predicate_sql: Option<String>,
-    enum_catalog: Option<AcceptedEnumCatalogHandle>,
+    value_catalog: Option<AcceptedValueCatalogHandle>,
 }
 
 impl SchemaExpressionIndexInfo {
@@ -331,7 +332,7 @@ impl SchemaExpressionIndexInfo {
         }) {
             return None;
         }
-        field.accepted_value_contract(self.enum_catalog.as_ref())
+        field.accepted_value_contract(self.value_catalog.as_ref())
     }
 }
 
@@ -475,10 +476,10 @@ impl SchemaIndexFieldPathInfo {
 
     fn accepted_value_contract<'a>(
         &'a self,
-        enum_catalog: Option<&'a AcceptedEnumCatalogHandle>,
+        value_catalog: Option<&'a AcceptedValueCatalogHandle>,
     ) -> Option<AcceptedValueAdmissionContract<'a>> {
         Some(AcceptedValueAdmissionContract::borrowed(
-            enum_catalog?,
+            value_catalog?,
             self.accepted_value_contract.as_deref()?,
             self.nullable,
         ))
@@ -497,7 +498,7 @@ pub(crate) struct SchemaInfo {
     fields: Vec<SchemaFieldEntry>,
     indexes: Vec<SchemaIndexInfo>,
     expression_indexes: Vec<SchemaExpressionIndexInfo>,
-    enum_catalog: Option<AcceptedEnumCatalogHandle>,
+    value_catalog: Option<AcceptedValueCatalogHandle>,
     entity_path: Option<String>,
     entity_name: Option<String>,
     primary_key_names: Vec<String>,
@@ -508,7 +509,7 @@ impl SchemaInfo {
     /// Return whether this view is pinned to accepted catalog authority.
     #[must_use]
     pub(in crate::db) const fn has_accepted_authority(&self) -> bool {
-        self.enum_catalog.is_some()
+        self.value_catalog.is_some()
     }
 
     // Build one compact field table from trusted generated field metadata.
@@ -544,7 +545,7 @@ impl SchemaInfo {
             fields,
             indexes: Vec::new(),
             expression_indexes: Vec::new(),
-            enum_catalog: None,
+            value_catalog: None,
             entity_path: None,
             entity_name: None,
             primary_key_names: Vec::new(),
@@ -599,7 +600,7 @@ impl SchemaInfo {
     ) -> Option<AcceptedValueAdmissionContract<'_>> {
         let field = schema_field_info(self.fields.as_slice(), name)?;
         Some(AcceptedValueAdmissionContract::borrowed(
-            self.enum_catalog.as_ref()?,
+            self.value_catalog.as_ref()?,
             field.accepted_value_contract.as_ref()?,
             field.nullable,
         ))
@@ -688,9 +689,9 @@ impl SchemaInfo {
     /// Borrow accepted enum authority when this is a live accepted schema view.
     #[must_use]
     pub(in crate::db) fn enum_catalog(&self) -> Option<&AcceptedEnumCatalog> {
-        self.enum_catalog
+        self.value_catalog
             .as_ref()
-            .map(AcceptedEnumCatalogHandle::catalog)
+            .map(AcceptedValueCatalogHandle::enum_catalog)
     }
 
     /// Borrow accepted enum authority when this is a live accepted schema view.
@@ -702,8 +703,8 @@ impl SchemaInfo {
             reason = "schema DDL binding is host-owned even when SQL query support is built for wasm"
         )
     )]
-    pub(in crate::db) const fn enum_catalog_handle(&self) -> Option<&AcceptedEnumCatalogHandle> {
-        self.enum_catalog.as_ref()
+    pub(in crate::db) const fn value_catalog_handle(&self) -> Option<&AcceptedValueCatalogHandle> {
+        self.value_catalog.as_ref()
     }
 
     /// Borrow field-path index contracts visible through this schema view.
@@ -764,7 +765,7 @@ impl SchemaInfo {
             return nested_leaves
                 .iter()
                 .find(|leaf| leaf.path() == segments)
-                .map(|leaf| accepted_sql_capabilities(leaf.kind(), self.enum_catalog.as_ref()));
+                .map(|leaf| accepted_sql_capabilities(leaf.kind(), self.value_catalog.as_ref()));
         }
 
         resolve_nested_field_path_kind(field.nested_fields, segments)
@@ -874,13 +875,13 @@ impl SchemaInfo {
     pub(in crate::db) fn from_accepted_snapshot_and_catalog_for_model(
         model: &EntityModel,
         schema: &AcceptedSchemaSnapshot,
-        enum_catalog: AcceptedEnumCatalogHandle,
+        value_catalog: AcceptedValueCatalogHandle,
         include_expression_indexes: bool,
     ) -> Self {
         Self::from_snapshot_for_model(
             model,
             schema,
-            Some(enum_catalog),
+            Some(value_catalog),
             include_expression_indexes,
         )
     }
@@ -888,7 +889,7 @@ impl SchemaInfo {
     fn from_snapshot_for_model(
         model: &EntityModel,
         schema: &AcceptedSchemaSnapshot,
-        enum_catalog: Option<AcceptedEnumCatalogHandle>,
+        value_catalog: Option<AcceptedValueCatalogHandle>,
         include_expression_indexes: bool,
     ) -> Self {
         #[cfg(test)]
@@ -901,7 +902,7 @@ impl SchemaInfo {
             .fields()
             .iter()
             .map(|field| {
-                let generated_field = enum_catalog
+                let generated_field = value_catalog
                     .is_none()
                     .then(|| generated_field_by_name(model, field.name()))
                     .flatten();
@@ -914,7 +915,7 @@ impl SchemaInfo {
                     .map_or(EMPTY_GENERATED_NESTED_FIELDS, |(_, field)| {
                         field.nested_fields()
                     });
-                let accepted_value_contract = enum_catalog.as_ref().and_then(|catalog| {
+                let accepted_value_contract = value_catalog.as_ref().and_then(|catalog| {
                     AcceptedValueContract::from_accepted_field(
                         catalog,
                         field.kind(),
@@ -922,7 +923,7 @@ impl SchemaInfo {
                     )
                     .ok()
                 });
-                debug_assert!(enum_catalog.is_none() || accepted_value_contract.is_some());
+                debug_assert!(value_catalog.is_none() || accepted_value_contract.is_some());
 
                 (
                     field.name().to_string(),
@@ -935,7 +936,7 @@ impl SchemaInfo {
                         #[cfg(feature = "sql")]
                         sql_capabilities: accepted_sql_capabilities(
                             field.kind(),
-                            enum_catalog.as_ref(),
+                            value_catalog.as_ref(),
                         ),
                         #[cfg(feature = "sql")]
                         persisted_kind: Some(field.kind().clone()),
@@ -968,7 +969,7 @@ impl SchemaInfo {
                 .indexes()
                 .iter()
                 .filter_map(|index| {
-                    schema_index_info_from_accepted_index(index, snapshot, enum_catalog.as_ref())
+                    schema_index_info_from_accepted_index(index, snapshot, value_catalog.as_ref())
                 })
                 .collect(),
             expression_indexes: snapshot
@@ -980,13 +981,13 @@ impl SchemaInfo {
                             schema_expression_index_info_from_accepted_index(
                                 index,
                                 snapshot,
-                                enum_catalog.as_ref(),
+                                value_catalog.as_ref(),
                             )
                         })
                         .flatten()
                 })
                 .collect(),
-            enum_catalog,
+            value_catalog,
             entity_path: Some(schema.entity_path().to_string()),
             entity_name: Some(schema.entity_name().to_string()),
             primary_key_names,
@@ -1063,7 +1064,7 @@ fn schema_index_info_from_generated_index(
         generated: true,
         fields: key_fields,
         predicate_sql: index.predicate().map(str::to_string),
-        enum_catalog: None,
+        value_catalog: None,
     })
 }
 
@@ -1083,7 +1084,7 @@ fn generated_index_field_names(index: &IndexModel) -> Option<Vec<&'static str>> 
 fn schema_index_info_from_accepted_index(
     index: &PersistedIndexSnapshot,
     snapshot: &PersistedSchemaSnapshot,
-    enum_catalog: Option<&AcceptedEnumCatalogHandle>,
+    value_catalog: Option<&AcceptedValueCatalogHandle>,
 ) -> Option<SchemaIndexInfo> {
     if !index.key().is_field_path_only() {
         return None;
@@ -1099,17 +1100,17 @@ fn schema_index_info_from_accepted_index(
             .key()
             .field_paths()
             .iter()
-            .map(|path| schema_index_field_path_info_from_accepted(path, snapshot, enum_catalog))
+            .map(|path| schema_index_field_path_info_from_accepted(path, snapshot, value_catalog))
             .collect(),
         predicate_sql: index.predicate_sql().map(str::to_string),
-        enum_catalog: enum_catalog.cloned(),
+        value_catalog: value_catalog.cloned(),
     })
 }
 
 fn schema_expression_index_info_from_accepted_index(
     index: &PersistedIndexSnapshot,
     snapshot: &PersistedSchemaSnapshot,
-    enum_catalog: Option<&AcceptedEnumCatalogHandle>,
+    value_catalog: Option<&AcceptedValueCatalogHandle>,
 ) -> Option<SchemaExpressionIndexInfo> {
     let PersistedIndexKeySnapshot::Items(items) = index.key() else {
         return None;
@@ -1130,24 +1131,24 @@ fn schema_expression_index_info_from_accepted_index(
         generated: index.generated(),
         key_items: items
             .iter()
-            .map(|item| schema_expression_index_key_item_info(item, snapshot, enum_catalog))
+            .map(|item| schema_expression_index_key_item_info(item, snapshot, value_catalog))
             .collect(),
         predicate_sql: index.predicate_sql().map(str::to_string),
-        enum_catalog: enum_catalog.cloned(),
+        value_catalog: value_catalog.cloned(),
     })
 }
 
 fn schema_expression_index_key_item_info(
     item: &PersistedIndexKeyItemSnapshot,
     snapshot: &PersistedSchemaSnapshot,
-    enum_catalog: Option<&AcceptedEnumCatalogHandle>,
+    value_catalog: Option<&AcceptedValueCatalogHandle>,
 ) -> SchemaExpressionIndexKeyItemInfo {
     match item {
         PersistedIndexKeyItemSnapshot::FieldPath(path) => {
             SchemaExpressionIndexKeyItemInfo::FieldPath(schema_index_field_path_info_from_accepted(
                 path,
                 snapshot,
-                enum_catalog,
+                value_catalog,
             ))
         }
         PersistedIndexKeyItemSnapshot::Expression(expression) => {
@@ -1156,7 +1157,7 @@ fn schema_expression_index_key_item_info(
                 source: schema_index_field_path_info_from_accepted(
                     expression.source(),
                     snapshot,
-                    enum_catalog,
+                    value_catalog,
                 ),
                 #[cfg(test)]
                 input_kind: expression.input_kind().clone(),
@@ -1171,18 +1172,18 @@ fn schema_expression_index_key_item_info(
 fn schema_index_field_path_info_from_accepted(
     path: &PersistedIndexFieldPathSnapshot,
     snapshot: &PersistedSchemaSnapshot,
-    enum_catalog: Option<&AcceptedEnumCatalogHandle>,
+    value_catalog: Option<&AcceptedValueCatalogHandle>,
 ) -> SchemaIndexFieldPathInfo {
     let field_name = accepted_field_name(snapshot, path.field_id())
         .or_else(|| path.path().first().map(String::as_str))
         .unwrap_or_default()
         .to_string();
-    let accepted_value_contract = enum_catalog.and_then(|catalog| {
+    let accepted_value_contract = value_catalog.and_then(|catalog| {
         AcceptedValueContract::from_accepted_field(catalog, path.kind(), FieldStorageDecode::ByKind)
             .ok()
             .map(Box::new)
     });
-    debug_assert!(enum_catalog.is_none() || accepted_value_contract.is_some());
+    debug_assert!(value_catalog.is_none() || accepted_value_contract.is_some());
     let persisted_kind = accepted_value_contract
         .is_none()
         .then(|| path.kind().clone());

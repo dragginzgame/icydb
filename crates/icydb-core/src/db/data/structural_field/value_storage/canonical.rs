@@ -29,16 +29,18 @@ use crate::{
                 skip::skip_value_storage_binary_value,
             },
         },
-        schema::enum_catalog::{
-            CanonicalEnumWireError, CanonicalValue, decode_canonical_enum_value,
-            encode_canonical_enum_value,
+        schema::{
+            MAX_ACCEPTED_RECURSIVE_DEPTH_U16,
+            enum_catalog::{
+                CanonicalEnumWireError, CanonicalValue, decode_canonical_enum_value,
+                encode_canonical_enum_value,
+            },
         },
     },
     error::InternalError,
     value::Value,
 };
 
-const MAX_CANONICAL_VALUE_STORAGE_DEPTH: u16 = 64;
 const CANONICAL_ENUM_HEADER_BYTES: usize = 14;
 const CANONICAL_ENUM_VALUE_TAG: u8 = 0x84;
 
@@ -339,7 +341,7 @@ fn runtime_scalar_to_canonical(value: Value) -> Result<CanonicalValue, FieldDeco
 }
 
 const fn ensure_depth(depth: u16) -> Result<(), FieldDecodeError> {
-    if depth >= MAX_CANONICAL_VALUE_STORAGE_DEPTH {
+    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH_U16 {
         return Err(FieldDecodeError::new());
     }
     Ok(())
@@ -348,6 +350,7 @@ const fn ensure_depth(depth: u16) -> Result<(), FieldDecodeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::schema::MAX_ACCEPTED_RECURSIVE_DEPTH;
     use crate::value::{
         CanonicalEnumBody, CanonicalEnumValue, EnumTypeId, EnumVariantId, ValueEnum,
     };
@@ -361,6 +364,25 @@ mod tests {
         CanonicalValue::Enum(ValueEnum::from_canonical(CanonicalEnumValue::new(
             type_id, variant_id, body,
         )))
+    }
+
+    fn nested_list_value(depth: usize) -> CanonicalValue {
+        let mut value = CanonicalValue::Unit;
+        for _ in 0..depth {
+            value = CanonicalValue::List(vec![value]);
+        }
+        value
+    }
+
+    #[test]
+    fn canonical_value_encoding_uses_the_shared_recursive_depth_boundary() {
+        let allowed = nested_list_value(MAX_ACCEPTED_RECURSIVE_DEPTH - 1);
+        let excessive = nested_list_value(MAX_ACCEPTED_RECURSIVE_DEPTH);
+
+        encode_canonical_value_storage_bytes(&allowed)
+            .expect("the maximum accepted recursive depth should encode");
+        encode_canonical_value_storage_bytes(&excessive)
+            .expect_err("a value deeper than the accepted contract must reject");
     }
 
     #[test]

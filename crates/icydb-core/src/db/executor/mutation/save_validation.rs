@@ -364,7 +364,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
 
             let Some(value) = entity.get_value_by_index(field_index) else {
                 if entity.get_input_value_by_index(field_index).is_some() {
-                    // Enum and generated structured fields remain authored
+                    // Enum and generated composite fields remain authored
                     // input until the accepted row encoder admits them. Their
                     // absence from the runtime projection is intentional.
                     continue;
@@ -472,7 +472,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
         value: &Value,
     ) -> Result<bool, InternalError> {
         if !persisted_field_kind_is_queryable(field_kind) {
-            // Non-queryable structured fields are not planner-addressable.
+            // Whole composite values are not planner-addressable.
             return Ok(false);
         }
 
@@ -798,7 +798,11 @@ fn persisted_field_kind_accepts_value(kind: &AcceptedFieldKind, value: &Value) -
         AcceptedFieldKindCategory::Collection => {
             persisted_collection_kind_accepts_value(kind, value)
         }
-        AcceptedFieldKindCategory::Composite => false,
+        // Exact composite shape admission requires the accepted composite
+        // catalog, which is intentionally owned by the later authored-field
+        // encoding boundary. Save preflight still validates every enclosing
+        // list/set/map shape here, then defers the nominal leaf contract.
+        AcceptedFieldKindCategory::Composite => true,
     }
 }
 
@@ -1002,6 +1006,8 @@ mod tests {
             key: Box::new(AcceptedFieldKind::Text { max_len: None }),
             value: Box::new(AcceptedFieldKind::Nat8),
         };
+        let composite_list_kind =
+            AcceptedFieldKind::List(Box::new(AcceptedFieldKind::test_composite()));
 
         assert!(persisted_field_kind_accepts_value(
             &nat8_kind,
@@ -1038,6 +1044,14 @@ mod tests {
         assert!(!persisted_field_kind_accepts_value(
             &map_kind,
             &Value::Map(vec![(Value::Text("alpha".into()), Value::Nat64(300))]),
+        ));
+        assert!(persisted_field_kind_accepts_value(
+            &composite_list_kind,
+            &Value::List(vec![Value::Map(Vec::new())]),
+        ));
+        assert!(!persisted_field_kind_accepts_value(
+            &composite_list_kind,
+            &Value::Map(Vec::new()),
         ));
     }
 }

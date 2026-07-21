@@ -600,7 +600,7 @@ impl SlotReader for StructuralSlotReader<'_> {
     }
 
     fn runtime_enum_context(&self) -> Option<&dyn crate::value::RuntimeEnumContext> {
-        Some(self.contract.accepted_enum_catalog_handle().catalog()
+        Some(self.contract.accepted_value_catalog_handle().enum_catalog()
             as &dyn crate::value::RuntimeEnumContext)
     }
 }

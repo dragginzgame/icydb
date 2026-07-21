@@ -1,7 +1,7 @@
 //! Module: db::schema::accepted_field_kind
 //! Responsibility: catalog-resolved recursive field-kind contracts.
-//! Does not own: generated enum proposals or catalog definition storage.
-//! Boundary: accepted snapshots and runtime contracts persist enum IDs only.
+//! Does not own: generated enum/composite proposals or catalog definition storage.
+//! Boundary: accepted snapshots and runtime contracts persist store-local catalog IDs only.
 
 use crate::{
     db::schema::{
@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// Canonical field-kind shape stored by accepted schema snapshots.
-/// Enum references carry store-local catalog IDs and never embed definitions.
+/// Enum and composite references carry store-local catalog IDs and never embed definitions.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum AcceptedFieldKind {
     Account,

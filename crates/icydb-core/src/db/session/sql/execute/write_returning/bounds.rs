@@ -6,7 +6,7 @@
 use crate::{
     db::{
         schema::{
-            AcceptedEnumCatalog, AcceptedEnumCatalogHandle, AcceptedRowLayoutRuntimeContract,
+            AcceptedEnumCatalog, AcceptedRowLayoutRuntimeContract, AcceptedValueCatalogHandle,
             authored_projection::AcceptedAuthoredFieldProjection,
         },
         session::sql::write_policy::SqlWriteReturningBounds,
@@ -50,7 +50,7 @@ pub(in crate::db::session::sql::execute) fn validate_sql_returning_bounds<E>(
     entities: &[E],
     returning: Option<&SqlReturningProjection>,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    enum_catalog: &AcceptedEnumCatalogHandle,
+    value_catalog: &AcceptedValueCatalogHandle,
     bounds: Option<SqlWriteReturningBounds>,
 ) -> Result<(), InternalError>
 where
@@ -72,7 +72,7 @@ where
             entities,
             returning,
             descriptor,
-            enum_catalog,
+            value_catalog,
             max_response_bytes,
         )? {
             return Err(sql_returning_response_too_large_error());
@@ -83,7 +83,7 @@ where
             entities,
             returning,
             descriptor,
-            enum_catalog,
+            value_catalog,
         )?;
         if payload_len > max_response_bytes {
             return Err(sql_returning_response_too_large_error());
@@ -169,12 +169,12 @@ fn encoded_sql_returning_projection_response_len<E>(
     entities: &[E],
     returning: &SqlReturningProjection,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    enum_catalog: &AcceptedEnumCatalogHandle,
+    value_catalog: &AcceptedValueCatalogHandle,
 ) -> Result<usize, InternalError>
 where
     E: AuthoredFieldProjection,
 {
-    let projected = sql_returning_projection_rows(entities, returning, descriptor, enum_catalog)?;
+    let projected = sql_returning_projection_rows(entities, returning, descriptor, value_catalog)?;
     encoded_sql_returning_projection_payload_len(entity_name, projected)
 }
 
@@ -183,14 +183,14 @@ fn encoded_sql_returning_projection_response_len_exceeds_max<E>(
     entities: &[E],
     returning: &SqlReturningProjection,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    enum_catalog: &AcceptedEnumCatalogHandle,
+    value_catalog: &AcceptedValueCatalogHandle,
     max_response_bytes: usize,
 ) -> Result<bool, InternalError>
 where
     E: AuthoredFieldProjection,
 {
     let row_count = u32::try_from(entities.len()).unwrap_or(u32::MAX);
-    let row_contract = descriptor.row_decode_contract(enum_catalog.clone());
+    let row_contract = descriptor.row_decode_contract(value_catalog.clone());
     let accepted = AcceptedAuthoredFieldProjection::new(&row_contract);
 
     match returning {
@@ -208,7 +208,9 @@ where
                 max_response_bytes,
                 entities.iter().map(|entity| {
                     sql_returning_all_values(&accepted, entity, field_count)
-                        .and_then(|row| sql_returning_output_value_row(enum_catalog.catalog(), row))
+                        .and_then(|row| {
+                            sql_returning_output_value_row(value_catalog.enum_catalog(), row)
+                        })
                         .map_err(query_error_to_internal_invariant)
                 }),
             )
@@ -229,7 +231,9 @@ where
                 entities.iter().map(|entity| {
                     projection
                         .project_entity(&accepted, entity)
-                        .and_then(|row| sql_returning_output_value_row(enum_catalog.catalog(), row))
+                        .and_then(|row| {
+                            sql_returning_output_value_row(value_catalog.enum_catalog(), row)
+                        })
                         .map_err(query_error_to_internal_invariant)
                 }),
             )

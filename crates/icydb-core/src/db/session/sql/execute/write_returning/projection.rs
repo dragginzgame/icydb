@@ -7,7 +7,7 @@ use crate::{
     db::{
         PersistedRow, QueryError,
         schema::{
-            AcceptedEnumCatalog, AcceptedEnumCatalogHandle, AcceptedRowLayoutRuntimeContract,
+            AcceptedEnumCatalog, AcceptedRowLayoutRuntimeContract, AcceptedValueCatalogHandle,
             authored_projection::AcceptedAuthoredFieldProjection,
             enum_catalog::ValueAdmissionBudget, output_value_from_runtime,
         },
@@ -106,13 +106,13 @@ pub(in crate::db::session::sql::execute) fn sql_write_statement_result<E>(
     entities: Vec<E>,
     returning: Option<&SqlReturningProjection>,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    enum_catalog: &AcceptedEnumCatalogHandle,
+    value_catalog: &AcceptedValueCatalogHandle,
 ) -> Result<SqlStatementResult, QueryError>
 where
     E: PersistedRow,
 {
     let row_count = u32::try_from(entities.len()).unwrap_or(u32::MAX);
-    let row_contract = descriptor.row_decode_contract(enum_catalog.clone());
+    let row_contract = descriptor.row_decode_contract(value_catalog.clone());
     let accepted = AcceptedAuthoredFieldProjection::new(&row_contract);
 
     match returning {
@@ -122,7 +122,7 @@ where
             let all_field_count = descriptor.required_slot_count();
 
             sql_projection_statement_result_from_fallible_value_rows(
-                enum_catalog.catalog(),
+                value_catalog.enum_catalog(),
                 all_columns,
                 vec![None; all_field_count],
                 entities
@@ -141,7 +141,7 @@ where
             // outputs. This avoids constructing full rows for blob-heavy
             // entities when callers return only a small subset of fields.
             sql_projection_statement_result_from_fallible_value_rows(
-                enum_catalog.catalog(),
+                value_catalog.enum_catalog(),
                 output_columns,
                 fixed_scales,
                 entities
@@ -207,13 +207,13 @@ pub(super) fn sql_returning_projection_rows<E>(
     entities: &[E],
     returning: &SqlReturningProjection,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    enum_catalog: &AcceptedEnumCatalogHandle,
+    value_catalog: &AcceptedValueCatalogHandle,
 ) -> Result<SqlReturningProjectionRows, InternalError>
 where
     E: AuthoredFieldProjection,
 {
     let row_count = u32::try_from(entities.len()).unwrap_or(u32::MAX);
-    let row_contract = descriptor.row_decode_contract(enum_catalog.clone());
+    let row_contract = descriptor.row_decode_contract(value_catalog.clone());
     let accepted = AcceptedAuthoredFieldProjection::new(&row_contract);
 
     match returning {
@@ -224,7 +224,9 @@ where
                 .iter()
                 .map(|entity| {
                     sql_returning_all_values(&accepted, entity, field_count)
-                        .and_then(|row| sql_returning_output_value_row(enum_catalog.catalog(), row))
+                        .and_then(|row| {
+                            sql_returning_output_value_row(value_catalog.enum_catalog(), row)
+                        })
                         .map_err(query_error_to_internal_invariant)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
@@ -244,7 +246,9 @@ where
                 .map(|entity| {
                     projection
                         .project_entity(&accepted, entity)
-                        .and_then(|row| sql_returning_output_value_row(enum_catalog.catalog(), row))
+                        .and_then(|row| {
+                            sql_returning_output_value_row(value_catalog.enum_catalog(), row)
+                        })
                         .map_err(query_error_to_internal_invariant)
                 })
                 .collect::<Result<Vec<_>, _>>()?;

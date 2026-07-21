@@ -5,11 +5,10 @@
 
 use crate::{
     db::schema::{
-        AcceptedCompositeCatalog, AcceptedEnumCatalog, AcceptedEnumCatalogHandle,
-        AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
-        AcceptedValueAdmissionContract, AcceptedValueContract, FieldId,
-        PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot, SchemaFieldDefault,
-        SchemaFieldSlot, SchemaFieldWritePolicy, SchemaVersion,
+        AcceptedCompositeCatalog, AcceptedEnumCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
+        AcceptedSchemaSnapshot, AcceptedValueAdmissionContract, AcceptedValueCatalogHandle,
+        AcceptedValueContract, FieldId, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
+        SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaVersion,
         enum_catalog::EnumCatalogBuildError,
     },
     error::InternalError,
@@ -261,18 +260,18 @@ pub(in crate::db) struct AcceptedFieldPersistenceContract<'a> {
 impl<'a> AcceptedFieldPersistenceContract<'a> {
     /// Pair one schema-owned field contract with its accepted catalog.
     pub(super) fn new(
-        enum_catalog: &'a AcceptedEnumCatalogHandle,
+        value_catalog: &'a AcceptedValueCatalogHandle,
         field: AcceptedFieldDecodeContract<'a>,
     ) -> Result<Self, EnumCatalogBuildError> {
         let value_contract = AcceptedValueContract::from_accepted_field(
-            enum_catalog,
+            value_catalog,
             field.kind(),
             field.storage_decode(),
         )?;
         Ok(Self {
             field,
             admission_contract: AcceptedValueAdmissionContract::owned(
-                enum_catalog,
+                value_catalog,
                 value_contract,
                 field.nullable(),
             ),
@@ -282,10 +281,10 @@ impl<'a> AcceptedFieldPersistenceContract<'a> {
     /// Build an explicit paired contract for focused data-layer tests.
     #[cfg(test)]
     pub(in crate::db) fn new_for_tests(
-        enum_catalog: &'a AcceptedEnumCatalogHandle,
+        value_catalog: &'a AcceptedValueCatalogHandle,
         field: AcceptedFieldDecodeContract<'a>,
     ) -> Result<Self, EnumCatalogBuildError> {
-        Self::new(enum_catalog, field)
+        Self::new(value_catalog, field)
     }
 
     /// Return the field codec facts admitted with this catalog.
@@ -463,7 +462,7 @@ pub(in crate::db) struct AcceptedRowDecodeContract {
     primary_key_slot_indices: Vec<usize>,
     fields_by_slot: Vec<Option<OwnedAcceptedFieldDecodeContract>>,
     relation_edges: Vec<OwnedAcceptedRelationEdgeContract>,
-    enum_catalog: AcceptedEnumCatalogHandle,
+    value_catalog: AcceptedValueCatalogHandle,
 }
 
 impl AcceptedRowDecodeContract {
@@ -471,7 +470,7 @@ impl AcceptedRowDecodeContract {
     /// and the immutable catalog authority that admitted them.
     fn from_runtime_contract(
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-        enum_catalog: AcceptedEnumCatalogHandle,
+        value_catalog: AcceptedValueCatalogHandle,
     ) -> Self {
         let mut fields_by_slot = vec![None; descriptor.required_slot_count()];
 
@@ -487,7 +486,7 @@ impl AcceptedRowDecodeContract {
             primary_key_slot_indices: descriptor.primary_key_slot_indices().to_vec(),
             fields_by_slot,
             relation_edges: descriptor.relation_edges().to_vec(),
-            enum_catalog,
+            value_catalog,
         }
     }
 
@@ -515,7 +514,7 @@ impl AcceptedRowDecodeContract {
             &composite_catalog,
         )
         .expect("accepted test schema should match its model proposal");
-        let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+        let catalog = AcceptedValueCatalogHandle::new_for_tests(
             catalog,
             composite_catalog,
             AcceptedSchemaRevision::INITIAL,
@@ -557,19 +556,19 @@ impl AcceptedRowDecodeContract {
     /// Borrow the immutable enum catalog admitted with this row contract.
     #[must_use]
     pub(in crate::db) fn enum_catalog(&self) -> &AcceptedEnumCatalog {
-        self.enum_catalog.catalog()
+        self.value_catalog.enum_catalog()
     }
 
     /// Borrow the immutable catalog handle and its store/revision authority.
     #[must_use]
-    pub(in crate::db) const fn enum_catalog_handle(&self) -> &AcceptedEnumCatalogHandle {
-        &self.enum_catalog
+    pub(in crate::db) const fn value_catalog_handle(&self) -> &AcceptedValueCatalogHandle {
+        &self.value_catalog
     }
 
     /// Return the accepted revision that admitted this row contract's catalog.
     #[must_use]
     pub(in crate::db) const fn accepted_schema_revision(&self) -> AcceptedSchemaRevision {
-        self.enum_catalog.revision()
+        self.value_catalog.revision()
     }
 
     /// Borrow one accepted field decode contract by physical row slot.
@@ -600,7 +599,7 @@ impl AcceptedRowDecodeContract {
         slot: usize,
     ) -> Result<AcceptedFieldPersistenceContract<'_>, InternalError> {
         let field = self.required_field_for_slot(entity_path, slot)?;
-        AcceptedFieldPersistenceContract::new(self.enum_catalog_handle(), field.decode_contract())
+        AcceptedFieldPersistenceContract::new(self.value_catalog_handle(), field.decode_contract())
             .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))
     }
 }
@@ -887,9 +886,9 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     #[must_use]
     pub(in crate::db) fn row_decode_contract(
         &self,
-        enum_catalog: AcceptedEnumCatalogHandle,
+        value_catalog: AcceptedValueCatalogHandle,
     ) -> AcceptedRowDecodeContract {
-        AcceptedRowDecodeContract::from_runtime_contract(self, enum_catalog)
+        AcceptedRowDecodeContract::from_runtime_contract(self, value_catalog)
     }
 
     /// Return the proof that this accepted layout can still use generated field codecs.

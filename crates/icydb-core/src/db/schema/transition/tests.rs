@@ -926,14 +926,14 @@ fn schema_transition_policy_reports_first_nested_leaf_mismatch() {
     );
     assert!(
         rejection.detail().contains(
-            "stored_path='nickname' stored_kind=Text { max_len: None } stored_nullable=false stored_storage_decode=ByKind stored_leaf_codec=Scalar(Text)"
+            "stored_path='nickname' stored_kind=Text { max_len: None } stored_nullable=false"
         ),
         "nested leaf drift should describe the stored leaf contract",
     );
     assert!(
-        rejection.detail().contains(
-            "generated_path='score' generated_kind=Nat64 generated_nullable=false generated_storage_decode=ByKind generated_leaf_codec=Scalar(Nat64)"
-        ),
+        rejection
+            .detail()
+            .contains("generated_path='score' generated_kind=Nat64 generated_nullable=false"),
         "nested leaf drift should describe the generated leaf contract",
     );
     assert_eq!(

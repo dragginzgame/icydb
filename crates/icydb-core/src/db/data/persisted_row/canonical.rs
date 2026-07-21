@@ -4,7 +4,7 @@
 //! It does not reconstruct generated models or lower through runtime `Value`.
 
 #[cfg(test)]
-use crate::db::schema::AcceptedEnumCatalogHandle;
+use crate::db::schema::AcceptedValueCatalogHandle;
 use crate::{
     db::{
         data::{
@@ -296,10 +296,10 @@ mod tests {
         codec: CompositeCodec::StructuralV1,
         shape: &PROFILE_SHAPE,
     };
-    fn accepted_enum_fixture() -> (AcceptedEnumCatalogHandle, AcceptedFieldKind) {
+    fn accepted_enum_fixture() -> (AcceptedValueCatalogHandle, AcceptedFieldKind) {
         let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[STATUS_KIND])
             .expect("accepted enum catalog should build");
-        let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+        let catalog = AcceptedValueCatalogHandle::new_for_tests(
             catalog,
             crate::db::schema::AcceptedCompositeCatalog::empty(),
             AcceptedSchemaRevision::INITIAL,
@@ -310,7 +310,7 @@ mod tests {
     }
 
     fn test_encoding<'a>(
-        catalog: &'a AcceptedEnumCatalogHandle,
+        catalog: &'a AcceptedValueCatalogHandle,
         field: AcceptedFieldDecodeContract<'a>,
     ) -> AcceptedFieldPersistenceContract<'a> {
         AcceptedFieldPersistenceContract::new_for_tests(catalog, field)
@@ -346,7 +346,7 @@ mod tests {
         };
         assert_eq!(
             Some(value.type_id()),
-            catalog.catalog().type_id("tests::CanonicalStatus"),
+            catalog.enum_catalog().type_id("tests::CanonicalStatus"),
         );
     }
 
@@ -424,7 +424,7 @@ mod tests {
             build_initial_accepted_catalogs_from_kinds_for_tests(&[PROFILE_KIND])
                 .expect("exact composite catalogs should build");
         let kind = AcceptedFieldKind::from_model_kind(PROFILE_KIND);
-        let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+        let catalog = AcceptedValueCatalogHandle::new_for_tests(
             enum_catalog,
             composite_catalog,
             AcceptedSchemaRevision::INITIAL,
@@ -469,7 +469,7 @@ mod tests {
             build_initial_accepted_catalogs_from_kinds_for_tests(&[PROFILE_KIND])
                 .expect("exact composite catalogs should build");
         let kind = AcceptedFieldKind::from_model_kind(PROFILE_KIND);
-        let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+        let catalog = AcceptedValueCatalogHandle::new_for_tests(
             enum_catalog,
             composite_catalog,
             AcceptedSchemaRevision::INITIAL,

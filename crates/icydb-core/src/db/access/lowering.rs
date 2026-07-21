@@ -927,8 +927,8 @@ mod accepted_enum_tests {
         db::{
             access::{AccessPlan, SemanticIndexAccessContract},
             schema::{
-                AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedSchemaRevision,
-                AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
+                AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
+                AcceptedValueCatalogHandle, FieldId, PersistedFieldSnapshot,
                 PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
                 PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
                 SchemaVersion, build_initial_accepted_enum_catalog_from_kinds_for_tests,
@@ -1038,7 +1038,7 @@ mod accepted_enum_tests {
         let schema_info = SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
             &MODEL,
             &snapshot,
-            AcceptedEnumCatalogHandle::new_for_tests(
+            AcceptedValueCatalogHandle::new_for_tests(
                 catalog,
                 crate::db::schema::AcceptedCompositeCatalog::empty(),
                 AcceptedSchemaRevision::INITIAL,

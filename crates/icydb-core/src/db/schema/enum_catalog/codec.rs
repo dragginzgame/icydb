@@ -6,11 +6,12 @@
 use super::{
     AcceptedEnumCatalog, AcceptedEnumType, AcceptedEnumVariant, AcceptedEnumVariantBody,
     AcceptedFieldKind, AcceptedValueContract, EnumOrderingPolicy, EnumTypeId, EnumVariantId,
-    MAX_ENUM_CONTRACT_DEPTH,
 };
 use crate::{
-    db::schema::composite_catalog::CompositeTypeId, error::InternalError,
-    model::field::FieldStorageDecode, types::EntityTag,
+    db::schema::{MAX_ACCEPTED_RECURSIVE_DEPTH, composite_catalog::CompositeTypeId},
+    error::InternalError,
+    model::field::FieldStorageDecode,
+    types::EntityTag,
 };
 use std::collections::BTreeMap;
 
@@ -223,7 +224,7 @@ pub(in crate::db::schema) fn encode_value_kind(
     kind: &AcceptedFieldKind,
     depth: usize,
 ) -> Result<(), InternalError> {
-    if depth > MAX_ENUM_CONTRACT_DEPTH {
+    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
         return Err(InternalError::store_invariant());
     }
     let nested_depth = depth.saturating_add(1);
@@ -312,7 +313,7 @@ pub(in crate::db::schema) fn decode_value_kind(
     reader: &mut CatalogReader<'_>,
     depth: usize,
 ) -> Result<AcceptedFieldKind, InternalError> {
-    if depth > MAX_ENUM_CONTRACT_DEPTH {
+    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
         return Err(InternalError::store_corruption());
     }
     let nested_depth = depth.saturating_add(1);

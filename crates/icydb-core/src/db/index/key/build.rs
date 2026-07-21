@@ -1325,9 +1325,8 @@ mod accepted_enum_tests {
     use super::*;
     use crate::{
         db::schema::{
-            AcceptedEnumCatalogHandle, AcceptedFieldDecodeContract,
-            AcceptedFieldPersistenceContract, AcceptedSchemaRevision,
-            build_initial_accepted_enum_catalog_from_kinds_for_tests,
+            AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract, AcceptedSchemaRevision,
+            AcceptedValueCatalogHandle, build_initial_accepted_enum_catalog_from_kinds_for_tests,
         },
         model::field::{EnumVariantModel, FieldKind, FieldStorageDecode, LeafCodec},
         value::{ValueEnum, ValueTag},
@@ -1357,7 +1356,7 @@ mod accepted_enum_tests {
     fn accepted_index_leaf_uses_catalog_ids_for_unit_enum_key() {
         let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[UNIT_KIND])
             .expect("unit enum catalog should build");
-        let handle = AcceptedEnumCatalogHandle::new_for_tests(
+        let handle = AcceptedValueCatalogHandle::new_for_tests(
             catalog,
             crate::db::schema::AcceptedCompositeCatalog::empty(),
             AcceptedSchemaRevision::INITIAL,
@@ -1386,7 +1385,7 @@ mod accepted_enum_tests {
         let catalog =
             build_initial_accepted_enum_catalog_from_kinds_for_tests(&[PAYLOAD_ENUM_KIND])
                 .expect("payload enum catalog should build");
-        let handle = AcceptedEnumCatalogHandle::new_for_tests(
+        let handle = AcceptedValueCatalogHandle::new_for_tests(
             catalog,
             crate::db::schema::AcceptedCompositeCatalog::empty(),
             AcceptedSchemaRevision::INITIAL,

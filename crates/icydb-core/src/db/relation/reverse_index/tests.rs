@@ -17,8 +17,8 @@ use crate::db::{
     },
     registry::StoreRegistry,
     schema::{
-        AcceptedEnumCatalogHandle, AcceptedFieldDecodeContract, AcceptedFieldKind,
-        AcceptedRowLayoutRuntimeContract, AcceptedSchemaRevision, AcceptedSchemaSnapshot, FieldId,
+        AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedRowLayoutRuntimeContract,
+        AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, FieldId,
         PersistedFieldSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
         SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
         enum_catalog::build_initial_accepted_enum_catalog,
@@ -213,7 +213,7 @@ fn accepted_relations_require_registered_target_authority() {
         .expect("accepted relation runtime contract should build");
     let catalog =
         build_initial_accepted_enum_catalog(&[]).expect("empty accepted enum catalog should build");
-    let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+    let catalog = AcceptedValueCatalogHandle::new_for_tests(
         catalog,
         crate::db::schema::AcceptedCompositeCatalog::empty(),
         AcceptedSchemaRevision::INITIAL,

@@ -70,9 +70,9 @@ pub(in crate::db) fn finalize_structural_grouped_projection_result(
     result: StructuralGroupedProjectionResult,
     trace: Option<ExecutionTrace>,
 ) -> Result<PagedGroupedExecutionWithTrace, QueryError> {
-    let (rows, next_cursor, enum_catalog) = result.into_rows_and_cursor();
+    let (rows, next_cursor, value_catalog) = result.into_rows_and_cursor();
     let next_cursor = encode_grouped_page_cursor(next_cursor)?;
-    let rows = grouped_rows_from_runtime_rows(enum_catalog.catalog(), rows)?;
+    let rows = grouped_rows_from_runtime_rows(value_catalog.enum_catalog(), rows)?;
 
     Ok(PagedGroupedExecutionWithTrace::new(
         rows,

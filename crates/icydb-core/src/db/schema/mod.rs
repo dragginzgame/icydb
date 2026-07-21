@@ -28,6 +28,16 @@ mod store;
 mod transition;
 mod types;
 
+/// Maximum zero-based nesting depth accepted by schema contracts and value codecs.
+///
+/// A root value starts at depth zero, so valid recursive nodes occupy depths
+/// `0..MAX_ACCEPTED_RECURSIVE_DEPTH`. Contract construction, admission, and
+/// canonical persistence must all enforce this same boundary.
+pub(in crate::db) const MAX_ACCEPTED_RECURSIVE_DEPTH_U16: u16 = 64;
+/// `usize` form used by schema-tree construction and persisted decoding.
+pub(in crate::db) const MAX_ACCEPTED_RECURSIVE_DEPTH: usize =
+    MAX_ACCEPTED_RECURSIVE_DEPTH_U16 as usize;
+
 pub use describe::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
     EntityRelationDescription, EntitySchemaCheckDescription, EntitySchemaDescription,
@@ -57,8 +67,8 @@ pub(in crate::db) use describe::{
     describe_entity_model_with_persisted_schema,
 };
 pub(in crate::db) use enum_catalog::{
-    AcceptedEnumCatalog, AcceptedEnumCatalogHandle, AcceptedSchemaAuthority,
-    AcceptedSchemaFingerprint, AcceptedSchemaRevision, AcceptedValueContract,
+    AcceptedEnumCatalog, AcceptedSchemaAuthority, AcceptedSchemaFingerprint,
+    AcceptedSchemaRevision, AcceptedValueCatalogHandle, AcceptedValueContract,
     CandidateSchemaRevision, ValueAdmissionBudget, encode_unit_enum_equality_key,
     output_value_from_runtime,
 };

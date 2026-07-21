@@ -44,6 +44,18 @@ static CHANGED_ALPHA_FIELDS: [CompositeFieldModel; 2] = [
 ];
 static CHANGED_ALPHA_SHAPE: CompositeShapeModel =
     CompositeShapeModel::Record(&CHANGED_ALPHA_FIELDS);
+static CHANGED_ALPHA_KIND: FieldKind = FieldKind::Composite {
+    path: "tests::Alpha",
+    codec: CompositeCodec::StructuralV1,
+    shape: &CHANGED_ALPHA_SHAPE,
+};
+static AARDVARK_SHAPE: CompositeShapeModel =
+    CompositeShapeModel::Newtype(CompositeElementModel::generated(FieldKind::Bool, false));
+static AARDVARK_KIND: FieldKind = FieldKind::Composite {
+    path: "tests::Aardvark",
+    codec: CompositeCodec::StructuralV1,
+    shape: &AARDVARK_SHAPE,
+};
 
 fn catalogs_for(kinds: &[FieldKind]) -> (AcceptedEnumCatalog, AcceptedCompositeCatalog) {
     build_initial_accepted_catalogs_from_kinds_for_tests(kinds)
@@ -105,6 +117,61 @@ fn accepted_composite_catalog_rejects_generated_shape_drift_at_same_nominal_path
         CompositeCodec::StructuralV1,
         &CHANGED_ALPHA_SHAPE,
     ));
+}
+
+#[test]
+fn accepted_composite_catalog_reconciliation_retains_matching_contracts_and_additions() {
+    let (_, accepted) = catalogs_for(&[ALPHA_KIND]);
+    let (_, candidate) = catalogs_for(&[ALPHA_KIND, BETA_KIND]);
+
+    let reconciled = reconcile_composite_catalog_candidate(&accepted, candidate.clone())
+        .expect("matching accepted composite contracts should reconcile");
+
+    assert_eq!(reconciled, candidate);
+}
+
+#[test]
+fn accepted_composite_catalog_reconciliation_rejects_shape_drift() {
+    let (_, accepted) = catalogs_for(&[ALPHA_KIND]);
+    let (_, candidate) = catalogs_for(&[CHANGED_ALPHA_KIND]);
+
+    assert_eq!(
+        reconcile_composite_catalog_candidate(&accepted, candidate),
+        Err(CompositeCatalogBuildError::ExistingTypeContractChanged {
+            path: "tests::Alpha".to_string(),
+        }),
+    );
+}
+
+#[test]
+fn accepted_composite_catalog_reconciliation_rejects_identity_drift() {
+    let (_, accepted) = catalogs_for(&[ALPHA_KIND]);
+    let (_, candidate) = catalogs_for(&[AARDVARK_KIND, ALPHA_KIND]);
+
+    assert_eq!(
+        reconcile_composite_catalog_candidate(&accepted, candidate),
+        Err(CompositeCatalogBuildError::ExistingTypeIdentityChanged {
+            path: "tests::Alpha".to_string(),
+        }),
+    );
+}
+
+fn nested_list_kind(mut kind: FieldKind, depth: usize) -> FieldKind {
+    for _ in 0..depth {
+        kind = FieldKind::List(Box::leak(Box::new(kind)));
+    }
+    kind
+}
+
+#[test]
+fn accepted_composite_catalog_uses_the_shared_recursive_depth_boundary() {
+    // The record itself occupies one recursive level beyond its enclosing
+    // collections, and its scalar fields occupy the final admitted level.
+    let allowed = nested_list_kind(ALPHA_KIND, MAX_ACCEPTED_RECURSIVE_DEPTH - 2);
+    let excessive = nested_list_kind(ALPHA_KIND, MAX_ACCEPTED_RECURSIVE_DEPTH - 1);
+
+    assert!(build_initial_accepted_catalogs_from_kinds_for_tests(&[allowed]).is_ok());
+    assert!(build_initial_accepted_catalogs_from_kinds_for_tests(&[excessive]).is_err());
 }
 
 #[test]

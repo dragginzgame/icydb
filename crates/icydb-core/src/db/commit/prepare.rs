@@ -541,7 +541,7 @@ where
             authority.model,
             &selection,
         )?;
-    let enum_catalog = selection.enum_catalog().clone();
+    let value_catalog = selection.value_catalog_handle().clone();
     let (accepted, row_contract) = accepted_authority.into_parts();
     Ok(AcceptedCommitSchemaContracts {
         row_contract,
@@ -549,7 +549,7 @@ where
             SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
                 authority.model,
                 &accepted,
-                enum_catalog,
+                value_catalog,
                 true,
             )
         }),

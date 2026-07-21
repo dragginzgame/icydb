@@ -5,7 +5,7 @@
 
 use crate::{
     db::schema::{
-        AcceptedEnumCatalogHandle, AcceptedFieldKind,
+        AcceptedFieldKind, AcceptedValueCatalogHandle,
         enum_catalog::{
             AcceptedValueContract, AcceptedValueRef, AdmittedOwnedValue, CanonicalValue,
             ValueAdmissionBudget, ValueAdmissionError, admit_canonical_value,
@@ -20,7 +20,7 @@ use std::borrow::Cow;
 /// Complete accepted authority for normalizing or validating one value.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AcceptedValueAdmissionContract<'a> {
-    enum_catalog: &'a AcceptedEnumCatalogHandle,
+    catalogs: &'a AcceptedValueCatalogHandle,
     value_contract: Cow<'a, AcceptedValueContract>,
     nullable: bool,
 }
@@ -28,12 +28,12 @@ pub(in crate::db) struct AcceptedValueAdmissionContract<'a> {
 impl<'a> AcceptedValueAdmissionContract<'a> {
     /// Borrow a recursive value contract already owned by accepted schema metadata.
     pub(in crate::db::schema) const fn borrowed(
-        enum_catalog: &'a AcceptedEnumCatalogHandle,
+        catalogs: &'a AcceptedValueCatalogHandle,
         value_contract: &'a AcceptedValueContract,
         nullable: bool,
     ) -> Self {
         Self {
-            enum_catalog,
+            catalogs,
             value_contract: Cow::Borrowed(value_contract),
             nullable,
         }
@@ -41,12 +41,12 @@ impl<'a> AcceptedValueAdmissionContract<'a> {
 
     /// Retain a recursive value contract derived for a runtime persistence boundary.
     pub(in crate::db::schema) const fn owned(
-        enum_catalog: &'a AcceptedEnumCatalogHandle,
+        catalogs: &'a AcceptedValueCatalogHandle,
         value_contract: AcceptedValueContract,
         nullable: bool,
     ) -> Self {
         Self {
-            enum_catalog,
+            catalogs,
             value_contract: Cow::Owned(value_contract),
             nullable,
         }
@@ -55,8 +55,8 @@ impl<'a> AcceptedValueAdmissionContract<'a> {
     /// Borrow the immutable catalog authority for this value contract.
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db) const fn enum_catalog(&self) -> &'a AcceptedEnumCatalogHandle {
-        self.enum_catalog
+    pub(in crate::db) const fn catalogs(&self) -> &'a AcceptedValueCatalogHandle {
+        self.catalogs
     }
 
     /// Borrow the recursively validated accepted value contract.
@@ -75,7 +75,7 @@ impl<'a> AcceptedValueAdmissionContract<'a> {
     #[must_use]
     pub(in crate::db) fn collection_element_contract(&self) -> Option<Self> {
         Some(Self::owned(
-            self.enum_catalog,
+            self.catalogs,
             self.value_contract().collection_element_contract()?,
             false,
         ))
@@ -88,7 +88,7 @@ impl<'a> AcceptedValueAdmissionContract<'a> {
         budget: &mut ValueAdmissionBudget,
     ) -> Result<AdmittedOwnedValue, ValueAdmissionError> {
         normalize_and_admit_nullable_value(
-            self.enum_catalog,
+            self.catalogs,
             self.value_contract(),
             self.nullable,
             input,
@@ -103,7 +103,7 @@ impl<'a> AcceptedValueAdmissionContract<'a> {
         budget: &mut ValueAdmissionBudget,
     ) -> Result<AdmittedOwnedValue, ValueAdmissionError> {
         admit_canonical_value(
-            self.enum_catalog,
+            self.catalogs,
             self.value_contract(),
             self.nullable,
             value,
@@ -129,7 +129,7 @@ impl<'a> AcceptedValueAdmissionContract<'a> {
         use_value: impl for<'value> FnOnce(AcceptedValueRef<'value>) -> R,
     ) -> Result<R, ValueAdmissionError> {
         with_normalized_accepted_value(
-            self.enum_catalog,
+            self.catalogs,
             self.value_contract(),
             self.nullable,
             input,
@@ -146,7 +146,7 @@ impl<'a> AcceptedValueAdmissionContract<'a> {
         use_value: impl for<'value> FnOnce(AcceptedValueRef<'value>) -> R,
     ) -> Result<R, ValueAdmissionError> {
         let accepted = validate_nullable_canonical_value(
-            self.enum_catalog,
+            self.catalogs,
             self.value_contract(),
             self.nullable,
             value,

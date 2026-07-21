@@ -7,16 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### ➕ Added
+## [0.208.x] 🧩 - 2026-07-21 - Exact Composite Contracts
 
-- Adds accepted-schema-owned exact record, tuple, and newtype contracts with
-  nominal identities and complete recursive shapes.
+Detailed notes: [docs/changelog/0.208.md](docs/changelog/0.208.md)
 
-### 🔧 Changed
-
-- Hard-cuts the former generic structured-field contract and all affected
-  accepted metadata to one current pre-1.0 format. Existing development stores
-  using the prior accepted schema form must be recreated.
+- `0.208.0` is a breaking pre-1.0 hard cut from generic structured fields to
+  exact nominal composites owned by one accepted value-catalog authority.
 
 ## [0.207.x] 🔧 - 2026-07-21 - Redo-Only Schema Index Publication
 

@@ -12,8 +12,8 @@ use crate::{
         index::{IndexEntryValue, IndexKey, IndexState, IndexStoreVisit, RawIndexStoreKey},
         response::Row,
         schema::{
-            AcceptedCatalogIdentity, AcceptedEnumCatalogHandle, AcceptedFieldKind,
-            AcceptedSchemaRevision, AcceptedSchemaSnapshot, PersistedFieldOrigin,
+            AcceptedCatalogIdentity, AcceptedFieldKind, AcceptedSchemaRevision,
+            AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, PersistedFieldOrigin,
             PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
             SchemaDdlMutationAdmissionError, SchemaDdlSchemaVersionAdmissionError, SchemaInfo,
             SchemaVersion, accepted_schema_cache_fingerprint,
@@ -81,7 +81,7 @@ fn accepted_schema_snapshot_for_entity<E: EntityDeclaration>() -> AcceptedSchema
 }
 
 fn accepted_schema_snapshot_and_catalog_for_entity<E: EntityDeclaration>()
--> (AcceptedSchemaSnapshot, AcceptedEnumCatalogHandle) {
+-> (AcceptedSchemaSnapshot, AcceptedValueCatalogHandle) {
     let proposal = compiled_schema_proposal_for_model(E::MODEL);
     let (catalog, composite_catalog) =
         crate::db::schema::build_initial_accepted_catalogs_for_tests(&[E::MODEL])
@@ -91,7 +91,7 @@ fn accepted_schema_snapshot_and_catalog_for_entity<E: EntityDeclaration>()
         .expect("session SQL test schema should resolve through its catalogs");
     let accepted = AcceptedSchemaSnapshot::try_new(snapshot)
         .expect("session SQL test schema snapshot should be accepted");
-    let catalog = AcceptedEnumCatalogHandle::new_for_tests(
+    let catalog = AcceptedValueCatalogHandle::new_for_tests(
         catalog,
         composite_catalog,
         AcceptedSchemaRevision::INITIAL,
