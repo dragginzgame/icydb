@@ -1929,7 +1929,7 @@ crate::test_entity! {
         },
         crate::test_field! { name: String => FieldKind::Text { max_len: None } },
         crate::test_field! {
-            profile: SessionSqlProfileRecord => SessionSqlProfileRecord::KIND,
+            profile: SessionSqlFieldPathProfile => SessionSqlFieldPathProfile::KIND,
             options = crate::testing::TestFieldModelOptions::DEFAULT
                 .with_storage_decode(FieldStorageDecode::CatalogValue),
         },

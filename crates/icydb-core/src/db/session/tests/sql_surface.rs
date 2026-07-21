@@ -21,7 +21,6 @@ use crate::{
             execute_admin_sql_ddl_field_addition, execute_admin_sql_ddl_field_drop,
             execute_admin_sql_ddl_secondary_index_drop,
             persisted_schema_snapshot_decode_count_for_tests,
-            publish_test_accepted_schema_snapshot,
             reset_persisted_schema_snapshot_decode_count_for_tests,
         },
         session::sql::{
@@ -273,24 +272,11 @@ fn encode_sql_surface_slot_payload_for_test(slots: &[&[u8]]) -> Vec<u8> {
     row_payload
 }
 
-// Publish the post-transition accepted schema while row fixtures retain the
-// old two-slot layout. Runtime reads must use accepted nullable-slot semantics.
+// Publish the complete post-transition store contract while row fixtures retain
+// the old two-slot layout. Runtime operations must use accepted nullable-slot semantics.
 fn install_nullable_sql_post_transition_schema() {
-    let proposal =
-        compiled_schema_proposal_for_model(<SessionNullableSqlEntity as EntityDeclaration>::MODEL);
-    let expected = proposal.initial_persisted_schema_snapshot();
-
-    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
-        publish_test_accepted_schema_snapshot(
-            store,
-            SessionNullableSqlEntity::ENTITY_TAG,
-            SessionNullableSqlEntity::PATH,
-            SessionSqlStore::PATH,
-            <SessionNullableSqlEntity as EntityDeclaration>::MODEL,
-            expected,
-        )
-        .expect("post-transition nullable SQL schema should publish");
-    });
+    crate::db::schema::reconcile_runtime_schemas(&SESSION_SQL_DB, SESSION_SQL_RUNTIME_HOOKS)
+        .expect("post-transition nullable SQL schema bundle should publish");
     DbSession::<SessionSqlCanister>::clear_accepted_schema_query_cache_for_tests();
 }
 
