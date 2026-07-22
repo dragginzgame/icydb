@@ -685,7 +685,7 @@ fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit
         &update,
         &[
             "enum SqlUpdateExecutionContract",
-            "Self::Validated(bounds) => sql_update_candidate_bounds(Some(bounds))",
+            "Self::Validated(bounds) => sql_update_candidate_bounds(bounds)",
             "Self::Exact { policy, .. } => sql_exact_update_candidate_bounds(policy)",
             "let candidate_bounds = execution_contract.candidate_bounds();",
             "let scan_budget = execution_contract.scan_budget()?;",
@@ -695,6 +695,17 @@ fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit
             "SqlWriteMutationExecution::from_bounded_collection(",
         ],
         "SQL exact and prefix UPDATE should feed selector rows through their explicit execution contract, bounded collection, and shared mutation batch bound",
+    );
+
+    assert_source_excludes_patterns(
+        &update,
+        &[
+            "UnboundedTestHarness",
+            "sql_update_candidate_bounds(None)",
+            "sql_update_candidate_bounds(Some(",
+            "execute_unbounded_sql_update_statement_for_tests",
+        ],
+        "SQL UPDATE candidate collection must require a bounded explicit execution contract with no test-only unbounded exception",
     );
 
     assert_source_contains_patterns(
