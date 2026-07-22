@@ -81,7 +81,8 @@ pub(in crate::db) use schema_publication::publish_accepted_schema_candidate;
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate_with_derived_domains;
 #[cfg(feature = "sql")]
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate_with_user_index_domains;
-#[cfg(all(test, feature = "sql"))]
+#[cfg(test)]
+#[cfg(feature = "sql")]
 pub(in crate::db) use store::persisted_commit_marker_lengths_for_tests;
 #[cfg(test)]
 pub(in crate::db) use store::validate_commit_marker_envelope_for_tests;
