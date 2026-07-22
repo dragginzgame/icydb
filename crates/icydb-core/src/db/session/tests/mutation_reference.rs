@@ -579,10 +579,7 @@ fn execute_model_accepted_mutation(
     session: &DbSession<SessionSqlCanister>,
     step: &GeneratedMutationStep,
 ) -> Result<MutationStepOutcome, Box<GeneratedMutationMismatch>> {
-    let result = match execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
-        session,
-        step.rendered_sql(),
-    ) {
+    let result = match execute_generated_native_mutation_statement(session, step) {
         Ok(result) => result,
         Err(error) => {
             return Err(Box::new(native_query_failure(
@@ -616,7 +613,7 @@ fn execute_model_rejected_mutation(
     step: &GeneratedMutationStep,
     rejection: MutationExpectedRejection,
 ) -> Result<MutationStepOutcome, Box<GeneratedMutationMismatch>> {
-    match execute_sql_statement_for_tests::<SessionSqlWriteEntity>(session, step.rendered_sql()) {
+    match execute_generated_native_mutation_statement(session, step) {
         Err(error) if native_mutation_rejection_matches(&error, rejection) => {
             let state_after = read_native_mutation_state(session).map_err(|_| {
                 mutation_state_read_failure(
@@ -638,6 +635,30 @@ fn execute_model_rejected_mutation(
             "rejected-mutation-error-class",
         ))),
         Ok(result) => unexpected_mutation_acceptance(session, step, result),
+    }
+}
+
+// Generated UPDATE statements must declare the same exact or ordered-prefix
+// execution intent required by the maintained session boundary.
+fn execute_generated_native_mutation_statement(
+    session: &DbSession<SessionSqlCanister>,
+    step: &GeneratedMutationStep,
+) -> Result<SqlStatementResult, QueryError> {
+    match step.statement().operation() {
+        MutationOperation::Update {
+            window: Some(_), ..
+        } => execute_prefix_sql_update_for_tests::<SessionSqlWriteEntity>(
+            session,
+            step.rendered_sql(),
+        ),
+        MutationOperation::Update { window: None, .. } => execute_exact_sql_update_for_tests::<
+            SessionSqlWriteEntity,
+        >(session, step.rendered_sql()),
+        MutationOperation::Delete { .. }
+        | MutationOperation::Insert { .. }
+        | MutationOperation::InsertFromQuery { .. } => {
+            execute_sql_statement_for_tests::<SessionSqlWriteEntity>(session, step.rendered_sql())
+        }
     }
 }
 

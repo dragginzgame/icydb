@@ -149,7 +149,7 @@ fn sequence_statements(
         multi_insert_statement(),
         exact_update_statement(sub_seed),
         compound_update_statement(variant, sub_seed),
-        bounded_update_statement(variant, sub_seed)?,
+        bounded_update_statement(sub_seed)?,
         no_op_or_insert_query_statement(structural_variant, sub_seed),
         delete_statement(structural_variant, sub_seed)?,
         rejected_insert_statement(structural_variant, sub_seed),
@@ -216,15 +216,9 @@ fn compound_update_statement(variant: u32, sub_seed: u64) -> MutationStatement {
     )
 }
 
-fn bounded_update_statement(
-    variant: u32,
-    sub_seed: u64,
-) -> Result<MutationStatement, SqlGeneratorError> {
-    let order = if variant.is_multiple_of(2) {
-        MutationOrder::KeyDescending
-    } else {
-        MutationOrder::KeyAscending
-    };
+fn bounded_update_statement(sub_seed: u64) -> Result<MutationStatement, SqlGeneratorError> {
+    // Accepted generated UPDATE windows mirror the explicit prefix contract;
+    // DELETE cases retain descending-order and offset coverage separately.
     Ok(MutationStatement::new(
         MutationOperation::Update {
             predicate: MutationPredicate::NumberRange {
@@ -234,7 +228,7 @@ fn bounded_update_statement(
             assignment: MutationAssignment::Number {
                 value: 900 + sub_seed % 100,
             },
-            window: Some(MutationWindow::try_new(order, 2, 1)?),
+            window: Some(MutationWindow::try_new(MutationOrder::KeyAscending, 2, 0)?),
         },
         true,
     ))

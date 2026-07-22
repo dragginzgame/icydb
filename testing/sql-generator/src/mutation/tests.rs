@@ -130,6 +130,10 @@ fn tier_a_sequences_produce_every_closed_mutation_ast_variant() {
                         key_sources.insert(*key_source);
                     }
                     MutationOperation::Update { window, .. } => {
+                        if let Some(window) = window {
+                            assert_eq!(window.order(), MutationOrder::KeyAscending);
+                            assert_eq!(window.offset(), 0);
+                        }
                         orders.extend(window.map(MutationWindow::order));
                     }
                     MutationOperation::Insert { .. } => {}
