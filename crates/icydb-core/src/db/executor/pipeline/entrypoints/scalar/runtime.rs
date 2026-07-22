@@ -53,6 +53,7 @@ pub(in crate::db::executor) struct PreparedScalarRouteRuntime {
     pub(super) cursor_emission: CursorEmissionMode,
     pub(super) projection_runtime_mode: ProjectionMaterializationMode,
     pub(super) suppress_route_scan_hints: bool,
+    pub(super) enforced_scan_probe_limit: Option<usize>,
     pub(super) debug: bool,
 }
 
@@ -61,6 +62,14 @@ impl PreparedScalarRouteRuntime {
     // consumed by execution.
     pub(super) const fn entity_path(&self) -> &'static str {
         self.authority.entity_path()
+    }
+
+    /// Attach one execution-only cap-plus-one scan probe.
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(super) const fn with_enforced_scan_probe_limit(mut self, probe_limit: usize) -> Self {
+        self.enforced_scan_probe_limit = Some(probe_limit);
+        self
     }
 }
 
@@ -539,6 +548,7 @@ fn build_prepared_scalar_route_runtime(
         cursor_emission,
         projection_runtime_mode,
         suppress_route_scan_hints,
+        enforced_scan_probe_limit: None,
         debug,
     })
 }

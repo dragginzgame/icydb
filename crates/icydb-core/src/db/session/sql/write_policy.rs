@@ -8,14 +8,16 @@ mod bounds;
 mod model;
 mod shape;
 
-pub(in crate::db::session::sql) use bounds::combined_optional_row_bound;
+pub(in crate::db::session::sql) use bounds::{
+    combined_optional_row_bound, sql_write_execution_bounds_for_exact_update,
+};
 pub(in crate::db::session::sql) use model::{
     DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
     SqlWriteBoundedPolicyRejection, SqlWriteExposureClass, SqlWritePlanCore, SqlWritePolicyBounds,
     SqlWriteShapePolicyRejection,
 };
 pub(in crate::db) use model::{
-    SqlWriteExecutionBounds, SqlWriteReturningBounds, SqlWriteStatementShape,
+    SqlWriteExecutionBounds, SqlWriteOrderProof, SqlWriteReturningBounds, SqlWriteStatementShape,
 };
 #[cfg(test)]
 pub(in crate::db) use model::{SqlWriteReturningShape, SqlWriteWhereProof};

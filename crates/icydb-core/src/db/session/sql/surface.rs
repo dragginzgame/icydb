@@ -2,7 +2,7 @@
 //! Responsibility: classify parsed SQL statements for generated/controller
 //! endpoint routing.
 //! Does not own: SQL execution, SQL compilation cache, or DDL publication.
-//! Boundary: keeps query/update/DDL surface gating out of the SQL facade.
+//! Boundary: keeps query/mutation/DDL surface gating out of the SQL facade.
 
 #[cfg(feature = "sql-explain")]
 use crate::db::sql::parser::SqlExplainTarget;
@@ -210,7 +210,7 @@ const fn sql_statement_entity_name_from_statement(statement: &SqlStatement) -> O
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    // Keep query/update surface gating owned by one helper so the SQL
+    // Keep query/mutation surface gating owned by one helper so the SQL
     // compiled-command lane does not duplicate the same statement-family split
     // just to change the outward error wording.
     pub(in crate::db::session::sql) fn ensure_sql_statement_supported_for_surface(
@@ -231,7 +231,7 @@ impl<C: CanisterKind> DbSession<C> {
             #[cfg(feature = "sql-explain")]
             (SqlCompiledCommandSurface::Query, SqlStatement::Explain(_)) => Ok(()),
             (
-                SqlCompiledCommandSurface::Update,
+                SqlCompiledCommandSurface::Mutation,
                 SqlStatement::Insert(_) | SqlStatement::Update(_) | SqlStatement::Delete(_),
             ) => Ok(()),
             (_, SqlStatement::Ddl(_)) => Err(QueryError::sql_lowering(
@@ -246,30 +246,36 @@ impl<C: CanisterKind> DbSession<C> {
             (SqlCompiledCommandSurface::Query, SqlStatement::Delete(_)) => Err(
                 QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::QueryRejectsDelete),
             ),
-            (SqlCompiledCommandSurface::Update, SqlStatement::Select(_)) => Err(
-                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::UpdateRejectsSelect),
+            (SqlCompiledCommandSurface::Mutation, SqlStatement::Select(_)) => Err(
+                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::MutationRejectsSelect),
             ),
             #[cfg(feature = "sql-explain")]
-            (SqlCompiledCommandSurface::Update, SqlStatement::Explain(_)) => Err(
-                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::UpdateRejectsExplain),
+            (SqlCompiledCommandSurface::Mutation, SqlStatement::Explain(_)) => Err(
+                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::MutationRejectsExplain),
             ),
-            (SqlCompiledCommandSurface::Update, SqlStatement::Describe(_)) => Err(
-                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::UpdateRejectsDescribe),
+            (SqlCompiledCommandSurface::Mutation, SqlStatement::Describe(_)) => Err(
+                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::MutationRejectsDescribe),
             ),
-            (SqlCompiledCommandSurface::Update, SqlStatement::ShowIndexes(_)) => Err(
-                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::UpdateRejectsShowIndexes),
+            (SqlCompiledCommandSurface::Mutation, SqlStatement::ShowIndexes(_)) => {
+                Err(QueryError::sql_surface_mismatch(
+                    SqlSurfaceMismatchCode::MutationRejectsShowIndexes,
+                ))
+            }
+            (SqlCompiledCommandSurface::Mutation, SqlStatement::ShowColumns(_)) => {
+                Err(QueryError::sql_surface_mismatch(
+                    SqlSurfaceMismatchCode::MutationRejectsShowColumns,
+                ))
+            }
+            (SqlCompiledCommandSurface::Mutation, SqlStatement::ShowEntities(_)) => {
+                Err(QueryError::sql_surface_mismatch(
+                    SqlSurfaceMismatchCode::MutationRejectsShowEntities,
+                ))
+            }
+            (SqlCompiledCommandSurface::Mutation, SqlStatement::ShowStores(_)) => Err(
+                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::MutationRejectsShowStores),
             ),
-            (SqlCompiledCommandSurface::Update, SqlStatement::ShowColumns(_)) => Err(
-                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::UpdateRejectsShowColumns),
-            ),
-            (SqlCompiledCommandSurface::Update, SqlStatement::ShowEntities(_)) => Err(
-                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::UpdateRejectsShowEntities),
-            ),
-            (SqlCompiledCommandSurface::Update, SqlStatement::ShowStores(_)) => Err(
-                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::UpdateRejectsShowStores),
-            ),
-            (SqlCompiledCommandSurface::Update, SqlStatement::ShowMemory(_)) => Err(
-                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::UpdateRejectsShowMemory),
+            (SqlCompiledCommandSurface::Mutation, SqlStatement::ShowMemory(_)) => Err(
+                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::MutationRejectsShowMemory),
             ),
         }
     }

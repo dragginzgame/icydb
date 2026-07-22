@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.210.x] 🎯 - 2026-07-22 - Explicit Bulk Update Contracts
+
+Detailed notes: [docs/changelog/0.210.md](docs/changelog/0.210.md)
+
+- `0.210.0` adds bounded exact and intentional ordered-prefix trusted SQL
+  `UPDATE`, hard-cutting ambiguous `UPDATE` behavior from the broad mutation
+  ingress while preserving atomic, fail-closed execution.
+
 ## [0.209.x] 🕰️ - 2026-07-22 - Temporal Defaults And Versioned Row Layouts
 
 Detailed notes: [docs/changelog/0.209.md](docs/changelog/0.209.md)

@@ -8,7 +8,10 @@ use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
         data::AcceptedMutationIntentPatch,
-        executor::{EntityAuthority, MutationMode, StructuralMutationTargetKey},
+        executor::{
+            EntityAuthority, MutationMode, StructuralMutationTargetKey,
+            StructuralProjectionScanBudget,
+        },
         query::intent::StructuralQuery,
         response::ResponseError,
         schema::{AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot},
@@ -41,8 +44,8 @@ use authority::{
 use candidate::{
     SqlWriteCandidateAccounting, SqlWriteCandidateBoundCheck, SqlWriteCandidateBounds,
     SqlWriteCandidateCollection, SqlWriteCandidateRows, SqlWriteMutationBatch,
-    SqlWriteProjectedSourceRows, sql_insert_candidate_bounds, sql_update_candidate_bounds,
-    sql_write_candidate_collection_capacity,
+    SqlWriteProjectedSourceRows, sql_exact_update_candidate_bounds, sql_insert_candidate_bounds,
+    sql_update_candidate_bounds, sql_write_candidate_collection_capacity,
 };
 
 // Collapse SQL execution failures into the stable error taxonomy used by the
@@ -119,7 +122,7 @@ where
             ))
         }
         CompiledSqlCommand::Insert(command) => {
-            let result = if surface == Some(SqlCompiledCommandSurface::Update) {
+            let result = if surface == Some(SqlCompiledCommandSurface::Mutation) {
                 session.execute_sql_insert_statement_with_update_surface_bounds::<E>(
                     command.statement(),
                     command.source_query(),
@@ -138,10 +141,23 @@ where
             ))
         }
         CompiledSqlCommand::Update(statement) => {
-            let result = session.execute_trusted_sql_mutation_statement::<E>(statement, catalog);
+            #[cfg(not(test))]
+            let _ = statement;
+            #[cfg(test)]
+            if surface.is_none() {
+                let result = session
+                    .execute_unbounded_sql_update_statement_for_tests::<E>(statement, catalog);
+                return Some(sql_write_statement_result_with_default_cache::<E, C>(
+                    SqlWriteKind::Update,
+                    result,
+                ));
+            }
+
             Some(sql_write_statement_result_with_default_cache::<E, C>(
                 SqlWriteKind::Update,
-                result,
+                Err(QueryError::sql_surface_mismatch(
+                    icydb_diagnostic_code::SqlSurfaceMismatchCode::MutationRequiresExplicitUpdateIntent,
+                )),
             ))
         }
         CompiledSqlCommand::Select { .. }
@@ -254,6 +270,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         query: &StructuralQuery,
         bounds: SqlWriteCandidateBounds,
+        scan_budget: Option<StructuralProjectionScanBudget>,
         mut row_to_patch: impl FnMut(&[Value]) -> Result<(K, AcceptedMutationIntentPatch), QueryError>,
     ) -> Result<SqlWriteCandidateCollection<K>, QueryError> {
         self.collect_sql_write_candidate_collection_from_structural_query_with_bounds(
@@ -261,6 +278,7 @@ impl<C: CanisterKind> DbSession<C> {
             authority,
             query,
             bounds,
+            scan_budget,
             &mut row_to_patch,
         )
     }
@@ -271,14 +289,23 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         query: &StructuralQuery,
         bounds: SqlWriteCandidateBounds,
+        scan_budget: Option<StructuralProjectionScanBudget>,
         row_to_patch: &mut impl FnMut(&[Value]) -> Result<(K, AcceptedMutationIntentPatch), QueryError>,
     ) -> Result<SqlWriteCandidateCollection<K>, QueryError> {
-        let (payload, _) = self
-            .execute_sql_projection_from_structural_query_without_sql_compiled_cache(
+        let (payload, _) = match scan_budget {
+            Some(scan_budget) => self
+                .execute_primary_only_sql_projection_from_structural_query_with_scan_budget(
+                    query.clone(),
+                    authority,
+                    schema,
+                    scan_budget,
+                ),
+            None => self.execute_sql_projection_from_structural_query_without_sql_compiled_cache(
                 query.clone(),
                 authority,
                 schema,
-            )?;
+            ),
+        }?;
         let (_, _, projected_rows, _) = payload.into_components();
         let mut rows = SqlWriteCandidateCollection::with_capacity(
             sql_write_candidate_collection_capacity(projected_rows.as_slice()),

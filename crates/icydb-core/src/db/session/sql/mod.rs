@@ -76,8 +76,10 @@ pub(in crate::db) use update_policy::{
     DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT, DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES,
 };
 pub(in crate::db) use update_policy::{
-    SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan, SqlUpdateExposurePolicy,
-    SqlUpdatePolicyContext, SqlValidatedUpdatePlan, classify_sql_update_policy,
+    SqlExactUpdatePolicy, SqlExactUpdatePolicyRejection, SqlPublicBoundedUpdatePlan,
+    SqlPublicPrimaryKeyUpdatePlan, SqlTrustedExactUpdatePlan, SqlUpdateExposurePolicy,
+    SqlUpdatePolicyContext, SqlUpdatePolicyRejection, SqlUpdatePolicyReport,
+    SqlValidatedUpdatePlan, classify_sql_update_policy,
 };
 pub(in crate::db::session::sql) use write_policy::combined_optional_row_bound;
 #[cfg(test)]
@@ -176,12 +178,11 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((result, attribution))
     }
 
-    /// Execute one trusted single-entity reduced SQL mutation statement.
+    /// Execute one trusted single-entity SQL `INSERT` or `DELETE` statement.
     ///
-    /// This surface stays hard-bound to `E`, rejects read-only SQL, and
-    /// returns SQL-shaped mutation output such as counts or `RETURNING` rows.
-    /// It does not apply a generated endpoint's primary-key or bounded-update
-    /// exposure policy, so its caller must own authorization and admission.
+    /// This surface stays hard-bound to `E` and rejects reads and `UPDATE`.
+    /// Trusted updates must choose the exact complete-set or intentional
+    /// ordered-prefix contract explicitly.
     pub fn execute_trusted_sql_mutation<E>(
         &self,
         sql: &str,
@@ -189,7 +190,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C>,
     {
-        let (compiled, _, _) = self.compile_sql_update_with_execution_context::<E>(sql)?;
+        let (compiled, _, _) = self.compile_sql_mutation_with_execution_context::<E>(sql)?;
 
         self.execute_compiled_sql_context_owned::<E>(compiled)
     }

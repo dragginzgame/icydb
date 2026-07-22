@@ -2541,6 +2541,235 @@ fn execute_validated_sql_public_bounded_update_plan_mutates_limited_rows() {
 }
 
 #[test]
+fn execute_trusted_sql_exact_update_mutates_the_complete_target() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21), (3, "Cid", 30)]);
+
+    let result = session
+        .execute_trusted_sql_exact_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 RETURNING id",
+            2,
+        )
+        .expect("exact update should mutate the complete target at its assertion");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = result
+    else {
+        panic!("exact UPDATE RETURNING should produce projection rows");
+    };
+
+    assert_eq!(columns, ["id"]);
+    assert_eq!(
+        rows,
+        vec![vec![output(Value::Nat64(1))], vec![output(Value::Nat64(2))]],
+    );
+    assert_eq!(row_count, 2);
+    assert_eq!(
+        persisted_write_rows(&session),
+        write_rows(&[(1, "Ada", 22), (2, "Bea", 22), (3, "Cid", 30)]),
+    );
+}
+
+#[test]
+fn execute_trusted_sql_exact_update_empty_target_is_a_complete_no_op() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21)]);
+    let baseline = persisted_write_rows(&session);
+
+    let result = session
+        .execute_trusted_sql_exact_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 99",
+            1,
+        )
+        .expect("an exhausted empty exact target should succeed");
+
+    let SqlStatementResult::Count { row_count } = result else {
+        panic!("empty exact UPDATE should return a count result");
+    };
+    assert_eq!(row_count, 0);
+    assert_eq!(
+        persisted_write_rows(&session),
+        baseline,
+        "empty exact success must not change authoritative rows",
+    );
+}
+
+#[test]
+fn execute_trusted_sql_exact_update_journaled_commit_recovers_complete_target() {
+    reset_journaled_session_sql_store();
+    let session = journaled_sql_session();
+    for (id, name) in [(1, "Ada"), (2, "Bea")] {
+        session
+            .insert(JournaledSessionSqlEntity {
+                id,
+                name: name.to_string(),
+                age: 21,
+            })
+            .expect("journaled exact-update setup insert should succeed");
+    }
+
+    let result = session
+        .execute_trusted_sql_exact_update::<JournaledSessionSqlEntity>(
+            "UPDATE JournaledSessionSqlEntity SET age = 22 WHERE age = 21",
+            2,
+        )
+        .expect("journaled exact update should commit its complete target");
+    let SqlStatementResult::Count { row_count } = result else {
+        panic!("journaled exact UPDATE should return a count result");
+    };
+    assert_eq!(row_count, 2);
+
+    reinitialize_journaled_session_sql_store();
+    let recovered = journaled_sql_session();
+    assert_eq!(
+        statement_projection_rows::<JournaledSessionSqlEntity>(
+            &recovered,
+            "SELECT id, age FROM JournaledSessionSqlEntity ORDER BY id ASC",
+        )
+        .expect("recovered exact-update rows should remain queryable"),
+        vec![
+            vec![Value::Nat64(1), Value::Nat64(22)],
+            vec![Value::Nat64(2), Value::Nat64(22)],
+        ],
+    );
+}
+
+#[test]
+fn execute_trusted_sql_exact_update_overflow_is_atomic() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21), (3, "Cid", 21)]);
+    let baseline = persisted_write_rows(&session);
+
+    let err = session
+        .execute_trusted_sql_exact_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 RETURNING id",
+            2,
+        )
+        .expect_err("cap-plus-one match should reject exact update before mutation");
+
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::ExactUpdateAffectedRowsExceeded);
+    assert_eq!(
+        persisted_write_rows(&session),
+        baseline,
+        "exact overflow must preserve every authoritative row",
+    );
+}
+
+#[test]
+fn execute_trusted_sql_exact_update_scan_budget_is_fail_closed() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    for id in 1..=4_097 {
+        session
+            .insert(SessionUniquePrefixOffsetEntity {
+                id: Ulid::from_u128(id),
+                tier: if id == 4_097 {
+                    "late".to_string()
+                } else {
+                    format!("tier-{id}")
+                },
+                handle: if id == 4_097 {
+                    "late".to_string()
+                } else {
+                    format!("handle-{id}")
+                },
+                note: "unchanged".to_string(),
+            })
+            .expect("scan-budget setup insert should succeed");
+    }
+
+    let err = session
+        .execute_trusted_sql_exact_update::<SessionUniquePrefixOffsetEntity>(
+            "UPDATE SessionUniquePrefixOffsetEntity SET note = 'changed' \
+             WHERE tier = 'late' AND handle = 'late'",
+            1,
+        )
+        .expect_err("cap-plus-one scanned key must reject before exact mutation");
+
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::ExactUpdateScanBudgetExceeded);
+    let last = session
+        .load::<SessionUniquePrefixOffsetEntity>()
+        .trusted_read_unchecked()
+        .by_id(Id::from_key(Ulid::from_u128(4_097)))
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
+        .expect("last setup row should remain readable");
+    assert_eq!(last.len(), 1, "last setup row should remain present");
+    assert_eq!(
+        last.as_slice()[0].entity_ref().note,
+        "unchanged",
+        "scan overflow must not mutate a late indexed match",
+    );
+}
+
+#[test]
+fn execute_trusted_sql_exact_update_rejects_invalid_contract_before_mutation() {
+    let cases = [
+        (
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21",
+            0,
+            SqlWriteBoundaryCode::ExactUpdateAssertionRequired,
+        ),
+        (
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21",
+            4_097,
+            SqlWriteBoundaryCode::ExactUpdateAssertionTooHigh,
+        ),
+        (
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 LIMIT 1",
+            2,
+            SqlWriteBoundaryCode::ExactUpdateWindowUnsupported,
+        ),
+        (
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 ORDER BY age ASC",
+            2,
+            SqlWriteBoundaryCode::ExactUpdateWindowUnsupported,
+        ),
+    ];
+
+    for (sql, assertion, expected_boundary) in cases {
+        reset_session_sql_store();
+        let session = sql_session();
+        seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21)]);
+        let baseline = persisted_write_rows(&session);
+        let err = session
+            .execute_trusted_sql_exact_update::<SessionSqlWriteEntity>(sql, assertion)
+            .expect_err("invalid exact contract should reject");
+
+        assert_sql_write_boundary_detail(err, expected_boundary);
+        assert_eq!(persisted_write_rows(&session), baseline, "{sql}");
+    }
+}
+
+#[test]
+fn execute_trusted_sql_prefix_update_mutates_only_the_ordered_prefix() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21), (3, "Cid", 21)]);
+
+    let result = session
+        .execute_trusted_sql_prefix_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 ORDER BY id ASC LIMIT 2",
+        )
+        .expect("explicit prefix update should use the maintained bounded policy");
+    let SqlStatementResult::Count { row_count } = result else {
+        panic!("prefix UPDATE should return a count payload");
+    };
+
+    assert_eq!(row_count, 2);
+    assert_eq!(
+        persisted_write_rows(&session),
+        write_rows(&[(1, "Ada", 22), (2, "Bea", 22), (3, "Cid", 21)]),
+    );
+}
+
+#[test]
 fn public_bounded_update_characterizes_exact_staged_bounds() {
     let cases = [
         (
@@ -3614,7 +3843,7 @@ fn compile_sql_insert_select_carries_bound_source_query_artifact() {
     seed_session_sql_entities(&session, &[("Ada", 21)]);
 
     let compiled = session
-        .compile_sql_update::<SessionSqlEntity>(
+        .compile_sql_mutation::<SessionSqlEntity>(
             "INSERT INTO SessionSqlEntity (name, age) \
              SELECT name, age FROM SessionSqlEntity WHERE name = 'Ada' RETURNING *",
         )
@@ -3706,7 +3935,7 @@ fn execute_trusted_sql_mutation_insert_values_rejects_public_staged_row_cap_befo
 
     let err = session
         .execute_trusted_sql_mutation::<SessionSqlWriteEntity>(&sql)
-        .expect_err("public update surface INSERT VALUES should enforce staged-row cap");
+        .expect_err("public mutation surface INSERT VALUES should enforce staged-row cap");
 
     assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::StagedRowsTooMany);
     assert!(
@@ -3740,7 +3969,7 @@ fn execute_trusted_sql_mutation_insert_select_rejects_public_staged_row_cap_befo
             "INSERT INTO SessionSqlEntity (name, age) \
              SELECT name, age FROM SessionSqlEntity ORDER BY id ASC",
         )
-        .expect_err("public update surface INSERT SELECT should enforce staged-row cap");
+        .expect_err("public mutation surface INSERT SELECT should enforce staged-row cap");
 
     assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::StagedRowsTooMany);
     assert_eq!(
@@ -3800,7 +4029,7 @@ fn execute_sql_statement_insert_select_rejection_matrix_preserves_boundary_codes
 }
 
 #[test]
-fn execute_sql_statement_update_unique_conflict_is_statement_atomic() {
+fn execute_trusted_sql_exact_update_unique_conflict_is_statement_atomic() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_unique_prefix_offset_session_entities(
@@ -3808,11 +4037,13 @@ fn execute_sql_statement_update_unique_conflict_is_statement_atomic() {
         &[(1, "gold", "alpha", "first"), (2, "gold", "beta", "second")],
     );
 
-    execute_sql_statement_for_tests::<SessionUniquePrefixOffsetEntity>(
-        &session,
-        "UPDATE SessionUniquePrefixOffsetEntity SET handle = 'shared' WHERE tier = 'gold' ORDER BY id ASC",
-    )
-    .expect_err("same-batch unique-index UPDATE conflict should fail atomically");
+    session
+        .execute_trusted_sql_exact_update::<SessionUniquePrefixOffsetEntity>(
+            "UPDATE SessionUniquePrefixOffsetEntity SET handle = 'shared' \
+             WHERE tier = 'gold' ORDER BY id ASC",
+            2,
+        )
+        .expect_err("same-batch exact UPDATE unique conflict should fail atomically");
 
     let persisted = statement_projection_rows::<SessionUniquePrefixOffsetEntity>(
         &session,
@@ -3834,6 +4065,54 @@ fn execute_sql_statement_update_unique_conflict_is_statement_atomic() {
             ],
         ],
         "late UPDATE unique conflict must not commit the earlier matched row",
+    );
+
+    let indexed = statement_projection_rows::<SessionUniquePrefixOffsetEntity>(
+        &session,
+        "SELECT handle FROM SessionUniquePrefixOffsetEntity \
+         WHERE tier = 'gold' ORDER BY handle ASC, id ASC",
+    )
+    .expect("unique-index projection should remain readable after exact rejection");
+    assert_eq!(
+        indexed,
+        vec![
+            vec![Value::Text("alpha".to_string())],
+            vec![Value::Text("beta".to_string())],
+        ],
+        "exact rejection must preserve unique-index state",
+    );
+}
+
+#[test]
+fn execute_trusted_sql_exact_update_relation_failure_is_statement_atomic() {
+    reset_session_sql_store();
+    let session = sql_session();
+    for id in [1, 2] {
+        session
+            .insert(SessionSqlSelfRelationEntity { id, parent: None })
+            .expect("exact relation-failure setup insert should succeed");
+    }
+    let baseline = statement_projection_rows::<SessionSqlSelfRelationEntity>(
+        &session,
+        "SELECT id, parent FROM SessionSqlSelfRelationEntity ORDER BY id ASC",
+    )
+    .expect("relation baseline should remain queryable");
+
+    session
+        .execute_trusted_sql_exact_update::<SessionSqlSelfRelationEntity>(
+            "UPDATE SessionSqlSelfRelationEntity SET parent = 999 WHERE id >= 1",
+            2,
+        )
+        .expect_err("missing exact relation target should reject the complete statement");
+
+    assert_eq!(
+        statement_projection_rows::<SessionSqlSelfRelationEntity>(
+            &session,
+            "SELECT id, parent FROM SessionSqlSelfRelationEntity ORDER BY id ASC",
+        )
+        .expect("rows should remain queryable after exact relation rejection"),
+        baseline,
+        "exact relation rejection must preserve every authoritative row",
     );
 }
 
@@ -3939,7 +4218,7 @@ fn execute_trusted_sql_mutation_reuses_authority_schema_info_for_selector() {
     let session = sql_session();
     seed_write_entities(&session, &[(1, "Ada", 21)]);
     let compiled = session
-        .compile_sql_update::<SessionSqlWriteEntity>(
+        .compile_sql_mutation::<SessionSqlWriteEntity>(
             "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING id",
         )
         .expect("SQL UPDATE RETURNING should compile before counter reset");
@@ -3962,7 +4241,7 @@ fn execute_trusted_sql_mutation_reuses_authority_schema_info_for_selector() {
 }
 
 #[test]
-fn execute_trusted_sql_mutation_returning_star_public_entrypoint_projects_rows() {
+fn trusted_sql_mutation_and_exact_update_returning_star_project_rows() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -3993,10 +4272,11 @@ fn execute_trusted_sql_mutation_returning_star_public_entrypoint_projects_rows()
     assert_eq!(row_count, 1);
 
     let update = session
-        .execute_trusted_sql_mutation::<SessionSqlWriteEntity>(
+        .execute_trusted_sql_exact_update::<SessionSqlWriteEntity>(
             "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING *",
+            1,
         )
-        .expect("public SQL update entrypoint should admit UPDATE RETURNING *");
+        .expect("exact SQL update entrypoint should admit UPDATE RETURNING *");
     let SqlStatementResult::Projection {
         columns,
         rows,
@@ -4048,7 +4328,7 @@ fn execute_trusted_sql_mutation_returning_star_public_entrypoint_projects_rows()
 }
 
 #[test]
-fn execute_trusted_sql_mutation_returning_field_list_public_entrypoint_projects_rows() {
+fn trusted_sql_mutation_and_exact_update_returning_field_lists_project_rows() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -4078,10 +4358,11 @@ fn execute_trusted_sql_mutation_returning_field_list_public_entrypoint_projects_
     assert_eq!(row_count, 1);
 
     let update = session
-        .execute_trusted_sql_mutation::<SessionSqlWriteEntity>(
+        .execute_trusted_sql_exact_update::<SessionSqlWriteEntity>(
             "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING id, age",
+            1,
         )
-        .expect("public SQL update entrypoint should admit UPDATE field-list RETURNING");
+        .expect("exact SQL update entrypoint should admit UPDATE field-list RETURNING");
     let SqlStatementResult::Projection {
         columns,
         rows,

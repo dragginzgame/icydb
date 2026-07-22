@@ -67,6 +67,7 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
         projection_materialization: ProjectionMaterializationMode::SharedValidation,
         prepared_projection: PreparedExecutionProjection::empty(),
         emit_cursor: true,
+        enforced_scan_probe_limit: None,
     });
     record_grouped_plan_metrics(entity_path, route.plan(), route.grouped_execution_mode()?);
     let resolved = ExecutionAttemptKernel::new(&execution_inputs)

@@ -503,34 +503,37 @@ const fn sql_surface_mismatch_text(mismatch: SqlSurfaceMismatchCode) -> &'static
             "execute_trusted_sql_query rejects INSERT; use execute_trusted_sql_mutation::<E>()"
         }
         SqlSurfaceMismatchCode::QueryRejectsUpdate => {
-            "execute_trusted_sql_query rejects UPDATE; use execute_trusted_sql_mutation::<E>()"
+            "execute_trusted_sql_query rejects UPDATE; use execute_trusted_sql_exact_update::<E>() or execute_trusted_sql_prefix_update::<E>()"
         }
         SqlSurfaceMismatchCode::QueryRejectsDelete => {
             "execute_trusted_sql_query rejects DELETE; use execute_trusted_sql_mutation::<E>()"
         }
-        SqlSurfaceMismatchCode::UpdateRejectsSelect => {
+        SqlSurfaceMismatchCode::MutationRejectsSelect => {
             "execute_trusted_sql_mutation rejects SELECT; use execute_trusted_sql_query::<E>()"
         }
-        SqlSurfaceMismatchCode::UpdateRejectsExplain => {
+        SqlSurfaceMismatchCode::MutationRejectsExplain => {
             "execute_trusted_sql_mutation rejects EXPLAIN; use execute_trusted_sql_query::<E>()"
         }
-        SqlSurfaceMismatchCode::UpdateRejectsDescribe => {
+        SqlSurfaceMismatchCode::MutationRejectsDescribe => {
             "execute_trusted_sql_mutation rejects DESCRIBE; use execute_trusted_sql_query::<E>()"
         }
-        SqlSurfaceMismatchCode::UpdateRejectsShowIndexes => {
+        SqlSurfaceMismatchCode::MutationRejectsShowIndexes => {
             "execute_trusted_sql_mutation rejects SHOW INDEXES; use execute_trusted_sql_query::<E>()"
         }
-        SqlSurfaceMismatchCode::UpdateRejectsShowColumns => {
+        SqlSurfaceMismatchCode::MutationRejectsShowColumns => {
             "execute_trusted_sql_mutation rejects SHOW COLUMNS; use execute_trusted_sql_query::<E>()"
         }
-        SqlSurfaceMismatchCode::UpdateRejectsShowEntities => {
+        SqlSurfaceMismatchCode::MutationRejectsShowEntities => {
             "execute_trusted_sql_mutation rejects SHOW ENTITIES; use execute_trusted_sql_query::<E>()"
         }
-        SqlSurfaceMismatchCode::UpdateRejectsShowStores => {
+        SqlSurfaceMismatchCode::MutationRejectsShowStores => {
             "execute_trusted_sql_mutation rejects SHOW STORES; use execute_trusted_sql_query::<E>()"
         }
-        SqlSurfaceMismatchCode::UpdateRejectsShowMemory => {
+        SqlSurfaceMismatchCode::MutationRejectsShowMemory => {
             "execute_trusted_sql_mutation rejects SHOW MEMORY; use execute_trusted_sql_query::<E>()"
+        }
+        SqlSurfaceMismatchCode::MutationRequiresExplicitUpdateIntent => {
+            "execute_trusted_sql_mutation rejects UPDATE; use execute_trusted_sql_exact_update::<E>() or execute_trusted_sql_prefix_update::<E>()"
         }
     }
 }
@@ -591,6 +594,21 @@ const fn sql_write_boundary_text(boundary: SqlWriteBoundaryCode) -> &'static str
         }
         SqlWriteBoundaryCode::UpdateDefaultDatabaseOwnedField => {
             "UPDATE DEFAULT cannot assign a generated or managed field"
+        }
+        SqlWriteBoundaryCode::ExactUpdateAssertionRequired => {
+            "exact UPDATE requires a positive require_affected_at_most assertion"
+        }
+        SqlWriteBoundaryCode::ExactUpdateAssertionTooHigh => {
+            "exact UPDATE assertion exceeds the engine row ceiling"
+        }
+        SqlWriteBoundaryCode::ExactUpdateAffectedRowsExceeded => {
+            "exact UPDATE matched more rows than require_affected_at_most"
+        }
+        SqlWriteBoundaryCode::ExactUpdateWindowUnsupported => {
+            "exact UPDATE rejects LIMIT, OFFSET, and non-primary-key ordering"
+        }
+        SqlWriteBoundaryCode::ExactUpdateScanBudgetExceeded => {
+            "exact UPDATE selection exceeded the engine scan budget"
         }
     }
 }

@@ -128,6 +128,39 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
+    // Resolve one SQL selector through accepted authority while excluding
+    // secondary indexes from the cache identity and planner-visible set.
+    // Exact mutations use this to make primary-store traversal authoritative.
+    pub(in crate::db::session::sql) fn sql_primary_only_select_prepared_plan_for_accepted_authority(
+        &self,
+        query: &StructuralQuery,
+        authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
+    ) -> Result<
+        (
+            SharedPreparedExecutionPlan,
+            SqlProjectionContract,
+            SqlCacheAttribution,
+        ),
+        QueryError,
+    > {
+        let schema_fingerprint =
+            accepted_schema_cache_fingerprint(accepted_schema).map_err(QueryError::execute)?;
+        let (prepared_plan, cache_attribution) = self
+            .cached_primary_only_query_plan_for_accepted_authority_with_schema_fingerprint(
+                authority.clone(),
+                accepted_schema,
+                schema_fingerprint,
+                query,
+            )?;
+
+        Ok(Self::sql_select_projection_from_prepared_plan(
+            prepared_plan,
+            authority,
+            cache_attribution,
+        ))
+    }
+
     fn sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
         &self,
         query: &StructuralQuery,

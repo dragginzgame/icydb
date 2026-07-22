@@ -6,12 +6,71 @@ use crate::db::session::sql::write_policy::SqlWriteReturningBounds;
 use crate::db::{
     session::sql::write_policy::{
         DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
-        SqlWriteBoundedPolicyRejection, SqlWriteExecutionBounds, SqlWriteExposureClass,
-        SqlWritePlanCore, SqlWritePolicyBounds, SqlWriteShapePolicyRejection,
-        SqlWriteStatementShape,
+        SqlWriteBoundedPolicyRejection, SqlWriteExecutionBounds, SqlWritePlanCore,
+        SqlWritePolicyBounds, SqlWriteShapePolicyRejection, SqlWriteStatementShape,
     },
     sql::parser::SqlUpdateStatement,
 };
+use std::num::NonZeroU32;
+
+/// Maximum rows one exact SQL update may assert can fit one atomic call.
+pub(in crate::db) const MAX_TRUSTED_EXACT_UPDATE_ROWS: u32 = 4_096;
+
+/// Maximum authoritative keys one exact SQL update may scan in one call.
+const MAX_TRUSTED_EXACT_UPDATE_SCANNED_KEYS: usize = 4_096;
+
+/// Validated caller assertion for one exact complete-set SQL update.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
+pub(in crate::db) struct SqlExactUpdatePolicy {
+    require_affected_at_most: NonZeroU32,
+}
+
+impl SqlExactUpdatePolicy {
+    /// Validate a caller assertion against the engine's exact-update ceiling.
+    pub(in crate::db) const fn try_new(
+        require_affected_at_most: u32,
+    ) -> Result<Self, SqlExactUpdatePolicyRejection> {
+        let Some(require_affected_at_most) = NonZeroU32::new(require_affected_at_most) else {
+            return Err(SqlExactUpdatePolicyRejection::AssertionRequired);
+        };
+        if require_affected_at_most.get() > MAX_TRUSTED_EXACT_UPDATE_ROWS {
+            return Err(SqlExactUpdatePolicyRejection::AssertionTooHigh);
+        }
+
+        Ok(Self {
+            require_affected_at_most,
+        })
+    }
+
+    /// Return the caller-asserted complete-set ceiling.
+    #[must_use]
+    pub(in crate::db) const fn require_affected_at_most(self) -> u32 {
+        self.require_affected_at_most.get()
+    }
+
+    /// Return the cap-plus-one selection lookahead used to prove overflow.
+    #[must_use]
+    pub(in crate::db) const fn selection_limit(self) -> u32 {
+        self.require_affected_at_most.get() + 1
+    }
+
+    /// Return the engine-owned scanned-key ceiling for one exact selection.
+    #[must_use]
+    pub(in crate::db) const fn scan_budget() -> usize {
+        MAX_TRUSTED_EXACT_UPDATE_SCANNED_KEYS
+    }
+}
+
+/// Admission rejection for one exact-update caller assertion.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
+pub(in crate::db) enum SqlExactUpdatePolicyRejection {
+    /// The exact assertion must be positive.
+    AssertionRequired,
+    /// The assertion exceeds the engine's one-call row ceiling.
+    AssertionTooHigh,
+}
 
 /// Default generated/public bounded SQL `UPDATE` row target limit.
 #[doc(hidden)]
@@ -31,15 +90,8 @@ pub(in crate::db) enum SqlUpdateExposurePolicy {
     PublicPrimaryKeyOnly,
     /// Public-safe bounded non-primary-key policy requiring explicit primary-key ordering.
     PublicBoundedDeterministic,
-}
-
-impl SqlUpdateExposurePolicy {
-    pub(super) const fn exposure_class(self) -> SqlWriteExposureClass {
-        match self {
-            Self::PublicPrimaryKeyOnly => SqlWriteExposureClass::PublicPrimaryKeyOnly,
-            Self::PublicBoundedDeterministic => SqlWriteExposureClass::PublicBoundedDeterministic,
-        }
-    }
+    /// Trusted complete-set policy with caller-asserted cap-plus-one overflow proof.
+    TrustedExact(SqlExactUpdatePolicy),
 }
 
 /// Schema-derived field context needed to classify one `UPDATE`.
@@ -147,6 +199,8 @@ pub(in crate::db) enum SqlValidatedUpdatePlan {
     PublicPrimaryKeyOnly(SqlPublicPrimaryKeyUpdatePlan),
     /// Public-safe bounded deterministic plan.
     PublicBoundedDeterministic(SqlPublicBoundedUpdatePlan),
+    /// Trusted exact complete-set plan.
+    TrustedExact(SqlTrustedExactUpdatePlan),
 }
 
 impl SqlValidatedUpdatePlan {
@@ -157,6 +211,7 @@ impl SqlValidatedUpdatePlan {
         match self {
             Self::PublicPrimaryKeyOnly(plan) => plan.core.execution_bounds(),
             Self::PublicBoundedDeterministic(plan) => plan.core.execution_bounds(),
+            Self::TrustedExact(plan) => plan.core.execution_bounds(),
         }
     }
 
@@ -165,6 +220,32 @@ impl SqlValidatedUpdatePlan {
     #[must_use]
     pub(in crate::db) const fn returning_bounds(&self) -> SqlWriteReturningBounds {
         self.execution_bounds().returning
+    }
+}
+
+/// Validated plan for one trusted exact complete-set update.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[doc(hidden)]
+pub(in crate::db) struct SqlTrustedExactUpdatePlan {
+    pub(super) core: SqlUpdatePlanCore,
+    pub(super) policy: SqlExactUpdatePolicy,
+}
+
+impl SqlTrustedExactUpdatePlan {
+    pub(in crate::db::session::sql) const fn statement(&self) -> &SqlUpdateStatement {
+        self.core.statement()
+    }
+
+    /// Return the exact complete-set assertion carried by this plan.
+    #[must_use]
+    pub(in crate::db) const fn policy(&self) -> SqlExactUpdatePolicy {
+        self.policy
+    }
+
+    /// Return the execution bounds paired with the exact assertion.
+    #[must_use]
+    pub(in crate::db) const fn execution_bounds(&self) -> SqlWriteExecutionBounds {
+        self.core.execution_bounds()
     }
 }
 
@@ -240,6 +321,8 @@ pub(in crate::db) enum SqlUpdatePolicyRejection {
     OffsetUnsupported,
     /// The supplied `LIMIT` exceeds the policy maximum.
     LimitTooHigh,
+    /// Exact updates reject SQL windows because the caller assertion owns completion.
+    ExactWindowUnsupported,
 }
 
 impl SqlUpdatePolicyRejection {

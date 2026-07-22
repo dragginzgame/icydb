@@ -326,6 +326,7 @@ pub(in crate::db::executor) struct PreparedExecutionInputContext<'a> {
     pub(in crate::db::executor) projection_materialization: ProjectionMaterializationMode,
     pub(in crate::db::executor) prepared_projection: PreparedExecutionProjection,
     pub(in crate::db::executor) emit_cursor: bool,
+    pub(in crate::db::executor) enforced_scan_probe_limit: Option<usize>,
 }
 
 ///
@@ -347,6 +348,7 @@ pub(in crate::db::executor) struct ExecutionInputs<'a> {
     retain_slot_rows: bool,
     emit_cursor: bool,
     consistency: MissingRowPolicy,
+    enforced_scan_probe_limit: Option<usize>,
 }
 
 impl<'a> ExecutionInputs<'a> {
@@ -364,6 +366,7 @@ impl<'a> ExecutionInputs<'a> {
             projection_materialization,
             prepared_projection,
             emit_cursor,
+            enforced_scan_probe_limit,
         } = context;
 
         Self {
@@ -377,6 +380,7 @@ impl<'a> ExecutionInputs<'a> {
             retain_slot_rows: projection_materialization.retain_slot_rows(),
             emit_cursor,
             consistency: row_read_consistency_for_plan(plan),
+            enforced_scan_probe_limit,
         }
     }
 
@@ -410,6 +414,12 @@ impl<'a> ExecutionInputs<'a> {
     #[must_use]
     pub(in crate::db::executor) const fn execution_preparation(&self) -> &ExecutionPreparation {
         self.execution_preparation
+    }
+
+    /// Return one execution-only cap-plus-one scan probe, if enforced.
+    #[must_use]
+    pub(in crate::db::executor) const fn enforced_scan_probe_limit(&self) -> Option<usize> {
+        self.enforced_scan_probe_limit
     }
 
     /// Borrow the compiled residual filter program prepared for this execution

@@ -292,6 +292,10 @@ impl<C: CanisterKind> DbSession<C> {
 
                 visible_indexes
             }
+            #[cfg(feature = "sql")]
+            QueryPlanVisibility::PrimaryOnly => {
+                VisibleIndexes::accepted_schema_primary_only(schema_info)
+            }
             QueryPlanVisibility::StoreNotReady => VisibleIndexes::none(),
         }
     }
@@ -340,6 +344,30 @@ impl<C: CanisterKind> DbSession<C> {
             accepted_schema,
             schema_fingerprint,
         );
+        self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
+            authority, schema, visibility, query,
+        )
+    }
+
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn cached_primary_only_query_plan_for_accepted_authority_with_schema_fingerprint(
+        &self,
+        authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
+        schema_fingerprint: CommitSchemaFingerprint,
+        query: &StructuralQuery,
+    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
+        let visibility = match self.query_plan_visibility_for_store_path(authority.store_path())? {
+            QueryPlanVisibility::StoreReady | QueryPlanVisibility::PrimaryOnly => {
+                QueryPlanVisibility::PrimaryOnly
+            }
+            QueryPlanVisibility::StoreNotReady => QueryPlanVisibility::StoreNotReady,
+        };
+        let schema = QueryPlanAcceptedSchema::from_accepted_schema_with_fingerprint(
+            accepted_schema,
+            schema_fingerprint,
+        );
+
         self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
             authority, schema, visibility, query,
         )

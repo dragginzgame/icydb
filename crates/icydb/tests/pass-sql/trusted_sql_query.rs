@@ -19,6 +19,15 @@ where
     let _ = db.execute_trusted_sql_mutation::<E>(sql);
 }
 
+fn trusted_sql_update_contracts_compile<C, E>(db: &DbSession<C>, sql: &str)
+where
+    C: CanisterKind,
+    E: EntityFor<C>,
+{
+    let _ = db.execute_trusted_sql_exact_update::<E>(sql, 10);
+    let _ = db.execute_trusted_sql_prefix_update::<E>(sql);
+}
+
 fn admin_sql_ddl_compiles<C, E>(db: &DbSession<C>, sql: &str)
 where
     C: CanisterKind,

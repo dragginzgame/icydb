@@ -2,7 +2,7 @@
 //! Responsibility: compiled SQL command cache lookup, miss compilation, and
 //! insertion orchestration.
 //! Does not own: parsed-statement semantic compilation or SQL execution.
-//! Boundary: keeps the public query/update compile surfaces on one cache shell.
+//! Boundary: keeps the public query/mutation compile surfaces on one cache shell.
 
 use crate::{
     db::{
@@ -80,22 +80,22 @@ impl<C: CanisterKind> DbSession<C> {
         self.compile_sql_surface_with_execution_context::<E>(sql, SqlCompiledCommandSurface::Query)
     }
 
-    // Compile one SQL update-surface string into the session-owned generic-free
+    // Compile one SQL mutation-surface string into the session-owned generic-free
     // semantic command artifact before execution.
     #[cfg(test)]
-    pub(in crate::db) fn compile_sql_update<E>(
+    pub(in crate::db) fn compile_sql_mutation<E>(
         &self,
         sql: &str,
     ) -> Result<CompiledSqlCommand, QueryError>
     where
         E: PersistedRow<Canister = C>,
     {
-        self.compile_sql_update_with_execution_context::<E>(sql)
+        self.compile_sql_mutation_with_execution_context::<E>(sql)
             .map(|(context, _, _)| context.into_command())
     }
 
     #[cfg(test)]
-    pub(in crate::db::session::sql) fn compile_sql_update_with_cache_attribution<E>(
+    pub(in crate::db::session::sql) fn compile_sql_mutation_with_cache_attribution<E>(
         &self,
         sql: &str,
     ) -> Result<
@@ -109,13 +109,13 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C>,
     {
-        self.compile_sql_update_with_execution_context::<E>(sql)
+        self.compile_sql_mutation_with_execution_context::<E>(sql)
             .map(|(context, cache_attribution, phase_attribution)| {
                 (context.into_command(), cache_attribution, phase_attribution)
             })
     }
 
-    pub(in crate::db) fn compile_sql_update_with_execution_context<E>(
+    pub(in crate::db) fn compile_sql_mutation_with_execution_context<E>(
         &self,
         sql: &str,
     ) -> Result<
@@ -129,11 +129,14 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C>,
     {
-        self.compile_sql_surface_with_execution_context::<E>(sql, SqlCompiledCommandSurface::Update)
+        self.compile_sql_surface_with_execution_context::<E>(
+            sql,
+            SqlCompiledCommandSurface::Mutation,
+        )
     }
 
     // Reuse one internal compile shell for both outward SQL surfaces so query
-    // and update no longer duplicate cache-key construction and surface
+    // and mutation no longer duplicate cache-key construction and surface
     // validation plumbing before they reach the real compile/cache owner.
     fn compile_sql_surface_with_execution_context<E>(
         &self,

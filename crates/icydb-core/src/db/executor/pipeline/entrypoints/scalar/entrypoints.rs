@@ -7,6 +7,7 @@ use crate::db::executor::aggregate::PreparedAggregateStreamingInputs;
 #[cfg(feature = "sql")]
 use crate::db::executor::{
     PreparedScalarRuntimeHandoff, RetainedSlotLayout,
+    pipeline::entrypoints::scalar::materialized::execute_prepared_scalar_route_runtime_with_scan_count,
     pipeline::entrypoints::scalar::streaming::execute_prepared_scalar_kernel_row_sink_execution,
     terminal::KernelRow,
 };
@@ -235,20 +236,23 @@ pub(in crate::db::executor) fn execute_initial_scalar_retained_slot_page_from_ru
     debug: bool,
     prepared: PreparedScalarRuntimeHandoff,
     suppress_route_scan_hints: bool,
-) -> Result<StructuralCursorPage, InternalError>
+    enforced_scan_probe_limit: Option<usize>,
+) -> Result<(StructuralCursorPage, usize), InternalError>
 where
     C: CanisterKind,
 {
     // Phase 1: prepare the scalar route runtime from plan-resident handoff.
-    let prepared = prepare_initial_scalar_retained_slot_page_runtime_from_handoff(
+    let mut prepared = prepare_initial_scalar_retained_slot_page_runtime_from_handoff(
         db,
         debug,
         prepared,
         suppress_route_scan_hints,
     )?;
-    let (page, _) = execute_prepared_scalar_route_runtime(prepared)?;
+    if let Some(probe_limit) = enforced_scan_probe_limit {
+        prepared = prepared.with_enforced_scan_probe_limit(probe_limit);
+    }
 
-    Ok(page)
+    execute_prepared_scalar_route_runtime_with_scan_count(prepared)
 }
 
 /// Execute one prepared scalar plan with a caller-owned retained-slot layout and

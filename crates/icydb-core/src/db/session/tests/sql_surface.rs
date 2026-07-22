@@ -1912,7 +1912,7 @@ fn compiled_sql_update_rewrites_old_rows_after_nullable_additive_schema_transiti
     insert_old_nullable_sql_row_for_test(id, "Ada");
 
     let compiled = session
-        .compile_sql_update::<SessionNullableSqlEntity>(
+        .compile_sql_mutation::<SessionNullableSqlEntity>(
             "UPDATE SessionNullableSqlEntity SET name = 'Ada Lovelace' WHERE name = 'Ada'",
         )
         .expect("compiled SQL UPDATE should accept nullable append-only schema transition");
@@ -1939,7 +1939,7 @@ fn compiled_sql_delete_removes_old_rows_after_nullable_additive_schema_transitio
     insert_old_nullable_sql_row_for_test(id, "Ada");
 
     let compiled = session
-        .compile_sql_update::<SessionNullableSqlEntity>(
+        .compile_sql_mutation::<SessionNullableSqlEntity>(
             "DELETE FROM SessionNullableSqlEntity WHERE name = 'Ada'",
         )
         .expect("compiled SQL DELETE should accept nullable append-only schema transition");
@@ -1973,7 +1973,7 @@ fn compiled_sql_delete_returning_projects_old_rows_after_nullable_additive_schem
     insert_old_nullable_sql_row_for_test(id, "Ada");
 
     let compiled = session
-        .compile_sql_update::<SessionNullableSqlEntity>(
+        .compile_sql_mutation::<SessionNullableSqlEntity>(
             "DELETE FROM SessionNullableSqlEntity WHERE name = 'Ada' RETURNING name, nickname",
         )
         .expect(
@@ -4122,7 +4122,7 @@ fn sql_ddl_create_index_is_rejected_by_query_and_update_surfaces() {
     assert_sql_lowering_detail(
         session
             .execute_trusted_sql_mutation::<SessionSqlEntity>(sql)
-            .expect_err("update surface should reject parsed DDL before execution"),
+            .expect_err("mutation surface should reject parsed DDL before execution"),
         SqlLoweringCode::SqlDdlExecutionUnsupported,
     );
     let SqlStatementResult::ShowIndexes(indexes) = session
@@ -9329,7 +9329,7 @@ fn compile_sql_query_and_execute_compiled_preserve_supported_read_families() {
 }
 
 #[test]
-fn execute_trusted_sql_mutation_admits_supported_single_entity_mutation_shapes() {
+fn trusted_sql_mutation_requires_explicit_update_intent() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -9360,13 +9360,24 @@ fn execute_trusted_sql_mutation_admits_supported_single_entity_mutation_shapes()
         "execute_trusted_sql_mutation INSERT should persist the inserted row",
     );
 
-    let update = session
+    let err = session
         .execute_trusted_sql_mutation::<SessionSqlWriteEntity>(
             "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
         )
-        .expect("execute_trusted_sql_mutation should admit UPDATE");
+        .expect_err("broad mutation ingress should reject ambiguous UPDATE intent");
+    assert_sql_surface_mismatch_detail(
+        err,
+        SqlSurfaceMismatchCode::MutationRequiresExplicitUpdateIntent,
+    );
+
+    let update = session
+        .execute_trusted_sql_exact_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
+            1,
+        )
+        .expect("explicit exact UPDATE should execute");
     let SqlStatementResult::Count { row_count } = update else {
-        panic!("execute_trusted_sql_mutation UPDATE should emit count payload");
+        panic!("exact UPDATE should emit count payload");
     };
     assert_eq!(row_count, 1);
     let SqlStatementResult::Projection { rows, .. } = session
@@ -9384,7 +9395,7 @@ fn execute_trusted_sql_mutation_admits_supported_single_entity_mutation_shapes()
             output(Value::Text("Ada".to_string())),
             output(Value::Nat64(22)),
         ]],
-        "execute_trusted_sql_mutation UPDATE should persist the updated row",
+        "explicit exact UPDATE should persist the updated row",
     );
 
     let delete = session
@@ -9412,12 +9423,12 @@ fn execute_trusted_sql_mutation_admits_supported_single_entity_mutation_shapes()
 }
 
 #[test]
-fn compile_sql_update_and_execute_compiled_preserve_supported_mutation_families() {
+fn compile_sql_mutation_and_execute_compiled_preserve_supported_mutation_families() {
     reset_session_sql_store();
     let session = sql_session();
 
     let insert = session
-        .compile_sql_update::<SessionSqlWriteEntity>(
+        .compile_sql_mutation::<SessionSqlWriteEntity>(
             "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
         )
         .expect("INSERT should compile");
@@ -9437,7 +9448,7 @@ fn compile_sql_update_and_execute_compiled_preserve_supported_mutation_families(
     assert_eq!(row_count, 1);
 
     let update = session
-        .compile_sql_update::<SessionSqlWriteEntity>(
+        .compile_sql_mutation::<SessionSqlWriteEntity>(
             "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
         )
         .expect("UPDATE should compile");
@@ -9457,10 +9468,10 @@ fn compile_sql_update_and_execute_compiled_preserve_supported_mutation_families(
     assert_eq!(row_count, 1);
 
     let delete = session
-        .compile_sql_update::<SessionSqlWriteEntity>(
+        .compile_sql_mutation::<SessionSqlWriteEntity>(
             "DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada' RETURNING name",
         )
-        .expect("DELETE RETURNING should compile through update surface");
+        .expect("DELETE RETURNING should compile through mutation surface");
     let crate::db::session::sql::CompiledSqlCommand::Delete { returning, .. } = &delete else {
         panic!("DELETE RETURNING should compile to lowered DELETE artifact");
     };
@@ -9482,25 +9493,25 @@ fn compile_sql_update_and_execute_compiled_preserve_supported_mutation_families(
 }
 
 #[test]
-fn sql_compile_cache_keeps_query_and_update_surfaces_separate() {
+fn sql_compile_cache_keeps_query_and_mutation_surfaces_separate() {
     reset_session_sql_store();
     let session = sql_session();
 
     let insert_sql = "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)";
     let insert = session
-        .compile_sql_update::<SessionSqlWriteEntity>(insert_sql)
-        .expect("update surface should compile INSERT into the session-local cache");
+        .compile_sql_mutation::<SessionSqlWriteEntity>(insert_sql)
+        .expect("mutation surface should compile INSERT into the session-local cache");
     assert!(
         matches!(
             insert,
             crate::db::session::sql::CompiledSqlCommand::Insert(_)
         ),
-        "update surface should cache the INSERT artifact under the update lane only",
+        "mutation surface should cache the INSERT artifact under the mutation lane only",
     );
 
     let err = session
         .compile_sql_query::<SessionSqlWriteEntity>(insert_sql)
-        .expect_err("query surface must not reuse the cached update artifact");
+        .expect_err("query surface must not reuse the cached mutation artifact");
     assert_sql_surface_mismatch_detail(err, SqlSurfaceMismatchCode::QueryRejectsInsert);
 }
 
@@ -10002,7 +10013,7 @@ fn compiled_sql_write_reuses_its_revision_checked_catalog_context() {
     reset_session_sql_store();
     let session = sql_session();
     let (context, _, _) = session
-        .compile_sql_update_with_execution_context::<SessionSqlWriteEntity>(
+        .compile_sql_mutation_with_execution_context::<SessionSqlWriteEntity>(
             "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
         )
         .expect("SQL INSERT should compile with accepted catalog authority");
@@ -10936,23 +10947,23 @@ fn sql_cache_key_schema_fingerprint_method_mismatch_fails_closed() {
 }
 
 #[test]
-fn sql_cache_key_keeps_query_and_update_surfaces_separate() {
+fn sql_cache_key_keeps_query_and_mutation_surfaces_separate() {
     let query_key = SqlCompiledCommandCacheKey::query_for_entity::<SessionSqlEntity>(
         "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
     );
-    let update_key = SqlCompiledCommandCacheKey::update_for_entity::<SessionSqlEntity>(
+    let mutation_key = SqlCompiledCommandCacheKey::mutation_for_entity::<SessionSqlEntity>(
         "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
     );
     let mut cache = HashSet::new();
     cache.insert(query_key.clone());
 
     assert_ne!(
-        query_key, update_key,
-        "query and update surface identity must remain distinct",
+        query_key, mutation_key,
+        "query and mutation surface identity must remain distinct",
     );
     assert!(
-        !cache.contains(&update_key),
-        "query/update surface mismatch must fail closed",
+        !cache.contains(&mutation_key),
+        "query/mutation surface mismatch must fail closed",
     );
 }
 
@@ -12121,10 +12132,10 @@ fn sql_compile_cache_covers_insert_update_and_delete_mutation_families() {
     );
 
     let insert = session
-        .compile_sql_update::<SessionSqlWriteEntity>(
+        .compile_sql_mutation::<SessionSqlWriteEntity>(
             "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
         )
-        .expect("INSERT should compile into the update-surface cache");
+        .expect("INSERT should compile into the mutation-surface cache");
     assert!(
         matches!(
             insert,
@@ -12135,14 +12146,14 @@ fn sql_compile_cache_covers_insert_update_and_delete_mutation_families() {
     assert_eq!(
         session.sql_compiled_command_cache_len(),
         1,
-        "first update-surface compile should populate one cache entry",
+        "first mutation-surface compile should populate one cache entry",
     );
 
     let insert_repeat = session
-        .compile_sql_update::<SessionSqlWriteEntity>(
+        .compile_sql_mutation::<SessionSqlWriteEntity>(
             "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
         )
-        .expect("same INSERT should compile from the existing update-surface cache entry");
+        .expect("same INSERT should compile from the existing mutation-surface cache entry");
     assert!(
         matches!(
             insert_repeat,
@@ -12153,14 +12164,14 @@ fn sql_compile_cache_covers_insert_update_and_delete_mutation_families() {
     assert_eq!(
         session.sql_compiled_command_cache_len(),
         1,
-        "repeating one identical update-surface compile must not grow the cache",
+        "repeating one identical mutation-surface compile must not grow the cache",
     );
 
     let update = session
-        .compile_sql_update::<SessionSqlWriteEntity>(
+        .compile_sql_mutation::<SessionSqlWriteEntity>(
             "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
         )
-        .expect("UPDATE should compile into the update-surface cache");
+        .expect("UPDATE should compile into the mutation-surface cache");
     assert!(
         matches!(
             update,
@@ -12170,10 +12181,10 @@ fn sql_compile_cache_covers_insert_update_and_delete_mutation_families() {
     );
 
     let delete = session
-        .compile_sql_update::<SessionSqlWriteEntity>(
+        .compile_sql_mutation::<SessionSqlWriteEntity>(
             "DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada' RETURNING name",
         )
-        .expect("DELETE RETURNING should compile into the update-surface cache");
+        .expect("DELETE RETURNING should compile into the mutation-surface cache");
     assert!(
         matches!(
             delete,
@@ -12185,6 +12196,6 @@ fn sql_compile_cache_covers_insert_update_and_delete_mutation_families() {
     assert_eq!(
         session.sql_compiled_command_cache_len(),
         3,
-        "update-surface cache should retain distinct entries for INSERT, UPDATE, and DELETE",
+        "mutation-surface cache should retain distinct entries for INSERT, UPDATE, and DELETE",
     );
 }

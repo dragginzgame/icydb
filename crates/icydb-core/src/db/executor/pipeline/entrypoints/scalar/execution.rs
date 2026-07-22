@@ -93,6 +93,7 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         cursor_emission,
         projection_runtime_mode,
         suppress_route_scan_hints,
+        enforced_scan_probe_limit,
         debug,
     } = prepared;
     let entity_path = authority.entity_path();
@@ -113,6 +114,14 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         terminal,
         &prep,
     );
+    if enforced_scan_probe_limit.is_some() {
+        // Exact selection must observe one authoritative bounded traversal,
+        // never an incomplete top-N/index-window probe followed by fallback.
+        route_plan.index_range_limit_spec = None;
+        route_plan.top_n_seek_spec = None;
+        route_plan.scan_hints.physical_fetch_hint = None;
+        route_plan.scan_hints.load_scan_budget_hint = None;
+    }
 
     let route_continuation = route_plan.continuation();
     let continuation_applied = route_continuation.applied();
@@ -137,6 +146,7 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         projection_materialization: projection_runtime_mode,
         prepared_projection: projection,
         emit_cursor: cursor_emission.enabled(),
+        enforced_scan_probe_limit,
     });
     record_plan_metrics(entity_path, plan);
     let (attempt, execution_stats) = with_execution_stats_capture(debug, || {

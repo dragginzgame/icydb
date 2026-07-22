@@ -634,14 +634,15 @@ pub enum SqlSurfaceMismatchCode {
     QueryRejectsInsert,
     QueryRejectsUpdate,
     QueryRejectsDelete,
-    UpdateRejectsSelect,
-    UpdateRejectsExplain,
-    UpdateRejectsDescribe,
-    UpdateRejectsShowIndexes,
-    UpdateRejectsShowColumns,
-    UpdateRejectsShowEntities,
-    UpdateRejectsShowStores,
-    UpdateRejectsShowMemory,
+    MutationRejectsSelect,
+    MutationRejectsExplain,
+    MutationRejectsDescribe,
+    MutationRejectsShowIndexes,
+    MutationRejectsShowColumns,
+    MutationRejectsShowEntities,
+    MutationRejectsShowStores,
+    MutationRejectsShowMemory,
+    MutationRequiresExplicitUpdateIntent,
 }
 
 impl fmt::Debug for SqlSurfaceMismatchCode {
@@ -681,6 +682,11 @@ pub enum SqlWriteBoundaryCode {
     InsertDefaultRequiredField,
     UpdateDefaultRequiredField,
     UpdateDefaultDatabaseOwnedField,
+    ExactUpdateAssertionRequired,
+    ExactUpdateAssertionTooHigh,
+    ExactUpdateAffectedRowsExceeded,
+    ExactUpdateWindowUnsupported,
+    ExactUpdateScanBudgetExceeded,
 }
 
 impl fmt::Debug for SqlWriteBoundaryCode {
@@ -933,7 +939,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 199);
+        assert_eq!(last, 205);
     }
 
     #[test]
@@ -965,7 +971,7 @@ mod tests {
 
     #[test]
     fn invalid_raw_error_codes_fail_closed_to_runtime_internal() {
-        for raw in [0, 203, u16::MAX] {
+        for raw in [0, 206, u16::MAX] {
             let code = ErrorCode::from_raw(raw);
 
             assert_eq!(ErrorCode::known(raw), None);

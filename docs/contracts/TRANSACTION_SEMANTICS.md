@@ -63,6 +63,19 @@ IcyDB now has two explicit lanes for batch writes.
 * No transactional rollback across batch items
 * Not a multi-entity transaction
 
+### SQL exact and prefix update
+
+Trusted exact SQL `UPDATE` first proves selector exhaustion within the caller's
+positive `require_affected_at_most` assertion and the engine's independent
+scanned-key budget. Selection uses authoritative primary-key traversal. The
+complete selected set then uses the same single-entity atomic preparation and
+marker boundary as an atomic batch; either cap-plus-one overflow or any other
+pre-marker failure changes no rows.
+
+Trusted prefix SQL `UPDATE` is also atomic for its selected batch, but its
+ordered `LIMIT` deliberately selects only one prefix. Prefix success makes no
+claim about matching rows beyond that window.
+
 ---
 
 ## Atomic Lane Execution Model

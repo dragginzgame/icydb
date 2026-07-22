@@ -92,3 +92,16 @@ pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime(
 ) -> Result<(StructuralCursorPage, Option<ExecutionTrace>), InternalError> {
     execute_prepared_scalar_structural_page(prepared)
 }
+
+/// Execute one prepared scalar plan while retaining its authoritative scan count.
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime_with_scan_count(
+    prepared: PreparedScalarRouteRuntime,
+) -> Result<(StructuralCursorPage, usize), InternalError> {
+    let entity_path = prepared.entity_path();
+    let execution = execute_prepared_scalar_path_execution(prepared)?;
+    let rows_scanned = execution.1.rows_scanned;
+    let (page, _) = finalize_scalar_structural_path_execution(entity_path, execution);
+
+    Ok((page, rows_scanned))
+}

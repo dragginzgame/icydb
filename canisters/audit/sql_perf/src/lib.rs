@@ -1782,6 +1782,23 @@ where
 }
 
 #[cfg(feature = "sql")]
+fn measure_sql_exact_update_statement<E>(
+    label: &str,
+    sql: &str,
+    expected_rows: u32,
+) -> Result<(u64, u32), icydb::Error>
+where
+    E: EntityFor<PerfAuditCanister>,
+{
+    let start = ic_cdk::api::performance_counter(1);
+    let result = db()?.execute_trusted_sql_exact_update::<E>(sql, expected_rows)?;
+    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let row_count = ensure_sql_write_row_count(label, &result, expected_rows)?;
+
+    Ok((instructions, row_count))
+}
+
+#[cfg(feature = "sql")]
 fn measure_sql_write_materialization_matrix<E, B>(
     entity_name: &str,
     base_id: i32,
@@ -1827,7 +1844,7 @@ where
     let delete_count_end = delete_count_start + SQL_WRITE_MATERIALIZATION_ROWS;
     let delete_returning_end = delete_returning_start + SQL_WRITE_MATERIALIZATION_ROWS;
 
-    let update_count = measure_sql_write_statement::<E>(
+    let update_count = measure_sql_exact_update_statement::<E>(
         "SQL write materialization UPDATE count",
         &format!(
             "UPDATE {entity_name} SET age = 77 \
@@ -1835,7 +1852,7 @@ where
         ),
         expected_rows,
     )?;
-    let update_returning = measure_sql_write_statement::<E>(
+    let update_returning = measure_sql_exact_update_statement::<E>(
         "SQL write materialization UPDATE RETURNING",
         &format!(
             "UPDATE {entity_name} SET age = 78 \

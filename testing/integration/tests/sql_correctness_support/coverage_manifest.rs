@@ -935,21 +935,21 @@ const PROVIDERS: &[ProviderSpec] = &[
     provider!(
         "core.mutation.public_families",
         "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_trusted_sql_mutation_admits_supported_single_entity_mutation_shapes",
+        "trusted_sql_mutation_requires_explicit_update_intent",
         ContractAssertion,
         [Parse, Lower, Execute, State]
     ),
     provider!(
         "core.mutation.returning_star",
         "crates/icydb-core/src/db/session/tests/sql_write.rs",
-        "execute_trusted_sql_mutation_returning_star_public_entrypoint_projects_rows",
+        "trusted_sql_mutation_and_exact_update_returning_star_project_rows",
         ContractAssertion,
         [Execute, State]
     ),
     provider!(
         "core.mutation.returning_fields",
         "crates/icydb-core/src/db/session/tests/sql_write.rs",
-        "execute_trusted_sql_mutation_returning_field_list_public_entrypoint_projects_rows",
+        "trusted_sql_mutation_and_exact_update_returning_field_lists_project_rows",
         ContractAssertion,
         [Execute, State]
     ),
@@ -970,7 +970,7 @@ const PROVIDERS: &[ProviderSpec] = &[
     provider!(
         "core.mutation.trusted_update_window",
         "crates/icydb-core/src/db/session/tests/sql_write.rs",
-        "execute_sql_statement_update_with_order_limit_and_offset_updates_one_ordered_window",
+        "execute_trusted_sql_prefix_update_mutates_only_the_ordered_prefix",
         ContractAssertion,
         [Execute, State]
     ),

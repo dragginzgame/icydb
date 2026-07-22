@@ -9,15 +9,15 @@ mod planning;
 mod tests;
 
 #[cfg(test)]
+pub(in crate::db) use model::SqlUpdateAssignmentPolicy;
+#[cfg(test)]
 pub(in crate::db) use model::{
     DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT, DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES,
 };
 pub(in crate::db) use model::{
-    SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan, SqlUpdateExposurePolicy,
-    SqlUpdatePolicyContext, SqlValidatedUpdatePlan,
-};
-#[cfg(test)]
-pub(in crate::db) use model::{
-    SqlUpdateAssignmentPolicy, SqlUpdatePolicyRejection, SqlUpdatePolicyReport,
+    SqlExactUpdatePolicy, SqlExactUpdatePolicyRejection, SqlPublicBoundedUpdatePlan,
+    SqlPublicPrimaryKeyUpdatePlan, SqlTrustedExactUpdatePlan, SqlUpdateExposurePolicy,
+    SqlUpdatePolicyContext, SqlUpdatePolicyRejection, SqlUpdatePolicyReport,
+    SqlValidatedUpdatePlan,
 };
 pub(in crate::db) use planning::classify_sql_update_policy;

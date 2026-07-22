@@ -68,13 +68,15 @@ Primary owners:
 
 * `db/session/sql/mod.rs`
   * `execute_trusted_sql_query`
-  * `execute_sql_update`
+  * `execute_trusted_sql_mutation`
+  * `execute_trusted_sql_exact_update`
+  * `execute_trusted_sql_prefix_update`
   * `compile_sql_query`
-  * `compile_sql_update`
+  * `compile_sql_mutation`
   * SQL compile-cache identity
 * `db/session/sql/execute/*`
   * `execute_compiled_sql`
-  * SQL query/update routing
+  * SQL query/mutation routing
   * grouped SQL execution routing
 * `db/session/sql/execute/explain.rs`
   * explain-only SQL boundary
@@ -162,11 +164,13 @@ Required property:
 
 must reject unsupported or malformed input before side effects occur.
 
-### 2. Query and update surfaces must remain distinct
+### 2. SQL query and mutation contracts must remain distinct
 
 The public SQL query lane must reject state-changing statements.
-The public SQL update lane must reject read-only and explain/introspection
-statements.
+The broad trusted mutation lane must reject read-only, explain/introspection,
+and `UPDATE` statements. Trusted `UPDATE` must enter through the exact or
+intentional-prefix contract, and those lanes must reject every other statement
+family and incompatible SQL window.
 
 ### 3. Continuation tokens must not widen access scope
 
@@ -234,7 +238,7 @@ Search targets:
 * `execute_trusted_sql_query`
 * `execute_sql_update`
 * `compile_sql_query`
-* `compile_sql_update`
+* `compile_sql_mutation`
 * `compile_sql_command`
 * session SQL execute routing
 * parser and lowering normalization

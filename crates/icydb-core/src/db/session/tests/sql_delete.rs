@@ -542,10 +542,10 @@ fn delete_returning_structural_row_bound_rejects_before_commit() {
     );
 
     let compiled = session
-        .compile_sql_update::<SessionSqlEntity>(
+        .compile_sql_mutation::<SessionSqlEntity>(
             "DELETE FROM SessionSqlEntity WHERE age < 20 ORDER BY age ASC RETURNING name",
         )
-        .expect("DELETE RETURNING should compile through the update surface");
+        .expect("DELETE RETURNING should compile through the mutation surface");
     let crate::db::session::sql::CompiledSqlCommand::Delete { query, .. } = compiled else {
         panic!("DELETE RETURNING should compile to the delete command lane");
     };

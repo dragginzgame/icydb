@@ -261,6 +261,7 @@ impl<C: CanisterKind> DbSession<C> {
             authority,
             source_query,
             candidate_bounds,
+            None,
             |row| {
                 if row.len() != columns.len() {
                     return Err(QueryError::sql_write_boundary(

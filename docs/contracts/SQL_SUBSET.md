@@ -48,9 +48,11 @@ The remaining public SQL surfaces are:
 <!-- icydb-sql-feature id="surface.trusted_entrypoints" kind="policy" status="accepted" -->
 - `execute_trusted_sql_query::<E>(...)`
 - `execute_trusted_sql_mutation::<E>(...)`
+- `execute_trusted_sql_exact_update::<E>(..., require_affected_at_most)`
+- `execute_trusted_sql_prefix_update::<E>(...)`
 - `execute_admin_sql_ddl::<E>(...)`
 
-Both stay hard-bound to one concrete entity type and return SQL-shaped output.
+All stay hard-bound to one concrete entity type and return SQL-shaped output.
 
 Read-admission lanes, generated endpoint lane ownership, and the current
 read-surface inventory are documented in `docs/contracts/READ_ADMISSION.md`.
@@ -397,22 +399,30 @@ Public SQL ownership is split deliberately:
 
 <!-- icydb-sql-feature id="mutation.lane_ownership" kind="policy" status="accepted" -->
 - `execute_trusted_sql_query::<E>(...)` owns read, explain, and introspection SQL
-- `execute_trusted_sql_mutation::<E>(...)` owns state-changing SQL
+- `execute_trusted_sql_mutation::<E>(...)` owns trusted `INSERT` and `DELETE`
+- `execute_trusted_sql_exact_update::<E>(...)` owns complete-set SQL `UPDATE`
+- `execute_trusted_sql_prefix_update::<E>(...)` owns intentional ordered-prefix
+  SQL `UPDATE`
 - `execute_admin_sql_ddl::<E>(...)` owns accepted-catalog schema DDL SQL
 
 ### SQL `UPDATE` Availability By Surface
 
-`UPDATE` is an existing session/library write-lane capability. Generated query
-and DDL endpoints still reject it; generated canister update exposure is a
-separate opt-in write endpoint with an explicit public-safe policy.
+`UPDATE` requires explicit intent. Generated query and DDL endpoints still
+reject it; generated canister update exposure remains a separate opt-in write
+endpoint with an explicit public-safe policy.
 
 Current boundary:
 
 <!-- icydb-sql-feature id="mutation.trusted_update" kind="policy" status="accepted" -->
-- `execute_trusted_sql_mutation::<E>(...)` admits supported single-entity `UPDATE`
-  statements.
-- `execute_trusted_sql_mutation::<E>(...)` admits current narrow
-  `UPDATE ... RETURNING` forms.
+- `execute_trusted_sql_exact_update::<E>(...)` accepts a positive
+  `require_affected_at_most` assertion and selects in canonical primary-key
+  order. A cap-plus-one match proves affected-row overflow; an independent
+  cap-plus-one scanned-key probe enforces the engine scan budget. Either bound
+  rejects before mutation, while success commits the complete matching set.
+- exact `UPDATE` accepts current narrow `RETURNING` forms under the same row
+  assertion and the engine response-byte bound.
+- `execute_trusted_sql_mutation::<E>(...)` rejects `UPDATE`; it cannot infer
+  exact versus prefix intent.
 <!-- icydb-sql-feature id="mutation.generated_query_ddl" kind="policy" status="rejected" -->
 - generated `icydb_query` rejects row mutation SQL, including `UPDATE`.
 - generated `icydb_ddl` rejects row mutation SQL, including `UPDATE`.
@@ -427,13 +437,12 @@ Current boundary:
   requires explicit primary-key ordering and a limit.
 
 <!-- icydb-sql-feature id="mutation.trusted_update_window" kind="interaction" status="accepted" -->
-Current `execute_trusted_sql_mutation::<E>(...)` support includes primary-key and
-non-primary-key predicates, explicit `ORDER BY`, `LIMIT`, and `OFFSET` where
-the reduced SQL write lane admits them. That broader session/library behavior
-does not define the policy for generated public SQL write endpoints. Generated
-`icydb_update` dispatch must choose one configured `UPDATE` policy before
-executing row mutation SQL, and must not call the broad session/library
-`execute_trusted_sql_mutation::<E>(...)` lane directly.
+`execute_trusted_sql_prefix_update::<E>(...)` retains the maintained bounded
+policy: a positive limit no greater than 100, explicit canonical ascending
+primary-key order, and no offset. The limit selects only that intentional
+prefix and makes no complete-set claim. Generated `icydb_update` dispatch uses
+the same configured public policies and never calls the broad trusted mutation
+lane directly.
 
 ## Blob Literals and Blob Values
 

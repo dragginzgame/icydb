@@ -350,7 +350,7 @@ impl<C: CanisterKind> DbSession<C> {
             crate::db::sql::parser::SqlStatement::Insert(_)
             | crate::db::sql::parser::SqlStatement::Update(_)
             | crate::db::sql::parser::SqlStatement::Delete(_) => {
-                self.compile_sql_update_with_cache_attribution::<E>(sql)?
+                self.compile_sql_mutation_with_cache_attribution::<E>(sql)?
             }
             crate::db::sql::parser::SqlStatement::Select(_)
             | crate::db::sql::parser::SqlStatement::Describe(_)

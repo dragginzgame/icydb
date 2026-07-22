@@ -94,7 +94,7 @@ in the apply phase.
 | --- | --- |
 | Typed `create`, `insert`, `update`, and `replace` | Materialize through the accepted row contract, run the typed preflight, then prepare the commit from the canonical row. |
 | Public structural mutation | Resolve field names and slots through the accepted layout, construct a complete canonical after-image, materialize it through the generated-compatible boundary, and run the same typed preflight. |
-| SQL `INSERT` and `UPDATE` | Decode literals and omissions against accepted field contracts, then enter the structural mutation pipeline. Trusted or generated SQL exposure policy never bypasses row admission. |
+| SQL `INSERT` and explicit exact/prefix `UPDATE` | Decode literals and omissions against accepted field contracts, then enter the structural mutation pipeline. Exact selection traverses authoritative primary keys and independently proves affected-row and scanned-key fit with cap plus one; prefix selection retains the explicit ordered `LIMIT`. Neither trusted nor generated SQL exposure policy bypasses row admission. |
 | Typed, fluent, and SQL `DELETE` | Resolve selected rows through accepted authority, validate relation delete safety, and prepare row/index/relation removals before the marker. Deletes have no row after-image. |
 | Atomic single-entity batches | Admit and stage every item before opening one commit window. One rejected item rejects the entire batch. |
 | Non-atomic single-entity batches | Apply the complete admission contract independently to each item. A previously committed prefix is not rolled back when a later item rejects. |
@@ -153,11 +153,15 @@ the original mutation validators.
 IcyDB does not currently expose a supported raw backup, import, or restore
 surface. Custom stable-memory injection is outside this contract.
 
-Exact and resumable bulk update is not a current production ingress. Any future
-bulk implementation must admit every produced after-image under this contract.
-Resumable work must additionally pin or revalidate accepted-schema identity for
-each chunk and must never treat a partial window as proof of a complete
-mutation.
+Exact bulk update is a current production ingress. It requires a positive
+caller assertion, applies an engine row ceiling, selects in canonical
+primary-key order with cap-plus-one overflow proof, and fully stages the
+complete target before the existing atomic marker boundary. Intentional prefix
+update remains a separate ordered `LIMIT` contract.
+
+Resumable bulk update is not yet a current production ingress. Its later
+implementation must pin or revalidate accepted-schema identity for each chunk
+and must never treat a partial window as proof of a complete mutation.
 
 External import, restore, general data-migration, and bulk APIs must not be
 documented as supported until their trust, resource, schema-version, failure,

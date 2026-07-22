@@ -28,4 +28,5 @@ pub(in crate::db::session::sql) use crate::db::session::sql::projection::{
         sql_projection_statement_result_from_value_rows,
     },
     runtime::execute_sql_projection_rows_for_canister,
+    runtime::execute_sql_projection_rows_for_canister_with_scan_budget,
 };

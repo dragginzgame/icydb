@@ -529,6 +529,26 @@ impl<'a> VisibleIndexes<'a> {
         }
     }
 
+    /// Build one accepted-schema planning view that exposes no secondary indexes.
+    ///
+    /// Exact mutation selection uses this view to retain accepted field and
+    /// codec authority while forcing authoritative primary-store traversal.
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn accepted_schema_primary_only(schema_info: &SchemaInfo) -> Self {
+        Self {
+            generated_model_only_indexes: Cow::Borrowed(&[]),
+            accepted_field_path_indexes: Vec::new(),
+            accepted_expression_indexes: Vec::new(),
+            accepted_semantic_index_contracts: Vec::new(),
+            accepted_schema_info: Some(schema_info.clone()),
+            authority: VisibleIndexAuthority::AcceptedSchema {
+                field_path_indexes: 0,
+                expression_indexes: 0,
+            },
+        }
+    }
+
     #[must_use]
     pub(in crate::db) fn generated_model_only_indexes(&self) -> &[&'static IndexModel] {
         self.generated_model_only_indexes.as_ref()

@@ -1,3 +1,4 @@
+use super::model::MAX_TRUSTED_EXACT_UPDATE_ROWS;
 use super::*;
 use crate::db::session::sql::write_policy::{
     SqlWriteReturningBounds, SqlWriteReturningShape, SqlWriteWhereProof,
@@ -550,4 +551,65 @@ fn update_policy_preserves_shape_rejections_with_schema_owned_returning_fields()
     );
     assert_no_plan(&primary_key);
     assert_no_plan(&bounded);
+}
+
+#[test]
+fn exact_update_policy_carries_assertion_and_execution_bounds() {
+    let policy = SqlExactUpdatePolicy::try_new(3).expect("positive exact assertion should admit");
+    let report = classify(
+        "UPDATE Character SET age = 22 WHERE active = true RETURNING id",
+        SqlUpdateExposurePolicy::TrustedExact(policy),
+    );
+    let SqlValidatedUpdatePlan::TrustedExact(plan) = expect_plan(&report) else {
+        panic!("exact policy should produce an exact plan");
+    };
+
+    assert_eq!(plan.policy().require_affected_at_most(), 3);
+    assert_eq!(plan.policy().selection_limit(), 4);
+    assert_eq!(SqlExactUpdatePolicy::scan_budget(), 4_096);
+    assert_eq!(plan.execution_bounds().max_staged_rows, Some(3));
+    assert_eq!(plan.execution_bounds().returning.max_rows, Some(3));
+}
+
+#[test]
+fn exact_update_policy_rejects_sql_windows_and_noncanonical_order() {
+    let policy = SqlExactUpdatePolicy::try_new(3).expect("positive exact assertion should admit");
+
+    for sql in [
+        "UPDATE Character SET age = 22 WHERE active = true LIMIT 2",
+        "UPDATE Character SET age = 22 WHERE active = true OFFSET 1",
+        "UPDATE Character SET age = 22 WHERE active = true ORDER BY id DESC",
+        "UPDATE Character SET age = 22 WHERE active = true ORDER BY age ASC",
+    ] {
+        let report = classify(sql, SqlUpdateExposurePolicy::TrustedExact(policy));
+
+        assert_eq!(
+            report.rejection,
+            Some(SqlUpdatePolicyRejection::ExactWindowUnsupported),
+            "{sql}",
+        );
+        assert_no_plan(&report);
+    }
+
+    let canonical = classify(
+        "UPDATE Character SET age = 22 WHERE active = true ORDER BY id ASC",
+        SqlUpdateExposurePolicy::TrustedExact(policy),
+    );
+    assert!(canonical.is_admitted());
+}
+
+#[test]
+fn exact_update_policy_rejects_zero_and_engine_ceiling_overflow() {
+    assert_eq!(
+        SqlExactUpdatePolicy::try_new(0),
+        Err(SqlExactUpdatePolicyRejection::AssertionRequired),
+    );
+    assert_eq!(
+        SqlExactUpdatePolicy::try_new(
+            MAX_TRUSTED_EXACT_UPDATE_ROWS
+                .checked_add(1)
+                .expect("exact ceiling should leave room for overflow test"),
+        ),
+        Err(SqlExactUpdatePolicyRejection::AssertionTooHigh),
+    );
 }

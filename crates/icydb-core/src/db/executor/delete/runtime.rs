@@ -132,6 +132,7 @@ fn resolve_delete_candidate_rows_as<T>(
         projection_materialization: ProjectionMaterializationMode::None,
         prepared_projection: PreparedExecutionProjection::empty(),
         emit_cursor: false,
+        enforced_scan_probe_limit: None,
     });
 
     // Phase 2: resolve keys through the canonical runtime resolver. Delete

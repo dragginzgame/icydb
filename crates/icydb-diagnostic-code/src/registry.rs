@@ -338,22 +338,22 @@ define_error_code_registry! {
         detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::QueryRejectsUpdate });
     SQL_SURFACE_QUERY_REJECTS_DELETE = 99 => QuerySqlSurfaceMismatch,
         detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::QueryRejectsDelete });
-    SQL_SURFACE_UPDATE_REJECTS_SELECT = 100 => QuerySqlSurfaceMismatch,
-        detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::UpdateRejectsSelect });
-    SQL_SURFACE_UPDATE_REJECTS_EXPLAIN = 101 => QuerySqlSurfaceMismatch,
-        detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::UpdateRejectsExplain });
-    SQL_SURFACE_UPDATE_REJECTS_DESCRIBE = 102 => QuerySqlSurfaceMismatch,
-        detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::UpdateRejectsDescribe });
-    SQL_SURFACE_UPDATE_REJECTS_SHOW_INDEXES = 103 => QuerySqlSurfaceMismatch,
-        detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::UpdateRejectsShowIndexes });
-    SQL_SURFACE_UPDATE_REJECTS_SHOW_COLUMNS = 104 => QuerySqlSurfaceMismatch,
-        detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::UpdateRejectsShowColumns });
-    SQL_SURFACE_UPDATE_REJECTS_SHOW_ENTITIES = 105 => QuerySqlSurfaceMismatch,
-        detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::UpdateRejectsShowEntities });
-    SQL_SURFACE_UPDATE_REJECTS_SHOW_STORES = 106 => QuerySqlSurfaceMismatch,
-        detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::UpdateRejectsShowStores });
-    SQL_SURFACE_UPDATE_REJECTS_SHOW_MEMORY = 107 => QuerySqlSurfaceMismatch,
-        detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::UpdateRejectsShowMemory });
+    SQL_SURFACE_MUTATION_REJECTS_SELECT = 100 => QuerySqlSurfaceMismatch,
+        detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::MutationRejectsSelect });
+    SQL_SURFACE_MUTATION_REJECTS_EXPLAIN = 101 => QuerySqlSurfaceMismatch,
+        detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::MutationRejectsExplain });
+    SQL_SURFACE_MUTATION_REJECTS_DESCRIBE = 102 => QuerySqlSurfaceMismatch,
+        detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::MutationRejectsDescribe });
+    SQL_SURFACE_MUTATION_REJECTS_SHOW_INDEXES = 103 => QuerySqlSurfaceMismatch,
+        detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::MutationRejectsShowIndexes });
+    SQL_SURFACE_MUTATION_REJECTS_SHOW_COLUMNS = 104 => QuerySqlSurfaceMismatch,
+        detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::MutationRejectsShowColumns });
+    SQL_SURFACE_MUTATION_REJECTS_SHOW_ENTITIES = 105 => QuerySqlSurfaceMismatch,
+        detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::MutationRejectsShowEntities });
+    SQL_SURFACE_MUTATION_REJECTS_SHOW_STORES = 106 => QuerySqlSurfaceMismatch,
+        detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::MutationRejectsShowStores });
+    SQL_SURFACE_MUTATION_REJECTS_SHOW_MEMORY = 107 => QuerySqlSurfaceMismatch,
+        detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::MutationRejectsShowMemory });
 
     SCHEMA_DDL_MISSING_EXPECTED_SCHEMA_VERSION = 108 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::MissingExpectedSchemaVersion });
@@ -542,4 +542,16 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::PersistedRowSlotCountMismatch });
     RUNTIME_BOUNDARY_GENERATED_FIELD_AFTER_DDL_FIELD = 199 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::GeneratedFieldAfterDdlField });
+    SQL_SURFACE_MUTATION_REQUIRES_EXPLICIT_UPDATE_INTENT = 200 => QuerySqlSurfaceMismatch,
+        detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::MutationRequiresExplicitUpdateIntent });
+    SQL_WRITE_EXACT_UPDATE_ASSERTION_REQUIRED = 201 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ExactUpdateAssertionRequired });
+    SQL_WRITE_EXACT_UPDATE_ASSERTION_TOO_HIGH = 202 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ExactUpdateAssertionTooHigh });
+    SQL_WRITE_EXACT_UPDATE_AFFECTED_ROWS_EXCEEDED = 203 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ExactUpdateAffectedRowsExceeded });
+    SQL_WRITE_EXACT_UPDATE_WINDOW_UNSUPPORTED = 204 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ExactUpdateWindowUnsupported });
+    SQL_WRITE_EXACT_UPDATE_SCAN_BUDGET_EXCEEDED = 205 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ExactUpdateScanBudgetExceeded });
 }

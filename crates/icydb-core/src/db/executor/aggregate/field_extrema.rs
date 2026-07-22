@@ -258,6 +258,7 @@ impl ExecutionKernel {
             projection_materialization: ProjectionMaterializationMode::SharedValidation,
             prepared_projection: PreparedExecutionProjection::empty(),
             emit_cursor: false,
+            enforced_scan_probe_limit: None,
         });
         let mut resolved = ExecutionAttemptKernel::new(&execution_inputs)
             .resolve_execution_key_stream(route_plan, IndexCompilePolicy::StrictAllOrNone)?;

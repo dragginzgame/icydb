@@ -76,7 +76,9 @@ Legend:
 | surface | scalar `SELECT` | grouped `SELECT` | global aggregate `SELECT` | computed projection `SELECT` | `DELETE` | `INSERT` | `UPDATE` | DDL | `EXPLAIN` | `DESCRIBE` / `SHOW` |
 |---|---|---|---|---|---|---|---|---|---|---|
 | `execute_trusted_sql_query::<E>` | yes | yes | yes | yes | no | no | no | no | yes | yes |
-| `execute_trusted_sql_mutation::<E>` | no | no | no | no | yes | yes | yes | no | no | no |
+| `execute_trusted_sql_mutation::<E>` | no | no | no | no | yes | yes | no | no | no | no |
+| `execute_trusted_sql_exact_update::<E>` | no | no | no | no | no | no | exact | no | no | no |
+| `execute_trusted_sql_prefix_update::<E>` | no | no | no | no | no | no | prefix | no | no | no |
 | `execute_admin_sql_ddl::<E>` | no | no | no | no | no | no | no | yes | no | no |
 | typed/fluent writes | no | no | no | no | yes | yes | yes | no | no | no |
 
@@ -93,8 +95,8 @@ No generated SQL write endpoint is part of the default generated surface.
 `icydb_update` is emitted only when `icydb.toml` selects an explicit update
 policy: `update = true` or `update = "primary_key"` for public primary-key-only
 `UPDATE`, or `update = "bounded"` for public bounded deterministic `UPDATE`.
-Generated update dispatch must not inherit broad `execute_trusted_sql_mutation::<E>`
-behavior by default.
+The broad trusted mutation ingress rejects `UPDATE`; generated update dispatch
+uses only its configured primary-key or bounded policy.
 
 Generated `icydb_query` admits operational SQL introspection only when the
 build target policy allows it. The `[canisters.<name>.sql.introspection]`
@@ -128,10 +130,13 @@ query/runtime model with multiple frontends.
 The strongest public SQL execution split is now:
 
 - `execute_trusted_sql_query::<E>(...)` for read, explain, and introspection SQL
-- `execute_trusted_sql_mutation::<E>(...)` for row-mutation SQL
+- `execute_trusted_sql_mutation::<E>(...)` for trusted `INSERT` and `DELETE`
+- `execute_trusted_sql_exact_update::<E>(...)` for complete-set `UPDATE`
+- `execute_trusted_sql_prefix_update::<E>(...)` for intentional ordered-prefix
+  `UPDATE`
 - `execute_admin_sql_ddl::<E>(...)` for accepted-catalog DDL SQL
 
-All three stay single-entity and SQL-shaped, but none widens into the other
+These surfaces stay single-entity and SQL-shaped, but none widens into another
 statement families.
 
 The strongest row-returning convergence exists on typed/fluent mutation APIs:
@@ -244,20 +249,24 @@ Representative evidence:
 - `crates/icydb/src/db/session/delete.rs`
 - `crates/icydb-core/src/db/session/sql/mod.rs`
 
-The SQL mutation mirror is now explicit rather than hidden behind a query-shaped
+The SQL mutation mirror is explicit rather than hidden behind a query-shaped
 entrypoint:
 
-- `execute_trusted_sql_mutation::<E>(...)`
+- `execute_trusted_sql_mutation::<E>(...)` for `INSERT` and `DELETE`
+- exact and prefix trusted update entrypoints for the two maintained `UPDATE`
+  meanings
 
 That means typed write helpers remain an ergonomic owner, not a missing SQL
 mutation capability.
 
-`execute_trusted_sql_mutation::<E>(...)` currently owns the session/library SQL write
-lane for `INSERT`, `UPDATE`, `DELETE`, and the narrow write `RETURNING`
-contract. Its broad `UPDATE` behavior is not the generated canister SQL
-contract: generated `icydb_query` and `icydb_ddl` reject row mutation SQL,
-and generated `icydb_update` must pass through its configured explicit
-surface policy before executing `UPDATE`.
+`execute_trusted_sql_mutation::<E>(...)` owns `INSERT`, `DELETE`, and their
+narrow write `RETURNING` contract. It rejects `UPDATE` because complete-set
+and ordered-prefix intent cannot be inferred. Exact update uses a positive
+caller assertion with cap-plus-one affected-row proof plus a separate
+primary-scan budget; prefix update uses the maintained canonical primary-key
+`ORDER BY ... LIMIT` policy. Generated `icydb_query` and
+`icydb_ddl` reject row mutation SQL, and generated `icydb_update` passes through
+its configured explicit surface policy.
 
 ## DDL Boundary
 
@@ -343,6 +352,8 @@ the following remain true:
 - the live public SQL surface stays frozen to:
   - `execute_trusted_sql_query::<E>(...)`
   - `execute_trusted_sql_mutation::<E>(...)`
+  - `execute_trusted_sql_exact_update::<E>(...)`
+  - `execute_trusted_sql_prefix_update::<E>(...)`
   - `execute_admin_sql_ddl::<E>(...)`
 - every admitted family has direct tests on the live surface rather than only
   transitive proof through older internal helpers

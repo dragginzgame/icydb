@@ -50,7 +50,7 @@ pub(in crate::db) struct SqlCacheAttribution {
 ///
 /// SqlCompiledCommandSurface
 ///
-/// SqlCompiledCommandSurface separates SQL read and write API cache lanes so
+/// SqlCompiledCommandSurface separates SQL query and mutation API cache lanes so
 /// identical text cannot alias across public session surfaces with different
 /// admissible statement families.
 ///
@@ -58,7 +58,7 @@ pub(in crate::db) struct SqlCacheAttribution {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(in crate::db::session::sql) enum SqlCompiledCommandSurface {
     Query,
-    Update,
+    Mutation,
 }
 
 ///
@@ -157,8 +157,9 @@ impl SqlCompiledCommandCacheContext {
 
 thread_local! {
     // Keep SQL-facing caches in canister-lifetime heap state keyed by the
-    // store registry identity so update calls can warm query-facing SQL reuse
-    // without leaking entries across unrelated registries in tests.
+    // store registry identity so state-changing canister calls can warm
+    // query-facing SQL reuse without leaking entries across unrelated
+    // registries in tests.
     static SQL_COMPILED_COMMAND_CACHES: RefCell<HashMap<usize, SqlCompiledCommandCache>> =
         RefCell::new(HashMap::default());
 }
@@ -312,11 +313,11 @@ impl SqlCompiledCommandCacheKey {
         )
     }
 
-    pub(in crate::db) fn update_for_entity<E>(sql: &str) -> Self
+    pub(in crate::db) fn mutation_for_entity<E>(sql: &str) -> Self
     where
         E: PersistedRow,
     {
-        Self::for_entity::<E>(SqlCompiledCommandSurface::Update, sql)
+        Self::for_entity::<E>(SqlCompiledCommandSurface::Mutation, sql)
     }
 
     fn for_entity<E>(surface: SqlCompiledCommandSurface, sql: &str) -> Self

@@ -403,8 +403,16 @@ trusted/admin surfaces unless wrapped by an application-owned policy.
 ```rust
 db.execute_trusted_sql_query::<E>(sql)
 db.execute_trusted_sql_mutation::<E>(sql)
+db.execute_trusted_sql_exact_update::<E>(sql, require_affected_at_most)
+db.execute_trusted_sql_prefix_update::<E>(sql)
 db.execute_admin_sql_ddl::<E>(sql)
 ```
+
+The broad mutation helper accepts `INSERT` and `DELETE`. An `UPDATE` must state
+whether the complete target is required (`exact`) or one deliberate ordered
+`LIMIT` window is sufficient (`prefix`). Exact selection uses authoritative
+primary-key traversal and rejects affected-row or scan-budget overflow before
+any row is changed; prefix success reports only the selected window.
 
 Do not expose caller-controlled SQL through these helpers in ordinary public
 endpoints. Prefer typed/fluent read-intent APIs or an application-owned SQL

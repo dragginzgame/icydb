@@ -145,7 +145,7 @@ pub(in crate::db) use projection::projection_eval_data_row_for_materialize_tests
 pub(in crate::db) use projection::projection_eval_row_layout_for_materialize_tests;
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::{
-    StructuralProjectionRequest, execute_structural_projection_rows,
+    StructuralProjectionRequest, StructuralProjectionScanBudget, execute_structural_projection_rows,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use projection::{

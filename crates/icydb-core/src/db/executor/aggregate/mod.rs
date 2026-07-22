@@ -340,6 +340,7 @@ impl ExecutionKernel {
             projection_materialization: ProjectionMaterializationMode::SharedValidation,
             prepared_projection: PreparedExecutionProjection::empty(),
             emit_cursor: false,
+            enforced_scan_probe_limit: None,
         });
 
         // Resolve the ordered key stream using canonical routing logic.

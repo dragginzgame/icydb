@@ -109,6 +109,7 @@ impl<'a> ExecutionAttemptKernel<'a> {
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
         let mut resolved = self.resolve_execution_key_stream(route_plan, predicate_compile_mode)?;
+        self.apply_enforced_scan_probe(resolved.key_stream_mut());
         let (payload, keys_scanned, post_access_rows) = self
             .materialize_resolved_execution_stream(
                 route_plan,
@@ -139,6 +140,7 @@ impl<'a> ExecutionAttemptKernel<'a> {
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {
         let mut resolved = self.resolve_execution_key_stream(route_plan, predicate_compile_mode)?;
+        self.apply_enforced_scan_probe(resolved.key_stream_mut());
         let mut attempt = self
             .materialization_contract(route_plan)
             .materialize_resolved_execution_stream_to_kernel_rows(
@@ -157,5 +159,16 @@ impl<'a> ExecutionAttemptKernel<'a> {
         attempt.metrics.distinct_keys_deduped = resolved.distinct_keys_deduped();
 
         Ok(attempt)
+    }
+
+    // Apply a hard execution-only scan probe outside route-owned advisory
+    // hints. The caller rejects any cap-plus-one result before consuming the
+    // partial payload, so materialized fallback routes remain fail-closed.
+    fn apply_enforced_scan_probe(&self, key_stream: &mut OrderedKeyStreamBox) {
+        let Some(probe_limit) = self.inputs.enforced_scan_probe_limit() else {
+            return;
+        };
+        let inner = std::mem::replace(key_stream, OrderedKeyStreamBox::empty());
+        *key_stream = OrderedKeyStreamBox::budgeted(inner, probe_limit);
     }
 }

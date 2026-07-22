@@ -33,7 +33,9 @@ pub(in crate::db::executor) use eval::{
     eval_effective_runtime_filter_program_with_value_cow_reader,
 };
 #[cfg(feature = "sql")]
-pub(in crate::db) use facade::{StructuralProjectionRequest, execute_structural_projection_rows};
+pub(in crate::db) use facade::{
+    StructuralProjectionRequest, StructuralProjectionScanBudget, execute_structural_projection_rows,
+};
 pub(in crate::db::executor) use grouped::*;
 pub(in crate::db::executor) use grouped::{
     GroupedRowView, compile_grouped_projection_expr, evaluate_grouped_having_expr,

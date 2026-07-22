@@ -33,6 +33,9 @@ fn measure_query_plan_compile_stage<T>(run: impl FnOnce() -> T) -> (u64, T) {
 pub(in crate::db) enum QueryPlanVisibility {
     StoreNotReady,
     StoreReady,
+    /// Recovered store authority with secondary indexes deliberately excluded.
+    #[cfg(feature = "sql")]
+    PrimaryOnly,
 }
 
 ///

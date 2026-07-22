@@ -23,6 +23,40 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
+use icydb_diagnostic_code::SqlWriteBoundaryCode;
+
+/// Enforced scanned-key ceiling for one structural projection execution.
+#[derive(Clone, Copy)]
+pub(in crate::db) struct StructuralProjectionScanBudget {
+    max_scanned_keys: usize,
+    probe_limit: usize,
+}
+
+impl StructuralProjectionScanBudget {
+    /// Build one positive budget with a checked cap-plus-one overflow probe.
+    #[must_use]
+    pub(in crate::db) const fn try_new(max_scanned_keys: usize) -> Option<Self> {
+        if max_scanned_keys == 0 {
+            return None;
+        }
+        let Some(probe_limit) = max_scanned_keys.checked_add(1) else {
+            return None;
+        };
+
+        Some(Self {
+            max_scanned_keys,
+            probe_limit,
+        })
+    }
+
+    const fn exceeded_by(self, scanned_keys: usize) -> bool {
+        scanned_keys > self.max_scanned_keys
+    }
+
+    const fn probe_limit(self) -> usize {
+        self.probe_limit
+    }
+}
 
 ///
 /// StructuralProjectionRequest
@@ -38,6 +72,7 @@ pub(in crate::db) struct StructuralProjectionRequest {
     prepared_plan: SharedPreparedExecutionPlan,
     covering_metrics: CoveringProjectionMetricsRecorder,
     materialization_metrics: ProjectionMaterializationMetricsRecorder,
+    scan_budget: Option<StructuralProjectionScanBudget>,
 }
 
 impl StructuralProjectionRequest {
@@ -54,7 +89,18 @@ impl StructuralProjectionRequest {
             prepared_plan,
             covering_metrics,
             materialization_metrics,
+            scan_budget: None,
         }
+    }
+
+    /// Attach one fail-closed scanned-key ceiling to this execution.
+    #[must_use]
+    pub(in crate::db) const fn with_scan_budget(
+        mut self,
+        scan_budget: StructuralProjectionScanBudget,
+    ) -> Self {
+        self.scan_budget = Some(scan_budget);
+        self
     }
 }
 
@@ -72,13 +118,14 @@ where
         prepared_plan,
         covering_metrics,
         materialization_metrics,
+        scan_budget,
     } = request;
     let distinct = prepared_plan.logical_plan().scalar_plan().distinct;
 
     // Phase 1: choose the covering projection lane only for non-DISTINCT
     // requests. DISTINCT must see final projected rows in scalar execution order
     // before executor-owned deduplication and windowing.
-    if !distinct {
+    if !distinct && scan_budget.is_none() {
         let covering = prepared_plan.projection_covering_read_execution_plan();
         let index_prefix_specs = prepared_plan.index_prefix_specs();
         let index_range_specs = prepared_plan.index_range_specs();
@@ -139,12 +186,19 @@ where
     let prepared_projection = prepared_projection_contract
         .as_deref()
         .ok_or_else(InternalError::query_executor_invariant)?;
-    let page = execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister(
-        db,
-        debug,
-        scalar_runtime,
-        distinct,
-    )?;
+    let (page, scanned_keys) =
+        execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister(
+            db,
+            debug,
+            scalar_runtime,
+            distinct,
+            scan_budget.map(StructuralProjectionScanBudget::probe_limit),
+        )?;
+    if scan_budget.is_some_and(|budget| budget.exceeded_by(scanned_keys)) {
+        return Err(InternalError::query_sql_write_boundary(
+            SqlWriteBoundaryCode::ExactUpdateScanBudgetExceeded,
+        ));
+    }
 
     let rows = if distinct {
         project_distinct(

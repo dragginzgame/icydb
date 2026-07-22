@@ -10,7 +10,10 @@ use crate::{
     db::{
         QueryError,
         data::AcceptedMutationIntentPatch,
-        session::sql::{combined_optional_row_bound, write_policy::SqlWriteExecutionBounds},
+        session::sql::{
+            SqlExactUpdatePolicy, combined_optional_row_bound,
+            write_policy::SqlWriteExecutionBounds,
+        },
         sql::parser::SqlReturningProjection,
     },
     value::Value,
@@ -113,11 +116,22 @@ impl SqlWriteCandidateDiagnostics {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct SqlWriteCandidateBounds {
     max_rows: Option<u32>,
+    overflow_boundary: SqlWriteBoundaryCode,
 }
 
 impl SqlWriteCandidateBounds {
     pub(super) const fn from_max_rows(max_rows: Option<u32>) -> Self {
-        Self { max_rows }
+        Self {
+            max_rows,
+            overflow_boundary: SqlWriteBoundaryCode::StagedRowsTooMany,
+        }
+    }
+
+    pub(super) const fn exact_update(policy: SqlExactUpdatePolicy) -> Self {
+        Self {
+            max_rows: Some(policy.require_affected_at_most()),
+            overflow_boundary: SqlWriteBoundaryCode::ExactUpdateAffectedRowsExceeded,
+        }
     }
 
     pub(super) const fn max_rows(self) -> Option<u32> {
@@ -150,9 +164,7 @@ impl SqlWriteCandidateBounds {
             return Ok(diagnostics);
         }
 
-        Err(QueryError::sql_write_boundary(
-            SqlWriteBoundaryCode::StagedRowsTooMany,
-        ))
+        Err(QueryError::sql_write_boundary(self.overflow_boundary))
     }
 }
 
@@ -162,6 +174,12 @@ pub(super) fn sql_update_candidate_bounds(
     SqlWriteCandidateBounds::from_max_rows(
         execution_bounds.and_then(|bounds| bounds.max_staged_rows),
     )
+}
+
+pub(super) const fn sql_exact_update_candidate_bounds(
+    policy: SqlExactUpdatePolicy,
+) -> SqlWriteCandidateBounds {
+    SqlWriteCandidateBounds::exact_update(policy)
 }
 
 pub(super) const fn sql_insert_candidate_bounds(

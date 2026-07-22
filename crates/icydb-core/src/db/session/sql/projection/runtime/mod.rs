@@ -22,7 +22,7 @@ use crate::{
         Db,
         executor::{
             SharedPreparedExecutionPlan, StructuralProjectionRequest,
-            execute_structural_projection_rows,
+            StructuralProjectionScanBudget, execute_structural_projection_rows,
         },
     },
     error::InternalError,
@@ -98,6 +98,33 @@ where
             covering_projection_metrics_recorder(),
             projection_materialization_metrics_recorder(),
         ),
+    )?;
+    let row_count = rows.row_count();
+    let projected = rows.into_value_rows();
+
+    Ok((projected, row_count))
+}
+
+#[cfg(feature = "sql")]
+/// Execute one SQL projection under a fail-closed scanned-key ceiling.
+pub(in crate::db) fn execute_sql_projection_rows_for_canister_with_scan_budget<C>(
+    db: &Db<C>,
+    debug: bool,
+    prepared_plan: SharedPreparedExecutionPlan,
+    scan_budget: StructuralProjectionScanBudget,
+) -> Result<(Vec<Vec<Value>>, u32), InternalError>
+where
+    C: CanisterKind,
+{
+    let rows = execute_structural_projection_rows(
+        db,
+        StructuralProjectionRequest::new(
+            debug,
+            prepared_plan,
+            covering_projection_metrics_recorder(),
+            projection_materialization_metrics_recorder(),
+        )
+        .with_scan_budget(scan_budget),
     )?;
     let row_count = rows.row_count();
     let projected = rows.into_value_rows();

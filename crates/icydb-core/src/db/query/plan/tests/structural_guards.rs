@@ -113,6 +113,7 @@ fn assert_sql_write_candidate_owner(candidate: &str) {
             "SqlWriteCandidateBoundCheck::MutationBatchHandoff",
             "fn sql_insert_candidate_bounds(",
             "fn sql_update_candidate_bounds(",
+            "fn sql_exact_update_candidate_bounds(",
         ],
         "SQL write candidate resource policy should stay centralized in write/candidate.rs",
     );
@@ -683,12 +684,17 @@ fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit
     assert_source_contains_patterns(
         &update,
         &[
-            "let candidate_bounds = sql_update_candidate_bounds(execution_bounds);",
+            "enum SqlUpdateExecutionContract",
+            "Self::Validated(bounds) => sql_update_candidate_bounds(Some(bounds))",
+            "Self::Exact { policy, .. } => sql_exact_update_candidate_bounds(policy)",
+            "let candidate_bounds = execution_contract.candidate_bounds();",
+            "let scan_budget = execution_contract.scan_budget()?;",
             "collect_bounded_sql_write_candidate_collection_from_structural_query(",
             "candidate_bounds,",
+            "scan_budget,",
             "SqlWriteMutationExecution::from_bounded_collection(",
         ],
-        "SQL UPDATE should feed selector rows through bounded collection and the shared mutation batch bound",
+        "SQL exact and prefix UPDATE should feed selector rows through their explicit execution contract, bounded collection, and shared mutation batch bound",
     );
 
     assert_source_contains_patterns(

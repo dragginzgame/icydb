@@ -191,16 +191,50 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((result, attribution))
     }
 
-    /// Execute one trusted SQL mutation against one concrete entity type.
+    /// Execute one trusted SQL `INSERT` or `DELETE` against one entity type.
     ///
-    /// This bypasses generated endpoint exposure policy. The caller must own
-    /// authorization and mutation admission.
+    /// `UPDATE` requires an explicit exact or prefix contract and is rejected
+    /// by this broad mutation surface.
     pub fn execute_trusted_sql_mutation<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
     where
         E: crate::traits::EntityFor<C>,
     {
         Ok(Self::sql_query_result_from_statement::<E>(
             self.inner.execute_trusted_sql_mutation::<E>(sql)?,
+        ))
+    }
+
+    /// Execute one trusted exact complete-set SQL `UPDATE`.
+    ///
+    /// `require_affected_at_most` is a positive assertion about the complete
+    /// target, not a selection limit. If one extra match exists, the call
+    /// rejects before mutation. Exact selection uses authoritative primary-key
+    /// traversal. The affected-row and scanned-key ceilings are independently
+    /// enforced and are currently 4,096 each.
+    pub fn execute_trusted_sql_exact_update<E>(
+        &self,
+        sql: &str,
+        require_affected_at_most: u32,
+    ) -> Result<SqlQueryResult, Error>
+    where
+        E: crate::traits::EntityFor<C>,
+    {
+        Ok(Self::sql_query_result_from_statement::<E>(
+            self.inner
+                .execute_trusted_sql_exact_update::<E>(sql, require_affected_at_most)?,
+        ))
+    }
+
+    /// Execute one intentional primary-key-ordered prefix SQL `UPDATE`.
+    ///
+    /// The statement must carry a positive bounded `LIMIT`; only that ordered
+    /// prefix is mutated and no complete-target claim is made.
+    pub fn execute_trusted_sql_prefix_update<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
+    where
+        E: crate::traits::EntityFor<C>,
+    {
+        Ok(Self::sql_query_result_from_statement::<E>(
+            self.inner.execute_trusted_sql_prefix_update::<E>(sql)?,
         ))
     }
 

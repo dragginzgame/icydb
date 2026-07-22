@@ -5,9 +5,9 @@ use super::model::*;
 use crate::db::{
     QueryError,
     session::sql::write_policy::{
-        SqlWriteExecutionBounds, SqlWritePlanCore, SqlWriteShapePolicyRejection,
-        SqlWriteStatementShape, SqlWriteStatementShapeInput, classify_write_statement_shape,
-        contains_field, current_table_field_name,
+        SqlWriteExecutionBounds, SqlWriteOrderProof, SqlWritePlanCore,
+        SqlWriteShapePolicyRejection, SqlWriteStatementShape, SqlWriteStatementShapeInput,
+        classify_write_statement_shape, contains_field, current_table_field_name,
     },
     sql::parser::{SqlStatement, SqlUpdateStatement, parse_sql_with_attribution},
 };
@@ -90,7 +90,23 @@ const fn update_policy_rejection(
                 .write_shape
                 .bounded_deterministic_policy_rejection(context.write_bounds()),
         ),
+        SqlUpdateExposurePolicy::TrustedExact(_) => {
+            if exact_update_window_supported(&classification.write_shape) {
+                None
+            } else {
+                Some(SqlUpdatePolicyRejection::ExactWindowUnsupported)
+            }
+        }
     }
+}
+
+const fn exact_update_window_supported(shape: &SqlWriteStatementShape) -> bool {
+    shape.limit.is_none()
+        && shape.offset.is_none()
+        && matches!(
+            shape.order_proof,
+            SqlWriteOrderProof::Missing | SqlWriteOrderProof::CanonicalPrimaryKey
+        )
 }
 
 fn validated_update_plan(
@@ -111,6 +127,12 @@ fn validated_update_plan(
                 core: SqlWritePlanCore::from_borrowed(statement, execution_bounds),
             })
         }
+        SqlUpdateExposurePolicy::TrustedExact(policy) => {
+            SqlValidatedUpdatePlan::TrustedExact(SqlTrustedExactUpdatePlan {
+                core: SqlWritePlanCore::from_borrowed(statement, execution_bounds),
+                policy,
+            })
+        }
     }
 }
 
@@ -119,9 +141,28 @@ const fn execution_bounds(
     classification: &SqlUpdateStatementClassification,
     context: SqlUpdatePolicyContext<'_>,
 ) -> SqlWriteExecutionBounds {
-    classification
-        .write_shape
-        .execution_bounds_for_exposure_class(policy.exposure_class(), context.write_bounds())
+    match policy {
+        SqlUpdateExposurePolicy::PublicPrimaryKeyOnly => classification
+            .write_shape
+            .execution_bounds_for_exposure_class(
+                crate::db::session::sql::write_policy::SqlWriteExposureClass::PublicPrimaryKeyOnly,
+                context.write_bounds(),
+            ),
+        SqlUpdateExposurePolicy::PublicBoundedDeterministic => classification
+            .write_shape
+            .execution_bounds_for_exposure_class(
+                crate::db::session::sql::write_policy::SqlWriteExposureClass::PublicBoundedDeterministic,
+                context.write_bounds(),
+            ),
+        SqlUpdateExposurePolicy::TrustedExact(policy) => {
+            crate::db::session::sql::write_policy::sql_write_execution_bounds_for_exact_update(
+                policy.require_affected_at_most(),
+                classification.write_shape.returning_shape.is_requested(),
+                context.max_returning_rows,
+                context.max_returning_response_bytes,
+            )
+        }
+    }
 }
 
 const fn write_shape_policy_rejection(

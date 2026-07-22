@@ -14,13 +14,17 @@ use crate::{
         DbSession, PersistedRow, QueryError,
         executor::{
             EntityAuthority, SharedPreparedExecutionPlan, StructuralGroupedProjectionResult,
+            StructuralProjectionScanBudget,
         },
         query::intent::StructuralQuery,
         schema::AcceptedSchemaSnapshot,
         session::{
             finalize_structural_grouped_projection_result,
             sql::SqlProjectionContract,
-            sql::projection::{SqlProjectionPayload, execute_sql_projection_rows_for_canister},
+            sql::projection::{
+                SqlProjectionPayload, execute_sql_projection_rows_for_canister,
+                execute_sql_projection_rows_for_canister_with_scan_budget,
+            },
             sql::{SqlCacheAttribution, SqlCompiledCommandExecutionContext, SqlStatementResult},
             sql_grouped_cursor_from_bytes,
         },
@@ -66,6 +70,7 @@ impl<C: CanisterKind> DbSession<C> {
         prepared_plan: SharedPreparedExecutionPlan,
         projection: SqlProjectionContract,
         cache_attribution: SqlCacheAttribution,
+        scan_budget: Option<StructuralProjectionScanBudget>,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
         let enum_catalog = prepared_plan
             .authority_ref()
@@ -74,9 +79,16 @@ impl<C: CanisterKind> DbSession<C> {
             .cloned()
             .ok_or_else(QueryError::invariant)?;
         let (columns, fixed_scales) = projection.into_components();
-        let (rows, row_count) =
-            execute_sql_projection_rows_for_canister(&self.db, self.debug, prepared_plan)
-                .map_err(QueryError::execute)?;
+        let (rows, row_count) = match scan_budget {
+            Some(scan_budget) => execute_sql_projection_rows_for_canister_with_scan_budget(
+                &self.db,
+                self.debug,
+                prepared_plan,
+                scan_budget,
+            ),
+            None => execute_sql_projection_rows_for_canister(&self.db, self.debug, prepared_plan),
+        }
+        .map_err(QueryError::execute)?;
 
         Ok((
             SqlProjectionPayload::new(columns, fixed_scales, rows, row_count, enum_catalog),
@@ -98,6 +110,7 @@ impl<C: CanisterKind> DbSession<C> {
                 prepared_plan,
                 projection,
                 cache_attribution,
+                None,
             )?;
 
         Ok((payload.into_statement_result()?, cache_attribution))
@@ -191,6 +204,31 @@ impl<C: CanisterKind> DbSession<C> {
             prepared_plan,
             projection,
             cache_attribution,
+            None,
+        )
+    }
+
+    // Execute one exact-mutation selector through a primary-only prepared plan
+    // and one executor-enforced scanned-key ceiling.
+    pub(in crate::db::session::sql) fn execute_primary_only_sql_projection_from_structural_query_with_scan_budget(
+        &self,
+        query: StructuralQuery,
+        authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
+        scan_budget: StructuralProjectionScanBudget,
+    ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
+        let (prepared_plan, projection, cache_attribution) = self
+            .sql_primary_only_select_prepared_plan_for_accepted_authority(
+                &query,
+                authority,
+                accepted_schema,
+            )?;
+
+        self.execute_sql_projection_from_structural_prepared_plan(
+            prepared_plan,
+            projection,
+            cache_attribution,
+            Some(scan_budget),
         )
     }
 

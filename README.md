@@ -194,8 +194,9 @@ let rows = db!()?.execute_trusted_sql_query::<User>(
     "SELECT id, name, score FROM User WHERE score >= 100 ORDER BY score DESC LIMIT 10",
 )?;
 
-let updated = db!()?.execute_trusted_sql_mutation::<User>(
+let updated = db!()?.execute_trusted_sql_exact_update::<User>(
     "UPDATE User SET name = 'Ada' WHERE id = '01J...' RETURNING id, name",
+    1,
 )?;
 
 let ddl = db!()?.execute_admin_sql_ddl::<User>(

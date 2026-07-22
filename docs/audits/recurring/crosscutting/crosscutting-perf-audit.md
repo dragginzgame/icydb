@@ -461,7 +461,7 @@ Recommended current scans:
 * `rg -n "PerformanceProfile|p1_shard|p2_candidates|fluent_perf_scenarios|scenario_key|baseline_path" testing/integration/tests/sql_perf_matrix_audit.rs testing/integration/tests/sql_perf_p*.rs testing/integration/tests/sql_perf_audit.rs testing/integration/tests/fluent_perf_audit.rs`
 * `rg -n "SqlQueryExecutionAttribution|QueryExecutionAttribution|store_get_calls|grouped_stream_local_instructions" crates/icydb-core/src canisters/audit/sql_perf/src`
 * `rg -n "execute_trusted_sql_query|execute_sql_update|execute_trusted_sql_query_with_attribution|execute_compiled_sql|execute_compiled_sql_with_phase_attribution" crates/icydb-core/src/db/session`
-* `rg -n "compile_sql_command|compile_sql_query|compile_sql_update" crates/icydb-core/src/db`
+* `rg -n "compile_sql_command|compile_sql_query|compile_sql_mutation" crates/icydb-core/src/db`
 * `rg -n "execute_sql_projection_rows_for_canister|sql_select_prepared_plan|execute_grouped_sql_statement_from_prepared_plan_with" crates/icydb-core/src/db`
 * `rg -n "EXPLAIN|cursor|continuation|GROUP BY|HAVING|DISTINCT|LIMIT|OFFSET" crates/icydb-core/src/db`
 * `rg -n "with_phase_attribution|local_instruction_counter|store_get_calls|cache_hits|cache_misses" crates/icydb-core/src/db`

@@ -101,6 +101,20 @@ pub(super) const fn sql_write_execution_bounds_for_staged_kind(
     )
 }
 
+pub(in crate::db::session::sql) const fn sql_write_execution_bounds_for_exact_update(
+    require_affected_at_most: u32,
+    returning_requested: bool,
+    max_returning_rows: Option<u32>,
+    max_returning_response_bytes: Option<u32>,
+) -> SqlWriteExecutionBounds {
+    sql_write_execution_bounds(
+        Some(require_affected_at_most),
+        returning_requested,
+        max_returning_rows,
+        max_returning_response_bytes,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
