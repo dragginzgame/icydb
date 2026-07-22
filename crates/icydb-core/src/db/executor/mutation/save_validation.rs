@@ -12,15 +12,14 @@ use crate::{
             AcceptedFieldWriteProvenance, AcceptedMutationFieldWriteIntent,
             AcceptedMutationIntentPatch, CanonicalRow, DecodedDataStoreKey, RawRow, SlotReader,
             StructuralRowContract, StructuralSlotReader,
-            canonical_row_from_entity_with_accepted_contract,
+            canonical_row_from_resolved_entity_with_accepted_contract,
         },
         executor::mutation::save::SaveExecutor,
         predicate::canonical_cmp,
         relation::validate_save_relations_with_accepted_contract,
         schema::{
-            AcceptedFieldKind, AcceptedFieldKindCategory, AcceptedInsertOmissionPolicy,
-            AcceptedRowDecodeContract, AcceptedScalarClass, SchemaInfo,
-            classify_accepted_field_kind, literal_matches_type,
+            AcceptedFieldKind, AcceptedFieldKindCategory, AcceptedRowDecodeContract,
+            AcceptedScalarClass, SchemaInfo, classify_accepted_field_kind, literal_matches_type,
         },
     },
     error::InternalError,
@@ -116,10 +115,11 @@ impl<E: PersistedRow> SaveExecutor<E> {
         sanitize_with_context(entity, Some(write_context))?;
         validate(entity)?;
         self.validate_entity_invariants(entity, schema)?;
-        let normalized = canonical_row_from_entity_with_accepted_contract(
+        let normalized = canonical_row_from_resolved_entity_with_accepted_contract(
             E::PATH,
             self.accepted_row_decode_contract().clone(),
             entity,
+            resolved_row,
         )?;
         self.validate_sanitizer_preserved_protected_fields(
             resolved_row,
@@ -350,9 +350,9 @@ impl<E: PersistedRow> SaveExecutor<E> {
         Ok(names.join(", "))
     }
 
-    // Validate typed entity field values against accepted schema field facts
-    // when the save lane has an accepted row contract. Decimal checks remain
-    // normalizing because these are authored typed values before row encoding.
+    // Validate generated typed-entity values against accepted schema field
+    // facts. DDL-owned values have already passed accepted structural
+    // resolution and are absent from the generated Rust entity by design.
     fn validate_entity_field_invariants_with_accepted_contract(
         entity: &E,
         schema: &SchemaInfo,
@@ -364,12 +364,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
             };
             let field_name = field.field_name();
             let field_kind = field.kind();
-            if !field.generated()
-                && !matches!(
-                    field.insert_omission_policy(),
-                    AcceptedInsertOmissionPolicy::Required
-                )
-            {
+            if !field.generated() {
                 continue;
             }
 

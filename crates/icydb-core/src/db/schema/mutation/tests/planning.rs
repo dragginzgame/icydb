@@ -264,3 +264,72 @@ fn physical_field_changes_preserve_row_layout_exhaustion_causes() {
         "generated additive reconciliation must preserve the same typed cause",
     );
 }
+
+#[test]
+#[cfg(feature = "sql")]
+fn metadata_default_changes_remain_available_at_row_layout_exhaustion() {
+    let base = base_snapshot();
+    let maximum_layout = crate::db::schema::RowLayoutVersion::new(u32::MAX)
+        .expect("maximum layout version should be valid");
+    let ddl_field = PersistedFieldSnapshot::new_initial_with_write_policy_and_origin(
+        FieldId::new(3),
+        "nickname".to_string(),
+        SchemaFieldSlot::new(2),
+        AcceptedFieldKind::Text { max_len: None },
+        Vec::new(),
+        true,
+        SchemaInsertDefault::None,
+        SchemaFieldWritePolicy::none(),
+        PersistedFieldOrigin::SqlDdl,
+        FieldStorageDecode::ByKind,
+        LeafCodec::Scalar(ScalarCodec::Text),
+    );
+    let accepted =
+        crate::db::schema::AcceptedSchemaSnapshot::try_new(PersistedSchemaSnapshot::new(
+            base.version(),
+            base.entity_path().to_string(),
+            base.entity_name().to_string(),
+            base.primary_key_field_ids().to_vec(),
+            SchemaRowLayout::new(
+                maximum_layout,
+                crate::db::schema::RowLayoutVersion::INITIAL,
+                [
+                    base.row_layout().field_to_slot(),
+                    &[(FieldId::new(3), SchemaFieldSlot::new(2))],
+                ]
+                .concat(),
+            ),
+            [base.fields(), std::slice::from_ref(&ddl_field)].concat(),
+        ))
+        .expect("maximum-version snapshot should remain internally valid");
+
+    let set_default = derive_sql_ddl_field_default_accepted_after(
+        &accepted,
+        "nickname",
+        SchemaInsertDefault::SlotPayload(vec![0xFF, 0x01, b'A', b'd', b'a']),
+    )
+    .expect("metadata-only SET DEFAULT must not allocate a row layout version");
+    assert_eq!(
+        set_default
+            .accepted_after()
+            .persisted_snapshot()
+            .row_layout()
+            .current_version(),
+        maximum_layout,
+    );
+
+    let drop_default = derive_sql_ddl_field_default_accepted_after(
+        set_default.accepted_after(),
+        "nickname",
+        SchemaInsertDefault::None,
+    )
+    .expect("metadata-only DROP DEFAULT must not allocate a row layout version");
+    assert_eq!(
+        drop_default
+            .accepted_after()
+            .persisted_snapshot()
+            .row_layout()
+            .current_version(),
+        maximum_layout,
+    );
+}

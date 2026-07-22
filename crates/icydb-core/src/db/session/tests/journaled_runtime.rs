@@ -1,5 +1,63 @@
 use super::*;
-use crate::metrics::sink::MutationCommitClass;
+use crate::{db::data::StoreVisit, metrics::sink::MutationCommitClass};
+
+#[derive(Debug, Eq, PartialEq)]
+struct JournaledSessionStorageBytes {
+    data: Vec<(Vec<u8>, Vec<u8>)>,
+    indexes: Vec<(Vec<u8>, Vec<u8>)>,
+}
+
+fn journaled_session_storage_bytes() -> JournaledSessionStorageBytes {
+    let mut data = JOURNALED_SESSION_SQL_DATA_STORE.with_borrow(|store| {
+        let mut rows = Vec::new();
+        let _: Result<(), std::convert::Infallible> = store.visit_entries(|key, row| {
+            rows.push((key.as_bytes().to_vec(), row.as_bytes().to_vec()));
+            Ok(StoreVisit::Continue)
+        });
+        rows
+    });
+    let mut indexes = JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+        let mut entries = Vec::new();
+        let _: Result<(), std::convert::Infallible> = store.visit_entries(|key, value| {
+            entries.push((key.as_bytes().to_vec(), value.as_bytes().to_vec()));
+            Ok(IndexStoreVisit::Continue)
+        });
+        entries
+    });
+    data.sort();
+    indexes.sort();
+
+    JournaledSessionStorageBytes { data, indexes }
+}
+
+fn journaled_session_schema_snapshot() -> PersistedSchemaSnapshot {
+    JOURNALED_SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        store
+            .current_accepted_persisted_snapshot(JournaledSessionSqlEntity::ENTITY_TAG)
+            .expect("journaled temporal schema should remain readable")
+            .expect("journaled temporal schema should be published")
+    })
+}
+
+fn journaled_session_raw_row(id: u64) -> crate::db::data::RawRow {
+    let key = DecodedDataStoreKey::try_new::<JournaledSessionSqlEntity>(id)
+        .expect("journaled temporal row key should build")
+        .to_raw()
+        .expect("journaled temporal row key should encode");
+
+    JOURNALED_SESSION_SQL_DATA_STORE.with_borrow(|store| {
+        store
+            .get(&key)
+            .expect("journaled temporal row should exist")
+    })
+}
+
+fn journaled_session_row_layout_version(id: u64) -> u32 {
+    crate::db::codec::decode_row_payload_bytes(journaled_session_raw_row(id).as_bytes())
+        .expect("journaled temporal row envelope should decode")
+        .layout_version()
+        .get()
+}
 
 fn mutation_commit_classes_for_entity(
     events: &[MetricsEvent],
@@ -246,6 +304,188 @@ fn journaled_session_recovery_folds_committed_tail_into_canonical_btrees() {
         assert_eq!(watermark.highest_folded_journal_sequence().get(), 3);
         assert_eq!(watermark.fold_epoch(), 1);
     });
+}
+
+fn seed_journaled_temporal_default_eras(session: &DbSession<SessionSqlCanister>) {
+    session
+        .insert(JournaledSessionSqlEntity {
+            id: 1,
+            name: "Early".to_string(),
+            age: 31,
+        })
+        .expect("layout-one row should persist before additive DDL");
+    session
+        .execute_admin_sql_ddl::<JournaledSessionSqlEntity>(
+            &super::sql_surface::ddl_transition_sql(
+                "ALTER TABLE JournaledSessionSqlEntity ADD COLUMN score nat64 NOT NULL DEFAULT 7",
+                1,
+            ),
+        )
+        .expect("score addition should freeze layout-one historical fill");
+    session
+        .execute_admin_sql_ddl::<JournaledSessionSqlEntity>(
+            &super::sql_surface::ddl_transition_sql(
+                "ALTER TABLE JournaledSessionSqlEntity ALTER COLUMN score SET DEFAULT 8",
+                2,
+            ),
+        )
+        .expect("score default change should affect only future writes");
+    session
+        .insert(JournaledSessionSqlEntity {
+            id: 2,
+            name: "Middle".to_string(),
+            age: 32,
+        })
+        .expect("layout-two row should use the changed score default");
+    session
+        .execute_admin_sql_ddl::<JournaledSessionSqlEntity>(
+            &super::sql_surface::ddl_transition_sql(
+                "ALTER TABLE JournaledSessionSqlEntity ADD COLUMN nickname text DEFAULT 'historical'",
+                3,
+            ),
+        )
+        .expect("nickname addition should freeze prior-row historical fill");
+    session
+        .execute_admin_sql_ddl::<JournaledSessionSqlEntity>(
+            &super::sql_surface::ddl_transition_sql(
+                "ALTER TABLE JournaledSessionSqlEntity ALTER COLUMN score SET DEFAULT 9",
+                4,
+            ),
+        )
+        .expect("second score default change should stay future-only");
+    session
+        .execute_admin_sql_ddl::<JournaledSessionSqlEntity>(
+            &super::sql_surface::ddl_transition_sql(
+                "ALTER TABLE JournaledSessionSqlEntity ALTER COLUMN nickname SET DEFAULT 'current'",
+                5,
+            ),
+        )
+        .expect("nickname default change should stay future-only");
+    session
+        .insert(JournaledSessionSqlEntity {
+            id: 3,
+            name: "Current".to_string(),
+            age: 33,
+        })
+        .expect("layout-three row should use both current defaults");
+}
+
+fn expected_promoted_journaled_temporal_rows() -> Vec<Vec<Value>> {
+    vec![
+        vec![
+            Value::Nat64(1),
+            Value::Nat64(41),
+            Value::Nat64(7),
+            Value::Text("historical".to_string()),
+        ],
+        vec![
+            Value::Nat64(2),
+            Value::Nat64(42),
+            Value::Nat64(8),
+            Value::Text("historical".to_string()),
+        ],
+        vec![
+            Value::Nat64(3),
+            Value::Nat64(43),
+            Value::Nat64(9),
+            Value::Text("current".to_string()),
+        ],
+    ]
+}
+
+#[test]
+fn journaled_temporal_defaults_remain_frozen_through_three_layouts_and_recovery() {
+    reset_journaled_session_sql_store();
+    let session = journaled_sql_session();
+    seed_journaled_temporal_default_eras(&session);
+
+    assert_eq!(journaled_session_row_layout_version(1), 1);
+    assert_eq!(journaled_session_row_layout_version(2), 2);
+    assert_eq!(journaled_session_row_layout_version(3), 3);
+    assert_eq!(
+        public_projection_rows::<JournaledSessionSqlEntity>(
+            &session,
+            "SELECT id, score, nickname FROM JournaledSessionSqlEntity ORDER BY id ASC",
+        ),
+        vec![
+            vec![
+                Value::Nat64(1),
+                Value::Nat64(7),
+                Value::Text("historical".to_string()),
+            ],
+            vec![
+                Value::Nat64(2),
+                Value::Nat64(8),
+                Value::Text("historical".to_string()),
+            ],
+            vec![
+                Value::Nat64(3),
+                Value::Nat64(9),
+                Value::Text("current".to_string()),
+            ],
+        ],
+    );
+
+    session
+        .execute_admin_sql_ddl::<JournaledSessionSqlEntity>(
+            &super::sql_surface::ddl_transition_sql(
+                "ALTER TABLE JournaledSessionSqlEntity ALTER COLUMN score DROP DEFAULT",
+                6,
+            ),
+        )
+        .expect("dropping score default should affect only future omission");
+    let omission_error = session
+        .insert(JournaledSessionSqlEntity {
+            id: 4,
+            name: "Rejected".to_string(),
+            age: 34,
+        })
+        .expect_err("future omission should reject after required score loses its default");
+    assert_eq!(
+        omission_error.diagnostic().detail(),
+        Some(&DiagnosticDetail::RuntimeBoundary {
+            boundary: icydb_diagnostic_code::RuntimeBoundaryCode::MutationRequiredFieldMissing,
+        }),
+    );
+
+    for (id, age) in [(1, 41), (2, 42), (3, 43)] {
+        execute_sql_statement_for_tests::<JournaledSessionSqlEntity>(
+            &session,
+            &format!("UPDATE JournaledSessionSqlEntity SET age = {age} WHERE id = {id}"),
+        )
+        .unwrap_or_else(|error| {
+            panic!(
+                "unrelated updates should preserve frozen values and promote each row era: {:?}",
+                error.diagnostic(),
+            )
+        });
+        assert_eq!(journaled_session_row_layout_version(id), 3);
+    }
+
+    let expected_rows = expected_promoted_journaled_temporal_rows();
+    let before_rows = public_projection_rows::<JournaledSessionSqlEntity>(
+        &session,
+        "SELECT id, age, score, nickname FROM JournaledSessionSqlEntity ORDER BY id ASC",
+    );
+    let before_storage = journaled_session_storage_bytes();
+    let before_schema = journaled_session_schema_snapshot();
+    assert_eq!(before_rows, expected_rows);
+
+    reinitialize_journaled_session_sql_store();
+    let recovered_session = journaled_sql_session();
+
+    assert_eq!(
+        public_projection_rows::<JournaledSessionSqlEntity>(
+            &recovered_session,
+            "SELECT id, age, score, nickname FROM JournaledSessionSqlEntity ORDER BY id ASC",
+        ),
+        expected_rows,
+    );
+    assert_eq!(journaled_session_storage_bytes(), before_storage);
+    assert_eq!(journaled_session_schema_snapshot(), before_schema);
+    for id in 1..=3 {
+        assert_eq!(journaled_session_row_layout_version(id), 3);
+    }
 }
 
 #[test]

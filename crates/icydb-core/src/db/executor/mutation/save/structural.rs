@@ -9,7 +9,6 @@ use crate::{
             AcceptedMutationIntentPatch, AuthoredStructuralPatch, DecodedDataStoreKey,
             PersistedRow, RawRow, ResolvedAcceptedMutationRow, StructuralRowContract,
             StructuralSlotReader, canonical_row_from_raw_row_with_accepted_decode_contract,
-            merge_non_generated_slots_into_canonical_row_with_accepted_contract,
             resolve_insert_structural_patch_with_accepted_contract,
             resolve_update_structural_patch_with_accepted_contract,
         },
@@ -407,17 +406,9 @@ impl<E: PersistedRow> SaveExecutor<E> {
             write_context,
         )?;
 
-        // Phase 2: retain normalized generated fields from typed preflight and
-        // accepted non-generated slots from the structural after-image. DDL
-        // fields have no Rust entity slot and must not collapse back to their
-        // missing/default policy during re-emission.
-        let row_bytes = merge_non_generated_slots_into_canonical_row_with_accepted_contract(
-            E::PATH,
-            accepted_row_decode_contract.clone(),
-            normalized_entity_row.as_raw_row(),
-            structural_after_image.as_raw_row(),
-        )?;
-        let row_bytes = row_bytes.into_raw_row().into_bytes();
+        // Phase 2: preflight already emitted normalized generated fields and
+        // preserved resolved DDL-owned slots as one complete current row.
+        let row_bytes = normalized_entity_row.into_raw_row().into_bytes();
         let before_bytes = old_raw
             .as_ref()
             .map(|row| {

@@ -29,10 +29,8 @@ where
 
     // Phase 2: decode entity bytes through the caller-selected structural row
     // contract and classify persisted decode failures once.
-    let mut slots = StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, contract)
-        .map_err(|_| InternalError::persisted_row_decode_corruption())?;
-    let entity = E::materialize_from_slots(&mut slots)
-        .map_err(|_| InternalError::persisted_row_decode_corruption())?;
+    let mut slots = StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, contract)?;
+    let entity = E::materialize_from_slots(&mut slots)?;
 
     // Phase 3: enforce key consistency before returning the typed row.
     let actual_key = entity.id().key();

@@ -98,7 +98,7 @@ fn accepted_schema_snapshot_and_catalog_for_entity<E: EntityDeclaration>()
     (accepted, catalog)
 }
 
-fn ddl_transition_sql(sql: &str, expected_schema_version: u32) -> String {
+pub(super) fn ddl_transition_sql(sql: &str, expected_schema_version: u32) -> String {
     ddl_transition_sql_to(
         sql,
         expected_schema_version,

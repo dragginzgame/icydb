@@ -138,7 +138,7 @@ fn validate_row_format_version(format_version: u8) -> Result<(), InternalError> 
 /// Encode one persisted row envelope at an explicit format version.
 ///
 /// The version parameter is intentionally exposed inside the DB boundary so
-/// tests and migration code can exercise envelope admission explicitly.
+/// the current writer and malformed-envelope tests share one bounded encoder.
 pub(in crate::db) fn serialize_row_payload_with_version(
     layout_version: RowLayoutVersion,
     payload: Vec<u8>,

@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     db::{
-        codec::serialize_row_payload,
+        codec::{decode_row_payload_bytes, serialize_row_payload},
         data::{
             CanonicalRow, RawRow, SlotReader, encode_structural_value_storage_bytes,
             with_structural_read_metrics,
@@ -191,6 +191,18 @@ fn raw_row_from_encoded_slot_payloads(slot_payloads: &[Vec<u8>]) -> RawRow {
             .expect("row decode test payload should serialize"),
     )
     .expect("row decode test raw row should be bounded")
+}
+
+fn restamp_raw_row_for_typed_terminal_test(
+    raw_row: &RawRow,
+    layout_version: crate::db::schema::RowLayoutVersion,
+) -> RawRow {
+    let decoded = decode_row_payload_bytes(raw_row.as_bytes())
+        .expect("typed-terminal test row envelope should decode");
+    let encoded = serialize_row_payload(layout_version, decoded.payload().to_vec())
+        .expect("typed-terminal test row should restamp");
+
+    RawRow::from_untrusted_bytes(encoded).expect("typed-terminal test row should stay bounded")
 }
 
 fn composite_row_decode_layout() -> (RowLayout, crate::types::EntityTag) {
@@ -480,6 +492,67 @@ fn accepted_row_layout_decoder_rejects_malformed_raw_row() {
         icydb_diagnostic_code::DiagnosticCode::RuntimeCorruption,
         "malformed-row decode diagnostic drifted: {err:?}",
     );
+}
+
+#[test]
+fn typed_response_preserves_exact_accepted_row_shape_corruption_codes() {
+    let accepted = accepted_row_decode_schema();
+    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+        .expect("accepted row decode schema should project into runtime contract");
+    let layout = accepted_row_decode_layout(&descriptor)
+        .expect("exact accepted row layout should be generated-compatible");
+    let entity = RowDecodeEntity {
+        id: Ulid::from_u128(32),
+        title: "typed-corruption".to_string(),
+        tags: vec!["exact".to_string()],
+        portrait: Blob::from(vec![0xCA, 0xFE]),
+    };
+    let key = crate::db::data::DecodedDataStoreKey::try_new::<RowDecodeEntity>(entity.id)
+        .expect("typed-terminal test key should encode");
+    let current = CanonicalRow::from_entity_with_model_proposal_for_test(&entity)
+        .expect("typed-terminal current row should encode")
+        .into_raw_row();
+    let future_layout = layout
+        .contract()
+        .current_layout_version()
+        .checked_next()
+        .expect("typed-terminal future layout should exist");
+    let future = restamp_raw_row_for_typed_terminal_test(&current, future_layout);
+    let short = raw_row_from_encoded_slot_payloads(&[
+        crate::db::encode_persisted_scalar_slot_payload(&entity.id, "id")
+            .expect("typed-terminal id payload should encode"),
+        crate::db::encode_persisted_scalar_slot_payload(&entity.title, "title")
+            .expect("typed-terminal title payload should encode"),
+        encode_structural_value_storage_bytes(&Value::List(
+            entity.tags.iter().cloned().map(Value::Text).collect(),
+        ))
+        .expect("typed-terminal tags payload should encode"),
+    ]);
+
+    for (row, expected) in [
+        (
+            future,
+            icydb_diagnostic_code::RuntimeBoundaryCode::PersistedRowLayoutOutsideAcceptedWindow,
+        ),
+        (
+            short,
+            icydb_diagnostic_code::RuntimeBoundaryCode::PersistedRowSlotCountMismatch,
+        ),
+    ] {
+        let result = crate::db::executor::terminal::decode_data_rows_into_entity_response::<
+            RowDecodeEntity,
+        >(&layout, vec![(key.clone(), row)]);
+        let Err(err) = result else {
+            panic!("typed response must reject malformed accepted row shape")
+        };
+
+        assert_eq!(err.class(), ErrorClass::Corruption);
+        assert_eq!(err.origin(), ErrorOrigin::Serialize);
+        assert_eq!(
+            err.diagnostic().detail(),
+            Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary { boundary: expected }),
+        );
+    }
 }
 
 #[test]

@@ -34,17 +34,19 @@ pub(in crate::db) use contract::encode_value_with_model_proposal_for_test;
 pub(in crate::db) use contract::{
     decode_runtime_value_from_accepted_field_contract, decode_runtime_value_from_row_contract,
 };
-#[cfg(test)]
-pub(in crate::db) use patch::canonical_row_from_entity_for_model_proposal_for_test;
 pub(in crate::db) use patch::{
     AcceptedFieldWriteProvenance, ResolvedAcceptedMutationRow,
-    canonical_row_from_entity_with_accepted_contract,
     canonical_row_from_raw_row_with_accepted_decode_contract,
-    canonical_row_from_raw_row_with_structural_contract, canonical_row_from_stored_raw_row,
+    canonical_row_from_raw_row_with_structural_contract,
+    canonical_row_from_resolved_entity_with_accepted_contract, canonical_row_from_stored_raw_row,
     canonical_row_from_structural_slot_reader_with_accepted_contract,
-    merge_non_generated_slots_into_canonical_row_with_accepted_contract,
     resolve_insert_structural_patch_with_accepted_contract,
     resolve_update_structural_patch_with_accepted_contract,
+};
+#[cfg(test)]
+pub(in crate::db) use patch::{
+    canonical_row_from_entity_for_model_proposal_for_test,
+    canonical_row_from_entity_with_accepted_contract,
 };
 #[cfg(feature = "diagnostics")]
 pub use reader::{StructuralReadMetrics, with_structural_read_metrics};

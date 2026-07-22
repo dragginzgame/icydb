@@ -27,19 +27,16 @@ pub(in crate::db) use persisted_row::encode_accepted_value_ref_for_accepted_fiel
 pub(in crate::db) use persisted_row::encode_canonical_value_for_accepted_field_contract;
 #[cfg(feature = "sql")]
 pub(in crate::db) use persisted_row::encode_input_value_for_accepted_field_contract;
-#[cfg(test)]
-pub(in crate::db) use persisted_row::encode_value_with_model_proposal_for_test;
 pub(in crate::db) use persisted_row::validate_default_payload_for_accepted_field_contract;
 pub(in crate::db) use persisted_row::{
     AcceptedFieldWriteProvenance, AcceptedMutationFieldWriteIntent, AcceptedMutationIntentPatch,
     CanonicalSlotReader, FieldSlot, ResolvedAcceptedMutationRow, StructuralSlotReader,
-    canonical_row_from_entity_with_accepted_contract,
     canonical_row_from_raw_row_with_accepted_decode_contract,
-    canonical_row_from_raw_row_with_structural_contract, canonical_row_from_stored_raw_row,
+    canonical_row_from_raw_row_with_structural_contract,
+    canonical_row_from_resolved_entity_with_accepted_contract, canonical_row_from_stored_raw_row,
     canonical_row_from_structural_slot_reader_with_accepted_contract,
     decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
     decode_sparse_raw_row_with_contract, decode_sparse_required_slot_with_contract,
-    merge_non_generated_slots_into_canonical_row_with_accepted_contract,
     resolve_insert_structural_patch_with_accepted_contract,
     resolve_update_structural_patch_with_accepted_contract,
 };
@@ -52,6 +49,10 @@ pub use persisted_row::{
     encode_persisted_option_scalar_slot_payload, encode_persisted_scalar_slot_payload,
     encode_persisted_slot_payload_by_kind, encode_persisted_structured_many_slot_payload,
     encode_persisted_structured_slot_payload,
+};
+#[cfg(test)]
+pub(in crate::db) use persisted_row::{
+    canonical_row_from_entity_with_accepted_contract, encode_value_with_model_proposal_for_test,
 };
 pub(in crate::db) use persisted_row::{
     decode_runtime_value_from_accepted_field_contract, decode_runtime_value_from_row_contract,

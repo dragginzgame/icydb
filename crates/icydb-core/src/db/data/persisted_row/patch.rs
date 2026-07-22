@@ -113,15 +113,54 @@ where
     )
 }
 
-/// Build one canonical row from one typed entity through accepted field contracts.
+/// Build a test-only canonical row from typed fields and accepted insert policy.
 ///
-/// This is the production save boundary for typed after-images. The concrete
-/// entity supplies authored inputs by stable slot, and the accepted schema
-/// contract owns admission and persisted encoding for the final row bytes.
+/// Production mutation paths already carry a resolved complete after-image and
+/// use `canonical_row_from_resolved_entity_with_accepted_contract` instead.
+#[cfg(test)]
 pub(in crate::db) fn canonical_row_from_entity_with_accepted_contract<E>(
     entity_path: &'static str,
     accepted_decode_contract: AcceptedRowDecodeContract,
     entity: &E,
+) -> Result<CanonicalRow, InternalError>
+where
+    E: AuthoredFieldProjection,
+{
+    canonical_row_from_entity_with_optional_resolved_row(
+        entity_path,
+        accepted_decode_contract,
+        entity,
+        None,
+    )
+}
+
+/// Re-emit one sanitizer-normalized entity while preserving resolved DDL-owned slots.
+///
+/// Generated fields come from the normalized entity. Fields absent from the
+/// generated Rust type come from the already-resolved complete after-image, so
+/// updates never reinterpret preserved values through current insert policy.
+pub(in crate::db) fn canonical_row_from_resolved_entity_with_accepted_contract<E>(
+    entity_path: &'static str,
+    accepted_decode_contract: AcceptedRowDecodeContract,
+    entity: &E,
+    resolved_row: &RawRow,
+) -> Result<CanonicalRow, InternalError>
+where
+    E: AuthoredFieldProjection,
+{
+    canonical_row_from_entity_with_optional_resolved_row(
+        entity_path,
+        accepted_decode_contract,
+        entity,
+        Some(resolved_row),
+    )
+}
+
+fn canonical_row_from_entity_with_optional_resolved_row<E>(
+    entity_path: &'static str,
+    accepted_decode_contract: AcceptedRowDecodeContract,
+    entity: &E,
+    resolved_row: Option<&RawRow>,
 ) -> Result<CanonicalRow, InternalError>
 where
     E: AuthoredFieldProjection,
@@ -131,6 +170,11 @@ where
         entity_path,
         accepted_decode_contract.clone(),
     );
+    let resolved = resolved_row
+        .map(|row| {
+            StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(row, &contract)
+        })
+        .transpose()?;
     let mut slot_payloads = Vec::with_capacity(contract.field_count());
 
     for slot in 0..contract.field_count() {
@@ -148,6 +192,14 @@ where
                     .encode_field(entity, slot, &mut budget)
                     .map_err(authored_field_admission_error)?,
             );
+            continue;
+        }
+
+        if let Some(resolved) = resolved.as_ref() {
+            let payload = resolved
+                .get_bytes(slot)
+                .ok_or_else(InternalError::persisted_row_encode_internal)?;
+            slot_payloads.push(payload.to_vec());
             continue;
         }
 
@@ -202,54 +254,6 @@ fn value_admission_error(error: ValueAdmissionError) -> InternalError {
         | ValueAdmissionError::DuplicateSetItem
         | ValueAdmissionError::DuplicateMapKey => InternalError::executor_unsupported(),
     }
-}
-
-/// Merge accepted non-generated slots from a structural after-image into a
-/// typed-preflight-normalized canonical row.
-///
-/// Generated fields retain sanitizer and validator output from the normalized
-/// entity. DDL-owned fields retain their structurally authored or inherited
-/// canonical payload because they have no corresponding Rust entity field.
-pub(in crate::db) fn merge_non_generated_slots_into_canonical_row_with_accepted_contract(
-    entity_path: &'static str,
-    accepted_decode_contract: AcceptedRowDecodeContract,
-    normalized_entity_row: &RawRow,
-    structural_after_image: &RawRow,
-) -> Result<CanonicalRow, InternalError> {
-    let contract = StructuralRowContract::from_accepted_decode_contract(
-        entity_path,
-        accepted_decode_contract.clone(),
-    );
-    let normalized = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-        normalized_entity_row,
-        &contract,
-    )?;
-    let structural = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-        structural_after_image,
-        &contract,
-    )?;
-    let mut slot_payloads = Vec::with_capacity(contract.field_count());
-
-    for slot in 0..contract.field_count() {
-        let source = if accepted_decode_contract
-            .field_for_slot(slot)
-            .is_some_and(|field| !field.generated())
-        {
-            &structural
-        } else {
-            &normalized
-        };
-        let payload = source
-            .get_bytes(slot)
-            .ok_or_else(InternalError::persisted_row_encode_internal)?;
-        slot_payloads.push(payload.to_vec());
-    }
-
-    emit_raw_row_from_slot_payloads(
-        contract.current_layout_version(),
-        contract.field_count(),
-        slot_payloads.as_slice(),
-    )
 }
 
 /// Build one canonical row from one accepted-contract structural slot reader.

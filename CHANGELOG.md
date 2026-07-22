@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.209.md](docs/changelog/0.209.md)
 
+- `0.209.1` preserves frozen DDL-owned values during unrelated updates after a
+  default is dropped and retains exact row-layout corruption diagnostics.
+
 - `0.209.0` hard-cuts persistence and mutation resolution to distinguish
   future insert policy from frozen historical fill, stamps every row with its
   exact accepted layout, and converges typed, generated, structural, SQL, and

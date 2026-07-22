@@ -174,7 +174,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_addition(
     envelope.publish()
 }
 
-/// Require an exact empty-entity proof for one V1 physical-shape transition.
+/// Require an exact empty-entity proof for one current physical-shape transition.
 /// Missing or invalid cardinality metadata is conservatively nonempty.
 pub(super) fn require_exact_empty_sql_ddl_entity(
     store: StoreHandle,

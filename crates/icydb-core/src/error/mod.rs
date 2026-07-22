@@ -1202,7 +1202,7 @@ impl InternalError {
         }
     }
 
-    /// Construct the canonical V1 physical-rewrite migration rejection.
+    /// Construct the canonical current physical-rewrite migration rejection.
     #[cfg(feature = "sql")]
     pub(crate) fn schema_ddl_rewrite_requires_migration(_entity_path: &'static str) -> Self {
         Self {
