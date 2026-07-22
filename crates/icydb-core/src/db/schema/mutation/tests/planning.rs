@@ -77,6 +77,7 @@ fn index_mutation_plans_preserve_the_current_physical_target() {
 #[test]
 fn field_path_index_request_lowering_fails_closed_for_unsupported_indexes() {
     let unique = PersistedIndexSnapshot::new(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
         1,
         "unique_name".to_string(),
         "test::mutation::unique_name".to_string(),
@@ -85,6 +86,7 @@ fn field_path_index_request_lowering_fails_closed_for_unsupported_indexes() {
         None,
     );
     let explicit_items = PersistedIndexSnapshot::new(
+        SchemaIndexId::new(2).expect("test index identity should be non-zero"),
         2,
         "items_name".to_string(),
         "test::mutation::items_name".to_string(),
@@ -95,6 +97,7 @@ fn field_path_index_request_lowering_fails_closed_for_unsupported_indexes() {
         None,
     );
     let empty = PersistedIndexSnapshot::new(
+        SchemaIndexId::new(3).expect("test index identity should be non-zero"),
         3,
         "empty_name".to_string(),
         "test::mutation::empty_name".to_string(),
@@ -124,6 +127,7 @@ fn field_path_index_request_lowering_fails_closed_for_unsupported_indexes() {
 fn expression_index_request_lowering_fails_closed_for_unsupported_indexes() {
     let field_path_only = non_unique_name_index();
     let items_without_expression = PersistedIndexSnapshot::new(
+        SchemaIndexId::new(2).expect("test index identity should be non-zero"),
         2,
         "items_name".to_string(),
         "test::mutation::items_name".to_string(),
@@ -134,6 +138,7 @@ fn expression_index_request_lowering_fails_closed_for_unsupported_indexes() {
         None,
     );
     let empty = PersistedIndexSnapshot::new(
+        SchemaIndexId::new(3).expect("test index identity should be non-zero"),
         3,
         "empty_expression".to_string(),
         "test::mutation::empty_expression".to_string(),
@@ -331,5 +336,64 @@ fn metadata_default_changes_remain_available_at_row_layout_exhaustion() {
             .row_layout()
             .current_version(),
         maximum_layout,
+    );
+}
+
+#[test]
+#[cfg(feature = "sql")]
+fn accepted_after_derivations_preserve_structural_identity_state() {
+    let before = base_snapshot()
+        .with_constraint_id_allocator(ConstraintIdAllocator::new(17))
+        .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+            RelationId::new(9).expect("test relation identity should be non-zero"),
+            "owner".to_string(),
+            "test::Owner".to_string(),
+            vec![FieldId::new(2)],
+        )]);
+    let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(before)
+        .expect("test accepted schema should be internally valid");
+
+    let renamed = derive_sql_ddl_field_rename_accepted_after(&accepted, "name", "display_name")
+        .expect("field rename should derive an accepted-after snapshot");
+    let renamed_snapshot = renamed.accepted_after().persisted_snapshot();
+    assert_eq!(renamed_snapshot.constraint_id_allocator().high_water(), 17);
+    assert_eq!(renamed_snapshot.relations()[0].id().get(), 9);
+
+    let indexed =
+        derive_sql_ddl_field_path_index_accepted_after(&accepted, non_unique_name_index())
+            .expect("index addition should derive an accepted-after snapshot");
+    let indexed_snapshot = indexed.accepted_after().persisted_snapshot();
+    assert_eq!(indexed_snapshot.constraint_id_allocator().high_water(), 17);
+    assert_eq!(indexed_snapshot.relations()[0].id().get(), 9);
+}
+
+#[test]
+#[cfg(feature = "sql")]
+fn secondary_index_drop_compacts_only_physical_ordinals() {
+    let first = non_unique_name_index();
+    let dropped = expression_name_index();
+    let surviving = PersistedIndexSnapshot::new(
+        SchemaIndexId::new(3).expect("test index identity should be non-zero"),
+        3,
+        "by_name_copy".to_string(),
+        "test::mutation::by_name_copy".to_string(),
+        false,
+        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        None,
+    );
+    let before = snapshot_with_indexes(&base_snapshot(), vec![first, dropped.clone(), surviving]);
+    let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(before)
+        .expect("test accepted schema should be internally valid");
+
+    let derivation = derive_sql_ddl_secondary_index_drop_accepted_after(&accepted, &dropped)
+        .expect("middle index drop should derive dense physical ordinals");
+    let indexes = derivation.accepted_after().persisted_snapshot().indexes();
+
+    assert_eq!(
+        indexes
+            .iter()
+            .map(|index| (index.schema_id().get(), index.ordinal()))
+            .collect::<Vec<_>>(),
+        vec![(1, 1), (3, 2)],
     );
 }

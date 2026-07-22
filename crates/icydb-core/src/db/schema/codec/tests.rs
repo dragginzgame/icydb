@@ -1,12 +1,12 @@
 use crate::{
     db::schema::{
-        AcceptedFieldKind, FieldId, PersistedFieldOrigin, PersistedFieldSnapshot,
-        PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+        AcceptedFieldKind, ConstraintIdAllocator, FieldId, PersistedFieldOrigin,
+        PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-        PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
+        PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId,
         RowLayoutVersion, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill,
-        SchemaInsertDefault, SchemaRowLayout, SchemaVersion, decode_persisted_schema_snapshot,
-        encode_persisted_schema_snapshot,
+        SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+        decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
     },
     error::{ErrorClass, ErrorOrigin},
     model::field::{
@@ -82,7 +82,8 @@ fn decode_persisted_schema_snapshot_rejects_zero_schema_version() {
 
 #[test]
 fn persisted_schema_snapshot_round_trips_temporal_layout_facts() {
-    let snapshot = temporal_schema_snapshot();
+    let snapshot =
+        temporal_schema_snapshot().with_constraint_id_allocator(ConstraintIdAllocator::new(7));
     let current = snapshot.row_layout().current_version();
     let historical_payload = snapshot.fields()[1]
         .historical_fill()
@@ -101,6 +102,7 @@ fn persisted_schema_snapshot_round_trips_temporal_layout_facts() {
         RowLayoutVersion::INITIAL
     );
     assert_eq!(decoded.fields()[1].introduced_in_layout(), current);
+    assert_eq!(decoded.constraint_id_allocator().high_water(), 7);
     assert_eq!(
         decoded.fields()[1].historical_fill().slot_payload(),
         Some(historical_payload.as_slice())
@@ -291,6 +293,7 @@ fn decode_persisted_schema_snapshot_rejects_fragmented_index_ordinals() {
             ),
         ],
         vec![PersistedIndexSnapshot::new(
+            SchemaIndexId::new(2).expect("test index identity should be non-zero"),
             2,
             "idx_fragmented_indexes__email".to_string(),
             "fragmented_indexes::email".to_string(),
@@ -625,6 +628,7 @@ fn persisted_schema_snapshot_round_trips_field_path_indexes() {
             ),
         ],
         vec![PersistedIndexSnapshot::new(
+            SchemaIndexId::new(1).expect("test index identity should be non-zero"),
             1,
             "idx_indexed__email".to_string(),
             "indexed::email".to_string(),
@@ -647,6 +651,7 @@ fn persisted_schema_snapshot_round_trips_field_path_indexes() {
 
     assert_eq!(decoded.indexes().len(), 1);
     let index = &decoded.indexes()[0];
+    assert_eq!(index.schema_id().get(), 1);
     assert_eq!(index.ordinal(), 1);
     assert_eq!(index.name(), "idx_indexed__email");
     assert_eq!(index.store(), "indexed::email");
@@ -655,6 +660,27 @@ fn persisted_schema_snapshot_round_trips_field_path_indexes() {
     assert_eq!(index.key().field_paths()[0].field_id(), FieldId::new(2));
     assert_eq!(index.key().field_paths()[0].slot(), SchemaFieldSlot::new(1));
     assert_eq!(index.key().field_paths()[0].path(), &["email".to_string()]);
+
+    let mut zero_identity = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
+    zero_identity.indexes[0].schema_id = 0;
+    let encoded = candid::encode_one(&zero_identity)
+        .expect("zero logical index identity fixture should encode");
+    let error = decode_persisted_schema_snapshot(&encoded)
+        .expect_err("zero logical index identity must fail closed");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+
+    let duplicate = snapshot.indexes()[0]
+        .clone_with_dense_identities(2, |field_id, slot| Some((field_id, slot)))
+        .expect("test index should support physical ordinal compaction");
+    let mut duplicate_identity = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
+    duplicate_identity
+        .indexes
+        .push(super::PersistedIndexSnapshotWire::from_index(&duplicate));
+    let encoded = candid::encode_one(&duplicate_identity)
+        .expect("duplicate logical index identity fixture should encode");
+    let error = decode_persisted_schema_snapshot(&encoded)
+        .expect_err("duplicate logical index identity must fail closed");
+    assert_eq!(error.class(), ErrorClass::Corruption);
 }
 
 #[test]
@@ -704,6 +730,7 @@ fn persisted_schema_snapshot_round_trips_relation_edges() {
         Vec::new(),
     )
     .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+        RelationId::new(1).expect("test relation identity should be non-zero"),
         "owner".to_string(),
         "entities::Owner".to_string(),
         vec![FieldId::new(2)],
@@ -716,10 +743,37 @@ fn persisted_schema_snapshot_round_trips_relation_edges() {
 
     assert_eq!(decoded.relations().len(), 1);
     let relation = &decoded.relations()[0];
+    assert_eq!(relation.id().get(), 1);
     assert_eq!(relation.name(), "owner");
     assert_eq!(relation.target_path(), "entities::Owner");
     assert_eq!(relation.local_field_ids(), &[FieldId::new(2)]);
     assert_eq!(decoded.fields()[1].kind(), &relation_kind);
+
+    let mut zero_identity = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
+    zero_identity.relations[0].relation_id = 0;
+    let encoded = candid::encode_one(&zero_identity)
+        .expect("zero logical relation identity fixture should encode");
+    let error = decode_persisted_schema_snapshot(&encoded)
+        .expect_err("zero logical relation identity must fail closed");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+
+    let duplicate = PersistedRelationEdgeSnapshot::new(
+        relation.id(),
+        "secondary_owner".to_string(),
+        "entities::SecondaryOwner".to_string(),
+        vec![FieldId::new(2)],
+    );
+    let mut duplicate_identity = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
+    duplicate_identity
+        .relations
+        .push(super::PersistedRelationEdgeSnapshotWire::from_relation(
+            &duplicate,
+        ));
+    let encoded = candid::encode_one(&duplicate_identity)
+        .expect("duplicate logical relation identity fixture should encode");
+    let error = decode_persisted_schema_snapshot(&encoded)
+        .expect_err("duplicate logical relation identity must fail closed");
+    assert_eq!(error.class(), ErrorClass::Corruption);
 }
 
 #[test]
@@ -767,6 +821,7 @@ fn persisted_schema_snapshot_round_trips_expression_indexes() {
             ),
         ],
         vec![PersistedIndexSnapshot::new(
+            SchemaIndexId::new(1).expect("test index identity should be non-zero"),
             1,
             "idx_expression_indexed__lower_email".to_string(),
             "expression_indexed::lower_email".to_string(),

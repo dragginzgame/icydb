@@ -14,8 +14,8 @@ use crate::{
             AcceptedCompositeCatalog, AcceptedFieldKind, FieldId, PersistedFieldSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
             PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, RowLayoutVersion,
-            SchemaFieldSlot, SchemaHistoricalFill, SchemaInsertDefault, SchemaRowLayout,
-            SchemaVersion, build_initial_accepted_catalogs_from_kinds_for_tests,
+            SchemaFieldSlot, SchemaHistoricalFill, SchemaIndexId, SchemaInsertDefault,
+            SchemaRowLayout, SchemaVersion, build_initial_accepted_catalogs_from_kinds_for_tests,
         },
     },
     model::field::{
@@ -211,6 +211,7 @@ fn snapshot_with_indexed_enum(
             LeafCodec::Structural,
         )],
         vec![PersistedIndexSnapshot::new(
+            SchemaIndexId::new(1).expect("test index identity should be non-zero"),
             1,
             "idx_item__status".to_string(),
             "test::Item::status".to_string(),
@@ -592,6 +593,7 @@ fn accepted_schema_bundle_rejects_composite_key_index_and_relation_contracts() {
         indexed.row_layout().clone(),
         indexed.fields().to_vec(),
         vec![PersistedIndexSnapshot::new(
+            SchemaIndexId::new(1).expect("test index identity should be non-zero"),
             1,
             "idx_item__profile".to_string(),
             "test::Item::profile".to_string(),

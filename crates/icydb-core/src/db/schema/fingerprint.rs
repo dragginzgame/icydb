@@ -158,6 +158,7 @@ fn schema_with_fingerprint_version_and_indexes(
         schema.fields().to_vec(),
         indexes,
     )
+    .with_constraint_id_allocator(schema.constraint_id_allocator())
     .with_relations(schema.relations().to_vec())
 }
 
@@ -168,15 +169,34 @@ fn index_with_admission_fingerprint_name(index: &PersistedIndexSnapshot) -> Pers
         index.name().to_string()
     };
 
-    PersistedIndexSnapshot::new_with_origin(
-        index.ordinal(),
-        name,
-        index.store().to_string(),
-        index.unique(),
-        index.origin(),
-        index.key().clone(),
-        index.predicate_sql().map(str::to_string),
-    )
+    index_with_identity_and_name(index, index.schema_id(), name)
+}
+
+fn index_with_identity_and_name(
+    index: &PersistedIndexSnapshot,
+    schema_id: crate::db::schema::SchemaIndexId,
+    name: String,
+) -> PersistedIndexSnapshot {
+    match index.origin() {
+        crate::db::schema::PersistedIndexOrigin::Generated => PersistedIndexSnapshot::new(
+            schema_id,
+            index.ordinal(),
+            name,
+            index.store().to_string(),
+            index.unique(),
+            index.key().clone(),
+            index.predicate_sql().map(str::to_string),
+        ),
+        crate::db::schema::PersistedIndexOrigin::SqlDdl => PersistedIndexSnapshot::new_sql_ddl(
+            schema_id,
+            index.ordinal(),
+            name,
+            index.store().to_string(),
+            index.unique(),
+            index.key().clone(),
+            index.predicate_sql().map(str::to_string),
+        ),
+    }
 }
 
 fn hash_labeled_str(hasher: &mut Sha256, label: &str, value: &str) {
@@ -208,9 +228,10 @@ fn truncate_sha256_commit_schema_fingerprint(hasher: Sha256) -> CommitSchemaFing
 mod tests {
     use crate::{
         db::schema::{
-            AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
-            PersistedIndexSnapshot, PersistedSchemaSnapshot, RowLayoutVersion, SchemaFieldSlot,
-            SchemaHistoricalFill, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+            AcceptedFieldKind, AcceptedSchemaSnapshot, ConstraintIdAllocator, FieldId,
+            PersistedFieldSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
+            RelationId, RowLayoutVersion, SchemaFieldSlot, SchemaHistoricalFill, SchemaIndexId,
+            SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
             compiled_schema_proposal_for_model,
         },
         model::{
@@ -286,6 +307,7 @@ mod tests {
             snapshot.fields().to_vec(),
             snapshot.indexes().to_vec(),
         )
+        .with_constraint_id_allocator(snapshot.constraint_id_allocator())
         .with_relations(snapshot.relations().to_vec())
     }
 
@@ -295,15 +317,8 @@ mod tests {
     ) -> PersistedSchemaSnapshot {
         let mut indexes = snapshot.indexes().to_vec();
         let index = &indexes[0];
-        indexes[0] = PersistedIndexSnapshot::new_with_origin(
-            index.ordinal(),
-            index_name.to_string(),
-            index.store().to_string(),
-            index.unique(),
-            index.origin(),
-            index.key().clone(),
-            index.predicate_sql().map(str::to_string),
-        );
+        indexes[0] =
+            super::index_with_identity_and_name(index, index.schema_id(), index_name.to_string());
 
         PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
             snapshot.version(),
@@ -314,6 +329,7 @@ mod tests {
             snapshot.fields().to_vec(),
             indexes,
         )
+        .with_constraint_id_allocator(snapshot.constraint_id_allocator())
         .with_relations(snapshot.relations().to_vec())
     }
 
@@ -523,5 +539,63 @@ mod tests {
                 .expect("renamed generated-index admission fingerprint should hash"),
             "generated index names remain metadata-only for admission fingerprinting",
         );
+    }
+
+    #[test]
+    fn schema_fingerprints_track_stable_structural_identity() {
+        let indexed = snapshot_for_model(&CONTRACT_INDEXED_MODEL);
+        let with_allocator = indexed
+            .clone()
+            .with_constraint_id_allocator(ConstraintIdAllocator::new(1));
+        let index = &indexed.indexes()[0];
+        let with_index_identity = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+            indexed.version(),
+            indexed.entity_path().to_string(),
+            indexed.entity_name().to_string(),
+            indexed.primary_key_field_ids().to_vec(),
+            indexed.row_layout().clone(),
+            indexed.fields().to_vec(),
+            vec![super::index_with_identity_and_name(
+                index,
+                SchemaIndexId::new(2).expect("test index identity should be non-zero"),
+                index.name().to_string(),
+            )],
+        );
+        let with_relation =
+            indexed
+                .clone()
+                .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+                    RelationId::new(1).expect("test relation identity should be non-zero"),
+                    "owner".to_string(),
+                    "fingerprint::Owner".to_string(),
+                    vec![FieldId::new(2)],
+                )]);
+        let with_other_relation_identity =
+            indexed
+                .clone()
+                .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+                    RelationId::new(2).expect("test relation identity should be non-zero"),
+                    "owner".to_string(),
+                    "fingerprint::Owner".to_string(),
+                    vec![FieldId::new(2)],
+                )]);
+        let admission = |snapshot: &PersistedSchemaSnapshot| {
+            super::accepted_schema_admission_fingerprint(snapshot)
+                .expect("structural identity admission fingerprint should hash")
+        };
+        let cache = |snapshot: &PersistedSchemaSnapshot| {
+            super::accepted_schema_cache_fingerprint_for_persisted_snapshot(snapshot)
+                .expect("structural identity cache fingerprint should hash")
+        };
+
+        for changed in [&with_allocator, &with_index_identity, &with_relation] {
+            assert_ne!(admission(&indexed), admission(changed));
+            assert_ne!(cache(&indexed), cache(changed));
+        }
+        assert_ne!(
+            admission(&with_relation),
+            admission(&with_other_relation_identity)
+        );
+        assert_ne!(cache(&with_relation), cache(&with_other_relation_identity));
     }
 }

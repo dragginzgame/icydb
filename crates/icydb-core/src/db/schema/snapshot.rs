@@ -7,8 +7,9 @@
 use crate::db::predicate::{relabel_sql_predicate_field_root, sql_predicate_references_field_root};
 use crate::{
     db::schema::{
-        AcceptedFieldKind, FieldId, RowLayoutVersion, SchemaFieldSlot, SchemaRowLayout,
-        SchemaVersion, schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
+        AcceptedFieldKind, ConstraintIdAllocator, FieldId, RelationId, RowLayoutVersion,
+        SchemaFieldSlot, SchemaIndexId, SchemaRowLayout, SchemaVersion,
+        schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
         schema_snapshot_relation_integrity_detail,
     },
     error::InternalError,
@@ -222,6 +223,7 @@ pub(in crate::db) struct PersistedSchemaSnapshot {
     entity_name: String,
     primary_key_field_ids: Vec<FieldId>,
     row_layout: SchemaRowLayout,
+    constraint_id_allocator: ConstraintIdAllocator,
     fields: Vec<PersistedFieldSnapshot>,
     indexes: Vec<PersistedIndexSnapshot>,
     relations: Vec<PersistedRelationEdgeSnapshot>,
@@ -315,10 +317,21 @@ impl PersistedSchemaSnapshot {
             entity_name,
             primary_key_field_ids: primary_key_field_ids.into_primary_key_field_ids(),
             row_layout,
+            constraint_id_allocator: ConstraintIdAllocator::default(),
             fields,
             indexes,
             relations: Vec::new(),
         }
+    }
+
+    /// Attach persisted constraint-ID high-water state to this snapshot.
+    #[must_use]
+    pub(in crate::db) const fn with_constraint_id_allocator(
+        mut self,
+        allocator: ConstraintIdAllocator,
+    ) -> Self {
+        self.constraint_id_allocator = allocator;
+        self
     }
 
     /// Attach accepted relation-edge contracts to this schema snapshot.
@@ -437,6 +450,12 @@ impl PersistedSchemaSnapshot {
         &self.row_layout
     }
 
+    /// Return persisted non-reusing constraint-ID allocator state.
+    #[must_use]
+    pub(in crate::db) const fn constraint_id_allocator(&self) -> ConstraintIdAllocator {
+        self.constraint_id_allocator
+    }
+
     /// Borrow persisted field entries in row-layout order.
     #[must_use]
     pub(in crate::db) const fn fields(&self) -> &[PersistedFieldSnapshot] {
@@ -470,6 +489,7 @@ impl PersistedSchemaSnapshot {
             self.fields.clone(),
             self.indexes.clone(),
         )
+        .with_constraint_id_allocator(self.constraint_id_allocator)
         .with_relations(self.relations.clone())
     }
 }
@@ -482,6 +502,7 @@ impl PersistedSchemaSnapshot {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PersistedRelationEdgeSnapshot {
+    id: RelationId,
     name: String,
     target_path: String,
     local_field_ids: Vec<FieldId>,
@@ -491,15 +512,23 @@ impl PersistedRelationEdgeSnapshot {
     /// Build one accepted relation-edge snapshot from already-validated pieces.
     #[must_use]
     pub(in crate::db) const fn new(
+        id: RelationId,
         name: String,
         target_path: String,
         local_field_ids: Vec<FieldId>,
     ) -> Self {
         Self {
+            id,
             name,
             target_path,
             local_field_ids,
         }
+    }
+
+    /// Return the accepted stable logical relation identity.
+    #[must_use]
+    pub(in crate::db) const fn id(&self) -> RelationId {
+        self.id
     }
 
     /// Borrow the stable relation-edge name.
@@ -535,6 +564,7 @@ impl PersistedRelationEdgeSnapshot {
             .collect::<Option<Vec<_>>>()?;
 
         Some(Self::new(
+            self.id,
             self.name.clone(),
             self.target_path.clone(),
             local_field_ids,
@@ -550,6 +580,7 @@ impl PersistedRelationEdgeSnapshot {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PersistedIndexSnapshot {
+    schema_id: SchemaIndexId,
     ordinal: u16,
     name: String,
     store: String,
@@ -563,69 +594,56 @@ impl PersistedIndexSnapshot {
     /// Build one generated accepted index snapshot.
     #[must_use]
     pub(in crate::db) const fn new(
+        schema_id: SchemaIndexId,
         ordinal: u16,
         name: String,
         store: String,
         unique: bool,
-        key: PersistedIndexKeySnapshot,
-        predicate_sql: Option<String>,
-    ) -> Self {
-        Self::new_with_origin(
-            ordinal,
-            name,
-            store,
-            unique,
-            PersistedIndexOrigin::Generated,
-            key,
-            predicate_sql,
-        )
-    }
-
-    /// Build one SQL DDL-created accepted index snapshot.
-    #[must_use]
-    #[cfg(any(test, feature = "sql"))]
-    pub(in crate::db) const fn new_sql_ddl(
-        ordinal: u16,
-        name: String,
-        store: String,
-        unique: bool,
-        key: PersistedIndexKeySnapshot,
-        predicate_sql: Option<String>,
-    ) -> Self {
-        Self::new_with_origin(
-            ordinal,
-            name,
-            store,
-            unique,
-            PersistedIndexOrigin::SqlDdl,
-            key,
-            predicate_sql,
-        )
-    }
-
-    /// Build one accepted index snapshot from already-validated pieces.
-    #[must_use]
-    pub(in crate::db) const fn new_with_origin(
-        ordinal: u16,
-        name: String,
-        store: String,
-        unique: bool,
-        origin: PersistedIndexOrigin,
         key: PersistedIndexKeySnapshot,
         predicate_sql: Option<String>,
     ) -> Self {
         Self {
+            schema_id,
             ordinal,
             name,
             store,
             unique,
-            origin,
+            origin: PersistedIndexOrigin::Generated,
             key,
             predicate_sql,
         }
     }
 
-    /// Return the accepted stable per-entity index ordinal.
+    /// Build one SQL DDL-created accepted index snapshot.
+    #[must_use]
+    pub(in crate::db) const fn new_sql_ddl(
+        schema_id: SchemaIndexId,
+        ordinal: u16,
+        name: String,
+        store: String,
+        unique: bool,
+        key: PersistedIndexKeySnapshot,
+        predicate_sql: Option<String>,
+    ) -> Self {
+        Self {
+            schema_id,
+            ordinal,
+            name,
+            store,
+            unique,
+            origin: PersistedIndexOrigin::SqlDdl,
+            key,
+            predicate_sql,
+        }
+    }
+
+    /// Return the accepted stable logical index-definition identity.
+    #[must_use]
+    pub(in crate::db) const fn schema_id(&self) -> SchemaIndexId {
+        self.schema_id
+    }
+
+    /// Return the accepted dense physical index ordinal.
     #[must_use]
     pub(in crate::db) const fn ordinal(&self) -> u16 {
         self.ordinal
@@ -700,6 +718,7 @@ impl PersistedIndexSnapshot {
         new_name: &str,
     ) -> Self {
         Self {
+            schema_id: self.schema_id,
             ordinal: self.ordinal,
             name: self.name.clone(),
             store: self.store.clone(),
@@ -724,6 +743,7 @@ impl PersistedIndexSnapshot {
         map: impl Copy + Fn(FieldId, SchemaFieldSlot) -> Option<(FieldId, SchemaFieldSlot)>,
     ) -> Option<Self> {
         Some(Self {
+            schema_id: self.schema_id,
             ordinal,
             name: self.name.clone(),
             store: self.store.clone(),

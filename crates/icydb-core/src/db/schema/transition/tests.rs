@@ -7,8 +7,8 @@ use crate::{
         AcceptedFieldKind, FieldId, MutationPublicationPreflight, PersistedFieldOrigin,
         PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-        SchemaFieldSlot, SchemaFieldWritePolicy, SchemaInsertDefault, SchemaRowLayout,
-        SchemaTransitionDecision, SchemaTransitionPlanKind, SchemaVersion,
+        SchemaFieldSlot, SchemaFieldWritePolicy, SchemaIndexId, SchemaInsertDefault,
+        SchemaRowLayout, SchemaTransitionDecision, SchemaTransitionPlanKind, SchemaVersion,
         decide_schema_transition, derive_generated_accepted_candidate,
         transition::SchemaTransitionRejectionKind,
     },
@@ -367,6 +367,7 @@ fn named_field_path_index_with_ordinal(
     store: String,
 ) -> PersistedIndexSnapshot {
     PersistedIndexSnapshot::new(
+        SchemaIndexId::new(u32::from(ordinal)).expect("test index identity should be non-zero"),
         ordinal,
         name.to_string(),
         store,

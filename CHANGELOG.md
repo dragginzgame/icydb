@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Aligns SQL surface and generated mutation-reference coverage with explicit
-  exact and ordered-prefix update contracts, including `UPDATE RETURNING`.
+- Begins the breaking 0.211 accepted-constraint hard cut by persisting stable
+  logical index and relation identities plus non-reusing constraint-ID state,
+  retaining only version-1 current internal formats and evidence identities,
+  without changing physical row, index-key, relation-key, cursor, or journal
+  formats.
 
 ## [0.210.x] 🎯 - 2026-07-22 - Explicit Bulk Update Contracts
 

@@ -17,9 +17,9 @@ use crate::{
         schema::{
             AcceptedFieldKind, FieldId, PersistedFieldOrigin, PersistedFieldSnapshot,
             PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-            RowLayoutVersion, SchemaFieldSlot, SchemaHistoricalFill, SchemaInsertDefault,
-            SchemaRowLayout, SchemaStore, SchemaTransitionPlanKind, SchemaVersion,
-            compiled_schema_proposal_for_model,
+            RowLayoutVersion, SchemaFieldSlot, SchemaHistoricalFill, SchemaIndexId,
+            SchemaInsertDefault, SchemaRowLayout, SchemaStore, SchemaTransitionPlanKind,
+            SchemaVersion, compiled_schema_proposal_for_model,
         },
     },
     entity::{EntityDeclaration, EntityKind},
@@ -452,6 +452,7 @@ fn indexed_schema_snapshot_with_renamed_index_and_extra_indexes(
         panic!("indexed schema fixture should have one generated index");
     };
     let renamed_index = PersistedIndexSnapshot::new(
+        expected_index.schema_id(),
         expected_index.ordinal(),
         index_name.to_string(),
         expected_index.store().to_string(),
@@ -481,6 +482,8 @@ fn indexed_schema_ddl_extra_index() -> PersistedIndexSnapshot {
     };
 
     PersistedIndexSnapshot::new(
+        SchemaIndexId::new(u32::from(expected_index.ordinal() + 1))
+            .expect("test index identity should be non-zero"),
         expected_index.ordinal() + 1,
         "ddl_name_idx".to_string(),
         SchemaReconcileTestStore::PATH.to_string(),

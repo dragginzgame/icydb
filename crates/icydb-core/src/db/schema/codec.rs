@@ -5,14 +5,15 @@
 
 use crate::{
     db::schema::{
-        AcceptedFieldKind, FieldId, PersistedFieldOrigin, PersistedFieldSnapshot,
-        PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+        AcceptedFieldKind, ConstraintIdAllocator, FieldId, PersistedFieldOrigin,
+        PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexOrigin, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
-        PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RowLayoutVersion, SchemaFieldSlot,
-        SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaInsertDefault, SchemaRowLayout,
-        SchemaVersion, composite_catalog::CompositeTypeId, schema_snapshot_index_integrity_detail,
-        schema_snapshot_integrity_detail, schema_snapshot_relation_integrity_detail,
+        PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId, RowLayoutVersion,
+        SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaIndexId,
+        SchemaInsertDefault, SchemaRowLayout, SchemaVersion, composite_catalog::CompositeTypeId,
+        schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
+        schema_snapshot_relation_integrity_detail,
     },
     error::InternalError,
     model::field::{
@@ -42,7 +43,7 @@ use candid::{CandidType, Decode, Encode};
 use serde::Deserialize;
 
 const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 1;
-const SCHEMA_SNAPSHOT_CONTRACT_PROFILE: u32 = u32::from_be_bytes(*b"ICYT");
+const SCHEMA_SNAPSHOT_CONTRACT_PROFILE: u32 = u32::from_be_bytes(*b"ICYU");
 
 // Candid wire container for one persisted schema snapshot.
 //
@@ -57,6 +58,7 @@ struct PersistedSchemaSnapshotWire {
     entity_name: String,
     primary_key_field_ids: Vec<u32>,
     row_layout: SchemaRowLayoutWire,
+    constraint_id_high_water: u32,
     fields: Vec<PersistedFieldSnapshotWire>,
     indexes: Vec<PersistedIndexSnapshotWire>,
     relations: Vec<PersistedRelationEdgeSnapshotWire>,
@@ -106,6 +108,7 @@ struct PersistedNestedLeafSnapshotWire {
 // Candid wire container for one accepted index contract.
 #[derive(CandidType, Deserialize)]
 struct PersistedIndexSnapshotWire {
+    schema_id: u32,
     ordinal: u16,
     name: String,
     store: String,
@@ -118,6 +121,7 @@ struct PersistedIndexSnapshotWire {
 // Candid wire container for one accepted relation-edge contract.
 #[derive(CandidType, Deserialize)]
 struct PersistedRelationEdgeSnapshotWire {
+    relation_id: u32,
     name: String,
     target_path: String,
     local_field_ids: Vec<u32>,
@@ -342,6 +346,7 @@ impl PersistedSchemaSnapshotWire {
                 .map(|field_id| field_id.get())
                 .collect(),
             row_layout: SchemaRowLayoutWire::from_layout(snapshot.row_layout()),
+            constraint_id_high_water: snapshot.constraint_id_allocator().high_water(),
             fields: snapshot
                 .fields()
                 .iter()
@@ -388,7 +393,7 @@ impl PersistedSchemaSnapshotWire {
             .relations
             .into_iter()
             .map(PersistedRelationEdgeSnapshotWire::into_relation)
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()?;
         if schema_snapshot_integrity_detail(
             "persisted schema snapshot",
             version,
@@ -433,6 +438,7 @@ impl PersistedSchemaSnapshotWire {
                 fields,
                 indexes,
             )
+            .with_constraint_id_allocator(ConstraintIdAllocator::new(self.constraint_id_high_water))
             .with_relations(relations),
         )
     }
@@ -553,6 +559,7 @@ impl PersistedNestedLeafSnapshotWire {
 impl PersistedIndexSnapshotWire {
     fn from_index(index: &PersistedIndexSnapshot) -> Self {
         Self {
+            schema_id: index.schema_id().get(),
             ordinal: index.ordinal(),
             name: index.name().to_string(),
             store: index.store().to_string(),
@@ -564,15 +571,29 @@ impl PersistedIndexSnapshotWire {
     }
 
     fn into_index(self) -> Result<PersistedIndexSnapshot, InternalError> {
-        Ok(PersistedIndexSnapshot::new_with_origin(
-            self.ordinal,
-            self.name,
-            self.store,
-            self.unique,
-            self.origin.into_origin(),
-            self.key.into_key()?,
-            self.predicate_sql,
-        ))
+        let schema_id =
+            SchemaIndexId::new(self.schema_id).ok_or_else(InternalError::store_corruption)?;
+        let key = self.key.into_key()?;
+        Ok(match self.origin.into_origin() {
+            PersistedIndexOrigin::Generated => PersistedIndexSnapshot::new(
+                schema_id,
+                self.ordinal,
+                self.name,
+                self.store,
+                self.unique,
+                key,
+                self.predicate_sql,
+            ),
+            PersistedIndexOrigin::SqlDdl => PersistedIndexSnapshot::new_sql_ddl(
+                schema_id,
+                self.ordinal,
+                self.name,
+                self.store,
+                self.unique,
+                key,
+                self.predicate_sql,
+            ),
+        })
     }
 }
 
@@ -595,6 +616,7 @@ impl PersistedIndexOriginWire {
 impl PersistedRelationEdgeSnapshotWire {
     fn from_relation(relation: &PersistedRelationEdgeSnapshot) -> Self {
         Self {
+            relation_id: relation.id().get(),
             name: relation.name().to_string(),
             target_path: relation.target_path().to_string(),
             local_field_ids: relation
@@ -605,12 +627,15 @@ impl PersistedRelationEdgeSnapshotWire {
         }
     }
 
-    fn into_relation(self) -> PersistedRelationEdgeSnapshot {
-        PersistedRelationEdgeSnapshot::new(
+    fn into_relation(self) -> Result<PersistedRelationEdgeSnapshot, InternalError> {
+        let relation_id =
+            RelationId::new(self.relation_id).ok_or_else(InternalError::store_corruption)?;
+        Ok(PersistedRelationEdgeSnapshot::new(
+            relation_id,
             self.name,
             self.target_path,
             self.local_field_ids.into_iter().map(FieldId::new).collect(),
-        )
+        ))
     }
 }
 

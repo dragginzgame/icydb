@@ -9,8 +9,8 @@ use crate::{
         PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
         PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
         PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
-        RowLayoutVersion, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill,
-        SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+        RelationId, RowLayoutVersion, SchemaFieldSlot, SchemaFieldWritePolicy,
+        SchemaHistoricalFill, SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
         composite_catalog::AcceptedCompositeCatalog,
         enum_catalog::{
             AcceptedEnumCatalog, encode_unit_enum_default_in_catalog,
@@ -379,6 +379,7 @@ impl CompiledFieldProposal {
 
 #[derive(Clone, Debug)]
 pub(in crate::db) struct CompiledIndexProposal {
+    schema_id: SchemaIndexId,
     ordinal: u16,
     name: &'static str,
     store: &'static str,
@@ -388,10 +389,17 @@ pub(in crate::db) struct CompiledIndexProposal {
 }
 
 impl CompiledIndexProposal {
-    /// Return the generated stable index ordinal.
+    /// Return the generated physical index ordinal proposal.
     #[must_use]
     pub(in crate::db) const fn ordinal(&self) -> u16 {
         self.ordinal
+    }
+
+    /// Return the deterministic initial logical index identity proposal.
+    /// Accepted reconciliation preserves stored identity after first publish.
+    #[must_use]
+    pub(in crate::db) const fn schema_id(&self) -> SchemaIndexId {
+        self.schema_id
     }
 
     /// Return the generated stable index name.
@@ -431,6 +439,7 @@ impl CompiledIndexProposal {
         composite_catalog: &AcceptedCompositeCatalog,
     ) -> Result<PersistedIndexSnapshot, InternalError> {
         Ok(PersistedIndexSnapshot::new(
+            self.schema_id(),
             self.ordinal(),
             self.name().to_string(),
             self.store().to_string(),
@@ -450,12 +459,20 @@ impl CompiledIndexProposal {
 
 #[derive(Clone, Debug)]
 pub(in crate::db) struct CompiledRelationEdgeProposal {
+    id: RelationId,
     name: &'static str,
     target_path: &'static str,
     local_field_ids: Vec<FieldId>,
 }
 
 impl CompiledRelationEdgeProposal {
+    /// Return the deterministic initial logical relation identity proposal.
+    /// Accepted reconciliation preserves stored identity after first publish.
+    #[must_use]
+    pub(in crate::db) const fn id(&self) -> RelationId {
+        self.id
+    }
+
     /// Return the generated relation-edge name.
     #[must_use]
     pub(in crate::db) const fn name(&self) -> &'static str {
@@ -481,6 +498,7 @@ impl CompiledRelationEdgeProposal {
         &self,
     ) -> PersistedRelationEdgeSnapshot {
         PersistedRelationEdgeSnapshot::new(
+            self.id(),
             self.name().to_string(),
             self.target_path().to_string(),
             self.local_field_ids().to_vec(),
@@ -693,7 +711,10 @@ pub(in crate::db) fn compiled_schema_proposal_for_model(
     let relations = model
         .relations()
         .iter()
-        .filter_map(|relation| compiled_relation_proposal_from_model_relation(relation, model))
+        .enumerate()
+        .filter_map(|(index, relation)| {
+            compiled_relation_proposal_from_model_relation(index, relation, model)
+        })
         .collect::<Vec<_>>();
 
     let proposal = CompiledSchemaProposal {
@@ -861,6 +882,7 @@ fn debug_assert_compiled_schema_proposal_members(
 
     for index in proposal.indexes() {
         let _ = (
+            index.schema_id(),
             index.ordinal(),
             index.name(),
             index.store(),
@@ -873,6 +895,7 @@ fn debug_assert_compiled_schema_proposal_members(
 
     for relation in proposal.relations() {
         let _ = (
+            relation.id(),
             relation.name(),
             relation.target_path(),
             relation.local_field_ids(),
@@ -935,6 +958,7 @@ fn compiled_index_proposal_from_model_index(
     };
 
     Some(CompiledIndexProposal {
+        schema_id: SchemaIndexId::new(u32::from(index.ordinal()))?,
         ordinal: index.ordinal(),
         name: index.name(),
         store: index.store(),
@@ -945,6 +969,7 @@ fn compiled_index_proposal_from_model_index(
 }
 
 fn compiled_relation_proposal_from_model_relation(
+    index: usize,
     relation: &RelationEdgeModel,
     model: &EntityModel,
 ) -> Option<CompiledRelationEdgeProposal> {
@@ -961,6 +986,7 @@ fn compiled_relation_proposal_from_model_relation(
         .collect::<Option<Vec<_>>>()?;
 
     Some(CompiledRelationEdgeProposal {
+        id: RelationId::new(u32::try_from(index).ok()?.checked_add(1)?)?,
         name: relation.name(),
         target_path: relation.target_path(),
         local_field_ids,

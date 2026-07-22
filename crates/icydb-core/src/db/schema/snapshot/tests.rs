@@ -156,6 +156,7 @@ fn update_managed_unique_field_requires_global_write_validation() {
             ),
         ],
         vec![PersistedIndexSnapshot::new(
+            SchemaIndexId::new(1).expect("test index identity should be non-zero"),
             0,
             "idx_managed_unique__updated_at".to_string(),
             "managed_unique::updated_at".to_string(),
@@ -312,6 +313,7 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_index_contract() {
             ),
         ],
         vec![PersistedIndexSnapshot::new(
+            SchemaIndexId::new(1).expect("test index identity should be non-zero"),
             1,
             "idx_indexed__email".to_string(),
             "indexed::email".to_string(),
@@ -398,6 +400,7 @@ fn accepted_schema_snapshot_try_new_rejects_index_source_contract_drift() {
                 ),
             ],
             vec![PersistedIndexSnapshot::new(
+                SchemaIndexId::new(1).expect("test index identity should be non-zero"),
                 1,
                 "idx_indexed__email".to_string(),
                 "indexed::email".to_string(),
@@ -455,11 +458,13 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_relation_contract() {
     )
     .with_relations(vec![
         PersistedRelationEdgeSnapshot::new(
+            RelationId::new(1).expect("test relation identity should be non-zero"),
             "owner".to_string(),
             "schema::snapshot::tests::Owner".to_string(),
             vec![FieldId::new(2)],
         ),
         PersistedRelationEdgeSnapshot::new(
+            RelationId::new(2).expect("test relation identity should be non-zero"),
             "owner".to_string(),
             "schema::snapshot::tests::Owner".to_string(),
             vec![FieldId::new(2)],
@@ -498,6 +503,7 @@ fn accepted_schema_snapshot_try_new_rejects_relation_missing_local_field() {
         Vec::new(),
     )
     .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+        RelationId::new(1).expect("test relation identity should be non-zero"),
         "owner".to_string(),
         "schema::snapshot::tests::Owner".to_string(),
         vec![FieldId::new(2)],
@@ -551,6 +557,7 @@ fn accepted_schema_snapshot_try_new_rejects_composite_relation_local_field() {
         Vec::new(),
     )
     .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+        RelationId::new(1).expect("test relation identity should be non-zero"),
         "owner".to_string(),
         "schema::snapshot::tests::Owner".to_string(),
         vec![FieldId::new(2)],
@@ -603,6 +610,7 @@ fn accepted_schema_snapshot_exposes_relation_edges() {
         Vec::new(),
     )
     .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+        RelationId::new(1).expect("test relation identity should be non-zero"),
         "owner".to_string(),
         "schema::snapshot::tests::Owner".to_string(),
         vec![FieldId::new(2)],
@@ -662,6 +670,7 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_expression_index_contract() 
             ),
         ],
         vec![PersistedIndexSnapshot::new(
+            SchemaIndexId::new(1).expect("test index identity should be non-zero"),
             1,
             "idx_expression_indexed__lower_email".to_string(),
             "expression_indexed::lower_email".to_string(),

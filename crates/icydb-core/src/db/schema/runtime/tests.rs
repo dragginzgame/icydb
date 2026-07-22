@@ -10,7 +10,7 @@ use crate::{
         schema::{
             AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
             AcceptedValueCatalogHandle, FieldId, PersistedFieldSnapshot,
-            PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
+            PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId, SchemaFieldSlot,
             SchemaFieldWritePolicy, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
             authored_projection::{AcceptedAuthoredFieldProjection, AuthoredFieldAdmissionError},
             enum_catalog::{
@@ -210,6 +210,7 @@ fn accepted_schema_fixture_with_relation_edge() -> AcceptedSchemaSnapshot {
         .persisted_snapshot()
         .clone()
         .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+            RelationId::new(1).expect("test relation identity should be non-zero"),
             "nickname_owner".to_string(),
             "schema::tests::Owner".to_string(),
             vec![FieldId::new(2)],

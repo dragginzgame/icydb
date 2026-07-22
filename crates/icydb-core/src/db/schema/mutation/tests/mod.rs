@@ -9,11 +9,12 @@ use crate::{
         },
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         schema::{
-            AcceptedFieldKind, AcceptedSchemaMutationError, FieldId, MutationPlan,
-            PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
-            PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
-            PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
-            SchemaFieldSlot, SchemaInsertDefault, SchemaMutationDelta, SchemaMutationRequest,
+            AcceptedFieldKind, AcceptedSchemaMutationError, ConstraintIdAllocator, FieldId,
+            MutationPlan, PersistedFieldSnapshot, PersistedIndexExpressionOp,
+            PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
+            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+            PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId, SchemaFieldSlot,
+            SchemaIndexId, SchemaInsertDefault, SchemaMutationDelta, SchemaMutationRequest,
             SchemaRowLayout, SchemaVersion, classify_schema_mutation_delta,
             schema_mutation_request_for_snapshots,
         },
@@ -89,6 +90,7 @@ fn nullable_text_field(name: &str, id: u32, slot: u16) -> PersistedFieldSnapshot
 
 fn non_unique_name_index() -> PersistedIndexSnapshot {
     PersistedIndexSnapshot::new(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
         1,
         "by_name".to_string(),
         "test::mutation::by_name".to_string(),
@@ -116,6 +118,7 @@ fn name_key_path() -> PersistedIndexFieldPathSnapshot {
 
 fn expression_name_index() -> PersistedIndexSnapshot {
     PersistedIndexSnapshot::new(
+        SchemaIndexId::new(2).expect("test index identity should be non-zero"),
         2,
         "by_lower_name".to_string(),
         "test::mutation::by_lower_name".to_string(),
@@ -210,6 +213,8 @@ fn snapshot_with_indexes(
         snapshot.fields().to_vec(),
         indexes,
     )
+    .with_constraint_id_allocator(snapshot.constraint_id_allocator())
+    .with_relations(snapshot.relations().to_vec())
 }
 
 mod planning;

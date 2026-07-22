@@ -31,6 +31,10 @@ pub(in crate::db::schema) fn schema_snapshot_index_integrity_detail(
         }
 
         for other in &indexes[index_offset + 1..] {
+            if index.schema_id() == other.schema_id() {
+                return Some(());
+            }
+
             if index.ordinal() == other.ordinal() {
                 return Some(());
             }

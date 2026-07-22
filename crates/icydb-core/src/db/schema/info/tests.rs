@@ -6,7 +6,8 @@ use crate::{
         PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
         PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
         PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
-        SchemaFieldSlot, SchemaInfo, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+        RelationId, SchemaFieldSlot, SchemaIndexId, SchemaInfo, SchemaInsertDefault,
+        SchemaRowLayout, SchemaVersion,
         enum_catalog::build_initial_accepted_enum_catalog_from_kinds_for_tests,
         literal_matches_type,
     },
@@ -317,6 +318,7 @@ fn accepted_schema_with_name_index() -> AcceptedSchemaSnapshot {
             ),
         ],
         vec![PersistedIndexSnapshot::new(
+            SchemaIndexId::new(1).expect("test index identity should be non-zero"),
             1,
             "schema_info_name".to_string(),
             "schema::info::tests::name".to_string(),
@@ -425,6 +427,7 @@ fn accepted_schema_with_lower_name_index() -> AcceptedSchemaSnapshot {
             ),
         ],
         vec![PersistedIndexSnapshot::new(
+            SchemaIndexId::new(2).expect("test index identity should be non-zero"),
             2,
             "schema_info_lower_name".to_string(),
             "schema::info::tests::lower_name".to_string(),
@@ -679,6 +682,7 @@ fn accepted_snapshot_schema_info_uses_persisted_relation_authority() {
     .persisted_snapshot()
     .clone()
     .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+        RelationId::new(1).expect("test relation identity should be non-zero"),
         "name".to_string(),
         "schema::info::tests::Target".to_string(),
         vec![FieldId::new(2)],

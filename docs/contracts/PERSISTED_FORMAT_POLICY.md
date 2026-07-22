@@ -30,16 +30,22 @@ non-persisted execution plans are not persisted format.
 ## Current Compatibility Posture
 
 Before `1.0.0`, IcyDB keeps one active internal persisted format for each
-durable surface unless a design explicitly says otherwise.
+durable surface. Every active format uses version 1.
 
 The default posture is a pre-1.0 hard cut:
 
-- old internal persisted versions do not receive compatibility decoders by
-  default;
+- an incompatible format change replaces the current version-1 form instead
+  of introducing a version 2 reader or writer;
+- the current form either decodes exactly or fails closed; old internal forms
+  do not receive compatibility decoders;
 - unknown future versions fail closed;
 - format drift must be intentional, documented, and tested;
 - generated model reconstruction is not runtime authority for accepted schema
   or row layout.
+
+Application schema revisions and entity-local row-layout revisions are domain
+history, not wire-format versions. They may advance beyond 1 while the sole
+current schema and row codecs remain version 1.
 
 This policy matches the repository rule that internal protocols/formats can be
 hard-cut before `1.0.0` instead of carrying legacy fallback machinery.
@@ -74,6 +80,9 @@ Required evidence:
 ### Backward-compatible reader extension
 
 The reader accepts both old and new bytes while writers produce the new format.
+
+This classification is unavailable before `1.0.0` unless the user explicitly
+authorizes an exception to the repository hard-cut rule.
 
 Required evidence:
 

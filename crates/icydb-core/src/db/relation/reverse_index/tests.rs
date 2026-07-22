@@ -19,7 +19,7 @@ use crate::db::{
     schema::{
         AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedRowLayoutRuntimeContract,
         AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, FieldId,
-        PersistedFieldSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
+        PersistedFieldSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId,
         SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
         enum_catalog::build_initial_accepted_enum_catalog,
     },
@@ -224,6 +224,7 @@ fn accepted_relations_require_registered_target_authority() {
         ],
     )
     .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+        RelationId::new(1).expect("test relation identity should be non-zero"),
         "target".to_string(),
         "Target".to_string(),
         vec![FieldId::new(2)],

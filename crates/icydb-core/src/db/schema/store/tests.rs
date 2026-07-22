@@ -13,7 +13,7 @@ use crate::{
             AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
             AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, FieldId, PersistedFieldSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
+            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaIndexId,
             SchemaInsertDefault, SchemaRowLayout, SchemaVersion, accepted_schema_cache_fingerprint,
             composite_catalog::CompositeTypeId, empty_accepted_schema_candidate_for_tests,
             encode_persisted_schema_snapshot, enum_catalog::AcceptedSchemaFingerprint,
@@ -1310,6 +1310,7 @@ fn persisted_schema_snapshot_with_index_for_test(
         base.row_layout().clone(),
         base.fields().to_vec(),
         vec![PersistedIndexSnapshot::new(
+            SchemaIndexId::new(1).expect("test index identity should be non-zero"),
             1,
             index_name.to_string(),
             "RoleSpecificStore".to_string(),

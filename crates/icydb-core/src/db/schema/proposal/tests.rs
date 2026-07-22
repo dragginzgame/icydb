@@ -274,6 +274,7 @@ fn compiled_schema_proposal_preserves_generated_relation_edges() {
     let proposal = compiled_schema_proposal_for_model(&RELATION_MODEL);
 
     assert_eq!(proposal.relations().len(), 1);
+    assert_eq!(proposal.relations()[0].id().get(), 1);
     assert_eq!(proposal.relations()[0].name(), "score_owner");
     assert_eq!(
         proposal.relations()[0].target_path(),
@@ -286,6 +287,7 @@ fn compiled_schema_proposal_preserves_generated_relation_edges() {
 
     let snapshot = proposal.initial_persisted_schema_snapshot();
     assert_eq!(snapshot.relations().len(), 1);
+    assert_eq!(snapshot.relations()[0].id().get(), 1);
     assert_eq!(snapshot.relations()[0].name(), "score_owner");
     assert_eq!(
         snapshot.relations()[0].target_path(),
@@ -365,6 +367,7 @@ fn compiled_schema_proposal_builds_initial_persisted_snapshot() {
     std::assert_matches!(profile.nested_leaves()[1].kind(), AcceptedFieldKind::Nat64);
 
     let name_index = &snapshot.indexes()[0];
+    assert_eq!(name_index.schema_id().get(), 1);
     assert_eq!(name_index.ordinal(), 1);
     assert_eq!(name_index.name(), "idx_entity__name");
     assert!(!name_index.unique());
@@ -383,6 +386,7 @@ fn compiled_schema_proposal_builds_initial_persisted_snapshot() {
     );
 
     let nested_index = &snapshot.indexes()[1];
+    assert_eq!(nested_index.schema_id().get(), 2);
     assert_eq!(nested_index.name(), "idx_entity__profile_nickname");
     assert_eq!(
         nested_index.key().field_paths()[0].field_id(),
@@ -398,6 +402,7 @@ fn compiled_schema_proposal_builds_initial_persisted_snapshot() {
     );
 
     let expression_index = &snapshot.indexes()[2];
+    assert_eq!(expression_index.schema_id().get(), 3);
     assert_eq!(expression_index.ordinal(), 3);
     assert_eq!(expression_index.name(), "idx_entity__lower_name");
     let PersistedIndexKeySnapshot::Items(items) = expression_index.key() else {

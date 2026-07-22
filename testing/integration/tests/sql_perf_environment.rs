@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 const FIXTURE_PROFILE_VERSION: u32 = 1;
 const FIXTURE_GENERATOR_VERSION: u32 = 1;
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
-const DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION: u32 = 2;
+const DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION: u32 = 1;
 
 ///
 /// PerfFixtureSurfaceIdentity

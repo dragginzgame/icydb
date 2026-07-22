@@ -90,6 +90,7 @@ pub(in crate::db::schema) fn derive_generated_accepted_candidate(
             fields,
             generated.indexes().to_vec(),
         )
+        .with_constraint_id_allocator(accepted.constraint_id_allocator())
         .with_relations(generated.relations().to_vec()),
     ))
 }
@@ -162,6 +163,7 @@ fn derive_generated_default_candidate(
             fields,
             accepted.indexes().to_vec(),
         )
+        .with_constraint_id_allocator(accepted.constraint_id_allocator())
         .with_relations(accepted.relations().to_vec())
     })
 }

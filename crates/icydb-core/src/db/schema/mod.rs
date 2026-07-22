@@ -93,7 +93,7 @@ pub(in crate::db) use format::{
     show_indexes_for_model, show_indexes_for_model_with_runtime_state,
     show_indexes_for_schema_info_with_runtime_state,
 };
-pub(in crate::db) use identity::FieldId;
+pub(in crate::db) use identity::{ConstraintIdAllocator, FieldId, RelationId, SchemaIndexId};
 pub(in crate::db) use info::{
     SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo, SchemaIndexFieldPathInfo,
     SchemaIndexInfo, SchemaInfo,

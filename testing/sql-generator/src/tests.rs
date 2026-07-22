@@ -66,7 +66,7 @@ fn select_sub_seeds_have_fixed_blake3_golden_vectors() {
     )
     .expect("fixed family identity should derive");
 
-    assert_eq!(actual, 0xdab6_477b_1b44_b05c);
+    assert_eq!(actual, 0xf25a_a4d4_38d2_2440);
 
     let corpus_source = derive_sql_sub_seed(
         SELECT_GENERATOR_VERSION,
@@ -75,7 +75,7 @@ fn select_sub_seeds_have_fixed_blake3_golden_vectors() {
         6,
     )
     .expect("fixed corpus source identity should derive");
-    assert_eq!(corpus_source, 0x2985_11a7_6a85_1f70);
+    assert_eq!(corpus_source, 0xfe70_a2ad_2a8f_4a81);
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn accepted_snapshot_order_and_representative_case_are_golden() {
     );
     assert_eq!(
         blake3::hash(&canonical).to_hex().as_str(),
-        "e7280fc61b7da6c5e5c23b6ec2f11d30e78cd494bc643bca0e1666aabe405f4d",
+        "d7919694f435f93a2957c084d21a5275173b264a4119dfda328456ea1bfd9cba",
     );
 }
 

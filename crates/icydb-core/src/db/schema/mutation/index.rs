@@ -440,6 +440,7 @@ pub(in crate::db) fn derive_sql_ddl_field_path_index_accepted_after(
         before.fields().to_vec(),
         indexes,
     )
+    .with_constraint_id_allocator(before.constraint_id_allocator())
     .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
@@ -479,6 +480,7 @@ pub(in crate::db) fn derive_sql_ddl_expression_index_accepted_after(
         before.fields().to_vec(),
         indexes,
     )
+    .with_constraint_id_allocator(before.constraint_id_allocator())
     .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
@@ -522,6 +524,7 @@ pub(in crate::db) fn derive_sql_ddl_secondary_index_drop_accepted_after(
         before.fields().to_vec(),
         indexes,
     )
+    .with_constraint_id_allocator(before.constraint_id_allocator())
     .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;

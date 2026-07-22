@@ -25,6 +25,10 @@ pub(in crate::db::schema) fn schema_snapshot_relation_integrity_detail(
         }
 
         for other in &relations[relation_offset + 1..] {
+            if relation.id() == other.id() {
+                return Some(());
+            }
+
             if relation.name() == other.name() {
                 return Some(());
             }

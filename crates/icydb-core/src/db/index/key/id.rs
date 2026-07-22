@@ -10,7 +10,7 @@ use std::{fmt, mem::size_of};
 /// IndexId
 ///
 /// Logical identifier for an index.
-/// Combines one entity tag with one stable per-entity index ordinal.
+/// Combines one entity tag with one dense physical index ordinal.
 /// Used as the prefix component of all index keys.
 ///
 

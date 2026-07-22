@@ -108,6 +108,7 @@ fn complete_domain_stage_uses_candidate_logical_rows_for_new_index_fields() {
     let added_field = nullable_text_field("nickname", 3, 2);
     let added = append_fields_snapshot(&before, std::slice::from_ref(&added_field));
     let nickname_index = PersistedIndexSnapshot::new(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
         1,
         "by_nickname".to_string(),
         STORE_PATH.to_string(),
@@ -161,6 +162,7 @@ fn complete_domain_stage_uses_historical_fill_in_composite_index_key() {
     let added_field = nullable_text_field("nickname", 3, 2);
     let added = append_fields_snapshot(&before, std::slice::from_ref(&added_field));
     let composite = PersistedIndexSnapshot::new(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
         1,
         "by_name_nickname".to_string(),
         STORE_PATH.to_string(),
@@ -220,6 +222,7 @@ fn complete_domain_stage_rejects_unique_collision_from_candidate_logical_fill() 
     let added_field = nullable_text_field("nickname", 3, 2);
     let added = append_fields_snapshot(&before, std::slice::from_ref(&added_field));
     let unique_nickname = PersistedIndexSnapshot::new(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
         1,
         "unique_nickname".to_string(),
         STORE_PATH.to_string(),
@@ -288,6 +291,7 @@ fn complete_domain_stage_rejects_unique_collision_from_candidate_logical_fill() 
 fn complete_domain_stage_rejects_index_owned_by_another_store() {
     let before = base_snapshot();
     let foreign_index = PersistedIndexSnapshot::new(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
         1,
         "by_name".to_string(),
         "test::mutation::foreign".to_string(),
@@ -412,7 +416,9 @@ fn complete_domain_stage_derives_drop_ordinal_compaction_as_final_projection() {
     let first_index = domain_field_index(1, "by_name", false);
     let dropped_index = domain_expression_index(2, "by_lower_name", false, None);
     let last_index = domain_field_index(3, "by_name_copy", false);
-    let compacted_last_index = domain_field_index(2, "by_name_copy", false);
+    let compacted_last_index = last_index
+        .clone_with_dense_identities(2, |field_id, slot| Some((field_id, slot)))
+        .expect("test index should support physical ordinal compaction");
     let before = snapshot_with_indexes(
         &base_snapshot(),
         vec![
@@ -460,6 +466,7 @@ fn complete_domain_stage_derives_drop_ordinal_compaction_as_final_projection() {
         })
         .collect::<Vec<_>>();
     assert_eq!(final_ordinals, vec![1, 1, 2, 2]);
+    assert_eq!(after.indexes()[1].schema_id().get(), 3);
     assert_eq!(index_store_entries(&store), physical_before);
 }
 
@@ -507,6 +514,7 @@ fn domain_row(primary_key: u64, slots: &RebuildSlotReader) -> super::SchemaUserI
 
 fn domain_field_index(ordinal: u16, name: &str, unique: bool) -> PersistedIndexSnapshot {
     PersistedIndexSnapshot::new(
+        SchemaIndexId::new(u32::from(ordinal)).expect("test index identity should be non-zero"),
         ordinal,
         name.to_string(),
         STORE_PATH.to_string(),
@@ -523,6 +531,7 @@ fn domain_expression_index(
     predicate: Option<String>,
 ) -> PersistedIndexSnapshot {
     PersistedIndexSnapshot::new(
+        SchemaIndexId::new(u32::from(ordinal)).expect("test index identity should be non-zero"),
         ordinal,
         name.to_string(),
         STORE_PATH.to_string(),
@@ -542,6 +551,7 @@ fn domain_expression_index(
 
 fn domain_mixed_index(ordinal: u16, name: &str) -> PersistedIndexSnapshot {
     PersistedIndexSnapshot::new(
+        SchemaIndexId::new(u32::from(ordinal)).expect("test index identity should be non-zero"),
         ordinal,
         name.to_string(),
         STORE_PATH.to_string(),

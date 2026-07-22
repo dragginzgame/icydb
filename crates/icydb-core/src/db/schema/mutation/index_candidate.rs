@@ -4,6 +4,7 @@ use crate::db::schema::{
     AcceptedFieldKind, AcceptedSchemaSnapshot, PersistedIndexExpressionOp,
     PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
     PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+    SchemaIndexId,
 };
 
 /// Schema-owned outcome for resolving one SQL DDL secondary-index addition
@@ -167,6 +168,7 @@ pub(in crate::db) fn build_sql_ddl_secondary_index_candidate(
     let key = sql_ddl_secondary_index_key_snapshot(accepted_before, key_items)?;
 
     Ok(PersistedIndexSnapshot::new_sql_ddl(
+        next_sql_ddl_schema_index_id(accepted_before),
         next_sql_ddl_secondary_index_ordinal(accepted_before),
         name,
         store,
@@ -174,6 +176,21 @@ pub(in crate::db) fn build_sql_ddl_secondary_index_candidate(
         key,
         predicate_sql,
     ))
+}
+
+fn next_sql_ddl_schema_index_id(accepted_before: &AcceptedSchemaSnapshot) -> SchemaIndexId {
+    let highest = accepted_before
+        .persisted_snapshot()
+        .indexes()
+        .iter()
+        .map(|index| index.schema_id().get())
+        .max()
+        .unwrap_or(0);
+    let next = highest
+        .checked_add(1)
+        .expect("accepted logical index identities should not be exhausted");
+
+    SchemaIndexId::new(next).expect("next accepted logical index identity must be non-zero")
 }
 
 fn next_sql_ddl_secondary_index_ordinal(accepted_before: &AcceptedSchemaSnapshot) -> u16 {

@@ -179,7 +179,7 @@ pub(in crate::db) struct SchemaIndexInfo {
 }
 
 impl SchemaIndexInfo {
-    /// Return the accepted or generated stable per-entity index ordinal.
+    /// Return the accepted or generated dense physical index ordinal.
     #[must_use]
     pub(in crate::db) const fn ordinal(&self) -> u16 {
         self.ordinal
@@ -261,7 +261,7 @@ pub(in crate::db) struct SchemaExpressionIndexInfo {
 }
 
 impl SchemaExpressionIndexInfo {
-    /// Return the accepted stable per-entity index ordinal.
+    /// Return the accepted dense physical index ordinal.
     #[must_use]
     pub(in crate::db) const fn ordinal(&self) -> u16 {
         self.ordinal

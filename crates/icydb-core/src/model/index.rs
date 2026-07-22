@@ -352,7 +352,7 @@ impl IndexModel {
         self.name
     }
 
-    /// Return the stable per-entity index ordinal.
+    /// Return the dense generated physical index ordinal.
     #[must_use]
     pub const fn ordinal(&self) -> u16 {
         self.ordinal

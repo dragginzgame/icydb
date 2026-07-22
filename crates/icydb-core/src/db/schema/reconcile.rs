@@ -524,17 +524,17 @@ fn merge_generated_indexes_with_extra_accepted_indexes(
     accepted: &PersistedSchemaSnapshot,
     generated: &PersistedSchemaSnapshot,
 ) -> PersistedSchemaSnapshot {
-    let generated_ordinals = generated
+    let generated_schema_ids = generated
         .indexes()
         .iter()
-        .map(PersistedIndexSnapshot::ordinal)
+        .map(PersistedIndexSnapshot::schema_id)
         .collect::<BTreeSet<_>>();
     let mut indexes = generated.indexes().to_vec();
     indexes.extend(
         accepted
             .indexes()
             .iter()
-            .filter(|index| !generated_ordinals.contains(&index.ordinal()))
+            .filter(|index| !generated_schema_ids.contains(&index.schema_id()))
             .cloned(),
     );
 
@@ -547,6 +547,7 @@ fn merge_generated_indexes_with_extra_accepted_indexes(
         generated.fields().to_vec(),
         indexes,
     )
+    .with_constraint_id_allocator(accepted.constraint_id_allocator())
     .with_relations(generated.relations().to_vec())
 }
 

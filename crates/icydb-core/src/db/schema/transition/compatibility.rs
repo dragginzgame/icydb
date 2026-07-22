@@ -11,10 +11,11 @@ use crate::{
     value::Value,
 };
 
-// Generated index names are diagnostic/catalog metadata; physical index keys
-// are addressed by stable ordinal. This admits hard-cut generated-name changes
-// while preserving extra accepted DDL indexes, but only when every durable
-// generated index contract other than `name` is unchanged.
+// Generated index names are diagnostic/catalog metadata. Stable schema-level
+// identity associates the accepted and generated contracts; dense physical
+// ordinals remain exact execution facts but never serve as logical identity.
+// This admits hard-cut generated-name changes while preserving extra accepted
+// DDL indexes, but only when every durable contract other than `name` is exact.
 pub(super) fn generated_index_names_only_changed(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
@@ -37,7 +38,7 @@ pub(super) fn generated_index_names_only_changed(
         let Some(actual_index) = actual
             .indexes()
             .iter()
-            .find(|index| index.ordinal() == expected_index.ordinal())
+            .find(|index| index.schema_id() == expected_index.schema_id())
         else {
             return false;
         };
@@ -55,7 +56,7 @@ pub(super) fn generated_index_names_only_changed(
                 !expected
                     .indexes()
                     .iter()
-                    .any(|expected_index| expected_index.ordinal() == index.ordinal())
+                    .any(|expected_index| expected_index.schema_id() == index.schema_id())
             })
             .all(is_supported_extra_accepted_index)
 }
