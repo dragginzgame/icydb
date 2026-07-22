@@ -279,8 +279,8 @@ fn metadata_default_changes_remain_available_at_row_layout_exhaustion() {
         Vec::new(),
         true,
         SchemaInsertDefault::None,
-        SchemaFieldWritePolicy::none(),
-        PersistedFieldOrigin::SqlDdl,
+        crate::db::schema::SchemaFieldWritePolicy::none(),
+        crate::db::schema::PersistedFieldOrigin::SqlDdl,
         FieldStorageDecode::ByKind,
         LeafCodec::Scalar(ScalarCodec::Text),
     );
