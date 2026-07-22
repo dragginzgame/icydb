@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.210.md](docs/changelog/0.210.md)
 
+- `0.210.1` adds trusted journaled resumable SQL `UPDATE` with bounded atomic
+  Forward batches and stable-revision Verify completion, while failing closed
+  on target, schema, scope, patch, callback, and cross-batch constraint drift.
+
 - `0.210.0` adds bounded exact and intentional ordered-prefix trusted SQL
   `UPDATE`, hard-cutting ambiguous `UPDATE` behavior from the broad mutation
   ingress while preserving atomic, fail-closed execution.

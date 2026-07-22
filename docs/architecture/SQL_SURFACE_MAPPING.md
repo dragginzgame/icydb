@@ -79,6 +79,7 @@ Legend:
 | `execute_trusted_sql_mutation::<E>` | no | no | no | no | yes | yes | no | no | no | no |
 | `execute_trusted_sql_exact_update::<E>` | no | no | no | no | no | no | exact | no | no | no |
 | `execute_trusted_sql_prefix_update::<E>` | no | no | no | no | no | no | prefix | no | no | no |
+| trusted resumable prepare/resume | no | no | no | no | no | no | resumable | no | no | no |
 | `execute_admin_sql_ddl::<E>` | no | no | no | no | no | no | no | yes | no | no |
 | typed/fluent writes | no | no | no | no | yes | yes | yes | no | no | no |
 
@@ -134,6 +135,8 @@ The strongest public SQL execution split is now:
 - `execute_trusted_sql_exact_update::<E>(...)` for complete-set `UPDATE`
 - `execute_trusted_sql_prefix_update::<E>(...)` for intentional ordered-prefix
   `UPDATE`
+- trusted resumable prepare/resume for bounded journaled convergence with
+  stable-revision completion
 - `execute_admin_sql_ddl::<E>(...)` for accepted-catalog DDL SQL
 
 These surfaces stay single-entity and SQL-shaped, but none widens into another
@@ -347,13 +350,15 @@ the following remain true:
 
 - every admitted ordinary SQL query family is represented both in SQL and in
   one canonical fluent or typed query form
-- every admitted SQL mutation family is represented both in SQL and in one
-  canonical typed or fluent mutation form
+- every admitted SQL mutation family lowers into the canonical structural
+  mutation authority also used by typed/fluent writes
 - the live public SQL surface stays frozen to:
   - `execute_trusted_sql_query::<E>(...)`
   - `execute_trusted_sql_mutation::<E>(...)`
   - `execute_trusted_sql_exact_update::<E>(...)`
   - `execute_trusted_sql_prefix_update::<E>(...)`
+  - `prepare_trusted_sql_resumable_update::<E>(...)`
+  - `resume_trusted_sql_resumable_update::<E>(...)`
   - `execute_admin_sql_ddl::<E>(...)`
 - every admitted family has direct tests on the live surface rather than only
   transitive proof through older internal helpers

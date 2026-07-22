@@ -199,6 +199,9 @@ let updated = db!()?.execute_trusted_sql_exact_update::<User>(
     1,
 )?;
 
+// Large fixed convergence work uses the separate trusted resumable
+// prepare/resume contract with application-owned durable continuation custody.
+
 let ddl = db!()?.execute_admin_sql_ddl::<User>(
     "CREATE INDEX IF NOT EXISTS user_score_idx ON User (score)",
 )?;

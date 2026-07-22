@@ -358,7 +358,11 @@ impl ValidateAuto for Duration {}
 
 impl ValidateCustom for Duration {}
 
-impl Visitable for Duration {}
+impl Visitable for Duration {
+    fn requires_application_write_callbacks() -> bool {
+        false
+    }
+}
 
 //
 // TESTS

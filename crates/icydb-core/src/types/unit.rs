@@ -89,4 +89,8 @@ impl ValidateAuto for Unit {}
 
 impl ValidateCustom for Unit {}
 
-impl Visitable for Unit {}
+impl Visitable for Unit {
+    fn requires_application_write_callbacks() -> bool {
+        false
+    }
+}

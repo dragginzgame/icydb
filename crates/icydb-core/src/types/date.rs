@@ -250,7 +250,11 @@ impl ValidateAuto for Date {}
 
 impl ValidateCustom for Date {}
 
-impl Visitable for Date {}
+impl Visitable for Date {
+    fn requires_application_write_callbacks() -> bool {
+        false
+    }
+}
 
 //
 // TESTS

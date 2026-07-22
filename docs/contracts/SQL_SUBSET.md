@@ -50,9 +50,13 @@ The remaining public SQL surfaces are:
 - `execute_trusted_sql_mutation::<E>(...)`
 - `execute_trusted_sql_exact_update::<E>(..., require_affected_at_most)`
 - `execute_trusted_sql_prefix_update::<E>(...)`
+- `prepare_trusted_sql_resumable_update::<E>(operation_id, ...)`
+- `resume_trusted_sql_resumable_update::<E>(...)`
 - `execute_admin_sql_ddl::<E>(...)`
 
-All stay hard-bound to one concrete entity type and return SQL-shaped output.
+All stay hard-bound to one concrete entity type. Query and direct mutation
+surfaces return SQL-shaped output; resumable preparation/resume returns an
+opaque trusted continuation and per-call progress receipt instead.
 
 Read-admission lanes, generated endpoint lane ownership, and the current
 read-surface inventory are documented in `docs/contracts/READ_ADMISSION.md`.
@@ -403,6 +407,9 @@ Public SQL ownership is split deliberately:
 - `execute_trusted_sql_exact_update::<E>(...)` owns complete-set SQL `UPDATE`
 - `execute_trusted_sql_prefix_update::<E>(...)` owns intentional ordered-prefix
   SQL `UPDATE`
+- `prepare_trusted_sql_resumable_update::<E>(...)` and
+  `resume_trusted_sql_resumable_update::<E>(...)` own trusted, journaled,
+  bounded convergence over multiple calls
 - `execute_admin_sql_ddl::<E>(...)` owns accepted-catalog schema DDL SQL
 
 ### SQL `UPDATE` Availability By Surface
@@ -423,6 +430,17 @@ Current boundary:
   assertion and the engine response-byte bound.
 - `execute_trusted_sql_mutation::<E>(...)` rejects `UPDATE`; it cannot infer
   exact versus prefix intent.
+<!-- icydb-sql-feature id="mutation.trusted_resumable_update" kind="interaction" status="accepted" -->
+- trusted resumable `UPDATE` first prepares a read-only current-format
+  continuation, which the application must custody durably outside the target
+  store. Each resume scans in authoritative primary-key order, commits at most
+  one independently atomic fixed-patch batch, and reports completion only after
+  a clean full verification sweep at one unchanged durable store revision.
+- resumable execution is restricted to journaled stores, fixed authored
+  assignments, stable scopes, batch-independent accepted constraints, and
+  entity graphs without application write callbacks. It has no row `RETURNING`
+  or cumulative affected-row claim, and raw continuations must not cross a
+  generated or caller-controlled endpoint.
 <!-- icydb-sql-feature id="mutation.generated_query_ddl" kind="policy" status="rejected" -->
 - generated `icydb_query` rejects row mutation SQL, including `UPDATE`.
 - generated `icydb_ddl` rejects row mutation SQL, including `UPDATE`.

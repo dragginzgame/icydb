@@ -87,6 +87,8 @@ pub(in crate::db) use aggregate_input::{
 };
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use ast::Alias;
+#[cfg(feature = "sql")]
+pub(in crate::db) use ast::collect_scalar_expr_field_roots;
 pub(in crate::db) use ast::{
     BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function, PathSpec, UnaryOp,
 };

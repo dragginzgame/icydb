@@ -196,6 +196,8 @@ pub(in crate::db) use runtime::{
     generated_compatible_row_layout_proof_count_for_tests,
     reset_generated_compatible_row_layout_proof_count_for_tests,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use snapshot::AcceptedFieldDependencyError;
 pub(in crate::db) use snapshot::{
     AcceptedSchemaSnapshot, PersistedFieldOrigin, PersistedFieldSnapshot,
     PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,

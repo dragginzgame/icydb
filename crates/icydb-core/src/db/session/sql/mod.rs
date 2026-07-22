@@ -13,6 +13,7 @@ mod delete_policy;
 mod execute;
 mod projection;
 mod result;
+mod resumable_update;
 mod surface;
 mod update_policy;
 mod write_policy;
@@ -67,6 +68,10 @@ pub(in crate::db) use delete_policy::{
 };
 pub(in crate::db) use projection::SqlProjectionContract;
 pub use result::SqlStatementResult;
+pub use resumable_update::{
+    TrustedResumableUpdateContinuation, TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,
+    TrustedResumableUpdateRestartReason,
+};
 pub use surface::{
     SqlStatementDispatch, SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
     sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
@@ -74,12 +79,14 @@ pub use surface::{
 #[cfg(test)]
 pub(in crate::db) use update_policy::{
     DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT, DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES,
+    SqlUpdatePolicyContext, classify_sql_update_policy,
 };
 pub(in crate::db) use update_policy::{
     SqlExactUpdatePolicy, SqlExactUpdatePolicyRejection, SqlPublicBoundedUpdatePlan,
-    SqlPublicPrimaryKeyUpdatePlan, SqlTrustedExactUpdatePlan, SqlUpdateExposurePolicy,
-    SqlUpdatePolicyContext, SqlUpdatePolicyRejection, SqlUpdatePolicyReport,
-    SqlValidatedUpdatePlan, classify_sql_update_policy,
+    SqlPublicPrimaryKeyUpdatePlan, SqlResumableUpdatePolicyReport, SqlTrustedExactUpdatePlan,
+    SqlTrustedResumableUpdatePlan, SqlUpdateExposurePolicy, SqlUpdatePolicyRejection,
+    SqlUpdatePolicyReport, SqlValidatedUpdatePlan, classify_sql_resumable_update_policy,
+    classify_sql_update_policy_for_entity, with_accepted_sql_update_policy_context,
 };
 pub(in crate::db::session::sql) use write_policy::combined_optional_row_bound;
 #[cfg(test)]

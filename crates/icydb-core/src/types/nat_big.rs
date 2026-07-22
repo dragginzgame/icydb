@@ -208,4 +208,8 @@ impl ValidateAuto for NatBig {}
 
 impl ValidateCustom for NatBig {}
 
-impl Visitable for NatBig {}
+impl Visitable for NatBig {
+    fn requires_application_write_callbacks() -> bool {
+        false
+    }
+}

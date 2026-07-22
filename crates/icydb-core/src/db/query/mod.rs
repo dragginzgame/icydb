@@ -14,3 +14,6 @@ pub(crate) mod plan;
 pub(in crate::db) mod predicate;
 pub(in crate::db) mod read_intent;
 pub(in crate::db) mod trace;
+
+#[cfg(feature = "sql")]
+pub(in crate::db) use fingerprint::resumable_update_scope_fingerprint;

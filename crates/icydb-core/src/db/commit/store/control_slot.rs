@@ -179,6 +179,17 @@ fn checked_control_slot_lengths(
     })
 }
 
+/// Return the exact current control-slot length for a marker payload when it fits.
+#[must_use]
+#[cfg(feature = "sql")]
+pub(in crate::db::commit) fn commit_control_slot_encoded_len_for_marker_payload(
+    marker_payload_len: usize,
+) -> Option<usize> {
+    checked_control_slot_lengths(marker_payload_len)
+        .ok()
+        .map(|lengths| lengths.capacity)
+}
+
 // Encode the stable control-slot frame directly so recovery only reads one
 // bounded binary envelope before marker decode.
 #[cfg(test)]

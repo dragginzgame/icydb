@@ -99,4 +99,8 @@ impl ValidateAuto for Blob {}
 
 impl ValidateCustom for Blob {}
 
-impl Visitable for Blob {}
+impl Visitable for Blob {
+    fn requires_application_write_callbacks() -> bool {
+        false
+    }
+}

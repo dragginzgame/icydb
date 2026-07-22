@@ -128,7 +128,11 @@ impl ValidateAuto for Subaccount {}
 
 impl ValidateCustom for Subaccount {}
 
-impl Visitable for Subaccount {}
+impl Visitable for Subaccount {
+    fn requires_application_write_callbacks() -> bool {
+        false
+    }
+}
 
 //
 // TESTS

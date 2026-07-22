@@ -34,4 +34,19 @@ if [[ -n "$interleaving_points" ]]; then
   exit 1
 fi
 
+RAW_RESUMABLE_CONTINUATION_PATTERN="TrustedResumableUpdateContinuation|prepare_trusted_sql_resumable_update|resume_trusted_sql_resumable_update"
+raw_resumable_generated_surface="$({
+  rg -n --no-heading --color=never "$RAW_RESUMABLE_CONTINUATION_PATTERN" \
+    crates/icydb-build/src \
+    "${COMMON_GLOBS[@]}" \
+    | strip_comment_only
+} || true)"
+
+if [[ -n "$raw_resumable_generated_surface" ]]; then
+  echo "[ERROR] Generated surfaces must not expose raw resumable-update continuations." >&2
+  echo "[ERROR] Applications own continuation custody behind authorized operation ids." >&2
+  echo "$raw_resumable_generated_surface" >&2
+  exit 1
+fi
+
 echo "[OK] Mutation atomicity invariants verified."

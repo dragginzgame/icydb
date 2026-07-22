@@ -229,7 +229,11 @@ impl ValidateAuto for Principal {}
 
 impl ValidateCustom for Principal {}
 
-impl Visitable for Principal {}
+impl Visitable for Principal {
+    fn requires_application_write_callbacks() -> bool {
+        false
+    }
+}
 
 //
 // TESTS

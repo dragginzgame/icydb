@@ -126,16 +126,6 @@ fn accepted_slot_index(slot: SchemaFieldSlot) -> usize {
     usize::from(slot.get())
 }
 
-fn persisted_kind_has_relation(kind: &AcceptedFieldKind) -> bool {
-    match kind {
-        AcceptedFieldKind::Relation { .. } => true,
-        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
-            persisted_kind_has_relation(inner)
-        }
-        _ => false,
-    }
-}
-
 ///
 /// SchemaInfo
 ///
@@ -977,7 +967,7 @@ impl SchemaInfo {
                 || snapshot
                     .fields()
                     .iter()
-                    .any(|field| persisted_kind_has_relation(field.kind())),
+                    .any(|field| field.kind().contains_relation()),
         }
     }
 

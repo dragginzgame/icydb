@@ -498,4 +498,8 @@ impl ValidateAuto for Decimal {}
 
 impl ValidateCustom for Decimal {}
 
-impl Visitable for Decimal {}
+impl Visitable for Decimal {
+    fn requires_application_write_callbacks() -> bool {
+        false
+    }
+}

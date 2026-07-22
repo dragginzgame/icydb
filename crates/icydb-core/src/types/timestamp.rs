@@ -466,7 +466,11 @@ impl ValidateAuto for Timestamp {}
 
 impl ValidateCustom for Timestamp {}
 
-impl Visitable for Timestamp {}
+impl Visitable for Timestamp {
+    fn requires_application_write_callbacks() -> bool {
+        false
+    }
+}
 
 //
 // TESTS

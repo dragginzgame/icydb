@@ -538,6 +538,10 @@ const fn sql_surface_mismatch_text(mismatch: SqlSurfaceMismatchCode) -> &'static
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the exhaustive governed SQL write-code map is clearer as one typed lookup"
+)]
 const fn sql_write_boundary_text(boundary: SqlWriteBoundaryCode) -> &'static str {
     match boundary {
         SqlWriteBoundaryCode::PrimaryKeyLiteralShape => "primary key literal has the wrong shape",
@@ -609,6 +613,51 @@ const fn sql_write_boundary_text(boundary: SqlWriteBoundaryCode) -> &'static str
         }
         SqlWriteBoundaryCode::ExactUpdateScanBudgetExceeded => {
             "exact UPDATE selection exceeded the engine scan budget"
+        }
+        SqlWriteBoundaryCode::ResumableUpdateWindowUnsupported => {
+            "resumable UPDATE rejects LIMIT, OFFSET, and non-primary-key ordering"
+        }
+        SqlWriteBoundaryCode::ResumableUpdateReturningUnsupported => {
+            "resumable UPDATE does not support row RETURNING"
+        }
+        SqlWriteBoundaryCode::ResumableUpdateRequiresJournaledStore => {
+            "resumable UPDATE requires a journaled store"
+        }
+        SqlWriteBoundaryCode::ResumableUpdateAssignedFieldHasGlobalConstraint => {
+            "resumable UPDATE cannot assign a unique- or relation-owned field"
+        }
+        SqlWriteBoundaryCode::ResumableUpdateScopeDependsOnAssignedField => {
+            "resumable UPDATE scope cannot depend on an assigned field"
+        }
+        SqlWriteBoundaryCode::ResumableUpdateScopeDependencyUnknown => {
+            "resumable UPDATE scope dependencies could not be proven"
+        }
+        SqlWriteBoundaryCode::ResumableUpdateContinuationMalformed => {
+            "resumable UPDATE continuation is malformed or not current"
+        }
+        SqlWriteBoundaryCode::ResumableUpdateContinuationTargetMismatch => {
+            "resumable UPDATE continuation belongs to another target"
+        }
+        SqlWriteBoundaryCode::ResumableUpdateContinuationSchemaMismatch => {
+            "resumable UPDATE continuation belongs to another accepted schema"
+        }
+        SqlWriteBoundaryCode::ResumableUpdateContinuationScopeMismatch => {
+            "resumable UPDATE continuation belongs to another scope"
+        }
+        SqlWriteBoundaryCode::ResumableUpdateContinuationPatchMismatch => {
+            "resumable UPDATE continuation belongs to another fixed patch"
+        }
+        SqlWriteBoundaryCode::ResumableUpdateContinuationBatchPolicyMismatch => {
+            "resumable UPDATE continuation uses another engine batch policy"
+        }
+        SqlWriteBoundaryCode::ResumableUpdateSingleRowResourceExceeded => {
+            "one resumable UPDATE row cannot fit the engine commit window"
+        }
+        SqlWriteBoundaryCode::ResumableUpdateApplicationCallbacksUnsupported => {
+            "resumable UPDATE requires an entity without application write callbacks"
+        }
+        SqlWriteBoundaryCode::ResumableUpdateManagedFieldHasGlobalConstraint => {
+            "resumable UPDATE cannot refresh a globally constrained managed field"
         }
     }
 }

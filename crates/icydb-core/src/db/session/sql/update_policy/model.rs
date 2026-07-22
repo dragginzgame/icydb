@@ -231,6 +231,30 @@ pub(in crate::db) struct SqlTrustedExactUpdatePlan {
     pub(super) policy: SqlExactUpdatePolicy,
 }
 
+/// Validated SQL shape for one trusted resumable-update preparation.
+///
+/// Accepted-schema eligibility is intentionally proved later, after the
+/// session has loaded the current catalog. This type owns only frontend shape:
+/// one `UPDATE`, a required scope, fixed assignments, no SQL window, and no
+/// row `RETURNING`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[doc(hidden)]
+pub(in crate::db) struct SqlTrustedResumableUpdatePlan {
+    pub(super) statement: SqlUpdateStatement,
+}
+
+impl SqlTrustedResumableUpdatePlan {
+    /// Borrow the parsed statement whose resumable frontend shape was proved.
+    #[must_use]
+    pub(in crate::db::session::sql) const fn statement(&self) -> &SqlUpdateStatement {
+        &self.statement
+    }
+}
+
+/// Mutually exclusive resumable frontend admission or stable policy rejection.
+pub(in crate::db) type SqlResumableUpdatePolicyReport =
+    Result<SqlTrustedResumableUpdatePlan, SqlUpdatePolicyRejection>;
+
 impl SqlTrustedExactUpdatePlan {
     pub(in crate::db::session::sql) const fn statement(&self) -> &SqlUpdateStatement {
         self.core.statement()
@@ -323,6 +347,10 @@ pub(in crate::db) enum SqlUpdatePolicyRejection {
     LimitTooHigh,
     /// Exact updates reject SQL windows because the caller assertion owns completion.
     ExactWindowUnsupported,
+    /// Resumable updates reject SQL windows because the checkpoint owns progression.
+    ResumableWindowUnsupported,
+    /// Resumable updates do not return per-row projections.
+    ResumableReturningUnsupported,
 }
 
 impl SqlUpdatePolicyRejection {

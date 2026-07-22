@@ -14,6 +14,8 @@ use crate::{
     error::InternalError,
     model::field::{FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec},
 };
+#[cfg(feature = "sql")]
+use std::collections::BTreeSet;
 
 ///
 /// AcceptedSchemaSnapshot
@@ -225,6 +227,14 @@ pub(in crate::db) struct PersistedSchemaSnapshot {
     relations: Vec<PersistedRelationEdgeSnapshot>,
 }
 
+/// Failure to prove a complete accepted field-dependency closure.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
+pub(in crate::db) enum AcceptedFieldDependencyError {
+    /// One normalized expression root does not resolve to an accepted field.
+    UnknownField,
+}
+
 pub(in crate::db) trait IntoPrimaryKeyFieldIds {
     fn into_primary_key_field_ids(self) -> Vec<FieldId>;
 }
@@ -337,6 +347,72 @@ impl PersistedSchemaSnapshot {
     #[must_use]
     pub(in crate::db) const fn entity_name(&self) -> &str {
         self.entity_name.as_str()
+    }
+
+    /// Resolve the complete accepted dependency closure for field roots.
+    ///
+    /// Current accepted persisted fields are source values: generation and
+    /// write-management policies synthesize a field itself and do not encode a
+    /// dependency on another stored field. The closure is therefore the exact
+    /// set of resolved top-level field identities today. Keeping this proof at
+    /// the accepted-schema boundary ensures a future computed-field contract
+    /// must extend this owner rather than being guessed by an executor.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn accepted_field_dependency_closure<'b>(
+        &self,
+        roots: impl IntoIterator<Item = &'b str>,
+    ) -> Result<BTreeSet<FieldId>, AcceptedFieldDependencyError> {
+        roots
+            .into_iter()
+            .map(|root| {
+                self.fields
+                    .iter()
+                    .find(|field| field.name() == root)
+                    .map(PersistedFieldSnapshot::id)
+                    .ok_or(AcceptedFieldDependencyError::UnknownField)
+            })
+            .collect()
+    }
+
+    /// Return whether changing one field requires cross-row or cross-entity validation.
+    ///
+    /// Resumable mutation eligibility consumes this accepted-schema fact so a
+    /// frontend or executor cannot maintain a partial list of globally checked
+    /// constraints. Unknown field identity fails closed as globally constrained.
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn field_requires_global_write_validation(
+        &self,
+        field_id: FieldId,
+        field_name: &str,
+    ) -> bool {
+        self.fields
+            .iter()
+            .find(|field| field.id() == field_id)
+            .is_none_or(|field| field.kind().contains_relation())
+            || self
+                .indexes
+                .iter()
+                .any(|index| index.unique() && index.references_field(field_id, field_name))
+            || self
+                .relations
+                .iter()
+                .any(|relation| relation.local_field_ids().contains(&field_id))
+    }
+
+    /// Return whether update-management changes a globally constrained field.
+    ///
+    /// Resumable updates must account for accepted update-managed fields even
+    /// though callers cannot assign them directly. A unique or relation-owned
+    /// managed field would otherwise make separately committed batches depend
+    /// on one another.
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn update_management_requires_global_write_validation(&self) -> bool {
+        self.fields.iter().any(|field| {
+            field.write_policy().write_management() == Some(FieldWriteManagement::UpdatedAt)
+                && self.field_requires_global_write_validation(field.id(), field.name())
+        })
     }
 
     /// Return the first stored primary-key field identity.

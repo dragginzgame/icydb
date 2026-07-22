@@ -380,6 +380,10 @@ impl TraitBuilder {
         self.add.iter().any(|candidate| *candidate == tr)
     }
 
+    pub(crate) fn explicitly_removes(&self, tr: TraitKind) -> bool {
+        self.remove.iter().any(|candidate| *candidate == tr)
+    }
+
     pub(crate) fn with_type_traits(&self) -> Self {
         let mut clone = self.clone();
         clone.add.extend(TYPE_TRAITS.iter().copied());

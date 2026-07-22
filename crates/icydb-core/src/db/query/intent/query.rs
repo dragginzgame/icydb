@@ -128,8 +128,8 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn scalar_filter_expr_for_test(&self) -> Option<&Expr> {
+    #[cfg(any(test, feature = "sql"))]
+    pub(in crate::db) fn scalar_filter_expr(&self) -> Option<&Expr> {
         self.intent
             .scalar_intent_for_cache_key()
             .filter

@@ -44,6 +44,9 @@ use crate::db::database_format::crc32c;
 #[cfg(test)]
 use crate::db::database_format::initialize_current_database_control_for_tests;
 
+#[cfg(feature = "sql")]
+pub(in crate::db::commit) use control_slot::commit_control_slot_encoded_len_for_marker_payload;
+
 #[cfg(not(test))]
 static COMMIT_MARKER_PRESENCE_HINTS: OnceLock<Mutex<Vec<CommitMarkerPresenceHint>>> =
     OnceLock::new();
@@ -355,6 +358,24 @@ thread_local! {
 #[cfg(test)]
 pub(super) fn commit_marker_present() -> Result<bool, InternalError> {
     with_commit_store(|store| Ok(store.load()?.is_some()))
+}
+
+/// Return exact current marker-control and embedded journal-batch bytes for tests.
+#[cfg(test)]
+pub(in crate::db) fn persisted_commit_marker_lengths_for_tests()
+-> Result<(usize, usize), InternalError> {
+    with_commit_store(|store| {
+        let control_slot_bytes = store.raw_control_slot_bytes_for_tests().len();
+        let marker = store.load()?.ok_or_else(InternalError::store_invariant)?;
+        let journal_batch_bytes = marker
+            .journal_batches()
+            .iter()
+            .fold(0usize, |bytes, batch| {
+                bytes.saturating_add(crate::db::journal::journal_batch_encoded_len(batch))
+            });
+
+        Ok((control_slot_bytes, journal_batch_bytes))
+    })
 }
 
 /// Lazily initialize and access the commit marker store.

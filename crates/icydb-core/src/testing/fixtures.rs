@@ -87,7 +87,11 @@ macro_rules! __icydb_test_entity_markers {
         impl $crate::visitor::SanitizeCustom for $entity {}
         impl $crate::visitor::ValidateAuto for $entity {}
         impl $crate::visitor::ValidateCustom for $entity {}
-        impl $crate::visitor::Visitable for $entity {}
+        impl $crate::visitor::Visitable for $entity {
+            fn requires_application_write_callbacks() -> bool {
+                false
+            }
+        }
     };
 }
 

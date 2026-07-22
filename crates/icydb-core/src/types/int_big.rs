@@ -198,4 +198,8 @@ impl ValidateAuto for IntBig {}
 
 impl ValidateCustom for IntBig {}
 
-impl Visitable for IntBig {}
+impl Visitable for IntBig {
+    fn requires_application_write_callbacks() -> bool {
+        false
+    }
+}

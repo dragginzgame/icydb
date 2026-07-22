@@ -12,15 +12,15 @@ use crate::{
         data::AcceptedMutationIntentPatch,
         executor::{MutationMode, StructuralMutationTargetKey, StructuralProjectionScanBudget},
         query::intent::StructuralQuery,
-        schema::{AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField},
+        schema::AcceptedRowLayoutRuntimeContract,
         session::{
             AcceptedSchemaCatalogContext,
             sql::{
                 SqlExactUpdatePolicy, SqlExactUpdatePolicyRejection, SqlPublicBoundedUpdatePlan,
                 SqlPublicPrimaryKeyUpdatePlan, SqlStatementResult, SqlTrustedExactUpdatePlan,
-                SqlUpdateExposurePolicy, SqlUpdatePolicyContext, SqlUpdatePolicyRejection,
-                SqlUpdatePolicyReport, SqlValidatedUpdatePlan, classify_sql_update_policy,
-                write_policy::SqlWriteExecutionBounds,
+                SqlUpdateExposurePolicy, SqlUpdatePolicyRejection, SqlUpdatePolicyReport,
+                SqlValidatedUpdatePlan, classify_sql_update_policy_for_entity,
+                with_accepted_sql_update_policy_context, write_policy::SqlWriteExecutionBounds,
             },
         },
         sql::{
@@ -67,7 +67,9 @@ fn require_sql_exact_update_plan(
             | SqlUpdatePolicyRejection::DescendingOrder
             | SqlUpdatePolicyRejection::MissingLimit
             | SqlUpdatePolicyRejection::OffsetUnsupported
-            | SqlUpdatePolicyRejection::LimitTooHigh,
+            | SqlUpdatePolicyRejection::LimitTooHigh
+            | SqlUpdatePolicyRejection::ResumableWindowUnsupported
+            | SqlUpdatePolicyRejection::ResumableReturningUnsupported,
         )
         | None => return Err(QueryError::unsupported_query()),
     };
@@ -139,7 +141,7 @@ impl SqlUpdateExecutionContract {
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    fn sql_structural_patch(
+    pub(in crate::db::session::sql) fn sql_structural_patch(
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         statement: &SqlUpdateStatement,
     ) -> Result<AcceptedMutationIntentPatch, QueryError> {
@@ -183,7 +185,7 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(patch)
     }
 
-    fn sql_update_selector_query<E>(
+    pub(in crate::db::session::sql) fn sql_update_selector_query<E>(
         schema_info: &crate::db::schema::SchemaInfo,
         statement: &SqlUpdateStatement,
     ) -> Result<StructuralQuery, QueryError>
@@ -316,25 +318,15 @@ impl<C: CanisterKind> DbSession<C> {
         self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
             None,
             None,
-            |_catalog, descriptor| {
-                let generated_fields = descriptor
-                    .fields()
-                    .iter()
-                    .filter(|field| field.write_policy().insert_generation().is_some())
-                    .map(AcceptedRowLayoutRuntimeField::name)
-                    .collect::<Vec<_>>();
-                let managed_fields = descriptor
-                    .fields()
-                    .iter()
-                    .filter(|field| field.write_policy().write_management().is_some())
-                    .map(AcceptedRowLayoutRuntimeField::name)
-                    .collect::<Vec<_>>();
-                let context = SqlUpdatePolicyContext::public_generated(
-                    descriptor.primary_key_names(),
-                    generated_fields.as_slice(),
-                    managed_fields.as_slice(),
-                );
-                classify_sql_update_policy(sql, policy, context)
+            |catalog, descriptor| {
+                with_accepted_sql_update_policy_context(&descriptor, |context| {
+                    classify_sql_update_policy_for_entity(
+                        sql,
+                        catalog.snapshot().persisted_snapshot().entity_name(),
+                        policy,
+                        context,
+                    )
+                })
             },
         )
     }

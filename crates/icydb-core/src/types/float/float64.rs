@@ -177,7 +177,11 @@ impl ValidateCustom for Float64 {
     }
 }
 
-impl Visitable for Float64 {}
+impl Visitable for Float64 {
+    fn requires_application_write_callbacks() -> bool {
+        false
+    }
+}
 
 impl<'de> Deserialize<'de> for Float64 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>

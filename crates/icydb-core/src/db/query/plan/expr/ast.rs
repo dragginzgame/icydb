@@ -4,6 +4,8 @@
 //! Boundary: defines canonical expression tree structures consumed by planner validation/lowering.
 
 use crate::{db::query::builder::aggregate::AggregateExpr, value::Value};
+#[cfg(feature = "sql")]
+use std::collections::BTreeSet;
 
 ///
 /// FieldId
@@ -697,6 +699,49 @@ pub(in crate::db) enum Expr {
         expr: Box<Self>,
         name: Alias,
     },
+}
+
+/// Collect accepted top-level field roots referenced by one scalar expression.
+///
+/// Returns `false` for expression variants that cannot belong to a resumable
+/// scalar scope. Callers must reject that result rather than treating an
+/// unknown dependency shape as an empty dependency set.
+#[cfg(feature = "sql")]
+pub(in crate::db) fn collect_scalar_expr_field_roots(
+    expr: &Expr,
+    roots: &mut BTreeSet<String>,
+) -> bool {
+    match expr {
+        Expr::Field(field) => {
+            roots.insert(field.as_str().to_string());
+            true
+        }
+        Expr::FieldPath(path) => {
+            roots.insert(path.root().as_str().to_string());
+            true
+        }
+        Expr::Literal(_) => true,
+        Expr::FunctionCall { args, .. } => args
+            .iter()
+            .all(|argument| collect_scalar_expr_field_roots(argument, roots)),
+        Expr::Unary { expr, .. } => collect_scalar_expr_field_roots(expr, roots),
+        Expr::Binary { left, right, .. } => {
+            collect_scalar_expr_field_roots(left, roots)
+                && collect_scalar_expr_field_roots(right, roots)
+        }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            when_then_arms.iter().all(|arm| {
+                collect_scalar_expr_field_roots(arm.condition(), roots)
+                    && collect_scalar_expr_field_roots(arm.result(), roots)
+            }) && collect_scalar_expr_field_roots(else_expr, roots)
+        }
+        Expr::Aggregate(_) => false,
+        #[cfg(test)]
+        Expr::Alias { .. } => false,
+    }
 }
 
 impl Expr {

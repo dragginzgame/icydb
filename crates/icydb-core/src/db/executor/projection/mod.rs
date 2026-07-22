@@ -28,6 +28,8 @@ pub(in crate::db) use covering::{
 pub(in crate::db) use eval::ProjectionEvalError;
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use eval::eval_compiled_expr_with_value_ref_reader;
+#[cfg(feature = "sql")]
+pub(in crate::db) use eval::eval_compiled_filter_expr_with_required_slot_reader;
 pub(in crate::db::executor) use eval::{
     eval_compiled_expr_with_value_reader, eval_effective_runtime_filter_program_with_slot_reader,
     eval_effective_runtime_filter_program_with_value_cow_reader,

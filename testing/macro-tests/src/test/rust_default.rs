@@ -6,6 +6,7 @@ mod tests {
     use icydb::model::field::{CompositeCodec, CompositeShapeModel, FieldKind};
     use icydb::traits::EntityCreateInput;
     use icydb::types::Principal;
+    use icydb::visitor::Visitable;
 
     #[record(
         fields(
@@ -124,6 +125,12 @@ mod tests {
             ExplicitDefaultTuple::default(),
             ExplicitDefaultTuple(0, String::new())
         );
+    }
+
+    #[test]
+    fn callback_free_entity_profile_ignores_builtin_managed_fields() {
+        assert!(!ExplicitDefaultEntity::requires_application_write_callbacks());
+        assert!(!CompositePayload::requires_application_write_callbacks());
     }
 
     #[test]

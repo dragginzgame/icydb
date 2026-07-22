@@ -20,6 +20,19 @@ use super::{
 /// - `drive` / `drive_mut` describe *structure only*.
 /// - No validation or sanitization logic lives here.
 pub trait Visitable: Sanitize + Validate {
+    /// Whether this value graph can invoke application-defined write behavior.
+    ///
+    /// Manual implementations default to fail-closed. Generated schema types
+    /// override this with a recursive profile.
+    #[doc(hidden)]
+    #[must_use]
+    fn requires_application_write_callbacks() -> bool
+    where
+        Self: Sized,
+    {
+        true
+    }
+
     fn drive(&self, _: &mut dyn VisitorCore) {}
     fn drive_mut(&mut self, _: &mut dyn VisitorMutCore) {}
 }
@@ -33,6 +46,10 @@ pub trait Visitable: Sanitize + Validate {
 // its hook forwarding supplies the boxed node's one logical hook call.
 
 impl<T: Visitable> Visitable for Option<T> {
+    fn requires_application_write_callbacks() -> bool {
+        T::requires_application_write_callbacks()
+    }
+
     fn drive(&self, visitor: &mut dyn VisitorCore) {
         if let Some(value) = self.as_ref() {
             perform_visit(visitor, value, PathSegment::Empty);
@@ -47,6 +64,10 @@ impl<T: Visitable> Visitable for Option<T> {
 }
 
 impl<T: Visitable> Visitable for Vec<T> {
+    fn requires_application_write_callbacks() -> bool {
+        T::requires_application_write_callbacks()
+    }
+
     fn drive(&self, visitor: &mut dyn VisitorCore) {
         for (i, value) in self.iter().enumerate() {
             perform_visit(visitor, value, i);
@@ -60,7 +81,11 @@ impl<T: Visitable> Visitable for Vec<T> {
     }
 }
 
-impl<T: Visitable + ?Sized> Visitable for Box<T> {
+impl<T: Visitable> Visitable for Box<T> {
+    fn requires_application_write_callbacks() -> bool {
+        T::requires_application_write_callbacks()
+    }
+
     fn drive(&self, visitor: &mut dyn VisitorCore) {
         (**self).drive(visitor);
     }
@@ -71,7 +96,19 @@ impl<T: Visitable + ?Sized> Visitable for Box<T> {
 }
 
 // Primitive leaf nodes: no structure
-impl_primitive!(Visitable);
+macro_rules! impl_primitive_visitable {
+    ($($ty:ty),* $(,)?) => {
+        $(impl Visitable for $ty {
+            fn requires_application_write_callbacks() -> bool {
+                false
+            }
+        })*
+    };
+}
+
+impl_primitive_visitable!(
+    i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, f32, f64, bool, String,
+);
 
 //
 // ============================================================================

@@ -327,6 +327,18 @@ pub(in crate::db) fn commit_marker_payload_capacity(marker: &CommitMarker) -> us
     capacity
 }
 
+/// Return the canonical marker-payload length for exactly one encoded journal batch.
+#[must_use]
+#[cfg(feature = "sql")]
+pub(in crate::db) const fn commit_marker_payload_capacity_for_single_batch(
+    journal_batch_bytes: usize,
+) -> usize {
+    COMMIT_MARKER_ID_BYTES
+        .saturating_add(COMMIT_MARKER_JOURNAL_BATCH_COUNT_BYTES)
+        .saturating_add(size_of::<u32>())
+        .saturating_add(journal_batch_bytes)
+}
+
 // Write the canonical marker payload into an existing output buffer.
 pub(in crate::db) fn write_commit_marker_payload(
     out: &mut Vec<u8>,

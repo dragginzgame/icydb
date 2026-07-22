@@ -3886,7 +3886,7 @@ fn bind_sql_select_with_schema_derives_predicate_from_bound_filter_expr() {
     .expect("accepted schema should bind numeric name filter");
     assert!(
         matches!(
-            query.scalar_filter_expr_for_test(),
+            query.scalar_filter_expr(),
             Some(Expr::Binary {
                 op: BinaryOp::Eq,
                 left,
@@ -3925,7 +3925,7 @@ fn bind_sql_select_with_schema_derives_in_predicate_from_bound_filter_expr() {
     .expect("accepted schema should bind numeric name IN filter");
     assert!(
         matches!(
-            query.scalar_filter_expr_for_test(),
+            query.scalar_filter_expr(),
             Some(Expr::FunctionCall {
                 function: Function::InList,
                 args,

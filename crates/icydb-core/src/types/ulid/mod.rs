@@ -232,4 +232,8 @@ impl ValidateAuto for Ulid {
 
 impl ValidateCustom for Ulid {}
 
-impl Visitable for Ulid {}
+impl Visitable for Ulid {
+    fn requires_application_write_callbacks() -> bool {
+        false
+    }
+}

@@ -176,8 +176,9 @@ pub use session::DbSession;
 pub use session::{
     DbSession, SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlPreparationReport,
     SqlStatementDispatch, SqlStatementResult, SqlStatementShellSurface, SqlStatementSurface,
-    sql_statement_dispatch, sql_statement_entity_name, sql_statement_shell_surface,
-    sql_statement_surface,
+    TrustedResumableUpdateContinuation, TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,
+    TrustedResumableUpdateRestartReason, sql_statement_dispatch, sql_statement_entity_name,
+    sql_statement_shell_surface, sql_statement_surface,
 };
 #[cfg(feature = "diagnostics")]
 pub use session::{

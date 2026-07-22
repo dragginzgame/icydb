@@ -326,6 +326,53 @@ pub(in crate::db) fn journal_batch_encoded_len(batch: &JournalBatch) -> usize {
     JOURNAL_BATCH_HEADER_BYTES.saturating_add(journal_batch_payload_len(batch))
 }
 
+/// Return the canonical encoded length of one journal batch from already-sized
+/// record payloads, or `None` when the record count is outside the format.
+#[must_use]
+pub(in crate::db) const fn journal_batch_encoded_len_for_record_payloads(
+    record_count: usize,
+    record_payload_bytes: usize,
+) -> Option<usize> {
+    if record_count > MAX_JOURNAL_BATCH_RECORDS {
+        return None;
+    }
+
+    Some(
+        JOURNAL_BATCH_HEADER_BYTES
+            .saturating_add(JOURNAL_BATCH_ID_BYTES)
+            .saturating_add(JOURNAL_COMMIT_MARKER_ID_BYTES)
+            .saturating_add(size_of::<u64>())
+            .saturating_add(size_of::<u32>())
+            .saturating_add(record_payload_bytes),
+    )
+}
+
+/// Return the canonical payload length of one row-put journal record.
+#[must_use]
+pub(in crate::db) const fn journal_row_put_record_payload_len(
+    entity_path_bytes: usize,
+    primary_key_bytes: usize,
+    row_bytes: usize,
+) -> usize {
+    1usize
+        .saturating_add(size_of::<u32>() + entity_path_bytes)
+        .saturating_add(size_of::<u32>() + primary_key_bytes)
+        .saturating_add(size_of::<u32>() + row_bytes)
+        .saturating_add(JOURNAL_SCHEMA_FINGERPRINT_BYTES)
+}
+
+/// Return the canonical payload length of one row-delete journal record.
+#[must_use]
+pub(in crate::db) const fn journal_row_delete_record_payload_len(
+    entity_path_bytes: usize,
+    primary_key_bytes: usize,
+) -> usize {
+    1usize
+        .saturating_add(size_of::<u32>() + entity_path_bytes)
+        .saturating_add(size_of::<u32>() + primary_key_bytes)
+        .saturating_add(JOURNAL_SCHEMA_FINGERPRINT_BYTES)
+}
+
 fn write_journal_batch_payload(
     out: &mut Vec<u8>,
     batch: &JournalBatch,
@@ -467,15 +514,12 @@ fn read_primary_key(bytes: &[u8], cursor: &mut usize) -> Result<RawDataStoreKey,
 }
 
 fn journal_batch_payload_len(batch: &JournalBatch) -> usize {
-    let mut len = JOURNAL_BATCH_ID_BYTES
-        .saturating_add(JOURNAL_COMMIT_MARKER_ID_BYTES)
-        .saturating_add(size_of::<u64>())
-        .saturating_add(size_of::<u32>());
-    for record in &batch.records {
-        len = len.saturating_add(journal_record_payload_len(record));
-    }
-
-    len
+    let record_payload_bytes = batch.records.iter().fold(0usize, |len, record| {
+        len.saturating_add(journal_record_payload_len(record))
+    });
+    journal_batch_encoded_len_for_record_payloads(batch.records.len(), record_payload_bytes)
+        .unwrap_or(usize::MAX)
+        .saturating_sub(JOURNAL_BATCH_HEADER_BYTES)
 }
 
 fn journal_record_payload_len(record: &JournalRecord) -> usize {
@@ -485,19 +529,16 @@ fn journal_record_payload_len(record: &JournalRecord) -> usize {
             primary_key,
             row_bytes,
             ..
-        } => 1usize
-            .saturating_add(size_of::<u32>() + entity_path.len())
-            .saturating_add(size_of::<u32>() + primary_key.as_bytes().len())
-            .saturating_add(size_of::<u32>() + row_bytes.len())
-            .saturating_add(JOURNAL_SCHEMA_FINGERPRINT_BYTES),
+        } => journal_row_put_record_payload_len(
+            entity_path.len(),
+            primary_key.as_bytes().len(),
+            row_bytes.len(),
+        ),
         JournalRecord::RowDelete {
             entity_path,
             primary_key,
             ..
-        } => 1usize
-            .saturating_add(size_of::<u32>() + entity_path.len())
-            .saturating_add(size_of::<u32>() + primary_key.as_bytes().len())
-            .saturating_add(JOURNAL_SCHEMA_FINGERPRINT_BYTES),
+        } => journal_row_delete_record_payload_len(entity_path.len(), primary_key.as_bytes().len()),
         JournalRecord::SchemaPut {
             store_path,
             schema_snapshot_bytes,

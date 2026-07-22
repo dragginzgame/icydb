@@ -58,6 +58,16 @@ struct SqlWriteMaterializationPerfResult {
     rows: [u32; 4],
 }
 
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct ResumableUpdatePerfResult {
+    prepare_local_instructions: u64,
+    forward_local_instructions: Vec<u64>,
+    verify_local_instructions: Vec<u64>,
+    forward_keys_scanned: u32,
+    verify_keys_scanned: u32,
+    rows_updated: u32,
+}
+
 const SQL_WRITE_MATERIALIZATION_METRICS: [&str; 4] = [
     "update count",
     "update returning",
@@ -65,6 +75,7 @@ const SQL_WRITE_MATERIALIZATION_METRICS: [&str; 4] = [
     "delete returning",
 ];
 const SQL_WRITE_MATERIALIZATION_BUDGET: u64 = 750_000_000;
+const RESUMABLE_UPDATE_STEP_BUDGET: u64 = 2_000_000_000;
 
 #[derive(Clone, Copy, Debug)]
 enum SqlPerfSurface {
@@ -1419,6 +1430,33 @@ fn assert_sql_write_materialization_matrix_reports(fixture: &StandaloneCanisterF
     assert_sql_write_materialization_matrix_stays_bounded("journaled", &journaled);
 }
 
+fn measure_resumable_update(fixture: &StandaloneCanisterFixture) -> ResumableUpdatePerfResult {
+    let result: Result<ResumableUpdatePerfResult, Error> = fixture
+        .update_call("measure_journaled_user_resumable_update_perf", ())
+        .expect("resumable update perf result should decode");
+
+    result.expect("resumable update perf endpoint should succeed")
+}
+
+fn assert_resumable_update_perf_stays_bounded(result: &ResumableUpdatePerfResult) {
+    assert!(result.prepare_local_instructions > 0);
+    assert_eq!(result.forward_local_instructions.len(), 8);
+    assert_eq!(result.verify_local_instructions.len(), 2);
+    assert_eq!(result.forward_keys_scanned, 512);
+    assert_eq!(result.verify_keys_scanned, 512);
+    assert_eq!(result.rows_updated, 512);
+    for instructions in result
+        .forward_local_instructions
+        .iter()
+        .chain(&result.verify_local_instructions)
+    {
+        assert!(
+            *instructions < RESUMABLE_UPDATE_STEP_BUDGET,
+            "resumable UPDATE step should stay bounded, got {instructions} >= {RESUMABLE_UPDATE_STEP_BUDGET}",
+        );
+    }
+}
+
 struct StorageLimitOneReadSamples {
     heap: SqlQueryPerfResult,
     journaled: SqlQueryPerfResult,
@@ -1599,6 +1637,24 @@ fn sql_perf_journaled_primary_limit_one_stays_bounded() {
     assert_storage_total_and_fluent_limit_one_reports(&fixture);
     assert_storage_write_matrix_reports(&fixture);
     assert_sql_write_materialization_matrix_reports(&fixture);
+}
+
+#[test]
+fn sql_perf_resumable_update_steps_stay_bounded() {
+    let fixture = install_sql_perf_canister_fixture();
+    reset_sql_perf_fixtures(&fixture);
+
+    let result = measure_resumable_update(&fixture);
+    println!(
+        "resumable UPDATE: prepare={} forward={:?} verify={:?} forward_keys={} verify_keys={} updated={}",
+        result.prepare_local_instructions,
+        result.forward_local_instructions,
+        result.verify_local_instructions,
+        result.forward_keys_scanned,
+        result.verify_keys_scanned,
+        result.rows_updated,
+    );
+    assert_resumable_update_perf_stays_bounded(&result);
 }
 
 #[test]

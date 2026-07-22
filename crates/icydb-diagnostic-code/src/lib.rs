@@ -687,6 +687,21 @@ pub enum SqlWriteBoundaryCode {
     ExactUpdateAffectedRowsExceeded,
     ExactUpdateWindowUnsupported,
     ExactUpdateScanBudgetExceeded,
+    ResumableUpdateWindowUnsupported,
+    ResumableUpdateReturningUnsupported,
+    ResumableUpdateRequiresJournaledStore,
+    ResumableUpdateAssignedFieldHasGlobalConstraint,
+    ResumableUpdateScopeDependsOnAssignedField,
+    ResumableUpdateScopeDependencyUnknown,
+    ResumableUpdateContinuationMalformed,
+    ResumableUpdateContinuationTargetMismatch,
+    ResumableUpdateContinuationSchemaMismatch,
+    ResumableUpdateContinuationScopeMismatch,
+    ResumableUpdateContinuationPatchMismatch,
+    ResumableUpdateContinuationBatchPolicyMismatch,
+    ResumableUpdateSingleRowResourceExceeded,
+    ResumableUpdateApplicationCallbacksUnsupported,
+    ResumableUpdateManagedFieldHasGlobalConstraint,
 }
 
 impl fmt::Debug for SqlWriteBoundaryCode {
@@ -939,7 +954,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 205);
+        assert_eq!(last, 220);
     }
 
     #[test]
@@ -971,7 +986,7 @@ mod tests {
 
     #[test]
     fn invalid_raw_error_codes_fail_closed_to_runtime_internal() {
-        for raw in [0, 206, u16::MAX] {
+        for raw in [0, 221, u16::MAX] {
             let code = ErrorCode::from_raw(raw);
 
             assert_eq!(ErrorCode::known(raw), None);

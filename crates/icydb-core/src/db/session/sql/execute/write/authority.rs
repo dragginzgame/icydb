@@ -279,7 +279,7 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::execute)
     }
 
-    pub(super) fn with_checked_accepted_write_descriptor_for_returning<E, T>(
+    pub(in crate::db::session::sql) fn with_checked_accepted_write_descriptor_for_returning<E, T>(
         &self,
         catalog: Option<&AcceptedSchemaCatalogContext>,
         returning: Option<&SqlReturningProjection>,

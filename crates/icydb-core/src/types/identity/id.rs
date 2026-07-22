@@ -325,7 +325,14 @@ impl<E> SanitizeAuto for Id<E> where E: EntityKey {}
 impl<E> SanitizeCustom for Id<E> where E: EntityKey {}
 impl<E> ValidateAuto for Id<E> where E: EntityKey {}
 impl<E> ValidateCustom for Id<E> where E: EntityKey {}
-impl<E> Visitable for Id<E> where E: EntityKey {}
+impl<E> Visitable for Id<E>
+where
+    E: EntityKey,
+{
+    fn requires_application_write_callbacks() -> bool {
+        false
+    }
+}
 
 // ----------------------------------------------------------------------
 // Tests

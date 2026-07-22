@@ -345,7 +345,11 @@ impl ValidateAuto for Account {}
 
 impl ValidateCustom for Account {}
 
-impl Visitable for Account {}
+impl Visitable for Account {
+    fn requires_application_write_callbacks() -> bool {
+        false
+    }
+}
 
 //
 // TESTS

@@ -34,6 +34,8 @@ pub(in crate::db) use contract::encode_value_with_model_proposal_for_test;
 pub(in crate::db) use contract::{
     decode_runtime_value_from_accepted_field_contract, decode_runtime_value_from_row_contract,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use patch::AcceptedFixedUpdatePatch;
 pub(in crate::db) use patch::{
     AcceptedFieldWriteProvenance, ResolvedAcceptedMutationRow,
     canonical_row_from_raw_row_with_accepted_decode_contract,

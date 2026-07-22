@@ -136,6 +136,44 @@ impl AcceptedFieldKind {
         }
     }
 
+    /// Return whether this accepted kind contains relation identity.
+    #[must_use]
+    pub(in crate::db) fn contains_relation(&self) -> bool {
+        match self {
+            Self::Relation { .. } => true,
+            Self::List(inner) | Self::Set(inner) => inner.contains_relation(),
+            Self::Account
+            | Self::Blob { .. }
+            | Self::Bool
+            | Self::Composite { .. }
+            | Self::Date
+            | Self::Decimal { .. }
+            | Self::Duration
+            | Self::Enum { .. }
+            | Self::Float32
+            | Self::Float64
+            | Self::Int8
+            | Self::Int16
+            | Self::Int32
+            | Self::Int64
+            | Self::Int128
+            | Self::IntBig { .. }
+            | Self::Map { .. }
+            | Self::Principal
+            | Self::Subaccount
+            | Self::Text { .. }
+            | Self::Timestamp
+            | Self::Nat8
+            | Self::Nat16
+            | Self::Nat32
+            | Self::Nat64
+            | Self::Nat128
+            | Self::NatBig { .. }
+            | Self::Ulid
+            | Self::Unit => false,
+        }
+    }
+
     /// Return whether this kind requires the recursive canonical value wire.
     #[must_use]
     pub(in crate::db) fn requires_canonical_value_wire(&self) -> bool {

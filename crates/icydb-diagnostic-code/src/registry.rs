@@ -554,4 +554,34 @@ define_error_code_registry! {
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ExactUpdateWindowUnsupported });
     SQL_WRITE_EXACT_UPDATE_SCAN_BUDGET_EXCEEDED = 205 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ExactUpdateScanBudgetExceeded });
+    SQL_WRITE_RESUMABLE_UPDATE_WINDOW_UNSUPPORTED = 206 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateWindowUnsupported });
+    SQL_WRITE_RESUMABLE_UPDATE_RETURNING_UNSUPPORTED = 207 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateReturningUnsupported });
+    SQL_WRITE_RESUMABLE_UPDATE_REQUIRES_JOURNALED_STORE = 208 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateRequiresJournaledStore });
+    SQL_WRITE_RESUMABLE_UPDATE_ASSIGNED_FIELD_HAS_GLOBAL_CONSTRAINT = 209 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateAssignedFieldHasGlobalConstraint });
+    SQL_WRITE_RESUMABLE_UPDATE_SCOPE_DEPENDS_ON_ASSIGNED_FIELD = 210 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateScopeDependsOnAssignedField });
+    SQL_WRITE_RESUMABLE_UPDATE_SCOPE_DEPENDENCY_UNKNOWN = 211 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateScopeDependencyUnknown });
+    SQL_WRITE_RESUMABLE_UPDATE_CONTINUATION_MALFORMED = 212 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateContinuationMalformed });
+    SQL_WRITE_RESUMABLE_UPDATE_CONTINUATION_TARGET_MISMATCH = 213 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateContinuationTargetMismatch });
+    SQL_WRITE_RESUMABLE_UPDATE_CONTINUATION_SCHEMA_MISMATCH = 214 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateContinuationSchemaMismatch });
+    SQL_WRITE_RESUMABLE_UPDATE_CONTINUATION_SCOPE_MISMATCH = 215 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateContinuationScopeMismatch });
+    SQL_WRITE_RESUMABLE_UPDATE_CONTINUATION_PATCH_MISMATCH = 216 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateContinuationPatchMismatch });
+    SQL_WRITE_RESUMABLE_UPDATE_CONTINUATION_BATCH_POLICY_MISMATCH = 217 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateContinuationBatchPolicyMismatch });
+    SQL_WRITE_RESUMABLE_UPDATE_SINGLE_ROW_RESOURCE_EXCEEDED = 218 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateSingleRowResourceExceeded });
+    SQL_WRITE_RESUMABLE_UPDATE_APPLICATION_CALLBACKS_UNSUPPORTED = 219 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateApplicationCallbacksUnsupported });
+    SQL_WRITE_RESUMABLE_UPDATE_MANAGED_FIELD_HAS_GLOBAL_CONSTRAINT = 220 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateManagedFieldHasGlobalConstraint });
 }

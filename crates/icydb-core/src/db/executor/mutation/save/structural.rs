@@ -1,3 +1,5 @@
+#[cfg(feature = "sql")]
+use crate::db::commit::journaled_row_ops_fit_commit_window;
 use crate::{
     db::{
         KeyValueCodec,
@@ -27,6 +29,8 @@ use crate::{
     types::Timestamp,
 };
 use ic_stable_structures::Storable;
+#[cfg(feature = "sql")]
+use icydb_diagnostic_code::SqlWriteBoundaryCode;
 #[cfg(feature = "sql")]
 use std::collections::HashSet;
 
@@ -215,6 +219,83 @@ impl<E: PersistedRow> SaveExecutor<E> {
             accepted_row_decode_contract,
             precommit,
         )
+    }
+
+    /// Apply the largest durable prefix of one ordered resumable update batch.
+    ///
+    /// Every candidate is fully materialized and validated before its exact
+    /// journal marker cost is admitted. The first candidate that would exceed
+    /// the durable control window is left untouched for the next continuation.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn apply_internal_lowered_resumable_structural_update_prefix(
+        &self,
+        rows: Vec<(
+            StructuralMutationTargetKey<E::Key>,
+            AcceptedMutationIntentPatch,
+        )>,
+        write_context: SanitizeWriteContext,
+        accepted_row_decode_contract: AcceptedRowDecodeContract,
+    ) -> Result<usize, InternalError> {
+        let mut span = Span::<E>::new(ExecKind::Save);
+        let result = (|| {
+            let ctx = mutation_write_context::<E>(&self.db)?;
+            let schema = self.accepted_schema_info();
+            let schema_fingerprint = self.accepted_schema_fingerprint();
+            let validate_relations = schema.has_any_relations();
+            let mut marker_row_ops = Vec::with_capacity(rows.len());
+            let mut seen_row_keys = HashSet::with_capacity(rows.len());
+
+            for (target_key, patch) in rows {
+                let request = StructuralMutationRequest::internal_lowered(
+                    MutationMode::Update,
+                    target_key,
+                    patch,
+                    write_context,
+                    accepted_row_decode_contract.clone(),
+                );
+                let (entity, marker_row_op) = self.prepare_structural_mutation_row_op(
+                    &ctx,
+                    schema,
+                    schema_fingerprint,
+                    validate_relations,
+                    request,
+                )?;
+                if !seen_row_keys.insert(marker_row_op.key.clone()) {
+                    let data_key = DecodedDataStoreKey::try_new::<E>(entity.id().key())?;
+                    return Err(InternalError::mutation_atomic_save_duplicate_key(
+                        E::PATH,
+                        data_key,
+                    ));
+                }
+                marker_row_ops.push(marker_row_op);
+                if !journaled_row_ops_fit_commit_window(marker_row_ops.as_slice()) {
+                    let _ = marker_row_ops.pop();
+                    if marker_row_ops.is_empty() {
+                        return Err(InternalError::query_sql_write_boundary(
+                            SqlWriteBoundaryCode::ResumableUpdateSingleRowResourceExceeded,
+                        ));
+                    }
+                    break;
+                }
+            }
+
+            let committed_rows = marker_row_ops.len();
+            if committed_rows == 0 {
+                return Ok(0);
+            }
+            Self::commit_atomic_batch(&self.db, marker_row_ops, schema_fingerprint, &mut span)?;
+            Self::record_save_mutation(
+                MutationMode::Update.save_mutation_kind(),
+                u64::try_from(committed_rows).unwrap_or(u64::MAX),
+            );
+
+            Ok(committed_rows)
+        })();
+        if let Err(err) = &result {
+            span.set_error(err);
+        }
+
+        result
     }
 
     // Prepare and commit one executor-owned batch of internal structural

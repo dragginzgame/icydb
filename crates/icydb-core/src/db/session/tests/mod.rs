@@ -43,6 +43,8 @@ mod sql_delete;
 mod sql_explain;
 mod sql_grouped;
 mod sql_projection;
+#[cfg(feature = "sql")]
+mod sql_resumable_update;
 mod sql_scalar;
 mod sql_surface;
 mod sql_write;

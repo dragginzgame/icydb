@@ -175,6 +175,18 @@ struct SqlWriteMaterializationPerfResult {
     rows: [u32; 4],
 }
 
+/// Focused trusted resumable-update instruction and progress evidence.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
+struct ResumableUpdatePerfResult {
+    prepare_local_instructions: u64,
+    forward_local_instructions: Vec<u64>,
+    verify_local_instructions: Vec<u64>,
+    forward_keys_scanned: u32,
+    verify_keys_scanned: u32,
+    rows_updated: u32,
+}
+
 #[cfg(feature = "sql")]
 const STORAGE_WRITE_MATRIX_RUNS: u32 = 10;
 #[cfg(feature = "sql")]
@@ -1939,6 +1951,65 @@ fn measure_journaled_user_sql_write_materialization_perf()
         60_000,
         build_perf_audit_journaled_user,
     )
+}
+
+/// Measure one complete trusted resumable convergence operation without
+/// exposing its proof-bearing continuation across the canister boundary.
+#[cfg(feature = "sql")]
+#[update]
+fn measure_journaled_user_resumable_update_perf() -> Result<ResumableUpdatePerfResult, icydb::Error>
+{
+    const MAX_STEPS: usize = 16;
+
+    let session = db()?;
+    let sql = "UPDATE PerfAuditJournaledUser SET name = 'resumable-measured' WHERE age >= 0";
+    let prepare_start = ic_cdk::api::performance_counter(1);
+    let mut continuation = session.prepare_trusted_sql_resumable_update::<PerfAuditJournaledUser>(
+        Ulid::from_bytes(0x210_0000_0000_0001_u128.to_be_bytes()),
+        sql,
+    )?;
+    let prepare_local_instructions =
+        ic_cdk::api::performance_counter(1).saturating_sub(prepare_start);
+    let mut phase = icydb::db::TrustedResumableUpdatePhase::Forward;
+    let mut forward_local_instructions = Vec::new();
+    let mut verify_local_instructions = Vec::new();
+    let mut forward_keys_scanned = 0_u32;
+    let mut verify_keys_scanned = 0_u32;
+    let mut rows_updated = 0_u32;
+
+    for _ in 0..MAX_STEPS {
+        let start = ic_cdk::api::performance_counter(1);
+        let receipt = session
+            .resume_trusted_sql_resumable_update::<PerfAuditJournaledUser>(sql, &continuation)?;
+        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        match phase {
+            icydb::db::TrustedResumableUpdatePhase::Forward => {
+                forward_local_instructions.push(instructions);
+                forward_keys_scanned = forward_keys_scanned.saturating_add(receipt.keys_scanned());
+            }
+            icydb::db::TrustedResumableUpdatePhase::Verify => {
+                verify_local_instructions.push(instructions);
+                verify_keys_scanned = verify_keys_scanned.saturating_add(receipt.keys_scanned());
+            }
+        }
+        rows_updated = rows_updated.saturating_add(receipt.rows_updated());
+        phase = receipt.phase();
+        if receipt.complete() {
+            return Ok(ResumableUpdatePerfResult {
+                prepare_local_instructions,
+                forward_local_instructions,
+                verify_local_instructions,
+                forward_keys_scanned,
+                verify_keys_scanned,
+                rows_updated,
+            });
+        }
+        continuation = receipt
+            .into_continuation()
+            .ok_or_else(query_validate_error)?;
+    }
+
+    Err(query_validate_error())
 }
 
 /// Execute one PerfAuditHeapUser-only SQL query and attach one local

@@ -6,7 +6,7 @@ pub use icydb_testing_test_fixtures::macro_test::sanitize::case::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::sanitize;
+    use icydb::{sanitize, visitor::Visitable};
     use std::collections::HashMap;
 
     #[test]
@@ -14,6 +14,13 @@ mod tests {
         let mut value = LowerCaseText::from("MiXeD Case");
         sanitize(&mut value).unwrap();
         assert_eq!(value.inner().as_str(), "mixed case");
+    }
+
+    #[test]
+    fn generated_callback_profile_marks_sanitized_values() {
+        assert!(LowerCaseText::requires_application_write_callbacks());
+        assert!(SnakeCaseTextList::requires_application_write_callbacks());
+        assert!(TitleCaseValueMap::requires_application_write_callbacks());
     }
 
     #[test]

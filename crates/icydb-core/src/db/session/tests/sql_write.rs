@@ -2600,6 +2600,21 @@ fn execute_trusted_sql_exact_update_empty_target_is_a_complete_no_op() {
 }
 
 #[test]
+fn execute_trusted_sql_exact_update_rejects_entity_mismatch() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_trusted_sql_exact_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlGeneratedTimestampEntity SET name = 'Ada' WHERE id = 1",
+            1,
+        )
+        .expect_err("exact SQL target must match its typed entity");
+
+    assert_sql_lowering_detail(err, SqlLoweringCode::EntityMismatch);
+}
+
+#[test]
 fn execute_trusted_sql_exact_update_journaled_commit_recovers_complete_target() {
     reset_journaled_session_sql_store();
     let session = journaled_sql_session();

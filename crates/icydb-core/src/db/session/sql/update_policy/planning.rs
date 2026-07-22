@@ -4,19 +4,53 @@
 use super::model::*;
 use crate::db::{
     QueryError,
+    schema::{AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField},
     session::sql::write_policy::{
         SqlWriteExecutionBounds, SqlWriteOrderProof, SqlWritePlanCore,
         SqlWriteShapePolicyRejection, SqlWriteStatementShape, SqlWriteStatementShapeInput,
         classify_write_statement_shape, contains_field, current_table_field_name,
     },
-    sql::parser::{SqlStatement, SqlUpdateStatement, parse_sql_with_attribution},
+    sql::{
+        lowering::prepare_sql_statement,
+        parser::{SqlStatement, SqlUpdateStatement, parse_sql_with_attribution},
+    },
 };
+
+/// Run one classifier with field-ownership context derived from accepted schema.
+///
+/// Keeping this projection beside SQL update policy prevents exact, prefix,
+/// and resumable entrypoints from maintaining separate generated/managed
+/// field lists.
+pub(in crate::db) fn with_accepted_sql_update_policy_context<T>(
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    run: impl FnOnce(SqlUpdatePolicyContext<'_>) -> T,
+) -> T {
+    let generated_fields = descriptor
+        .fields()
+        .iter()
+        .filter(|field| field.write_policy().insert_generation().is_some())
+        .map(AcceptedRowLayoutRuntimeField::name)
+        .collect::<Vec<_>>();
+    let managed_fields = descriptor
+        .fields()
+        .iter()
+        .filter(|field| field.write_policy().write_management().is_some())
+        .map(AcceptedRowLayoutRuntimeField::name)
+        .collect::<Vec<_>>();
+
+    run(SqlUpdatePolicyContext::public_generated(
+        descriptor.primary_key_names(),
+        generated_fields.as_slice(),
+        managed_fields.as_slice(),
+    ))
+}
 
 /// Classify one SQL statement under an explicit `UPDATE` exposure policy.
 ///
 /// This helper parses and inspects statement shape only. It does not execute
 /// mutation work or validate field existence beyond the caller-provided schema
 /// field categories.
+#[cfg(test)]
 pub(in crate::db) fn classify_sql_update_policy(
     sql: &str,
     policy: SqlUpdateExposurePolicy,
@@ -28,6 +62,73 @@ pub(in crate::db) fn classify_sql_update_policy(
     Ok(classify_sql_update_statement_policy(
         &statement, policy, context,
     ))
+}
+
+/// Classify one SQL statement against one concrete expected entity.
+///
+/// Direct typed execution boundaries use this adapter so their generic entity
+/// cannot silently override the entity named by the SQL statement.
+pub(in crate::db) fn classify_sql_update_policy_for_entity(
+    sql: &str,
+    expected_entity: &str,
+    policy: SqlUpdateExposurePolicy,
+    context: SqlUpdatePolicyContext<'_>,
+) -> Result<SqlUpdatePolicyReport, QueryError> {
+    let statement = parse_prepared_sql_statement(sql, expected_entity)?;
+
+    Ok(classify_sql_update_statement_policy(
+        &statement, policy, context,
+    ))
+}
+
+/// Classify one SQL statement for trusted resumable-update preparation.
+///
+/// This is the single frontend-shape owner for the resumable lane. Catalog
+/// constraints and scope dependency closure remain schema-owned and are
+/// checked by the preparation boundary after this function succeeds.
+pub(in crate::db) fn classify_sql_resumable_update_policy(
+    sql: &str,
+    expected_entity: &str,
+    context: SqlUpdatePolicyContext<'_>,
+) -> Result<SqlResumableUpdatePolicyReport, QueryError> {
+    let statement = parse_prepared_sql_statement(sql, expected_entity)?;
+    let SqlStatement::Update(statement) = statement else {
+        return Ok(Err(SqlUpdatePolicyRejection::NotUpdate));
+    };
+    let classification = classify_update_statement(&statement, context);
+
+    if classification
+        .write_shape
+        .required_where_rejection()
+        .is_some()
+    {
+        return Ok(Err(SqlUpdatePolicyRejection::MissingWhere));
+    }
+    if !classification.assignment_policy.admitted() {
+        let rejection = unsafe_assignment_rejection(classification.assignment_policy)
+            .ok_or_else(QueryError::invariant)?;
+        return Ok(Err(rejection));
+    }
+    if statement.returning.is_some() {
+        return Ok(Err(SqlUpdatePolicyRejection::ResumableReturningUnsupported));
+    }
+    if !exact_update_window_supported(&classification.write_shape) {
+        return Ok(Err(SqlUpdatePolicyRejection::ResumableWindowUnsupported));
+    }
+
+    Ok(Ok(SqlTrustedResumableUpdatePlan { statement }))
+}
+
+fn parse_prepared_sql_statement(
+    sql: &str,
+    expected_entity: &str,
+) -> Result<SqlStatement, QueryError> {
+    let (statement, _) =
+        parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
+
+    prepare_sql_statement(&statement, expected_entity)
+        .map(crate::db::sql::lowering::PreparedSqlStatement::into_statement)
+        .map_err(QueryError::from_sql_lowering_error)
 }
 
 pub(in crate::db) fn classify_sql_update_statement_policy(

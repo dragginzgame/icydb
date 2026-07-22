@@ -975,6 +975,13 @@ const PROVIDERS: &[ProviderSpec] = &[
         [Execute, State]
     ),
     provider!(
+        "core.mutation.trusted_resumable_update_state",
+        "crates/icydb-core/src/db/session/tests/sql_resumable_update.rs",
+        "trusted_resumable_update_verify_completes_only_after_a_stable_full_sweep",
+        ContractAssertion,
+        [Execute, State]
+    ),
+    provider!(
         "canister.mutation.query_rejects_update",
         "testing/integration/tests/sql_canister.rs",
         "sql_canister_query_endpoint_rejects_update_sql",
@@ -1870,6 +1877,18 @@ const MANIFEST: &[CoverageCell] = &[
         PERF_NONE,
         ELIGIBLE_STATE,
         ["core.mutation.trusted_update_window"],
+        None
+    ),
+    cell!(
+        "mutation.trusted_resumable_update",
+        Interaction,
+        Accepted,
+        "SQL `UPDATE` Availability By Surface",
+        Interaction,
+        REQ_STATE,
+        PERF_NONE,
+        ELIGIBLE_STATE,
+        ["core.mutation.trusted_resumable_update_state"],
         None
     ),
     cell!(

@@ -13,6 +13,11 @@ pub mod sql;
 
 // Public facade-owned response/session surfaces.
 pub use bootstrap::DatabaseBootstrapError;
+#[cfg(feature = "sql")]
+pub use icydb_core::db::{
+    TrustedResumableUpdateContinuation, TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,
+    TrustedResumableUpdateRestartReason,
+};
 pub use response::{ExecutionTrace, GroupedRow, PagedResponse, Response, RowProjectionOutput};
 pub use session::{
     DbSession, FluentLoadQuery, MutationMode, PartialWindowLoadQuery, SessionDeleteQuery,
