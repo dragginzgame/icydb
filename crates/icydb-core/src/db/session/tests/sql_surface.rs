@@ -1396,8 +1396,8 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
         "scalar SELECT helper should reject UPDATE lane even when RETURNING is present",
     );
     let updated_rows =
-        statement_projection_rows::<SessionSqlEntity>(&session, update_returning_sql)
-            .expect("statement execution should admit UPDATE RETURNING");
+        exact_update_projection_rows::<SessionSqlEntity>(&session, update_returning_sql)
+            .expect("exact UPDATE execution should admit UPDATE RETURNING");
     assert_eq!(updated_rows.len(), 1);
     assert_eq!(updated_rows[0].len(), 2);
     assert!(

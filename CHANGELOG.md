@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Aligns the SQL surface regression matrix with the explicit exact-update
+  contract while retaining `UPDATE RETURNING` projection coverage.
+
 ## [0.210.x] 🎯 - 2026-07-22 - Explicit Bulk Update Contracts
 
 Detailed notes: [docs/changelog/0.210.md](docs/changelog/0.210.md)
