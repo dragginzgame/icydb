@@ -129,8 +129,8 @@ fn publish_journaled_candidate(
         .journal_tail_store()
         .ok_or_else(InternalError::store_invariant)?;
     let marker_id = generate_commit_id()?;
-    let sequence =
-        journal_store.with_borrow(crate::db::journal::JournalTailStore::next_append_sequence)?;
+    let sequence = journal_store
+        .with_borrow(crate::db::journal::JournalTailStore::next_mutation_append_sequence)?;
     let schema_record = JournalRecord::accepted_schema_publish(
         store_path,
         expected_revision,

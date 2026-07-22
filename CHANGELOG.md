@@ -7,14 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### 🩹 Fixed
-
-- Aligns resumable-update test-only evidence with the SQL feature boundary so
-  no-default test and Clippy builds remain warning-free.
-
 ## [0.210.x] 🎯 - 2026-07-22 - Explicit Bulk Update Contracts
 
 Detailed notes: [docs/changelog/0.210.md](docs/changelog/0.210.md)
+
+- `0.210.2` binds every resumable call to its application operation id, fails
+  journal revision exhaustion before marker publication, fingerprints execution
+  policy inputs, and removes the final ambiguous test-only update route.
 
 - `0.210.1` adds trusted journaled resumable SQL `UPDATE` with bounded atomic
   Forward batches and stable-revision Verify completion, while failing closed

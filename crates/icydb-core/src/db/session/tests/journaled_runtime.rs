@@ -449,7 +449,7 @@ fn journaled_temporal_defaults_remain_frozen_through_three_layouts_and_recovery(
     );
 
     for (id, age) in [(1, 41), (2, 42), (3, 43)] {
-        execute_sql_statement_for_tests::<JournaledSessionSqlEntity>(
+        execute_exact_sql_update_for_tests::<JournaledSessionSqlEntity>(
             &session,
             &format!("UPDATE JournaledSessionSqlEntity SET age = {age} WHERE id = {id}"),
         )

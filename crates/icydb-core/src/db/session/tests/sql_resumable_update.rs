@@ -19,10 +19,15 @@ fn prepare_journaled(
 
 fn resume_journaled(
     session: &DbSession<SessionSqlCanister>,
+    operation_id: u128,
     sql: &str,
     continuation: &crate::db::TrustedResumableUpdateContinuation,
 ) -> Result<crate::db::TrustedResumableUpdateReceipt, QueryError> {
-    session.resume_trusted_sql_resumable_update::<JournaledSessionSqlEntity>(sql, continuation)
+    session.resume_trusted_sql_resumable_update::<JournaledSessionSqlEntity>(
+        Ulid::from_u128(operation_id),
+        sql,
+        continuation,
+    )
 }
 
 fn journaled_accepted_schema_snapshot() -> PersistedSchemaSnapshot {
@@ -59,6 +64,34 @@ fn insert_raw_journaled_row_without_revision(entity: &JournaledSessionSqlEntity)
     JOURNALED_SESSION_SQL_DATA_STORE.with_borrow_mut(|store| {
         let _ = store.insert_raw_for_test(key, row);
     });
+}
+
+fn journaled_raw_row_for_test(id: u64) -> crate::db::data::RawRow {
+    let key = DecodedDataStoreKey::try_new::<JournaledSessionSqlEntity>(id)
+        .expect("resumable fixture key should build")
+        .to_raw()
+        .expect("resumable fixture key should encode");
+    JOURNALED_SESSION_SQL_DATA_STORE.with_borrow(|store| {
+        store
+            .get(&key)
+            .expect("resumable fixture row should remain present")
+    })
+}
+
+fn journaled_index_entries_for_test() -> Vec<(
+    crate::db::index::RawIndexStoreKey,
+    crate::db::index::IndexEntryValue,
+)> {
+    JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+        let mut entries = Vec::new();
+        store
+            .visit_entries(|key, value| {
+                entries.push((key.clone(), value.clone()));
+                Ok::<_, ()>(IndexStoreVisit::Continue)
+            })
+            .expect("infallible resumable fixture index visitor should complete");
+        entries
+    })
 }
 
 #[test]
@@ -365,7 +398,7 @@ fn trusted_resumable_update_forward_commits_one_batch_and_replays_old_token() {
         .expect("resumable multi-batch update should prepare");
     let journal_len_before = JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow(JournalTailStore::len);
 
-    let first = resume_journaled(&session, sql, &initial)
+    let first = resume_journaled(&session, 0x210_1000, sql, &initial)
         .expect("first resumable Forward batch should commit");
     assert_eq!(
         first.phase(),
@@ -380,18 +413,39 @@ fn trusted_resumable_update_forward_commits_one_batch_and_replays_old_token() {
         "one Forward call must append exactly one atomic journal batch",
     );
 
-    let replay = resume_journaled(&session, sql, &initial)
-        .expect("response-loss replay of the prior continuation should converge");
+    let second = resume_journaled(
+        &session,
+        0x210_1000,
+        sql,
+        first
+            .continuation()
+            .expect("first 64-row batch should carry its exact checkpoint"),
+    )
+    .expect("the row deferred after the 64-row bound should remain reachable");
+    assert_eq!(
+        second.phase(),
+        crate::db::TrustedResumableUpdatePhase::Verify
+    );
+    assert_eq!(second.keys_scanned(), 6);
+    assert_eq!(second.rows_updated(), 6);
+    assert_eq!(
+        JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow(JournalTailStore::len),
+        journal_len_before + 2,
+        "the residual rows must commit as one second atomic batch",
+    );
+
+    let replay = resume_journaled(&session, 0x210_1000, sql, &initial)
+        .expect("response-loss replay of the original continuation should converge as no-work");
     assert_eq!(
         replay.phase(),
         crate::db::TrustedResumableUpdatePhase::Verify
     );
     assert_eq!(replay.keys_scanned(), 70);
-    assert_eq!(replay.rows_updated(), 6);
+    assert_eq!(replay.rows_updated(), 0);
     assert_eq!(
         JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow(JournalTailStore::len),
         journal_len_before + 2,
-        "replay must append only the residual atomic batch",
+        "replay must not reapply a managed or authored mutation to converged rows",
     );
     let rows = statement_projection_rows::<JournaledSessionSqlEntity>(
         &session,
@@ -421,8 +475,8 @@ fn trusted_resumable_update_forward_advances_clean_pages_without_a_marker() {
         .expect("resumable clean-page update should prepare");
     let journal_len_before = JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow(JournalTailStore::len);
 
-    let first =
-        resume_journaled(&session, sql, &initial).expect("first clean Forward page should advance");
+    let first = resume_journaled(&session, 0x210_1001, sql, &initial)
+        .expect("first clean Forward page should advance");
     assert_eq!(
         first.phase(),
         crate::db::TrustedResumableUpdatePhase::Forward
@@ -437,6 +491,7 @@ fn trusted_resumable_update_forward_advances_clean_pages_without_a_marker() {
 
     let second = resume_journaled(
         &session,
+        0x210_1001,
         sql,
         first
             .continuation()
@@ -470,8 +525,21 @@ fn trusted_resumable_update_resume_rebinds_scope_patch_and_batch_policy() {
     let initial = prepare_journaled(&session, 0x210_1002, sql)
         .expect("resumable binding update should prepare");
 
+    let (operation_err, operation_rows_scanned) =
+        capture_rows_scanned_for_entity(JournaledSessionSqlEntity::PATH, || {
+            resume_journaled(&session, 0x210_1003, sql, &initial)
+        });
+    let operation_err = operation_err
+        .expect_err("another application operation identity must reject before execution");
+    assert_eq!(operation_rows_scanned, 0);
+    assert_sql_write_boundary_detail(
+        operation_err,
+        SqlWriteBoundaryCode::ResumableUpdateContinuationOperationMismatch,
+    );
+
     let scope_err = resume_journaled(
         &session,
+        0x210_1002,
         "UPDATE JournaledSessionSqlEntity SET name = 'Updated' WHERE age = 20",
         &initial,
     )
@@ -482,6 +550,7 @@ fn trusted_resumable_update_resume_rebinds_scope_patch_and_batch_policy() {
     );
     let patch_err = resume_journaled(
         &session,
+        0x210_1002,
         "UPDATE JournaledSessionSqlEntity SET name = 'Changed' WHERE age = 21",
         &initial,
     )
@@ -493,12 +562,12 @@ fn trusted_resumable_update_resume_rebinds_scope_patch_and_batch_policy() {
 
     let mut wrong_policy = initial.as_bytes().to_vec();
     let payload_len = wrong_policy.len() - size_of::<u32>();
-    wrong_policy[payload_len - size_of::<u32>()..payload_len].copy_from_slice(&2_u32.to_be_bytes());
+    wrong_policy[payload_len - 1] ^= 1;
     let checksum = crate::db::database_format::crc32c(&wrong_policy[..payload_len]);
     wrong_policy[payload_len..].copy_from_slice(&checksum.to_be_bytes());
     let wrong_policy = crate::db::TrustedResumableUpdateContinuation::try_from_bytes(wrong_policy)
         .expect("structurally valid alternate policy token should decode");
-    let policy_err = resume_journaled(&session, sql, &wrong_policy)
+    let policy_err = resume_journaled(&session, 0x210_1002, sql, &wrong_policy)
         .expect_err("another engine batch policy must reject before execution");
     assert_sql_write_boundary_detail(
         policy_err,
@@ -511,6 +580,77 @@ fn trusted_resumable_update_resume_rebinds_scope_patch_and_batch_policy() {
     )
     .expect("binding rejection fixture should remain readable");
     assert_eq!(rows, vec![vec![Value::Text("Ada".to_string())]]);
+}
+
+#[test]
+fn trusted_resumable_update_revision_exhaustion_rejects_before_marker_without_state_change() {
+    reset_journaled_session_sql_store();
+    let session = journaled_sql_session();
+    session
+        .insert(JournaledSessionSqlEntity {
+            id: 1,
+            name: "Ada".to_string(),
+            age: 21,
+        })
+        .expect("revision-exhaustion fixture insert should succeed");
+    let sql = "UPDATE JournaledSessionSqlEntity SET name = 'Updated' WHERE age = 21";
+    let initial = prepare_journaled(&session, 0x210_1008, sql)
+        .expect("revision-exhaustion fixture should prepare");
+
+    JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow_mut(|journal| {
+        journal
+            .persist_fold_watermark(FoldWatermark::new(JournalSequence::new(u64::MAX - 1), 1))
+            .expect("near-exhausted revision fixture should persist");
+    });
+    let raw_row_before = journaled_raw_row_for_test(1);
+    let indexes_before = journaled_index_entries_for_test();
+    let data_len_before = JOURNALED_SESSION_SQL_DATA_STORE.with_borrow(DataStore::len);
+    let journal_len_before = JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow(JournalTailStore::len);
+    let watermark_before = JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow(|journal| {
+        journal
+            .fold_watermark()
+            .expect("revision-exhaustion watermark should remain readable")
+    });
+    assert!(
+        !crate::db::commit::commit_marker_present()
+            .expect("revision-exhaustion baseline marker state should be readable"),
+    );
+
+    let error = resume_journaled(&session, 0x210_1008, sql, &initial)
+        .expect_err("a mutation must reject before consuming the final journal sequence");
+
+    assert_eq!(
+        error.diagnostic().code(),
+        DiagnosticCode::RuntimeUnsupported
+    );
+    assert_eq!(
+        error.diagnostic().detail(),
+        Some(&DiagnosticDetail::RuntimeBoundary {
+            boundary: icydb_diagnostic_code::RuntimeBoundaryCode::JournalMutationRevisionExhausted,
+        }),
+    );
+    assert_eq!(journaled_raw_row_for_test(1), raw_row_before);
+    assert_eq!(journaled_index_entries_for_test(), indexes_before);
+    assert_eq!(
+        JOURNALED_SESSION_SQL_DATA_STORE.with_borrow(DataStore::len),
+        data_len_before,
+    );
+    assert_eq!(
+        JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow(JournalTailStore::len),
+        journal_len_before,
+    );
+    assert_eq!(
+        JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow(|journal| {
+            journal
+                .fold_watermark()
+                .expect("revision-exhaustion final watermark should remain readable")
+        }),
+        watermark_before,
+    );
+    assert!(
+        !crate::db::commit::commit_marker_present()
+            .expect("revision-exhaustion final marker state should be readable"),
+    );
 }
 
 #[test]
@@ -532,7 +672,7 @@ fn trusted_resumable_update_resume_rejects_changed_accepted_schema_before_row_ac
         .expect("schema-binding fixture DDL should publish");
     let (result, rows_scanned) =
         capture_rows_scanned_for_entity(JournaledSessionSqlEntity::PATH, || {
-            resume_journaled(&session, sql, &initial)
+            resume_journaled(&session, 0x210_1006, sql, &initial)
         });
     let err = result.expect_err("old accepted-schema continuation must reject");
 
@@ -599,7 +739,7 @@ fn trusted_resumable_update_resume_rejects_another_target_identity() {
         .expect("structurally valid alternate target token should decode");
     let (result, rows_scanned) =
         capture_rows_scanned_for_entity(JournaledSessionSqlEntity::PATH, || {
-            resume_journaled(&session, sql, &wrong_target)
+            resume_journaled(&session, 0x210_1007, sql, &wrong_target)
         });
     let err = result.expect_err("another resumable target identity must reject");
 
@@ -629,7 +769,7 @@ fn trusted_resumable_update_forward_retries_before_marker_persistence() {
         CommitFailpoint::BeforeMarkerWrite,
         CommitFailpointMode::ReturnError,
     );
-    resume_journaled(&session, sql, &initial)
+    resume_journaled(&session, 0x210_1004, sql, &initial)
         .expect_err("pre-marker interruption must reject without mutation authority");
     clear_commit_failpoint_for_tests();
     assert!(
@@ -649,7 +789,7 @@ fn trusted_resumable_update_forward_retries_before_marker_persistence() {
         ],
     );
 
-    let replay = resume_journaled(&session, sql, &initial)
+    let replay = resume_journaled(&session, 0x210_1004, sql, &initial)
         .expect("the same pre-marker continuation should remain retryable");
     assert_eq!(
         replay.phase(),
@@ -684,7 +824,7 @@ fn trusted_resumable_update_forward_recovers_marker_authorized_batch_before_repl
         CommitFailpoint::AfterMarkerWrite,
         CommitFailpointMode::ReturnError,
     );
-    resume_journaled(&session, sql, &initial)
+    resume_journaled(&session, 0x210_1005, sql, &initial)
         .expect_err("post-marker interruption must return an unknown call outcome");
     clear_commit_failpoint_for_tests();
     assert!(
@@ -699,7 +839,7 @@ fn trusted_resumable_update_forward_recovers_marker_authorized_batch_before_repl
         "resumable 64-row Forward marker/control={marker_control_bytes} bytes, journal batch={journal_batch_bytes} bytes"
     );
 
-    let replay = resume_journaled(&session, sql, &initial)
+    let replay = resume_journaled(&session, 0x210_1005, sql, &initial)
         .expect("replay should recover the authorized batch before rescanning");
     assert_eq!(
         replay.phase(),
@@ -749,10 +889,11 @@ fn trusted_resumable_update_verify_completes_only_after_a_stable_full_sweep() {
     let initial = prepare_journaled(&session, 0x210_2000, sql)
         .expect("resumable verification fixture should prepare");
 
-    let forward_page =
-        resume_journaled(&session, sql, &initial).expect("first clean Forward page should advance");
+    let forward_page = resume_journaled(&session, 0x210_2000, sql, &initial)
+        .expect("first clean Forward page should advance");
     let forward_final = resume_journaled(
         &session,
+        0x210_2000,
         sql,
         forward_page
             .continuation()
@@ -767,6 +908,7 @@ fn trusted_resumable_update_verify_completes_only_after_a_stable_full_sweep() {
 
     let verify_page = resume_journaled(
         &session,
+        0x210_2000,
         sql,
         forward_final
             .continuation()
@@ -786,7 +928,7 @@ fn trusted_resumable_update_verify_completes_only_after_a_stable_full_sweep() {
         .continuation()
         .expect("partial Verify sweep should carry continuation")
         .clone();
-    let complete = resume_journaled(&session, sql, &final_verify_token)
+    let complete = resume_journaled(&session, 0x210_2000, sql, &final_verify_token)
         .expect("stable final Verify page should complete");
     assert_eq!(
         complete.phase(),
@@ -798,7 +940,7 @@ fn trusted_resumable_update_verify_completes_only_after_a_stable_full_sweep() {
     assert!(complete.complete());
     assert!(complete.continuation().is_none());
 
-    let replay = resume_journaled(&session, sql, &final_verify_token)
+    let replay = resume_journaled(&session, 0x210_2000, sql, &final_verify_token)
         .expect("replaying the final stable Verify token should remain complete");
     assert!(replay.complete());
     assert!(replay.continuation().is_none());
@@ -818,10 +960,11 @@ fn trusted_resumable_update_verify_revision_change_restarts_from_forward_start()
     let sql = "UPDATE JournaledSessionSqlEntity SET name = 'Already' WHERE age = 21";
     let initial = prepare_journaled(&session, 0x210_2001, sql)
         .expect("resumable revision fixture should prepare");
-    let forward_page = resume_journaled(&session, sql, &initial)
+    let forward_page = resume_journaled(&session, 0x210_2001, sql, &initial)
         .expect("first revision fixture Forward page should advance");
     let verify_start = resume_journaled(
         &session,
+        0x210_2001,
         sql,
         forward_page
             .continuation()
@@ -830,6 +973,7 @@ fn trusted_resumable_update_verify_revision_change_restarts_from_forward_start()
     .expect("revision fixture should enter Verify");
     let verify_page = resume_journaled(
         &session,
+        0x210_2001,
         sql,
         verify_start
             .continuation()
@@ -847,6 +991,7 @@ fn trusted_resumable_update_verify_revision_change_restarts_from_forward_start()
         .expect("behind-checkpoint write should succeed");
     let restarted = resume_journaled(
         &session,
+        0x210_2001,
         sql,
         verify_page
             .continuation()
@@ -867,6 +1012,7 @@ fn trusted_resumable_update_verify_revision_change_restarts_from_forward_start()
 
     let resumed_forward = resume_journaled(
         &session,
+        0x210_2001,
         sql,
         restarted
             .continuation()
@@ -896,8 +1042,8 @@ fn trusted_resumable_update_verify_restarts_after_an_out_of_scope_write() {
     let sql = "UPDATE JournaledSessionSqlEntity SET name = 'Already' WHERE age = 21";
     let initial = prepare_journaled(&session, 0x210_2002, sql)
         .expect("out-of-scope revision update should prepare");
-    let verify_start =
-        resume_journaled(&session, sql, &initial).expect("clean Forward scan should enter Verify");
+    let verify_start = resume_journaled(&session, 0x210_2002, sql, &initial)
+        .expect("clean Forward scan should enter Verify");
     assert_eq!(
         verify_start.phase(),
         crate::db::TrustedResumableUpdatePhase::Verify
@@ -912,6 +1058,7 @@ fn trusted_resumable_update_verify_restarts_after_an_out_of_scope_write() {
         .expect("out-of-scope store write should succeed");
     let restarted = resume_journaled(
         &session,
+        0x210_2002,
         sql,
         verify_start
             .continuation()
@@ -945,7 +1092,7 @@ fn trusted_resumable_update_verify_preserves_revision_across_journal_fold() {
     let sql = "UPDATE JournaledSessionSqlEntity SET name = 'Updated' WHERE age = 21";
     let initial = prepare_journaled(&session, 0x210_2003, sql)
         .expect("journal-fold resumable update should prepare");
-    let verify_start = resume_journaled(&session, sql, &initial)
+    let verify_start = resume_journaled(&session, 0x210_2003, sql, &initial)
         .expect("one-row Forward batch should enter Verify");
     assert_eq!(verify_start.rows_updated(), 1);
     let revision_before = JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow(|journal| {
@@ -982,6 +1129,7 @@ fn trusted_resumable_update_verify_preserves_revision_across_journal_fold() {
 
     let complete = resume_journaled(
         &session,
+        0x210_2003,
         sql,
         verify_start
             .continuation()
@@ -1006,8 +1154,8 @@ fn trusted_resumable_update_verify_detects_residual_work_without_revision_drift(
     let sql = "UPDATE JournaledSessionSqlEntity SET name = 'Already' WHERE age = 21";
     let initial = prepare_journaled(&session, 0x210_2004, sql)
         .expect("residual-work resumable update should prepare");
-    let verify_start =
-        resume_journaled(&session, sql, &initial).expect("clean Forward scan should enter Verify");
+    let verify_start = resume_journaled(&session, 0x210_2004, sql, &initial)
+        .expect("clean Forward scan should enter Verify");
 
     insert_raw_journaled_row_without_revision(&JournaledSessionSqlEntity {
         id: 1,
@@ -1016,6 +1164,7 @@ fn trusted_resumable_update_verify_detects_residual_work_without_revision_drift(
     });
     let restarted = resume_journaled(
         &session,
+        0x210_2004,
         sql,
         verify_start
             .continuation()
@@ -1066,7 +1215,7 @@ fn trusted_resumable_update_toko_shaped_tier_reset_converges_only_its_scope() {
     let mut complete = false;
 
     for _ in 0..8 {
-        let receipt = resume_journaled(&session, sql, &continuation)
+        let receipt = resume_journaled(&session, 0x210_3000, sql, &continuation)
             .expect("Toko-shaped tier reset step should succeed");
         rows_updated = rows_updated.saturating_add(receipt.rows_updated());
         if receipt.complete() {

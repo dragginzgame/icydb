@@ -438,6 +438,9 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::GeneratedFieldAfterDdlField => {
             "generated field would collide with an accepted SQL DDL field slot"
         }
+        RuntimeBoundaryCode::JournalMutationRevisionExhausted => {
+            "journaled mutation revision space is exhausted"
+        }
     }
 }
 
@@ -658,6 +661,9 @@ const fn sql_write_boundary_text(boundary: SqlWriteBoundaryCode) -> &'static str
         }
         SqlWriteBoundaryCode::ResumableUpdateManagedFieldHasGlobalConstraint => {
             "resumable UPDATE cannot refresh a globally constrained managed field"
+        }
+        SqlWriteBoundaryCode::ResumableUpdateContinuationOperationMismatch => {
+            "resumable UPDATE continuation belongs to another application operation"
         }
     }
 }

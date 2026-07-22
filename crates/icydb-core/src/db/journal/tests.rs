@@ -332,6 +332,53 @@ fn journal_tail_store_cleanup_keeps_watermark_as_replay_boundary() {
 }
 
 #[test]
+fn journal_tail_store_reserves_a_representable_post_commit_revision() {
+    let mut store = JournalTailStore::init(test_memory(224));
+    store
+        .persist_fold_watermark(FoldWatermark::new(JournalSequence::new(u64::MAX - 1), 1))
+        .expect("near-exhausted fold watermark should persist");
+
+    assert_eq!(
+        store
+            .next_append_sequence()
+            .expect("the final sequence remains representable")
+            .get(),
+        u64::MAX,
+    );
+    let error = store
+        .next_mutation_append_sequence()
+        .expect_err("a mutation must retain a representable post-commit revision");
+    assert_eq!(error.class(), ErrorClass::Unsupported);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+    assert_eq!(
+        error.diagnostic().detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+            boundary: icydb_diagnostic_code::RuntimeBoundaryCode::JournalMutationRevisionExhausted,
+        }),
+    );
+}
+
+#[test]
+fn journal_batch_rejects_the_unverifiable_final_sequence() {
+    let error = JournalBatch::new(
+        [0xEF; 16],
+        [0xFE; 16],
+        JournalSequence::new(u64::MAX),
+        vec![row_put_record(1)],
+    )
+    .expect_err("a mutation batch at the final sequence cannot expose a later revision");
+
+    assert_eq!(error.class(), ErrorClass::Unsupported);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+    assert_eq!(
+        error.diagnostic().detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+            boundary: icydb_diagnostic_code::RuntimeBoundaryCode::JournalMutationRevisionExhausted,
+        }),
+    );
+}
+
+#[test]
 fn journal_tail_store_treats_identical_duplicate_append_as_idempotent() {
     let mut store = JournalTailStore::init(test_memory(212));
     let batch = batch(1);

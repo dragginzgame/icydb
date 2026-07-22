@@ -258,11 +258,13 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Resume one trusted resumable SQL `UPDATE` for one bounded engine step.
     ///
-    /// The continuation must come from trusted application custody and the SQL
-    /// must preserve the exact prepared scope and fixed patch. Forward commits
-    /// at most one batch; Verify is read-only and alone may report completion.
+    /// The continuation must come from custody for the supplied authorized
+    /// operation id, and the SQL must preserve the exact prepared scope and
+    /// fixed patch. Forward commits at most one batch; Verify is read-only and
+    /// alone may report completion.
     pub fn resume_trusted_sql_resumable_update<E>(
         &self,
+        operation_id: crate::types::Ulid,
         sql: &str,
         continuation: &crate::db::TrustedResumableUpdateContinuation,
     ) -> Result<crate::db::TrustedResumableUpdateReceipt, Error>
@@ -271,7 +273,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         Ok(self
             .inner
-            .resume_trusted_sql_resumable_update::<E>(sql, continuation)?)
+            .resume_trusted_sql_resumable_update::<E>(operation_id, sql, continuation)?)
     }
 
     /// Execute one public primary-key-only SQL `UPDATE` against one entity type.

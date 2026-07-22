@@ -83,9 +83,6 @@ fn require_sql_exact_update_plan(
 /// the selector so downstream mutation staging cannot reinterpret the call.
 #[derive(Clone, Copy)]
 enum SqlUpdateExecutionContract {
-    /// Test-only unbounded lane for exercising the shared mutation machinery.
-    #[cfg(test)]
-    UnboundedTestHarness,
     /// Maintained public primary-key or intentional-prefix update bounds.
     Validated(SqlWriteExecutionBounds),
     /// Exact complete-set assertion and its independently bounded execution.
@@ -96,11 +93,9 @@ enum SqlUpdateExecutionContract {
 }
 
 impl SqlUpdateExecutionContract {
-    fn candidate_bounds(self) -> super::SqlWriteCandidateBounds {
+    const fn candidate_bounds(self) -> super::SqlWriteCandidateBounds {
         match self {
-            #[cfg(test)]
-            Self::UnboundedTestHarness => sql_update_candidate_bounds(None),
-            Self::Validated(bounds) => sql_update_candidate_bounds(Some(bounds)),
+            Self::Validated(bounds) => sql_update_candidate_bounds(bounds),
             Self::Exact { policy, .. } => sql_exact_update_candidate_bounds(policy),
         }
     }
@@ -108,8 +103,6 @@ impl SqlUpdateExecutionContract {
     fn selector(self, selector: StructuralQuery) -> StructuralQuery {
         match self {
             Self::Exact { policy, .. } => selector.limit(policy.selection_limit()),
-            #[cfg(test)]
-            Self::UnboundedTestHarness => selector,
             Self::Validated(_) => selector,
         }
     }
@@ -123,8 +116,6 @@ impl SqlUpdateExecutionContract {
         }
 
         match self {
-            #[cfg(test)]
-            Self::UnboundedTestHarness => None,
             Self::Validated(bounds) | Self::Exact { bounds, .. } => Some(bounds.returning),
         }
     }
@@ -232,24 +223,6 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         sql_write_key_from_component_literals::<E>(descriptor, row)
-    }
-
-    #[cfg(test)]
-    pub(in crate::db::session::sql::execute) fn execute_unbounded_sql_update_statement_for_tests<
-        E,
-    >(
-        &self,
-        statement: &SqlUpdateStatement,
-        catalog: Option<&AcceptedSchemaCatalogContext>,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.execute_sql_update_statement_with_contract::<E>(
-            statement,
-            catalog,
-            SqlUpdateExecutionContract::UnboundedTestHarness,
-        )
     }
 
     fn execute_sql_update_statement_with_contract<E>(

@@ -1963,11 +1963,10 @@ fn measure_journaled_user_resumable_update_perf() -> Result<ResumableUpdatePerfR
 
     let session = db()?;
     let sql = "UPDATE PerfAuditJournaledUser SET name = 'resumable-measured' WHERE age >= 0";
+    let operation_id = Ulid::from_bytes(0x210_0000_0000_0001_u128.to_be_bytes());
     let prepare_start = ic_cdk::api::performance_counter(1);
-    let mut continuation = session.prepare_trusted_sql_resumable_update::<PerfAuditJournaledUser>(
-        Ulid::from_bytes(0x210_0000_0000_0001_u128.to_be_bytes()),
-        sql,
-    )?;
+    let mut continuation = session
+        .prepare_trusted_sql_resumable_update::<PerfAuditJournaledUser>(operation_id, sql)?;
     let prepare_local_instructions =
         ic_cdk::api::performance_counter(1).saturating_sub(prepare_start);
     let mut phase = icydb::db::TrustedResumableUpdatePhase::Forward;
@@ -1979,8 +1978,11 @@ fn measure_journaled_user_resumable_update_perf() -> Result<ResumableUpdatePerfR
 
     for _ in 0..MAX_STEPS {
         let start = ic_cdk::api::performance_counter(1);
-        let receipt = session
-            .resume_trusted_sql_resumable_update::<PerfAuditJournaledUser>(sql, &continuation)?;
+        let receipt = session.resume_trusted_sql_resumable_update::<PerfAuditJournaledUser>(
+            operation_id,
+            sql,
+            &continuation,
+        )?;
         let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
         match phase {
             icydb::db::TrustedResumableUpdatePhase::Forward => {

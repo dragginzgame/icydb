@@ -197,6 +197,9 @@ impl JournalBatch {
         journal_sequence: JournalSequence,
         records: Vec<JournalRecord>,
     ) -> Result<Self, InternalError> {
+        let _ = journal_sequence
+            .next()
+            .ok_or_else(InternalError::journal_mutation_revision_exhausted)?;
         let batch = Self {
             batch_id,
             commit_marker_id,

@@ -348,9 +348,13 @@ impl<C: CanisterKind> DbSession<C> {
         let statement = crate::db::session::sql::parse_sql_statement(sql)?;
         let (compiled, _, _) = match statement {
             crate::db::sql::parser::SqlStatement::Insert(_)
-            | crate::db::sql::parser::SqlStatement::Update(_)
             | crate::db::sql::parser::SqlStatement::Delete(_) => {
                 self.compile_sql_mutation_with_cache_attribution::<E>(sql)?
+            }
+            crate::db::sql::parser::SqlStatement::Update(_) => {
+                return Err(QueryError::sql_surface_mismatch(
+                    icydb_diagnostic_code::SqlSurfaceMismatchCode::MutationRequiresExplicitUpdateIntent,
+                ));
             }
             crate::db::sql::parser::SqlStatement::Select(_)
             | crate::db::sql::parser::SqlStatement::Describe(_)

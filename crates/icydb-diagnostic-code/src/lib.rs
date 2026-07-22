@@ -496,6 +496,8 @@ pub enum RuntimeBoundaryCode {
     PersistedRowSlotCountMismatch,
     /// A generated field would collide with an accepted DDL-owned slot.
     GeneratedFieldAfterDdlField,
+    /// A journaled mutation cannot reserve a representable post-commit revision.
+    JournalMutationRevisionExhausted,
 }
 
 impl fmt::Debug for RuntimeBoundaryCode {
@@ -702,6 +704,7 @@ pub enum SqlWriteBoundaryCode {
     ResumableUpdateSingleRowResourceExceeded,
     ResumableUpdateApplicationCallbacksUnsupported,
     ResumableUpdateManagedFieldHasGlobalConstraint,
+    ResumableUpdateContinuationOperationMismatch,
 }
 
 impl fmt::Debug for SqlWriteBoundaryCode {
@@ -954,7 +957,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 220);
+        assert_eq!(last, 222);
     }
 
     #[test]
@@ -986,7 +989,7 @@ mod tests {
 
     #[test]
     fn invalid_raw_error_codes_fail_closed_to_runtime_internal() {
-        for raw in [0, 221, u16::MAX] {
+        for raw in [0, 223, u16::MAX] {
             let code = ErrorCode::from_raw(raw);
 
             assert_eq!(ErrorCode::known(raw), None);

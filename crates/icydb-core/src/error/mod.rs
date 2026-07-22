@@ -1225,6 +1225,17 @@ impl InternalError {
         }
     }
 
+    /// Construct the fail-closed journal mutation-revision exhaustion error.
+    pub(crate) fn journal_mutation_revision_exhausted() -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Store,
+            detail: Some(ErrorDetail::Store(
+                StoreError::JournalMutationRevisionExhausted,
+            )),
+        }
+    }
+
     /// Construct the hard-cut rejection for a generated field that would
     /// collide with an already accepted SQL-DDL-owned slot.
     pub(crate) fn schema_generated_field_after_ddl_field() -> Self {
@@ -1566,6 +1577,8 @@ pub enum StoreError {
     SchemaDdlRewriteRequiresMigration,
 
     SchemaRowLayoutVersionExhausted,
+
+    JournalMutationRevisionExhausted,
 
     SchemaTransitionBudgetExceeded {
         resource: SchemaTransitionBudgetResource,
@@ -1915,7 +1928,7 @@ impl StoreError {
             | Self::SchemaDdlSetNotNullValidationFailed => {
                 diagnostic_code::DiagnosticCode::SchemaDdlAdmission
             }
-            Self::SchemaGeneratedFieldAfterDdlField => {
+            Self::JournalMutationRevisionExhausted | Self::SchemaGeneratedFieldAfterDdlField => {
                 diagnostic_code::DiagnosticCode::RuntimeUnsupported
             }
         }
@@ -1938,6 +1951,12 @@ impl StoreError {
             Self::SchemaRowLayoutVersionExhausted => {
                 Some(diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
                     reason: diagnostic_code::SchemaDdlAdmissionCode::RowLayoutVersionExhausted,
+                })
+            }
+            Self::JournalMutationRevisionExhausted => {
+                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                    boundary:
+                        diagnostic_code::RuntimeBoundaryCode::JournalMutationRevisionExhausted,
                 })
             }
             Self::SchemaTransitionBudgetExceeded { .. } => {

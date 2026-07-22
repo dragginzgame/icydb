@@ -399,12 +399,11 @@ fn sql_update_metadata_preserves_large_blob_payloads() {
     // Phase 1: update scalar metadata on rows carrying large blobs. Reduced SQL
     // UPDATE does not parse blob literals yet, so this locks the important
     // row-wide patch behavior: unchanged blob fields must survive the update.
-    let updated = statement_projection_rows::<SessionSqlBlobEntity>(
+    let updated = exact_update_projection_rows::<SessionSqlBlobEntity>(
         &session,
         "UPDATE SessionSqlBlobEntity \
          SET label = 'hot-updated', bucket = 70 \
          WHERE bucket = 7 \
-         ORDER BY label ASC \
          RETURNING label, bucket, thumbnail, chunk",
     )
     .expect("large blob metadata UPDATE RETURNING should succeed");
@@ -454,13 +453,12 @@ fn sql_update_writes_large_hex_blob_literals_to_multiple_rows() {
         "UPDATE SessionSqlBlobEntity \
          SET thumbnail = {}, chunk = {} \
          WHERE bucket = 7 \
-         ORDER BY label ASC \
          RETURNING label, bucket, thumbnail, chunk",
         hex_blob_literal(updated_thumbnail.as_slice()),
         hex_blob_literal(updated_chunk.as_slice()),
     );
 
-    let updated = statement_projection_rows::<SessionSqlBlobEntity>(&session, sql.as_str())
+    let updated = exact_update_projection_rows::<SessionSqlBlobEntity>(&session, sql.as_str())
         .expect("large blob literal UPDATE RETURNING should succeed");
 
     assert_eq!(

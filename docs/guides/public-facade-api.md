@@ -406,7 +406,7 @@ db.execute_trusted_sql_mutation::<E>(sql)
 db.execute_trusted_sql_exact_update::<E>(sql, require_affected_at_most)
 db.execute_trusted_sql_prefix_update::<E>(sql)
 db.prepare_trusted_sql_resumable_update::<E>(operation_id, sql)
-db.resume_trusted_sql_resumable_update::<E>(sql, continuation)
+db.resume_trusted_sql_resumable_update::<E>(operation_id, sql, continuation)
 db.execute_admin_sql_ddl::<E>(sql)
 ```
 

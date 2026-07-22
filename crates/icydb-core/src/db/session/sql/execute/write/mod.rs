@@ -140,19 +140,7 @@ where
                 result,
             ))
         }
-        CompiledSqlCommand::Update(statement) => {
-            #[cfg(not(test))]
-            let _ = statement;
-            #[cfg(test)]
-            if surface.is_none() {
-                let result = session
-                    .execute_unbounded_sql_update_statement_for_tests::<E>(statement, catalog);
-                return Some(sql_write_statement_result_with_default_cache::<E, C>(
-                    SqlWriteKind::Update,
-                    result,
-                ));
-            }
-
+        CompiledSqlCommand::Update(_statement) => {
             Some(sql_write_statement_result_with_default_cache::<E, C>(
                 SqlWriteKind::Update,
                 Err(QueryError::sql_surface_mismatch(

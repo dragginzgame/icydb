@@ -38,6 +38,23 @@ fn assert_statement_count<E>(
     );
 }
 
+fn assert_exact_update_count<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    expected_row_count: u32,
+    context: &str,
+) where
+    E: PersistedRow<Canister = SessionSqlCanister>,
+{
+    let payload = execute_exact_sql_update_for_tests::<E>(session, sql)
+        .unwrap_or_else(|err| panic!("{context} should return count payload: {err}"));
+    let SqlStatementResult::Count { row_count } = payload else {
+        panic!("{context} should return count payload");
+    };
+
+    assert_eq!(row_count, expected_row_count, "{context}");
+}
+
 // Execute one write statement that must stay fail-closed and assert it carries
 // the compact SQL write boundary code instead of relying on message text.
 fn assert_statement_write_boundary<E>(
@@ -53,15 +70,28 @@ fn assert_statement_write_boundary<E>(
     assert_sql_write_boundary_detail(err, expected_boundary);
 }
 
+fn assert_exact_update_boundary<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    expected_boundary: SqlWriteBoundaryCode,
+    context: &str,
+) where
+    E: PersistedRow<Canister = SessionSqlCanister>,
+{
+    let err = execute_exact_sql_update_for_tests::<E>(session, sql).expect_err(context);
+
+    assert_sql_write_boundary_detail(err, expected_boundary);
+}
+
 // Execute one signed write statement that widens parser literals and assert it
 // returns the canonical count payload plus the expected persisted signed rows.
-fn assert_signed_write_count_and_rows(
+fn assert_signed_exact_update_count_and_rows(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
     expected_rows: &[Vec<Value>],
     context: &str,
 ) {
-    assert_statement_count::<SessionSqlSignedWriteEntity>(session, sql, 1, context);
+    assert_exact_update_count::<SessionSqlSignedWriteEntity>(session, sql, 1, context);
 
     let persisted = statement_projection_rows::<SessionSqlSignedWriteEntity>(
         session,
@@ -92,6 +122,20 @@ fn assert_statement_returning_rows<E>(
         rows, expected_rows,
         "{context} should preserve the requested RETURNING projection rows",
     );
+}
+
+fn assert_exact_update_returning_rows<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    expected_rows: &[Vec<Value>],
+    context: &str,
+) where
+    E: PersistedRow<Canister = SessionSqlCanister>,
+{
+    let rows = exact_update_projection_rows::<E>(session, sql)
+        .unwrap_or_else(|err| panic!("{context} should return projection rows: {err}"));
+
+    assert_eq!(rows, expected_rows, "{context}");
 }
 
 // Seed one deterministic `SessionSqlWriteEntity` cohort so write-boundary tests
@@ -294,6 +338,21 @@ fn assert_sql_write_unsupported_transition(
     );
 }
 
+fn assert_exact_update_unsupported_transition(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    context: &str,
+) {
+    let err = execute_exact_sql_update_for_tests::<SessionSqlWriteEntity>(session, sql)
+        .expect_err("exact SQL update should reject unsupported accepted schema drift");
+
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "{context} should surface the schema-transition barrier as a compact unsupported diagnostic",
+    );
+}
+
 fn captured_sql_write_events(
     events: &[MetricsEvent],
 ) -> Vec<(&'static str, SqlWriteKind, [u64; 4])> {
@@ -439,13 +498,29 @@ fn assert_write_update_count_and_rows(
     expected_rows: &[Vec<Value>],
     context: &str,
 ) {
-    assert_statement_count::<SessionSqlWriteEntity>(session, sql, expected_row_count, context);
+    assert_exact_update_count::<SessionSqlWriteEntity>(session, sql, expected_row_count, context);
 
     let persisted = persisted_write_rows(session);
     assert_eq!(
         persisted, expected_rows,
         "{context} should preserve the expected persisted write rows",
     );
+}
+
+fn assert_prefix_update_count_and_rows(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    expected_row_count: u32,
+    expected_rows: &[Vec<Value>],
+    context: &str,
+) {
+    let payload = execute_prefix_sql_update_for_tests::<SessionSqlWriteEntity>(session, sql)
+        .unwrap_or_else(|err| panic!("{context} should return count payload: {err}"));
+    let SqlStatementResult::Count { row_count } = payload else {
+        panic!("{context} should return count payload");
+    };
+    assert_eq!(row_count, expected_row_count, "{context}");
+    assert_eq!(persisted_write_rows(session), expected_rows, "{context}");
 }
 
 // Execute one SQL statement that returns a single unsigned id column and decode
@@ -460,6 +535,34 @@ where
         .map(|row| match row.as_slice() {
             [Value::Nat64(id)] => *id,
             other => panic!("id-returning SQL should emit one nat id column, got {other:?}"),
+        })
+        .collect()
+}
+
+fn exact_update_nat_ids<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> Vec<u64>
+where
+    E: PersistedRow<Canister = SessionSqlCanister>,
+{
+    exact_update_projection_rows::<E>(session, sql)
+        .unwrap_or_else(|err| panic!("exact UPDATE RETURNING id should succeed: {err}"))
+        .into_iter()
+        .map(|row| match row.as_slice() {
+            [Value::Nat64(id)] => *id,
+            other => panic!("exact UPDATE RETURNING should emit one nat id, got {other:?}"),
+        })
+        .collect()
+}
+
+fn prefix_update_nat_ids<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> Vec<u64>
+where
+    E: PersistedRow<Canister = SessionSqlCanister>,
+{
+    prefix_update_projection_rows::<E>(session, sql)
+        .unwrap_or_else(|err| panic!("prefix UPDATE RETURNING id should succeed: {err}"))
+        .into_iter()
+        .map(|row| match row.as_slice() {
+            [Value::Nat64(id)] => *id,
+            other => panic!("prefix UPDATE RETURNING should emit one nat id, got {other:?}"),
         })
         .collect()
 }
@@ -481,6 +584,44 @@ fn write_selector_ids(sql: &str) -> Vec<u64> {
     );
 
     statement_nat_ids::<SessionSqlWriteEntity>(&session, sql)
+}
+
+fn write_exact_update_selector_ids(sql: &str) -> Vec<u64> {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(
+        &session,
+        &[
+            (1, "Ada", 21),
+            (2, "Bea", 30),
+            (3, "Cid", 25),
+            (4, "Dee", 40),
+        ],
+    );
+
+    exact_update_nat_ids::<SessionSqlWriteEntity>(&session, sql)
+}
+
+fn write_prefix_update_selector_ids(sql: &str) -> Vec<u64> {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(
+        &session,
+        &[
+            (1, "Ada", 21),
+            (2, "Bea", 30),
+            (3, "Cid", 25),
+            (4, "Dee", 40),
+        ],
+    );
+
+    prefix_update_nat_ids::<SessionSqlWriteEntity>(&session, sql)
+}
+
+#[derive(Clone, Copy)]
+enum UpdateSelectorContract {
+    Exact,
+    Prefix,
 }
 
 // Run one count-returning write statement against the same fresh deterministic
@@ -655,7 +796,7 @@ fn execute_sql_write_rejects_unsupported_schema_transition_before_staging() {
     seed_write_entities(&session, &[(1, "Ada", 21)]);
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     install_session_sql_write_old_accepted_schema_prefix();
-    assert_sql_write_unsupported_transition(
+    assert_exact_update_unsupported_transition(
         &session,
         "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
         "SQL UPDATE",
@@ -886,7 +1027,7 @@ fn execute_sql_insert_update_supports_composite_primary_key_fields() {
         "composite primary-key SQL INSERT",
     );
 
-    assert_statement_returning_rows::<SessionSqlCompositeWriteEntity>(
+    assert_exact_update_returning_rows::<SessionSqlCompositeWriteEntity>(
         &session,
         "UPDATE SessionSqlCompositeWriteEntity \
          SET age = 30 \
@@ -1183,7 +1324,7 @@ fn execute_trusted_sql_mutation_rejects_composite_primary_key_mutation() {
         1,
         "composite primary-key SQL INSERT setup",
     );
-    assert_statement_write_boundary::<SessionSqlCompositeWriteEntity>(
+    assert_exact_update_boundary::<SessionSqlCompositeWriteEntity>(
         &session,
         "UPDATE SessionSqlCompositeWriteEntity \
          SET local_id = 12 \
@@ -1359,12 +1500,21 @@ fn execute_sql_statement_write_rejects_explicit_managed_timestamp_fields_matrix(
                 .unwrap_or_else(|err| panic!("{context} setup insert should succeed: {err}"));
         }
 
-        assert_statement_write_boundary::<SessionSqlManagedWriteEntity>(
-            &session,
-            sql,
-            expected_boundary,
-            context,
-        );
+        if seed_row {
+            assert_exact_update_boundary::<SessionSqlManagedWriteEntity>(
+                &session,
+                sql,
+                expected_boundary,
+                context,
+            );
+        } else {
+            assert_statement_write_boundary::<SessionSqlManagedWriteEntity>(
+                &session,
+                sql,
+                expected_boundary,
+                context,
+            );
+        }
     }
 }
 
@@ -1683,7 +1833,7 @@ fn execute_sql_statement_update_default_uses_current_ordinary_policy() {
         "UPDATE SessionSqlDefaultWriteEntity SET score = DEFAULT, nickname = DEFAULT WHERE id = '{}' RETURNING score, nickname",
         entity.id,
     );
-    assert_statement_returning_rows::<SessionSqlDefaultWriteEntity>(
+    assert_exact_update_returning_rows::<SessionSqlDefaultWriteEntity>(
         &session,
         sql.as_str(),
         &[vec![Value::Nat64(7), Value::Null]],
@@ -1711,7 +1861,7 @@ fn execute_sql_statement_default_rejections_keep_request_specific_codes() {
     assert!(persisted_write_rows(&session).is_empty());
 
     seed_write_entities(&session, &[(2, "Bea", 22)]);
-    assert_statement_write_boundary::<SessionSqlWriteEntity>(
+    assert_exact_update_boundary::<SessionSqlWriteEntity>(
         &session,
         "UPDATE SessionSqlWriteEntity SET age = DEFAULT WHERE id = 2",
         SqlWriteBoundaryCode::UpdateDefaultRequiredField,
@@ -1719,10 +1869,10 @@ fn execute_sql_statement_default_rejections_keep_request_specific_codes() {
     );
 
     seed_generated_timestamp_entity(&session, 3, "Cid");
-    assert_statement_write_boundary::<SessionSqlGeneratedTimestampEntity>(
+    assert_exact_update_boundary::<SessionSqlGeneratedTimestampEntity>(
         &session,
         "UPDATE SessionSqlGeneratedTimestampEntity SET created_on_insert = DEFAULT WHERE id = 3",
-        SqlWriteBoundaryCode::UpdateDefaultDatabaseOwnedField,
+        SqlWriteBoundaryCode::ExplicitGeneratedField,
         "update DEFAULT on an insert-generated field",
     );
 
@@ -1734,10 +1884,10 @@ fn execute_sql_statement_default_rejections_keep_request_specific_codes() {
             updated_at: Timestamp::EPOCH,
         })
         .expect("managed DEFAULT rejection setup insert should succeed");
-    assert_statement_write_boundary::<SessionSqlManagedWriteEntity>(
+    assert_exact_update_boundary::<SessionSqlManagedWriteEntity>(
         &session,
         "UPDATE SessionSqlManagedWriteEntity SET updated_at = DEFAULT WHERE id = 4",
-        SqlWriteBoundaryCode::UpdateDefaultDatabaseOwnedField,
+        SqlWriteBoundaryCode::ExplicitManagedField,
         "update DEFAULT on a managed field",
     );
 }
@@ -1786,7 +1936,7 @@ fn execute_sql_statement_update_rejects_explicit_generated_fields_matrix() {
     let session = sql_session();
     seed_generated_timestamp_entity(&session, 1, "Ada");
 
-    let err = execute_sql_statement_for_tests::<SessionSqlGeneratedTimestampEntity>(
+    let err = execute_exact_sql_update_for_tests::<SessionSqlGeneratedTimestampEntity>(
         &session,
         "UPDATE SessionSqlGeneratedTimestampEntity SET created_on_insert = 7 WHERE id = 1",
     )
@@ -1846,7 +1996,7 @@ fn execute_sql_statement_single_row_update_matrix_returns_count_without_returnin
         let session = sql_session();
         seed_write_entities(&session, &[(1, "Ada", 21)]);
 
-        assert_statement_count::<SessionSqlWriteEntity>(&session, sql, 1, context);
+        assert_exact_update_count::<SessionSqlWriteEntity>(&session, sql, 1, context);
 
         if check_persisted {
             let persisted = persisted_write_rows(&session);
@@ -3402,7 +3552,7 @@ fn execute_sql_statement_write_metrics_capture_sql_boundary_shape() {
             "INSERT INTO SessionSqlEntity (name, age) SELECT name, age FROM SessionSqlEntity WHERE name = 'Ada' RETURNING *",
         )
         .expect("SQL INSERT SELECT RETURNING should succeed");
-        execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+        execute_exact_sql_update_for_tests::<SessionSqlWriteEntity>(
             &session,
             "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age >= 21 RETURNING id",
         )
@@ -3464,7 +3614,7 @@ fn execute_sql_statement_broad_write_metrics_capture_staged_row_pressure() {
     );
 
     let update_events = capture_seeded_write_entity_events(|session| {
-        assert_statement_count::<SessionSqlWriteEntity>(
+        assert_exact_update_count::<SessionSqlWriteEntity>(
             session,
             "UPDATE SessionSqlWriteEntity SET age = 99 WHERE age >= 21",
             6,
@@ -3479,7 +3629,7 @@ fn execute_sql_statement_broad_write_metrics_capture_staged_row_pressure() {
     );
 
     let update_returning_events = capture_seeded_write_entity_events(|session| {
-        assert_statement_returning_rows::<SessionSqlWriteEntity>(
+        assert_exact_update_returning_rows::<SessionSqlWriteEntity>(
             session,
             "UPDATE SessionSqlWriteEntity SET age = 99 WHERE age >= 21 RETURNING id",
             broad_write_id_rows().as_slice(),
@@ -3525,27 +3675,20 @@ fn execute_sql_statement_broad_write_metrics_capture_staged_row_pressure() {
 }
 
 #[test]
-fn execute_sql_statement_write_error_metrics_capture_command_shape_and_class() {
+fn exact_update_rejection_before_staging_emits_no_write_pressure_event() {
     reset_session_sql_store();
     let session = sql_session();
     seed_write_entities(&session, &[(1, "Ada", 21)]);
 
     let ((), events) = capture_session_metrics(|| {
-        execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+        execute_exact_sql_update_for_tests::<SessionSqlWriteEntity>(
             &session,
             "UPDATE SessionSqlWriteEntity SET age = 'old' WHERE id = 1",
         )
         .expect_err("invalid SQL UPDATE literal should fail");
     });
 
-    assert_eq!(
-        captured_sql_write_error_events(&events),
-        vec![(
-            SessionSqlWriteEntity::PATH,
-            SqlWriteKind::Update,
-            ErrorClass::Unsupported,
-        )],
-    );
+    assert!(captured_sql_write_error_events(&events).is_empty());
 }
 
 #[test]
@@ -3575,7 +3718,24 @@ fn execute_sql_statement_signed_numeric_write_matrix_widens_parser_literals() {
                 .unwrap_or_else(|err| panic!("{context} setup insert should succeed: {err}"));
         }
 
-        assert_signed_write_count_and_rows(&session, sql, expected_rows.as_slice(), context);
+        if seed_row.is_some() {
+            assert_signed_exact_update_count_and_rows(
+                &session,
+                sql,
+                expected_rows.as_slice(),
+                context,
+            );
+        } else {
+            assert_statement_count::<SessionSqlSignedWriteEntity>(&session, sql, 1, context);
+            assert_eq!(
+                statement_projection_rows::<SessionSqlSignedWriteEntity>(
+                    &session,
+                    "SELECT id, delta FROM SessionSqlSignedWriteEntity ORDER BY id ASC",
+                )
+                .expect("signed INSERT post-state should remain readable"),
+                expected_rows,
+            );
+        }
     }
 }
 
@@ -3587,7 +3747,7 @@ fn execute_sql_statement_rejects_incompatible_assignment_literal_for_signed_fiel
         .insert(SessionSqlSignedWriteEntity { id: 1, delta: -5 })
         .expect("signed write setup insert should succeed");
 
-    let err = execute_sql_statement_for_tests::<SessionSqlSignedWriteEntity>(
+    let err = execute_exact_sql_update_for_tests::<SessionSqlSignedWriteEntity>(
         &session,
         "UPDATE SessionSqlSignedWriteEntity SET delta = 'Ada' WHERE id = 1",
     )
@@ -3628,7 +3788,7 @@ fn execute_sql_statement_update_with_non_primary_key_predicate_updates_matching_
 }
 
 #[test]
-fn execute_sql_statement_update_with_order_limit_and_offset_updates_one_ordered_window() {
+fn execute_sql_statement_prefix_update_mutates_one_primary_key_ordered_window() {
     reset_session_sql_store();
     let session = sql_session();
     seed_write_entities(
@@ -3641,15 +3801,15 @@ fn execute_sql_statement_update_with_order_limit_and_offset_updates_one_ordered_
         ],
     );
 
-    assert_write_update_count_and_rows(
+    assert_prefix_update_count_and_rows(
         &session,
-        "UPDATE SessionSqlWriteEntity SET age = 99 WHERE age >= 21 ORDER BY age DESC LIMIT 2 OFFSET 1",
+        "UPDATE SessionSqlWriteEntity SET age = 99 WHERE age >= 21 ORDER BY id ASC LIMIT 2",
         2,
         &[
             vec![
                 Value::Nat64(1),
                 Value::Text("Ada".to_string()),
-                Value::Nat64(21),
+                Value::Nat64(99),
             ],
             vec![
                 Value::Nat64(2),
@@ -3659,7 +3819,7 @@ fn execute_sql_statement_update_with_order_limit_and_offset_updates_one_ordered_
             vec![
                 Value::Nat64(3),
                 Value::Text("Cid".to_string()),
-                Value::Nat64(99),
+                Value::Nat64(25),
             ],
             vec![
                 Value::Nat64(4),
@@ -3667,76 +3827,33 @@ fn execute_sql_statement_update_with_order_limit_and_offset_updates_one_ordered_
                 Value::Nat64(40),
             ],
         ],
-        "SQL UPDATE ordered window",
-    );
-}
-
-#[test]
-fn execute_sql_statement_update_with_limit_and_offset_uses_primary_key_order_fallback() {
-    reset_session_sql_store();
-    let session = sql_session();
-    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21), (3, "Cid", 21)]);
-
-    assert_write_update_count_and_rows(
-        &session,
-        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 LIMIT 1 OFFSET 1",
-        1,
-        &[
-            vec![
-                Value::Nat64(1),
-                Value::Text("Ada".to_string()),
-                Value::Nat64(21),
-            ],
-            vec![
-                Value::Nat64(2),
-                Value::Text("Bea".to_string()),
-                Value::Nat64(22),
-            ],
-            vec![
-                Value::Nat64(3),
-                Value::Text("Cid".to_string()),
-                Value::Nat64(21),
-            ],
-        ],
-        "SQL UPDATE window without ORDER BY",
+        "intentional primary-key-ordered SQL UPDATE prefix",
     );
 }
 
 #[test]
 fn execute_sql_statement_update_selector_converges_with_select_and_delete_targets() {
-    for (clause, ordered, context) in [
-        ("WHERE age = 21", false, "WHERE predicate"),
+    for (clause, contract, ordered, context) in [
         (
-            "WHERE age >= 21 ORDER BY age ASC",
-            true,
-            "ORDER BY ASC selector",
-        ),
-        (
-            "WHERE age >= 21 ORDER BY age DESC",
-            true,
-            "ORDER BY DESC selector",
+            "WHERE age = 21",
+            UpdateSelectorContract::Exact,
+            false,
+            "WHERE predicate",
         ),
         (
             "WHERE age >= 21 ORDER BY id ASC LIMIT 2",
+            UpdateSelectorContract::Prefix,
             true,
             "LIMIT selector",
-        ),
-        (
-            "WHERE age >= 21 ORDER BY id ASC LIMIT 2 OFFSET 1",
-            true,
-            "OFFSET selector",
-        ),
-        (
-            "WHERE age >= 21 ORDER BY age DESC LIMIT 2",
-            true,
-            "WHERE ORDER BY LIMIT selector",
         ),
     ] {
         let select_ids =
             write_selector_ids(&format!("SELECT id FROM SessionSqlWriteEntity {clause}"));
-        let update_ids = write_selector_ids(&format!(
-            "UPDATE SessionSqlWriteEntity SET age = 99 {clause} RETURNING id"
-        ));
+        let update_sql = format!("UPDATE SessionSqlWriteEntity SET age = 99 {clause} RETURNING id");
+        let update_ids = match contract {
+            UpdateSelectorContract::Exact => write_exact_update_selector_ids(&update_sql),
+            UpdateSelectorContract::Prefix => write_prefix_update_selector_ids(&update_sql),
+        };
         let delete_ids = write_selector_ids(&format!(
             "DELETE FROM SessionSqlWriteEntity {clause} RETURNING id"
         ));
@@ -3770,7 +3887,7 @@ fn execute_sql_statement_write_residual_filters_converge_with_select_returning_a
     ] {
         let select_ids =
             write_selector_ids(&format!("SELECT id FROM SessionSqlWriteEntity {clause}"));
-        let update_ids = write_selector_ids(&format!(
+        let update_ids = write_exact_update_selector_ids(&format!(
             "UPDATE SessionSqlWriteEntity SET age = 99 {clause} RETURNING id"
         ));
         let delete_ids = write_selector_ids(&format!(
@@ -3793,18 +3910,24 @@ fn execute_sql_statement_write_rejects_entity_mismatch_matrix() {
     reset_session_sql_store();
     let session = sql_session();
 
-    for (sql, context) in [
+    for (sql, exact_update, context) in [
         (
             "INSERT INTO SessionSqlGeneratedFieldEntity (id, name) VALUES (1, 'Ada')",
+            false,
             "insert entity mismatch",
         ),
         (
             "UPDATE SessionSqlGeneratedTimestampEntity SET name = 'Ada' WHERE id = 1",
+            true,
             "update entity mismatch",
         ),
     ] {
-        let err = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(&session, sql)
-            .expect_err(context);
+        let err = if exact_update {
+            execute_exact_sql_update_for_tests::<SessionSqlWriteEntity>(&session, sql)
+        } else {
+            execute_sql_statement_for_tests::<SessionSqlWriteEntity>(&session, sql)
+        }
+        .expect_err(context);
 
         assert_sql_lowering_detail(err, SqlLoweringCode::EntityMismatch);
     }
@@ -4215,7 +4338,7 @@ fn execute_sql_statement_insert_and_update_returning_projection_matrix() {
 
     seed_write_entities(&session, &[(1, "Ada", 21)]);
 
-    assert_statement_returning_rows::<SessionSqlWriteEntity>(
+    assert_exact_update_returning_rows::<SessionSqlWriteEntity>(
         &session,
         "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING *",
         &[vec![
@@ -4228,20 +4351,17 @@ fn execute_sql_statement_insert_and_update_returning_projection_matrix() {
 }
 
 #[test]
-fn execute_trusted_sql_mutation_reuses_authority_schema_info_for_selector() {
+fn execute_trusted_sql_exact_update_reuses_authority_schema_info_for_selector() {
     reset_session_sql_store();
     let session = sql_session();
     seed_write_entities(&session, &[(1, "Ada", 21)]);
-    let compiled = session
-        .compile_sql_mutation::<SessionSqlWriteEntity>(
-            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING id",
-        )
-        .expect("SQL UPDATE RETURNING should compile before counter reset");
-
     DbSession::<SessionSqlCanister>::reset_accepted_catalog_runtime_counters_for_tests();
     let result = session
-        .execute_compiled_sql::<SessionSqlWriteEntity>(&compiled)
-        .expect("compiled SQL UPDATE RETURNING should execute");
+        .execute_trusted_sql_exact_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING id",
+            1,
+        )
+        .expect("exact SQL UPDATE RETURNING should execute");
     let counters =
         DbSession::<SessionSqlCanister>::accepted_catalog_runtime_counter_snapshot_for_tests();
 
@@ -4436,7 +4556,7 @@ fn execute_sql_statement_write_rejects_unsupported_returning_projection_matrix()
                 .expect_err("unsupported INSERT RETURNING projection should stay fail-closed"),
             "update" => {
                 seed_write_entities(&session, &[(1, "Ada", 21)]);
-                execute_sql_statement_for_tests::<SessionSqlWriteEntity>(&session, sql)
+                execute_exact_sql_update_for_tests::<SessionSqlWriteEntity>(&session, sql)
                     .expect_err("unsupported UPDATE RETURNING projection should stay fail-closed")
             }
             other => panic!("unexpected write RETURNING case: {other}"),
@@ -4455,33 +4575,43 @@ fn execute_sql_statement_returning_field_list_rejects_invalid_fields_before_muta
         (
             "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (2, 'Bob', 22) \
              RETURNING missing",
+            false,
             SqlWriteBoundaryCode::UnknownReturningField,
             "INSERT unknown RETURNING field",
         ),
         (
             "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING missing",
+            true,
             SqlWriteBoundaryCode::UnknownReturningField,
             "UPDATE unknown RETURNING field",
         ),
         (
             "DELETE FROM SessionSqlWriteEntity WHERE id = 1 RETURNING missing",
+            false,
             SqlWriteBoundaryCode::UnknownReturningField,
             "DELETE unknown RETURNING field",
         ),
         (
             "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING name, name",
+            true,
             SqlWriteBoundaryCode::DuplicateReturningField,
             "UPDATE duplicate RETURNING field",
         ),
     ];
 
-    for (sql, boundary, context) in cases {
+    for (sql, exact_update, boundary, context) in cases {
         reset_session_sql_store();
         let session = sql_session();
         seed_write_entities(&session, &[(1, "Ada", 21)]);
         let baseline = persisted_write_rows(&session);
 
-        assert_statement_write_boundary::<SessionSqlWriteEntity>(&session, sql, boundary, context);
+        if exact_update {
+            assert_exact_update_boundary::<SessionSqlWriteEntity>(&session, sql, boundary, context);
+        } else {
+            assert_statement_write_boundary::<SessionSqlWriteEntity>(
+                &session, sql, boundary, context,
+            );
+        }
         assert_eq!(
             persisted_write_rows(&session),
             baseline,
@@ -4556,7 +4686,7 @@ fn execute_sql_statement_update_requires_where_predicate() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+    let err = execute_exact_sql_update_for_tests::<SessionSqlWriteEntity>(
         &session,
         "UPDATE SessionSqlWriteEntity SET age = 22",
     )
@@ -4572,7 +4702,7 @@ fn execute_sql_statement_update_rejects_expression_only_where_before_mutation() 
     seed_write_entities(&session, &[(1, "Ada", 21)]);
     let baseline = persisted_write_rows(&session);
 
-    let err = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+    let err = execute_exact_sql_update_for_tests::<SessionSqlWriteEntity>(
         &session,
         "UPDATE SessionSqlWriteEntity \
          SET age = 22 \
@@ -4585,26 +4715,6 @@ fn execute_sql_statement_update_rejects_expression_only_where_before_mutation() 
         persisted_write_rows(&session),
         baseline,
         "unsupported UPDATE WHERE shape should reject before mutation",
-    );
-}
-
-#[test]
-fn execute_sql_statement_update_rejects_unsupported_order_by_shape_before_mutation() {
-    reset_session_sql_store();
-    let session = sql_session();
-    seed_write_entities(&session, &[(1, "Ada", 21)]);
-    let baseline = persisted_write_rows(&session);
-
-    assert_statement_write_boundary::<SessionSqlWriteEntity>(
-        &session,
-        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 ORDER BY age + 1",
-        SqlWriteBoundaryCode::WriteOrderByUnsupportedShape,
-        "UPDATE expression ORDER BY",
-    );
-    assert_eq!(
-        persisted_write_rows(&session),
-        baseline,
-        "unsupported UPDATE ORDER BY shape should reject before mutation",
     );
 }
 
@@ -4633,7 +4743,7 @@ fn execute_sql_statement_update_rejects_primary_key_mutation() {
     let session = sql_session();
     seed_write_entities(&session, &[(1, "Ada", 21)]);
 
-    let err = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+    let err = execute_exact_sql_update_for_tests::<SessionSqlWriteEntity>(
         &session,
         "UPDATE SessionSqlWriteEntity SET id = 2, age = 22 WHERE id = 1",
     )

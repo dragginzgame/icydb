@@ -440,6 +440,8 @@ fn show_entities_dispatch_for(entity_ty: &syn::Path) -> TokenStream {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use quote::quote;
 
     use crate::{BuildSqlSurfaceFlags, BuildSqlUpdatePolicy};
@@ -452,6 +454,59 @@ mod tests {
             .chars()
             .filter(|character| !character.is_whitespace())
             .collect()
+    }
+
+    fn generated_export_names_and_signatures(
+        tokens: proc_macro2::TokenStream,
+    ) -> BTreeSet<(String, String)> {
+        let file = syn::parse2::<syn::File>(tokens)
+            .expect("generated SQL surface should remain valid Rust syntax");
+
+        file.items
+            .into_iter()
+            .filter_map(|item| {
+                let syn::Item::Fn(function) = item else {
+                    return None;
+                };
+                let exported = function.attrs.iter().any(|attribute| {
+                    attribute.path().segments.last().is_some_and(|segment| {
+                        matches!(segment.ident.to_string().as_str(), "query" | "update")
+                    })
+                });
+                exported.then(|| {
+                    let signature = function.sig;
+                    (
+                        signature.ident.to_string(),
+                        semantic_export_signature(&signature),
+                    )
+                })
+            })
+            .collect()
+    }
+
+    fn expected_export_signature(signature: syn::Signature) -> String {
+        semantic_export_signature(&signature)
+    }
+
+    fn semantic_export_signature(signature: &syn::Signature) -> String {
+        let inputs = signature
+            .inputs
+            .iter()
+            .map(|input| match input {
+                syn::FnArg::Receiver(receiver) => compact_tokens(quote!(#receiver)),
+                syn::FnArg::Typed(input) => {
+                    let ty = &input.ty;
+                    compact_tokens(quote!(#ty))
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let output = match &signature.output {
+            syn::ReturnType::Default => "()".to_string(),
+            syn::ReturnType::Type(_, output) => compact_tokens(quote!(#output)),
+        };
+
+        format!("fn {}({inputs})->{output}", signature.ident)
     }
 
     fn all_sql_surface_flags() -> BuildSqlSurfaceFlags {
@@ -486,6 +541,62 @@ mod tests {
         assert!(surface.contains("fn__icydb_fixtures_reset("));
         assert!(surface.contains("fn__icydb_fixtures_load("));
         assert_eq!(surface.matches("::icydb::__reexports::ic_cdk::").count(), 4);
+    }
+
+    #[test]
+    fn generated_sql_export_contract_cannot_carry_resumable_state() {
+        for policy in [
+            BuildSqlUpdatePolicy::PublicPrimaryKeyOnly,
+            BuildSqlUpdatePolicy::PublicBoundedDeterministic,
+        ] {
+            let tokens =
+                super::sql_surface_endpoint_exports(all_sql_surface_flags(), Some(policy), true);
+            let compact = compact_tokens(tokens.clone()).to_ascii_lowercase();
+            assert!(!compact.contains("resumable"));
+            assert!(!compact.contains("continuation"));
+
+            let exports = generated_export_names_and_signatures(tokens);
+            let expected = BTreeSet::from([
+                (
+                    "__icydb_query".to_string(),
+                    expected_export_signature(syn::parse_quote! {
+                        fn __icydb_query(
+                            sql: String,
+                        ) -> Result<IcydbSqlQueryPerfResult, ::icydb::Error>
+                    }),
+                ),
+                (
+                    "__icydb_ddl".to_string(),
+                    expected_export_signature(syn::parse_quote! {
+                        fn __icydb_ddl(
+                            sql: String,
+                        ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error>
+                    }),
+                ),
+                (
+                    "__icydb_fixtures_reset".to_string(),
+                    expected_export_signature(syn::parse_quote! {
+                        fn __icydb_fixtures_reset() -> Result<(), ::icydb::Error>
+                    }),
+                ),
+                (
+                    "__icydb_fixtures_load".to_string(),
+                    expected_export_signature(syn::parse_quote! {
+                        fn __icydb_fixtures_load() -> Result<(), ::icydb::Error>
+                    }),
+                ),
+                (
+                    "__icydb_update".to_string(),
+                    expected_export_signature(syn::parse_quote! {
+                        fn __icydb_update(
+                            sql: String,
+                        ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error>
+                    }),
+                ),
+            ]);
+
+            assert_eq!(exports, expected);
+        }
     }
 
     #[test]

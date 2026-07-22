@@ -584,4 +584,8 @@ define_error_code_registry! {
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateApplicationCallbacksUnsupported });
     SQL_WRITE_RESUMABLE_UPDATE_MANAGED_FIELD_HAS_GLOBAL_CONSTRAINT = 220 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateManagedFieldHasGlobalConstraint });
+    SQL_WRITE_RESUMABLE_UPDATE_CONTINUATION_OPERATION_MISMATCH = 221 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateContinuationOperationMismatch });
+    RUNTIME_BOUNDARY_JOURNAL_MUTATION_REVISION_EXHAUSTED = 222 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::JournalMutationRevisionExhausted });
 }

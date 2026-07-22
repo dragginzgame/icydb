@@ -1121,7 +1121,7 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
             .journal_tail_store()
             .ok_or_else(InternalError::executor_invariant)?;
         let sequence = journal_store
-            .with_borrow(crate::db::journal::JournalTailStore::next_append_sequence)?;
+            .with_borrow(crate::db::journal::JournalTailStore::next_mutation_append_sequence)?;
         let batch = JournalBatch::new(marker_id, marker_id, sequence, records)?;
         marker_batches.push(batch.clone());
         journal_appends.push(PreparedJournalAppend {

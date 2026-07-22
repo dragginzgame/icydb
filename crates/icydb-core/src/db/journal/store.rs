@@ -210,6 +210,19 @@ impl JournalTailStore {
         last_sequence.next().ok_or_else(journal_tail_corruption)
     }
 
+    /// Reserve the next mutation sequence while retaining its successor as
+    /// the representable durable post-commit revision.
+    pub(in crate::db) fn next_mutation_append_sequence(
+        &self,
+    ) -> Result<JournalSequence, InternalError> {
+        let sequence = self.next_append_sequence()?;
+        let _ = sequence
+            .next()
+            .ok_or_else(InternalError::journal_mutation_revision_exhausted)?;
+
+        Ok(sequence)
+    }
+
     /// Return the durable replay boundary encoded in the journal-tail memory.
     pub(in crate::db) fn fold_watermark(&self) -> Result<FoldWatermark, InternalError> {
         self.map

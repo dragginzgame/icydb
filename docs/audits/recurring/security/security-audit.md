@@ -240,7 +240,10 @@ Check:
 Search targets:
 
 * `execute_trusted_sql_query`
-* `execute_sql_update`
+* `execute_trusted_sql_exact_update`
+* `execute_trusted_sql_prefix_update`
+* `prepare_trusted_sql_resumable_update`
+* `resume_trusted_sql_resumable_update`
 * `compile_sql_query`
 * `compile_sql_mutation`
 * `compile_sql_command`

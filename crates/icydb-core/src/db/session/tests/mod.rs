@@ -59,6 +59,8 @@ mod verbose_route_choice;
 use super::*;
 #[cfg(feature = "sql-explain")]
 use crate::db::executor::assemble_load_execution_node_descriptor;
+#[cfg(feature = "sql")]
+use crate::db::journal::FoldWatermark;
 #[cfg(feature = "sql-explain")]
 use crate::db::{
     query::intent::StructuralQuery,
@@ -3281,6 +3283,26 @@ where
     session.execute_sql_statement_inner::<E>(sql)
 }
 
+fn execute_exact_sql_update_for_tests<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+) -> Result<SqlStatementResult, QueryError>
+where
+    E: PersistedRow<Canister = SessionSqlCanister>,
+{
+    session.execute_trusted_sql_exact_update::<E>(sql, 4_096)
+}
+
+fn execute_prefix_sql_update_for_tests<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+) -> Result<SqlStatementResult, QueryError>
+where
+    E: PersistedRow<Canister = SessionSqlCanister>,
+{
+    session.execute_trusted_sql_prefix_update::<E>(sql)
+}
+
 ///
 /// SqlStatementPayloadKind
 ///
@@ -3363,6 +3385,48 @@ where
 {
     extract_sql_statement_payload(
         execute_sql_statement_for_tests::<E>(session, sql)?,
+        SqlStatementPayloadKind::ProjectionRows,
+        |result| match result {
+            SqlStatementResult::Projection { rows, .. } => Some(
+                rows.into_iter()
+                    .map(|row| row.into_iter().map(runtime_output).collect())
+                    .collect(),
+            ),
+            _ => None,
+        },
+    )
+}
+
+fn exact_update_projection_rows<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+) -> Result<Vec<Vec<Value>>, QueryError>
+where
+    E: PersistedRow<Canister = SessionSqlCanister>,
+{
+    extract_sql_statement_payload(
+        execute_exact_sql_update_for_tests::<E>(session, sql)?,
+        SqlStatementPayloadKind::ProjectionRows,
+        |result| match result {
+            SqlStatementResult::Projection { rows, .. } => Some(
+                rows.into_iter()
+                    .map(|row| row.into_iter().map(runtime_output).collect())
+                    .collect(),
+            ),
+            _ => None,
+        },
+    )
+}
+
+fn prefix_update_projection_rows<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+) -> Result<Vec<Vec<Value>>, QueryError>
+where
+    E: PersistedRow<Canister = SessionSqlCanister>,
+{
+    extract_sql_statement_payload(
+        execute_prefix_sql_update_for_tests::<E>(session, sql)?,
         SqlStatementPayloadKind::ProjectionRows,
         |result| match result {
             SqlStatementResult::Projection { rows, .. } => Some(

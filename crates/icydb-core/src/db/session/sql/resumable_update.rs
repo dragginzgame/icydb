@@ -53,13 +53,65 @@ use std::{collections::BTreeSet, ops::Bound};
 
 const RESUMABLE_UPDATE_CONTINUATION_MAGIC: &[u8; 4] = b"ICYU";
 const RESUMABLE_UPDATE_CONTINUATION_FORMAT_VERSION: u8 = 1;
-const RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY: u32 = 1;
 const RESUMABLE_UPDATE_PHASE_FORWARD: u8 = 1;
 const RESUMABLE_UPDATE_PHASE_VERIFY: u8 = 2;
 const RESUMABLE_UPDATE_TARGET_IDENTITY_DOMAIN: &[u8] = b"icydb.resumable-update-target.v1";
-const MAX_RESUMABLE_UPDATE_CONTINUATION_BYTES: usize = 2 * 1024;
-const MAX_RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED: usize = 256;
-const MAX_RESUMABLE_UPDATE_FORWARD_ROWS: usize = 64;
+macro_rules! resumable_policy_bound {
+    ($runtime:ident, $identity:ident, $value:expr) => {
+        const $runtime: usize = $value;
+        const $identity: u32 = $value;
+    };
+}
+
+resumable_policy_bound!(
+    MAX_RESUMABLE_UPDATE_CONTINUATION_BYTES,
+    RESUMABLE_UPDATE_CONTINUATION_BYTES_POLICY,
+    2 * 1024
+);
+resumable_policy_bound!(
+    MAX_RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED,
+    RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED_POLICY,
+    256
+);
+resumable_policy_bound!(
+    MAX_RESUMABLE_UPDATE_FORWARD_ROWS,
+    RESUMABLE_UPDATE_FORWARD_ROWS_POLICY,
+    64
+);
+// Bump the owning component whenever its semantics change. Numeric bounds and
+// the continuation format participate directly, so their drift changes the
+// identity without a separate manual edit.
+const RESUMABLE_UPDATE_PACKING_POLICY_VERSION: u32 = 1;
+const RESUMABLE_UPDATE_CHECKPOINT_POLICY_VERSION: u32 = 1;
+const RESUMABLE_UPDATE_NEEDS_PATCH_POLICY_VERSION: u32 = 1;
+const RESUMABLE_UPDATE_REVISION_POLICY_VERSION: u32 = 1;
+const RESUMABLE_UPDATE_MARKER_ACCOUNTING_POLICY_VERSION: u32 = 1;
+const RESUMABLE_UPDATE_BATCH_POLICY_INPUTS: [u32; 10] = [
+    u32::from_be_bytes(*RESUMABLE_UPDATE_CONTINUATION_MAGIC),
+    RESUMABLE_UPDATE_CONTINUATION_FORMAT_VERSION as u32,
+    RESUMABLE_UPDATE_CONTINUATION_BYTES_POLICY,
+    RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED_POLICY,
+    RESUMABLE_UPDATE_FORWARD_ROWS_POLICY,
+    RESUMABLE_UPDATE_PACKING_POLICY_VERSION,
+    RESUMABLE_UPDATE_CHECKPOINT_POLICY_VERSION,
+    RESUMABLE_UPDATE_NEEDS_PATCH_POLICY_VERSION,
+    RESUMABLE_UPDATE_REVISION_POLICY_VERSION,
+    RESUMABLE_UPDATE_MARKER_ACCOUNTING_POLICY_VERSION,
+];
+const RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY: u32 =
+    resumable_update_batch_policy_identity(RESUMABLE_UPDATE_BATCH_POLICY_INPUTS);
+
+const fn resumable_update_batch_policy_identity(inputs: [u32; 10]) -> u32 {
+    let mut identity = 0x811c_9dc5_u32;
+    let mut index = 0;
+    while index < inputs.len() {
+        identity ^= inputs[index];
+        identity = identity.wrapping_mul(0x0100_0193);
+        index += 1;
+    }
+
+    identity
+}
 
 /// Current trusted resumable-update execution phase.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -477,14 +529,15 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Resume one trusted resumable SQL `UPDATE` for one bounded engine step.
     ///
-    /// The application must supply the same SQL meaning used at preparation
-    /// and a continuation loaded from trusted durable custody. This method
-    /// rebinds every proof before row access, scans at most 256 authoritative
-    /// keys, stages at most 64 updates, and commits at most one atomic batch.
-    /// Verify steps are read-only and return complete only after a stable full
-    /// accepted-keyspace sweep.
+    /// The application must supply the authorized operation id, the same SQL
+    /// meaning used at preparation, and a continuation loaded from trusted
+    /// durable custody. This method rebinds every proof before row access,
+    /// scans at most 256 authoritative keys, stages at most 64 updates, and
+    /// commits at most one atomic batch. Verify steps are read-only and return
+    /// complete only after a stable full accepted-keyspace sweep.
     pub fn resume_trusted_sql_resumable_update<E>(
         &self,
+        operation_id: Ulid,
         sql: &str,
         continuation: &TrustedResumableUpdateContinuation,
     ) -> Result<TrustedResumableUpdateReceipt, QueryError>
@@ -492,6 +545,11 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C>,
     {
         let mut decoded = DecodedResumableUpdateContinuation::decode(continuation.as_bytes())?;
+        if decoded.operation_id != operation_id {
+            return Err(QueryError::sql_write_boundary(
+                SqlWriteBoundaryCode::ResumableUpdateContinuationOperationMismatch,
+            ));
+        }
 
         let store = self
             .db
@@ -1198,5 +1256,21 @@ mod tests {
             require_resumable_update_without_application_callbacks::<ApplicationCallbackProfile>(),
             Err(SqlWriteBoundaryCode::ResumableUpdateApplicationCallbacksUnsupported),
         );
+    }
+
+    #[test]
+    fn resumable_batch_policy_identity_covers_every_compatibility_input() {
+        assert_eq!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 0xd2d4_939c);
+        assert_ne!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 1);
+
+        for index in 0..RESUMABLE_UPDATE_BATCH_POLICY_INPUTS.len() {
+            let mut changed = RESUMABLE_UPDATE_BATCH_POLICY_INPUTS;
+            changed[index] = changed[index].wrapping_add(1);
+            assert_ne!(
+                resumable_update_batch_policy_identity(changed),
+                RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY,
+                "compatibility input {index} must participate in the batch-policy identity",
+            );
+        }
     }
 }

@@ -168,12 +168,10 @@ impl SqlWriteCandidateBounds {
     }
 }
 
-pub(super) fn sql_update_candidate_bounds(
-    execution_bounds: Option<SqlWriteExecutionBounds>,
+pub(super) const fn sql_update_candidate_bounds(
+    execution_bounds: SqlWriteExecutionBounds,
 ) -> SqlWriteCandidateBounds {
-    SqlWriteCandidateBounds::from_max_rows(
-        execution_bounds.and_then(|bounds| bounds.max_staged_rows),
-    )
+    SqlWriteCandidateBounds::from_max_rows(execution_bounds.max_staged_rows)
 }
 
 pub(super) const fn sql_exact_update_candidate_bounds(

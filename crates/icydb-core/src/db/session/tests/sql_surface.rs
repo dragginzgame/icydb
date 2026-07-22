@@ -1903,7 +1903,7 @@ fn sql_metadata_surfaces_show_added_nullable_field_after_schema_transition() {
 }
 
 #[test]
-fn compiled_sql_update_rewrites_old_rows_after_nullable_additive_schema_transition() {
+fn exact_sql_update_rewrites_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     install_nullable_sql_post_transition_schema();
@@ -1911,14 +1911,12 @@ fn compiled_sql_update_rewrites_old_rows_after_nullable_additive_schema_transiti
     let id = Ulid::from_u128(1494);
     insert_old_nullable_sql_row_for_test(id, "Ada");
 
-    let compiled = session
-        .compile_sql_mutation::<SessionNullableSqlEntity>(
-            "UPDATE SessionNullableSqlEntity SET name = 'Ada Lovelace' WHERE name = 'Ada'",
-        )
-        .expect("compiled SQL UPDATE should accept nullable append-only schema transition");
     let result = session
-        .execute_compiled_sql::<SessionNullableSqlEntity>(&compiled)
-        .expect("compiled SQL UPDATE should rewrite old row after nullable transition");
+        .execute_trusted_sql_exact_update::<SessionNullableSqlEntity>(
+            "UPDATE SessionNullableSqlEntity SET name = 'Ada Lovelace' WHERE name = 'Ada'",
+            1,
+        )
+        .expect("exact SQL UPDATE should rewrite old row after nullable transition");
     let SqlStatementResult::Count { row_count } = result else {
         panic!("compiled SQL UPDATE over old nullable row should emit count result");
     };
@@ -2540,7 +2538,7 @@ fn typed_replace_many_non_atomic_rewrites_old_rows_after_nullable_additive_schem
 }
 
 #[test]
-fn execute_trusted_sql_mutation_rewrites_old_rows_after_nullable_additive_schema_transition() {
+fn execute_trusted_sql_exact_update_rewrites_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     install_nullable_sql_post_transition_schema();
@@ -2548,7 +2546,7 @@ fn execute_trusted_sql_mutation_rewrites_old_rows_after_nullable_additive_schema
     let id = Ulid::from_u128(1481);
     insert_old_nullable_sql_row_for_test(id, "Ada");
 
-    let result = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+    let result = execute_exact_sql_update_for_tests::<SessionNullableSqlEntity>(
         &session,
         "UPDATE SessionNullableSqlEntity SET name = 'Ada Lovelace' WHERE name = 'Ada'",
     )
@@ -2676,7 +2674,7 @@ fn execute_sql_statement_admits_supported_single_entity_mutation_shapes() {
     };
     assert_eq!(row_count, 1);
 
-    let update = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+    let update = execute_exact_sql_update_for_tests::<SessionSqlWriteEntity>(
         &session,
         "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
     )
@@ -6116,7 +6114,7 @@ fn advance_successive_layout_history_floor(
         ))
         .expect("nullable floor guard should allocate layout four");
     for name in ["Early", "Middle", "Current"] {
-        execute_sql_statement_for_tests::<SessionSqlEntity>(
+        execute_exact_sql_update_for_tests::<SessionSqlEntity>(
             session,
             &format!("UPDATE SessionSqlEntity SET floor_guard = 'sealed' WHERE name = '{name}'"),
         )
@@ -6201,7 +6199,7 @@ fn execute_admin_sql_ddl_successive_layouts_freeze_fills_and_promote_old_rows() 
         assert_eq!(raw_row_slot_count_for_test(&raw_row), expected_slots);
     }
 
-    execute_sql_statement_for_tests::<SessionSqlEntity>(
+    execute_exact_sql_update_for_tests::<SessionSqlEntity>(
         &session,
         "UPDATE SessionSqlEntity SET age = 40 WHERE name = 'Early'",
     )
@@ -6281,12 +6279,12 @@ fn sql_insert_distinguishes_omitted_database_default_from_explicit_null() {
     };
     assert_eq!(rows, vec![vec![output(Value::Null)]]);
 
-    execute_sql_statement_for_tests::<SessionSqlEntity>(
+    execute_exact_sql_update_for_tests::<SessionSqlEntity>(
         &session,
         "UPDATE SessionSqlEntity SET age = 40 WHERE name = 'ExplicitNull'",
     )
     .expect("an unrelated update should preserve the accepted DDL field payload");
-    execute_sql_statement_for_tests::<SessionSqlEntity>(
+    execute_exact_sql_update_for_tests::<SessionSqlEntity>(
         &session,
         "UPDATE SessionSqlEntity SET score = 9 WHERE name = 'OmittedDefault'",
     )
@@ -9459,11 +9457,17 @@ fn compile_sql_mutation_and_execute_compiled_preserve_supported_mutation_familie
         ),
         "UPDATE should compile to prepared UPDATE artifact",
     );
-    let SqlStatementResult::Count { row_count } = session
+    session
         .execute_compiled_sql::<SessionSqlWriteEntity>(&update)
-        .expect("compiled UPDATE should execute")
+        .expect_err("compiled UPDATE execution must require an explicit semantic lane");
+    let SqlStatementResult::Count { row_count } = session
+        .execute_trusted_sql_exact_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
+            1,
+        )
+        .expect("the explicit exact UPDATE lane should execute")
     else {
-        panic!("compiled UPDATE should emit count payload");
+        panic!("exact UPDATE should emit count payload");
     };
     assert_eq!(row_count, 1);
 
