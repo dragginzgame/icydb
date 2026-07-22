@@ -361,7 +361,7 @@ pub(super) fn commit_marker_present() -> Result<bool, InternalError> {
 }
 
 /// Return exact current marker-control and embedded journal-batch bytes for tests.
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db) fn persisted_commit_marker_lengths_for_tests()
 -> Result<(usize, usize), InternalError> {
     with_commit_store(|store| {

@@ -116,6 +116,7 @@ fn accepted_schema_snapshot_exposes_ordered_primary_key_field_names() {
 }
 
 #[test]
+#[cfg(feature = "sql")]
 fn update_managed_unique_field_requires_global_write_validation() {
     let snapshot = PersistedSchemaSnapshot::new_with_indexes(
         SchemaVersion::initial(),

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### 🩹 Fixed
+
+- Aligns resumable-update test-only evidence with the SQL feature boundary so
+  no-default test and Clippy builds remain warning-free.
+
 ## [0.210.x] 🎯 - 2026-07-22 - Explicit Bulk Update Contracts
 
 Detailed notes: [docs/changelog/0.210.md](docs/changelog/0.210.md)
