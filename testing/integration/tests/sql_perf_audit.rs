@@ -836,7 +836,10 @@ const HEAP_PRIMARY_LIMIT_ONE_SQL: &str =
     "SELECT id, name FROM PerfAuditHeapUser ORDER BY id ASC LIMIT 1";
 const JOURNALED_PRIMARY_LIMIT_ONE_SQL: &str =
     "SELECT id, name FROM PerfAuditJournaledUser ORDER BY id ASC LIMIT 1";
-const JOURNALED_UPGRADE_REENTRY_BUDGET: u64 = 5_000_000_000;
+// The first update includes heap-lost startup recovery and accepted-catalog
+// reconstruction; the repeat proves that work remains one-time.
+const JOURNALED_UPGRADE_FIRST_REENTRY_BUDGET: u64 = 8_000_000_000;
+const JOURNALED_UPGRADE_WARM_REENTRY_BUDGET: u64 = 100_000_000;
 
 fn query_sql_limit_one_with_perf(
     fixture: &StandaloneCanisterFixture,
@@ -1578,6 +1581,7 @@ fn assert_storage_total_and_fluent_limit_one_reports(fixture: &StandaloneCaniste
 fn assert_journaled_guarded_reentry_perf_stays_bounded(
     label: &str,
     perf: &FluentTotalOnlyPerfResult,
+    instruction_budget: u64,
 ) {
     assert_eq!(
         perf.row_count, 1,
@@ -1588,10 +1592,10 @@ fn assert_journaled_guarded_reentry_perf_stays_bounded(
         "{label} guarded reentry probe should report positive instructions",
     );
     assert!(
-        perf.instructions < JOURNALED_UPGRADE_REENTRY_BUDGET,
+        perf.instructions < instruction_budget,
         "{label} guarded reentry probe should stay below the regression budget, got {} >= {}",
         perf.instructions,
-        JOURNALED_UPGRADE_REENTRY_BUDGET,
+        instruction_budget,
     );
 }
 
@@ -1739,8 +1743,16 @@ fn sql_perf_journaled_upgrade_guarded_reentry_stays_bounded() {
         first.instructions, second.instructions, first.row_count, second.row_count,
     );
 
-    assert_journaled_guarded_reentry_perf_stays_bounded("first", &first);
-    assert_journaled_guarded_reentry_perf_stays_bounded("second", &second);
+    assert_journaled_guarded_reentry_perf_stays_bounded(
+        "first",
+        &first,
+        JOURNALED_UPGRADE_FIRST_REENTRY_BUDGET,
+    );
+    assert_journaled_guarded_reentry_perf_stays_bounded(
+        "second",
+        &second,
+        JOURNALED_UPGRADE_WARM_REENTRY_BUDGET,
+    );
 }
 
 #[test]
