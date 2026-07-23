@@ -375,12 +375,12 @@ source/canonical labels are updated together. Filtered-index predicate SQL
 labels relabel through the reduced predicate AST. Generated fields reject
 before publication.
 
-`ALTER TABLE ... DROP COLUMN ...` rewrites rows and publishes a dense accepted
-schema for DDL-owned fields. Active metadata removes the field, surviving field
-IDs and physical slots are renumbered to `1..N` and `0..N-1`, and every stored
-row is rewritten to that current layout before publication. A later
-`ADD COLUMN` allocates the next dense identity. Primary-key, generated, and
-index-dependent fields reject before publication.
+`ALTER TABLE ... DROP COLUMN ...` is admitted only when the entity is exactly
+empty. It publishes a dense accepted schema for a DDL-owned field without a row
+rewrite: active metadata removes the field, and surviving field IDs and
+physical slots are renumbered to `1..N` and `0..N-1`. A later `ADD COLUMN`
+allocates the next dense identity. Nonempty entities plus primary-key,
+generated, and index-dependent fields reject before publication.
 `DROP COLUMN IF EXISTS` reports `no_op` only when the target field is absent.
 
 `ADD CONSTRAINT ... CHECK` accepts the bounded V1 check-expression subset and

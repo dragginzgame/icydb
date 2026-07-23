@@ -57,11 +57,6 @@ fn render_expression(
             "{} IS NOT NULL",
             render_value(value, snapshot, value_catalog)?
         )),
-        AcceptedCheckExprV1::MultipleOf { value, factor } => Ok(format!(
-            "MULTIPLE_OF({}, {})",
-            render_value(value, snapshot, value_catalog)?,
-            render_literal(factor, value_catalog)?,
-        )),
     }
 }
 

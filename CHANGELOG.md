@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.211.md](docs/changelog/0.211.md)
 
+- `0.211.2` hard-cuts accepted `CHECK` to its callable surface, bounds
+  accepted-schema snapshots at 512 KiB, and documents `DROP COLUMN`'s exact
+  empty-entity contract. Potentially breaking: oversized or retired
+  divisibility-bearing development schema bytes are unsupported; Rust
+  application `MultipleOf` validation is unchanged.
+
 - `0.211.1` completes bounded accepted-native constraint activation,
   introspection, typed diagnostics, and context-owned accepted-schema
   projection reuse while hard-cutting development schema/index bytes and

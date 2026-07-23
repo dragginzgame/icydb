@@ -142,10 +142,6 @@ pub(in crate::db) enum AcceptedCheckExprV1 {
     },
     IsNull(AcceptedCheckValueExprV1),
     IsNotNull(AcceptedCheckValueExprV1),
-    MultipleOf {
-        value: AcceptedCheckValueExprV1,
-        factor: AcceptedCheckLiteralV1,
-    },
 }
 
 /// Typed rejection while binding or validating one V1 expression.
@@ -159,8 +155,6 @@ pub(in crate::db) enum AcceptedCheckExprV1Error {
     LiteralAdmissionRejected,
     NullLiteralUnsupported,
     LengthOperationKindMismatch,
-    MultipleOfKindMismatch,
-    MultipleOfZero,
     EmptyBoolean,
     MembershipEmpty,
     MembershipTooWide,
@@ -257,10 +251,6 @@ impl AcceptedCheckExprV1 {
             }),
             Self::IsNull(value) => map_value(value).map(Self::IsNull),
             Self::IsNotNull(value) => map_value(value).map(Self::IsNotNull),
-            Self::MultipleOf { value, factor } => Ok(Self::MultipleOf {
-                value: map_value(value)?,
-                factor: factor.clone(),
-            }),
         }
     }
 
@@ -298,7 +288,7 @@ impl AcceptedCheckExprV1 {
                 collect_value(left);
                 collect_value(right);
             }
-            Self::IsNull(value) | Self::IsNotNull(value) | Self::MultipleOf { value, .. } => {
+            Self::IsNull(value) | Self::IsNotNull(value) => {
                 collect_value(value);
             }
         }
@@ -339,20 +329,6 @@ impl AcceptedCheckExprV1 {
                 let _ = validate_value_expr(value, fields, bounds)?;
                 Ok(())
             }
-            Self::MultipleOf { value, factor } => {
-                let kind = validate_value_expr(value, fields, bounds)?;
-                bounds.literal_bytes = bounds
-                    .literal_bytes
-                    .checked_add(factor.payload().len())
-                    .ok_or(AcceptedCheckExprV1Error::LiteralBytesExceeded)?;
-                if bounds.literal_bytes > MAX_CHECK_EXPR_V1_LITERAL_BYTES {
-                    return Err(AcceptedCheckExprV1Error::LiteralBytesExceeded);
-                }
-                if kind != factor.kind() || !kind_supports_multiple_of(kind) {
-                    return Err(AcceptedCheckExprV1Error::MultipleOfKindMismatch);
-                }
-                Ok(())
-            }
         }
     }
 
@@ -378,11 +354,6 @@ impl AcceptedCheckExprV1 {
             Self::IsNotNull(value) => {
                 bytes.push(7);
                 write_value_key(bytes, value);
-            }
-            Self::MultipleOf { value, factor } => {
-                bytes.push(8);
-                write_value_key(bytes, value);
-                write_literal_key(bytes, factor);
             }
         }
     }
@@ -556,25 +527,6 @@ pub(super) const fn nat64_codec() -> (FieldStorageDecode, LeafCodec) {
     (
         FieldStorageDecode::ByKind,
         LeafCodec::Scalar(crate::model::field::ScalarCodec::Nat64),
-    )
-}
-
-pub(super) const fn kind_supports_multiple_of(kind: &AcceptedFieldKind) -> bool {
-    matches!(
-        kind,
-        AcceptedFieldKind::Decimal { .. }
-            | AcceptedFieldKind::Int8
-            | AcceptedFieldKind::Int16
-            | AcceptedFieldKind::Int32
-            | AcceptedFieldKind::Int64
-            | AcceptedFieldKind::Int128
-            | AcceptedFieldKind::IntBig { .. }
-            | AcceptedFieldKind::Nat8
-            | AcceptedFieldKind::Nat16
-            | AcceptedFieldKind::Nat32
-            | AcceptedFieldKind::Nat64
-            | AcceptedFieldKind::Nat128
-            | AcceptedFieldKind::NatBig { .. }
     )
 }
 

@@ -90,10 +90,6 @@ enum CompiledCheckExprV1 {
     },
     IsNull(CompiledCheckValueExprV1),
     IsNotNull(CompiledCheckValueExprV1),
-    MultipleOf {
-        value: CompiledCheckValueExprV1,
-        factor: Value,
-    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -586,18 +582,6 @@ fn compile_expr(
         AcceptedCheckExprV1::IsNotNull(value) => {
             compile_value(value, snapshot, value_catalog).map(CompiledCheckExprV1::IsNotNull)
         }
-        AcceptedCheckExprV1::MultipleOf { value, factor } => {
-            let factor = decode_literal(factor, value_catalog)?;
-            if value_is_zero(&factor)? {
-                return Err(AcceptedRowConstraintEvaluationError::InvalidExpression(
-                    AcceptedCheckExprV1Error::MultipleOfZero,
-                ));
-            }
-            Ok(CompiledCheckExprV1::MultipleOf {
-                value: compile_value(value, snapshot, value_catalog)?,
-                factor,
-            })
-        }
     }
 }
 
@@ -721,19 +705,6 @@ fn evaluate_expr(
                 AcceptedCheckTruth::True
             },
         ),
-        CompiledCheckExprV1::MultipleOf { value, factor } => {
-            let value = evaluate_value(value, values)?;
-            if matches!(value.as_ref(), Value::Null) {
-                return Ok(AcceptedCheckTruth::Unknown);
-            }
-            value_is_multiple_of(value.as_ref(), factor).map(|multiple| {
-                if multiple {
-                    AcceptedCheckTruth::True
-                } else {
-                    AcceptedCheckTruth::False
-                }
-            })
-        }
     }
 }
 
@@ -810,52 +781,6 @@ fn compare_values(
     } else {
         AcceptedCheckTruth::False
     })
-}
-
-fn value_is_zero(value: &Value) -> Result<bool, AcceptedRowConstraintEvaluationError> {
-    match value {
-        Value::Decimal(value) => Ok(value.parts().mantissa() == 0),
-        Value::Int64(value) => Ok(*value == 0),
-        Value::Int128(value) => Ok(*value == 0),
-        Value::IntBig(value) => Ok(value.is_zero()),
-        Value::Nat64(value) => Ok(*value == 0),
-        Value::Nat128(value) => Ok(*value == 0),
-        Value::NatBig(value) => Ok(value.is_zero()),
-        _ => Err(AcceptedRowConstraintEvaluationError::RuntimeValueMismatch),
-    }
-}
-
-fn value_is_multiple_of(
-    value: &Value,
-    factor: &Value,
-) -> Result<bool, AcceptedRowConstraintEvaluationError> {
-    match (value, factor) {
-        (Value::Decimal(value), Value::Decimal(factor)) => value
-            .parts()
-            .mantissa()
-            .checked_rem(factor.parts().mantissa())
-            .map(|remainder| remainder == 0)
-            .ok_or(AcceptedRowConstraintEvaluationError::RuntimeValueMismatch),
-        (Value::Int64(value), Value::Int64(factor)) => value
-            .checked_rem(*factor)
-            .map(|remainder| remainder == 0)
-            .or_else(|| (*value == i64::MIN && *factor == -1).then_some(true))
-            .ok_or(AcceptedRowConstraintEvaluationError::RuntimeValueMismatch),
-        (Value::Int128(value), Value::Int128(factor)) => value
-            .checked_rem(*factor)
-            .map(|remainder| remainder == 0)
-            .or_else(|| (*value == i128::MIN && *factor == -1).then_some(true))
-            .ok_or(AcceptedRowConstraintEvaluationError::RuntimeValueMismatch),
-        (Value::IntBig(value), Value::IntBig(factor)) => value
-            .is_multiple_of(factor)
-            .ok_or(AcceptedRowConstraintEvaluationError::RuntimeValueMismatch),
-        (Value::Nat64(value), Value::Nat64(factor)) if *factor != 0 => Ok(value % factor == 0),
-        (Value::Nat128(value), Value::Nat128(factor)) if *factor != 0 => Ok(value % factor == 0),
-        (Value::NatBig(value), Value::NatBig(factor)) => value
-            .is_multiple_of(factor)
-            .ok_or(AcceptedRowConstraintEvaluationError::RuntimeValueMismatch),
-        _ => Err(AcceptedRowConstraintEvaluationError::RuntimeValueMismatch),
-    }
 }
 
 fn unique_index_dependency_slots(
@@ -967,16 +892,6 @@ fn validate_expression_literals(
         }
         AcceptedCheckExprV1::IsNull(value) | AcceptedCheckExprV1::IsNotNull(value) => {
             validate_value_literal(value, enum_catalog, composite_catalog)
-        }
-        AcceptedCheckExprV1::MultipleOf { value, factor } => {
-            validate_value_literal(value, enum_catalog, composite_catalog)?;
-            let factor = decode_literal_from_catalogs(factor, enum_catalog, composite_catalog)?;
-            if value_is_zero(&factor)? {
-                return Err(AcceptedRowConstraintEvaluationError::InvalidExpression(
-                    AcceptedCheckExprV1Error::MultipleOfZero,
-                ));
-            }
-            Ok(())
         }
     }
 }

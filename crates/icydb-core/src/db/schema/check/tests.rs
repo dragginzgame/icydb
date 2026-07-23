@@ -494,12 +494,8 @@ fn compiled_unique_activation_blocks_inserts_and_dependency_changes_only() {
 }
 
 #[test]
-fn length_cardinality_and_multiple_of_use_one_prebound_slot_set() {
+fn length_and_cardinality_use_one_prebound_slot_set() {
     let (accepted, catalog, _) = accepted_with_check(CheckExprV1Input::And(vec![
-        CheckExprV1Input::MultipleOf {
-            value: CheckValueExprV1Input::Field("score".to_string()),
-            factor: InputValue::Int64(5),
-        },
         CheckExprV1Input::Compare {
             left: CheckValueExprV1Input::CharLength("nickname".to_string()),
             op: AcceptedCheckCompareOpV1::Lte,
@@ -514,7 +510,7 @@ fn length_cardinality_and_multiple_of_use_one_prebound_slot_set() {
     let program = CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT)
         .expect("accepted checks should compile");
 
-    assert_eq!(program.required_slots(), &[1, 2, 3]);
+    assert_eq!(program.required_slots(), &[2, 3]);
     program
         .evaluate(
             FINGERPRINT,
@@ -524,7 +520,7 @@ fn length_cardinality_and_multiple_of_use_one_prebound_slot_set() {
                 vec![Value::Text("a".to_string()), Value::Text("b".to_string())],
             ),
         )
-        .expect("valid length, cardinality, and multiple-of should pass");
+        .expect("valid length and cardinality should pass");
 }
 
 #[test]
@@ -548,7 +544,7 @@ fn compiled_checks_reject_stale_fingerprint_and_missing_required_slot() {
 }
 
 #[test]
-fn binder_rejects_empty_or_oversized_membership_and_zero_multiple_of() {
+fn binder_rejects_empty_or_oversized_membership() {
     let snapshot = snapshot();
     let catalog = value_catalog();
     assert_eq!(
@@ -574,18 +570,6 @@ fn binder_rejects_empty_or_oversized_membership_and_zero_multiple_of() {
             catalog.composite_catalog(),
         ),
         Err(AcceptedCheckExprV1Error::MembershipTooWide)
-    );
-    assert_eq!(
-        bind_check_expr_v1(
-            CheckExprV1Input::MultipleOf {
-                value: CheckValueExprV1Input::Field("score".to_string()),
-                factor: InputValue::Int64(0),
-            },
-            &snapshot,
-            catalog.enum_catalog(),
-            catalog.composite_catalog(),
-        ),
-        Err(AcceptedCheckExprV1Error::MultipleOfZero)
     );
 }
 

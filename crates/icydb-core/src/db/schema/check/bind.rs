@@ -42,11 +42,6 @@ pub(in crate::db) enum CheckExprV1Input {
     IsNull(CheckValueExprV1Input),
     IsNotNull(CheckValueExprV1Input),
     #[cfg(test)]
-    MultipleOf {
-        value: CheckValueExprV1Input,
-        factor: InputValue,
-    },
-    #[cfg(test)]
     Between {
         value: CheckValueExprV1Input,
         lower: InputValue,
@@ -460,18 +455,6 @@ fn bind_expression(
         CheckExprV1Input::IsNotNull(value) => bind_non_literal_value(value, snapshot)
             .map(|value| AcceptedCheckExprV1::IsNotNull(value.expression)),
         #[cfg(test)]
-        CheckExprV1Input::MultipleOf { value, factor } => {
-            if input_numeric_is_zero(&factor) {
-                return Err(AcceptedCheckExprV1Error::MultipleOfZero);
-            }
-            let value = bind_non_literal_value(value, snapshot)?;
-            let factor = bind_literal(factor, value.binding, enum_catalog, composite_catalog)?;
-            Ok(AcceptedCheckExprV1::MultipleOf {
-                value: value.expression,
-                factor,
-            })
-        }
-        #[cfg(test)]
         CheckExprV1Input::Between {
             value,
             lower,
@@ -498,36 +481,6 @@ fn bind_expression(
         CheckExprV1Input::EnumIn { field, members } => {
             bind_enum_membership(field, members, snapshot, enum_catalog, composite_catalog)
         }
-    }
-}
-
-#[cfg(test)]
-fn input_numeric_is_zero(value: &InputValue) -> bool {
-    match value {
-        InputValue::Decimal(value) => value.parts().mantissa() == 0,
-        InputValue::Int64(value) => *value == 0,
-        InputValue::Int128(value) => *value == 0,
-        InputValue::IntBig(value) => value.is_zero(),
-        InputValue::Nat64(value) => *value == 0,
-        InputValue::Nat128(value) => *value == 0,
-        InputValue::NatBig(value) => value.is_zero(),
-        InputValue::Account(_)
-        | InputValue::Blob(_)
-        | InputValue::Bool(_)
-        | InputValue::Date(_)
-        | InputValue::Duration(_)
-        | InputValue::Enum(_)
-        | InputValue::Float32(_)
-        | InputValue::Float64(_)
-        | InputValue::List(_)
-        | InputValue::Map(_)
-        | InputValue::Null
-        | InputValue::Principal(_)
-        | InputValue::Subaccount(_)
-        | InputValue::Text(_)
-        | InputValue::Timestamp(_)
-        | InputValue::Ulid(_)
-        | InputValue::Unit => false,
     }
 }
 

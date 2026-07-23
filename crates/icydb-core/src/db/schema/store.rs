@@ -54,7 +54,6 @@ const SCHEMA_KEY_NAMESPACE_ENTITY_SNAPSHOT: u8 = 0;
 const SCHEMA_KEY_NAMESPACE_ACCEPTED_BUNDLE: u8 = 1;
 const SCHEMA_KEY_NAMESPACE_ACCEPTED_ROOT: u8 = 2;
 const SCHEMA_KEY_NAMESPACE_CONSTRAINT_VALIDATION_JOB: u8 = 3;
-pub(in crate::db) const MAX_SCHEMA_SNAPSHOT_BYTES: u32 = 512 * 1024;
 // Every role exposes the sole current method version while its separate domain
 // tag keeps data, index, and full-catalog fingerprint inputs disjoint.
 const SCHEMA_STORE_FINGERPRINT_METHOD_VERSION: u8 = 1;

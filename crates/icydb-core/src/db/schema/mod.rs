@@ -68,7 +68,9 @@ pub(in crate::db) use check::{
 pub(in crate::db) use check::{AcceptedCheckExprV1Error, bind_sql_check_expr};
 #[cfg(test)]
 pub(in crate::db) use check::{CheckExprV1Input, CheckValueExprV1Input, bind_check_expr_v1};
-pub(in crate::db) use codec::{decode_persisted_schema_snapshot, encode_persisted_schema_snapshot};
+pub(in crate::db) use codec::{
+    MAX_SCHEMA_SNAPSHOT_BYTES, decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
+};
 #[cfg(test)]
 pub(in crate::db) use codec::{
     encode_unchecked_persisted_schema_snapshot_for_tests,
@@ -257,8 +259,8 @@ pub(in crate::db) use snapshot::{
 };
 pub use store::SchemaStore;
 pub(in crate::db) use store::{
-    AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, MAX_SCHEMA_SNAPSHOT_BYTES,
-    SchemaStoreAllocationMetadata, SchemaStoreCatalogMetadata,
+    AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, SchemaStoreAllocationMetadata,
+    SchemaStoreCatalogMetadata,
 };
 #[cfg(test)]
 pub(in crate::db) use store::{

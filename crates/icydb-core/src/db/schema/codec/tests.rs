@@ -2,13 +2,14 @@ use crate::{
     db::schema::{
         AcceptedCheckExprV1, AcceptedConstraintCatalog, AcceptedConstraintKind,
         AcceptedConstraintSnapshot, AcceptedFieldKind, AcceptedSchemaFingerprint,
-        ConstraintIdAllocator, ConstraintOrigin, FieldId, PersistedFieldOrigin,
-        PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
-        PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-        PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId,
-        RowLayoutVersion, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill,
-        SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
-        decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
+        ConstraintIdAllocator, ConstraintOrigin, FieldId, MAX_SCHEMA_SNAPSHOT_BYTES,
+        PersistedFieldOrigin, PersistedFieldSnapshot, PersistedIndexExpressionOp,
+        PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
+        PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+        PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId, RowLayoutVersion,
+        SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaIndexId,
+        SchemaInsertDefault, SchemaRowLayout, SchemaVersion, decode_persisted_schema_snapshot,
+        encode_persisted_schema_snapshot,
     },
     error::{ErrorClass, ErrorOrigin},
     model::field::{
@@ -20,6 +21,46 @@ use crate::{
 fn encode_unchecked_schema_fixture(snapshot: &PersistedSchemaSnapshot) -> Vec<u8> {
     candid::encode_one(super::PersistedSchemaSnapshotWire::from_snapshot(snapshot))
         .expect("unchecked schema wire fixture should encode")
+}
+
+#[test]
+fn persisted_schema_snapshot_codec_enforces_shared_byte_bound_before_decode() {
+    super::reset_persisted_schema_snapshot_decode_count_for_tests();
+
+    let oversized = vec![0_u8; MAX_SCHEMA_SNAPSHOT_BYTES as usize + 1];
+    let error = decode_persisted_schema_snapshot(&oversized)
+        .expect_err("oversized schema snapshot must reject before Candid decoding");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+    assert_eq!(
+        super::persisted_schema_snapshot_decode_count_for_tests(),
+        0,
+        "oversized bytes must not enter Candid decoding",
+    );
+
+    let bounded_malformed = vec![0_u8; MAX_SCHEMA_SNAPSHOT_BYTES as usize];
+    let error = decode_persisted_schema_snapshot(&bounded_malformed)
+        .expect_err("bounded malformed bytes must still fail closed");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+    assert_eq!(
+        super::persisted_schema_snapshot_decode_count_for_tests(),
+        1,
+        "the exact byte boundary may enter Candid decoding",
+    );
+
+    let oversized_snapshot = PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "x".repeat(MAX_SCHEMA_SNAPSHOT_BYTES as usize),
+        "Oversized".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(Vec::new()),
+        Vec::new(),
+    );
+    let error = super::encode_unchecked_persisted_schema_snapshot_for_tests(&oversized_snapshot)
+        .expect_err("oversized schema snapshot must reject before emission");
+    assert_eq!(error.class(), ErrorClass::Unsupported);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
 }
 
 #[test]

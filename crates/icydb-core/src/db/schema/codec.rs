@@ -47,6 +47,8 @@ use serde::Deserialize;
 
 const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 1;
 const SCHEMA_SNAPSHOT_CONTRACT_PROFILE: u32 = u32::from_be_bytes(*b"ICYZ");
+/// Maximum canonical bytes for one persisted entity-schema snapshot.
+pub(in crate::db) const MAX_SCHEMA_SNAPSHOT_BYTES: u32 = 512 * 1024;
 
 // Candid wire container for one persisted schema snapshot.
 //
@@ -157,10 +159,6 @@ enum AcceptedCheckExprV1Wire {
     },
     IsNull(AcceptedCheckValueExprV1Wire),
     IsNotNull(AcceptedCheckValueExprV1Wire),
-    MultipleOf {
-        value: AcceptedCheckValueExprV1Wire,
-        factor: AcceptedCheckLiteralV1Wire,
-    },
 }
 
 // Candid wire enum for one canonical check value operand.
@@ -450,7 +448,7 @@ pub(in crate::db) fn encode_persisted_schema_snapshot(
     }
     let wire = PersistedSchemaSnapshotWire::from_snapshot(snapshot);
 
-    Encode!(&wire).map_err(|_| InternalError::store_corruption())
+    encode_persisted_schema_snapshot_wire(&wire)
 }
 
 /// Encode an intentionally malformed typed fixture for raw decode-boundary tests.
@@ -460,13 +458,17 @@ pub(in crate::db) fn encode_unchecked_persisted_schema_snapshot_for_tests(
 ) -> Result<Vec<u8>, InternalError> {
     let wire = PersistedSchemaSnapshotWire::from_snapshot(snapshot);
 
-    Encode!(&wire).map_err(|_| InternalError::store_corruption())
+    encode_persisted_schema_snapshot_wire(&wire)
 }
 
 /// Decode one typed persisted-schema snapshot from durable raw bytes.
 pub(in crate::db) fn decode_persisted_schema_snapshot(
     bytes: &[u8],
 ) -> Result<PersistedSchemaSnapshot, InternalError> {
+    if bytes.len() > MAX_SCHEMA_SNAPSHOT_BYTES as usize {
+        return Err(InternalError::store_corruption());
+    }
+
     #[cfg(test)]
     PERSISTED_SCHEMA_SNAPSHOT_DECODE_CALLS.with(|calls| calls.set(calls.get().saturating_add(1)));
 
@@ -474,6 +476,18 @@ pub(in crate::db) fn decode_persisted_schema_snapshot(
         .map_err(|_| InternalError::store_corruption())?;
 
     wire.into_snapshot()
+}
+
+/// Encode one schema wire while enforcing the same bound as persisted decode.
+fn encode_persisted_schema_snapshot_wire(
+    wire: &PersistedSchemaSnapshotWire,
+) -> Result<Vec<u8>, InternalError> {
+    let encoded = Encode!(wire).map_err(|_| InternalError::store_corruption())?;
+    if encoded.len() > MAX_SCHEMA_SNAPSHOT_BYTES as usize {
+        return Err(InternalError::store_unsupported());
+    }
+
+    Ok(encoded)
 }
 
 impl PersistedSchemaSnapshotWire {
@@ -786,10 +800,6 @@ impl AcceptedCheckExprV1Wire {
             AcceptedCheckExprV1::IsNotNull(value) => {
                 Self::IsNotNull(AcceptedCheckValueExprV1Wire::from_value(value))
             }
-            AcceptedCheckExprV1::MultipleOf { value, factor } => Self::MultipleOf {
-                value: AcceptedCheckValueExprV1Wire::from_value(value),
-                factor: AcceptedCheckLiteralV1Wire::from_literal(factor),
-            },
         }
     }
 
@@ -817,10 +827,6 @@ impl AcceptedCheckExprV1Wire {
             },
             Self::IsNull(value) => AcceptedCheckExprV1::IsNull(value.into_value()?),
             Self::IsNotNull(value) => AcceptedCheckExprV1::IsNotNull(value.into_value()?),
-            Self::MultipleOf { value, factor } => AcceptedCheckExprV1::MultipleOf {
-                value: value.into_value()?,
-                factor: factor.into_literal()?,
-            },
         })
     }
 }
