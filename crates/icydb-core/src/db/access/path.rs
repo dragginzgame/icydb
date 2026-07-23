@@ -56,6 +56,7 @@ pub(crate) struct SemanticIndexAccessContract {
 #[derive(Debug)]
 pub(in crate::db::access) struct SemanticIndexAccessContractInner {
     pub(in crate::db::access) ordinal: u16,
+    pub(in crate::db::access) physical_generation: u64,
     pub(in crate::db::access) name: String,
     pub(in crate::db::access) store_path: String,
     pub(in crate::db::access) key_items: SemanticIndexKeyItems,
@@ -174,6 +175,7 @@ impl SemanticIndexExpression {
 impl PartialEq for SemanticIndexAccessContract {
     fn eq(&self, other: &Self) -> bool {
         self.inner.ordinal == other.inner.ordinal
+            && self.inner.physical_generation == other.inner.physical_generation
             && self.inner.name == other.inner.name
             && self.inner.store_path == other.inner.store_path
             && self.inner.key_items == other.inner.key_items
@@ -192,6 +194,7 @@ impl SemanticIndexAccessContract {
         Self {
             inner: std::sync::Arc::new(SemanticIndexAccessContractInner {
                 ordinal: accepted.ordinal(),
+                physical_generation: accepted.physical_generation(),
                 name: accepted.name().to_string(),
                 store_path: accepted.store().to_string(),
                 key_items: SemanticIndexKeyItems::Fields(
@@ -220,6 +223,7 @@ impl SemanticIndexAccessContract {
         Self {
             inner: std::sync::Arc::new(SemanticIndexAccessContractInner {
                 ordinal: accepted.ordinal(),
+                physical_generation: accepted.physical_generation(),
                 name: accepted.name().to_string(),
                 store_path: accepted.store().to_string(),
                 key_items: SemanticIndexKeyItems::Accepted(
@@ -240,6 +244,12 @@ impl SemanticIndexAccessContract {
     #[must_use]
     pub(in crate::db) fn ordinal(&self) -> u16 {
         self.inner.ordinal
+    }
+
+    /// Return the isolated physical key generation.
+    #[must_use]
+    pub(in crate::db) fn physical_generation(&self) -> u64 {
+        self.inner.physical_generation
     }
 
     #[must_use]

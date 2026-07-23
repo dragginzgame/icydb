@@ -107,8 +107,8 @@ pub mod value {
 pub mod model {
     pub mod entity {
         pub use icydb_core::model::{
-            EntityModel, PrimaryKeyModel, PrimaryKeyModelFieldIter, PrimaryKeyModelFields,
-            RelationEdgeModel,
+            CheckConstraintModel, EntityModel, PrimaryKeyModel, PrimaryKeyModelFieldIter,
+            PrimaryKeyModelFields, RelationEdgeModel,
         };
     }
 

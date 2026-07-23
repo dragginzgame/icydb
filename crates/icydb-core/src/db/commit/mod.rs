@@ -66,7 +66,7 @@ pub(in crate::db) use memory::{
 pub(in crate::db) use prepare::prepare_row_commit_for_entity_with_structural_readers;
 pub(in crate::db) use prepare::{
     CommitPrepareContext, prepare_commit_context_for_entity_with_schema_fingerprint,
-    prepare_commit_context_for_runtime_entity,
+    prepare_commit_context_for_runtime_entity, prepare_commit_context_for_runtime_entity_rebuild,
     prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
     prepare_row_commit_with_context,
 };
@@ -81,6 +81,13 @@ pub(in crate::db) use schema_publication::publish_accepted_schema_candidate;
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate_with_derived_domains;
 #[cfg(feature = "sql")]
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate_with_user_index_domains;
+pub(in crate::db) use schema_publication::{
+    publish_accepted_schema_candidate_with_constraint_validation_job,
+    publish_accepted_schema_candidate_with_constraint_validation_job_removal,
+    publish_constraint_validation_job,
+    publish_constraint_validation_job_with_candidate_index_entries,
+    publish_constraint_validation_job_with_candidate_relation_entries,
+};
 #[cfg(test)]
 #[cfg(feature = "sql")]
 pub(in crate::db) use store::persisted_commit_marker_lengths_for_tests;

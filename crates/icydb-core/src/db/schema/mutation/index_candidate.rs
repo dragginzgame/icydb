@@ -111,8 +111,14 @@ impl SchemaDdlSecondaryIndexExpressionIntent {
 /// schema mutations.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SchemaDdlSecondaryIndexKeyCandidateError {
-    FieldPathNotAcceptedCatalogBacked { field_path: String },
-    FieldPathNotIndexable { field_path: String },
+    /// No further logical or dense physical index identity can be represented.
+    IndexIdentityExhausted,
+    FieldPathNotAcceptedCatalogBacked {
+        field_path: String,
+    },
+    FieldPathNotIndexable {
+        field_path: String,
+    },
 }
 
 /// Resolve one accepted SQL DDL secondary-index addition candidate. SQL DDL
@@ -128,6 +134,7 @@ pub(in crate::db) fn resolve_sql_ddl_secondary_index_addition_candidate(
     if let Some(existing) = accepted
         .indexes()
         .iter()
+        .chain(accepted.candidate_indexes())
         .find(|index| index.name() == candidate.name())
     {
         if secondary_index_exact_addition_match(existing, &candidate) {
@@ -142,6 +149,7 @@ pub(in crate::db) fn resolve_sql_ddl_secondary_index_addition_candidate(
     if let Some(existing) = accepted
         .indexes()
         .iter()
+        .chain(accepted.candidate_indexes())
         .find(|index| secondary_index_duplicate_contract_match(index, &candidate))
     {
         return Err(
@@ -166,10 +174,12 @@ pub(in crate::db) fn build_sql_ddl_secondary_index_candidate(
     predicate_sql: Option<String>,
 ) -> Result<PersistedIndexSnapshot, SchemaDdlSecondaryIndexKeyCandidateError> {
     let key = sql_ddl_secondary_index_key_snapshot(accepted_before, key_items)?;
+    let schema_id = next_sql_ddl_schema_index_id(accepted_before)?;
+    let ordinal = next_sql_ddl_secondary_index_ordinal(accepted_before)?;
 
     Ok(PersistedIndexSnapshot::new_sql_ddl(
-        next_sql_ddl_schema_index_id(accepted_before),
-        next_sql_ddl_secondary_index_ordinal(accepted_before),
+        schema_id,
+        ordinal,
         name,
         store,
         unique,
@@ -178,26 +188,42 @@ pub(in crate::db) fn build_sql_ddl_secondary_index_candidate(
     ))
 }
 
-fn next_sql_ddl_schema_index_id(accepted_before: &AcceptedSchemaSnapshot) -> SchemaIndexId {
+fn next_sql_ddl_schema_index_id(
+    accepted_before: &AcceptedSchemaSnapshot,
+) -> Result<SchemaIndexId, SchemaDdlSecondaryIndexKeyCandidateError> {
     let highest = accepted_before
         .persisted_snapshot()
         .indexes()
         .iter()
+        .chain(accepted_before.persisted_snapshot().candidate_indexes())
         .map(|index| index.schema_id().get())
         .max()
         .unwrap_or(0);
     let next = highest
         .checked_add(1)
-        .expect("accepted logical index identities should not be exhausted");
+        .ok_or(SchemaDdlSecondaryIndexKeyCandidateError::IndexIdentityExhausted)?;
 
-    SchemaIndexId::new(next).expect("next accepted logical index identity must be non-zero")
+    SchemaIndexId::new(next).ok_or(SchemaDdlSecondaryIndexKeyCandidateError::IndexIdentityExhausted)
 }
 
-fn next_sql_ddl_secondary_index_ordinal(accepted_before: &AcceptedSchemaSnapshot) -> u16 {
-    u16::try_from(accepted_before.persisted_snapshot().indexes().len())
-        .ok()
-        .and_then(|count| count.checked_add(1))
-        .expect("accepted index ordinals should not be exhausted")
+fn next_sql_ddl_secondary_index_ordinal(
+    accepted_before: &AcceptedSchemaSnapshot,
+) -> Result<u16, SchemaDdlSecondaryIndexKeyCandidateError> {
+    u16::try_from(
+        accepted_before
+            .persisted_snapshot()
+            .indexes()
+            .len()
+            .saturating_add(
+                accepted_before
+                    .persisted_snapshot()
+                    .candidate_indexes()
+                    .len(),
+            ),
+    )
+    .ok()
+    .and_then(|count| count.checked_add(1))
+    .ok_or(SchemaDdlSecondaryIndexKeyCandidateError::IndexIdentityExhausted)
 }
 
 fn sql_ddl_secondary_index_key_snapshot(

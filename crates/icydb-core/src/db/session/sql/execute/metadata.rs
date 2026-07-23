@@ -52,15 +52,20 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     fn describe_entity_sql_statement_result_with_catalog<E>(
+        &self,
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C>,
     {
+        let validation_jobs = self
+            .constraint_validation_jobs_for_catalog::<E>(catalog)
+            .map_err(QueryError::execute)?;
         describe_entity_model_with_persisted_schema(
             E::MODEL,
             catalog.snapshot(),
             catalog.value_catalog_handle(),
+            validation_jobs.as_slice(),
         )
         .map(SqlStatementResult::Describe)
         .map_err(QueryError::execute)
@@ -75,6 +80,37 @@ impl<C: CanisterKind> DbSession<C> {
         self.try_show_indexes::<E>()
             .map(SqlStatementResult::ShowIndexes)
             .map_err(QueryError::execute)
+    }
+
+    pub(super) fn show_constraints_sql_statement_result<E>(
+        &self,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C>,
+    {
+        self.try_show_constraints::<E>()
+            .map(SqlStatementResult::ShowConstraints)
+            .map_err(QueryError::execute)
+    }
+
+    fn show_constraints_sql_statement_result_with_catalog<E>(
+        &self,
+        catalog: &AcceptedSchemaCatalogContext,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C>,
+    {
+        let validation_jobs = self
+            .constraint_validation_jobs_for_catalog::<E>(catalog)
+            .map_err(QueryError::execute)?;
+        describe_entity_model_with_persisted_schema(
+            E::MODEL,
+            catalog.snapshot(),
+            catalog.value_catalog_handle(),
+            validation_jobs.as_slice(),
+        )
+        .map(|description| SqlStatementResult::ShowConstraints(description.constraints().to_vec()))
+        .map_err(QueryError::execute)
     }
 
     pub(super) fn show_columns_sql_statement_result<E>(
@@ -156,9 +192,15 @@ impl<C: CanisterKind> DbSession<C> {
         let result = match compiled {
             CompiledSqlCommand::DescribeEntity => match catalog {
                 Some(catalog) => {
-                    Self::describe_entity_sql_statement_result_with_catalog::<E>(catalog)
+                    self.describe_entity_sql_statement_result_with_catalog::<E>(catalog)
                 }
                 None => self.describe_entity_sql_statement_result::<E>(),
+            },
+            CompiledSqlCommand::ShowConstraintsEntity => match catalog {
+                Some(catalog) => {
+                    self.show_constraints_sql_statement_result_with_catalog::<E>(catalog)
+                }
+                None => self.show_constraints_sql_statement_result::<E>(),
             },
             CompiledSqlCommand::ShowIndexesEntity => self.show_indexes_sql_statement_result::<E>(),
             CompiledSqlCommand::ShowColumnsEntity => match catalog {

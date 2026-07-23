@@ -106,6 +106,7 @@ pub(in crate::db) struct BoundSqlAlterColumnNullabilityRequest {
     entity_name: String,
     field: PersistedFieldSnapshot,
     nullable: bool,
+    pending_activation_id: Option<crate::db::schema::ConstraintId>,
     mutation_kind: SqlDdlMutationKind,
 }
 
@@ -124,7 +125,6 @@ impl BoundSqlAlterColumnNullabilityRequest {
 
     /// Borrow the accepted field whose nullability will change.
     #[must_use]
-    #[cfg(test)]
     pub(in crate::db) const fn field(&self) -> &PersistedFieldSnapshot {
         &self.field
     }
@@ -133,6 +133,14 @@ impl BoundSqlAlterColumnNullabilityRequest {
     #[must_use]
     pub(in crate::db) const fn nullable(&self) -> bool {
         self.nullable
+    }
+
+    /// Return the live not-null activation being aborted, when applicable.
+    #[must_use]
+    pub(in crate::db) const fn pending_activation_id(
+        &self,
+    ) -> Option<crate::db::schema::ConstraintId> {
+        self.pending_activation_id
     }
 
     /// Return the field-nullability mutation kind.
@@ -315,11 +323,13 @@ pub(super) fn bind_alter_table_alter_column_statement(
                     error,
                 )
             })?;
+            let pending_not_null = pending_not_null_activation(accepted_before, &field);
             Ok(bind_alter_table_alter_column_nullability(
                 entity_name,
                 &field,
                 false,
                 SqlDdlMutationKind::SetFieldNotNull,
+                pending_not_null,
             ))
         }
         SqlAlterColumnAction::DropNotNull => {
@@ -335,11 +345,13 @@ pub(super) fn bind_alter_table_alter_column_statement(
                     error,
                 )
             })?;
+            let pending_not_null = pending_not_null_activation(accepted_before, &field);
             Ok(bind_alter_table_alter_column_nullability(
                 entity_name,
                 &field,
                 true,
                 SqlDdlMutationKind::DropFieldNotNull,
+                pending_not_null,
             ))
         }
     }
@@ -543,8 +555,11 @@ fn bind_alter_table_alter_column_nullability(
     field: &PersistedFieldSnapshot,
     nullable: bool,
     mutation_kind: SqlDdlMutationKind,
+    pending_not_null: Option<crate::db::schema::ConstraintId>,
 ) -> BoundSqlDdlRequest {
-    if field.nullable() == nullable {
+    if (pending_not_null.is_none() && field.nullable() == nullable)
+        || (pending_not_null.is_some() && !nullable)
+    {
         return BoundSqlDdlRequest {
             schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
             statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
@@ -564,10 +579,30 @@ fn bind_alter_table_alter_column_nullability(
                 entity_name: entity_name.to_string(),
                 field: field.clone(),
                 nullable,
+                pending_activation_id: pending_not_null,
                 mutation_kind,
             },
         ),
     }
+}
+
+fn pending_not_null_activation(
+    accepted_before: &AcceptedSchemaSnapshot,
+    field: &PersistedFieldSnapshot,
+) -> Option<crate::db::schema::ConstraintId> {
+    accepted_before
+        .persisted_snapshot()
+        .constraint_catalog()
+        .activations()
+        .iter()
+        .find(|activation| {
+            matches!(
+                activation.kind(),
+                crate::db::schema::ConstraintActivationKind::NotNull { field_id }
+                    if *field_id == field.id()
+            )
+        })
+        .map(crate::db::schema::ConstraintActivationSnapshot::id)
 }
 
 fn sql_field_addition_candidate_error(

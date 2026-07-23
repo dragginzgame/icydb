@@ -158,8 +158,12 @@ fn schema_with_fingerprint_version_and_indexes(
         schema.fields().to_vec(),
         indexes,
     )
-    .with_constraint_id_allocator(schema.constraint_id_allocator())
+    .with_constraint_catalog(schema.constraint_catalog().clone())
     .with_relations(schema.relations().to_vec())
+    .with_constraint_candidates(
+        schema.candidate_indexes().to_vec(),
+        schema.candidate_relations().to_vec(),
+    )
 }
 
 fn index_with_admission_fingerprint_name(index: &PersistedIndexSnapshot) -> PersistedIndexSnapshot {
@@ -177,7 +181,7 @@ fn index_with_identity_and_name(
     schema_id: crate::db::schema::SchemaIndexId,
     name: String,
 ) -> PersistedIndexSnapshot {
-    match index.origin() {
+    let renamed = match index.origin() {
         crate::db::schema::PersistedIndexOrigin::Generated => PersistedIndexSnapshot::new(
             schema_id,
             index.ordinal(),
@@ -196,7 +200,8 @@ fn index_with_identity_and_name(
             index.key().clone(),
             index.predicate_sql().map(str::to_string),
         ),
-    }
+    };
+    renamed.clone_with_schema_identity(schema_id, index.ordinal(), index.physical_generation())
 }
 
 fn hash_labeled_str(hasher: &mut Sha256, label: &str, value: &str) {
@@ -228,11 +233,12 @@ fn truncate_sha256_commit_schema_fingerprint(hasher: Sha256) -> CommitSchemaFing
 mod tests {
     use crate::{
         db::schema::{
-            AcceptedFieldKind, AcceptedSchemaSnapshot, ConstraintIdAllocator, FieldId,
-            PersistedFieldSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
-            RelationId, RowLayoutVersion, SchemaFieldSlot, SchemaHistoricalFill, SchemaIndexId,
-            SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
-            compiled_schema_proposal_for_model,
+            AcceptedCheckExprV1, AcceptedConstraintCatalog, AcceptedFieldKind,
+            AcceptedSchemaFingerprint, AcceptedSchemaSnapshot, ConstraintIdAllocator,
+            ConstraintOrigin, FieldId, PersistedFieldSnapshot, PersistedRelationEdgeSnapshot,
+            PersistedSchemaSnapshot, RelationId, RowLayoutVersion, SchemaFieldSlot,
+            SchemaHistoricalFill, SchemaIndexId, SchemaInsertDefault, SchemaRowLayout,
+            SchemaVersion, compiled_schema_proposal_for_model,
         },
         model::{
             EntityModel,
@@ -307,7 +313,7 @@ mod tests {
             snapshot.fields().to_vec(),
             snapshot.indexes().to_vec(),
         )
-        .with_constraint_id_allocator(snapshot.constraint_id_allocator())
+        .with_constraint_catalog(snapshot.constraint_catalog().clone())
         .with_relations(snapshot.relations().to_vec())
     }
 
@@ -329,7 +335,7 @@ mod tests {
             snapshot.fields().to_vec(),
             indexes,
         )
-        .with_constraint_id_allocator(snapshot.constraint_id_allocator())
+        .with_constraint_catalog(snapshot.constraint_catalog().clone())
         .with_relations(snapshot.relations().to_vec())
     }
 
@@ -544,9 +550,18 @@ mod tests {
     #[test]
     fn schema_fingerprints_track_stable_structural_identity() {
         let indexed = snapshot_for_model(&CONTRACT_INDEXED_MODEL);
-        let with_allocator = indexed
-            .clone()
-            .with_constraint_id_allocator(ConstraintIdAllocator::new(1));
+        let with_allocator = indexed.clone().with_constraint_catalog(
+            AcceptedConstraintCatalog::from_persisted_parts(
+                ConstraintIdAllocator::new(
+                    indexed
+                        .constraint_id_allocator()
+                        .high_water()
+                        .saturating_add(1),
+                ),
+                indexed.constraints().to_vec(),
+                Vec::new(),
+            ),
+        );
         let index = &indexed.indexes()[0];
         let with_index_identity = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
             indexed.version(),
@@ -560,7 +575,8 @@ mod tests {
                 SchemaIndexId::new(2).expect("test index identity should be non-zero"),
                 index.name().to_string(),
             )],
-        );
+        )
+        .with_constraint_catalog(indexed.constraint_catalog().clone());
         let with_relation =
             indexed
                 .clone()
@@ -570,6 +586,13 @@ mod tests {
                     "fingerprint::Owner".to_string(),
                     vec![FieldId::new(2)],
                 )]);
+        let with_relation_catalog = AcceptedConstraintCatalog::initial(
+            with_relation.fields(),
+            with_relation.indexes(),
+            with_relation.relations(),
+        )
+        .expect("relation structural catalog should build");
+        let with_relation = with_relation.with_constraint_catalog(with_relation_catalog);
         let with_other_relation_identity =
             indexed
                 .clone()
@@ -579,6 +602,14 @@ mod tests {
                     "fingerprint::Owner".to_string(),
                     vec![FieldId::new(2)],
                 )]);
+        let with_other_relation_catalog = AcceptedConstraintCatalog::initial(
+            with_other_relation_identity.fields(),
+            with_other_relation_identity.indexes(),
+            with_other_relation_identity.relations(),
+        )
+        .expect("second relation structural catalog should build");
+        let with_other_relation_identity =
+            with_other_relation_identity.with_constraint_catalog(with_other_relation_catalog);
         let admission = |snapshot: &PersistedSchemaSnapshot| {
             super::accepted_schema_admission_fingerprint(snapshot)
                 .expect("structural identity admission fingerprint should hash")
@@ -597,5 +628,69 @@ mod tests {
             admission(&with_other_relation_identity)
         );
         assert_ne!(cache(&with_relation), cache(&with_other_relation_identity));
+    }
+
+    #[test]
+    fn schema_fingerprints_track_check_name_and_expression() {
+        let base = snapshot_for_model(&CONTRACT_BASE_MODEL);
+        let with_check = |name: &str, expression: AcceptedCheckExprV1| {
+            let catalog = base
+                .constraint_catalog()
+                .clone()
+                .with_added_check(name.to_string(), ConstraintOrigin::Generated, expression)
+                .expect("test check should allocate");
+            base.clone().with_constraint_catalog(catalog)
+        };
+        let named_true = with_check("value_policy", AcceptedCheckExprV1::True);
+        let renamed_true = with_check("renamed_value_policy", AcceptedCheckExprV1::True);
+        let named_false = with_check("value_policy", AcceptedCheckExprV1::False);
+        let admission = |snapshot: &PersistedSchemaSnapshot| {
+            super::accepted_schema_admission_fingerprint(snapshot)
+                .expect("check admission fingerprint should hash")
+        };
+        let cache = |snapshot: &PersistedSchemaSnapshot| {
+            super::accepted_schema_cache_fingerprint_for_persisted_snapshot(snapshot)
+                .expect("check cache fingerprint should hash")
+        };
+
+        for changed in [&renamed_true, &named_false] {
+            assert_ne!(admission(&named_true), admission(changed));
+            assert_ne!(cache(&named_true), cache(changed));
+        }
+    }
+
+    #[test]
+    fn schema_fingerprints_track_live_check_activation_semantics() {
+        let base = snapshot_for_model(&CONTRACT_BASE_MODEL);
+        let activated = |epoch, expression| {
+            let catalog = base
+                .constraint_catalog()
+                .clone()
+                .with_added_check_activation(
+                    "pending_value_policy".to_string(),
+                    ConstraintOrigin::Generated,
+                    expression,
+                    AcceptedSchemaFingerprint::new([0xA5; 32]),
+                    epoch,
+                )
+                .expect("test activation should allocate");
+            base.clone().with_constraint_catalog(catalog)
+        };
+        let epoch_one = activated(1, AcceptedCheckExprV1::True);
+        let epoch_two = activated(2, AcceptedCheckExprV1::True);
+        let false_expression = activated(1, AcceptedCheckExprV1::False);
+        let admission = |snapshot: &PersistedSchemaSnapshot| {
+            super::accepted_schema_admission_fingerprint(snapshot)
+                .expect("activation admission fingerprint should hash")
+        };
+        let cache = |snapshot: &PersistedSchemaSnapshot| {
+            super::accepted_schema_cache_fingerprint_for_persisted_snapshot(snapshot)
+                .expect("activation cache fingerprint should hash")
+        };
+
+        for changed in [&epoch_two, &false_expression] {
+            assert_ne!(admission(&epoch_one), admission(changed));
+            assert_ne!(cache(&epoch_one), cache(changed));
+        }
     }
 }

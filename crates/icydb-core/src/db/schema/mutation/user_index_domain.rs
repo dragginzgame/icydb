@@ -492,6 +492,46 @@ struct PreparedUserIndex {
 }
 
 impl PreparedUserIndex {
+    fn from_accepted_index(
+        index: &crate::db::schema::PersistedIndexSnapshot,
+        predicate_row_contract: Option<&StructuralRowContract>,
+    ) -> Result<Self, StagedUserIndexDomainError> {
+        let request = if index.key().is_field_path_only() {
+            SchemaMutationRequest::from_accepted_field_path_index(index)
+        } else {
+            SchemaMutationRequest::from_accepted_expression_index(index)
+        }
+        .map_err(|_| StagedUserIndexDomainError::UnsupportedAcceptedIndex)?;
+        let target = match request {
+            SchemaMutationRequest::AddFieldPathIndex { target } => {
+                PreparedUserIndexTarget::FieldPath(target)
+            }
+            SchemaMutationRequest::AddExpressionIndex { target } => {
+                PreparedUserIndexTarget::Expression(target)
+            }
+            SchemaMutationRequest::ExactMatch | SchemaMutationRequest::AppendOnlyFields(_) => {
+                return Err(StagedUserIndexDomainError::UnsupportedAcceptedIndex);
+            }
+        };
+        let predicate = index
+            .predicate_sql()
+            .map(|sql| {
+                let row_contract = predicate_row_contract
+                    .ok_or(StagedUserIndexDomainError::MissingPredicateRowContract)?;
+                parse_sql_predicate(sql)
+                    .map(|predicate| {
+                        PredicateProgram::compile_with_row_contract(
+                            row_contract,
+                            &normalize(&predicate),
+                        )
+                    })
+                    .map_err(|_| StagedUserIndexDomainError::PredicateParse)
+            })
+            .transpose()?;
+
+        Ok(Self { target, predicate })
+    }
+
     fn derive_key(
         &self,
         entity_tag: EntityTag,
@@ -525,6 +565,49 @@ impl PreparedUserIndex {
             }
         }
         .map_err(StagedUserIndexDomainError::KeyDerivation)
+    }
+}
+
+/// One accepted-schema unique-index projection bound to an exact physical generation.
+///
+/// The projection derives keys for either an accepted generation or a
+/// planner-invisible activation candidate. Callers own traversal, physical
+/// comparison, duplicate classification, and publication policy.
+pub(in crate::db) struct UniqueConstraintProjection {
+    entity_tag: EntityTag,
+    prepared: PreparedUserIndex,
+}
+
+impl UniqueConstraintProjection {
+    /// Compile one exact unique-index owner against the accepted row contract.
+    pub(in crate::db) fn new(
+        entity_tag: EntityTag,
+        index: &crate::db::schema::PersistedIndexSnapshot,
+        row_contract: &StructuralRowContract,
+    ) -> Result<Self, InternalError> {
+        if !index.unique() || index.physical_generation() == 0 {
+            return Err(InternalError::store_invariant());
+        }
+        let prepared = PreparedUserIndex::from_accepted_index(index, Some(row_contract))
+            .map_err(StagedUserIndexDomainError::into_internal_error)?;
+        Ok(Self {
+            entity_tag,
+            prepared,
+        })
+    }
+
+    /// Derive the optional candidate key for one validated canonical row.
+    pub(in crate::db) fn derive_key(
+        &self,
+        primary_key: &crate::db::key_taxonomy::PrimaryKeyValue,
+        slots: &dyn CanonicalSlotReader,
+    ) -> Result<Option<RawIndexStoreKey>, InternalError> {
+        let row = SchemaUserIndexDomainRow::new(*primary_key, slots, slots, 0);
+        self.prepared
+            .derive_key(self.entity_tag, &row, slots)
+            .map_err(StagedUserIndexDomainError::into_internal_error)?
+            .map(|key| key.to_raw().map_err(|_| InternalError::index_invariant()))
+            .transpose()
     }
 }
 
@@ -563,42 +646,15 @@ impl PreparedUserIndexProjection {
         let mut unique_index_ids = BTreeSet::new();
 
         for index in snapshot.indexes() {
-            let request = if index.key().is_field_path_only() {
-                SchemaMutationRequest::from_accepted_field_path_index(index)
-            } else {
-                SchemaMutationRequest::from_accepted_expression_index(index)
-            }
-            .map_err(|_| StagedUserIndexDomainError::UnsupportedAcceptedIndex)?;
-            let target = match request {
-                SchemaMutationRequest::AddFieldPathIndex { target } => {
-                    PreparedUserIndexTarget::FieldPath(target)
-                }
-                SchemaMutationRequest::AddExpressionIndex { target } => {
-                    PreparedUserIndexTarget::Expression(target)
-                }
-                SchemaMutationRequest::ExactMatch | SchemaMutationRequest::AppendOnlyFields(_) => {
-                    return Err(StagedUserIndexDomainError::UnsupportedAcceptedIndex);
-                }
-            };
-            let predicate = index
-                .predicate_sql()
-                .map(|sql| {
-                    let row_contract = predicate_row_contract
-                        .ok_or(StagedUserIndexDomainError::MissingPredicateRowContract)?;
-                    parse_sql_predicate(sql)
-                        .map(|predicate| {
-                            PredicateProgram::compile_with_row_contract(
-                                row_contract,
-                                &normalize(&predicate),
-                            )
-                        })
-                        .map_err(|_| StagedUserIndexDomainError::PredicateParse)
-                })
-                .transpose()?;
+            let prepared = PreparedUserIndex::from_accepted_index(index, predicate_row_contract)?;
             if index.unique() {
-                unique_index_ids.insert(IndexId::new(entity_tag, index.ordinal()));
+                unique_index_ids.insert(IndexId::new_with_generation(
+                    entity_tag,
+                    index.ordinal(),
+                    index.physical_generation(),
+                ));
             }
-            indexes.push(PreparedUserIndex { target, predicate });
+            indexes.push(prepared);
         }
 
         Ok(Self {

@@ -27,6 +27,9 @@ pub(in crate::db) use canonical::{
     encode_accepted_value_ref_for_accepted_field_contract,
     encode_canonical_value_for_accepted_field_contract,
 };
+pub(in crate::db) use canonical::{
+    decode_validated_check_literal_payload, encode_input_value_for_candidate_field_contract,
+};
 #[cfg(test)]
 pub(in crate::db) use contract::emit_raw_row_from_slot_payloads;
 #[cfg(test)]

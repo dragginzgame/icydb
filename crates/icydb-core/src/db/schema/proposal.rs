@@ -4,22 +4,27 @@
 //! Boundary: turns trusted `EntityModel` data into a typed schema proposal.
 
 use crate::{
-    db::schema::{
-        AcceptedFieldKind, FieldId, PersistedFieldSnapshot, PersistedIndexExpressionOp,
-        PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
-        PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-        PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
-        RelationId, RowLayoutVersion, SchemaFieldSlot, SchemaFieldWritePolicy,
-        SchemaHistoricalFill, SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
-        composite_catalog::AcceptedCompositeCatalog,
-        enum_catalog::{
-            AcceptedEnumCatalog, encode_unit_enum_default_in_catalog,
-            resolve_model_field_kind_with_composite_catalog,
+    db::{
+        Predicate,
+        schema::{
+            AcceptedConstraintCatalog, AcceptedFieldKind, FieldId, PersistedFieldSnapshot,
+            PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+            PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
+            PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
+            PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId, RowLayoutVersion,
+            SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaIndexId,
+            SchemaInsertDefault, SchemaRowLayout, SchemaVersion, bind_generated_check_predicate,
+            composite_catalog::AcceptedCompositeCatalog,
+            enum_catalog::{
+                AcceptedEnumCatalog, encode_unit_enum_default_in_catalog,
+                resolve_model_field_kind_with_composite_catalog,
+            },
+            sql_capabilities,
         },
-        sql_capabilities,
     },
     error::InternalError,
     model::{
+        CheckConstraintModel,
         entity::{EntityModel, RelationEdgeModel},
         field::{
             CompositeShapeModel, FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode,
@@ -47,6 +52,7 @@ pub(in crate::db) struct CompiledSchemaProposal {
     fields: Vec<CompiledFieldProposal>,
     indexes: Vec<CompiledIndexProposal>,
     relations: Vec<CompiledRelationEdgeProposal>,
+    checks: Vec<CompiledCheckProposal>,
 }
 
 impl CompiledSchemaProposal {
@@ -98,6 +104,12 @@ impl CompiledSchemaProposal {
     #[must_use]
     pub(in crate::db) const fn relations(&self) -> &[CompiledRelationEdgeProposal] {
         self.relations.as_slice()
+    }
+
+    /// Return generated named check proposals in source order.
+    #[must_use]
+    pub(in crate::db) const fn checks(&self) -> &[CompiledCheckProposal] {
+        self.checks.as_slice()
     }
 
     /// Build the initial row layout implied by this compiled proposal.
@@ -167,19 +179,71 @@ impl CompiledSchemaProposal {
             .iter()
             .map(CompiledRelationEdgeProposal::initial_persisted_relation_snapshot)
             .collect::<Vec<_>>();
-
-        Ok(
-            PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-                self.declared_schema_version(),
-                self.entity_path().to_string(),
-                self.entity_name().to_string(),
-                self.primary_key_field_ids().to_vec(),
-                self.initial_row_layout(),
-                fields,
-                indexes,
-            )
-            .with_relations(relations),
+        let constraint_catalog = AcceptedConstraintCatalog::initial(
+            fields.as_slice(),
+            indexes.as_slice(),
+            relations.as_slice(),
         )
+        .map_err(|_| InternalError::store_unsupported())?;
+
+        let mut snapshot = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+            self.declared_schema_version(),
+            self.entity_path().to_string(),
+            self.entity_name().to_string(),
+            self.primary_key_field_ids().to_vec(),
+            self.initial_row_layout(),
+            fields,
+            indexes,
+        )
+        .with_constraint_catalog(constraint_catalog)
+        .with_relations(relations);
+        let mut constraint_catalog = snapshot.constraint_catalog().clone();
+        for check in self.checks() {
+            let expression = bind_generated_check_predicate(
+                check.predicate(),
+                &snapshot,
+                enum_catalog,
+                composite_catalog,
+            )
+            .map_err(|_| InternalError::store_unsupported())?;
+            constraint_catalog = constraint_catalog
+                .with_added_check(
+                    check.name().to_string(),
+                    crate::db::schema::ConstraintOrigin::Generated,
+                    expression,
+                )
+                .map_err(|_| InternalError::store_unsupported())?;
+        }
+        snapshot = snapshot.with_constraint_catalog(constraint_catalog);
+
+        Ok(snapshot)
+    }
+}
+
+///
+/// CompiledCheckProposal
+///
+/// Structured generated check proposal awaiting accepted field-ID binding.
+/// It never becomes runtime authority and retains no persisted SQL semantics.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db) struct CompiledCheckProposal {
+    name: &'static str,
+    predicate: &'static Predicate,
+}
+
+impl CompiledCheckProposal {
+    /// Borrow the source-declared stable constraint name.
+    #[must_use]
+    pub(in crate::db) const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// Borrow the build-time-parsed structured proposal expression.
+    #[must_use]
+    pub(in crate::db) const fn predicate(&self) -> &'static Predicate {
+        self.predicate
     }
 }
 
@@ -708,13 +772,41 @@ pub(in crate::db) fn compiled_schema_proposal_for_model(
         .iter()
         .filter_map(|index| compiled_index_proposal_from_model_index(index, &fields))
         .collect::<Vec<_>>();
-    let relations = model
+    let mut relations = model
         .relations()
         .iter()
         .enumerate()
         .filter_map(|(index, relation)| {
             compiled_relation_proposal_from_model_relation(index, relation, model)
         })
+        .collect::<Vec<_>>();
+    for (field_index, field) in model.fields().iter().enumerate() {
+        let Some(target_path) = model_relation_target_path(field.kind()) else {
+            continue;
+        };
+        if model.relations().iter().any(
+            |relation| matches!(relation.local_fields(), [local] if std::ptr::eq(*local, field)),
+        ) {
+            continue;
+        }
+        let Some(id) = u32::try_from(relations.len())
+            .ok()
+            .and_then(|count| count.checked_add(1))
+            .and_then(RelationId::new)
+        else {
+            continue;
+        };
+        relations.push(CompiledRelationEdgeProposal {
+            id,
+            name: field.name(),
+            target_path,
+            local_field_ids: vec![FieldId::from_initial_slot(field_index)],
+        });
+    }
+    let checks = model
+        .check_constraints()
+        .iter()
+        .map(compiled_check_proposal_from_model)
         .collect::<Vec<_>>();
 
     let proposal = CompiledSchemaProposal {
@@ -726,11 +818,55 @@ pub(in crate::db) fn compiled_schema_proposal_for_model(
         fields,
         indexes,
         relations,
+        checks,
     };
 
     debug_assert_compiled_schema_proposal_invariants(model, &proposal);
 
     proposal
+}
+
+const fn model_relation_target_path(kind: FieldKind) -> Option<&'static str> {
+    match kind {
+        FieldKind::Relation { target_path, .. } => Some(target_path),
+        FieldKind::List(inner) | FieldKind::Set(inner) => model_relation_target_path(*inner),
+        FieldKind::Account
+        | FieldKind::Blob { .. }
+        | FieldKind::Bool
+        | FieldKind::Date
+        | FieldKind::Decimal { .. }
+        | FieldKind::Duration
+        | FieldKind::Enum { .. }
+        | FieldKind::Float32
+        | FieldKind::Float64
+        | FieldKind::Int8
+        | FieldKind::Int16
+        | FieldKind::Int32
+        | FieldKind::Int64
+        | FieldKind::Int128
+        | FieldKind::IntBig { .. }
+        | FieldKind::Principal
+        | FieldKind::Subaccount
+        | FieldKind::Text { .. }
+        | FieldKind::Timestamp
+        | FieldKind::Nat8
+        | FieldKind::Nat16
+        | FieldKind::Nat32
+        | FieldKind::Nat64
+        | FieldKind::Nat128
+        | FieldKind::NatBig { .. }
+        | FieldKind::Ulid
+        | FieldKind::Unit
+        | FieldKind::Map { .. }
+        | FieldKind::Composite { .. } => None,
+    }
+}
+
+fn compiled_check_proposal_from_model(check: &CheckConstraintModel) -> CompiledCheckProposal {
+    CompiledCheckProposal {
+        name: check.name(),
+        predicate: check.semantics(),
+    }
 }
 
 fn compiled_primary_key_field_ids(model: &EntityModel) -> Vec<FieldId> {

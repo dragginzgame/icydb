@@ -13,11 +13,13 @@ use crate::{
         direction::Direction,
         ordered_overlay::{OrderedOverlayEntry, OrderedOverlayVisit, visit_ordered_overlay},
         schema::{
-            AcceptedFieldKind, AcceptedSchemaSnapshot, PersistedIndexKeyItemSnapshot,
-            PersistedIndexKeySnapshot, PersistedSchemaSnapshot, SchemaVersion,
-            accepted_schema_cache_fingerprint,
+            AcceptedFieldKind, AcceptedSchemaSnapshot, ConstraintActivationKind,
+            ConstraintActivationState, ConstraintId, ConstraintOrigin, ConstraintValidationJob,
+            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedSchemaSnapshot,
+            SchemaVersion, accepted_schema_cache_fingerprint,
             accepted_schema_cache_fingerprint_for_persisted_snapshot,
-            accepted_schema_cache_fingerprint_method_version, decode_persisted_schema_snapshot,
+            accepted_schema_cache_fingerprint_method_version, decode_constraint_validation_job,
+            decode_persisted_schema_snapshot, encode_constraint_validation_job,
             encode_persisted_schema_snapshot,
             enum_catalog::{
                 AcceptedSchemaAuthority, AcceptedSchemaPublicationError, AcceptedSchemaRevision,
@@ -44,12 +46,14 @@ use std::cell::{OnceCell, Ref, RefCell};
 use std::collections::{BTreeMap as StdBTreeMap, BTreeSet};
 use std::convert::Infallible;
 use std::ops::Bound as RangeBound;
+use std::rc::Rc;
 
 const SCHEMA_KEY_BYTES_USIZE: usize = 16;
 const SCHEMA_KEY_BYTES: u32 = 16;
 const SCHEMA_KEY_NAMESPACE_ENTITY_SNAPSHOT: u8 = 0;
 const SCHEMA_KEY_NAMESPACE_ACCEPTED_BUNDLE: u8 = 1;
 const SCHEMA_KEY_NAMESPACE_ACCEPTED_ROOT: u8 = 2;
+const SCHEMA_KEY_NAMESPACE_CONSTRAINT_VALIDATION_JOB: u8 = 3;
 pub(in crate::db) const MAX_SCHEMA_SNAPSHOT_BYTES: u32 = 512 * 1024;
 // Every role exposes the sole current method version while its separate domain
 // tag keeps data, index, and full-catalog fingerprint inputs disjoint.
@@ -133,6 +137,14 @@ impl RawSchemaKey {
         Ok(Self(out))
     }
 
+    fn from_constraint_validation_job(entity: EntityTag, constraint_id: ConstraintId) -> Self {
+        let mut out = [0u8; SCHEMA_KEY_BYTES_USIZE];
+        out[0] = SCHEMA_KEY_NAMESPACE_CONSTRAINT_VALIDATION_JOB;
+        out[4..12].copy_from_slice(&entity.value().to_be_bytes());
+        out[12..].copy_from_slice(&constraint_id.get().to_be_bytes());
+        Self(out)
+    }
+
     /// Return the entity tag encoded in this schema key.
     #[must_use]
     fn entity_tag(self) -> EntityTag {
@@ -170,6 +182,17 @@ impl RawSchemaKey {
         )
     }
 
+    const fn all_constraint_validation_job_range_bounds() -> (RangeBound<Self>, RangeBound<Self>) {
+        let mut start = [0u8; SCHEMA_KEY_BYTES_USIZE];
+        start[0] = SCHEMA_KEY_NAMESPACE_CONSTRAINT_VALIDATION_JOB;
+        let mut end = [u8::MAX; SCHEMA_KEY_BYTES_USIZE];
+        end[0] = SCHEMA_KEY_NAMESPACE_CONSTRAINT_VALIDATION_JOB;
+        (
+            RangeBound::Included(Self(start)),
+            RangeBound::Included(Self(end)),
+        )
+    }
+
     #[cfg(test)]
     const fn is_entity_snapshot(self) -> bool {
         self.0[0] == SCHEMA_KEY_NAMESPACE_ENTITY_SNAPSHOT
@@ -177,6 +200,16 @@ impl RawSchemaKey {
 
     const fn is_accepted_root(self) -> bool {
         self.0[0] == SCHEMA_KEY_NAMESPACE_ACCEPTED_ROOT
+    }
+
+    const fn is_constraint_validation_job(self) -> bool {
+        self.0[0] == SCHEMA_KEY_NAMESPACE_CONSTRAINT_VALIDATION_JOB
+    }
+
+    fn constraint_id(self) -> Option<ConstraintId> {
+        self.is_constraint_validation_job()
+            .then(|| ConstraintId::new(self.version()))
+            .flatten()
     }
 }
 
@@ -370,7 +403,7 @@ impl AcceptedCatalogIdentity {
 pub(in crate::db) struct AcceptedCatalogSnapshotSelection {
     identity: AcceptedCatalogIdentity,
     value_catalog: AcceptedValueCatalogHandle,
-    raw_snapshot: Vec<u8>,
+    raw_snapshot: Rc<[u8]>,
 }
 
 impl AcceptedCatalogSnapshotSelection {
@@ -378,7 +411,7 @@ impl AcceptedCatalogSnapshotSelection {
     const fn new(
         identity: AcceptedCatalogIdentity,
         value_catalog: AcceptedValueCatalogHandle,
-        raw_snapshot: Vec<u8>,
+        raw_snapshot: Rc<[u8]>,
     ) -> Self {
         Self {
             identity,
@@ -412,7 +445,7 @@ impl AcceptedCatalogSnapshotSelection {
         Ok(Self::new(
             identity,
             value_catalog,
-            raw_snapshot.into_bytes(),
+            Rc::from(raw_snapshot.into_bytes()),
         ))
     }
 
@@ -454,12 +487,12 @@ impl AcceptedCatalogSnapshotSelection {
                 candidate.revision(),
                 candidate.root().fingerprint(),
             ),
-            raw_snapshot.into_bytes(),
+            Rc::from(raw_snapshot.into_bytes()),
         )))
     }
 
     pub(in crate::db) fn decode_verified(&self) -> Result<AcceptedSchemaSnapshot, InternalError> {
-        let snapshot = decode_persisted_schema_snapshot(&self.raw_snapshot)?;
+        let snapshot = decode_persisted_schema_snapshot(self.raw_snapshot.as_ref())?;
         let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
         let identity = self.identity();
 
@@ -726,6 +759,8 @@ pub struct SchemaStore {
 struct AcceptedSchemaBundleCache {
     selection: AcceptedSchemaRootSelection,
     bundle: AcceptedSchemaRevisionBundle,
+    value_catalog: AcceptedValueCatalogHandle,
+    entity_selections: RefCell<StdBTreeMap<EntityTag, AcceptedCatalogSnapshotSelection>>,
 }
 
 enum SchemaStoreBackend {
@@ -792,6 +827,87 @@ impl SchemaStore {
         Ok(())
     }
 
+    /// Load one schema-owned constraint validation job.
+    pub(in crate::db) fn constraint_validation_job(
+        &self,
+        entity: EntityTag,
+        constraint_id: ConstraintId,
+    ) -> Result<Option<ConstraintValidationJob>, InternalError> {
+        let key = RawSchemaKey::from_constraint_validation_job(entity, constraint_id);
+        self.get_raw_snapshot(&key)
+            .map(|raw| decode_constraint_validation_job(raw.as_bytes()))
+            .transpose()
+    }
+
+    /// Apply one marker-authorized validation job to the live schema projection.
+    pub(in crate::db) fn apply_constraint_validation_job(
+        &mut self,
+        job: &ConstraintValidationJob,
+    ) -> Result<(), InternalError> {
+        let key =
+            RawSchemaKey::from_constraint_validation_job(job.entity_tag(), job.constraint_id());
+        let bytes = encode_constraint_validation_job(job)?;
+        let _ =
+            self.insert_raw_snapshot(key, RawSchemaSnapshot::from_encoded_control_record(bytes));
+        Ok(())
+    }
+
+    /// Remove one marker-authorized validation job from the live projection.
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "marker apply operations share one fallible callback contract"
+    )]
+    pub(in crate::db) fn apply_constraint_validation_job_removal(
+        &mut self,
+        entity: EntityTag,
+        constraint_id: ConstraintId,
+    ) -> Result<(), InternalError> {
+        let key = RawSchemaKey::from_constraint_validation_job(entity, constraint_id);
+        match &mut self.backend {
+            SchemaStoreBackend::Heap(map) => {
+                map.remove(&key);
+            }
+            SchemaStoreBackend::Journaled {
+                live, tombstones, ..
+            } => {
+                live.remove(&key);
+                tombstones.insert(key);
+            }
+        }
+        Ok(())
+    }
+
+    /// Fold one committed validation job into the canonical stable base.
+    pub(in crate::db) fn fold_constraint_validation_job(
+        &mut self,
+        job: &ConstraintValidationJob,
+    ) -> Result<(), InternalError> {
+        let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
+            return Err(InternalError::store_invariant());
+        };
+        let key =
+            RawSchemaKey::from_constraint_validation_job(job.entity_tag(), job.constraint_id());
+        let bytes = encode_constraint_validation_job(job)?;
+        canonical.insert(key, RawSchemaSnapshot::from_encoded_control_record(bytes));
+        Ok(())
+    }
+
+    /// Fold one committed validation-job removal into the canonical stable base.
+    pub(in crate::db) fn fold_constraint_validation_job_removal(
+        &mut self,
+        entity: EntityTag,
+        constraint_id: ConstraintId,
+    ) -> Result<(), InternalError> {
+        let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
+            return Err(InternalError::store_invariant());
+        };
+        canonical.remove(&RawSchemaKey::from_constraint_validation_job(
+            entity,
+            constraint_id,
+        ));
+        Ok(())
+    }
+
     /// Reset the volatile projection for journaled recovery without mutating
     /// the canonical stable schema base.
     pub(in crate::db) fn reset_journaled_live_projection(&mut self) -> Result<(), InternalError> {
@@ -846,7 +962,10 @@ impl SchemaStore {
         let raw = self
             .get_raw_snapshot(&key)
             .ok_or_else(InternalError::store_corruption)?;
-        decode_verified_accepted_schema_revision_bundle(selection.root(), raw.as_bytes()).map(Some)
+        let bundle =
+            decode_verified_accepted_schema_revision_bundle(selection.root(), raw.as_bytes())?;
+        self.validate_constraint_validation_job_closure(&bundle)?;
+        Ok(Some(bundle))
     }
 
     /// Return the current accepted revision without decoding its bundle.
@@ -856,6 +975,261 @@ impl SchemaStore {
         Ok(self
             .current_accepted_schema_root()?
             .map(|selection| selection.root().revision()))
+    }
+
+    /// Return the pending relation activation that blocks deletes from one target.
+    ///
+    /// This reads the immutable accepted-bundle cache directly so ordinary
+    /// deletes do not decode and clone every store catalog merely to prove that
+    /// no candidate reverse generation targets the deleted entity.
+    pub(in crate::db) fn pending_relation_activation_for_target(
+        &self,
+        target_path: &str,
+    ) -> Result<Option<(ConstraintId, String)>, InternalError> {
+        let Some(bundle) = self.current_accepted_schema_bundle_ref()? else {
+            return Ok(None);
+        };
+        for snapshot in bundle.entity_snapshots().values() {
+            let Some(candidate) = snapshot
+                .candidate_relations()
+                .iter()
+                .find(|candidate| candidate.target_path() == target_path)
+            else {
+                continue;
+            };
+            let activation = snapshot
+                .constraint_activations()
+                .iter()
+                .find(|activation| {
+                    matches!(
+                        activation.kind(),
+                        ConstraintActivationKind::Relation { relation_id }
+                            if *relation_id == candidate.id()
+                    )
+                })
+                .ok_or_else(InternalError::store_corruption)?;
+            return Ok(Some((activation.id(), activation.name().to_string())));
+        }
+
+        Ok(None)
+    }
+
+    /// Return whether one accepted source entity owns a live relation to a target.
+    pub(in crate::db) fn entity_has_relation_to_target(
+        &self,
+        source_entity: EntityTag,
+        target_path: &str,
+    ) -> Result<bool, InternalError> {
+        let Some(bundle) = self.current_accepted_schema_bundle_ref()? else {
+            return Ok(false);
+        };
+        let Some(snapshot) = bundle.entity_snapshots().get(&source_entity) else {
+            return Ok(false);
+        };
+
+        Ok(snapshot
+            .relations()
+            .iter()
+            .any(|relation| relation.target_path() == target_path))
+    }
+
+    /// Reject any same-entity schema change beside one exact activation lifecycle step.
+    pub(in crate::db) fn validate_live_activation_transition(
+        &self,
+        candidate: &AcceptedSchemaRevisionBundle,
+    ) -> Result<(), InternalError> {
+        let Some(current) = self.current_accepted_schema_bundle()? else {
+            return Ok(());
+        };
+        for (entity_tag, before) in current.entity_snapshots() {
+            if before.constraint_activations().is_empty() {
+                continue;
+            }
+            let after = candidate
+                .entity_snapshots()
+                .get(entity_tag)
+                .ok_or_else(InternalError::store_invariant)?;
+            if before == after {
+                continue;
+            }
+            let expected_shape = before
+                .clone()
+                .with_constraint_catalog(after.constraint_catalog().clone());
+            let catalog_only_transition = expected_shape == *after
+                && before
+                    .constraint_catalog()
+                    .permits_live_activation_transition_to(after.constraint_catalog());
+            let sql_row_local_abort_with_version =
+                before.constraint_activations().iter().any(|activation| {
+                    activation.origin() == ConstraintOrigin::SqlDdl
+                        && matches!(
+                            activation.kind(),
+                            ConstraintActivationKind::Check { .. }
+                                | ConstraintActivationKind::NotNull { .. }
+                        )
+                        && before.version().get().checked_add(1) == Some(after.version().get())
+                        && before
+                            .constraint_catalog()
+                            .clone()
+                            .with_aborted_activation(activation.id())
+                            .is_ok_and(|catalog| catalog == *after.constraint_catalog())
+                        && before
+                            .clone()
+                            .with_constraint_catalog(after.constraint_catalog().clone())
+                            .with_schema_version(after.version())
+                            == *after
+                });
+            let sql_unique_abort_with_version =
+                before.constraint_activations().iter().any(|activation| {
+                    activation.origin() == ConstraintOrigin::SqlDdl
+                        && matches!(activation.kind(), ConstraintActivationKind::Unique { .. })
+                        && before.version().get().checked_add(1) == Some(after.version().get())
+                        && before
+                            .with_aborted_unique_activation(activation.id(), after.version())
+                            .is_ok_and(|expected| expected == *after)
+                });
+            let not_null_promotion = before.constraint_activations().iter().any(|activation| {
+                matches!(activation.kind(), ConstraintActivationKind::NotNull { .. })
+                    && before
+                        .with_promoted_not_null_activation(activation.id(), after.version())
+                        .is_ok_and(|expected| expected == *after)
+            });
+            let unique_promotion = before.constraint_activations().iter().any(|activation| {
+                matches!(activation.kind(), ConstraintActivationKind::Unique { .. })
+                    && before
+                        .with_promoted_unique_activation(activation.id(), after.version())
+                        .is_ok_and(|expected| expected == *after)
+            });
+            let relation_promotion = before.constraint_activations().iter().any(|activation| {
+                matches!(activation.kind(), ConstraintActivationKind::Relation { .. })
+                    && before
+                        .with_promoted_relation_activation(activation.id(), after.version())
+                        .is_ok_and(|expected| expected == *after)
+            });
+            if !catalog_only_transition
+                && !sql_row_local_abort_with_version
+                && !sql_unique_abort_with_version
+                && !not_null_promotion
+                && !unique_promotion
+                && !relation_promotion
+            {
+                return Err(InternalError::store_invariant());
+            }
+        }
+        Ok(())
+    }
+
+    /// Prove exact pairing between live activations and durable validation jobs.
+    pub(in crate::db) fn validate_constraint_validation_job_closure(
+        &self,
+        bundle: &AcceptedSchemaRevisionBundle,
+    ) -> Result<(), InternalError> {
+        self.validate_constraint_validation_job_closure_with_change(bundle, None, None)
+    }
+
+    /// Prove the activation/job closure that would exist after one bounded
+    /// marker-owned job replacement or removal.
+    pub(in crate::db) fn validate_constraint_validation_job_closure_with_change(
+        &self,
+        bundle: &AcceptedSchemaRevisionBundle,
+        replacement: Option<&ConstraintValidationJob>,
+        removal: Option<(EntityTag, ConstraintId)>,
+    ) -> Result<(), InternalError> {
+        if replacement.is_some() && removal.is_some() {
+            return Err(InternalError::store_invariant());
+        }
+        let replacement_key = replacement.map(|job| {
+            RawSchemaKey::from_constraint_validation_job(job.entity_tag(), job.constraint_id())
+        });
+        let removal_key = removal.map(|(entity_tag, constraint_id)| {
+            RawSchemaKey::from_constraint_validation_job(entity_tag, constraint_id)
+        });
+        let mut expected = BTreeSet::new();
+        for (entity_tag, snapshot) in bundle.entity_snapshots() {
+            for activation in snapshot.constraint_activations() {
+                let key =
+                    RawSchemaKey::from_constraint_validation_job(*entity_tag, activation.id());
+                match activation.state() {
+                    ConstraintActivationState::EnforcingNewWrites => {
+                        if self
+                            .constraint_validation_job_after_change(
+                                key,
+                                replacement,
+                                replacement_key,
+                                removal_key,
+                            )?
+                            .is_some()
+                        {
+                            return Err(InternalError::store_corruption());
+                        }
+                    }
+                    ConstraintActivationState::Validating => {
+                        let job = self
+                            .constraint_validation_job_after_change(
+                                key,
+                                replacement,
+                                replacement_key,
+                                removal_key,
+                            )?
+                            .ok_or_else(InternalError::store_corruption)?;
+                        if job.entity_tag() != *entity_tag
+                            || job.entity_path() != snapshot.entity_path()
+                        {
+                            return Err(InternalError::store_corruption());
+                        }
+                        job.validate(Some(activation))?;
+                        expected.insert(key);
+                    }
+                }
+            }
+        }
+
+        self.visit_constraint_validation_jobs(|key, raw| {
+            if removal_key == Some(*key) || replacement_key == Some(*key) {
+                return Ok(SchemaStoreVisit::Continue);
+            }
+            if !expected.contains(key) {
+                return Err(InternalError::store_corruption());
+            }
+            let job = decode_constraint_validation_job(raw.as_bytes())?;
+            if job.entity_tag() != key.entity_tag()
+                || key.constraint_id() != Some(job.constraint_id())
+            {
+                return Err(InternalError::store_corruption());
+            }
+            Ok(SchemaStoreVisit::Continue)
+        })?;
+
+        if let Some(key) = replacement_key
+            && !expected.contains(&key)
+        {
+            return Err(InternalError::store_corruption());
+        }
+        if let Some(key) = removal_key
+            && expected.contains(&key)
+        {
+            return Err(InternalError::store_corruption());
+        }
+
+        Ok(())
+    }
+
+    fn constraint_validation_job_after_change(
+        &self,
+        key: RawSchemaKey,
+        replacement: Option<&ConstraintValidationJob>,
+        replacement_key: Option<RawSchemaKey>,
+        removal_key: Option<RawSchemaKey>,
+    ) -> Result<Option<ConstraintValidationJob>, InternalError> {
+        if removal_key == Some(key) {
+            return Ok(None);
+        }
+        if replacement_key == Some(key) {
+            return Ok(replacement.cloned());
+        }
+        self.get_raw_snapshot(&key)
+            .map(|raw| decode_constraint_validation_job(raw.as_bytes()))
+            .transpose()
     }
 
     /// Return whether one retained schema authority still names this store's
@@ -1136,6 +1510,21 @@ impl SchemaStore {
             return Err(InternalError::store_corruption());
         }
 
+        let cache = self
+            .accepted_bundle_cache
+            .try_borrow()
+            .map_err(|_| InternalError::store_invariant())?;
+        let cached = cache.as_ref().ok_or_else(InternalError::store_invariant)?;
+        if let Some(selection) = cached
+            .entity_selections
+            .try_borrow()
+            .map_err(|_| InternalError::store_invariant())?
+            .get(&entity)
+            .cloned()
+        {
+            return Ok(Some(selection));
+        }
+
         let raw_snapshot = RawSchemaSnapshot::from_persisted_snapshot(snapshot)?;
         let fingerprint = raw_snapshot.accepted_schema_fingerprint()?;
         let identity = AcceptedCatalogIdentity::new(
@@ -1147,22 +1536,18 @@ impl SchemaStore {
             fingerprint,
         );
 
-        Ok(Some(AcceptedCatalogSnapshotSelection::new(
+        let selected = AcceptedCatalogSnapshotSelection::new(
             identity,
-            AcceptedValueCatalogHandle::new(
-                bundle.enum_catalog().clone(),
-                bundle.composite_catalog().clone(),
-                self.accepted_catalog_scope
-                    .get_or_init(AcceptedStoreCatalogScope::new)
-                    .clone(),
-                bundle.revision(),
-                self.current_accepted_schema_root()?
-                    .ok_or_else(InternalError::store_corruption)?
-                    .root()
-                    .fingerprint(),
-            ),
-            raw_snapshot.into_bytes(),
-        )))
+            cached.value_catalog.clone(),
+            Rc::from(raw_snapshot.into_bytes()),
+        );
+        cached
+            .entity_selections
+            .try_borrow_mut()
+            .map_err(|_| InternalError::store_invariant())?
+            .insert(entity, selected.clone());
+
+        Ok(Some(selected))
     }
 
     /// Return one accepted catalog selection from the canonical journal base.
@@ -1221,7 +1606,7 @@ impl SchemaStore {
                 bundle.revision(),
                 selection.root().fingerprint(),
             ),
-            raw_snapshot.into_bytes(),
+            Rc::from(raw_snapshot.into_bytes()),
         )))
     }
 
@@ -1474,6 +1859,18 @@ impl SchemaStore {
             candidate.root().bundle_key(),
         ));
         keys.insert(RawSchemaKey::from_accepted_root_slot(root_slot)?);
+        for (entity_tag, snapshot) in candidate.bundle().entity_snapshots() {
+            for activation in snapshot
+                .constraint_activations()
+                .iter()
+                .filter(|activation| activation.state() == ConstraintActivationState::Validating)
+            {
+                keys.insert(RawSchemaKey::from_constraint_validation_job(
+                    *entity_tag,
+                    activation.id(),
+                ));
+            }
+        }
         Ok(keys)
     }
 
@@ -1656,14 +2053,28 @@ impl SchemaStore {
                 .ok_or_else(InternalError::store_corruption)?;
             let bundle =
                 decode_verified_accepted_schema_revision_bundle(selection.root(), raw.as_bytes())?;
+            self.validate_constraint_validation_job_closure(&bundle)?;
             #[cfg(test)]
             ACCEPTED_SCHEMA_BUNDLE_CACHE_MISSES
                 .with(|misses| misses.set(misses.get().saturating_add(1)));
+            let value_catalog = AcceptedValueCatalogHandle::new(
+                bundle.enum_catalog().clone(),
+                bundle.composite_catalog().clone(),
+                self.accepted_catalog_scope
+                    .get_or_init(AcceptedStoreCatalogScope::new)
+                    .clone(),
+                bundle.revision(),
+                selection.root().fingerprint(),
+            );
             *self
                 .accepted_bundle_cache
                 .try_borrow_mut()
-                .map_err(|_| InternalError::store_invariant())? =
-                Some(AcceptedSchemaBundleCache { selection, bundle });
+                .map_err(|_| InternalError::store_invariant())? = Some(AcceptedSchemaBundleCache {
+                selection,
+                bundle,
+                value_catalog,
+                entity_selections: RefCell::new(StdBTreeMap::new()),
+            });
         }
 
         let cache = self
@@ -1737,6 +2148,36 @@ impl SchemaStore {
             )?,
         }
 
+        Ok(())
+    }
+
+    fn visit_constraint_validation_jobs<E>(
+        &self,
+        visitor: impl FnMut(&RawSchemaKey, &RawSchemaSnapshot) -> Result<SchemaStoreVisit, E>,
+    ) -> Result<(), E> {
+        let bounds = RawSchemaKey::all_constraint_validation_job_range_bounds();
+        match &self.backend {
+            SchemaStoreBackend::Heap(map) => {
+                let mut visitor = visitor;
+                for (key, snapshot) in map.range((bounds.0, bounds.1)) {
+                    if visitor(key, snapshot)?.should_stop() {
+                        break;
+                    }
+                }
+            }
+            SchemaStoreBackend::Journaled {
+                canonical,
+                live,
+                tombstones,
+            } => Self::visit_journaled_raw_snapshot_range(
+                canonical,
+                live,
+                tombstones,
+                bounds,
+                Direction::Asc,
+                visitor,
+            )?,
+        }
         Ok(())
     }
 
@@ -1892,6 +2333,13 @@ fn derive_data_allocation_metadata(
             persisted.fields().to_vec(),
             Vec::new(),
         );
+        let constraint_catalog = crate::db::schema::AcceptedConstraintCatalog::initial(
+            data_projection.fields(),
+            data_projection.indexes(),
+            data_projection.relations(),
+        )
+        .map_err(|_| InternalError::store_invariant())?;
+        let data_projection = data_projection.with_constraint_catalog(constraint_catalog);
         let encoded = encode_persisted_schema_snapshot(&data_projection)?;
 
         write_hash_u64(&mut hasher, entity.value());

@@ -59,6 +59,9 @@ pub(in crate::db) use persisted_row::{
 pub(in crate::db) use persisted_row::{
     decode_runtime_value_from_accepted_field_contract, decode_runtime_value_from_row_contract,
 };
+pub(in crate::db) use persisted_row::{
+    decode_validated_check_literal_payload, encode_input_value_for_candidate_field_contract,
+};
 pub(in crate::db) use row::CanonicalRow;
 pub(in crate::db) use row::{DataRow, RawRow};
 pub use store::DataStore;

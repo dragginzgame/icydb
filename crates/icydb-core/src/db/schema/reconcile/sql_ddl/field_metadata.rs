@@ -1,22 +1,26 @@
 use crate::{
     db::{
-        data::{DecodedDataStoreKey, SlotReader, StoreVisit, StructuralSlotReader},
+        commit::{
+            publish_accepted_schema_candidate,
+            publish_accepted_schema_candidate_with_constraint_validation_job_removal,
+        },
         registry::StoreHandle,
         schema::{
-            AcceptedCatalogIdentity, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
-            PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation, SchemaFieldDropTarget,
-            SchemaFieldNullabilityTarget, SchemaFieldRenameTarget, SchemaInsertDefaultTarget,
-            SchemaRowLayout, SchemaTransitionSourceBudget,
+            AcceptedCatalogIdentity, AcceptedSchemaSnapshot, ConstraintActivationKind,
+            ConstraintActivationState, ConstraintId, ConstraintOrigin, FieldId,
+            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
+            SchemaFieldDropTarget, SchemaFieldNullabilityTarget, SchemaFieldRenameTarget,
+            SchemaInsertDefaultTarget, SchemaRowLayout,
             derive_sql_ddl_field_nullability_persisted_after,
         },
     },
     error::InternalError,
     types::EntityTag,
-    value::Value,
 };
 
 use super::{
-    super::user_index_domain::catalog_backed_row_contract_for_sql_ddl, SqlDdlPublicationEnvelope,
+    SqlDdlPublicationEnvelope,
+    constraint::{candidate_with_snapshot, current_sql_ddl_bundle},
     require_exact_empty_sql_ddl_entity, validate_sql_ddl_drop_schema_gate,
 };
 
@@ -203,7 +207,16 @@ fn validate_sql_ddl_field_default_metadata_change(
     )
 }
 
-/// Execute one SQL DDL field-nullability publication.
+/// Result of one SQL DDL field-nullability lifecycle operation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum SqlDdlFieldNullabilityOutcome {
+    /// A direct metadata publication or activation abort completed.
+    Published,
+    /// A new-write gate was published for bounded historical validation.
+    ActivationPublished { constraint_id: ConstraintId },
+}
+
+/// Execute one SQL DDL field-nullability lifecycle operation.
 pub(in crate::db) fn execute_admin_sql_ddl_field_nullability_change(
     store: StoreHandle,
     entity_tag: EntityTag,
@@ -211,7 +224,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_nullability_change(
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
-) -> Result<usize, InternalError> {
+) -> Result<SqlDdlFieldNullabilityOutcome, InternalError> {
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         entity_tag,
@@ -230,22 +243,149 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_nullability_change(
         target,
     )?;
 
-    let rows_scanned = if target_field_is_required(envelope.after(), target)? {
-        validate_sql_ddl_set_not_null_rows(
+    if target_field_is_required(envelope.after(), target)? {
+        return publish_sql_ddl_not_null_activation(
             envelope.store(),
             entity_tag,
             entity_path,
             accepted_before,
             accepted_before_identity,
+            envelope.after().version(),
             target,
-        )?
-    } else {
-        0
-    };
+        );
+    }
 
     envelope.publish()?;
 
-    Ok(rows_scanned)
+    Ok(SqlDdlFieldNullabilityOutcome::Published)
+}
+
+fn publish_sql_ddl_not_null_activation(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    accepted_before: &AcceptedSchemaSnapshot,
+    accepted_before_identity: AcceptedCatalogIdentity,
+    next_schema_version: crate::db::schema::SchemaVersion,
+    target: &SchemaFieldNullabilityTarget,
+) -> Result<SqlDdlFieldNullabilityOutcome, InternalError> {
+    let (current_revision, current_fingerprint, current) = current_sql_ddl_bundle(
+        store,
+        entity_tag,
+        entity_path,
+        accepted_before,
+        accepted_before_identity,
+    )?;
+    let activation_epoch = current_revision
+        .checked_next()
+        .ok_or_else(InternalError::store_unsupported)?
+        .get();
+    let before = current
+        .entity_snapshots()
+        .get(&entity_tag)
+        .ok_or_else(InternalError::store_corruption)?;
+    let field = before
+        .fields()
+        .iter()
+        .find(|field| field.id() == target.field_id() && field.nullable())
+        .ok_or_else(InternalError::store_invariant)?;
+    let catalog = before
+        .constraint_catalog()
+        .clone()
+        .with_added_not_null_activation(field, current_fingerprint, activation_epoch)
+        .map_err(|_| InternalError::store_unsupported())?;
+    let after = before
+        .clone()
+        .with_constraint_catalog(catalog)
+        .with_schema_version(next_schema_version);
+    let constraint_id = after
+        .constraint_catalog()
+        .activations()
+        .iter()
+        .find(|activation| {
+            matches!(
+                activation.kind(),
+                ConstraintActivationKind::NotNull { field_id } if *field_id == target.field_id()
+            )
+        })
+        .map(crate::db::schema::ConstraintActivationSnapshot::id)
+        .ok_or_else(InternalError::store_invariant)?;
+    let candidate = candidate_with_snapshot(&current, entity_tag, after)?;
+    publish_accepted_schema_candidate(
+        accepted_before_identity.store_path(),
+        store,
+        current_revision,
+        &candidate,
+    )?;
+    Ok(SqlDdlFieldNullabilityOutcome::ActivationPublished { constraint_id })
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the abort boundary keeps accepted identity and exact activation state explicit"
+)]
+pub(in crate::db) fn execute_admin_sql_ddl_not_null_activation_abort(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    accepted_before: &AcceptedSchemaSnapshot,
+    accepted_before_identity: AcceptedCatalogIdentity,
+    next_schema_version: crate::db::schema::SchemaVersion,
+    field_id: FieldId,
+    constraint_id: ConstraintId,
+) -> Result<(), InternalError> {
+    let (current_revision, _current_fingerprint, current) = current_sql_ddl_bundle(
+        store,
+        entity_tag,
+        entity_path,
+        accepted_before,
+        accepted_before_identity,
+    )?;
+    let before = current
+        .entity_snapshots()
+        .get(&entity_tag)
+        .ok_or_else(InternalError::store_corruption)?;
+    let activation = before
+        .constraint_catalog()
+        .activation(constraint_id)
+        .filter(|activation| {
+            activation.origin() == ConstraintOrigin::SqlDdl
+                && matches!(
+                    activation.kind(),
+                    ConstraintActivationKind::NotNull {
+                        field_id: activation_field_id
+                    } if *activation_field_id == field_id
+                )
+        })
+        .ok_or_else(InternalError::store_unsupported)?;
+    let state = activation.state();
+    let catalog = before
+        .constraint_catalog()
+        .clone()
+        .with_aborted_activation(constraint_id)
+        .map_err(|_| InternalError::store_invariant())?;
+    let after = before
+        .clone()
+        .with_constraint_catalog(catalog)
+        .with_schema_version(next_schema_version);
+    let candidate = candidate_with_snapshot(&current, entity_tag, after)?;
+    if state == ConstraintActivationState::Validating {
+        publish_accepted_schema_candidate_with_constraint_validation_job_removal(
+            accepted_before_identity.store_path(),
+            store,
+            current_revision,
+            &candidate,
+            entity_tag,
+            constraint_id,
+        )
+    } else {
+        publish_accepted_schema_candidate(
+            accepted_before_identity.store_path(),
+            store,
+            current_revision,
+            &candidate,
+        )
+    }
 }
 
 fn validate_sql_ddl_field_nullability_metadata_change(
@@ -268,7 +408,7 @@ fn validate_sql_ddl_field_nullability_metadata_change(
         after_field.nullable(),
         after.version(),
     )
-    .ok_or_else(InternalError::store_unsupported)?;
+    .map_err(|_| InternalError::store_unsupported())?;
     if &expected != after {
         return Err(InternalError::store_unsupported());
     }
@@ -286,57 +426,6 @@ fn target_field_is_required(
         .find(|field| field.id() == target.field_id())
         .map(|field| !field.nullable())
         .ok_or_else(InternalError::store_unsupported)
-}
-
-fn validate_sql_ddl_set_not_null_rows(
-    store: StoreHandle,
-    entity_tag: EntityTag,
-    entity_path: &'static str,
-    accepted_before: &AcceptedSchemaSnapshot,
-    accepted_before_identity: AcceptedCatalogIdentity,
-    target: &SchemaFieldNullabilityTarget,
-) -> Result<usize, InternalError> {
-    let field = accepted_before
-        .persisted_snapshot()
-        .fields()
-        .iter()
-        .find(|field| field.id() == target.field_id())
-        .ok_or_else(InternalError::store_unsupported)?;
-    let contract = catalog_backed_row_contract_for_sql_ddl(
-        store,
-        accepted_before_identity,
-        accepted_before.persisted_snapshot(),
-    )?;
-    let required_slot = usize::from(field.slot().get());
-
-    store.with_data(|data_store| {
-        let mut budget = SchemaTransitionSourceBudget::standard();
-        data_store.visit_entries(|raw_key, raw_row| {
-            let key = DecodedDataStoreKey::try_from_raw(raw_key)
-                .map_err(|_error| InternalError::store_unsupported())?;
-            if key.entity_tag() != entity_tag {
-                return Ok(StoreVisit::Continue);
-            }
-            budget
-                .consume_source_row(raw_row.len())
-                .map_err(InternalError::schema_transition_budget_exceeded)?;
-            let mut reader = StructuralSlotReader::from_raw_row_with_validated_contract(
-                raw_row,
-                contract.clone(),
-            )?;
-            reader.validate_primary_key(&key)?;
-            let value = reader.get_value(required_slot)?;
-            if matches!(value, Some(Value::Null) | None) {
-                return Err(InternalError::schema_ddl_set_not_null_validation_failed(
-                    entity_path,
-                    target.name(),
-                ));
-            }
-            Ok(StoreVisit::Continue)
-        })?;
-
-        Ok(budget.source_rows())
-    })
 }
 
 /// Execute one metadata-only SQL DDL field-rename publication.

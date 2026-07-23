@@ -78,6 +78,7 @@ fn first_statement_parameter_index(statement: &SqlStatement) -> Option<usize> {
         SqlStatement::Explain(statement) => first_explain_parameter_index(statement),
         SqlStatement::Ddl(_)
         | SqlStatement::Describe(_)
+        | SqlStatement::ShowConstraints(_)
         | SqlStatement::ShowIndexes(_)
         | SqlStatement::ShowColumns(_)
         | SqlStatement::ShowEntities(_)
@@ -319,6 +320,11 @@ fn prepare_statement(
 
             Ok(SqlStatement::Describe(statement.clone()))
         }
+        SqlStatement::ShowConstraints(statement) => {
+            ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
+
+            Ok(SqlStatement::ShowConstraints(statement.clone()))
+        }
         SqlStatement::ShowIndexes(statement) => {
             ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
 
@@ -455,6 +461,9 @@ fn lower_prepared_statement_for_model_only(
         #[cfg(feature = "sql-explain")]
         SqlStatement::Explain(statement) => lower_explain_prepared_for_model_only(statement, model),
         SqlStatement::Describe(_) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::DescribeEntity)),
+        SqlStatement::ShowConstraints(_) => Ok(LoweredSqlCommand(
+            LoweredSqlCommandInner::ShowConstraintsEntity,
+        )),
         SqlStatement::ShowIndexes(_) => {
             Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowIndexesEntity))
         }

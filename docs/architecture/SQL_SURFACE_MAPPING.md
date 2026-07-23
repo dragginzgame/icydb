@@ -293,6 +293,7 @@ SQL parsing still owns route metadata for:
 
 - `EXPLAIN`
 - `DESCRIBE`
+- `SHOW CONSTRAINTS FROM/IN`
 - `SHOW INDEXES`
 - `SHOW COLUMNS`
 - `SHOW ENTITIES` / `SHOW ENTITIES VERBOSE`
@@ -302,6 +303,7 @@ SQL parsing still owns route metadata for:
 But the public operational helpers remain typed/session-owned:
 
 - `describe_entity(...)`
+- `try_show_constraints(...)`
 - `show_indexes(...)`
 - `show_columns(...)`
 - `show_entities()`

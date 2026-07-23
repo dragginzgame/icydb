@@ -15,8 +15,9 @@ use crate::{
         schema::{
             AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, AcceptedEnumCatalog,
             AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract, AcceptedSchemaAuthority,
-            AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, SchemaInfo,
-            SchemaStore, SchemaVersion, authored_projection::AcceptedAuthoredFieldProjection,
+            AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
+            CompiledAcceptedRowConstraints, SchemaInfo, SchemaStore, SchemaVersion,
+            authored_projection::AcceptedAuthoredFieldProjection,
             enum_catalog::ValueAdmissionBudget, output_value_from_runtime,
         },
     },
@@ -25,10 +26,7 @@ use crate::{
     traits::{AuthoredFieldProjection, CanisterKind, Path},
     value::OutputValue,
 };
-use std::{
-    cell::{OnceCell, RefCell},
-    collections::HashMap,
-};
+use std::{cell::RefCell, collections::HashMap};
 
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -45,15 +43,26 @@ struct AcceptedSchemaQueryCacheEntry {
     snapshot: AcceptedSchemaSnapshot,
     identity: AcceptedCatalogIdentity,
     value_catalog: AcceptedValueCatalogHandle,
+    accepted_row_constraints: CompiledAcceptedRowConstraints,
 }
 
 type AcceptedSchemaQueryCacheKey = (usize, &'static str);
+
+fn compile_accepted_row_constraints(
+    snapshot: &AcceptedSchemaSnapshot,
+    value_catalog: &AcceptedValueCatalogHandle,
+    fingerprint: CommitSchemaFingerprint,
+) -> Result<CompiledAcceptedRowConstraints, InternalError> {
+    CompiledAcceptedRowConstraints::compile(snapshot, value_catalog, fingerprint)
+        .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())
+}
 
 pub(in crate::db) type AcceptedSaveContract = (
     AcceptedRowDecodeContract,
     AcceptedRowDecodeContract,
     SchemaInfo,
     CommitSchemaFingerprint,
+    CompiledAcceptedRowConstraints,
 );
 
 #[derive(Clone, Debug)]
@@ -61,21 +70,21 @@ pub(in crate::db) struct AcceptedSchemaCatalogContext {
     snapshot: AcceptedSchemaSnapshot,
     identity: AcceptedCatalogIdentity,
     value_catalog: AcceptedValueCatalogHandle,
-    schema_info: OnceCell<SchemaInfo>,
+    accepted_row_constraints: CompiledAcceptedRowConstraints,
 }
 
 impl AcceptedSchemaCatalogContext {
-    #[must_use]
-    pub(in crate::db) const fn new(
+    const fn new(
         snapshot: AcceptedSchemaSnapshot,
         identity: AcceptedCatalogIdentity,
         value_catalog: AcceptedValueCatalogHandle,
+        accepted_row_constraints: CompiledAcceptedRowConstraints,
     ) -> Self {
         Self {
             snapshot,
             identity,
             value_catalog,
-            schema_info: OnceCell::new(),
+            accepted_row_constraints,
         }
     }
 
@@ -112,6 +121,12 @@ impl AcceptedSchemaCatalogContext {
     #[must_use]
     pub(in crate::db) const fn fingerprint(&self) -> CommitSchemaFingerprint {
         self.identity.accepted_schema_fingerprint()
+    }
+
+    /// Borrow the accepted check program compiled for this exact fingerprint.
+    #[must_use]
+    pub(in crate::db) const fn accepted_row_constraints(&self) -> &CompiledAcceptedRowConstraints {
+        &self.accepted_row_constraints
     }
 
     #[must_use]
@@ -155,7 +170,7 @@ impl AcceptedSchemaCatalogContext {
         self.debug_assert_matches_entity::<E>();
         let (accepted_row_layout, row_proof) =
             AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
-                &self.snapshot,
+                self.snapshot(),
                 E::MODEL,
                 self.enum_catalog(),
                 self.composite_catalog(),
@@ -231,22 +246,18 @@ impl AcceptedSchemaCatalogContext {
         E: EntityKind,
     {
         self.debug_assert_matches_entity::<E>();
-        self.schema_info
-            .get_or_init(|| {
-                let schema_info = SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
-                    E::MODEL,
-                    &self.snapshot,
-                    self.value_catalog.clone(),
-                    true,
-                );
-                debug_assert!(
-                    schema_info
-                        .enum_catalog()
-                        .is_some_and(|catalog| std::ptr::eq(catalog, self.enum_catalog()))
-                );
-                schema_info
-            })
-            .clone()
+        let schema_info = SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
+            E::MODEL,
+            &self.snapshot,
+            self.value_catalog.clone(),
+            true,
+        );
+        debug_assert!(
+            schema_info
+                .enum_catalog()
+                .is_some_and(|catalog| std::ptr::eq(catalog, self.enum_catalog()))
+        );
+        schema_info
     }
 }
 
@@ -258,15 +269,14 @@ pub(in crate::db) fn accepted_save_contract_for_catalog_context<E>(
 where
     E: EntityKind,
 {
-    let row_decode_contract = descriptor.row_decode_contract(context.value_catalog.clone());
-    let mutation_row_decode_contract = row_decode_contract.clone();
-    let schema_info = context.accepted_schema_info_for::<E>();
-
+    let row_decode_contract =
+        descriptor.row_decode_contract(context.value_catalog_handle().clone());
     (
+        row_decode_contract.clone(),
         row_decode_contract,
-        mutation_row_decode_contract,
-        schema_info,
+        context.accepted_schema_info_for::<E>(),
         context.fingerprint(),
+        context.accepted_row_constraints().clone(),
     )
 }
 
@@ -291,7 +301,8 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + AuthoredFieldProjection,
     {
-        let (row_contract, _, _) = self.ensure_generated_compatible_accepted_save_schema::<E>()?;
+        let (row_contract, _, _, _) =
+            self.ensure_generated_compatible_accepted_save_schema::<E>()?;
         let projection = AcceptedAuthoredFieldProjection::new(&row_contract);
         let catalog = row_contract.value_catalog_handle();
         let mut values = Vec::with_capacity(slots.len());
@@ -363,16 +374,23 @@ impl<C: CanisterKind> DbSession<C> {
         )
         .map_err(|_error| InternalError::store_unsupported())?;
         let value_catalog = selection.value_catalog_handle().clone();
+        let accepted_row_constraints = compile_accepted_row_constraints(
+            &snapshot,
+            &value_catalog,
+            selection.identity().accepted_schema_fingerprint(),
+        )?;
         let context = AcceptedSchemaCatalogContext::new(
             snapshot.clone(),
             selection.identity(),
             value_catalog.clone(),
+            accepted_row_constraints.clone(),
         );
         Self::insert_accepted_schema_query_cache(
             cache_key,
             snapshot,
             selection.identity(),
             value_catalog,
+            accepted_row_constraints,
         );
 
         Ok(context)
@@ -417,6 +435,7 @@ impl<C: CanisterKind> DbSession<C> {
                         entry.snapshot.clone(),
                         identity,
                         entry.value_catalog.clone(),
+                        entry.accepted_row_constraints.clone(),
                     )
                 })
         })
@@ -441,6 +460,7 @@ impl<C: CanisterKind> DbSession<C> {
             entry.snapshot,
             entry.identity,
             entry.value_catalog,
+            entry.accepted_row_constraints,
         )))
     }
 
@@ -449,6 +469,7 @@ impl<C: CanisterKind> DbSession<C> {
         snapshot: AcceptedSchemaSnapshot,
         identity: AcceptedCatalogIdentity,
         value_catalog: AcceptedValueCatalogHandle,
+        accepted_row_constraints: CompiledAcceptedRowConstraints,
     ) {
         ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
             cache.borrow_mut().insert(
@@ -457,6 +478,7 @@ impl<C: CanisterKind> DbSession<C> {
                     snapshot,
                     identity,
                     value_catalog,
+                    accepted_row_constraints,
                 },
             );
         });
@@ -504,17 +526,24 @@ impl<C: CanisterKind> DbSession<C> {
         )
         .map_err(|_error| InternalError::store_unsupported())?;
         let value_catalog = selection.value_catalog_handle().clone();
+        let accepted_row_constraints = compile_accepted_row_constraints(
+            &snapshot,
+            &value_catalog,
+            selection.identity().accepted_schema_fingerprint(),
+        )?;
         Self::insert_accepted_schema_query_cache(
             cache_key,
             snapshot.clone(),
             selection.identity(),
             value_catalog.clone(),
+            accepted_row_constraints.clone(),
         );
 
         Ok(AcceptedSchemaCatalogContext::new(
             snapshot,
             selection.identity(),
             value_catalog,
+            accepted_row_constraints,
         ))
     }
 
@@ -609,10 +638,16 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(None);
         }
         let value_catalog = selection.value_catalog_handle().clone();
+        let accepted_row_constraints = compile_accepted_row_constraints(
+            &snapshot,
+            &value_catalog,
+            selection.identity().accepted_schema_fingerprint(),
+        )?;
         let context = AcceptedSchemaCatalogContext::new(
             snapshot.clone(),
             selection.identity(),
             value_catalog.clone(),
+            accepted_row_constraints.clone(),
         );
 
         Self::insert_accepted_schema_query_cache(
@@ -620,6 +655,7 @@ impl<C: CanisterKind> DbSession<C> {
             snapshot,
             selection.identity(),
             value_catalog,
+            accepted_row_constraints,
         );
 
         Ok(Some(context))
@@ -660,6 +696,7 @@ impl<C: CanisterKind> DbSession<C> {
             AcceptedRowDecodeContract,
             SchemaInfo,
             CommitSchemaFingerprint,
+            CompiledAcceptedRowConstraints,
         ),
         InternalError,
     >
@@ -667,16 +704,20 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         let context = self.accepted_schema_catalog_context_for_query::<E>()?;
-        let (accepted_row_layout, _) =
-            AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
-                context.snapshot(),
-                E::MODEL,
-                context.enum_catalog(),
-                context.composite_catalog(),
-            )?;
-        let (row_decode_contract, _, schema_info, schema_fingerprint) =
-            accepted_save_contract_for_catalog_context::<E>(&context, &accepted_row_layout);
+        let (descriptor, _) = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
+            context.snapshot(),
+            E::MODEL,
+            context.enum_catalog(),
+            context.composite_catalog(),
+        )?;
+        let row_decode_contract =
+            descriptor.row_decode_contract(context.value_catalog_handle().clone());
 
-        Ok((row_decode_contract, schema_info, schema_fingerprint))
+        Ok((
+            row_decode_contract,
+            context.accepted_schema_info_for::<E>(),
+            context.fingerprint(),
+            context.accepted_row_constraints().clone(),
+        ))
     }
 }

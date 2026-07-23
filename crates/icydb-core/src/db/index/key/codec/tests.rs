@@ -41,11 +41,23 @@ fn key_with(kind: IndexKeyKind, id: IndexId, components: Vec<Vec<u8>>, pk: Vec<u
 }
 
 fn expected_index_id_entity_email_bytes() -> Vec<u8> {
-    // Intentionally protocol-freezing the fixed `(EntityTag, ordinal)` byte layout.
+    // Intentionally freeze the fixed `(EntityTag, ordinal, generation)` layout.
     let mut out = Vec::new();
     out.extend_from_slice(&1u64.to_be_bytes());
     out.extend_from_slice(&0u16.to_be_bytes());
+    out.extend_from_slice(&0u64.to_be_bytes());
     out
+}
+
+#[test]
+fn index_identity_generations_encode_as_disjoint_physical_namespaces() {
+    let base = IndexId::new(EntityTag::new(7), 3);
+    let staged = IndexId::new_with_generation(EntityTag::new(7), 3, 11);
+
+    assert_ne!(base.to_bytes(), staged.to_bytes());
+    assert_eq!(IndexId::from_bytes(&base.to_bytes()), Some(base));
+    assert_eq!(IndexId::from_bytes(&staged.to_bytes()), Some(staged));
+    assert_eq!(staged.generation(), 11);
 }
 
 fn decode_must_fail_corrupted(bytes: Vec<u8>, label: &str) {

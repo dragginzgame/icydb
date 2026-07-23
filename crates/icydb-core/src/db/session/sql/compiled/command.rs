@@ -49,6 +49,7 @@ pub(in crate::db) enum CompiledSqlCommand {
     Insert(CompiledSqlInsertCommand),
     Update(SqlUpdateStatement),
     DescribeEntity,
+    ShowConstraintsEntity,
     ShowIndexesEntity,
     ShowColumnsEntity,
     ShowEntities {
@@ -132,6 +133,7 @@ impl CompiledSqlCommand {
             #[cfg(feature = "sql-explain")]
             Self::Explain(_) => false,
             Self::DescribeEntity
+            | Self::ShowConstraintsEntity
             | Self::ShowIndexesEntity
             | Self::ShowColumnsEntity
             | Self::ShowEntities { .. }

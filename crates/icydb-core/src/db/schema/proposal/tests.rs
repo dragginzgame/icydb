@@ -1,11 +1,14 @@
 use crate::{
-    db::schema::{
-        AcceptedFieldKind, FieldId, PersistedIndexExpressionOp, PersistedIndexKeyItemSnapshot,
-        PersistedIndexKeySnapshot, SchemaFieldSlot, SchemaInsertDefault, SchemaVersion,
-        compiled_schema_proposal_for_model,
+    db::{
+        Predicate,
+        schema::{
+            AcceptedConstraintKind, AcceptedFieldKind, FieldId, PersistedIndexExpressionOp,
+            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, SchemaFieldSlot,
+            SchemaInsertDefault, SchemaVersion, compiled_schema_proposal_for_model,
+        },
     },
     model::{
-        entity::{EntityModel, PrimaryKeyModel, RelationEdgeModel},
+        entity::{CheckConstraintModel, EntityModel, PrimaryKeyModel, RelationEdgeModel},
         field::{
             CompositeCodec, CompositeFieldModel, CompositeShapeModel, EnumVariantModel,
             FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode, LeafCodec,
@@ -14,7 +17,9 @@ use crate::{
         index::{IndexExpression, IndexKeyItem, IndexModel},
     },
     testing::entity_model_from_static,
+    value::Value,
 };
+use std::sync::LazyLock;
 
 static PROFILE_COMPOSITE_FIELDS: [CompositeFieldModel; 2] = [
     CompositeFieldModel::generated("score", FieldKind::Nat64, false),
@@ -87,6 +92,47 @@ static RELATION_MODEL: EntityModel = EntityModel::generated_with_primary_key_mod
     &INDEXES,
     &RELATIONS,
 );
+static UNIQUE_NAME_INDEX: IndexModel = IndexModel::generated_with_ordinal(
+    1,
+    "idx_entity__unique_name",
+    "entity::unique_name",
+    &["name"],
+    true,
+);
+static STRUCTURAL_INDEXES: [&IndexModel; 1] = [&UNIQUE_NAME_INDEX];
+static STRUCTURAL_MODEL: EntityModel = EntityModel::generated_with_primary_key_model_and_relations(
+    "schema::proposal::tests::StructuralEntity",
+    "StructuralEntity",
+    1,
+    PrimaryKeyModel::scalar(&FIELDS[0]),
+    0,
+    &FIELDS,
+    &STRUCTURAL_INDEXES,
+    &RELATIONS,
+);
+fn generated_rank_check() -> &'static Predicate {
+    static CHECK: LazyLock<Predicate> =
+        LazyLock::new(|| Predicate::gte("rank".to_string(), Value::Int64(0)));
+
+    &CHECK
+}
+static GENERATED_CHECKS: [CheckConstraintModel; 1] = [CheckConstraintModel::generated(
+    "rank_nonnegative",
+    "rank >= 0",
+    generated_rank_check,
+)];
+static CHECK_MODEL: EntityModel =
+    EntityModel::generated_with_primary_key_model_relations_and_checks(
+        "schema::proposal::tests::CheckEntity",
+        "CheckEntity",
+        1,
+        PrimaryKeyModel::scalar(&FIELDS[0]),
+        0,
+        &FIELDS,
+        &INDEXES,
+        &[],
+        &GENERATED_CHECKS,
+    );
 static VERSIONED_MODEL: EntityModel = EntityModel::generated(
     "schema::proposal::tests::VersionedEntity",
     "VersionedEntity",
@@ -297,6 +343,46 @@ fn compiled_schema_proposal_preserves_generated_relation_edges() {
         snapshot.relations()[0].local_field_ids(),
         &[FieldId::new(3)]
     );
+}
+
+#[test]
+fn initial_constraint_registry_is_deterministic_and_complete() {
+    let snapshot =
+        compiled_schema_proposal_for_model(&STRUCTURAL_MODEL).initial_persisted_schema_snapshot();
+    let constraints = snapshot.constraints();
+
+    assert_eq!(snapshot.constraint_id_allocator().high_water(), 6);
+    assert_eq!(
+        constraints
+            .iter()
+            .map(|constraint| (constraint.id().get(), constraint.name()))
+            .collect::<Vec<_>>(),
+        vec![
+            (1, "__icydb_primary_key"),
+            (2, "__icydb_not_null_1"),
+            (3, "__icydb_not_null_3"),
+            (4, "__icydb_not_null_4"),
+            (5, "idx_entity__unique_name"),
+            (6, "score_owner"),
+        ],
+    );
+}
+
+#[test]
+fn generated_check_proposal_binds_to_accepted_field_identity_and_literal_codec() {
+    let snapshot =
+        compiled_schema_proposal_for_model(&CHECK_MODEL).initial_persisted_schema_snapshot();
+    let check = snapshot
+        .constraints()
+        .iter()
+        .find(|constraint| constraint.name() == "rank_nonnegative")
+        .expect("generated check should enter the initial accepted catalog");
+
+    assert_eq!(snapshot.constraint_id_allocator().high_water(), 5);
+    let AcceptedConstraintKind::Check { expression } = check.kind() else {
+        panic!("generated named check must bind as accepted check semantics");
+    };
+    assert_eq!(expression.dependencies(), vec![FieldId::new(3)]);
 }
 
 #[test]

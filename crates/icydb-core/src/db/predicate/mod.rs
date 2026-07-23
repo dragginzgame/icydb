@@ -81,3 +81,93 @@ pub fn validate_generated_index_predicate_fields(
     let schema = SchemaInfo::from_field_models(fields);
     validate_predicate(&schema, predicate).map_err(|error| error.to_string())
 }
+
+/// Validate one generated check proposal against the V1 check subset.
+///
+/// This is a macro-expansion helper. Accepted reconciliation independently
+/// binds the proposal to stable field IDs and validates its complete contract.
+#[doc(hidden)]
+pub fn validate_generated_check_predicate_fields(
+    fields: &[FieldModel],
+    predicate: &Predicate,
+) -> Result<(), String> {
+    let validation_fields = fields
+        .iter()
+        .map(|field| {
+            let kind = if matches!(field.kind(), crate::model::field::FieldKind::Enum { .. }) {
+                crate::model::field::FieldKind::Text { max_len: None }
+            } else {
+                field.kind()
+            };
+            FieldModel::generated_with_storage_decode_and_nullability(
+                field.name(),
+                kind,
+                crate::model::field::FieldStorageDecode::ByKind,
+                field.nullable(),
+            )
+        })
+        .collect::<Vec<_>>();
+    validate_generated_index_predicate_fields(validation_fields.as_slice(), predicate)?;
+    validate_generated_check_predicate_shape(fields, predicate)
+}
+
+fn validate_generated_check_predicate_shape(
+    fields: &[FieldModel],
+    predicate: &Predicate,
+) -> Result<(), String> {
+    match predicate {
+        Predicate::True
+        | Predicate::False
+        | Predicate::IsEmpty { .. }
+        | Predicate::IsNotEmpty { .. } => Ok(()),
+        Predicate::And(children) | Predicate::Or(children) => {
+            for child in children {
+                validate_generated_check_predicate_shape(fields, child)?;
+            }
+            Ok(())
+        }
+        Predicate::Not(inner) => validate_generated_check_predicate_shape(fields, inner),
+        Predicate::Compare(compare) => {
+            let enum_field = fields
+                .iter()
+                .find(|field| field.name() == compare.field())
+                .is_some_and(|field| {
+                    matches!(field.kind(), crate::model::field::FieldKind::Enum { .. })
+                });
+            match compare.op() {
+                model::CompareOp::Eq | model::CompareOp::Ne => Ok(()),
+                model::CompareOp::Lt
+                | model::CompareOp::Lte
+                | model::CompareOp::Gt
+                | model::CompareOp::Gte
+                    if !enum_field =>
+                {
+                    Ok(())
+                }
+                model::CompareOp::In | model::CompareOp::NotIn if enum_field => Ok(()),
+                model::CompareOp::Lt
+                | model::CompareOp::Lte
+                | model::CompareOp::Gt
+                | model::CompareOp::Gte
+                | model::CompareOp::In
+                | model::CompareOp::NotIn => Err(
+                    "generated check enum fields support only equality or bounded membership"
+                        .to_string(),
+                ),
+                model::CompareOp::Contains
+                | model::CompareOp::StartsWith
+                | model::CompareOp::EndsWith => {
+                    Err("generated check uses an operator outside CheckExprV1".to_string())
+                }
+            }
+        }
+        Predicate::CompareFields(_) | Predicate::IsNull { .. } | Predicate::IsNotNull { .. } => {
+            Ok(())
+        }
+        Predicate::IsMissing { .. }
+        | Predicate::TextContains { .. }
+        | Predicate::TextContainsCi { .. } => {
+            Err("generated check uses an operation outside CheckExprV1".to_string())
+        }
+    }
+}

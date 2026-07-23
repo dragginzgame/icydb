@@ -615,6 +615,13 @@ fn accepted_schema_snapshot_exposes_relation_edges() {
         "schema::snapshot::tests::Owner".to_string(),
         vec![FieldId::new(2)],
     )]);
+    let catalog = AcceptedConstraintCatalog::initial(
+        snapshot.fields(),
+        snapshot.indexes(),
+        snapshot.relations(),
+    )
+    .expect("relation constraint catalog should build");
+    let snapshot = snapshot.with_constraint_catalog(catalog);
 
     let accepted = AcceptedSchemaSnapshot::try_new(snapshot)
         .expect("relation metadata should pass source-local integrity checks");

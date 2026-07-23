@@ -5,8 +5,6 @@
 
 #[cfg(test)]
 use crate::db::schema::AcceptedValueCatalogHandle;
-#[cfg(any(test, feature = "sql"))]
-use crate::value::InputValue;
 use crate::{
     db::{
         data::{
@@ -23,17 +21,17 @@ use crate::{
         },
         schema::{
             AcceptedCompositeCatalog, AcceptedFieldDecodeContract,
-            AcceptedFieldPersistenceContract,
+            AcceptedFieldPersistenceContract, AcceptedValueContract,
             enum_catalog::validate_decoded_persisted_field_value_in_catalog,
             enum_catalog::{
                 AcceptedEnumCatalog, AcceptedValueRef, AdmittedOwnedValue, CanonicalValue,
-                ValueAdmissionBudget,
+                ValueAdmissionBudget, normalize_candidate_value,
             },
         },
     },
     error::InternalError,
     model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
-    value::Value,
+    value::{InputValue, Value},
 };
 
 /// Normalize and encode one authored input through an accepted field contract.
@@ -50,6 +48,28 @@ pub(in crate::db) fn encode_input_value_for_accepted_field_contract(
             encode_accepted_value_ref_for_accepted_field_contract(field, &accepted)
         })
         .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?
+}
+
+/// Normalize and encode one schema-candidate literal without fabricating an
+/// accepted revision identity.
+pub(in crate::db) fn encode_input_value_for_candidate_field_contract(
+    enum_catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
+    field: AcceptedFieldDecodeContract<'_>,
+    input: InputValue,
+    budget: &mut ValueAdmissionBudget,
+) -> Result<Vec<u8>, InternalError> {
+    let contract = AcceptedValueContract::from_candidate_catalogs(
+        enum_catalog,
+        composite_catalog,
+        field.kind(),
+        field.storage_decode(),
+    )
+    .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?;
+    let value =
+        normalize_candidate_value(enum_catalog, composite_catalog, &contract, input, budget)
+            .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?;
+    encode_canonical_value_for_decode_contract(field, &value)
 }
 
 /// Strictly validate and encode one canonical value through an accepted field contract.
@@ -71,7 +91,13 @@ pub(in crate::db) fn encode_accepted_value_ref_for_accepted_field_contract(
     field: AcceptedFieldDecodeContract<'_>,
     accepted: &AcceptedValueRef<'_>,
 ) -> Result<Vec<u8>, InternalError> {
-    let value = accepted.value();
+    encode_canonical_value_for_decode_contract(field, accepted.value())
+}
+
+fn encode_canonical_value_for_decode_contract(
+    field: AcceptedFieldDecodeContract<'_>,
+    value: &CanonicalValue,
+) -> Result<Vec<u8>, InternalError> {
     if field.uses_canonical_value_wire() {
         return encode_canonical_value_storage_bytes(value);
     }
@@ -203,6 +229,38 @@ pub(in crate::db) fn validate_default_payload_for_accepted_field_contract(
         &mut budget,
     )
     .map_err(|_| InternalError::store_invariant())
+}
+
+/// Decode and validate one non-null accepted literal payload.
+///
+/// Check compilation uses the same field codec and catalog validation as row
+/// persistence; it never interprets literal bytes through query coercion.
+pub(in crate::db) fn decode_validated_check_literal_payload(
+    catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
+    field: AcceptedFieldDecodeContract<'_>,
+    raw_value: &[u8],
+) -> Result<Value, InternalError> {
+    let value = if field.uses_canonical_value_wire() {
+        decode_canonical_value_from_accepted_field_contract(field, raw_value)?
+    } else {
+        super::contract::decode_runtime_value_from_accepted_field_contract(field, raw_value)?
+    };
+    if matches!(value, Value::Null) {
+        return Err(InternalError::store_invariant());
+    }
+    let mut budget = ValueAdmissionBudget::standard();
+    validate_decoded_persisted_field_value_in_catalog(
+        catalog,
+        composite_catalog,
+        field.kind(),
+        field.storage_decode(),
+        false,
+        &value,
+        &mut budget,
+    )
+    .map_err(|_| InternalError::store_invariant())?;
+    Ok(value)
 }
 
 fn decode_canonical_value_from_accepted_field_contract(

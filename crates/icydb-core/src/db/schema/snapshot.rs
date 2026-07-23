@@ -7,8 +7,11 @@
 use crate::db::predicate::{relabel_sql_predicate_field_root, sql_predicate_references_field_root};
 use crate::{
     db::schema::{
-        AcceptedFieldKind, ConstraintIdAllocator, FieldId, RelationId, RowLayoutVersion,
+        AcceptedConstraintCatalog, AcceptedConstraintSnapshot, AcceptedFieldKind,
+        ConstraintActivationKind, ConstraintActivationSnapshot, ConstraintActivationState,
+        ConstraintId, ConstraintIdAllocator, FieldId, RelationId, RowLayoutVersion,
         SchemaFieldSlot, SchemaIndexId, SchemaRowLayout, SchemaVersion,
+        constraint::AcceptedConstraintCatalogError, schema_snapshot_constraint_integrity_detail,
         schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
         schema_snapshot_relation_integrity_detail,
     },
@@ -76,37 +79,7 @@ impl AcceptedSchemaSnapshot {
     /// store and raw schema codec. Owner-local tests may use `new` to build
     /// deliberately inconsistent fixtures that exercise accessor authority.
     pub(in crate::db) fn try_new(snapshot: PersistedSchemaSnapshot) -> Result<Self, InternalError> {
-        if schema_snapshot_integrity_detail(
-            "accepted schema snapshot",
-            snapshot.version(),
-            snapshot.primary_key_field_ids(),
-            snapshot.row_layout(),
-            snapshot.fields(),
-        )
-        .is_some()
-        {
-            return Err(InternalError::store_invariant());
-        }
-
-        if schema_snapshot_index_integrity_detail(
-            "accepted schema snapshot",
-            snapshot.row_layout(),
-            snapshot.fields(),
-            snapshot.indexes(),
-        )
-        .is_some()
-        {
-            return Err(InternalError::store_invariant());
-        }
-
-        if schema_snapshot_relation_integrity_detail(
-            "accepted schema snapshot",
-            snapshot.row_layout(),
-            snapshot.fields(),
-            snapshot.relations(),
-        )
-        .is_some()
-        {
+        if !snapshot.has_valid_integrity() {
             return Err(InternalError::store_invariant());
         }
 
@@ -223,10 +196,12 @@ pub(in crate::db) struct PersistedSchemaSnapshot {
     entity_name: String,
     primary_key_field_ids: Vec<FieldId>,
     row_layout: SchemaRowLayout,
-    constraint_id_allocator: ConstraintIdAllocator,
+    constraint_catalog: AcceptedConstraintCatalog,
     fields: Vec<PersistedFieldSnapshot>,
     indexes: Vec<PersistedIndexSnapshot>,
     relations: Vec<PersistedRelationEdgeSnapshot>,
+    candidate_indexes: Vec<PersistedIndexSnapshot>,
+    candidate_relations: Vec<PersistedRelationEdgeSnapshot>,
 }
 
 /// Failure to prove a complete accepted field-dependency closure.
@@ -254,6 +229,58 @@ impl IntoPrimaryKeyFieldIds for Vec<FieldId> {
 }
 
 impl PersistedSchemaSnapshot {
+    /// Prove the complete accepted schema and structural-owner closure.
+    ///
+    /// This is the single structural validation boundary shared by accepted
+    /// wrapping and current-format codec ingress/egress.
+    #[must_use]
+    pub(in crate::db) fn has_valid_integrity(&self) -> bool {
+        let all_indexes = self
+            .indexes
+            .iter()
+            .chain(&self.candidate_indexes)
+            .cloned()
+            .collect::<Vec<_>>();
+        let all_relations = self
+            .relations
+            .iter()
+            .chain(&self.candidate_relations)
+            .cloned()
+            .collect::<Vec<_>>();
+        schema_snapshot_integrity_detail(
+            "persisted schema snapshot",
+            self.version(),
+            self.primary_key_field_ids(),
+            self.row_layout(),
+            self.fields(),
+        )
+        .is_none()
+            && schema_snapshot_index_integrity_detail(
+                "persisted schema snapshot",
+                self.row_layout(),
+                self.fields(),
+                all_indexes.as_slice(),
+            )
+            .is_none()
+            && schema_snapshot_relation_integrity_detail(
+                "persisted schema snapshot",
+                self.row_layout(),
+                self.fields(),
+                all_relations.as_slice(),
+            )
+            .is_none()
+            && schema_snapshot_constraint_integrity_detail(
+                self.primary_key_field_ids(),
+                self.fields(),
+                self.indexes(),
+                self.relations(),
+                self.candidate_indexes(),
+                self.candidate_relations(),
+                self.constraint_catalog(),
+            )
+            .is_none()
+    }
+
     /// Build one persisted schema snapshot from already-validated pieces.
     #[must_use]
     #[cfg(test)]
@@ -265,7 +292,7 @@ impl PersistedSchemaSnapshot {
         row_layout: SchemaRowLayout,
         fields: Vec<PersistedFieldSnapshot>,
     ) -> Self {
-        Self::new_with_primary_key_fields_and_indexes(
+        let snapshot = Self::new_with_primary_key_fields_and_indexes(
             version,
             entity_path,
             entity_name,
@@ -273,7 +300,14 @@ impl PersistedSchemaSnapshot {
             row_layout,
             fields,
             Vec::new(),
+        );
+        let catalog = AcceptedConstraintCatalog::initial(
+            snapshot.fields(),
+            snapshot.indexes(),
+            snapshot.relations(),
         )
+        .expect("test structural constraint catalog should build");
+        snapshot.with_constraint_catalog(catalog)
     }
 
     /// Build one persisted schema snapshot with accepted index contracts.
@@ -288,7 +322,7 @@ impl PersistedSchemaSnapshot {
         fields: Vec<PersistedFieldSnapshot>,
         indexes: Vec<PersistedIndexSnapshot>,
     ) -> Self {
-        Self::new_with_primary_key_fields_and_indexes(
+        let snapshot = Self::new_with_primary_key_fields_and_indexes(
             version,
             entity_path,
             entity_name,
@@ -296,7 +330,14 @@ impl PersistedSchemaSnapshot {
             row_layout,
             fields,
             indexes,
+        );
+        let catalog = AcceptedConstraintCatalog::initial(
+            snapshot.fields(),
+            snapshot.indexes(),
+            snapshot.relations(),
         )
+        .expect("test structural constraint catalog should build");
+        snapshot.with_constraint_catalog(catalog)
     }
 
     /// Build one persisted schema snapshot with ordered accepted primary-key
@@ -317,21 +358,278 @@ impl PersistedSchemaSnapshot {
             entity_name,
             primary_key_field_ids: primary_key_field_ids.into_primary_key_field_ids(),
             row_layout,
-            constraint_id_allocator: ConstraintIdAllocator::default(),
+            constraint_catalog: AcceptedConstraintCatalog::default(),
             fields,
             indexes,
             relations: Vec::new(),
+            candidate_indexes: Vec::new(),
+            candidate_relations: Vec::new(),
         }
     }
 
-    /// Attach persisted constraint-ID high-water state to this snapshot.
+    /// Attach the accepted structural constraint catalog to this snapshot.
     #[must_use]
-    pub(in crate::db) const fn with_constraint_id_allocator(
+    pub(in crate::db) fn with_constraint_catalog(
         mut self,
-        allocator: ConstraintIdAllocator,
+        catalog: AcceptedConstraintCatalog,
     ) -> Self {
-        self.constraint_id_allocator = allocator;
+        self.constraint_catalog = catalog;
         self
+    }
+
+    /// Set the declared schema version on one already-derived candidate.
+    #[must_use]
+    pub(in crate::db) const fn with_schema_version(mut self, version: SchemaVersion) -> Self {
+        self.version = version;
+        self
+    }
+
+    /// Reserve one planner-invisible unique-index owner and its activation.
+    pub(in crate::db) fn with_added_unique_activation(
+        mut self,
+        candidate: PersistedIndexSnapshot,
+        base_schema_fingerprint: crate::db::schema::AcceptedSchemaFingerprint,
+        activation_epoch: u64,
+    ) -> Result<Self, AcceptedConstraintCatalogError> {
+        self.constraint_catalog = self
+            .constraint_catalog
+            .clone()
+            .with_added_unique_activation(&candidate, base_schema_fingerprint, activation_epoch)?;
+        self.candidate_indexes.push(candidate);
+        if !self.has_valid_integrity() {
+            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
+        }
+        Ok(self)
+    }
+
+    /// Reserve one delete-invisible relation owner and its activation.
+    pub(in crate::db) fn with_added_relation_activation(
+        mut self,
+        candidate: PersistedRelationEdgeSnapshot,
+        base_schema_fingerprint: crate::db::schema::AcceptedSchemaFingerprint,
+        activation_epoch: u64,
+    ) -> Result<Self, AcceptedConstraintCatalogError> {
+        self.constraint_catalog = self
+            .constraint_catalog
+            .clone()
+            .with_added_relation_activation(
+                &candidate,
+                base_schema_fingerprint,
+                activation_epoch,
+            )?;
+        self.candidate_relations.push(candidate);
+        if !self.has_valid_integrity() {
+            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
+        }
+        Ok(self)
+    }
+
+    /// Promote one live not-null activation into the exact accepted field shape.
+    pub(in crate::db) fn with_promoted_not_null_activation(
+        &self,
+        constraint_id: ConstraintId,
+        version: SchemaVersion,
+    ) -> Result<Self, AcceptedConstraintCatalogError> {
+        let activation = self
+            .constraint_catalog
+            .activation(constraint_id)
+            .ok_or(AcceptedConstraintCatalogError::ActivationNotFound)?;
+        let ConstraintActivationKind::NotNull { field_id } = activation.kind() else {
+            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
+        };
+        let target = self
+            .fields
+            .iter()
+            .find(|field| field.id() == *field_id)
+            .ok_or(AcceptedConstraintCatalogError::OwnerMismatch)?;
+        let history_floor = if matches!(target.historical_fill(), SchemaHistoricalFill::Null) {
+            target
+                .introduced_in_layout()
+                .max(self.row_layout.history_floor())
+        } else {
+            self.row_layout.history_floor()
+        };
+        let fields = self
+            .fields
+            .iter()
+            .map(|field| {
+                PersistedFieldSnapshot::new_with_write_policy_and_origin(
+                    field.id(),
+                    field.name().to_string(),
+                    field.slot(),
+                    field.kind().clone(),
+                    field.nested_leaves().to_vec(),
+                    if field.id() == *field_id {
+                        false
+                    } else {
+                        field.nullable()
+                    },
+                    field.introduced_in_layout(),
+                    field.insert_default().clone(),
+                    if field.introduced_in_layout() <= history_floor {
+                        SchemaHistoricalFill::Reject
+                    } else {
+                        field.historical_fill().clone()
+                    },
+                    field.write_policy(),
+                    field.origin(),
+                    field.storage_decode(),
+                    field.leaf_codec(),
+                )
+            })
+            .collect();
+        let constraint_catalog = match activation.state() {
+            ConstraintActivationState::EnforcingNewWrites => self
+                .constraint_catalog
+                .clone()
+                .with_directly_validated_activation(constraint_id),
+            ConstraintActivationState::Validating => self
+                .constraint_catalog
+                .clone()
+                .with_promoted_activation(constraint_id),
+        }?;
+
+        Ok(Self {
+            version,
+            entity_path: self.entity_path.clone(),
+            entity_name: self.entity_name.clone(),
+            primary_key_field_ids: self.primary_key_field_ids.clone(),
+            row_layout: SchemaRowLayout::new(
+                self.row_layout.current_version(),
+                history_floor,
+                self.row_layout.field_to_slot().to_vec(),
+            ),
+            constraint_catalog,
+            fields,
+            indexes: self.indexes.clone(),
+            relations: self.relations.clone(),
+            candidate_indexes: self.candidate_indexes.clone(),
+            candidate_relations: self.candidate_relations.clone(),
+        })
+    }
+
+    /// Promote one fully staged unique owner into planner-visible authority.
+    pub(in crate::db) fn with_promoted_unique_activation(
+        &self,
+        constraint_id: ConstraintId,
+        version: SchemaVersion,
+    ) -> Result<Self, AcceptedConstraintCatalogError> {
+        let activation = self
+            .constraint_catalog
+            .activation(constraint_id)
+            .ok_or(AcceptedConstraintCatalogError::ActivationNotFound)?;
+        let ConstraintActivationKind::Unique { index_id } = activation.kind() else {
+            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
+        };
+        let candidate = self
+            .candidate_indexes
+            .iter()
+            .find(|index| index.schema_id() == *index_id)
+            .cloned()
+            .ok_or(AcceptedConstraintCatalogError::OwnerMismatch)?;
+        let constraint_catalog = match activation.state() {
+            ConstraintActivationState::EnforcingNewWrites => self
+                .constraint_catalog
+                .clone()
+                .with_directly_validated_activation(constraint_id),
+            ConstraintActivationState::Validating => self
+                .constraint_catalog
+                .clone()
+                .with_promoted_activation(constraint_id),
+        }?;
+        let mut after = self.clone();
+        after.version = version;
+        after.constraint_catalog = constraint_catalog;
+        after
+            .candidate_indexes
+            .retain(|index| index.schema_id() != *index_id);
+        after.indexes.push(candidate);
+        after.indexes.sort_by_key(PersistedIndexSnapshot::ordinal);
+        if !after.has_valid_integrity() {
+            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
+        }
+        Ok(after)
+    }
+
+    /// Abort one planner-invisible unique owner and permanently retire its
+    /// reserved constraint identity.
+    pub(in crate::db) fn with_aborted_unique_activation(
+        &self,
+        constraint_id: ConstraintId,
+        version: SchemaVersion,
+    ) -> Result<Self, AcceptedConstraintCatalogError> {
+        let activation = self
+            .constraint_catalog
+            .activation(constraint_id)
+            .ok_or(AcceptedConstraintCatalogError::ActivationNotFound)?;
+        let ConstraintActivationKind::Unique { index_id } = activation.kind() else {
+            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
+        };
+        if !self
+            .candidate_indexes
+            .iter()
+            .any(|index| index.schema_id() == *index_id)
+        {
+            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
+        }
+
+        let mut after = self.clone();
+        after.version = version;
+        after.constraint_catalog = after
+            .constraint_catalog
+            .with_aborted_activation(constraint_id)?;
+        after
+            .candidate_indexes
+            .retain(|index| index.schema_id() != *index_id);
+        if !after.has_valid_integrity() {
+            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
+        }
+        Ok(after)
+    }
+
+    /// Promote one fully staged relation owner into delete-visible authority.
+    pub(in crate::db) fn with_promoted_relation_activation(
+        &self,
+        constraint_id: ConstraintId,
+        version: SchemaVersion,
+    ) -> Result<Self, AcceptedConstraintCatalogError> {
+        let activation = self
+            .constraint_catalog
+            .activation(constraint_id)
+            .ok_or(AcceptedConstraintCatalogError::ActivationNotFound)?;
+        let ConstraintActivationKind::Relation { relation_id } = activation.kind() else {
+            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
+        };
+        let candidate = self
+            .candidate_relations
+            .iter()
+            .find(|relation| relation.id() == *relation_id)
+            .cloned()
+            .ok_or(AcceptedConstraintCatalogError::OwnerMismatch)?;
+        let constraint_catalog = match activation.state() {
+            ConstraintActivationState::EnforcingNewWrites => self
+                .constraint_catalog
+                .clone()
+                .with_directly_validated_activation(constraint_id),
+            ConstraintActivationState::Validating => self
+                .constraint_catalog
+                .clone()
+                .with_promoted_activation(constraint_id),
+        }?;
+        let mut after = self.clone();
+        after.version = version;
+        after.constraint_catalog = constraint_catalog;
+        after
+            .candidate_relations
+            .retain(|relation| relation.id() != *relation_id);
+        after.relations.push(candidate);
+        after
+            .relations
+            .sort_by_key(PersistedRelationEdgeSnapshot::id);
+        if !after.has_valid_integrity() {
+            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
+        }
+        Ok(after)
     }
 
     /// Attach accepted relation-edge contracts to this schema snapshot.
@@ -341,6 +639,18 @@ impl PersistedSchemaSnapshot {
         relations: Vec<PersistedRelationEdgeSnapshot>,
     ) -> Self {
         self.relations = relations;
+        self
+    }
+
+    /// Attach planner-invisible structural owners reserved by live activations.
+    #[must_use]
+    pub(in crate::db) fn with_constraint_candidates(
+        mut self,
+        indexes: Vec<PersistedIndexSnapshot>,
+        relations: Vec<PersistedRelationEdgeSnapshot>,
+    ) -> Self {
+        self.candidate_indexes = indexes;
+        self.candidate_relations = relations;
         self
     }
 
@@ -453,7 +763,25 @@ impl PersistedSchemaSnapshot {
     /// Return persisted non-reusing constraint-ID allocator state.
     #[must_use]
     pub(in crate::db) const fn constraint_id_allocator(&self) -> ConstraintIdAllocator {
-        self.constraint_id_allocator
+        self.constraint_catalog.allocator()
+    }
+
+    /// Borrow accepted structural constraints ordered by stable identity.
+    #[must_use]
+    pub(in crate::db) const fn constraints(&self) -> &[AcceptedConstraintSnapshot] {
+        self.constraint_catalog.constraints()
+    }
+
+    /// Borrow live constraint activations ordered by reserved identity.
+    #[must_use]
+    pub(in crate::db) const fn constraint_activations(&self) -> &[ConstraintActivationSnapshot] {
+        self.constraint_catalog.activations()
+    }
+
+    /// Borrow the invariant-bearing accepted structural constraint catalog.
+    #[must_use]
+    pub(in crate::db) const fn constraint_catalog(&self) -> &AcceptedConstraintCatalog {
+        &self.constraint_catalog
     }
 
     /// Borrow persisted field entries in row-layout order.
@@ -474,6 +802,18 @@ impl PersistedSchemaSnapshot {
         self.relations.as_slice()
     }
 
+    /// Borrow planner-invisible index owners reserved by live activations.
+    #[must_use]
+    pub(in crate::db) const fn candidate_indexes(&self) -> &[PersistedIndexSnapshot] {
+        self.candidate_indexes.as_slice()
+    }
+
+    /// Borrow delete-invisible relation owners reserved by live activations.
+    #[must_use]
+    pub(in crate::db) const fn candidate_relations(&self) -> &[PersistedRelationEdgeSnapshot] {
+        self.candidate_relations.as_slice()
+    }
+
     /// Clone this accepted schema shape with a new declared schema version.
     /// DDL callers supply the version from source intent; storage must never
     /// synthesize it.
@@ -489,8 +829,12 @@ impl PersistedSchemaSnapshot {
             self.fields.clone(),
             self.indexes.clone(),
         )
-        .with_constraint_id_allocator(self.constraint_id_allocator)
+        .with_constraint_catalog(self.constraint_catalog.clone())
         .with_relations(self.relations.clone())
+        .with_constraint_candidates(
+            self.candidate_indexes.clone(),
+            self.candidate_relations.clone(),
+        )
     }
 }
 
@@ -503,6 +847,7 @@ impl PersistedSchemaSnapshot {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PersistedRelationEdgeSnapshot {
     id: RelationId,
+    physical_generation: u64,
     name: String,
     target_path: String,
     local_field_ids: Vec<FieldId>,
@@ -519,6 +864,7 @@ impl PersistedRelationEdgeSnapshot {
     ) -> Self {
         Self {
             id,
+            physical_generation: 0,
             name,
             target_path,
             local_field_ids,
@@ -529,6 +875,24 @@ impl PersistedRelationEdgeSnapshot {
     #[must_use]
     pub(in crate::db) const fn id(&self) -> RelationId {
         self.id
+    }
+
+    /// Return the isolated reverse-index generation owned by this relation.
+    #[must_use]
+    pub(in crate::db) const fn physical_generation(&self) -> u64 {
+        self.physical_generation
+    }
+
+    /// Clone this relation under one isolated reverse-index generation.
+    #[must_use]
+    pub(in crate::db) fn clone_with_physical_generation(&self, physical_generation: u64) -> Self {
+        Self {
+            id: self.id,
+            physical_generation,
+            name: self.name.clone(),
+            target_path: self.target_path.clone(),
+            local_field_ids: self.local_field_ids.clone(),
+        }
     }
 
     /// Borrow the stable relation-edge name.
@@ -563,12 +927,13 @@ impl PersistedRelationEdgeSnapshot {
             .map(&mut map)
             .collect::<Option<Vec<_>>>()?;
 
-        Some(Self::new(
-            self.id,
-            self.name.clone(),
-            self.target_path.clone(),
+        Some(Self {
+            id: self.id,
+            physical_generation: self.physical_generation,
+            name: self.name.clone(),
+            target_path: self.target_path.clone(),
             local_field_ids,
-        ))
+        })
     }
 }
 
@@ -582,6 +947,7 @@ impl PersistedRelationEdgeSnapshot {
 pub(in crate::db) struct PersistedIndexSnapshot {
     schema_id: SchemaIndexId,
     ordinal: u16,
+    physical_generation: u64,
     name: String,
     store: String,
     unique: bool,
@@ -605,6 +971,7 @@ impl PersistedIndexSnapshot {
         Self {
             schema_id,
             ordinal,
+            physical_generation: 0,
             name,
             store,
             unique,
@@ -628,6 +995,7 @@ impl PersistedIndexSnapshot {
         Self {
             schema_id,
             ordinal,
+            physical_generation: 0,
             name,
             store,
             unique,
@@ -643,10 +1011,37 @@ impl PersistedIndexSnapshot {
         self.schema_id
     }
 
+    /// Clone one proposed index under schema-owned logical and physical identity.
+    #[must_use]
+    pub(in crate::db) fn clone_with_schema_identity(
+        &self,
+        schema_id: SchemaIndexId,
+        ordinal: u16,
+        physical_generation: u64,
+    ) -> Self {
+        Self {
+            schema_id,
+            ordinal,
+            physical_generation,
+            name: self.name.clone(),
+            store: self.store.clone(),
+            unique: self.unique,
+            origin: self.origin,
+            key: self.key.clone(),
+            predicate_sql: self.predicate_sql.clone(),
+        }
+    }
+
     /// Return the accepted dense physical index ordinal.
     #[must_use]
     pub(in crate::db) const fn ordinal(&self) -> u16 {
         self.ordinal
+    }
+
+    /// Return the isolated physical key generation.
+    #[must_use]
+    pub(in crate::db) const fn physical_generation(&self) -> u64 {
+        self.physical_generation
     }
 
     /// Borrow the accepted stable index name.
@@ -720,6 +1115,7 @@ impl PersistedIndexSnapshot {
         Self {
             schema_id: self.schema_id,
             ordinal: self.ordinal,
+            physical_generation: self.physical_generation,
             name: self.name.clone(),
             store: self.store.clone(),
             unique: self.unique,
@@ -745,6 +1141,7 @@ impl PersistedIndexSnapshot {
         Some(Self {
             schema_id: self.schema_id,
             ordinal,
+            physical_generation: self.physical_generation,
             name: self.name.clone(),
             store: self.store.clone(),
             unique: self.unique,

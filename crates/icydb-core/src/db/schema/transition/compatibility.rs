@@ -4,12 +4,169 @@ use crate::{
     db::{
         data::decode_runtime_value_from_accepted_field_contract,
         schema::{
-            AcceptedFieldDecodeContract, PersistedFieldSnapshot, PersistedIndexSnapshot,
-            PersistedSchemaSnapshot, SchemaHistoricalFill, SchemaMutationRequest,
+            AcceptedFieldDecodeContract, ConstraintActivationKind, ConstraintOrigin,
+            PersistedFieldSnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
+            SchemaHistoricalFill, SchemaMutationRequest,
         },
     },
     value::Value,
 };
+
+/// Return whether the candidate adds only generated activation authority and
+/// the exact planner-invisible physical candidates required by those kinds.
+pub(super) fn generated_constraint_activations_only_changed(
+    actual: &PersistedSchemaSnapshot,
+    expected: &PersistedSchemaSnapshot,
+) -> bool {
+    if generated_relation_activation_with_appended_fields_only_changed(actual, expected) {
+        return true;
+    }
+    if actual == expected
+        || actual.entity_path() != expected.entity_path()
+        || actual.entity_name() != expected.entity_name()
+        || actual.primary_key_field_ids() != expected.primary_key_field_ids()
+        || actual.row_layout() != expected.row_layout()
+        || actual.fields() != expected.fields()
+        || actual.indexes() != expected.indexes()
+        || actual.relations() != expected.relations()
+        || !expected
+            .candidate_relations()
+            .starts_with(actual.candidate_relations())
+        || !expected
+            .candidate_indexes()
+            .starts_with(actual.candidate_indexes())
+        || actual.constraints() != expected.constraints()
+        || actual.constraint_activations().len() >= expected.constraint_activations().len()
+        || actual.constraint_id_allocator().high_water()
+            >= expected.constraint_id_allocator().high_water()
+        || !expected
+            .constraint_activations()
+            .starts_with(actual.constraint_activations())
+    {
+        return false;
+    }
+
+    let added_activations =
+        &expected.constraint_activations()[actual.constraint_activations().len()..];
+    let added_index_candidates = &expected.candidate_indexes()[actual.candidate_indexes().len()..];
+    let added_relation_candidates =
+        &expected.candidate_relations()[actual.candidate_relations().len()..];
+    let mut index_candidate_count = 0usize;
+    let mut relation_candidate_count = 0usize;
+    let supported = added_activations.iter().all(|activation| {
+        if activation.origin() != ConstraintOrigin::Generated {
+            return false;
+        }
+        match activation.kind() {
+            ConstraintActivationKind::Check { .. } | ConstraintActivationKind::NotNull { .. } => {
+                true
+            }
+            ConstraintActivationKind::Unique { index_id } => {
+                let Some(candidate) = added_index_candidates.get(index_candidate_count) else {
+                    return false;
+                };
+                index_candidate_count = index_candidate_count.saturating_add(1);
+                candidate.schema_id() == *index_id
+                    && candidate.unique()
+                    && candidate.generated()
+                    && candidate.physical_generation() == activation.activation_epoch()
+            }
+            ConstraintActivationKind::Relation { relation_id } => {
+                let Some(candidate) = added_relation_candidates.get(relation_candidate_count)
+                else {
+                    return false;
+                };
+                relation_candidate_count = relation_candidate_count.saturating_add(1);
+                candidate.id() == *relation_id
+                    && candidate.physical_generation() == activation.activation_epoch()
+            }
+        }
+    });
+
+    supported
+        && index_candidate_count == added_index_candidates.len()
+        && relation_candidate_count == added_relation_candidates.len()
+}
+
+fn generated_relation_activation_with_appended_fields_only_changed(
+    actual: &PersistedSchemaSnapshot,
+    expected: &PersistedSchemaSnapshot,
+) -> bool {
+    if actual.entity_path() != expected.entity_path()
+        || actual.entity_name() != expected.entity_name()
+        || actual.primary_key_field_ids() != expected.primary_key_field_ids()
+        || actual.indexes() != expected.indexes()
+        || actual.relations() != expected.relations()
+        || actual.candidate_indexes() != expected.candidate_indexes()
+        || !actual.candidate_relations().is_empty()
+        || !actual.constraint_activations().is_empty()
+        || !generated_activation_appends_fields(actual, expected)
+    {
+        return false;
+    }
+    let [candidate] = expected.candidate_relations() else {
+        return false;
+    };
+    let [activation] = expected.constraint_activations() else {
+        return false;
+    };
+    if activation.origin() != ConstraintOrigin::Generated
+        || !matches!(
+            activation.kind(),
+            ConstraintActivationKind::Relation { relation_id }
+                if *relation_id == candidate.id()
+        )
+        || candidate.physical_generation() != activation.activation_epoch()
+        || !candidate
+            .local_field_ids()
+            .iter()
+            .any(|field_id| !actual.fields().iter().any(|field| field.id() == *field_id))
+    {
+        return false;
+    }
+    actual.constraints().iter().all(|constraint| {
+        expected
+            .constraints()
+            .iter()
+            .any(|expected_constraint| expected_constraint == constraint)
+    }) && expected
+        .constraints()
+        .iter()
+        .filter(|constraint| !actual.constraints().contains(constraint))
+        .all(|constraint| {
+            constraint.origin() == ConstraintOrigin::Generated
+                && matches!(
+                    constraint.kind(),
+                    crate::db::schema::AcceptedConstraintKind::NotNull { field_id }
+                        if !actual.fields().iter().any(|field| field.id() == *field_id)
+                )
+        })
+}
+
+fn generated_activation_appends_fields(
+    actual: &PersistedSchemaSnapshot,
+    expected: &PersistedSchemaSnapshot,
+) -> bool {
+    expected.fields().len() > actual.fields().len()
+        && expected.fields().starts_with(actual.fields())
+        && expected
+            .row_layout()
+            .field_to_slot()
+            .starts_with(actual.row_layout().field_to_slot())
+        && expected.row_layout().field_to_slot().len() == expected.fields().len()
+        && actual.row_layout().current_version().checked_next()
+            == Some(expected.row_layout().current_version())
+        && expected.row_layout().history_floor() == actual.row_layout().history_floor()
+        && expected.fields()[actual.fields().len()..]
+            .iter()
+            .all(|field| {
+                field.introduced_in_layout() == expected.row_layout().current_version()
+                    && field_has_supported_historical_fill(
+                        field,
+                        expected.row_layout().history_floor(),
+                    )
+            })
+}
 
 // Generated index names are diagnostic/catalog metadata. Stable schema-level
 // identity associates the accepted and generated contracts; dense physical
@@ -29,6 +186,7 @@ pub(super) fn generated_index_names_only_changed(
         || actual.primary_key_field_ids() != expected.primary_key_field_ids()
         || !generated_row_shape_matches(actual, expected)
         || !generated_current_fields_match(actual.fields(), expected.fields())
+        || actual.relations() != expected.relations()
     {
         return false;
     }
@@ -138,7 +296,9 @@ fn index_contract_matches_ignoring_name(
     actual: &PersistedIndexSnapshot,
     expected: &PersistedIndexSnapshot,
 ) -> bool {
-    actual.ordinal() == expected.ordinal()
+    actual.origin() == expected.origin()
+        && actual.ordinal() == expected.ordinal()
+        && actual.physical_generation() == expected.physical_generation()
         && actual.store() == expected.store()
         && actual.unique() == expected.unique()
         && actual.key() == expected.key()
@@ -162,6 +322,7 @@ pub(super) fn accepted_snapshot_extends_generated_indexes(
         || actual.primary_key_field_ids() != expected.primary_key_field_ids()
         || actual.row_layout().field_to_slot() != expected.row_layout().field_to_slot()
         || !generated_current_fields_match(actual.fields(), expected.fields())
+        || actual.relations() != expected.relations()
     {
         return false;
     }
@@ -202,6 +363,7 @@ pub(super) fn accepted_snapshot_extends_generated_with_ddl_fields(
         || actual.primary_key_field_ids() != expected.primary_key_field_ids()
         || actual.fields().len() < expected.fields().len()
         || actual.row_layout().field_to_slot().len() < expected.row_layout().field_to_slot().len()
+        || actual.relations() != expected.relations()
     {
         return false;
     }
@@ -310,8 +472,9 @@ fn generated_current_field_matches(
 }
 
 fn is_supported_extra_accepted_index(index: &PersistedIndexSnapshot) -> bool {
-    SchemaMutationRequest::from_accepted_field_path_index(index).is_ok()
-        || SchemaMutationRequest::from_accepted_expression_index(index).is_ok()
+    !index.generated()
+        && (SchemaMutationRequest::from_accepted_field_path_index(index).is_ok()
+            || SchemaMutationRequest::from_accepted_expression_index(index).is_ok())
 }
 
 // Decide whether one added field can be absent from older physical rows.

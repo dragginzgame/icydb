@@ -153,6 +153,7 @@ pub enum SchemaTransitionOutcome {
     AddExpressionIndex,
     AddFieldPathIndex,
     AppendOnlyFields,
+    ConstraintActivation,
     ExactMatch,
     MetadataOnlyFieldDefault,
     MetadataOnlyIndexRename,

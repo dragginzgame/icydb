@@ -543,9 +543,24 @@ fn parse_index_key_items(fields: &[LitStr]) -> Result<Vec<IndexKeyItemSpec>, Dar
         .collect()
 }
 
-fn generated_field_models_for_predicate(
+pub(crate) fn generated_field_models_for_predicate(
     entity: &Entity,
     predicate: &CorePredicate,
+) -> Result<Vec<CoreFieldModel>, DarlingError> {
+    generated_field_models_for_predicate_with_custom_enum_fields(entity, predicate, false)
+}
+
+pub(crate) fn generated_check_field_models_for_predicate(
+    entity: &Entity,
+    predicate: &CorePredicate,
+) -> Result<Vec<CoreFieldModel>, DarlingError> {
+    generated_field_models_for_predicate_with_custom_enum_fields(entity, predicate, true)
+}
+
+fn generated_field_models_for_predicate_with_custom_enum_fields(
+    entity: &Entity,
+    predicate: &CorePredicate,
+    custom_fields_are_enums: bool,
 ) -> Result<Vec<CoreFieldModel>, DarlingError> {
     let mut field_models = Vec::new();
 
@@ -558,25 +573,34 @@ fn generated_field_models_for_predicate(
             continue;
         };
 
-        field_models.push(generated_field_model_for_predicate(field)?);
+        field_models.push(generated_field_model_for_predicate(
+            field,
+            custom_fields_are_enums,
+        )?);
     }
 
     Ok(field_models)
 }
 
-fn generated_field_model_for_predicate(field: &Field) -> Result<CoreFieldModel, DarlingError> {
+fn generated_field_model_for_predicate(
+    field: &Field,
+    custom_fields_are_enums: bool,
+) -> Result<CoreFieldModel, DarlingError> {
     Ok(
         CoreFieldModel::generated_with_storage_decode_and_nullability(
             Box::leak(field.ident.to_string().into_boxed_str()),
-            generated_field_kind_for_predicate(&field.value)?,
+            generated_field_kind_for_predicate(&field.value, custom_fields_are_enums)?,
             CoreFieldStorageDecode::ByKind,
             matches!(field.value.cardinality(), Cardinality::Opt),
         ),
     )
 }
 
-fn generated_field_kind_for_predicate(value: &Value) -> Result<CoreFieldKind, DarlingError> {
-    let base_kind = generated_item_kind_for_predicate(&value.item)?;
+fn generated_field_kind_for_predicate(
+    value: &Value,
+    custom_fields_are_enums: bool,
+) -> Result<CoreFieldKind, DarlingError> {
+    let base_kind = generated_item_kind_for_predicate(&value.item, custom_fields_are_enums)?;
 
     Ok(match value.cardinality() {
         Cardinality::Many => CoreFieldKind::List(leak_core_field_kind(base_kind)),
@@ -584,8 +608,17 @@ fn generated_field_kind_for_predicate(value: &Value) -> Result<CoreFieldKind, Da
     })
 }
 
-fn generated_item_kind_for_predicate(item: &Item) -> Result<CoreFieldKind, DarlingError> {
-    if item.is.is_some() {
+fn generated_item_kind_for_predicate(
+    item: &Item,
+    custom_fields_are_enums: bool,
+) -> Result<CoreFieldKind, DarlingError> {
+    if let Some(path) = item.is.as_ref() {
+        if custom_fields_are_enums {
+            return Ok(CoreFieldKind::Enum {
+                path: Box::leak(path.to_token_stream().to_string().into_boxed_str()),
+                variants: &[],
+            });
+        }
         return Err(DarlingError::custom(
             "filtered index predicates on custom field types are not supported at build time",
         ));
@@ -651,7 +684,7 @@ fn leak_core_field_kind(kind: CoreFieldKind) -> &'static CoreFieldKind {
     Box::leak(Box::new(kind))
 }
 
-fn referenced_predicate_fields(predicate: &CorePredicate) -> Vec<String> {
+pub(crate) fn referenced_predicate_fields(predicate: &CorePredicate) -> Vec<String> {
     let mut fields = Vec::new();
     push_referenced_predicate_fields(predicate, &mut fields);
     fields
@@ -689,7 +722,9 @@ fn push_unique_field(field: &str, fields: &mut Vec<String>) {
     fields.push(field.to_string());
 }
 
-fn predicate_runtime_tokens(predicate: &CorePredicate) -> Result<TokenStream, DarlingError> {
+pub(crate) fn predicate_runtime_tokens(
+    predicate: &CorePredicate,
+) -> Result<TokenStream, DarlingError> {
     Ok(match predicate {
         CorePredicate::True => quote! { ::icydb::db::Predicate::True },
         CorePredicate::False => quote! { ::icydb::db::Predicate::False },

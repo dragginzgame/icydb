@@ -27,6 +27,7 @@ pub(crate) enum SqlStatement {
     #[cfg(feature = "sql-explain")]
     Explain(SqlExplainStatement),
     Describe(SqlDescribeStatement),
+    ShowConstraints(SqlShowConstraintsStatement),
     ShowIndexes(SqlShowIndexesStatement),
     ShowColumns(SqlShowColumnsStatement),
     ShowEntities(SqlShowEntitiesStatement),
@@ -46,9 +47,12 @@ pub(crate) enum SqlDdlStatement {
     CreateIndex(SqlCreateIndexStatement),
     DropIndex(SqlDropIndexStatement),
     AlterTableAddColumn(SqlAlterTableAddColumnStatement),
+    AlterTableAddCheckConstraint(SqlAlterTableAddCheckConstraintStatement),
     AlterTableAlterColumn(SqlAlterTableAlterColumnStatement),
     AlterTableDropColumn(SqlAlterTableDropColumnStatement),
+    AlterTableDropConstraint(SqlAlterTableDropConstraintStatement),
     AlterTableRenameColumn(SqlAlterTableRenameColumnStatement),
+    AlterTableValidateConstraint(SqlAlterTableValidateConstraintStatement),
 }
 
 ///
@@ -77,6 +81,16 @@ pub(crate) struct SqlAlterTableAddColumnStatement {
     pub(crate) column_type: String,
     pub(crate) nullable: bool,
     pub(crate) default: Option<Value>,
+    pub(crate) schema_version_contract: SqlDdlSchemaVersionContract,
+}
+
+/// Parsed `ALTER TABLE ... ADD CONSTRAINT ... CHECK` intent.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlAlterTableAddCheckConstraintStatement {
+    pub(crate) entity: String,
+    pub(crate) constraint_name: String,
+    pub(crate) expression: SqlExpr,
+    pub(crate) not_valid: bool,
     pub(crate) schema_version_contract: SqlDdlSchemaVersionContract,
 }
 
@@ -109,6 +123,15 @@ pub(crate) struct SqlAlterTableDropColumnStatement {
     pub(crate) schema_version_contract: SqlDdlSchemaVersionContract,
 }
 
+/// Parsed `ALTER TABLE ... DROP CONSTRAINT` intent.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlAlterTableDropConstraintStatement {
+    pub(crate) entity: String,
+    pub(crate) constraint_name: String,
+    pub(crate) if_exists: bool,
+    pub(crate) schema_version_contract: SqlDdlSchemaVersionContract,
+}
+
 ///
 /// SqlAlterTableRenameColumnStatement
 ///
@@ -122,6 +145,14 @@ pub(crate) struct SqlAlterTableRenameColumnStatement {
     pub(crate) old_column_name: String,
     pub(crate) new_column_name: String,
     pub(crate) schema_version_contract: SqlDdlSchemaVersionContract,
+}
+
+/// Parsed `ALTER TABLE ... VALIDATE CONSTRAINT` bounded-progress intent.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlAlterTableValidateConstraintStatement {
+    pub(crate) entity: String,
+    pub(crate) constraint_name: String,
+    pub(crate) after_page_sequence: Option<u64>,
 }
 
 ///
@@ -1247,6 +1278,18 @@ pub(crate) struct SqlExplainStatement {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlDescribeStatement {
+    pub(crate) entity: String,
+}
+
+///
+/// SqlShowConstraintsStatement
+///
+/// Canonical parsed `SHOW CONSTRAINTS` statement.
+/// Carries one schema entity identifier for accepted-catalog introspection.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlShowConstraintsStatement {
     pub(crate) entity: String,
 }
 

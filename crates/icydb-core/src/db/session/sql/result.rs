@@ -34,6 +34,7 @@ pub enum SqlStatementResult {
     #[cfg(feature = "sql-explain")]
     Explain(String),
     Describe(crate::db::EntitySchemaDescription),
+    ShowConstraints(Vec<crate::db::EntityConstraintDescription>),
     ShowIndexes(Vec<String>),
     ShowColumns(Vec<crate::db::EntityFieldDescription>),
     ShowEntities {

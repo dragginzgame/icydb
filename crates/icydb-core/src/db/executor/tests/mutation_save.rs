@@ -32,15 +32,17 @@ use crate::{
             validate_delete_relations_for_source, validate_save_relations_with_accepted_contract,
         },
         schema::{
-            AcceptedRowDecodeContract, FieldId, PersistedFieldSnapshot, PersistedSchemaSnapshot,
+            AcceptedCheckCompareOpV1, AcceptedRowDecodeContract, AcceptedSchemaRevision,
+            AcceptedValueCatalogHandle, CheckExprV1Input, CheckValueExprV1Input, ConstraintId,
+            ConstraintOrigin, FieldId, PersistedFieldSnapshot, PersistedSchemaSnapshot,
             RowLayoutVersion, SchemaFieldSlot, SchemaHistoricalFill, SchemaInsertDefault,
-            SchemaRowLayout, SchemaStore, accepted_commit_schema_fingerprint,
-            compiled_schema_proposal_for_model, ensure_accepted_schema_snapshot,
-            publish_test_accepted_schema_snapshot,
+            SchemaRowLayout, SchemaStore, accepted_commit_schema_fingerprint, bind_check_expr_v1,
+            build_initial_accepted_catalogs_for_tests, compiled_schema_proposal_for_model,
+            ensure_accepted_schema_snapshot, publish_test_accepted_schema_snapshot,
         },
     },
     entity::{EntityCreateFieldInput, EntityCreateInput, EntityKind},
-    error::{ErrorClass, ErrorOrigin},
+    error::{ErrorClass, ErrorDetail, ErrorOrigin, ExecutorErrorDetail},
     metrics::{metrics_report, metrics_reset_all},
     model::{
         field::{
@@ -944,6 +946,125 @@ fn load_unique_email_entity(id: Ulid) -> Option<UniqueEmailEntity> {
                 .expect("unique email row decode should succeed")
         })
     })
+}
+
+fn install_unique_email_check_schema() -> ConstraintId {
+    let model = <UniqueEmailEntity as crate::entity::EntityDeclaration>::MODEL;
+    let proposal = compiled_schema_proposal_for_model(model);
+    let (enum_catalog, composite_catalog) = build_initial_accepted_catalogs_for_tests(&[model])
+        .expect("unique-email value catalogs should build");
+    let snapshot = proposal
+        .initial_persisted_schema_snapshot_with_catalogs(&enum_catalog, &composite_catalog)
+        .expect("unique-email initial snapshot should resolve");
+    let value_catalog = AcceptedValueCatalogHandle::new_for_tests(
+        enum_catalog,
+        composite_catalog,
+        AcceptedSchemaRevision::INITIAL,
+    );
+    let expression = bind_check_expr_v1(
+        CheckExprV1Input::Compare {
+            left: CheckValueExprV1Input::CharLength("email".to_string()),
+            op: AcceptedCheckCompareOpV1::Gte,
+            right: CheckValueExprV1Input::Literal(InputValue::Nat64(3)),
+        },
+        &snapshot,
+        value_catalog.enum_catalog(),
+        value_catalog.composite_catalog(),
+    )
+    .expect("unique-email check should bind");
+    let constraint_catalog = snapshot
+        .constraint_catalog()
+        .clone()
+        .with_added_check(
+            "email_min_length".to_string(),
+            ConstraintOrigin::Generated,
+            expression,
+        )
+        .expect("unique-email check should allocate");
+    let constraint_id = constraint_catalog
+        .constraints()
+        .last()
+        .expect("unique-email check should be the final stable constraint")
+        .id();
+    let snapshot = snapshot.with_constraint_catalog(constraint_catalog);
+
+    SOURCE_SCHEMA_STORE.with_borrow_mut(|store| {
+        publish_test_accepted_schema_snapshot(
+            store,
+            UniqueEmailEntity::ENTITY_TAG,
+            UniqueEmailEntity::PATH,
+            SourceStore::PATH,
+            model,
+            snapshot,
+        )
+        .expect("unique-email check schema should publish");
+    });
+    DbSession::<TestCanister>::clear_accepted_schema_query_cache_for_tests();
+
+    constraint_id
+}
+
+fn install_nullable_account_event_not_null_activation_schema() -> ConstraintId {
+    let model = <NullableAccountEventEntity as crate::entity::EntityDeclaration>::MODEL;
+    let proposal = compiled_schema_proposal_for_model(model);
+    let (enum_catalog, composite_catalog) = build_initial_accepted_catalogs_for_tests(&[model])
+        .expect("nullable-account value catalogs should build");
+    let snapshot = proposal
+        .initial_persisted_schema_snapshot_with_catalogs(&enum_catalog, &composite_catalog)
+        .expect("nullable-account initial snapshot should resolve");
+
+    SOURCE_SCHEMA_STORE.with_borrow_mut(|store| {
+        publish_test_accepted_schema_snapshot(
+            store,
+            NullableAccountEventEntity::ENTITY_TAG,
+            NullableAccountEventEntity::PATH,
+            SourceStore::PATH,
+            model,
+            snapshot.clone(),
+        )
+        .expect("nullable-account base schema should publish");
+    });
+    let root = SOURCE_SCHEMA_STORE.with_borrow(|store| {
+        store
+            .current_accepted_schema_root()
+            .expect("nullable-account accepted root should decode")
+            .expect("nullable-account accepted root should exist")
+    });
+    let target = snapshot
+        .fields()
+        .iter()
+        .find(|field| field.name() == "from")
+        .expect("nullable from field should exist");
+    let constraint_catalog = snapshot
+        .constraint_catalog()
+        .clone()
+        .with_added_not_null_activation(
+            target,
+            root.root().fingerprint(),
+            root.root()
+                .revision()
+                .checked_next()
+                .expect("activation epoch should advance")
+                .get(),
+        )
+        .expect("nullable from field should admit a not-null activation");
+    let constraint_id = constraint_catalog.activations()[0].id();
+    let snapshot = snapshot.with_constraint_catalog(constraint_catalog);
+
+    SOURCE_SCHEMA_STORE.with_borrow_mut(|store| {
+        publish_test_accepted_schema_snapshot(
+            store,
+            NullableAccountEventEntity::ENTITY_TAG,
+            NullableAccountEventEntity::PATH,
+            SourceStore::PATH,
+            model,
+            snapshot,
+        )
+        .expect("nullable-account not-null activation should publish");
+    });
+    DbSession::<TestCanister>::clear_accepted_schema_query_cache_for_tests();
+
+    constraint_id
 }
 
 fn load_decimal_scale_entity(id: Ulid) -> Option<DecimalScaleEntity> {
@@ -3676,6 +3797,193 @@ fn session_insert_rejects_unsupported_schema_transition_before_write_staging() {
         load_unique_email_entity(Ulid::from_u128(25)).is_none(),
         "schema transition rejection must happen before write staging persists data",
     );
+}
+
+#[test]
+fn session_insert_enforces_accepted_check_over_final_canonical_after_image() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+    SOURCE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let constraint_id = install_unique_email_check_schema();
+    let session = DbSession::new(DB);
+    let accepted_id = Ulid::from_u128(28_001);
+    let rejected_id = Ulid::from_u128(28_002);
+
+    session
+        .insert(UniqueEmailEntity {
+            id: accepted_id,
+            email: "valid@example.com".to_string(),
+        })
+        .expect("final after-image satisfying accepted check should commit");
+    let error = session
+        .insert(UniqueEmailEntity {
+            id: rejected_id,
+            email: "x".to_string(),
+        })
+        .expect_err("false accepted check must reject before commit staging");
+
+    assert_eq!(error.class(), ErrorClass::InvariantViolation);
+    assert_eq!(error.origin(), ErrorOrigin::Executor);
+    assert_eq!(
+        error.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+    );
+    assert!(matches!(
+        error.detail(),
+        Some(ErrorDetail::Executor(detail))
+            if detail.constraint_identity() == Some(constraint_id.get())
+                && matches!(detail, ExecutorErrorDetail::ConstraintViolation { .. })
+    ));
+    assert!(load_unique_email_entity(accepted_id).is_some());
+    assert!(
+        load_unique_email_entity(rejected_id).is_none(),
+        "rejected after-image must not survive preflight",
+    );
+
+    SOURCE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    DbSession::<TestCanister>::clear_accepted_schema_query_cache_for_tests();
+}
+
+#[test]
+fn structural_insert_enforces_accepted_check_over_final_canonical_after_image() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+    SOURCE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let constraint_id = install_unique_email_check_schema();
+    let session = DbSession::new(DB);
+    let id = Ulid::from_u128(28_003);
+    let patch = unique_email_patch(&session, id, "x");
+
+    let error = session
+        .insert_structural::<UniqueEmailEntity>(id, patch)
+        .expect_err("structural after-image violating accepted check must reject");
+
+    assert!(matches!(
+        error.detail(),
+        Some(ErrorDetail::Executor(detail))
+            if detail.constraint_identity() == Some(constraint_id.get())
+                && matches!(detail, ExecutorErrorDetail::ConstraintViolation { .. })
+    ));
+    assert!(load_unique_email_entity(id).is_none());
+
+    SOURCE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    DbSession::<TestCanister>::clear_accepted_schema_query_cache_for_tests();
+}
+
+#[test]
+fn typed_and_structural_inserts_enforce_pending_not_null_activation() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+    SOURCE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let constraint_id = install_nullable_account_event_not_null_activation_schema();
+    let session = DbSession::new(DB);
+    let typed_id = Ulid::from_u128(28_101);
+    let structural_id = Ulid::from_u128(28_102);
+    let accepted_id = Ulid::from_u128(28_103);
+    let account = Account::from_owner_and_subaccount(Principal::from_slice(&[9]), None);
+
+    let typed_error = session
+        .insert(NullableAccountEventEntity {
+            id: typed_id,
+            from: None,
+            to: None,
+        })
+        .expect_err("typed null after-image must fail the pending not-null gate");
+    let structural_patch = accepted_structural_patch::<NullableAccountEventEntity, _, _>(
+        &session,
+        [("id", Value::Ulid(structural_id)), ("from", Value::Null)],
+    );
+    let structural_error = session
+        .insert_structural::<NullableAccountEventEntity>(structural_id, structural_patch)
+        .expect_err("structural null after-image must fail the pending not-null gate");
+
+    for error in [&typed_error, &structural_error] {
+        assert!(matches!(
+            error.detail(),
+            Some(ErrorDetail::Executor(detail))
+                if detail.constraint_identity() == Some(constraint_id.get())
+                    && matches!(detail, ExecutorErrorDetail::ConstraintViolation { .. })
+        ));
+    }
+    session
+        .insert(NullableAccountEventEntity {
+            id: accepted_id,
+            from: Some(account),
+            to: None,
+        })
+        .expect("non-null final after-image should pass the pending gate");
+    assert!(load_nullable_account_event_entity(typed_id).is_none());
+    assert!(load_nullable_account_event_entity(structural_id).is_none());
+    assert_eq!(
+        load_nullable_account_event_entity(accepted_id),
+        Some(NullableAccountEventEntity {
+            id: accepted_id,
+            from: Some(account),
+            to: None,
+        }),
+    );
+
+    SOURCE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    DbSession::<TestCanister>::clear_accepted_schema_query_cache_for_tests();
+}
+
+#[test]
+fn atomic_batch_rejects_every_row_when_one_final_after_image_violates_check() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+    SOURCE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_unique_email_check_schema();
+    let session = DbSession::new(DB);
+    let valid_id = Ulid::from_u128(28_004);
+    let rejected_id = Ulid::from_u128(28_005);
+
+    session
+        .insert_many_atomic([
+            UniqueEmailEntity {
+                id: valid_id,
+                email: "valid@example.com".to_string(),
+            },
+            UniqueEmailEntity {
+                id: rejected_id,
+                email: "x".to_string(),
+            },
+        ])
+        .expect_err("one check violation must reject the complete atomic batch");
+
+    assert!(load_unique_email_entity(valid_id).is_none());
+    assert!(load_unique_email_entity(rejected_id).is_none());
+
+    SOURCE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    DbSession::<TestCanister>::clear_accepted_schema_query_cache_for_tests();
+}
+
+#[test]
+fn typed_update_rejects_check_violation_without_changing_existing_row() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+    SOURCE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_unique_email_check_schema();
+    let session = DbSession::new(DB);
+    let id = Ulid::from_u128(28_006);
+    let baseline = UniqueEmailEntity {
+        id,
+        email: "valid@example.com".to_string(),
+    };
+    session
+        .insert(baseline.clone())
+        .expect("valid baseline should insert");
+
+    session
+        .update(UniqueEmailEntity {
+            id,
+            email: "x".to_string(),
+        })
+        .expect_err("typed update violating accepted check must reject");
+
+    assert_eq!(load_unique_email_entity(id), Some(baseline));
+
+    SOURCE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    DbSession::<TestCanister>::clear_accepted_schema_query_cache_for_tests();
 }
 
 #[test]

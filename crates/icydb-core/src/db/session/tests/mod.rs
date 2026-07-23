@@ -68,8 +68,8 @@ use crate::db::{
 };
 use crate::{
     db::{
-        Db, EntityCatalogDescription, EntityFieldDescription, EntityRuntimeHooks,
-        EntitySchemaDescription, MemoryCatalogDescription, MissingRowPolicy,
+        Db, EntityCatalogDescription, EntityConstraintDescription, EntityFieldDescription,
+        EntityRuntimeHooks, EntitySchemaDescription, MemoryCatalogDescription, MissingRowPolicy,
         PagedGroupedExecutionWithTrace, PersistedByKindCodec, PlanError, QueryError,
         StoreCatalogDescription,
         access::lower_access,
@@ -535,6 +535,7 @@ impl SelectTestSurface {
             #[cfg(feature = "sql-explain")]
             SqlStatement::Explain(_) => Some(self.reject_statement("EXPLAIN")),
             SqlStatement::Describe(_) => Some(self.reject_statement("DESCRIBE")),
+            SqlStatement::ShowConstraints(_) => Some(self.reject_statement("SHOW CONSTRAINTS")),
             SqlStatement::ShowIndexes(_) => Some(self.reject_statement("SHOW INDEXES")),
             SqlStatement::ShowColumns(_) => Some(self.reject_statement("SHOW COLUMNS")),
             SqlStatement::ShowEntities(_) => Some(self.reject_statement("SHOW ENTITIES")),
@@ -3072,6 +3073,27 @@ fn session_show_indexes_reports_primary_and_secondary_indexes() {
 }
 
 #[test]
+fn session_show_constraints_reports_accepted_structural_registry() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let constraints = session
+        .try_show_constraints::<SessionSqlEntity>()
+        .expect("accepted structural constraints should be available");
+
+    assert_eq!(constraints.len(), 4);
+    assert_eq!(constraints[0].kind(), "primary_key");
+    assert_eq!(constraints[0].fields(), &["id".to_string()]);
+    assert_eq!(constraints[1].kind(), "not_null");
+    assert_eq!(constraints[2].kind(), "not_null");
+    assert_eq!(constraints[3].kind(), "not_null");
+    assert!(constraints.iter().all(|constraint| {
+        constraint.id() != 0
+            && constraint.origin() == "generated"
+            && constraint.validation_state() == "validated"
+    }));
+}
+
+#[test]
 fn session_show_indexes_sql_reports_ready_and_building_runtime_index_states() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -3317,6 +3339,7 @@ enum SqlStatementPayloadKind {
     #[cfg(feature = "sql-explain")]
     Explain,
     Describe,
+    ShowConstraints,
     ShowIndexes,
     ShowColumns,
     ShowEntities,
@@ -3338,6 +3361,9 @@ impl SqlStatementPayloadKind {
             #[cfg(feature = "sql-explain")]
             Self::Explain => "EXPLAIN SQL requires an EXPLAIN statement",
             Self::Describe => "DESCRIBE SQL requires a DESCRIBE statement",
+            Self::ShowConstraints => {
+                "SHOW CONSTRAINTS SQL requires a SHOW CONSTRAINTS FROM statement"
+            }
             Self::ShowIndexes => "SHOW INDEXES FROM SQL requires a SHOW INDEXES FROM statement",
             Self::ShowColumns => "SHOW COLUMNS SQL requires a SHOW COLUMNS statement",
             Self::ShowEntities => "SHOW ENTITIES SQL requires a SHOW ENTITIES statement",
@@ -3663,6 +3689,23 @@ where
         SqlStatementPayloadKind::ShowIndexes,
         |result| match result {
             SqlStatementResult::ShowIndexes(indexes) => Some(indexes),
+            _ => None,
+        },
+    )
+}
+
+fn statement_show_constraints_sql<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+) -> Result<Vec<EntityConstraintDescription>, QueryError>
+where
+    E: PersistedRow<Canister = SessionSqlCanister>,
+{
+    extract_sql_statement_payload(
+        execute_sql_statement_for_tests::<E>(session, sql)?,
+        SqlStatementPayloadKind::ShowConstraints,
+        |result| match result {
+            SqlStatementResult::ShowConstraints(constraints) => Some(constraints),
             _ => None,
         },
     )

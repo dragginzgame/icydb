@@ -29,18 +29,88 @@ The goal of this document is to keep routine work:
 - cheap to extend in follow-up patches
 
 The recurring audit owns the forward-looking code-structure score. These rules
-describe code-review and landing slices. A slice is not a patch release. Routine
-work may accumulate through several small slices before one published patch
-release is prepared.
+describe code-review and landing slices. One planned minor-line patch is one
+reviewable landing patch and worktree handoff. A landing patch does not acquire
+a version number until the user names a release target, but agents must not use
+that distinction to accumulate multiple planned patches in one worktree batch.
 
 These rules are intended to guide automated agents and code review.
 
 ---
 
-# 2. Release Engineering Rule #1
+# 2. Minor-Line Patch Contract
+
+Before implementation begins, the design/status tracker for a minor-version
+line must group the whole intended line into roughly 6-8 ordered landing
+patches. Multiple design documents in the same minor line share this total;
+they do not each receive a separate 6-8-patch allowance.
+
+The normal planning range is 5-9 patches. Fewer than 5 or more than 9 requires
+an explicit user agreement and a brief explanation in the tracker. The target
+is intentionally approximate: it exists to prevent both dozens of tiny pushes
+and one or two multi-hour mega-slices.
+
+Each landing patch must name:
+
+- its canonical owner and bounded outcome;
+- the delivery domains it expects to touch;
+- its focused validation boundary; and
+- any public, persisted-format, performance, or wasm-size impact it must report.
+
+Each patch must be a substantive, end-to-end review unit. Include the direct
+tests, diagnostics, documentation, fixtures, exhaustive-match propagation, and
+warning cleanup caused by its bounded outcome. Those are not separate patches.
+Conversely, do not combine independent owners or independently reviewable
+outcomes merely to reduce the patch count.
+
+One planned landing patch is the default maximum for one agent implementation
+turn.
+After completing its code, focused validation, status update, and root
+`Unreleased` note, the agent stops and hands the landing patch back for review.
+It does not start the next planned patch in the same turn.
+
+Continuation language is deliberately bounded:
+
+- `continue`, `keep going`, and `next` mean exactly the next planned landing
+  patch within the current minor-version line;
+- a statement that the previous patch is live plus `continue` also means one
+  next planned landing patch in the same minor line; and
+- combining multiple landing patches requires the user to name them and ask for
+  them together.
+
+Generic continuation never crosses a minor-version boundary. When no planned
+implementation patch remains, it means closeout/readiness work for the current
+minor: begin with a read-only audit and report its findings before making
+closeout corrections. Approved corrections remain in that line. The closeout
+audit itself does not consume a landing patch unless it produces a code
+correction.
+
+A different minor may begin only after:
+
+1. the current minor has a reported ready/complete closeout verdict; and
+2. after that verdict, the user explicitly names the target minor and directs
+   the agent to start it, for example `start 0.212`.
+
+Do not infer that authorization from a roadmap, an existing next design, an
+empty tracker, a clean worktree, a successful push, or status questions such
+as `what is next?`, `are we done?`, or `push?`.
+
+If honest patches cannot keep the minor line near the target range and the
+limits below, re-scope the minor line or agree a different patch count with the
+user. Do not make each patch wider to preserve an oversized plan, and do not
+manufacture micro-patches solely to hit a number.
+
+A completed landing patch is normally handed back as a candidate push for the
+next patch release in the minor line. Agents must not invent release numbers;
+the user decides the exact target and whether a particular handoff is pushed.
+
+---
+
+# 3. Release Engineering Rule #1
 
 A routine feature change may span at most two primary delivery domains unless
-the author provides an explicit slice override.
+the user explicitly approves a slice override before implementation crosses
+that boundary.
 
 Primary delivery domains:
 
@@ -65,9 +135,9 @@ into one large landing slice by default.
 
 ---
 
-# 3. Slice Shape Limits
+# 4. Slice Shape Limits
 
-Routine feature pull requests should satisfy:
+Each landing patch must satisfy:
 
 - soft file-count limit: `<= 15`
 - hard file-count limit: `<= 25`
@@ -77,22 +147,26 @@ Interpretation:
 
 - `<= 15` changed files is the target for healthy routine work.
 - `16..25` files is allowed but should be treated as a warning band.
-- `> 25` files requires an explicit override.
-- touching more than two primary domains requires an explicit override even if
-  file count stays below the hard limit.
+- `> 25` files requires an explicit user-approved override obtained before the
+  slice is widened.
+- touching more than two primary domains requires the same explicit approval
+  even if file count stays below the hard limit.
 
 Docs-only or governance-only edits are not the primary target of this rule.
-They may still trip the hard limit mechanically, but should be rare and can
-use the documented override path.
+They may still trip the hard limit mechanically, but should be rare and require
+the same documented override path.
 
 ---
 
-# 4. Wide Slice Review
+# 5. Wide Slice Review
 
-If a pull request exceeds the hard file limit or the domain limit, the author
-should explain why the wider landing unit is preferable to splitting the work.
+If a projected landing patch exceeds the hard file limit or the domain limit,
+the agent must split it or stop and obtain explicit user approval before making
+the wider edit. The agent cannot grant its own override based on coherence,
+atomicity, convenience, or the cost of another compile.
 
-This explanation belongs in the PR summary, not in a special trailer format.
+When the user approves an override, its explanation belongs in the patch/PR
+summary, not in a special trailer format.
 
 Rules:
 
@@ -101,11 +175,11 @@ Rules:
   unit;
 - keep follow-up cleanup work separate unless it is needed for correctness.
 
-This is review guidance, not a CI-enforced contract.
+CI may not enforce every limit, but the limits remain agent execution rules.
 
 ---
 
-# 5. Canonical SQL Landing Pattern
+# 6. Canonical SQL Landing Pattern
 
 New SQL feature work should land in three phases whenever practical.
 
@@ -162,16 +236,15 @@ Allowed:
 
 This phased landing pattern is the default for routine SQL growth.
 
-If one pull request needs to cross all three phases, use the slice override
-contract and explain why the split was not practical.
+If one landing patch needs to cross all three phases, stop and use the explicit
+user-approved slice override contract before making the cross-phase edits.
 
-These phases may land as several commits or local slices inside one unreleased
-batch. They do not require separate patch versions unless the user explicitly
-chooses to publish them separately.
+These phases should land as separate reviewable slices. They do not acquire
+separate version numbers unless the user chooses to publish them separately.
 
 ---
 
-# 6. Route Planner Controlled Hub Rule
+# 7. Route Planner Controlled Hub Rule
 
 `crates/icydb-core/src/db/executor/planning/route/planner/mod.rs` is a controlled hub.
 
@@ -192,7 +265,7 @@ It is not the place to absorb unrelated frontend or session concerns.
 
 ---
 
-# 7. Root Module Re-Centralization Guard
+# 8. Root Module Re-Centralization Guard
 
 The repository should not silently re-aggregate logic into high-level module
 roots after a split.
@@ -205,13 +278,13 @@ Guarded roots:
 Rule:
 
 - adding more than approximately `200` lines to one guarded root in one change
-  requires an explicit slice override or a follow-up split in the same change
+  requires an explicit user-approved slice override or a split before handoff
 
 This rule is about new accretion, not the historical size of the file.
 
 ---
 
-# 8. Enum Shock Radius Guidance
+# 9. Enum Shock Radius Guidance
 
 Before adding a new variant to a widely used decision enum, evaluate whether:
 
@@ -229,7 +302,7 @@ switch-site edits across the tree.
 
 ---
 
-# 9. CI Enforcement
+# 10. CI Enforcement
 
 CI should enforce the route-planner import boundary guard through the
 layer-authority invariant gate.

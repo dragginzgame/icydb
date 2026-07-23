@@ -10,13 +10,17 @@ use crate::{
         codec::{finalize_hash_sha256, new_hash_sha256},
         direction::Direction,
         schema::{
-            AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
-            AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, FieldId, PersistedFieldSnapshot,
+            AcceptedCheckExprV1, AcceptedCompositeCatalog, AcceptedFieldKind,
+            AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
+            CandidateSchemaRevision, ConstraintActivationState, ConstraintOrigin,
+            ConstraintValidationJob, FieldId, PersistedFieldSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
             PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaIndexId,
             SchemaInsertDefault, SchemaRowLayout, SchemaVersion, accepted_schema_cache_fingerprint,
-            composite_catalog::CompositeTypeId, empty_accepted_schema_candidate_for_tests,
-            encode_persisted_schema_snapshot, enum_catalog::AcceptedSchemaFingerprint,
+            composite_catalog::CompositeTypeId,
+            empty_accepted_schema_candidate_for_tests,
+            encode_unchecked_persisted_schema_snapshot_for_tests,
+            enum_catalog::{AcceptedSchemaFingerprint, AcceptedSchemaRevisionBundle},
         },
     },
     model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
@@ -155,6 +159,96 @@ fn schema_store_matches_only_its_current_root_authority() {
             .current_accepted_schema_authority_matches(current.authority())
             .expect("stale authority comparison should read the new root"),
     );
+}
+
+#[test]
+fn schema_store_requires_exact_job_closure_for_validating_activation() {
+    let entity = EntityTag::new(0xCAFE);
+    let empty = empty_accepted_schema_candidate_for_tests(
+        "test::ValidationJobStore",
+        AcceptedSchemaRevision::INITIAL,
+    );
+    let snapshot = PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "entities::Validated".to_string(),
+        "Validated".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
+        vec![PersistedFieldSnapshot::new_initial(
+            FieldId::new(1),
+            "id".to_string(),
+            SchemaFieldSlot::new(0),
+            AcceptedFieldKind::Ulid,
+            Vec::new(),
+            false,
+            SchemaInsertDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Ulid),
+        )],
+    );
+    let catalog = snapshot
+        .constraint_catalog()
+        .clone()
+        .with_added_check_activation(
+            "pending_check".to_string(),
+            ConstraintOrigin::Generated,
+            AcceptedCheckExprV1::True,
+            AcceptedSchemaFingerprint::new([0xA5; 32]),
+            2,
+        )
+        .expect("activation should reserve identity");
+    let snapshot = snapshot.with_constraint_catalog(catalog);
+    let initial_bundle = AcceptedSchemaRevisionBundle::new(
+        AcceptedSchemaRevision::INITIAL,
+        "test::ValidationJobStore",
+        empty.bundle().enum_catalog().clone(),
+        empty.bundle().composite_catalog().clone(),
+        std::collections::BTreeMap::from([(entity, snapshot.clone())]),
+    )
+    .expect("activation bundle should build");
+    let initial =
+        CandidateSchemaRevision::new(initial_bundle).expect("activation candidate should encode");
+    let mut store = SchemaStore::init_heap();
+    store
+        .publish_accepted_schema_candidate(AcceptedSchemaRevision::NONE, &initial)
+        .expect("Enforcing activation should publish without a job");
+
+    let validating_catalog = snapshot
+        .constraint_catalog()
+        .clone()
+        .with_validation_started(snapshot.constraint_activations()[0].id())
+        .expect("activation should enter validation");
+    let validating_snapshot = snapshot.with_constraint_catalog(validating_catalog);
+    let activation = &validating_snapshot.constraint_activations()[0];
+    assert_eq!(activation.state(), ConstraintActivationState::Validating);
+    let job = ConstraintValidationJob::start(
+        entity,
+        validating_snapshot.entity_path().to_string(),
+        activation,
+        None,
+    )
+    .expect("validating activation should create a job");
+    let validating_bundle = AcceptedSchemaRevisionBundle::new(
+        AcceptedSchemaRevision::new(2),
+        "test::ValidationJobStore",
+        initial.bundle().enum_catalog().clone(),
+        initial.bundle().composite_catalog().clone(),
+        std::collections::BTreeMap::from([(entity, validating_snapshot)]),
+    )
+    .expect("validating bundle should build");
+    assert!(
+        store
+            .validate_constraint_validation_job_closure(&validating_bundle)
+            .is_err(),
+        "Validating activation without its exact job must fail closed",
+    );
+    store
+        .validate_constraint_validation_job_closure_with_change(
+            &validating_bundle,
+            Some(&job),
+            None,
+        )
+        .expect("candidate plus exact job should close");
 }
 
 #[test]
@@ -608,6 +702,73 @@ fn accepted_schema_bundle_cache_is_keyed_by_selected_root() {
 }
 
 #[test]
+fn accepted_catalog_selection_reuses_verified_entity_bytes() {
+    let entity = EntityTag::new(7);
+    let empty = empty_accepted_schema_candidate_for_tests(
+        "test::CachedCatalogSelectionStore",
+        AcceptedSchemaRevision::INITIAL,
+    );
+    let snapshot = PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "entities::CachedEntity".to_string(),
+        "CachedEntity".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
+        vec![PersistedFieldSnapshot::new_initial(
+            FieldId::new(1),
+            "id".to_string(),
+            SchemaFieldSlot::new(0),
+            AcceptedFieldKind::Ulid,
+            Vec::new(),
+            false,
+            SchemaInsertDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Ulid),
+        )],
+    );
+    let bundle = AcceptedSchemaRevisionBundle::new(
+        AcceptedSchemaRevision::INITIAL,
+        "test::CachedCatalogSelectionStore",
+        empty.bundle().enum_catalog().clone(),
+        empty.bundle().composite_catalog().clone(),
+        std::collections::BTreeMap::from([(entity, snapshot)]),
+    )
+    .expect("accepted bundle should build");
+    let candidate = CandidateSchemaRevision::new(bundle).expect("accepted candidate should encode");
+    let mut store = SchemaStore::init_heap();
+    store
+        .publish_accepted_schema_candidate(AcceptedSchemaRevision::NONE, &candidate)
+        .expect("accepted candidate should publish");
+
+    let first = store
+        .current_accepted_catalog_selection(
+            entity,
+            "entities::CachedEntity",
+            "test::CachedCatalogSelectionStore",
+        )
+        .expect("first selection should resolve")
+        .expect("accepted entity should exist");
+    let second = store
+        .current_accepted_catalog_selection(
+            entity,
+            "entities::CachedEntity",
+            "test::CachedCatalogSelectionStore",
+        )
+        .expect("second selection should resolve")
+        .expect("accepted entity should exist");
+
+    assert_eq!(first.identity(), second.identity());
+    assert!(std::rc::Rc::ptr_eq(
+        &first.raw_snapshot,
+        &second.raw_snapshot,
+    ));
+    assert_eq!(
+        first.value_catalog_handle().authority(),
+        second.value_catalog_handle().authority(),
+    );
+}
+
+#[test]
 fn journaled_schema_store_descending_range_orders_live_between_canonical_versions() {
     let mut store = SchemaStore::init_journaled(test_memory(228));
     let entity = EntityTag::new(72);
@@ -1001,7 +1162,7 @@ fn schema_store_rejects_raw_snapshot_with_divergent_field_slots() {
         ]),
         base.fields().to_vec(),
     );
-    let raw = encode_persisted_schema_snapshot(&invalid)
+    let raw = encode_unchecked_persisted_schema_snapshot_for_tests(&invalid)
         .expect("invalid raw schema snapshot should encode for decode-boundary coverage");
     let key = RawSchemaKey::from_entity_version(EntityTag::new(46), invalid.version());
 
@@ -1033,7 +1194,7 @@ fn schema_store_rejects_raw_snapshot_with_missing_primary_key_field() {
         base.row_layout().clone(),
         base.fields().to_vec(),
     );
-    let raw = encode_persisted_schema_snapshot(&invalid)
+    let raw = encode_unchecked_persisted_schema_snapshot_for_tests(&invalid)
         .expect("invalid raw schema snapshot should encode for decode-boundary coverage");
     let key = RawSchemaKey::from_entity_version(EntityTag::new(48), invalid.version());
 
@@ -1078,7 +1239,7 @@ fn schema_store_rejects_raw_snapshot_with_duplicate_field_name() {
         base.row_layout().clone(),
         fields,
     );
-    let raw = encode_persisted_schema_snapshot(&invalid)
+    let raw = encode_unchecked_persisted_schema_snapshot_for_tests(&invalid)
         .expect("invalid raw schema snapshot should encode for decode-boundary coverage");
     let key = RawSchemaKey::from_entity_version(EntityTag::new(50), invalid.version());
 
@@ -1176,7 +1337,7 @@ fn schema_store_rejects_raw_snapshot_with_duplicate_nested_leaf_path() {
         base.row_layout().clone(),
         fields,
     );
-    let raw = encode_persisted_schema_snapshot(&invalid)
+    let raw = encode_unchecked_persisted_schema_snapshot_for_tests(&invalid)
         .expect("invalid raw schema snapshot should encode for decode-boundary coverage");
     let key = RawSchemaKey::from_entity_version(EntityTag::new(52), invalid.version());
 
@@ -1302,7 +1463,7 @@ fn persisted_schema_snapshot_with_index_for_test(
 ) -> PersistedSchemaSnapshot {
     let base = persisted_schema_snapshot_for_test(version, entity_name);
 
-    PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+    PersistedSchemaSnapshot::new_with_indexes(
         base.version(),
         base.entity_path().to_string(),
         base.entity_name().to_string(),

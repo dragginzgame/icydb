@@ -28,17 +28,20 @@ use icydb_diagnostic_code::SqlFeatureCode;
 
 pub(crate) use crate::db::sql_shared::SqlParseError;
 pub(crate) use model::{
-    SqlAggregateCall, SqlAggregateKind, SqlAlterColumnAction, SqlAlterTableAddColumnStatement,
+    SqlAggregateCall, SqlAggregateKind, SqlAlterColumnAction,
+    SqlAlterTableAddCheckConstraintStatement, SqlAlterTableAddColumnStatement,
     SqlAlterTableAlterColumnStatement, SqlAlterTableDropColumnStatement,
-    SqlAlterTableRenameColumnStatement, SqlAssignment, SqlCaseArm,
+    SqlAlterTableDropConstraintStatement, SqlAlterTableRenameColumnStatement,
+    SqlAlterTableValidateConstraintStatement, SqlAssignment, SqlCaseArm,
     SqlCreateIndexExpressionFunction, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
     SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlSchemaVersionContract,
     SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement, SqlDropIndexStatement, SqlExpr,
     SqlExprBinaryOp, SqlExprUnaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection,
     SqlOrderTerm, SqlProjection, SqlReturningProjection, SqlScalarFunction,
     SqlScalarFunctionCallShape, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
-    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlShowMemoryStatement,
-    SqlShowStoresStatement, SqlStatement, SqlUpdateStatement, SqlWriteValue,
+    SqlShowConstraintsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
+    SqlShowMemoryStatement, SqlShowStoresStatement, SqlStatement, SqlUpdateStatement,
+    SqlWriteValue,
 };
 #[cfg(feature = "sql-explain")]
 pub(crate) use model::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget};
@@ -171,6 +174,29 @@ impl Parser {
 
         let parsed = value.parse::<u32>().map_err(|_| {
             SqlParseError::invalid_syntax(SqlSyntaxErrorKind::IntegerLiteralU32Overflow { clause })
+        })?;
+        self.cursor.advance();
+
+        Ok(parsed)
+    }
+
+    fn parse_u64_literal(&mut self, clause: SqlIntegerLiteralClause) -> Result<u64, SqlParseError> {
+        let Some(TokenKind::Number(value)) = self.peek_kind() else {
+            return Err(SqlParseError::expected(
+                SqlExpectedToken::IntegerLiteral { clause },
+                self.peek_kind(),
+            ));
+        };
+        let value = value.as_str();
+
+        if value.contains('.') || value.starts_with('-') {
+            return Err(SqlParseError::invalid_syntax(
+                SqlSyntaxErrorKind::IntegerLiteralRequiresNonNegative { clause },
+            ));
+        }
+
+        let parsed = value.parse::<u64>().map_err(|_| {
+            SqlParseError::invalid_syntax(SqlSyntaxErrorKind::IntegerLiteralU64Overflow { clause })
         })?;
         self.cursor.advance();
 

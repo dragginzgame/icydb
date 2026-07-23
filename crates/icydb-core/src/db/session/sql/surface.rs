@@ -122,6 +122,7 @@ const fn sql_statement_surface_from_statement(statement: &SqlStatement) -> SqlSt
         | SqlStatement::Insert(_)
         | SqlStatement::Update(_)
         | SqlStatement::Describe(_)
+        | SqlStatement::ShowConstraints(_)
         | SqlStatement::ShowIndexes(_)
         | SqlStatement::ShowColumns(_)
         | SqlStatement::ShowEntities(_)
@@ -142,6 +143,7 @@ const fn sql_statement_shell_surface_from_statement(
         | SqlStatement::Delete(_)
         | SqlStatement::Insert(_)
         | SqlStatement::Describe(_)
+        | SqlStatement::ShowConstraints(_)
         | SqlStatement::ShowIndexes(_)
         | SqlStatement::ShowColumns(_)
         | SqlStatement::ShowEntities(_)
@@ -157,6 +159,7 @@ const fn sql_statement_requires_introspection_from_statement(statement: &SqlStat
         #[cfg(feature = "sql-explain")]
         SqlStatement::Explain(_) => true,
         SqlStatement::Describe(_)
+        | SqlStatement::ShowConstraints(_)
         | SqlStatement::ShowIndexes(_)
         | SqlStatement::ShowColumns(_)
         | SqlStatement::ShowEntities(_)
@@ -186,13 +189,22 @@ const fn sql_statement_entity_name_from_statement(statement: &SqlStatement) -> O
         SqlStatement::Ddl(SqlDdlStatement::AlterTableAddColumn(statement)) => {
             Some(statement.entity.as_str())
         }
+        SqlStatement::Ddl(SqlDdlStatement::AlterTableAddCheckConstraint(statement)) => {
+            Some(statement.entity.as_str())
+        }
         SqlStatement::Ddl(SqlDdlStatement::AlterTableAlterColumn(statement)) => {
             Some(statement.entity.as_str())
         }
         SqlStatement::Ddl(SqlDdlStatement::AlterTableDropColumn(statement)) => {
             Some(statement.entity.as_str())
         }
+        SqlStatement::Ddl(SqlDdlStatement::AlterTableDropConstraint(statement)) => {
+            Some(statement.entity.as_str())
+        }
         SqlStatement::Ddl(SqlDdlStatement::AlterTableRenameColumn(statement)) => {
+            Some(statement.entity.as_str())
+        }
+        SqlStatement::Ddl(SqlDdlStatement::AlterTableValidateConstraint(statement)) => {
             Some(statement.entity.as_str())
         }
         #[cfg(feature = "sql-explain")]
@@ -201,6 +213,7 @@ const fn sql_statement_entity_name_from_statement(statement: &SqlStatement) -> O
             SqlExplainTarget::Delete(statement) => Some(statement.entity.as_str()),
         },
         SqlStatement::Describe(statement) => Some(statement.entity.as_str()),
+        SqlStatement::ShowConstraints(statement) => Some(statement.entity.as_str()),
         SqlStatement::ShowIndexes(statement) => Some(statement.entity.as_str()),
         SqlStatement::ShowColumns(statement) => Some(statement.entity.as_str()),
         SqlStatement::ShowEntities(_)
@@ -222,6 +235,7 @@ impl<C: CanisterKind> DbSession<C> {
                 SqlCompiledCommandSurface::Query,
                 SqlStatement::Select(_)
                 | SqlStatement::Describe(_)
+                | SqlStatement::ShowConstraints(_)
                 | SqlStatement::ShowIndexes(_)
                 | SqlStatement::ShowColumns(_)
                 | SqlStatement::ShowEntities(_)
@@ -256,6 +270,11 @@ impl<C: CanisterKind> DbSession<C> {
             (SqlCompiledCommandSurface::Mutation, SqlStatement::Describe(_)) => Err(
                 QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::MutationRejectsDescribe),
             ),
+            (SqlCompiledCommandSurface::Mutation, SqlStatement::ShowConstraints(_)) => {
+                Err(QueryError::sql_surface_mismatch(
+                    SqlSurfaceMismatchCode::MutationRejectsShowConstraints,
+                ))
+            }
             (SqlCompiledCommandSurface::Mutation, SqlStatement::ShowIndexes(_)) => {
                 Err(QueryError::sql_surface_mismatch(
                     SqlSurfaceMismatchCode::MutationRejectsShowIndexes,

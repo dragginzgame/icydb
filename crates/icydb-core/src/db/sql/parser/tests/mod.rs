@@ -12,9 +12,9 @@ use super::{
     SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement, SqlDropIndexStatement, SqlExpr,
     SqlExprBinaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
     SqlParseError, SqlProjection, SqlReturningProjection, SqlScalarFunction, SqlSelectItem,
-    SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
-    SqlShowMemoryStatement, SqlShowStoresStatement, SqlStatement, SqlUpdateStatement,
-    SqlWriteValue, parse_sql,
+    SqlSelectStatement, SqlShowColumnsStatement, SqlShowConstraintsStatement,
+    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlShowMemoryStatement,
+    SqlShowStoresStatement, SqlStatement, SqlUpdateStatement, SqlWriteValue, parse_sql,
 };
 #[cfg(feature = "sql-explain")]
 use super::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget};
@@ -1870,6 +1870,36 @@ fn parse_show_indexes_statement_with_schema_qualified_entity() {
 }
 
 #[test]
+fn parse_show_constraints_statement_with_schema_qualified_entity() {
+    let statement = parse_sql("SHOW CONSTRAINTS FROM public.users")
+        .expect("show constraints statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::ShowConstraints(SqlShowConstraintsStatement {
+            entity: "public.users".to_string(),
+        }),
+    );
+
+    assert_eq!(
+        parse_sql("SHOW CONSTRAINTS IN public.users")
+            .expect("show constraints IN statement should parse"),
+        statement,
+    );
+}
+
+#[test]
+fn parse_show_constraints_rejects_non_sql_entity_shortcut() {
+    let err = parse_sql("SHOW CONSTRAINTS public.users")
+        .expect_err("SHOW CONSTRAINTS requires FROM or IN");
+
+    assert!(
+        matches!(err, SqlParseError::InvalidSyntax { .. }),
+        "SHOW CONSTRAINTS without FROM/IN should fail as invalid SQL syntax",
+    );
+}
+
+#[test]
 fn parse_show_indexes_statement_accepts_in_synonym() {
     let statement =
         parse_sql("SHOW INDEXES IN public.users").expect("show indexes IN statement should parse");
@@ -2196,6 +2226,59 @@ fn parse_alter_table_alter_column_statement_keeps_nullability_intent_unresolved(
                 schema_version_contract: SqlDdlSchemaVersionContract::default(),
             },
         )),
+    );
+}
+
+#[test]
+fn parse_alter_table_check_constraint_lifecycle_intent() {
+    let add = parse_sql(
+        "ALTER TABLE users ADD CONSTRAINT adult CHECK (age >= 18) NOT VALID \
+         EXPECT SCHEMA VERSION 2 SET SCHEMA VERSION 3",
+    )
+    .expect("ADD CONSTRAINT CHECK NOT VALID should parse");
+    let drop = parse_sql(
+        "ALTER TABLE users DROP CONSTRAINT IF EXISTS adult \
+         EXPECT SCHEMA VERSION 3 SET SCHEMA VERSION 4",
+    )
+    .expect("DROP CONSTRAINT IF EXISTS should parse");
+    let validate = parse_sql("ALTER TABLE users VALIDATE CONSTRAINT adult AFTER 7")
+        .expect("VALIDATE CONSTRAINT AFTER should parse");
+
+    let SqlStatement::Ddl(SqlDdlStatement::AlterTableAddCheckConstraint(add)) = add else {
+        panic!("ADD CONSTRAINT should keep typed DDL intent");
+    };
+    assert_eq!(add.entity, "users");
+    assert_eq!(add.constraint_name, "adult");
+    assert!(add.not_valid);
+    assert_eq!(add.schema_version_contract.expected_schema_version, Some(2));
+    assert_eq!(add.schema_version_contract.next_schema_version, Some(3));
+
+    let SqlStatement::Ddl(SqlDdlStatement::AlterTableDropConstraint(drop)) = drop else {
+        panic!("DROP CONSTRAINT should keep typed DDL intent");
+    };
+    assert!(drop.if_exists);
+    assert_eq!(drop.constraint_name, "adult");
+
+    let SqlStatement::Ddl(SqlDdlStatement::AlterTableValidateConstraint(validate)) = validate
+    else {
+        panic!("VALIDATE CONSTRAINT should keep typed progress intent");
+    };
+    assert_eq!(validate.constraint_name, "adult");
+    assert_eq!(validate.after_page_sequence, Some(7));
+
+    let SqlStatement::Ddl(SqlDdlStatement::AlterTableValidateConstraint(validate)) =
+        parse_sql("ALTER TABLE Character VALIDATE CONSTRAINT adult_age AFTER 18446744073709551615")
+            .expect("validation acknowledgements should admit the complete u64 identity domain")
+    else {
+        panic!("expected VALIDATE CONSTRAINT statement");
+    };
+    assert_eq!(validate.after_page_sequence, Some(u64::MAX));
+    assert!(
+        parse_sql(
+            "ALTER TABLE Character VALIDATE CONSTRAINT adult_age AFTER 18446744073709551616",
+        )
+        .is_err(),
+        "validation acknowledgement identities above u64 must fail closed",
     );
 }
 
@@ -4349,6 +4432,10 @@ fn parse_sql_unsupported_feature_codes_are_stable() {
         (
             "SHOW INDEXES FROM users WHERE age > 1",
             SqlFeatureCode::ShowIndexesModifiers,
+        ),
+        (
+            "SHOW CONSTRAINTS FROM users WHERE age > 1",
+            SqlFeatureCode::ShowConstraintsModifiers,
         ),
         (
             "SHOW COLUMNS users WHERE age > 1",

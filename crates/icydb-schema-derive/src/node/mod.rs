@@ -5,6 +5,7 @@
 
 mod arg;
 mod canister;
+mod constraint;
 mod def;
 mod entity;
 mod r#enum;
@@ -29,6 +30,7 @@ mod value;
 
 pub use arg::*;
 pub use canister::*;
+pub(crate) use constraint::*;
 pub use def::*;
 pub use entity::*;
 pub use r#enum::*;

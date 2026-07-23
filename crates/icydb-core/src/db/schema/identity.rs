@@ -61,6 +61,31 @@ impl ConstraintIdAllocator {
             None => 0,
         }
     }
+
+    /// Reserve the next non-reusing constraint identity in candidate state.
+    ///
+    /// The returned allocator is not authoritative until its containing schema
+    /// candidate publishes. Exhaustion leaves the accepted allocator unchanged.
+    #[must_use]
+    pub(in crate::db) const fn checked_reserve(self) -> Option<(Self, ConstraintId)> {
+        let next = match self.high_water {
+            Some(high_water) => match high_water.get().checked_add(1) {
+                Some(next) => next,
+                None => return None,
+            },
+            None => 1,
+        };
+        let Some(id) = ConstraintId::new(next) else {
+            return None;
+        };
+
+        Some((
+            Self {
+                high_water: Some(id),
+            },
+            id,
+        ))
+    }
 }
 
 ///
@@ -169,6 +194,21 @@ mod tests {
 
         assert_eq!(empty.high_water(), 0);
         assert_eq!(reserved.high_water(), 7);
+    }
+
+    #[test]
+    fn constraint_allocator_reserves_monotonically_and_fails_closed_at_exhaustion() {
+        let (first, first_id) = ConstraintIdAllocator::default()
+            .checked_reserve()
+            .expect("empty allocator should reserve its first identity");
+        let (second, second_id) = first
+            .checked_reserve()
+            .expect("allocator should reserve its next identity");
+
+        assert_eq!(first_id.get(), 1);
+        assert_eq!(second_id.get(), 2);
+        assert_eq!(second.high_water(), 2);
+        assert_eq!(ConstraintIdAllocator::new(u32::MAX).checked_reserve(), None,);
     }
 
     #[test]

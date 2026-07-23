@@ -102,6 +102,7 @@ pub struct AppStore {}
     pk(field = "id"),
     index(field = "name"),
     index(fields = ["active", "score"]),
+    constraint(name = "score_nonnegative", check = "score >= 0"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
         field(ident = "name", value(item(prim = "Text", unbounded))),
@@ -217,18 +218,29 @@ authorization.
 IcyDB supports a focused, canister-friendly SQL subset:
 
 - `SELECT`, `EXPLAIN`, `DESCRIBE`, `SHOW ENTITIES`, `SHOW STORES`,
-  `SHOW MEMORY`, `SHOW COLUMNS`, and `SHOW INDEXES`
+  `SHOW MEMORY`, `SHOW COLUMNS`, `SHOW INDEXES`, and `SHOW CONSTRAINTS`
 - `INSERT`, `UPDATE`, and `DELETE`, including supported `RETURNING` shapes
 - `CREATE INDEX`, `CREATE UNIQUE INDEX`, `CREATE INDEX IF NOT EXISTS`,
   `DROP INDEX`, and `DROP INDEX IF EXISTS`
 - `ALTER TABLE ... ADD COLUMN`, `ALTER COLUMN ... SET/DROP DEFAULT`,
   `ALTER COLUMN ... SET/DROP NOT NULL`, `RENAME COLUMN`, and dense-rewrite
   `DROP COLUMN`
+- `ALTER TABLE ... ADD CONSTRAINT ... CHECK`, explicit `NOT VALID`, bounded
+  `VALIDATE CONSTRAINT`, and ownership-safe `DROP CONSTRAINT`
 - `WHERE`, `ORDER BY`, `LIMIT`, `OFFSET`, projection aliases, `DISTINCT`,
   aggregates, grouped aggregates, `HAVING`, searched `CASE`, and common
   scalar/numeric/text functions
 - field-path indexes, multi-field indexes, unique indexes, filtered indexes,
   and deterministic `LOWER`/`UPPER`/`TRIM` expression indexes
+
+Generated checks and SQL DDL checks converge on one accepted constraint
+catalog. `SET NOT NULL`, `CREATE UNIQUE INDEX`, and `ADD ... CHECK NOT VALID`
+publish an explicit new-write gate when historical proof is required;
+`VALIDATE CONSTRAINT` advances the bounded durable proof before atomic
+promotion. `SHOW CONSTRAINTS` exposes the same accepted identity and activation
+state without performing a table scan.
+Application validators and sanitizers remain typed authoring behavior; they do
+not become database constraints or recovery-time policy.
 
 IcyDB SQL is not Postgres-style transaction SQL. Mutation statements are
 single-entity IcyDB operations, and returning `Err` from a canister update

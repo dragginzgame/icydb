@@ -161,7 +161,8 @@ pub(in crate::db::executor) fn expand_index_prefix_family_with_exact_child_prefi
     }
 
     let data_generation = store.with_data(DataStore::generation);
-    let index_id = IndexId::new(entity_tag, index.ordinal());
+    let index_id =
+        IndexId::new_with_generation(entity_tag, index.ordinal(), index.physical_generation());
 
     for spec in specs {
         if spec.prefix_components().len().saturating_add(1) != expansion.target_prefix_len() {
@@ -284,6 +285,7 @@ pub(in crate::db) fn exact_count_cardinality_prefixes_for_plan<'specs>(
         entity_tag,
         index_prefix_specs,
         contract.index_ordinal,
+        contract.physical_generation,
         contract.expected_prefix_specs,
         contract.prefix_len,
     )
@@ -292,6 +294,7 @@ pub(in crate::db) fn exact_count_cardinality_prefixes_for_plan<'specs>(
 #[derive(Clone, Copy)]
 struct CardinalityPrefixContract {
     index_ordinal: u16,
+    physical_generation: u64,
     expected_prefix_specs: usize,
     prefix_len: usize,
 }
@@ -302,6 +305,7 @@ fn cardinality_prefix_contract_for_path(
     if let Some((index, values)) = path.as_index_prefix_contract() {
         return Some(CardinalityPrefixContract {
             index_ordinal: index.ordinal(),
+            physical_generation: index.physical_generation(),
             expected_prefix_specs: 1,
             prefix_len: values.len(),
         });
@@ -309,6 +313,7 @@ fn cardinality_prefix_contract_for_path(
     if let Some((index, values)) = path.as_index_multi_lookup_contract() {
         return Some(CardinalityPrefixContract {
             index_ordinal: index.ordinal(),
+            physical_generation: index.physical_generation(),
             expected_prefix_specs: values.len(),
             prefix_len: 1,
         });
@@ -316,6 +321,7 @@ fn cardinality_prefix_contract_for_path(
     if let Some(spec) = path.as_index_branch_set_spec() {
         return Some(CardinalityPrefixContract {
             index_ordinal: spec.index_ref().ordinal(),
+            physical_generation: spec.index_ref().physical_generation(),
             expected_prefix_specs: spec.branch_count(),
             prefix_len: spec.branch_prefix_len(),
         });
@@ -328,6 +334,7 @@ fn exact_cardinality_plan_from_lowered_specs(
     entity_tag: crate::types::EntityTag,
     specs: &[LoweredIndexPrefixSpec],
     index_ordinal: u16,
+    physical_generation: u64,
     expected_prefix_specs: usize,
     prefix_len: usize,
 ) -> Option<LoweredIndexPrefixCardinalityPlan<'_>> {
@@ -339,7 +346,7 @@ fn exact_cardinality_plan_from_lowered_specs(
     }
 
     Some(LoweredIndexPrefixCardinalityPlan {
-        index_id: IndexId::new(entity_tag, index_ordinal),
+        index_id: IndexId::new_with_generation(entity_tag, index_ordinal, physical_generation),
         prefix_len,
         specs,
     })

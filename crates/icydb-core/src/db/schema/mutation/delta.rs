@@ -86,6 +86,9 @@ fn append_only_additive_fields<'a>(
         || actual.entity_path() != expected.entity_path()
         || actual.entity_name() != expected.entity_name()
         || actual.primary_key_field_ids() != expected.primary_key_field_ids()
+        || actual.row_layout().history_floor() != expected.row_layout().history_floor()
+        || actual.indexes() != expected.indexes()
+        || actual.relations() != expected.relations()
     {
         return None;
     }
@@ -109,7 +112,18 @@ fn append_only_additive_fields<'a>(
         return None;
     }
 
-    Some(&expected.fields()[actual.fields().len()..])
+    let added = &expected.fields()[actual.fields().len()..];
+    let expected_catalog = added
+        .iter()
+        .try_fold(actual.constraint_catalog().clone(), |catalog, field| {
+            catalog.with_added_not_null(field)
+        })
+        .ok()?;
+    if &expected_catalog != expected.constraint_catalog() {
+        return None;
+    }
+
+    Some(added)
 }
 
 // Return one appended index only when all non-index schema facts and prior
@@ -122,8 +136,9 @@ fn single_added_index<'a>(
     if actual.entity_path() != expected.entity_path()
         || actual.entity_name() != expected.entity_name()
         || actual.primary_key_field_ids() != expected.primary_key_field_ids()
-        || actual.row_layout().field_to_slot() != expected.row_layout().field_to_slot()
+        || actual.row_layout() != expected.row_layout()
         || actual.fields() != expected.fields()
+        || actual.relations() != expected.relations()
         || expected.indexes().len() != actual.indexes().len().saturating_add(1)
     {
         return None;
@@ -138,5 +153,11 @@ fn single_added_index<'a>(
         return None;
     }
 
-    expected.indexes().last()
+    let added = expected.indexes().last()?;
+    let expected_catalog = actual
+        .constraint_catalog()
+        .clone()
+        .with_added_unique(added)
+        .ok()?;
+    (&expected_catalog == expected.constraint_catalog()).then_some(added)
 }

@@ -31,6 +31,7 @@ pub(in crate::db::sql::lowering) fn validate_sql_statement_ast_depth(
         },
         SqlStatement::Ddl(_)
         | SqlStatement::Describe(_)
+        | SqlStatement::ShowConstraints(_)
         | SqlStatement::ShowIndexes(_)
         | SqlStatement::ShowColumns(_)
         | SqlStatement::ShowEntities(_)

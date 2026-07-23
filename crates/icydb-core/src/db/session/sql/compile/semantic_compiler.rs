@@ -63,6 +63,9 @@ impl<C: CanisterKind> DbSession<C> {
                 Self::compile_explain(statement, entity_name, model, schema)
             }
             SqlStatement::Describe(_) => Self::compile_describe(statement, entity_name),
+            SqlStatement::ShowConstraints(_) => {
+                Self::compile_show_constraints(statement, entity_name)
+            }
             SqlStatement::ShowIndexes(_) => Self::compile_show_indexes(statement, entity_name),
             SqlStatement::ShowColumns(_) => Self::compile_show_columns(statement, entity_name),
             SqlStatement::ShowEntities(statement) => Ok(Self::compile_show_entities(
@@ -347,6 +350,24 @@ impl<C: CanisterKind> DbSession<C> {
 
         Ok(SqlCompileArtifacts::new(
             CompiledSqlCommand::ShowIndexesEntity,
+            0,
+            prepare_local_instructions,
+            0,
+            0,
+        ))
+    }
+
+    // Compile SHOW CONSTRAINTS by validating the prepared surface and
+    // returning the fixed accepted-catalog introspection command.
+    fn compile_show_constraints(
+        statement: &SqlStatement,
+        entity_name: &str,
+    ) -> Result<SqlCompileArtifacts, QueryError> {
+        let (prepare_local_instructions, _prepared) =
+            Self::prepare_statement_for_entity_name(statement, entity_name)?;
+
+        Ok(SqlCompileArtifacts::new(
+            CompiledSqlCommand::ShowConstraintsEntity,
             0,
             prepare_local_instructions,
             0,

@@ -200,12 +200,14 @@ impl<C: CanisterKind> DbSession<C> {
             mutation_row_decode_contract,
             accepted_schema_info,
             accepted_schema_fingerprint,
+            accepted_row_constraints,
         ) = accepted_save_contract_for_catalog_context::<E>(&context, &descriptor);
 
         self.execute_save_with_checked_accepted_row_contract(
             row_decode_contract,
             accepted_schema_info,
             accepted_schema_fingerprint,
+            accepted_row_constraints,
             |save| save.apply_structural_mutation(mode, key, patch, mutation_row_decode_contract),
             std::convert::identity,
         )

@@ -86,6 +86,21 @@ impl IntBig {
         out
     }
 
+    /// Return whether this value is zero without narrowing it.
+    #[must_use]
+    pub(crate) fn is_zero(&self) -> bool {
+        self.0.0 == 0.into()
+    }
+
+    /// Return exact arbitrary-precision divisibility, rejecting a zero factor.
+    #[must_use]
+    pub(crate) fn is_multiple_of(&self, factor: &Self) -> Option<bool> {
+        if factor.is_zero() {
+            return None;
+        }
+        Some((&self.0.0 % &factor.0.0) == 0.into())
+    }
+
     /// Saturating addition (unbounded; equivalent to normal addition).
     #[must_use]
     pub fn saturating_add(self, rhs: Self) -> Self {

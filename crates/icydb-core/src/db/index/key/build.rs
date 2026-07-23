@@ -978,7 +978,11 @@ fn build_field_path_rebuild_target_key(
 
     Ok(Some(IndexKey {
         key_kind: IndexKeyKind::User,
-        index_id: IndexId::new(entity_tag, target.ordinal()),
+        index_id: IndexId::new_with_generation(
+            entity_tag,
+            target.ordinal(),
+            target.physical_generation(),
+        ),
         components,
         primary_key: IndexKey::compact_primary_key_value_bytes(primary_key)?,
     }))
@@ -1013,7 +1017,11 @@ fn build_expression_rebuild_target_key(
 
     Ok(Some(IndexKey {
         key_kind: IndexKeyKind::User,
-        index_id: IndexId::new(entity_tag, target.ordinal()),
+        index_id: IndexId::new_with_generation(
+            entity_tag,
+            target.ordinal(),
+            target.physical_generation(),
+        ),
         components,
         primary_key: IndexKey::compact_primary_key_value_bytes(primary_key)?,
     }))
@@ -1064,7 +1072,11 @@ fn build_accepted_expression_index_key_from_components(
 
     Ok(Some(IndexKey {
         key_kind: IndexKeyKind::User,
-        index_id: IndexId::new(entity_tag, accepted_index.ordinal()),
+        index_id: IndexId::new_with_generation(
+            entity_tag,
+            accepted_index.ordinal(),
+            accepted_index.physical_generation(),
+        ),
         components,
         primary_key: IndexKey::compact_primary_key_value_bytes(primary_key)?,
     }))
@@ -1099,7 +1111,11 @@ fn build_accepted_field_path_index_key_from_components(
 
     Ok(Some(IndexKey {
         key_kind: IndexKeyKind::User,
-        index_id: IndexId::new(entity_tag, accepted_index.ordinal()),
+        index_id: IndexId::new_with_generation(
+            entity_tag,
+            accepted_index.ordinal(),
+            accepted_index.physical_generation(),
+        ),
         components,
         primary_key: IndexKey::compact_primary_key_value_bytes(primary_key)?,
     }))
@@ -1258,7 +1274,11 @@ fn build_index_key_from_access_contract<'a>(
 
     Ok(Some(IndexKey {
         key_kind: IndexKeyKind::User,
-        index_id: IndexId::new(entity_tag, index.ordinal()),
+        index_id: IndexId::new_with_generation(
+            entity_tag,
+            index.ordinal(),
+            index.physical_generation(),
+        ),
         components,
         primary_key: IndexKey::compact_primary_key_value_bytes(primary_key)?,
     }))

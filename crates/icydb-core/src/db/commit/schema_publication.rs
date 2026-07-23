@@ -7,24 +7,40 @@ use crate::{
     db::{
         commit::{CommitMarker, begin_commit, finish_commit, generate_commit_id},
         data::DataStore,
-        index::IndexStore,
+        index::{IndexEntryValue, IndexKey, IndexStore, RawIndexStoreKey},
         journal::{JournalBatch, JournalRecord},
         registry::{StoreHandle, StoreRecoveryCapability},
+        relation::{RelationConstraintIndexEntry, RelationConstraintProjection},
         schema::{
-            AcceptedSchemaRevision, CandidateSchemaRevision, StagedDerivedDomainReplacement,
-            StagedUserIndexDomainReplacement,
+            AcceptedSchemaRevision, CandidateSchemaRevision, ConstraintId, ConstraintValidationJob,
+            StagedDerivedDomainReplacement, StagedUserIndexDomainReplacement,
             accepted_schema_cache_fingerprint_for_persisted_snapshot,
         },
     },
     error::InternalError,
+    types::EntityTag,
 };
 use std::collections::BTreeSet;
+
+/// Prepared derived domains that cross the same accepted-schema marker.
 
 enum StagedSchemaDomains {
     None,
     #[cfg(feature = "sql")]
     UserIndexes(Vec<StagedUserIndexDomainReplacement>),
     Derived(Vec<StagedDerivedDomainReplacement>),
+}
+
+/// Exact validation-job mutation paired with one accepted-schema publication.
+
+#[derive(Clone, Copy)]
+enum ConstraintValidationJobChange<'a> {
+    None,
+    Put(&'a ConstraintValidationJob),
+    Delete {
+        entity_tag: EntityTag,
+        constraint_id: ConstraintId,
+    },
 }
 
 pub(in crate::db) fn publish_accepted_schema_candidate(
@@ -43,6 +59,153 @@ pub(in crate::db) fn publish_accepted_schema_candidate(
         expected_revision,
         candidate,
         StagedSchemaDomains::None,
+        ConstraintValidationJobChange::None,
+    )
+}
+
+/// Publish one accepted candidate and the exact validation job its new
+/// `Validating` activation requires through one marker boundary.
+pub(in crate::db) fn publish_accepted_schema_candidate_with_constraint_validation_job(
+    store_path: &'static str,
+    store: StoreHandle,
+    expected_revision: AcceptedSchemaRevision,
+    candidate: &CandidateSchemaRevision,
+    job: &ConstraintValidationJob,
+) -> Result<(), InternalError> {
+    publish_accepted_schema_candidate_with_prepared_domains(
+        store_path,
+        store,
+        expected_revision,
+        candidate,
+        StagedSchemaDomains::None,
+        ConstraintValidationJobChange::Put(job),
+    )
+}
+
+/// Publish one promotion or abort and remove its validation job through the
+/// same marker boundary.
+pub(in crate::db) fn publish_accepted_schema_candidate_with_constraint_validation_job_removal(
+    store_path: &'static str,
+    store: StoreHandle,
+    expected_revision: AcceptedSchemaRevision,
+    candidate: &CandidateSchemaRevision,
+    entity_tag: EntityTag,
+    constraint_id: ConstraintId,
+) -> Result<(), InternalError> {
+    publish_accepted_schema_candidate_with_prepared_domains(
+        store_path,
+        store,
+        expected_revision,
+        candidate,
+        StagedSchemaDomains::None,
+        ConstraintValidationJobChange::Delete {
+            entity_tag,
+            constraint_id,
+        },
+    )
+}
+
+/// Advance one validation job without changing accepted constraint meaning.
+pub(in crate::db) fn publish_constraint_validation_job(
+    store_path: &'static str,
+    store: StoreHandle,
+    job: &ConstraintValidationJob,
+) -> Result<(), InternalError> {
+    let bundle = store
+        .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
+        .ok_or_else(InternalError::store_corruption)?;
+    if bundle.store_path() != store_path {
+        return Err(InternalError::store_corruption());
+    }
+    store.with_schema(|schema_store| {
+        schema_store.validate_constraint_validation_job_closure_with_change(
+            &bundle,
+            Some(job),
+            None,
+        )
+    })?;
+
+    match store.storage_capabilities().recovery() {
+        StoreRecoveryCapability::None => {
+            store.with_schema_mut(|schema_store| schema_store.apply_constraint_validation_job(job))
+        }
+        StoreRecoveryCapability::StableBasePlusJournalReplay => {
+            publish_journaled_constraint_validation_job(store_path, store, job)
+        }
+    }
+}
+
+/// Advance one unique-index validation page and its isolated candidate writes
+/// through the same marker-owned checkpoint boundary.
+pub(in crate::db) fn publish_constraint_validation_job_with_candidate_index_entries(
+    store_path: &'static str,
+    store: StoreHandle,
+    job: &ConstraintValidationJob,
+    entries: Vec<RawIndexStoreKey>,
+) -> Result<(), InternalError> {
+    let bundle = store
+        .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
+        .ok_or_else(InternalError::store_corruption)?;
+    if bundle.store_path() != store_path {
+        return Err(InternalError::store_corruption());
+    }
+    store.with_schema(|schema_store| {
+        schema_store.validate_constraint_validation_job_closure_with_change(
+            &bundle,
+            Some(job),
+            None,
+        )
+    })?;
+    validate_candidate_index_entries(&bundle, job, entries.as_slice())?;
+    if store.storage_capabilities().recovery()
+        != StoreRecoveryCapability::StableBasePlusJournalReplay
+    {
+        return Err(InternalError::store_unsupported());
+    }
+
+    publish_journaled_constraint_validation_job_with_candidate_index_entries(
+        store_path, store, job, entries,
+    )
+}
+
+/// Advance one relation validation page and its isolated reverse writes through
+/// the same marker-owned checkpoint boundary.
+pub(in crate::db) fn publish_constraint_validation_job_with_candidate_relation_entries(
+    store_path: &'static str,
+    store: StoreHandle,
+    job: &ConstraintValidationJob,
+    projection: &RelationConstraintProjection,
+    entries: Vec<RelationConstraintIndexEntry>,
+) -> Result<(), InternalError> {
+    let bundle = store
+        .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
+        .ok_or_else(InternalError::store_corruption)?;
+    if bundle.store_path() != store_path {
+        return Err(InternalError::store_corruption());
+    }
+    store.with_schema(|schema_store| {
+        schema_store.validate_constraint_validation_job_closure_with_change(
+            &bundle,
+            Some(job),
+            None,
+        )
+    })?;
+    if job.staged_generation() != Some(projection.physical_generation())
+        || entries.windows(2).any(|pair| {
+            (pair[0].target_store_path(), pair[0].key())
+                >= (pair[1].target_store_path(), pair[1].key())
+        })
+        || entries
+            .iter()
+            .any(|entry| !projection.validates_entry(entry))
+        || store.storage_capabilities().recovery()
+            != StoreRecoveryCapability::StableBasePlusJournalReplay
+    {
+        return Err(InternalError::store_corruption());
+    }
+
+    publish_journaled_constraint_validation_job_with_candidate_relation_entries(
+        store_path, store, job, entries,
     )
 }
 
@@ -69,6 +232,7 @@ pub(in crate::db) fn publish_accepted_schema_candidate_with_user_index_domains(
         expected_revision,
         candidate,
         StagedSchemaDomains::UserIndexes(replacements),
+        ConstraintValidationJobChange::None,
     )
 }
 
@@ -94,6 +258,7 @@ pub(in crate::db) fn publish_accepted_schema_candidate_with_derived_domains(
         expected_revision,
         candidate,
         StagedSchemaDomains::Derived(domains),
+        ConstraintValidationJobChange::None,
     )
 }
 
@@ -103,18 +268,28 @@ fn publish_accepted_schema_candidate_with_prepared_domains(
     expected_revision: AcceptedSchemaRevision,
     candidate: &CandidateSchemaRevision,
     domains: StagedSchemaDomains,
+    job_change: ConstraintValidationJobChange<'_>,
 ) -> Result<(), InternalError> {
+    validate_constraint_validation_job_change(store, candidate, job_change)?;
     match store.storage_capabilities().recovery() {
         StoreRecoveryCapability::None => {
-            store.with_schema_mut(|schema_store| {
-                schema_store.publish_accepted_schema_candidate(expected_revision, candidate)
-            })?;
+            publish_heap_candidate_with_constraint_validation_job_change(
+                store,
+                expected_revision,
+                candidate,
+                job_change,
+            )?;
             apply_staged_schema_domains(store, domains);
             Ok(())
         }
-        StoreRecoveryCapability::StableBasePlusJournalReplay => {
-            publish_journaled_candidate(store_path, store, expected_revision, candidate, domains)
-        }
+        StoreRecoveryCapability::StableBasePlusJournalReplay => publish_journaled_candidate(
+            store_path,
+            store,
+            expected_revision,
+            candidate,
+            domains,
+            job_change,
+        ),
     }
 }
 
@@ -124,6 +299,7 @@ fn publish_journaled_candidate(
     expected_revision: AcceptedSchemaRevision,
     candidate: &CandidateSchemaRevision,
     domains: StagedSchemaDomains,
+    job_change: ConstraintValidationJobChange<'_>,
 ) -> Result<(), InternalError> {
     let journal_store = store
         .journal_tail_store()
@@ -137,7 +313,11 @@ fn publish_journaled_candidate(
         candidate.encoded_bundle().to_vec(),
         candidate.encoded_root().to_vec(),
     )?;
-    let batch = JournalBatch::new(marker_id, marker_id, sequence, vec![schema_record])?;
+    let mut records = vec![schema_record];
+    if let Some(record) = constraint_validation_job_journal_record(store_path, job_change)? {
+        records.push(record);
+    }
+    let batch = JournalBatch::new(marker_id, marker_id, sequence, records)?;
     let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])?;
     let commit = begin_commit(marker)?;
 
@@ -146,8 +326,222 @@ fn publish_journaled_candidate(
         store.with_schema_mut(|schema_store| {
             schema_store.apply_journaled_accepted_schema_candidate(expected_revision, candidate)
         })?;
+        apply_constraint_validation_job_change(store, job_change)?;
         apply_staged_schema_domains(store, domains);
         Ok(())
+    })
+}
+
+fn publish_journaled_constraint_validation_job(
+    store_path: &'static str,
+    store: StoreHandle,
+    job: &ConstraintValidationJob,
+) -> Result<(), InternalError> {
+    let journal_store = store
+        .journal_tail_store()
+        .ok_or_else(InternalError::store_invariant)?;
+    let marker_id = generate_commit_id()?;
+    let sequence = journal_store
+        .with_borrow(crate::db::journal::JournalTailStore::next_mutation_append_sequence)?;
+    let record = JournalRecord::constraint_validation_job_put(store_path, job)?;
+    let batch = JournalBatch::new(marker_id, marker_id, sequence, vec![record])?;
+    let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])?;
+    let commit = begin_commit(marker)?;
+
+    finish_commit(commit, |_guard| {
+        journal_store.with_borrow_mut(|journal| journal.append_batch(&batch))?;
+        store.with_schema_mut(|schema_store| schema_store.apply_constraint_validation_job(job))
+    })
+}
+
+fn publish_journaled_constraint_validation_job_with_candidate_index_entries(
+    store_path: &'static str,
+    store: StoreHandle,
+    job: &ConstraintValidationJob,
+    entries: Vec<RawIndexStoreKey>,
+) -> Result<(), InternalError> {
+    let journal_store = store
+        .journal_tail_store()
+        .ok_or_else(InternalError::store_invariant)?;
+    let marker_id = generate_commit_id()?;
+    let sequence = journal_store
+        .with_borrow(crate::db::journal::JournalTailStore::next_mutation_append_sequence)?;
+    let record = JournalRecord::constraint_validation_job_put(store_path, job)?;
+    let batch = JournalBatch::new(marker_id, marker_id, sequence, vec![record])?;
+    let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])?;
+    let commit = begin_commit(marker)?;
+
+    finish_commit(commit, |_guard| {
+        journal_store.with_borrow_mut(|journal| journal.append_batch(&batch))?;
+        store.with_index_mut(|index_store| {
+            for key in entries {
+                index_store.insert(key, IndexEntryValue::presence());
+            }
+        });
+        store.with_schema_mut(|schema_store| schema_store.apply_constraint_validation_job(job))
+    })
+}
+
+fn publish_journaled_constraint_validation_job_with_candidate_relation_entries(
+    store_path: &'static str,
+    store: StoreHandle,
+    job: &ConstraintValidationJob,
+    entries: Vec<RelationConstraintIndexEntry>,
+) -> Result<(), InternalError> {
+    let journal_store = store
+        .journal_tail_store()
+        .ok_or_else(InternalError::store_invariant)?;
+    let marker_id = generate_commit_id()?;
+    let sequence = journal_store
+        .with_borrow(crate::db::journal::JournalTailStore::next_mutation_append_sequence)?;
+    let record = JournalRecord::constraint_validation_job_put(store_path, job)?;
+    let batch = JournalBatch::new(marker_id, marker_id, sequence, vec![record])?;
+    let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])?;
+    let commit = begin_commit(marker)?;
+
+    finish_commit(commit, |_guard| {
+        journal_store.with_borrow_mut(|journal| journal.append_batch(&batch))?;
+        for entry in entries {
+            entry.target_store().with_index_mut(|index_store| {
+                index_store.insert(entry.key().clone(), IndexEntryValue::presence());
+            });
+        }
+        store.with_schema_mut(|schema_store| schema_store.apply_constraint_validation_job(job))
+    })
+}
+
+fn validate_candidate_index_entries(
+    bundle: &crate::db::schema::AcceptedSchemaRevisionBundle,
+    job: &ConstraintValidationJob,
+    entries: &[RawIndexStoreKey],
+) -> Result<(), InternalError> {
+    let snapshot = bundle
+        .entity_snapshots()
+        .get(&job.entity_tag())
+        .ok_or_else(InternalError::store_corruption)?;
+    let activation = snapshot
+        .constraint_catalog()
+        .activation(job.constraint_id())
+        .ok_or_else(InternalError::store_corruption)?;
+    let crate::db::schema::ConstraintActivationKind::Unique { index_id } = activation.kind() else {
+        return Err(InternalError::store_corruption());
+    };
+    let candidate = snapshot
+        .candidate_indexes()
+        .iter()
+        .find(|index| index.schema_id() == *index_id)
+        .ok_or_else(InternalError::store_corruption)?;
+    let expected = crate::db::index::IndexId::new_with_generation(
+        job.entity_tag(),
+        candidate.ordinal(),
+        candidate.physical_generation(),
+    );
+    if job.staged_generation() != Some(candidate.physical_generation())
+        || entries.windows(2).any(|pair| pair[0] >= pair[1])
+        || entries.iter().any(|raw| {
+            IndexKey::try_from_raw(raw).map_or(true, |key| {
+                key.key_kind() != crate::db::index::IndexKeyKind::User
+                    || *key.index_id() != expected
+            })
+        })
+    {
+        return Err(InternalError::store_corruption());
+    }
+    Ok(())
+}
+
+fn validate_constraint_validation_job_change(
+    store: StoreHandle,
+    candidate: &CandidateSchemaRevision,
+    change: ConstraintValidationJobChange<'_>,
+) -> Result<(), InternalError> {
+    store.with_schema(|schema_store| {
+        schema_store.validate_live_activation_transition(candidate.bundle())?;
+        match change {
+            ConstraintValidationJobChange::None => {
+                schema_store.validate_constraint_validation_job_closure(candidate.bundle())
+            }
+            ConstraintValidationJobChange::Put(job) => schema_store
+                .validate_constraint_validation_job_closure_with_change(
+                    candidate.bundle(),
+                    Some(job),
+                    None,
+                ),
+            ConstraintValidationJobChange::Delete {
+                entity_tag,
+                constraint_id,
+            } => schema_store.validate_constraint_validation_job_closure_with_change(
+                candidate.bundle(),
+                None,
+                Some((entity_tag, constraint_id)),
+            ),
+        }
+    })
+}
+
+fn publish_heap_candidate_with_constraint_validation_job_change(
+    store: StoreHandle,
+    expected_revision: AcceptedSchemaRevision,
+    candidate: &CandidateSchemaRevision,
+    change: ConstraintValidationJobChange<'_>,
+) -> Result<(), InternalError> {
+    store.with_schema_mut(|schema_store| match change {
+        ConstraintValidationJobChange::None => {
+            schema_store.publish_accepted_schema_candidate(expected_revision, candidate)
+        }
+        ConstraintValidationJobChange::Put(job) => {
+            schema_store.apply_constraint_validation_job(job)?;
+            if let Err(error) =
+                schema_store.publish_accepted_schema_candidate(expected_revision, candidate)
+            {
+                schema_store.apply_constraint_validation_job_removal(
+                    job.entity_tag(),
+                    job.constraint_id(),
+                )?;
+                return Err(error);
+            }
+            Ok(())
+        }
+        ConstraintValidationJobChange::Delete {
+            entity_tag,
+            constraint_id,
+        } => {
+            schema_store.publish_accepted_schema_candidate(expected_revision, candidate)?;
+            schema_store.apply_constraint_validation_job_removal(entity_tag, constraint_id)
+        }
+    })
+}
+
+fn constraint_validation_job_journal_record(
+    store_path: &'static str,
+    change: ConstraintValidationJobChange<'_>,
+) -> Result<Option<JournalRecord>, InternalError> {
+    match change {
+        ConstraintValidationJobChange::None => Ok(None),
+        ConstraintValidationJobChange::Put(job) => {
+            JournalRecord::constraint_validation_job_put(store_path, job).map(Some)
+        }
+        ConstraintValidationJobChange::Delete {
+            entity_tag,
+            constraint_id,
+        } => JournalRecord::constraint_validation_job_delete(store_path, entity_tag, constraint_id)
+            .map(Some),
+    }
+}
+
+fn apply_constraint_validation_job_change(
+    store: StoreHandle,
+    change: ConstraintValidationJobChange<'_>,
+) -> Result<(), InternalError> {
+    store.with_schema_mut(|schema_store| match change {
+        ConstraintValidationJobChange::None => Ok(()),
+        ConstraintValidationJobChange::Put(job) => {
+            schema_store.apply_constraint_validation_job(job)
+        }
+        ConstraintValidationJobChange::Delete {
+            entity_tag,
+            constraint_id,
+        } => schema_store.apply_constraint_validation_job_removal(entity_tag, constraint_id),
     })
 }
 

@@ -6,11 +6,12 @@ use crate::db::{
     predicate::parse_sql_predicate,
     query::predicate::validate_predicate,
     schema::{
-        AcceptedSchemaSnapshot, PersistedIndexSnapshot, SchemaDdlIndexDropCandidateError,
-        SchemaDdlSecondaryIndexAdditionCandidate, SchemaDdlSecondaryIndexAdditionCandidateError,
-        SchemaDdlSecondaryIndexExpressionIntent, SchemaDdlSecondaryIndexExpressionOpIntent,
-        SchemaDdlSecondaryIndexFieldPathIntent, SchemaDdlSecondaryIndexKeyCandidateError,
-        SchemaDdlSecondaryIndexKeyIntent, SchemaInfo, build_sql_ddl_secondary_index_candidate,
+        AcceptedSchemaSnapshot, ConstraintId, PersistedIndexSnapshot,
+        SchemaDdlIndexDropCandidateError, SchemaDdlSecondaryIndexAdditionCandidate,
+        SchemaDdlSecondaryIndexAdditionCandidateError, SchemaDdlSecondaryIndexExpressionIntent,
+        SchemaDdlSecondaryIndexExpressionOpIntent, SchemaDdlSecondaryIndexFieldPathIntent,
+        SchemaDdlSecondaryIndexKeyCandidateError, SchemaDdlSecondaryIndexKeyIntent, SchemaInfo,
+        build_sql_ddl_secondary_index_candidate,
         resolve_sql_ddl_secondary_index_addition_candidate,
         resolve_sql_ddl_secondary_index_drop_candidate,
     },
@@ -82,6 +83,7 @@ pub(in crate::db) struct BoundSqlDropIndexRequest {
     index_name: String,
     dropped_index: PersistedIndexSnapshot,
     field_path: Vec<String>,
+    pending_activation_id: Option<ConstraintId>,
 }
 
 impl BoundSqlDropIndexRequest {
@@ -101,6 +103,13 @@ impl BoundSqlDropIndexRequest {
     #[must_use]
     pub(in crate::db) const fn field_path(&self) -> &[String] {
         self.field_path.as_slice()
+    }
+
+    /// Return the live unique activation retired by this drop, when the index
+    /// has not yet become planner-visible.
+    #[must_use]
+    pub(in crate::db) const fn pending_activation_id(&self) -> Option<ConstraintId> {
+        self.pending_activation_id
     }
 }
 
@@ -290,8 +299,10 @@ pub(super) fn bind_drop_index_statement(
             index_name: statement.name.clone(),
         },
     });
-    let (dropped_index, field_path) = match drop_candidate {
-        Ok((dropped_index, field_path)) => (dropped_index, field_path),
+    let (dropped_index, field_path, pending_activation_id) = match drop_candidate {
+        Ok((dropped_index, field_path, pending_activation_id)) => {
+            (dropped_index, field_path, pending_activation_id)
+        }
         Err(SqlDdlBindError::UnknownIndex { .. }) if statement.if_exists => {
             return Ok(BoundSqlDdlRequest {
                 schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
@@ -312,6 +323,7 @@ pub(super) fn bind_drop_index_statement(
             index_name: statement.name.clone(),
             dropped_index,
             field_path,
+            pending_activation_id,
         }),
     })
 }
@@ -526,6 +538,9 @@ fn sql_secondary_index_key_candidate_error(
     error: SchemaDdlSecondaryIndexKeyCandidateError,
 ) -> SqlDdlBindError {
     match error {
+        SchemaDdlSecondaryIndexKeyCandidateError::IndexIdentityExhausted => {
+            SqlDdlBindError::IndexIdentityExhausted
+        }
         SchemaDdlSecondaryIndexKeyCandidateError::FieldPathNotAcceptedCatalogBacked {
             field_path,
         } => SqlDdlBindError::FieldPathNotAcceptedCatalogBacked { field_path },

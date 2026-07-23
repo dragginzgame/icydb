@@ -255,6 +255,28 @@ contract.
 
 ---
 
+### 3.6 Accepted Constraint Authority
+
+Accepted schema owns stable identity and current lifecycle state for primary
+key, not-null, unique, relation, and check constraints. Generated declarations
+and SQL DDL are proposal frontends; neither remains a runtime fallback.
+
+Validated checks execute from a bounded field-ID-bound accepted expression.
+When historical work is required, an accepted activation gates new writes
+first, then a durable bounded Forward/Verify job proves existing rows before
+one atomic promotion. Pending historical violations are migration findings,
+not accepted-state corruption.
+
+Candidate unique-index and relation generations remain invisible to ordinary
+planning and delete-safety decisions until that promotion. Application
+validators and sanitizers may still participate in typed authoring paths, but
+they are not persisted constraint authority.
+
+Typed `DESCRIBE` and SQL `SHOW CONSTRAINTS` observe this accepted authority.
+They do not perform or imply a fresh table scan.
+
+---
+
 ## 4. Unsupported values and operations
 
 IcyDB has no maintained `Value::Unsupported` catch-all representation.

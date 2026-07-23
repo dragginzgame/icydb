@@ -498,6 +498,14 @@ pub enum RuntimeBoundaryCode {
     GeneratedFieldAfterDdlField,
     /// A journaled mutation cannot reserve a representable post-commit revision.
     JournalMutationRevisionExhausted,
+    /// A final canonical after-image violates one accepted row constraint or gate.
+    ConstraintViolation,
+    /// Accepted row-constraint metadata or its compiled program is inconsistent.
+    AcceptedRowConstraintProgramCorrupt,
+    /// A write conflicts with one incomplete accepted constraint activation.
+    ConstraintActivationWriteBlocked,
+    /// A live generated constraint activation no longer matches its proposal.
+    GeneratedConstraintActivationStale,
 }
 
 impl fmt::Debug for RuntimeBoundaryCode {
@@ -579,6 +587,13 @@ pub enum SqlFeatureCode {
     With,
     NumericScaleFunctionArguments,
     OrderByFieldNotOrderable,
+    ShowConstraintsModifiers,
+    AlterTableAddConstraintBeyondCheck,
+    AlterTableAddConstraintModifiers,
+    AlterTableDropConstraintIfExistsSyntax,
+    AlterTableDropConstraintModifiers,
+    AlterTableValidateBeyondConstraint,
+    AlterTableValidateConstraintModifiers,
 }
 
 impl fmt::Debug for SqlFeatureCode {
@@ -645,6 +660,7 @@ pub enum SqlSurfaceMismatchCode {
     MutationRejectsShowStores,
     MutationRejectsShowMemory,
     MutationRequiresExplicitUpdateIntent,
+    MutationRejectsShowConstraints,
 }
 
 impl fmt::Debug for SqlSurfaceMismatchCode {
@@ -744,7 +760,6 @@ pub enum SchemaDdlAdmissionCode {
     SchemaTransitionBudgetExceeded,
     GeneratedFieldDefaultChangeRejected,
     GeneratedFieldNullabilityChangeRejected,
-    SetNotNullValidationFailed,
     RowLayoutVersionExhausted,
 }
 
@@ -957,7 +972,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 222);
+        assert_eq!(last, 233);
     }
 
     #[test]
@@ -989,7 +1004,7 @@ mod tests {
 
     #[test]
     fn invalid_raw_error_codes_fail_closed_to_runtime_internal() {
-        for raw in [0, 223, u16::MAX] {
+        for raw in [0, 234, u16::MAX] {
             let code = ErrorCode::from_raw(raw);
 
             assert_eq!(ErrorCode::known(raw), None);

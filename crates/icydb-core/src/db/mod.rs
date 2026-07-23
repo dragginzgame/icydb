@@ -119,7 +119,8 @@ pub use predicate::{
 };
 #[doc(hidden)]
 pub use predicate::{
-    parse_generated_index_predicate_sql, validate_generated_index_predicate_fields,
+    parse_generated_index_predicate_sql, validate_generated_check_predicate_fields,
+    validate_generated_index_predicate_fields,
 };
 pub use query::builder::numeric_projection::{
     NumericProjectionExpr, RoundProjectionExpr, add, div, mul, round, round_expr, sub,
@@ -165,18 +166,23 @@ pub use response::{
     PagedLoadExecution, PagedLoadExecutionWithTrace, Response as RowResponse, ResponseError,
     ResponseRow, Row, WriteBatchResponse,
 };
+#[doc(hidden)]
+pub use schema::validate_generated_constraint_name;
 pub use schema::{
-    EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
-    EntityRelationDescription, EntitySchemaCheckDescription, EntitySchemaDescription,
-    SchemaLiteralValidationReason, SchemaStore, SchemaValidationOperator, ValidateError,
+    ConstraintValidationProgressDescription, EntityConstraintDescription, EntityFieldDescription,
+    EntityIndexDescription, EntityRelationCardinality, EntityRelationDescription,
+    EntitySchemaCheckDescription, EntitySchemaDescription, SchemaLiteralValidationReason,
+    SchemaStore, SchemaValidationOperator, ValidateError,
 };
 #[cfg(not(feature = "sql"))]
 pub use session::DbSession;
 #[cfg(feature = "sql")]
 pub use session::{
-    DbSession, SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlPreparationReport,
-    SqlStatementDispatch, SqlStatementResult, SqlStatementShellSurface, SqlStatementSurface,
-    TrustedResumableUpdateContinuation, TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,
+    DbSession, SqlConstraintValidationFinding, SqlConstraintValidationPage,
+    SqlConstraintValidationRevisionStatus, SqlConstraintValidationState, SqlDdlExecutionStatus,
+    SqlDdlMutationKind, SqlDdlPreparationReport, SqlStatementDispatch, SqlStatementResult,
+    SqlStatementShellSurface, SqlStatementSurface, TrustedResumableUpdateContinuation,
+    TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,
     TrustedResumableUpdateRestartReason, sql_statement_dispatch, sql_statement_entity_name,
     sql_statement_shell_surface, sql_statement_surface,
 };
@@ -404,6 +410,15 @@ impl<C: CanisterKind> Db<C> {
         op: &CommitRowOp,
     ) -> Result<PreparedRowCommitOp, InternalError> {
         runtime_hooks::prepare_row_commit_with_hook(self, self.entity_runtime_hooks, op)
+    }
+
+    // Rebuild live derived state while candidate generations follow their
+    // separate durable validation checkpoints.
+    pub(in crate::db) fn prepare_row_commit_op_for_rebuild(
+        &self,
+        op: &CommitRowOp,
+    ) -> Result<PreparedRowCommitOp, InternalError> {
+        runtime_hooks::prepare_row_commit_with_hook_for_rebuild(self, self.entity_runtime_hooks, op)
     }
 
     // Validate relation constraints for delete-selected target keys.

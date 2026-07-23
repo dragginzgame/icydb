@@ -150,7 +150,7 @@ At that point, growth becomes incremental refinement, not architectural expansio
 The active delivery sequence is intentionally serial:
 
 1. [0.205 grouped early
-   materialization](design/0.205-grouped-early-materialization/0.205-design.md)
+   materialization](design/archive/0.205-grouped-early-materialization/0.205-design.md)
    is complete and closes the eligible ordered-group retention boundary.
 2. [0.206 SQL performance
    remediation](design/0.206-sql-performance-remediation/0.206-design.md)
@@ -172,19 +172,27 @@ The active delivery sequence is intentionally serial:
    [0.211 accepted-catalog
    constraints](design/0.211-accepted-catalog-constraints/0.211-design.md),
    [0.212 bounded resumable integrity
-   checking](design/0.212-bounded-resumable-integrity-check/0.212-design.md), and
-   [0.213 exact unsigned identity
-   generation](design/0.213-exact-unsigned-identity-generation/0.213-design.md)
-   then consume those accepted contracts in order.
-7. [0.214 SQL structural coverage and range
-   remediation](design/0.214-sql-structural-coverage-and-range-remediation/0.214-design.md)
+   checking](design/0.212-bounded-resumable-integrity-check/0.212-design.md)
+   consume those accepted contracts in order.
+7. [0.213 schema authority and application-model
+   separation](design/0.213-schema-authority-and-application-model-separation/0.213-thoughts.md)
+   then unmuddles the authored model, schema proposal, accepted schema,
+   runtime-contract, and application-callback boundaries before more runtime
+   features build on them. These are exploratory notes until promoted to an
+   approved design.
+8. [0.214 exact unsigned identity
+   generation](design/0.214-exact-unsigned-identity-generation/0.214-design.md)
+   consumes the cleaned accepted-schema and runtime-contract boundary.
+9. [0.215 SQL structural coverage and range
+   remediation](design/0.215-sql-structural-coverage-and-range-remediation/0.215-design.md)
    then expands typed SQL interaction evidence, establishes a fresh
-   post-0.213 performance profile, and hard-cuts one proven duplicate
+   post-0.214 performance profile, and hard-cuts one proven duplicate
    compound-range traversal without reopening 0.204 or 0.206.
 
-All proposed lines remain subject to review at their implementation boundary.
-Before 1.0, format and protocol replacements are hard cuts: one current form,
-typed failure for obsolete state, and no compatibility path.
+All proposed or exploratory lines remain subject to review at their
+implementation boundary. Before 1.0, format and protocol replacements are hard
+cuts: one current form, typed failure for obsolete state, and no compatibility
+path.
 
 ---
 

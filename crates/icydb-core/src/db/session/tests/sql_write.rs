@@ -11,9 +11,15 @@ use crate::{
         SqlPublicPrimaryKeyUpdatePlan, SqlUpdateExposurePolicy, SqlUpdatePolicyContext,
         SqlValidatedDeletePlan, SqlValidatedUpdatePlan, classify_sql_delete_policy,
         classify_sql_update_policy,
+        schema::{
+            AcceptedCheckCompareOpV1, AcceptedSchemaRevision, AcceptedValueCatalogHandle,
+            CheckExprV1Input, CheckValueExprV1Input, ConstraintId, ConstraintOrigin,
+            bind_check_expr_v1, build_initial_accepted_catalogs_for_tests,
+        },
     },
-    error::InternalError,
+    error::{ErrorDetail, ExecutorErrorDetail, InternalError},
     metrics::sink::SqlWriteKind,
+    value::InputValue,
 };
 
 // Execute one write statement through the statement SQL boundary and assert it
@@ -150,6 +156,80 @@ fn seed_write_entities(session: &DbSession<SessionSqlCanister>, rows: &[(u64, &s
             })
             .expect("typed setup insert should succeed");
     }
+}
+
+fn install_session_sql_check<E>(name: &str, expression: CheckExprV1Input) -> ConstraintId
+where
+    E: PersistedRow<Canister = SessionSqlCanister>,
+{
+    let model = <E as EntityDeclaration>::MODEL;
+    let proposal = compiled_schema_proposal_for_model(model);
+    let (enum_catalog, composite_catalog) = build_initial_accepted_catalogs_for_tests(&[model])
+        .expect("SQL write value catalogs should build");
+    let snapshot = proposal
+        .initial_persisted_schema_snapshot_with_catalogs(&enum_catalog, &composite_catalog)
+        .expect("SQL write snapshot should resolve");
+    let value_catalog = AcceptedValueCatalogHandle::new_for_tests(
+        enum_catalog,
+        composite_catalog,
+        AcceptedSchemaRevision::INITIAL,
+    );
+    let expression = bind_check_expr_v1(
+        expression,
+        &snapshot,
+        value_catalog.enum_catalog(),
+        value_catalog.composite_catalog(),
+    )
+    .expect("SQL write check should bind");
+    let catalog = snapshot
+        .constraint_catalog()
+        .clone()
+        .with_added_check(name.to_string(), ConstraintOrigin::Generated, expression)
+        .expect("SQL write check should allocate");
+    let constraint_id = catalog
+        .constraints()
+        .last()
+        .expect("SQL write check should be the final constraint")
+        .id();
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
+        SchemaStore::clear(store);
+        publish_test_accepted_schema_snapshot(
+            store,
+            E::ENTITY_TAG,
+            E::PATH,
+            SessionSqlStore::PATH,
+            model,
+            snapshot.with_constraint_catalog(catalog),
+        )
+        .expect("SQL write check snapshot should publish");
+    });
+    DbSession::<SessionSqlCanister>::clear_accepted_schema_query_cache_for_tests();
+
+    constraint_id
+}
+
+fn install_session_sql_write_age_check() -> ConstraintId {
+    install_session_sql_check::<SessionSqlWriteEntity>(
+        "adult_age",
+        CheckExprV1Input::Compare {
+            left: CheckValueExprV1Input::Field("age".to_string()),
+            op: AcceptedCheckCompareOpV1::Gte,
+            right: CheckValueExprV1Input::Literal(InputValue::Nat64(18)),
+        },
+    )
+}
+
+fn assert_query_check_violation(error: QueryError, constraint_id: ConstraintId) {
+    let QueryError::Execute(execute) = error else {
+        panic!("accepted check rejection should preserve execution error authority");
+    };
+    assert!(matches!(
+        execute.as_internal().detail(),
+        Some(ErrorDetail::Executor(detail))
+            if detail.constraint_identity() == Some(constraint_id.get())
+                && matches!(detail, ExecutorErrorDetail::ConstraintViolation { .. })
+    ));
 }
 
 fn oversized_public_update_returning_text() -> String {
@@ -960,6 +1040,92 @@ fn execute_sql_statement_single_row_insert_matrix_returns_count_without_returnin
             context,
         );
     }
+}
+
+#[test]
+fn sql_insert_and_exact_update_enforce_the_accepted_check_after_image() {
+    reset_session_sql_store();
+    let constraint_id = install_session_sql_write_age_check();
+    let session = sql_session();
+
+    assert_statement_count::<SessionSqlWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
+        1,
+        "valid SQL insert",
+    );
+    let insert_error = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (2, 'Bea', 17)",
+    )
+    .expect_err("SQL insert violating accepted check must reject");
+    let update_error = execute_exact_sql_update_for_tests::<SessionSqlWriteEntity>(
+        &session,
+        "UPDATE SessionSqlWriteEntity SET age = 16 WHERE id = 1",
+    )
+    .expect_err("SQL exact update violating accepted check must reject");
+
+    for error in [insert_error, update_error] {
+        assert_query_check_violation(error, constraint_id);
+    }
+    assert_eq!(
+        persisted_write_rows(&session),
+        write_rows(&[(1, "Ada", 21)])
+    );
+}
+
+#[test]
+fn accepted_checks_observe_default_generated_and_managed_final_values() {
+    reset_session_sql_store();
+    let default_constraint = install_session_sql_check::<SessionSqlDefaultWriteEntity>(
+        "default_score_must_be_eight",
+        CheckExprV1Input::Compare {
+            left: CheckValueExprV1Input::Field("score".to_string()),
+            op: AcceptedCheckCompareOpV1::Eq,
+            right: CheckValueExprV1Input::Literal(InputValue::Nat64(8)),
+        },
+    );
+    let session = sql_session();
+    let error = execute_sql_statement_for_tests::<SessionSqlDefaultWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlDefaultWriteEntity DEFAULT VALUES",
+    )
+    .expect_err("database default 7 should be evaluated by the accepted check");
+    assert_query_check_violation(error, default_constraint);
+
+    reset_session_sql_store();
+    let generated_constraint = install_session_sql_check::<SessionSqlGeneratedFieldEntity>(
+        "generated_token_must_be_nil",
+        CheckExprV1Input::Compare {
+            left: CheckValueExprV1Input::Field("token".to_string()),
+            op: AcceptedCheckCompareOpV1::Eq,
+            right: CheckValueExprV1Input::Literal(InputValue::Ulid(Ulid::nil())),
+        },
+    );
+    let session = sql_session();
+    let error = execute_sql_statement_for_tests::<SessionSqlGeneratedFieldEntity>(
+        &session,
+        "INSERT INTO SessionSqlGeneratedFieldEntity (id, name) VALUES (1, 'Ada')",
+    )
+    .expect_err("generated token should be materialized before accepted check evaluation");
+    assert_query_check_violation(error, generated_constraint);
+
+    reset_session_sql_store();
+    let managed_constraint = install_session_sql_check::<SessionSqlManagedWriteEntity>(
+        "created_at_must_be_epoch",
+        CheckExprV1Input::Compare {
+            left: CheckValueExprV1Input::Field("created_at".to_string()),
+            op: AcceptedCheckCompareOpV1::Eq,
+            right: CheckValueExprV1Input::Literal(InputValue::Timestamp(Timestamp::EPOCH)),
+        },
+    );
+    let session = sql_session();
+    let error = execute_sql_statement_for_tests::<SessionSqlManagedWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlManagedWriteEntity (id, name) VALUES (1, 'Ada')",
+    )
+    .expect_err("managed timestamp should be materialized before accepted check evaluation");
+    assert_query_check_violation(error, managed_constraint);
 }
 
 #[test]

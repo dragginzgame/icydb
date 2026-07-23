@@ -5,8 +5,8 @@
 //! Boundary: converts executed core SQL outputs into endpoint-friendly payloads.
 
 use crate::db::{
-    EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
-    MemoryCatalogDescription, StoreCatalogDescription,
+    EntityCatalogDescription, EntityConstraintDescription, EntityFieldDescription,
+    EntitySchemaDescription, MemoryCatalogDescription, StoreCatalogDescription,
     response::RowProjectionOutput,
     sql::{SqlGroupedRowsOutput, value_render::render_projection_rows},
 };
@@ -109,7 +109,74 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
         );
     }
 
+    // Phase 5: emit the accepted constraint registry. Structural semantics are
+    // rendered from the catalog entry while fields/indexes/relations remain
+    // the execution owners referenced by each row.
+    lines.push(String::new());
+    render_describe_constraint_section(&mut lines, description.constraints());
+
     lines
+}
+
+// Render accepted constraint identity without owning or reconstructing the
+// field, index, or relation semantics referenced by each catalog row.
+fn render_describe_constraint_section(
+    lines: &mut Vec<String>,
+    constraints: &[EntityConstraintDescription],
+) {
+    if constraints.is_empty() {
+        lines.push("constraints: []".to_string());
+    } else {
+        lines.push("constraints:".to_string());
+        let constraint_rows = constraints
+            .iter()
+            .map(|constraint| {
+                vec![
+                    constraint.id().to_string(),
+                    constraint.name().to_string(),
+                    constraint.kind().to_string(),
+                    constraint.fields().join(", "),
+                    constraint.origin().to_string(),
+                    constraint.validation_state().to_string(),
+                    constraint
+                        .validation_progress()
+                        .map_or_else(|| "-".to_string(), |progress| progress.phase().to_string()),
+                    constraint.validation_progress().map_or_else(
+                        || "-".to_string(),
+                        |progress| progress.rows_scanned().to_string(),
+                    ),
+                    constraint.validation_progress().map_or_else(
+                        || "-".to_string(),
+                        |progress| progress.findings_seen().to_string(),
+                    ),
+                    constraint.validation_progress().map_or_else(
+                        || "-".to_string(),
+                        |progress| progress.restarts().to_string(),
+                    ),
+                    constraint.semantics().to_string(),
+                    constraint.check_sql().unwrap_or("-").to_string(),
+                ]
+            })
+            .collect::<Vec<_>>();
+        render_table_section(
+            lines,
+            &[
+                "id".to_string(),
+                "name".to_string(),
+                "kind".to_string(),
+                "fields".to_string(),
+                "origin".to_string(),
+                "state".to_string(),
+                "phase".to_string(),
+                "rows_scanned".to_string(),
+                "findings".to_string(),
+                "restarts".to_string(),
+                "semantics".to_string(),
+                "check_sql".to_string(),
+            ],
+            &constraint_rows,
+        );
+    }
 }
 
 // Render the shared field table used by both full `DESCRIBE` output and the
@@ -247,6 +314,73 @@ pub fn render_show_indexes_lines(entity: &str, indexes: &[String]) -> Vec<String
     )];
     lines.extend(indexes.iter().cloned());
 
+    lines
+}
+
+#[cfg_attr(
+    doc,
+    doc = "Render one `SHOW CONSTRAINTS` payload into deterministic shell output lines."
+)]
+#[must_use]
+pub fn render_show_constraints_lines(
+    entity: &str,
+    constraints: &[EntityConstraintDescription],
+) -> Vec<String> {
+    let rows = constraints
+        .iter()
+        .map(|constraint| {
+            vec![
+                constraint.id().to_string(),
+                constraint.name().to_string(),
+                constraint.kind().to_string(),
+                constraint.fields().join(", "),
+                constraint.origin().to_string(),
+                constraint.validation_state().to_string(),
+                constraint
+                    .validation_progress()
+                    .map_or_else(|| "-".to_string(), |progress| progress.phase().to_string()),
+                constraint.validation_progress().map_or_else(
+                    || "-".to_string(),
+                    |progress| progress.rows_scanned().to_string(),
+                ),
+                constraint.validation_progress().map_or_else(
+                    || "-".to_string(),
+                    |progress| progress.findings_seen().to_string(),
+                ),
+                constraint.validation_progress().map_or_else(
+                    || "-".to_string(),
+                    |progress| progress.restarts().to_string(),
+                ),
+                constraint.semantics().to_string(),
+                constraint.check_sql().unwrap_or("-").to_string(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let mut lines = vec![format!("entity: {entity}"), String::new()];
+    if constraints.is_empty() {
+        lines.push("constraints: []".to_string());
+        return lines;
+    }
+
+    lines.push("constraints:".to_string());
+    render_table_section(
+        &mut lines,
+        &[
+            "id".to_string(),
+            "name".to_string(),
+            "kind".to_string(),
+            "fields".to_string(),
+            "origin".to_string(),
+            "state".to_string(),
+            "phase".to_string(),
+            "rows_scanned".to_string(),
+            "findings".to_string(),
+            "restarts".to_string(),
+            "semantics".to_string(),
+            "check_sql".to_string(),
+        ],
+        rows.as_slice(),
+    );
     lines
 }
 

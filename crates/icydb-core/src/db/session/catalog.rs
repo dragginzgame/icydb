@@ -10,13 +10,14 @@
 use crate::db::{IndexState, QueryError, query::plan::VisibleIndexes};
 use crate::{
     db::{
-        DbSession, EntityCatalogCounts, EntityCatalogDescription, EntityFieldDescription,
-        EntitySchemaDescription, IntegrityReport, StorageReport, StoreCatalogDescription,
+        DbSession, EntityCatalogCounts, EntityCatalogDescription, EntityConstraintDescription,
+        EntityFieldDescription, EntitySchemaDescription, IntegrityReport, StorageReport,
+        StoreCatalogDescription,
         schema::{
-            AcceptedFieldKind, PersistedFieldSnapshot, SchemaInfo, describe_entity_fields,
-            describe_entity_fields_with_persisted_schema, describe_entity_model,
-            describe_entity_model_with_persisted_schema, show_indexes_for_model,
-            show_indexes_for_model_with_runtime_state,
+            AcceptedFieldKind, ConstraintValidationJob, PersistedFieldSnapshot, SchemaInfo,
+            describe_entity_fields, describe_entity_fields_with_persisted_schema,
+            describe_entity_model, describe_entity_model_with_persisted_schema,
+            show_indexes_for_model, show_indexes_for_model_with_runtime_state,
             show_indexes_for_schema_info_with_runtime_state,
         },
     },
@@ -79,6 +80,14 @@ impl<C: CanisterKind> DbSession<C> {
         let schema = self.accepted_schema_info_for_entity::<E>()?;
 
         Ok(self.show_indexes_for_store_schema_info(E::Store::PATH, &schema))
+    }
+
+    /// Return accepted structural constraints ordered by stable identity.
+    pub fn try_show_constraints<E>(&self) -> Result<Vec<EntityConstraintDescription>, InternalError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        Ok(self.try_describe_entity::<E>()?.constraints().to_vec())
     }
 
     // Return one stable, human-readable index listing for one resolved
@@ -268,12 +277,46 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         let catalog = self.accepted_schema_catalog_context_for_query::<E>()?;
+        let validation_jobs = self.constraint_validation_jobs_for_catalog::<E>(&catalog)?;
 
         describe_entity_model_with_persisted_schema(
             E::MODEL,
             catalog.snapshot(),
             catalog.value_catalog_handle(),
+            validation_jobs.as_slice(),
         )
+    }
+
+    pub(in crate::db::session) fn constraint_validation_jobs_for_catalog<E>(
+        &self,
+        catalog: &crate::db::session::AcceptedSchemaCatalogContext,
+    ) -> Result<Vec<ConstraintValidationJob>, InternalError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let store = self.db.recovered_store(E::Store::PATH)?;
+        store.with_schema(|schema_store| {
+            let jobs = catalog
+                .snapshot()
+                .persisted_snapshot()
+                .constraint_activations()
+                .iter()
+                .map(|activation| {
+                    schema_store.constraint_validation_job(E::ENTITY_TAG, activation.id())
+                })
+                .collect::<Result<Vec<_>, InternalError>>()?;
+            jobs.into_iter()
+                .flatten()
+                .map(|job| {
+                    if job.entity_tag() != E::ENTITY_TAG
+                        || job.entity_path() != catalog.snapshot().entity_path()
+                    {
+                        return Err(InternalError::store_invariant());
+                    }
+                    Ok(job)
+                })
+                .collect()
+        })
     }
 
     /// Build one point-in-time storage report for observability endpoints.

@@ -186,6 +186,7 @@ fn schema_report_renders_aligned_summary_and_index_tables() {
             "accounts".to_string(),
             EntityRelationCardinality::Single,
         )],
+        Vec::new(),
         1,
         1,
     )];
@@ -268,6 +269,7 @@ fn schema_report_renders_composite_primary_key_fields() {
                 None,
             ),
         ],
+        Vec::new(),
         Vec::new(),
         Vec::new(),
         1,

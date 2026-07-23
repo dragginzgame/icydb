@@ -7,8 +7,12 @@ mod accepted_field_kind;
 mod accepted_value_admission;
 pub(in crate::db) mod authored_projection;
 mod capabilities;
+mod check;
 mod codec;
 mod composite_catalog;
+mod constraint;
+mod constraint_activation_runner;
+mod constraint_validation;
 mod describe;
 pub(in crate::db) mod enum_catalog;
 mod errors;
@@ -39,8 +43,9 @@ pub(in crate::db) const MAX_ACCEPTED_RECURSIVE_DEPTH: usize =
     MAX_ACCEPTED_RECURSIVE_DEPTH_U16 as usize;
 
 pub use describe::{
-    EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
-    EntityRelationDescription, EntitySchemaCheckDescription, EntitySchemaDescription,
+    ConstraintValidationProgressDescription, EntityConstraintDescription, EntityFieldDescription,
+    EntityIndexDescription, EntityRelationCardinality, EntityRelationDescription,
+    EntitySchemaCheckDescription, EntitySchemaDescription,
 };
 pub use errors::{SchemaLiteralValidationReason, SchemaValidationOperator, ValidateError};
 
@@ -51,9 +56,21 @@ pub(in crate::db) use capabilities::sql_capabilities;
 pub(in crate::db) use capabilities::{
     SqlCapabilities, sql_capabilities_for_model_kind, sql_capabilities_with_enum_catalog,
 };
+pub(in crate::db) use check::bind_generated_check_predicate;
+pub(in crate::db::schema) use check::validate_accepted_check_literals;
+pub(in crate::db) use check::{
+    AcceptedCheckCompareOpV1, AcceptedCheckExprV1, AcceptedCheckLiteralV1,
+    AcceptedCheckValueExprV1, AcceptedRowConstraintEvaluationError, CompiledAcceptedRowConstraints,
+    render_accepted_check_expr_sql,
+};
+#[cfg(feature = "sql")]
+pub(in crate::db) use check::{AcceptedCheckExprV1Error, bind_sql_check_expr};
+#[cfg(test)]
+pub(in crate::db) use check::{CheckExprV1Input, CheckValueExprV1Input, bind_check_expr_v1};
 pub(in crate::db) use codec::{decode_persisted_schema_snapshot, encode_persisted_schema_snapshot};
 #[cfg(test)]
 pub(in crate::db) use codec::{
+    encode_unchecked_persisted_schema_snapshot_for_tests,
     persisted_schema_snapshot_decode_count_for_tests,
     reset_persisted_schema_snapshot_decode_count_for_tests,
 };
@@ -62,15 +79,40 @@ pub(in crate::db) use composite_catalog::AcceptedCompositeCatalog;
 pub(in crate::db) use composite_catalog::{
     build_initial_accepted_catalogs_for_tests, build_initial_accepted_catalogs_from_kinds_for_tests,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use constraint::AcceptedConstraintCatalogError;
+#[cfg(feature = "sql")]
+pub(in crate::db) use constraint::validate_constraint_name;
+#[doc(hidden)]
+pub use constraint::validate_generated_constraint_name;
+pub(in crate::db) use constraint::{
+    AcceptedConstraintCatalog, AcceptedConstraintKind, AcceptedConstraintSnapshot,
+    ConstraintActivationFingerprint, ConstraintActivationKind, ConstraintActivationSnapshot,
+    ConstraintActivationState, ConstraintOrigin, not_null_constraint_name,
+    primary_key_constraint_name,
+};
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use constraint_activation_runner::ConstraintValidationProgress;
+#[cfg(feature = "sql")]
+pub(in crate::db) use constraint_activation_runner::validate_unpublished_check_candidate_exact;
+pub(in crate::db) use constraint_activation_runner::{
+    advance_check_constraint_activation, advance_not_null_constraint_activation,
+    advance_relation_constraint_activation, advance_unique_constraint_activation,
+};
+pub(in crate::db) use constraint_validation::{
+    ConstraintStoreRevision, ConstraintValidationFinding, ConstraintValidationJob,
+    ConstraintValidationPhase, ConstraintValidationReceipt, MAX_CONSTRAINT_VALIDATION_JOB_BYTES,
+    decode_constraint_validation_job, encode_constraint_validation_job,
+};
 pub(in crate::db) use describe::{
     describe_entity_fields, describe_entity_fields_with_persisted_schema, describe_entity_model,
     describe_entity_model_with_persisted_schema,
 };
 pub(in crate::db) use enum_catalog::{
     AcceptedEnumCatalog, AcceptedSchemaAuthority, AcceptedSchemaFingerprint,
-    AcceptedSchemaRevision, AcceptedValueCatalogHandle, AcceptedValueContract,
-    CandidateSchemaRevision, ValueAdmissionBudget, encode_unit_enum_equality_key,
-    output_value_from_runtime,
+    AcceptedSchemaRevision, AcceptedSchemaRevisionBundle, AcceptedValueCatalogHandle,
+    AcceptedValueContract, CandidateSchemaRevision, ValueAdmissionBudget,
+    encode_unit_enum_equality_key, output_value_from_runtime,
 };
 #[cfg(test)]
 pub(in crate::db) use enum_catalog::{
@@ -93,7 +135,9 @@ pub(in crate::db) use format::{
     show_indexes_for_model, show_indexes_for_model_with_runtime_state,
     show_indexes_for_schema_info_with_runtime_state,
 };
-pub(in crate::db) use identity::{ConstraintIdAllocator, FieldId, RelationId, SchemaIndexId};
+pub(in crate::db) use identity::{
+    ConstraintId, ConstraintIdAllocator, FieldId, RelationId, SchemaIndexId,
+};
 pub(in crate::db) use info::{
     SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo, SchemaIndexFieldPathInfo,
     SchemaIndexInfo, SchemaInfo,
@@ -104,8 +148,8 @@ pub(in crate::db) use info::{
     reset_accepted_schema_info_projection_count_for_tests,
 };
 pub(in crate::db::schema) use integrity::{
-    schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
-    schema_snapshot_relation_integrity_detail,
+    schema_snapshot_constraint_integrity_detail, schema_snapshot_index_integrity_detail,
+    schema_snapshot_integrity_detail, schema_snapshot_relation_integrity_detail,
 };
 pub(in crate::db) use layout::{RowLayoutVersion, SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
 #[cfg(test)]
@@ -113,12 +157,13 @@ pub(in crate::db::schema) use mutation::AcceptedSchemaMutationError;
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use mutation::SchemaDdlSchemaVersionAdmissionError;
 pub(in crate::db::schema) use mutation::{
-    GeneratedAcceptedCandidateError, MutationPlan, MutationPublicationPreflight,
-    SchemaMutationRequest, SchemaTransitionSourceBudget, derive_generated_accepted_candidate,
-    schema_mutation_request_for_snapshots,
+    GeneratedAcceptedCandidateError, GeneratedConstraintActivationContext, MutationPlan,
+    MutationPublicationPreflight, SchemaMutationRequest, SchemaTransitionSourceBudget,
+    derive_generated_accepted_candidate, schema_mutation_request_for_snapshots,
 };
 pub(in crate::db) use mutation::{
     MAX_SCHEMA_PROJECTION_ENTRIES, MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES,
+    UniqueConstraintProjection,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use mutation::{
@@ -166,6 +211,17 @@ pub(in crate::db) use mutation::{
 #[cfg(test)]
 pub(in crate::db::schema) use mutation::{SchemaMutationDelta, classify_schema_mutation_delta};
 pub(in crate::db) use proposal::compiled_schema_proposal_for_model;
+#[cfg(feature = "sql")]
+pub(in crate::db) use reconcile::{
+    SqlDdlFieldNullabilityOutcome, execute_admin_sql_ddl_check_addition,
+    execute_admin_sql_ddl_check_drop, execute_admin_sql_ddl_expression_index_addition,
+    execute_admin_sql_ddl_field_addition, execute_admin_sql_ddl_field_default_change,
+    execute_admin_sql_ddl_field_drop, execute_admin_sql_ddl_field_nullability_change,
+    execute_admin_sql_ddl_field_path_index_addition, execute_admin_sql_ddl_field_rename,
+    execute_admin_sql_ddl_not_null_activation_abort, execute_admin_sql_ddl_secondary_index_drop,
+    execute_admin_sql_ddl_unique_index_activation,
+    execute_admin_sql_ddl_unique_index_activation_abort,
+};
 pub(in crate::db) use reconcile::{
     StagedDerivedDomainReplacement, ensure_accepted_catalog_snapshot_selection,
     ensure_accepted_schema_snapshot, reconcile_runtime_schemas,
@@ -174,14 +230,6 @@ pub(in crate::db) use reconcile::{
 #[cfg(test)]
 pub(in crate::db) use reconcile::{
     bootstrap_test_accepted_schema_snapshot, publish_test_accepted_schema_snapshot,
-};
-#[cfg(feature = "sql")]
-pub(in crate::db) use reconcile::{
-    execute_admin_sql_ddl_expression_index_addition, execute_admin_sql_ddl_field_addition,
-    execute_admin_sql_ddl_field_default_change, execute_admin_sql_ddl_field_drop,
-    execute_admin_sql_ddl_field_nullability_change,
-    execute_admin_sql_ddl_field_path_index_addition, execute_admin_sql_ddl_field_rename,
-    execute_admin_sql_ddl_secondary_index_drop,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use runtime::AcceptedRowLayoutRuntimeField;
@@ -243,6 +291,5 @@ pub(in crate::db::schema) use transition::{
 #[cfg(feature = "sql")]
 pub(in crate::db) use types::canonicalize_strict_sql_literal_for_persisted_kind;
 pub(in crate::db) use types::field_type_from_persisted_kind;
-#[cfg(feature = "sql")]
 pub(in crate::db) use types::input_value_from_strict_sql_literal_for_persisted_kind;
 pub(crate) use types::{FieldType, ScalarType, field_type_from_model_kind, literal_matches_type};

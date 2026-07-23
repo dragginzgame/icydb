@@ -139,7 +139,8 @@ fn validate_anchor_identity(
     index: crate::db::access::IndexShapeDetails,
 ) -> Result<ValidatedIdentityIndexRangeCursorAnchor, CursorPlanError> {
     let decoded_key = anchor.decoded_key();
-    let expected_index_id = IndexId::new(entity_tag, index.ordinal());
+    let expected_index_id =
+        IndexId::new_with_generation(entity_tag, index.ordinal(), index.physical_generation());
 
     if decoded_key.index_id() != &expected_index_id {
         return Err(CursorPlanError::index_range_anchor_index_id_mismatch());
@@ -195,7 +196,8 @@ fn lower_cursor_anchor_index_range_bounds(
     ),
     &'static str,
 > {
-    let index_id = IndexId::new(entity_tag, index.ordinal());
+    let index_id =
+        IndexId::new_with_generation(entity_tag, index.ordinal(), index.physical_generation());
 
     build_index_bounds_for_arity(
         &index_id,

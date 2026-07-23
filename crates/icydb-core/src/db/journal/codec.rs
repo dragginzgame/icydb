@@ -8,9 +8,14 @@ use crate::{
         codec::MAX_ROW_BYTES,
         commit::{CommitSchemaFingerprint, MAX_COMMIT_BYTES},
         data::RawDataStoreKey,
-        schema::{AcceptedSchemaRevision, CandidateSchemaRevision, MAX_SCHEMA_SNAPSHOT_BYTES},
+        schema::{
+            AcceptedSchemaRevision, CandidateSchemaRevision, ConstraintId, ConstraintValidationJob,
+            MAX_CONSTRAINT_VALIDATION_JOB_BYTES, MAX_SCHEMA_SNAPSHOT_BYTES,
+            decode_constraint_validation_job, encode_constraint_validation_job,
+        },
     },
     error::InternalError,
+    types::EntityTag,
 };
 use ic_stable_structures::{Storable, storable::Bound};
 use std::borrow::Cow;
@@ -28,6 +33,8 @@ const JOURNAL_RECORD_ROW_PUT: u8 = 1;
 const JOURNAL_RECORD_ROW_DELETE: u8 = 2;
 const JOURNAL_RECORD_SCHEMA_PUT: u8 = 3;
 const JOURNAL_RECORD_ACCEPTED_SCHEMA_PUBLISH: u8 = 4;
+const JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_PUT: u8 = 5;
+const JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_DELETE: u8 = 6;
 
 pub(in crate::db) type JournalBatchId = [u8; JOURNAL_BATCH_ID_BYTES];
 pub(in crate::db) type JournalCommitMarkerId = [u8; JOURNAL_COMMIT_MARKER_ID_BYTES];
@@ -116,6 +123,19 @@ pub(in crate::db) enum JournalRecord {
         schema_bundle_bytes: Vec<u8>,
         schema_root_bytes: Vec<u8>,
     },
+    /// Schema-owned validation-job replacement for one live activation.
+    ConstraintValidationJobPut {
+        store_path: String,
+        entity_tag: EntityTag,
+        constraint_id: ConstraintId,
+        job_bytes: Vec<u8>,
+    },
+    /// Schema-owned validation-job removal for one promoted or aborted activation.
+    ConstraintValidationJobDelete {
+        store_path: String,
+        entity_tag: EntityTag,
+        constraint_id: ConstraintId,
+    },
 }
 
 impl JournalRecord {
@@ -175,6 +195,34 @@ impl JournalRecord {
             expected_revision,
             schema_bundle_bytes,
             schema_root_bytes,
+        };
+        validate_journal_record(&record)?;
+        Ok(record)
+    }
+
+    pub(in crate::db) fn constraint_validation_job_put(
+        store_path: impl Into<String>,
+        job: &ConstraintValidationJob,
+    ) -> Result<Self, InternalError> {
+        let record = Self::ConstraintValidationJobPut {
+            store_path: store_path.into(),
+            entity_tag: job.entity_tag(),
+            constraint_id: job.constraint_id(),
+            job_bytes: encode_constraint_validation_job(job)?,
+        };
+        validate_journal_record(&record)?;
+        Ok(record)
+    }
+
+    pub(in crate::db) fn constraint_validation_job_delete(
+        store_path: impl Into<String>,
+        entity_tag: EntityTag,
+        constraint_id: ConstraintId,
+    ) -> Result<Self, InternalError> {
+        let record = Self::ConstraintValidationJobDelete {
+            store_path: store_path.into(),
+            entity_tag,
+            constraint_id,
         };
         validate_journal_record(&record)?;
         Ok(record)
@@ -443,6 +491,36 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
             write_len_prefixed_bytes(out, schema_bundle_bytes, "journal accepted schema bundle")?;
             write_len_prefixed_bytes(out, schema_root_bytes, "journal accepted schema root")?;
         }
+        JournalRecord::ConstraintValidationJobPut {
+            store_path,
+            entity_tag,
+            constraint_id,
+            job_bytes,
+        } => {
+            out.push(JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_PUT);
+            write_len_prefixed_bytes(
+                out,
+                store_path.as_bytes(),
+                "journal validation job store_path",
+            )?;
+            out.extend_from_slice(&entity_tag.value().to_le_bytes());
+            out.extend_from_slice(&constraint_id.get().to_le_bytes());
+            write_len_prefixed_bytes(out, job_bytes, "journal validation job payload")?;
+        }
+        JournalRecord::ConstraintValidationJobDelete {
+            store_path,
+            entity_tag,
+            constraint_id,
+        } => {
+            out.push(JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_DELETE);
+            write_len_prefixed_bytes(
+                out,
+                store_path.as_bytes(),
+                "journal validation job store_path",
+            )?;
+            out.extend_from_slice(&entity_tag.value().to_le_bytes());
+            out.extend_from_slice(&constraint_id.get().to_le_bytes());
+        }
     }
 
     Ok(())
@@ -501,6 +579,43 @@ fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord
                 schema_root_bytes,
             )
         }
+        JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_PUT => {
+            let store_path = read_utf8_path(bytes, cursor, "journal validation job store_path")?;
+            let entity_tag = EntityTag::new(read_u64_le(
+                bytes,
+                cursor,
+                "journal validation job entity tag",
+            )?);
+            let constraint_id = ConstraintId::new(read_u32_le(
+                bytes,
+                cursor,
+                "journal validation job constraint id",
+            )?)
+            .ok_or_else(journal_batch_corruption)?;
+            let job_bytes =
+                read_len_prefixed_bytes(bytes, cursor, "journal validation job payload")?.to_vec();
+            let job = decode_constraint_validation_job(&job_bytes)
+                .map_err(|_| journal_batch_corruption())?;
+            if job.entity_tag() != entity_tag || job.constraint_id() != constraint_id {
+                return Err(journal_batch_corruption());
+            }
+            JournalRecord::constraint_validation_job_put(store_path, &job)
+        }
+        JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_DELETE => {
+            let store_path = read_utf8_path(bytes, cursor, "journal validation job store_path")?;
+            let entity_tag = EntityTag::new(read_u64_le(
+                bytes,
+                cursor,
+                "journal validation job entity tag",
+            )?);
+            let constraint_id = ConstraintId::new(read_u32_le(
+                bytes,
+                cursor,
+                "journal validation job constraint id",
+            )?)
+            .ok_or_else(journal_batch_corruption)?;
+            JournalRecord::constraint_validation_job_delete(store_path, entity_tag, constraint_id)
+        }
         _ => Err(journal_batch_corruption()),
     }
 }
@@ -558,6 +673,19 @@ fn journal_record_payload_len(record: &JournalRecord) -> usize {
             .saturating_add(size_of::<u64>())
             .saturating_add(size_of::<u32>() + schema_bundle_bytes.len())
             .saturating_add(size_of::<u32>() + schema_root_bytes.len()),
+        JournalRecord::ConstraintValidationJobPut {
+            store_path,
+            job_bytes,
+            ..
+        } => 1usize
+            .saturating_add(size_of::<u32>() + store_path.len())
+            .saturating_add(size_of::<u64>())
+            .saturating_add(size_of::<u32>())
+            .saturating_add(size_of::<u32>() + job_bytes.len()),
+        JournalRecord::ConstraintValidationJobDelete { store_path, .. } => 1usize
+            .saturating_add(size_of::<u32>() + store_path.len())
+            .saturating_add(size_of::<u64>())
+            .saturating_add(size_of::<u32>()),
     }
 }
 
@@ -624,6 +752,25 @@ fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> 
             {
                 return Err(journal_batch_corruption());
             }
+        }
+        JournalRecord::ConstraintValidationJobPut {
+            store_path,
+            entity_tag,
+            constraint_id,
+            job_bytes,
+        } => {
+            validate_path(store_path, "journal validation job store_path")?;
+            if job_bytes.len() > MAX_CONSTRAINT_VALIDATION_JOB_BYTES {
+                return Err(journal_batch_corruption());
+            }
+            let job = decode_constraint_validation_job(job_bytes)
+                .map_err(|_| journal_batch_corruption())?;
+            if job.entity_tag() != *entity_tag || job.constraint_id() != *constraint_id {
+                return Err(journal_batch_corruption());
+            }
+        }
+        JournalRecord::ConstraintValidationJobDelete { store_path, .. } => {
+            validate_path(store_path, "journal validation job store_path")?;
         }
     }
 
@@ -713,6 +860,21 @@ fn read_u64_le(
     Ok(u64::from_le_bytes([
         payload[0], payload[1], payload[2], payload[3], payload[4], payload[5], payload[6],
         payload[7],
+    ]))
+}
+
+fn read_u32_le(
+    bytes: &[u8],
+    cursor: &mut usize,
+    _label: &'static str,
+) -> Result<u32, InternalError> {
+    let payload = bytes
+        .get(*cursor..cursor.saturating_add(size_of::<u32>()))
+        .ok_or_else(journal_batch_corruption)?;
+    *cursor = cursor.saturating_add(size_of::<u32>());
+
+    Ok(u32::from_le_bytes([
+        payload[0], payload[1], payload[2], payload[3],
     ]))
 }
 

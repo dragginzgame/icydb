@@ -3,6 +3,7 @@
 //! Does not own: reconciliation policy, schema transition decisions, or raw codec parsing.
 //! Boundary: reports local metadata inconsistencies before snapshots become accepted authority.
 
+mod constraint;
 mod index;
 mod relation;
 
@@ -11,6 +12,7 @@ use crate::db::schema::{
     SchemaVersion,
 };
 
+pub(in crate::db::schema) use constraint::schema_snapshot_constraint_integrity_detail;
 pub(in crate::db::schema) use index::schema_snapshot_index_integrity_detail;
 pub(in crate::db::schema) use relation::schema_snapshot_relation_integrity_detail;
 

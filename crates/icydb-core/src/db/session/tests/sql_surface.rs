@@ -38,9 +38,7 @@ use crate::{
             parser::parse_sql,
         },
     },
-    error::{
-        ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail, SchemaDdlAdmissionError, StoreError,
-    },
+    error::{ErrorClass, ErrorDetail, QueryErrorDetail, SchemaDdlAdmissionError, StoreError},
 };
 use icydb_diagnostic_code::{SqlLoweringCode, SqlSurfaceMismatchCode};
 use std::{
@@ -773,6 +771,16 @@ fn sql_metadata_surfaces_match_typed_payloads() {
         "SHOW INDEXES IN SessionSqlEntity",
     )
     .expect("show_indexes_sql should accept the SHOW INDEXES IN alias");
+    let show_constraints_from_sql = statement_show_constraints_sql::<SessionSqlEntity>(
+        &session,
+        "SHOW CONSTRAINTS FROM SessionSqlEntity",
+    )
+    .expect("show_constraints_sql should succeed");
+    let show_constraints_in_from_sql = statement_show_constraints_sql::<SessionSqlEntity>(
+        &session,
+        "SHOW CONSTRAINTS IN SessionSqlEntity",
+    )
+    .expect("show_constraints_sql should accept the SHOW CONSTRAINTS IN alias");
     let show_columns_from_sql =
         statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
             .expect("show_columns_sql should succeed");
@@ -796,6 +804,17 @@ fn sql_metadata_surfaces_match_typed_payloads() {
     assert_eq!(
         show_indexes_in_from_sql, show_indexes_from_sql,
         "SHOW INDEXES IN should stay a direct SQL alias of SHOW INDEXES FROM",
+    );
+    assert_eq!(
+        show_constraints_from_sql,
+        session
+            .try_show_constraints::<SessionSqlEntity>()
+            .expect("typed accepted constraints should derive"),
+        "show_constraints_sql should project accepted catalog authority",
+    );
+    assert_eq!(
+        show_constraints_in_from_sql, show_constraints_from_sql,
+        "SHOW CONSTRAINTS IN should stay a direct SQL alias of SHOW CONSTRAINTS FROM",
     );
     assert_eq!(
         show_columns_from_sql,
@@ -863,6 +882,20 @@ fn sql_metadata_surfaces_execute_through_public_query_entrypoint() {
         describe,
         session.describe_entity::<SessionSqlEntity>(),
         "DESCRIBE should expose the same public payload as the typed metadata surface",
+    );
+
+    let SqlStatementResult::ShowConstraints(show_constraints) = session
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW CONSTRAINTS FROM SessionSqlEntity")
+        .expect("SHOW CONSTRAINTS should execute through public SQL query entrypoint")
+    else {
+        panic!("SHOW CONSTRAINTS should return a structural constraint payload");
+    };
+    assert_eq!(
+        show_constraints,
+        session
+            .try_show_constraints::<SessionSqlEntity>()
+            .expect("typed accepted constraints should derive"),
+        "SHOW CONSTRAINTS should project the accepted structural registry",
     );
 
     let SqlStatementResult::ShowColumns(columns) = session
@@ -2732,6 +2765,11 @@ fn sql_statement_surface_routes_row_mutation_to_query_rejection_surface() {
             "introspection should route to generated query",
         ),
         (
+            "SHOW CONSTRAINTS FROM SessionSqlWriteEntity",
+            SqlStatementSurface::Query,
+            "constraint introspection should route to generated query",
+        ),
+        (
             "CREATE INDEX name_idx ON SessionSqlWriteEntity (name)",
             SqlStatementSurface::Ddl,
             "DDL should route only to generated DDL",
@@ -2779,6 +2817,11 @@ fn sql_statement_shell_surface_routes_update_to_configured_update_endpoint() {
             "introspection should route to query endpoint",
         ),
         (
+            "SHOW CONSTRAINTS FROM SessionSqlWriteEntity",
+            SqlStatementShellSurface::Query,
+            "constraint introspection should route to query endpoint",
+        ),
+        (
             "CREATE INDEX name_idx ON SessionSqlWriteEntity (name)",
             SqlStatementShellSurface::Ddl,
             "DDL should route to DDL endpoint",
@@ -2814,6 +2857,11 @@ fn sql_statement_entity_name_preserves_row_mutation_target_without_write_surface
             "DELETE FROM SessionSqlWriteEntity WHERE id = 1",
             Some("SessionSqlWriteEntity"),
             "DELETE target should stay visible for generated query rejection",
+        ),
+        (
+            "SHOW CONSTRAINTS FROM SessionSqlWriteEntity",
+            Some("SessionSqlWriteEntity"),
+            "constraint introspection should preserve its entity target",
         ),
         (
             "SHOW ENTITIES",
@@ -2855,6 +2903,12 @@ fn sql_statement_dispatch_marks_operational_introspection() {
             Some("SessionSqlWriteEntity"),
             true,
             "SHOW INDEXES should require introspection",
+        ),
+        (
+            "SHOW CONSTRAINTS FROM SessionSqlWriteEntity",
+            Some("SessionSqlWriteEntity"),
+            true,
+            "SHOW CONSTRAINTS should require introspection",
         ),
         (
             "SHOW COLUMNS SessionSqlWriteEntity",
@@ -2919,6 +2973,18 @@ fn execute_trusted_sql_query_rejects_supported_single_entity_mutation_shapes() {
             .expect_err(context);
         assert_sql_surface_mismatch_detail(err, expected);
     }
+}
+
+#[test]
+fn trusted_sql_mutation_rejects_show_constraints_with_typed_surface_cause() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_trusted_sql_mutation::<SessionSqlEntity>("SHOW CONSTRAINTS FROM SessionSqlEntity")
+        .expect_err("mutation SQL surface must reject accepted-catalog introspection");
+
+    assert_sql_surface_mismatch_detail(err, SqlSurfaceMismatchCode::MutationRejectsShowConstraints);
 }
 
 #[test]
@@ -4209,6 +4275,21 @@ fn sql_ddl_create_unique_index_binds_against_accepted_catalog() {
         !create.candidate_index().generated(),
         "SQL DDL-created unique indexes should carry DDL origin in accepted metadata",
     );
+    assert_eq!(
+        lower_bound_sql_ddl_to_schema_mutation_admission(&bound),
+        Err(SqlDdlLoweringError::UnsupportedStatement),
+        "unique indexes must not re-enter the immediate accepted-index mutation path",
+    );
+
+    let versioned = parse_sql(&ddl_transition_sql(
+        "CREATE UNIQUE INDEX session_sql_name_idx ON SessionSqlEntity (name)",
+        1,
+    ))
+    .expect("versioned CREATE UNIQUE INDEX should parse");
+    let prepared =
+        prepare_sql_ddl_statement(&versioned, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("unique activation request should prepare without immediate derivation");
+    assert!(prepared.derivation().is_none());
 }
 
 #[test]
@@ -5375,6 +5456,284 @@ fn execute_admin_sql_ddl_publishes_supported_nullable_add_column() {
         ]],
     );
     assert_eq!(row_count, 1);
+}
+
+#[test]
+fn execute_admin_sql_ddl_add_check_validates_history_and_gates_future_writes() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(21_100),
+            name: "Ada".to_string(),
+            age: 36,
+        })
+        .expect("historical row should insert before the check exists");
+
+    let SqlStatementResult::Ddl(report) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD CONSTRAINT adult_age CHECK (age >= 18)",
+            1,
+        ))
+        .expect("plain ADD CONSTRAINT should validate and publish atomically")
+    else {
+        panic!("ADD CONSTRAINT should return a DDL report");
+    };
+    assert_eq!(
+        report.mutation_kind(),
+        SqlDdlMutationKind::AddCheckConstraint
+    );
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Validated);
+    assert_eq!(report.rows_scanned(), 1);
+
+    let constraints = session
+        .try_show_constraints::<SessionSqlEntity>()
+        .expect("accepted checks should be introspectable");
+    let check = constraints
+        .iter()
+        .find(|constraint| constraint.name() == "adult_age")
+        .expect("validated SQL check should be accepted");
+    assert_eq!(check.kind(), "check");
+    assert_eq!(check.origin(), "sql_ddl");
+    assert_eq!(check.validation_state(), "validated");
+    assert_eq!(check.check_sql(), Some("age >= 18"));
+    assert!(check.validation_progress().is_none());
+
+    assert!(
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::from_u128(21_101),
+                name: "Young".to_string(),
+                age: 17,
+            })
+            .is_err(),
+        "the accepted check must gate typed writes through the shared after-image program",
+    );
+}
+
+fn assert_typed_check_validation_pages(
+    started: &SqlDdlPreparationReport,
+    findings: &SqlDdlPreparationReport,
+) {
+    assert_eq!(
+        started.execution_status(),
+        SqlDdlExecutionStatus::ValidationStarted
+    );
+    let started_page = started
+        .constraint_validation()
+        .expect("VALIDATE should expose typed durable-job progress");
+    assert_eq!(started_page.state().as_str(), "forward");
+    assert_eq!(started_page.revision_status().as_str(), "tracking");
+    assert!(started_page.activation_epoch().is_some());
+    assert_eq!(started_page.page_sequence(), None);
+    assert!(!started_page.complete());
+
+    assert_eq!(
+        findings.execution_status(),
+        SqlDdlExecutionStatus::ValidationFindings
+    );
+    let finding_page = findings
+        .constraint_validation()
+        .expect("finding response should retain typed page identity");
+    assert_eq!(finding_page.constraint_id(), started_page.constraint_id());
+    assert_eq!(
+        finding_page.activation_epoch(),
+        started_page.activation_epoch()
+    );
+    assert_eq!(finding_page.rows_scanned(), 3);
+    assert_eq!(finding_page.findings().len(), 1);
+    assert!(finding_page.page_sequence().is_some());
+    assert!(!finding_page.findings()[0].primary_key().is_empty());
+    assert!(!finding_page.findings()[0].field_ids().is_empty());
+    assert!(!finding_page.complete());
+}
+
+fn assert_validating_check_description(session: &DbSession<SessionSqlCanister>) {
+    let validating = session
+        .try_show_constraints::<SessionSqlEntity>()
+        .expect("validating check activation should be introspectable")
+        .into_iter()
+        .find(|constraint| constraint.name() == "adult_age")
+        .expect("SHOW CONSTRAINTS should retain the validating activation");
+    assert_eq!(validating.validation_state(), "validating");
+    assert_eq!(validating.check_sql(), Some("age >= 18"));
+    let progress = validating
+        .validation_progress()
+        .expect("validating introspection should expose durable job progress");
+    assert_eq!(progress.phase(), "forward");
+    assert_eq!(progress.rows_scanned(), 3);
+    assert_eq!(progress.findings_seen(), 1);
+    assert_eq!(progress.restarts(), 0);
+}
+
+fn assert_not_valid_check_enforces_new_writes(session: &DbSession<SessionSqlCanister>) {
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(21_110),
+            name: "Historical".to_string(),
+            age: 17,
+        })
+        .expect("historical row should precede the new check");
+
+    let SqlStatementResult::Ddl(add) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD CONSTRAINT adult_age CHECK (age >= 18) NOT VALID",
+            1,
+        ))
+        .expect("NOT VALID should publish only a write-gated activation")
+    else {
+        panic!("ADD CONSTRAINT NOT VALID should return a DDL report");
+    };
+    assert_eq!(
+        add.execution_status(),
+        SqlDdlExecutionStatus::ActivationPublished
+    );
+    let pending = session
+        .try_show_constraints::<SessionSqlEntity>()
+        .expect("live check activation should be introspectable")
+        .into_iter()
+        .find(|constraint| constraint.name() == "adult_age")
+        .expect("SHOW CONSTRAINTS should merge live activations");
+    assert_eq!(pending.kind(), "check");
+    assert_eq!(pending.origin(), "sql_ddl");
+    assert_eq!(pending.validation_state(), "enforcing_new_writes");
+    assert_eq!(pending.check_sql(), Some("age >= 18"));
+    assert!(pending.validation_progress().is_none());
+    crate::db::commit::clear_recovery_runtime_state_for_tests(&SESSION_SQL_DB)
+        .expect("post-DDL recovery fixture should reset");
+    ensure_recovered(&SESSION_SQL_DB)
+        .expect("startup recovery must preserve a live SQL-owned check activation");
+    assert!(
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::from_u128(21_111),
+                name: "Future".to_string(),
+                age: 17,
+            })
+            .is_err(),
+        "NOT VALID must enforce the new-write gate immediately",
+    );
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(21_112),
+            name: "Adult".to_string(),
+            age: 18,
+        })
+        .expect("NOT VALID must admit a future row that satisfies its write gate");
+    sql_session()
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(21_113),
+            name: "Fresh session adult".to_string(),
+            age: 19,
+        })
+        .expect("a fresh session must observe and satisfy the live SQL write gate");
+}
+
+#[test]
+fn execute_admin_sql_ddl_check_not_valid_uses_bounded_job_and_atomic_abort() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    assert_not_valid_check_enforces_new_writes(&session);
+
+    let SqlStatementResult::Ddl(started) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity VALIDATE CONSTRAINT adult_age",
+        )
+        .expect("first VALIDATE call should create the durable job")
+    else {
+        panic!("VALIDATE CONSTRAINT should return a DDL report");
+    };
+    let SqlStatementResult::Ddl(findings) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity VALIDATE CONSTRAINT adult_age",
+        )
+        .expect("validation should retain one bounded finding page")
+    else {
+        panic!("VALIDATE CONSTRAINT should return a DDL report");
+    };
+    assert_typed_check_validation_pages(&started, &findings);
+    assert_validating_check_description(&session);
+
+    let SqlStatementResult::Ddl(replayed) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity VALIDATE CONSTRAINT adult_age",
+        )
+        .expect("unacknowledged validation should replay its retained page")
+    else {
+        panic!("VALIDATE CONSTRAINT should return a DDL report");
+    };
+    assert_eq!(
+        replayed.constraint_validation(),
+        findings.constraint_validation(),
+        "a retained finding page must remain byte-for-byte acknowledgeable",
+    );
+
+    let SqlStatementResult::Ddl(drop) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity DROP CONSTRAINT adult_age",
+            2,
+        ))
+        .expect("DROP CONSTRAINT should atomically abort the activation and its job")
+    else {
+        panic!("DROP CONSTRAINT should return a DDL report");
+    };
+    assert_eq!(drop.execution_status(), SqlDdlExecutionStatus::Published);
+    assert!(
+        session
+            .try_show_constraints::<SessionSqlEntity>()
+            .expect("accepted constraints should remain readable")
+            .iter()
+            .all(|constraint| constraint.name() != "adult_age"),
+        "aborted SQL check must leave no accepted or activation entry",
+    );
+}
+
+#[test]
+fn execute_admin_sql_ddl_plain_check_rejection_publishes_nothing() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(21_120),
+            name: "Historical".to_string(),
+            age: 17,
+        })
+        .expect("historical row should precede the rejected check");
+
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD CONSTRAINT adult_age CHECK (age >= 18)",
+            1,
+        ))
+        .expect_err("plain ADD must reject when any historical row violates the check");
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("accepted schema should remain readable")
+            .expect("initial accepted schema should remain published");
+        assert_eq!(latest.version(), SchemaVersion::new(1));
+        assert!(
+            !latest.constraint_catalog().constraints().is_empty(),
+            "the existing structural catalog should remain intact",
+        );
+        assert!(
+            latest
+                .constraint_catalog()
+                .constraints()
+                .iter()
+                .all(|constraint| constraint.name() != "adult_age")
+                && latest
+                    .constraint_catalog()
+                    .activations()
+                    .iter()
+                    .all(|activation| activation.name() != "adult_age"),
+            "failed plain ADD must publish neither a constraint nor an activation",
+        );
+    });
 }
 
 #[test]
@@ -6747,8 +7106,118 @@ fn execute_admin_sql_ddl_alter_column_nullability_reports_no_op_for_matching_con
     assert_eq!(report.index_keys_written(), 0);
 }
 
+fn active_sql_not_null_constraint_name() -> String {
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("activation schema should decode")
+            .expect("activation schema should exist");
+        latest
+            .constraint_catalog()
+            .activations()
+            .iter()
+            .find(|activation| {
+                activation.origin() == crate::db::schema::ConstraintOrigin::SqlDdl
+                    && matches!(
+                        activation.kind(),
+                        crate::db::schema::ConstraintActivationKind::NotNull { .. }
+                    )
+            })
+            .map(|activation| activation.name().to_string())
+            .expect("SET NOT NULL should publish one SQL-owned activation")
+    })
+}
+
+fn active_sql_unique_constraint_name() -> String {
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("activation schema should decode")
+            .expect("activation schema should exist");
+        latest
+            .constraint_catalog()
+            .activations()
+            .iter()
+            .find(|activation| {
+                activation.origin() == crate::db::schema::ConstraintOrigin::SqlDdl
+                    && matches!(
+                        activation.kind(),
+                        crate::db::schema::ConstraintActivationKind::Unique { .. }
+                    )
+            })
+            .map(|activation| activation.name().to_string())
+            .expect("CREATE UNIQUE INDEX should publish one SQL-owned activation")
+    })
+}
+
+fn validate_sql_constraint_to_completion(
+    session: &DbSession<SessionSqlCanister>,
+    constraint_name: &str,
+) -> SqlDdlPreparationReport {
+    let sql = format!("ALTER TABLE SessionSqlEntity VALIDATE CONSTRAINT {constraint_name}");
+    let SqlStatementResult::Ddl(started) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(sql.as_str())
+        .expect("first validation call should create the durable job")
+    else {
+        panic!("VALIDATE CONSTRAINT should return a DDL report");
+    };
+    assert_eq!(
+        started.execution_status(),
+        SqlDdlExecutionStatus::ValidationStarted
+    );
+    let SqlStatementResult::Ddl(advanced) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(sql.as_str())
+        .expect("Forward validation should advance to Verify")
+    else {
+        panic!("VALIDATE CONSTRAINT should return a DDL report");
+    };
+    assert_eq!(
+        advanced
+            .constraint_validation()
+            .expect("validation progress should be typed")
+            .state()
+            .as_str(),
+        "verify",
+    );
+    let SqlStatementResult::Ddl(validated) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(sql.as_str())
+        .expect("stable Verify should promote the constraint")
+    else {
+        panic!("VALIDATE CONSTRAINT should return a DDL report");
+    };
+    validated
+}
+
+fn validate_sql_constraint_to_findings(
+    session: &DbSession<SessionSqlCanister>,
+    constraint_name: &str,
+) -> SqlDdlPreparationReport {
+    let sql = format!("ALTER TABLE SessionSqlEntity VALIDATE CONSTRAINT {constraint_name}");
+    let SqlStatementResult::Ddl(started) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(sql.as_str())
+        .expect("first validation call should create the durable job")
+    else {
+        panic!("VALIDATE CONSTRAINT should return a DDL report");
+    };
+    assert_eq!(
+        started.execution_status(),
+        SqlDdlExecutionStatus::ValidationStarted
+    );
+    let SqlStatementResult::Ddl(findings) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(sql.as_str())
+        .expect("bounded validation should return typed findings")
+    else {
+        panic!("VALIDATE CONSTRAINT should return a DDL report");
+    };
+    assert_eq!(
+        findings.execution_status(),
+        SqlDdlExecutionStatus::ValidationFindings
+    );
+    findings
+}
+
 #[test]
-fn execute_admin_sql_ddl_publishes_supported_set_not_null_after_row_scan() {
+fn execute_admin_sql_ddl_set_not_null_uses_bounded_activation() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     let session = sql_session();
@@ -6771,7 +7240,7 @@ fn execute_admin_sql_ddl_publishes_supported_set_not_null_after_row_scan() {
             "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname SET NOT NULL",
             2,
         ))
-        .expect("ALTER COLUMN SET NOT NULL should publish after validating existing rows")
+        .expect("ALTER COLUMN SET NOT NULL should publish a bounded activation")
     else {
         panic!("ALTER COLUMN SET NOT NULL should return a DDL report");
     };
@@ -6779,8 +7248,12 @@ fn execute_admin_sql_ddl_publishes_supported_set_not_null_after_row_scan() {
     assert_eq!(report.mutation_kind(), SqlDdlMutationKind::SetFieldNotNull);
     assert_eq!(report.target_index(), "nickname");
     assert_eq!(report.field_path(), ["nickname".to_string()]);
-    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
-    assert_eq!(report.rows_scanned(), 1);
+    assert_eq!(
+        report.execution_status(),
+        SqlDdlExecutionStatus::ActivationPublished
+    );
+    assert_eq!(report.rows_scanned(), 0);
+    let constraint_name = active_sql_not_null_constraint_name();
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
             .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
@@ -6792,8 +7265,27 @@ fn execute_admin_sql_ddl_publishes_supported_set_not_null_after_row_scan() {
             .find(|field| field.name() == "nickname")
             .expect("DDL-published schema should include the altered field");
 
-        assert!(!nickname.nullable());
+        assert!(nickname.nullable());
         assert!(!nickname.insert_default().is_none());
+    });
+
+    let validated = validate_sql_constraint_to_completion(&session, constraint_name.as_str());
+    assert_eq!(
+        validated.execution_status(),
+        SqlDdlExecutionStatus::Validated
+    );
+    assert_eq!(validated.rows_scanned(), 2);
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("validated schema should remain readable")
+            .expect("validated schema should remain published");
+        let nickname = latest
+            .fields()
+            .iter()
+            .find(|field| field.name() == "nickname")
+            .expect("validated field should remain active");
+        assert!(!nickname.nullable());
     });
 }
 
@@ -6820,11 +7312,20 @@ fn execute_admin_sql_ddl_set_not_null_closes_historical_null_fill() {
             "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname SET NOT NULL",
             2,
         ))
-        .expect("complete validation should admit SET NOT NULL")
+        .expect("SET NOT NULL should publish its new-write gate")
     else {
         panic!("SET NOT NULL should return a DDL report");
     };
-    assert_eq!(report.rows_scanned(), 1);
+    assert_eq!(
+        report.execution_status(),
+        SqlDdlExecutionStatus::ActivationPublished
+    );
+    let constraint_name = active_sql_not_null_constraint_name();
+    let validated = validate_sql_constraint_to_completion(&session, constraint_name.as_str());
+    assert_eq!(
+        validated.execution_status(),
+        SqlDdlExecutionStatus::Validated
+    );
 
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
@@ -6849,7 +7350,7 @@ fn execute_admin_sql_ddl_set_not_null_closes_historical_null_fill() {
 }
 
 #[test]
-fn execute_admin_sql_ddl_rejects_set_not_null_when_rows_materialize_null() {
+fn execute_admin_sql_ddl_set_not_null_retains_findings_and_drop_aborts() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     let session = sql_session();
@@ -6867,14 +7368,63 @@ fn execute_admin_sql_ddl_rejects_set_not_null_when_rows_materialize_null() {
             age: 36,
         })
         .expect("typed inserts should remain valid before rejected SET NOT NULL");
-    let err = session
+    let SqlStatementResult::Ddl(activation) = session
         .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname SET NOT NULL",
             2,
         ))
-        .expect_err("SET NOT NULL should reject when any existing row materializes NULL");
+        .expect("SET NOT NULL should publish a new-write gate before historical proof")
+    else {
+        panic!("SET NOT NULL should return a DDL report");
+    };
+    assert_eq!(
+        activation.execution_status(),
+        SqlDdlExecutionStatus::ActivationPublished
+    );
+    let constraint_name = active_sql_not_null_constraint_name();
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&format!(
+            "ALTER TABLE SessionSqlEntity VALIDATE CONSTRAINT {constraint_name}",
+        ))
+        .expect("first validation call should create the durable job");
+    let SqlStatementResult::Ddl(findings) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&format!(
+            "ALTER TABLE SessionSqlEntity VALIDATE CONSTRAINT {constraint_name}",
+        ))
+        .expect("historical NULL should produce a bounded finding page")
+    else {
+        panic!("VALIDATE CONSTRAINT should return a DDL report");
+    };
+    assert_eq!(
+        findings.execution_status(),
+        SqlDdlExecutionStatus::ValidationFindings
+    );
+    assert_eq!(
+        findings
+            .constraint_validation()
+            .expect("finding progress should be typed")
+            .findings()
+            .len(),
+        1,
+    );
 
-    assert_sql_ddl_admission_detail(err, SchemaDdlAdmissionError::SetNotNullValidationFailed);
+    let SqlStatementResult::Ddl(drop) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname DROP NOT NULL",
+            3,
+        ))
+        .expect("DROP NOT NULL should atomically abort the live activation and job")
+    else {
+        panic!("DROP NOT NULL should return a DDL report");
+    };
+    assert_eq!(drop.execution_status(), SqlDdlExecutionStatus::Published);
+    let constraint_id = crate::db::schema::ConstraintId::new(
+        findings
+            .constraint_validation()
+            .expect("finding progress should be typed")
+            .constraint_id(),
+    )
+    .expect("public finding identity should remain nonzero");
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
             .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
@@ -6887,6 +7437,13 @@ fn execute_admin_sql_ddl_rejects_set_not_null_when_rows_materialize_null() {
             .expect("setup field should remain present");
 
         assert!(nickname.nullable());
+        assert!(latest.constraint_catalog().activations().is_empty());
+        assert!(
+            store
+                .constraint_validation_job(SessionSqlEntity::ENTITY_TAG, constraint_id)
+                .expect("validation job state should decode")
+                .is_none(),
+        );
     });
 }
 
@@ -7643,9 +8200,19 @@ fn execute_admin_sql_ddl_publishes_supported_unique_expression_index() {
     );
     assert_eq!(report.target_index(), "session_sql_lower_name_unique_idx");
     assert_eq!(report.field_path(), ["LOWER(name)".to_string()]);
-    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
-    assert_eq!(report.rows_scanned(), 3);
-    assert_eq!(report.index_keys_written(), 3);
+    assert_eq!(
+        report.execution_status(),
+        SqlDdlExecutionStatus::ActivationPublished
+    );
+    let constraint_name = active_sql_unique_constraint_name();
+    let validated = validate_sql_constraint_to_completion(&session, constraint_name.as_str());
+    assert_eq!(
+        validated.execution_status(),
+        SqlDdlExecutionStatus::Validated
+    );
+    assert_eq!(report.rows_scanned(), 0);
+    assert_eq!(report.index_keys_written(), 0);
+    assert_eq!(validated.rows_scanned(), 6);
 
     let SqlStatementResult::ShowIndexes(indexes) = session
         .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
@@ -7669,23 +8236,46 @@ fn execute_admin_sql_ddl_rejects_duplicate_unique_expression_values_without_publ
     let session = sql_session();
     seed_session_sql_entities(&session, &[("Ada", 21), ("ada", 34), ("Cyd", 55)]);
 
-    let error = session
+    let SqlStatementResult::Ddl(activation) = session
         .execute_admin_sql_ddl::<SessionSqlEntity>(
             &ddl_transition_sql(
                 "CREATE UNIQUE INDEX session_sql_lower_name_unique_idx ON SessionSqlEntity (LOWER(name))",
                 1,
             ),
         )
-        .expect_err("duplicate normalized values should reject unique expression index publication");
-    let QueryError::Execute(execution) = error else {
-        panic!("duplicate unique expression values should be an execution rejection");
+        .expect("duplicate normalized values should publish only the write-gated activation")
+    else {
+        panic!("CREATE UNIQUE INDEX should return a DDL report");
     };
-    assert_eq!(execution.as_internal().class(), ErrorClass::Conflict);
-    assert_eq!(execution.as_internal().origin(), ErrorOrigin::Index);
+    assert_eq!(
+        activation.execution_status(),
+        SqlDdlExecutionStatus::ActivationPublished
+    );
+    let SqlStatementResult::Ddl(no_op) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_expected_sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS session_sql_lower_name_unique_idx \
+             ON SessionSqlEntity (LOWER(name))",
+            2,
+        ))
+        .expect("matching IF NOT EXISTS should recognize the pending unique candidate")
+    else {
+        panic!("CREATE UNIQUE INDEX IF NOT EXISTS should return a DDL report");
+    };
+    assert_eq!(no_op.execution_status(), SqlDdlExecutionStatus::NoOp);
+    let constraint_name = active_sql_unique_constraint_name();
+    let findings = validate_sql_constraint_to_findings(&session, constraint_name.as_str());
+    assert_eq!(
+        findings
+            .constraint_validation()
+            .expect("duplicate proof should expose a typed validation page")
+            .findings()
+            .len(),
+        1,
+    );
 
     assert!(
         !commit_marker_present().expect("commit marker should decode after rejected DDL"),
-        "precommit expression rejection must not establish durable publication authority",
+        "bounded finding publication must leave no active commit marker",
     );
 
     let SqlStatementResult::ShowIndexes(indexes) = session
@@ -7698,17 +8288,8 @@ fn execute_admin_sql_ddl_rejects_duplicate_unique_expression_values_without_publ
         indexes
             .iter()
             .all(|index| !index.contains("session_sql_lower_name_unique_idx")),
-        "rejected unique expression DDL should not publish accepted index metadata",
+        "an unvalidated unique expression candidate must remain planner-invisible",
     );
-
-    SESSION_SQL_INDEX_STORE.with_borrow(|store| {
-        assert_eq!(
-            store.len(),
-            0,
-            "rejected unique expression DDL should not write physical index keys",
-        );
-        assert_eq!(store.state(), IndexState::Ready);
-    });
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
 }
 
@@ -8148,7 +8729,16 @@ fn execute_admin_sql_ddl_publishes_supported_unique_field_path_index() {
     );
     assert_eq!(report.target_index(), "session_sql_name_unique_idx");
     assert_eq!(report.field_path(), ["name".to_string()]);
-    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    assert_eq!(
+        report.execution_status(),
+        SqlDdlExecutionStatus::ActivationPublished
+    );
+    let constraint_name = active_sql_unique_constraint_name();
+    let validated = validate_sql_constraint_to_completion(&session, constraint_name.as_str());
+    assert_eq!(
+        validated.execution_status(),
+        SqlDdlExecutionStatus::Validated
+    );
 
     let SqlStatementResult::ShowIndexes(indexes) = session
         .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
@@ -8552,7 +9142,16 @@ fn execute_admin_sql_ddl_publishes_supported_unique_multi_field_path_index() {
     );
     assert_eq!(report.target_index(), "session_sql_age_name_unique_idx");
     assert_eq!(report.field_path(), ["age,name".to_string()]);
-    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    assert_eq!(
+        report.execution_status(),
+        SqlDdlExecutionStatus::ActivationPublished
+    );
+    let constraint_name = active_sql_unique_constraint_name();
+    let validated = validate_sql_constraint_to_completion(&session, constraint_name.as_str());
+    assert_eq!(
+        validated.execution_status(),
+        SqlDdlExecutionStatus::Validated
+    );
 
     let SqlStatementResult::ShowIndexes(indexes) = session
         .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
@@ -8576,21 +9175,31 @@ fn execute_admin_sql_ddl_rejects_duplicate_unique_field_path_values_without_publ
     let session = sql_session();
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("cyd", 55)]);
 
-    let error = session
+    let SqlStatementResult::Ddl(activation) = session
         .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE UNIQUE INDEX session_sql_age_unique_idx ON SessionSqlEntity (age)",
             1,
         ))
-        .expect_err("duplicate values should reject unique field-path index publication");
-    let QueryError::Execute(execution) = error else {
-        panic!("duplicate unique field-path values should be an execution rejection");
+        .expect("duplicate values should publish only the write-gated activation")
+    else {
+        panic!("CREATE UNIQUE INDEX should return a DDL report");
     };
-    assert_eq!(execution.as_internal().class(), ErrorClass::Conflict);
-    assert_eq!(execution.as_internal().origin(), ErrorOrigin::Index);
+    assert_eq!(
+        activation.execution_status(),
+        SqlDdlExecutionStatus::ActivationPublished
+    );
+    let constraint_name = active_sql_unique_constraint_name();
+    let findings = validate_sql_constraint_to_findings(&session, constraint_name.as_str());
+    let validation = findings
+        .constraint_validation()
+        .expect("duplicate proof should expose a typed validation page");
+    assert_eq!(validation.findings().len(), 1);
+    let constraint_id = crate::db::schema::ConstraintId::new(validation.constraint_id())
+        .expect("public validation identity should remain nonzero");
 
     assert!(
         !commit_marker_present().expect("commit marker should decode after rejected DDL"),
-        "precommit field-path rejection must not establish durable publication authority",
+        "bounded finding publication must leave no active commit marker",
     );
 
     let SqlStatementResult::ShowIndexes(indexes) = session
@@ -8603,16 +9212,32 @@ fn execute_admin_sql_ddl_rejects_duplicate_unique_field_path_values_without_publ
         indexes
             .iter()
             .all(|index| !index.contains("session_sql_age_unique_idx")),
-        "rejected unique DDL should not publish accepted index metadata",
+        "an unvalidated unique candidate must remain planner-invisible",
     );
 
-    SESSION_SQL_INDEX_STORE.with_borrow(|store| {
-        assert_eq!(
-            store.len(),
-            0,
-            "rejected unique field-path DDL should not write physical index keys",
+    let SqlStatementResult::Ddl(drop) = session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "DROP INDEX session_sql_age_unique_idx ON SessionSqlEntity",
+            2,
+        ))
+        .expect("DROP INDEX should abort the pending unique activation")
+    else {
+        panic!("DROP INDEX should return a DDL report");
+    };
+    assert_eq!(drop.execution_status(), SqlDdlExecutionStatus::Published);
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema should decode after unique activation abort")
+            .expect("schema should remain published after unique activation abort");
+        assert!(latest.constraint_activations().is_empty());
+        assert!(latest.candidate_indexes().is_empty());
+        assert!(
+            store
+                .constraint_validation_job(SessionSqlEntity::ENTITY_TAG, constraint_id)
+                .expect("validation job state should decode")
+                .is_none(),
         );
-        assert_eq!(store.state(), IndexState::Ready);
     });
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
@@ -8775,10 +9400,16 @@ fn execute_admin_sql_ddl_drops_supported_unique_ddl_published_index() {
             1,
         ))
         .expect("DDL execution should publish the unique field-path index before dropping it");
+    let constraint_name = active_sql_unique_constraint_name();
+    let validated = validate_sql_constraint_to_completion(&session, constraint_name.as_str());
+    assert_eq!(
+        validated.execution_status(),
+        SqlDdlExecutionStatus::Validated
+    );
     let result = session
         .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "DROP INDEX session_sql_name_unique_idx ON SessionSqlEntity",
-            2,
+            3,
         ))
         .expect("DDL execution should drop a DDL-published unique field-path index");
     let SqlStatementResult::Ddl(report) = result else {
@@ -9994,12 +10625,13 @@ fn accepted_save_contract_retains_query_catalog_revision_authority() {
     let catalog = session
         .accepted_schema_catalog_context_for_query::<SessionSqlEntity>()
         .expect("accepted schema bootstrap should publish a query catalog");
-    let (row_contract, schema_info, fingerprint) = session
+    let (row_contract, schema_info, fingerprint, accepted_row_constraints) = session
         .ensure_generated_compatible_accepted_save_schema::<SessionSqlEntity>()
         .expect("accepted save contract should resolve from the query catalog");
 
     assert_eq!(row_contract.accepted_schema_revision(), catalog.revision());
     assert_eq!(fingerprint, catalog.fingerprint());
+    assert!(accepted_row_constraints.is_empty());
     assert!(
         std::ptr::eq(row_contract.enum_catalog(), catalog.enum_catalog()),
         "accepted save decode should retain the shared query catalog",

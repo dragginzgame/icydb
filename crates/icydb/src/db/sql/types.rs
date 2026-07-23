@@ -7,14 +7,15 @@
 #[cfg(feature = "sql-explain")]
 use crate::db::sql::table_render::render_explain_lines;
 use crate::db::{
-    EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
-    MemoryCatalogDescription, StoreCatalogDescription,
+    EntityCatalogDescription, EntityConstraintDescription, EntityFieldDescription,
+    EntitySchemaDescription, MemoryCatalogDescription, StoreCatalogDescription,
     response::RowProjectionOutput,
     sql::table_render::{
         SqlDdlRenderInput, render_count_lines, render_describe_lines, render_grouped_lines,
-        render_query_rows_lines, render_show_columns_lines, render_show_entities_lines,
-        render_show_entities_verbose_lines, render_show_indexes_lines, render_show_memory_lines,
-        render_show_stores_lines, render_show_stores_verbose_lines, render_sql_ddl_lines,
+        render_query_rows_lines, render_show_columns_lines, render_show_constraints_lines,
+        render_show_entities_lines, render_show_entities_verbose_lines, render_show_indexes_lines,
+        render_show_memory_lines, render_show_stores_lines, render_show_stores_verbose_lines,
+        render_sql_ddl_lines,
     },
 };
 
@@ -29,6 +30,44 @@ pub struct SqlGroupedRowsOutput {
     pub rows: Vec<Vec<String>>,
     pub row_count: u32,
     pub next_cursor: Option<String>,
+}
+
+#[cfg_attr(
+    doc,
+    doc = "SqlConstraintValidationFindingOutput\n\nOne bounded constraint-validation finding."
+)]
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct SqlConstraintValidationFindingOutput {
+    /// Canonical persisted primary-key bytes for the violating row.
+    pub primary_key: Vec<u8>,
+    /// Sorted accepted field identities implicated by the failure.
+    pub field_ids: Vec<u32>,
+    /// Stable runtime diagnostic code for the finding.
+    pub error_code: u16,
+}
+
+#[cfg_attr(
+    doc,
+    doc = "SqlConstraintValidationOutput\n\nTyped progress from one bounded constraint-validation step."
+)]
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct SqlConstraintValidationOutput {
+    /// Stable accepted constraint identity.
+    pub constraint_id: u32,
+    /// Durable activation identity while validation remains active.
+    pub activation_epoch: Option<u64>,
+    /// Sequence to acknowledge before advancing a retained finding page.
+    pub page_sequence: Option<u64>,
+    /// Current engine-owned validation state.
+    pub state: String,
+    /// Current revision-proof status.
+    pub revision_status: String,
+    /// Cumulative classified-row count for this job.
+    pub rows_scanned: u64,
+    /// Bounded findings retained by this page.
+    pub findings: Vec<SqlConstraintValidationFindingOutput>,
+    /// Whether validation and accepted publication are complete.
+    pub complete: bool,
 }
 
 #[cfg_attr(doc, doc = "SqlQueryResult\n\nUnified SQL endpoint result.")]
@@ -46,6 +85,10 @@ pub enum SqlQueryResult {
         explain: String,
     },
     Describe(EntitySchemaDescription),
+    ShowConstraints {
+        entity: String,
+        constraints: Vec<EntityConstraintDescription>,
+    },
     ShowIndexes {
         entity: String,
         indexes: Vec<String>,
@@ -74,6 +117,8 @@ pub enum SqlQueryResult {
         status: String,
         rows_scanned: u64,
         index_keys_written: u64,
+        /// Typed progress when this statement advances constraint validation.
+        constraint_validation: Option<SqlConstraintValidationOutput>,
     },
 }
 
@@ -88,6 +133,10 @@ impl SqlQueryResult {
             #[cfg(feature = "sql-explain")]
             Self::Explain { explain, .. } => render_explain_lines(explain.as_str()),
             Self::Describe(description) => render_describe_lines(description),
+            Self::ShowConstraints {
+                entity,
+                constraints,
+            } => render_show_constraints_lines(entity.as_str(), constraints.as_slice()),
             Self::ShowIndexes { entity, indexes } => {
                 render_show_indexes_lines(entity.as_str(), indexes.as_slice())
             }
@@ -118,6 +167,7 @@ impl SqlQueryResult {
                 status,
                 rows_scanned,
                 index_keys_written,
+                ..
             } => render_sql_ddl_lines(SqlDdlRenderInput {
                 entity: entity.as_str(),
                 mutation_kind: mutation_kind.as_str(),

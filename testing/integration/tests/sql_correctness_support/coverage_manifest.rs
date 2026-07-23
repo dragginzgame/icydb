@@ -858,7 +858,7 @@ const PROVIDERS: &[ProviderSpec] = &[
     provider!(
         "core.ddl.alter_nullability",
         "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_publishes_supported_set_not_null_after_row_scan",
+        "execute_admin_sql_ddl_set_not_null_uses_bounded_activation",
         ContractAssertion,
         [State]
     ),
@@ -873,6 +873,27 @@ const PROVIDERS: &[ProviderSpec] = &[
         "core.ddl.drop_column",
         "crates/icydb-core/src/db/session/tests/sql_surface.rs",
         "execute_admin_sql_ddl_publishes_drop_column_for_non_trailing_ddl_owned_field",
+        ContractAssertion,
+        [State]
+    ),
+    provider!(
+        "core.ddl.add_check",
+        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
+        "execute_admin_sql_ddl_add_check_validates_history_and_gates_future_writes",
+        ContractAssertion,
+        [State]
+    ),
+    provider!(
+        "core.ddl.check_not_valid_lifecycle",
+        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
+        "execute_admin_sql_ddl_check_not_valid_uses_bounded_job_and_atomic_abort",
+        ContractAssertion,
+        [State]
+    ),
+    provider!(
+        "core.ddl.check_plain_rejection",
+        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
+        "execute_admin_sql_ddl_plain_check_rejection_publishes_nothing",
         ContractAssertion,
         [State]
     ),
@@ -1636,6 +1657,54 @@ const MANIFEST: &[CoverageCell] = &[
         PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.add_column"],
+        NO_EXTERNAL_CATALOG
+    ),
+    cell!(
+        "ddl.alter_add_check_constraint",
+        Syntax,
+        Accepted,
+        "DDL",
+        Statement,
+        REQ_STATE,
+        PERF_NONE,
+        ELIGIBLE_ICYDB,
+        ["core.ddl.add_check", "core.ddl.check_plain_rejection"],
+        NO_EXTERNAL_CATALOG
+    ),
+    cell!(
+        "ddl.alter_add_check_not_valid",
+        Syntax,
+        Accepted,
+        "DDL",
+        Statement,
+        REQ_STATE,
+        PERF_NONE,
+        ELIGIBLE_ICYDB,
+        ["core.ddl.check_not_valid_lifecycle"],
+        NO_EXTERNAL_CATALOG
+    ),
+    cell!(
+        "ddl.alter_validate_constraint",
+        Syntax,
+        Accepted,
+        "DDL",
+        Statement,
+        REQ_STATE,
+        PERF_NONE,
+        ELIGIBLE_ICYDB,
+        ["core.ddl.check_not_valid_lifecycle"],
+        NO_EXTERNAL_CATALOG
+    ),
+    cell!(
+        "ddl.alter_drop_constraint",
+        Syntax,
+        Accepted,
+        "DDL",
+        Statement,
+        REQ_STATE,
+        PERF_NONE,
+        ELIGIBLE_ICYDB,
+        ["core.ddl.check_not_valid_lifecycle"],
         NO_EXTERNAL_CATALOG
     ),
     cell!(

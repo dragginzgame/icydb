@@ -16,8 +16,8 @@ pub(crate) mod index;
 
 // re-exports
 pub use entity::{
-    EntityModel, PrimaryKeyModel, PrimaryKeyModelFieldIter, PrimaryKeyModelFields,
-    RelationEdgeModel,
+    CheckConstraintModel, EntityModel, GeneratedCheckConstraintResolver, PrimaryKeyModel,
+    PrimaryKeyModelFieldIter, PrimaryKeyModelFields, RelationEdgeModel,
 };
 pub use field::{
     CompositeCodec, CompositeElementModel, CompositeFieldModel, CompositeShapeModel,

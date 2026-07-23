@@ -11,8 +11,9 @@ use crate::db::{
     response::RowProjectionOutput,
     sql::{
         SqlGroupedRowsOutput, SqlQueryResult, render_describe_lines, render_show_columns_lines,
-        render_show_entities_lines, render_show_entities_verbose_lines, render_show_indexes_lines,
-        render_show_memory_lines, render_show_stores_lines, render_show_stores_verbose_lines,
+        render_show_constraints_lines, render_show_entities_lines,
+        render_show_entities_verbose_lines, render_show_indexes_lines, render_show_memory_lines,
+        render_show_stores_lines, render_show_stores_verbose_lines,
         sql_query_result_from_statement,
     },
 };
@@ -78,6 +79,7 @@ fn render_describe_lines_output_contract_vector_is_stable() {
             "user_store".to_string(),
             EntityRelationCardinality::Single,
         )],
+        Vec::new(),
         1,
         1,
     );
@@ -111,8 +113,36 @@ fn render_describe_lines_output_contract_vector_is_stable() {
             "+-----------+--------+-------------+".to_string(),
             "| mentor_id | User   | Single      |".to_string(),
             "+-----------+--------+-------------+".to_string(),
+            String::new(),
+            "constraints: []".to_string(),
         ],
         "describe shell output must remain contract-stable across release lines",
+    );
+}
+
+#[test]
+fn render_show_constraints_lines_empty_contract_is_stable() {
+    assert_eq!(
+        render_show_constraints_lines("ExampleEntity", &[]),
+        vec![
+            "entity: ExampleEntity".to_string(),
+            String::new(),
+            "constraints: []".to_string(),
+        ],
+    );
+}
+
+#[test]
+fn sql_query_result_from_statement_preserves_show_constraints_entity() {
+    assert_eq!(
+        sql_query_result_from_statement(
+            SqlStatementResult::ShowConstraints(Vec::new()),
+            "ExampleEntity".to_string(),
+        ),
+        SqlQueryResult::ShowConstraints {
+            entity: "ExampleEntity".to_string(),
+            constraints: Vec::new(),
+        },
     );
 }
 
@@ -733,6 +763,7 @@ fn sql_query_result_renders_ddl_publication_payload() {
         status: "published".to_string(),
         rows_scanned: 3,
         index_keys_written: 3,
+        constraint_validation: None,
     };
 
     assert_eq!(

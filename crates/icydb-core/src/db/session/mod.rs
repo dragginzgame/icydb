@@ -23,7 +23,7 @@ use crate::{
         Query, StoreRegistry, WriteBatchResponse,
         commit::CommitSchemaFingerprint,
         executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
-        schema::{AcceptedRowDecodeContract, SchemaInfo},
+        schema::{AcceptedRowDecodeContract, CompiledAcceptedRowConstraints, SchemaInfo},
     },
     entity::{EntityKind, EntityValue},
     error::InternalError,
@@ -58,9 +58,11 @@ pub use sql::{
 };
 #[cfg(feature = "sql")]
 pub use sql::{
-    SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlPreparationReport, SqlStatementDispatch,
-    SqlStatementResult, SqlStatementShellSurface, SqlStatementSurface,
-    TrustedResumableUpdateContinuation, TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,
+    SqlConstraintValidationFinding, SqlConstraintValidationPage,
+    SqlConstraintValidationRevisionStatus, SqlConstraintValidationState, SqlDdlExecutionStatus,
+    SqlDdlMutationKind, SqlDdlPreparationReport, SqlStatementDispatch, SqlStatementResult,
+    SqlStatementShellSurface, SqlStatementSurface, TrustedResumableUpdateContinuation,
+    TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,
     TrustedResumableUpdateRestartReason, sql_statement_dispatch, sql_statement_entity_name,
     sql_statement_shell_surface, sql_statement_surface,
 };
@@ -156,7 +158,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C>,
     {
-        let (contract, schema_info, schema_fingerprint) = match self
+        let (contract, schema_info, schema_fingerprint, accepted_row_constraints) = match self
             .with_metrics(|| self.ensure_generated_compatible_accepted_save_schema::<E>())
         {
             Ok(authority) => authority,
@@ -167,7 +169,12 @@ impl<C: CanisterKind> DbSession<C> {
             }
         };
         let value = self.with_metrics(|| {
-            op(self.save_executor::<E>(contract, schema_info, schema_fingerprint))
+            op(self.save_executor::<E>(
+                contract,
+                schema_info,
+                schema_fingerprint,
+                accepted_row_constraints,
+            ))
         })?;
 
         Ok(map(value))
@@ -182,6 +189,7 @@ impl<C: CanisterKind> DbSession<C> {
         accepted_row_decode_contract: AcceptedRowDecodeContract,
         accepted_schema_info: SchemaInfo,
         accepted_schema_fingerprint: CommitSchemaFingerprint,
+        accepted_row_constraints: CompiledAcceptedRowConstraints,
         op: impl FnOnce(SaveExecutor<E>) -> Result<T, InternalError>,
         map: impl FnOnce(T) -> R,
     ) -> Result<R, InternalError>
@@ -193,6 +201,7 @@ impl<C: CanisterKind> DbSession<C> {
                 accepted_row_decode_contract,
                 accepted_schema_info,
                 accepted_schema_fingerprint,
+                accepted_row_constraints,
             ))
         })?;
 
@@ -300,6 +309,7 @@ impl<C: CanisterKind> DbSession<C> {
         accepted_row_decode_contract: AcceptedRowDecodeContract,
         accepted_schema_info: SchemaInfo,
         accepted_schema_fingerprint: CommitSchemaFingerprint,
+        accepted_row_constraints: CompiledAcceptedRowConstraints,
     ) -> SaveExecutor<E>
     where
         E: PersistedRow<Canister = C>,
@@ -310,6 +320,7 @@ impl<C: CanisterKind> DbSession<C> {
             accepted_row_decode_contract,
             accepted_schema_info,
             accepted_schema_fingerprint,
+            accepted_row_constraints,
         )
     }
 }

@@ -126,6 +126,8 @@ pub(in crate::db::sql::lowering) enum LoweredSqlCommandInner {
     #[cfg(test)]
     DescribeEntity,
     #[cfg(test)]
+    ShowConstraintsEntity,
+    #[cfg(test)]
     ShowIndexesEntity,
     #[cfg(test)]
     ShowColumnsEntity,
@@ -162,6 +164,7 @@ pub(crate) enum SqlCommand<E: EntityKind> {
         command: TypedSqlGlobalAggregateCommand<E>,
     },
     DescribeEntity,
+    ShowConstraintsEntity,
     ShowIndexesEntity,
     ShowColumnsEntity,
     ShowEntities,
@@ -190,6 +193,7 @@ impl LoweredSqlCommand {
             #[cfg(feature = "sql-explain")]
             LoweredSqlCommandInner::ExplainGlobalAggregate { .. } => None,
             LoweredSqlCommandInner::DescribeEntity
+            | LoweredSqlCommandInner::ShowConstraintsEntity
             | LoweredSqlCommandInner::ShowIndexesEntity
             | LoweredSqlCommandInner::ShowColumnsEntity
             | LoweredSqlCommandInner::ShowEntities
@@ -208,6 +212,7 @@ impl LoweredSqlCommand {
             #[cfg(feature = "sql-explain")]
             LoweredSqlCommandInner::ExplainGlobalAggregate { .. } => None,
             LoweredSqlCommandInner::DescribeEntity
+            | LoweredSqlCommandInner::ShowConstraintsEntity
             | LoweredSqlCommandInner::ShowIndexesEntity
             | LoweredSqlCommandInner::ShowColumnsEntity
             | LoweredSqlCommandInner::ShowEntities
@@ -229,6 +234,7 @@ impl LoweredSqlCommand {
             LoweredSqlCommandInner::Query(_) => None,
             #[cfg(test)]
             LoweredSqlCommandInner::DescribeEntity
+            | LoweredSqlCommandInner::ShowConstraintsEntity
             | LoweredSqlCommandInner::ShowIndexesEntity
             | LoweredSqlCommandInner::ShowColumnsEntity
             | LoweredSqlCommandInner::ShowEntities
@@ -565,6 +571,7 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
             query: bind_lowered_sql_query_for_model_only::<E>(*query, consistency)?,
         }),
         LoweredSqlCommandInner::DescribeEntity => Ok(SqlCommand::DescribeEntity),
+        LoweredSqlCommandInner::ShowConstraintsEntity => Ok(SqlCommand::ShowConstraintsEntity),
         LoweredSqlCommandInner::ShowIndexesEntity => Ok(SqlCommand::ShowIndexesEntity),
         LoweredSqlCommandInner::ShowColumnsEntity => Ok(SqlCommand::ShowColumnsEntity),
         LoweredSqlCommandInner::ShowEntities => Ok(SqlCommand::ShowEntities),

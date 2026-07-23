@@ -54,14 +54,31 @@ fn model_storage_tokens(node: &Entity) -> TokenStream {
         .iter()
         .map(|(_, model_expr)| model_expr.clone())
         .collect::<Vec<_>>();
+    let check_runtime_outputs = node
+        .constraints
+        .iter()
+        .enumerate()
+        .map(|(ordinal, constraint)| constraint.runtime_model_tokens(node, ordinal))
+        .collect::<Result<Vec<_>, _>>()
+        .expect("validated generated check should lower");
+    let check_support_items = check_runtime_outputs
+        .iter()
+        .flat_map(|(support_items, _)| support_items.iter().cloned())
+        .collect::<Vec<_>>();
+    let check_exprs = check_runtime_outputs
+        .iter()
+        .map(|(_, model_expr)| model_expr.clone())
+        .collect::<Vec<_>>();
     let fields_len = LitInt::new(&node.fields.len().to_string(), Span::call_site());
     let indexes_len = LitInt::new(&index_exprs.len().to_string(), Span::call_site());
     let model_fields_ident = model_fields_ident(&ident);
     let primary_key_fields_ident = primary_key_fields_ident(&ident);
     let indexes_ident = indexes_ident(&ident);
     let relations_ident = relations_ident(&ident);
+    let checks_ident = checks_ident(&ident);
     let relation_exprs = relation_model_exprs(node, &model_fields_ident);
     let relations_len = LitInt::new(&relation_exprs.len().to_string(), Span::call_site());
+    let checks_len = LitInt::new(&check_exprs.len().to_string(), Span::call_site());
     let primary_key_field_indexes = primary_key_field_indexes(node);
     let primary_key_fields_len = LitInt::new(
         &primary_key_field_indexes.len().to_string(),
@@ -74,6 +91,7 @@ fn model_storage_tokens(node: &Entity) -> TokenStream {
 
     quote! {
         #(#index_support_items)*
+        #(#check_support_items)*
         const #model_fields_ident:
             [::icydb::model::field::FieldModel; #fields_len] = [
                 #(#model_fields_exprs),*
@@ -89,6 +107,10 @@ fn model_storage_tokens(node: &Entity) -> TokenStream {
         const #relations_ident:
             [::icydb::model::entity::RelationEdgeModel; #relations_len] = [
                 #(#relation_exprs),*
+            ];
+        const #checks_ident:
+            [::icydb::model::entity::CheckConstraintModel; #checks_len] = [
+                #(#check_exprs),*
             ];
     }
 }
@@ -109,11 +131,12 @@ fn entity_model_tokens(node: &Entity) -> TokenStream {
     let model_ident = model_ident(&ident);
     let indexes_ident = indexes_ident(&ident);
     let relations_ident = relations_ident(&ident);
+    let checks_ident = checks_ident(&ident);
     let schema_version = LitInt::new(&node.schema_version.to_string(), Span::call_site());
 
     quote! {
         const #model_ident: ::icydb::model::entity::EntityModel =
-            ::icydb::model::entity::EntityModel::generated_with_primary_key_model_and_relations(
+            ::icydb::model::entity::EntityModel::generated_with_primary_key_model_relations_and_checks(
                 <#ident as ::icydb::__macro::Path>::PATH,
                 #entity_name,
                 #schema_version,
@@ -124,6 +147,7 @@ fn entity_model_tokens(node: &Entity) -> TokenStream {
                 &#model_fields_ident,
                 &#indexes_ident,
                 &#relations_ident,
+                &#checks_ident,
             );
     }
 }
@@ -188,6 +212,11 @@ fn indexes_ident(ident: &Ident) -> Ident {
 fn relations_ident(ident: &Ident) -> Ident {
     let ident = ident.to_string().to_ascii_uppercase();
     format_ident!("__{}_ENTITY_RELATIONS", ident)
+}
+
+fn checks_ident(ident: &Ident) -> Ident {
+    let ident = ident.to_string().to_ascii_uppercase();
+    format_ident!("__{}_ENTITY_CHECK_CONSTRAINTS", ident)
 }
 
 fn primary_key_fields_ident(ident: &Ident) -> Ident {

@@ -6,12 +6,14 @@
 
 mod cursor;
 mod lexer;
+mod literal_render;
 #[cfg(test)]
 mod tests;
 pub(in crate::db::sql_shared) mod types;
 
 pub(crate) use cursor::SqlTokenCursor;
 pub(crate) use lexer::tokenize_sql;
+pub(in crate::db) use literal_render::render_scalar_sql_value;
 pub(crate) use types::{Keyword, SqlExpectedToken, SqlParseError, SqlSyntaxErrorKind, TokenKind};
 #[cfg(feature = "sql")]
 pub(crate) use types::{SqlClauseOrderRule, SqlIntegerLiteralClause};

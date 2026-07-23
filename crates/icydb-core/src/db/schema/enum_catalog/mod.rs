@@ -28,6 +28,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 pub(in crate::db) use crate::value::{EnumTypeId, EnumVariantId};
+pub(in crate::db) use admission::normalize_candidate_value;
 pub(in crate::db) use admission::validate_decoded_persisted_field_value_in_catalog;
 pub(in crate::db) use admission::{
     AcceptedValueRef, AdmittedOwnedValue, CanonicalValue, ValueAdmissionBudget,
@@ -42,14 +43,15 @@ pub(in crate::db) use equality_key::encode_unit_enum_equality_key;
 #[cfg(feature = "sql")]
 pub(in crate::db) use equality_key::{EqualityCapability, enum_equality_capability};
 pub(in crate::db) use output::output_value_from_runtime;
+pub(in crate::db) use publication::AcceptedSchemaRevisionBundle;
 #[cfg(test)]
 pub(in crate::db::schema) use publication::decode_accepted_schema_revision_bundle;
 #[cfg(test)]
 pub(in crate::db) use publication::empty_accepted_schema_candidate_for_tests;
 pub(in crate::db::schema) use publication::{
-    AcceptedSchemaBundleKey, AcceptedSchemaPublicationError, AcceptedSchemaRevisionBundle,
-    AcceptedSchemaRootSelection, decode_verified_accepted_schema_revision_bundle,
-    prepare_accepted_schema_root_publication, select_current_accepted_schema_root,
+    AcceptedSchemaBundleKey, AcceptedSchemaPublicationError, AcceptedSchemaRootSelection,
+    decode_verified_accepted_schema_revision_bundle, prepare_accepted_schema_root_publication,
+    select_current_accepted_schema_root,
 };
 pub(in crate::db) use publication::{
     AcceptedSchemaFingerprint, AcceptedSchemaRevision, CandidateSchemaRevision,
@@ -437,7 +439,7 @@ impl AcceptedValueContract {
         )
     }
 
-    pub(in crate::db::schema) fn from_candidate_catalogs(
+    pub(in crate::db) fn from_candidate_catalogs(
         enum_catalog: &AcceptedEnumCatalog,
         composite_catalog: &AcceptedCompositeCatalog,
         kind: &AcceptedFieldKind,

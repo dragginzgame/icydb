@@ -170,6 +170,29 @@ impl<'a> StructuralSlotReader<'a> {
         self.contract.field_count()
     }
 
+    /// Decode selected accepted slots into their full-layout positions.
+    ///
+    /// The data boundary owns lazy slot decoding; semantic consumers supply
+    /// only the precompiled slot set and never reopen field-name projection.
+    pub(in crate::db) fn decode_selected_slot_values(
+        &self,
+        required_slots: &[usize],
+    ) -> Result<Vec<Option<Value>>, InternalError> {
+        let mut values = vec![None; self.contract.field_count()];
+        for &slot in required_slots {
+            let value = self.required_cached_value(slot)?.clone();
+            let target = values.get_mut(slot).ok_or_else(|| {
+                InternalError::persisted_row_slot_cache_lookup_out_of_bounds(
+                    self.contract.entity_path(),
+                    slot,
+                )
+            })?;
+            *target = Some(value);
+        }
+
+        Ok(values)
+    }
+
     /// Return the accepted row-layout identity stamped in the physical row.
     ///
     /// Construction has already admitted this version against the selected

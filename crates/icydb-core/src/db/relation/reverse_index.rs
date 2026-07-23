@@ -232,15 +232,43 @@ impl ProjectedReverseRelationEntry {
 pub(in crate::db::relation) struct AcceptedRelationInfo {
     relation_name: String,
     relation_ordinal: usize,
+    physical_generation: u64,
     local_components: AcceptedRelationLocalComponents,
     target: AcceptedRelationTargetIdentity,
     cardinality: AcceptedRelationCardinality,
+}
+
+/// Accepted-schema relation projection bound to one exact reverse generation.
+///
+/// The projection covers either active accepted state or an isolated
+/// activation candidate. Callers own visibility, traversal, and publication.
+#[derive(Clone)]
+pub(in crate::db) struct RelationConstraintProjection {
+    source: ReverseRelationSourceInfo,
+    relation: AcceptedRelationInfo,
+    target_store_path: &'static str,
+    target_store: StoreHandle,
+}
+
+/// One candidate reverse entry and its registry-owned target store.
+#[derive(Clone)]
+pub(in crate::db) struct RelationConstraintIndexEntry {
+    target_store_path: &'static str,
+    target_store: StoreHandle,
+    key: RawIndexStoreKey,
+}
+
+/// Candidate projection of one source row, including unresolved targets.
+pub(in crate::db) struct RelationConstraintRowProjection {
+    entries: Vec<RelationConstraintIndexEntry>,
+    missing_targets: Vec<RawDataStoreKey>,
 }
 
 impl AcceptedRelationInfo {
     fn new(
         relation_name: impl Into<String>,
         relation_ordinal: usize,
+        physical_generation: u64,
         local_components: AcceptedRelationLocalComponents,
         target_contract: AcceptedRelationTargetContract,
         cardinality: AcceptedRelationCardinality,
@@ -248,6 +276,7 @@ impl AcceptedRelationInfo {
         Ok(Self {
             relation_name: relation_name.into(),
             relation_ordinal,
+            physical_generation,
             local_components,
             target: AcceptedRelationTargetIdentity::from_target_contract(target_contract)?,
             cardinality,
@@ -262,6 +291,11 @@ impl AcceptedRelationInfo {
     #[must_use]
     pub(in crate::db::relation) const fn field_index(&self) -> usize {
         self.relation_ordinal
+    }
+
+    #[must_use]
+    pub(in crate::db::relation) const fn physical_generation(&self) -> u64 {
+        self.physical_generation
     }
 
     #[must_use]
@@ -286,6 +320,249 @@ impl AcceptedRelationInfo {
 
     fn scalar_local_component(&self) -> Option<&AcceptedRelationLocalComponent> {
         self.local_components.scalar_component()
+    }
+}
+
+impl RelationConstraintProjection {
+    /// Bind one relation owner to current accepted row and target-store authority.
+    pub(in crate::db) fn new<C: CanisterKind>(
+        db: &Db<C>,
+        source: ReverseRelationSourceInfo,
+        snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+        row_contract: &StructuralRowContract,
+        edge: &crate::db::schema::PersistedRelationEdgeSnapshot,
+    ) -> Result<Self, InternalError> {
+        if edge.physical_generation() == 0 {
+            return Err(InternalError::store_corruption());
+        }
+        let relation =
+            relation_info_from_snapshot_edge(db, source.path, snapshot, row_contract, edge)?;
+        let (target_store_path, target_store) =
+            relation_target_store_binding(db, source, &relation)?;
+        Ok(Self {
+            source,
+            relation,
+            target_store_path,
+            target_store,
+        })
+    }
+
+    /// Return the exact generation carried by every projected reverse key.
+    #[must_use]
+    pub(in crate::db) const fn physical_generation(&self) -> u64 {
+        self.relation.physical_generation()
+    }
+
+    /// Borrow the target store path participating in projection verification.
+    #[must_use]
+    pub(in crate::db) const fn target_store_path(&self) -> &'static str {
+        self.target_store_path
+    }
+
+    /// Return the target store participating in projection verification.
+    #[must_use]
+    pub(in crate::db) const fn target_store(&self) -> StoreHandle {
+        self.target_store
+    }
+
+    /// Project one source row and classify target existence deterministically.
+    pub(in crate::db) fn project_row(
+        &self,
+        source_primary_key: &PrimaryKeyValue,
+        row: &StructuralSlotReader<'_>,
+        validate_targets: bool,
+    ) -> Result<RelationConstraintRowProjection, InternalError> {
+        let target_keys =
+            relation_target_raw_keys_for_source_slots(row, self.source, &self.relation)?;
+        let mut entries = Vec::with_capacity(target_keys.len());
+        let mut missing_targets = Vec::new();
+        for target_key in target_keys {
+            if validate_targets
+                && !self
+                    .target_store
+                    .with_data(|data_store| data_store.get(&target_key).is_some())
+            {
+                missing_targets.push(target_key);
+                continue;
+            }
+            let target = decode_relation_target_data_key(
+                self.source,
+                &self.relation,
+                &target_key,
+                RelationTargetDecodeContext::ReverseIndexPrepare,
+                RelationTargetMismatchPolicy::Reject,
+            )?
+            .ok_or_else(InternalError::store_invariant)?;
+            let Some(key) = reverse_index_key_for_target_and_source_primary_key_value(
+                self.source,
+                &self.relation,
+                &target.primary_key_value(),
+                source_primary_key,
+            )?
+            else {
+                continue;
+            };
+            entries.push(RelationConstraintIndexEntry {
+                target_store_path: self.target_store_path,
+                target_store: self.target_store,
+                key,
+            });
+        }
+        Ok(RelationConstraintRowProjection {
+            entries,
+            missing_targets,
+        })
+    }
+
+    /// Build the typed missing-target failure at a live source-write boundary.
+    pub(in crate::db) fn missing_target_error(
+        &self,
+        target_key: &RawDataStoreKey,
+    ) -> Result<InternalError, InternalError> {
+        let target = DecodedDataStoreKey::try_from_raw(target_key)
+            .map_err(|_| InternalError::store_corruption())?;
+        Ok(InternalError::relation_target_missing(
+            self.source.path,
+            self.relation.field_name(),
+            self.relation.target().path(),
+            &target.primary_key_value().as_runtime_value(),
+        ))
+    }
+
+    /// Prepare candidate reverse deltas for one live source-row transition.
+    pub(in crate::db) fn prepare_source_transition(
+        &self,
+        source_primary_key: &PrimaryKeyValue,
+        old_row: Option<&StructuralSlotReader<'_>>,
+        new_row: Option<&StructuralSlotReader<'_>>,
+    ) -> Result<Vec<PreparedIndexMutation>, InternalError> {
+        let old_entries = old_row
+            .map(|row| self.project_row(source_primary_key, row, false))
+            .transpose()?
+            .map(RelationConstraintRowProjection::into_entries)
+            .unwrap_or_default();
+        let new_projection = new_row
+            .map(|row| self.project_row(source_primary_key, row, true))
+            .transpose()?;
+        if let Some(missing) = new_projection
+            .as_ref()
+            .and_then(|projection| projection.missing_targets().first())
+        {
+            return Err(self.missing_target_error(missing)?);
+        }
+        let new_entries = new_projection
+            .map(RelationConstraintRowProjection::into_entries)
+            .unwrap_or_default();
+
+        Ok(merge_candidate_relation_entries(old_entries, new_entries))
+    }
+
+    /// Prove that one projected entry belongs to this exact relation generation.
+    pub(in crate::db) fn validates_entry(&self, entry: &RelationConstraintIndexEntry) -> bool {
+        if entry.target_store_path != self.target_store_path {
+            return false;
+        }
+        let Ok(expected) = reverse_index_id_for_relation(self.source, &self.relation) else {
+            return false;
+        };
+        IndexKey::try_from_raw(&entry.key)
+            .is_ok_and(|key| key.key_kind() == IndexKeyKind::System && *key.index_id() == expected)
+    }
+}
+
+impl RelationConstraintIndexEntry {
+    /// Borrow the deterministic target-store ordering identity.
+    #[must_use]
+    pub(in crate::db) const fn target_store_path(&self) -> &'static str {
+        self.target_store_path
+    }
+
+    /// Return the target store that owns this candidate reverse entry.
+    #[must_use]
+    pub(in crate::db) const fn target_store(&self) -> StoreHandle {
+        self.target_store
+    }
+
+    /// Borrow the fully encoded isolated reverse key.
+    #[must_use]
+    pub(in crate::db) const fn key(&self) -> &RawIndexStoreKey {
+        &self.key
+    }
+}
+
+fn merge_candidate_relation_entries(
+    old_entries: Vec<RelationConstraintIndexEntry>,
+    new_entries: Vec<RelationConstraintIndexEntry>,
+) -> Vec<PreparedIndexMutation> {
+    let mut effects = Vec::new();
+    let mut old_index = 0usize;
+    let mut new_index = 0usize;
+    while old_index < old_entries.len() || new_index < new_entries.len() {
+        let (entry, old_contains, new_contains) =
+            match (old_entries.get(old_index), new_entries.get(new_index)) {
+                (Some(old), Some(new)) => match candidate_relation_entry_identity(old)
+                    .cmp(&candidate_relation_entry_identity(new))
+                {
+                    std::cmp::Ordering::Less => {
+                        old_index = old_index.saturating_add(1);
+                        (old, true, false)
+                    }
+                    std::cmp::Ordering::Greater => {
+                        new_index = new_index.saturating_add(1);
+                        (new, false, true)
+                    }
+                    std::cmp::Ordering::Equal => {
+                        old_index = old_index.saturating_add(1);
+                        new_index = new_index.saturating_add(1);
+                        (old, true, true)
+                    }
+                },
+                (Some(old), None) => {
+                    old_index = old_index.saturating_add(1);
+                    (old, true, false)
+                }
+                (None, Some(new)) => {
+                    new_index = new_index.saturating_add(1);
+                    (new, false, true)
+                }
+                (None, None) => break,
+            };
+        if old_contains == new_contains {
+            continue;
+        }
+        effects.push(PreparedIndexMutation::from_reverse_index_membership(
+            entry.target_store.index_store(),
+            entry.key.clone(),
+            new_contains.then(IndexEntryValue::presence),
+            old_contains,
+            new_contains,
+        ));
+    }
+    effects
+}
+
+const fn candidate_relation_entry_identity(
+    entry: &RelationConstraintIndexEntry,
+) -> (&'static str, &RawIndexStoreKey) {
+    (entry.target_store_path, &entry.key)
+}
+
+impl RelationConstraintRowProjection {
+    /// Borrow canonical candidate reverse entries for this source row.
+    #[must_use]
+    pub(in crate::db) const fn entries(&self) -> &[RelationConstraintIndexEntry] {
+        self.entries.as_slice()
+    }
+
+    /// Borrow target keys absent from authoritative target data.
+    #[must_use]
+    pub(in crate::db) const fn missing_targets(&self) -> &[RawDataStoreKey] {
+        self.missing_targets.as_slice()
+    }
+
+    /// Consume the projection into candidate reverse entries.
+    pub(in crate::db) fn into_entries(self) -> Vec<RelationConstraintIndexEntry> {
+        self.entries
     }
 }
 
@@ -530,30 +807,7 @@ pub(in crate::db::relation) fn accepted_relations_for_row_contract<C>(
 where
     C: CanisterKind,
 {
-    let mut relations =
-        accepted_relations_from_edges(db, source_path, source_row_contract, target_path_filter)?;
-    for slot in 0..source_row_contract.field_count() {
-        if !source_row_contract.has_active_field_slot(slot) {
-            continue;
-        }
-        if source_row_contract
-            .accepted_relation_edges()
-            .iter()
-            .any(|edge| edge.local_field_slots().contains(&slot))
-        {
-            continue;
-        }
-        let field = source_row_contract.required_accepted_field_decode_contract(slot)?;
-        let Some(relation) =
-            accepted_relation_from_field(db, source_path, slot, field, target_path_filter)?
-        else {
-            continue;
-        };
-
-        relations.push(relation);
-    }
-
-    Ok(relations)
+    accepted_relations_from_edges(db, source_path, source_row_contract, target_path_filter)
 }
 
 fn accepted_relations_from_edges<C>(
@@ -613,6 +867,7 @@ where
         return Ok(Some(AcceptedRelationInfo::new(
             field.field_name(),
             edge.local_field_slots()[0],
+            edge.physical_generation(),
             AcceptedRelationLocalComponents::scalar(edge.local_field_slots()[0], *field),
             descriptor.into_target_contract(),
             cardinality,
@@ -643,49 +898,93 @@ where
     Ok(Some(AcceptedRelationInfo::new(
         edge.name(),
         edge.local_field_slots()[0],
+        edge.physical_generation(),
         AcceptedRelationLocalComponents::try_from_component_specs(component_specs.as_slice())?,
         tuple_descriptor.into_target_contract(),
         AcceptedRelationCardinality::Single,
     )?))
 }
 
-fn accepted_relation_from_field<C>(
+fn relation_info_from_snapshot_edge<C>(
     db: &Db<C>,
     source_path: &str,
-    field_index: usize,
-    field: AcceptedFieldDecodeContract<'_>,
-    target_path_filter: Option<&str>,
-) -> Result<Option<AcceptedRelationInfo>, InternalError>
+    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+    row_contract: &StructuralRowContract,
+    edge: &crate::db::schema::PersistedRelationEdgeSnapshot,
+) -> Result<AcceptedRelationInfo, InternalError>
 where
     C: CanisterKind,
 {
-    let Some(target) = accepted_relation_target_metadata_from_kind(field.kind()) else {
-        return Ok(None);
-    };
-    if target_path_filter.is_some_and(|filter| filter != target.target_path) {
-        return Ok(None);
+    let local_fields = edge
+        .local_field_ids()
+        .iter()
+        .map(|field_id| {
+            let field = snapshot
+                .fields()
+                .iter()
+                .find(|field| field.id() == *field_id)
+                .ok_or_else(InternalError::store_corruption)?;
+            let slot = usize::from(field.slot().get());
+            row_contract
+                .required_accepted_field_decode_contract(slot)
+                .map(|contract| (slot, contract))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if let [(slot, field)] = local_fields.as_slice()
+        && let Some(descriptor) = accepted_scalar_relation_target_descriptor(
+            db,
+            source_path,
+            edge.name(),
+            field.field_name(),
+            field.kind(),
+            Some(edge.target_path()),
+        )?
+    {
+        let cardinality = descriptor.cardinality();
+        return AcceptedRelationInfo::new(
+            edge.name(),
+            *slot,
+            edge.physical_generation(),
+            AcceptedRelationLocalComponents::scalar(*slot, *field),
+            descriptor.into_target_contract(),
+            cardinality,
+        );
     }
 
-    let Some(descriptor) = accepted_scalar_relation_target_descriptor(
+    let local_component_facts = local_fields
+        .iter()
+        .map(|(_, field)| {
+            AcceptedRelationTupleEdgeLocalComponent::new(field.field_name(), field.kind())
+        })
+        .collect::<Vec<_>>();
+    let tuple_descriptor = accepted_relation_tuple_edge_descriptor(
         db,
         source_path,
-        field.field_name(),
-        field.field_name(),
-        field.kind(),
-        None,
-    )?
-    else {
-        return Ok(None);
-    };
-    let cardinality = descriptor.cardinality();
+        edge.name(),
+        edge.target_path(),
+        local_component_facts.as_slice(),
+    )?;
+    let component_specs = local_fields
+        .iter()
+        .map(|(slot, field)| AcceptedRelationLocalComponentSpec {
+            index: *slot,
+            field: *field,
+        })
+        .collect::<Vec<_>>();
 
-    Ok(Some(AcceptedRelationInfo::new(
-        field.field_name(),
-        field_index,
-        AcceptedRelationLocalComponents::scalar(field_index, field),
-        descriptor.into_target_contract(),
-        cardinality,
-    )?))
+    let relation_ordinal = local_fields
+        .first()
+        .map(|(slot, _)| *slot)
+        .ok_or_else(InternalError::store_corruption)?;
+    AcceptedRelationInfo::new(
+        edge.name(),
+        relation_ordinal,
+        edge.physical_generation(),
+        AcceptedRelationLocalComponents::try_from_component_specs(component_specs.as_slice())?,
+        tuple_descriptor.into_target_contract(),
+        AcceptedRelationCardinality::Single,
+    )
 }
 
 /// Build the canonical reverse-index id for a `(source entity, relation field)` pair.
@@ -702,7 +1001,11 @@ fn reverse_index_id_for_relation(
         )
     })?;
 
-    Ok(IndexId::new(source.entity_tag, ordinal))
+    Ok(IndexId::new_with_generation(
+        source.entity_tag,
+        ordinal,
+        relation.physical_generation(),
+    ))
 }
 
 /// Build reverse-index prefix bounds for one complete target primary key.

@@ -172,6 +172,11 @@ struct TypeName;
 - Use explicit patch numbers only when the user provides them in the current conversation.
 - Otherwise use neutral labels like `next patch` or `subsequent patch`.
 - Do not renumber planned slices based on assumptions about future releases.
+- Generic continuation stays within the current minor-version line. When its
+  tracker is exhausted, perform a read-only closeout audit and report findings
+  rather than opening the next line or immediately correcting the findings.
+- Start a different minor only after reporting a ready/complete closeout verdict
+  and then receiving an explicit user direction that names the target minor.
 
 ## Wasm Measurement
 

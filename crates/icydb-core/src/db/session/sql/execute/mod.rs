@@ -252,6 +252,7 @@ impl<C: CanisterKind> DbSession<C> {
             | CompiledSqlCommand::Insert(..)
             | CompiledSqlCommand::Update(..)
             | CompiledSqlCommand::DescribeEntity
+            | CompiledSqlCommand::ShowConstraintsEntity
             | CompiledSqlCommand::ShowIndexesEntity
             | CompiledSqlCommand::ShowColumnsEntity
             | CompiledSqlCommand::ShowEntities { .. }
@@ -358,6 +359,7 @@ impl<C: CanisterKind> DbSession<C> {
             }
             crate::db::sql::parser::SqlStatement::Select(_)
             | crate::db::sql::parser::SqlStatement::Describe(_)
+            | crate::db::sql::parser::SqlStatement::ShowConstraints(_)
             | crate::db::sql::parser::SqlStatement::ShowIndexes(_)
             | crate::db::sql::parser::SqlStatement::ShowColumns(_)
             | crate::db::sql::parser::SqlStatement::ShowEntities(_)

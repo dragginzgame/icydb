@@ -391,7 +391,8 @@ impl LoweredIndexPrefixSpec {
             return Err(InternalError::query_executor_invariant());
         }
 
-        let index_id = IndexId::new(entity_tag, index.ordinal());
+        let index_id =
+            IndexId::new_with_generation(entity_tag, index.ordinal(), index.physical_generation());
         let (lower, upper) = raw_keys_for_component_prefix_with_kind(
             &index_id,
             key_kind,
@@ -566,7 +567,8 @@ fn lower_index_range_bounds_for_scope(
     lower: &Bound<Value>,
     upper: &Bound<Value>,
 ) -> Result<LoweredIndexRangeEnvelope, InternalError> {
-    let index_id = IndexId::new(entity_tag, index.ordinal());
+    let index_id =
+        IndexId::new_with_generation(entity_tag, index.ordinal(), index.physical_generation());
 
     let lowering = if schema_info.is_some() {
         let encoded_prefix = encode_index_prefix_values(schema_info, &index, prefix)?;
@@ -759,7 +761,8 @@ fn lower_single_component_index_prefix_cardinality_specs(
         return Err(InternalError::query_executor_invariant());
     }
 
-    let index_id = IndexId::new(entity_tag, index.ordinal());
+    let index_id =
+        IndexId::new_with_generation(entity_tag, index.ordinal(), index.physical_generation());
     let mut specs = Vec::with_capacity(values.len());
     for value in values {
         let component = encode_index_component(Some(schema_info), &index, 0, value)?.into_bytes();
@@ -798,7 +801,8 @@ fn push_lowered_index_prefix_spec_from_encoded_components(
     encoded_values: &[EncodedValue],
     specs: &mut Vec<LoweredIndexPrefixSpec>,
 ) -> Result<(), InternalError> {
-    let index_id = IndexId::new(entity_tag, index.ordinal());
+    let index_id =
+        IndexId::new_with_generation(entity_tag, index.ordinal(), index.physical_generation());
     let (lower, upper) = build_index_prefix_bounds_for_encoded_components(
         &index_id,
         IndexKeyKind::User,
@@ -828,7 +832,8 @@ fn push_lowered_index_prefix_spec_from_single_encoded_component(
     specs: &mut Vec<LoweredIndexPrefixSpec>,
     defer_raw_bounds: bool,
 ) -> Result<(), InternalError> {
-    let index_id = IndexId::new(entity_tag, index.ordinal());
+    let index_id =
+        IndexId::new_with_generation(entity_tag, index.ordinal(), index.physical_generation());
     if !defer_raw_bounds {
         let (lower, upper) = build_index_prefix_bounds_for_encoded_components(
             &index_id,

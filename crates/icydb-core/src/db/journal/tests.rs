@@ -9,7 +9,12 @@ use super::{
 use crate::{
     db::{
         data::{DecodedDataStoreKey, RawDataStoreKey},
-        schema::{AcceptedSchemaRevision, empty_accepted_schema_candidate_for_tests},
+        schema::{
+            AcceptedCheckExprV1, AcceptedSchemaFingerprint, AcceptedSchemaRevision,
+            ConstraintActivationKind, ConstraintActivationSnapshot, ConstraintActivationState,
+            ConstraintId, ConstraintOrigin, ConstraintValidationJob,
+            empty_accepted_schema_candidate_for_tests,
+        },
     },
     error::{ErrorClass, ErrorOrigin},
     testing::test_memory,
@@ -60,6 +65,27 @@ fn accepted_schema_publish_record() -> JournalRecord {
         candidate.encoded_root().to_vec(),
     )
     .expect("accepted schema publication record should build")
+}
+
+fn validation_job() -> ConstraintValidationJob {
+    let activation = ConstraintActivationSnapshot::new(
+        ConstraintId::new(7).expect("test constraint ID should be non-zero"),
+        "pending_check".to_string(),
+        ConstraintOrigin::Generated,
+        ConstraintActivationKind::Check {
+            expression: Box::new(AcceptedCheckExprV1::True),
+        },
+        ConstraintActivationState::Validating,
+        AcceptedSchemaFingerprint::new([0xA5; 32]),
+        11,
+    );
+    ConstraintValidationJob::start(
+        EntityTag::new(1),
+        "test::Entity".to_string(),
+        &activation,
+        None,
+    )
+    .expect("test validation job should build")
 }
 
 fn batch(sequence: u64) -> JournalBatch {
@@ -119,6 +145,119 @@ fn journal_batch_codec_round_trips_accepted_schema_publication() {
     let decoded = decode_journal_batch(&encoded).expect("journal batch should decode");
 
     assert_eq!(decoded, batch);
+}
+
+#[test]
+fn journal_batch_codec_round_trips_validation_job_replacement_and_removal() {
+    let job = validation_job();
+    let batch = JournalBatch::new(
+        [0x32; 16],
+        [0x42; 16],
+        JournalSequence::new(1),
+        vec![
+            JournalRecord::constraint_validation_job_put("test::Store", &job)
+                .expect("validation job record should build"),
+        ],
+    )
+    .expect("validation job batch should build");
+    let encoded = encode_journal_batch(&batch).expect("validation job batch should encode");
+    assert_eq!(
+        decode_journal_batch(&encoded).expect("validation job batch should decode"),
+        batch,
+    );
+
+    let removal = JournalBatch::new(
+        [0x33; 16],
+        [0x43; 16],
+        JournalSequence::new(2),
+        vec![
+            JournalRecord::constraint_validation_job_delete(
+                "test::Store",
+                job.entity_tag(),
+                job.constraint_id(),
+            )
+            .expect("validation job removal should build"),
+        ],
+    )
+    .expect("validation job removal batch should build");
+    let encoded = encode_journal_batch(&removal).expect("validation job removal should encode");
+    assert_eq!(
+        decode_journal_batch(&encoded).expect("validation job removal should decode"),
+        removal,
+    );
+}
+
+#[test]
+fn validation_job_appends_do_not_change_the_durable_data_revision() {
+    let mut store = JournalTailStore::init(test_memory(209));
+    assert_eq!(
+        store
+            .data_mutation_revision()
+            .expect("initial data revision should load"),
+        1,
+    );
+
+    let job = validation_job();
+    let job_batch = JournalBatch::new(
+        [0x51; 16],
+        [0x61; 16],
+        JournalSequence::new(1),
+        vec![
+            JournalRecord::constraint_validation_job_put("test::Store", &job)
+                .expect("job record should build"),
+        ],
+    )
+    .expect("job batch should build");
+    store
+        .append_batch(&job_batch)
+        .expect("job batch should append");
+    assert_eq!(
+        store
+            .data_mutation_revision()
+            .expect("job-only data revision should load"),
+        1,
+    );
+
+    let row_batch = JournalBatch::new(
+        [0x52; 16],
+        [0x62; 16],
+        JournalSequence::new(2),
+        vec![row_put_record(2)],
+    )
+    .expect("row batch should build");
+    store
+        .append_batch(&row_batch)
+        .expect("row batch should append");
+    assert_eq!(
+        store
+            .data_mutation_revision()
+            .expect("row data revision should load"),
+        3,
+    );
+
+    let removal_batch = JournalBatch::new(
+        [0x53; 16],
+        [0x63; 16],
+        JournalSequence::new(3),
+        vec![
+            JournalRecord::constraint_validation_job_delete(
+                "test::Store",
+                job.entity_tag(),
+                job.constraint_id(),
+            )
+            .expect("job removal should build"),
+        ],
+    )
+    .expect("job removal batch should build");
+    store
+        .append_batch(&removal_batch)
+        .expect("job removal batch should append");
+    assert_eq!(
+        store
+            .data_mutation_revision()
+            .expect("job removal must not change data revision"),
+        3,
+    );
 }
 
 #[test]

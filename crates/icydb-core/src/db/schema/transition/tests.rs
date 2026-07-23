@@ -4,10 +4,13 @@ use super::{
 };
 use crate::{
     db::schema::{
-        AcceptedFieldKind, FieldId, MutationPublicationPreflight, PersistedFieldOrigin,
-        PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot,
-        PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-        SchemaFieldSlot, SchemaFieldWritePolicy, SchemaIndexId, SchemaInsertDefault,
+        AcceptedCheckExprV1, AcceptedConstraintCatalog, AcceptedFieldKind,
+        AcceptedSchemaFingerprint, ConstraintActivationKind, ConstraintIdAllocator,
+        ConstraintOrigin, FieldId, GeneratedConstraintActivationContext,
+        MutationPublicationPreflight, PersistedFieldOrigin, PersistedFieldSnapshot,
+        PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+        PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
+        RelationId, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaIndexId, SchemaInsertDefault,
         SchemaRowLayout, SchemaTransitionDecision, SchemaTransitionPlanKind, SchemaVersion,
         decide_schema_transition, derive_generated_accepted_candidate,
         transition::SchemaTransitionRejectionKind,
@@ -58,7 +61,7 @@ fn accepted_generated_additive_candidate(
     stored: &PersistedSchemaSnapshot,
     generated: PersistedSchemaSnapshot,
 ) -> PersistedSchemaSnapshot {
-    derive_generated_accepted_candidate(stored, &generated)
+    derive_generated_accepted_candidate(stored, &generated, None)
         .expect("test layout version should advance")
         .expect("generated append-only fixture should derive accepted temporal facts")
 }
@@ -89,6 +92,7 @@ fn snapshot_with_version(
         snapshot.fields().to_vec(),
         snapshot.indexes().to_vec(),
     )
+    .with_constraint_catalog(snapshot.constraint_catalog().clone())
     .with_relations(snapshot.relations().to_vec())
 }
 
@@ -126,6 +130,7 @@ fn snapshot_with_ddl_nickname_field(
         fields,
         snapshot.indexes().to_vec(),
     )
+    .with_constraint_catalog(snapshot.constraint_catalog().clone())
     .with_relations(snapshot.relations().to_vec())
 }
 
@@ -353,10 +358,6 @@ fn admission_matrix_rejects_fingerprint_method_mismatch() {
     );
 }
 
-fn name_field_path_index(name: &str) -> PersistedIndexSnapshot {
-    name_field_path_index_in_store(name, format!("test::SchemaReconcileEntity::{name}"))
-}
-
 fn name_field_path_index_in_store(name: &str, store: String) -> PersistedIndexSnapshot {
     named_field_path_index_with_ordinal(name, 1, store)
 }
@@ -367,6 +368,32 @@ fn named_field_path_index_with_ordinal(
     store: String,
 ) -> PersistedIndexSnapshot {
     PersistedIndexSnapshot::new(
+        SchemaIndexId::new(u32::from(ordinal)).expect("test index identity should be non-zero"),
+        ordinal,
+        name.to_string(),
+        store,
+        false,
+        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+            FieldId::new(2),
+            SchemaFieldSlot::new(1),
+            vec!["name".to_string()],
+            AcceptedFieldKind::Text { max_len: None },
+            false,
+        )]),
+        None,
+    )
+}
+
+fn sql_ddl_name_field_path_index(name: &str, store: String) -> PersistedIndexSnapshot {
+    sql_ddl_named_field_path_index_with_ordinal(name, 1, store)
+}
+
+fn sql_ddl_named_field_path_index_with_ordinal(
+    name: &str,
+    ordinal: u16,
+    store: String,
+) -> PersistedIndexSnapshot {
+    PersistedIndexSnapshot::new_sql_ddl(
         SchemaIndexId::new(u32::from(ordinal)).expect("test index identity should be non-zero"),
         ordinal,
         name.to_string(),
@@ -395,6 +422,17 @@ fn snapshot_with_indexes(
         snapshot.row_layout().clone(),
         snapshot.fields().to_vec(),
         indexes,
+    )
+    .with_constraint_catalog(snapshot.constraint_catalog().clone())
+    .with_relations(snapshot.relations().to_vec())
+}
+
+fn test_relation(id: u32, name: &str) -> PersistedRelationEdgeSnapshot {
+    PersistedRelationEdgeSnapshot::new(
+        RelationId::new(id).expect("test relation identity should be non-zero"),
+        name.to_string(),
+        "test::Owner".to_string(),
+        vec![FieldId::new(1)],
     )
 }
 
@@ -433,10 +471,35 @@ fn schema_transition_policy_accepts_metadata_only_generated_index_rename() {
 }
 
 #[test]
+fn schema_transition_policy_rejects_generated_rename_over_ddl_index_identity() {
+    let base = expected_snapshot();
+    let store = "test::SchemaReconcileEntity::name_index".to_string();
+    let stored = snapshot_with_indexes(
+        &base,
+        vec![sql_ddl_name_field_path_index("ddl_name_idx", store.clone())],
+    );
+    let generated = snapshot_with_indexes(
+        &base,
+        vec![name_field_path_index_in_store(
+            "idx_schema_reconcile_entity__name",
+            store,
+        )],
+    );
+
+    let SchemaTransitionDecision::Rejected(rejection) =
+        decide_schema_transition(&stored, &generated)
+    else {
+        panic!("generated metadata must not take ownership of a DDL index with a colliding ID");
+    };
+
+    assert_eq!(rejection.kind(), SchemaTransitionRejectionKind::Snapshot);
+}
+
+#[test]
 fn schema_transition_policy_accepts_generated_index_rename_with_extra_ddl_indexes() {
     let base = expected_snapshot();
     let generated_store = "test::SchemaReconcileEntity::name_index".to_string();
-    let ddl_index = named_field_path_index_with_ordinal(
+    let ddl_index = sql_ddl_named_field_path_index_with_ordinal(
         "ddl_name_idx",
         2,
         "test::SchemaReconcileEntity::ddl_name_idx".to_string(),
@@ -472,6 +535,36 @@ fn schema_transition_policy_accepts_generated_index_rename_with_extra_ddl_indexe
 }
 
 #[test]
+fn schema_transition_policy_rejects_relation_drift_during_generated_index_rename() {
+    let base = expected_snapshot();
+    let store = "test::SchemaReconcileEntity::name_index".to_string();
+    let stored = snapshot_with_indexes(
+        &base,
+        vec![name_field_path_index_in_store(
+            "SchemaReconcileEntity|name",
+            store.clone(),
+        )],
+    )
+    .with_relations(vec![test_relation(1, "owner")]);
+    let generated = snapshot_with_indexes(
+        &base,
+        vec![name_field_path_index_in_store(
+            "idx_schema_reconcile_entity__name",
+            store,
+        )],
+    )
+    .with_relations(vec![test_relation(2, "replacement_owner")]);
+
+    let SchemaTransitionDecision::Rejected(rejection) =
+        decide_schema_transition(&stored, &generated)
+    else {
+        panic!("index rename must not publish an unrelated relation change");
+    };
+
+    assert_eq!(rejection.kind(), SchemaTransitionRejectionKind::Snapshot);
+}
+
+#[test]
 fn schema_transition_policy_accepts_exact_snapshot_match() {
     let expected = expected_snapshot();
 
@@ -498,7 +591,13 @@ fn schema_transition_policy_accepts_exact_snapshot_match() {
 #[test]
 fn schema_transition_policy_accepts_supported_ddl_indexes_absent_from_generated_model() {
     let generated = expected_snapshot();
-    let accepted = snapshot_with_indexes(&generated, vec![name_field_path_index("name_idx")]);
+    let accepted = snapshot_with_indexes(
+        &generated,
+        vec![sql_ddl_name_field_path_index(
+            "name_idx",
+            "test::SchemaReconcileEntity::name_idx".to_string(),
+        )],
+    );
     let accepted = snapshot_with_version(&accepted, SchemaVersion::new(2));
 
     let SchemaTransitionDecision::Accepted(plan) = decide_schema_transition(&accepted, &generated)
@@ -571,6 +670,265 @@ fn schema_transition_policy_accepts_append_only_fields() {
         plan.publication_preflight(),
         MutationPublicationPreflight::PublishableNow
     );
+}
+
+#[test]
+fn generated_check_change_cannot_hide_inside_append_only_field_reconciliation() {
+    let stored = expected_snapshot();
+    let mut generated_fields = stored.fields().to_vec();
+    generated_fields.push(PersistedFieldSnapshot::new_initial(
+        FieldId::new(3),
+        "nickname".to_string(),
+        SchemaFieldSlot::new(2),
+        AcceptedFieldKind::Text { max_len: None },
+        Vec::new(),
+        true,
+        SchemaInsertDefault::None,
+        FieldStorageDecode::ByKind,
+        LeafCodec::Scalar(ScalarCodec::Text),
+    ));
+    let generated_constraints = stored
+        .constraint_catalog()
+        .clone()
+        .with_added_check(
+            "name_policy".to_string(),
+            ConstraintOrigin::Generated,
+            AcceptedCheckExprV1::True,
+        )
+        .expect("test generated check should allocate");
+    let generated = PersistedSchemaSnapshot::new(
+        stored.version(),
+        stored.entity_path().to_string(),
+        stored.entity_name().to_string(),
+        stored.first_primary_key_field_id(),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+            (FieldId::new(3), SchemaFieldSlot::new(2)),
+        ]),
+        generated_fields,
+    )
+    .with_constraint_catalog(generated_constraints);
+
+    assert_eq!(
+        derive_generated_accepted_candidate(&stored, &generated, None),
+        Ok(None),
+        "check activation must not be discarded while an unrelated generated field is accepted",
+    );
+}
+
+#[test]
+fn generated_check_addition_publishes_one_stable_activation_candidate() {
+    let stored = expected_snapshot();
+    let generated_catalog = stored
+        .constraint_catalog()
+        .clone()
+        .with_added_check(
+            "name_policy".to_string(),
+            ConstraintOrigin::Generated,
+            AcceptedCheckExprV1::True,
+        )
+        .expect("generated check proposal should allocate");
+    let generated = PersistedSchemaSnapshot::new(
+        SchemaVersion::new(2),
+        stored.entity_path().to_string(),
+        stored.entity_name().to_string(),
+        stored.first_primary_key_field_id(),
+        stored.row_layout().clone(),
+        stored.fields().to_vec(),
+    )
+    .with_constraint_catalog(generated_catalog);
+    let activation =
+        GeneratedConstraintActivationContext::new(AcceptedSchemaFingerprint::new([0xA5; 32]), 2);
+
+    let candidate = derive_generated_accepted_candidate(&stored, &generated, Some(activation))
+        .expect("activation candidate should derive")
+        .expect("generated check should require activation");
+    assert_eq!(candidate.constraints(), stored.constraints());
+    assert_eq!(candidate.constraint_activations().len(), 1);
+    assert_eq!(candidate.constraint_activations()[0].name(), "name_policy");
+
+    let SchemaTransitionDecision::Accepted(plan) = decide_schema_transition(&stored, &candidate)
+    else {
+        panic!("activation-only candidate should be an admitted transition");
+    };
+    assert_eq!(plan.kind(), SchemaTransitionPlanKind::ConstraintActivation);
+
+    let replayed = derive_generated_accepted_candidate(&candidate, &generated, Some(activation))
+        .expect("matching activation should remain stable")
+        .expect("matching activation should remain accepted authority");
+    assert_eq!(
+        replayed.constraint_catalog(),
+        candidate.constraint_catalog()
+    );
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn generated_not_null_tightening_publishes_one_stable_activation_candidate() {
+    let generated = expected_snapshot();
+    let stored = crate::db::schema::derive_sql_ddl_field_nullability_persisted_after(
+        &generated,
+        FieldId::new(2),
+        true,
+        generated.version(),
+    )
+    .expect("nullable accepted-before fixture should derive");
+    let activation =
+        GeneratedConstraintActivationContext::new(AcceptedSchemaFingerprint::new([0xA6; 32]), 3);
+
+    let candidate = derive_generated_accepted_candidate(&stored, &generated, Some(activation))
+        .expect("not-null activation candidate should derive")
+        .expect("generated tightening should require activation");
+    let [pending] = candidate.constraint_activations() else {
+        panic!("generated tightening should own exactly one activation");
+    };
+    assert!(candidate.fields()[1].nullable());
+    assert!(matches!(
+        pending.kind(),
+        ConstraintActivationKind::NotNull { field_id } if *field_id == FieldId::new(2)
+    ));
+
+    let replayed = derive_generated_accepted_candidate(&candidate, &generated, Some(activation))
+        .expect("matching not-null activation should remain stable")
+        .expect("matching not-null activation should remain accepted authority");
+    assert_eq!(
+        replayed.constraint_catalog(),
+        candidate.constraint_catalog()
+    );
+}
+
+#[test]
+fn generated_unique_index_addition_reserves_one_planner_invisible_candidate() {
+    let stored = expected_snapshot();
+    let unique_index = PersistedIndexSnapshot::new(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+        1,
+        "unique_name".to_string(),
+        "test::SchemaReconcileEntity::unique_name".to_string(),
+        true,
+        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+            FieldId::new(2),
+            SchemaFieldSlot::new(1),
+            vec!["name".to_string()],
+            AcceptedFieldKind::Text { max_len: None },
+            false,
+        )]),
+        None,
+    );
+    let generated = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+        SchemaVersion::new(2),
+        stored.entity_path().to_string(),
+        stored.entity_name().to_string(),
+        stored.primary_key_field_ids().to_vec(),
+        stored.row_layout().clone(),
+        stored.fields().to_vec(),
+        vec![unique_index],
+    );
+    let generated_catalog = AcceptedConstraintCatalog::initial(
+        generated.fields(),
+        generated.indexes(),
+        generated.relations(),
+    )
+    .expect("generated unique constraint catalog should build");
+    let generated = generated.with_constraint_catalog(generated_catalog);
+    let activation =
+        GeneratedConstraintActivationContext::new(AcceptedSchemaFingerprint::new([0xB6; 32]), 4);
+
+    let candidate = derive_generated_accepted_candidate(&stored, &generated, Some(activation))
+        .expect("generated unique activation should derive")
+        .expect("generated unique addition should require activation");
+    assert!(candidate.indexes().is_empty());
+    let [candidate_index] = candidate.candidate_indexes() else {
+        panic!("one planner-invisible candidate index should be retained");
+    };
+    let [pending] = candidate.constraint_activations() else {
+        panic!("one unique activation should reserve the candidate");
+    };
+    assert_eq!(candidate_index.name(), "unique_name");
+    assert!(matches!(
+        pending.kind(),
+        ConstraintActivationKind::Unique { index_id }
+            if *index_id == candidate_index.schema_id()
+    ));
+    let SchemaTransitionDecision::Accepted(plan) = decide_schema_transition(&stored, &candidate)
+    else {
+        panic!("generated unique activation should be an accepted transition");
+    };
+    assert_eq!(plan.kind(), SchemaTransitionPlanKind::ConstraintActivation);
+
+    let replayed = derive_generated_accepted_candidate(&candidate, &generated, Some(activation))
+        .expect("matching generated unique activation should remain stable")
+        .expect("matching generated unique activation should remain accepted authority");
+    assert_eq!(replayed, candidate);
+}
+
+#[test]
+fn exact_generated_reconciliation_preserves_retired_constraint_identity_high_water() {
+    let generated = expected_snapshot();
+    let stored =
+        generated
+            .clone()
+            .with_constraint_catalog(AcceptedConstraintCatalog::from_persisted_parts(
+                ConstraintIdAllocator::new(17),
+                generated.constraints().to_vec(),
+                Vec::new(),
+            ));
+
+    let candidate = derive_generated_accepted_candidate(&stored, &generated, None)
+        .expect("exact generated proposal should reconcile")
+        .expect("accepted identity state should remain authoritative");
+
+    assert_eq!(candidate, stored);
+    assert_eq!(candidate.constraint_id_allocator().high_water(), 17);
+}
+
+#[test]
+fn generated_additive_field_preserves_accepted_only_ddl_index() {
+    let base = expected_snapshot();
+    let stored = snapshot_with_indexes(
+        &base,
+        vec![sql_ddl_name_field_path_index(
+            "ddl_name_idx",
+            "test::SchemaReconcileEntity::ddl_name_idx".to_string(),
+        )],
+    );
+    let mut generated_fields = base.fields().to_vec();
+    generated_fields.push(PersistedFieldSnapshot::new_initial(
+        FieldId::new(3),
+        "nickname".to_string(),
+        SchemaFieldSlot::new(2),
+        AcceptedFieldKind::Text { max_len: None },
+        Vec::new(),
+        true,
+        SchemaInsertDefault::None,
+        FieldStorageDecode::ByKind,
+        LeafCodec::Scalar(ScalarCodec::Text),
+    ));
+    let generated = PersistedSchemaSnapshot::new(
+        stored.version(),
+        stored.entity_path().to_string(),
+        stored.entity_name().to_string(),
+        stored.first_primary_key_field_id(),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+            (FieldId::new(3), SchemaFieldSlot::new(2)),
+        ]),
+        generated_fields,
+    );
+
+    let candidate = derive_generated_accepted_candidate(&stored, &generated, None)
+        .expect("test layout version should advance")
+        .expect("generated field should lower without taking DDL index ownership");
+    assert_eq!(candidate.indexes(), stored.indexes());
+    assert!(!candidate.indexes()[0].generated());
+
+    let SchemaTransitionDecision::Accepted(plan) = decide_schema_transition(&stored, &candidate)
+    else {
+        panic!("preserved DDL index should leave a pure append-only field transition");
+    };
+    assert_eq!(plan.kind(), SchemaTransitionPlanKind::AppendOnlyFields);
 }
 
 #[test]
@@ -823,7 +1181,7 @@ fn schema_transition_policy_accepts_generated_field_default_changes_as_metadata_
         generated_fields,
     );
 
-    let candidate = derive_generated_accepted_candidate(&stored, &generated)
+    let candidate = derive_generated_accepted_candidate(&stored, &generated, None)
         .expect("metadata-only default change should not allocate a layout")
         .expect("generated default change should derive an accepted candidate");
     let SchemaTransitionDecision::Accepted(plan) = decide_schema_transition(&stored, &candidate)
@@ -877,7 +1235,7 @@ fn schema_transition_policy_types_generated_field_after_ddl_slot_collision() {
     );
 
     assert!(
-        derive_generated_accepted_candidate(&accepted, &generated_after)
+        derive_generated_accepted_candidate(&accepted, &generated_after, None)
             .expect("collision classification should not allocate a layout")
             .is_none(),
         "slot collisions must not be lowered into an accepted candidate",

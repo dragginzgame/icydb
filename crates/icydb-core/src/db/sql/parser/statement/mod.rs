@@ -14,8 +14,9 @@ use crate::db::sql::parser::{SqlExplainMode, SqlExplainStatement, SqlExplainTarg
 use crate::db::{
     sql::parser::{
         Parser, SqlDeleteStatement, SqlDescribeStatement, SqlSelectStatement,
-        SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
-        SqlShowMemoryStatement, SqlShowStoresStatement, SqlStatement, SqlUpdateStatement,
+        SqlShowColumnsStatement, SqlShowConstraintsStatement, SqlShowEntitiesStatement,
+        SqlShowIndexesStatement, SqlShowMemoryStatement, SqlShowStoresStatement, SqlStatement,
+        SqlUpdateStatement,
     },
     sql_shared::{
         Keyword, SqlClauseOrderRule, SqlExpectedToken, SqlParseError, SqlSyntaxErrorKind, TokenKind,
@@ -89,6 +90,9 @@ impl Parser {
             SqlStatement::Describe(_) => Some(SqlParseError::unsupported_feature(
                 SqlFeatureCode::DescribeModifier,
             )),
+            SqlStatement::ShowConstraints(_) => Some(SqlParseError::unsupported_feature(
+                SqlFeatureCode::ShowConstraintsModifiers,
+            )),
             SqlStatement::ShowIndexes(_) => Some(SqlParseError::unsupported_feature(
                 SqlFeatureCode::ShowIndexesModifiers,
             )),
@@ -108,6 +112,11 @@ impl Parser {
     }
 
     fn parse_show_statement(&mut self) -> Result<SqlStatement, SqlParseError> {
+        if self.eat_identifier_keyword("CONSTRAINTS") {
+            return Ok(SqlStatement::ShowConstraints(
+                self.parse_show_constraints_statement()?,
+            ));
+        }
         if self.eat_keyword(Keyword::Indexes) {
             return Ok(SqlStatement::ShowIndexes(
                 self.parse_show_indexes_statement()?,
@@ -268,6 +277,20 @@ impl Parser {
         let entity = self.expect_identifier()?;
 
         Ok(SqlShowIndexesStatement { entity })
+    }
+
+    fn parse_show_constraints_statement(
+        &mut self,
+    ) -> Result<SqlShowConstraintsStatement, SqlParseError> {
+        if !(self.eat_keyword(Keyword::From) || self.eat_keyword(Keyword::In)) {
+            return Err(SqlParseError::expected(
+                SqlExpectedToken::ShowConstraintsSource,
+                self.peek_kind(),
+            ));
+        }
+        let entity = self.expect_identifier()?;
+
+        Ok(SqlShowConstraintsStatement { entity })
     }
 
     fn parse_show_columns_statement(&mut self) -> Result<SqlShowColumnsStatement, SqlParseError> {

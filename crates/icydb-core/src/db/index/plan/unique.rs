@@ -27,8 +27,16 @@ enum UniqueKeyAuthority<'a> {
 impl UniqueKeyAuthority<'_> {
     const fn index_id(&self, entity_tag: EntityTag) -> IndexId {
         match self {
-            Self::AcceptedFieldPath(index) => IndexId::new(entity_tag, index.ordinal()),
-            Self::AcceptedExpression(index) => IndexId::new(entity_tag, index.ordinal()),
+            Self::AcceptedFieldPath(index) => IndexId::new_with_generation(
+                entity_tag,
+                index.ordinal(),
+                index.physical_generation(),
+            ),
+            Self::AcceptedExpression(index) => IndexId::new_with_generation(
+                entity_tag,
+                index.ordinal(),
+                index.physical_generation(),
+            ),
         }
     }
 

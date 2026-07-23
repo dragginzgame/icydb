@@ -55,9 +55,17 @@ pub(in crate::db) const fn ddl_version_contract(
         SqlDdlStatement::CreateIndex(statement) => statement.schema_version_contract,
         SqlDdlStatement::DropIndex(statement) => statement.schema_version_contract,
         SqlDdlStatement::AlterTableAddColumn(statement) => statement.schema_version_contract,
+        SqlDdlStatement::AlterTableAddCheckConstraint(statement) => {
+            statement.schema_version_contract
+        }
         SqlDdlStatement::AlterTableAlterColumn(statement) => statement.schema_version_contract,
         SqlDdlStatement::AlterTableDropColumn(statement) => statement.schema_version_contract,
+        SqlDdlStatement::AlterTableDropConstraint(statement) => statement.schema_version_contract,
         SqlDdlStatement::AlterTableRenameColumn(statement) => statement.schema_version_contract,
+        SqlDdlStatement::AlterTableValidateConstraint(_) => SqlDdlSchemaVersionContract {
+            expected_schema_version: None,
+            next_schema_version: None,
+        },
     }
 }
 
@@ -95,6 +103,12 @@ pub(in crate::db) fn validate_bound_sql_ddl_version_contract(
     bound: &BoundSqlDdlRequest,
     accepted_before: &AcceptedSchemaSnapshot,
 ) -> Result<(), SqlDdlBindError> {
+    if matches!(
+        bound.statement(),
+        BoundSqlDdlStatement::ValidateConstraint(_)
+    ) {
+        return Ok(());
+    }
     let contract = bound.schema_version_contract();
     let accepted_version = accepted_before.persisted_snapshot().version();
     validate_schema_ddl_version_contract_preflight(
@@ -153,8 +167,14 @@ impl SqlDdlBindError {
                 SchemaDdlAdmissionError::RowLayoutVersionExhausted
             }
             Self::InvalidFilteredIndexPredicate
+            | Self::InvalidConstraintName { .. }
+            | Self::DuplicateConstraintName { .. }
+            | Self::UnknownConstraint { .. }
+            | Self::AcceptedValueCatalogRequired
+            | Self::InvalidCheckExpression(_)
             | Self::DuplicateIndexName { .. }
             | Self::DuplicateFieldPathIndex { .. }
+            | Self::IndexIdentityExhausted
             | Self::DuplicateColumn { .. }
             | Self::UnknownFieldPath { .. }
             | Self::UnknownIndex { .. }
@@ -169,7 +189,8 @@ impl SqlDdlBindError {
             | Self::PrimaryKeyFieldDropRejected { .. }
             | Self::GeneratedFieldDropRejected { .. }
             | Self::IndexedFieldDropRejected { .. }
-            | Self::GeneratedFieldRenameRejected { .. } => {
+            | Self::GeneratedFieldRenameRejected { .. }
+            | Self::ConstraintOwnershipRejected { .. } => {
                 SchemaDdlAdmissionError::UnsupportedTransitionClass
             }
             Self::GeneratedIndexDropRejected { .. } => {

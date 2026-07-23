@@ -9,13 +9,17 @@ use crate::{
         },
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         schema::{
-            AcceptedFieldKind, AcceptedSchemaMutationError, ConstraintIdAllocator, FieldId,
-            MutationPlan, PersistedFieldSnapshot, PersistedIndexExpressionOp,
-            PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
-            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-            PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId, SchemaFieldSlot,
-            SchemaIndexId, SchemaInsertDefault, SchemaMutationDelta, SchemaMutationRequest,
-            SchemaRowLayout, SchemaVersion, classify_schema_mutation_delta,
+            AcceptedCheckExprV1, AcceptedConstraintCatalog, AcceptedConstraintKind,
+            AcceptedFieldKind, AcceptedSchemaFingerprint, AcceptedSchemaMutationError,
+            ConstraintIdAllocator, ConstraintOrigin, FieldId, MutationPlan, PersistedFieldSnapshot,
+            PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+            PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
+            PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedRelationEdgeSnapshot,
+            PersistedSchemaSnapshot, RelationId, SchemaDdlSecondaryIndexFieldPathIntent,
+            SchemaDdlSecondaryIndexKeyCandidateError, SchemaDdlSecondaryIndexKeyIntent,
+            SchemaFieldSlot, SchemaIndexId, SchemaInsertDefault, SchemaMutationDelta,
+            SchemaMutationRequest, SchemaRowLayout, SchemaVersion,
+            build_sql_ddl_secondary_index_candidate, classify_schema_mutation_delta,
             schema_mutation_request_for_snapshots,
         },
     },
@@ -182,28 +186,61 @@ fn append_fields_snapshot(
 
     let mut next_layout_entries = snapshot.row_layout().field_to_slot().to_vec();
     next_layout_entries.extend(fields.iter().map(|field| (field.id(), field.slot())));
+    let constraint_catalog = fields
+        .iter()
+        .try_fold(snapshot.constraint_catalog().clone(), |catalog, field| {
+            catalog.with_added_not_null(field)
+        })
+        .expect("test appended-field constraint catalog should build");
 
-    PersistedSchemaSnapshot::new(
+    PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         SchemaVersion::new(snapshot.version().get() + 1),
         snapshot.entity_path().to_string(),
         snapshot.entity_name().to_string(),
-        snapshot.first_primary_key_field_id(),
-        SchemaRowLayout::single_version(
+        snapshot.primary_key_field_ids().to_vec(),
+        SchemaRowLayout::new(
             snapshot
                 .row_layout()
                 .current_version()
                 .checked_next()
                 .expect("test layout version should advance"),
+            snapshot.row_layout().history_floor(),
             next_layout_entries,
         ),
         next_fields,
+        snapshot.indexes().to_vec(),
     )
+    .with_constraint_catalog(constraint_catalog)
+    .with_relations(snapshot.relations().to_vec())
 }
 
 fn snapshot_with_indexes(
     snapshot: &PersistedSchemaSnapshot,
     indexes: Vec<PersistedIndexSnapshot>,
 ) -> PersistedSchemaSnapshot {
+    let mut constraint_catalog = snapshot.constraint_catalog().clone();
+    for removed in snapshot.indexes().iter().filter(|existing| {
+        existing.unique()
+            && !indexes
+                .iter()
+                .any(|candidate| candidate.schema_id() == existing.schema_id())
+    }) {
+        constraint_catalog = constraint_catalog
+            .with_removed_unique(removed.schema_id())
+            .expect("test removed-index constraint catalog should close");
+    }
+    for added in indexes.iter().filter(|candidate| {
+        candidate.unique()
+            && !snapshot
+                .indexes()
+                .iter()
+                .any(|existing| existing.schema_id() == candidate.schema_id())
+    }) {
+        constraint_catalog = constraint_catalog
+            .with_added_unique(added)
+            .expect("test added-index constraint catalog should close");
+    }
+
     PersistedSchemaSnapshot::new_with_indexes(
         SchemaVersion::new(snapshot.version().get() + 1),
         snapshot.entity_path().to_string(),
@@ -213,7 +250,7 @@ fn snapshot_with_indexes(
         snapshot.fields().to_vec(),
         indexes,
     )
-    .with_constraint_id_allocator(snapshot.constraint_id_allocator())
+    .with_constraint_catalog(constraint_catalog)
     .with_relations(snapshot.relations().to_vec())
 }
 

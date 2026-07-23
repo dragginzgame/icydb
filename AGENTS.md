@@ -45,8 +45,31 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Start with `rg` and targeted inspection; do not read broad directories unless the task requires it.
 - Make the smallest safe patch that satisfies the request.
 - Do not perform opportunistic refactors; list them as follow-up instead.
-- Prefer focused code slices. A slice is a review/landing unit, not automatically a patch release.
-- Batch coherent routine work before asking whether to push; do not stop after every small slice unless the user asks.
+- Before implementing a minor-version line, ensure its design/status tracker
+  groups the whole line into roughly 6-8 meaningful landing patches. This is a
+  planning target, not a quota; multiple design documents in the same minor
+  share the same patch budget.
+- Make each landing patch substantive and end-to-end: one bounded outcome plus
+  its direct tests, diagnostics, docs, fixtures, and mechanical propagation.
+  Do not create micro-patches for fallout from the same change, and do not
+  combine independent planned outcomes into a multi-hour mega-slice.
+- One planned landing patch is one reviewable worktree handoff and the default
+  implementation-turn boundary. Complete that patch, validate it, update its
+  status and `Unreleased` note, then stop and hand it back; do not begin the
+  next planned patch in the same turn.
+- Generic continuation such as "continue", "keep going", or "next" authorizes
+  exactly the next planned landing patch within the current minor-version
+  line. It never authorizes starting a different minor. Implement multiple
+  patches in one turn only when the user explicitly names them and asks to
+  combine them.
+- Batch coherent routine work within the current landing patch, never across
+  planned patch boundaries. A landing patch receives a version number only
+  when the user names the release target.
+- Treat the file/domain limits in `docs/governance/velocity-preservation.md` as
+  hard landing-patch limits. Split the patch or obtain an explicit user-approved
+  override before exceeding them; an agent may not self-authorize an override
+  merely because the wider change appears coherent. Prefer a bounded override
+  for inseparable mechanical propagation over manufacturing tiny patches.
 - Run `cargo fmt --all` after code edits; reserve `cargo fmt --all --check` for non-mutating release/readiness verification.
 - Run focused checks after edits; run broader checks only when the slice is otherwise ready.
 - Do not repeatedly rerun expensive failing commands; capture the first failure and report it.
@@ -87,7 +110,19 @@ Keep this file small. Open detailed governance docs only when the task needs the
 
 - Do not run `git commit` or `git push`; the user owns commits and pushes.
 - If the user asks "push?", report whether the current slice is ready to push and summarize validation.
-- If the user says a patch is live/pushed, start the next slice from the current worktree state and do not rewrite the published changelog unless asked.
+- A statement that a patch is live/pushed records the completed boundary but
+  does not by itself authorize more implementation. If the user also says to
+  continue, start exactly the next planned patch in the same minor line and do
+  not rewrite the published changelog unless asked.
+- When the current minor's planned patches are exhausted, generic continuation
+  stays in that minor and starts a read-only closeout audit. Report findings
+  before making closeout corrections; keep approved corrections in the same
+  minor line.
+- Do not start a new minor-version line until the current minor has a reported
+  ready/complete closeout verdict and the user then explicitly names the target
+  minor and directs the agent to start it (for example, "start 0.212"). A
+  roadmap, existing next design, clean worktree, successful push, or question
+  such as "what is next?" is not authorization to cross the minor boundary.
 
 ## Final Response
 

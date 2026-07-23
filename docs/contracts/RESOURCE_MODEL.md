@@ -125,6 +125,7 @@ Examples:
 - Grouped DISTINCT aggregates
 - Global DISTINCT field aggregates (`COUNT(DISTINCT field)`, `SUM(DISTINCT field)`)
 - DISTINCT sets within grouped aggregation
+- Constraint-activation validation pages
 
 Required guardrails:
 
@@ -138,6 +139,12 @@ Failure mode:
 - Deterministic typed error
 - No silent truncation
 - No spill fallback
+
+Constraint-activation pages use a separate bounded workflow contract rather
+than the grouped-query limits above. Each page caps rows, decoded bytes,
+findings, and staged unique-index or reverse-relation work and carries an exact
+continuation checkpoint. Reaching a cap leaves the job incomplete; it never
+promotes a constraint or fabricates successful validation.
 
 ### 3.3 Class C: Unbounded Operators (Disallowed)
 

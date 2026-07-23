@@ -169,6 +169,7 @@ struct SchemaFieldInfo {
 #[derive(Clone, Debug)]
 pub(in crate::db) struct SchemaIndexInfo {
     ordinal: u16,
+    physical_generation: u64,
     name: String,
     store: String,
     unique: bool,
@@ -183,6 +184,12 @@ impl SchemaIndexInfo {
     #[must_use]
     pub(in crate::db) const fn ordinal(&self) -> u16 {
         self.ordinal
+    }
+
+    /// Return the isolated physical key generation.
+    #[must_use]
+    pub(in crate::db) const fn physical_generation(&self) -> u64 {
+        self.physical_generation
     }
 
     /// Borrow the stable index name.
@@ -251,6 +258,7 @@ impl SchemaIndexInfo {
 #[derive(Clone, Debug)]
 pub(in crate::db) struct SchemaExpressionIndexInfo {
     ordinal: u16,
+    physical_generation: u64,
     name: String,
     store: String,
     unique: bool,
@@ -265,6 +273,12 @@ impl SchemaExpressionIndexInfo {
     #[must_use]
     pub(in crate::db) const fn ordinal(&self) -> u16 {
         self.ordinal
+    }
+
+    /// Return the isolated physical key generation.
+    #[must_use]
+    pub(in crate::db) const fn physical_generation(&self) -> u64 {
+        self.physical_generation
     }
 
     /// Borrow the accepted stable index name.
@@ -1030,6 +1044,7 @@ fn schema_index_info_from_generated_index(
 
     Some(SchemaIndexInfo {
         ordinal: index.ordinal(),
+        physical_generation: 0,
         name: index.name().to_string(),
         store: index.store().to_string(),
         unique: index.is_unique(),
@@ -1064,6 +1079,7 @@ fn schema_index_info_from_accepted_index(
 
     Some(SchemaIndexInfo {
         ordinal: index.ordinal(),
+        physical_generation: index.physical_generation(),
         name: index.name().to_string(),
         store: index.store().to_string(),
         unique: index.unique(),
@@ -1097,6 +1113,7 @@ fn schema_expression_index_info_from_accepted_index(
 
     Some(SchemaExpressionIndexInfo {
         ordinal: index.ordinal(),
+        physical_generation: index.physical_generation(),
         name: index.name().to_string(),
         store: index.store().to_string(),
         unique: index.unique(),

@@ -10,12 +10,15 @@ use crate::{
             RelationFieldCardinality, RelationFieldMetadata, relation_field_metadata_for_model_iter,
         },
         schema::{
-            AcceptedFieldKind, AcceptedFieldPersistenceContract, AcceptedInsertOmissionPolicy,
-            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
+            AcceptedConstraintKind, AcceptedFieldKind, AcceptedFieldPersistenceContract,
+            AcceptedInsertOmissionPolicy, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
+            AcceptedValueCatalogHandle, ConstraintActivationKind, ConstraintActivationSnapshot,
+            ConstraintActivationState, ConstraintOrigin, ConstraintValidationJob, FieldId,
             PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedNestedLeafSnapshot,
-            SchemaHistoricalFill,
+            PersistedSchemaSnapshot, RelationId, SchemaHistoricalFill,
             composite_catalog::{AcceptedCompositeElement, AcceptedCompositeShape},
-            field_type_from_persisted_kind, output_value_from_runtime,
+            field_type_from_persisted_kind, not_null_constraint_name, output_value_from_runtime,
+            primary_key_constraint_name, render_accepted_check_expr_sql,
             runtime::AcceptedRowLayoutRuntimeField,
         },
     },
@@ -51,6 +54,7 @@ pub struct EntitySchemaDescription {
     pub(crate) fields: Vec<EntityFieldDescription>,
     pub(crate) indexes: Vec<EntityIndexDescription>,
     pub(crate) relations: Vec<EntityRelationDescription>,
+    pub(crate) constraints: Vec<EntityConstraintDescription>,
     pub(crate) row_layout_current: u32,
     pub(crate) row_layout_history_floor: u32,
 }
@@ -106,6 +110,7 @@ impl EntitySchemaDescription {
         fields: Vec<EntityFieldDescription>,
         indexes: Vec<EntityIndexDescription>,
         relations: Vec<EntityRelationDescription>,
+        constraints: Vec<EntityConstraintDescription>,
         row_layout_current: u32,
         row_layout_history_floor: u32,
     ) -> Self {
@@ -117,6 +122,7 @@ impl EntitySchemaDescription {
             fields,
             indexes,
             relations,
+            constraints,
             row_layout_current,
             row_layout_history_floor,
         }
@@ -164,6 +170,12 @@ impl EntitySchemaDescription {
         self.relations.as_slice()
     }
 
+    /// Borrow accepted or generated structural constraint descriptions.
+    #[must_use]
+    pub const fn constraints(&self) -> &[EntityConstraintDescription] {
+        self.constraints.as_slice()
+    }
+
     /// Return the current accepted physical row-layout identity.
     #[must_use]
     pub const fn row_layout_current(&self) -> u32 {
@@ -174,6 +186,172 @@ impl EntitySchemaDescription {
     #[must_use]
     pub const fn row_layout_history_floor(&self) -> u32 {
         self.row_layout_history_floor
+    }
+}
+
+#[cfg_attr(
+    doc,
+    doc = "EntityConstraintDescription\n\nOne accepted structural constraint entry in a describe payload."
+)]
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct EntityConstraintDescription {
+    pub(crate) id: u32,
+    pub(crate) name: String,
+    pub(crate) kind: String,
+    pub(crate) origin: String,
+    pub(crate) validation_state: String,
+    pub(crate) validation_progress: Option<ConstraintValidationProgressDescription>,
+    pub(crate) field_id: Option<u32>,
+    pub(crate) index_id: Option<u32>,
+    pub(crate) relation_id: Option<u32>,
+    pub(crate) fields: Vec<String>,
+    pub(crate) index: Option<String>,
+    pub(crate) relation: Option<String>,
+    pub(crate) target_entity: Option<String>,
+    pub(crate) action: Option<String>,
+    pub(crate) semantics: String,
+    pub(crate) check_sql: Option<String>,
+}
+
+/// Current bounded validation-job counters for one activating constraint.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct ConstraintValidationProgressDescription {
+    phase: String,
+    rows_scanned: u64,
+    findings_seen: u64,
+    restarts: u64,
+}
+
+impl ConstraintValidationProgressDescription {
+    fn from_job(job: &ConstraintValidationJob) -> Self {
+        Self {
+            phase: job.phase().as_str().to_string(),
+            rows_scanned: job.rows_scanned(),
+            findings_seen: job.findings_seen(),
+            restarts: job.restarts(),
+        }
+    }
+
+    /// Borrow the current bounded proof phase.
+    #[must_use]
+    pub const fn phase(&self) -> &str {
+        self.phase.as_str()
+    }
+
+    /// Return the cumulative classified-row count.
+    #[must_use]
+    pub const fn rows_scanned(&self) -> u64 {
+        self.rows_scanned
+    }
+
+    /// Return the cumulative finding count.
+    #[must_use]
+    pub const fn findings_seen(&self) -> u64 {
+        self.findings_seen
+    }
+
+    /// Return the cumulative proof-restart count.
+    #[must_use]
+    pub const fn restarts(&self) -> u64 {
+        self.restarts
+    }
+}
+
+impl EntityConstraintDescription {
+    /// Return the stable entity-local constraint identity.
+    #[must_use]
+    pub const fn id(&self) -> u32 {
+        self.id
+    }
+
+    /// Borrow the stable accepted constraint name.
+    #[must_use]
+    pub const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Borrow the structural constraint kind label.
+    #[must_use]
+    pub const fn kind(&self) -> &str {
+        self.kind.as_str()
+    }
+
+    /// Borrow the constraint origin label.
+    #[must_use]
+    pub const fn origin(&self) -> &str {
+        self.origin.as_str()
+    }
+
+    /// Borrow the validation-state label.
+    #[must_use]
+    pub const fn validation_state(&self) -> &str {
+        self.validation_state.as_str()
+    }
+
+    /// Borrow current bounded validation progress, when activation has begun.
+    #[must_use]
+    pub const fn validation_progress(&self) -> Option<&ConstraintValidationProgressDescription> {
+        self.validation_progress.as_ref()
+    }
+
+    /// Return the referenced field identity for a not-null constraint.
+    #[must_use]
+    pub const fn field_id(&self) -> Option<u32> {
+        self.field_id
+    }
+
+    /// Return the referenced logical index identity for a unique constraint.
+    #[must_use]
+    pub const fn index_id(&self) -> Option<u32> {
+        self.index_id
+    }
+
+    /// Return the referenced logical relation identity.
+    #[must_use]
+    pub const fn relation_id(&self) -> Option<u32> {
+        self.relation_id
+    }
+
+    /// Borrow current accepted field names participating in the constraint.
+    #[must_use]
+    pub const fn fields(&self) -> &[String] {
+        self.fields.as_slice()
+    }
+
+    /// Borrow the current accepted index display name, when applicable.
+    #[must_use]
+    pub fn index(&self) -> Option<&str> {
+        self.index.as_deref()
+    }
+
+    /// Borrow the current accepted relation display name, when applicable.
+    #[must_use]
+    pub fn relation(&self) -> Option<&str> {
+        self.relation.as_deref()
+    }
+
+    /// Borrow the current relation target entity path, when applicable.
+    #[must_use]
+    pub fn target_entity(&self) -> Option<&str> {
+        self.target_entity.as_deref()
+    }
+
+    /// Borrow the derived referential action, when applicable.
+    #[must_use]
+    pub fn action(&self) -> Option<&str> {
+        self.action.as_deref()
+    }
+
+    /// Borrow the derived structural semantics label.
+    #[must_use]
+    pub const fn semantics(&self) -> &str {
+        self.semantics.as_str()
+    }
+
+    /// Borrow the canonical accepted check expression, when applicable.
+    #[must_use]
+    pub fn check_sql(&self) -> Option<&str> {
+        self.check_sql.as_deref()
     }
 }
 
@@ -570,6 +748,7 @@ pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaD
         fields,
         describe_entity_indexes_from_model(model),
         describe_entity_relations_from_model(model),
+        describe_entity_constraints_from_model(model),
         1,
         1,
     )
@@ -583,6 +762,7 @@ pub(in crate::db) fn describe_entity_model_with_persisted_schema(
     model: &EntityModel,
     schema: &AcceptedSchemaSnapshot,
     value_catalog: &AcceptedValueCatalogHandle,
+    validation_jobs: &[ConstraintValidationJob],
 ) -> Result<EntitySchemaDescription, InternalError> {
     let row_layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(schema)?;
     let fields = describe_entity_fields_with_runtime_contract(schema, &row_layout, value_catalog)?;
@@ -605,6 +785,7 @@ pub(in crate::db) fn describe_entity_model_with_persisted_schema(
         fields,
         describe_entity_indexes_with_persisted_schema(schema),
         describe_entity_relations_with_persisted_schema(schema),
+        describe_entity_constraints_with_persisted_schema(schema, value_catalog, validation_jobs)?,
         row_layout.current_layout_version().get(),
         row_layout.history_floor().get(),
     ))
@@ -626,6 +807,7 @@ fn describe_entity_model_from_description_rows(
     fields: Vec<EntityFieldDescription>,
     indexes: Vec<EntityIndexDescription>,
     relations: Vec<EntityRelationDescription>,
+    constraints: Vec<EntityConstraintDescription>,
     row_layout_current: u32,
     row_layout_history_floor: u32,
 ) -> EntitySchemaDescription {
@@ -637,9 +819,366 @@ fn describe_entity_model_from_description_rows(
         fields,
         indexes,
         relations,
+        constraints,
         row_layout_current,
         row_layout_history_floor,
     )
+}
+
+fn describe_entity_constraints_from_model(model: &EntityModel) -> Vec<EntityConstraintDescription> {
+    let mut next_id = 1u32;
+    let mut constraints = vec![model_primary_key_constraint(model, next_id)];
+
+    for (slot, field) in model
+        .fields()
+        .iter()
+        .enumerate()
+        .filter(|(_, field)| !field.nullable())
+    {
+        next_id = next_id
+            .checked_add(1)
+            .expect("generated constraint count should fit current model bounds");
+        let field_id = FieldId::from_initial_slot(slot);
+        constraints.push(model_not_null_constraint(next_id, field_id, field.name()));
+    }
+
+    for index in model.indexes().iter().filter(|index| index.is_unique()) {
+        next_id = next_id
+            .checked_add(1)
+            .expect("generated constraint count should fit current model bounds");
+        constraints.push(model_unique_constraint(
+            next_id,
+            u32::from(index.ordinal()),
+            index.name(),
+            index
+                .fields()
+                .iter()
+                .map(|field| (*field).to_string())
+                .collect(),
+        ));
+    }
+
+    for (position, relation) in model.relations().iter().enumerate() {
+        next_id = next_id
+            .checked_add(1)
+            .expect("generated constraint count should fit current model bounds");
+        let relation_id = u32::try_from(position)
+            .ok()
+            .and_then(|position| position.checked_add(1))
+            .and_then(RelationId::new)
+            .expect("generated relation count should fit current model bounds");
+        constraints.push(model_relation_constraint(
+            next_id,
+            relation_id,
+            relation.name(),
+            relation
+                .local_fields()
+                .iter()
+                .map(|field| field.name().to_string())
+                .collect(),
+            relation.target_path(),
+        ));
+    }
+
+    constraints
+}
+
+fn model_primary_key_constraint(model: &EntityModel, id: u32) -> EntityConstraintDescription {
+    let mut description = accepted_constraint_description(
+        id,
+        primary_key_constraint_name(),
+        ConstraintOrigin::Generated,
+    );
+    description.kind = "primary_key".to_string();
+    description.fields = primary_key_field_names_from_model(model);
+    description.semantics = "primary_key_v1".to_string();
+    description
+}
+
+fn model_not_null_constraint(
+    id: u32,
+    field_id: FieldId,
+    field_name: &str,
+) -> EntityConstraintDescription {
+    let mut description = accepted_constraint_description(
+        id,
+        not_null_constraint_name(field_id).as_str(),
+        ConstraintOrigin::Generated,
+    );
+    description.kind = "not_null".to_string();
+    description.field_id = Some(field_id.get());
+    description.fields = vec![field_name.to_string()];
+    description.semantics = "not_null_v1".to_string();
+    description
+}
+
+fn model_unique_constraint(
+    id: u32,
+    index_id: u32,
+    index_name: &str,
+    fields: Vec<String>,
+) -> EntityConstraintDescription {
+    let mut description =
+        accepted_constraint_description(id, index_name, ConstraintOrigin::Generated);
+    description.kind = "unique".to_string();
+    description.index_id = Some(index_id);
+    description.fields = fields;
+    description.index = Some(index_name.to_string());
+    description.semantics = "unique_index_v1".to_string();
+    description
+}
+
+fn model_relation_constraint(
+    id: u32,
+    relation_id: RelationId,
+    relation_name: &str,
+    fields: Vec<String>,
+    target_path: &str,
+) -> EntityConstraintDescription {
+    let mut description =
+        accepted_constraint_description(id, relation_name, ConstraintOrigin::Generated);
+    description.kind = "relation".to_string();
+    description.relation_id = Some(relation_id.get());
+    description.fields = fields;
+    description.relation = Some(relation_name.to_string());
+    description.target_entity = Some(target_path.to_string());
+    description.action = Some("restrict".to_string());
+    description.semantics = "relation_pk_restrict_v1".to_string();
+    description
+}
+
+fn describe_entity_constraints_with_persisted_schema(
+    schema: &AcceptedSchemaSnapshot,
+    value_catalog: &AcceptedValueCatalogHandle,
+    validation_jobs: &[ConstraintValidationJob],
+) -> Result<Vec<EntityConstraintDescription>, InternalError> {
+    let snapshot = schema.persisted_snapshot();
+    let mut descriptions = snapshot
+        .constraints()
+        .iter()
+        .map(|constraint| describe_accepted_constraint(snapshot, value_catalog, constraint))
+        .collect::<Result<Vec<_>, InternalError>>()?;
+    descriptions.extend(
+        snapshot
+            .constraint_activations()
+            .iter()
+            .map(|activation| {
+                let job = validation_jobs
+                    .iter()
+                    .find(|job| job.constraint_id() == activation.id());
+                describe_constraint_activation(snapshot, value_catalog, activation, job)
+            })
+            .collect::<Result<Vec<_>, InternalError>>()?,
+    );
+    if validation_jobs.iter().any(|job| {
+        !snapshot
+            .constraint_activations()
+            .iter()
+            .any(|activation| activation.id() == job.constraint_id())
+    }) {
+        return Err(InternalError::store_invariant());
+    }
+    descriptions.sort_by_key(EntityConstraintDescription::id);
+    Ok(descriptions)
+}
+
+fn describe_accepted_constraint(
+    snapshot: &PersistedSchemaSnapshot,
+    value_catalog: &AcceptedValueCatalogHandle,
+    constraint: &crate::db::schema::AcceptedConstraintSnapshot,
+) -> Result<EntityConstraintDescription, InternalError> {
+    let mut description = accepted_constraint_description(
+        constraint.id().get(),
+        constraint.name(),
+        constraint.origin(),
+    );
+    match constraint.kind() {
+        AcceptedConstraintKind::PrimaryKey => {
+            description.kind = "primary_key".to_string();
+            description.fields = snapshot
+                .primary_key_field_ids()
+                .iter()
+                .map(|field_id| accepted_field_name(snapshot, *field_id))
+                .collect::<Result<Vec<_>, _>>()?;
+            description.semantics = "primary_key_v1".to_string();
+        }
+        AcceptedConstraintKind::NotNull { field_id } => {
+            description.kind = "not_null".to_string();
+            description.field_id = Some(field_id.get());
+            description.fields = vec![accepted_field_name(snapshot, *field_id)?];
+            description.semantics = "not_null_v1".to_string();
+        }
+        AcceptedConstraintKind::Unique { index_id } => {
+            let index = snapshot
+                .indexes()
+                .iter()
+                .find(|index| index.schema_id() == *index_id)
+                .ok_or_else(InternalError::store_invariant)?;
+            description.kind = "unique".to_string();
+            description.index_id = Some(index_id.get());
+            description.fields = describe_persisted_index_fields(index.key());
+            description.index = Some(index.name().to_string());
+            description.semantics = "unique_index_v1".to_string();
+        }
+        AcceptedConstraintKind::Relation { relation_id } => {
+            let relation = snapshot
+                .relations()
+                .iter()
+                .find(|relation| relation.id() == *relation_id)
+                .ok_or_else(InternalError::store_invariant)?;
+            description.kind = "relation".to_string();
+            description.relation_id = Some(relation_id.get());
+            description.fields = relation
+                .local_field_ids()
+                .iter()
+                .map(|field_id| accepted_field_name(snapshot, *field_id))
+                .collect::<Result<Vec<_>, _>>()?;
+            description.relation = Some(relation.name().to_string());
+            description.target_entity = Some(relation.target_path().to_string());
+            description.action = Some("restrict".to_string());
+            description.semantics = "relation_pk_restrict_v1".to_string();
+        }
+        AcceptedConstraintKind::Check { expression } => {
+            description.kind = "check".to_string();
+            description.fields = expression
+                .dependencies()
+                .into_iter()
+                .map(|field_id| accepted_field_name(snapshot, field_id))
+                .collect::<Result<Vec<_>, _>>()?;
+            description.semantics = "check_expr_v1".to_string();
+            description.check_sql = Some(render_accepted_check_expr_sql(
+                expression,
+                snapshot,
+                value_catalog,
+            )?);
+        }
+    }
+    Ok(description)
+}
+
+fn describe_constraint_activation(
+    snapshot: &PersistedSchemaSnapshot,
+    value_catalog: &AcceptedValueCatalogHandle,
+    activation: &ConstraintActivationSnapshot,
+    validation_job: Option<&ConstraintValidationJob>,
+) -> Result<EntityConstraintDescription, InternalError> {
+    let mut description = accepted_constraint_description(
+        activation.id().get(),
+        activation.name(),
+        activation.origin(),
+    );
+    match activation.state() {
+        ConstraintActivationState::EnforcingNewWrites if validation_job.is_none() => {
+            description.validation_state = "enforcing_new_writes".to_string();
+        }
+        ConstraintActivationState::Validating => {
+            let job = validation_job.ok_or_else(InternalError::store_invariant)?;
+            job.validate(Some(activation))?;
+            description.validation_state = "validating".to_string();
+            description.validation_progress =
+                Some(ConstraintValidationProgressDescription::from_job(job));
+        }
+        ConstraintActivationState::EnforcingNewWrites => {
+            return Err(InternalError::store_invariant());
+        }
+    }
+    match activation.kind() {
+        ConstraintActivationKind::NotNull { field_id } => {
+            description.kind = "not_null".to_string();
+            description.field_id = Some(field_id.get());
+            description.fields = vec![accepted_field_name(snapshot, *field_id)?];
+            description.semantics = "not_null_v1".to_string();
+        }
+        ConstraintActivationKind::Unique { index_id } => {
+            let index = snapshot
+                .candidate_indexes()
+                .iter()
+                .find(|index| index.schema_id() == *index_id)
+                .ok_or_else(InternalError::store_invariant)?;
+            description.kind = "unique".to_string();
+            description.index_id = Some(index_id.get());
+            description.fields = describe_persisted_index_fields(index.key());
+            description.index = Some(index.name().to_string());
+            description.semantics = "unique_index_v1".to_string();
+        }
+        ConstraintActivationKind::Relation { relation_id } => {
+            let relation = snapshot
+                .candidate_relations()
+                .iter()
+                .find(|relation| relation.id() == *relation_id)
+                .ok_or_else(InternalError::store_invariant)?;
+            description.kind = "relation".to_string();
+            description.relation_id = Some(relation_id.get());
+            description.fields = relation
+                .local_field_ids()
+                .iter()
+                .map(|field_id| accepted_field_name(snapshot, *field_id))
+                .collect::<Result<Vec<_>, _>>()?;
+            description.relation = Some(relation.name().to_string());
+            description.target_entity = Some(relation.target_path().to_string());
+            description.action = Some("restrict".to_string());
+            description.semantics = "relation_pk_restrict_v1".to_string();
+        }
+        ConstraintActivationKind::Check { expression } => {
+            description.kind = "check".to_string();
+            description.fields = expression
+                .dependencies()
+                .into_iter()
+                .map(|field_id| accepted_field_name(snapshot, field_id))
+                .collect::<Result<Vec<_>, _>>()?;
+            description.semantics = "check_expr_v1".to_string();
+            description.check_sql = Some(render_accepted_check_expr_sql(
+                expression,
+                snapshot,
+                value_catalog,
+            )?);
+        }
+    }
+    Ok(description)
+}
+
+fn accepted_constraint_description(
+    id: u32,
+    name: &str,
+    origin: ConstraintOrigin,
+) -> EntityConstraintDescription {
+    EntityConstraintDescription {
+        id,
+        name: name.to_string(),
+        kind: String::new(),
+        origin: accepted_constraint_origin_label(origin).to_string(),
+        validation_state: "validated".to_string(),
+        validation_progress: None,
+        field_id: None,
+        index_id: None,
+        relation_id: None,
+        fields: Vec::new(),
+        index: None,
+        relation: None,
+        target_entity: None,
+        action: None,
+        semantics: String::new(),
+        check_sql: None,
+    }
+}
+
+const fn accepted_constraint_origin_label(origin: ConstraintOrigin) -> &'static str {
+    match origin {
+        ConstraintOrigin::Generated => "generated",
+        ConstraintOrigin::SqlDdl => "sql_ddl",
+    }
+}
+
+fn accepted_field_name(
+    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+    field_id: FieldId,
+) -> Result<String, InternalError> {
+    snapshot
+        .fields()
+        .iter()
+        .find(|field| field.id() == field_id)
+        .map(|field| field.name().to_string())
+        .ok_or_else(InternalError::store_invariant)
 }
 
 fn describe_entity_relations_from_model(model: &EntityModel) -> Vec<EntityRelationDescription> {

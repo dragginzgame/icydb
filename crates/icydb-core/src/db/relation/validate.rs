@@ -103,6 +103,30 @@ where
     Err(blocked.into_internal_error::<S>()?)
 }
 
+/// Block target deletion while any matching candidate reverse generation is incomplete.
+pub(in crate::db) fn validate_candidate_relation_target_delete_barrier<C: CanisterKind>(
+    db: &Db<C>,
+    target_path: &str,
+    deleted_target_keys: &BTreeSet<RawDataStoreKey>,
+) -> Result<(), InternalError> {
+    if deleted_target_keys.is_empty() {
+        return Ok(());
+    }
+    let mut stores = db.with_store_registry(|registry| registry.iter().collect::<Vec<_>>());
+    stores.sort_unstable_by_key(|(store_path, _)| *store_path);
+    for (_, store) in stores {
+        if let Some((constraint_id, constraint_name)) = store.with_schema(|schema_store| {
+            schema_store.pending_relation_activation_for_target(target_path)
+        })? {
+            return Err(InternalError::mutation_constraint_activation_write_blocked(
+                constraint_id.get(),
+                &constraint_name,
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Prove whether one delete would violate a source relation without `S`.
 fn validate_delete_relations_structural<C>(
     db: &Db<C>,

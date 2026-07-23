@@ -21,8 +21,11 @@ pub(crate) use convert::sql_query_result_from_statement;
 pub use table_render::render_explain_lines;
 pub use table_render::{
     render_count_lines, render_describe_lines, render_grouped_lines,
-    render_projection_display_rows_lines, render_show_columns_lines, render_show_entities_lines,
-    render_show_entities_verbose_lines, render_show_indexes_lines, render_show_memory_lines,
-    render_show_stores_lines, render_show_stores_verbose_lines,
+    render_projection_display_rows_lines, render_show_columns_lines, render_show_constraints_lines,
+    render_show_entities_lines, render_show_entities_verbose_lines, render_show_indexes_lines,
+    render_show_memory_lines, render_show_stores_lines, render_show_stores_verbose_lines,
 };
-pub use types::{SqlGroupedRowsOutput, SqlQueryResult};
+pub use types::{
+    SqlConstraintValidationFindingOutput, SqlConstraintValidationOutput, SqlGroupedRowsOutput,
+    SqlQueryResult,
+};

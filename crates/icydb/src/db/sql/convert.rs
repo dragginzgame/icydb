@@ -7,7 +7,8 @@
 use crate::db::{
     response::RowProjectionOutput,
     sql::{
-        SqlGroupedRowsOutput, SqlQueryResult,
+        SqlConstraintValidationFindingOutput, SqlConstraintValidationOutput, SqlGroupedRowsOutput,
+        SqlQueryResult,
         value_render::{render_projection_value_text, sql_projection_output_rows},
     },
 };
@@ -61,6 +62,10 @@ pub(crate) fn sql_query_result_from_statement(
             explain,
         },
         SqlStatementResult::Describe(description) => SqlQueryResult::Describe(description),
+        SqlStatementResult::ShowConstraints(constraints) => SqlQueryResult::ShowConstraints {
+            entity: entity_name,
+            constraints,
+        },
         SqlStatementResult::ShowIndexes(indexes) => SqlQueryResult::ShowIndexes {
             entity: entity_name,
             indexes,
@@ -85,6 +90,26 @@ pub(crate) fn sql_query_result_from_statement(
             status: report.execution_status().as_str().to_string(),
             rows_scanned: usize_to_u64_saturating(report.rows_scanned()),
             index_keys_written: usize_to_u64_saturating(report.index_keys_written()),
+            constraint_validation: report.constraint_validation().map(|validation| {
+                SqlConstraintValidationOutput {
+                    constraint_id: validation.constraint_id(),
+                    activation_epoch: validation.activation_epoch(),
+                    page_sequence: validation.page_sequence(),
+                    state: validation.state().as_str().to_string(),
+                    revision_status: validation.revision_status().as_str().to_string(),
+                    rows_scanned: validation.rows_scanned(),
+                    findings: validation
+                        .findings()
+                        .iter()
+                        .map(|finding| SqlConstraintValidationFindingOutput {
+                            primary_key: finding.primary_key().to_vec(),
+                            field_ids: finding.field_ids().to_vec(),
+                            error_code: finding.error_code(),
+                        })
+                        .collect(),
+                    complete: validation.complete(),
+                }
+            }),
         },
     }
 }

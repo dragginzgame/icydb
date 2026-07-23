@@ -201,6 +201,9 @@ Supported commands:
 - `SHOW INDEXES IN entity`
 <!-- icydb-sql-feature id="introspection.show_columns" kind="syntax" status="accepted" -->
 - `SHOW COLUMNS entity`
+<!-- icydb-sql-feature id="introspection.show_constraints" kind="syntax" status="accepted" -->
+- `SHOW CONSTRAINTS FROM entity`
+- `SHOW CONSTRAINTS IN entity`
 <!-- icydb-sql-feature id="introspection.show_entities" kind="syntax" status="accepted" -->
 - `SHOW ENTITIES` / `SHOW ENTITIES VERBOSE`
 <!-- icydb-sql-feature id="introspection.show_entity" kind="syntax" status="accepted" -->
@@ -252,6 +255,14 @@ version and admitted history floor. Corrupt accepted temporal payloads reject
 introspection rather than falling back to generated metadata or a byte-only
 display.
 
+`DESCRIBE` and `SHOW CONSTRAINTS` consume one constraint projection ordered by
+stable constraint ID. It merges validated accepted constraints with live
+activations and reports accepted identity, origin, current display names,
+referenced fields, structural semantics, activation state, durable validation
+phase/counters, and canonical accepted check SQL. The check text is rendered
+from the field-ID-bound accepted expression through current accepted names; it
+never falls back to proposal or source SQL.
+
 <!-- icydb-sql-feature id="introspection.unsupported_modifiers" kind="syntax" status="rejected" -->
 Introspection modifiers not listed above are outside the current subset. In
 particular, filtering clauses and extra entity operands fail closed instead of
@@ -299,6 +310,16 @@ Supported shapes:
 <!-- icydb-sql-feature id="ddl.drop_column" kind="syntax" status="accepted" -->
 - `ALTER TABLE entity DROP COLUMN field`
 - `ALTER TABLE entity DROP COLUMN IF EXISTS field`
+<!-- icydb-sql-feature id="ddl.alter_add_check_constraint" kind="syntax" status="accepted" -->
+- `ALTER TABLE entity ADD CONSTRAINT name CHECK (expression)`
+<!-- icydb-sql-feature id="ddl.alter_add_check_not_valid" kind="syntax" status="accepted" -->
+- `ALTER TABLE entity ADD CONSTRAINT name CHECK (expression) NOT VALID`
+<!-- icydb-sql-feature id="ddl.alter_validate_constraint" kind="syntax" status="accepted" -->
+- `ALTER TABLE entity VALIDATE CONSTRAINT name`
+- `ALTER TABLE entity VALIDATE CONSTRAINT name AFTER page_sequence`
+<!-- icydb-sql-feature id="ddl.alter_drop_constraint" kind="syntax" status="accepted" -->
+- `ALTER TABLE entity DROP CONSTRAINT name`
+- `ALTER TABLE entity DROP CONSTRAINT IF EXISTS name`
 
 SQL DDL is a frontend over accepted schema catalog mutation, not the source of
 schema authority. Schema mutation and row-rewrite admission remain governed by
@@ -309,10 +330,15 @@ text expression secondary indexes. Single-field, multi-field, unique, explicit
 `ASC`, filtered `WHERE` predicates, and `LOWER`/`UPPER`/`TRIM` expression keys
 are supported. Every field path must already exist in the accepted schema, must
 be indexable, and must not duplicate an accepted index name or identical
-accepted index contract.
-`CREATE INDEX IF NOT EXISTS` no-ops only when the accepted catalog already has
-the exact requested index contract. Conflicting existing definitions still
-reject.
+accepted index contract. Non-unique indexes publish through the existing exact
+physical rebuild boundary. `CREATE UNIQUE INDEX` instead publishes a
+planner-invisible, new-write-gated candidate; bounded
+`VALIDATE CONSTRAINT index_name` calls build and verify its isolated generation,
+and only a clean promotion makes it planner-visible. `DROP INDEX` aborts a
+pending SQL-owned unique activation or removes an already accepted SQL-owned
+index. `CREATE INDEX IF NOT EXISTS` no-ops only when the accepted catalog or a
+live candidate already has the exact requested index contract. Conflicting
+existing definitions still reject.
 <!-- icydb-sql-feature id="ddl.index_descending" kind="syntax" status="rejected" -->
 `ASC` is accepted as IcyDB's default deterministic physical key order. `DESC`
 is not yet supported for SQL DDL indexes and fails with explicit
@@ -334,9 +360,12 @@ rows as `NULL`; supported SQL defaults are encoded into accepted schema
 metadata and can make a new field required.
 
 `ALTER TABLE ... ALTER COLUMN ... SET/DROP DEFAULT` and `SET/DROP NOT NULL`
-publish metadata changes for DDL-owned fields only. `SET NOT NULL` scans
-existing rows through the accepted schema and rejects if any row materializes
-`NULL`. Generated/model-owned fields remain Rust-schema owned.
+operate on DDL-owned fields only. `SET NOT NULL` publishes a new-write gate and
+keeps the accepted field nullable while bounded `VALIDATE CONSTRAINT` pages
+prove historical rows. A clean promotion atomically tightens the field;
+findings remain typed and resumable. `DROP NOT NULL` aborts a pending activation
+and its validation job or removes an already accepted DDL-owned not-null
+constraint. Generated/model-owned fields remain Rust-schema owned.
 
 `ALTER TABLE ... RENAME COLUMN ... TO ...` publishes metadata-only accepted
 schema changes for DDL-owned fields. Field ID, row slot, default/nullability,
@@ -353,6 +382,22 @@ row is rewritten to that current layout before publication. A later
 `ADD COLUMN` allocates the next dense identity. Primary-key, generated, and
 index-dependent fields reject before publication.
 `DROP COLUMN IF EXISTS` reports `no_op` only when the target field is absent.
+
+`ADD CONSTRAINT ... CHECK` accepts the bounded V1 check-expression subset and
+binds field identity against the accepted-before catalog. Plain `ADD` validates
+the complete historical domain in one bounded call and publishes the validated
+constraint only when that exact proof succeeds. If rows violate the expression
+or the proof exceeds its bound, the operation changes no accepted schema,
+activation, validation job, or physical state.
+
+`ADD ... NOT VALID` explicitly publishes an `EnforcingNewWrites` activation.
+Future writes are gated immediately, while historical validation advances only
+through `VALIDATE CONSTRAINT`. Each validation response reports typed
+constraint/job identity, full-width page sequence, engine-owned state,
+revision status, cumulative rows, bounded findings, and completion. A finding
+page remains stable until acknowledged by its exact `AFTER page_sequence`.
+`DROP CONSTRAINT` drops or aborts only SQL-DDL-owned checks; generated and
+structural constraint ownership remains outside this surface.
 
 <!-- icydb-sql-feature id="ddl.destructive_publication_atomicity" kind="interaction" status="accepted" -->
 Destructive DDL keeps physical state and accepted-schema publication atomic at

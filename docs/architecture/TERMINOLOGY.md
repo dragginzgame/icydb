@@ -28,6 +28,26 @@ In Rust schema declarations and derive internals, use the matching enum variant
 names such as `Primitive::IntBig`, `Primitive::NatBig`, `FieldKind::IntBig`,
 and `FieldKind::NatBig`.
 
+## Constraint Vocabulary
+
+Keep these concepts distinct:
+
+- **Database constraint**: accepted-schema-owned primary-key, not-null, unique,
+  relation, or check semantics that apply to every supported mutation ingress.
+- **Application validator**: generated Rust callback that may reject its typed
+  ingress but is not persisted database semantics.
+- **Accepted constraint**: validated catalog entry with stable ID, name,
+  origin, and one structural or canonical check owner.
+- **Constraint activation**: accepted migration state whose new-write gate is
+  authoritative while bounded historical proof is incomplete.
+- **Validation job**: durable progress and finding evidence for an activation;
+  it is not accepted constraint meaning or planner authority.
+- **Candidate generation**: planner-invisible unique-index or reverse-relation
+  state built for one activation and made authoritative only by promotion.
+
+Do not use `validator`, `constraint`, `activation`, and `validation job` as
+interchangeable terms.
+
 ## Runtime Value Vocabulary
 
 Runtime algebraic values carry execution payloads:

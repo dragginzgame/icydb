@@ -360,6 +360,12 @@ Use the `*_many_atomic` helpers when the same-entity batch must be
 all-or-nothing. The `*_many_non_atomic` helpers are explicit fail-fast,
 prefix-commit APIs.
 
+Every write terminal resolves a complete final after-image through the current
+accepted schema and applies validated constraints plus pending new-write gates
+before commit. Database defaults, generated values, and managed fields are
+materialized before accepted checks run. Trusted/admin exposure does not
+provide an unchecked write lane.
+
 ### Structural Mutation
 
 Structural mutation is the dynamic field-name write ingress. Build field

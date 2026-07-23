@@ -113,6 +113,12 @@ impl IndexShapeDetails {
         self.index.ordinal()
     }
 
+    /// Return the isolated physical key generation.
+    #[must_use]
+    pub(in crate::db) fn physical_generation(&self) -> u64 {
+        self.index.physical_generation()
+    }
+
     #[must_use]
     pub(in crate::db) fn is_unique(&self) -> bool {
         self.index.is_unique()

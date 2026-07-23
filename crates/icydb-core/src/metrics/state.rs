@@ -91,6 +91,7 @@ pub(crate) struct EntityCounters {
     pub(crate) schema_transition_add_expression_index: u64,
     pub(crate) schema_transition_add_field_path_index: u64,
     pub(crate) schema_transition_append_only_fields: u64,
+    pub(crate) schema_transition_constraint_activation: u64,
     pub(crate) schema_transition_exact_match: u64,
     pub(crate) schema_transition_metadata_only_field_default: u64,
     pub(crate) schema_transition_metadata_only_index_rename: u64,

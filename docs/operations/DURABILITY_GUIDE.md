@@ -7,6 +7,8 @@ Normative contracts:
 
 - `docs/contracts/DURABILITY.md`
 - `docs/contracts/ATOMICITY.md`
+- `docs/contracts/WRITE_ADMISSION.md`
+- `docs/contracts/REF_INTEGRITY.md`
 - `docs/contracts/TRANSACTION_SEMANTICS.md`
 - `docs/contracts/PERSISTED_FORMAT_POLICY.md`
 - `docs/contracts/PERSISTED_FORMAT_INVENTORY.md`
@@ -75,6 +77,11 @@ transaction across an `await`, cross-canister call, timer, background task, or
 multi-message workflow. If a workflow needs compensation after a later awaited
 step fails, that compensation belongs to application logic.
 
+Bounded `VALIDATE CONSTRAINT` is an engine-owned multi-message workflow, not
+one transaction held open across calls. Each validation page, promotion, and
+abort is independently marker-atomic. A caller must retain and acknowledge the
+typed page sequence rather than treating an incomplete page as success.
+
 ## Guarded Access
 
 Use generated IcyDB entrypoints, `DbSession`, and public typed/fluent APIs for
@@ -100,7 +107,15 @@ Current recovery is designed for internally produced interrupted states:
 - interruption around marker-bound journal append;
 - interruption around journal-tail fold and fold watermark persistence;
 - interruption during derived secondary-index rebuild/fold;
+- interruption while publishing or advancing a constraint activation job;
+- reconstruction of only the unique-index or reverse-relation candidate prefix
+  authorized by that job's durable checkpoint;
 - marker-cleared readiness restoration on guarded reentry.
+
+Recovery replays already admitted row bytes and durable activation evidence. It
+does not rerun accepted checks, application validators, sanitizers, or
+generators. Candidate generations remain unavailable to planning and
+delete-safety decisions until atomic promotion.
 
 Recovery is not a general repair tool for arbitrary hostile stable-memory
 images. It does not promise to detect every well-formed-but-wrong value without
@@ -158,6 +173,11 @@ fold/rebuild design:
 - treat recovery failure as fail-closed: reads and writes should not proceed on
   partially recovered state.
 
+Constraint validation has explicit per-call row, decoded-byte, finding, and
+staging bounds. Large historical domains therefore require repeated bounded
+pages; hitting a bound retains incomplete progress and never promotes the
+constraint.
+
 The future streaming recovery follow-up is tracked in
 `docs/design/archive/0.191-durability-productization-format-policy/streaming-recovery-followup.md`.
 
@@ -171,6 +191,8 @@ Before deploying durable IcyDB data:
 - use generated/session APIs instead of direct raw-store access;
 - use `*_many_atomic` when a same-entity batch must be all-or-nothing;
 - document any `*_many_non_atomic` use as prefix-commit behavior;
+- treat every constraint-validation page as independently atomic and require
+  explicit completion before claiming promotion;
 - do not rely on returned `Err` to roll back prior successful writes;
 - do not claim raw backup/import support;
 - do not claim checksum-backed corruption detection;

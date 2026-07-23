@@ -187,7 +187,7 @@ impl AcceptedSchemaRevisionBundle {
             if encoded.len() > MAX_SCHEMA_SNAPSHOT_BYTES as usize {
                 return Err(InternalError::store_unsupported());
             }
-            AcceptedSchemaSnapshot::try_new(snapshot.clone())?;
+            let accepted_snapshot = AcceptedSchemaSnapshot::try_new(snapshot.clone())?;
             for field in snapshot.fields() {
                 if !self
                     .composite_catalog
@@ -229,6 +229,12 @@ impl AcceptedSchemaRevisionBundle {
             }
             validate_primary_key_capabilities(snapshot)?;
             validate_index_capabilities(&self.enum_catalog, snapshot)?;
+            crate::db::schema::validate_accepted_check_literals(
+                &accepted_snapshot,
+                &self.enum_catalog,
+                &self.composite_catalog,
+            )
+            .map_err(|_| InternalError::store_invariant())?;
         }
         Ok(())
     }
@@ -479,7 +485,7 @@ impl AcceptedSchemaRoot {
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn fingerprint(self) -> AcceptedSchemaFingerprint {
+    pub(in crate::db) const fn fingerprint(self) -> AcceptedSchemaFingerprint {
         self.fingerprint
     }
 

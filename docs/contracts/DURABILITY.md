@@ -16,6 +16,8 @@ Evidence sources:
 - `docs/design/archive/0.190-ic-reliability-followup/0.190-design.md`
 - `docs/design/archive/0.190-ic-reliability-followup/0.190-evidence.md`
 - `docs/design/archive/0.191-durability-productization-format-policy/0.191-evidence.md`
+- `docs/design/0.211-accepted-catalog-constraints/0.211-design.md`
+- `docs/design/0.211-accepted-catalog-constraints/0.211-status.md`
 
 ## Scope
 
@@ -113,8 +115,17 @@ images.
 Recovery is replay, not fresh write admission. It verifies the durable marker,
 journal, store, key, schema-fingerprint, and row boundaries needed to complete
 an internally produced commit. It does not rerun mutation-time sanitizers or
-user validators, and it does not turn external raw bytes into an admitted
-mutation.
+user validators, reevaluate accepted checks or new-write gates, or turn external
+raw bytes into an admitted mutation. Those admission decisions are resolved
+before the original marker and recovery replays their complete row bytes.
+
+Constraint activations and validation jobs use the same marker authority.
+Recovery restores the accepted activation/job pair and reconstructs only the
+candidate unique-index or reverse-relation generation authorized by the durable
+checkpoint. Candidate generations remain planner-invisible, and incomplete
+reverse generations never become delete-safety authority. A retained finding
+receipt remains stable until its exact sequence is acknowledged; recovery does
+not discard it or independently rescan policy.
 
 Direct raw-store or index access that bypasses guarded recovery is outside this
 contract and may observe transient or stale state during startup or interrupted
@@ -188,6 +199,12 @@ Until production recovery-size measurements or streaming rebuild/fold designs
 land, operators should treat large recovery work as bounded by canister
 instruction and memory budgets. If recovery cannot complete, guarded reads and
 writes must fail rather than proceed on partially recovered state.
+
+Constraint activation avoids one unbounded message by limiting every page by
+rows, decoded bytes, findings, and staged derived-state work. The complete
+historical proof may require multiple calls. Resource exhaustion leaves the job
+in an incomplete, resumable state and cannot be interpreted as validation
+success.
 
 ## Stable Memory Partitioning
 

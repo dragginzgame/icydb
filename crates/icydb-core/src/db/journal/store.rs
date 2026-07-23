@@ -5,7 +5,7 @@
 
 use crate::{
     db::journal::{
-        JournalBatch, JournalSequence,
+        JournalBatch, JournalRecord, JournalSequence,
         codec::{MAX_JOURNAL_BATCH_BYTES, RawJournalBatch},
     },
     error::InternalError,
@@ -18,9 +18,13 @@ use std::ops::Bound::{Included, Unbounded};
 use std::{borrow::Cow, collections::BTreeSet};
 
 const FOLD_WATERMARK_CONTROL_SEQUENCE: JournalSequence = JournalSequence::new(0);
+const DATA_MUTATION_REVISION_CONTROL_CHUNK: u32 = 1;
 const FOLD_WATERMARK_MAGIC: &[u8] = b"ICYDB-FOLD-WATERMARK";
 const FOLD_WATERMARK_VERSION: u8 = 1;
 const FOLD_WATERMARK_BYTES: usize = FOLD_WATERMARK_MAGIC.len() + 1 + 8 + 8;
+const DATA_MUTATION_REVISION_MAGIC: &[u8] = b"ICYDB-DATA-REVISION";
+const DATA_MUTATION_REVISION_VERSION: u8 = 1;
+const DATA_MUTATION_REVISION_BYTES: usize = DATA_MUTATION_REVISION_MAGIC.len() + 1 + 8;
 pub(in crate::db::journal) const JOURNAL_TAIL_CHUNK_BYTES: u32 = 64 * 1024;
 const JOURNAL_TAIL_KEY_BYTES: u32 = 12;
 
@@ -91,6 +95,13 @@ impl JournalTailKey {
 
     const fn fold_watermark() -> Self {
         Self::new(FOLD_WATERMARK_CONTROL_SEQUENCE, 0)
+    }
+
+    const fn data_mutation_revision() -> Self {
+        Self::new(
+            FOLD_WATERMARK_CONTROL_SEQUENCE,
+            DATA_MUTATION_REVISION_CONTROL_CHUNK,
+        )
     }
 }
 
@@ -187,8 +198,16 @@ impl JournalTailStore {
             return Err(journal_tail_corruption());
         }
         let raw = RawJournalBatch::from_batch(batch)?;
-
-        self.append_raw_batch(key, raw.as_bytes())
+        self.append_raw_batch(key, raw.as_bytes())?;
+        if batch.records().iter().any(|record| {
+            matches!(
+                record,
+                JournalRecord::RowPut { .. } | JournalRecord::RowDelete { .. }
+            )
+        }) {
+            self.persist_data_mutation_revision(key)?;
+        }
+        Ok(())
     }
 
     /// Return the next contiguous append sequence for this tail.
@@ -221,6 +240,21 @@ impl JournalTailStore {
             .ok_or_else(InternalError::journal_mutation_revision_exhausted)?;
 
         Ok(sequence)
+    }
+
+    /// Return the stable row-mutation revision without counting schema or
+    /// validation-job journal records.
+    pub(in crate::db) fn data_mutation_revision(&self) -> Result<u64, InternalError> {
+        let highest_row_sequence = self
+            .map
+            .get(&JournalTailKey::data_mutation_revision())
+            .map_or(Ok(JournalSequence::new(0)), |raw| {
+                decode_data_mutation_revision(raw.as_bytes())
+            })?;
+        highest_row_sequence
+            .next()
+            .map(JournalSequence::get)
+            .ok_or_else(InternalError::journal_mutation_revision_exhausted)
     }
 
     /// Return the durable replay boundary encoded in the journal-tail memory.
@@ -399,6 +433,29 @@ impl JournalTailStore {
         Ok(())
     }
 
+    fn persist_data_mutation_revision(
+        &mut self,
+        sequence: JournalSequence,
+    ) -> Result<(), InternalError> {
+        let current = self
+            .map
+            .get(&JournalTailKey::data_mutation_revision())
+            .map_or(Ok(JournalSequence::new(0)), |raw| {
+                decode_data_mutation_revision(raw.as_bytes())
+            })?;
+        if sequence <= current {
+            return Ok(());
+        }
+        let _ = sequence
+            .next()
+            .ok_or_else(InternalError::journal_mutation_revision_exhausted)?;
+        self.map.insert(
+            JournalTailKey::data_mutation_revision(),
+            RawJournalChunk::from_bytes(encode_data_mutation_revision(sequence)),
+        );
+        Ok(())
+    }
+
     fn raw_batch_bytes_for_sequence(
         &self,
         sequence: JournalSequence,
@@ -474,6 +531,31 @@ fn decode_fold_watermark(bytes: &[u8]) -> Result<FoldWatermark, InternalError> {
         JournalSequence::new(u64::from_be_bytes(sequence_bytes)),
         u64::from_be_bytes(epoch_bytes),
     ))
+}
+
+fn encode_data_mutation_revision(sequence: JournalSequence) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(DATA_MUTATION_REVISION_BYTES);
+    bytes.extend_from_slice(DATA_MUTATION_REVISION_MAGIC);
+    bytes.push(DATA_MUTATION_REVISION_VERSION);
+    bytes.extend_from_slice(&sequence.get().to_be_bytes());
+    bytes
+}
+
+fn decode_data_mutation_revision(bytes: &[u8]) -> Result<JournalSequence, InternalError> {
+    if bytes.len() != DATA_MUTATION_REVISION_BYTES
+        || !bytes.starts_with(DATA_MUTATION_REVISION_MAGIC)
+        || bytes[DATA_MUTATION_REVISION_MAGIC.len()] != DATA_MUTATION_REVISION_VERSION
+    {
+        return Err(journal_tail_corruption());
+    }
+    let revision_start = DATA_MUTATION_REVISION_MAGIC.len() + 1;
+    let mut revision = [0u8; size_of::<u64>()];
+    revision.copy_from_slice(&bytes[revision_start..]);
+    let sequence = JournalSequence::new(u64::from_be_bytes(revision));
+    if sequence == FOLD_WATERMARK_CONTROL_SEQUENCE {
+        return Err(journal_tail_corruption());
+    }
+    Ok(sequence)
 }
 
 fn journal_tail_corruption() -> InternalError {

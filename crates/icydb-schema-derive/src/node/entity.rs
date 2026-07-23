@@ -36,6 +36,9 @@ pub struct Entity {
     #[darling(multiple, rename = "relation")]
     pub(crate) relations: Vec<Relation>,
 
+    #[darling(multiple, rename = "constraint")]
+    pub(crate) constraints: Vec<Constraint>,
+
     #[darling(default, map = "Entity::add_metadata")]
     pub(crate) fields: FieldList,
 
@@ -253,6 +256,22 @@ impl Entity {
 
         Ok(())
     }
+
+    fn validate_constraints(&self) -> Result<(), DarlingError> {
+        let mut names = HashSet::new();
+        for constraint in &self.constraints {
+            if !names.insert(constraint.name.value()) {
+                return Err(DarlingError::custom(format!(
+                    "duplicate generated constraint name '{}'",
+                    constraint.name.value()
+                ))
+                .with_span(&constraint.name));
+            }
+            let _ = constraint.validated_predicate(self)?;
+        }
+
+        Ok(())
+    }
 }
 
 trait DarlingErrorExt {
@@ -304,6 +323,7 @@ impl ValidateNode for Entity {
         let def_ident = self.def.ident();
         let entity_name = self.validate_entity_name(&def_ident)?;
         self.validate_indexes(&entity_name, &def_ident)?;
+        self.validate_constraints()?;
 
         Ok(())
     }

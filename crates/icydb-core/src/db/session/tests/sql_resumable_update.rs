@@ -355,7 +355,23 @@ fn trusted_resumable_update_prepare_rejects_unique_and_relation_targets() {
                 1,
             ),
         )
-        .expect("resumable unique-index fixture DDL should publish");
+        .expect("resumable unique-index fixture DDL should publish an activation");
+    for expected_status in [
+        SqlDdlExecutionStatus::ValidationStarted,
+        SqlDdlExecutionStatus::ValidationAdvanced,
+        SqlDdlExecutionStatus::Validated,
+    ] {
+        let SqlStatementResult::Ddl(report) = session
+            .execute_admin_sql_ddl::<JournaledSessionSqlEntity>(
+                "ALTER TABLE JournaledSessionSqlEntity \
+                 VALIDATE CONSTRAINT journaled_age_unique_idx",
+            )
+            .expect("resumable unique-index fixture validation should advance")
+        else {
+            panic!("VALIDATE CONSTRAINT should return a DDL report");
+        };
+        assert_eq!(report.execution_status(), expected_status);
+    }
     let unique_err = prepare_journaled(
         &session,
         0x210_0050,

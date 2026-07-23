@@ -7,11 +7,58 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Begins the breaking 0.211 accepted-constraint hard cut by persisting stable
-  logical index and relation identities plus non-reusing constraint-ID state,
-  retaining only version-1 current internal formats and evidence identities,
-  without changing physical row, index-key, relation-key, cursor, or journal
-  formats.
+- Adds one accepted structural constraint registry for primary-key, not-null,
+  unique-index, and relation identity, exposed consistently through typed
+  schema descriptions, `DESCRIBE`, and `SHOW CONSTRAINTS FROM/IN`.
+- Adds bounded, canonical accepted `CHECK` expressions with generated named
+  declarations and one fingerprint-bound evaluator over final mutation
+  after-images, preserving existing validators as application-only behavior.
+- Adds stable typed diagnostics for accepted row-constraint violations and
+  corrupt persisted row-constraint programs, with accepted constraint ID and
+  name retained at the runtime boundary.
+- Adds marker-owned `CHECK` activation and bounded Forward/Verify validation
+  jobs, with durable finding-receipt replay, stable data-revision invalidation,
+  and atomic promotion or abort.
+- Extends the same compiled final-after-image gate and bounded activation runner
+  to not-null tightening, preserving nullable historical decoding until atomic
+  promotion while rejecting new null writes immediately.
+- Adds planner-invisible unique-index activation generations with an explicit
+  write barrier, bounded duplicate proof, safe source-delete maintenance,
+  recovery reconstruction, and marker-owned promotion.
+- Adds planner-invisible relation activation generations with live source-write
+  dual maintenance, source/target revision proof, a target-delete barrier,
+  bounded missing-target evidence, recovery reconstruction, and marker-owned
+  promotion; accepted relation edges are now the sole live relation authority.
+- Adds administrative SQL `CHECK` lifecycle DDL with exact atomic `ADD`,
+  explicit `NOT VALID`, bounded `VALIDATE ... AFTER` pages, typed findings,
+  and ownership-safe `DROP` over the canonical accepted activation machinery.
+- Routes SQL `SET NOT NULL` and `CREATE UNIQUE INDEX` through that bounded
+  activation lifecycle, with planner-invisible unique generations and explicit
+  pending `DROP` abort rather than synchronous scan-and-publish behavior.
+- Makes live constraint activations visible through the same typed `DESCRIBE`
+  and SQL `SHOW CONSTRAINTS` projection as validated constraints, including
+  canonical accepted check SQL and durable validation phase/counters.
+- Exposes accepted-native integrity verification primitives without adding a
+  second scanner: validated checks exclude pending migration semantics, while
+  unique and relation key projection is shared across active and candidate
+  generations.
+- Hardens generated schema evolution so one catalog change cannot discard or
+  take ownership of unrelated accepted indexes, relations, or identity state,
+  and proposal drift during a live generated activation now fails with a
+  stable conflict diagnostic instead of preserving mismatched authority.
+- Reuses verified accepted catalog selections and skips unrelated relation
+  delete validation, keeping steady accepted-check overhead below 2% and
+  reducing delete instructions below the released `0.211.0` baseline.
+- Hard-cuts development accepted-schema bytes to the current version-1 `ICYZ`
+  profile; stores created by `0.211.0` must be recreated rather than decoded
+  through a compatibility path.
+
+## [0.211.x] 🧱 - 2026-07-22 - Accepted Constraint Catalog
+
+Detailed notes: [docs/changelog/0.211.md](docs/changelog/0.211.md)
+
+- `0.211.0` establishes stable logical index, relation, and constraint-ID
+  foundations using one current version-1 accepted-schema format.
 
 ## [0.210.x] 🎯 - 2026-07-22 - Explicit Bulk Update Contracts
 

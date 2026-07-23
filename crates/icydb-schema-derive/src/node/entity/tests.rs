@@ -92,6 +92,7 @@ fn entity_with_fields_and_indexes(fields: Vec<Field>, indexes: Vec<Index>) -> En
         name: None,
         indexes,
         relations: Vec::new(),
+        constraints: Vec::new(),
         fields: FieldList { fields },
         ty: Type::default(),
         traits: crate::trait_kind::TraitBuilder::default(),

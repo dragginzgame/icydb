@@ -213,6 +213,30 @@ pub(in crate::db::schema) fn with_normalized_accepted_value<R>(
     }))
 }
 
+/// Normalize one candidate literal against the exact candidate catalogs.
+///
+/// This path deliberately does not mint accepted-revision authority. Schema
+/// proposal binding consumes the canonical value immediately and persists only
+/// its bounded field payload.
+pub(in crate::db) fn normalize_candidate_value(
+    enum_catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
+    contract: &AcceptedValueContract,
+    input: InputValue,
+    budget: &mut ValueAdmissionBudget,
+) -> Result<CanonicalValue, ValueAdmissionError> {
+    normalize_kind(
+        AdmissionCatalogs {
+            enums: enum_catalog,
+            composites: composite_catalog,
+        },
+        contract.kind(),
+        input,
+        0,
+        budget,
+    )
+}
+
 fn normalize_nullable_value(
     catalog: &AcceptedValueCatalogHandle,
     contract: &AcceptedValueContract,

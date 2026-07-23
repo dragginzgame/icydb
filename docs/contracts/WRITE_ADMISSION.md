@@ -18,6 +18,12 @@ mutation ingress that produces a row after-image must canonicalize and admit
 that after-image against the current accepted schema before publishing its
 commit marker.
 
+The accepted constraint catalog is the sole runtime identity and lifecycle
+authority for primary-key, not-null, unique, relation, and check constraints.
+Validated row-local checks and pending new-write gates evaluate the complete
+final after-image in stable constraint-ID order. Generated declarations and SQL
+text do not remain as parallel enforcement authority.
+
 IcyDB has no non-strict entity or table mode. There is no trusted row-write
 bypass that disables accepted-schema validation.
 
@@ -74,6 +80,10 @@ complete all fallible work required by that mutation, including:
 - primary-key shape, type, and row-identity validation;
 - field-kind, nullability, scalar-bound, decimal, text, enum, exact-composite,
   collection, and deterministic-encoding validation;
+- validated accepted checks and pending row-local activation gates over the
+  complete final after-image;
+- pending unique and relation activation write barriers where the authored
+  change intersects an incompletely validated candidate;
 - relation target-existence or delete-safety validation;
 - uniqueness, index, reverse-relation, and commit-row preparation;
 - request and response bounds that are part of the mutation's atomic result.
@@ -119,10 +129,15 @@ database default freeze that field-addition value. Later `SET DEFAULT` or `DROP
 DEFAULT` changes future writes only. Required additions without a historical
 fill reject when rows exist.
 
-`SET NOT NULL` must validate existing rows through the accepted contract before
-publication. A row-layout rewrite such as `DROP COLUMN` must validate the
-accepted-before row, construct the constrained accepted-after row, and publish
-the fully prepared row, derived-state, and accepted-schema effects through one
+`SET NOT NULL` first publishes an accepted new-write gate while the field
+remains nullable for historical decoding. A bounded durable Forward/Verify job
+then validates existing rows, and only a clean atomic promotion changes the
+accepted field to non-null. `DROP NOT NULL` aborts a matching pending SQL-owned
+activation or removes the accepted SQL-owned constraint.
+
+A row-layout rewrite such as `DROP COLUMN` must validate the accepted-before
+row, construct the constrained accepted-after row, and publish the fully
+prepared row, derived-state, and accepted-schema effects through one
 marker-bound redo-only candidate. It must not depend on operation-specific
 rollback after physical state changes.
 
@@ -159,9 +174,11 @@ primary-key order with cap-plus-one overflow proof, and fully stages the
 complete target before the existing atomic marker boundary. Intentional prefix
 update remains a separate ordered `LIMIT` contract.
 
-Resumable bulk update is not yet a current production ingress. Its later
-implementation must pin or revalidate accepted-schema identity for each chunk
-and must never treat a partial window as proof of a complete mutation.
+Resumable bulk update is a current trusted journaled ingress. Its continuation
+pins operation, target, accepted schema, selection scope, patch, and batch
+policy. Every chunk still enters normal accepted after-image admission, and
+only batch-independent constraint shapes are admitted; a partial window is
+never treated as proof of a complete mutation.
 
 External import, restore, general data-migration, and bulk APIs must not be
 documented as supported until their trust, resource, schema-version, failure,

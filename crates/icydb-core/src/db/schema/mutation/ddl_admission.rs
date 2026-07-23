@@ -6,7 +6,7 @@ use super::{
     SchemaFieldRenameTarget, SchemaInsertDefaultTarget,
 };
 use crate::db::schema::{
-    AcceptedSchemaSnapshot, SchemaVersion,
+    AcceptedConstraintCatalogError, AcceptedSchemaSnapshot, SchemaVersion,
     transition::{
         SchemaAdmissionIdentityComparison, SchemaAdmissionRejectionClassification,
         SchemaAdmissionRejectionReason, schema_admission_rejection,
@@ -255,6 +255,7 @@ impl SchemaDdlAcceptedSnapshotDerivation {
 pub(in crate::db) enum SchemaDdlMutationAdmissionError {
     AcceptedIndex(AcceptedSchemaMutationError),
     AcceptedAfterRejected,
+    ConstraintCatalog(AcceptedConstraintCatalogError),
     RowLayoutVersionExhausted,
     SchemaVersionAdmission(SchemaDdlSchemaVersionAdmissionError),
     UnsupportedExecutionPath,
@@ -264,7 +265,9 @@ impl SchemaDdlMutationAdmissionError {
     pub(in crate::db) const fn schema_ddl_admission_error(&self) -> SchemaDdlAdmissionError {
         match self {
             Self::AcceptedIndex(_) => SchemaDdlAdmissionError::UnsupportedTransitionClass,
-            Self::AcceptedAfterRejected => SchemaDdlAdmissionError::ValidationFailed,
+            Self::AcceptedAfterRejected | Self::ConstraintCatalog(_) => {
+                SchemaDdlAdmissionError::ValidationFailed
+            }
             Self::RowLayoutVersionExhausted => SchemaDdlAdmissionError::RowLayoutVersionExhausted,
             Self::SchemaVersionAdmission(reason) => reason.schema_ddl_admission_error(),
             Self::UnsupportedExecutionPath => SchemaDdlAdmissionError::PhysicalRunnerMissing,

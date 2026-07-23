@@ -11,7 +11,10 @@ use crate::db::schema::{
     SchemaFieldSlot,
 };
 #[cfg(feature = "sql")]
-use crate::db::schema::{AcceptedSchemaSnapshot, PersistedSchemaSnapshot};
+use crate::db::schema::{
+    AcceptedSchemaSnapshot, ConstraintActivationKind, ConstraintActivationSnapshot, ConstraintId,
+    ConstraintOrigin, PersistedSchemaSnapshot,
+};
 
 ///
 /// SchemaFieldPathIndexRebuildTarget
@@ -24,6 +27,7 @@ use crate::db::schema::{AcceptedSchemaSnapshot, PersistedSchemaSnapshot};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SchemaFieldPathIndexRebuildTarget {
     pub(in crate::db::schema::mutation) ordinal: u16,
+    pub(in crate::db::schema::mutation) physical_generation: u64,
     pub(in crate::db::schema::mutation) name: String,
     pub(in crate::db::schema::mutation) store: String,
     pub(in crate::db::schema::mutation) unique: bool,
@@ -35,6 +39,12 @@ impl SchemaFieldPathIndexRebuildTarget {
     #[must_use]
     pub(in crate::db) const fn ordinal(&self) -> u16 {
         self.ordinal
+    }
+
+    /// Return the isolated physical key generation.
+    #[must_use]
+    pub(in crate::db) const fn physical_generation(&self) -> u64 {
+        self.physical_generation
     }
 
     #[must_use]
@@ -132,6 +142,7 @@ impl SchemaFieldPathIndexRebuildKey {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SchemaExpressionIndexRebuildTarget {
     ordinal: u16,
+    physical_generation: u64,
     name: String,
     store: String,
     unique: bool,
@@ -144,6 +155,12 @@ impl SchemaExpressionIndexRebuildTarget {
     #[must_use]
     pub(in crate::db) const fn ordinal(&self) -> u16 {
         self.ordinal
+    }
+
+    /// Return the isolated physical key generation.
+    #[must_use]
+    pub(in crate::db) const fn physical_generation(&self) -> u64 {
+        self.physical_generation
     }
 
     /// Borrow the accepted index name used for derivation diagnostics.
@@ -253,6 +270,7 @@ impl SchemaMutationRequest<'_> {
         Ok(Self::AddFieldPathIndex {
             target: SchemaFieldPathIndexRebuildTarget {
                 ordinal: index.ordinal(),
+                physical_generation: index.physical_generation(),
                 name: index.name().to_string(),
                 store: index.store().to_string(),
                 unique: index.unique(),
@@ -305,6 +323,7 @@ impl SchemaMutationRequest<'_> {
         Ok(Self::AddExpressionIndex {
             target: SchemaExpressionIndexRebuildTarget {
                 ordinal: index.ordinal(),
+                physical_generation: index.physical_generation(),
                 name: index.name().to_string(),
                 store: index.store().to_string(),
                 unique: index.unique(),
@@ -365,21 +384,49 @@ pub(in crate::db) const fn admit_sql_ddl_secondary_index_drop_candidate()
 pub(in crate::db) fn resolve_sql_ddl_secondary_index_drop_candidate(
     accepted_before: &AcceptedSchemaSnapshot,
     index_name: &str,
-) -> Result<(PersistedIndexSnapshot, Vec<String>), SchemaDdlIndexDropCandidateError> {
-    let index = accepted_before
-        .persisted_snapshot()
+) -> Result<
+    (PersistedIndexSnapshot, Vec<String>, Option<ConstraintId>),
+    SchemaDdlIndexDropCandidateError,
+> {
+    let persisted = accepted_before.persisted_snapshot();
+    let accepted = persisted
         .indexes()
         .iter()
         .find(|index| index.name() == index_name)
-        .cloned()
-        .ok_or(SchemaDdlIndexDropCandidateError::Unknown)?;
+        .cloned();
+    let candidate = persisted
+        .candidate_indexes()
+        .iter()
+        .find(|index| index.name() == index_name)
+        .cloned();
+    let (index, activation_id) = match (accepted, candidate) {
+        (Some(index), None) => (index, None),
+        (None, Some(index)) => {
+            let activation_id = persisted
+                .constraint_activations()
+                .iter()
+                .find(|activation| {
+                    activation.origin() == ConstraintOrigin::SqlDdl
+                        && matches!(
+                            activation.kind(),
+                            ConstraintActivationKind::Unique { index_id }
+                                if *index_id == index.schema_id()
+                        )
+                })
+                .map(ConstraintActivationSnapshot::id)
+                .ok_or(SchemaDdlIndexDropCandidateError::Unsupported)?;
+            (index, Some(activation_id))
+        }
+        (None, None) => return Err(SchemaDdlIndexDropCandidateError::Unknown),
+        (Some(_), Some(_)) => return Err(SchemaDdlIndexDropCandidateError::Unsupported),
+    };
     if index.generated() {
         return Err(SchemaDdlIndexDropCandidateError::Generated);
     }
     let field_path = ddl_drop_index_key_report(index.key())
         .ok_or(SchemaDdlIndexDropCandidateError::Unsupported)?;
 
-    Ok((index, field_path))
+    Ok((index, field_path, activation_id))
 }
 
 #[cfg(any(test, feature = "sql"))]
@@ -429,6 +476,11 @@ pub(in crate::db) fn derive_sql_ddl_field_path_index_accepted_after(
     index: PersistedIndexSnapshot,
 ) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
     let before = accepted_before.persisted_snapshot();
+    let constraint_catalog = before
+        .constraint_catalog()
+        .clone()
+        .with_added_unique(&index)
+        .map_err(SchemaDdlMutationAdmissionError::ConstraintCatalog)?;
     let mut indexes = before.indexes().to_vec();
     indexes.push(index);
     let persisted_after = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
@@ -440,7 +492,7 @@ pub(in crate::db) fn derive_sql_ddl_field_path_index_accepted_after(
         before.fields().to_vec(),
         indexes,
     )
-    .with_constraint_id_allocator(before.constraint_id_allocator())
+    .with_constraint_catalog(constraint_catalog)
     .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
@@ -469,6 +521,11 @@ pub(in crate::db) fn derive_sql_ddl_expression_index_accepted_after(
     index: PersistedIndexSnapshot,
 ) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
     let before = accepted_before.persisted_snapshot();
+    let constraint_catalog = before
+        .constraint_catalog()
+        .clone()
+        .with_added_unique(&index)
+        .map_err(SchemaDdlMutationAdmissionError::ConstraintCatalog)?;
     let mut indexes = before.indexes().to_vec();
     indexes.push(index.clone());
     let persisted_after = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
@@ -480,7 +537,7 @@ pub(in crate::db) fn derive_sql_ddl_expression_index_accepted_after(
         before.fields().to_vec(),
         indexes,
     )
-    .with_constraint_id_allocator(before.constraint_id_allocator())
+    .with_constraint_catalog(constraint_catalog)
     .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
@@ -500,6 +557,15 @@ pub(in crate::db) fn derive_sql_ddl_secondary_index_drop_accepted_after(
     index: &PersistedIndexSnapshot,
 ) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
     let before = accepted_before.persisted_snapshot();
+    let constraint_catalog = if index.unique() {
+        before
+            .constraint_catalog()
+            .clone()
+            .with_removed_unique(index.schema_id())
+            .map_err(SchemaDdlMutationAdmissionError::ConstraintCatalog)?
+    } else {
+        before.constraint_catalog().clone()
+    };
     let indexes = before
         .indexes()
         .iter()
@@ -524,7 +590,7 @@ pub(in crate::db) fn derive_sql_ddl_secondary_index_drop_accepted_after(
         before.fields().to_vec(),
         indexes,
     )
-    .with_constraint_id_allocator(before.constraint_id_allocator())
+    .with_constraint_catalog(constraint_catalog)
     .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;

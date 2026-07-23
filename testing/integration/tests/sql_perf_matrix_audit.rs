@@ -2927,6 +2927,14 @@ fn summarize_perf_outcome(result: &SqlQueryResult) -> MatrixOutcome {
             entity: entity.clone(),
             row_count: indexes.len(),
         },
+        SqlQueryResult::ShowConstraints {
+            entity,
+            constraints,
+        } => MatrixOutcome {
+            result_kind: "show_constraints".to_string(),
+            entity: entity.clone(),
+            row_count: constraints.len(),
+        },
         SqlQueryResult::ShowColumns { entity, columns } => MatrixOutcome {
             result_kind: "show_columns".to_string(),
             entity: entity.clone(),

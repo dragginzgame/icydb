@@ -1,3 +1,4 @@
+mod constraint;
 mod field_metadata;
 
 use super::{
@@ -20,9 +21,15 @@ use crate::{
     types::EntityTag,
 };
 
+pub(in crate::db) use constraint::{
+    execute_admin_sql_ddl_check_addition, execute_admin_sql_ddl_check_drop,
+    execute_admin_sql_ddl_unique_index_activation,
+    execute_admin_sql_ddl_unique_index_activation_abort,
+};
 pub(in crate::db) use field_metadata::{
-    execute_admin_sql_ddl_field_default_change, execute_admin_sql_ddl_field_drop,
-    execute_admin_sql_ddl_field_nullability_change, execute_admin_sql_ddl_field_rename,
+    SqlDdlFieldNullabilityOutcome, execute_admin_sql_ddl_field_default_change,
+    execute_admin_sql_ddl_field_drop, execute_admin_sql_ddl_field_nullability_change,
+    execute_admin_sql_ddl_field_rename, execute_admin_sql_ddl_not_null_activation_abort,
 };
 
 pub(in crate::db) fn execute_admin_sql_ddl_field_path_index_addition(

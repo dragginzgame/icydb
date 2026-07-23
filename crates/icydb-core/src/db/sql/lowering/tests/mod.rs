@@ -1859,6 +1859,31 @@ fn compile_sql_command_show_indexes_lowers_to_show_indexes_lane() {
 }
 
 #[test]
+fn compile_sql_command_show_constraints_lowers_to_introspection_lane() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SHOW CONSTRAINTS FROM public.SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("SHOW CONSTRAINTS FROM should lower");
+
+    assert!(
+        matches!(command, SqlCommand::ShowConstraintsEntity),
+        "SHOW CONSTRAINTS FROM should lower to its accepted-catalog lane",
+    );
+}
+
+#[test]
+fn compile_sql_command_show_constraints_rejects_entity_mismatch() {
+    let err = compile_sql_command::<SqlLowerEntity>(
+        "SHOW CONSTRAINTS FROM DifferentEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("SHOW CONSTRAINTS FROM entity mismatch should fail lowering");
+
+    std::assert_matches!(err, SqlLoweringError::EntityMismatch { .. });
+}
+
+#[test]
 fn compile_sql_command_show_indexes_rejects_entity_mismatch() {
     let err = compile_sql_command::<SqlLowerEntity>(
         "SHOW INDEXES FROM DifferentEntity",

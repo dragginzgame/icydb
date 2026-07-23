@@ -8,7 +8,8 @@ use crate::{
         Db,
         commit::{
             CommitPrepareContext, CommitRowOp, CommitSchemaFingerprint, PreparedRowCommitOp,
-            prepare_commit_context_for_runtime_entity, prepare_row_commit_with_context,
+            prepare_commit_context_for_runtime_entity,
+            prepare_commit_context_for_runtime_entity_rebuild, prepare_row_commit_with_context,
         },
         data::RawDataStoreKey,
         relation::RelationDeleteValidateFn,
@@ -79,6 +80,22 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
         schema_fingerprint: CommitSchemaFingerprint,
     ) -> Result<CommitPrepareContext, InternalError> {
         prepare_commit_context_for_runtime_entity(
+            db,
+            self.entity_path,
+            self.entity_tag,
+            self.store_path,
+            self.model,
+            schema_fingerprint,
+        )
+    }
+
+    /// Resolve accepted commit authority for a complete recovery rebuild.
+    pub(in crate::db) fn prepare_rebuild_commit_context(
+        &self,
+        db: &Db<C>,
+        schema_fingerprint: CommitSchemaFingerprint,
+    ) -> Result<CommitPrepareContext, InternalError> {
+        prepare_commit_context_for_runtime_entity_rebuild(
             db,
             self.entity_path,
             self.entity_tag,
@@ -180,6 +197,19 @@ pub(in crate::db) fn prepare_row_commit_with_hook<C: CanisterKind>(
     prepare_row_commit_with_context(db, op, &context, &store, &store)
 }
 
+/// Prepare one recovery-rebuild row without replaying live candidate effects.
+pub(in crate::db) fn prepare_row_commit_with_hook_for_rebuild<C: CanisterKind>(
+    db: &Db<C>,
+    entity_runtime_hooks: &[EntityRuntimeHooks<C>],
+    op: &CommitRowOp,
+) -> Result<PreparedRowCommitOp, InternalError> {
+    let hooks = resolve_runtime_hook_by_path(entity_runtime_hooks, op.entity_path.as_ref())?;
+    let store = db.store_handle(hooks.store_path)?;
+    let context = hooks.prepare_rebuild_commit_context(db, op.schema_fingerprint)?;
+
+    prepare_row_commit_with_context(db, op, &context, &store, &store)
+}
+
 /// Validate delete-side relation constraints through runtime hooks.
 pub(in crate::db) fn validate_delete_relations_with_hooks<C: CanisterKind>(
     db: &Db<C>,
@@ -192,10 +222,21 @@ pub(in crate::db) fn validate_delete_relations_with_hooks<C: CanisterKind>(
         return Ok(());
     }
 
-    // Delegate delete-side relation validation to each entity runtime hook.
-    // Each hook resolves its accepted source contract before deciding whether
-    // the source owns relations to the deleted target.
+    crate::db::relation::validate_candidate_relation_target_delete_barrier(
+        db,
+        target_path,
+        deleted_target_keys,
+    )?;
+
+    // Consult accepted catalog authority before entering a typed hook so
+    // unrelated entities do not rebuild row contracts during every delete.
     for hooks in entity_runtime_hooks {
+        let source_store = db.store_handle(hooks.store_path)?;
+        if !source_store.with_schema(|schema_store| {
+            schema_store.entity_has_relation_to_target(hooks.entity_tag, target_path)
+        })? {
+            continue;
+        }
         (hooks.validate_delete_relations)(db, target_path, deleted_target_keys)?;
     }
 

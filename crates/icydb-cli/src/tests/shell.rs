@@ -17,7 +17,10 @@ use candid::{Decode, Encode};
 use icydb::{
     db::{
         RowProjectionOutput,
-        sql::{SqlGroupedRowsOutput, SqlQueryResult},
+        sql::{
+            SqlConstraintValidationFindingOutput, SqlConstraintValidationOutput,
+            SqlGroupedRowsOutput, SqlQueryResult,
+        },
     },
     value::OutputValue,
 };
@@ -284,6 +287,7 @@ fn ddl_response_rendering_includes_execution_metrics() {
         status: "published".to_string(),
         rows_scanned: 7,
         index_keys_written: 7,
+        constraint_validation: None,
     });
     let candid_bytes = Encode!(&response).expect("DDL response should encode");
     let decoded = Decode!(
@@ -311,6 +315,7 @@ fn ddl_no_op_response_rendering_includes_zero_execution_metrics() {
         status: "no_op".to_string(),
         rows_scanned: 0,
         index_keys_written: 0,
+        constraint_validation: None,
     });
     let candid_bytes = Encode!(&response).expect("no-op DDL response should encode");
     let decoded = Decode!(
@@ -325,6 +330,50 @@ fn ddl_no_op_response_rendering_includes_zero_execution_metrics() {
         "surface=ddl entity=Character mutation_kind=drop_secondary_index target_index=character_missing_idx target_store= field_path= status=no_op rows_scanned=0 index_keys_written=0",
         "CLI DDL response rendering should keep no-op status and zero work metrics visible",
     );
+}
+
+#[test]
+fn ddl_constraint_validation_page_roundtrips_typed_acknowledgement_state() {
+    let expected = SqlConstraintValidationOutput {
+        constraint_id: 41,
+        activation_epoch: Some(7),
+        page_sequence: Some(3),
+        state: "forward".to_string(),
+        revision_status: "tracking".to_string(),
+        rows_scanned: 9,
+        findings: vec![SqlConstraintValidationFindingOutput {
+            primary_key: vec![1, 2, 3],
+            field_ids: vec![4],
+            error_code: 2201,
+        }],
+        complete: false,
+    };
+    let response: Result<SqlQueryResult, icydb::Error> = Ok(SqlQueryResult::Ddl {
+        entity: "Character".to_string(),
+        mutation_kind: "validate_constraint".to_string(),
+        target_index: "adult_age".to_string(),
+        target_store: "Character".to_string(),
+        field_path: Vec::new(),
+        status: "validation_findings".to_string(),
+        rows_scanned: 9,
+        index_keys_written: 0,
+        constraint_validation: Some(expected.clone()),
+    });
+    let candid_bytes = Encode!(&response).expect("validation response should encode");
+    let decoded = Decode!(
+        candid_bytes.as_slice(),
+        Result<SqlQueryResult, icydb::Error>
+    )
+    .expect("validation response should decode")
+    .expect("validation response should succeed");
+    let SqlQueryResult::Ddl {
+        constraint_validation,
+        ..
+    } = decoded
+    else {
+        panic!("validation response should remain DDL");
+    };
+    assert_eq!(constraint_validation, Some(expected));
 }
 
 #[test]

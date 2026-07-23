@@ -89,6 +89,10 @@ pub(crate) enum SqlSyntaxErrorKind {
         clause: SqlIntegerLiteralClause,
     },
     #[cfg(feature = "sql")]
+    IntegerLiteralU64Overflow {
+        clause: SqlIntegerLiteralClause,
+    },
+    #[cfg(feature = "sql")]
     ClauseOrder {
         rule: SqlClauseOrderRule,
     },
@@ -145,6 +149,8 @@ pub(crate) enum SqlExpectedToken {
     EndOfInput,
     #[cfg(feature = "sql")]
     StatementStart,
+    #[cfg(feature = "sql")]
+    ShowConstraintsSource,
     #[cfg(feature = "sql")]
     ShowIndexesSource,
     Keyword(Keyword),
@@ -253,6 +259,7 @@ pub(crate) enum SqlIntegerLiteralClause {
     MaxBytes,
     ExpectSchemaVersion,
     SetSchemaVersion,
+    ConstraintPageSequence,
 }
 
 #[cfg(feature = "sql")]

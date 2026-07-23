@@ -24,6 +24,10 @@ Recurring audits must enforce at least these invariants:
 - Cross-layer orchestration does not absorb domain logic.
 - Planning semantics do not leak into executor-only responsibilities.
 - Value canonicalization and hashing stay in value-owned boundaries.
+- Accepted schema remains runtime constraint authority; generated models and
+  SQL text remain proposal/front-end inputs rather than fallback semantics.
+- Constraint diagnostics and integrity tooling observe accepted activation and
+  validation-job truth instead of reconstructing lifecycle state.
 - Grouping and ordering contracts remain deterministic and explicitly validated.
 - Recovery behavior preserves execution invariants and replay equivalence.
 

@@ -417,6 +417,45 @@ impl InternalError {
         }
     }
 
+    /// Construct an executor-origin accepted constraint or activation-gate violation.
+    pub(crate) fn mutation_constraint_violation(
+        constraint_id: u32,
+        _constraint_name: String,
+    ) -> Self {
+        Self {
+            class: ErrorClass::InvariantViolation,
+            origin: ErrorOrigin::Executor,
+            detail: Some(ErrorDetail::Executor(
+                ExecutorErrorDetail::ConstraintViolation { constraint_id },
+            )),
+        }
+    }
+
+    /// Construct an executor-origin corruption failure for row-constraint authority.
+    pub(crate) fn accepted_row_constraint_program_corrupt() -> Self {
+        Self {
+            class: ErrorClass::Corruption,
+            origin: ErrorOrigin::Executor,
+            detail: Some(ErrorDetail::Executor(
+                ExecutorErrorDetail::AcceptedRowConstraintProgramCorrupt,
+            )),
+        }
+    }
+
+    /// Construct one typed migration conflict for an incomplete activation gate.
+    pub(crate) fn mutation_constraint_activation_write_blocked(
+        constraint_id: u32,
+        _constraint_name: &str,
+    ) -> Self {
+        Self {
+            class: ErrorClass::Conflict,
+            origin: ErrorOrigin::Executor,
+            detail: Some(ErrorDetail::Executor(
+                ExecutorErrorDetail::ConstraintActivationWriteBlocked { constraint_id },
+            )),
+        }
+    }
+
     /// Construct an executor-origin mutation result invariant.
     ///
     /// This constructor lands ahead of the public structural mutation surface,
@@ -1248,6 +1287,18 @@ impl InternalError {
         }
     }
 
+    /// Construct the fail-closed conflict for a generated proposal that no
+    /// longer matches its live accepted constraint activation.
+    pub(crate) fn schema_generated_constraint_activation_stale() -> Self {
+        Self {
+            class: ErrorClass::Conflict,
+            origin: ErrorOrigin::Store,
+            detail: Some(ErrorDetail::Store(
+                StoreError::SchemaGeneratedConstraintActivationStale,
+            )),
+        }
+    }
+
     /// Construct a bounded schema-transition resource rejection.
     pub(crate) fn schema_transition_budget_exceeded(
         resource: SchemaTransitionBudgetResource,
@@ -1257,21 +1308,6 @@ impl InternalError {
             origin: ErrorOrigin::Store,
             detail: Some(ErrorDetail::Store(
                 StoreError::SchemaTransitionBudgetExceeded { resource },
-            )),
-        }
-    }
-
-    /// Construct the canonical SQL DDL SET NOT NULL validation failure.
-    #[cfg(feature = "sql")]
-    pub(crate) fn schema_ddl_set_not_null_validation_failed(
-        _entity_path: &'static str,
-        _column_name: &str,
-    ) -> Self {
-        Self {
-            class: ErrorClass::Unsupported,
-            origin: ErrorOrigin::Store,
-            detail: Some(ErrorDetail::Store(
-                StoreError::SchemaDdlSetNotNullValidationFailed,
             )),
         }
     }
@@ -1527,6 +1563,25 @@ pub enum ErrorDetail {
 pub enum ExecutorErrorDetail {
     /// A complete insert or replacement omitted one or more required fields.
     MutationRequiredFieldMissing,
+    /// A final canonical after-image violated one accepted constraint or activation gate.
+    ConstraintViolation { constraint_id: u32 },
+    /// Accepted row-constraint metadata or compiled state was inconsistent.
+    AcceptedRowConstraintProgramCorrupt,
+    /// A write would rely on one incomplete activation-owned physical proof.
+    ConstraintActivationWriteBlocked { constraint_id: u32 },
+}
+
+impl ExecutorErrorDetail {
+    /// Return stable accepted identity for one constraint violation.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) const fn constraint_identity(&self) -> Option<u32> {
+        match self {
+            Self::ConstraintActivationWriteBlocked { constraint_id }
+            | Self::ConstraintViolation { constraint_id } => Some(*constraint_id),
+            Self::MutationRequiredFieldMissing | Self::AcceptedRowConstraintProgramCorrupt => None,
+        }
+    }
 }
 
 /// Persisted-row serialization and decoding error detail.
@@ -1584,10 +1639,11 @@ pub enum StoreError {
         resource: SchemaTransitionBudgetResource,
     },
 
-    SchemaDdlSetNotNullValidationFailed,
-
     /// A generated field would collide with an accepted DDL-owned slot.
     SchemaGeneratedFieldAfterDdlField,
+
+    /// A live generated constraint activation no longer matches its proposal.
+    SchemaGeneratedConstraintActivationStale,
 }
 
 ///
@@ -1724,8 +1780,6 @@ pub enum SchemaDdlAdmissionError {
     GeneratedFieldDefaultChangeRejected,
 
     GeneratedFieldNullabilityChangeRejected,
-
-    SetNotNullValidationFailed,
 }
 
 impl fmt::Display for SchemaDdlAdmissionError {
@@ -1842,6 +1896,15 @@ impl ExecutorErrorDetail {
             Self::MutationRequiredFieldMissing => {
                 diagnostic_code::DiagnosticCode::RuntimeUnsupported
             }
+            Self::ConstraintViolation { .. } => {
+                diagnostic_code::DiagnosticCode::RuntimeInvariantViolation
+            }
+            Self::AcceptedRowConstraintProgramCorrupt => {
+                diagnostic_code::DiagnosticCode::RuntimeCorruption
+            }
+            Self::ConstraintActivationWriteBlocked { .. } => {
+                diagnostic_code::DiagnosticCode::RuntimeConflict
+            }
         }
     }
 
@@ -1852,6 +1915,23 @@ impl ExecutorErrorDetail {
             Self::MutationRequiredFieldMissing => {
                 Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
                     boundary: diagnostic_code::RuntimeBoundaryCode::MutationRequiredFieldMissing,
+                })
+            }
+            Self::ConstraintViolation { .. } => {
+                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                    boundary: diagnostic_code::RuntimeBoundaryCode::ConstraintViolation,
+                })
+            }
+            Self::AcceptedRowConstraintProgramCorrupt => {
+                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                    boundary:
+                        diagnostic_code::RuntimeBoundaryCode::AcceptedRowConstraintProgramCorrupt,
+                })
+            }
+            Self::ConstraintActivationWriteBlocked { .. } => {
+                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                    boundary:
+                        diagnostic_code::RuntimeBoundaryCode::ConstraintActivationWriteBlocked,
                 })
             }
         }
@@ -1924,12 +2004,14 @@ impl StoreError {
             Self::SchemaDdlPublicationRaceLost
             | Self::SchemaDdlRewriteRequiresMigration
             | Self::SchemaRowLayoutVersionExhausted
-            | Self::SchemaTransitionBudgetExceeded { .. }
-            | Self::SchemaDdlSetNotNullValidationFailed => {
+            | Self::SchemaTransitionBudgetExceeded { .. } => {
                 diagnostic_code::DiagnosticCode::SchemaDdlAdmission
             }
             Self::JournalMutationRevisionExhausted | Self::SchemaGeneratedFieldAfterDdlField => {
                 diagnostic_code::DiagnosticCode::RuntimeUnsupported
+            }
+            Self::SchemaGeneratedConstraintActivationStale => {
+                diagnostic_code::DiagnosticCode::RuntimeConflict
             }
         }
     }
@@ -1964,14 +2046,15 @@ impl StoreError {
                     reason: diagnostic_code::SchemaDdlAdmissionCode::SchemaTransitionBudgetExceeded,
                 })
             }
-            Self::SchemaDdlSetNotNullValidationFailed => {
-                Some(diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
-                    reason: diagnostic_code::SchemaDdlAdmissionCode::SetNotNullValidationFailed,
-                })
-            }
             Self::SchemaGeneratedFieldAfterDdlField => {
                 Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
                     boundary: diagnostic_code::RuntimeBoundaryCode::GeneratedFieldAfterDdlField,
+                })
+            }
+            Self::SchemaGeneratedConstraintActivationStale => {
+                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                    boundary:
+                        diagnostic_code::RuntimeBoundaryCode::GeneratedConstraintActivationStale,
                 })
             }
             Self::NotFound | Self::Corrupt | Self::InvariantViolation => None,
@@ -2112,9 +2195,6 @@ impl SchemaDdlAdmissionError {
             }
             Self::GeneratedFieldNullabilityChangeRejected => {
                 diagnostic_code::SchemaDdlAdmissionCode::GeneratedFieldNullabilityChangeRejected
-            }
-            Self::SetNotNullValidationFailed => {
-                diagnostic_code::SchemaDdlAdmissionCode::SetNotNullValidationFailed
             }
             Self::RowLayoutVersionExhausted => {
                 diagnostic_code::SchemaDdlAdmissionCode::RowLayoutVersionExhausted

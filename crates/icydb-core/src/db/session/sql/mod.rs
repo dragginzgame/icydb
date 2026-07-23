@@ -33,7 +33,11 @@ use crate::{
 };
 
 pub(in crate::db::session::sql) use crate::db::diagnostics::measure_local_instruction_delta as measure_sql_stage;
-pub use crate::db::sql::ddl::{SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlPreparationReport};
+pub use crate::db::sql::ddl::{
+    SqlConstraintValidationFinding, SqlConstraintValidationPage,
+    SqlConstraintValidationRevisionStatus, SqlConstraintValidationState, SqlDdlExecutionStatus,
+    SqlDdlMutationKind, SqlDdlPreparationReport,
+};
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use attribution::SqlExecutePhaseAttribution;
 #[cfg(feature = "diagnostics")]

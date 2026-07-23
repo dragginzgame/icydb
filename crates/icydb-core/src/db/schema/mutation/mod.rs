@@ -86,7 +86,8 @@ pub(in crate::db::schema) use delta::{
 
 mod generated_candidate;
 pub(in crate::db::schema) use generated_candidate::{
-    GeneratedAcceptedCandidateError, derive_generated_accepted_candidate,
+    GeneratedAcceptedCandidateError, GeneratedConstraintActivationContext,
+    derive_generated_accepted_candidate,
 };
 
 #[cfg(feature = "sql")]
@@ -123,7 +124,7 @@ pub(in crate::db) use index::{
 mod user_index_domain;
 pub(in crate::db) use user_index_domain::{
     SchemaUserIndexDomainRow, StagedUserIndexDomainError, StagedUserIndexDomainReplacement,
-    StagedUserIndexDomainReplacementBuilder,
+    StagedUserIndexDomainReplacementBuilder, UniqueConstraintProjection,
 };
 
 ///

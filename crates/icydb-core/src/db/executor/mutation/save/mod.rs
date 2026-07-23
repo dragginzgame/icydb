@@ -16,7 +16,7 @@ use crate::{
         Db,
         commit::CommitSchemaFingerprint,
         data::PersistedRow,
-        schema::{AcceptedRowDecodeContract, SchemaInfo},
+        schema::{AcceptedRowDecodeContract, CompiledAcceptedRowConstraints, SchemaInfo},
     },
     entity::EntityCreateInput,
     error::InternalError,
@@ -55,6 +55,7 @@ pub(in crate::db) struct SaveExecutor<E: PersistedRow> {
     accepted_row_decode_contract: AcceptedRowDecodeContract,
     accepted_schema_info: SchemaInfo,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
+    accepted_row_constraints: CompiledAcceptedRowConstraints,
 }
 
 //
@@ -176,12 +177,14 @@ impl<E: PersistedRow> SaveExecutor<E> {
         accepted_row_decode_contract: AcceptedRowDecodeContract,
         accepted_schema_info: SchemaInfo,
         accepted_schema_fingerprint: CommitSchemaFingerprint,
+        accepted_row_constraints: CompiledAcceptedRowConstraints,
     ) -> Self {
         Self {
             db,
             accepted_row_decode_contract,
             accepted_schema_info,
             accepted_schema_fingerprint,
+            accepted_row_constraints,
         }
     }
 
@@ -215,12 +218,19 @@ impl<E: PersistedRow> SaveExecutor<E> {
             crate::db::schema::AcceptedSchemaRevision::INITIAL,
         );
         let accepted_row_decode_contract = descriptor.row_decode_contract(catalog);
+        let accepted_row_constraints = CompiledAcceptedRowConstraints::compile(
+            &accepted,
+            accepted_row_decode_contract.value_catalog_handle(),
+            accepted_schema_fingerprint,
+        )
+        .expect("test accepted check program should compile");
 
         Self {
             db,
             accepted_row_decode_contract,
             accepted_schema_info,
             accepted_schema_fingerprint,
+            accepted_row_constraints,
         }
     }
 
@@ -248,6 +258,13 @@ impl<E: PersistedRow> SaveExecutor<E> {
         &self,
     ) -> CommitSchemaFingerprint {
         self.accepted_schema_fingerprint
+    }
+
+    // Borrow the accepted check program pinned to this save authority.
+    pub(in crate::db::executor::mutation) const fn accepted_row_constraints(
+        &self,
+    ) -> &CompiledAcceptedRowConstraints {
+        &self.accepted_row_constraints
     }
 
     // Record the committed save mode after the row mutation has crossed the

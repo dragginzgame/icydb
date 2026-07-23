@@ -18,8 +18,9 @@ use crate::{
         predicate::canonical_cmp,
         relation::validate_save_relations_with_accepted_contract,
         schema::{
-            AcceptedFieldKind, AcceptedFieldKindCategory, AcceptedRowDecodeContract,
-            AcceptedScalarClass, SchemaInfo, classify_accepted_field_kind, literal_matches_type,
+            AcceptedFieldKind, AcceptedFieldKindCategory, AcceptedRowConstraintEvaluationError,
+            AcceptedRowDecodeContract, AcceptedScalarClass, SchemaInfo,
+            classify_accepted_field_kind, literal_matches_type,
         },
     },
     error::InternalError,
@@ -126,6 +127,8 @@ impl<E: PersistedRow> SaveExecutor<E> {
             normalized.as_raw_row(),
             provenance,
         )?;
+        self.validate_unique_activation_write_gate(write_context.mode(), provenance)?;
+        self.validate_accepted_row_constraints(normalized.as_raw_row())?;
         if validate_relations {
             validate_save_relations_with_accepted_contract::<E>(
                 &self.db,
@@ -135,6 +138,63 @@ impl<E: PersistedRow> SaveExecutor<E> {
         }
 
         Ok(normalized)
+    }
+
+    fn validate_unique_activation_write_gate(
+        &self,
+        mode: crate::sanitize::SanitizeWriteMode,
+        provenance: &[Option<AcceptedFieldWriteProvenance>],
+    ) -> Result<(), InternalError> {
+        match self
+            .accepted_row_constraints()
+            .unique_activation_write_blocker(mode, provenance)
+        {
+            Ok(Some((constraint_id, constraint_name))) => {
+                Err(InternalError::mutation_constraint_activation_write_blocked(
+                    constraint_id.get(),
+                    constraint_name,
+                ))
+            }
+            Ok(None) => Ok(()),
+            Err(_) => Err(InternalError::accepted_row_constraint_program_corrupt()),
+        }
+    }
+
+    // Evaluate fingerprint-bound row constraints over the exact canonical
+    // after-image that enters commit preflight. All gates share one slot decode.
+    fn validate_accepted_row_constraints(&self, row: &RawRow) -> Result<(), InternalError> {
+        let constraints = self.accepted_row_constraints();
+        if constraints.is_empty() {
+            return Ok(());
+        }
+        let contract = StructuralRowContract::from_accepted_decode_contract(
+            E::PATH,
+            self.accepted_row_decode_contract().clone(),
+        );
+        let row_fields =
+            StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(row, &contract)?;
+        let values = row_fields.decode_selected_slot_values(constraints.required_slots())?;
+
+        constraints
+            .evaluate(self.accepted_schema_fingerprint(), values.as_slice())
+            .map_err(|error| match error {
+                AcceptedRowConstraintEvaluationError::Violation {
+                    constraint_id,
+                    constraint_name,
+                    kind: _,
+                } => InternalError::mutation_constraint_violation(
+                    constraint_id.get(),
+                    constraint_name,
+                ),
+                AcceptedRowConstraintEvaluationError::InvalidExpression(_)
+                | AcceptedRowConstraintEvaluationError::LiteralCorrupt
+                | AcceptedRowConstraintEvaluationError::FingerprintMismatch
+                | AcceptedRowConstraintEvaluationError::MissingSlot
+                | AcceptedRowConstraintEvaluationError::RuntimeValueMismatch
+                | AcceptedRowConstraintEvaluationError::WorkBudgetExceeded => {
+                    InternalError::accepted_row_constraint_program_corrupt()
+                }
+            })
     }
 
     // Compare canonical slot payloads instead of re-decoded runtime values so

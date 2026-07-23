@@ -9,8 +9,9 @@
 
 use crate::{
     db::{
-        EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
-        MemoryCatalogDescription, StorageReport, StoreCatalogDescription, session::DbSession,
+        EntityCatalogDescription, EntityConstraintDescription, EntityFieldDescription,
+        EntitySchemaDescription, MemoryCatalogDescription, StorageReport, StoreCatalogDescription,
+        session::DbSession,
     },
     error::Error,
     traits::CanisterKind,
@@ -26,6 +27,14 @@ impl<C: CanisterKind> DbSession<C> {
         E: crate::traits::EntityFor<C>,
     {
         self.inner.show_indexes::<E>()
+    }
+
+    /// Return accepted structural constraints ordered by stable identity.
+    pub fn try_show_constraints<E>(&self) -> Result<Vec<EntityConstraintDescription>, Error>
+    where
+        E: crate::traits::EntityFor<C>,
+    {
+        Ok(self.inner.try_show_constraints::<E>()?)
     }
 
     /// Return one stable list of field descriptors for the entity schema.

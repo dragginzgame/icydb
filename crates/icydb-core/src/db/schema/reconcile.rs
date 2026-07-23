@@ -12,10 +12,13 @@ use crate::{
         Db, EntityRuntimeHooks,
         registry::StoreHandle,
         schema::{
-            AcceptedCatalogSnapshotSelection, AcceptedSchemaSnapshot,
-            GeneratedAcceptedCandidateError, MutationPublicationPreflight, PersistedIndexSnapshot,
-            PersistedSchemaSnapshot, SchemaStore, SchemaTransitionDecision,
-            SchemaTransitionPlanKind, compiled_schema_proposal_for_model,
+            AcceptedCatalogSnapshotSelection, AcceptedSchemaSnapshot, ConstraintActivationKind,
+            ConstraintId, ConstraintOrigin, GeneratedAcceptedCandidateError,
+            GeneratedConstraintActivationContext, MutationPublicationPreflight,
+            PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaStore, SchemaTransitionDecision,
+            SchemaTransitionPlanKind, advance_check_constraint_activation,
+            advance_not_null_constraint_activation, advance_relation_constraint_activation,
+            advance_unique_constraint_activation, compiled_schema_proposal_for_model,
             composite_catalog::{
                 AcceptedCompositeCatalog, build_initial_accepted_composite_catalog,
                 generated_composite_type_ids, reconcile_accepted_composite_catalog,
@@ -80,15 +83,19 @@ impl PendingUserIndexDomainStage {
 struct GeneratedCatalogCandidates {
     enum_catalog: AcceptedEnumCatalog,
     composite_catalog: AcceptedCompositeCatalog,
+    activation: Option<GeneratedConstraintActivationContext>,
 }
 
 #[cfg(feature = "sql")]
 pub(in crate::db) use sql_ddl::{
-    execute_admin_sql_ddl_expression_index_addition, execute_admin_sql_ddl_field_addition,
-    execute_admin_sql_ddl_field_default_change, execute_admin_sql_ddl_field_drop,
-    execute_admin_sql_ddl_field_nullability_change,
+    SqlDdlFieldNullabilityOutcome, execute_admin_sql_ddl_check_addition,
+    execute_admin_sql_ddl_check_drop, execute_admin_sql_ddl_expression_index_addition,
+    execute_admin_sql_ddl_field_addition, execute_admin_sql_ddl_field_default_change,
+    execute_admin_sql_ddl_field_drop, execute_admin_sql_ddl_field_nullability_change,
     execute_admin_sql_ddl_field_path_index_addition, execute_admin_sql_ddl_field_rename,
-    execute_admin_sql_ddl_secondary_index_drop,
+    execute_admin_sql_ddl_not_null_activation_abort, execute_admin_sql_ddl_secondary_index_drop,
+    execute_admin_sql_ddl_unique_index_activation,
+    execute_admin_sql_ddl_unique_index_activation_abort,
 };
 
 /// Reconcile registered runtime schemas with the schema metadata store.
@@ -154,6 +161,7 @@ fn reconcile_runtime_schemas_with_derived_state<C: CanisterKind>(
             hooks,
             &catalogs.enum_catalog,
             &catalogs.composite_catalog,
+            catalogs.activation,
             derived_state,
         )?;
         if accepted_snapshots_by_store
@@ -199,7 +207,107 @@ fn reconcile_runtime_schemas_with_derived_state<C: CanisterKind>(
     if !accepted_snapshots_by_store.is_empty() {
         return Err(InternalError::store_invariant());
     }
+    if matches!(
+        derived_state,
+        SchemaReconcileDerivedState::StageAgainstReadyDomains
+    ) {
+        advance_generated_constraint_activations(db, entity_runtime_hooks)?;
+    }
 
+    Ok(())
+}
+
+/// Generated activation selected for one bounded startup step.
+enum GeneratedConstraintActivation {
+    /// One generated check activation.
+    Check(ConstraintId),
+    /// One generated not-null activation.
+    NotNull(ConstraintId),
+    /// One generated unique-index activation.
+    Unique(ConstraintId),
+    /// One generated relation activation.
+    Relation(ConstraintId),
+}
+
+fn advance_generated_constraint_activations<C: CanisterKind>(
+    db: &Db<C>,
+    entity_runtime_hooks: &[EntityRuntimeHooks<C>],
+) -> Result<(), InternalError> {
+    for hooks in entity_runtime_hooks {
+        let activations = db
+            .store_handle(hooks.store_path)?
+            .with_schema(|schema_store| {
+                let selection = schema_store
+                    .current_accepted_catalog_selection(
+                        hooks.entity_tag,
+                        hooks.entity_path,
+                        hooks.store_path,
+                    )?
+                    .ok_or_else(InternalError::store_corruption)?;
+                let snapshot = selection.decode_verified()?;
+                if snapshot.entity_path() != hooks.entity_path {
+                    return Err(InternalError::store_corruption());
+                }
+                Ok::<_, InternalError>(
+                    snapshot
+                        .persisted_snapshot()
+                        .constraint_activations()
+                        .iter()
+                        .filter(|activation| activation.origin() == ConstraintOrigin::Generated)
+                        .map(|activation| match activation.kind() {
+                            ConstraintActivationKind::Check { .. } => {
+                                GeneratedConstraintActivation::Check(activation.id())
+                            }
+                            ConstraintActivationKind::NotNull { .. } => {
+                                GeneratedConstraintActivation::NotNull(activation.id())
+                            }
+                            ConstraintActivationKind::Unique { .. } => {
+                                GeneratedConstraintActivation::Unique(activation.id())
+                            }
+                            ConstraintActivationKind::Relation { .. } => {
+                                GeneratedConstraintActivation::Relation(activation.id())
+                            }
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            })?;
+        for activation in activations {
+            match activation {
+                GeneratedConstraintActivation::Check(constraint_id) => {
+                    let _progress = advance_check_constraint_activation(
+                        db,
+                        hooks.entity_tag,
+                        constraint_id,
+                        None,
+                    )?;
+                }
+                GeneratedConstraintActivation::NotNull(constraint_id) => {
+                    let _progress = advance_not_null_constraint_activation(
+                        db,
+                        hooks.entity_tag,
+                        constraint_id,
+                        None,
+                    )?;
+                }
+                GeneratedConstraintActivation::Unique(constraint_id) => {
+                    let _progress = advance_unique_constraint_activation(
+                        db,
+                        hooks.entity_tag,
+                        constraint_id,
+                        None,
+                    )?;
+                }
+                GeneratedConstraintActivation::Relation(constraint_id) => {
+                    let _progress = advance_relation_constraint_activation(
+                        db,
+                        hooks.entity_tag,
+                        constraint_id,
+                        None,
+                    )?;
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -221,9 +329,25 @@ fn build_generated_catalog_candidates<C: CanisterKind>(
 
     let mut catalogs_by_store = BTreeMap::new();
     for (store_path, models) in models_by_store {
-        let current = db
-            .store_handle(store_path)?
-            .with_schema(SchemaStore::current_accepted_schema_bundle)?;
+        let (current, activation) = db.store_handle(store_path)?.with_schema(|schema_store| {
+            let root = schema_store.current_accepted_schema_root()?;
+            let bundle = schema_store.current_accepted_schema_bundle()?;
+            let activation = root
+                .map(|selection| {
+                    let root = selection.root();
+                    let epoch = root
+                        .revision()
+                        .checked_next()
+                        .ok_or_else(InternalError::store_unsupported)?
+                        .get();
+                    Ok::<_, InternalError>(GeneratedConstraintActivationContext::new(
+                        root.fingerprint(),
+                        epoch,
+                    ))
+                })
+                .transpose()?;
+            Ok::<_, InternalError>((bundle, activation))
+        })?;
         let composite_ids = generated_composite_type_ids(&models)
             .map_err(|_error| InternalError::store_unsupported())?;
         let enum_catalog = match current.as_ref() {
@@ -254,6 +378,7 @@ fn build_generated_catalog_candidates<C: CanisterKind>(
             GeneratedCatalogCandidates {
                 enum_catalog,
                 composite_catalog,
+                activation,
             },
         );
     }
@@ -547,8 +672,8 @@ fn merge_generated_indexes_with_extra_accepted_indexes(
         generated.fields().to_vec(),
         indexes,
     )
-    .with_constraint_id_allocator(accepted.constraint_id_allocator())
-    .with_relations(generated.relations().to_vec())
+    .with_constraint_catalog(accepted.constraint_catalog().clone())
+    .with_relations(accepted.relations().to_vec())
 }
 
 // Reconcile one entity hook against its owning schema store. The generated
@@ -559,6 +684,7 @@ fn reconcile_runtime_schema<C: CanisterKind>(
     hooks: &EntityRuntimeHooks<C>,
     enum_catalog: &AcceptedEnumCatalog,
     composite_catalog: &AcceptedCompositeCatalog,
+    activation: Option<GeneratedConstraintActivationContext>,
     derived_state: SchemaReconcileDerivedState,
 ) -> Result<ReconciledRuntimeSchema, InternalError> {
     let store = db.store_handle(hooks.store_path)?;
@@ -570,6 +696,7 @@ fn reconcile_runtime_schema<C: CanisterKind>(
         hooks.model,
         enum_catalog,
         composite_catalog,
+        activation,
         derived_state,
     )
 }
@@ -717,7 +844,7 @@ fn reconcile_staged_schema_snapshot(
     };
 
     if let Some(actual) = latest {
-        let expected = derive_generated_accepted_candidate(&actual, &expected)
+        let expected = derive_generated_accepted_candidate(&actual, &expected, None)
             .map_err(generated_accepted_candidate_error)?
             .unwrap_or(expected);
         let plan = match validate_existing_schema_snapshot(entity_path, &actual, &expected) {
@@ -737,6 +864,7 @@ fn reconcile_staged_schema_snapshot(
             | SchemaTransitionPlanKind::AddFieldPathIndex
             | SchemaTransitionPlanKind::ExactMatch => actual,
             SchemaTransitionPlanKind::AppendOnlyFields
+            | SchemaTransitionPlanKind::ConstraintActivation
             | SchemaTransitionPlanKind::MetadataOnlyFieldDefault => {
                 if let Err(error) = schema_store.insert_persisted_snapshot(entity_tag, &expected) {
                     record_schema_store_footprint(schema_store, entity_tag, entity_path);
@@ -780,6 +908,10 @@ fn reconcile_staged_schema_snapshot(
 
 // Startup reconciliation owns the store-wide candidate and zero-write staging
 // required before accepted-schema publication.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "startup reconciliation keeps catalog authority and publication outcomes explicit"
+)]
 fn ensure_accepted_schema_snapshot_for_runtime_store(
     store: StoreHandle,
     entity_tag: EntityTag,
@@ -787,6 +919,7 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
     model: &EntityModel,
     enum_catalog: &AcceptedEnumCatalog,
     composite_catalog: &AcceptedCompositeCatalog,
+    activation: Option<GeneratedConstraintActivationContext>,
     derived_state: SchemaReconcileDerivedState,
 ) -> Result<ReconciledRuntimeSchema, InternalError> {
     let proposal = compiled_schema_proposal_for_model(model);
@@ -807,7 +940,7 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
     };
 
     if let Some(actual) = latest {
-        let expected = derive_generated_accepted_candidate(&actual, &expected)
+        let expected = derive_generated_accepted_candidate(&actual, &expected, activation)
             .map_err(generated_accepted_candidate_error)?
             .unwrap_or(expected);
         let plan = match validate_existing_schema_snapshot(entity_path, &actual, &expected) {
@@ -835,7 +968,8 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
                 };
                 (expected, pending)
             }
-            SchemaTransitionPlanKind::MetadataOnlyFieldDefault => {
+            SchemaTransitionPlanKind::ConstraintActivation
+            | SchemaTransitionPlanKind::MetadataOnlyFieldDefault => {
                 validate_publishable_transition_plan(entity_path, &plan)?;
                 (expected, None)
             }
@@ -955,8 +1089,12 @@ fn validate_publishable_transition_plan(
 
 fn generated_accepted_candidate_error(error: GeneratedAcceptedCandidateError) -> InternalError {
     match error {
+        GeneratedAcceptedCandidateError::ConstraintCatalog => InternalError::store_unsupported(),
         GeneratedAcceptedCandidateError::RowLayoutVersionExhausted => {
             InternalError::schema_row_layout_version_exhausted()
+        }
+        GeneratedAcceptedCandidateError::StaleConstraintActivation => {
+            InternalError::schema_generated_constraint_activation_stale()
         }
     }
 }
@@ -1032,6 +1170,9 @@ const fn schema_transition_plan_outcome(kind: SchemaTransitionPlanKind) -> Schem
         SchemaTransitionPlanKind::AddExpressionIndex => SchemaTransitionOutcome::AddExpressionIndex,
         SchemaTransitionPlanKind::AddFieldPathIndex => SchemaTransitionOutcome::AddFieldPathIndex,
         SchemaTransitionPlanKind::AppendOnlyFields => SchemaTransitionOutcome::AppendOnlyFields,
+        SchemaTransitionPlanKind::ConstraintActivation => {
+            SchemaTransitionOutcome::ConstraintActivation
+        }
         SchemaTransitionPlanKind::ExactMatch => SchemaTransitionOutcome::ExactMatch,
         SchemaTransitionPlanKind::MetadataOnlyFieldDefault => {
             SchemaTransitionOutcome::MetadataOnlyFieldDefault

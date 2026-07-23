@@ -170,6 +170,14 @@ struct StorageWritePerfResult {
 
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 #[cfg(feature = "sql")]
+struct ConstraintActivationPerfResult {
+    no_check: StorageWritePerfResult,
+    add_check_local_instructions: u64,
+    add_check_rows_scanned: u64,
+}
+
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
 struct SqlWriteMaterializationPerfResult {
     local_instructions: [u64; 4],
     rows: [u32; 4],
@@ -1929,6 +1937,52 @@ fn measure_journaled_user_write_matrix_perf() -> Result<StorageWritePerfResult, 
     )
 }
 
+/// Measure the matched journaled typed-write path before and after one simple
+/// accepted check, including the exact bounded publication scan.
+#[cfg(feature = "sql")]
+#[update]
+fn measure_journaled_user_constraint_write_perf()
+-> Result<ConstraintActivationPerfResult, icydb::Error> {
+    let no_check = measure_storage_write_matrix::<PerfAuditJournaledUser, _>(
+        "journaled no-check write matrix",
+        70_000,
+        build_perf_audit_journaled_user,
+    )?;
+
+    let start = ic_cdk::api::performance_counter(1);
+    let add_result = db()?.execute_admin_sql_ddl::<PerfAuditJournaledUser>(
+        "ALTER TABLE PerfAuditJournaledUser ADD CONSTRAINT \
+         perf_audit_age_nonnegative CHECK (age >= 0) NOT VALID \
+         EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 2",
+    )?;
+    let add_check_local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let SqlQueryResult::Ddl {
+        rows_scanned: add_check_rows_scanned,
+        ..
+    } = add_result
+    else {
+        return Err(query_validate_error());
+    };
+
+    Ok(ConstraintActivationPerfResult {
+        no_check,
+        add_check_local_instructions,
+        add_check_rows_scanned,
+    })
+}
+
+/// Measure the journaled typed-write path after the preceding audit call has
+/// published its simple accepted check.
+#[cfg(feature = "sql")]
+#[update]
+fn measure_journaled_user_checked_write_perf() -> Result<StorageWritePerfResult, icydb::Error> {
+    measure_storage_write_matrix::<PerfAuditJournaledUser, _>(
+        "journaled checked write matrix",
+        90_000,
+        build_perf_audit_journaled_user,
+    )
+}
+
 /// Measure broad SQL write materialization shapes against heap storage.
 #[cfg(feature = "sql")]
 #[update]
@@ -3057,6 +3111,9 @@ fn focused_sql_row_count(result: &SqlQueryResult) -> u32 {
         }
         SqlQueryResult::ShowIndexes { indexes, .. } => {
             u32::try_from(indexes.len()).unwrap_or(u32::MAX)
+        }
+        SqlQueryResult::ShowConstraints { constraints, .. } => {
+            u32::try_from(constraints.len()).unwrap_or(u32::MAX)
         }
         SqlQueryResult::ShowColumns { columns, .. } => {
             u32::try_from(columns.len()).unwrap_or(u32::MAX)

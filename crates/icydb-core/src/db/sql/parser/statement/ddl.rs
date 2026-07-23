@@ -1,11 +1,12 @@
 use crate::db::{
     sql::parser::{
-        Parser, SqlAlterColumnAction, SqlAlterTableAddColumnStatement,
-        SqlAlterTableAlterColumnStatement, SqlAlterTableDropColumnStatement,
-        SqlAlterTableRenameColumnStatement, SqlCreateIndexExpressionFunction,
-        SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem, SqlCreateIndexStatement,
-        SqlCreateIndexUniqueness, SqlDdlSchemaVersionContract, SqlDdlStatement,
-        SqlDropIndexStatement,
+        Parser, SqlAlterColumnAction, SqlAlterTableAddCheckConstraintStatement,
+        SqlAlterTableAddColumnStatement, SqlAlterTableAlterColumnStatement,
+        SqlAlterTableDropColumnStatement, SqlAlterTableDropConstraintStatement,
+        SqlAlterTableRenameColumnStatement, SqlAlterTableValidateConstraintStatement,
+        SqlCreateIndexExpressionFunction, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
+        SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlSchemaVersionContract,
+        SqlDdlStatement, SqlDropIndexStatement,
     },
     sql_shared::{Keyword, SqlExpectedToken, SqlIntegerLiteralClause, SqlParseError, TokenKind},
 };
@@ -51,6 +52,16 @@ impl Parser {
         let entity = self.expect_identifier()?;
         let prefix_contract = self.parse_optional_ddl_schema_version_contract()?;
         if self.eat_identifier_keyword("ADD") {
+            if self.eat_identifier_keyword("CONSTRAINT") {
+                let mut statement =
+                    self.parse_alter_table_add_check_constraint_statement(entity)?;
+                statement.schema_version_contract = Self::merge_ddl_schema_version_contracts(
+                    prefix_contract,
+                    self.parse_optional_ddl_schema_version_contract()?,
+                )?;
+
+                return Ok(SqlDdlStatement::AlterTableAddCheckConstraint(statement));
+            }
             let mut statement = self.parse_alter_table_add_column_statement(entity)?;
             statement.schema_version_contract = Self::merge_ddl_schema_version_contracts(
                 prefix_contract,
@@ -60,6 +71,15 @@ impl Parser {
             return Ok(SqlDdlStatement::AlterTableAddColumn(statement));
         }
         if self.eat_keyword(Keyword::Drop) {
+            if self.eat_identifier_keyword("CONSTRAINT") {
+                let mut statement = self.parse_alter_table_drop_constraint_statement(entity)?;
+                statement.schema_version_contract = Self::merge_ddl_schema_version_contracts(
+                    prefix_contract,
+                    self.parse_optional_ddl_schema_version_contract()?,
+                )?;
+
+                return Ok(SqlDdlStatement::AlterTableDropConstraint(statement));
+            }
             let mut statement = self.parse_alter_table_drop_column_statement(entity)?;
             statement.schema_version_contract = Self::merge_ddl_schema_version_contracts(
                 prefix_contract,
@@ -86,6 +106,16 @@ impl Parser {
 
             return Ok(SqlDdlStatement::AlterTableRenameColumn(statement));
         }
+        if self.eat_identifier_keyword("VALIDATE") {
+            if prefix_contract != SqlDdlSchemaVersionContract::default() {
+                return Err(SqlParseError::unsupported_feature(
+                    SqlFeatureCode::AlterTableValidateConstraintModifiers,
+                ));
+            }
+            return self
+                .parse_alter_table_validate_constraint_statement(entity)
+                .map(SqlDdlStatement::AlterTableValidateConstraint);
+        }
 
         Err(SqlParseError::unsupported_feature(
             SqlFeatureCode::AlterTableUnsupportedOperation,
@@ -103,16 +133,108 @@ impl Parser {
             SqlDdlStatement::AlterTableAddColumn(_) => {
                 SqlParseError::unsupported_feature(SqlFeatureCode::AlterTableAddColumnModifiers)
             }
+            SqlDdlStatement::AlterTableAddCheckConstraint(_) => {
+                SqlParseError::unsupported_feature(SqlFeatureCode::AlterTableAddConstraintModifiers)
+            }
             SqlDdlStatement::AlterTableAlterColumn(_) => {
                 SqlParseError::unsupported_feature(SqlFeatureCode::AlterTableAlterColumnModifiers)
             }
             SqlDdlStatement::AlterTableDropColumn(_) => {
                 SqlParseError::unsupported_feature(SqlFeatureCode::AlterTableDropColumnModifiers)
             }
+            SqlDdlStatement::AlterTableDropConstraint(_) => SqlParseError::unsupported_feature(
+                SqlFeatureCode::AlterTableDropConstraintModifiers,
+            ),
             SqlDdlStatement::AlterTableRenameColumn(_) => {
                 SqlParseError::unsupported_feature(SqlFeatureCode::AlterTableRenameColumnModifiers)
             }
+            SqlDdlStatement::AlterTableValidateConstraint(_) => SqlParseError::unsupported_feature(
+                SqlFeatureCode::AlterTableValidateConstraintModifiers,
+            ),
         }
+    }
+
+    fn parse_alter_table_add_check_constraint_statement(
+        &mut self,
+        entity: String,
+    ) -> Result<SqlAlterTableAddCheckConstraintStatement, SqlParseError> {
+        let constraint_name = self.expect_identifier()?;
+        if !self.eat_identifier_keyword("CHECK") {
+            return Err(SqlParseError::unsupported_feature(
+                SqlFeatureCode::AlterTableAddConstraintBeyondCheck,
+            ));
+        }
+        self.expect_lparen()?;
+        let expression = self.parse_where_expr()?;
+        self.expect_rparen()?;
+        let not_valid = if self.eat_keyword(Keyword::Not) {
+            if !self.eat_identifier_keyword("VALID") {
+                return Err(SqlParseError::unsupported_feature(
+                    SqlFeatureCode::AlterTableAddConstraintModifiers,
+                ));
+            }
+            true
+        } else {
+            false
+        };
+
+        Ok(SqlAlterTableAddCheckConstraintStatement {
+            entity,
+            constraint_name,
+            expression,
+            not_valid,
+            schema_version_contract: SqlDdlSchemaVersionContract::default(),
+        })
+    }
+
+    fn parse_alter_table_drop_constraint_statement(
+        &mut self,
+        entity: String,
+    ) -> Result<SqlAlterTableDropConstraintStatement, SqlParseError> {
+        let if_exists = self.parse_drop_constraint_if_exists()?;
+        let constraint_name = self.expect_identifier()?;
+
+        Ok(SqlAlterTableDropConstraintStatement {
+            entity,
+            constraint_name,
+            if_exists,
+            schema_version_contract: SqlDdlSchemaVersionContract::default(),
+        })
+    }
+
+    fn parse_drop_constraint_if_exists(&mut self) -> Result<bool, SqlParseError> {
+        if self.eat_identifier_keyword("IF") {
+            if !self.eat_identifier_keyword("EXISTS") {
+                return Err(SqlParseError::unsupported_feature(
+                    SqlFeatureCode::AlterTableDropConstraintIfExistsSyntax,
+                ));
+            }
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    fn parse_alter_table_validate_constraint_statement(
+        &mut self,
+        entity: String,
+    ) -> Result<SqlAlterTableValidateConstraintStatement, SqlParseError> {
+        if !self.eat_identifier_keyword("CONSTRAINT") {
+            return Err(SqlParseError::unsupported_feature(
+                SqlFeatureCode::AlterTableValidateBeyondConstraint,
+            ));
+        }
+        let constraint_name = self.expect_identifier()?;
+        let after_page_sequence = if self.eat_identifier_keyword("AFTER") {
+            Some(self.parse_u64_literal(SqlIntegerLiteralClause::ConstraintPageSequence)?)
+        } else {
+            None
+        };
+
+        Ok(SqlAlterTableValidateConstraintStatement {
+            entity,
+            constraint_name,
+            after_page_sequence,
+        })
     }
 
     fn parse_create_index_statement(

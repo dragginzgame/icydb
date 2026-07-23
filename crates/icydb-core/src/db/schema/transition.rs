@@ -27,8 +27,9 @@ pub(in crate::db::schema) use admission::{
 use compatibility::{
     accepted_snapshot_extends_generated_indexes,
     accepted_snapshot_extends_generated_with_ddl_fields, accepted_snapshot_matches_generated_shape,
-    field_has_supported_historical_fill, generated_field_defaults_only_changed,
-    generated_field_follows_accepted_ddl_extension, generated_index_names_only_changed,
+    field_has_supported_historical_fill, generated_constraint_activations_only_changed,
+    generated_field_defaults_only_changed, generated_field_follows_accepted_ddl_extension,
+    generated_index_names_only_changed,
 };
 
 #[cfg(test)]
@@ -76,6 +77,7 @@ pub(in crate::db::schema) enum SchemaTransitionPlanKind {
     AddExpressionIndex,
     AddFieldPathIndex,
     AppendOnlyFields,
+    ConstraintActivation,
     ExactMatch,
     MetadataOnlyFieldDefault,
     MetadataOnlyIndexRename,
@@ -283,6 +285,12 @@ pub(in crate::db::schema) fn decide_schema_transition(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
 ) -> SchemaTransitionDecision {
+    if generated_constraint_activations_only_changed(actual, expected) {
+        return SchemaTransitionDecision::Accepted(SchemaTransitionPlan::from_mutation_request(
+            SchemaTransitionPlanKind::ConstraintActivation,
+            SchemaMutationRequest::ExactMatch,
+        ));
+    }
     if generated_index_names_only_changed(actual, expected) {
         return SchemaTransitionDecision::Accepted(SchemaTransitionPlan::from_mutation_request(
             SchemaTransitionPlanKind::MetadataOnlyIndexRename,

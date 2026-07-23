@@ -145,24 +145,6 @@ pub(super) fn stage_sql_ddl_user_index_domain_replacement(
     )
 }
 
-/// Resolve the accepted catalog's structural row contract for non-index SQL
-/// DDL that rewrites current rows.
-#[cfg(feature = "sql")]
-pub(super) fn catalog_backed_row_contract_for_sql_ddl(
-    store: StoreHandle,
-    accepted_before_identity: AcceptedCatalogIdentity,
-    accepted_before: &PersistedSchemaSnapshot,
-) -> Result<StructuralRowContract, InternalError> {
-    catalog_backed_row_authority(
-        store,
-        accepted_before_identity.entity_tag(),
-        accepted_before_identity.store_path(),
-        accepted_before_identity.entity_path(),
-        accepted_before,
-    )
-    .map(|(_, row_contract)| row_contract)
-}
-
 #[cfg(feature = "sql")]
 fn catalog_backed_row_authority(
     store: StoreHandle,

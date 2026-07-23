@@ -146,6 +146,32 @@ impl DdlSchemaVersion {
     ) -> Result<SqlQueryResult, Error> {
         ddl_sql(fixture, &ddl_expected_sql(sql, self.current))
     }
+
+    fn validate_constraint_to_completion(
+        &mut self,
+        fixture: &StandaloneCanisterFixture,
+        entity: &str,
+        constraint: &str,
+    ) -> Result<SqlQueryResult, Error> {
+        let sql = format!("ALTER TABLE {entity} VALIDATE CONSTRAINT {constraint}");
+        for _ in 0..4 {
+            let result = ddl_sql(fixture, sql.as_str())?;
+            if matches!(
+                &result,
+                SqlQueryResult::Ddl {
+                    constraint_validation: Some(validation),
+                    ..
+                } if validation.complete
+            ) {
+                self.current = self
+                    .current
+                    .checked_add(1)
+                    .expect("test schema version should fit u32");
+                return Ok(result);
+            }
+        }
+        panic!("bounded fixture validation should complete within four calls");
+    }
 }
 
 fn ddl_transition_sql(sql: &str, expected_schema_version: u32) -> String {
@@ -243,6 +269,28 @@ fn expect_show_indexes(result: SqlQueryResult) -> Vec<String> {
     }
 }
 
+fn active_constraint_name(
+    fixture: &StandaloneCanisterFixture,
+    entity: &str,
+    kind: &str,
+    field: &str,
+) -> String {
+    let sql = format!("SHOW CONSTRAINTS FROM {entity}");
+    let result = query_sql(fixture, sql.as_str()).expect("SHOW CONSTRAINTS should succeed");
+    let SqlQueryResult::ShowConstraints { constraints, .. } = result else {
+        panic!("SHOW CONSTRAINTS should return constraint metadata");
+    };
+    constraints
+        .into_iter()
+        .find(|constraint| {
+            constraint.kind() == kind
+                && constraint.validation_state() != "validated"
+                && constraint.fields() == [field.to_string()]
+        })
+        .map(|constraint| constraint.name().to_string())
+        .expect("live activation should be discoverable through SHOW CONSTRAINTS")
+}
+
 fn sql_test_user_id_by_name(fixture: &StandaloneCanisterFixture, name: &str) -> String {
     let sql = format!("SELECT id FROM SqlTestUser WHERE name = '{name}'");
     let output = expect_projection(
@@ -299,6 +347,7 @@ fn assert_rename_column_ddl_report(result: SqlQueryResult) {
         status,
         rows_scanned,
         index_keys_written,
+        ..
     } = result
     else {
         panic!("RENAME COLUMN should return a DDL payload");
@@ -403,10 +452,10 @@ fn assert_ddl_rejection_error(err: &Error, context: &str) {
     );
 
     match err.diagnostic_code() {
-        DiagnosticCode::SchemaDdlAdmission => assert!(
-            err.code().raw() >= ErrorCode::SCHEMA_DDL_MISSING_EXPECTED_SCHEMA_VERSION.raw()
-                && err.code().raw() <= ErrorCode::SCHEMA_DDL_SET_NOT_NULL_VALIDATION_FAILED.raw(),
-            "{context} should preserve a numeric schema DDL admission leaf code",
+        DiagnosticCode::SchemaDdlAdmission => assert_ne!(
+            err.code(),
+            ErrorCode::SCHEMA_DDL_ADMISSION,
+            "{context} should preserve a specific schema DDL admission leaf code",
         ),
         DiagnosticCode::QueryUnsupportedSqlFeature => assert!(
             err.code() != ErrorCode::QUERY_UNSUPPORTED_SQL_FEATURE,
@@ -1101,9 +1150,16 @@ fn sql_canister_ddl_endpoint_publishes_supported_unique_expression_index() {
     assert_eq!(mutation_kind, "add_expression_index");
     assert_eq!(target_index, "sql_test_user_lower_name_unique_idx");
     assert_eq!(field_path, vec!["LOWER(name)".to_string()]);
-    assert_eq!(status, "published");
-    assert_eq!(rows_scanned, 3);
-    assert_eq!(index_keys_written, 3);
+    assert_eq!(status, "activation_published");
+    assert_eq!(rows_scanned, 0);
+    assert_eq!(index_keys_written, 0);
+    schema_version
+        .validate_constraint_to_completion(
+            &fixture,
+            "SqlTestUser",
+            "sql_test_user_lower_name_unique_idx",
+        )
+        .expect("unique expression validation should promote the candidate index");
 
     let indexes = expect_show_indexes(query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser").expect(
         "SHOW INDEXES FROM should read accepted indexes after unique expression DDL publication",
@@ -1279,9 +1335,12 @@ fn sql_canister_ddl_endpoint_publishes_and_drops_supported_unique_field_path_ind
     assert_eq!(mutation_kind, "add_field_path_index");
     assert_eq!(target_index, "sql_test_user_unique_rank_idx");
     assert_eq!(field_path, vec!["rank".to_string()]);
-    assert_eq!(status, "published");
-    assert_eq!(rows_scanned, 3);
-    assert_eq!(index_keys_written, 3);
+    assert_eq!(status, "activation_published");
+    assert_eq!(rows_scanned, 0);
+    assert_eq!(index_keys_written, 0);
+    schema_version
+        .validate_constraint_to_completion(&fixture, "SqlTestUser", "sql_test_user_unique_rank_idx")
+        .expect("unique field-path validation should promote the candidate index");
 
     let indexes = expect_show_indexes(
         query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
@@ -1958,9 +2017,13 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_nullability() {
     };
     assert_eq!(mutation_kind, "set_field_not_null");
     assert_eq!(target_index, "nickname");
-    assert_eq!(status, "published");
-    assert_eq!(rows_scanned, 3);
+    assert_eq!(status, "activation_published");
+    assert_eq!(rows_scanned, 0);
     assert_eq!(index_keys_written, 0);
+    let constraint_name = active_constraint_name(&fixture, "SqlTestUser", "not_null", "nickname");
+    schema_version
+        .validate_constraint_to_completion(&fixture, "SqlTestUser", constraint_name.as_str())
+        .expect("bounded SET NOT NULL validation should promote the accepted constraint");
 
     let describe_after_set = expect_describe(
         query_sql(&fixture, "DESCRIBE SqlTestUser")
@@ -2039,10 +2102,6 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publicatio
         (
             "ALTER TABLE SqlTestUser ALTER COLUMN rank DROP NOT NULL",
             ErrorCode::SCHEMA_DDL_GENERATED_FIELD_NULLABILITY_CHANGE_REJECTED,
-        ),
-        (
-            "ALTER TABLE SqlTestUser ALTER COLUMN bonus SET NOT NULL",
-            ErrorCode::SCHEMA_DDL_SET_NOT_NULL_VALIDATION_FAILED,
         ),
     ] {
         let before = expect_describe(

@@ -31,7 +31,8 @@ pub use session::{
 
 // Public core DTOs intentionally carried through the facade database surface.
 pub use icydb_core::db::{
-    AdminBatchRequest, DataStoreSnapshot, EntityCatalogCounts, EntityCatalogDescription,
+    AdminBatchRequest, ConstraintValidationProgressDescription, DataStoreSnapshot,
+    EntityCatalogCounts, EntityCatalogDescription, EntityConstraintDescription,
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
     EntityRelationDescription, EntitySchemaCheckDescription, EntitySchemaDescription,
     ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,

@@ -270,7 +270,7 @@ pub(in crate::db) struct AcceptedFieldPersistenceContract<'a> {
 
 impl<'a> AcceptedFieldPersistenceContract<'a> {
     /// Pair one schema-owned field contract with its accepted catalog.
-    pub(super) fn new(
+    pub(in crate::db) fn new(
         value_catalog: &'a AcceptedValueCatalogHandle,
         field: AcceptedFieldDecodeContract<'a>,
     ) -> Result<Self, EnumCatalogBuildError> {
@@ -428,6 +428,7 @@ impl OwnedAcceptedFieldDecodeContract {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct OwnedAcceptedRelationEdgeContract {
     name: String,
+    physical_generation: u64,
     target_path: String,
     local_field_slots: Vec<usize>,
 }
@@ -447,6 +448,7 @@ impl OwnedAcceptedRelationEdgeContract {
 
         Ok(Self {
             name: relation.name().to_string(),
+            physical_generation: relation.physical_generation(),
             target_path: relation.target_path().to_string(),
             local_field_slots,
         })
@@ -456,6 +458,12 @@ impl OwnedAcceptedRelationEdgeContract {
     #[must_use]
     pub(in crate::db) const fn name(&self) -> &str {
         self.name.as_str()
+    }
+
+    /// Return the accepted reverse-index generation for this relation edge.
+    #[must_use]
+    pub(in crate::db) const fn physical_generation(&self) -> u64 {
+        self.physical_generation
     }
 
     /// Borrow the accepted target entity path.

@@ -5,15 +5,18 @@
 
 use crate::{
     db::schema::{
-        AcceptedFieldKind, ConstraintIdAllocator, FieldId, PersistedFieldOrigin,
-        PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
-        PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-        PersistedIndexOrigin, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
-        PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId, RowLayoutVersion,
-        SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaIndexId,
-        SchemaInsertDefault, SchemaRowLayout, SchemaVersion, composite_catalog::CompositeTypeId,
-        schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
-        schema_snapshot_relation_integrity_detail,
+        AcceptedCheckCompareOpV1, AcceptedCheckExprV1, AcceptedCheckLiteralV1,
+        AcceptedCheckValueExprV1, AcceptedConstraintCatalog, AcceptedConstraintKind,
+        AcceptedConstraintSnapshot, AcceptedFieldKind, AcceptedSchemaFingerprint,
+        ConstraintActivationFingerprint, ConstraintActivationKind, ConstraintActivationSnapshot,
+        ConstraintActivationState, ConstraintId, ConstraintIdAllocator, ConstraintOrigin, FieldId,
+        PersistedFieldOrigin, PersistedFieldSnapshot, PersistedIndexExpressionOp,
+        PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
+        PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexOrigin,
+        PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
+        PersistedSchemaSnapshot, RelationId, RowLayoutVersion, SchemaFieldSlot,
+        SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaIndexId, SchemaInsertDefault,
+        SchemaRowLayout, SchemaVersion, composite_catalog::CompositeTypeId,
     },
     error::InternalError,
     model::field::{
@@ -43,7 +46,7 @@ use candid::{CandidType, Decode, Encode};
 use serde::Deserialize;
 
 const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 1;
-const SCHEMA_SNAPSHOT_CONTRACT_PROFILE: u32 = u32::from_be_bytes(*b"ICYU");
+const SCHEMA_SNAPSHOT_CONTRACT_PROFILE: u32 = u32::from_be_bytes(*b"ICYZ");
 
 // Candid wire container for one persisted schema snapshot.
 //
@@ -59,9 +62,135 @@ struct PersistedSchemaSnapshotWire {
     primary_key_field_ids: Vec<u32>,
     row_layout: SchemaRowLayoutWire,
     constraint_id_high_water: u32,
+    constraints: Vec<AcceptedConstraintSnapshotWire>,
+    activations: Vec<ConstraintActivationSnapshotWire>,
     fields: Vec<PersistedFieldSnapshotWire>,
     indexes: Vec<PersistedIndexSnapshotWire>,
     relations: Vec<PersistedRelationEdgeSnapshotWire>,
+    candidate_indexes: Vec<PersistedIndexSnapshotWire>,
+    candidate_relations: Vec<PersistedRelationEdgeSnapshotWire>,
+}
+
+// Candid wire container for one accepted constraint registry entry.
+#[derive(CandidType, Deserialize)]
+struct AcceptedConstraintSnapshotWire {
+    id: u32,
+    name: String,
+    origin: ConstraintOriginWire,
+    kind: AcceptedConstraintKindWire,
+}
+
+// Candid wire container for one live accepted-schema activation.
+#[derive(CandidType, Deserialize)]
+struct ConstraintActivationSnapshotWire {
+    id: u32,
+    name: String,
+    origin: ConstraintOriginWire,
+    kind: ConstraintActivationKindWire,
+    state: ConstraintActivationStateWire,
+    base_schema_fingerprint: [u8; 32],
+    activation_epoch: u64,
+    fingerprint: [u8; 32],
+}
+
+// Candid wire enum for candidate constraint semantics.
+#[derive(CandidType, Deserialize)]
+enum ConstraintActivationKindWire {
+    NotNull {
+        field_id: u32,
+    },
+    Unique {
+        index_id: u32,
+    },
+    Relation {
+        relation_id: u32,
+    },
+    Check {
+        expression: Box<AcceptedCheckExprV1Wire>,
+    },
+}
+
+// Candid wire enum for the two live activation phases.
+#[derive(CandidType, Deserialize)]
+enum ConstraintActivationStateWire {
+    EnforcingNewWrites,
+    Validating,
+}
+
+// Candid wire enum for accepted constraint ownership.
+#[derive(CandidType, Deserialize)]
+enum ConstraintOriginWire {
+    Generated,
+    SqlDdl,
+}
+
+// Candid wire enum for one accepted structural constraint reference.
+#[derive(CandidType, Deserialize)]
+enum AcceptedConstraintKindWire {
+    PrimaryKey,
+    NotNull {
+        field_id: u32,
+    },
+    Unique {
+        index_id: u32,
+    },
+    Relation {
+        relation_id: u32,
+    },
+    Check {
+        expression: Box<AcceptedCheckExprV1Wire>,
+    },
+}
+
+// Candid wire enum for the bounded canonical check expression.
+#[derive(CandidType, Deserialize)]
+enum AcceptedCheckExprV1Wire {
+    True,
+    False,
+    Not(Box<Self>),
+    And(Vec<Self>),
+    Or(Vec<Self>),
+    Compare {
+        left: AcceptedCheckValueExprV1Wire,
+        op: AcceptedCheckCompareOpV1Wire,
+        right: AcceptedCheckValueExprV1Wire,
+    },
+    IsNull(AcceptedCheckValueExprV1Wire),
+    IsNotNull(AcceptedCheckValueExprV1Wire),
+    MultipleOf {
+        value: AcceptedCheckValueExprV1Wire,
+        factor: AcceptedCheckLiteralV1Wire,
+    },
+}
+
+// Candid wire enum for one canonical check value operand.
+#[derive(CandidType, Deserialize)]
+enum AcceptedCheckValueExprV1Wire {
+    Field(u32),
+    Literal(AcceptedCheckLiteralV1Wire),
+    CharLength(u32),
+    OctetLength(u32),
+    Cardinality(u32),
+}
+
+// Candid wire container for one exact accepted literal payload.
+#[derive(CandidType, Deserialize)]
+struct AcceptedCheckLiteralV1Wire {
+    kind: AcceptedFieldKindWire,
+    storage_decode: FieldStorageDecodeWire,
+    leaf_codec: LeafCodecWire,
+    payload: Vec<u8>,
+}
+
+// Candid wire enum for one exact comparison operation.
+#[derive(CandidType, Deserialize)]
+enum AcceptedCheckCompareOpV1Wire {
+    Eq,
+    Ne,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
 }
 
 // Candid wire container for schema row-layout identity.
@@ -110,6 +239,7 @@ struct PersistedNestedLeafSnapshotWire {
 struct PersistedIndexSnapshotWire {
     schema_id: u32,
     ordinal: u16,
+    physical_generation: u64,
     name: String,
     store: String,
     unique: bool,
@@ -122,6 +252,7 @@ struct PersistedIndexSnapshotWire {
 #[derive(CandidType, Deserialize)]
 struct PersistedRelationEdgeSnapshotWire {
     relation_id: u32,
+    physical_generation: u64,
     name: String,
     target_path: String,
     local_field_ids: Vec<u32>,
@@ -314,6 +445,19 @@ enum ScalarCodecWire {
 pub(in crate::db) fn encode_persisted_schema_snapshot(
     snapshot: &PersistedSchemaSnapshot,
 ) -> Result<Vec<u8>, InternalError> {
+    if !snapshot.has_valid_integrity() {
+        return Err(InternalError::store_invariant());
+    }
+    let wire = PersistedSchemaSnapshotWire::from_snapshot(snapshot);
+
+    Encode!(&wire).map_err(|_| InternalError::store_corruption())
+}
+
+/// Encode an intentionally malformed typed fixture for raw decode-boundary tests.
+#[cfg(test)]
+pub(in crate::db) fn encode_unchecked_persisted_schema_snapshot_for_tests(
+    snapshot: &PersistedSchemaSnapshot,
+) -> Result<Vec<u8>, InternalError> {
     let wire = PersistedSchemaSnapshotWire::from_snapshot(snapshot);
 
     Encode!(&wire).map_err(|_| InternalError::store_corruption())
@@ -347,6 +491,16 @@ impl PersistedSchemaSnapshotWire {
                 .collect(),
             row_layout: SchemaRowLayoutWire::from_layout(snapshot.row_layout()),
             constraint_id_high_water: snapshot.constraint_id_allocator().high_water(),
+            constraints: snapshot
+                .constraints()
+                .iter()
+                .map(AcceptedConstraintSnapshotWire::from_constraint)
+                .collect(),
+            activations: snapshot
+                .constraint_activations()
+                .iter()
+                .map(ConstraintActivationSnapshotWire::from_activation)
+                .collect(),
             fields: snapshot
                 .fields()
                 .iter()
@@ -359,6 +513,16 @@ impl PersistedSchemaSnapshotWire {
                 .collect(),
             relations: snapshot
                 .relations()
+                .iter()
+                .map(PersistedRelationEdgeSnapshotWire::from_relation)
+                .collect(),
+            candidate_indexes: snapshot
+                .candidate_indexes()
+                .iter()
+                .map(PersistedIndexSnapshotWire::from_index)
+                .collect(),
+            candidate_relations: snapshot
+                .candidate_relations()
                 .iter()
                 .map(PersistedRelationEdgeSnapshotWire::from_relation)
                 .collect(),
@@ -394,53 +558,344 @@ impl PersistedSchemaSnapshotWire {
             .into_iter()
             .map(PersistedRelationEdgeSnapshotWire::into_relation)
             .collect::<Result<Vec<_>, _>>()?;
-        if schema_snapshot_integrity_detail(
-            "persisted schema snapshot",
+        let candidate_indexes = self
+            .candidate_indexes
+            .into_iter()
+            .map(PersistedIndexSnapshotWire::into_index)
+            .collect::<Result<Vec<_>, _>>()?;
+        let candidate_relations = self
+            .candidate_relations
+            .into_iter()
+            .map(PersistedRelationEdgeSnapshotWire::into_relation)
+            .collect::<Result<Vec<_>, _>>()?;
+        let constraints = self
+            .constraints
+            .into_iter()
+            .map(AcceptedConstraintSnapshotWire::into_constraint)
+            .collect::<Result<Vec<_>, _>>()?;
+        let activations = self
+            .activations
+            .into_iter()
+            .map(ConstraintActivationSnapshotWire::into_activation)
+            .collect::<Result<Vec<_>, _>>()?;
+        let constraint_catalog = AcceptedConstraintCatalog::from_persisted_parts(
+            ConstraintIdAllocator::new(self.constraint_id_high_water),
+            constraints,
+            activations,
+        );
+        let snapshot = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
             version,
-            primary_key_field_ids.as_slice(),
-            &row_layout,
-            &fields,
+            self.entity_path,
+            self.entity_name,
+            primary_key_field_ids,
+            row_layout,
+            fields,
+            indexes,
         )
-        .is_some()
-        {
+        .with_constraint_catalog(constraint_catalog)
+        .with_relations(relations)
+        .with_constraint_candidates(candidate_indexes, candidate_relations);
+        if !snapshot.has_valid_integrity() {
             return Err(InternalError::store_corruption());
         }
 
-        if schema_snapshot_index_integrity_detail(
-            "persisted schema snapshot",
-            &row_layout,
-            &fields,
-            &indexes,
-        )
-        .is_some()
-        {
-            return Err(InternalError::store_corruption());
-        }
+        Ok(snapshot)
+    }
+}
 
-        if schema_snapshot_relation_integrity_detail(
-            "persisted schema snapshot",
-            &row_layout,
-            &fields,
-            &relations,
-        )
-        .is_some()
-        {
-            return Err(InternalError::store_corruption());
+impl ConstraintActivationSnapshotWire {
+    fn from_activation(activation: &ConstraintActivationSnapshot) -> Self {
+        Self {
+            id: activation.id().get(),
+            name: activation.name().to_string(),
+            origin: ConstraintOriginWire::from_origin(activation.origin()),
+            kind: ConstraintActivationKindWire::from_kind(activation.kind()),
+            state: ConstraintActivationStateWire::from_state(activation.state()),
+            base_schema_fingerprint: activation.base_schema_fingerprint().as_bytes(),
+            activation_epoch: activation.activation_epoch(),
+            fingerprint: activation.fingerprint().as_bytes(),
         }
+    }
 
-        Ok(
-            PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-                version,
-                self.entity_path,
-                self.entity_name,
-                primary_key_field_ids,
-                row_layout,
-                fields,
-                indexes,
-            )
-            .with_constraint_id_allocator(ConstraintIdAllocator::new(self.constraint_id_high_water))
-            .with_relations(relations),
-        )
+    fn into_activation(self) -> Result<ConstraintActivationSnapshot, InternalError> {
+        let id = ConstraintId::new(self.id).ok_or_else(InternalError::store_corruption)?;
+        Ok(ConstraintActivationSnapshot::from_persisted_parts(
+            id,
+            self.name,
+            self.origin.into_origin(),
+            self.kind.into_kind()?,
+            self.state.into_state(),
+            AcceptedSchemaFingerprint::new(self.base_schema_fingerprint),
+            self.activation_epoch,
+            ConstraintActivationFingerprint::new(self.fingerprint),
+        ))
+    }
+}
+
+impl ConstraintActivationKindWire {
+    fn from_kind(kind: &ConstraintActivationKind) -> Self {
+        match kind {
+            ConstraintActivationKind::NotNull { field_id } => Self::NotNull {
+                field_id: field_id.get(),
+            },
+            ConstraintActivationKind::Unique { index_id } => Self::Unique {
+                index_id: index_id.get(),
+            },
+            ConstraintActivationKind::Relation { relation_id } => Self::Relation {
+                relation_id: relation_id.get(),
+            },
+            ConstraintActivationKind::Check { expression } => Self::Check {
+                expression: Box::new(AcceptedCheckExprV1Wire::from_expression(expression)),
+            },
+        }
+    }
+
+    fn into_kind(self) -> Result<ConstraintActivationKind, InternalError> {
+        match self {
+            Self::NotNull { field_id } => Ok(ConstraintActivationKind::NotNull {
+                field_id: FieldId::new(field_id),
+            }),
+            Self::Unique { index_id } => Ok(ConstraintActivationKind::Unique {
+                index_id: SchemaIndexId::new(index_id)
+                    .ok_or_else(InternalError::store_corruption)?,
+            }),
+            Self::Relation { relation_id } => Ok(ConstraintActivationKind::Relation {
+                relation_id: RelationId::new(relation_id)
+                    .ok_or_else(InternalError::store_corruption)?,
+            }),
+            Self::Check { expression } => Ok(ConstraintActivationKind::Check {
+                expression: Box::new((*expression).into_expression()?),
+            }),
+        }
+    }
+}
+
+impl ConstraintActivationStateWire {
+    const fn from_state(state: ConstraintActivationState) -> Self {
+        match state {
+            ConstraintActivationState::EnforcingNewWrites => Self::EnforcingNewWrites,
+            ConstraintActivationState::Validating => Self::Validating,
+        }
+    }
+
+    const fn into_state(self) -> ConstraintActivationState {
+        match self {
+            Self::EnforcingNewWrites => ConstraintActivationState::EnforcingNewWrites,
+            Self::Validating => ConstraintActivationState::Validating,
+        }
+    }
+}
+
+impl AcceptedConstraintSnapshotWire {
+    fn from_constraint(constraint: &AcceptedConstraintSnapshot) -> Self {
+        Self {
+            id: constraint.id().get(),
+            name: constraint.name().to_string(),
+            origin: ConstraintOriginWire::from_origin(constraint.origin()),
+            kind: AcceptedConstraintKindWire::from_kind(constraint.kind()),
+        }
+    }
+
+    fn into_constraint(self) -> Result<AcceptedConstraintSnapshot, InternalError> {
+        let id = ConstraintId::new(self.id).ok_or_else(InternalError::store_corruption)?;
+        Ok(AcceptedConstraintSnapshot::new(
+            id,
+            self.name,
+            self.origin.into_origin(),
+            self.kind.into_kind()?,
+        ))
+    }
+}
+
+impl ConstraintOriginWire {
+    const fn from_origin(origin: ConstraintOrigin) -> Self {
+        match origin {
+            ConstraintOrigin::Generated => Self::Generated,
+            ConstraintOrigin::SqlDdl => Self::SqlDdl,
+        }
+    }
+
+    const fn into_origin(self) -> ConstraintOrigin {
+        match self {
+            Self::Generated => ConstraintOrigin::Generated,
+            Self::SqlDdl => ConstraintOrigin::SqlDdl,
+        }
+    }
+}
+
+impl AcceptedConstraintKindWire {
+    fn from_kind(kind: &AcceptedConstraintKind) -> Self {
+        match kind {
+            AcceptedConstraintKind::PrimaryKey => Self::PrimaryKey,
+            AcceptedConstraintKind::NotNull { field_id } => Self::NotNull {
+                field_id: field_id.get(),
+            },
+            AcceptedConstraintKind::Unique { index_id } => Self::Unique {
+                index_id: index_id.get(),
+            },
+            AcceptedConstraintKind::Relation { relation_id } => Self::Relation {
+                relation_id: relation_id.get(),
+            },
+            AcceptedConstraintKind::Check { expression } => Self::Check {
+                expression: Box::new(AcceptedCheckExprV1Wire::from_expression(expression)),
+            },
+        }
+    }
+
+    fn into_kind(self) -> Result<AcceptedConstraintKind, InternalError> {
+        match self {
+            Self::PrimaryKey => Ok(AcceptedConstraintKind::PrimaryKey),
+            Self::NotNull { field_id } => Ok(AcceptedConstraintKind::NotNull {
+                field_id: FieldId::new(field_id),
+            }),
+            Self::Unique { index_id } => Ok(AcceptedConstraintKind::Unique {
+                index_id: SchemaIndexId::new(index_id)
+                    .ok_or_else(InternalError::store_corruption)?,
+            }),
+            Self::Relation { relation_id } => Ok(AcceptedConstraintKind::Relation {
+                relation_id: RelationId::new(relation_id)
+                    .ok_or_else(InternalError::store_corruption)?,
+            }),
+            Self::Check { expression } => Ok(AcceptedConstraintKind::Check {
+                expression: Box::new((*expression).into_expression()?),
+            }),
+        }
+    }
+}
+
+impl AcceptedCheckExprV1Wire {
+    fn from_expression(expression: &AcceptedCheckExprV1) -> Self {
+        match expression {
+            AcceptedCheckExprV1::True => Self::True,
+            AcceptedCheckExprV1::False => Self::False,
+            AcceptedCheckExprV1::Not(inner) => Self::Not(Box::new(Self::from_expression(inner))),
+            AcceptedCheckExprV1::And(children) => {
+                Self::And(children.iter().map(Self::from_expression).collect())
+            }
+            AcceptedCheckExprV1::Or(children) => {
+                Self::Or(children.iter().map(Self::from_expression).collect())
+            }
+            AcceptedCheckExprV1::Compare { left, op, right } => Self::Compare {
+                left: AcceptedCheckValueExprV1Wire::from_value(left),
+                op: AcceptedCheckCompareOpV1Wire::from_op(*op),
+                right: AcceptedCheckValueExprV1Wire::from_value(right),
+            },
+            AcceptedCheckExprV1::IsNull(value) => {
+                Self::IsNull(AcceptedCheckValueExprV1Wire::from_value(value))
+            }
+            AcceptedCheckExprV1::IsNotNull(value) => {
+                Self::IsNotNull(AcceptedCheckValueExprV1Wire::from_value(value))
+            }
+            AcceptedCheckExprV1::MultipleOf { value, factor } => Self::MultipleOf {
+                value: AcceptedCheckValueExprV1Wire::from_value(value),
+                factor: AcceptedCheckLiteralV1Wire::from_literal(factor),
+            },
+        }
+    }
+
+    fn into_expression(self) -> Result<AcceptedCheckExprV1, InternalError> {
+        Ok(match self {
+            Self::True => AcceptedCheckExprV1::True,
+            Self::False => AcceptedCheckExprV1::False,
+            Self::Not(inner) => AcceptedCheckExprV1::Not(Box::new((*inner).into_expression()?)),
+            Self::And(children) => AcceptedCheckExprV1::And(
+                children
+                    .into_iter()
+                    .map(Self::into_expression)
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+            Self::Or(children) => AcceptedCheckExprV1::Or(
+                children
+                    .into_iter()
+                    .map(Self::into_expression)
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+            Self::Compare { left, op, right } => AcceptedCheckExprV1::Compare {
+                left: left.into_value()?,
+                op: op.into_op(),
+                right: right.into_value()?,
+            },
+            Self::IsNull(value) => AcceptedCheckExprV1::IsNull(value.into_value()?),
+            Self::IsNotNull(value) => AcceptedCheckExprV1::IsNotNull(value.into_value()?),
+            Self::MultipleOf { value, factor } => AcceptedCheckExprV1::MultipleOf {
+                value: value.into_value()?,
+                factor: factor.into_literal()?,
+            },
+        })
+    }
+}
+
+impl AcceptedCheckValueExprV1Wire {
+    fn from_value(value: &AcceptedCheckValueExprV1) -> Self {
+        match value {
+            AcceptedCheckValueExprV1::Field(field_id) => Self::Field(field_id.get()),
+            AcceptedCheckValueExprV1::Literal(literal) => {
+                Self::Literal(AcceptedCheckLiteralV1Wire::from_literal(literal))
+            }
+            AcceptedCheckValueExprV1::CharLength(field_id) => Self::CharLength(field_id.get()),
+            AcceptedCheckValueExprV1::OctetLength(field_id) => Self::OctetLength(field_id.get()),
+            AcceptedCheckValueExprV1::Cardinality(field_id) => Self::Cardinality(field_id.get()),
+        }
+    }
+
+    fn into_value(self) -> Result<AcceptedCheckValueExprV1, InternalError> {
+        Ok(match self {
+            Self::Field(field_id) => AcceptedCheckValueExprV1::Field(FieldId::new(field_id)),
+            Self::Literal(literal) => AcceptedCheckValueExprV1::Literal(literal.into_literal()?),
+            Self::CharLength(field_id) => {
+                AcceptedCheckValueExprV1::CharLength(FieldId::new(field_id))
+            }
+            Self::OctetLength(field_id) => {
+                AcceptedCheckValueExprV1::OctetLength(FieldId::new(field_id))
+            }
+            Self::Cardinality(field_id) => {
+                AcceptedCheckValueExprV1::Cardinality(FieldId::new(field_id))
+            }
+        })
+    }
+}
+
+impl AcceptedCheckLiteralV1Wire {
+    fn from_literal(literal: &AcceptedCheckLiteralV1) -> Self {
+        Self {
+            kind: AcceptedFieldKindWire::from_kind(literal.kind()),
+            storage_decode: FieldStorageDecodeWire::from_storage_decode(literal.storage_decode()),
+            leaf_codec: LeafCodecWire::from_leaf_codec(literal.leaf_codec()),
+            payload: literal.payload().to_vec(),
+        }
+    }
+
+    fn into_literal(self) -> Result<AcceptedCheckLiteralV1, InternalError> {
+        Ok(AcceptedCheckLiteralV1::from_accepted_parts(
+            self.kind.into_kind()?,
+            self.storage_decode.into_storage_decode(),
+            self.leaf_codec.into_leaf_codec(),
+            self.payload,
+        ))
+    }
+}
+
+impl AcceptedCheckCompareOpV1Wire {
+    const fn from_op(op: AcceptedCheckCompareOpV1) -> Self {
+        match op {
+            AcceptedCheckCompareOpV1::Eq => Self::Eq,
+            AcceptedCheckCompareOpV1::Ne => Self::Ne,
+            AcceptedCheckCompareOpV1::Lt => Self::Lt,
+            AcceptedCheckCompareOpV1::Lte => Self::Lte,
+            AcceptedCheckCompareOpV1::Gt => Self::Gt,
+            AcceptedCheckCompareOpV1::Gte => Self::Gte,
+        }
+    }
+
+    const fn into_op(self) -> AcceptedCheckCompareOpV1 {
+        match self {
+            Self::Eq => AcceptedCheckCompareOpV1::Eq,
+            Self::Ne => AcceptedCheckCompareOpV1::Ne,
+            Self::Lt => AcceptedCheckCompareOpV1::Lt,
+            Self::Lte => AcceptedCheckCompareOpV1::Lte,
+            Self::Gt => AcceptedCheckCompareOpV1::Gt,
+            Self::Gte => AcceptedCheckCompareOpV1::Gte,
+        }
     }
 }
 
@@ -561,6 +1016,7 @@ impl PersistedIndexSnapshotWire {
         Self {
             schema_id: index.schema_id().get(),
             ordinal: index.ordinal(),
+            physical_generation: index.physical_generation(),
             name: index.name().to_string(),
             store: index.store().to_string(),
             unique: index.unique(),
@@ -573,8 +1029,9 @@ impl PersistedIndexSnapshotWire {
     fn into_index(self) -> Result<PersistedIndexSnapshot, InternalError> {
         let schema_id =
             SchemaIndexId::new(self.schema_id).ok_or_else(InternalError::store_corruption)?;
+        let physical_generation = self.physical_generation;
         let key = self.key.into_key()?;
-        Ok(match self.origin.into_origin() {
+        let index = match self.origin.into_origin() {
             PersistedIndexOrigin::Generated => PersistedIndexSnapshot::new(
                 schema_id,
                 self.ordinal,
@@ -593,7 +1050,8 @@ impl PersistedIndexSnapshotWire {
                 key,
                 self.predicate_sql,
             ),
-        })
+        };
+        Ok(index.clone_with_schema_identity(schema_id, self.ordinal, physical_generation))
     }
 }
 
@@ -617,6 +1075,7 @@ impl PersistedRelationEdgeSnapshotWire {
     fn from_relation(relation: &PersistedRelationEdgeSnapshot) -> Self {
         Self {
             relation_id: relation.id().get(),
+            physical_generation: relation.physical_generation(),
             name: relation.name().to_string(),
             target_path: relation.target_path().to_string(),
             local_field_ids: relation
@@ -635,7 +1094,8 @@ impl PersistedRelationEdgeSnapshotWire {
             self.name,
             self.target_path,
             self.local_field_ids.into_iter().map(FieldId::new).collect(),
-        ))
+        )
+        .clone_with_physical_generation(self.physical_generation))
     }
 }
 

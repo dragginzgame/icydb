@@ -1,6 +1,46 @@
 use super::*;
 
 #[test]
+fn sql_owned_check_activation_is_not_relowered_as_generated_authority() {
+    let generated = base_snapshot();
+    let catalog = generated
+        .constraint_catalog()
+        .clone()
+        .with_added_check_activation(
+            "ddl_check".to_string(),
+            ConstraintOrigin::SqlDdl,
+            AcceptedCheckExprV1::True,
+            AcceptedSchemaFingerprint::new([0xA5; 32]),
+            2,
+        )
+        .expect("SQL-owned test activation should build");
+    let accepted = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+        SchemaVersion::new(2),
+        generated.entity_path().to_string(),
+        generated.entity_name().to_string(),
+        generated.primary_key_field_ids().to_vec(),
+        generated.row_layout().clone(),
+        generated.fields().to_vec(),
+        generated.indexes().to_vec(),
+    )
+    .with_constraint_catalog(catalog)
+    .with_relations(generated.relations().to_vec());
+
+    assert_eq!(
+        derive_generated_accepted_candidate(
+            &accepted,
+            &generated,
+            Some(GeneratedConstraintActivationContext::new(
+                AcceptedSchemaFingerprint::new([0x5A; 32]),
+                3,
+            )),
+        ),
+        Ok(None),
+        "SQL DDL activation must remain accepted-only authority",
+    );
+}
+
+#[test]
 fn metadata_mutation_plan_is_immediately_publishable() {
     let field = nullable_text_field("nickname", 3, 2);
     let fields = [field];
@@ -198,6 +238,46 @@ fn snapshot_delta_request_lowers_only_current_plan_shapes() {
         schema_mutation_request_for_snapshots(&stored, &multiple),
         None
     );
+
+    let indexed_stored = snapshot_with_indexes(&stored, vec![non_unique_name_index()]);
+    let preserved_append = append_fields_snapshot(&indexed_stored, std::slice::from_ref(&added));
+    let append_that_drops_index = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+        preserved_append.version(),
+        preserved_append.entity_path().to_string(),
+        preserved_append.entity_name().to_string(),
+        preserved_append.primary_key_field_ids().to_vec(),
+        preserved_append.row_layout().clone(),
+        preserved_append.fields().to_vec(),
+        Vec::new(),
+    )
+    .with_constraint_catalog(preserved_append.constraint_catalog().clone())
+    .with_relations(preserved_append.relations().to_vec());
+    assert_eq!(
+        classify_schema_mutation_delta(&indexed_stored, &append_that_drops_index),
+        SchemaMutationDelta::Incompatible,
+        "append-only classification must keep unrelated accepted indexes exact",
+    );
+
+    let allocator_drift = snapshot_with_indexes(
+        &stored
+            .clone_with_version(stored.version())
+            .with_constraint_catalog(AcceptedConstraintCatalog::from_persisted_parts(
+                ConstraintIdAllocator::new(
+                    stored
+                        .constraint_id_allocator()
+                        .high_water()
+                        .saturating_add(1),
+                ),
+                stored.constraints().to_vec(),
+                Vec::new(),
+            )),
+        vec![non_unique_name_index()],
+    );
+    assert_eq!(
+        classify_schema_mutation_delta(&stored, &allocator_drift),
+        SchemaMutationDelta::Incompatible,
+        "index-addition classification must keep constraint allocator state exact",
+    );
 }
 
 #[test]
@@ -264,7 +344,7 @@ fn physical_field_changes_preserve_row_layout_exhaustion_causes() {
         [base.fields(), std::slice::from_ref(&added)].concat(),
     );
     assert_eq!(
-        derive_generated_accepted_candidate(&max_layout_snapshot, &generated),
+        derive_generated_accepted_candidate(&max_layout_snapshot, &generated, None),
         Err(GeneratedAcceptedCandidateError::RowLayoutVersionExhausted),
         "generated additive reconciliation must preserve the same typed cause",
     );
@@ -342,14 +422,20 @@ fn metadata_default_changes_remain_available_at_row_layout_exhaustion() {
 #[test]
 #[cfg(feature = "sql")]
 fn accepted_after_derivations_preserve_structural_identity_state() {
-    let before = base_snapshot()
-        .with_constraint_id_allocator(ConstraintIdAllocator::new(17))
-        .with_relations(vec![PersistedRelationEdgeSnapshot::new(
-            RelationId::new(9).expect("test relation identity should be non-zero"),
-            "owner".to_string(),
-            "test::Owner".to_string(),
-            vec![FieldId::new(2)],
-        )]);
+    let before = base_snapshot().with_relations(vec![PersistedRelationEdgeSnapshot::new(
+        RelationId::new(9).expect("test relation identity should be non-zero"),
+        "owner".to_string(),
+        "test::Owner".to_string(),
+        vec![FieldId::new(2)],
+    )]);
+    let initial_catalog =
+        AcceptedConstraintCatalog::initial(before.fields(), before.indexes(), before.relations())
+            .expect("test structural constraints should build");
+    let before = before.with_constraint_catalog(AcceptedConstraintCatalog::from_persisted_parts(
+        ConstraintIdAllocator::new(17),
+        initial_catalog.constraints().to_vec(),
+        Vec::new(),
+    ));
     let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(before)
         .expect("test accepted schema should be internally valid");
 
@@ -358,6 +444,22 @@ fn accepted_after_derivations_preserve_structural_identity_state() {
     let renamed_snapshot = renamed.accepted_after().persisted_snapshot();
     assert_eq!(renamed_snapshot.constraint_id_allocator().high_water(), 17);
     assert_eq!(renamed_snapshot.relations()[0].id().get(), 9);
+    assert_eq!(
+        renamed_snapshot
+            .constraints()
+            .iter()
+            .find(|constraint| {
+                matches!(
+                    constraint.kind(),
+                    AcceptedConstraintKind::NotNull { field_id }
+                        if *field_id == FieldId::new(2)
+                )
+            })
+            .expect("renamed field should retain its not-null constraint")
+            .name(),
+        "__icydb_not_null_2",
+        "field rename must not silently rename accepted constraint identity",
+    );
 
     let indexed =
         derive_sql_ddl_field_path_index_accepted_after(&accepted, non_unique_name_index())
@@ -365,6 +467,154 @@ fn accepted_after_derivations_preserve_structural_identity_state() {
     let indexed_snapshot = indexed.accepted_after().persisted_snapshot();
     assert_eq!(indexed_snapshot.constraint_id_allocator().high_water(), 17);
     assert_eq!(indexed_snapshot.relations()[0].id().get(), 9);
+}
+
+#[test]
+#[cfg(feature = "sql")]
+fn structural_constraint_mutations_allocate_once_and_never_reuse_ids() {
+    let before = base_snapshot();
+    let initial_high_water = before.constraint_id_allocator().high_water();
+    let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(before)
+        .expect("test accepted schema should be internally valid");
+    let unique = PersistedIndexSnapshot::new_sql_ddl(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+        1,
+        "unique_name".to_string(),
+        "test::mutation::unique_name".to_string(),
+        true,
+        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        None,
+    );
+
+    let indexed = derive_sql_ddl_field_path_index_accepted_after(&accepted, unique.clone())
+        .expect("unique index addition should derive its paired constraint");
+    let indexed_snapshot = indexed.accepted_after().persisted_snapshot();
+    assert_eq!(
+        indexed_snapshot.constraint_id_allocator().high_water(),
+        initial_high_water + 1,
+    );
+    let unique_constraint = indexed_snapshot
+        .constraints()
+        .iter()
+        .find(|constraint| {
+            matches!(
+                constraint.kind(),
+                AcceptedConstraintKind::Unique { index_id } if *index_id == unique.schema_id()
+            )
+        })
+        .expect("unique accepted index should have one paired constraint");
+    assert_eq!(unique_constraint.name(), unique.name());
+    assert_eq!(unique_constraint.origin(), ConstraintOrigin::SqlDdl);
+    let retired_id = unique_constraint.id();
+
+    let dropped =
+        derive_sql_ddl_secondary_index_drop_accepted_after(indexed.accepted_after(), &unique)
+            .expect("unique index drop should remove its paired constraint");
+    let dropped_snapshot = dropped.accepted_after().persisted_snapshot();
+    assert_eq!(
+        dropped_snapshot.constraint_id_allocator().high_water(),
+        retired_id.get(),
+        "drop must retire rather than compact the stable constraint identity",
+    );
+    assert!(dropped_snapshot.constraints().iter().all(|constraint| {
+        !matches!(
+            constraint.kind(),
+            AcceptedConstraintKind::Unique { index_id } if *index_id == unique.schema_id()
+        )
+    }));
+
+    let recreated =
+        derive_sql_ddl_field_path_index_accepted_after(dropped.accepted_after(), unique)
+            .expect("recreated unique index should allocate fresh constraint identity");
+    let recreated_constraint = recreated
+        .accepted_after()
+        .persisted_snapshot()
+        .constraints()
+        .iter()
+        .find(|constraint| matches!(constraint.kind(), AcceptedConstraintKind::Unique { .. }))
+        .expect("recreated unique index should have one paired constraint");
+    assert!(recreated_constraint.id().get() > retired_id.get());
+}
+
+#[test]
+#[cfg(feature = "sql")]
+fn nullability_mutations_add_and_retire_one_stable_constraint() {
+    let before = base_snapshot();
+    let initial_high_water = before.constraint_id_allocator().high_water();
+    let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(before)
+        .expect("test accepted schema should be internally valid");
+
+    let nullable = derive_sql_ddl_field_nullability_accepted_after(&accepted, "name", true)
+        .expect("dropping not-null should remove the paired constraint");
+    let nullable_snapshot = nullable.accepted_after().persisted_snapshot();
+    assert_eq!(
+        nullable_snapshot.constraint_id_allocator().high_water(),
+        initial_high_water,
+    );
+    assert!(nullable_snapshot.constraints().iter().all(|constraint| {
+        !matches!(
+            constraint.kind(),
+            AcceptedConstraintKind::NotNull { field_id } if *field_id == FieldId::new(2)
+        )
+    }));
+
+    let required =
+        derive_sql_ddl_field_nullability_accepted_after(nullable.accepted_after(), "name", false)
+            .expect("restoring not-null should allocate a fresh paired constraint");
+    let required_snapshot = required.accepted_after().persisted_snapshot();
+    assert_eq!(
+        required_snapshot.constraint_id_allocator().high_water(),
+        initial_high_water + 1,
+    );
+    assert_eq!(
+        required_snapshot
+            .constraints()
+            .iter()
+            .filter(|constraint| {
+                matches!(
+                    constraint.kind(),
+                    AcceptedConstraintKind::NotNull { field_id }
+                        if *field_id == FieldId::new(2)
+                )
+            })
+            .count(),
+        1,
+    );
+}
+
+#[test]
+#[cfg(feature = "sql")]
+fn sql_ddl_index_identity_exhaustion_is_typed_and_fail_closed() {
+    let exhausted_index = PersistedIndexSnapshot::new(
+        SchemaIndexId::new(u32::MAX).expect("maximum logical index identity is non-zero"),
+        1,
+        "exhausted".to_string(),
+        "test::mutation::exhausted".to_string(),
+        false,
+        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        None,
+    );
+    let before = snapshot_with_indexes(&base_snapshot(), vec![exhausted_index]);
+    let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(before)
+        .expect("maximum non-zero logical index identity should decode as current authority");
+    let key = SchemaDdlSecondaryIndexKeyIntent::FieldPath(
+        SchemaDdlSecondaryIndexFieldPathIntent::new("name".to_string(), Vec::new()),
+    );
+
+    let error = build_sql_ddl_secondary_index_candidate(
+        &accepted,
+        "next_index".to_string(),
+        "test::mutation::next_index".to_string(),
+        false,
+        &[key],
+        None,
+    )
+    .expect_err("logical index identity exhaustion must reject instead of panicking");
+
+    assert_eq!(
+        error,
+        SchemaDdlSecondaryIndexKeyCandidateError::IndexIdentityExhausted,
+    );
 }
 
 #[test]

@@ -3,7 +3,67 @@
 //! Does not own: full schema graphs, validators, or registry orchestration.
 //! Boundary: authoritative entity-level runtime contract for planning and execution.
 
-use crate::model::{field::FieldModel, index::IndexModel};
+use crate::{
+    db::Predicate,
+    model::{field::FieldModel, index::IndexModel},
+};
+
+/// Resolver emitted by the entity derive for one parsed generated check.
+///
+/// The resolved predicate is proposal input only. Accepted schema binding owns
+/// field identity, literal admission, and the durable check expression.
+pub type GeneratedCheckConstraintResolver = fn() -> &'static Predicate;
+
+///
+/// CheckConstraintModel
+///
+/// Build-time-validated generated proposal for one named row-local check.
+/// Accepted schema reconciliation, rather than this model, owns executable
+/// constraint semantics after publication.
+///
+
+#[derive(Debug)]
+pub struct CheckConstraintModel {
+    name: &'static str,
+    source_sql: &'static str,
+    semantics: GeneratedCheckConstraintResolver,
+}
+
+impl CheckConstraintModel {
+    /// Construct generated check proposal metadata emitted by the derive.
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn generated(
+        name: &'static str,
+        source_sql: &'static str,
+        semantics: GeneratedCheckConstraintResolver,
+    ) -> Self {
+        Self {
+            name,
+            source_sql,
+            semantics,
+        }
+    }
+
+    /// Borrow the source-declared stable constraint name.
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// Borrow the generated SQL source retained for proposal diagnostics.
+    #[must_use]
+    pub const fn source_sql(&self) -> &'static str {
+        self.source_sql
+    }
+
+    /// Resolve the structured, build-time-parsed proposal expression.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn semantics(&self) -> &'static Predicate {
+        (self.semantics)()
+    }
+}
 
 ///
 /// PrimaryKeyModel
@@ -307,6 +367,9 @@ pub struct EntityModel {
 
     /// Generated relation-edge proposal metadata.
     pub(crate) relations: &'static [RelationEdgeModel],
+
+    /// Generated named check proposal metadata.
+    pub(crate) check_constraints: &'static [CheckConstraintModel],
 }
 
 impl EntityModel {
@@ -336,6 +399,7 @@ impl EntityModel {
             fields,
             indexes,
             relations: &[],
+            check_constraints: &[],
         }
     }
 
@@ -382,6 +446,37 @@ impl EntityModel {
         indexes: &'static [&'static IndexModel],
         relations: &'static [RelationEdgeModel],
     ) -> Self {
+        Self::generated_with_primary_key_model_relations_and_checks(
+            path,
+            entity_name,
+            schema_version,
+            primary_key_model,
+            primary_key_slot,
+            fields,
+            indexes,
+            relations,
+            &[],
+        )
+    }
+
+    /// Construct generated entity metadata with relation and check proposals.
+    #[doc(hidden)]
+    #[must_use]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "generated entity metadata keeps each proposal family explicit"
+    )]
+    pub const fn generated_with_primary_key_model_relations_and_checks(
+        path: &'static str,
+        entity_name: &'static str,
+        schema_version: u32,
+        primary_key_model: PrimaryKeyModel,
+        primary_key_slot: usize,
+        fields: &'static [FieldModel],
+        indexes: &'static [&'static IndexModel],
+        relations: &'static [RelationEdgeModel],
+        check_constraints: &'static [CheckConstraintModel],
+    ) -> Self {
         assert!(
             schema_version > 0,
             "generated schema_version must be positive"
@@ -397,6 +492,7 @@ impl EntityModel {
             fields,
             indexes,
             relations,
+            check_constraints,
         }
     }
 
@@ -465,6 +561,12 @@ impl EntityModel {
     #[must_use]
     pub const fn relations(&self) -> &'static [RelationEdgeModel] {
         self.relations
+    }
+
+    /// Return generated named check proposal metadata.
+    #[must_use]
+    pub const fn check_constraints(&self) -> &'static [CheckConstraintModel] {
+        self.check_constraints
     }
 
     /// Resolve one schema field name into its stable slot index.

@@ -4,8 +4,9 @@
 
 IcyDB enforces referential integrity for every schema-declared relation.
 
-References are stored as **typed primary-key values**. Declared relations trigger
-save-time target-existence checks and delete-time source-reference checks.
+Accepted relation edges are the sole live relation authority. References are
+stored as **typed primary-key values**. Declared relations trigger save-time
+target-existence checks and delete-time source-reference checks.
 The surrounding row strictness and ingress rules are defined in
 `docs/contracts/WRITE_ADMISSION.md`.
 
@@ -43,7 +44,7 @@ relations.
 
 ## 2. What a reference is
 
-A reference is a **typed primary-key value** identifying another entity:
+A scalar reference is a **typed primary-key value** identifying another entity:
 
 ```rust
 Id<T>
@@ -60,6 +61,11 @@ A reference:
 
 References are **identity values**, not relationships in the relational sense.
 
+A composite relation uses an explicitly declared ordered set of top-level local
+fields that exactly matches the target's accepted composite primary-key
+components. Collection relations to composite targets are not part of the
+current contract.
+
 `Id<T>` is a *boundary type* used for entity-kind correctness. It is **not** automatically validated for existence.
 `Id<T>` values may be deserialized from untrusted input; validation is explicit and contextual.
 
@@ -73,7 +79,10 @@ key-typed field rather than a relation.
 
 Referential integrity is **schema-driven and field-scoped**.
 
-Only fields explicitly declared as relations in the schema participate in RI enforcement.
+Only accepted relation edges explicitly admitted from schema declarations
+participate in RI enforcement. Generated relation metadata is proposal input;
+runtime save, reverse-index, and delete paths do not infer a missing edge from
+raw generated field kinds.
 
 There is:
 
@@ -117,6 +126,7 @@ Supported relation shapes in the current contract:
 * `Id<T>`
 * `Option<Id<T>>`
 * Collections of `Id<T>`
+* explicitly declared ordered top-level fields matching a composite target key
 
 Supported collection forms:
 
@@ -128,6 +138,21 @@ Collection validation is **aggregate**:
 * every referenced target must exist
 * empty collections are valid
 * a single missing target fails the save
+
+### 4.2 Relation activation
+
+Adding a relation when historical rows exist publishes a planner-invisible
+candidate edge and an accepted activation. Relevant future source writes
+validate targets and maintain the isolated reverse generation immediately.
+The bounded Forward/Verify job then proves historical target existence and
+complete reverse state under stable source and target revisions.
+
+Until atomic promotion, the candidate generation is not accepted reverse-index
+authority. Target deletes are conservatively blocked for the affected target
+entity so incomplete reverse state cannot authorize deletion. Promotion moves
+the exact edge and reserved constraint identity into accepted relation state;
+abort removes the activation/job and makes its candidate generation
+unreachable.
 
 ---
 
@@ -158,6 +183,10 @@ RI enforcement is skipped when:
 
 There is no recursive discovery.
 
+Pending relation activation is not a weak relation mode. Its new-write gate is
+already authoritative, while historical findings remain migration evidence
+rather than accepted-state corruption.
+
 ### 5.3 What is not enforced
 
 IcyDB explicitly does **not** enforce:
@@ -165,7 +194,7 @@ IcyDB explicitly does **not** enforce:
 * cascading deletes or updates
 * query-time reverse traversal semantics
 * read-time validation
-* deferred or lazy validation
+* deferred checking of a newly authored relation value
 * cross-mutation or cross-message constraints
 
 ---
@@ -192,15 +221,22 @@ They are reported as:
 
 They indicate invalid input, **not** corruption.
 
+Accepted and pending relations retain their stable constraint ID and name in
+typed runtime or validation diagnostics. Historical activation findings are
+reported through the bounded validation response; they are not collapsed into
+an ordinary write error.
+
 ---
 
 ## 8. Explicit non-goals
 
 The following are out of scope for the current RI contract:
 
-* many-to-many relations
+* implicit junction-table or relational many-to-many traversal
 * recursive existence validation
 * cascading behavior
+* deferred constraint checking
+* `ON DELETE SET NULL` or `ON DELETE SET DEFAULT`
 * query-time relation semantics
 * joins or relational algebra
 
@@ -212,7 +248,7 @@ Any addition requires a new RI specification.
 
 The following extensions are explicitly reserved:
 
-* cardinality-aware many-relations
+* collection relations to composite target keys
 * stronger static guarantees for entity–store locality
 * tooling for reference diagnostics and visualization
 

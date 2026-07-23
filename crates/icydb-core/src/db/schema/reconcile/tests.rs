@@ -1,32 +1,40 @@
 use crate::{
     db::{
-        Db, EntityRuntimeHooks,
+        Db, DbSession, EntityRuntimeHooks, Predicate,
         commit::{
-            CommitFailpoint, CommitFailpointMode, CommitMarker, arm_commit_failpoint_for_tests,
-            begin_commit, clear_commit_marker_for_tests, clear_recovery_runtime_state_for_tests,
+            CommitFailpoint, CommitFailpointMode, CommitMarker, CommitRowOp,
+            arm_commit_failpoint_for_tests, begin_commit, clear_commit_failpoint_for_tests,
+            clear_commit_marker_for_tests, clear_recovery_runtime_state_for_tests,
             commit_marker_present, ensure_recovered, generate_commit_id,
-            init_commit_store_for_tests,
+            init_commit_store_for_tests, publish_accepted_schema_candidate,
+            publish_accepted_schema_candidate_with_constraint_validation_job_removal,
         },
         data::{
             CanonicalRow, DataStore, DecodedDataStoreKey, emit_raw_row_from_slot_payloads,
             encode_persisted_scalar_slot_payload,
         },
-        index::{IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore},
+        index::{
+            IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore,
+            IndexStoreVisit,
+        },
         journal::{JournalBatch, JournalRecord, JournalTailStore},
         registry::StoreRegistry,
         schema::{
-            AcceptedFieldKind, FieldId, PersistedFieldOrigin, PersistedFieldSnapshot,
+            AcceptedConstraintKind, AcceptedFieldKind, CandidateSchemaRevision,
+            ConstraintActivationState, ConstraintValidationJob, ConstraintValidationPhase,
+            ConstraintValidationProgress, FieldId, PersistedFieldOrigin, PersistedFieldSnapshot,
             PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
             RowLayoutVersion, SchemaFieldSlot, SchemaHistoricalFill, SchemaIndexId,
             SchemaInsertDefault, SchemaRowLayout, SchemaStore, SchemaTransitionPlanKind,
             SchemaVersion, compiled_schema_proposal_for_model,
+            derive_sql_ddl_field_nullability_persisted_after,
         },
     },
     entity::{EntityDeclaration, EntityKind},
     error::ErrorClass,
     metrics::{metrics_report, metrics_reset_all},
     model::{
-        entity::EntityModel,
+        entity::{CheckConstraintModel, EntityModel, PrimaryKeyModel},
         field::{
             CompositeCodec, CompositeFieldModel, CompositeShapeModel, FieldDatabaseDefault,
             FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec,
@@ -35,11 +43,12 @@ use crate::{
     },
     testing::{entity_model_from_static, test_memory},
     traits::Path,
-    types::{EntityTag, Ulid},
+    types::{EntityTag, Id, Ulid},
+    value::Value,
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
-use std::cell::RefCell;
+use std::{cell::RefCell, sync::LazyLock};
 
 fn assert_runtime_unsupported_diagnostic(err: &crate::error::InternalError, context: &str) {
     assert_eq!(
@@ -370,6 +379,71 @@ static RECONCILE_RUNTIME_HOOKS: &[EntityRuntimeHooks<SchemaReconcileTestCanister
     &[EntityRuntimeHooks::for_entity::<SchemaReconcileEntity>()];
 static RECONCILE_DB: Db<SchemaReconcileTestCanister> =
     Db::new_with_hooks(&RECONCILE_STORE_REGISTRY, RECONCILE_RUNTIME_HOOKS);
+
+fn generated_nonempty_name_check() -> &'static Predicate {
+    static CHECK: LazyLock<Predicate> =
+        LazyLock::new(|| Predicate::ne("name".to_string(), Value::Text(String::new())));
+
+    &CHECK
+}
+
+static RECONCILE_CHECKS: [CheckConstraintModel; 1] = [CheckConstraintModel::generated(
+    "name_nonempty",
+    "name <> ''",
+    generated_nonempty_name_check,
+)];
+static RECONCILE_CHECK_MODEL: EntityModel =
+    EntityModel::generated_with_primary_key_model_relations_and_checks(
+        SchemaReconcileEntity::MODEL.path(),
+        SchemaReconcileEntity::MODEL.name(),
+        2,
+        PrimaryKeyModel::scalar(SchemaReconcileEntity::MODEL.primary_key()),
+        SchemaReconcileEntity::MODEL.primary_key_slot(),
+        SchemaReconcileEntity::MODEL.fields(),
+        SchemaReconcileEntity::MODEL.indexes(),
+        &[],
+        &RECONCILE_CHECKS,
+    );
+static RECONCILE_CHECK_RUNTIME_HOOKS: &[EntityRuntimeHooks<SchemaReconcileTestCanister>] =
+    &[EntityRuntimeHooks::new(
+        SchemaReconcileEntity::ENTITY_TAG,
+        &RECONCILE_CHECK_MODEL,
+        SchemaReconcileEntity::PATH,
+        SchemaReconcileTestStore::PATH,
+        crate::db::relation::validate_delete_relations_for_source::<SchemaReconcileEntity>,
+    )];
+static RECONCILE_CHECK_DB: Db<SchemaReconcileTestCanister> =
+    Db::new_with_hooks(&RECONCILE_STORE_REGISTRY, RECONCILE_CHECK_RUNTIME_HOOKS);
+static RECONCILE_UNIQUE_NAME_INDEX: IndexModel = IndexModel::generated_with_ordinal(
+    1,
+    "unique_name",
+    SchemaReconcileTestStore::PATH,
+    &["name"],
+    true,
+);
+static RECONCILE_UNIQUE_INDEXES: [&IndexModel; 1] = [&RECONCILE_UNIQUE_NAME_INDEX];
+static RECONCILE_UNIQUE_MODEL: EntityModel =
+    EntityModel::generated_with_primary_key_model_relations_and_checks(
+        SchemaReconcileEntity::MODEL.path(),
+        SchemaReconcileEntity::MODEL.name(),
+        2,
+        PrimaryKeyModel::scalar(SchemaReconcileEntity::MODEL.primary_key()),
+        SchemaReconcileEntity::MODEL.primary_key_slot(),
+        SchemaReconcileEntity::MODEL.fields(),
+        &RECONCILE_UNIQUE_INDEXES,
+        &[],
+        &[],
+    );
+static RECONCILE_UNIQUE_RUNTIME_HOOKS: &[EntityRuntimeHooks<SchemaReconcileTestCanister>] =
+    &[EntityRuntimeHooks::new(
+        SchemaReconcileEntity::ENTITY_TAG,
+        &RECONCILE_UNIQUE_MODEL,
+        SchemaReconcileEntity::PATH,
+        SchemaReconcileTestStore::PATH,
+        crate::db::relation::validate_delete_relations_for_source::<SchemaReconcileEntity>,
+    )];
+static RECONCILE_UNIQUE_DB: Db<SchemaReconcileTestCanister> =
+    Db::new_with_hooks(&RECONCILE_STORE_REGISTRY, RECONCILE_UNIQUE_RUNTIME_HOOKS);
 static INDEXED_RECONCILE_RUNTIME_HOOKS: &[EntityRuntimeHooks<SchemaReconcileTestCanister>] =
     &[EntityRuntimeHooks::for_entity::<IndexedSchemaEntity>()];
 static INDEXED_RECONCILE_DB: Db<SchemaReconcileTestCanister> =
@@ -472,6 +546,8 @@ fn indexed_schema_snapshot_with_renamed_index_and_extra_indexes(
         expected.fields().to_vec(),
         indexes,
     )
+    .with_constraint_catalog(expected.constraint_catalog().clone())
+    .with_relations(expected.relations().to_vec())
 }
 
 fn indexed_schema_ddl_extra_index() -> PersistedIndexSnapshot {
@@ -481,7 +557,7 @@ fn indexed_schema_ddl_extra_index() -> PersistedIndexSnapshot {
         panic!("indexed schema fixture should have one generated index");
     };
 
-    PersistedIndexSnapshot::new(
+    PersistedIndexSnapshot::new_sql_ddl(
         SchemaIndexId::new(u32::from(expected_index.ordinal() + 1))
             .expect("test index identity should be non-zero"),
         expected_index.ordinal() + 1,
@@ -508,6 +584,48 @@ fn insert_indexed_schema_row(id: u128, name: &str) {
             .fold_recovered_journal_put(raw_key, row.into_raw_row())
             .expect("indexed schema row should enter the canonical test base");
     });
+}
+
+fn index_entry_count_for_generation(entity_tag: EntityTag, generation: u64) -> usize {
+    RECONCILE_INDEX_STORE.with_borrow(|store| {
+        let mut count = 0usize;
+        store
+            .visit_entries::<crate::error::InternalError>(|raw, _| {
+                let key = IndexKey::try_from_raw(raw)
+                    .map_err(|_| crate::error::InternalError::index_invariant())?;
+                if key.index_id().entity_tag() == entity_tag
+                    && key.index_id().generation() == generation
+                {
+                    count = count.saturating_add(1);
+                }
+                Ok(IndexStoreVisit::Continue)
+            })
+            .expect("candidate index entries should decode");
+        count
+    })
+}
+
+fn relation_target_entry_count_for_generation(entity_tag: EntityTag, generation: u64) -> usize {
+    relation_target_keys_for_generation(entity_tag, generation).len()
+}
+
+fn relation_target_keys_for_generation(entity_tag: EntityTag, generation: u64) -> Vec<Vec<u8>> {
+    RECONCILE_RELATION_TARGET_INDEX_STORE.with_borrow(|store| {
+        let mut keys = Vec::new();
+        store
+            .visit_entries::<crate::error::InternalError>(|raw, _| {
+                let key = IndexKey::try_from_raw(raw)
+                    .map_err(|_| crate::error::InternalError::index_invariant())?;
+                if key.index_id().entity_tag() == entity_tag
+                    && key.index_id().generation() == generation
+                {
+                    keys.push(raw.as_bytes().to_vec());
+                }
+                Ok(IndexStoreVisit::Continue)
+            })
+            .expect("candidate relation entries should decode");
+        keys
+    })
 }
 
 #[test]
@@ -554,6 +672,1230 @@ fn reconcile_runtime_schemas_writes_initial_snapshot_on_first_contact() {
     );
     assert_eq!(counters.ops().accepted_schema_fields(), 2);
     assert_eq!(counters.ops().accepted_schema_nested_leaf_facts(), 0);
+}
+
+#[test]
+fn generated_check_activation_advances_through_durable_validation_and_promotion() {
+    reset_reconcile_stores();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_recovery_runtime_state_for_tests(&RECONCILE_CHECK_DB)
+        .expect("recovery runtime state should clear");
+
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+        .expect("initial schema should publish without the generated check");
+    super::reconcile_runtime_schemas(&RECONCILE_CHECK_DB, RECONCILE_CHECK_RUNTIME_HOOKS)
+        .expect("generated check should publish its activation and durable job");
+
+    let (constraint_id, state) = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("accepted activation bundle should decode")
+            .expect("accepted activation bundle should exist");
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&SchemaReconcileEntity::ENTITY_TAG)
+            .expect("accepted entity should exist");
+        let [activation] = snapshot.constraint_activations() else {
+            panic!("generated addition should own one activation");
+        };
+        (activation.id(), activation.state())
+    });
+    assert_eq!(state, ConstraintActivationState::Validating);
+    let started = RECONCILE_SCHEMA_STORE
+        .with_borrow(|store| {
+            store.constraint_validation_job(SchemaReconcileEntity::ENTITY_TAG, constraint_id)
+        })
+        .expect("started validation job should decode")
+        .expect("started validation job should exist");
+    assert_eq!(started.phase(), ConstraintValidationPhase::Forward);
+
+    super::reconcile_runtime_schemas(&RECONCILE_CHECK_DB, RECONCILE_CHECK_RUNTIME_HOOKS)
+        .expect("empty Forward sweep should enter Verify");
+    let verifying = RECONCILE_SCHEMA_STORE
+        .with_borrow(|store| {
+            store.constraint_validation_job(SchemaReconcileEntity::ENTITY_TAG, constraint_id)
+        })
+        .expect("Verify validation job should decode")
+        .expect("Verify validation job should exist");
+    assert_eq!(verifying.phase(), ConstraintValidationPhase::Verify);
+    assert!(verifying.captured_store_revisions().is_some());
+
+    super::reconcile_runtime_schemas(&RECONCILE_CHECK_DB, RECONCILE_CHECK_RUNTIME_HOOKS)
+        .expect("stable empty Verify sweep should promote the check");
+    RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("promoted accepted bundle should decode")
+            .expect("promoted accepted bundle should exist");
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&SchemaReconcileEntity::ENTITY_TAG)
+            .expect("accepted entity should exist");
+        assert!(snapshot.constraint_activations().is_empty());
+        assert!(snapshot.constraints().iter().any(|constraint| {
+            constraint.id() == constraint_id
+                && constraint.name() == "name_nonempty"
+                && matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
+        }));
+        assert!(
+            store
+                .constraint_validation_job(SchemaReconcileEntity::ENTITY_TAG, constraint_id)
+                .expect("promoted job lookup should decode")
+                .is_none(),
+            "promotion must remove the durable job through the same marker",
+        );
+    });
+}
+
+#[test]
+fn generated_check_activation_rejects_removed_proposal_without_changing_durable_state() {
+    reset_reconcile_stores();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_recovery_runtime_state_for_tests(&RECONCILE_CHECK_DB)
+        .expect("recovery runtime state should clear");
+
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+        .expect("initial schema should publish without the generated check");
+    super::reconcile_runtime_schemas(&RECONCILE_CHECK_DB, RECONCILE_CHECK_RUNTIME_HOOKS)
+        .expect("generated check should publish its activation and durable job");
+
+    let (activation_before, job_before) = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("accepted activation bundle should decode")
+            .expect("accepted activation bundle should exist");
+        let activation = bundle
+            .entity_snapshots()
+            .get(&SchemaReconcileEntity::ENTITY_TAG)
+            .expect("accepted entity should exist")
+            .constraint_activations()[0]
+            .clone();
+        let job = store
+            .constraint_validation_job(SchemaReconcileEntity::ENTITY_TAG, activation.id())
+            .expect("validation job should decode")
+            .expect("validation job should exist");
+        (activation, job)
+    });
+
+    let error = super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+        .expect_err(
+            "removing a generated proposal must reject until its live activation is explicitly aborted",
+        );
+    assert_eq!(error.class(), ErrorClass::Conflict);
+    assert_eq!(error.origin(), crate::error::ErrorOrigin::Store);
+    assert_eq!(
+        error.diagnostic().detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+            boundary:
+                icydb_diagnostic_code::RuntimeBoundaryCode::GeneratedConstraintActivationStale,
+        }),
+    );
+
+    RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("rejected reconciliation should leave accepted bytes readable")
+            .expect("rejected reconciliation should preserve accepted authority");
+        let activation_after = &bundle
+            .entity_snapshots()
+            .get(&SchemaReconcileEntity::ENTITY_TAG)
+            .expect("accepted entity should remain present")
+            .constraint_activations()[0];
+        let job_after = store
+            .constraint_validation_job(SchemaReconcileEntity::ENTITY_TAG, activation_before.id())
+            .expect("preserved validation job should decode")
+            .expect("preserved validation job should remain present");
+
+        assert_eq!(activation_after, &activation_before);
+        assert_eq!(job_after, job_before);
+    });
+}
+
+#[test]
+fn generated_unique_activation_stages_isolated_generation_before_promotion() {
+    reset_reconcile_stores();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_recovery_runtime_state_for_tests(&RECONCILE_UNIQUE_DB)
+        .expect("recovery runtime state should clear");
+
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+        .expect("initial schema should publish without the unique index");
+    insert_schema_reconcile_row(1, "Ada");
+    insert_schema_reconcile_row(2, "Grace");
+    super::reconcile_runtime_schemas(&RECONCILE_UNIQUE_DB, RECONCILE_UNIQUE_RUNTIME_HOOKS)
+        .expect("unique activation and job should publish");
+
+    let (constraint_id, generation) = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("activation bundle should decode")
+            .expect("activation bundle should exist");
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&SchemaReconcileEntity::ENTITY_TAG)
+            .expect("accepted entity should exist");
+        assert!(snapshot.indexes().is_empty());
+        let [candidate] = snapshot.candidate_indexes() else {
+            panic!("unique activation should reserve one candidate index");
+        };
+        let [activation] = snapshot.constraint_activations() else {
+            panic!("unique activation should reserve one constraint");
+        };
+        (activation.id(), candidate.physical_generation())
+    });
+    assert_eq!(
+        index_entry_count_for_generation(SchemaReconcileEntity::ENTITY_TAG, generation),
+        0,
+    );
+
+    super::advance_unique_constraint_activation(
+        &RECONCILE_UNIQUE_DB,
+        SchemaReconcileEntity::ENTITY_TAG,
+        constraint_id,
+        None,
+    )
+    .expect("Forward should stage the bounded candidate generation");
+    assert_eq!(
+        index_entry_count_for_generation(SchemaReconcileEntity::ENTITY_TAG, generation),
+        2,
+    );
+    RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let job = store
+            .constraint_validation_job(SchemaReconcileEntity::ENTITY_TAG, constraint_id)
+            .expect("validation job should decode")
+            .expect("validation job should exist");
+        assert_eq!(job.phase(), ConstraintValidationPhase::Verify);
+    });
+
+    assert!(matches!(
+        super::advance_unique_constraint_activation(
+            &RECONCILE_UNIQUE_DB,
+            SchemaReconcileEntity::ENTITY_TAG,
+            constraint_id,
+            None,
+        )
+        .expect("stable Verify should promote the candidate"),
+        ConstraintValidationProgress::Promoted { .. },
+    ));
+    RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("promoted bundle should decode")
+            .expect("promoted bundle should exist");
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&SchemaReconcileEntity::ENTITY_TAG)
+            .expect("promoted entity should exist");
+        assert_eq!(snapshot.indexes().len(), 1);
+        assert!(snapshot.candidate_indexes().is_empty());
+        assert!(snapshot.constraint_activations().is_empty());
+    });
+    assert_eq!(
+        index_entry_count_for_generation(SchemaReconcileEntity::ENTITY_TAG, generation),
+        2,
+    );
+}
+
+#[test]
+fn generated_unique_activation_retains_duplicate_findings_without_promotion() {
+    reset_reconcile_stores();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_recovery_runtime_state_for_tests(&RECONCILE_UNIQUE_DB)
+        .expect("recovery runtime state should clear");
+
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+        .expect("initial schema should publish without the unique index");
+    insert_schema_reconcile_row(1, "Ada");
+    insert_schema_reconcile_row(2, "Ada");
+    super::reconcile_runtime_schemas(&RECONCILE_UNIQUE_DB, RECONCILE_UNIQUE_RUNTIME_HOOKS)
+        .expect("unique activation and job should publish");
+    let (constraint_id, generation) = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("activation bundle should decode")
+            .expect("activation bundle should exist");
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&SchemaReconcileEntity::ENTITY_TAG)
+            .expect("accepted entity should exist");
+        (
+            snapshot.constraint_activations()[0].id(),
+            snapshot.candidate_indexes()[0].physical_generation(),
+        )
+    });
+
+    let ConstraintValidationProgress::Findings { receipt: first, .. } =
+        super::advance_unique_constraint_activation(
+            &RECONCILE_UNIQUE_DB,
+            SchemaReconcileEntity::ENTITY_TAG,
+            constraint_id,
+            None,
+        )
+        .expect("duplicate candidate keys should produce a retained finding")
+    else {
+        panic!("duplicate candidate keys must prevent promotion");
+    };
+    assert_eq!(first.findings().len(), 1);
+    assert_eq!(
+        index_entry_count_for_generation(SchemaReconcileEntity::ENTITY_TAG, generation),
+        1,
+    );
+    let ConstraintValidationProgress::Findings {
+        receipt: replayed, ..
+    } = super::advance_unique_constraint_activation(
+        &RECONCILE_UNIQUE_DB,
+        SchemaReconcileEntity::ENTITY_TAG,
+        constraint_id,
+        None,
+    )
+    .expect("unacknowledged duplicate finding should replay")
+    else {
+        panic!("duplicate finding must remain retained");
+    };
+    assert_eq!(replayed, first);
+    RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("activation bundle should decode")
+            .expect("activation bundle should exist");
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&SchemaReconcileEntity::ENTITY_TAG)
+            .expect("accepted entity should exist");
+        assert!(snapshot.indexes().is_empty());
+        assert_eq!(snapshot.candidate_indexes().len(), 1);
+    });
+}
+
+#[test]
+fn source_delete_removes_its_staged_unique_candidate_entry() {
+    reset_reconcile_stores();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_recovery_runtime_state_for_tests(&RECONCILE_UNIQUE_DB)
+        .expect("recovery runtime state should clear");
+
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+        .expect("initial schema should publish without the unique index");
+    insert_schema_reconcile_row(1, "Ada");
+    insert_schema_reconcile_row(2, "Grace");
+    super::reconcile_runtime_schemas(&RECONCILE_UNIQUE_DB, RECONCILE_UNIQUE_RUNTIME_HOOKS)
+        .expect("unique activation and job should publish");
+    let (constraint_id, generation) = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("activation bundle should decode")
+            .expect("activation bundle should exist");
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&SchemaReconcileEntity::ENTITY_TAG)
+            .expect("accepted entity should exist");
+        (
+            snapshot.constraint_activations()[0].id(),
+            snapshot.candidate_indexes()[0].physical_generation(),
+        )
+    });
+    super::advance_unique_constraint_activation(
+        &RECONCILE_UNIQUE_DB,
+        SchemaReconcileEntity::ENTITY_TAG,
+        constraint_id,
+        None,
+    )
+    .expect("Forward should stage the candidate generation");
+    assert_eq!(
+        index_entry_count_for_generation(SchemaReconcileEntity::ENTITY_TAG, generation),
+        2,
+    );
+
+    let key = DecodedDataStoreKey::try_new::<SchemaReconcileEntity>(Ulid::from_u128(1))
+        .expect("test key should encode")
+        .to_raw()
+        .expect("test key should encode to raw");
+    let before = RECONCILE_DATA_STORE
+        .with_borrow(|store| store.get(&key))
+        .expect("staged source row should exist");
+    let schema_fingerprint = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        store
+            .current_accepted_catalog_selection(
+                SchemaReconcileEntity::ENTITY_TAG,
+                SchemaReconcileEntity::PATH,
+                SchemaReconcileTestStore::PATH,
+            )
+            .expect("accepted selection should decode")
+            .expect("accepted selection should exist")
+            .identity()
+            .accepted_schema_fingerprint()
+    });
+    RECONCILE_UNIQUE_DB
+        .prepare_row_commit_op(&CommitRowOp::new(
+            SchemaReconcileEntity::PATH,
+            key,
+            Some(before.as_bytes().to_vec()),
+            None,
+            schema_fingerprint,
+        ))
+        .expect("source delete should prepare against candidate staging")
+        .apply();
+
+    assert_eq!(
+        index_entry_count_for_generation(SchemaReconcileEntity::ENTITY_TAG, generation),
+        1,
+    );
+}
+
+#[test]
+fn unique_activation_blocks_typed_insert_at_the_shared_save_boundary() {
+    reset_reconcile_stores();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_recovery_runtime_state_for_tests(&RECONCILE_UNIQUE_DB)
+        .expect("recovery runtime state should clear");
+
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+        .expect("initial schema should publish without the unique index");
+    insert_schema_reconcile_row(1, "Ada");
+    insert_schema_reconcile_row(3, "Ada");
+    super::reconcile_runtime_schemas(&RECONCILE_UNIQUE_DB, RECONCILE_UNIQUE_RUNTIME_HOOKS)
+        .expect("unique activation and job should publish");
+
+    let error = DbSession::new(RECONCILE_UNIQUE_DB)
+        .insert(SchemaReconcileEntity {
+            id: Ulid::from_u128(2),
+            name: "Grace".to_string(),
+        })
+        .expect_err("typed insert must not bypass an incomplete unique candidate");
+    assert_eq!(
+        error.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeConflict,
+    );
+    assert_eq!(
+        error.diagnostic().detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+            boundary: icydb_diagnostic_code::RuntimeBoundaryCode::ConstraintActivationWriteBlocked,
+        }),
+        "unexpected target-delete diagnostic: {:#?}",
+        error.diagnostic(),
+    );
+    let key = DecodedDataStoreKey::try_new::<SchemaReconcileEntity>(Ulid::from_u128(2))
+        .expect("rejected key should encode")
+        .to_raw()
+        .expect("rejected key should encode to raw");
+    assert!(RECONCILE_DATA_STORE.with_borrow(|store| store.get(&key).is_none()));
+}
+
+#[test]
+fn interrupted_unique_staging_rebuilds_exact_candidate_generation() {
+    reset_reconcile_stores();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_commit_failpoint_for_tests();
+    clear_recovery_runtime_state_for_tests(&RECONCILE_UNIQUE_DB)
+        .expect("recovery runtime state should clear");
+
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+        .expect("initial schema should publish without the unique index");
+    insert_schema_reconcile_row(1, "Ada");
+    insert_schema_reconcile_row(2, "Grace");
+    super::reconcile_runtime_schemas(&RECONCILE_UNIQUE_DB, RECONCILE_UNIQUE_RUNTIME_HOOKS)
+        .expect("unique activation and job should publish");
+    let (constraint_id, generation) = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("activation bundle should decode")
+            .expect("activation bundle should exist");
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&SchemaReconcileEntity::ENTITY_TAG)
+            .expect("accepted entity should exist");
+        (
+            snapshot.constraint_activations()[0].id(),
+            snapshot.candidate_indexes()[0].physical_generation(),
+        )
+    });
+
+    arm_commit_failpoint_for_tests(
+        CommitFailpoint::AfterMarkerWrite,
+        CommitFailpointMode::ReturnError,
+    );
+    super::advance_unique_constraint_activation(
+        &RECONCILE_UNIQUE_DB,
+        SchemaReconcileEntity::ENTITY_TAG,
+        constraint_id,
+        None,
+    )
+    .expect_err("interruption after marker write should leave recovery authority");
+    assert!(commit_marker_present().expect("marker presence should decode"));
+    assert_eq!(
+        index_entry_count_for_generation(SchemaReconcileEntity::ENTITY_TAG, generation),
+        0,
+    );
+
+    ensure_recovered(&RECONCILE_UNIQUE_DB).expect("unique staging marker should recover");
+    assert!(!commit_marker_present().expect("marker presence should decode"));
+    assert_eq!(
+        index_entry_count_for_generation(SchemaReconcileEntity::ENTITY_TAG, generation),
+        2,
+    );
+    RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("recovered bundle should decode")
+            .expect("recovered bundle should exist");
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&SchemaReconcileEntity::ENTITY_TAG)
+            .expect("recovered entity should exist");
+        assert_eq!(snapshot.indexes().len(), 1);
+        assert!(snapshot.candidate_indexes().is_empty());
+        assert!(snapshot.constraint_activations().is_empty());
+        assert!(
+            store
+                .constraint_validation_job(SchemaReconcileEntity::ENTITY_TAG, constraint_id)
+                .expect("recovered job lookup should decode")
+                .is_none(),
+        );
+    });
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the test keeps the complete not-null activation and promotion timeline visible"
+)]
+fn not_null_activation_gates_and_promotes_the_nullable_accepted_field() {
+    reset_reconcile_stores();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_recovery_runtime_state_for_tests(&RECONCILE_DB)
+        .expect("recovery runtime state should clear");
+
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+        .expect("initial schema should publish");
+    let store = RECONCILE_DB
+        .store_handle(SchemaReconcileTestStore::PATH)
+        .expect("test store should be registered");
+    let current = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        store
+            .current_accepted_schema_bundle()
+            .expect("accepted bundle should decode")
+            .expect("accepted bundle should exist")
+    });
+    let before = current
+        .entity_snapshots()
+        .get(&SchemaReconcileEntity::ENTITY_TAG)
+        .expect("accepted entity should exist");
+    let nullable = derive_sql_ddl_field_nullability_persisted_after(
+        before,
+        FieldId::new(2),
+        true,
+        SchemaVersion::new(before.version().get() + 1),
+    )
+    .expect("nullable accepted-before fixture should derive");
+    let mut nullable_entities = current.entity_snapshots().clone();
+    nullable_entities.insert(SchemaReconcileEntity::ENTITY_TAG, nullable);
+    let nullable_bundle = super::AcceptedSchemaRevisionBundle::new(
+        current
+            .revision()
+            .checked_next()
+            .expect("test accepted revision should advance"),
+        current.store_path(),
+        current.enum_catalog().clone(),
+        current.composite_catalog().clone(),
+        nullable_entities,
+    )
+    .expect("nullable accepted bundle should close");
+    let nullable_candidate =
+        CandidateSchemaRevision::new(nullable_bundle).expect("nullable candidate should encode");
+    publish_accepted_schema_candidate(
+        SchemaReconcileTestStore::PATH,
+        store,
+        current.revision(),
+        &nullable_candidate,
+    )
+    .expect("nullable accepted-before should publish");
+
+    let current = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        store
+            .current_accepted_schema_bundle()
+            .expect("nullable bundle should decode")
+            .expect("nullable bundle should exist")
+    });
+    let root = RECONCILE_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_root)
+        .expect("accepted root should decode")
+        .expect("accepted root should exist");
+    let before = current
+        .entity_snapshots()
+        .get(&SchemaReconcileEntity::ENTITY_TAG)
+        .expect("nullable accepted entity should exist");
+    let target = before
+        .fields()
+        .iter()
+        .find(|field| field.id() == FieldId::new(2))
+        .expect("nullable target field should exist");
+    let catalog = before
+        .constraint_catalog()
+        .clone()
+        .with_added_not_null_activation(
+            target,
+            root.root().fingerprint(),
+            root.root()
+                .revision()
+                .checked_next()
+                .expect("activation epoch should advance")
+                .get(),
+        )
+        .expect("not-null activation should reserve identity");
+    let constraint_id = catalog.activations()[0].id();
+    let mut activation_entities = current.entity_snapshots().clone();
+    activation_entities.insert(
+        SchemaReconcileEntity::ENTITY_TAG,
+        before.clone().with_constraint_catalog(catalog),
+    );
+    let activation_bundle = super::AcceptedSchemaRevisionBundle::new(
+        current
+            .revision()
+            .checked_next()
+            .expect("activation revision should advance"),
+        current.store_path(),
+        current.enum_catalog().clone(),
+        current.composite_catalog().clone(),
+        activation_entities,
+    )
+    .expect("activation bundle should close");
+    let activation_candidate = CandidateSchemaRevision::new(activation_bundle)
+        .expect("not-null activation candidate should encode");
+    publish_accepted_schema_candidate(
+        SchemaReconcileTestStore::PATH,
+        store,
+        current.revision(),
+        &activation_candidate,
+    )
+    .expect("not-null activation should publish");
+
+    assert!(matches!(
+        super::advance_not_null_constraint_activation(
+            &RECONCILE_DB,
+            SchemaReconcileEntity::ENTITY_TAG,
+            constraint_id,
+            None,
+        )
+        .expect("not-null validation should start"),
+        ConstraintValidationProgress::Started,
+    ));
+    let _forward = super::advance_not_null_constraint_activation(
+        &RECONCILE_DB,
+        SchemaReconcileEntity::ENTITY_TAG,
+        constraint_id,
+        None,
+    )
+    .expect("empty Forward should reach Verify");
+    assert!(matches!(
+        super::advance_not_null_constraint_activation(
+            &RECONCILE_DB,
+            SchemaReconcileEntity::ENTITY_TAG,
+            constraint_id,
+            None,
+        )
+        .expect("empty Verify should promote"),
+        ConstraintValidationProgress::Promoted { .. },
+    ));
+
+    RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("promoted bundle should decode")
+            .expect("promoted bundle should exist");
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&SchemaReconcileEntity::ENTITY_TAG)
+            .expect("promoted entity should exist");
+        assert!(!snapshot.fields()[1].nullable());
+        assert!(snapshot.constraint_activations().is_empty());
+        assert!(snapshot.constraints().iter().any(|constraint| {
+            constraint.id() == constraint_id
+                && matches!(
+                    constraint.kind(),
+                    AcceptedConstraintKind::NotNull { field_id }
+                        if *field_id == FieldId::new(2)
+                )
+        }));
+        assert!(
+            store
+                .constraint_validation_job(SchemaReconcileEntity::ENTITY_TAG, constraint_id)
+                .expect("promoted job lookup should decode")
+                .is_none()
+        );
+    });
+}
+
+#[test]
+fn generated_check_validation_replays_findings_until_exact_acknowledgement() {
+    reset_reconcile_stores();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_recovery_runtime_state_for_tests(&RECONCILE_CHECK_DB)
+        .expect("recovery runtime state should clear");
+
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+        .expect("initial schema should publish without the generated check");
+    insert_schema_reconcile_row(1, "Ada");
+    insert_schema_reconcile_row(2, "");
+    super::reconcile_runtime_schemas(&RECONCILE_CHECK_DB, RECONCILE_CHECK_RUNTIME_HOOKS)
+        .expect("generated check should publish its activation and durable job");
+    let constraint_id = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("activation bundle should decode")
+            .expect("activation bundle should exist");
+        bundle
+            .entity_snapshots()
+            .get(&SchemaReconcileEntity::ENTITY_TAG)
+            .expect("accepted entity should exist")
+            .constraint_activations()[0]
+            .id()
+    });
+
+    let ConstraintValidationProgress::Findings { receipt: first, .. } =
+        super::advance_check_constraint_activation(
+            &RECONCILE_CHECK_DB,
+            SchemaReconcileEntity::ENTITY_TAG,
+            constraint_id,
+            None,
+        )
+        .expect("Forward page should report the historical violation")
+    else {
+        panic!("historical violation should retain a finding receipt");
+    };
+    let [finding] = first.findings() else {
+        panic!("one invalid row should produce one finding");
+    };
+    assert_eq!(finding.field_ids(), &[FieldId::new(2)]);
+    assert_eq!(
+        finding.error_code(),
+        crate::error::InternalError::mutation_constraint_violation(
+            constraint_id.get(),
+            "name_nonempty".to_string(),
+        )
+        .diagnostic()
+        .error_code()
+        .raw(),
+    );
+
+    let ConstraintValidationProgress::Findings {
+        receipt: replayed, ..
+    } = super::advance_check_constraint_activation(
+        &RECONCILE_CHECK_DB,
+        SchemaReconcileEntity::ENTITY_TAG,
+        constraint_id,
+        None,
+    )
+    .expect("unacknowledged retry should replay its receipt")
+    else {
+        panic!("unacknowledged retry must not advance");
+    };
+    assert_eq!(replayed, first);
+
+    let ConstraintValidationProgress::Findings { receipt: next, .. } =
+        super::advance_check_constraint_activation(
+            &RECONCILE_CHECK_DB,
+            SchemaReconcileEntity::ENTITY_TAG,
+            constraint_id,
+            Some(first.page_sequence()),
+        )
+        .expect("acknowledged retry may advance one bounded page")
+    else {
+        panic!("unrepaired row should be reported again after acknowledgement");
+    };
+    assert!(next.page_sequence() > first.page_sequence());
+    assert_eq!(next.findings(), first.findings());
+}
+
+fn insert_schema_reconcile_row(id: u128, name: &str) {
+    let entity = SchemaReconcileEntity {
+        id: Ulid::from_u128(id),
+        name: name.to_string(),
+    };
+    let raw_key = DecodedDataStoreKey::try_new::<SchemaReconcileEntity>(entity.id)
+        .expect("test key should encode")
+        .to_raw()
+        .expect("test key should encode to raw");
+    let raw_row = CanonicalRow::from_entity_with_model_proposal_for_test(&entity)
+        .expect("test row should encode")
+        .into_raw_row();
+    RECONCILE_DATA_STORE.with_borrow_mut(|store| {
+        store
+            .fold_recovered_journal_put(raw_key, raw_row)
+            .expect("test row should enter the canonical base");
+    });
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the recovery test keeps one complete activation marker timeline visible"
+)]
+fn validation_job_markers_recover_start_progress_and_promotion_atomically() {
+    reset_reconcile_stores();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_commit_failpoint_for_tests();
+    clear_recovery_runtime_state_for_tests(&RECONCILE_CHECK_DB)
+        .expect("recovery runtime state should clear");
+
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+        .expect("initial schema should publish without the generated check");
+    super::reconcile_runtime_schemas_before_recovery_rebuild(
+        &RECONCILE_CHECK_DB,
+        RECONCILE_CHECK_RUNTIME_HOOKS,
+    )
+    .expect("recovery-side reconciliation should publish only the activation");
+    let constraint_id = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("activation bundle should decode")
+            .expect("activation bundle should exist");
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&SchemaReconcileEntity::ENTITY_TAG)
+            .expect("accepted entity should exist");
+        let [activation] = snapshot.constraint_activations() else {
+            panic!("generated addition should own one activation");
+        };
+        assert_eq!(
+            activation.state(),
+            ConstraintActivationState::EnforcingNewWrites
+        );
+        activation.id()
+    });
+
+    let current = RECONCILE_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("Enforcing bundle should decode")
+        .expect("Enforcing bundle should exist");
+    let before = current
+        .entity_snapshots()
+        .get(&SchemaReconcileEntity::ENTITY_TAG)
+        .expect("accepted entity should exist");
+    let validating_catalog = before
+        .constraint_catalog()
+        .clone()
+        .with_validation_started(constraint_id)
+        .expect("activation should enter validation");
+    let mut snapshots = current.entity_snapshots().clone();
+    snapshots.insert(
+        SchemaReconcileEntity::ENTITY_TAG,
+        before.clone().with_constraint_catalog(validating_catalog),
+    );
+    let validating_candidate = super::CandidateSchemaRevision::new(
+        super::AcceptedSchemaRevisionBundle::new(
+            current
+                .revision()
+                .checked_next()
+                .expect("test accepted revision should advance"),
+            current.store_path(),
+            current.enum_catalog().clone(),
+            current.composite_catalog().clone(),
+            snapshots,
+        )
+        .expect("validating bundle should close"),
+    )
+    .expect("validating candidate should encode");
+    let validating_activation = validating_candidate
+        .bundle()
+        .entity_snapshots()
+        .get(&SchemaReconcileEntity::ENTITY_TAG)
+        .expect("validating entity should exist")
+        .constraint_catalog()
+        .activation(constraint_id)
+        .expect("validating activation should exist");
+    let started_job = ConstraintValidationJob::start(
+        SchemaReconcileEntity::ENTITY_TAG,
+        SchemaReconcileEntity::PATH.to_string(),
+        validating_activation,
+        None,
+    )
+    .expect("validation job should build");
+    begin_interrupted_validation_marker(
+        vec![
+            JournalRecord::accepted_schema_publish(
+                SchemaReconcileTestStore::PATH,
+                current.revision(),
+                validating_candidate.encoded_bundle().to_vec(),
+                validating_candidate.encoded_root().to_vec(),
+            )
+            .expect("validating schema record should build"),
+            JournalRecord::constraint_validation_job_put(
+                SchemaReconcileTestStore::PATH,
+                &started_job,
+            )
+            .expect("validation job record should build"),
+        ],
+        false,
+    );
+    ensure_recovered(&RECONCILE_CHECK_DB).expect("start marker should recover");
+    assert_validation_job_state(constraint_id, ConstraintValidationPhase::Verify);
+
+    let mut restarted_job = RECONCILE_SCHEMA_STORE
+        .with_borrow(|store| {
+            store.constraint_validation_job(SchemaReconcileEntity::ENTITY_TAG, constraint_id)
+        })
+        .expect("Verify job should decode")
+        .expect("Verify job should exist");
+    restarted_job
+        .restart_forward(0, Vec::new())
+        .expect("test job should restart at Forward");
+    begin_interrupted_validation_marker(
+        vec![
+            JournalRecord::constraint_validation_job_put(
+                SchemaReconcileTestStore::PATH,
+                &restarted_job,
+            )
+            .expect("restarted job record should build"),
+        ],
+        true,
+    );
+    ensure_recovered(&RECONCILE_CHECK_DB).expect("job progress marker should recover");
+    assert_validation_job_state(constraint_id, ConstraintValidationPhase::Verify);
+    let recovered_job = RECONCILE_SCHEMA_STORE
+        .with_borrow(|store| {
+            store.constraint_validation_job(SchemaReconcileEntity::ENTITY_TAG, constraint_id)
+        })
+        .expect("recovered job should decode")
+        .expect("recovered job should exist");
+    assert_eq!(recovered_job.restarts(), 1);
+
+    let current = RECONCILE_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("Verify bundle should decode")
+        .expect("Verify bundle should exist");
+    let before = current
+        .entity_snapshots()
+        .get(&SchemaReconcileEntity::ENTITY_TAG)
+        .expect("accepted entity should exist");
+    let promoted_catalog = before
+        .constraint_catalog()
+        .clone()
+        .with_promoted_activation(constraint_id)
+        .expect("validated activation should promote");
+    let mut snapshots = current.entity_snapshots().clone();
+    snapshots.insert(
+        SchemaReconcileEntity::ENTITY_TAG,
+        before.clone().with_constraint_catalog(promoted_catalog),
+    );
+    let promoted_candidate = super::CandidateSchemaRevision::new(
+        super::AcceptedSchemaRevisionBundle::new(
+            current
+                .revision()
+                .checked_next()
+                .expect("test accepted revision should advance"),
+            current.store_path(),
+            current.enum_catalog().clone(),
+            current.composite_catalog().clone(),
+            snapshots,
+        )
+        .expect("promoted bundle should close"),
+    )
+    .expect("promoted candidate should encode");
+    begin_interrupted_validation_marker(
+        vec![
+            JournalRecord::accepted_schema_publish(
+                SchemaReconcileTestStore::PATH,
+                current.revision(),
+                promoted_candidate.encoded_bundle().to_vec(),
+                promoted_candidate.encoded_root().to_vec(),
+            )
+            .expect("promoted schema record should build"),
+            JournalRecord::constraint_validation_job_delete(
+                SchemaReconcileTestStore::PATH,
+                SchemaReconcileEntity::ENTITY_TAG,
+                constraint_id,
+            )
+            .expect("job deletion record should build"),
+        ],
+        false,
+    );
+    ensure_recovered(&RECONCILE_CHECK_DB).expect("promotion marker should recover");
+
+    RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("promoted bundle should decode")
+            .expect("promoted bundle should exist");
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&SchemaReconcileEntity::ENTITY_TAG)
+            .expect("accepted entity should exist");
+        assert!(snapshot.constraint_activations().is_empty());
+        assert!(snapshot.constraints().iter().any(|constraint| {
+            constraint.id() == constraint_id
+                && matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
+        }));
+        assert!(
+            store
+                .constraint_validation_job(SchemaReconcileEntity::ENTITY_TAG, constraint_id)
+                .expect("promoted job lookup should decode")
+                .is_none(),
+        );
+    });
+}
+
+fn begin_interrupted_validation_marker(records: Vec<JournalRecord>, append_before_recovery: bool) {
+    let marker_id = generate_commit_id().expect("test commit id should generate");
+    let sequence = RECONCILE_JOURNAL_STORE
+        .with_borrow(JournalTailStore::next_mutation_append_sequence)
+        .expect("test journal sequence should allocate");
+    let batch = JournalBatch::new(marker_id, marker_id, sequence, records)
+        .expect("test validation batch should build");
+    let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])
+        .expect("test validation marker should build");
+    let _unfinished = begin_commit(marker).expect("interrupted validation marker should persist");
+    if append_before_recovery {
+        RECONCILE_JOURNAL_STORE
+            .with_borrow_mut(|store| store.append_batch(&batch))
+            .expect("interrupted validation batch should append");
+    }
+}
+
+#[test]
+fn accepted_publication_blocks_unrelated_entity_change_during_live_activation() {
+    reset_reconcile_stores();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_recovery_runtime_state_for_tests(&RECONCILE_CHECK_DB)
+        .expect("recovery runtime state should clear");
+
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+        .expect("initial schema should publish without the generated check");
+    super::reconcile_runtime_schemas_before_recovery_rebuild(
+        &RECONCILE_CHECK_DB,
+        RECONCILE_CHECK_RUNTIME_HOOKS,
+    )
+    .expect("recovery-side reconciliation should publish only the activation");
+
+    let current = RECONCILE_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("activation bundle should decode")
+        .expect("activation bundle should exist");
+    let before = current
+        .entity_snapshots()
+        .get(&SchemaReconcileEntity::ENTITY_TAG)
+        .expect("accepted entity should exist");
+    let changed = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+        before.version(),
+        before.entity_path().to_string(),
+        "ChangedWhileValidating".to_string(),
+        before.primary_key_field_ids().to_vec(),
+        before.row_layout().clone(),
+        before.fields().to_vec(),
+        before.indexes().to_vec(),
+    )
+    .with_constraint_catalog(before.constraint_catalog().clone())
+    .with_relations(before.relations().to_vec());
+    let mut snapshots = current.entity_snapshots().clone();
+    snapshots.insert(SchemaReconcileEntity::ENTITY_TAG, changed);
+    let next_revision = current
+        .revision()
+        .checked_next()
+        .expect("test accepted revision should advance");
+    let candidate = super::CandidateSchemaRevision::new(
+        super::AcceptedSchemaRevisionBundle::new(
+            next_revision,
+            current.store_path(),
+            current.enum_catalog().clone(),
+            current.composite_catalog().clone(),
+            snapshots,
+        )
+        .expect("unrelated candidate should be internally representable"),
+    )
+    .expect("unrelated candidate should encode");
+
+    assert!(
+        publish_accepted_schema_candidate(
+            SchemaReconcileTestStore::PATH,
+            RECONCILE_DB
+                .store_handle(SchemaReconcileTestStore::PATH)
+                .expect("test store should resolve"),
+            current.revision(),
+            &candidate,
+        )
+        .is_err(),
+        "accepted publication must own the live-activation schema freeze",
+    );
+    let retained_revision = RECONCILE_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_revision)
+        .expect("current accepted revision should decode")
+        .expect("current accepted revision should exist");
+    assert_eq!(retained_revision, current.revision());
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the abort test keeps marker publication and identity retirement in one scenario"
+)]
+fn validating_activation_abort_marker_retires_identity_and_job_atomically() {
+    reset_reconcile_stores();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_commit_failpoint_for_tests();
+    clear_recovery_runtime_state_for_tests(&RECONCILE_CHECK_DB)
+        .expect("recovery runtime state should clear");
+
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+        .expect("initial schema should publish without the generated check");
+    super::reconcile_runtime_schemas_before_recovery_rebuild(
+        &RECONCILE_CHECK_DB,
+        RECONCILE_CHECK_RUNTIME_HOOKS,
+    )
+    .expect("recovery-side reconciliation should publish only the activation");
+    let constraint_id = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("activation bundle should decode")
+            .expect("activation bundle should exist");
+        bundle
+            .entity_snapshots()
+            .get(&SchemaReconcileEntity::ENTITY_TAG)
+            .expect("accepted entity should exist")
+            .constraint_activations()[0]
+            .id()
+    });
+    super::advance_check_constraint_activation(
+        &RECONCILE_CHECK_DB,
+        SchemaReconcileEntity::ENTITY_TAG,
+        constraint_id,
+        None,
+    )
+    .expect("validation job should start");
+
+    let current = RECONCILE_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("validating bundle should decode")
+        .expect("validating bundle should exist");
+    let before = current
+        .entity_snapshots()
+        .get(&SchemaReconcileEntity::ENTITY_TAG)
+        .expect("accepted entity should exist");
+    let retired_high_water = before.constraint_id_allocator().high_water();
+    let aborted_catalog = before
+        .constraint_catalog()
+        .clone()
+        .with_aborted_activation(constraint_id)
+        .expect("live activation should abort");
+    let mut snapshots = current.entity_snapshots().clone();
+    snapshots.insert(
+        SchemaReconcileEntity::ENTITY_TAG,
+        before.clone().with_constraint_catalog(aborted_catalog),
+    );
+    let next_revision = current
+        .revision()
+        .checked_next()
+        .expect("test accepted revision should advance");
+    let candidate = super::CandidateSchemaRevision::new(
+        super::AcceptedSchemaRevisionBundle::new(
+            next_revision,
+            current.store_path(),
+            current.enum_catalog().clone(),
+            current.composite_catalog().clone(),
+            snapshots,
+        )
+        .expect("abort bundle should close"),
+    )
+    .expect("abort candidate should encode");
+    RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        store
+            .validate_live_activation_transition(candidate.bundle())
+            .expect("abort should be one exact live-activation transition");
+        store
+            .validate_constraint_validation_job_closure_with_change(
+                candidate.bundle(),
+                None,
+                Some((SchemaReconcileEntity::ENTITY_TAG, constraint_id)),
+            )
+            .expect("abort candidate and job deletion should close");
+    });
+
+    publish_accepted_schema_candidate_with_constraint_validation_job_removal(
+        SchemaReconcileTestStore::PATH,
+        RECONCILE_CHECK_DB
+            .store_handle(SchemaReconcileTestStore::PATH)
+            .expect("test store should resolve"),
+        current.revision(),
+        &candidate,
+        SchemaReconcileEntity::ENTITY_TAG,
+        constraint_id,
+    )
+    .expect("abort and job removal should publish atomically");
+
+    RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("aborted bundle should decode")
+            .expect("aborted bundle should exist");
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&SchemaReconcileEntity::ENTITY_TAG)
+            .expect("accepted entity should exist");
+        assert!(snapshot.constraint_activations().is_empty());
+        assert_eq!(
+            snapshot.constraint_id_allocator().high_water(),
+            retired_high_water,
+        );
+        assert!(
+            snapshot
+                .constraints()
+                .iter()
+                .all(|constraint| { constraint.id() != constraint_id })
+        );
+        assert!(
+            store
+                .constraint_validation_job(SchemaReconcileEntity::ENTITY_TAG, constraint_id)
+                .expect("aborted job lookup should decode")
+                .is_none(),
+        );
+    });
+}
+
+fn assert_validation_job_state(
+    constraint_id: crate::db::schema::ConstraintId,
+    phase: ConstraintValidationPhase,
+) {
+    RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("validation bundle should decode")
+            .expect("validation bundle should exist");
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&SchemaReconcileEntity::ENTITY_TAG)
+            .expect("accepted entity should exist");
+        assert!(snapshot.constraint_activations().iter().any(|activation| {
+            activation.id() == constraint_id
+                && activation.state() == ConstraintActivationState::Validating
+        }));
+        let job = store
+            .constraint_validation_job(SchemaReconcileEntity::ENTITY_TAG, constraint_id)
+            .expect("validation job should decode")
+            .expect("validation job should exist");
+        assert_eq!(job.phase(), phase);
+    });
 }
 
 #[test]
@@ -1040,8 +2382,8 @@ fn install_additive_relation_accepted_prefixes() {
     });
 }
 
-fn insert_additive_relation_target_fixture_row() {
-    let target_id = Ulid::from_u128(1);
+fn insert_additive_relation_target_fixture_row_with_id(target_id: u128) {
+    let target_id = Ulid::from_u128(target_id);
     let target_key = DecodedDataStoreKey::try_new::<SchemaReconcileRelationTargetEntity>(target_id)
         .expect("relation target key should encode")
         .to_raw()
@@ -1055,6 +2397,10 @@ fn insert_additive_relation_target_fixture_row() {
             .fold_recovered_journal_put(target_key.clone(), target_row.into_raw_row())
             .expect("relation target row should enter the canonical test base");
     });
+}
+
+fn insert_additive_relation_target_fixture_row() {
+    insert_additive_relation_target_fixture_row_with_id(1);
 }
 
 fn insert_additive_relation_source_fixture_row() {
@@ -1087,59 +2433,94 @@ fn insert_additive_relation_fixture_rows() {
 }
 
 #[test]
-fn generated_additive_relation_fill_missing_target_rejects_all_publication() {
+fn generated_additive_relation_activation_retains_missing_target_finding() {
     reset_reconcile_stores();
     reset_reconcile_relation_target_store();
     RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
     init_commit_store_for_tests().expect("commit store should initialize");
     clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_recovery_runtime_state_for_tests(&ADDITIVE_RELATION_RECONCILE_DB)
+        .expect("recovery runtime state should clear");
     install_additive_relation_accepted_prefixes();
     insert_additive_relation_source_fixture_row();
 
-    let accepted_before = RECONCILE_SCHEMA_STORE
-        .with_borrow(|schema_store| {
-            schema_store
-                .current_accepted_persisted_snapshot(AdditiveRelationSourceEntity::ENTITY_TAG)
-        })
-        .expect("accepted relation-source prefix should decode")
-        .expect("accepted relation-source prefix should exist");
     super::reconcile_runtime_schemas(
         &ADDITIVE_RELATION_RECONCILE_DB,
         ADDITIVE_RELATION_RUNTIME_HOOKS,
     )
-    .expect_err("candidate logical relation fill must reject a missing target");
+    .expect("candidate relation and its durable validation job should publish");
 
-    let accepted_after = RECONCILE_SCHEMA_STORE
-        .with_borrow(|schema_store| {
-            schema_store
-                .current_accepted_persisted_snapshot(AdditiveRelationSourceEntity::ENTITY_TAG)
-        })
-        .expect("rejected relation-source prefix should remain readable")
-        .expect("rejected relation-source prefix should remain selected");
-    assert_eq!(accepted_after, accepted_before);
+    let (constraint_id, generation) = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let accepted = store
+            .current_accepted_persisted_snapshot(AdditiveRelationSourceEntity::ENTITY_TAG)
+            .expect("candidate relation source should decode")
+            .expect("candidate relation source should exist");
+        let [candidate] = accepted.candidate_relations() else {
+            panic!("generated addition should reserve one candidate relation");
+        };
+        let [activation] = accepted.constraint_activations() else {
+            panic!("generated addition should own one relation activation");
+        };
+        assert_eq!(accepted.fields().len(), 3);
+        assert!(accepted.relations().is_empty());
+        assert_eq!(activation.state(), ConstraintActivationState::Validating);
+        (activation.id(), candidate.physical_generation())
+    });
+    let ConstraintValidationProgress::Findings { receipt, .. } =
+        super::advance_relation_constraint_activation(
+            &ADDITIVE_RELATION_RECONCILE_DB,
+            AdditiveRelationSourceEntity::ENTITY_TAG,
+            constraint_id,
+            None,
+        )
+        .expect("missing target should produce a retained validation finding")
+    else {
+        panic!("missing relation target must prevent promotion");
+    };
+    assert_eq!(receipt.findings().len(), 1);
+    assert_eq!(
+        relation_target_entry_count_for_generation(
+            AdditiveRelationSourceEntity::ENTITY_TAG,
+            generation,
+        ),
+        0,
+    );
+    RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let accepted = store
+            .current_accepted_persisted_snapshot(AdditiveRelationSourceEntity::ENTITY_TAG)
+            .expect("candidate relation source should remain readable")
+            .expect("candidate relation source should remain selected");
+        assert!(accepted.relations().is_empty());
+        assert_eq!(accepted.candidate_relations().len(), 1);
+        assert_eq!(accepted.constraint_activations().len(), 1);
+        assert!(
+            store
+                .constraint_validation_job(AdditiveRelationSourceEntity::ENTITY_TAG, constraint_id,)
+                .expect("candidate relation job should decode")
+                .and_then(|job| job.last_receipt().cloned())
+                .is_some(),
+        );
+    });
     assert_eq!(RECONCILE_DATA_STORE.with_borrow(DataStore::len), 1);
     assert_eq!(
         RECONCILE_RELATION_TARGET_DATA_STORE.with_borrow(DataStore::len),
         0,
     );
-    assert_eq!(RECONCILE_INDEX_STORE.with_borrow(IndexStore::len), 0);
-    assert_eq!(
-        RECONCILE_RELATION_TARGET_INDEX_STORE.with_borrow(IndexStore::len),
-        0,
-    );
     assert!(
         !commit_marker_present().expect("commit marker probe should succeed"),
-        "prepublication relation rejection must publish no marker",
+        "completed candidate publication must leave no pending marker",
     );
 }
 
 #[test]
-fn generated_additive_relation_fill_stages_reverse_effect_before_publication() {
+fn generated_additive_relation_activation_stages_then_promotes() {
     reset_reconcile_stores();
     reset_reconcile_relation_target_store();
     RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
     init_commit_store_for_tests().expect("commit store should initialize");
     clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_recovery_runtime_state_for_tests(&ADDITIVE_RELATION_RECONCILE_DB)
+        .expect("recovery runtime state should clear");
     install_additive_relation_accepted_prefixes();
     insert_additive_relation_fixture_rows();
 
@@ -1151,11 +2532,11 @@ fn generated_additive_relation_fill_stages_reverse_effect_before_publication() {
         &ADDITIVE_RELATION_RECONCILE_DB,
         ADDITIVE_RELATION_RUNTIME_HOOKS,
     )
-    .expect_err("marker rejection must keep the staged reverse relation effect invisible");
+    .expect_err("marker rejection must keep the relation candidate unpublished");
     assert_eq!(
         RECONCILE_RELATION_TARGET_INDEX_STORE.with_borrow(IndexStore::len),
         0,
-        "rejected schema publication must not apply a reverse relation membership",
+        "rejected candidate publication must not apply reverse relation membership",
     );
     let accepted_before_retry = RECONCILE_SCHEMA_STORE
         .with_borrow(|schema_store| {
@@ -1170,13 +2551,60 @@ fn generated_additive_relation_fill_stages_reverse_effect_before_publication() {
         &ADDITIVE_RELATION_RECONCILE_DB,
         ADDITIVE_RELATION_RUNTIME_HOOKS,
     )
-    .expect("additive relation fill should publish with its reverse effect");
+    .expect("additive relation activation and its validation job should publish");
 
+    let (constraint_id, generation) = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let accepted = store
+            .current_accepted_persisted_snapshot(AdditiveRelationSourceEntity::ENTITY_TAG)
+            .expect("candidate relation source should decode")
+            .expect("candidate relation source should exist");
+        let [candidate] = accepted.candidate_relations() else {
+            panic!("generated addition should reserve one candidate relation");
+        };
+        let [activation] = accepted.constraint_activations() else {
+            panic!("generated addition should own one relation activation");
+        };
+        assert!(accepted.relations().is_empty());
+        (activation.id(), candidate.physical_generation())
+    });
     assert_eq!(
-        RECONCILE_RELATION_TARGET_INDEX_STORE.with_borrow(IndexStore::len),
-        1,
-        "candidate logical fill must create the reverse relation membership",
+        relation_target_entry_count_for_generation(
+            AdditiveRelationSourceEntity::ENTITY_TAG,
+            generation,
+        ),
+        0,
+        "candidate generation stays isolated until its bounded Forward page",
     );
+    assert!(matches!(
+        super::advance_relation_constraint_activation(
+            &ADDITIVE_RELATION_RECONCILE_DB,
+            AdditiveRelationSourceEntity::ENTITY_TAG,
+            constraint_id,
+            None,
+        )
+        .expect("Forward should stage the candidate reverse generation"),
+        ConstraintValidationProgress::Advanced {
+            phase: ConstraintValidationPhase::Verify,
+            rows_scanned: 1,
+        },
+    ));
+    assert_eq!(
+        relation_target_entry_count_for_generation(
+            AdditiveRelationSourceEntity::ENTITY_TAG,
+            generation,
+        ),
+        1,
+    );
+    assert!(matches!(
+        super::advance_relation_constraint_activation(
+            &ADDITIVE_RELATION_RECONCILE_DB,
+            AdditiveRelationSourceEntity::ENTITY_TAG,
+            constraint_id,
+            None,
+        )
+        .expect("stable Verify should promote the candidate relation"),
+        ConstraintValidationProgress::Promoted { .. },
+    ));
     let accepted = RECONCILE_SCHEMA_STORE
         .with_borrow(|schema_store| {
             schema_store
@@ -1185,6 +2613,196 @@ fn generated_additive_relation_fill_stages_reverse_effect_before_publication() {
         .expect("accepted relation-source schema should decode")
         .expect("accepted relation-source schema should exist");
     assert_eq!(accepted.fields().len(), 3);
+    assert_eq!(accepted.relations().len(), 1);
+    assert!(accepted.candidate_relations().is_empty());
+    assert!(accepted.constraint_activations().is_empty());
+}
+
+#[test]
+fn generated_relation_activation_dual_writes_live_source_lifecycle() {
+    reset_reconcile_stores();
+    reset_reconcile_relation_target_store();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_recovery_runtime_state_for_tests(&ADDITIVE_RELATION_RECONCILE_DB)
+        .expect("recovery runtime state should clear");
+    install_additive_relation_accepted_prefixes();
+    insert_additive_relation_target_fixture_row_with_id(1);
+    insert_additive_relation_target_fixture_row_with_id(2);
+    super::reconcile_runtime_schemas(
+        &ADDITIVE_RELATION_RECONCILE_DB,
+        ADDITIVE_RELATION_RUNTIME_HOOKS,
+    )
+    .expect("candidate relation and its durable validation job should publish");
+    let generation = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        store
+            .current_accepted_persisted_snapshot(AdditiveRelationSourceEntity::ENTITY_TAG)
+            .expect("candidate relation source should decode")
+            .expect("candidate relation source should exist")
+            .candidate_relations()[0]
+            .physical_generation()
+    });
+
+    let session = DbSession::new(ADDITIVE_RELATION_RECONCILE_DB);
+    let source_id = Ulid::from_u128(3);
+    session
+        .insert(AdditiveRelationSourceEntity {
+            id: source_id,
+            name: "source".to_string(),
+            target: Ulid::from_u128(1),
+        })
+        .unwrap_or_else(|error| {
+            panic!(
+                "live insert should validate and stage the candidate relation: {:#?}",
+                error.diagnostic()
+            )
+        });
+    let before_update =
+        relation_target_keys_for_generation(AdditiveRelationSourceEntity::ENTITY_TAG, generation);
+    assert_eq!(before_update.len(), 1);
+
+    session
+        .update(AdditiveRelationSourceEntity {
+            id: source_id,
+            name: "source".to_string(),
+            target: Ulid::from_u128(2),
+        })
+        .expect("live relation update should move candidate reverse membership");
+    let after_update =
+        relation_target_keys_for_generation(AdditiveRelationSourceEntity::ENTITY_TAG, generation);
+    assert_eq!(after_update.len(), 1);
+    assert_ne!(after_update, before_update);
+
+    assert_eq!(
+        session
+            .delete::<AdditiveRelationSourceEntity>()
+            .by_id(Id::from_key(source_id))
+            .execute()
+            .expect("source delete should remove candidate reverse membership"),
+        1,
+    );
+    assert_eq!(
+        relation_target_entry_count_for_generation(
+            AdditiveRelationSourceEntity::ENTITY_TAG,
+            generation,
+        ),
+        0,
+    );
+}
+
+#[test]
+fn generated_relation_activation_blocks_target_delete_until_promotion() {
+    reset_reconcile_stores();
+    reset_reconcile_relation_target_store();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_recovery_runtime_state_for_tests(&ADDITIVE_RELATION_RECONCILE_DB)
+        .expect("recovery runtime state should clear");
+    install_additive_relation_accepted_prefixes();
+    insert_additive_relation_target_fixture_row();
+    super::reconcile_runtime_schemas(
+        &ADDITIVE_RELATION_RECONCILE_DB,
+        ADDITIVE_RELATION_RUNTIME_HOOKS,
+    )
+    .expect("candidate relation and its durable validation job should publish");
+
+    let target_id = Ulid::from_u128(1);
+    let error = DbSession::new(ADDITIVE_RELATION_RECONCILE_DB)
+        .delete::<SchemaReconcileRelationTargetEntity>()
+        .by_id(Id::from_key(target_id))
+        .execute()
+        .expect_err("target delete must not bypass an incomplete reverse generation");
+    assert_eq!(
+        error.diagnostic().detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+            boundary: icydb_diagnostic_code::RuntimeBoundaryCode::ConstraintActivationWriteBlocked,
+        }),
+    );
+    let target_key = DecodedDataStoreKey::try_new::<SchemaReconcileRelationTargetEntity>(target_id)
+        .expect("target key should encode")
+        .to_raw()
+        .expect("target key should encode to raw");
+    assert!(
+        RECONCILE_RELATION_TARGET_DATA_STORE.with_borrow(|store| store.get(&target_key).is_some())
+    );
+}
+
+#[test]
+fn interrupted_relation_staging_rebuilds_exact_candidate_generation() {
+    reset_reconcile_stores();
+    reset_reconcile_relation_target_store();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_commit_failpoint_for_tests();
+    clear_recovery_runtime_state_for_tests(&ADDITIVE_RELATION_RECONCILE_DB)
+        .expect("recovery runtime state should clear");
+    install_additive_relation_accepted_prefixes();
+    insert_additive_relation_fixture_rows();
+    super::reconcile_runtime_schemas(
+        &ADDITIVE_RELATION_RECONCILE_DB,
+        ADDITIVE_RELATION_RUNTIME_HOOKS,
+    )
+    .expect("candidate relation and its durable validation job should publish");
+    let (constraint_id, generation) = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let accepted = store
+            .current_accepted_persisted_snapshot(AdditiveRelationSourceEntity::ENTITY_TAG)
+            .expect("candidate relation source should decode")
+            .expect("candidate relation source should exist");
+        (
+            accepted.constraint_activations()[0].id(),
+            accepted.candidate_relations()[0].physical_generation(),
+        )
+    });
+
+    arm_commit_failpoint_for_tests(
+        CommitFailpoint::AfterMarkerWrite,
+        CommitFailpointMode::ReturnError,
+    );
+    super::advance_relation_constraint_activation(
+        &ADDITIVE_RELATION_RECONCILE_DB,
+        AdditiveRelationSourceEntity::ENTITY_TAG,
+        constraint_id,
+        None,
+    )
+    .expect_err("interruption after marker write should leave recovery authority");
+    assert!(commit_marker_present().expect("marker presence should decode"));
+    assert_eq!(
+        relation_target_entry_count_for_generation(
+            AdditiveRelationSourceEntity::ENTITY_TAG,
+            generation,
+        ),
+        0,
+    );
+
+    ensure_recovered(&ADDITIVE_RELATION_RECONCILE_DB)
+        .expect("relation staging marker should recover");
+    assert!(!commit_marker_present().expect("marker presence should decode"));
+    assert_eq!(
+        relation_target_entry_count_for_generation(
+            AdditiveRelationSourceEntity::ENTITY_TAG,
+            generation,
+        ),
+        1,
+    );
+    RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        let accepted = store
+            .current_accepted_persisted_snapshot(AdditiveRelationSourceEntity::ENTITY_TAG)
+            .expect("recovered relation source should decode")
+            .expect("recovered relation source should exist");
+        assert_eq!(accepted.relations().len(), 1);
+        assert!(accepted.candidate_relations().is_empty());
+        assert!(accepted.constraint_activations().is_empty());
+        assert!(
+            store
+                .constraint_validation_job(AdditiveRelationSourceEntity::ENTITY_TAG, constraint_id,)
+                .expect("recovered relation job lookup should decode")
+                .is_none(),
+            "recovery-owned startup Verify should promote and remove the durable job",
+        );
+    });
 }
 
 #[test]

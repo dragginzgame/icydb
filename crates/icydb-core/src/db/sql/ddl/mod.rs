@@ -4,32 +4,45 @@
 //! Boundary: translates parser-owned DDL syntax into catalog-native requests.
 
 mod admission;
-pub(in crate::db) use admission::BoundSqlDdlSchemaVersionContract;
+mod constraint;
+mod field;
+mod index;
+mod report;
+
 use admission::{
     bind_sql_ddl_schema_version_contract, ddl_version_contract,
     validate_bound_sql_ddl_version_contract,
 };
-mod field;
-pub(in crate::db) use field::{
-    BoundSqlAddColumnRequest, BoundSqlAlterColumnDefaultRequest,
-    BoundSqlAlterColumnNullabilityRequest, BoundSqlDropColumnRequest, BoundSqlRenameColumnRequest,
+use constraint::{
+    bind_alter_table_add_check_constraint_statement, bind_alter_table_drop_constraint_statement,
+    bind_alter_table_validate_constraint_statement,
 };
 use field::{
     bind_alter_table_add_column_statement, bind_alter_table_alter_column_statement,
     bind_alter_table_drop_column_statement, bind_alter_table_rename_column_statement,
 };
-
-mod index;
-pub(in crate::db) use index::{BoundSqlCreateIndexRequest, BoundSqlDropIndexRequest};
 use index::{bind_create_index_statement, bind_drop_index_statement};
-
-mod report;
 use report::ddl_preparation_report;
-pub use report::{SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlPreparationReport};
+
+pub(in crate::db) use admission::BoundSqlDdlSchemaVersionContract;
+pub(in crate::db) use constraint::{
+    BoundSqlAddCheckConstraintRequest, BoundSqlDropConstraintRequest,
+    BoundSqlValidateConstraintRequest, BoundSqlValidationConstraintKind,
+};
+pub(in crate::db) use field::{
+    BoundSqlAddColumnRequest, BoundSqlAlterColumnDefaultRequest,
+    BoundSqlAlterColumnNullabilityRequest, BoundSqlDropColumnRequest, BoundSqlRenameColumnRequest,
+};
+pub(in crate::db) use index::{BoundSqlCreateIndexRequest, BoundSqlDropIndexRequest};
+pub use report::{
+    SqlConstraintValidationFinding, SqlConstraintValidationPage,
+    SqlConstraintValidationRevisionStatus, SqlConstraintValidationState, SqlDdlExecutionStatus,
+    SqlDdlMutationKind, SqlDdlPreparationReport,
+};
 
 use crate::db::{
     schema::{
-        AcceptedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
+        AcceptedCheckExprV1Error, AcceptedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
         SchemaDdlMutationAdmissionError, SchemaInfo,
         derive_sql_ddl_expression_index_accepted_after,
         derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
@@ -86,7 +99,7 @@ impl PreparedSqlDdlCommand {
     /// Return whether this prepared command needs schema or storage mutation.
     #[must_use]
     pub(in crate::db) const fn mutates_schema(&self) -> bool {
-        self.derivation.is_some()
+        !matches!(self.bound.statement(), BoundSqlDdlStatement::NoOp(_))
     }
 }
 
@@ -124,12 +137,15 @@ impl BoundSqlDdlRequest {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum BoundSqlDdlStatement {
     AddColumn(BoundSqlAddColumnRequest),
+    AddCheckConstraint(BoundSqlAddCheckConstraintRequest),
     AlterColumnDefault(BoundSqlAlterColumnDefaultRequest),
     AlterColumnNullability(BoundSqlAlterColumnNullabilityRequest),
     DropColumn(BoundSqlDropColumnRequest),
+    DropConstraint(BoundSqlDropConstraintRequest),
     RenameColumn(BoundSqlRenameColumnRequest),
     CreateIndex(BoundSqlCreateIndexRequest),
     DropIndex(BoundSqlDropIndexRequest),
+    ValidateConstraint(BoundSqlValidateConstraintRequest),
     NoOp(BoundSqlDdlNoOpRequest),
 }
 
@@ -219,6 +235,8 @@ pub(in crate::db) enum SqlDdlBindError {
         field_path: String,
         existing_index: String,
     },
+
+    IndexIdentityExhausted,
 
     UnknownIndex {
         entity_name: String,
@@ -310,6 +328,26 @@ pub(in crate::db) enum SqlDdlBindError {
     EmptySchemaVersionBump {
         requested: u32,
     },
+
+    InvalidConstraintName {
+        constraint_name: String,
+    },
+
+    DuplicateConstraintName {
+        constraint_name: String,
+    },
+
+    UnknownConstraint {
+        constraint_name: String,
+    },
+
+    ConstraintOwnershipRejected {
+        constraint_name: String,
+    },
+
+    AcceptedValueCatalogRequired,
+
+    InvalidCheckExpression(AcceptedCheckExprV1Error),
 }
 
 ///
@@ -358,13 +396,22 @@ pub(in crate::db) fn prepare_sql_ddl_statement(
 ) -> Result<PreparedSqlDdlCommand, SqlDdlPrepareError> {
     let bound = bind_sql_ddl_statement(statement, accepted_before, schema, index_store_path)?;
     validate_bound_sql_ddl_version_contract(&bound, accepted_before)?;
-    let derivation = if matches!(bound.statement(), BoundSqlDdlStatement::NoOp(_)) {
-        None
-    } else {
-        Some(derive_bound_sql_ddl_accepted_after(
+    let derivation = match bound.statement() {
+        BoundSqlDdlStatement::NoOp(_)
+        | BoundSqlDdlStatement::AddCheckConstraint(_)
+        | BoundSqlDdlStatement::DropConstraint(_)
+        | BoundSqlDdlStatement::ValidateConstraint(_) => None,
+        BoundSqlDdlStatement::CreateIndex(create) if create.candidate_index().unique() => None,
+        BoundSqlDdlStatement::DropIndex(drop) if drop.pending_activation_id().is_some() => None,
+        BoundSqlDdlStatement::AlterColumnNullability(alter)
+            if alter.pending_activation_id().is_some() =>
+        {
+            None
+        }
+        _ => Some(derive_bound_sql_ddl_accepted_after(
             accepted_before,
             &bound,
-        )?)
+        )?),
     };
     let report = ddl_preparation_report(&bound);
 
@@ -396,14 +443,23 @@ pub(in crate::db) fn bind_sql_ddl_statement(
         SqlDdlStatement::AlterTableAddColumn(statement) => {
             bind_alter_table_add_column_statement(statement, accepted_before, schema)
         }
+        SqlDdlStatement::AlterTableAddCheckConstraint(statement) => {
+            bind_alter_table_add_check_constraint_statement(statement, accepted_before, schema)
+        }
         SqlDdlStatement::AlterTableAlterColumn(statement) => {
             bind_alter_table_alter_column_statement(statement, accepted_before, schema)
         }
         SqlDdlStatement::AlterTableDropColumn(statement) => {
             bind_alter_table_drop_column_statement(statement, accepted_before, schema)
         }
+        SqlDdlStatement::AlterTableDropConstraint(statement) => {
+            bind_alter_table_drop_constraint_statement(statement, accepted_before, schema)
+        }
         SqlDdlStatement::AlterTableRenameColumn(statement) => {
             bind_alter_table_rename_column_statement(statement, accepted_before, schema)
+        }
+        SqlDdlStatement::AlterTableValidateConstraint(statement) => {
+            bind_alter_table_validate_constraint_statement(statement, accepted_before, schema)
         }
     }?;
     bound.schema_version_contract =
@@ -435,13 +491,26 @@ pub(in crate::db) fn lower_bound_sql_ddl_to_schema_mutation_admission(
             rename.new_name(),
         )),
         BoundSqlDdlStatement::CreateIndex(create) => {
+            if create.candidate_index().unique() {
+                return Err(SqlDdlLoweringError::UnsupportedStatement);
+            }
             if create.candidate_index().key().is_field_path_only() {
                 admit_sql_ddl_field_path_index_candidate(create.candidate_index())
             } else {
                 admit_sql_ddl_expression_index_candidate(create.candidate_index())
             }
         }
-        BoundSqlDdlStatement::DropIndex(_) => Ok(admit_sql_ddl_secondary_index_drop_candidate()),
+        BoundSqlDdlStatement::DropIndex(drop) => {
+            if drop.pending_activation_id().is_some() {
+                return Err(SqlDdlLoweringError::UnsupportedStatement);
+            }
+            Ok(admit_sql_ddl_secondary_index_drop_candidate())
+        }
+        BoundSqlDdlStatement::AddCheckConstraint(_)
+        | BoundSqlDdlStatement::DropConstraint(_)
+        | BoundSqlDdlStatement::ValidateConstraint(_) => {
+            return Err(SqlDdlLoweringError::UnsupportedStatement);
+        }
         BoundSqlDdlStatement::NoOp(_) => return Err(SqlDdlLoweringError::UnsupportedStatement),
     }
     .map_err(SqlDdlLoweringError::MutationAdmission)
@@ -483,6 +552,9 @@ pub(in crate::db) fn derive_bound_sql_ddl_accepted_after(
             rename.new_name(),
         ),
         BoundSqlDdlStatement::CreateIndex(create) => {
+            if create.candidate_index().unique() {
+                return Err(SqlDdlLoweringError::UnsupportedStatement);
+            }
             if create.candidate_index().key().is_field_path_only() {
                 derive_sql_ddl_field_path_index_accepted_after(
                     accepted_before,
@@ -496,10 +568,18 @@ pub(in crate::db) fn derive_bound_sql_ddl_accepted_after(
             }
         }
         BoundSqlDdlStatement::DropIndex(drop) => {
+            if drop.pending_activation_id().is_some() {
+                return Err(SqlDdlLoweringError::UnsupportedStatement);
+            }
             derive_sql_ddl_secondary_index_drop_accepted_after(
                 accepted_before,
                 drop.dropped_index(),
             )
+        }
+        BoundSqlDdlStatement::AddCheckConstraint(_)
+        | BoundSqlDdlStatement::DropConstraint(_)
+        | BoundSqlDdlStatement::ValidateConstraint(_) => {
+            return Err(SqlDdlLoweringError::UnsupportedStatement);
         }
         BoundSqlDdlStatement::NoOp(_) => return Err(SqlDdlLoweringError::UnsupportedStatement),
     }

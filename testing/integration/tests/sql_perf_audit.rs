@@ -53,6 +53,13 @@ struct StorageWritePerfResult {
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct ConstraintActivationPerfResult {
+    no_check: StorageWritePerfResult,
+    add_check_local_instructions: u64,
+    add_check_rows_scanned: u64,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 struct SqlWriteMaterializationPerfResult {
     local_instructions: [u64; 4],
     rows: [u32; 4],
@@ -293,6 +300,14 @@ fn summarize_perf_outcome(result: &SqlQueryResult) -> SqlPerfOutcome {
             result_kind: "show_indexes",
             entity: entity.clone(),
             row_count: indexes.len(),
+        },
+        SqlQueryResult::ShowConstraints {
+            entity,
+            constraints,
+        } => SqlPerfOutcome {
+            result_kind: "show_constraints",
+            entity: entity.clone(),
+            row_count: constraints.len(),
         },
         SqlQueryResult::ShowColumns { entity, columns } => SqlPerfOutcome {
             result_kind: "show_columns",
@@ -1310,7 +1325,7 @@ fn assert_storage_write_matrix_stays_bounded(label: &str, result: &StorageWriteP
         (
             "first insert",
             result.first_insert_local_instructions,
-            25_000_000,
+            30_000_000,
         ),
         (
             "steady insert avg",
@@ -1637,6 +1652,58 @@ fn sql_perf_journaled_primary_limit_one_stays_bounded() {
     assert_storage_total_and_fluent_limit_one_reports(&fixture);
     assert_storage_write_matrix_reports(&fixture);
     assert_sql_write_materialization_matrix_reports(&fixture);
+}
+
+#[test]
+fn sql_perf_journaled_check_write_cost_is_measured() {
+    let fixture = install_sql_perf_canister_fixture();
+    reset_sql_perf_fixtures(&fixture);
+
+    let result: Result<ConstraintActivationPerfResult, Error> = fixture
+        .update_call("measure_journaled_user_constraint_write_perf", ())
+        .expect("constraint write perf result should decode");
+    let result = result.expect("constraint write perf endpoint should succeed");
+    let checked: Result<StorageWritePerfResult, Error> = fixture
+        .update_call("measure_journaled_user_checked_write_perf", ())
+        .expect("checked write perf result should decode");
+    let checked = checked.expect("checked write perf endpoint should succeed");
+
+    print_storage_write_matrix("journaled no-check", &result.no_check);
+    print_storage_write_matrix("journaled checked", &checked);
+    println!(
+        "journaled ADD CHECK: instructions={} rows_scanned={}",
+        result.add_check_local_instructions, result.add_check_rows_scanned,
+    );
+    assert_eq!(result.add_check_rows_scanned, 0);
+    assert!(result.add_check_local_instructions > 0);
+    for (metric, without_check, with_check) in [
+        (
+            "steady insert",
+            result.no_check.steady_insert_avg_local_instructions,
+            checked.steady_insert_avg_local_instructions,
+        ),
+        (
+            "steady update",
+            result.no_check.steady_update_avg_local_instructions,
+            checked.steady_update_avg_local_instructions,
+        ),
+        (
+            "steady delete",
+            result.no_check.steady_delete_avg_local_instructions,
+            checked.steady_delete_avg_local_instructions,
+        ),
+        (
+            "write then read back",
+            result.no_check.write_then_read_back_local_instructions,
+            checked.write_then_read_back_local_instructions,
+        ),
+    ] {
+        let limit = without_check.saturating_mul(105) / 100;
+        assert!(
+            with_check <= limit,
+            "journaled {metric} check overhead should stay within 5%, got {with_check} > {limit} from {without_check}",
+        );
+    }
 }
 
 #[test]

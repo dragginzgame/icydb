@@ -42,9 +42,9 @@ use crate::{
         registry::{StoreHandle, StoreRecoveryCapability},
         schema::{
             AcceptedCatalogSnapshotSelection, CandidateSchemaRevision, SchemaStore,
-            accepted_commit_schema_fingerprint, decode_persisted_schema_snapshot,
-            ensure_accepted_schema_snapshot, reconcile_runtime_schemas,
-            reconcile_runtime_schemas_before_recovery_rebuild,
+            accepted_commit_schema_fingerprint, decode_constraint_validation_job,
+            decode_persisted_schema_snapshot, ensure_accepted_schema_snapshot,
+            reconcile_runtime_schemas, reconcile_runtime_schemas_before_recovery_rebuild,
         },
     },
     error::{ErrorOrigin, InternalError},
@@ -294,6 +294,12 @@ fn rebuild_journaled_live_projections<C: CanisterKind>(db: &Db<C>) -> Result<(),
 
 fn fold_journaled_tails<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     for (store_path, handle) in sorted_journaled_store_handles(db) {
+        // Tail records form a sequence over canonical state. A newer volatile
+        // schema overlay may contain later activation/job state and must not
+        // become the predecessor used to validate an earlier fold record.
+        // Recovery already owns exclusivity, and phase 2 rebuilds this
+        // disposable projection from the resulting canonical state.
+        handle.with_schema_mut(SchemaStore::reset_journaled_live_projection)?;
         let journal_store = handle
             .journal_tail_store()
             .ok_or_else(InternalError::store_corruption)?;
@@ -444,6 +450,10 @@ fn fold_journal_record<C: CanisterKind>(
     )
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "recovery keeps every journal record's replay and fold behavior in one exhaustive authority"
+)]
 fn apply_journal_record<C: CanisterKind>(
     db: &Db<C>,
     expected_store_path: &'static str,
@@ -522,6 +532,50 @@ fn apply_journal_record<C: CanisterKind>(
                     .fold_journaled_accepted_schema_candidate(*expected_revision, &candidate),
             })
         }
+        JournalRecord::ConstraintValidationJobPut {
+            store_path,
+            entity_tag,
+            constraint_id,
+            job_bytes,
+        } => {
+            validate_constraint_validation_job_record_identity(
+                db,
+                expected_store_path,
+                store_path,
+                *entity_tag,
+                *constraint_id,
+            )?;
+            let job = decode_constraint_validation_job(job_bytes)?;
+            if job.entity_tag() != *entity_tag || job.constraint_id() != *constraint_id {
+                return Err(InternalError::store_corruption());
+            }
+            expected_handle.with_schema_mut(|schema_store| match mode {
+                JournalRecordApplyMode::Replay => {
+                    schema_store.apply_constraint_validation_job(&job)
+                }
+                JournalRecordApplyMode::Fold => schema_store.fold_constraint_validation_job(&job),
+            })
+        }
+        JournalRecord::ConstraintValidationJobDelete {
+            store_path,
+            entity_tag,
+            constraint_id,
+        } => {
+            validate_constraint_validation_job_record_identity(
+                db,
+                expected_store_path,
+                store_path,
+                *entity_tag,
+                *constraint_id,
+            )?;
+            expected_handle.with_schema_mut(|schema_store| match mode {
+                JournalRecordApplyMode::Replay => schema_store
+                    .apply_constraint_validation_job_removal(*entity_tag, *constraint_id),
+                JournalRecordApplyMode::Fold => {
+                    schema_store.fold_constraint_validation_job_removal(*entity_tag, *constraint_id)
+                }
+            })
+        }
     }
 }
 
@@ -533,6 +587,13 @@ fn validate_journal_batch_records<C: CanisterKind>(
     mode: JournalRecordApplyMode,
 ) -> Result<Option<CandidateSchemaRevision>, InternalError> {
     let candidate = journal_batch_schema_candidate(db, expected_store_path, batch)?;
+    validate_journal_batch_constraint_validation_job_change(
+        db,
+        expected_store_path,
+        expected_handle,
+        batch,
+        candidate.as_ref(),
+    )?;
 
     for record in batch.records() {
         match record {
@@ -572,9 +633,12 @@ fn validate_journal_batch_records<C: CanisterKind>(
                     return Err(InternalError::store_corruption());
                 }
             }
-            JournalRecord::AcceptedSchemaPublish { .. } => {
+            JournalRecord::AcceptedSchemaPublish { .. }
+            | JournalRecord::ConstraintValidationJobPut { .. }
+            | JournalRecord::ConstraintValidationJobDelete { .. } => {
                 // The first pass decoded and verified the candidate before any
-                // candidate-bound row rewrite was admitted.
+                // candidate-bound row rewrite was admitted, including the exact
+                // final activation/job closure.
             }
         }
     }
@@ -723,11 +787,111 @@ fn journal_batch_schema_candidate<C: CanisterKind>(
             }
             JournalRecord::RowPut { .. }
             | JournalRecord::RowDelete { .. }
-            | JournalRecord::SchemaPut { .. } => {}
+            | JournalRecord::SchemaPut { .. }
+            | JournalRecord::ConstraintValidationJobPut { .. }
+            | JournalRecord::ConstraintValidationJobDelete { .. } => {}
         }
     }
 
     Ok(candidate)
+}
+
+fn validate_journal_batch_constraint_validation_job_change<C: CanisterKind>(
+    db: &Db<C>,
+    expected_store_path: &'static str,
+    expected_handle: StoreHandle,
+    batch: &JournalBatch,
+    candidate: Option<&CandidateSchemaRevision>,
+) -> Result<(), InternalError> {
+    let mut replacement = None;
+    let mut removal = None;
+    for record in batch.records() {
+        match record {
+            JournalRecord::ConstraintValidationJobPut {
+                store_path,
+                entity_tag,
+                constraint_id,
+                job_bytes,
+            } => {
+                if replacement.is_some() || removal.is_some() {
+                    return Err(InternalError::store_corruption());
+                }
+                validate_constraint_validation_job_record_identity(
+                    db,
+                    expected_store_path,
+                    store_path,
+                    *entity_tag,
+                    *constraint_id,
+                )?;
+                let job = decode_constraint_validation_job(job_bytes)?;
+                if job.entity_tag() != *entity_tag || job.constraint_id() != *constraint_id {
+                    return Err(InternalError::store_corruption());
+                }
+                replacement = Some(job);
+            }
+            JournalRecord::ConstraintValidationJobDelete {
+                store_path,
+                entity_tag,
+                constraint_id,
+            } => {
+                if replacement.is_some() || removal.is_some() {
+                    return Err(InternalError::store_corruption());
+                }
+                validate_constraint_validation_job_record_identity(
+                    db,
+                    expected_store_path,
+                    store_path,
+                    *entity_tag,
+                    *constraint_id,
+                )?;
+                removal = Some((*entity_tag, *constraint_id));
+            }
+            _ => {}
+        }
+    }
+
+    let candidate_bundle = candidate.map(CandidateSchemaRevision::bundle);
+    expected_handle.with_schema(|schema_store| {
+        if let Some(bundle) = candidate_bundle {
+            schema_store.validate_live_activation_transition(bundle)?;
+        }
+        if replacement.is_none() && removal.is_none() {
+            if let Some(bundle) = candidate_bundle {
+                schema_store.validate_constraint_validation_job_closure(bundle)?;
+            }
+            return Ok(());
+        }
+        let bundle = match candidate_bundle {
+            Some(bundle) => bundle.clone(),
+            None => schema_store
+                .current_accepted_schema_bundle()?
+                .ok_or_else(InternalError::store_corruption)?,
+        };
+        schema_store.validate_constraint_validation_job_closure_with_change(
+            &bundle,
+            replacement.as_ref(),
+            removal,
+        )
+    })
+}
+
+fn validate_constraint_validation_job_record_identity<C: CanisterKind>(
+    db: &Db<C>,
+    expected_store_path: &'static str,
+    record_store_path: &str,
+    entity_tag: crate::types::EntityTag,
+    _constraint_id: crate::db::schema::ConstraintId,
+) -> Result<(), InternalError> {
+    if record_store_path != expected_store_path {
+        return Err(InternalError::store_corruption());
+    }
+    let hooks = db
+        .runtime_hook_for_entity_tag(entity_tag)
+        .map_err(|_| InternalError::store_corruption())?;
+    if hooks.store_path != expected_store_path {
+        return Err(InternalError::store_corruption());
+    }
+    Ok(())
 }
 
 fn validate_candidate_journal_row_put<C: CanisterKind>(
@@ -949,7 +1113,9 @@ fn journal_record_store_handle<C: CanisterKind>(
             journal_row_record_store_handle(db, entity_path.as_str(), record)
         }
         JournalRecord::SchemaPut { store_path, .. }
-        | JournalRecord::AcceptedSchemaPublish { store_path, .. } => {
+        | JournalRecord::AcceptedSchemaPublish { store_path, .. }
+        | JournalRecord::ConstraintValidationJobPut { store_path, .. }
+        | JournalRecord::ConstraintValidationJobDelete { store_path, .. } => {
             registry_store_handle_for_path(db, store_path)
         }
     }

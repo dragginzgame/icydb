@@ -23,6 +23,7 @@ impl SemanticIndexAccessContract {
         Self {
             inner: std::sync::Arc::new(SemanticIndexAccessContractInner {
                 ordinal: index.ordinal(),
+                physical_generation: 0,
                 name: index.name().to_string(),
                 store_path: index.store().to_string(),
                 key_items: SemanticIndexKeyItems::Static(index.key_items()),

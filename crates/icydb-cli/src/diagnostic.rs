@@ -441,6 +441,18 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::JournalMutationRevisionExhausted => {
             "journaled mutation revision space is exhausted"
         }
+        RuntimeBoundaryCode::ConstraintViolation => {
+            "mutation violates an accepted constraint or activation gate"
+        }
+        RuntimeBoundaryCode::AcceptedRowConstraintProgramCorrupt => {
+            "accepted row-constraint program is corrupt"
+        }
+        RuntimeBoundaryCode::ConstraintActivationWriteBlocked => {
+            "write conflicts with an incomplete constraint activation"
+        }
+        RuntimeBoundaryCode::GeneratedConstraintActivationStale => {
+            "generated constraint proposal no longer matches its live activation"
+        }
     }
 }
 
@@ -491,9 +503,6 @@ const fn schema_ddl_text(reason: SchemaDdlAdmissionCode) -> &'static str {
         SchemaDdlAdmissionCode::GeneratedFieldNullabilityChangeRejected => {
             "generated field nullability cannot be changed by SQL DDL"
         }
-        SchemaDdlAdmissionCode::SetNotNullValidationFailed => {
-            "SET NOT NULL validation found existing NULL values"
-        }
         SchemaDdlAdmissionCode::RowLayoutVersionExhausted => {
             "row-layout version space is exhausted"
         }
@@ -522,6 +531,9 @@ const fn sql_surface_mismatch_text(mismatch: SqlSurfaceMismatchCode) -> &'static
         }
         SqlSurfaceMismatchCode::MutationRejectsShowIndexes => {
             "execute_trusted_sql_mutation rejects SHOW INDEXES; use execute_trusted_sql_query::<E>()"
+        }
+        SqlSurfaceMismatchCode::MutationRejectsShowConstraints => {
+            "execute_trusted_sql_mutation rejects SHOW CONSTRAINTS; use execute_trusted_sql_query::<E>()"
         }
         SqlSurfaceMismatchCode::MutationRejectsShowColumns => {
             "execute_trusted_sql_mutation rejects SHOW COLUMNS; use execute_trusted_sql_query::<E>()"
@@ -675,6 +687,8 @@ const fn sql_feature_text(feature: SqlFeatureCode) -> &'static str {
         | SqlFeatureCode::AlterTableAddColumnDuplicateDefault
         | SqlFeatureCode::AlterTableAddColumnModifiers
         | SqlFeatureCode::AlterTableAddStatementBeyondAddColumn
+        | SqlFeatureCode::AlterTableAddConstraintBeyondCheck
+        | SqlFeatureCode::AlterTableAddConstraintModifiers
         | SqlFeatureCode::AlterTableAlterColumnDropUnsupportedAction
         | SqlFeatureCode::AlterTableAlterColumnModifiers
         | SqlFeatureCode::AlterTableAlterColumnSetUnsupportedAction
@@ -683,9 +697,13 @@ const fn sql_feature_text(feature: SqlFeatureCode) -> &'static str {
         | SqlFeatureCode::AlterTableDropColumnIfExistsSyntax
         | SqlFeatureCode::AlterTableDropColumnModifiers
         | SqlFeatureCode::AlterTableDropStatementBeyondDropColumn
+        | SqlFeatureCode::AlterTableDropConstraintIfExistsSyntax
+        | SqlFeatureCode::AlterTableDropConstraintModifiers
         | SqlFeatureCode::AlterTableRenameColumnMissingTo
         | SqlFeatureCode::AlterTableRenameColumnModifiers
         | SqlFeatureCode::AlterTableRenameStatementBeyondRenameColumn
+        | SqlFeatureCode::AlterTableValidateBeyondConstraint
+        | SqlFeatureCode::AlterTableValidateConstraintModifiers
         | SqlFeatureCode::AlterTableUnsupportedOperation
         | SqlFeatureCode::CreateIndexIfNotExistsSyntax
         | SqlFeatureCode::CreateIndexKeyOrderingModifiers
@@ -738,6 +756,7 @@ const fn sql_feature_text(feature: SqlFeatureCode) -> &'static str {
             "searched CASE in grouped ORDER BY expressions"
         }
         SqlFeatureCode::ShowColumnsModifiers => "SHOW COLUMNS modifiers",
+        SqlFeatureCode::ShowConstraintsModifiers => "SHOW CONSTRAINTS modifiers",
         SqlFeatureCode::ShowEntitiesModifiers => "SHOW ENTITIES modifiers",
         SqlFeatureCode::ShowIndexesModifiers => "SHOW INDEXES modifiers",
         SqlFeatureCode::ShowMemoryModifiers => "SHOW MEMORY modifiers",
@@ -772,6 +791,10 @@ const fn sql_ddl_feature_text(feature: SqlFeatureCode) -> &'static str {
         SqlFeatureCode::AlterTableAddStatementBeyondAddColumn => {
             "ALTER TABLE ADD statements beyond ADD COLUMN"
         }
+        SqlFeatureCode::AlterTableAddConstraintBeyondCheck => {
+            "ALTER TABLE ADD CONSTRAINT kinds beyond CHECK"
+        }
+        SqlFeatureCode::AlterTableAddConstraintModifiers => "ALTER TABLE ADD CONSTRAINT modifiers",
         SqlFeatureCode::AlterTableAlterColumnDropUnsupportedAction => {
             "ALTER TABLE ALTER COLUMN DROP actions beyond DEFAULT and NOT NULL"
         }
@@ -792,10 +815,22 @@ const fn sql_ddl_feature_text(feature: SqlFeatureCode) -> &'static str {
         SqlFeatureCode::AlterTableDropStatementBeyondDropColumn => {
             "ALTER TABLE DROP statements beyond DROP COLUMN"
         }
+        SqlFeatureCode::AlterTableDropConstraintIfExistsSyntax => {
+            "ALTER TABLE DROP CONSTRAINT IF EXISTS syntax"
+        }
+        SqlFeatureCode::AlterTableDropConstraintModifiers => {
+            "ALTER TABLE DROP CONSTRAINT modifiers"
+        }
         SqlFeatureCode::AlterTableRenameColumnMissingTo => "ALTER TABLE RENAME COLUMN without TO",
         SqlFeatureCode::AlterTableRenameColumnModifiers => "ALTER TABLE RENAME COLUMN modifiers",
         SqlFeatureCode::AlterTableRenameStatementBeyondRenameColumn => {
             "ALTER TABLE RENAME statements beyond RENAME COLUMN"
+        }
+        SqlFeatureCode::AlterTableValidateBeyondConstraint => {
+            "ALTER TABLE VALIDATE operations beyond constraints"
+        }
+        SqlFeatureCode::AlterTableValidateConstraintModifiers => {
+            "ALTER TABLE VALIDATE CONSTRAINT modifiers"
         }
         SqlFeatureCode::AlterTableUnsupportedOperation => "unsupported ALTER TABLE operation",
         SqlFeatureCode::CreateIndexIfNotExistsSyntax => "CREATE INDEX IF NOT EXISTS syntax",
@@ -1116,6 +1151,22 @@ mod tests {
             (
                 icydb::diagnostic::RuntimeBoundaryCode::GeneratedFieldAfterDdlField,
                 "E_RUNTIME_UNSUPPORTED: generated field would collide with an accepted SQL DDL field slot",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::ConstraintViolation,
+                "E_RUNTIME_INVARIANT_VIOLATION: mutation violates an accepted constraint or activation gate",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::AcceptedRowConstraintProgramCorrupt,
+                "E_RUNTIME_CORRUPTION: accepted row-constraint program is corrupt",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::ConstraintActivationWriteBlocked,
+                "E_RUNTIME_CONFLICT: write conflicts with an incomplete constraint activation",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::GeneratedConstraintActivationStale,
+                "E_RUNTIME_CONFLICT: generated constraint proposal no longer matches its live activation",
             ),
         ];
 

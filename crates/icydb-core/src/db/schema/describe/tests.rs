@@ -1,7 +1,7 @@
 use crate::{
     db::{
-        EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
-        EntityRelationDescription, EntitySchemaDescription,
+        EntityConstraintDescription, EntityFieldDescription, EntityIndexDescription,
+        EntityRelationCardinality, EntityRelationDescription, EntitySchemaDescription,
         relation::{RelationFieldCardinality, relation_field_metadata_for_model_iter},
         schema::{
             AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
@@ -238,12 +238,40 @@ fn entity_schema_description_candid_shape_is_stable() {
         "fields",
         "indexes",
         "relations",
+        "constraints",
         "row_layout_current",
         "row_layout_history_floor",
     ] {
         assert!(
             fields.iter().any(|candidate| candidate == field),
             "EntitySchemaDescription must keep `{field}` field key",
+        );
+    }
+}
+
+#[test]
+fn entity_constraint_description_candid_shape_is_stable() {
+    let fields = expect_record_fields(EntityConstraintDescription::ty());
+
+    for field in [
+        "id",
+        "name",
+        "kind",
+        "origin",
+        "validation_state",
+        "field_id",
+        "index_id",
+        "relation_id",
+        "fields",
+        "index",
+        "relation",
+        "target_entity",
+        "action",
+        "semantics",
+    ] {
+        assert!(
+            fields.iter().any(|candidate| candidate == field),
+            "EntityConstraintDescription must keep `{field}` field key",
         );
     }
 }
@@ -389,6 +417,7 @@ fn describe_fixture_constructors_stay_usable() {
             "accounts".to_string(),
             EntityRelationCardinality::Single,
         )],
+        Vec::new(),
         1,
         1,
     );
@@ -429,7 +458,6 @@ fn schema_describe_relations_match_relation_field_metadata() {
     let relations = described.relations();
 
     assert_eq!(metadata.len(), relations.len());
-
     for (metadata, relation) in metadata.iter().zip(relations) {
         assert_eq!(relation.field(), metadata.field_name());
         assert_eq!(relation.target_path(), metadata.target_path());
@@ -444,6 +472,40 @@ fn schema_describe_relations_match_relation_field_metadata() {
             }
         );
     }
+}
+
+#[test]
+fn accepted_schema_describe_projects_stable_structural_constraint_identity() {
+    let value_catalog = accepted_value_catalog_for_models(&[&DESCRIBE_COMPOSITE_PK_MODEL]);
+    let snapshot = compiled_schema_proposal_for_model(&DESCRIBE_COMPOSITE_PK_MODEL)
+        .initial_persisted_schema_snapshot_with_catalogs(
+            value_catalog.enum_catalog(),
+            value_catalog.composite_catalog(),
+        )
+        .expect("generated structural catalog should build");
+    let accepted = AcceptedSchemaSnapshot::try_new(snapshot)
+        .expect("generated structural catalog should satisfy accepted closure");
+
+    let described = describe_entity_model_with_persisted_schema(
+        &DESCRIBE_COMPOSITE_PK_MODEL,
+        &accepted,
+        &value_catalog,
+        &[],
+    )
+    .expect("accepted structural constraints should describe");
+    let constraints = described.constraints();
+
+    assert_eq!(constraints.len(), 4);
+    assert_eq!(constraints[0].id(), 1);
+    assert_eq!(constraints[0].name(), "__icydb_primary_key");
+    assert_eq!(constraints[0].kind(), "primary_key");
+    assert_eq!(constraints[0].fields(), ["tenant_id", "local_id"]);
+    assert!(constraints[1..].iter().all(|constraint| {
+        constraint.kind() == "not_null"
+            && constraint.origin() == "generated"
+            && constraint.validation_state() == "validated"
+            && constraint.semantics() == "not_null_v1"
+    }));
 }
 
 #[test]
@@ -494,6 +556,7 @@ fn accepted_schema_describe_relations_use_persisted_relation_authority() {
         &DESCRIBE_RELATION_MODEL,
         &snapshot,
         &value_catalog,
+        &[],
     )
     .expect("accepted relation schema should describe");
 
@@ -754,6 +817,7 @@ fn accepted_schema_describe_keeps_future_default_and_historical_fill_distinct() 
         &DESCRIBE_EXACT_MODEL,
         &snapshot,
         &value_catalog,
+        &[],
     )
     .expect("accepted temporal facts should describe");
     let score = described

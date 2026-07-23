@@ -1,6 +1,8 @@
 use crate::{
     db::schema::{
-        AcceptedFieldKind, ConstraintIdAllocator, FieldId, PersistedFieldOrigin,
+        AcceptedCheckExprV1, AcceptedConstraintCatalog, AcceptedConstraintKind,
+        AcceptedConstraintSnapshot, AcceptedFieldKind, AcceptedSchemaFingerprint,
+        ConstraintIdAllocator, ConstraintOrigin, FieldId, PersistedFieldOrigin,
         PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId,
@@ -14,6 +16,11 @@ use crate::{
     },
     types::EntityTag,
 };
+
+fn encode_unchecked_schema_fixture(snapshot: &PersistedSchemaSnapshot) -> Vec<u8> {
+    candid::encode_one(super::PersistedSchemaSnapshotWire::from_snapshot(snapshot))
+        .expect("unchecked schema wire fixture should encode")
+}
 
 #[test]
 fn decode_persisted_schema_snapshot_rejects_future_codec_version() {
@@ -67,8 +74,7 @@ fn decode_persisted_schema_snapshot_rejects_zero_schema_version() {
         SchemaRowLayout::initial(Vec::new()),
         Vec::new(),
     );
-    let encoded = encode_persisted_schema_snapshot(&snapshot)
-        .expect("version-zero schema snapshot should encode for decode-boundary coverage");
+    let encoded = encode_unchecked_schema_fixture(&snapshot);
 
     let err = decode_persisted_schema_snapshot(&encoded)
         .expect_err("decode should reject version-zero schema snapshots");
@@ -82,8 +88,13 @@ fn decode_persisted_schema_snapshot_rejects_zero_schema_version() {
 
 #[test]
 fn persisted_schema_snapshot_round_trips_temporal_layout_facts() {
-    let snapshot =
-        temporal_schema_snapshot().with_constraint_id_allocator(ConstraintIdAllocator::new(7));
+    let snapshot = temporal_schema_snapshot();
+    let catalog = AcceptedConstraintCatalog::from_persisted_parts(
+        ConstraintIdAllocator::new(7),
+        snapshot.constraints().to_vec(),
+        Vec::new(),
+    );
+    let snapshot = snapshot.with_constraint_catalog(catalog);
     let current = snapshot.row_layout().current_version();
     let historical_payload = snapshot.fields()[1]
         .historical_fill()
@@ -103,10 +114,259 @@ fn persisted_schema_snapshot_round_trips_temporal_layout_facts() {
     );
     assert_eq!(decoded.fields()[1].introduced_in_layout(), current);
     assert_eq!(decoded.constraint_id_allocator().high_water(), 7);
+    assert_eq!(decoded.constraints(), snapshot.constraints());
     assert_eq!(
         decoded.fields()[1].historical_fill().slot_payload(),
         Some(historical_payload.as_slice())
     );
+}
+
+#[test]
+fn persisted_schema_snapshot_rejects_missing_structural_constraint() {
+    let snapshot = temporal_schema_snapshot();
+    let catalog = AcceptedConstraintCatalog::from_persisted_parts(
+        snapshot.constraint_id_allocator(),
+        snapshot.constraints()[1..].to_vec(),
+        Vec::new(),
+    );
+    let malformed = snapshot.with_constraint_catalog(catalog);
+    assert!(
+        encode_persisted_schema_snapshot(&malformed).is_err(),
+        "typed codec egress must reject an incomplete structural registry",
+    );
+    let encoded = encode_unchecked_schema_fixture(&malformed);
+
+    let error = decode_persisted_schema_snapshot(&encoded)
+        .expect_err("missing primary-key constraint must fail closed");
+
+    assert_eq!(
+        error.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
+    );
+}
+
+#[test]
+fn persisted_schema_snapshot_rejects_orphan_structural_constraint_reference() {
+    let snapshot = temporal_schema_snapshot();
+    let mut constraints = snapshot.constraints().to_vec();
+    let not_null_position = constraints
+        .iter()
+        .position(|constraint| matches!(constraint.kind(), AcceptedConstraintKind::NotNull { .. }))
+        .expect("temporal fixture should contain a not-null constraint");
+    let current = &constraints[not_null_position];
+    constraints[not_null_position] = AcceptedConstraintSnapshot::new(
+        current.id(),
+        current.name().to_string(),
+        current.origin(),
+        AcceptedConstraintKind::NotNull {
+            field_id: FieldId::new(999),
+        },
+    );
+    let catalog = AcceptedConstraintCatalog::from_persisted_parts(
+        snapshot.constraint_id_allocator(),
+        constraints,
+        Vec::new(),
+    );
+    let malformed = snapshot.with_constraint_catalog(catalog);
+    assert!(
+        encode_persisted_schema_snapshot(&malformed).is_err(),
+        "typed codec egress must reject an orphan structural owner reference",
+    );
+    let encoded = encode_unchecked_schema_fixture(&malformed);
+
+    let error = decode_persisted_schema_snapshot(&encoded)
+        .expect_err("orphan not-null constraint reference must fail closed");
+
+    assert_eq!(
+        error.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
+    );
+}
+
+fn assert_structural_constraint_wire_rejects(wire: super::PersistedSchemaSnapshotWire) {
+    let encoded = candid::encode_one(&wire).expect("malformed constraint wire should encode");
+    let error = decode_persisted_schema_snapshot(&encoded)
+        .expect_err("malformed structural constraint catalog must fail closed");
+
+    assert_eq!(
+        error.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
+    );
+}
+
+#[test]
+fn persisted_schema_snapshot_rejects_malformed_constraint_identity_and_metadata() {
+    let mut zero_id =
+        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
+    zero_id.constraints[0].id = 0;
+    assert_structural_constraint_wire_rejects(zero_id);
+
+    let mut allocator_below_id =
+        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
+    allocator_below_id.constraint_id_high_water = 1;
+    assert_structural_constraint_wire_rejects(allocator_below_id);
+
+    let mut duplicate_id =
+        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
+    duplicate_id.constraints[1].id = duplicate_id.constraints[0].id;
+    assert_structural_constraint_wire_rejects(duplicate_id);
+
+    let mut duplicate_name =
+        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
+    duplicate_name.constraints[1].name = duplicate_name.constraints[0].name.clone();
+    assert_structural_constraint_wire_rejects(duplicate_name);
+
+    let mut invalid_name =
+        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
+    invalid_name.constraints[0].name = "invalid name".to_string();
+    assert_structural_constraint_wire_rejects(invalid_name);
+
+    let mut overlong_name =
+        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
+    overlong_name.constraints[0].name = "a".repeat(257);
+    assert_structural_constraint_wire_rejects(overlong_name);
+
+    let mut wrong_origin =
+        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
+    wrong_origin.constraints[1].origin = super::ConstraintOriginWire::SqlDdl;
+    assert_structural_constraint_wire_rejects(wrong_origin);
+}
+
+fn snapshot_with_true_check() -> PersistedSchemaSnapshot {
+    let snapshot = temporal_schema_snapshot();
+    let catalog = snapshot
+        .constraint_catalog()
+        .clone()
+        .with_added_check(
+            "score_policy".to_string(),
+            ConstraintOrigin::Generated,
+            AcceptedCheckExprV1::True,
+        )
+        .expect("test check should allocate");
+    snapshot.with_constraint_catalog(catalog)
+}
+
+#[test]
+fn persisted_schema_snapshot_round_trips_current_check_expression() {
+    let snapshot = snapshot_with_true_check();
+    let encoded = encode_persisted_schema_snapshot(&snapshot)
+        .expect("current check expression should encode");
+    let decoded =
+        decode_persisted_schema_snapshot(&encoded).expect("current check expression should decode");
+
+    assert_eq!(decoded, snapshot);
+}
+
+fn snapshot_with_check_activation() -> PersistedSchemaSnapshot {
+    let snapshot = temporal_schema_snapshot();
+    let catalog = snapshot
+        .constraint_catalog()
+        .clone()
+        .with_added_check_activation(
+            "pending_score_policy".to_string(),
+            ConstraintOrigin::Generated,
+            AcceptedCheckExprV1::True,
+            AcceptedSchemaFingerprint::new([0xA5; 32]),
+            7,
+        )
+        .expect("test activation should reserve identity");
+    snapshot.with_constraint_catalog(catalog)
+}
+
+#[test]
+fn persisted_schema_snapshot_round_trips_current_check_activation() {
+    let snapshot = snapshot_with_check_activation();
+    let encoded = encode_persisted_schema_snapshot(&snapshot)
+        .expect("current check activation should encode");
+    let decoded =
+        decode_persisted_schema_snapshot(&encoded).expect("current check activation should decode");
+
+    assert_eq!(decoded, snapshot);
+    assert_eq!(decoded.constraint_activations().len(), 1);
+}
+
+#[test]
+fn persisted_schema_snapshot_round_trips_planner_invisible_unique_candidate() {
+    let snapshot = temporal_schema_snapshot();
+    let candidate = PersistedIndexSnapshot::new(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+        1,
+        "unique_score".to_string(),
+        "entities::Temporal::unique_score".to_string(),
+        true,
+        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+            FieldId::new(2),
+            SchemaFieldSlot::new(1),
+            vec!["score".to_string()],
+            AcceptedFieldKind::Nat64,
+            false,
+        )]),
+        None,
+    )
+    .clone_with_schema_identity(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+        1,
+        8,
+    );
+    let snapshot = snapshot
+        .with_added_unique_activation(candidate, AcceptedSchemaFingerprint::new([0xB7; 32]), 8)
+        .expect("unique candidate activation should close");
+
+    let encoded = encode_persisted_schema_snapshot(&snapshot)
+        .expect("unique candidate activation should encode");
+    let decoded = decode_persisted_schema_snapshot(&encoded)
+        .expect("unique candidate activation should decode");
+
+    assert_eq!(decoded, snapshot);
+    assert!(decoded.indexes().is_empty());
+    assert_eq!(decoded.candidate_indexes().len(), 1);
+
+    let mut missing_owner = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
+    missing_owner.candidate_indexes.clear();
+    assert_structural_constraint_wire_rejects(missing_owner);
+}
+
+#[test]
+fn persisted_schema_snapshot_rejects_stale_or_unbound_activation_identity() {
+    let snapshot = snapshot_with_check_activation();
+
+    let mut stale_fingerprint = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
+    stale_fingerprint.activations[0].fingerprint[0] ^= 1;
+    assert_structural_constraint_wire_rejects(stale_fingerprint);
+
+    let mut zero_epoch = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
+    zero_epoch.activations[0].activation_epoch = 0;
+    assert_structural_constraint_wire_rejects(zero_epoch);
+
+    let mut duplicate_name = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
+    duplicate_name.activations[0].name = duplicate_name.constraints[0].name.clone();
+    assert_structural_constraint_wire_rejects(duplicate_name);
+}
+
+#[test]
+fn persisted_schema_snapshot_rejects_invalid_check_field_and_noncanonical_boolean() {
+    let snapshot = snapshot_with_true_check();
+    let mut unknown_field = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
+    let Some(check) = unknown_field.constraints.last_mut() else {
+        panic!("test check wire should exist");
+    };
+    check.kind = super::AcceptedConstraintKindWire::Check {
+        expression: Box::new(super::AcceptedCheckExprV1Wire::IsNull(
+            super::AcceptedCheckValueExprV1Wire::Field(999),
+        )),
+    };
+    assert_structural_constraint_wire_rejects(unknown_field);
+
+    let mut noncanonical = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
+    let Some(check) = noncanonical.constraints.last_mut() else {
+        panic!("test check wire should exist");
+    };
+    check.kind = super::AcceptedConstraintKindWire::Check {
+        expression: Box::new(super::AcceptedCheckExprV1Wire::And(vec![
+            super::AcceptedCheckExprV1Wire::True,
+        ])),
+    };
+    assert_structural_constraint_wire_rejects(noncanonical);
 }
 
 fn temporal_schema_snapshot() -> PersistedSchemaSnapshot {
@@ -245,8 +505,7 @@ fn decode_persisted_schema_snapshot_rejects_fragmented_field_identities() {
             ),
         ],
     );
-    let encoded = encode_persisted_schema_snapshot(&snapshot)
-        .expect("fragmented field identities should reach decode integrity validation");
+    let encoded = encode_unchecked_schema_fixture(&snapshot);
 
     let err = decode_persisted_schema_snapshot(&encoded)
         .expect_err("decode should reject fragmented field IDs and slots");
@@ -308,8 +567,7 @@ fn decode_persisted_schema_snapshot_rejects_fragmented_index_ordinals() {
             None,
         )],
     );
-    let encoded = encode_persisted_schema_snapshot(&snapshot)
-        .expect("fragmented index ordinal should reach decode integrity validation");
+    let encoded = encode_unchecked_schema_fixture(&snapshot);
 
     let err = decode_persisted_schema_snapshot(&encoded)
         .expect_err("decode should reject fragmented index ordinals");
@@ -735,6 +993,13 @@ fn persisted_schema_snapshot_round_trips_relation_edges() {
         "entities::Owner".to_string(),
         vec![FieldId::new(2)],
     )]);
+    let constraint_catalog = AcceptedConstraintCatalog::initial(
+        snapshot.fields(),
+        snapshot.indexes(),
+        snapshot.relations(),
+    )
+    .expect("test relation constraint catalog should build");
+    let snapshot = snapshot.with_constraint_catalog(constraint_catalog);
     let encoded = encode_persisted_schema_snapshot(&snapshot)
         .expect("schema snapshot should encode accepted relation contracts");
 

@@ -151,6 +151,7 @@ where
         CompiledSqlCommand::Select { .. }
         | CompiledSqlCommand::GlobalAggregate { .. }
         | CompiledSqlCommand::DescribeEntity
+        | CompiledSqlCommand::ShowConstraintsEntity
         | CompiledSqlCommand::ShowIndexesEntity
         | CompiledSqlCommand::ShowColumnsEntity
         | CompiledSqlCommand::ShowEntities { .. }
@@ -325,12 +326,14 @@ impl<C: CanisterKind> DbSession<C> {
             mutation_row_decode_contract,
             accepted_schema_info,
             accepted_schema_fingerprint,
+            accepted_row_constraints,
         ) = accepted_sql_write_save_contract::<E>(catalog, descriptor);
         let entities = self
             .execute_save_with_checked_accepted_row_contract::<E, _, _>(
                 row_decode_contract,
                 accepted_schema_info,
                 accepted_schema_fingerprint,
+                accepted_row_constraints,
                 |save| {
                     save.apply_internal_lowered_structural_mutation_batch_with_precommit(
                         execution.mode,

@@ -86,6 +86,7 @@ fn relation(field_index: usize, key_kind: AcceptedFieldKind) -> AcceptedRelation
     AcceptedRelationInfo {
         relation_name: "target_id".to_string(),
         relation_ordinal: field_index,
+        physical_generation: 0,
         local_components: AcceptedRelationLocalComponents::scalar(
             field_index,
             test_field_contract("target_id", &field_kind, LeafCodec::Structural),
@@ -303,6 +304,7 @@ fn relation_validation_rejects_local_target_component_arity_mismatch() {
     let relation = AcceptedRelationInfo {
         relation_name: "target_id".to_string(),
         relation_ordinal: 3,
+        physical_generation: 0,
         local_components: AcceptedRelationLocalComponents::scalar(
             3,
             test_field_contract("target_id", &field_kind, LeafCodec::Structural),
@@ -517,27 +519,27 @@ fn reverse_relation_key_size_evidence_is_linear_in_source_and_target_identity() 
 
     assert_eq!(
         raw_len(&scalar_target, &scalar_source),
-        34,
-        "scalar target plus scalar source reverse key shape should stay compact"
+        42,
+        "scalar reverse keys include the isolated physical generation"
     );
     assert_eq!(
         raw_len(&composite_target, &scalar_source),
-        45,
+        53,
         "composite target overhead should equal its encoded PK width"
     );
     assert_eq!(
         raw_len(&scalar_target, &composite_source),
-        45,
+        53,
         "composite source overhead should equal its encoded PK suffix width"
     );
     assert_eq!(
         raw_len(&composite_target, &composite_source),
-        56,
+        64,
         "composite target/source overhead should remain additive"
     );
     assert_eq!(
         raw_len(&int128_target, &scalar_source),
-        42,
+        50,
         "fixed 128-bit target lanes should add their fixed encoded width"
     );
     assert_eq!(

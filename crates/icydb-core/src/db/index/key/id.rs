@@ -10,7 +10,7 @@ use std::{fmt, mem::size_of};
 /// IndexId
 ///
 /// Logical identifier for an index.
-/// Combines one entity tag with one dense physical index ordinal.
+/// Combines one entity tag, dense physical ordinal, and isolated generation.
 /// Used as the prefix component of all index keys.
 ///
 
@@ -18,18 +18,36 @@ use std::{fmt, mem::size_of};
 pub(crate) struct IndexId {
     entity_tag: EntityTag,
     ordinal: u16,
+    generation: u64,
 }
 
 impl IndexId {
     /// Fixed on-disk size in bytes for index identity framing.
-    pub(crate) const STORED_SIZE_USIZE: usize = size_of::<u64>() + size_of::<u16>();
+    pub(crate) const STORED_SIZE_USIZE: usize =
+        size_of::<u64>() + size_of::<u16>() + size_of::<u64>();
 
     /// Build one runtime index identity from data-only identity components.
     #[must_use]
+    #[cfg(test)]
     pub(crate) const fn new(entity_tag: EntityTag, ordinal: u16) -> Self {
         Self {
             entity_tag,
             ordinal,
+            generation: 0,
+        }
+    }
+
+    /// Build one runtime index identity in an isolated physical generation.
+    #[must_use]
+    pub(crate) const fn new_with_generation(
+        entity_tag: EntityTag,
+        ordinal: u16,
+        generation: u64,
+    ) -> Self {
+        Self {
+            entity_tag,
+            ordinal,
+            generation,
         }
     }
 
@@ -46,15 +64,25 @@ impl IndexId {
         self.ordinal
     }
 
+    /// Return the isolated physical generation.
+    #[must_use]
+    #[cfg(test)]
+    pub(crate) const fn generation(&self) -> u64 {
+        self.generation
+    }
+
     /// Encode one fixed-size runtime index identity payload.
     #[must_use]
     pub(crate) fn to_bytes(self) -> [u8; Self::STORED_SIZE_USIZE] {
         let mut out = [0u8; Self::STORED_SIZE_USIZE];
         let entity = self.entity_tag.value().to_be_bytes();
         let ordinal = self.ordinal.to_be_bytes();
+        let generation = self.generation.to_be_bytes();
 
         out[..size_of::<u64>()].copy_from_slice(&entity);
-        out[size_of::<u64>()..].copy_from_slice(&ordinal);
+        let ordinal_end = size_of::<u64>() + size_of::<u16>();
+        out[size_of::<u64>()..ordinal_end].copy_from_slice(&ordinal);
+        out[ordinal_end..].copy_from_slice(&generation);
 
         out
     }
@@ -69,17 +97,28 @@ impl IndexId {
         entity.copy_from_slice(&bytes[..size_of::<u64>()]);
 
         let mut ordinal = [0u8; size_of::<u16>()];
-        ordinal.copy_from_slice(&bytes[size_of::<u64>()..]);
+        let ordinal_end = size_of::<u64>() + size_of::<u16>();
+        ordinal.copy_from_slice(&bytes[size_of::<u64>()..ordinal_end]);
 
-        Some(Self::new(
+        let mut generation = [0u8; size_of::<u64>()];
+        generation.copy_from_slice(&bytes[ordinal_end..]);
+
+        Some(Self::new_with_generation(
             EntityTag::new(u64::from_be_bytes(entity)),
             u16::from_be_bytes(ordinal),
+            u64::from_be_bytes(generation),
         ))
     }
 }
 
 impl fmt::Display for IndexId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}:{}", self.entity_tag.value(), self.ordinal)
+        write!(
+            f,
+            "{}:{}@{}",
+            self.entity_tag.value(),
+            self.ordinal,
+            self.generation
+        )
     }
 }

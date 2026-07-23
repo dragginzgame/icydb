@@ -108,6 +108,7 @@ All fallible work **must complete before any durable mutation**, including:
 * validation
 * decoding
 * schema checks
+* validated accepted-constraint and pending new-write-gate evaluation
 * query planning
 * index derivation
 * uniqueness resolution
@@ -172,6 +173,26 @@ schema and physical state authoritative; interruption after the marker is
 completed by recovery. Operation-specific rollback is not a second atomicity
 path.
 
+### Marker-bound constraint activation
+
+Constraint activation is a bounded multi-message workflow made from
+individually atomic IcyDB operations; it is not one transaction spanning
+messages.
+
+Publishing an activation atomically installs its accepted new-write gate.
+Starting or advancing validation atomically couples the durable job checkpoint,
+finding receipt, and any candidate unique-index or reverse-relation generation
+effects produced by that page. A page that exceeds its row, decoded-byte,
+finding, or staging bound rejects or remains incomplete; it cannot report a
+clean proof.
+
+Promotion is a separate marker-bound operation. It may publish a validated
+constraint only after the exact Forward/Verify job proves a stable participating
+revision and the required candidate derived state is complete. Promotion
+installs the validated catalog state and removes the activation/job atomically.
+Abort removes the activation, job, and reachability of candidate generations
+without reusing the reserved constraint identity.
+
 ---
 
 ## 5. Executor Guarantees
@@ -231,7 +252,9 @@ Fully consistent point:
 
 The following are **explicitly out of scope**:
 
-* Multi-message commits
+* Multi-message commits. Bounded constraint validation may progress across
+  messages, but every page, promotion, and abort is an independent atomic
+  operation.
 * Async or awaited mutation paths
 * Forward recovery after process crash
 * Lazy or deferred recovery interleaved with read execution logic; recovery
@@ -252,6 +275,12 @@ The following invariants are **mandatory and non-negotiable**:
   preparation complete
 * No row-layout or accepted-schema publication may be separated from its
   marker-bound row and derived-state effects
+* No activation progress may be separated from its marker-bound checkpoint,
+  finding receipt, or staged derived-state effects
+* No candidate unique-index or relation generation may become planner or
+  delete-safety authority before atomic promotion
+* No constraint promotion may publish from an incomplete or revision-invalid
+  validation proof
 * No fallible work after the commit boundary
 * Apply phase must be infallible by construction
 * Commit marker application must not depend on IC trap rollback

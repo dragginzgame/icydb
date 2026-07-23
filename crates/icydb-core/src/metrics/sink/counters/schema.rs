@@ -122,6 +122,11 @@ pub(in crate::metrics::sink) const fn record_global_schema_transition_outcome(
             ops.schema_transition_append_only_fields =
                 ops.schema_transition_append_only_fields.saturating_add(1);
         }
+        SchemaTransitionOutcome::ConstraintActivation => {
+            ops.schema_transition_constraint_activation = ops
+                .schema_transition_constraint_activation
+                .saturating_add(1);
+        }
         SchemaTransitionOutcome::ExactMatch => {
             ops.schema_transition_exact_match = ops.schema_transition_exact_match.saturating_add(1);
         }
@@ -187,6 +192,11 @@ pub(in crate::metrics::sink) const fn record_entity_schema_transition_outcome(
         SchemaTransitionOutcome::AppendOnlyFields => {
             ops.schema_transition_append_only_fields =
                 ops.schema_transition_append_only_fields.saturating_add(1);
+        }
+        SchemaTransitionOutcome::ConstraintActivation => {
+            ops.schema_transition_constraint_activation = ops
+                .schema_transition_constraint_activation
+                .saturating_add(1);
         }
         SchemaTransitionOutcome::ExactMatch => {
             ops.schema_transition_exact_match = ops.schema_transition_exact_match.saturating_add(1);

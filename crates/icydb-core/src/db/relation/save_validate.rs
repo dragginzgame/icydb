@@ -80,29 +80,7 @@ pub(in crate::db) fn validate_save_relations_with_accepted_contract<E>(
 where
     E: EntityKind + EntityValue,
 {
-    validate_save_relations_from_relation_edges(db, entity, accepted_row_decode_contract)?;
-
-    for slot in 0..accepted_row_decode_contract.required_slot_count() {
-        if accepted_row_decode_contract
-            .relation_edges()
-            .iter()
-            .any(|edge| edge.local_field_slots().contains(&slot))
-        {
-            continue;
-        }
-        let Some(field) = accepted_row_decode_contract.field_for_slot(slot) else {
-            continue;
-        };
-        let Some(relation) =
-            accepted_save_relation_from_field(db, E::PATH, slot, field.field_name(), field.kind())?
-        else {
-            continue;
-        };
-
-        validate_save_relation_for_entity::<E>(db, entity, &relation)?;
-    }
-
-    Ok(())
+    validate_save_relations_from_relation_edges(db, entity, accepted_row_decode_contract)
 }
 
 fn validate_save_relations_from_relation_edges<E>(
@@ -229,38 +207,6 @@ where
         edge.name(),
         local_components,
         tuple_descriptor.into_target_contract().into_target(),
-    )))
-}
-
-fn accepted_save_relation_from_field<C>(
-    db: &Db<C>,
-    source_path: &str,
-    field_index: usize,
-    field_name: &str,
-    kind: &AcceptedFieldKind,
-) -> Result<Option<AcceptedSaveRelationInfo>, InternalError>
-where
-    C: crate::traits::CanisterKind,
-{
-    let Some(descriptor) = accepted_scalar_relation_target_descriptor(
-        db,
-        source_path,
-        field_name,
-        field_name,
-        kind,
-        None,
-    )?
-    else {
-        return Ok(None);
-    };
-
-    Ok(Some(AcceptedSaveRelationInfo::new(
-        field_name,
-        vec![AcceptedSaveRelationLocalComponent::new(
-            field_index,
-            kind.clone(),
-        )],
-        descriptor.into_target_contract().into_target(),
     )))
 }
 

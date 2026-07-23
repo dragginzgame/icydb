@@ -708,12 +708,14 @@ where
             mutation_row_decode_contract,
             accepted_schema_info,
             accepted_schema_fingerprint,
+            accepted_row_constraints,
         ) = accepted_save_contract_for_catalog_context::<E>(catalog, descriptor);
         session
             .execute_save_with_checked_accepted_row_contract::<E, _, _>(
                 row_decode_contract,
                 accepted_schema_info,
                 accepted_schema_fingerprint,
+                accepted_row_constraints,
                 |save| {
                     save.apply_internal_lowered_resumable_structural_update_prefix(
                         candidate_rows,
@@ -1026,11 +1028,9 @@ fn durable_store_revision(store: &StoreHandle) -> Result<u64, QueryError> {
     let journal = store
         .journal_tail_store()
         .ok_or_else(QueryError::invariant)?;
-    let next = journal
-        .with_borrow(JournalTailStore::next_append_sequence)
-        .map_err(QueryError::execute)?;
-
-    Ok(next.get())
+    journal
+        .with_borrow(JournalTailStore::data_mutation_revision)
+        .map_err(QueryError::execute)
 }
 
 fn validate_resumable_update_bindings(

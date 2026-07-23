@@ -301,17 +301,6 @@ impl QueryError {
             ));
         }
 
-        if matches!(
-            err.detail(),
-            Some(ErrorDetail::Store(
-                StoreError::SchemaDdlSetNotNullValidationFailed
-            ))
-        ) {
-            return Self::execute(InternalError::query_schema_ddl_admission(
-                SchemaDdlAdmissionError::SetNotNullValidationFailed,
-            ));
-        }
-
         Self::execute(err)
     }
 

@@ -76,6 +76,7 @@ fn entity(
         fields,
         indexes,
         relations,
+        Vec::new(),
         1,
         1,
     )
@@ -220,6 +221,7 @@ fn schema_check_report_compares_ordered_primary_key_fields() {
         Vec::new(),
         Vec::new(),
         Vec::new(),
+        Vec::new(),
         1,
         1,
     );
@@ -228,6 +230,7 @@ fn schema_check_report_compares_ordered_primary_key_fields() {
         "Placement".to_string(),
         "tenant_id, local_id".to_string(),
         vec!["local_id".to_string(), "tenant_id".to_string()],
+        Vec::new(),
         Vec::new(),
         Vec::new(),
         Vec::new(),
