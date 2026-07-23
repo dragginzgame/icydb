@@ -1425,6 +1425,18 @@ const MANIFEST: &[CoverageCell] = &[
         NO_EXTERNAL_CATALOG
     ),
     cell!(
+        "introspection.show_constraints",
+        Syntax,
+        Accepted,
+        "Introspection",
+        Statement,
+        REQ_EXECUTE,
+        PERF_NONE,
+        ELIGIBLE_ICYDB,
+        ["core.query.metadata_public"],
+        NO_EXTERNAL_CATALOG
+    ),
+    cell!(
         "introspection.show_entities",
         Syntax,
         Accepted,

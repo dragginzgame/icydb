@@ -870,6 +870,34 @@ fn accepted_sql_metadata_resolves_composite_catalog_identity_and_shape() {
     );
 }
 
+fn assert_show_constraints_execute_through_public_query_entrypoint(
+    session: &DbSession<SessionSqlCanister>,
+) {
+    let SqlStatementResult::ShowConstraints(show_constraints) = session
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW CONSTRAINTS FROM SessionSqlEntity")
+        .expect("SHOW CONSTRAINTS should execute through public SQL query entrypoint")
+    else {
+        panic!("SHOW CONSTRAINTS should return a structural constraint payload");
+    };
+    assert_eq!(
+        show_constraints,
+        session
+            .try_show_constraints::<SessionSqlEntity>()
+            .expect("typed accepted constraints should derive"),
+        "SHOW CONSTRAINTS should project the accepted structural registry",
+    );
+    let SqlStatementResult::ShowConstraints(show_constraints_in) = session
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW CONSTRAINTS IN SessionSqlEntity")
+        .expect("SHOW CONSTRAINTS IN should execute through public SQL query entrypoint")
+    else {
+        panic!("SHOW CONSTRAINTS IN should return a structural constraint payload");
+    };
+    assert_eq!(
+        show_constraints_in, show_constraints,
+        "SHOW CONSTRAINTS IN should stay a direct SQL alias of SHOW CONSTRAINTS FROM",
+    );
+}
+
 #[test]
 fn sql_metadata_surfaces_execute_through_public_query_entrypoint() {
     reset_session_sql_store();
@@ -887,19 +915,7 @@ fn sql_metadata_surfaces_execute_through_public_query_entrypoint() {
         "DESCRIBE should expose the same public payload as the typed metadata surface",
     );
 
-    let SqlStatementResult::ShowConstraints(show_constraints) = session
-        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW CONSTRAINTS FROM SessionSqlEntity")
-        .expect("SHOW CONSTRAINTS should execute through public SQL query entrypoint")
-    else {
-        panic!("SHOW CONSTRAINTS should return a structural constraint payload");
-    };
-    assert_eq!(
-        show_constraints,
-        session
-            .try_show_constraints::<SessionSqlEntity>()
-            .expect("typed accepted constraints should derive"),
-        "SHOW CONSTRAINTS should project the accepted structural registry",
-    );
+    assert_show_constraints_execute_through_public_query_entrypoint(&session);
 
     let SqlStatementResult::ShowColumns(columns) = session
         .execute_trusted_sql_query::<SessionSqlEntity>("SHOW COLUMNS SessionSqlEntity")
