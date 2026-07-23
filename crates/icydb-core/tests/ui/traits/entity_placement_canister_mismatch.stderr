@@ -1,13 +1,13 @@
 error[E0271]: type mismatch resolving `<EntityStore as StoreKind>::Canister == DeclaredCanister`
-  --> tests/ui/traits/entity_placement_canister_mismatch.rs:41:18
+  --> tests/ui/traits/entity_placement_canister_mismatch.rs:45:18
    |
-41 |     type Store = EntityStore;
+45 |     type Store = EntityStore;
    |                  ^^^^^^^^^^^ type mismatch resolving `<EntityStore as StoreKind>::Canister == DeclaredCanister`
    |
 note: expected this to be `DeclaredCanister`
-  --> tests/ui/traits/entity_placement_canister_mismatch.rs:35:21
+  --> tests/ui/traits/entity_placement_canister_mismatch.rs:39:21
    |
-35 |     type Canister = StoreCanister;
+39 |     type Canister = StoreCanister;
    |                     ^^^^^^^^^^^^^
 note: required by a bound in `icydb_core::entity::EntityPlacement::Store`
   --> src/entity.rs
