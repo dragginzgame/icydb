@@ -9,6 +9,7 @@ use icydb::diagnostic::{
     RuntimeErrorKind, SchemaDdlAdmissionCode, SqlFeatureCode, SqlLoweringCode,
     SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
 };
+use std::fmt::Write as _;
 
 /// Render one compact public IcyDB error code for CLI lookup.
 pub(crate) fn render_error_code_report(input: &str) -> Result<String, String> {
@@ -70,8 +71,33 @@ pub(crate) fn render_error(err: &icydb::Error) -> String {
         .detail()
         .copied()
         .map_or_else(|| code_text(code).to_string(), diagnostic_detail_text);
+    let summary = format!("{}: {detail}", code_label(code));
+    let Some(constraint) = err.constraint_diagnostic() else {
+        return summary;
+    };
 
-    format!("{}: {detail}", code_label(code))
+    format!(
+        "{summary}; constraint id={} name={} kind={} entity={} primary_key={} fields={} context={} class={} code=E{}",
+        constraint.constraint_id(),
+        constraint.constraint_name(),
+        constraint.constraint_kind().as_str(),
+        constraint.entity(),
+        constraint
+            .primary_key()
+            .map_or_else(|| "-".to_string(), render_hex_bytes),
+        constraint.field_paths().join(","),
+        constraint.context().as_str(),
+        class_text(constraint.error_class()),
+        constraint.error_code().raw(),
+    )
+}
+
+fn render_hex_bytes(bytes: &[u8]) -> String {
+    let mut rendered = String::with_capacity(bytes.len().saturating_mul(2));
+    for byte in bytes {
+        let _ = write!(rendered, "{byte:02x}");
+    }
+    rendered
 }
 
 const fn class_text(class: ErrorClass) -> &'static str {
@@ -868,6 +894,32 @@ mod tests {
         assert!(
             report.contains("E_QUERY_NOT_FOUND: query expected one row but found none"),
             "{report}"
+        );
+    }
+
+    #[test]
+    fn renders_typed_constraint_identity_and_context() {
+        let err: icydb::Error = serde_json::from_value(serde_json::json!({
+            "code": icydb::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION.raw(),
+            "class": icydb::diagnostic::ErrorClass::InvariantViolation.wire_code(),
+            "origin": icydb::diagnostic::ErrorOrigin::Executor.wire_code(),
+            "constraint": {
+                "constraint_id": 41,
+                "constraint_name": "adult_age",
+                "constraint_kind": "Check",
+                "entity": "example::Person",
+                "primary_key": [4, 9],
+                "field_paths": ["age"],
+                "context": "WriteAdmission",
+                "error_code":
+                    icydb::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION.raw(),
+            },
+        }))
+        .expect("typed constraint error should decode");
+
+        assert_eq!(
+            render_error(&err),
+            "E_RUNTIME_INVARIANT_VIOLATION: mutation violates an accepted constraint or activation gate; constraint id=41 name=adult_age kind=check entity=example::Person primary_key=0409 fields=age context=write_admission class=invariant-violation code=E224",
         );
     }
 

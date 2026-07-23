@@ -8,7 +8,9 @@
 #[cfg(test)]
 mod tests;
 
+use candid::CandidType;
 use icydb_diagnostic_code as diagnostic_code;
+use serde::Deserialize;
 use std::fmt;
 
 pub(crate) const COMPACT_QUERY_DIAGNOSTIC_MESSAGE: &str = "query diagnostic";
@@ -1562,7 +1564,7 @@ impl std::error::Error for InternalError {}
 /// Accepted schema owns the identity; this enum is its error-boundary projection.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum ConstraintDiagnosticKind {
     /// One accepted canonical check expression.
     Check,
@@ -1597,7 +1599,7 @@ impl ConstraintDiagnosticKind {
 /// This distinguishes incoming write rejection from historical validation.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum ConstraintDiagnosticContext {
     /// Integrity verification found invalid already-accepted state.
     Integrity,
@@ -1629,7 +1631,7 @@ impl ConstraintDiagnosticContext {
 /// authority, and its compact error code remains the classification owner.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct ConstraintDiagnostic {
     constraint_id: u32,
     constraint_name: String,
@@ -1638,7 +1640,7 @@ pub struct ConstraintDiagnostic {
     primary_key: Option<Vec<u8>>,
     field_paths: Vec<String>,
     context: ConstraintDiagnosticContext,
-    error_code: diagnostic_code::ErrorCode,
+    error_code: u16,
 }
 
 impl ConstraintDiagnostic {
@@ -1660,7 +1662,7 @@ impl ConstraintDiagnostic {
             primary_key,
             field_paths,
             context: ConstraintDiagnosticContext::WriteAdmission,
-            error_code: diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION,
+            error_code: diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION.raw(),
         }
     }
 
@@ -1683,7 +1685,8 @@ impl ConstraintDiagnostic {
             field_paths,
             context: ConstraintDiagnosticContext::WriteAdmission,
             error_code:
-                diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_ACTIVATION_WRITE_BLOCKED,
+                diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_ACTIVATION_WRITE_BLOCKED
+                    .raw(),
         }
     }
 
@@ -1707,7 +1710,7 @@ impl ConstraintDiagnostic {
             primary_key: Some(primary_key),
             field_paths,
             context: ConstraintDiagnosticContext::MigrationValidation,
-            error_code: diagnostic_code::ErrorCode::from_raw(error_code),
+            error_code,
         }
     }
 
@@ -1756,13 +1759,13 @@ impl ConstraintDiagnostic {
     /// Return the compact stable error code for this exact failure.
     #[must_use]
     pub const fn error_code(&self) -> diagnostic_code::ErrorCode {
-        self.error_code
+        diagnostic_code::ErrorCode::from_raw(self.error_code)
     }
 
     /// Return the broad public error class derived from the compact code.
     #[must_use]
     pub const fn error_class(&self) -> diagnostic_code::ErrorClass {
-        self.error_code.class()
+        self.error_code().class()
     }
 }
 

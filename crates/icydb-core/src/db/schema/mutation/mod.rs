@@ -73,6 +73,8 @@ pub(in crate::db) use ddl_admission::{
 };
 
 mod delta;
+#[cfg(feature = "sql")]
+pub(in crate::db::schema) use delta::required_empty_entity_field_addition_matches;
 #[cfg_attr(
     not(test),
     expect(

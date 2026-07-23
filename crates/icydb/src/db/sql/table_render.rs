@@ -4,12 +4,14 @@
 //! Does not own: SQL parsing, lowering, planning, or execution.
 //! Boundary: converts executed core SQL outputs into endpoint-friendly payloads.
 
+use crate::ConstraintDiagnostic;
 use crate::db::{
     EntityCatalogDescription, EntityConstraintDescription, EntityFieldDescription,
     EntitySchemaDescription, MemoryCatalogDescription, StoreCatalogDescription,
     response::RowProjectionOutput,
     sql::{SqlGroupedRowsOutput, value_render::render_projection_rows},
 };
+use std::fmt::Write as _;
 
 #[cfg_attr(
     doc,
@@ -289,6 +291,51 @@ pub(in crate::db::sql) fn render_sql_ddl_lines(input: SqlDdlRenderInput<'_>) -> 
         input.rows_scanned,
         input.index_keys_written,
     )]
+}
+
+/// Render one typed constraint finding without reopening schema authority.
+pub(in crate::db::sql) fn render_constraint_diagnostic_line(
+    diagnostic: &ConstraintDiagnostic,
+) -> String {
+    let primary_key = diagnostic
+        .primary_key()
+        .map_or_else(|| "-".to_string(), render_hex_bytes);
+
+    format!(
+        "constraint_finding id={} name={} kind={} entity={} primary_key={} fields={} context={} class={} code=E{}",
+        diagnostic.constraint_id(),
+        diagnostic.constraint_name(),
+        diagnostic.constraint_kind().as_str(),
+        diagnostic.entity(),
+        primary_key,
+        diagnostic.field_paths().join(","),
+        diagnostic.context().as_str(),
+        error_class_label(diagnostic.error_class()),
+        diagnostic.error_code().raw(),
+    )
+}
+
+fn render_hex_bytes(bytes: &[u8]) -> String {
+    let mut rendered = String::with_capacity(bytes.len().saturating_mul(2));
+    for byte in bytes {
+        let _ = write!(rendered, "{byte:02x}");
+    }
+    rendered
+}
+
+const fn error_class_label(class: icydb_diagnostic_code::ErrorClass) -> &'static str {
+    match class {
+        icydb_diagnostic_code::ErrorClass::Conflict => "conflict",
+        icydb_diagnostic_code::ErrorClass::Corruption => "corruption",
+        icydb_diagnostic_code::ErrorClass::IncompatiblePersistedFormat => {
+            "incompatible_persisted_format"
+        }
+        icydb_diagnostic_code::ErrorClass::Internal => "internal",
+        icydb_diagnostic_code::ErrorClass::InvariantViolation => "invariant_violation",
+        icydb_diagnostic_code::ErrorClass::NotFound => "not_found",
+        icydb_diagnostic_code::ErrorClass::Query => "query",
+        icydb_diagnostic_code::ErrorClass::Unsupported => "unsupported",
+    }
 }
 
 pub(in crate::db::sql) struct SqlDdlRenderInput<'a> {

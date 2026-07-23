@@ -191,7 +191,10 @@ pub mod diagnostic {
 }
 mod error;
 pub mod traits;
-pub use error::{Error, ErrorKind, ErrorOrigin, QueryErrorKind, RuntimeErrorKind};
+pub use error::{
+    ConstraintDiagnostic, ConstraintDiagnosticContext, ConstraintDiagnosticKind, Error, ErrorKind,
+    ErrorOrigin, QueryErrorKind, RuntimeErrorKind,
+};
 pub use icydb_diagnostic_code::ErrorCode;
 
 /// Generic create-input alias for one entity type.

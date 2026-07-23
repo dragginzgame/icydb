@@ -7,8 +7,7 @@
 use crate::db::{
     response::RowProjectionOutput,
     sql::{
-        SqlConstraintValidationFindingOutput, SqlConstraintValidationOutput, SqlGroupedRowsOutput,
-        SqlQueryResult,
+        SqlConstraintValidationOutput, SqlGroupedRowsOutput, SqlQueryResult,
         value_render::{render_projection_value_text, sql_projection_output_rows},
     },
 };
@@ -98,15 +97,7 @@ pub(crate) fn sql_query_result_from_statement(
                     state: validation.state().as_str().to_string(),
                     revision_status: validation.revision_status().as_str().to_string(),
                     rows_scanned: validation.rows_scanned(),
-                    findings: validation
-                        .findings()
-                        .iter()
-                        .map(|finding| SqlConstraintValidationFindingOutput {
-                            primary_key: finding.primary_key().to_vec(),
-                            field_ids: finding.field_ids().to_vec(),
-                            error_code: finding.error_code(),
-                        })
-                        .collect(),
+                    findings: validation.findings().to_vec(),
                     complete: validation.complete(),
                 }
             }),

@@ -5547,8 +5547,24 @@ fn assert_typed_check_validation_pages(
     assert_eq!(finding_page.rows_scanned(), 3);
     assert_eq!(finding_page.findings().len(), 1);
     assert!(finding_page.page_sequence().is_some());
-    assert!(!finding_page.findings()[0].primary_key().is_empty());
-    assert!(!finding_page.findings()[0].field_ids().is_empty());
+    let diagnostic = &finding_page.findings()[0];
+    assert_eq!(diagnostic.constraint_id(), finding_page.constraint_id());
+    assert_eq!(diagnostic.constraint_name(), "adult_age");
+    assert_eq!(
+        diagnostic.constraint_kind(),
+        ConstraintDiagnosticKind::Check
+    );
+    assert_eq!(diagnostic.entity(), SessionSqlEntity::PATH);
+    assert!(diagnostic.primary_key().is_some_and(|key| !key.is_empty()));
+    assert_eq!(diagnostic.field_paths(), &["age".to_string()]);
+    assert_eq!(
+        diagnostic.context(),
+        ConstraintDiagnosticContext::MigrationValidation
+    );
+    assert_eq!(
+        diagnostic.error_code(),
+        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION,
+    );
     assert!(!finding_page.complete());
 }
 
@@ -6522,7 +6538,22 @@ fn advance_successive_layout_history_floor(
     else {
         panic!("SET NOT NULL floor advancement should return a DDL report");
     };
-    assert_eq!(report.rows_scanned(), 3);
+    assert_eq!(
+        report.execution_status(),
+        SqlDdlExecutionStatus::ActivationPublished
+    );
+    assert_eq!(report.rows_scanned(), 0);
+    let constraint_name = active_sql_not_null_constraint_name();
+    let validated = validate_sql_constraint_to_completion(session, constraint_name.as_str());
+    assert_eq!(
+        validated.execution_status(),
+        SqlDdlExecutionStatus::Validated
+    );
+    assert_eq!(
+        validated.rows_scanned(),
+        6,
+        "Forward and Verify must each classify the complete three-row domain",
+    );
 
     for id in ids {
         let raw_row = session_sql_raw_row_for_test(id);
@@ -7433,13 +7464,22 @@ fn execute_admin_sql_ddl_set_not_null_retains_findings_and_drop_aborts() {
         findings.execution_status(),
         SqlDdlExecutionStatus::ValidationFindings
     );
+    let validation = findings
+        .constraint_validation()
+        .expect("finding progress should be typed");
+    assert_eq!(validation.findings().len(), 1);
+    let diagnostic = &validation.findings()[0];
+    assert_eq!(diagnostic.constraint_name(), constraint_name);
     assert_eq!(
-        findings
-            .constraint_validation()
-            .expect("finding progress should be typed")
-            .findings()
-            .len(),
-        1,
+        diagnostic.constraint_kind(),
+        ConstraintDiagnosticKind::NotNull
+    );
+    assert_eq!(diagnostic.entity(), SessionSqlEntity::PATH);
+    assert!(diagnostic.primary_key().is_some_and(|key| !key.is_empty()));
+    assert_eq!(diagnostic.field_paths(), &["nickname".to_string()]);
+    assert_eq!(
+        diagnostic.context(),
+        ConstraintDiagnosticContext::MigrationValidation
     );
 
     let SqlStatementResult::Ddl(drop) = session
@@ -9228,6 +9268,19 @@ fn execute_admin_sql_ddl_rejects_duplicate_unique_field_path_values_without_publ
         .constraint_validation()
         .expect("duplicate proof should expose a typed validation page");
     assert_eq!(validation.findings().len(), 1);
+    let diagnostic = &validation.findings()[0];
+    assert_eq!(diagnostic.constraint_name(), constraint_name);
+    assert_eq!(
+        diagnostic.constraint_kind(),
+        ConstraintDiagnosticKind::Unique
+    );
+    assert_eq!(diagnostic.entity(), SessionSqlEntity::PATH);
+    assert!(diagnostic.primary_key().is_some_and(|key| !key.is_empty()));
+    assert_eq!(diagnostic.field_paths(), &["age".to_string()]);
+    assert_eq!(
+        diagnostic.context(),
+        ConstraintDiagnosticContext::MigrationValidation
+    );
     let constraint_id = crate::db::schema::ConstraintId::new(validation.constraint_id())
         .expect("public validation identity should remain nonzero");
 

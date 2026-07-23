@@ -14,6 +14,7 @@ use crate::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, PersistedSchemaSnapshot,
             SchemaDdlAcceptedSnapshotDerivation, SchemaTransitionDecision,
             SchemaTransitionPlanKind, StagedUserIndexDomainReplacement, decide_schema_transition,
+            mutation::required_empty_entity_field_addition_matches,
             transition::SchemaTransitionPlan,
         },
     },
@@ -155,13 +156,6 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_addition(
     let Some(target) = derivation.admission().field_addition_target() else {
         return Err(InternalError::store_unsupported());
     };
-    let plan = envelope.require_transition_plan(
-        "field-addition",
-        SchemaTransitionPlanKind::AppendOnlyFields,
-        "append-only fields",
-    )?;
-    validate_publishable_transition_plan(entity_path, &plan)?;
-
     let added_field = envelope
         .after()
         .fields()
@@ -175,7 +169,21 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_addition(
         added_field.historical_fill(),
         crate::db::schema::SchemaHistoricalFill::Reject
     ) {
+        if !required_empty_entity_field_addition_matches(
+            envelope.before(),
+            envelope.after(),
+            added_field,
+        ) {
+            return Err(InternalError::store_unsupported());
+        }
         require_exact_empty_sql_ddl_entity(store, entity_tag, entity_path)?;
+    } else {
+        let plan = envelope.require_transition_plan(
+            "field-addition",
+            SchemaTransitionPlanKind::AppendOnlyFields,
+            "append-only fields",
+        )?;
+        validate_publishable_transition_plan(entity_path, &plan)?;
     }
 
     envelope.publish()

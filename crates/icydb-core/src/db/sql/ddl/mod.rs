@@ -35,9 +35,9 @@ pub(in crate::db) use field::{
 };
 pub(in crate::db) use index::{BoundSqlCreateIndexRequest, BoundSqlDropIndexRequest};
 pub use report::{
-    SqlConstraintValidationFinding, SqlConstraintValidationPage,
-    SqlConstraintValidationRevisionStatus, SqlConstraintValidationState, SqlDdlExecutionStatus,
-    SqlDdlMutationKind, SqlDdlPreparationReport,
+    SqlConstraintValidationPage, SqlConstraintValidationRevisionStatus,
+    SqlConstraintValidationState, SqlDdlExecutionStatus, SqlDdlMutationKind,
+    SqlDdlPreparationReport,
 };
 
 use crate::db::{

@@ -11,16 +11,18 @@ use crate::db::{
     EntitySchemaDescription, MemoryCatalogDescription, StoreCatalogDescription,
     response::RowProjectionOutput,
     sql::table_render::{
-        SqlDdlRenderInput, render_count_lines, render_describe_lines, render_grouped_lines,
-        render_query_rows_lines, render_show_columns_lines, render_show_constraints_lines,
-        render_show_entities_lines, render_show_entities_verbose_lines, render_show_indexes_lines,
-        render_show_memory_lines, render_show_stores_lines, render_show_stores_verbose_lines,
-        render_sql_ddl_lines,
+        SqlDdlRenderInput, render_constraint_diagnostic_line, render_count_lines,
+        render_describe_lines, render_grouped_lines, render_query_rows_lines,
+        render_show_columns_lines, render_show_constraints_lines, render_show_entities_lines,
+        render_show_entities_verbose_lines, render_show_indexes_lines, render_show_memory_lines,
+        render_show_stores_lines, render_show_stores_verbose_lines, render_sql_ddl_lines,
     },
 };
 
 use candid::CandidType;
 use serde::Deserialize;
+
+use crate::ConstraintDiagnostic;
 
 #[cfg_attr(doc, doc = "SqlGroupedRowsOutput\n\nStructured grouped SQL payload.")]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -30,20 +32,6 @@ pub struct SqlGroupedRowsOutput {
     pub rows: Vec<Vec<String>>,
     pub row_count: u32,
     pub next_cursor: Option<String>,
-}
-
-#[cfg_attr(
-    doc,
-    doc = "SqlConstraintValidationFindingOutput\n\nOne bounded constraint-validation finding."
-)]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-pub struct SqlConstraintValidationFindingOutput {
-    /// Canonical persisted primary-key bytes for the violating row.
-    pub primary_key: Vec<u8>,
-    /// Sorted accepted field identities implicated by the failure.
-    pub field_ids: Vec<u32>,
-    /// Stable runtime diagnostic code for the finding.
-    pub error_code: u16,
 }
 
 #[cfg_attr(
@@ -65,7 +53,7 @@ pub struct SqlConstraintValidationOutput {
     /// Cumulative classified-row count for this job.
     pub rows_scanned: u64,
     /// Bounded findings retained by this page.
-    pub findings: Vec<SqlConstraintValidationFindingOutput>,
+    pub findings: Vec<ConstraintDiagnostic>,
     /// Whether validation and accepted publication are complete.
     pub complete: bool,
 }
@@ -167,17 +155,28 @@ impl SqlQueryResult {
                 status,
                 rows_scanned,
                 index_keys_written,
-                ..
-            } => render_sql_ddl_lines(SqlDdlRenderInput {
-                entity: entity.as_str(),
-                mutation_kind: mutation_kind.as_str(),
-                target_index: target_index.as_str(),
-                target_store: target_store.as_str(),
-                field_path: field_path.as_slice(),
-                status: status.as_str(),
-                rows_scanned: *rows_scanned,
-                index_keys_written: *index_keys_written,
-            }),
+                constraint_validation,
+            } => {
+                let mut lines = render_sql_ddl_lines(SqlDdlRenderInput {
+                    entity: entity.as_str(),
+                    mutation_kind: mutation_kind.as_str(),
+                    target_index: target_index.as_str(),
+                    target_store: target_store.as_str(),
+                    field_path: field_path.as_slice(),
+                    status: status.as_str(),
+                    rows_scanned: *rows_scanned,
+                    index_keys_written: *index_keys_written,
+                });
+                if let Some(validation) = constraint_validation {
+                    lines.extend(
+                        validation
+                            .findings
+                            .iter()
+                            .map(render_constraint_diagnostic_line),
+                    );
+                }
+                lines
+            }
         }
     }
 

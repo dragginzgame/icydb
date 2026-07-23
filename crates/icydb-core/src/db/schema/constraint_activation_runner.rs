@@ -36,8 +36,8 @@ use crate::{
             AcceptedSchemaSnapshot, CandidateSchemaRevision, CompiledAcceptedRowConstraints,
             ConstraintActivationKind, ConstraintActivationState, ConstraintId,
             ConstraintStoreRevision, ConstraintValidationFinding, ConstraintValidationJob,
-            ConstraintValidationPhase, ConstraintValidationReceipt, PersistedIndexSnapshot,
-            UniqueConstraintProjection,
+            ConstraintValidationPhase, ConstraintValidationReceipt, PersistedFieldSnapshot,
+            PersistedIndexSnapshot, UniqueConstraintProjection,
         },
     },
     error::InternalError,
@@ -152,6 +152,7 @@ pub(in crate::db) fn advance_unique_constraint_activation<C: CanisterKind>(
             hooks.entity_path,
             constraint_id,
             acknowledged_receipt,
+            &accepted,
             &selection,
             candidate,
         ),
@@ -488,6 +489,7 @@ fn resume_journaled_unique_validation(
     entity_path: &'static str,
     constraint_id: ConstraintId,
     acknowledged_receipt: Option<u64>,
+    accepted: &AcceptedSchemaSnapshot,
     selection: &crate::db::schema::AcceptedCatalogSnapshotSelection,
     candidate: &PersistedIndexSnapshot,
 ) -> Result<ConstraintValidationProgress, InternalError> {
@@ -513,6 +515,7 @@ fn resume_journaled_unique_validation(
     let contract = AcceptedStructuralRowAuthority::from_catalog_selection(entity_path, selection)?
         .into_row_contract();
     let projection = UniqueConstraintProjection::new(entity_tag, candidate, &contract)?;
+    let dependency_fields = unique_index_key_fields(accepted.persisted_snapshot(), candidate)?;
 
     match job.phase() {
         ConstraintValidationPhase::Forward => {
@@ -522,6 +525,7 @@ fn resume_journaled_unique_validation(
                 job.checkpoint(),
                 &contract,
                 &projection,
+                dependency_fields.as_slice(),
                 UniqueValidationMode::Forward,
             )?;
             let captured_revision = scan
@@ -557,6 +561,7 @@ fn resume_journaled_unique_validation(
                 job.checkpoint(),
                 &contract,
                 &projection,
+                dependency_fields.as_slice(),
                 UniqueValidationMode::Verify,
             )?;
             if !scan.findings.is_empty() {
@@ -1434,6 +1439,7 @@ fn scan_unique_validation_page(
     checkpoint: Option<&RawDataStoreKey>,
     contract: &crate::db::data::StructuralRowContract,
     projection: &UniqueConstraintProjection,
+    dependency_fields: &[crate::db::schema::FieldId],
     mode: UniqueValidationMode,
 ) -> Result<UniqueValidationPageScan, InternalError> {
     let range = RawDataStoreKeyRange::entity_prefix(entity_tag);
@@ -1490,7 +1496,7 @@ fn scan_unique_validation_page(
                     let error = InternalError::index_violation(contract.entity_path(), &[]);
                     findings.push(ConstraintValidationFinding::new(
                         raw_key.clone(),
-                        Vec::new(),
+                        dependency_fields.to_vec(),
                         error.diagnostic().error_code().raw(),
                     ));
                 } else {
@@ -1516,6 +1522,25 @@ fn scan_unique_validation_page(
         staged_entries,
         exhausted: !has_more,
     })
+}
+
+fn unique_index_key_fields(
+    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+    candidate: &PersistedIndexSnapshot,
+) -> Result<Vec<crate::db::schema::FieldId>, InternalError> {
+    // Durable findings retain the exact accepted key fields that define the
+    // duplicate domain; public projection must not reconstruct them later.
+    let fields = snapshot
+        .fields()
+        .iter()
+        .filter(|field| candidate.key().references_field(field.id()))
+        .map(PersistedFieldSnapshot::id)
+        .collect::<Vec<_>>();
+    if fields.is_empty() {
+        return Err(InternalError::store_corruption());
+    }
+
+    Ok(fields)
 }
 
 fn candidate_unique_key_conflicts(

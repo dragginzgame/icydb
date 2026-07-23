@@ -12,11 +12,12 @@ use crate::{
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, ConstraintValidationProgress,
             SchemaDdlAcceptedSnapshotDerivation, SqlDdlFieldNullabilityOutcome,
-            advance_check_constraint_activation, advance_not_null_constraint_activation,
-            advance_unique_constraint_activation, execute_admin_sql_ddl_check_addition,
-            execute_admin_sql_ddl_check_drop, execute_admin_sql_ddl_expression_index_addition,
-            execute_admin_sql_ddl_field_addition, execute_admin_sql_ddl_field_default_change,
-            execute_admin_sql_ddl_field_drop, execute_admin_sql_ddl_field_nullability_change,
+            accepted_constraint_field_paths, advance_check_constraint_activation,
+            advance_not_null_constraint_activation, advance_unique_constraint_activation,
+            execute_admin_sql_ddl_check_addition, execute_admin_sql_ddl_check_drop,
+            execute_admin_sql_ddl_expression_index_addition, execute_admin_sql_ddl_field_addition,
+            execute_admin_sql_ddl_field_default_change, execute_admin_sql_ddl_field_drop,
+            execute_admin_sql_ddl_field_nullability_change,
             execute_admin_sql_ddl_field_path_index_addition, execute_admin_sql_ddl_field_rename,
             execute_admin_sql_ddl_not_null_activation_abort,
             execute_admin_sql_ddl_secondary_index_drop,
@@ -26,9 +27,9 @@ use crate::{
         session::{
             AcceptedSchemaCatalogContext,
             sql::{
-                SqlConstraintValidationFinding, SqlConstraintValidationPage,
-                SqlConstraintValidationRevisionStatus, SqlConstraintValidationState,
-                SqlDdlExecutionStatus, SqlDdlPreparationReport, SqlStatementResult,
+                SqlConstraintValidationPage, SqlConstraintValidationRevisionStatus,
+                SqlConstraintValidationState, SqlDdlExecutionStatus, SqlDdlPreparationReport,
+                SqlStatementResult,
             },
         },
         sql::{
@@ -39,11 +40,16 @@ use crate::{
             parser::parse_sql_with_attribution,
         },
     },
+    error::{ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError},
     traits::{CanisterKind, Path},
 };
 
 fn constraint_validation_report(
     constraint_id: u32,
+    constraint_name: &str,
+    constraint_kind: ConstraintDiagnosticKind,
+    entity_path: &str,
+    accepted: &AcceptedSchemaSnapshot,
     activation_epoch: Option<u64>,
     progress: ConstraintValidationProgress,
 ) -> Result<(SqlDdlExecutionStatus, SqlConstraintValidationPage), QueryError> {
@@ -84,17 +90,25 @@ fn constraint_validation_report(
                 .findings()
                 .iter()
                 .map(|finding| {
-                    SqlConstraintValidationFinding::new(
-                        finding.primary_key().as_bytes().to_vec(),
-                        finding
-                            .field_ids()
-                            .iter()
-                            .map(|field_id| field_id.get())
-                            .collect(),
+                    let primary_key = finding
+                        .primary_key()
+                        .encoded_primary_key_bytes()
+                        .ok_or_else(InternalError::store_invariant)?;
+                    Ok(ConstraintDiagnostic::migration_validation(
+                        constraint_id,
+                        constraint_name.to_string(),
+                        constraint_kind,
+                        entity_path.to_string(),
+                        primary_key.to_vec(),
+                        accepted_constraint_field_paths(
+                            accepted.persisted_snapshot(),
+                            finding.field_ids(),
+                        )?,
                         finding.error_code(),
-                    )
+                    ))
                 })
-                .collect();
+                .collect::<Result<Vec<_>, InternalError>>()
+                .map_err(QueryError::execute)?;
             Ok((
                 SqlDdlExecutionStatus::ValidationFindings,
                 pending_constraint_validation_page(
@@ -270,9 +284,9 @@ impl<C: CanisterKind> DbSession<C> {
             BoundSqlDdlStatement::DropConstraint(drop) => {
                 Some(self.execute_prepared_drop_check::<E>(store, accepted_before, prepared, drop))
             }
-            BoundSqlDdlStatement::ValidateConstraint(validate) => {
-                Some(self.execute_prepared_validate_constraint::<E>(prepared, validate))
-            }
+            BoundSqlDdlStatement::ValidateConstraint(validate) => Some(
+                self.execute_prepared_validate_constraint::<E>(accepted_before, prepared, validate),
+            ),
             BoundSqlDdlStatement::AlterColumnNullability(alter) => {
                 Some(self.execute_prepared_field_nullability::<E>(
                     store,
@@ -450,6 +464,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     fn execute_prepared_validate_constraint<E>(
         &self,
+        accepted_before: &AcceptedSchemaCatalogContext,
         prepared: &PreparedSqlDdlCommand,
         validate: &crate::db::sql::ddl::BoundSqlValidateConstraintRequest,
     ) -> Result<SqlStatementResult, QueryError>
@@ -464,6 +479,14 @@ impl<C: CanisterKind> DbSession<C> {
         } else {
             constraint_validation_report(
                 validate.constraint_id().get(),
+                validate.constraint_name(),
+                match validate.kind() {
+                    BoundSqlValidationConstraintKind::Check => ConstraintDiagnosticKind::Check,
+                    BoundSqlValidationConstraintKind::NotNull => ConstraintDiagnosticKind::NotNull,
+                    BoundSqlValidationConstraintKind::Unique => ConstraintDiagnosticKind::Unique,
+                },
+                E::PATH,
+                accepted_before.snapshot(),
                 validate.activation_epoch(),
                 match validate.kind() {
                     BoundSqlValidationConstraintKind::Check => advance_check_constraint_activation(

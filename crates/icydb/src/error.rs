@@ -1,8 +1,8 @@
 //! Module: error
 //!
-//! Responsibility: public compact error payloads and facade error category mapping.
-//! Does not own: rich internal diagnostics or core error construction.
-//! Boundary: maps core diagnostics to canister-facing Candid error codes.
+//! Responsibility: public typed error payloads and facade error category mapping.
+//! Does not own: internal error construction or accepted constraint authority.
+//! Boundary: maps core diagnostics to canister-facing Candid error records.
 
 #[cfg(test)]
 mod tests;
@@ -18,16 +18,21 @@ use serde::Deserialize;
 
 use crate::db::DatabaseBootstrapError;
 
+pub use icydb_core::error::{
+    ConstraintDiagnostic, ConstraintDiagnosticContext, ConstraintDiagnosticKind,
+};
+
 //
 // Error
 //
 
 #[cfg_attr(doc, doc = "Error\n\nPublic error payload.")]
-#[derive(CandidType, Debug, Deserialize)]
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct Error {
     code: u16,
     class: u8,
     origin: u8,
+    constraint: Option<ConstraintDiagnostic>,
 }
 
 impl Error {
@@ -50,6 +55,7 @@ impl Error {
             code: code.raw(),
             class: code.class().wire_code(),
             origin: origin.wire_code(),
+            constraint: None,
         }
     }
 
@@ -83,6 +89,12 @@ impl Error {
     #[must_use]
     pub fn from_diagnostic(diagnostic: icydb_diagnostic_code::Diagnostic) -> Self {
         Self::from_error_code(diagnostic.error_code(), diagnostic.origin().into())
+    }
+
+    fn from_internal_error(err: &InternalError) -> Self {
+        let mut facade = Self::from_diagnostic(err.diagnostic());
+        facade.constraint = err.constraint_diagnostic().cloned();
+        facade
     }
 
     const fn from_response_error(err: ResponseError) -> Self {
@@ -131,16 +143,26 @@ impl Error {
     pub const fn diagnostic_code(&self) -> icydb_diagnostic_code::DiagnosticCode {
         self.code().diagnostic_code()
     }
+
+    /// Borrow the accepted constraint failure carried by this error.
+    #[must_use]
+    pub const fn constraint_diagnostic(&self) -> Option<&ConstraintDiagnostic> {
+        self.constraint.as_ref()
+    }
 }
 
 impl From<InternalError> for Error {
     fn from(err: InternalError) -> Self {
-        Self::from_diagnostic(err.diagnostic())
+        Self::from_internal_error(&err)
     }
 }
 
 impl From<QueryError> for Error {
     fn from(err: QueryError) -> Self {
+        if let QueryError::Execute(execute) = &err {
+            return Self::from_internal_error(execute.as_internal());
+        }
+
         Self::from_diagnostic(err.diagnostic())
     }
 }

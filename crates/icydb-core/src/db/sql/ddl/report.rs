@@ -1,5 +1,6 @@
 use super::{BoundSqlDdlRequest, BoundSqlDdlStatement};
 use crate::db::sql::ddl::index::ddl_key_item_report;
+use crate::error::ConstraintDiagnostic;
 
 ///
 /// SqlDdlPreparationReport
@@ -95,48 +96,6 @@ impl SqlDdlPreparationReport {
     }
 }
 
-/// One bounded constraint-validation finding returned to the DDL caller.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SqlConstraintValidationFinding {
-    primary_key: Vec<u8>,
-    field_ids: Vec<u32>,
-    error_code: u16,
-}
-
-impl SqlConstraintValidationFinding {
-    /// Build one typed finding from canonical persisted identities.
-    #[must_use]
-    pub(in crate::db) const fn new(
-        primary_key: Vec<u8>,
-        field_ids: Vec<u32>,
-        error_code: u16,
-    ) -> Self {
-        Self {
-            primary_key,
-            field_ids,
-            error_code,
-        }
-    }
-
-    /// Borrow the canonical persisted primary-key bytes.
-    #[must_use]
-    pub const fn primary_key(&self) -> &[u8] {
-        self.primary_key.as_slice()
-    }
-
-    /// Borrow the sorted implicated accepted field identities.
-    #[must_use]
-    pub const fn field_ids(&self) -> &[u32] {
-        self.field_ids.as_slice()
-    }
-
-    /// Return the stable diagnostic code for this finding.
-    #[must_use]
-    pub const fn error_code(&self) -> u16 {
-        self.error_code
-    }
-}
-
 /// Current engine-owned state of one bounded constraint-validation job.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SqlConstraintValidationState {
@@ -190,7 +149,7 @@ pub struct SqlConstraintValidationPage {
     state: SqlConstraintValidationState,
     revision_status: SqlConstraintValidationRevisionStatus,
     rows_scanned: u64,
-    findings: Vec<SqlConstraintValidationFinding>,
+    findings: Vec<ConstraintDiagnostic>,
     complete: bool,
 }
 
@@ -234,7 +193,7 @@ impl SqlConstraintValidationPage {
     pub(in crate::db) fn with_findings(
         mut self,
         page_sequence: u64,
-        findings: Vec<SqlConstraintValidationFinding>,
+        findings: Vec<ConstraintDiagnostic>,
     ) -> Self {
         self.page_sequence = Some(page_sequence);
         self.findings = findings;
@@ -279,7 +238,7 @@ impl SqlConstraintValidationPage {
 
     /// Borrow the retained bounded finding page.
     #[must_use]
-    pub const fn findings(&self) -> &[SqlConstraintValidationFinding] {
+    pub const fn findings(&self) -> &[ConstraintDiagnostic] {
         self.findings.as_slice()
     }
 

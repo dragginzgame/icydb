@@ -79,6 +79,41 @@ fn append_only_additive_fields<'a>(
     actual: &PersistedSchemaSnapshot,
     expected: &'a PersistedSchemaSnapshot,
 ) -> Option<&'a [PersistedFieldSnapshot]> {
+    if actual.row_layout().history_floor() != expected.row_layout().history_floor() {
+        return None;
+    }
+
+    append_only_additive_fields_with_admitted_floor(actual, expected)
+}
+
+/// Return whether one canonically derived required field addition is the sole
+/// accepted change after an exact empty-entity proof advances the history floor.
+#[cfg(feature = "sql")]
+pub(in crate::db::schema) fn required_empty_entity_field_addition_matches(
+    actual: &PersistedSchemaSnapshot,
+    expected: &PersistedSchemaSnapshot,
+    field: &PersistedFieldSnapshot,
+) -> bool {
+    if !matches!(
+        field.historical_fill(),
+        crate::db::schema::SchemaHistoricalFill::Reject
+    ) || expected.row_layout().history_floor() != expected.row_layout().current_version()
+    {
+        return false;
+    }
+
+    append_only_additive_fields_with_admitted_floor(actual, expected)
+        .is_some_and(|added| added == std::slice::from_ref(field))
+}
+
+// Validate the shared append-only shape after the caller has established the
+// operation-specific history-floor contract. Generic reconciliation requires
+// an unchanged floor; required SQL DDL may advance it only after proving the
+// entity is exactly empty.
+fn append_only_additive_fields_with_admitted_floor<'a>(
+    actual: &PersistedSchemaSnapshot,
+    expected: &'a PersistedSchemaSnapshot,
+) -> Option<&'a [PersistedFieldSnapshot]> {
     let next_layout_version = actual.row_layout().current_version().checked_next()?;
     if actual.fields().len() >= expected.fields().len()
         || actual.row_layout().field_to_slot().len() >= expected.row_layout().field_to_slot().len()
@@ -86,7 +121,6 @@ fn append_only_additive_fields<'a>(
         || actual.entity_path() != expected.entity_path()
         || actual.entity_name() != expected.entity_name()
         || actual.primary_key_field_ids() != expected.primary_key_field_ids()
-        || actual.row_layout().history_floor() != expected.row_layout().history_floor()
         || actual.indexes() != expected.indexes()
         || actual.relations() != expected.relations()
     {

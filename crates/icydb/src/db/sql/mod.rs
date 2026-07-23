@@ -25,7 +25,4 @@ pub use table_render::{
     render_show_entities_lines, render_show_entities_verbose_lines, render_show_indexes_lines,
     render_show_memory_lines, render_show_stores_lines, render_show_stores_verbose_lines,
 };
-pub use types::{
-    SqlConstraintValidationFindingOutput, SqlConstraintValidationOutput, SqlGroupedRowsOutput,
-    SqlQueryResult,
-};
+pub use types::{SqlConstraintValidationOutput, SqlGroupedRowsOutput, SqlQueryResult};

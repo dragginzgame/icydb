@@ -15,12 +15,10 @@ use crate::{
 };
 use candid::{Decode, Encode};
 use icydb::{
+    ConstraintDiagnostic,
     db::{
         RowProjectionOutput,
-        sql::{
-            SqlConstraintValidationFindingOutput, SqlConstraintValidationOutput,
-            SqlGroupedRowsOutput, SqlQueryResult,
-        },
+        sql::{SqlConstraintValidationOutput, SqlGroupedRowsOutput, SqlQueryResult},
     },
     value::OutputValue,
 };
@@ -334,6 +332,18 @@ fn ddl_no_op_response_rendering_includes_zero_execution_metrics() {
 
 #[test]
 fn ddl_constraint_validation_page_roundtrips_typed_acknowledgement_state() {
+    let diagnostic: ConstraintDiagnostic = serde_json::from_value(serde_json::json!({
+        "constraint_id": 41,
+        "constraint_name": "adult_age",
+        "constraint_kind": "Check",
+        "entity": "example::Character",
+        "primary_key": [1, 2, 3],
+        "field_paths": ["age"],
+        "context": "MigrationValidation",
+        "error_code":
+            icydb::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION.raw(),
+    }))
+    .expect("test constraint diagnostic should decode");
     let expected = SqlConstraintValidationOutput {
         constraint_id: 41,
         activation_epoch: Some(7),
@@ -341,11 +351,7 @@ fn ddl_constraint_validation_page_roundtrips_typed_acknowledgement_state() {
         state: "forward".to_string(),
         revision_status: "tracking".to_string(),
         rows_scanned: 9,
-        findings: vec![SqlConstraintValidationFindingOutput {
-            primary_key: vec![1, 2, 3],
-            field_ids: vec![4],
-            error_code: 2201,
-        }],
+        findings: vec![diagnostic],
         complete: false,
     };
     let response: Result<SqlQueryResult, icydb::Error> = Ok(SqlQueryResult::Ddl {
@@ -366,6 +372,7 @@ fn ddl_constraint_validation_page_roundtrips_typed_acknowledgement_state() {
     )
     .expect("validation response should decode")
     .expect("validation response should succeed");
+    let rendered = decoded.render_text();
     let SqlQueryResult::Ddl {
         constraint_validation,
         ..
@@ -374,6 +381,12 @@ fn ddl_constraint_validation_page_roundtrips_typed_acknowledgement_state() {
         panic!("validation response should remain DDL");
     };
     assert_eq!(constraint_validation, Some(expected));
+    assert!(
+        rendered.contains(
+            "constraint_finding id=41 name=adult_age kind=check entity=example::Character primary_key=010203 fields=age context=migration_validation class=invariant_violation code=E224"
+        ),
+        "CLI SQL rendering should retain the complete constraint finding",
+    );
 }
 
 #[test]

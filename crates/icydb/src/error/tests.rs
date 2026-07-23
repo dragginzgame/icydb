@@ -5,10 +5,44 @@
 //! Boundary: verifies facade contracts through local module behavior.
 
 use super::*;
-use candid::types::{CandidType, Label, Type, TypeInner};
+use candid::{
+    Decode, Encode,
+    types::{CandidType, Label, Type, TypeInner},
+};
 use ic_memory::RuntimeBootstrapError;
 use icydb_core::db::{IntentError, PlanError, QueryExecutionError, ValidateError};
 use icydb_core::error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin};
+use serde::Serialize;
+
+#[derive(CandidType, Serialize)]
+enum ConstraintDiagnosticKindWire {
+    Check,
+}
+
+#[derive(CandidType, Serialize)]
+enum ConstraintDiagnosticContextWire {
+    WriteAdmission,
+}
+
+#[derive(CandidType, Serialize)]
+struct ConstraintDiagnosticWire {
+    constraint_id: u32,
+    constraint_name: String,
+    constraint_kind: ConstraintDiagnosticKindWire,
+    entity: String,
+    primary_key: Option<Vec<u8>>,
+    field_paths: Vec<String>,
+    context: ConstraintDiagnosticContextWire,
+    error_code: u16,
+}
+
+#[derive(CandidType, Serialize)]
+struct ErrorWire {
+    code: u16,
+    class: u8,
+    origin: u8,
+    constraint: Option<ConstraintDiagnosticWire>,
+}
 
 fn expect_record_fields(ty: Type) -> Vec<String> {
     match ty.as_ref() {
@@ -390,7 +424,51 @@ fn error_struct_candid_shape_is_stable() {
     let mut fields = expect_record_fields(Error::ty());
     fields.sort();
 
-    assert_eq!(fields, ["class", "code", "origin"]);
+    assert_eq!(fields, ["class", "code", "constraint", "origin"]);
+}
+
+#[test]
+fn public_error_candid_preserves_the_typed_constraint_diagnostic() {
+    let bytes = Encode!(&ErrorWire {
+        code: icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION.raw(),
+        class: icydb_diagnostic_code::ErrorClass::InvariantViolation.wire_code(),
+        origin: icydb_diagnostic_code::ErrorOrigin::Executor.wire_code(),
+        constraint: Some(ConstraintDiagnosticWire {
+            constraint_id: 41,
+            constraint_name: "adult_age".to_string(),
+            constraint_kind: ConstraintDiagnosticKindWire::Check,
+            entity: "example::Person".to_string(),
+            primary_key: Some(vec![4, 9]),
+            field_paths: vec!["age".to_string()],
+            context: ConstraintDiagnosticContextWire::WriteAdmission,
+            error_code: icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION
+                .raw(),
+        }),
+    })
+    .expect("typed public constraint error should encode");
+    let error =
+        Decode!(bytes.as_slice(), Error).expect("typed public constraint error should decode");
+    let diagnostic = error
+        .constraint_diagnostic()
+        .expect("public error should retain the constraint diagnostic");
+
+    assert_eq!(diagnostic.constraint_id(), 41);
+    assert_eq!(diagnostic.constraint_name(), "adult_age");
+    assert_eq!(
+        diagnostic.constraint_kind(),
+        ConstraintDiagnosticKind::Check
+    );
+    assert_eq!(diagnostic.entity(), "example::Person");
+    assert_eq!(diagnostic.primary_key(), Some([4, 9].as_slice()));
+    assert_eq!(diagnostic.field_paths(), &["age".to_string()]);
+    assert_eq!(
+        diagnostic.context(),
+        ConstraintDiagnosticContext::WriteAdmission
+    );
+    assert_eq!(
+        diagnostic.error_code(),
+        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION,
+    );
 }
 
 #[test]
