@@ -26,7 +26,10 @@ use crate::{
     traits::{AuthoredFieldProjection, CanisterKind, Path},
     value::OutputValue,
 };
-use std::{cell::RefCell, collections::HashMap};
+use std::{
+    cell::{OnceCell, RefCell},
+    collections::HashMap,
+};
 
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -70,6 +73,7 @@ pub(in crate::db) struct AcceptedSchemaCatalogContext {
     snapshot: AcceptedSchemaSnapshot,
     identity: AcceptedCatalogIdentity,
     value_catalog: AcceptedValueCatalogHandle,
+    schema_info: OnceCell<SchemaInfo>,
     accepted_row_constraints: CompiledAcceptedRowConstraints,
 }
 
@@ -84,6 +88,7 @@ impl AcceptedSchemaCatalogContext {
             snapshot,
             identity,
             value_catalog,
+            schema_info: OnceCell::new(),
             accepted_row_constraints,
         }
     }
@@ -246,18 +251,22 @@ impl AcceptedSchemaCatalogContext {
         E: EntityKind,
     {
         self.debug_assert_matches_entity::<E>();
-        let schema_info = SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
-            E::MODEL,
-            &self.snapshot,
-            self.value_catalog.clone(),
-            true,
-        );
-        debug_assert!(
-            schema_info
-                .enum_catalog()
-                .is_some_and(|catalog| std::ptr::eq(catalog, self.enum_catalog()))
-        );
-        schema_info
+        self.schema_info
+            .get_or_init(|| {
+                let schema_info = SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
+                    E::MODEL,
+                    &self.snapshot,
+                    self.value_catalog.clone(),
+                    true,
+                );
+                debug_assert!(
+                    schema_info
+                        .enum_catalog()
+                        .is_some_and(|catalog| std::ptr::eq(catalog, self.enum_catalog()))
+                );
+                schema_info
+            })
+            .clone()
     }
 }
 

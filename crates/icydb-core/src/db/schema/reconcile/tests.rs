@@ -20,13 +20,13 @@ use crate::{
         journal::{JournalBatch, JournalRecord, JournalTailStore},
         registry::StoreRegistry,
         schema::{
-            AcceptedConstraintKind, AcceptedFieldKind, CandidateSchemaRevision,
-            ConstraintActivationState, ConstraintValidationJob, ConstraintValidationPhase,
-            ConstraintValidationProgress, FieldId, PersistedFieldOrigin, PersistedFieldSnapshot,
-            PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-            RowLayoutVersion, SchemaFieldSlot, SchemaHistoricalFill, SchemaIndexId,
-            SchemaInsertDefault, SchemaRowLayout, SchemaStore, SchemaTransitionPlanKind,
-            SchemaVersion, compiled_schema_proposal_for_model,
+            AcceptedConstraintCatalog, AcceptedConstraintKind, AcceptedFieldKind,
+            CandidateSchemaRevision, ConstraintActivationState, ConstraintValidationJob,
+            ConstraintValidationPhase, ConstraintValidationProgress, FieldId, PersistedFieldOrigin,
+            PersistedFieldSnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
+            PersistedSchemaSnapshot, RowLayoutVersion, SchemaFieldSlot, SchemaHistoricalFill,
+            SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaStore,
+            SchemaTransitionPlanKind, SchemaVersion, compiled_schema_proposal_for_model,
             derive_sql_ddl_field_nullability_persisted_after,
         },
     },
@@ -482,6 +482,10 @@ fn indexed_schema_snapshot_without_indexes() -> PersistedSchemaSnapshot {
     let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
     let expected = proposal.initial_persisted_schema_snapshot();
     let stored_version = SchemaVersion::new(expected.version().get().saturating_sub(1));
+    let constraint_catalog =
+        AcceptedConstraintCatalog::initial(expected.fields(), &[], expected.relations())
+            .expect("index-free structural constraint catalog should build");
+
     PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         stored_version,
         expected.entity_path().to_string(),
@@ -491,6 +495,8 @@ fn indexed_schema_snapshot_without_indexes() -> PersistedSchemaSnapshot {
         expected.fields().to_vec(),
         Vec::new(),
     )
+    .with_constraint_catalog(constraint_catalog)
+    .with_relations(expected.relations().to_vec())
 }
 
 fn stage_and_publish_indexed_schema_snapshot_without_indexes() -> PersistedSchemaSnapshot {

@@ -12,9 +12,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 Detailed notes: [docs/changelog/0.211.md](docs/changelog/0.211.md)
 
 - `0.211.1` completes bounded accepted-native constraint activation,
-  introspection, and typed diagnostics, hard-cutting development schema bytes
-  and generation-bearing physical index keys plus public Candid constraint
-  errors to their sole current forms.
+  introspection, typed diagnostics, and context-owned accepted-schema
+  projection reuse while hard-cutting development schema/index bytes and
+  public Candid constraint errors to their sole current forms.
 
 - `0.211.0` establishes stable logical index, relation, and constraint-ID
   foundations using one current version-1 accepted-schema format.
