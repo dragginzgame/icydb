@@ -113,6 +113,10 @@ macro_rules! __icydb_test_canister_model {
         impl $crate::traits::CanisterKind for $canister {
             const COMMIT_MEMORY_ID: u8 = $commit_memory_id;
             const COMMIT_STABLE_KEY: &'static str = "icydb.test.commit.v1";
+            const INTEGRITY_PROGRESS_MEMORY_ID: u8 =
+                $crate::testing::test_integrity_progress_memory_id();
+            const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+                "icydb.test.integrity.progress.v1";
         }
     };
 }

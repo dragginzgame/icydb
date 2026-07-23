@@ -5,7 +5,7 @@ define_fixture_canister!(
     SqlTestCanister = "SqlTestCanister",
     namespace = "test_sql",
     memory_min = 155,
-    memory_max = 159,
+    memory_max = 160,
     commit_memory_id = 159,
 );
 

@@ -27,6 +27,7 @@ mod filtered_prefix;
 mod heap_runtime;
 mod indexed_covering;
 mod indexed_prefix;
+mod integrity;
 mod journaled_runtime;
 mod lane_metrics;
 #[cfg(feature = "sql")]

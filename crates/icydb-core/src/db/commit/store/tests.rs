@@ -6,6 +6,7 @@ use crate::{
             decode_commit_marker_payload, encode_commit_marker_payload,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey},
+        integrity::DatabaseIncarnationId,
         journal::{JournalBatch, JournalRecord, JournalSequence},
     },
     error::{ErrorClass, ErrorOrigin},
@@ -37,6 +38,7 @@ fn commit_control_slot_rejects_corrupt_magic() {
     let mut malformed = Vec::new();
     malformed.extend_from_slice(b"XMCS");
     malformed.push(1);
+    malformed.extend_from_slice(&DatabaseIncarnationId::for_tests(0x41).to_bytes());
     malformed.extend_from_slice(&0u32.to_le_bytes());
     store.set_raw_marker_bytes_for_tests(malformed);
 
@@ -202,8 +204,9 @@ fn commit_marker_rejects_oversized_stored_payload_as_corruption() {
 fn clear_verified_rejects_malformed_control_slot() {
     let store = super::CommitStore::init(test_memory(232));
     let mut malformed = Vec::new();
-    malformed.extend_from_slice(b"CMCS");
+    malformed.extend_from_slice(b"ICCS");
     malformed.push(1);
+    malformed.extend_from_slice(&DatabaseIncarnationId::for_tests(0x42).to_bytes());
     malformed.extend_from_slice(&1u32.to_le_bytes());
     store.set_raw_marker_bytes_for_tests(malformed.clone());
 
@@ -231,6 +234,75 @@ fn commit_slot_writes_and_clears_preserve_database_boot_record() {
     let mut boot_after = [0_u8; crate::db::database_format::DATABASE_BOOT_RECORD_BYTES];
     memory.read(0, &mut boot_after);
     assert_eq!(boot_after, boot_before);
+}
+
+#[test]
+fn commit_marker_transitions_preserve_database_incarnation() {
+    let store = super::CommitStore::init(test_memory(227));
+    let incarnation_before = store
+        .database_incarnation_id()
+        .expect("current control slot should carry an incarnation");
+    let marker = CommitMarker {
+        id: [0xA7; 16],
+        journal_batches: Vec::new(),
+    };
+
+    store
+        .set_if_empty(&marker)
+        .expect("marker publication should preserve control metadata");
+    assert_eq!(
+        store
+            .database_incarnation_id()
+            .expect("marker-bearing control slot should carry an incarnation"),
+        incarnation_before,
+    );
+
+    store
+        .clear_verified()
+        .expect("marker clear should preserve control metadata");
+    assert_eq!(
+        store
+            .database_incarnation_id()
+            .expect("cleared control slot should carry an incarnation"),
+        incarnation_before,
+    );
+}
+
+#[test]
+fn ordinary_reopen_preserves_database_incarnation() {
+    let memory = test_memory(225);
+    let first = super::CommitStore::init(memory.clone());
+    let incarnation = first
+        .database_incarnation_id()
+        .expect("initial current control slot should carry an incarnation");
+
+    let reopened = super::CommitStore::open(memory)
+        .expect("ordinary reopen should admit the same current control state");
+
+    assert_eq!(
+        reopened
+            .database_incarnation_id()
+            .expect("reopened current control slot should carry an incarnation"),
+        incarnation,
+    );
+}
+
+#[test]
+fn database_control_rejects_zero_incarnation() {
+    let store = super::CommitStore::init(test_memory(226));
+    let mut control_slot = Vec::new();
+    control_slot.extend_from_slice(b"ICCS");
+    control_slot.push(1);
+    control_slot.extend_from_slice(&[0; 16]);
+    control_slot.extend_from_slice(&0_u32.to_le_bytes());
+    store.set_raw_marker_bytes_for_tests(control_slot);
+
+    let err = store
+        .database_incarnation_id()
+        .expect_err("zero database incarnation must fail closed");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
 }
 
 #[test]

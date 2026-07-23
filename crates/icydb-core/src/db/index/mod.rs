@@ -31,7 +31,8 @@ pub(in crate::db) use pk_equivalence::{
     PrimaryKeyEquivalenceError, primary_key_matches_primary_key_value,
 };
 pub(in crate::db) use plan::{
-    IndexDelta, IndexDeltaGroup, IndexMembershipDelta, IndexMutationPlan, IndexPlanReadView,
+    AcceptedIndexInspectionDomain, AcceptedIndexInspectionPlan, IndexDelta, IndexDeltaGroup,
+    IndexMembershipDelta, IndexMutationPlan, IndexPlanReadView,
     plan_index_mutation_for_slot_reader_structural,
 };
 pub(in crate::db) use predicate::{

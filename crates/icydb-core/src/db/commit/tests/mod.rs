@@ -20,6 +20,7 @@ use crate::{
             marker::{COMMIT_MARKER_FORMAT_VERSION_CURRENT, encode_commit_marker_payload},
             prepare_row_commit_for_entity_with_structural_readers,
             reset_commit_marker_test_journal_sequence, rollback_prepared_row_ops_reverse, store,
+            verify_recovered_effects,
         },
         data::{
             CanonicalRow, DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow, StoreVisit,
@@ -29,7 +30,7 @@ use crate::{
         index::{
             IndexEntryValue, IndexKey, IndexState, IndexStore, IndexStoreVisit, RawIndexStoreKey,
         },
-        journal::{FoldWatermark, JournalTailStore},
+        journal::{FoldWatermark, JournalBatch, JournalRecord, JournalTailStore},
         registry::{StoreHandle, StoreRegistry},
         relation::validate_delete_relations_for_source,
         schema::{
@@ -129,6 +130,8 @@ impl Path for RecoveryPeerCanister {
 impl CanisterKind for RecoveryPeerCanister {
     const COMMIT_MEMORY_ID: u8 = 30;
     const COMMIT_STABLE_KEY: &'static str = "icydb.test.peer.commit.v1";
+    const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 31;
+    const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.test.peer.integrity.progress.v1";
 }
 
 //
@@ -2390,6 +2393,95 @@ fn recovery_journaled_index_fold_failpoint_is_retryable_for_error_and_unwind() {
         assert_eq!(recovery_store_snapshot(), case.post_snapshot);
         assert_eq!(recovery_index_state(), IndexState::Ready);
     }
+}
+
+#[test]
+fn recovered_effect_verification_rejects_marker_row_drift() {
+    let case = model_recovery_failpoint_case(5);
+    let (primary_key, _) = case
+        .marker
+        .journal_batches()
+        .iter()
+        .flat_map(JournalBatch::records)
+        .find_map(|record| match record {
+            JournalRecord::RowPut {
+                primary_key,
+                row_bytes,
+                ..
+            } => Some((primary_key.clone(), row_bytes.clone())),
+            _ => None,
+        })
+        .expect("model marker should contain one row put");
+
+    begin_commit(case.marker.clone()).expect("model marker should persist before recovery");
+    ensure_recovered(&DB).expect("model marker should recover");
+    verify_recovered_effects(&DB, Some(&case.marker))
+        .expect("recovered marker effects should initially match");
+
+    with_recovery_store(|store| {
+        let removed = store.with_data_mut(|data_store| data_store.remove(&primary_key));
+        assert!(removed.is_some(), "test must remove one recovered row");
+    });
+    let error = verify_recovered_effects(&DB, Some(&case.marker))
+        .expect_err("marker-owned row drift must fail recovered-effect verification");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+
+    reset_recovery_state();
+}
+
+#[test]
+fn recovered_effect_verification_rejects_marker_index_drift() {
+    let case = model_recovery_failpoint_case(5);
+    let (entity_path, primary_key, row_bytes, schema_fingerprint) = case
+        .marker
+        .journal_batches()
+        .iter()
+        .flat_map(JournalBatch::records)
+        .find_map(|record| match record {
+            JournalRecord::RowPut {
+                entity_path,
+                primary_key,
+                row_bytes,
+                schema_fingerprint,
+            } => Some((
+                entity_path.clone(),
+                primary_key.clone(),
+                row_bytes.clone(),
+                *schema_fingerprint,
+            )),
+            _ => None,
+        })
+        .expect("model marker should contain one row put");
+
+    begin_commit(case.marker.clone()).expect("model marker should persist before recovery");
+    ensure_recovered(&DB).expect("model marker should recover");
+    let prepared = DB
+        .prepare_row_commit_op_for_rebuild(&CommitRowOp::new(
+            entity_path,
+            primary_key,
+            None,
+            Some(row_bytes),
+            schema_fingerprint,
+        ))
+        .expect("recovered row should prepare its derived effects");
+    let index_op = prepared
+        .index_ops
+        .into_iter()
+        .find(|op| op.value.is_some())
+        .expect("model row put should own one derived index entry");
+    index_op.index_store.with_borrow_mut(|store| {
+        let removed = store.remove(&index_op.key);
+        assert!(
+            removed.is_some(),
+            "test must remove one recovered index entry"
+        );
+    });
+
+    let error = verify_recovered_effects(&DB, Some(&case.marker))
+        .expect_err("marker-owned index drift must fail recovered-effect verification");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+
+    reset_recovery_state();
 }
 
 #[test]

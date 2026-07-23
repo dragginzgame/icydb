@@ -4,7 +4,10 @@ use super::{
         JOURNAL_BATCH_FORMAT_VERSION_CURRENT, MAX_JOURNAL_BATCH_BYTES, RawJournalBatch,
         decode_journal_batch, encode_journal_batch,
     },
-    store::{JOURNAL_TAIL_CHUNK_BYTES, RawJournalChunk},
+    store::{
+        JOURNAL_TAIL_CHUNK_BYTES, JournalInspectionCheckpoint, JournalInspectionLimits,
+        JournalIntegrityIssue, RawJournalChunk,
+    },
 };
 use crate::{
     db::{
@@ -442,8 +445,16 @@ fn journal_tail_store_cleanup_keeps_watermark_as_replay_boundary() {
     store
         .persist_fold_watermark(FoldWatermark::new(JournalSequence::new(2), 1))
         .expect("fold watermark should persist");
+    assert!(
+        store.has_stored_batch(),
+        "persisting a watermark alone must not claim physical cleanup",
+    );
 
     store.clear_batches_through(JournalSequence::new(2));
+    assert!(
+        !store.has_stored_batch(),
+        "recovery closure must observe the physically empty tail",
+    );
 
     let mut visited = Vec::new();
     store
@@ -654,6 +665,199 @@ fn journal_tail_store_rejects_duplicate_batch_id_at_different_sequence() {
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn journal_inspection_resumes_exact_duplicate_identity_proof_without_a_seen_set() {
+    let mut store = JournalTailStore::init(test_memory(225));
+    for sequence in 1..=3 {
+        store
+            .append_batch(&batch(sequence))
+            .expect("batch should append");
+    }
+    let limits = JournalInspectionLimits::for_tests(2, (MAX_JOURNAL_BATCH_BYTES as usize) * 2);
+
+    let first = store
+        .inspect_page(JournalInspectionCheckpoint::BeforeFirst, limits)
+        .expect("first journal page should inspect");
+    assert_eq!(
+        first.checkpoint(),
+        &JournalInspectionCheckpoint::AfterBatch { sequence: 1 },
+    );
+    assert!(!first.exhausted());
+
+    let second = store
+        .inspect_page(first.checkpoint().clone(), limits)
+        .expect("second journal page should inspect");
+    assert_eq!(
+        second.checkpoint(),
+        &JournalInspectionCheckpoint::AfterBatch { sequence: 2 },
+    );
+    assert!(!second.exhausted());
+
+    let third = store
+        .inspect_page(second.checkpoint().clone(), limits)
+        .expect("third journal page should stop inside duplicate-ID proof");
+    assert!(matches!(
+        third.checkpoint(),
+        JournalInspectionCheckpoint::CheckingBatchIdentity {
+            sequence: 3,
+            next_prior_sequence: 2,
+            ..
+        },
+    ));
+    assert!(!third.exhausted());
+
+    let fourth = store
+        .inspect_page(third.checkpoint().clone(), limits)
+        .expect("fourth journal page should finish the tail");
+    assert_eq!(
+        fourth.checkpoint(),
+        &JournalInspectionCheckpoint::AfterBatch { sequence: 3 },
+    );
+    assert!(fourth.exhausted());
+}
+
+#[test]
+fn journal_inspection_reports_a_nonadjacent_duplicate_batch_identity() {
+    let mut store = JournalTailStore::init(test_memory(226));
+    let first = batch(1);
+    let third = JournalBatch::new(
+        first.batch_id(),
+        [0xAA; 16],
+        JournalSequence::new(3),
+        vec![row_put_record(3)],
+    )
+    .expect("duplicate-id batch should build");
+    store
+        .append_batch(&first)
+        .expect("first batch should append");
+    store
+        .append_batch(&batch(2))
+        .expect("second batch should append");
+    store
+        .append_batch(&third)
+        .expect("third batch should append");
+    let limits = JournalInspectionLimits::for_tests(2, (MAX_JOURNAL_BATCH_BYTES as usize) * 2);
+
+    let first_page = store
+        .inspect_page(JournalInspectionCheckpoint::BeforeFirst, limits)
+        .expect("first page should inspect");
+    let second_page = store
+        .inspect_page(first_page.checkpoint().clone(), limits)
+        .expect("second page should inspect");
+    let third_page = store
+        .inspect_page(second_page.checkpoint().clone(), limits)
+        .expect("nonadjacent duplicate ID should be a progressable finding");
+
+    assert_eq!(
+        third_page.issue(),
+        Some(JournalIntegrityIssue::DuplicateBatchIdentity {
+            sequence: 3,
+            prior_sequence: 1,
+        }),
+    );
+    assert_eq!(
+        third_page.checkpoint(),
+        &JournalInspectionCheckpoint::AfterBatch { sequence: 3 },
+    );
+    assert!(third_page.exhausted());
+    assert!(!third_page.batch_identity_blocked());
+}
+
+#[test]
+fn journal_inspection_reports_a_sequence_gap_and_resumes_at_the_next_physical_batch() {
+    let mut store = JournalTailStore::init(test_memory(228));
+    store.append_batch(&batch(2)).expect("batch should append");
+    let limits = JournalInspectionLimits::for_tests(2, (MAX_JOURNAL_BATCH_BYTES as usize) * 2);
+
+    let gap = store
+        .inspect_page(JournalInspectionCheckpoint::BeforeFirst, limits)
+        .expect("sequence gap should be a progressable finding");
+    assert_eq!(
+        gap.issue(),
+        Some(JournalIntegrityIssue::SequenceGap {
+            expected_sequence: 1,
+            next_present_sequence: 2,
+        }),
+    );
+    assert_eq!(
+        gap.checkpoint(),
+        &JournalInspectionCheckpoint::BeforeBatch { sequence: 2 },
+    );
+    assert!(!gap.exhausted());
+    assert!(gap.batch_identity_blocked());
+
+    let resumed = store
+        .inspect_page(gap.checkpoint().clone(), limits)
+        .expect("inspection should resume at the physical batch after the gap");
+    assert_eq!(
+        resumed.checkpoint(),
+        &JournalInspectionCheckpoint::AfterBatch { sequence: 2 },
+    );
+    assert!(resumed.exhausted());
+    assert_eq!(resumed.issue(), None);
+    assert!(resumed.batch_identity_blocked());
+}
+
+#[test]
+fn journal_inspection_reports_a_malformed_batch_without_hiding_tail_exhaustion() {
+    let mut store = JournalTailStore::init(test_memory(229));
+    let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
+    encoded[0] = b'X';
+    store
+        .insert_raw_batch_for_tests(JournalSequence::new(1), encoded)
+        .expect("malformed raw bytes should insert as a persisted fixture");
+    let limits = JournalInspectionLimits::for_tests(2, (MAX_JOURNAL_BATCH_BYTES as usize) * 2);
+
+    let page = store
+        .inspect_page(JournalInspectionCheckpoint::BeforeFirst, limits)
+        .expect("malformed batch should be a progressable finding");
+
+    assert!(matches!(
+        page.issue(),
+        Some(JournalIntegrityIssue::MalformedBatch {
+            sequence: 1,
+            incompatible_format: false,
+            ..
+        }),
+    ));
+    assert_eq!(
+        page.checkpoint(),
+        &JournalInspectionCheckpoint::AfterBatch { sequence: 1 },
+    );
+    assert!(page.exhausted());
+    assert!(page.batch_identity_blocked());
+}
+
+#[test]
+fn journal_proof_identity_tracks_tail_append_and_fold_topology() {
+    let mut store = JournalTailStore::init(test_memory(227));
+    let empty = store
+        .proof_identity()
+        .expect("empty proof identity should capture");
+
+    store.append_batch(&batch(1)).expect("batch should append");
+    let appended = store
+        .proof_identity()
+        .expect("appended proof identity should capture");
+    assert_ne!(appended, empty);
+    assert_eq!(appended.next_append_sequence(), 2);
+    assert!(appended.physical_record_count() > empty.physical_record_count());
+
+    store
+        .persist_fold_watermark(FoldWatermark::new(JournalSequence::new(1), 1))
+        .expect("fold watermark should persist");
+    store.clear_batches_through(JournalSequence::new(1));
+    let folded = store
+        .proof_identity()
+        .expect("folded proof identity should capture");
+
+    assert_ne!(folded, appended);
+    assert_eq!(folded.fold_sequence(), 1);
+    assert_eq!(folded.fold_epoch(), 1);
+    assert_eq!(folded.data_mutation_revision(), 2);
+    assert_eq!(folded.next_append_sequence(), 2);
 }
 
 #[test]

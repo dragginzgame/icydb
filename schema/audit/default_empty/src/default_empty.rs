@@ -5,7 +5,7 @@ define_fixture_canister!(
     DefaultEmptyCanister = "DefaultEmptyCanister",
     namespace = "default_empty",
     memory_min = 100,
-    memory_max = 104,
+    memory_max = 105,
     commit_memory_id = 104,
 );
 

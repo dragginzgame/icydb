@@ -8,12 +8,14 @@ use crate::{
         JournalBatch, JournalRecord, JournalSequence,
         codec::{MAX_JOURNAL_BATCH_BYTES, RawJournalBatch},
     },
-    error::InternalError,
+    error::{ErrorClass, InternalError},
 };
+use candid::CandidType;
 use ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, memory_manager::VirtualMemory,
     storable::Bound as StorableBound,
 };
+use serde::Deserialize;
 use std::ops::Bound::{Included, Unbounded};
 use std::{borrow::Cow, collections::BTreeSet};
 
@@ -27,6 +29,170 @@ const DATA_MUTATION_REVISION_VERSION: u8 = 1;
 const DATA_MUTATION_REVISION_BYTES: usize = DATA_MUTATION_REVISION_MAGIC.len() + 1 + 8;
 pub(in crate::db::journal) const JOURNAL_TAIL_CHUNK_BYTES: u32 = 64 * 1024;
 const JOURNAL_TAIL_KEY_BYTES: u32 = 12;
+const MAX_JOURNAL_INSPECTION_BATCHES_PER_PAGE: usize = 2;
+const MAX_JOURNAL_INSPECTION_BYTES_PER_PAGE: usize =
+    (MAX_JOURNAL_BATCH_BYTES as usize) * MAX_JOURNAL_INSPECTION_BATCHES_PER_PAGE;
+
+/// Exact private continuation within one physical journal tail.
+///
+/// Duplicate batch IDs require comparing a newly decoded batch with every
+/// earlier live tail batch. `CheckingBatchIdentity` makes that proof resumable
+/// without retaining an unbounded set of IDs.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub(in crate::db) enum JournalInspectionCheckpoint {
+    /// No live tail batch has been classified.
+    BeforeFirst,
+    /// A preceding sequence gap was classified; inspect this exact next batch.
+    BeforeBatch { sequence: u64 },
+    /// The candidate batch is valid while earlier batch identities remain.
+    CheckingBatchIdentity {
+        sequence: u64,
+        batch_id: [u8; 16],
+        next_prior_sequence: u64,
+    },
+    /// The named batch and all earlier identity comparisons are complete.
+    AfterBatch { sequence: u64 },
+}
+
+/// Definite progressable journal-tail invariant failure.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum JournalIntegrityIssue {
+    /// One physical batch/chunk envelope is not current-form decodable.
+    MalformedBatch {
+        sequence: u64,
+        diagnostic_code: u16,
+        incompatible_format: bool,
+    },
+    /// One or more expected sequence values have no physical batch.
+    SequenceGap {
+        expected_sequence: u64,
+        next_present_sequence: u64,
+    },
+    /// Two distinct physical sequences carry the same batch identity.
+    DuplicateBatchIdentity { sequence: u64, prior_sequence: u64 },
+}
+
+/// Hard bounds for one journal-tail inspection page.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct JournalInspectionLimits {
+    decoded_batches: usize,
+    decoded_bytes: usize,
+}
+
+impl JournalInspectionLimits {
+    /// Return the maintained production journal-page bounds.
+    #[must_use]
+    pub(in crate::db) const fn standard() -> Self {
+        Self {
+            decoded_batches: MAX_JOURNAL_INSPECTION_BATCHES_PER_PAGE,
+            decoded_bytes: MAX_JOURNAL_INSPECTION_BYTES_PER_PAGE,
+        }
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) const fn for_tests(decoded_batches: usize, decoded_bytes: usize) -> Self {
+        Self {
+            decoded_batches,
+            decoded_bytes,
+        }
+    }
+
+    fn validate(self) -> Result<Self, InternalError> {
+        if self.decoded_batches < 2 || self.decoded_bytes < MAX_JOURNAL_BATCH_BYTES as usize {
+            return Err(InternalError::store_invariant());
+        }
+        Ok(self)
+    }
+}
+
+/// Stable proof inputs for one physical journal tail.
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub(in crate::db) struct JournalTailProofIdentity {
+    data_mutation_revision: u64,
+    fold_sequence: u64,
+    fold_epoch: u64,
+    next_append_sequence: u64,
+    physical_record_count: u64,
+}
+
+impl JournalTailProofIdentity {
+    /// Return the durable logical row-mutation revision.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn data_mutation_revision(self) -> u64 {
+        self.data_mutation_revision
+    }
+
+    /// Return the highest durably folded batch sequence.
+    #[must_use]
+    pub(in crate::db) const fn fold_sequence(self) -> u64 {
+        self.fold_sequence
+    }
+
+    /// Return the fold topology epoch.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn fold_epoch(self) -> u64 {
+        self.fold_epoch
+    }
+
+    /// Return the next sequence that a valid append would consume.
+    #[must_use]
+    pub(in crate::db) const fn next_append_sequence(self) -> u64 {
+        self.next_append_sequence
+    }
+
+    /// Return the complete physical map-record count, including control records.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn physical_record_count(self) -> u64 {
+        self.physical_record_count
+    }
+
+    /// Return whether decoded proof fields can describe one maintained tail.
+    #[must_use]
+    pub(in crate::db) const fn is_well_formed(self) -> bool {
+        self.data_mutation_revision > 0
+            && self.data_mutation_revision <= self.next_append_sequence
+            && self.next_append_sequence > self.fold_sequence
+    }
+}
+
+/// One bounded exact page from a physical journal tail.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct JournalIntegrityPage {
+    checkpoint: JournalInspectionCheckpoint,
+    exhausted: bool,
+    issue: Option<JournalIntegrityIssue>,
+    batch_identity_blocked: bool,
+}
+
+impl JournalIntegrityPage {
+    /// Borrow the exact next private checkpoint.
+    #[must_use]
+    pub(in crate::db) const fn checkpoint(&self) -> &JournalInspectionCheckpoint {
+        &self.checkpoint
+    }
+
+    /// Return whether the live tail interval was authoritatively exhausted.
+    #[must_use]
+    pub(in crate::db) const fn exhausted(&self) -> bool {
+        self.exhausted
+    }
+
+    /// Return the one bounded definite issue classified by this page.
+    #[must_use]
+    pub(in crate::db) const fn issue(&self) -> Option<JournalIntegrityIssue> {
+        self.issue
+    }
+
+    /// Return whether malformed prior state blocked complete batch-ID proof.
+    #[must_use]
+    pub(in crate::db) const fn batch_identity_blocked(&self) -> bool {
+        self.batch_identity_blocked
+    }
+}
 
 /// Durable replay boundary for a journal tail.
 
@@ -257,6 +423,18 @@ impl JournalTailStore {
             .ok_or_else(InternalError::journal_mutation_revision_exhausted)
     }
 
+    /// Capture the exact durable and physical identity inspected by Deep.
+    pub(in crate::db) fn proof_identity(&self) -> Result<JournalTailProofIdentity, InternalError> {
+        let watermark = self.fold_watermark()?;
+        Ok(JournalTailProofIdentity {
+            data_mutation_revision: self.data_mutation_revision()?,
+            fold_sequence: watermark.highest_folded_journal_sequence().get(),
+            fold_epoch: watermark.fold_epoch(),
+            next_append_sequence: self.next_append_sequence()?.get(),
+            physical_record_count: self.map.len(),
+        })
+    }
+
     /// Return the durable replay boundary encoded in the journal-tail memory.
     pub(in crate::db) fn fold_watermark(&self) -> Result<FoldWatermark, InternalError> {
         self.map
@@ -314,6 +492,22 @@ impl JournalTailStore {
         }
     }
 
+    /// Return whether any physical journal batch remains in this tail.
+    ///
+    /// Recovery uses this single-lookup boundary after advancing the fold
+    /// watermark. A retained batch below or above that watermark means cleanup
+    /// is incomplete, so marker authority must remain published.
+    #[must_use]
+    pub(in crate::db) fn has_stored_batch(&self) -> bool {
+        self.map
+            .range((
+                Included(JournalTailKey::new(JournalSequence::new(1), 0)),
+                Unbounded,
+            ))
+            .next()
+            .is_some()
+    }
+
     /// Visit complete batches after the durable fold watermark in replay order.
     ///
     /// This read boundary validates the first journal-tail invariants needed by
@@ -362,6 +556,56 @@ impl JournalTailStore {
         Ok(())
     }
 
+    /// Inspect one bounded exact journal-tail page.
+    ///
+    /// The page validates complete current-form batch envelopes and sequence
+    /// continuity. Duplicate batch identity is checked through a resumable
+    /// comparison against every earlier live batch, so memory use does not
+    /// grow with tail length.
+    pub(in crate::db) fn inspect_page(
+        &self,
+        checkpoint: JournalInspectionCheckpoint,
+        limits: JournalInspectionLimits,
+    ) -> Result<JournalIntegrityPage, InternalError> {
+        let limits = limits.validate()?;
+        let watermark = self.fold_watermark()?.highest_folded_journal_sequence();
+        let mut accumulator = JournalInspectionAccumulator::new(limits);
+
+        match checkpoint {
+            JournalInspectionCheckpoint::BeforeFirst => {
+                let sequence = watermark.next().ok_or_else(journal_tail_corruption)?;
+                self.start_inspection_batch(watermark, sequence, &mut accumulator)
+            }
+            JournalInspectionCheckpoint::BeforeBatch { sequence } => {
+                let sequence = JournalSequence::new(sequence);
+                if sequence <= watermark {
+                    return Err(journal_tail_corruption());
+                }
+                self.start_inspection_batch(watermark, sequence, &mut accumulator)
+            }
+            JournalInspectionCheckpoint::AfterBatch { sequence } => {
+                if sequence < watermark.get() {
+                    return Err(journal_tail_corruption());
+                }
+                let sequence = JournalSequence::new(sequence)
+                    .next()
+                    .ok_or_else(journal_tail_corruption)?;
+                self.start_inspection_batch(watermark, sequence, &mut accumulator)
+            }
+            JournalInspectionCheckpoint::CheckingBatchIdentity {
+                sequence,
+                batch_id,
+                next_prior_sequence,
+            } => self.continue_batch_identity_check(
+                watermark,
+                JournalSequence::new(sequence),
+                batch_id,
+                JournalSequence::new(next_prior_sequence),
+                &mut accumulator,
+            ),
+        }
+    }
+
     /// Return the number of complete journal-tail batches.
     #[must_use]
     #[cfg(test)]
@@ -397,6 +641,25 @@ impl JournalTailStore {
         bytes: Vec<u8>,
     ) -> Result<(), InternalError> {
         self.append_raw_batch(sequence, bytes.as_slice())
+    }
+
+    /// Corrupt the first envelope byte without changing proof-vector counters.
+    #[cfg(test)]
+    pub(in crate::db) fn corrupt_batch_envelope_for_tests(
+        &mut self,
+        sequence: JournalSequence,
+    ) -> Result<(), InternalError> {
+        let key = JournalTailKey::new(sequence, 0);
+        let Some(raw) = self.map.get(&key) else {
+            return Err(journal_tail_corruption());
+        };
+        let mut bytes = raw.into_bytes();
+        let Some(first) = bytes.first_mut() else {
+            return Err(journal_tail_corruption());
+        };
+        *first ^= u8::MAX;
+        self.map.insert(key, RawJournalChunk::from_bytes(bytes));
+        Ok(())
     }
 
     fn append_raw_batch(
@@ -489,6 +752,300 @@ impl JournalTailStore {
         }
 
         Ok(Some(bytes))
+    }
+
+    fn start_inspection_batch(
+        &self,
+        watermark: JournalSequence,
+        sequence: JournalSequence,
+        accumulator: &mut JournalInspectionAccumulator,
+    ) -> Result<JournalIntegrityPage, InternalError> {
+        let batch = match self.decode_inspection_batch(sequence, accumulator) {
+            Ok(Some(batch)) => batch,
+            Ok(None) => {
+                let Some(next) = self.next_batch_sequence_at_or_after(sequence) else {
+                    let prior = sequence
+                        .get()
+                        .checked_sub(1)
+                        .ok_or_else(journal_tail_corruption)?;
+                    return Ok(JournalInspectionAccumulator::finish(
+                        JournalInspectionCheckpoint::AfterBatch { sequence: prior },
+                        true,
+                        None,
+                        false,
+                    ));
+                };
+                return Ok(JournalInspectionAccumulator::finish(
+                    JournalInspectionCheckpoint::BeforeBatch {
+                        sequence: next.get(),
+                    },
+                    false,
+                    Some(JournalIntegrityIssue::SequenceGap {
+                        expected_sequence: sequence.get(),
+                        next_present_sequence: next.get(),
+                    }),
+                    true,
+                ));
+            }
+            Err(error) if progressable_journal_unit_error(&error) => {
+                return Ok(JournalInspectionAccumulator::finish(
+                    JournalInspectionCheckpoint::AfterBatch {
+                        sequence: sequence.get(),
+                    },
+                    !self.has_batch_after(sequence),
+                    Some(malformed_batch_issue(sequence, &error)),
+                    true,
+                ));
+            }
+            Err(error) => return Err(error),
+        };
+        let first_live_sequence = watermark.next().ok_or_else(journal_tail_corruption)?;
+        if sequence == first_live_sequence {
+            return Ok(JournalInspectionAccumulator::finish(
+                JournalInspectionCheckpoint::AfterBatch {
+                    sequence: sequence.get(),
+                },
+                !self.has_batch_after(sequence),
+                None,
+                false,
+            ));
+        }
+
+        self.compare_prior_batch_identities(
+            sequence,
+            batch.batch_id(),
+            first_live_sequence,
+            accumulator,
+        )
+    }
+
+    fn continue_batch_identity_check(
+        &self,
+        watermark: JournalSequence,
+        sequence: JournalSequence,
+        batch_id: [u8; 16],
+        prior_sequence: JournalSequence,
+        accumulator: &mut JournalInspectionAccumulator,
+    ) -> Result<JournalIntegrityPage, InternalError> {
+        if sequence <= watermark || prior_sequence <= watermark || prior_sequence >= sequence {
+            return Err(journal_tail_corruption());
+        }
+
+        let candidate = match self.decode_inspection_batch(sequence, accumulator) {
+            Ok(Some(candidate)) => candidate,
+            Ok(None) => return Err(journal_tail_corruption()),
+            Err(error) if progressable_journal_unit_error(&error) => {
+                return Ok(JournalInspectionAccumulator::finish(
+                    JournalInspectionCheckpoint::AfterBatch {
+                        sequence: sequence.get(),
+                    },
+                    !self.has_batch_after(sequence),
+                    Some(malformed_batch_issue(sequence, &error)),
+                    true,
+                ));
+            }
+            Err(error) => return Err(error),
+        };
+        if candidate.batch_id() != batch_id {
+            return Err(journal_tail_corruption());
+        }
+
+        self.compare_prior_batch_identities(sequence, batch_id, prior_sequence, accumulator)
+    }
+
+    fn compare_prior_batch_identities(
+        &self,
+        sequence: JournalSequence,
+        batch_id: [u8; 16],
+        mut prior_sequence: JournalSequence,
+        accumulator: &mut JournalInspectionAccumulator,
+    ) -> Result<JournalIntegrityPage, InternalError> {
+        while prior_sequence < sequence {
+            if !accumulator.can_decode_another_batch() {
+                return Ok(JournalInspectionAccumulator::finish(
+                    JournalInspectionCheckpoint::CheckingBatchIdentity {
+                        sequence: sequence.get(),
+                        batch_id,
+                        next_prior_sequence: prior_sequence.get(),
+                    },
+                    false,
+                    None,
+                    false,
+                ));
+            }
+            let prior = match self.decode_inspection_batch(prior_sequence, accumulator) {
+                Ok(Some(prior)) => prior,
+                Ok(None) => {
+                    return self.blocked_identity_progress(sequence, batch_id, prior_sequence);
+                }
+                Err(error) if progressable_journal_unit_error(&error) => {
+                    return self.blocked_identity_progress(sequence, batch_id, prior_sequence);
+                }
+                Err(error) => return Err(error),
+            };
+            if prior.batch_id() == batch_id {
+                return Ok(JournalInspectionAccumulator::finish(
+                    JournalInspectionCheckpoint::AfterBatch {
+                        sequence: sequence.get(),
+                    },
+                    !self.has_batch_after(sequence),
+                    Some(JournalIntegrityIssue::DuplicateBatchIdentity {
+                        sequence: sequence.get(),
+                        prior_sequence: prior_sequence.get(),
+                    }),
+                    false,
+                ));
+            }
+            prior_sequence = prior_sequence.next().ok_or_else(journal_tail_corruption)?;
+        }
+
+        Ok(JournalInspectionAccumulator::finish(
+            JournalInspectionCheckpoint::AfterBatch {
+                sequence: sequence.get(),
+            },
+            !self.has_batch_after(sequence),
+            None,
+            false,
+        ))
+    }
+
+    fn decode_inspection_batch(
+        &self,
+        sequence: JournalSequence,
+        accumulator: &mut JournalInspectionAccumulator,
+    ) -> Result<Option<JournalBatch>, InternalError> {
+        let Some(bytes) = self.raw_batch_bytes_for_sequence(sequence)? else {
+            return Ok(None);
+        };
+        accumulator.consume_batch(bytes.len())?;
+        let batch = RawJournalBatch::from_control_bytes(bytes).decode()?;
+        if batch.journal_sequence() != sequence {
+            return Err(journal_tail_corruption());
+        }
+        Ok(Some(batch))
+    }
+
+    fn has_batch_after(&self, sequence: JournalSequence) -> bool {
+        let Some(next) = sequence.next() else {
+            return false;
+        };
+        self.map
+            .range((Included(JournalTailKey::new(next, 0)), Unbounded))
+            .next()
+            .is_some()
+    }
+
+    fn next_batch_sequence_at_or_after(
+        &self,
+        sequence: JournalSequence,
+    ) -> Option<JournalSequence> {
+        self.map
+            .range((Included(JournalTailKey::new(sequence, 0)), Unbounded))
+            .map(|entry| entry.key().sequence)
+            .find(|candidate| *candidate != FOLD_WATERMARK_CONTROL_SEQUENCE)
+    }
+
+    fn blocked_identity_progress(
+        &self,
+        sequence: JournalSequence,
+        batch_id: [u8; 16],
+        prior_sequence: JournalSequence,
+    ) -> Result<JournalIntegrityPage, InternalError> {
+        let next = prior_sequence.next().ok_or_else(journal_tail_corruption)?;
+        let next = self
+            .next_batch_sequence_at_or_after(next)
+            .filter(|next| *next < sequence);
+        Ok(match next {
+            Some(next) => JournalInspectionAccumulator::finish(
+                JournalInspectionCheckpoint::CheckingBatchIdentity {
+                    sequence: sequence.get(),
+                    batch_id,
+                    next_prior_sequence: next.get(),
+                },
+                false,
+                None,
+                true,
+            ),
+            None => JournalInspectionAccumulator::finish(
+                JournalInspectionCheckpoint::AfterBatch {
+                    sequence: sequence.get(),
+                },
+                !self.has_batch_after(sequence),
+                None,
+                true,
+            ),
+        })
+    }
+}
+
+struct JournalInspectionAccumulator {
+    limits: JournalInspectionLimits,
+    decoded_batches: usize,
+    decoded_bytes: usize,
+}
+
+impl JournalInspectionAccumulator {
+    const fn new(limits: JournalInspectionLimits) -> Self {
+        Self {
+            limits,
+            decoded_batches: 0,
+            decoded_bytes: 0,
+        }
+    }
+
+    const fn can_decode_another_batch(&self) -> bool {
+        self.decoded_batches < self.limits.decoded_batches
+    }
+
+    fn consume_batch(&mut self, bytes: usize) -> Result<(), InternalError> {
+        if !self.can_decode_another_batch() {
+            return Err(InternalError::store_invariant());
+        }
+        let decoded_bytes = self
+            .decoded_bytes
+            .checked_add(bytes)
+            .ok_or_else(InternalError::store_invariant)?;
+        if decoded_bytes > self.limits.decoded_bytes {
+            return Err(InternalError::store_invariant());
+        }
+        self.decoded_batches = self
+            .decoded_batches
+            .checked_add(1)
+            .ok_or_else(InternalError::store_invariant)?;
+        self.decoded_bytes = decoded_bytes;
+        Ok(())
+    }
+
+    const fn finish(
+        checkpoint: JournalInspectionCheckpoint,
+        exhausted: bool,
+        issue: Option<JournalIntegrityIssue>,
+        batch_identity_blocked: bool,
+    ) -> JournalIntegrityPage {
+        JournalIntegrityPage {
+            checkpoint,
+            exhausted,
+            issue,
+            batch_identity_blocked,
+        }
+    }
+}
+
+const fn progressable_journal_unit_error(error: &InternalError) -> bool {
+    matches!(
+        error.class(),
+        ErrorClass::Corruption | ErrorClass::IncompatiblePersistedFormat
+    )
+}
+
+fn malformed_batch_issue(
+    sequence: JournalSequence,
+    error: &InternalError,
+) -> JournalIntegrityIssue {
+    JournalIntegrityIssue::MalformedBatch {
+        sequence: sequence.get(),
+        diagnostic_code: error.diagnostic_code().error_code().raw(),
+        incompatible_format: error.class() == ErrorClass::IncompatiblePersistedFormat,
     }
 }
 

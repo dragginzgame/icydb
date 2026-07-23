@@ -468,7 +468,7 @@ mod tests {
     fn actor_builder_with_options(options: BuildOptions) -> ActorBuilder {
         ActorBuilder::new(
             Arc::new(Schema::new()),
-            Canister::new(Def::new("test", "Canister"), "test", 0, 1, 2),
+            Canister::new(Def::new("test", "Canister"), "test", 0, 1, 2, 3),
             options,
         )
     }

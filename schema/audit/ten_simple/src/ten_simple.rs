@@ -7,7 +7,7 @@ define_fixture_canister!(
     TenSimpleCanister = "TenSimpleCanister",
     namespace = "ten_simple",
     memory_min = 155,
-    memory_max = 159,
+    memory_max = 160,
     commit_memory_id = 159,
 );
 

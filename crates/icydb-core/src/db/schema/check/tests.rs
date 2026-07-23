@@ -372,14 +372,67 @@ fn integrity_check_program_excludes_pending_activation_semantics() {
     let accepted =
         AcceptedSchemaSnapshot::try_new(snapshot.with_constraint_catalog(constraint_catalog))
             .expect("activation snapshot should close");
-    let program =
-        CompiledAcceptedRowConstraints::compile_validated_checks(&accepted, &catalog, FINGERPRINT)
-            .expect("validated-only integrity program should compile");
+    let program = CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT)
+        .expect("shared write/integrity program should compile");
 
-    assert!(program.is_empty());
-    program
-        .evaluate(FINGERPRINT, &values(-1, Value::Null, Vec::new()))
-        .expect("pending activation violations are not accepted-state corruption");
+    assert_eq!(program.integrity_check_count(), 0);
+}
+
+#[test]
+fn integrity_check_program_evaluates_each_validated_check_by_stable_ordinal() {
+    let snapshot = snapshot();
+    let catalog = value_catalog();
+    let score = bind_check_expr_v1(
+        CheckExprV1Input::Compare {
+            left: CheckValueExprV1Input::Field("score".to_string()),
+            op: AcceptedCheckCompareOpV1::Gte,
+            right: CheckValueExprV1Input::Literal(InputValue::Int64(0)),
+        },
+        &snapshot,
+        catalog.enum_catalog(),
+        catalog.composite_catalog(),
+    )
+    .expect("score check should bind");
+    let nickname = bind_check_expr_v1(
+        CheckExprV1Input::Compare {
+            left: CheckValueExprV1Input::Field("nickname".to_string()),
+            op: AcceptedCheckCompareOpV1::Ne,
+            right: CheckValueExprV1Input::Literal(InputValue::Text("blocked".to_string())),
+        },
+        &snapshot,
+        catalog.enum_catalog(),
+        catalog.composite_catalog(),
+    )
+    .expect("nickname check should bind");
+    let constraint_catalog = snapshot
+        .constraint_catalog()
+        .clone()
+        .with_added_check(
+            "score_policy".to_string(),
+            ConstraintOrigin::Generated,
+            score,
+        )
+        .expect("score check should allocate")
+        .with_added_check(
+            "nickname_policy".to_string(),
+            ConstraintOrigin::Generated,
+            nickname,
+        )
+        .expect("nickname check should allocate");
+    let accepted =
+        AcceptedSchemaSnapshot::try_new(snapshot.with_constraint_catalog(constraint_catalog))
+            .expect("validated checks should close");
+    let program = CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT)
+        .expect("shared write/integrity program should compile");
+    let row = values(-1, Value::Text("blocked".to_string()), Vec::new());
+
+    assert_eq!(program.integrity_check_count(), 2);
+    for ordinal in 0..program.integrity_check_count() {
+        assert!(matches!(
+            program.evaluate_integrity_check(ordinal, FINGERPRINT, row.as_slice()),
+            Err(AcceptedRowConstraintEvaluationError::Violation { .. }),
+        ));
+    }
 }
 
 #[test]

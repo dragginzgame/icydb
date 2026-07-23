@@ -5,6 +5,7 @@
 
 mod delta;
 mod error;
+mod integrity;
 mod read;
 mod unique;
 
@@ -27,6 +28,7 @@ use error::IndexPlanError;
 pub(in crate::db) use delta::{
     IndexDelta, IndexDeltaGroup, IndexMembershipDelta, IndexMutationPlan,
 };
+pub(in crate::db) use integrity::{AcceptedIndexInspectionDomain, AcceptedIndexInspectionPlan};
 pub(in crate::db) use read::IndexPlanReadView;
 
 // Distinguish the two structural key-build lanes so planner diagnostics can
@@ -86,7 +88,7 @@ fn accepted_predicate_program_for_accepted_expression_index(
     ))
 }
 
-fn accepted_field_path_index_key_for_slot_reader_with_membership_structural(
+pub(in crate::db::index::plan) fn accepted_field_path_index_key_for_slot_reader_with_membership_structural(
     entity_tag: EntityTag,
     accepted_index: &SchemaIndexInfo,
     predicate_program: Option<&PredicateProgram>,
@@ -108,7 +110,7 @@ fn accepted_field_path_index_key_for_slot_reader_with_membership_structural(
     )
 }
 
-fn accepted_expression_index_key_for_slot_reader_with_membership_structural(
+pub(in crate::db::index::plan) fn accepted_expression_index_key_for_slot_reader_with_membership_structural(
     entity_tag: EntityTag,
     accepted_index: &SchemaExpressionIndexInfo,
     predicate_program: Option<&PredicateProgram>,

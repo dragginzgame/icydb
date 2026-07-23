@@ -66,7 +66,6 @@ impl IndexId {
 
     /// Return the isolated physical generation.
     #[must_use]
-    #[cfg(test)]
     pub(crate) const fn generation(&self) -> u64 {
         self.generation
     }

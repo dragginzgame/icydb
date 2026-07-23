@@ -3,7 +3,7 @@ use crate::build::schema_write;
 use super::*;
 
 fn insert_canister(path_module: &'static str, ident: &'static str) -> Canister {
-    let canister = Canister::new(Def::new(path_module, ident), "test_db", 100, 254, 254);
+    let canister = Canister::new(Def::new(path_module, ident), "test_db", 100, 254, 254, 253);
     schema_write().insert_node(SchemaNode::Canister(canister.clone()));
 
     canister
@@ -87,6 +87,7 @@ fn validate_rejects_reserved_commit_memory_id() {
         100,
         254,
         255,
+        253,
     );
     schema_write().insert_node(SchemaNode::Canister(canister.clone()));
 
@@ -98,6 +99,45 @@ fn validate_rejects_reserved_commit_memory_id() {
     assert!(
         rendered.contains("reserved for stable-structures internals"),
         "expected reserved-id error, got: {rendered}"
+    );
+}
+
+#[test]
+fn validate_rejects_integrity_progress_memory_collision() {
+    let canister = Canister::new(
+        Def::new("schema_integrity_progress_collision", "Canister"),
+        "test_db",
+        100,
+        254,
+        253,
+        253,
+    );
+    schema_write().insert_node(SchemaNode::Canister(canister.clone()));
+
+    let err = canister
+        .validate()
+        .expect_err("progress and commit memory IDs must not alias");
+    assert!(
+        err.to_string().contains("duplicate memory_id `253`"),
+        "expected progress allocation collision, got: {err}"
+    );
+}
+
+#[test]
+fn integrity_progress_allocation_has_one_canonical_identity() {
+    let canister = Canister::new(
+        Def::new("schema_integrity_progress_identity", "Canister"),
+        "test_db",
+        100,
+        254,
+        254,
+        253,
+    );
+
+    assert_eq!(canister.integrity_progress_memory_id(), 253);
+    assert_eq!(
+        canister.integrity_progress_stable_key(),
+        "icydb.test_db.integrity.progress.v1",
     );
 }
 
@@ -214,6 +254,7 @@ fn validate_rejects_app_memory_id_below_canic_reserved_range() {
         99,
         110,
         99,
+        100,
     );
 
     let err = canister

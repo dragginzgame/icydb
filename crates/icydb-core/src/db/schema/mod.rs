@@ -21,6 +21,7 @@ mod fingerprint;
 mod format;
 mod identity;
 mod info;
+mod inspection_plan;
 mod integrity;
 mod layout;
 mod mutation;
@@ -151,6 +152,7 @@ pub(in crate::db) use info::{
     accepted_schema_info_projection_count_for_tests,
     reset_accepted_schema_info_projection_count_for_tests,
 };
+pub(in crate::db) use inspection_plan::AcceptedInspectionPlan;
 pub(in crate::db::schema) use integrity::{
     schema_snapshot_constraint_integrity_detail, schema_snapshot_index_integrity_detail,
     schema_snapshot_integrity_detail, schema_snapshot_relation_integrity_detail,

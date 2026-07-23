@@ -511,6 +511,7 @@ impl<'a> SparseRequiredRowFieldBytes<'a> {
 ///
 /// The only supported persisted row shape is the slot-framed payload envelope,
 /// so this helper returns the validated enclosed payload bytes directly.
+#[cfg(test)]
 pub(in crate::db) fn decode_structural_row_payload(
     raw_row: &RawRow,
 ) -> Result<DecodedRowPayload<'_>, InternalError> {

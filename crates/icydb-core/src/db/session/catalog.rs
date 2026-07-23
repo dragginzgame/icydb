@@ -11,8 +11,7 @@ use crate::db::{IndexState, QueryError, query::plan::VisibleIndexes};
 use crate::{
     db::{
         DbSession, EntityCatalogCounts, EntityCatalogDescription, EntityConstraintDescription,
-        EntityFieldDescription, EntitySchemaDescription, IntegrityReport, StorageReport,
-        StoreCatalogDescription,
+        EntityFieldDescription, EntitySchemaDescription, StorageReport, StoreCatalogDescription,
         schema::{
             AcceptedFieldKind, ConstraintValidationJob, PersistedFieldSnapshot, SchemaInfo,
             describe_entity_fields, describe_entity_fields_with_persisted_schema,
@@ -330,10 +329,5 @@ impl<C: CanisterKind> DbSession<C> {
     /// Build one point-in-time storage report using default entity-path labels.
     pub fn storage_report_default(&self) -> Result<StorageReport, InternalError> {
         self.db.storage_report_default()
-    }
-
-    /// Build one point-in-time integrity scan report for observability endpoints.
-    pub fn integrity_report(&self) -> Result<IntegrityReport, InternalError> {
-        self.db.integrity_report()
     }
 }

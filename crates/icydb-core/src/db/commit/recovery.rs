@@ -20,7 +20,7 @@ use crate::{
     db::{
         Db, EntityRuntimeHooks,
         commit::{
-            CommitMarker, CommitRowOp,
+            CommitMarker, CommitRowOp, CommitSchemaFingerprint,
             memory::{
                 CommitMemoryAllocation, configure_commit_memory_id,
                 current_commit_memory_allocation,
@@ -36,12 +36,11 @@ use crate::{
             RawRow, StructuralSlotReader,
         },
         database_format::ensure_database_format_admitted,
-        diagnostics::integrity_report_after_recovery,
         index::IndexStore,
         journal::{FoldWatermark, JournalBatch, JournalRecord, JournalSequence, JournalTailStore},
         registry::{StoreHandle, StoreRecoveryCapability},
         schema::{
-            AcceptedCatalogSnapshotSelection, CandidateSchemaRevision, SchemaStore,
+            AcceptedCatalogSnapshotSelection, CandidateSchemaRevision, ConstraintId, SchemaStore,
             accepted_commit_schema_fingerprint, decode_constraint_validation_job,
             decode_persisted_schema_snapshot, ensure_accepted_schema_snapshot,
             reconcile_runtime_schemas, reconcile_runtime_schemas_before_recovery_rebuild,
@@ -49,9 +48,11 @@ use crate::{
     },
     error::{ErrorOrigin, InternalError},
     traits::CanisterKind,
+    types::EntityTag,
 };
 use std::{
     cell::RefCell,
+    collections::BTreeSet,
     sync::{Mutex, OnceLock},
 };
 
@@ -190,8 +191,8 @@ fn perform_recovery<C: CanisterKind>(
     marker: Option<CommitMarker>,
 ) -> Result<(), InternalError> {
     let had_marker = marker.is_some();
-    if let Some(marker) = marker {
-        publish_marker_bound_journal_batches(db, &marker)
+    if let Some(marker) = marker.as_ref() {
+        publish_marker_bound_journal_batches(db, marker)
             .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     }
 
@@ -218,8 +219,10 @@ fn perform_recovery<C: CanisterKind>(
         return Err(err.with_origin(ErrorOrigin::Recovery));
     }
 
-    // Phase 5: enforce post-recovery integrity before clearing marker authority.
-    if let Err(err) = validate_recovery_integrity(db) {
+    // Phase 5: verify only marker-owned effects and terminal fold state before
+    // clearing marker authority. Whole-database integrity is an explicit
+    // bounded inspection workflow, not a recovery side effect.
+    if let Err(err) = verify_recovered_effects(db, marker.as_ref()) {
         return Err(err.with_origin(ErrorOrigin::Recovery));
     }
 
@@ -1311,19 +1314,311 @@ fn mark_schema_reconciliation_dirty<C: CanisterKind>(db: &Db<C>) {
         keys.borrow_mut().retain(|existing| *existing != key);
     });
 }
-// Fail closed if recovery leaves any index/data divergence findings.
-fn validate_recovery_integrity<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
-    let report = integrity_report_after_recovery(db)?;
-    let totals = report.totals();
-    if totals.missing_index_entries() > 0
-        || totals.divergent_index_entries() > 0
-        || totals.orphan_index_references() > 0
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum RecoveredEffectIdentity {
+    Row {
+        entity_path: String,
+        primary_key: Vec<u8>,
+    },
+    Schema {
+        store_path: String,
+        entity_tag: u64,
+        schema_version: u32,
+    },
+    AcceptedSchema {
+        store_path: String,
+    },
+    ConstraintValidationJob {
+        store_path: String,
+        entity_tag: u64,
+        constraint_id: u32,
+    },
+}
+
+// Verify the bounded final effect set owned by the recovered marker.
+//
+// The marker is capped by `MAX_COMMIT_BYTES`; reverse traversal retains only
+// the last record for each logical target. Tail folds and full derived-state
+// rebuilds have already completed, so row deletes need only prove authoritative
+// row absence: the rebuilt index store cannot retain entries from absent rows.
+pub(in crate::db::commit) fn verify_recovered_effects<C: CanisterKind>(
+    db: &Db<C>,
+    marker: Option<&CommitMarker>,
+) -> Result<(), InternalError> {
+    let mut verified = BTreeSet::new();
+
+    if let Some(marker) = marker {
+        for batch in marker.journal_batches().iter().rev() {
+            let (_, handle) = journal_batch_store_handle(db, batch)?;
+            let watermark = handle
+                .journal_tail_store()
+                .ok_or_else(InternalError::recovery_effect_verification_failed)?
+                .with_borrow(JournalTailStore::fold_watermark)?;
+            if watermark.highest_folded_journal_sequence() < batch.journal_sequence() {
+                return Err(InternalError::recovery_effect_verification_failed());
+            }
+
+            for record in batch.records().iter().rev() {
+                verify_recovered_record(db, record, &mut verified)?;
+            }
+        }
+    }
+
+    // Every journaled store must have reached one terminal fold boundary.
+    // This is one ordered-map lookup per registered store, not a tail scan.
+    for (_, handle) in sorted_journaled_store_handles(db) {
+        let journal_store = handle
+            .journal_tail_store()
+            .ok_or_else(InternalError::recovery_effect_verification_failed)?;
+        let has_stored_batch = journal_store.with_borrow(JournalTailStore::has_stored_batch);
+        if has_stored_batch {
+            return Err(InternalError::recovery_effect_verification_failed());
+        }
+    }
+
+    Ok(())
+}
+
+fn verify_recovered_record<C: CanisterKind>(
+    db: &Db<C>,
+    record: &JournalRecord,
+    verified: &mut BTreeSet<RecoveredEffectIdentity>,
+) -> Result<(), InternalError> {
+    match record {
+        JournalRecord::RowPut {
+            entity_path,
+            primary_key,
+            row_bytes,
+            schema_fingerprint,
+        } => verify_recovered_row_put(
+            db,
+            entity_path,
+            primary_key,
+            row_bytes,
+            *schema_fingerprint,
+            verified,
+        )?,
+        JournalRecord::RowDelete {
+            entity_path,
+            primary_key,
+            ..
+        } => verify_recovered_row_delete(db, entity_path, primary_key, verified)?,
+        JournalRecord::SchemaPut {
+            store_path,
+            schema_snapshot_bytes,
+        } => verify_recovered_schema_put(db, store_path, schema_snapshot_bytes, verified)?,
+        JournalRecord::AcceptedSchemaPublish {
+            store_path,
+            schema_bundle_bytes,
+            schema_root_bytes,
+            ..
+        } => verify_recovered_accepted_schema(
+            db,
+            store_path,
+            schema_bundle_bytes,
+            schema_root_bytes,
+            verified,
+        )?,
+        JournalRecord::ConstraintValidationJobPut {
+            store_path,
+            entity_tag,
+            constraint_id,
+            job_bytes,
+        } => verify_recovered_validation_job(
+            db,
+            store_path,
+            *entity_tag,
+            *constraint_id,
+            Some(job_bytes),
+            verified,
+        )?,
+        JournalRecord::ConstraintValidationJobDelete {
+            store_path,
+            entity_tag,
+            constraint_id,
+        } => verify_recovered_validation_job(
+            db,
+            store_path,
+            *entity_tag,
+            *constraint_id,
+            None,
+            verified,
+        )?,
+    }
+
+    Ok(())
+}
+
+fn verify_recovered_row_put<C: CanisterKind>(
+    db: &Db<C>,
+    entity_path: &str,
+    primary_key: &RawDataStoreKey,
+    row_bytes: &[u8],
+    schema_fingerprint: CommitSchemaFingerprint,
+    verified: &mut BTreeSet<RecoveredEffectIdentity>,
+) -> Result<(), InternalError> {
+    let identity = RecoveredEffectIdentity::Row {
+        entity_path: entity_path.to_string(),
+        primary_key: primary_key.as_bytes().to_vec(),
+    };
+    if !verified.insert(identity) {
+        return Ok(());
+    }
+
+    let hooks = recovery_runtime_hook_for_entity_path(db, entity_path)?;
+    let (_, handle) = registry_store_handle_for_path(db, hooks.store_path)?;
+    let row_matches = handle
+        .with_data(|store| store.get(primary_key))
+        .is_some_and(|row| row.as_bytes() == row_bytes);
+    if !row_matches {
+        return Err(InternalError::recovery_effect_verification_failed());
+    }
+
+    let row_op = CommitRowOp::new(
+        entity_path.to_string(),
+        primary_key.clone(),
+        None,
+        Some(row_bytes.to_vec()),
+        schema_fingerprint,
+    );
+    let prepared = db.prepare_row_commit_op_for_rebuild(&row_op)?;
+    if !std::ptr::eq(prepared.data_store, handle.data_store())
+        || prepared.data_key != *primary_key
+        || prepared
+            .data_value
+            .as_ref()
+            .is_none_or(|row| row.as_raw_row().as_bytes() != row_bytes)
     {
-        return Err(InternalError::recovery_integrity_validation_failed(
-            totals.missing_index_entries(),
-            totals.divergent_index_entries(),
-            totals.orphan_index_references(),
-        ));
+        return Err(InternalError::recovery_effect_verification_failed());
+    }
+    for index_op in prepared.index_ops {
+        let actual = index_op
+            .index_store
+            .with_borrow(|store| store.get(&index_op.key));
+        if actual != index_op.value {
+            return Err(InternalError::recovery_effect_verification_failed());
+        }
+    }
+
+    Ok(())
+}
+
+fn verify_recovered_row_delete<C: CanisterKind>(
+    db: &Db<C>,
+    entity_path: &str,
+    primary_key: &RawDataStoreKey,
+    verified: &mut BTreeSet<RecoveredEffectIdentity>,
+) -> Result<(), InternalError> {
+    let identity = RecoveredEffectIdentity::Row {
+        entity_path: entity_path.to_string(),
+        primary_key: primary_key.as_bytes().to_vec(),
+    };
+    if !verified.insert(identity) {
+        return Ok(());
+    }
+
+    let hooks = recovery_runtime_hook_for_entity_path(db, entity_path)?;
+    let (_, handle) = registry_store_handle_for_path(db, hooks.store_path)?;
+    if handle.with_data(|store| store.contains(primary_key)) {
+        return Err(InternalError::recovery_effect_verification_failed());
+    }
+
+    Ok(())
+}
+
+fn verify_recovered_schema_put<C: CanisterKind>(
+    db: &Db<C>,
+    store_path: &str,
+    schema_snapshot_bytes: &[u8],
+    verified: &mut BTreeSet<RecoveredEffectIdentity>,
+) -> Result<(), InternalError> {
+    let snapshot = decode_persisted_schema_snapshot(schema_snapshot_bytes)?;
+    let hooks = db.runtime_hook_for_entity_path(snapshot.entity_path())?;
+    if hooks.store_path != store_path {
+        return Err(InternalError::recovery_effect_verification_failed());
+    }
+    let identity = RecoveredEffectIdentity::Schema {
+        store_path: store_path.to_string(),
+        entity_tag: hooks.entity_tag.value(),
+        schema_version: snapshot.version().get(),
+    };
+    if !verified.insert(identity) {
+        return Ok(());
+    }
+
+    let (_, handle) = registry_store_handle_for_path(db, store_path)?;
+    let persisted = handle
+        .with_schema(|store| store.get_persisted_snapshot(hooks.entity_tag, snapshot.version()))?;
+    if persisted.as_ref() != Some(&snapshot) {
+        return Err(InternalError::recovery_effect_verification_failed());
+    }
+
+    Ok(())
+}
+
+fn verify_recovered_accepted_schema<C: CanisterKind>(
+    db: &Db<C>,
+    store_path: &str,
+    schema_bundle_bytes: &[u8],
+    schema_root_bytes: &[u8],
+    verified: &mut BTreeSet<RecoveredEffectIdentity>,
+) -> Result<(), InternalError> {
+    let identity = RecoveredEffectIdentity::AcceptedSchema {
+        store_path: store_path.to_string(),
+    };
+    if !verified.insert(identity) {
+        return Ok(());
+    }
+
+    let candidate = CandidateSchemaRevision::from_encoded(
+        schema_bundle_bytes.to_vec(),
+        schema_root_bytes.to_vec(),
+    )?;
+    if candidate.store_path() != store_path {
+        return Err(InternalError::recovery_effect_verification_failed());
+    }
+    let (_, handle) = registry_store_handle_for_path(db, store_path)?;
+    let accepted_matches = handle.with_schema(|store| -> Result<bool, InternalError> {
+        let Some(root) = store.current_accepted_schema_root()? else {
+            return Ok(false);
+        };
+        if root.root() != candidate.root() {
+            return Ok(false);
+        }
+        Ok(store.current_accepted_schema_bundle()?.as_ref() == Some(candidate.bundle()))
+    })?;
+    if !accepted_matches {
+        return Err(InternalError::recovery_effect_verification_failed());
+    }
+
+    Ok(())
+}
+
+fn verify_recovered_validation_job<C: CanisterKind>(
+    db: &Db<C>,
+    store_path: &str,
+    entity_tag: EntityTag,
+    constraint_id: ConstraintId,
+    job_bytes: Option<&[u8]>,
+    verified: &mut BTreeSet<RecoveredEffectIdentity>,
+) -> Result<(), InternalError> {
+    let identity = RecoveredEffectIdentity::ConstraintValidationJob {
+        store_path: store_path.to_string(),
+        entity_tag: entity_tag.value(),
+        constraint_id: constraint_id.get(),
+    };
+    if !verified.insert(identity) {
+        return Ok(());
+    }
+
+    let expected = job_bytes
+        .map(decode_constraint_validation_job)
+        .transpose()?;
+    let (_, handle) = registry_store_handle_for_path(db, store_path)?;
+    let actual =
+        handle.with_schema(|store| store.constraint_validation_job(entity_tag, constraint_id))?;
+    if actual != expected {
+        return Err(InternalError::recovery_effect_verification_failed());
     }
 
     Ok(())

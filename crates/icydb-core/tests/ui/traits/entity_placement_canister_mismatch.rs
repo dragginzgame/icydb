@@ -12,6 +12,8 @@ impl Path for StoreCanister {
 impl CanisterKind for StoreCanister {
     const COMMIT_MEMORY_ID: u8 = 1;
     const COMMIT_STABLE_KEY: &'static str = "store_canister_commit";
+    const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 3;
+    const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "store_canister_integrity_progress";
 }
 
 struct DeclaredCanister;
@@ -23,6 +25,8 @@ impl Path for DeclaredCanister {
 impl CanisterKind for DeclaredCanister {
     const COMMIT_MEMORY_ID: u8 = 2;
     const COMMIT_STABLE_KEY: &'static str = "declared_canister_commit";
+    const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 4;
+    const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "declared_canister_integrity_progress";
 }
 
 struct EntityStore;

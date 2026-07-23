@@ -75,7 +75,9 @@ pub(in crate::db) use prepared_op::{PreparedIndexMutation, PreparedRowCommitOp};
 pub(in crate::db) use recovery::clear_recovery_runtime_state_for_tests;
 pub(in crate::db) use recovery::ensure_recovered;
 #[cfg(test)]
-pub(in crate::db::commit) use recovery::mark_schema_reconciliation_dirty_for_tests;
+pub(in crate::db::commit) use recovery::{
+    mark_schema_reconciliation_dirty_for_tests, verify_recovered_effects,
+};
 pub(in crate::db) use rollback::rollback_prepared_row_ops_reverse;
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate;
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate_with_derived_domains;
@@ -93,6 +95,7 @@ pub(in crate::db) use schema_publication::{
 pub(in crate::db) use store::persisted_commit_marker_lengths_for_tests;
 #[cfg(test)]
 pub(in crate::db) use store::validate_commit_marker_envelope_for_tests;
+pub(in crate::db) use store::{database_control_proof_identity, database_incarnation_id};
 
 /// Return whether one single-store journaled row-op prefix fits the current
 /// durable commit-control window exactly as it would be encoded.

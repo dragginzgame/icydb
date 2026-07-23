@@ -659,6 +659,16 @@ impl InternalError {
         Self::store_internal()
     }
 
+    /// Construct the canonical database-incarnation generation failure.
+    pub(crate) fn database_incarnation_generation_failed() -> Self {
+        Self::store_internal()
+    }
+
+    /// Construct the canonical zero database-incarnation corruption error.
+    pub(crate) fn database_incarnation_invalid() -> Self {
+        Self::store_corruption()
+    }
+
     /// Construct a recovery-origin incompatible store-format error.
     pub(crate) fn recovery_unsupported_database_format(found: Option<u16>, required: u16) -> Self {
         Self {
@@ -704,12 +714,8 @@ impl InternalError {
         Self::store_internal()
     }
 
-    /// Construct the canonical recovery-integrity totals corruption error.
-    pub(crate) fn recovery_integrity_validation_failed(
-        _missing_index_entries: u64,
-        _divergent_index_entries: u64,
-        _orphan_index_references: u64,
-    ) -> Self {
+    /// Construct the canonical recovered-effect verification failure.
+    pub(crate) fn recovery_effect_verification_failed() -> Self {
         Self::store_corruption()
     }
 

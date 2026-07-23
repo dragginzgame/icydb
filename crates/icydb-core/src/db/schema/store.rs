@@ -1498,7 +1498,6 @@ impl SchemaStore {
     }
 
     /// Load and decode one typed persisted schema snapshot.
-    #[cfg(test)]
     pub(in crate::db) fn get_persisted_snapshot(
         &self,
         entity: EntityTag,

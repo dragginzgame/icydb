@@ -4,12 +4,15 @@
 //! Boundary: commit store lifecycle -> control-slot bytes -> marker payload.
 
 use crate::{
-    db::commit::{
-        marker::{
-            CommitMarker, MAX_COMMIT_BYTES, commit_marker_payload_capacity,
-            validate_commit_marker_shape, write_commit_marker_payload,
+    db::{
+        commit::{
+            marker::{
+                CommitMarker, MAX_COMMIT_BYTES, commit_marker_payload_capacity,
+                validate_commit_marker_shape, write_commit_marker_payload,
+            },
+            store::{bytes::read_u32_le, marker_envelope::write_commit_marker_envelope_header},
         },
-        store::{bytes::read_u32_le, marker_envelope::write_commit_marker_envelope_header},
+        integrity::DatabaseIncarnationId,
     },
     error::InternalError,
 };
@@ -23,6 +26,7 @@ use crate::{
 ///
 
 pub(super) struct CommitControlSlotRef<'a> {
+    pub(super) database_incarnation_id: DatabaseIncarnationId,
     pub(super) marker_bytes: &'a [u8],
 }
 
@@ -40,9 +44,10 @@ struct ControlSlotLengths {
     capacity: usize,
 }
 
-pub(super) const COMMIT_CONTROL_HEADER_BYTES: usize = 9;
-const COMMIT_CONTROL_MAGIC: [u8; 4] = *b"CMCS";
+pub(super) const COMMIT_CONTROL_HEADER_BYTES: usize = 25;
+const COMMIT_CONTROL_MAGIC: [u8; 4] = *b"ICCS";
 const COMMIT_CONTROL_STATE_VERSION_CURRENT: u8 = 1;
+const DATABASE_INCARNATION_BYTES: usize = 16;
 const COMMIT_MARKER_HEADER_BYTES: usize = 5;
 
 // Build the canonical max-size corruption error for raw commit control bytes.
@@ -70,10 +75,6 @@ pub(super) fn decode_commit_control_slot(bytes: &[u8]) -> Result<Vec<u8>, Intern
 pub(super) fn inspect_commit_control_slot(
     bytes: &[u8],
 ) -> Result<CommitControlSlotRef<'_>, InternalError> {
-    if bytes.is_empty() {
-        return Ok(CommitControlSlotRef { marker_bytes: &[] });
-    }
-
     if bytes.len() > MAX_COMMIT_BYTES as usize {
         return Err(control_slot_exceeds_max_size());
     }
@@ -82,11 +83,22 @@ pub(super) fn inspect_commit_control_slot(
         return Err(control_slot_canonical_envelope_required());
     }
 
+    let incarnation_start = COMMIT_CONTROL_MAGIC.len() + 1;
+    let incarnation_end = incarnation_start + DATABASE_INCARNATION_BYTES;
+    let incarnation_bytes: [u8; DATABASE_INCARNATION_BYTES] = bytes
+        .get(incarnation_start..incarnation_end)
+        .ok_or_else(control_slot_canonical_envelope_required)?
+        .try_into()
+        .map_err(|_| control_slot_canonical_envelope_required())?;
+    let database_incarnation_id = DatabaseIncarnationId::try_from_bytes(incarnation_bytes)?;
     let marker_bytes = bytes
         .get(COMMIT_CONTROL_HEADER_BYTES..encoded_len)
         .ok_or_else(control_slot_canonical_envelope_required)?;
 
-    Ok(CommitControlSlotRef { marker_bytes })
+    Ok(CommitControlSlotRef {
+        database_incarnation_id,
+        marker_bytes,
+    })
 }
 
 /// Return the total encoded control-slot length from a bounded header prefix.
@@ -111,7 +123,7 @@ pub(super) fn commit_control_slot_encoded_len(bytes: &[u8]) -> Result<usize, Int
         return Err(InternalError::serialize_incompatible_persisted_format());
     }
 
-    let mut cursor = COMMIT_CONTROL_MAGIC.len() + 1;
+    let mut cursor = COMMIT_CONTROL_MAGIC.len() + 1 + DATABASE_INCARNATION_BYTES;
     let marker_len = read_u32_le(bytes, &mut cursor, "commit control-slot")? as usize;
     let encoded_len = cursor.saturating_add(marker_len);
     if encoded_len > MAX_COMMIT_BYTES as usize {
@@ -122,17 +134,21 @@ pub(super) fn commit_control_slot_encoded_len(bytes: &[u8]) -> Result<usize, Int
 }
 
 /// Encode the canonical empty commit-control slot.
-pub(super) fn encode_empty_commit_control_slot() -> [u8; COMMIT_CONTROL_HEADER_BYTES] {
-    let mut encoded = [0_u8; COMMIT_CONTROL_HEADER_BYTES];
-    encoded[..COMMIT_CONTROL_MAGIC.len()].copy_from_slice(&COMMIT_CONTROL_MAGIC);
-    encoded[COMMIT_CONTROL_MAGIC.len()] = COMMIT_CONTROL_STATE_VERSION_CURRENT;
+pub(super) fn encode_empty_commit_control_slot(
+    database_incarnation_id: DatabaseIncarnationId,
+) -> Vec<u8> {
+    let mut encoded = Vec::with_capacity(COMMIT_CONTROL_HEADER_BYTES);
+    write_commit_control_slot_header(&mut encoded, database_incarnation_id, 0);
     encoded
 }
 
 // Encode marker payload bytes into the persisted control-slot format.
 #[cfg(test)]
-pub(super) fn encode_commit_control_slot(marker_bytes: &[u8]) -> Result<Vec<u8>, InternalError> {
-    let encoded = encode_commit_control_slot_bytes(marker_bytes)?;
+pub(super) fn encode_commit_control_slot(
+    database_incarnation_id: DatabaseIncarnationId,
+    marker_bytes: &[u8],
+) -> Result<Vec<u8>, InternalError> {
+    let encoded = encode_commit_control_slot_bytes(database_incarnation_id, marker_bytes)?;
 
     if encoded.len() > MAX_COMMIT_BYTES as usize {
         return Err(InternalError::commit_control_slot_exceeds_max_size());
@@ -144,6 +160,7 @@ pub(super) fn encode_commit_control_slot(marker_bytes: &[u8]) -> Result<Vec<u8>,
 // Encode the full control slot for a multi-row marker directly so atomic batch
 // opens do not allocate intermediate marker payload and marker-envelope buffers.
 pub(super) fn encode_commit_control_slot_from_marker(
+    database_incarnation_id: DatabaseIncarnationId,
     marker: &CommitMarker,
 ) -> Result<Vec<u8>, InternalError> {
     validate_commit_marker_shape(marker)?;
@@ -152,7 +169,7 @@ pub(super) fn encode_commit_control_slot_from_marker(
     let lengths = checked_control_slot_lengths(marker_payload_len)?;
 
     let mut encoded = Vec::with_capacity(lengths.capacity);
-    write_commit_control_slot_header(&mut encoded, lengths.marker_length);
+    write_commit_control_slot_header(&mut encoded, database_incarnation_id, lengths.marker_length);
     write_commit_marker_envelope_header(&mut encoded, lengths.payload_size)?;
     write_commit_marker_payload(&mut encoded, marker)?;
 
@@ -193,20 +210,28 @@ pub(in crate::db::commit) fn commit_control_slot_encoded_len_for_marker_payload(
 // Encode the stable control-slot frame directly so recovery only reads one
 // bounded binary envelope before marker decode.
 #[cfg(test)]
-fn encode_commit_control_slot_bytes(marker_bytes: &[u8]) -> Result<Vec<u8>, InternalError> {
+fn encode_commit_control_slot_bytes(
+    database_incarnation_id: DatabaseIncarnationId,
+    marker_bytes: &[u8],
+) -> Result<Vec<u8>, InternalError> {
     let mut encoded =
         Vec::with_capacity(COMMIT_CONTROL_HEADER_BYTES.saturating_add(marker_bytes.len()));
     let marker_len = u32::try_from(marker_bytes.len())
         .map_err(|_| InternalError::commit_control_slot_marker_bytes_exceed_u32_length_limit())?;
-    write_commit_control_slot_header(&mut encoded, marker_len);
+    write_commit_control_slot_header(&mut encoded, database_incarnation_id, marker_len);
     encoded.extend_from_slice(marker_bytes);
 
     Ok(encoded)
 }
 
 // Write the shared commit control-slot header used by all marker write paths.
-fn write_commit_control_slot_header(out: &mut Vec<u8>, marker_len: u32) {
+fn write_commit_control_slot_header(
+    out: &mut Vec<u8>,
+    database_incarnation_id: DatabaseIncarnationId,
+    marker_len: u32,
+) {
     out.extend_from_slice(&COMMIT_CONTROL_MAGIC);
     out.push(COMMIT_CONTROL_STATE_VERSION_CURRENT);
+    out.extend_from_slice(&database_incarnation_id.to_bytes());
     out.extend_from_slice(&marker_len.to_le_bytes());
 }

@@ -127,6 +127,17 @@ reverse generations never become delete-safety authority. A retained finding
 receipt remains stable until its exact sequence is acknowledged; recovery does
 not discard it or independently rescan policy.
 
+Recovery does not run Quick, Deep, or a whole-database integrity report.
+After journal fold and canonical derived-state rebuild, it verifies only the
+bounded final effect set already carried by the recovered commit marker:
+exact final row state, rebuilt derived effects for recovered row puts, schema
+and validation-job publication identity, marker-batch fold coverage, and empty
+physical journal tails. The effect walk is bounded by the existing 16 MiB
+marker limit, and journal closure costs one ordered-map lookup per registered
+journaled store. Marker authority is cleared only after these postconditions
+hold. This recovered-effect proof is not a claim that unrelated database state
+was inspected; Quick and Deep remain explicit read-only inspection operations.
+
 Direct raw-store or index access that bypasses guarded recovery is outside this
 contract and may observe transient or stale state during startup or interrupted
 recovery windows.

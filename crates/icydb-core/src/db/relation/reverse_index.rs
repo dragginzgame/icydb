@@ -43,7 +43,7 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
-use std::{cell::RefCell, mem::size_of, thread::LocalKey};
+use std::{cell::RefCell, mem::size_of, ops::Bound, thread::LocalKey};
 
 use target_keys::RelationTargetKeys;
 
@@ -245,6 +245,7 @@ pub(in crate::db::relation) struct AcceptedRelationInfo {
 #[derive(Clone)]
 pub(in crate::db) struct RelationConstraintProjection {
     source: ReverseRelationSourceInfo,
+    relation_id: crate::db::schema::RelationId,
     relation: AcceptedRelationInfo,
     target_store_path: &'static str,
     target_store: StoreHandle,
@@ -324,7 +325,7 @@ impl AcceptedRelationInfo {
 }
 
 impl RelationConstraintProjection {
-    /// Bind one relation owner to current accepted row and target-store authority.
+    /// Bind one isolated activation candidate to row and target-store authority.
     pub(in crate::db) fn new<C: CanisterKind>(
         db: &Db<C>,
         source: ReverseRelationSourceInfo,
@@ -335,16 +336,48 @@ impl RelationConstraintProjection {
         if edge.physical_generation() == 0 {
             return Err(InternalError::store_corruption());
         }
+        Self::bind(db, source, snapshot, row_contract, edge)
+    }
+
+    /// Bind one active accepted relation to row and target-store authority.
+    ///
+    /// Initial accepted relations legitimately use generation zero. Activated
+    /// candidates use [`Self::new`] so their isolated generation remains
+    /// nonzero.
+    pub(in crate::db) fn new_active<C: CanisterKind>(
+        db: &Db<C>,
+        source: ReverseRelationSourceInfo,
+        snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+        row_contract: &StructuralRowContract,
+        edge: &crate::db::schema::PersistedRelationEdgeSnapshot,
+    ) -> Result<Self, InternalError> {
+        Self::bind(db, source, snapshot, row_contract, edge)
+    }
+
+    fn bind<C: CanisterKind>(
+        db: &Db<C>,
+        source: ReverseRelationSourceInfo,
+        snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+        row_contract: &StructuralRowContract,
+        edge: &crate::db::schema::PersistedRelationEdgeSnapshot,
+    ) -> Result<Self, InternalError> {
         let relation =
             relation_info_from_snapshot_edge(db, source.path, snapshot, row_contract, edge)?;
         let (target_store_path, target_store) =
             relation_target_store_binding(db, source, &relation)?;
         Ok(Self {
             source,
+            relation_id: edge.id(),
             relation,
             target_store_path,
             target_store,
         })
+    }
+
+    /// Return the stable accepted logical relation identity.
+    #[must_use]
+    pub(in crate::db) const fn relation_id(&self) -> crate::db::schema::RelationId {
+        self.relation_id
     }
 
     /// Return the exact generation carried by every projected reverse key.
@@ -363,6 +396,31 @@ impl RelationConstraintProjection {
     #[must_use]
     pub(in crate::db) const fn target_store(&self) -> StoreHandle {
         self.target_store
+    }
+
+    /// Build canonical inclusive bounds for this active reverse generation.
+    pub(in crate::db) fn raw_bounds(
+        &self,
+    ) -> Result<(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>), InternalError> {
+        let index_id = reverse_index_id_for_relation(self.source, &self.relation)?;
+        let (lower, upper) = raw_keys_for_component_prefix_with_kind::<Vec<u8>>(
+            &index_id,
+            IndexKeyKind::System,
+            1,
+            &[],
+        )
+        .map_err(|_| InternalError::store_corruption())?;
+
+        Ok((Bound::Included(lower), Bound::Included(upper)))
+    }
+
+    /// Prove that one decoded key names this exact active reverse generation.
+    #[must_use]
+    pub(in crate::db) fn contains_decoded_key(&self, key: &IndexKey) -> bool {
+        let Ok(expected) = reverse_index_id_for_relation(self.source, &self.relation) else {
+            return false;
+        };
+        key.key_kind() == IndexKeyKind::System && key.index_id() == &expected
     }
 
     /// Project one source row and classify target existence deterministically.

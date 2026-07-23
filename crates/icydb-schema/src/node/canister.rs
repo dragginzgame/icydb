@@ -25,6 +25,7 @@ pub struct Canister {
     memory_min: u8,
     memory_max: u8,
     commit_memory_id: u8,
+    integrity_progress_memory_id: u8,
 }
 
 impl Canister {
@@ -35,6 +36,7 @@ impl Canister {
         memory_min: u8,
         memory_max: u8,
         commit_memory_id: u8,
+        integrity_progress_memory_id: u8,
     ) -> Self {
         Self {
             def,
@@ -42,6 +44,7 @@ impl Canister {
             memory_min,
             memory_max,
             commit_memory_id,
+            integrity_progress_memory_id,
         }
     }
 
@@ -71,8 +74,105 @@ impl Canister {
     }
 
     #[must_use]
+    pub const fn integrity_progress_memory_id(&self) -> u8 {
+        self.integrity_progress_memory_id
+    }
+
+    #[must_use]
     pub fn commit_stable_key(&self) -> String {
         stable_memory_key(self.memory_namespace(), "commit", "control")
+    }
+
+    #[must_use]
+    pub fn integrity_progress_stable_key(&self) -> String {
+        stable_memory_key(self.memory_namespace(), "integrity", "progress")
+    }
+
+    fn validate_declared_memory_contract(&self, errs: &mut ErrorTree) {
+        validate_stable_key_segment(errs, "canister memory_namespace", self.memory_namespace());
+        validate_memory_id_in_range(
+            errs,
+            "commit_memory_id",
+            self.commit_memory_id(),
+            self.memory_min(),
+            self.memory_max(),
+        );
+        validate_app_memory_id(errs, "commit_memory_id", self.commit_memory_id());
+        validate_memory_id_not_reserved(errs, "commit_memory_id", self.commit_memory_id());
+        validate_stable_key(errs, "commit stable key", &self.commit_stable_key());
+        validate_memory_id_in_range(
+            errs,
+            "integrity_progress_memory_id",
+            self.integrity_progress_memory_id(),
+            self.memory_min(),
+            self.memory_max(),
+        );
+        validate_app_memory_id(
+            errs,
+            "integrity_progress_memory_id",
+            self.integrity_progress_memory_id(),
+        );
+        validate_memory_id_not_reserved(
+            errs,
+            "integrity_progress_memory_id",
+            self.integrity_progress_memory_id(),
+        );
+        validate_stable_key(
+            errs,
+            "integrity progress stable key",
+            &self.integrity_progress_stable_key(),
+        );
+    }
+
+    fn register_store_allocations(
+        &self,
+        canister_path: &str,
+        seen_ids: &mut BTreeMap<u8, (String, String)>,
+        seen_keys: &mut BTreeMap<String, (u8, String)>,
+        errs: &mut ErrorTree,
+    ) {
+        let schema = schema_read();
+        for (path, store) in schema.filter_nodes::<Store>(|node| node.canister() == canister_path) {
+            if !matches!(store.storage(), StoreStorage::Journaled(_)) {
+                continue;
+            }
+            for (allocation, role) in [
+                (
+                    store.stable_data_allocation(self.memory_namespace()),
+                    "data",
+                ),
+                (
+                    store.stable_index_allocation(self.memory_namespace()),
+                    "index",
+                ),
+                (
+                    store.stable_schema_allocation(self.memory_namespace()),
+                    "schema",
+                ),
+            ] {
+                assert_unique_memory_allocation(
+                    allocation.memory_id(),
+                    allocation.stable_key().to_string(),
+                    format!("Store `{path}`.{role}_memory"),
+                    canister_path,
+                    seen_ids,
+                    seen_keys,
+                    errs,
+                );
+            }
+            if store.is_journaled_storage() {
+                let allocation = store.journal_allocation(self.memory_namespace());
+                assert_unique_memory_allocation(
+                    allocation.memory_id(),
+                    allocation.stable_key().to_string(),
+                    format!("Store `{path}`.journal_memory"),
+                    canister_path,
+                    seen_ids,
+                    seen_keys,
+                    errs,
+                );
+            }
+        }
     }
 }
 
@@ -90,22 +190,7 @@ impl ValidateNode for Canister {
         let mut seen_ids = BTreeMap::<u8, (String, String)>::new();
         let mut seen_keys = BTreeMap::<String, (u8, String)>::new();
 
-        validate_stable_key_segment(
-            &mut errs,
-            "canister memory_namespace",
-            self.memory_namespace(),
-        );
-
-        validate_memory_id_in_range(
-            &mut errs,
-            "commit_memory_id",
-            self.commit_memory_id(),
-            self.memory_min(),
-            self.memory_max(),
-        );
-        validate_app_memory_id(&mut errs, "commit_memory_id", self.commit_memory_id());
-        validate_memory_id_not_reserved(&mut errs, "commit_memory_id", self.commit_memory_id());
-        validate_stable_key(&mut errs, "commit stable key", &self.commit_stable_key());
+        self.validate_declared_memory_contract(&mut errs);
 
         assert_unique_memory_allocation(
             self.commit_memory_id(),
@@ -116,82 +201,16 @@ impl ValidateNode for Canister {
             &mut seen_keys,
             &mut errs,
         );
-
-        {
-            let schema = schema_read();
-
-            // Check all Store nodes for this canister
-            for (path, store) in
-                schema.filter_nodes::<Store>(|node| node.canister() == canister_path)
-            {
-                match store.storage() {
-                    StoreStorage::Journaled(_) => {
-                        assert_unique_memory_allocation(
-                            store
-                                .stable_data_allocation(self.memory_namespace())
-                                .memory_id(),
-                            store
-                                .stable_data_allocation(self.memory_namespace())
-                                .stable_key()
-                                .to_string(),
-                            format!("Store `{path}`.data_memory"),
-                            &canister_path,
-                            &mut seen_ids,
-                            &mut seen_keys,
-                            &mut errs,
-                        );
-
-                        assert_unique_memory_allocation(
-                            store
-                                .stable_index_allocation(self.memory_namespace())
-                                .memory_id(),
-                            store
-                                .stable_index_allocation(self.memory_namespace())
-                                .stable_key()
-                                .to_string(),
-                            format!("Store `{path}`.index_memory"),
-                            &canister_path,
-                            &mut seen_ids,
-                            &mut seen_keys,
-                            &mut errs,
-                        );
-
-                        assert_unique_memory_allocation(
-                            store
-                                .stable_schema_allocation(self.memory_namespace())
-                                .memory_id(),
-                            store
-                                .stable_schema_allocation(self.memory_namespace())
-                                .stable_key()
-                                .to_string(),
-                            format!("Store `{path}`.schema_memory"),
-                            &canister_path,
-                            &mut seen_ids,
-                            &mut seen_keys,
-                            &mut errs,
-                        );
-
-                        if store.is_journaled_storage() {
-                            assert_unique_memory_allocation(
-                                store
-                                    .journal_allocation(self.memory_namespace())
-                                    .memory_id(),
-                                store
-                                    .journal_allocation(self.memory_namespace())
-                                    .stable_key()
-                                    .to_string(),
-                                format!("Store `{path}`.journal_memory"),
-                                &canister_path,
-                                &mut seen_ids,
-                                &mut seen_keys,
-                                &mut errs,
-                            );
-                        }
-                    }
-                    StoreStorage::Heap(_) => {}
-                }
-            }
-        }
+        assert_unique_memory_allocation(
+            self.integrity_progress_memory_id(),
+            self.integrity_progress_stable_key(),
+            format!("Canister `{}`.integrity_progress_memory", self.def().path()),
+            &canister_path,
+            &mut seen_ids,
+            &mut seen_keys,
+            &mut errs,
+        );
+        self.register_store_allocations(&canister_path, &mut seen_ids, &mut seen_keys, &mut errs);
 
         errs.result()
     }

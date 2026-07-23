@@ -20,7 +20,8 @@ macro_rules! build_configured_canister {
 /// crates.
 ///
 /// `memory_min`, `memory_max`, and `commit_memory_id` are canister-level
-/// stable-memory manager configuration. Per-store memory IDs live in
+/// stable-memory manager configuration. The maximum ID is reserved for
+/// integrity progress; per-store memory IDs live in
 /// `define_fixture_store!(storage(...))`.
 ///
 #[macro_export]
@@ -37,7 +38,7 @@ macro_rules! define_fixture_canister {
         #[doc = ""]
         #[doc = "Canister model used by wasm SQL fixtures."]
         #[doc = ""]
-        #[canister(memory_namespace = $namespace, memory_min = $memory_min, memory_max = $memory_max, commit_memory_id = $commit_memory_id)]
+        #[canister(memory_namespace = $namespace, memory_min = $memory_min, memory_max = $memory_max, commit_memory_id = $commit_memory_id, integrity_progress_memory_id = $memory_max)]
         pub struct $canister {}
     };
 }

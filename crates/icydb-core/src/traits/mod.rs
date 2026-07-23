@@ -50,6 +50,12 @@ pub trait CanisterKind: Kind {
 
     /// Durable stable-memory allocation key for commit marker storage.
     const COMMIT_STABLE_KEY: &'static str;
+
+    /// Stable memory slot used only for integrity-inspection progress.
+    const INTEGRITY_PROGRESS_MEMORY_ID: u8;
+
+    /// Durable stable-memory allocation key for integrity-inspection progress.
+    const INTEGRITY_PROGRESS_STABLE_KEY: &'static str;
 }
 
 ///

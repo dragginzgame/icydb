@@ -18,5 +18,8 @@ pub(in crate::db) use codec::{
     journal_batch_encoded_len_for_record_payloads, journal_row_delete_record_payload_len,
     journal_row_put_record_payload_len,
 };
-pub(in crate::db) use store::FoldWatermark;
 pub use store::JournalTailStore;
+pub(in crate::db) use store::{
+    FoldWatermark, JournalInspectionCheckpoint, JournalInspectionLimits, JournalIntegrityIssue,
+    JournalTailProofIdentity,
+};

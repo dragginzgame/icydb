@@ -25,6 +25,16 @@ struct StoreRegistryTokens {
     store_inits: TokenStream,
 }
 
+/// Validated canister-owned memory declarations emitted around store wiring.
+struct CanisterMemoryWiring<'a> {
+    memory_min: u8,
+    memory_max: u8,
+    commit_memory_id: u8,
+    commit_stable_key: &'a str,
+    integrity_progress_memory_id: u8,
+    integrity_progress_stable_key: &'a str,
+}
+
 /// Emit the generated store definitions, runtime hooks, and session accessors.
 pub(super) fn generate_store_wiring(
     builder: &ActorBuilder,
@@ -39,15 +49,21 @@ pub(super) fn generate_store_wiring(
     let memory_max = canister.memory_max();
     let commit_memory_id = canister.commit_memory_id();
     let commit_stable_key = canister.commit_stable_key();
+    let integrity_progress_memory_id = canister.integrity_progress_memory_id();
+    let integrity_progress_stable_key = canister.integrity_progress_stable_key();
 
     store_wiring_tokens(
         canister_path,
         store_registry,
         entity_runtime_hooks,
-        memory_min,
-        memory_max,
-        commit_memory_id,
-        &commit_stable_key,
+        CanisterMemoryWiring {
+            memory_min,
+            memory_max,
+            commit_memory_id,
+            commit_stable_key: &commit_stable_key,
+            integrity_progress_memory_id,
+            integrity_progress_stable_key: &integrity_progress_stable_key,
+        },
     )
 }
 
@@ -313,10 +329,7 @@ fn store_wiring_tokens(
     canister_path: &syn::Path,
     store_registry: StoreRegistryTokens,
     entity_runtime_hooks: TokenStream,
-    memory_min: u8,
-    memory_max: u8,
-    commit_memory_id: u8,
-    commit_stable_key: &str,
+    memory: CanisterMemoryWiring<'_>,
 ) -> TokenStream {
     let StoreRegistryTokens {
         memory_authority,
@@ -326,6 +339,14 @@ fn store_wiring_tokens(
         schema_defs,
         store_inits,
     } = store_registry;
+    let CanisterMemoryWiring {
+        memory_min,
+        memory_max,
+        commit_memory_id,
+        commit_stable_key,
+        integrity_progress_memory_id,
+        integrity_progress_stable_key,
+    } = memory;
     let store_registry_init = if store_inits.is_empty() {
         quote! {
             ::icydb::__macro::StoreRegistry::new()
@@ -353,6 +374,13 @@ fn store_wiring_tokens(
             key = #commit_stable_key,
             label = "CommitMarker",
             id = #commit_memory_id,
+        );
+
+        ::icydb::__macro::ic_memory_declaration!(
+            authority = #memory_authority,
+            key = #integrity_progress_stable_key,
+            label = "IntegrityProgress",
+            id = #integrity_progress_memory_id,
         );
 
         #journal_defs
@@ -533,15 +561,22 @@ mod tests {
             &canister_path,
             registry,
             quote!(),
-            10,
-            19,
-            18,
-            "icydb.demo.commit.v1",
+            CanisterMemoryWiring {
+                memory_min: 10,
+                memory_max: 19,
+                commit_memory_id: 18,
+                commit_stable_key: "icydb.demo.commit.v1",
+                integrity_progress_memory_id: 17,
+                integrity_progress_stable_key: "icydb.demo.integrity.progress.v1",
+            },
         ));
 
         assert!(!rendered.contains("allow(unused_mut)"));
         assert!(!rendered.contains("expect(clippy::let_and_return"));
-        assert_eq!(rendered.matches("authority=\"icydb.demo\"").count(), 2);
+        assert_eq!(rendered.matches("authority=\"icydb.demo\"").count(), 3);
+        assert!(rendered.contains("key=\"icydb.demo.integrity.progress.v1\""));
+        assert!(rendered.contains("label=\"IntegrityProgress\""));
+        assert!(rendered.contains("id=17u8"));
         assert!(rendered.contains("Result<(),::icydb::db::DatabaseBootstrapError>"));
         assert!(rendered.contains("map_err(::icydb::db::DatabaseBootstrapError::from)"));
         assert!(rendered.contains("ensure_memory_bootstrap()?"));

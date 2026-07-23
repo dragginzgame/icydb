@@ -17,7 +17,9 @@ mod structural_row;
 pub(in crate::db) use crate::db::key_taxonomy::PrimaryKeyComponent;
 pub(crate) use crate::db::key_taxonomy::RawDataStoreKey;
 pub(in crate::db) use entity_decode::decode_raw_row_for_entity_key_with_contract;
-pub(in crate::db) use key::{DecodedDataStoreKey, primary_key_value_from_structural_value};
+pub(in crate::db) use key::{
+    DecodedDataStoreKey, DecodedDataStoreKeyDecodeError, primary_key_value_from_structural_value,
+};
 #[cfg(feature = "sql")]
 pub(in crate::db) use persisted_row::AcceptedFixedUpdatePatch;
 #[cfg(all(test, feature = "sql"))]
@@ -82,9 +84,9 @@ pub(in crate::db) use structural_field::{
     decode_canonical_value_storage_bytes, decode_structural_field_by_kind_bytes,
     encode_structural_field_by_kind_bytes, validate_structural_field_by_kind_bytes,
 };
-pub(in crate::db) use structural_row::{
-    AcceptedStructuralRowAuthority, StructuralRowContract, decode_structural_row_payload,
-};
+#[cfg(test)]
+pub(in crate::db) use structural_row::decode_structural_row_payload;
+pub(in crate::db) use structural_row::{AcceptedStructuralRowAuthority, StructuralRowContract};
 pub(in crate::db::data) use structural_row::{
     SparseRequiredRowFieldBytes, StructuralRowFieldBytes,
 };

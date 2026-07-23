@@ -9,6 +9,7 @@ pub(crate) mod catalog;
 pub(crate) mod cursor;
 pub(crate) mod diagnostics;
 pub(crate) mod identity;
+pub(crate) mod integrity;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) mod physical_access;
 pub(crate) mod predicate;
@@ -83,9 +84,8 @@ pub use data::{StructuralReadMetrics, with_structural_read_metrics};
 pub(crate) use data::{StructuralReadMetrics, with_structural_read_metrics};
 pub use diagnostics::{
     DataStoreSnapshot, EntitySnapshot, ExecutionAccessPathVariant, ExecutionMetrics,
-    ExecutionOptimization, ExecutionStats, ExecutionTrace, IndexStoreSnapshot, IntegrityReport,
-    IntegrityStoreSnapshot, IntegrityTotals, SchemaStoreSnapshot, StorageReport,
-    StoreSnapshotStorageMode,
+    ExecutionOptimization, ExecutionStats, ExecutionTrace, IndexStoreSnapshot, SchemaStoreSnapshot,
+    StorageReport, StoreSnapshotStorageMode,
 };
 pub use executor::MutationMode;
 pub use executor::{ExecutionFamily, RouteExecutionMode};
@@ -105,6 +105,13 @@ pub(crate) use executor::{
 };
 pub use identity::{EntityName, IndexName};
 pub use index::{IndexState, IndexStore};
+pub use integrity::{
+    DatabaseIncarnationId, IntegrityAuthorityClass, IntegrityAuthorityDiagnostic,
+    IntegrityEntityIdentity, IntegrityFinding, IntegrityFindingClass, IntegrityFindingKind,
+    IntegrityPhase, IntegrityPhysicalContainer, IntegrityResourceDiagnostic, IntegritySeverity,
+    IntegrityVerifierFamily, QuickIntegrityResult, QuickIntegrityStatus,
+    StorageTraversalCorruption,
+};
 #[doc(hidden)]
 pub use journal::JournalTailStore;
 #[doc(hidden)]
@@ -397,11 +404,6 @@ impl<C: CanisterKind> Db<C> {
     /// Build one storage diagnostics report using default entity-path labels.
     pub(crate) fn storage_report_default(&self) -> Result<StorageReport, InternalError> {
         diagnostics::storage_report_default(self)
-    }
-
-    /// Build one integrity scan report for registered stores/entities.
-    pub(crate) fn integrity_report(&self) -> Result<IntegrityReport, InternalError> {
-        diagnostics::integrity_report(self)
     }
 
     pub(in crate::db) fn prepare_row_commit_op(

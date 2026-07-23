@@ -853,7 +853,25 @@ impl SchemaInfo {
         model: &EntityModel,
         schema: &AcceptedSchemaSnapshot,
     ) -> Self {
-        Self::from_snapshot_for_model(model, schema, None, false)
+        Self::from_snapshot_for_model(Some(model), schema, None, false)
+    }
+
+    /// Build one accepted-only schema view retaining its immutable value catalog.
+    ///
+    /// Integrity and other catalog-native consumers must not require a
+    /// generated entity model merely to project accepted index contracts.
+    #[must_use]
+    pub(in crate::db) fn from_accepted_snapshot_and_catalog(
+        schema: &AcceptedSchemaSnapshot,
+        value_catalog: AcceptedValueCatalogHandle,
+        include_expression_indexes: bool,
+    ) -> Self {
+        Self::from_snapshot_for_model(
+            None,
+            schema,
+            Some(value_catalog),
+            include_expression_indexes,
+        )
     }
 
     /// Build one accepted schema view retaining its immutable value catalog.
@@ -865,7 +883,7 @@ impl SchemaInfo {
         include_expression_indexes: bool,
     ) -> Self {
         Self::from_snapshot_for_model(
-            model,
+            Some(model),
             schema,
             Some(value_catalog),
             include_expression_indexes,
@@ -873,7 +891,7 @@ impl SchemaInfo {
     }
 
     fn from_snapshot_for_model(
-        model: &EntityModel,
+        model: Option<&EntityModel>,
         schema: &AcceptedSchemaSnapshot,
         value_catalog: Option<AcceptedValueCatalogHandle>,
         include_expression_indexes: bool,
@@ -890,7 +908,7 @@ impl SchemaInfo {
             .map(|field| {
                 let generated_field = value_catalog
                     .is_none()
-                    .then(|| generated_field_by_name(model, field.name()))
+                    .then(|| model.and_then(|model| generated_field_by_name(model, field.name())))
                     .flatten();
                 let slot = snapshot
                     .row_layout()
@@ -996,7 +1014,7 @@ impl SchemaInfo {
         model: &EntityModel,
         schema: &AcceptedSchemaSnapshot,
     ) -> Self {
-        Self::from_snapshot_for_model(model, schema, None, true)
+        Self::from_snapshot_for_model(Some(model), schema, None, true)
     }
 
     /// Return one cached schema view for a trusted generated entity model.

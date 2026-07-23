@@ -6,6 +6,7 @@
 mod accepted_schema;
 mod bounded_cache;
 mod catalog;
+mod integrity;
 mod query;
 mod response;
 #[cfg(feature = "sql")]

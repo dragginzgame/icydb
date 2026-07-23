@@ -26,10 +26,12 @@ use crate::{
             },
         },
         database_format::{DATABASE_BOOT_RECORD_BYTES, validate_current_boot_record},
+        integrity::{DatabaseIncarnationId, generate_database_incarnation_id},
     },
     error::InternalError,
 };
 use ic_stable_structures::{DefaultMemoryImpl, Memory, memory_manager::VirtualMemory};
+use sha2::{Digest, Sha256};
 use std::cell::RefCell;
 #[cfg(not(test))]
 use std::sync::{Mutex, OnceLock};
@@ -126,7 +128,7 @@ impl CommitStore {
     pub(super) fn encode_raw_control_slot_for_tests(
         marker_bytes: Vec<u8>,
     ) -> Result<Vec<u8>, InternalError> {
-        encode_commit_control_slot(&marker_bytes)
+        encode_commit_control_slot(DatabaseIncarnationId::for_tests(0x31), &marker_bytes)
     }
 
     /// Encode one raw commit-marker envelope for recovery tests.
@@ -143,7 +145,7 @@ impl CommitStore {
     pub(super) fn encode_raw_direct_control_slot_for_tests(
         marker: &CommitMarker,
     ) -> Result<Vec<u8>, InternalError> {
-        encode_commit_control_slot_from_marker(marker)
+        encode_commit_control_slot_from_marker(DatabaseIncarnationId::for_tests(0x31), marker)
     }
 
     /// Open the database control store after format admission.
@@ -151,7 +153,8 @@ impl CommitStore {
         validate_current_boot_record(&memory)?;
         let store = Self { memory };
         if store.control_slot_is_uninitialized() {
-            store.write_control_slot(&encode_empty_commit_control_slot())?;
+            let incarnation = generate_database_incarnation_id()?;
+            store.write_control_slot(&encode_empty_commit_control_slot(incarnation))?;
         } else {
             store.read_control_slot()?;
         }
@@ -173,6 +176,23 @@ impl CommitStore {
         RawCommitMarker(marker_bytes).try_decode()
     }
 
+    /// Load the durable database-lifecycle identity.
+    pub(super) fn database_incarnation_id(&self) -> Result<DatabaseIncarnationId, InternalError> {
+        self.read_control_slot()
+            .and_then(|bytes| Ok(inspect_commit_control_slot(&bytes)?.database_incarnation_id))
+    }
+
+    /// Fingerprint the exact current database-control envelope.
+    ///
+    /// This is Deep inspection proof state, not schema meaning. Marker writes,
+    /// clears, or incarnation replacement necessarily change it.
+    pub(super) fn proof_identity(&self) -> Result<[u8; 32], InternalError> {
+        let mut hasher = Sha256::new();
+        hasher.update(b"icydb.database-control-proof.v1");
+        hasher.update(self.read_control_slot()?);
+        Ok(hasher.finalize().into())
+    }
+
     /// Return whether the marker slot is empty without decoding.
     pub(super) fn is_empty(&self) -> bool {
         self.read_control_slot()
@@ -192,8 +212,8 @@ impl CommitStore {
 
     /// Persist one commit marker while proving the current slot has no marker.
     pub(super) fn set_if_empty(&self, marker: &CommitMarker) -> Result<(), InternalError> {
-        self.require_empty_marker_slot()?;
-        let encoded = encode_commit_control_slot_from_marker(marker)?;
+        let database_incarnation_id = self.require_empty_marker_slot()?;
+        let encoded = encode_commit_control_slot_from_marker(database_incarnation_id, marker)?;
 
         #[cfg(test)]
         hit_commit_failpoint(CommitFailpoint::BeforeMarkerWrite)?;
@@ -207,10 +227,12 @@ impl CommitStore {
     /// Clear marker bytes after a verified commit/recovery success.
     pub(super) fn clear_verified(&self) -> Result<(), InternalError> {
         let control_slot = self.read_control_slot()?;
-        inspect_commit_control_slot(&control_slot)?;
+        let slot = inspect_commit_control_slot(&control_slot)?;
         #[cfg(test)]
         hit_commit_failpoint(CommitFailpoint::BeforeMarkerClear)?;
-        self.write_control_slot(&encode_empty_commit_control_slot())?;
+        self.write_control_slot(&encode_empty_commit_control_slot(
+            slot.database_incarnation_id,
+        ))?;
         mark_commit_marker_verified_absent();
         #[cfg(test)]
         hit_commit_failpoint(CommitFailpoint::AfterMarkerClear)?;
@@ -221,7 +243,10 @@ impl CommitStore {
     /// Clear the marker slot directly for tests that intentionally persist corruption.
     #[cfg(test)]
     pub(super) fn clear_raw_for_tests(&self) {
-        self.write_control_slot(&encode_empty_commit_control_slot())
+        let incarnation = self
+            .database_incarnation_id()
+            .unwrap_or_else(|_| DatabaseIncarnationId::for_tests(0x31));
+        self.write_control_slot(&encode_empty_commit_control_slot(incarnation))
             .expect("test database control slot should clear");
         mark_commit_marker_verified_absent();
     }
@@ -235,20 +260,28 @@ impl CommitStore {
             mark_commit_marker_may_be_present();
         }
 
-        self.write_control_slot(&bytes)
+        let encoded = if bytes.is_empty() {
+            let incarnation = self
+                .database_incarnation_id()
+                .unwrap_or_else(|_| DatabaseIncarnationId::for_tests(0x31));
+            encode_empty_commit_control_slot(incarnation)
+        } else {
+            bytes
+        };
+        self.write_control_slot(&encoded)
             .expect("test raw commit marker bytes should fit control memory");
     }
 
     // Decode the control slot once and require that no marker bytes are present
     // before commit-window open persists a fresh marker.
-    fn require_empty_marker_slot(&self) -> Result<(), InternalError> {
+    fn require_empty_marker_slot(&self) -> Result<DatabaseIncarnationId, InternalError> {
         let bytes = self.read_control_slot()?;
         let slot = inspect_commit_control_slot(&bytes)?;
         if !slot.marker_bytes.is_empty() {
             return Err(InternalError::store_invariant());
         }
 
-        Ok(())
+        Ok(slot.database_incarnation_id)
     }
 
     fn control_slot_is_uninitialized(&self) -> bool {
@@ -304,13 +337,6 @@ impl CommitStore {
     }
 
     fn write_control_slot(&self, bytes: &[u8]) -> Result<(), InternalError> {
-        let empty;
-        let bytes = if bytes.is_empty() {
-            empty = encode_empty_commit_control_slot();
-            empty.as_slice()
-        } else {
-            bytes
-        };
         if bytes.len() > MAX_COMMIT_BYTES as usize {
             return Err(InternalError::commit_marker_exceeds_max_size());
         }
@@ -399,6 +425,16 @@ pub(super) fn with_commit_store<R>(
         let index = stores.len().saturating_sub(1);
         f(&stores[index].store)
     })
+}
+
+/// Load the current durable database-lifecycle identity.
+pub(in crate::db) fn database_incarnation_id() -> Result<DatabaseIncarnationId, InternalError> {
+    with_commit_store(CommitStore::database_incarnation_id)
+}
+
+/// Capture the exact current database-control proof identity.
+pub(in crate::db) fn database_control_proof_identity() -> Result<[u8; 32], InternalError> {
+    with_commit_store(CommitStore::proof_identity)
 }
 
 /// Fast, observational check for marker presence without decoding.

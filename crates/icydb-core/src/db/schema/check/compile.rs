@@ -98,6 +98,7 @@ struct CompiledAcceptedCheck {
     name: String,
     field_paths: Vec<String>,
     expression: CompiledCheckExprV1,
+    validated: bool,
 }
 
 /// Reserved unique identity plus the slots whose authorship cannot safely
@@ -162,53 +163,13 @@ impl CompiledAcceptedRowConstraint {
 pub(in crate::db) struct CompiledAcceptedRowConstraints {
     fingerprint: CommitSchemaFingerprint,
     constraints: Vec<CompiledAcceptedRowConstraint>,
+    validated_check_ordinals: Vec<usize>,
     required_slots: Vec<usize>,
     unique_write_barriers: Vec<CompiledUniqueWriteBarrier>,
     field_count: usize,
 }
 
 impl CompiledAcceptedRowConstraints {
-    /// Compile only validated accepted row-local constraints for integrity use.
-    ///
-    /// Pending activations are intentionally excluded: historical violations
-    /// against them are migration findings, not accepted-state corruption.
-    /// Accepted not-null fields remain owned by the structural row contract,
-    /// which rejects an explicit null while validating every declared slot.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "0.211 exposes the accepted-only check program for the 0.212 integrity consumer"
-        )
-    )]
-    pub(in crate::db) fn compile_validated_checks(
-        schema: &AcceptedSchemaSnapshot,
-        value_catalog: &AcceptedValueCatalogHandle,
-        fingerprint: CommitSchemaFingerprint,
-    ) -> Result<Self, AcceptedRowConstraintEvaluationError> {
-        let check_sources = schema
-            .persisted_snapshot()
-            .constraints()
-            .iter()
-            .filter_map(|constraint| match constraint.kind() {
-                AcceptedConstraintKind::Check { expression } => {
-                    Some((constraint.id(), constraint.name(), expression.as_ref()))
-                }
-                AcceptedConstraintKind::PrimaryKey
-                | AcceptedConstraintKind::NotNull { .. }
-                | AcceptedConstraintKind::Unique { .. }
-                | AcceptedConstraintKind::Relation { .. } => None,
-            })
-            .collect();
-        Self::compile_sources(
-            schema,
-            value_catalog,
-            fingerprint,
-            check_sources,
-            Vec::new(),
-        )
-    }
-
     /// Compile every accepted row-local constraint and pending write gate.
     pub(in crate::db) fn compile(
         schema: &AcceptedSchemaSnapshot,
@@ -220,9 +181,12 @@ impl CompiledAcceptedRowConstraints {
             .constraints()
             .iter()
             .filter_map(|constraint| match constraint.kind() {
-                AcceptedConstraintKind::Check { expression } => {
-                    Some((constraint.id(), constraint.name(), expression.as_ref()))
-                }
+                AcceptedConstraintKind::Check { expression } => Some((
+                    constraint.id(),
+                    constraint.name(),
+                    expression.as_ref(),
+                    true,
+                )),
                 AcceptedConstraintKind::PrimaryKey
                 | AcceptedConstraintKind::NotNull { .. }
                 | AcceptedConstraintKind::Unique { .. }
@@ -233,9 +197,12 @@ impl CompiledAcceptedRowConstraints {
                     .constraint_activations()
                     .iter()
                     .filter_map(|activation| match activation.kind() {
-                        ConstraintActivationKind::Check { expression } => {
-                            Some((activation.id(), activation.name(), expression.as_ref()))
-                        }
+                        ConstraintActivationKind::Check { expression } => Some((
+                            activation.id(),
+                            activation.name(),
+                            expression.as_ref(),
+                            false,
+                        )),
                         ConstraintActivationKind::NotNull { .. }
                         | ConstraintActivationKind::Unique { .. }
                         | ConstraintActivationKind::Relation { .. } => None,
@@ -326,7 +293,12 @@ impl CompiledAcceptedRowConstraints {
             schema,
             value_catalog,
             fingerprint,
-            vec![(activation.id(), activation.name(), expression.as_ref())],
+            vec![(
+                activation.id(),
+                activation.name(),
+                expression.as_ref(),
+                false,
+            )],
             Vec::new(),
         )
     }
@@ -364,14 +336,14 @@ impl CompiledAcceptedRowConstraints {
         schema: &AcceptedSchemaSnapshot,
         value_catalog: &AcceptedValueCatalogHandle,
         fingerprint: CommitSchemaFingerprint,
-        check_sources: Vec<(ConstraintId, &str, &AcceptedCheckExprV1)>,
+        check_sources: Vec<(ConstraintId, &str, &AcceptedCheckExprV1, bool)>,
         not_null_sources: Vec<(ConstraintId, &str, crate::db::schema::FieldId)>,
     ) -> Result<Self, AcceptedRowConstraintEvaluationError> {
         let snapshot = schema.persisted_snapshot();
         let checks = check_sources
             .iter()
             .copied()
-            .map(|(id, name, expression)| {
+            .map(|(id, name, expression, validated)| {
                 expression
                     .validate(snapshot)
                     .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)?;
@@ -394,6 +366,7 @@ impl CompiledAcceptedRowConstraints {
                             })
                             .collect::<Result<Vec<_>, _>>()?,
                         expression: compile_expr(expression, snapshot, value_catalog)?,
+                        validated,
                     },
                 ))
             })
@@ -424,9 +397,23 @@ impl CompiledAcceptedRowConstraints {
             .chain(not_null_constraints)
             .collect::<Vec<_>>();
         constraints.sort_unstable_by_key(CompiledAcceptedRowConstraint::id);
+        let validated_check_ordinals = constraints
+            .iter()
+            .enumerate()
+            .filter_map(|(ordinal, constraint)| {
+                matches!(
+                    constraint,
+                    CompiledAcceptedRowConstraint::Check(CompiledAcceptedCheck {
+                        validated: true,
+                        ..
+                    })
+                )
+                .then_some(ordinal)
+            })
+            .collect();
         let mut required_slots = check_sources
             .iter()
-            .flat_map(|(_, _, expression)| expression.dependencies())
+            .flat_map(|(_, _, expression, _)| expression.dependencies())
             .map(|field_id| {
                 slot_for_field(snapshot, field_id)
                     .map(|slot| usize::from(slot.get()))
@@ -444,6 +431,7 @@ impl CompiledAcceptedRowConstraints {
         Ok(Self {
             fingerprint,
             constraints,
+            validated_check_ordinals,
             required_slots,
             unique_write_barriers: Vec::new(),
             field_count: snapshot.row_layout().allocated_slot_count(),
@@ -460,6 +448,53 @@ impl CompiledAcceptedRowConstraints {
     #[must_use]
     pub(in crate::db) const fn required_slots(&self) -> &[usize] {
         self.required_slots.as_slice()
+    }
+
+    /// Return validated accepted checks in stable constraint-ID order.
+    ///
+    /// This is the row-integrity sub-unit count. Write admission continues to
+    /// use [`Self::evaluate`] and reject the first violation.
+    #[must_use]
+    pub(in crate::db) const fn integrity_check_count(&self) -> usize {
+        self.validated_check_ordinals.len()
+    }
+
+    /// Evaluate exactly one validated accepted check by stable ordinal.
+    ///
+    /// Pending activation gates remain in the shared write program but are
+    /// excluded from this accepted-corruption lane. An invalid ordinal is
+    /// corrupt program state.
+    pub(in crate::db) fn evaluate_integrity_check(
+        &self,
+        ordinal: usize,
+        current_fingerprint: CommitSchemaFingerprint,
+        values_by_slot: &[Option<Value>],
+    ) -> Result<(), AcceptedRowConstraintEvaluationError> {
+        if current_fingerprint != self.fingerprint {
+            return Err(AcceptedRowConstraintEvaluationError::FingerprintMismatch);
+        }
+        let Some(CompiledAcceptedRowConstraint::Check(check)) = self
+            .validated_check_ordinals
+            .get(ordinal)
+            .and_then(|ordinal| self.constraints.get(*ordinal))
+        else {
+            return Err(AcceptedRowConstraintEvaluationError::InvalidExpression(
+                AcceptedCheckExprV1Error::UnknownField,
+            ));
+        };
+        let mut remaining_work = u32::from(MAX_CHECK_EXPR_V1_NODES);
+        if evaluate_expr(&check.expression, values_by_slot, &mut remaining_work)?
+            == AcceptedCheckTruth::False
+        {
+            return Err(AcceptedRowConstraintEvaluationError::Violation {
+                constraint_id: check.id,
+                constraint_name: check.name.clone(),
+                kind: AcceptedRowConstraintViolationKind::Check,
+                field_paths: check.field_paths.clone(),
+            });
+        }
+
+        Ok(())
     }
 
     /// Return the first incomplete unique activation that blocks this write.

@@ -6,19 +6,14 @@
 mod execution_trace;
 
 use super::{
-    DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IntegrityReport, IntegrityStoreSnapshot,
-    IntegrityTotals, SchemaStoreSnapshot, StorageReport, StoreSnapshotStorageMode,
-    integrity_report, storage_report, storage_report_default,
+    DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, SchemaStoreSnapshot, StorageReport,
+    StoreSnapshotStorageMode, storage_report, storage_report_default,
 };
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
-        codec::{
-            ROW_FORMAT_VERSION_CURRENT, decode_row_payload_bytes,
-            serialize_row_payload_with_version,
-        },
-        commit::{CommitRowOp, ensure_recovered, init_commit_store_for_tests},
-        data::{CanonicalRow, DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow},
+        commit::{ensure_recovered, init_commit_store_for_tests},
+        data::{DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow},
         index::{
             IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore,
             RawIndexStoreKey,
@@ -31,10 +26,7 @@ use crate::{
             StoreRuntimeStorageCapabilities, StoreSchemaMetadataCapability,
         },
         relation::validate_delete_relations_for_source,
-        schema::{
-            AcceptedSchemaSnapshot, SchemaStore, accepted_commit_schema_fingerprint,
-            compiled_schema_proposal_for_model,
-        },
+        schema::SchemaStore,
     },
     entity::{EntityDeclaration, EntityKind},
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
@@ -265,8 +257,6 @@ thread_local! {
 
 static DB: Db<DiagnosticsCanister> =
     Db::new_with_hooks(&DIAGNOSTICS_REGISTRY, DIAGNOSTICS_RUNTIME_HOOKS);
-static DB_WITH_HOOKS: Db<DiagnosticsCanister> =
-    Db::new_with_hooks(&DIAGNOSTICS_REGISTRY, DIAGNOSTICS_RUNTIME_HOOKS);
 
 fn with_data_store_mut<R>(path: &'static str, f: impl FnOnce(&mut DataStore) -> R) -> R {
     DB.with_store_registry(|registry| {
@@ -404,93 +394,6 @@ fn diagnostics_report(name_to_path: &[(&'static str, &'static str)]) -> StorageR
 
 fn diagnostics_default_report() -> StorageReport {
     storage_report_default(&DB).expect("default diagnostics snapshot should succeed")
-}
-
-fn diagnostics_integrity_report() -> IntegrityReport {
-    integrity_report(&DB_WITH_HOOKS).expect("diagnostics integrity scan should succeed")
-}
-
-fn insert_integrity_entity_row(entity: &IntegrityIndexedEntity) {
-    let raw_key = DecodedDataStoreKey::try_new::<IntegrityIndexedEntity>(entity.id)
-        .expect("integrity test data key should build")
-        .to_raw()
-        .expect("integrity test data key should encode");
-    let raw_row = CanonicalRow::from_entity_with_model_proposal_for_test(entity)
-        .expect("integrity test row should encode");
-
-    with_data_store_mut(STORE_A_PATH, |store| {
-        store.insert(raw_key, raw_row);
-    });
-}
-
-fn insert_integrity_entity_row_with_format_version(entity: &IntegrityIndexedEntity, version: u8) {
-    let raw_key = DecodedDataStoreKey::try_new::<IntegrityIndexedEntity>(entity.id)
-        .expect("integrity test data key should build")
-        .to_raw()
-        .expect("integrity test data key should encode");
-    let row = CanonicalRow::from_entity_with_model_proposal_for_test(entity)
-        .expect("integrity test row should encode")
-        .into_raw_row();
-    let payload = decode_row_payload_bytes(row.as_bytes())
-        .expect("integrity test row payload should decode")
-        .into_payload()
-        .into_owned();
-    let encoded = serialize_row_payload_with_version(
-        crate::db::schema::RowLayoutVersion::INITIAL,
-        payload,
-        version,
-    )
-    .expect("integrity test row envelope should encode");
-    let raw_row = RawRow::try_new(encoded).expect("integrity test row envelope should fit bounds");
-
-    with_data_store_mut(STORE_A_PATH, |store| {
-        store.insert_raw_for_test(raw_key, raw_row);
-    });
-}
-
-fn insert_integrity_expected_indexes(entity: &IntegrityIndexedEntity) {
-    let raw_key = DecodedDataStoreKey::try_new::<IntegrityIndexedEntity>(entity.id)
-        .expect("integrity test data key should build")
-        .to_raw()
-        .expect("integrity test data key should encode");
-    let raw_row = CanonicalRow::from_entity_with_model_proposal_for_test(entity)
-        .expect("integrity test row should encode")
-        .into_raw_row();
-    let proposal = compiled_schema_proposal_for_model(IntegrityIndexedEntity::MODEL);
-    let accepted = AcceptedSchemaSnapshot::try_new(proposal.initial_persisted_schema_snapshot())
-        .expect("integrity test schema snapshot should be accepted");
-    let schema_fingerprint = accepted_commit_schema_fingerprint(&accepted)
-        .expect("integrity test schema fingerprint should derive");
-    let row_op = CommitRowOp::new(
-        IntegrityIndexedEntity::PATH,
-        raw_key,
-        None,
-        Some(raw_row.as_bytes().to_vec()),
-        schema_fingerprint,
-    );
-    let prepared = DB_WITH_HOOKS
-        .prepare_row_commit_op(&row_op)
-        .expect("integrity test row op should prepare");
-
-    for index_op in prepared.index_ops {
-        let Some(raw_entry) = index_op.value else {
-            continue;
-        };
-        index_op.index_store.with_borrow_mut(|store| {
-            store.insert(index_op.key.clone(), raw_entry);
-        });
-    }
-}
-
-fn integrity_store_snapshot<'a>(
-    report: &'a IntegrityReport,
-    path: &str,
-) -> &'a IntegrityStoreSnapshot {
-    report
-        .stores()
-        .iter()
-        .find(|snapshot| snapshot.path() == path)
-        .expect("integrity snapshot should contain target store path")
 }
 
 fn data_paths(report: &StorageReport) -> Vec<&str> {
@@ -1238,85 +1141,6 @@ fn storage_report_index_snapshots_include_runtime_state() {
 }
 
 #[test]
-fn integrity_report_detects_missing_forward_index_entries() {
-    reset_stores();
-
-    let entity = IntegrityIndexedEntity {
-        id: Ulid::from_u128(70_001),
-        email: "missing@index.local".to_string(),
-    };
-    insert_integrity_entity_row(&entity);
-
-    let report = diagnostics_integrity_report();
-    let store = integrity_store_snapshot(&report, STORE_A_PATH);
-
-    assert_eq!(store.data_rows_scanned(), 1);
-    assert_eq!(store.missing_index_entries(), 1);
-    assert_eq!(store.divergent_index_entries(), 0);
-    assert_eq!(store.orphan_index_references(), 0);
-    assert_eq!(report.totals().missing_index_entries(), 1);
-}
-
-#[test]
-fn integrity_report_detects_orphan_index_references() {
-    reset_stores();
-
-    let entity = IntegrityIndexedEntity {
-        id: Ulid::from_u128(70_002),
-        email: "orphan@index.local".to_string(),
-    };
-    insert_integrity_expected_indexes(&entity);
-
-    let report = diagnostics_integrity_report();
-    let store = integrity_store_snapshot(&report, STORE_A_PATH);
-
-    assert_eq!(store.data_rows_scanned(), 0);
-    assert_eq!(store.index_entries_scanned(), 1);
-    assert_eq!(store.orphan_index_references(), 1);
-    assert_eq!(report.totals().orphan_index_references(), 1);
-}
-
-#[test]
-fn integrity_report_classifies_unsupported_entity_rows_as_misuse() {
-    reset_stores();
-
-    insert_data_row(
-        STORE_A_PATH,
-        "diag_unknown_entity",
-        PrimaryKeyComponent::Int64(9),
-        8,
-    );
-
-    let report = diagnostics_integrity_report();
-    let store = integrity_store_snapshot(&report, STORE_A_PATH);
-
-    assert_eq!(store.misuse_findings(), 1);
-    assert_eq!(store.corrupted_data_rows(), 0);
-    assert_eq!(report.totals().misuse_findings(), 1);
-}
-
-#[test]
-fn integrity_report_classifies_incompatible_row_formats_as_corruption() {
-    reset_stores();
-
-    let entity = IntegrityIndexedEntity {
-        id: Ulid::from_u128(70_003),
-        email: "future@index.local".to_string(),
-    };
-    insert_integrity_entity_row_with_format_version(
-        &entity,
-        ROW_FORMAT_VERSION_CURRENT.saturating_add(1),
-    );
-
-    let report = diagnostics_integrity_report();
-    let store = integrity_store_snapshot(&report, STORE_A_PATH);
-
-    assert_eq!(store.misuse_findings(), 0);
-    assert_eq!(store.corrupted_data_rows(), 1);
-    assert_eq!(report.totals().corrupted_data_rows(), 1);
-}
-
-#[test]
 fn storage_report_candid_shape_is_stable() {
     let fields = expect_record_fields(StorageReport::ty());
 
@@ -1426,65 +1250,6 @@ fn entity_snapshot_candid_shape_is_stable() {
         assert!(
             fields.iter().any(|candidate| candidate == field),
             "EntitySnapshot must keep `{field}` as Candid field key",
-        );
-    }
-}
-
-#[test]
-fn integrity_totals_candid_shape_is_stable() {
-    let fields = expect_record_fields(IntegrityTotals::ty());
-
-    for field in [
-        "data_rows_scanned",
-        "index_entries_scanned",
-        "corrupted_data_keys",
-        "corrupted_data_rows",
-        "corrupted_index_keys",
-        "corrupted_index_entries",
-        "missing_index_entries",
-        "divergent_index_entries",
-        "orphan_index_references",
-        "misuse_findings",
-    ] {
-        assert!(
-            fields.iter().any(|candidate| candidate == field),
-            "IntegrityTotals must keep `{field}` as Candid field key",
-        );
-    }
-}
-
-#[test]
-fn integrity_store_snapshot_candid_shape_is_stable() {
-    let fields = expect_record_fields(IntegrityStoreSnapshot::ty());
-
-    for field in [
-        "path",
-        "data_rows_scanned",
-        "index_entries_scanned",
-        "corrupted_data_keys",
-        "corrupted_data_rows",
-        "corrupted_index_keys",
-        "corrupted_index_entries",
-        "missing_index_entries",
-        "divergent_index_entries",
-        "orphan_index_references",
-        "misuse_findings",
-    ] {
-        assert!(
-            fields.iter().any(|candidate| candidate == field),
-            "IntegrityStoreSnapshot must keep `{field}` as Candid field key",
-        );
-    }
-}
-
-#[test]
-fn integrity_report_candid_shape_is_stable() {
-    let fields = expect_record_fields(IntegrityReport::ty());
-
-    for field in ["stores", "totals"] {
-        assert!(
-            fields.iter().any(|candidate| candidate == field),
-            "IntegrityReport must keep `{field}` as Candid field key",
         );
     }
 }

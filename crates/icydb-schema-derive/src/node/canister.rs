@@ -22,6 +22,8 @@ pub struct Canister {
     pub(crate) memory_min: u8,
     pub(crate) memory_max: u8,
     commit_memory_id: u8,
+    #[darling(default)]
+    integrity_progress_memory_id: Option<u8>,
 }
 
 impl HasDef for Canister {
@@ -61,6 +63,26 @@ impl ValidateNode for Canister {
         if let Some(message) = memory_id_reserved_error("commit_memory_id", self.commit_memory_id) {
             return Err(DarlingError::custom(message).with_span(&self.def.ident()));
         }
+        let integrity_progress_memory_id = self.integrity_progress_memory_id();
+        if let Some(message) = memory_id_out_of_range_error(
+            "integrity_progress_memory_id",
+            integrity_progress_memory_id,
+            self.memory_min,
+            self.memory_max,
+        ) {
+            return Err(DarlingError::custom(message).with_span(&self.def.ident()));
+        }
+        if let Some(message) = crate::validate::memory::app_memory_id_error(
+            "integrity_progress_memory_id",
+            integrity_progress_memory_id,
+        ) {
+            return Err(DarlingError::custom(message).with_span(&self.def.ident()));
+        }
+        if let Some(message) =
+            memory_id_reserved_error("integrity_progress_memory_id", integrity_progress_memory_id)
+        {
+            return Err(DarlingError::custom(message).with_span(&self.def.ident()));
+        }
 
         Ok(())
     }
@@ -79,6 +101,7 @@ impl HasSchemaPart for Canister {
         let memory_min = self.memory_min;
         let memory_max = self.memory_max;
         let commit_memory_id = self.commit_memory_id;
+        let integrity_progress_memory_id = self.integrity_progress_memory_id();
 
         // quote
         quote! {
@@ -88,6 +111,7 @@ impl HasSchemaPart for Canister {
                 #memory_min,
                 #memory_max,
                 #commit_memory_id,
+                #integrity_progress_memory_id,
             )
         }
     }
@@ -106,10 +130,14 @@ impl HasTraits for Canister {
             TraitKind::CanisterKind => {
                 let commit_memory_id = self.commit_memory_id;
                 let commit_stable_key = self.commit_stable_key();
+                let integrity_progress_memory_id = self.integrity_progress_memory_id();
+                let integrity_progress_stable_key = self.integrity_progress_stable_key();
                 let tokens = Implementor::new(self.def(), t)
                     .set_tokens(quote! {
                         const COMMIT_MEMORY_ID: u8 = #commit_memory_id;
                         const COMMIT_STABLE_KEY: &'static str = #commit_stable_key;
+                        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = #integrity_progress_memory_id;
+                        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = #integrity_progress_stable_key;
                     })
                     .to_token_stream();
 
@@ -121,8 +149,17 @@ impl HasTraits for Canister {
 }
 
 impl Canister {
+    fn integrity_progress_memory_id(&self) -> u8 {
+        self.integrity_progress_memory_id
+            .unwrap_or_else(|| self.commit_memory_id.saturating_sub(2))
+    }
+
     fn commit_stable_key(&self) -> String {
         icydb_schema::node::stable_memory_key(&self.memory_namespace, "commit", "control")
+    }
+
+    fn integrity_progress_stable_key(&self) -> String {
+        icydb_schema::node::stable_memory_key(&self.memory_namespace, "integrity", "progress")
     }
 }
 
@@ -157,6 +194,7 @@ mod tests {
             memory_min: 100,
             memory_max: 254,
             commit_memory_id: 254,
+            integrity_progress_memory_id: Some(253),
         };
         let schema_canister = icydb_schema::node::Canister::new(
             icydb_schema::node::Def::new("demo::rpg", "DemoCanister"),
@@ -164,6 +202,7 @@ mod tests {
             100,
             254,
             254,
+            253,
         );
 
         assert_eq!(
@@ -174,6 +213,14 @@ mod tests {
         assert_eq!(
             canister.commit_stable_key(),
             "icydb.demo_rpg.commit.control.v1",
+        );
+        assert_eq!(
+            canister.integrity_progress_stable_key(),
+            schema_canister.integrity_progress_stable_key(),
+        );
+        assert_eq!(
+            canister.integrity_progress_stable_key(),
+            "icydb.demo_rpg.integrity.progress.v1",
         );
     }
 }
