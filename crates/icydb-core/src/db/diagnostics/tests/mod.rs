@@ -37,7 +37,7 @@ use crate::{
         },
     },
     entity::{EntityDeclaration, EntityKind},
-    model::{field::FieldKind, index::IndexModel},
+    model::{entity::EntityModel, field::FieldKind, index::IndexModel},
     testing::test_memory,
     traits::{Path, StoreKind},
     types::{EntityTag, Ulid},
@@ -109,38 +109,64 @@ crate::test_entity! {
     entity_value = id_field(id),
 }
 
+// Give each raw-key diagnostics fixture an identity-correct proposal while
+// reusing the same simple field shape. Runtime hooks must never alias another
+// entity's model identity merely to obtain a display label.
+const fn diagnostics_alias_model(path: &'static str, name: &'static str) -> EntityModel {
+    EntityModel::generated(
+        path,
+        name,
+        IntegrityIndexedEntity::MODEL.declared_schema_version(),
+        IntegrityIndexedEntity::MODEL.primary_key(),
+        IntegrityIndexedEntity::MODEL.primary_key_slot(),
+        IntegrityIndexedEntity::MODEL.fields(),
+        &[],
+    )
+}
+
+static DIAGNOSTICS_SINGLE_ENTITY_MODEL: EntityModel =
+    diagnostics_alias_model(SINGLE_ENTITY_PATH, SINGLE_ENTITY_NAME);
+static DIAGNOSTICS_FIRST_ENTITY_MODEL: EntityModel =
+    diagnostics_alias_model(FIRST_ENTITY_PATH, FIRST_ENTITY_NAME);
+static DIAGNOSTICS_SECOND_ENTITY_MODEL: EntityModel =
+    diagnostics_alias_model(SECOND_ENTITY_PATH, SECOND_ENTITY_NAME);
+static DIAGNOSTICS_MINMAX_ENTITY_MODEL: EntityModel =
+    diagnostics_alias_model(MINMAX_ENTITY_PATH, MINMAX_ENTITY_NAME);
+static DIAGNOSTICS_VALID_ENTITY_MODEL: EntityModel =
+    diagnostics_alias_model(VALID_ENTITY_PATH, VALID_ENTITY_NAME);
+
 static DIAGNOSTICS_RUNTIME_HOOKS: &[EntityRuntimeHooks<DiagnosticsCanister>] = &[
     EntityRuntimeHooks::new(
         crate::testing::DIAGNOSTICS_SINGLE_ENTITY_TAG,
-        <IntegrityIndexedEntity as crate::entity::EntityDeclaration>::MODEL,
+        &DIAGNOSTICS_SINGLE_ENTITY_MODEL,
         SINGLE_ENTITY_PATH,
         STORE_A_PATH,
         validate_delete_relations_for_source::<IntegrityIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
         crate::testing::DIAGNOSTICS_FIRST_ENTITY_TAG,
-        <IntegrityIndexedEntity as crate::entity::EntityDeclaration>::MODEL,
+        &DIAGNOSTICS_FIRST_ENTITY_MODEL,
         FIRST_ENTITY_PATH,
         STORE_A_PATH,
         validate_delete_relations_for_source::<IntegrityIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
         crate::testing::DIAGNOSTICS_SECOND_ENTITY_TAG,
-        <IntegrityIndexedEntity as crate::entity::EntityDeclaration>::MODEL,
+        &DIAGNOSTICS_SECOND_ENTITY_MODEL,
         SECOND_ENTITY_PATH,
         STORE_A_PATH,
         validate_delete_relations_for_source::<IntegrityIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
         crate::testing::DIAGNOSTICS_MINMAX_ENTITY_TAG,
-        <IntegrityIndexedEntity as crate::entity::EntityDeclaration>::MODEL,
+        &DIAGNOSTICS_MINMAX_ENTITY_MODEL,
         MINMAX_ENTITY_PATH,
         STORE_A_PATH,
         validate_delete_relations_for_source::<IntegrityIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
         crate::testing::DIAGNOSTICS_VALID_ENTITY_TAG,
-        <IntegrityIndexedEntity as crate::entity::EntityDeclaration>::MODEL,
+        &DIAGNOSTICS_VALID_ENTITY_MODEL,
         VALID_ENTITY_PATH,
         STORE_A_PATH,
         validate_delete_relations_for_source::<IntegrityIndexedEntity>,
@@ -1114,9 +1140,9 @@ fn storage_report_entity_snapshots_are_sorted_by_store_then_path() {
     assert_eq!(
         entity_store_paths(&report),
         vec![
-            (STORE_A_PATH, FIRST_ENTITY_PATH),
-            (STORE_A_PATH, SECOND_ENTITY_PATH),
-            (STORE_Z_PATH, FIRST_ENTITY_PATH),
+            (STORE_A_PATH, "diagnostics_tests::entity::a_second"),
+            (STORE_A_PATH, "diagnostics_tests::entity::z_first"),
+            (STORE_Z_PATH, "diagnostics_tests::entity::z_first"),
         ]
     );
 }

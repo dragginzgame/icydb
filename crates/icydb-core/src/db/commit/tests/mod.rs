@@ -1123,17 +1123,20 @@ fn install_nullable_indexed_old_accepted_schema_prefix() {
     );
     let expected = proposal.initial_persisted_schema_snapshot();
     let stored_version = SchemaVersion::new(expected.version().get().saturating_sub(1));
-    let stored_prefix = PersistedSchemaSnapshot::new(
+    let stored_prefix = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         stored_version,
         expected.entity_path().to_string(),
         expected.entity_name().to_string(),
-        expected.first_primary_key_field_id(),
+        expected.primary_key_field_ids().to_vec(),
         SchemaRowLayout::initial(vec![
             (FieldId::new(1), SchemaFieldSlot::new(0)),
             (FieldId::new(2), SchemaFieldSlot::new(1)),
         ]),
         expected.fields()[..2].to_vec(),
-    );
+        expected.indexes().to_vec(),
+    )
+    .with_constraint_catalog(expected.constraint_catalog().clone())
+    .with_relations(expected.relations().to_vec());
 
     with_recovery_store(|store| {
         store.with_schema_mut(|schema_store| {

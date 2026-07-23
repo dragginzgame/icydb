@@ -741,25 +741,25 @@ fn composite_primary_key_closeout_storage_footprint_is_linear_and_key_owned() {
             PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(7)),
             9,
             17,
-            34,
+            42,
         ),
         (
             "scalar_int128",
             PrimaryKeyValue::from(PrimaryKeyComponent::Int128(i128::MIN)),
             17,
             25,
-            42,
+            50,
         ),
         (
             "scalar_nat128",
             PrimaryKeyValue::from(PrimaryKeyComponent::Nat128(u128::MAX)),
             17,
             25,
-            42,
+            50,
         ),
-        ("composite_nat64_nat64", two_nat64, 20, 28, 45),
-        ("composite_nat64_int128_ulid", three_mixed, 45, 53, 70),
-        ("composite_nat64_principal3", variable_mixed, 16, 24, 41),
+        ("composite_nat64_nat64", two_nat64, 20, 28, 53),
+        ("composite_nat64_int128_ulid", three_mixed, 45, 53, 78),
+        ("composite_nat64_principal3", variable_mixed, 16, 24, 49),
     ];
 
     for (label, primary_key_value, encoded_len, data_key_len, index_key_len) in cases {
@@ -846,7 +846,7 @@ fn composite_primary_key_closeout_storage_footprint_is_linear_and_key_owned() {
 
         assert_eq!(primary_key.as_bytes().len(), 17, "{label}: encoded pk");
         assert_eq!(data_key.as_bytes().len(), 25, "{label}: data key");
-        assert_eq!(index_key.as_bytes().len(), 42, "{label}: index key");
+        assert_eq!(index_key.as_bytes().len(), 50, "{label}: index key");
     }
 }
 
