@@ -7,29 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### 🔧 Changed
+## [0.212.x] 🔍 - 2026-07-24 - Bounded Resumable Integrity Core
 
-- Began 0.212 by making accepted-schema selection compile one fingerprinted
-  inspection plan that carries the accepted snapshot, catalog, and write
-  program instead of caching those facts in parallel, and added a durable
-  database-incarnation identity plus bounded typed Quick results while
-  removing the old aggregate integrity DTOs from the public core surface.
-  Added the bounded accepted-native row phase with exact physical sub-unit
-  continuation, current and historical row-layout decoding, validated-check
-  evaluation, and point verification of expected forward-index and relation
-  witnesses without generated-model fallback. Added bounded physical traversal
-  of active accepted forward-index and source-owned reverse-relation
-  generations, including exact row re-derivation and unique-duplicate,
-  malformed, orphan, and divergence findings, while removing the old global
-  live-key map. Added durable bounded Deep jobs over Quick, row, derived-state,
-  journal, and final-proof phases using a separately allocated progress store,
-  exact pre/post proof vectors, replayable receipts, safe abort/expiry
-  acknowledgement, and acknowledged-terminal retention. Progressable journal
-  envelope, sequence-gap, and duplicate-identity defects now produce bounded
-  typed findings, while failures that prevent ordered traversal terminate as
-  uninspectable storage. Recovery now verifies only its bounded marker-owned
-  effects and terminal journal folds, removing the superseded whole-database
-  aggregate integrity scan and its internal report model.
+Detailed notes: [docs/changelog/0.212.md](docs/changelog/0.212.md)
+
+- `0.212.0` establishes one accepted-native Quick/Deep integrity core with
+  bounded resumable physical verification, durable replay-safe progress, and
+  marker-owned recovery verification, while hard-cutting the old aggregate
+  integrity report; authorized typed and SQL entrypoints remain follow-up work.
 
 ## [0.211.x] 🧱 - 2026-07-22 - Accepted Constraint Catalog
 
