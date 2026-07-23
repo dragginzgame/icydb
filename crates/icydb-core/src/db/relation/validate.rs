@@ -26,7 +26,7 @@ use crate::{
         schema::ensure_accepted_catalog_snapshot_selection,
     },
     entity::{EntityKind, EntityValue},
-    error::InternalError,
+    error::{ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError},
     metrics::sink::{MetricsEvent, record},
     traits::{CanisterKind, Path},
 };
@@ -115,12 +115,18 @@ pub(in crate::db) fn validate_candidate_relation_target_delete_barrier<C: Canist
     let mut stores = db.with_store_registry(|registry| registry.iter().collect::<Vec<_>>());
     stores.sort_unstable_by_key(|(store_path, _)| *store_path);
     for (_, store) in stores {
-        if let Some((constraint_id, constraint_name)) = store.with_schema(|schema_store| {
+        if let Some(barrier) = store.with_schema(|schema_store| {
             schema_store.pending_relation_activation_for_target(target_path)
         })? {
             return Err(InternalError::mutation_constraint_activation_write_blocked(
-                constraint_id.get(),
-                &constraint_name,
+                ConstraintDiagnostic::write_activation_blocked(
+                    barrier.constraint_id().get(),
+                    barrier.constraint_name().to_string(),
+                    ConstraintDiagnosticKind::Relation,
+                    barrier.source_entity_path().to_string(),
+                    None,
+                    barrier.field_paths().to_vec(),
+                ),
             ));
         }
     }

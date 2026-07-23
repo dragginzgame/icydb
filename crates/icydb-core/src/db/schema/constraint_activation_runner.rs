@@ -5,7 +5,10 @@
 
 use crate::db::schema::enum_catalog::AcceptedSchemaRevisionBundle;
 #[cfg(feature = "sql")]
-use crate::error::SchemaTransitionBudgetResource;
+use crate::{
+    db::schema::accepted_constraint_field_paths,
+    error::{ConstraintDiagnostic, ConstraintDiagnosticKind, SchemaTransitionBudgetResource},
+};
 use crate::{
     db::{
         Db,
@@ -269,9 +272,27 @@ pub(in crate::db) fn validate_unpublished_check_candidate_exact(
             .constraint_catalog()
             .activation(constraint_id)
             .ok_or_else(InternalError::store_corruption)?;
+        let finding = scan
+            .findings
+            .first()
+            .ok_or_else(InternalError::store_invariant)?;
+        let primary_key = finding
+            .primary_key()
+            .encoded_primary_key_bytes()
+            .ok_or_else(InternalError::store_invariant)?;
         return Err(InternalError::mutation_constraint_violation(
-            constraint_id.get(),
-            activation.name().to_string(),
+            ConstraintDiagnostic::migration_validation(
+                constraint_id.get(),
+                activation.name().to_string(),
+                ConstraintDiagnosticKind::Check,
+                entity_path.to_string(),
+                primary_key.to_vec(),
+                accepted_constraint_field_paths(
+                    accepted.persisted_snapshot(),
+                    finding.field_ids(),
+                )?,
+                finding.error_code(),
+            ),
         ));
     }
     if !scan.exhausted {
@@ -1087,17 +1108,15 @@ fn scan_row_local_validation_page(
                 Ok(()) => {}
                 Err(AcceptedRowConstraintEvaluationError::Violation {
                     constraint_id: violated,
-                    constraint_name,
+                    constraint_name: _,
                     kind: _,
+                    field_paths: _,
                 }) if violated == constraint_id => {
-                    let error = InternalError::mutation_constraint_violation(
-                        violated.get(),
-                        constraint_name,
-                    );
                     findings.push(ConstraintValidationFinding::new(
                         raw_key.clone(),
                         dependency_fields.clone(),
-                        error.diagnostic().error_code().raw(),
+                        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION
+                            .raw(),
                     ));
                 }
                 Err(error) => return Err(map_row_constraint_program_error(error)),

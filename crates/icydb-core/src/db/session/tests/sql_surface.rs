@@ -38,7 +38,10 @@ use crate::{
             parser::parse_sql,
         },
     },
-    error::{ErrorClass, ErrorDetail, QueryErrorDetail, SchemaDdlAdmissionError, StoreError},
+    error::{
+        ConstraintDiagnosticContext, ConstraintDiagnosticKind, ErrorClass, ErrorDetail,
+        QueryErrorDetail, SchemaDdlAdmissionError, StoreError,
+    },
 };
 use icydb_diagnostic_code::{SqlLoweringCode, SqlSurfaceMismatchCode};
 use std::{
@@ -5695,7 +5698,7 @@ fn execute_admin_sql_ddl_plain_check_rejection_publishes_nothing() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     let session = sql_session();
-    session
+    let historical = session
         .insert(SessionSqlEntity {
             id: Ulid::from_u128(21_120),
             name: "Historical".to_string(),
@@ -5703,12 +5706,43 @@ fn execute_admin_sql_ddl_plain_check_rejection_publishes_nothing() {
         })
         .expect("historical row should precede the rejected check");
 
-    session
+    let error = session
         .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD CONSTRAINT adult_age CHECK (age >= 18)",
             1,
         ))
         .expect_err("plain ADD must reject when any historical row violates the check");
+    let QueryError::Execute(execute) = error else {
+        panic!("historical CHECK rejection should preserve execution authority");
+    };
+    let diagnostic = execute
+        .as_internal()
+        .constraint_diagnostic()
+        .expect("historical CHECK rejection should retain accepted identity");
+    assert_ne!(diagnostic.constraint_id(), 0);
+    assert_eq!(diagnostic.constraint_name(), "adult_age");
+    assert_eq!(
+        diagnostic.constraint_kind(),
+        ConstraintDiagnosticKind::Check
+    );
+    assert_eq!(diagnostic.entity(), SessionSqlEntity::PATH);
+    let expected_primary_key = DecodedDataStoreKey::try_new::<SessionSqlEntity>(historical.id)
+        .expect("historical identity should encode")
+        .to_raw()
+        .expect("historical identity should have a raw key");
+    assert_eq!(
+        diagnostic.primary_key(),
+        expected_primary_key.encoded_primary_key_bytes(),
+    );
+    assert_eq!(diagnostic.field_paths(), &["age".to_string()]);
+    assert_eq!(
+        diagnostic.context(),
+        ConstraintDiagnosticContext::MigrationValidation
+    );
+    assert_eq!(
+        diagnostic.error_code(),
+        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION,
+    );
 
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store

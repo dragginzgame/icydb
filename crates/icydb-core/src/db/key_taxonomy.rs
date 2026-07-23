@@ -774,6 +774,16 @@ impl RawDataStoreKey {
         &self.bytes
     }
 
+    /// Borrow the canonical encoded primary-key suffix without the entity tag.
+    #[must_use]
+    pub(in crate::db) fn encoded_primary_key_bytes(&self) -> Option<&[u8]> {
+        const ENTITY_TAG_SIZE: usize = size_of::<u64>();
+
+        self.bytes
+            .get(ENTITY_TAG_SIZE..)
+            .filter(|primary_key| !primary_key.is_empty())
+    }
+
     #[must_use]
     pub(in crate::db) fn entity_tag_prefix(&self) -> Option<EntityTag> {
         const ENTITY_TAG_SIZE: usize = size_of::<u64>();

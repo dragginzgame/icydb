@@ -13,9 +13,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Adds bounded, canonical accepted `CHECK` expressions with generated named
   declarations and one fingerprint-bound evaluator over final mutation
   after-images, preserving existing validators as application-only behavior.
-- Adds stable typed diagnostics for accepted row-constraint violations and
-  corrupt persisted row-constraint programs, with accepted constraint ID and
-  name retained at the runtime boundary.
+- Adds one bounded core diagnostic record for accepted row-constraint
+  violations and activation barriers, retaining accepted ID, name, kind,
+  entity, primary key when available, implicated fields, context, class, and
+  stable code through typed, structural, and SQL write admission.
 - Adds marker-owned `CHECK` activation and bounded Forward/Verify validation
   jobs, with durable finding-receipt replay, stable data-revision invalidation,
   and atomic promotion or abort.
@@ -42,10 +43,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   second scanner: validated checks exclude pending migration semantics, while
   unique and relation key projection is shared across active and candidate
   generations.
-- Hardens generated schema evolution so one catalog change cannot discard or
-  take ownership of unrelated accepted indexes, relations, or identity state,
-  and proposal drift during a live generated activation now fails with a
-  stable conflict diagnostic instead of preserving mismatched authority.
+- Hardens generated schema evolution so generated checks retain unrelated
+  DDL-owned accepted fields, indexes, constraints, and identity state, while
+  proposal drift during any live generated activation fails with one stable
+  conflict diagnostic instead of preserving mismatched authority.
 - Reuses verified accepted catalog selections and skips unrelated relation
   delete validation, keeping steady accepted-check overhead below 2% and
   reducing delete instructions below the released `0.211.0` baseline.

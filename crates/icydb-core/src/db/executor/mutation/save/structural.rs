@@ -456,6 +456,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
             accepted_row_decode_contract.clone(),
         )?;
         let data_key = DecodedDataStoreKey::try_new::<E>(entity.id().key())?;
+        let raw_data_key = data_key.to_raw()?;
         if let StructuralMutationTargetKey::Expected(expected) = target_key
             && entity.id().key() != expected
         {
@@ -480,6 +481,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
         }
         let normalized_entity_row = self.preflight_resolved_entity_with_provenance(
             &mut entity,
+            &raw_data_key,
             structural_after_image.as_raw_row(),
             provenance.as_slice(),
             schema,
@@ -501,7 +503,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
             .transpose()?;
         let marker_row_op = CommitRowOp::new(
             E::PATH,
-            data_key.to_raw()?,
+            raw_data_key,
             before_bytes,
             Some(row_bytes),
             schema_fingerprint,

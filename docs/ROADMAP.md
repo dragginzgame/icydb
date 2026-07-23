@@ -174,12 +174,12 @@ The active delivery sequence is intentionally serial:
    [0.212 bounded resumable integrity
    checking](design/0.212-bounded-resumable-integrity-check/0.212-design.md)
    consume those accepted contracts in order.
-7. [0.213 schema authority and application-model
-   separation](design/0.213-schema-authority-and-application-model-separation/0.213-thoughts.md)
-   then unmuddles the authored model, schema proposal, accepted schema,
-   runtime-contract, and application-callback boundaries before more runtime
-   features build on them. These are exploratory notes until promoted to an
-   approved design.
+7. [0.213 standalone IcyDB and external IC
+   model](design/0.213-schema-authority-and-application-model-separation/0.213-design.md)
+   then makes IcyDB standalone and schema-driven, extracts the external
+   `ic-model` authoring/code-generation product, and enforces a one-way public
+   schema-contract boundary before more runtime features build on it. The
+   design remains proposed until explicit review and acceptance.
 8. [0.214 exact unsigned identity
    generation](design/0.214-exact-unsigned-identity-generation/0.214-design.md)
    consumes the cleaned accepted-schema and runtime-contract boundary.

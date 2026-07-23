@@ -17,7 +17,10 @@ use crate::{
             bind_check_expr_v1, build_initial_accepted_catalogs_for_tests,
         },
     },
-    error::{ErrorDetail, ExecutorErrorDetail, InternalError},
+    error::{
+        ConstraintDiagnosticContext, ConstraintDiagnosticKind, ErrorDetail, ExecutorErrorDetail,
+        InternalError,
+    },
     metrics::sink::SqlWriteKind,
     value::InputValue,
 };
@@ -220,16 +223,46 @@ fn install_session_sql_write_age_check() -> ConstraintId {
     )
 }
 
-fn assert_query_check_violation(error: QueryError, constraint_id: ConstraintId) {
+fn assert_query_check_violation(
+    error: QueryError,
+    constraint_id: ConstraintId,
+    constraint_name: &str,
+    entity_path: &str,
+    field_path: &str,
+    expected_primary_key: Option<&[u8]>,
+) {
     let QueryError::Execute(execute) = error else {
         panic!("accepted check rejection should preserve execution error authority");
     };
-    assert!(matches!(
-        execute.as_internal().detail(),
-        Some(ErrorDetail::Executor(detail))
-            if detail.constraint_identity() == Some(constraint_id.get())
-                && matches!(detail, ExecutorErrorDetail::ConstraintViolation { .. })
-    ));
+    let Some(ErrorDetail::Executor(ExecutorErrorDetail::ConstraintViolation { diagnostic })) =
+        execute.as_internal().detail()
+    else {
+        panic!("accepted check rejection should retain its typed diagnostic");
+    };
+    assert_eq!(diagnostic.constraint_id(), constraint_id.get());
+    assert_eq!(diagnostic.constraint_name(), constraint_name);
+    assert_eq!(
+        diagnostic.constraint_kind(),
+        ConstraintDiagnosticKind::Check
+    );
+    assert_eq!(diagnostic.entity(), entity_path);
+    if let Some(expected_primary_key) = expected_primary_key {
+        assert_eq!(diagnostic.primary_key(), Some(expected_primary_key));
+    } else {
+        assert!(
+            diagnostic.primary_key().is_some_and(|key| !key.is_empty()),
+            "generated primary-key diagnostics should retain their resolved identity",
+        );
+    }
+    assert_eq!(diagnostic.field_paths(), &[field_path.to_string()]);
+    assert_eq!(
+        diagnostic.context(),
+        ConstraintDiagnosticContext::WriteAdmission
+    );
+    assert_eq!(
+        diagnostic.error_code(),
+        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION,
+    );
 }
 
 fn oversized_public_update_returning_text() -> String {
@@ -1065,8 +1098,23 @@ fn sql_insert_and_exact_update_enforce_the_accepted_check_after_image() {
     )
     .expect_err("SQL exact update violating accepted check must reject");
 
-    for error in [insert_error, update_error] {
-        assert_query_check_violation(error, constraint_id);
+    for (error, id) in [(insert_error, 2_u64), (update_error, 1_u64)] {
+        let expected_primary_key = DecodedDataStoreKey::try_new::<SessionSqlWriteEntity>(id)
+            .expect("SQL write identity should encode")
+            .to_raw()
+            .expect("SQL write identity should have a raw key");
+        assert_query_check_violation(
+            error,
+            constraint_id,
+            "adult_age",
+            SessionSqlWriteEntity::PATH,
+            "age",
+            Some(
+                expected_primary_key
+                    .encoded_primary_key_bytes()
+                    .expect("SQL write raw key should contain a primary key"),
+            ),
+        );
     }
     assert_eq!(
         persisted_write_rows(&session),
@@ -1091,7 +1139,14 @@ fn accepted_checks_observe_default_generated_and_managed_final_values() {
         "INSERT INTO SessionSqlDefaultWriteEntity DEFAULT VALUES",
     )
     .expect_err("database default 7 should be evaluated by the accepted check");
-    assert_query_check_violation(error, default_constraint);
+    assert_query_check_violation(
+        error,
+        default_constraint,
+        "default_score_must_be_eight",
+        SessionSqlDefaultWriteEntity::PATH,
+        "score",
+        None,
+    );
 
     reset_session_sql_store();
     let generated_constraint = install_session_sql_check::<SessionSqlGeneratedFieldEntity>(
@@ -1108,7 +1163,18 @@ fn accepted_checks_observe_default_generated_and_managed_final_values() {
         "INSERT INTO SessionSqlGeneratedFieldEntity (id, name) VALUES (1, 'Ada')",
     )
     .expect_err("generated token should be materialized before accepted check evaluation");
-    assert_query_check_violation(error, generated_constraint);
+    let generated_primary_key = DecodedDataStoreKey::try_new::<SessionSqlGeneratedFieldEntity>(1)
+        .expect("generated-field SQL identity should encode")
+        .to_raw()
+        .expect("generated-field SQL identity should have a raw key");
+    assert_query_check_violation(
+        error,
+        generated_constraint,
+        "generated_token_must_be_nil",
+        SessionSqlGeneratedFieldEntity::PATH,
+        "token",
+        generated_primary_key.encoded_primary_key_bytes(),
+    );
 
     reset_session_sql_store();
     let managed_constraint = install_session_sql_check::<SessionSqlManagedWriteEntity>(
@@ -1125,7 +1191,18 @@ fn accepted_checks_observe_default_generated_and_managed_final_values() {
         "INSERT INTO SessionSqlManagedWriteEntity (id, name) VALUES (1, 'Ada')",
     )
     .expect_err("managed timestamp should be materialized before accepted check evaluation");
-    assert_query_check_violation(error, managed_constraint);
+    let managed_primary_key = DecodedDataStoreKey::try_new::<SessionSqlManagedWriteEntity>(1)
+        .expect("managed-field SQL identity should encode")
+        .to_raw()
+        .expect("managed-field SQL identity should have a raw key");
+    assert_query_check_violation(
+        error,
+        managed_constraint,
+        "created_at_must_be_epoch",
+        SessionSqlManagedWriteEntity::PATH,
+        "created_at",
+        managed_primary_key.encoded_primary_key_bytes(),
+    );
 }
 
 #[test]

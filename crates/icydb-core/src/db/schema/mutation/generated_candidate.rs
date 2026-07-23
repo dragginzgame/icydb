@@ -1,9 +1,10 @@
 //! Generated-proposal lowering into catalog-native accepted candidates.
 
 use crate::db::schema::{
-    AcceptedConstraintKind, AcceptedSchemaFingerprint, ConstraintActivationKind, ConstraintOrigin,
-    FieldId, PersistedFieldSnapshot, PersistedIndexSnapshot, PersistedRelationEdgeSnapshot,
-    PersistedSchemaSnapshot, RelationId, SchemaHistoricalFill, SchemaIndexId, SchemaRowLayout,
+    AcceptedConstraintKind, AcceptedConstraintSnapshot, AcceptedSchemaFingerprint,
+    ConstraintActivationKind, ConstraintOrigin, FieldId, PersistedFieldSnapshot,
+    PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId,
+    SchemaHistoricalFill, SchemaIndexId, SchemaRowLayout,
 };
 
 /// Accepted-root identity required to publish one generated activation safely.
@@ -144,6 +145,10 @@ fn derive_generated_activation_candidate(
     generated: &PersistedSchemaSnapshot,
     activation: GeneratedConstraintActivationContext,
 ) -> Result<Option<PersistedSchemaSnapshot>, GeneratedAcceptedCandidateError> {
+    let has_live_generated_activation = accepted
+        .constraint_activations()
+        .iter()
+        .any(|pending| pending.origin() == ConstraintOrigin::Generated);
     if let Some(candidate) =
         derive_generated_additive_relation_activation_candidate(accepted, generated, activation)?
     {
@@ -164,7 +169,11 @@ fn derive_generated_activation_candidate(
     {
         return Ok(Some(candidate));
     }
-    derive_generated_check_activation_candidate(accepted, generated, activation)
+    let candidate = derive_generated_check_activation_candidate(accepted, generated, activation)?;
+    if candidate.is_none() && has_live_generated_activation {
+        return Err(GeneratedAcceptedCandidateError::StaleConstraintActivation);
+    }
+    Ok(candidate)
 }
 
 fn derive_generated_additive_relation_activation_candidate(
@@ -597,33 +606,12 @@ fn derive_generated_check_activation_candidate(
     generated: &PersistedSchemaSnapshot,
     activation: GeneratedConstraintActivationContext,
 ) -> Result<Option<PersistedSchemaSnapshot>, GeneratedAcceptedCandidateError> {
-    if !generated_non_check_shape_matches(accepted, generated) {
+    if !generated_check_activation_base_matches(accepted, generated) {
         return Ok(None);
     }
 
     let generated_checks = generated_check_constraints(generated);
     let accepted_checks = generated_check_constraints(accepted);
-    if accepted.constraint_activations().iter().any(|pending| {
-        if pending.origin() != ConstraintOrigin::Generated {
-            return false;
-        }
-        let ConstraintActivationKind::Check {
-            expression: pending_expression,
-        } = pending.kind()
-        else {
-            return false;
-        };
-        !generated_checks.iter().any(|generated_check| {
-            generated_check.name() == pending.name()
-                && matches!(
-                    generated_check.kind(),
-                    AcceptedConstraintKind::Check { expression }
-                        if expression == pending_expression
-                )
-        })
-    }) {
-        return Err(GeneratedAcceptedCandidateError::StaleConstraintActivation);
-    }
     if accepted_checks.iter().any(|accepted_check| {
         !generated_checks.iter().any(|generated_check| {
             generated_check.name() == accepted_check.name()
@@ -633,6 +621,24 @@ fn derive_generated_check_activation_candidate(
         return Ok(None);
     }
 
+    let preserves_generated_check_activation =
+        accepted.constraint_activations().iter().any(|pending| {
+            pending.origin() == ConstraintOrigin::Generated
+                && generated_checks.iter().any(|generated_check| {
+                    generated_check.name() == pending.name()
+                        && matches!(
+                            (pending.kind(), generated_check.kind()),
+                            (
+                                ConstraintActivationKind::Check {
+                                    expression: pending_expression,
+                                },
+                                AcceptedConstraintKind::Check {
+                                    expression: generated_expression,
+                                },
+                            ) if pending_expression == generated_expression
+                        )
+                })
+        });
     let mut catalog = accepted.constraint_catalog().clone();
     let mut added = false;
     for generated_check in generated_checks {
@@ -672,11 +678,6 @@ fn derive_generated_check_activation_candidate(
         added = true;
     }
 
-    let preserves_generated_check_activation =
-        accepted.constraint_activations().iter().any(|pending| {
-            pending.origin() == ConstraintOrigin::Generated
-                && matches!(pending.kind(), ConstraintActivationKind::Check { .. })
-        });
     if !added && !preserves_generated_check_activation {
         return Ok(None);
     }
@@ -698,7 +699,7 @@ fn derive_generated_check_activation_candidate(
 
 fn generated_check_constraints(
     snapshot: &PersistedSchemaSnapshot,
-) -> Vec<&crate::db::schema::AcceptedConstraintSnapshot> {
+) -> Vec<&AcceptedConstraintSnapshot> {
     snapshot
         .constraints()
         .iter()
@@ -709,29 +710,73 @@ fn generated_check_constraints(
         .collect()
 }
 
-fn generated_non_check_shape_matches(
+// A generated CHECK proposal owns generated structural contracts only.
+// Accepted SQL-DDL fields, indexes, and constraints survive as accepted state
+// instead of becoming requirements of the generated proposal.
+fn generated_check_activation_base_matches(
     accepted: &PersistedSchemaSnapshot,
     generated: &PersistedSchemaSnapshot,
 ) -> bool {
     accepted.entity_path() == generated.entity_path()
         && accepted.entity_name() == generated.entity_name()
         && accepted.primary_key_field_ids() == generated.primary_key_field_ids()
-        && accepted.row_layout() == generated.row_layout()
-        && accepted.fields() == generated.fields()
-        && accepted.indexes() == generated.indexes()
+        && generated.fields().len() <= accepted.fields().len()
+        && generated.row_layout().field_to_slot().len() == generated.fields().len()
+        && accepted
+            .row_layout()
+            .field_to_slot()
+            .iter()
+            .zip(generated.row_layout().field_to_slot())
+            .all(|(accepted_entry, generated_entry)| accepted_entry == generated_entry)
+        && accepted.fields()[generated.fields().len()..]
+            .iter()
+            .all(|field| !field.generated())
+        && accepted.fields().iter().zip(generated.fields()).all(
+            |(accepted_field, generated_field)| {
+                accepted_field.generated()
+                    && generated_field.generated()
+                    && field_with_temporal_contract(
+                        generated_field,
+                        accepted_field.introduced_in_layout(),
+                        accepted_field.historical_fill().clone(),
+                    ) == *accepted_field
+            },
+        )
+        && generated_index_contracts_match(accepted, generated)
         && accepted.relations() == generated.relations()
-        && accepted.constraints().iter().all(|constraint| {
-            if constraint.origin() == ConstraintOrigin::Generated
-                && matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
-            {
-                return true;
-            }
-            generated.constraints().iter().any(|generated_constraint| {
-                generated_constraint.name() == constraint.name()
-                    && generated_constraint.kind() == constraint.kind()
-                    && generated_constraint.origin() == constraint.origin()
-            })
+        && generated_non_check_constraints_match(accepted, generated)
+}
+
+fn generated_non_check_constraints_match(
+    accepted: &PersistedSchemaSnapshot,
+    generated: &PersistedSchemaSnapshot,
+) -> bool {
+    generated
+        .constraints()
+        .iter()
+        .filter(|constraint| !matches!(constraint.kind(), AcceptedConstraintKind::Check { .. }))
+        .all(|generated_constraint| {
+            generated_constraint.origin() == ConstraintOrigin::Generated
+                && accepted.constraints().iter().any(|accepted_constraint| {
+                    accepted_constraint.origin() == ConstraintOrigin::Generated
+                        && accepted_constraint.name() == generated_constraint.name()
+                        && accepted_constraint.kind() == generated_constraint.kind()
+                })
         })
+        && accepted
+            .constraints()
+            .iter()
+            .filter(|constraint| {
+                constraint.origin() == ConstraintOrigin::Generated
+                    && !matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
+            })
+            .all(|accepted_constraint| {
+                generated.constraints().iter().any(|generated_constraint| {
+                    generated_constraint.origin() == ConstraintOrigin::Generated
+                        && generated_constraint.name() == accepted_constraint.name()
+                        && generated_constraint.kind() == accepted_constraint.kind()
+                })
+            })
 }
 
 // Lower a generated-owned default change without changing any accepted

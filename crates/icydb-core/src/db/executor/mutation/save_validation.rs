@@ -10,8 +10,8 @@ use crate::{
         PersistedRow,
         data::{
             AcceptedFieldWriteProvenance, AcceptedMutationFieldWriteIntent,
-            AcceptedMutationIntentPatch, CanonicalRow, DecodedDataStoreKey, RawRow, SlotReader,
-            StructuralRowContract, StructuralSlotReader,
+            AcceptedMutationIntentPatch, CanonicalRow, DecodedDataStoreKey, RawDataStoreKey,
+            RawRow, SlotReader, StructuralRowContract, StructuralSlotReader,
             canonical_row_from_resolved_entity_with_accepted_contract,
         },
         executor::mutation::save::SaveExecutor,
@@ -19,11 +19,11 @@ use crate::{
         relation::validate_save_relations_with_accepted_contract,
         schema::{
             AcceptedFieldKind, AcceptedFieldKindCategory, AcceptedRowConstraintEvaluationError,
-            AcceptedRowDecodeContract, AcceptedScalarClass, SchemaInfo,
-            classify_accepted_field_kind, literal_matches_type,
+            AcceptedRowConstraintViolationKind, AcceptedRowDecodeContract, AcceptedScalarClass,
+            SchemaInfo, classify_accepted_field_kind, literal_matches_type,
         },
     },
-    error::InternalError,
+    error::{ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError},
     sanitize::{SanitizeWriteContext, sanitize_with_context},
     validate::validate,
     value::Value,
@@ -104,9 +104,14 @@ impl<E: PersistedRow> SaveExecutor<E> {
     // Run typed preflight for an after-image whose accepted field provenance
     // was resolved before materialization. Protected database values must stay
     // byte-identical across application sanitization.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "preflight keeps the canonical row key, resolved after-image, provenance, schema, relation policy, and write context explicit at one admission boundary"
+    )]
     pub(in crate::db::executor::mutation) fn preflight_resolved_entity_with_provenance(
         &self,
         entity: &mut E,
+        data_key: &RawDataStoreKey,
         resolved_row: &RawRow,
         provenance: &[Option<AcceptedFieldWriteProvenance>],
         schema: &SchemaInfo,
@@ -127,8 +132,8 @@ impl<E: PersistedRow> SaveExecutor<E> {
             normalized.as_raw_row(),
             provenance,
         )?;
-        self.validate_unique_activation_write_gate(write_context.mode(), provenance)?;
-        self.validate_accepted_row_constraints(normalized.as_raw_row())?;
+        self.validate_unique_activation_write_gate(write_context.mode(), data_key, provenance)?;
+        self.validate_accepted_row_constraints(data_key, normalized.as_raw_row())?;
         if validate_relations {
             validate_save_relations_with_accepted_contract::<E>(
                 &self.db,
@@ -143,16 +148,26 @@ impl<E: PersistedRow> SaveExecutor<E> {
     fn validate_unique_activation_write_gate(
         &self,
         mode: crate::sanitize::SanitizeWriteMode,
+        data_key: &RawDataStoreKey,
         provenance: &[Option<AcceptedFieldWriteProvenance>],
     ) -> Result<(), InternalError> {
         match self
             .accepted_row_constraints()
             .unique_activation_write_blocker(mode, provenance)
         {
-            Ok(Some((constraint_id, constraint_name))) => {
+            Ok(Some(barrier)) => {
+                let primary_key = data_key
+                    .encoded_primary_key_bytes()
+                    .ok_or_else(InternalError::store_invariant)?;
                 Err(InternalError::mutation_constraint_activation_write_blocked(
-                    constraint_id.get(),
-                    constraint_name,
+                    ConstraintDiagnostic::write_activation_blocked(
+                        barrier.constraint_id().get(),
+                        barrier.constraint_name().to_string(),
+                        ConstraintDiagnosticKind::Unique,
+                        E::PATH.to_string(),
+                        Some(primary_key.to_vec()),
+                        barrier.field_paths().to_vec(),
+                    ),
                 ))
             }
             Ok(None) => Ok(()),
@@ -162,7 +177,11 @@ impl<E: PersistedRow> SaveExecutor<E> {
 
     // Evaluate fingerprint-bound row constraints over the exact canonical
     // after-image that enters commit preflight. All gates share one slot decode.
-    fn validate_accepted_row_constraints(&self, row: &RawRow) -> Result<(), InternalError> {
+    fn validate_accepted_row_constraints(
+        &self,
+        data_key: &RawDataStoreKey,
+        row: &RawRow,
+    ) -> Result<(), InternalError> {
         let constraints = self.accepted_row_constraints();
         if constraints.is_empty() {
             return Ok(());
@@ -174,6 +193,9 @@ impl<E: PersistedRow> SaveExecutor<E> {
         let row_fields =
             StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(row, &contract)?;
         let values = row_fields.decode_selected_slot_values(constraints.required_slots())?;
+        let primary_key = data_key
+            .encoded_primary_key_bytes()
+            .ok_or_else(InternalError::store_invariant)?;
 
         constraints
             .evaluate(self.accepted_schema_fingerprint(), values.as_slice())
@@ -181,10 +203,24 @@ impl<E: PersistedRow> SaveExecutor<E> {
                 AcceptedRowConstraintEvaluationError::Violation {
                     constraint_id,
                     constraint_name,
-                    kind: _,
+                    kind,
+                    field_paths,
                 } => InternalError::mutation_constraint_violation(
-                    constraint_id.get(),
-                    constraint_name,
+                    ConstraintDiagnostic::write_violation(
+                        constraint_id.get(),
+                        constraint_name,
+                        match kind {
+                            AcceptedRowConstraintViolationKind::Check => {
+                                ConstraintDiagnosticKind::Check
+                            }
+                            AcceptedRowConstraintViolationKind::NotNull => {
+                                ConstraintDiagnosticKind::NotNull
+                            }
+                        },
+                        E::PATH.to_string(),
+                        Some(primary_key.to_vec()),
+                        field_paths,
+                    ),
                 ),
                 AcceptedRowConstraintEvaluationError::InvalidExpression(_)
                 | AcceptedRowConstraintEvaluationError::LiteralCorrupt

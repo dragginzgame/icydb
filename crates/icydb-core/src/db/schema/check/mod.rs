@@ -20,7 +20,6 @@ pub(in crate::db) use bind::bind_generated_check_predicate;
 pub(in crate::db) use bind::bind_sql_check_expr;
 #[cfg(test)]
 pub(in crate::db) use bind::{CheckExprV1Input, CheckValueExprV1Input, bind_check_expr_v1};
-#[cfg(test)]
 pub(in crate::db) use compile::AcceptedRowConstraintViolationKind;
 pub(in crate::db::schema) use compile::validate_accepted_check_literals;
 pub(in crate::db) use compile::{

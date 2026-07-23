@@ -196,6 +196,21 @@ impl InternalError {
         self.detail.as_ref()
     }
 
+    /// Borrow the accepted constraint diagnostic carried by this error.
+    #[must_use]
+    pub fn constraint_diagnostic(&self) -> Option<&ConstraintDiagnostic> {
+        match self.detail.as_ref() {
+            Some(ErrorDetail::Executor(detail)) => detail.constraint_diagnostic(),
+            Some(
+                ErrorDetail::Store(_)
+                | ErrorDetail::Query(_)
+                | ErrorDetail::Recovery(_)
+                | ErrorDetail::Serialize(_),
+            )
+            | None => None,
+        }
+    }
+
     /// Return compact diagnostic identity for this internal error.
     #[must_use]
     pub fn diagnostic(&self) -> diagnostic_code::Diagnostic {
@@ -418,15 +433,14 @@ impl InternalError {
     }
 
     /// Construct an executor-origin accepted constraint or activation-gate violation.
-    pub(crate) fn mutation_constraint_violation(
-        constraint_id: u32,
-        _constraint_name: String,
-    ) -> Self {
+    pub(crate) fn mutation_constraint_violation(diagnostic: ConstraintDiagnostic) -> Self {
         Self {
             class: ErrorClass::InvariantViolation,
             origin: ErrorOrigin::Executor,
             detail: Some(ErrorDetail::Executor(
-                ExecutorErrorDetail::ConstraintViolation { constraint_id },
+                ExecutorErrorDetail::ConstraintViolation {
+                    diagnostic: Box::new(diagnostic),
+                },
             )),
         }
     }
@@ -444,14 +458,15 @@ impl InternalError {
 
     /// Construct one typed migration conflict for an incomplete activation gate.
     pub(crate) fn mutation_constraint_activation_write_blocked(
-        constraint_id: u32,
-        _constraint_name: &str,
+        diagnostic: ConstraintDiagnostic,
     ) -> Self {
         Self {
             class: ErrorClass::Conflict,
             origin: ErrorOrigin::Executor,
             detail: Some(ErrorDetail::Executor(
-                ExecutorErrorDetail::ConstraintActivationWriteBlocked { constraint_id },
+                ExecutorErrorDetail::ConstraintActivationWriteBlocked {
+                    diagnostic: Box::new(diagnostic),
+                },
             )),
         }
     }
@@ -1541,6 +1556,217 @@ impl fmt::Display for InternalError {
 impl std::error::Error for InternalError {}
 
 ///
+/// ConstraintDiagnosticKind
+///
+/// Accepted constraint family attached to one bounded runtime diagnostic.
+/// Accepted schema owns the identity; this enum is its error-boundary projection.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConstraintDiagnosticKind {
+    /// One accepted canonical check expression.
+    Check,
+
+    /// One accepted or activating not-null field contract.
+    NotNull,
+
+    /// One accepted or activating relation contract.
+    Relation,
+
+    /// One accepted or activating unique-index contract.
+    Unique,
+}
+
+impl ConstraintDiagnosticKind {
+    /// Borrow the stable public label for this constraint family.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Check => "check",
+            Self::NotNull => "not_null",
+            Self::Relation => "relation",
+            Self::Unique => "unique",
+        }
+    }
+}
+
+///
+/// ConstraintDiagnosticContext
+///
+/// Boundary at which one accepted constraint failure was observed.
+/// This distinguishes incoming write rejection from historical validation.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConstraintDiagnosticContext {
+    /// Integrity verification found invalid already-accepted state.
+    Integrity,
+
+    /// Bounded activation validation found an incompatible historical row.
+    MigrationValidation,
+
+    /// A new mutation after-image violated accepted admission authority.
+    WriteAdmission,
+}
+
+impl ConstraintDiagnosticContext {
+    /// Borrow the stable public label for this diagnostic context.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Integrity => "integrity",
+            Self::MigrationValidation => "migration_validation",
+            Self::WriteAdmission => "write_admission",
+        }
+    }
+}
+
+///
+/// ConstraintDiagnostic
+///
+/// One bounded accepted-constraint failure carried through runtime and SQL
+/// boundaries. It is a projection of accepted identity, not a second schema
+/// authority, and its compact error code remains the classification owner.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConstraintDiagnostic {
+    constraint_id: u32,
+    constraint_name: String,
+    constraint_kind: ConstraintDiagnosticKind,
+    entity: String,
+    primary_key: Option<Vec<u8>>,
+    field_paths: Vec<String>,
+    context: ConstraintDiagnosticContext,
+    error_code: diagnostic_code::ErrorCode,
+}
+
+impl ConstraintDiagnostic {
+    /// Build one incoming-write accepted constraint violation.
+    #[must_use]
+    pub(crate) const fn write_violation(
+        constraint_id: u32,
+        constraint_name: String,
+        constraint_kind: ConstraintDiagnosticKind,
+        entity: String,
+        primary_key: Option<Vec<u8>>,
+        field_paths: Vec<String>,
+    ) -> Self {
+        Self {
+            constraint_id,
+            constraint_name,
+            constraint_kind,
+            entity,
+            primary_key,
+            field_paths,
+            context: ConstraintDiagnosticContext::WriteAdmission,
+            error_code: diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION,
+        }
+    }
+
+    /// Build one incoming-write activation barrier rejection.
+    #[must_use]
+    pub(crate) const fn write_activation_blocked(
+        constraint_id: u32,
+        constraint_name: String,
+        constraint_kind: ConstraintDiagnosticKind,
+        entity: String,
+        primary_key: Option<Vec<u8>>,
+        field_paths: Vec<String>,
+    ) -> Self {
+        Self {
+            constraint_id,
+            constraint_name,
+            constraint_kind,
+            entity,
+            primary_key,
+            field_paths,
+            context: ConstraintDiagnosticContext::WriteAdmission,
+            error_code:
+                diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_ACTIVATION_WRITE_BLOCKED,
+        }
+    }
+
+    /// Build one historical activation finding from its durable compact code.
+    #[cfg(feature = "sql")]
+    #[must_use]
+    pub(crate) const fn migration_validation(
+        constraint_id: u32,
+        constraint_name: String,
+        constraint_kind: ConstraintDiagnosticKind,
+        entity: String,
+        primary_key: Vec<u8>,
+        field_paths: Vec<String>,
+        error_code: u16,
+    ) -> Self {
+        Self {
+            constraint_id,
+            constraint_name,
+            constraint_kind,
+            entity,
+            primary_key: Some(primary_key),
+            field_paths,
+            context: ConstraintDiagnosticContext::MigrationValidation,
+            error_code: diagnostic_code::ErrorCode::from_raw(error_code),
+        }
+    }
+
+    /// Return the stable accepted constraint identity.
+    #[must_use]
+    pub const fn constraint_id(&self) -> u32 {
+        self.constraint_id
+    }
+
+    /// Borrow the stable accepted constraint name.
+    #[must_use]
+    pub const fn constraint_name(&self) -> &str {
+        self.constraint_name.as_str()
+    }
+
+    /// Return the accepted constraint family.
+    #[must_use]
+    pub const fn constraint_kind(&self) -> ConstraintDiagnosticKind {
+        self.constraint_kind
+    }
+
+    /// Borrow the accepted entity identity.
+    #[must_use]
+    pub const fn entity(&self) -> &str {
+        self.entity.as_str()
+    }
+
+    /// Borrow the canonical persisted primary-key bytes when available.
+    #[must_use]
+    pub fn primary_key(&self) -> Option<&[u8]> {
+        self.primary_key.as_deref()
+    }
+
+    /// Borrow bounded accepted field paths implicated by the failure.
+    #[must_use]
+    pub const fn field_paths(&self) -> &[String] {
+        self.field_paths.as_slice()
+    }
+
+    /// Return the boundary that observed the failure.
+    #[must_use]
+    pub const fn context(&self) -> ConstraintDiagnosticContext {
+        self.context
+    }
+
+    /// Return the compact stable error code for this exact failure.
+    #[must_use]
+    pub const fn error_code(&self) -> diagnostic_code::ErrorCode {
+        self.error_code
+    }
+
+    /// Return the broad public error class derived from the compact code.
+    #[must_use]
+    pub const fn error_class(&self) -> diagnostic_code::ErrorClass {
+        self.error_code.class()
+    }
+}
+
+///
 /// ErrorDetail
 ///
 /// Structured, origin-specific error detail carried by [`InternalError`].
@@ -1564,21 +1790,24 @@ pub enum ExecutorErrorDetail {
     /// A complete insert or replacement omitted one or more required fields.
     MutationRequiredFieldMissing,
     /// A final canonical after-image violated one accepted constraint or activation gate.
-    ConstraintViolation { constraint_id: u32 },
+    ConstraintViolation {
+        diagnostic: Box<ConstraintDiagnostic>,
+    },
     /// Accepted row-constraint metadata or compiled state was inconsistent.
     AcceptedRowConstraintProgramCorrupt,
     /// A write would rely on one incomplete activation-owned physical proof.
-    ConstraintActivationWriteBlocked { constraint_id: u32 },
+    ConstraintActivationWriteBlocked {
+        diagnostic: Box<ConstraintDiagnostic>,
+    },
 }
 
 impl ExecutorErrorDetail {
-    /// Return stable accepted identity for one constraint violation.
-    #[cfg(test)]
+    /// Borrow the accepted constraint diagnostic carried by this failure.
     #[must_use]
-    pub(crate) const fn constraint_identity(&self) -> Option<u32> {
+    pub fn constraint_diagnostic(&self) -> Option<&ConstraintDiagnostic> {
         match self {
-            Self::ConstraintActivationWriteBlocked { constraint_id }
-            | Self::ConstraintViolation { constraint_id } => Some(*constraint_id),
+            Self::ConstraintActivationWriteBlocked { diagnostic }
+            | Self::ConstraintViolation { diagnostic } => Some(diagnostic.as_ref()),
             Self::MutationRequiredFieldMissing | Self::AcceptedRowConstraintProgramCorrupt => None,
         }
     }
@@ -1896,14 +2125,12 @@ impl ExecutorErrorDetail {
             Self::MutationRequiredFieldMissing => {
                 diagnostic_code::DiagnosticCode::RuntimeUnsupported
             }
-            Self::ConstraintViolation { .. } => {
-                diagnostic_code::DiagnosticCode::RuntimeInvariantViolation
+            Self::ConstraintViolation { diagnostic }
+            | Self::ConstraintActivationWriteBlocked { diagnostic } => {
+                diagnostic.error_code().diagnostic_code()
             }
             Self::AcceptedRowConstraintProgramCorrupt => {
                 diagnostic_code::DiagnosticCode::RuntimeCorruption
-            }
-            Self::ConstraintActivationWriteBlocked { .. } => {
-                diagnostic_code::DiagnosticCode::RuntimeConflict
             }
         }
     }
@@ -1917,21 +2144,14 @@ impl ExecutorErrorDetail {
                     boundary: diagnostic_code::RuntimeBoundaryCode::MutationRequiredFieldMissing,
                 })
             }
-            Self::ConstraintViolation { .. } => {
-                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
-                    boundary: diagnostic_code::RuntimeBoundaryCode::ConstraintViolation,
-                })
+            Self::ConstraintViolation { diagnostic }
+            | Self::ConstraintActivationWriteBlocked { diagnostic } => {
+                diagnostic.error_code().diagnostic_detail()
             }
             Self::AcceptedRowConstraintProgramCorrupt => {
                 Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
                     boundary:
                         diagnostic_code::RuntimeBoundaryCode::AcceptedRowConstraintProgramCorrupt,
-                })
-            }
-            Self::ConstraintActivationWriteBlocked { .. } => {
-                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
-                    boundary:
-                        diagnostic_code::RuntimeBoundaryCode::ConstraintActivationWriteBlocked,
                 })
             }
         }

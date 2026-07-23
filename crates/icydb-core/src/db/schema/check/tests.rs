@@ -294,6 +294,7 @@ fn compiled_checks_apply_sql_three_valued_semantics_and_stable_violation_identit
             constraint_id,
             constraint_name: "score_policy".to_string(),
             kind: AcceptedRowConstraintViolationKind::Check,
+            field_paths: vec!["score".to_string(), "nickname".to_string()],
         }
     );
 }
@@ -337,6 +338,7 @@ fn compiled_checks_include_pending_check_activation_gates() {
             constraint_id: activation_id,
             constraint_name: "pending_score_policy".to_string(),
             kind: AcceptedRowConstraintViolationKind::Check,
+            field_paths: vec!["score".to_string()],
         }),
     );
 }
@@ -413,6 +415,7 @@ fn compiled_row_constraints_include_pending_not_null_activation_gates() {
             constraint_id: activation_id,
             constraint_name: activation_name,
             kind: AcceptedRowConstraintViolationKind::NotNull,
+            field_paths: vec!["nickname".to_string()],
         }),
     );
     program
@@ -460,13 +463,13 @@ fn compiled_unique_activation_blocks_inserts_and_dependency_changes_only() {
         !program.is_empty(),
         "an activation gate makes the compiled constraint authority non-empty",
     );
-    assert_eq!(
-        program
-            .unique_activation_write_blocker(SanitizeWriteMode::Insert, &provenance)
-            .expect("insert barrier should evaluate")
-            .map(|(id, _)| id),
-        Some(activation_id),
-    );
+    let insert_barrier = program
+        .unique_activation_write_blocker(SanitizeWriteMode::Insert, &provenance)
+        .expect("insert barrier should evaluate")
+        .expect("insert should be blocked");
+    assert_eq!(insert_barrier.constraint_id(), activation_id);
+    assert!(!insert_barrier.constraint_name().is_empty());
+    assert_eq!(insert_barrier.field_paths(), &["score".to_string()]);
     assert!(
         program
             .unique_activation_write_blocker(SanitizeWriteMode::Update, &provenance)
@@ -485,7 +488,7 @@ fn compiled_unique_activation_blocks_inserts_and_dependency_changes_only() {
         program
             .unique_activation_write_blocker(SanitizeWriteMode::Update, &provenance)
             .expect("dependency barrier should evaluate")
-            .map(|(id, _)| id),
+            .map(super::compile::CompiledUniqueWriteBarrier::constraint_id),
         Some(activation_id),
     );
 }

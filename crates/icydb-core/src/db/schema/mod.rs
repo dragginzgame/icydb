@@ -60,7 +60,8 @@ pub(in crate::db) use check::bind_generated_check_predicate;
 pub(in crate::db::schema) use check::validate_accepted_check_literals;
 pub(in crate::db) use check::{
     AcceptedCheckCompareOpV1, AcceptedCheckExprV1, AcceptedCheckLiteralV1,
-    AcceptedCheckValueExprV1, AcceptedRowConstraintEvaluationError, CompiledAcceptedRowConstraints,
+    AcceptedCheckValueExprV1, AcceptedRowConstraintEvaluationError,
+    AcceptedRowConstraintViolationKind, CompiledAcceptedRowConstraints,
     render_accepted_check_expr_sql,
 };
 #[cfg(feature = "sql")]
@@ -102,7 +103,8 @@ pub(in crate::db) use constraint_activation_runner::{
 pub(in crate::db) use constraint_validation::{
     ConstraintStoreRevision, ConstraintValidationFinding, ConstraintValidationJob,
     ConstraintValidationPhase, ConstraintValidationReceipt, MAX_CONSTRAINT_VALIDATION_JOB_BYTES,
-    decode_constraint_validation_job, encode_constraint_validation_job,
+    accepted_constraint_field_paths, decode_constraint_validation_job,
+    encode_constraint_validation_job,
 };
 pub(in crate::db) use describe::{
     describe_entity_fields, describe_entity_fields_with_persisted_schema, describe_entity_model,

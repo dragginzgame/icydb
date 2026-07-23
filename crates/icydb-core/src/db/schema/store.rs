@@ -16,7 +16,7 @@ use crate::{
             AcceptedFieldKind, AcceptedSchemaSnapshot, ConstraintActivationKind,
             ConstraintActivationState, ConstraintId, ConstraintOrigin, ConstraintValidationJob,
             PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedSchemaSnapshot,
-            SchemaVersion, accepted_schema_cache_fingerprint,
+            SchemaVersion, accepted_constraint_field_paths, accepted_schema_cache_fingerprint,
             accepted_schema_cache_fingerprint_for_persisted_snapshot,
             accepted_schema_cache_fingerprint_method_version, decode_constraint_validation_job,
             decode_persisted_schema_snapshot, encode_constraint_validation_job,
@@ -743,6 +743,46 @@ impl SchemaStoreFootprint {
 }
 
 ///
+/// PendingRelationActivationDeleteBarrier
+///
+/// Accepted activation identity that blocks target deletion until a candidate
+/// reverse-relation generation is proven and promoted.
+///
+
+pub(in crate::db) struct PendingRelationActivationDeleteBarrier {
+    constraint_id: ConstraintId,
+    constraint_name: String,
+    source_entity_path: String,
+    field_paths: Vec<String>,
+}
+
+impl PendingRelationActivationDeleteBarrier {
+    /// Return the stable accepted constraint identity.
+    #[must_use]
+    pub(in crate::db) const fn constraint_id(&self) -> ConstraintId {
+        self.constraint_id
+    }
+
+    /// Borrow the stable accepted constraint name.
+    #[must_use]
+    pub(in crate::db) const fn constraint_name(&self) -> &str {
+        self.constraint_name.as_str()
+    }
+
+    /// Borrow the accepted source entity that owns the relation.
+    #[must_use]
+    pub(in crate::db) const fn source_entity_path(&self) -> &str {
+        self.source_entity_path.as_str()
+    }
+
+    /// Borrow bounded local field paths owned by the relation.
+    #[must_use]
+    pub(in crate::db) const fn field_paths(&self) -> &[String] {
+        self.field_paths.as_slice()
+    }
+}
+
+///
 /// SchemaStore
 ///
 /// Thin persistence wrapper over one journaled or heap schema metadata BTreeMap.
@@ -985,7 +1025,7 @@ impl SchemaStore {
     pub(in crate::db) fn pending_relation_activation_for_target(
         &self,
         target_path: &str,
-    ) -> Result<Option<(ConstraintId, String)>, InternalError> {
+    ) -> Result<Option<PendingRelationActivationDeleteBarrier>, InternalError> {
         let Some(bundle) = self.current_accepted_schema_bundle_ref()? else {
             return Ok(None);
         };
@@ -1008,7 +1048,15 @@ impl SchemaStore {
                     )
                 })
                 .ok_or_else(InternalError::store_corruption)?;
-            return Ok(Some((activation.id(), activation.name().to_string())));
+            return Ok(Some(PendingRelationActivationDeleteBarrier {
+                constraint_id: activation.id(),
+                constraint_name: activation.name().to_string(),
+                source_entity_path: snapshot.entity_path().to_string(),
+                field_paths: accepted_constraint_field_paths(
+                    snapshot,
+                    candidate.local_field_ids(),
+                )?,
+            }));
         }
 
         Ok(None)

@@ -9,6 +9,7 @@ use crate::{
         schema::{
             AcceptedSchemaFingerprint, ConstraintActivationFingerprint,
             ConstraintActivationSnapshot, ConstraintActivationState, ConstraintId, FieldId,
+            PersistedSchemaSnapshot,
         },
     },
     error::InternalError,
@@ -26,6 +27,24 @@ const MAX_CONSTRAINT_VALIDATION_ENTITY_PATH_BYTES: usize = 4 * 1024;
 const MAX_CONSTRAINT_VALIDATION_STORE_REVISIONS: usize = 16;
 const MAX_CONSTRAINT_VALIDATION_FINDINGS_PER_RECEIPT: usize = 64;
 const MAX_CONSTRAINT_VALIDATION_FINDING_FIELDS: usize = 32;
+
+/// Project durable accepted field identities into bounded diagnostic paths.
+pub(in crate::db) fn accepted_constraint_field_paths(
+    snapshot: &PersistedSchemaSnapshot,
+    field_ids: &[FieldId],
+) -> Result<Vec<String>, InternalError> {
+    field_ids
+        .iter()
+        .map(|field_id| {
+            snapshot
+                .fields()
+                .iter()
+                .find(|field| field.id() == *field_id)
+                .map(|field| field.name().to_string())
+                .ok_or_else(InternalError::store_corruption)
+        })
+        .collect()
+}
 
 /// Current bounded proof phase for one activation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

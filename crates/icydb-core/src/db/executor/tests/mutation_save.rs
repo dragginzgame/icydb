@@ -42,7 +42,10 @@ use crate::{
         },
     },
     entity::{EntityCreateFieldInput, EntityCreateInput, EntityKind},
-    error::{ErrorClass, ErrorDetail, ErrorOrigin, ExecutorErrorDetail},
+    error::{
+        ConstraintDiagnosticContext, ConstraintDiagnosticKind, ErrorClass, ErrorDetail,
+        ErrorOrigin, ExecutorErrorDetail,
+    },
     metrics::{metrics_report, metrics_reset_all},
     model::{
         field::{
@@ -3828,12 +3831,31 @@ fn session_insert_enforces_accepted_check_over_final_canonical_after_image() {
         error.diagnostic_code(),
         icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
     );
-    assert!(matches!(
-        error.detail(),
-        Some(ErrorDetail::Executor(detail))
-            if detail.constraint_identity() == Some(constraint_id.get())
-                && matches!(detail, ExecutorErrorDetail::ConstraintViolation { .. })
-    ));
+    let Some(ErrorDetail::Executor(ExecutorErrorDetail::ConstraintViolation { diagnostic })) =
+        error.detail()
+    else {
+        panic!("accepted CHECK rejection should retain its typed diagnostic");
+    };
+    assert_eq!(diagnostic.constraint_id(), constraint_id.get());
+    assert_eq!(diagnostic.constraint_name(), "email_min_length");
+    assert_eq!(
+        diagnostic.constraint_kind(),
+        ConstraintDiagnosticKind::Check
+    );
+    assert_eq!(diagnostic.entity(), UniqueEmailEntity::PATH);
+    let expected_primary_key = DecodedDataStoreKey::try_new::<UniqueEmailEntity>(rejected_id)
+        .expect("rejected typed identity should encode")
+        .to_raw()
+        .expect("rejected typed identity should have a raw key");
+    assert_eq!(
+        diagnostic.primary_key(),
+        expected_primary_key.encoded_primary_key_bytes(),
+    );
+    assert_eq!(diagnostic.field_paths(), &["email".to_string()]);
+    assert_eq!(
+        diagnostic.context(),
+        ConstraintDiagnosticContext::WriteAdmission
+    );
     assert!(load_unique_email_entity(accepted_id).is_some());
     assert!(
         load_unique_email_entity(rejected_id).is_none(),
@@ -3861,7 +3883,8 @@ fn structural_insert_enforces_accepted_check_over_final_canonical_after_image() 
     assert!(matches!(
         error.detail(),
         Some(ErrorDetail::Executor(detail))
-            if detail.constraint_identity() == Some(constraint_id.get())
+            if detail.constraint_diagnostic().map(crate::error::ConstraintDiagnostic::constraint_id)
+                == Some(constraint_id.get())
                 && matches!(detail, ExecutorErrorDetail::ConstraintViolation { .. })
     ));
     assert!(load_unique_email_entity(id).is_none());
@@ -3901,7 +3924,12 @@ fn typed_and_structural_inserts_enforce_pending_not_null_activation() {
         assert!(matches!(
             error.detail(),
             Some(ErrorDetail::Executor(detail))
-                if detail.constraint_identity() == Some(constraint_id.get())
+                if detail.constraint_diagnostic().is_some_and(|diagnostic| {
+                    diagnostic.constraint_id() == constraint_id.get()
+                        && diagnostic.constraint_kind() == ConstraintDiagnosticKind::NotNull
+                        && diagnostic.context() == ConstraintDiagnosticContext::WriteAdmission
+                        && diagnostic.field_paths() == ["from".to_string()]
+                })
                     && matches!(detail, ExecutorErrorDetail::ConstraintViolation { .. })
         ));
     }

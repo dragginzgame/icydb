@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        Db, DbSession, EntityRuntimeHooks, Predicate,
+        Db, DbSession, EntityRuntimeHooks, Predicate, QueryError,
         commit::{
             CommitFailpoint, CommitFailpointMode, CommitMarker, CommitRowOp,
             arm_commit_failpoint_for_tests, begin_commit, clear_commit_failpoint_for_tests,
@@ -31,7 +31,7 @@ use crate::{
         },
     },
     entity::{EntityDeclaration, EntityKind},
-    error::ErrorClass,
+    error::{ConstraintDiagnosticContext, ConstraintDiagnosticKind, ErrorClass},
     metrics::{metrics_report, metrics_reset_all},
     model::{
         entity::{CheckConstraintModel, EntityModel, PrimaryKeyModel},
@@ -1386,13 +1386,7 @@ fn generated_check_validation_replays_findings_until_exact_acknowledgement() {
     assert_eq!(finding.field_ids(), &[FieldId::new(2)]);
     assert_eq!(
         finding.error_code(),
-        crate::error::InternalError::mutation_constraint_violation(
-            constraint_id.get(),
-            "name_nonempty".to_string(),
-        )
-        .diagnostic()
-        .error_code()
-        .raw(),
+        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION.raw(),
     );
 
     let ConstraintValidationProgress::Findings {
@@ -2719,6 +2713,26 @@ fn generated_relation_activation_blocks_target_delete_until_promotion() {
         Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
             boundary: icydb_diagnostic_code::RuntimeBoundaryCode::ConstraintActivationWriteBlocked,
         }),
+    );
+    let QueryError::Execute(execute) = &error else {
+        panic!("candidate relation barrier should preserve execution authority");
+    };
+    let diagnostic = execute
+        .as_internal()
+        .constraint_diagnostic()
+        .expect("candidate relation barrier should retain accepted identity");
+    assert_ne!(diagnostic.constraint_id(), 0);
+    assert!(!diagnostic.constraint_name().is_empty());
+    assert_eq!(
+        diagnostic.constraint_kind(),
+        ConstraintDiagnosticKind::Relation
+    );
+    assert_eq!(diagnostic.entity(), AdditiveRelationSourceEntity::PATH);
+    assert_eq!(diagnostic.primary_key(), None);
+    assert_eq!(diagnostic.field_paths(), &["target".to_string()]);
+    assert_eq!(
+        diagnostic.context(),
+        ConstraintDiagnosticContext::WriteAdmission
     );
     let target_key = DecodedDataStoreKey::try_new::<SchemaReconcileRelationTargetEntity>(target_id)
         .expect("target key should encode")

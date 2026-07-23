@@ -230,7 +230,7 @@ fn scan_store_reverse_integrity(
 }
 
 // Map scan-time errors into explicit integrity classification buckets.
-const fn classify_scan_error(
+fn classify_scan_error(
     err: InternalError,
     snapshot: &mut IntegrityStoreSnapshot,
 ) -> Result<(), InternalError> {

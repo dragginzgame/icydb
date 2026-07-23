@@ -34,7 +34,7 @@ use crate::{
         },
     },
     entity::{EntityKind, EntityValue},
-    error::{ErrorClass, InternalError},
+    error::{ConstraintDiagnostic, ConstraintDiagnosticKind, ErrorClass, InternalError},
     metrics::sink::{MetricsEvent, record},
     model::entity::EntityModel,
     traits::{CanisterKind, Path},
@@ -72,6 +72,7 @@ struct AcceptedCommitSchemaContracts {
 struct CandidateUniqueCommitContract {
     constraint_id: ConstraintId,
     constraint_name: String,
+    field_paths: Vec<String>,
     projection: UniqueConstraintProjection,
     index_store: &'static LocalKey<RefCell<IndexStore>>,
 }
@@ -441,6 +442,7 @@ where
         let mut forward_index_ops = materialize_forward_index_commit_ops(db, index_plan)?;
         forward_index_ops.extend(prepare_candidate_unique_index_commit_ops(
             schema_contracts.candidate_unique.as_ref(),
+            authority.entity_path,
             &structural.data_key,
             decoded.old_slots.as_ref(),
             decoded.new_slots.as_ref(),
@@ -706,6 +708,12 @@ fn candidate_unique_commit_contract<C: CanisterKind>(
     Ok(Some(CandidateUniqueCommitContract {
         constraint_id: activation.id(),
         constraint_name: activation.name().to_string(),
+        field_paths: candidate
+            .key()
+            .field_paths()
+            .iter()
+            .map(|field_path| field_path.path().join("."))
+            .collect(),
         projection,
         index_store,
     }))
@@ -713,6 +721,7 @@ fn candidate_unique_commit_contract<C: CanisterKind>(
 
 fn prepare_candidate_unique_index_commit_ops(
     candidate: Option<&CandidateUniqueCommitContract>,
+    entity_path: &str,
     data_key: &DecodedDataStoreKey,
     old_slots: Option<&StructuralSlotReader<'_>>,
     new_slots: Option<&StructuralSlotReader<'_>>,
@@ -737,9 +746,19 @@ fn prepare_candidate_unique_index_commit_ops(
         )]),
         (old_key, new_key) if old_slots.is_some() && new_slots.is_some() => {
             if old_key != new_key {
+                let raw_data_key = data_key.to_raw()?;
+                let primary_key = raw_data_key
+                    .encoded_primary_key_bytes()
+                    .ok_or_else(InternalError::store_invariant)?;
                 return Err(InternalError::mutation_constraint_activation_write_blocked(
-                    candidate.constraint_id.get(),
-                    candidate.constraint_name.as_str(),
+                    ConstraintDiagnostic::write_activation_blocked(
+                        candidate.constraint_id.get(),
+                        candidate.constraint_name.clone(),
+                        ConstraintDiagnosticKind::Unique,
+                        entity_path.to_string(),
+                        Some(primary_key.to_vec()),
+                        candidate.field_paths.clone(),
+                    ),
                 ));
             }
             Ok(Vec::new())
