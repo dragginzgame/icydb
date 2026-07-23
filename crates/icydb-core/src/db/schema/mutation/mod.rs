@@ -75,16 +75,9 @@ pub(in crate::db) use ddl_admission::{
 mod delta;
 #[cfg(feature = "sql")]
 pub(in crate::db::schema) use delta::required_empty_entity_field_addition_matches;
-#[cfg_attr(
-    not(test),
-    expect(
-        unused_imports,
-        reason = "mutation planning tests consume delta classifiers through the module root"
-    )
-)]
-pub(in crate::db::schema) use delta::{
-    SchemaMutationDelta, classify_schema_mutation_delta, schema_mutation_request_for_snapshots,
-};
+pub(in crate::db::schema) use delta::schema_mutation_request_for_snapshots;
+#[cfg(all(test, feature = "sql"))]
+pub(in crate::db::schema) use delta::{SchemaMutationDelta, classify_schema_mutation_delta};
 
 mod generated_candidate;
 pub(in crate::db::schema) use generated_candidate::{
@@ -257,5 +250,5 @@ impl From<SchemaMutationRequest<'_>> for MutationPlan {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 mod tests;

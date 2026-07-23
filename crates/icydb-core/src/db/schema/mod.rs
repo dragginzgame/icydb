@@ -92,7 +92,7 @@ pub(in crate::db) use constraint::{
     ConstraintActivationState, ConstraintOrigin, not_null_constraint_name,
     primary_key_constraint_name,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use constraint_activation_runner::ConstraintValidationProgress;
 #[cfg(feature = "sql")]
 pub(in crate::db) use constraint_activation_runner::validate_unpublished_check_candidate_exact;
@@ -154,7 +154,7 @@ pub(in crate::db::schema) use integrity::{
     schema_snapshot_integrity_detail, schema_snapshot_relation_integrity_detail,
 };
 pub(in crate::db) use layout::{RowLayoutVersion, SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db::schema) use mutation::AcceptedSchemaMutationError;
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use mutation::SchemaDdlSchemaVersionAdmissionError;
@@ -210,7 +210,7 @@ pub(in crate::db) use mutation::{
     StagedUserIndexDomainError, StagedUserIndexDomainReplacement,
     StagedUserIndexDomainReplacementBuilder,
 };
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db::schema) use mutation::{SchemaMutationDelta, classify_schema_mutation_delta};
 pub(in crate::db) use proposal::compiled_schema_proposal_for_model;
 #[cfg(feature = "sql")]
