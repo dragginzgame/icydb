@@ -1,4 +1,5 @@
 use icydb::design::prelude::{Decimal, Float64, Principal, Timestamp, Ulid};
+use icydb::types::GenerateKey;
 
 use crate::schema::{Character, CharacterMentor, Grid};
 

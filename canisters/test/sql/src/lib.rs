@@ -3,7 +3,7 @@
 //!
 
 use ic_cdk::update;
-use icydb::types::{Decimal, Float32, Float64, Timestamp, Ulid};
+use icydb::types::{Decimal, Float32, Float64, GenerateKey, Timestamp, Ulid};
 use icydb::{ErrorKind, ErrorOrigin, QueryErrorKind, db::MutationMode, value::InputValue};
 use icydb_testing_test_sql_fixtures::sql::{SqlTestNumericTypes, SqlTestUser};
 
