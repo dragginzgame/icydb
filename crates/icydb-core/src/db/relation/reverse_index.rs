@@ -55,7 +55,7 @@ use target_keys::RelationTargetKeys;
 /// reverse-index identity, so the heavy mutation loop does not need `S`.
 ///
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct ReverseRelationSourceInfo {
     path: &'static str,
     entity_tag: EntityTag,
@@ -242,7 +242,7 @@ pub(in crate::db::relation) struct AcceptedRelationInfo {
 ///
 /// The projection covers either active accepted state or an isolated
 /// activation candidate. Callers own visibility, traversal, and publication.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(in crate::db) struct RelationConstraintProjection {
     source: ReverseRelationSourceInfo,
     relation_id: crate::db::schema::RelationId,

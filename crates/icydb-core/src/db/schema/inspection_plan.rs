@@ -6,12 +6,14 @@
 
 use crate::{
     db::{
+        Db,
         codec::{
             finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_u32,
             write_hash_u64,
         },
         data::StructuralRowContract,
         index::AcceptedIndexInspectionPlan,
+        relation::{RelationConstraintProjection, ReverseRelationSourceInfo},
         schema::{
             AcceptedCatalogIdentity, AcceptedRowLayoutRuntimeContract, AcceptedSchemaAuthority,
             AcceptedSchemaFingerprint, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
@@ -19,6 +21,7 @@ use crate::{
         },
     },
     error::InternalError,
+    traits::CanisterKind,
 };
 use sha2::Digest;
 
@@ -55,15 +58,65 @@ pub(in crate::db) struct AcceptedInspectionPlan {
     row_contract: StructuralRowContract,
     write_constraints: CompiledAcceptedRowConstraints,
     index_inspection: AcceptedIndexInspectionPlan,
+    relation_inspection: Vec<RelationConstraintProjection>,
     fingerprint: AcceptedInspectionPlanFingerprint,
 }
 
 impl AcceptedInspectionPlan {
     /// Build one plan from a verified accepted selection.
-    pub(in crate::db) fn compile(
+    pub(in crate::db) fn compile<C: CanisterKind>(
+        db: &Db<C>,
         identity: AcceptedCatalogIdentity,
         snapshot: AcceptedSchemaSnapshot,
         value_catalog: AcceptedValueCatalogHandle,
+    ) -> Result<Self, InternalError> {
+        Self::compile_with_relation_builder(identity, snapshot, value_catalog, |snapshot, row| {
+            let source =
+                ReverseRelationSourceInfo::new(identity.entity_path(), identity.entity_tag());
+            snapshot
+                .persisted_snapshot()
+                .relations()
+                .iter()
+                .map(|edge| {
+                    RelationConstraintProjection::new_active(
+                        db,
+                        source,
+                        snapshot.persisted_snapshot(),
+                        row,
+                        edge,
+                    )
+                })
+                .collect()
+        })
+    }
+
+    #[cfg(test)]
+    /// Compile a relation-free plan without constructing a runtime database.
+    ///
+    /// Relation-bearing fixtures must use [`Self::compile`] so tests cannot
+    /// create a plan that omits accepted relation authority.
+    pub(in crate::db) fn compile_relation_free_for_tests(
+        identity: AcceptedCatalogIdentity,
+        snapshot: AcceptedSchemaSnapshot,
+        value_catalog: AcceptedValueCatalogHandle,
+    ) -> Result<Self, InternalError> {
+        Self::compile_with_relation_builder(identity, snapshot, value_catalog, |snapshot, _row| {
+            if !snapshot.persisted_snapshot().relations().is_empty() {
+                return Err(InternalError::store_invariant());
+            }
+            Ok(Vec::new())
+        })
+    }
+
+    fn compile_with_relation_builder(
+        identity: AcceptedCatalogIdentity,
+        snapshot: AcceptedSchemaSnapshot,
+        value_catalog: AcceptedValueCatalogHandle,
+        build_relations: impl FnOnce(
+            &AcceptedSchemaSnapshot,
+            &StructuralRowContract,
+        )
+            -> Result<Vec<RelationConstraintProjection>, InternalError>,
     ) -> Result<Self, InternalError> {
         if value_catalog.revision() != identity.accepted_schema_revision() {
             return Err(InternalError::store_invariant());
@@ -83,6 +136,7 @@ impl AcceptedInspectionPlan {
         .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
         let index_inspection =
             AcceptedIndexInspectionPlan::compile(&snapshot, value_catalog.clone(), &row_contract)?;
+        let relation_inspection = build_relations(&snapshot, &row_contract)?;
         let fingerprint =
             accepted_inspection_plan_fingerprint(identity, value_catalog.authority().fingerprint());
 
@@ -93,6 +147,7 @@ impl AcceptedInspectionPlan {
             row_contract,
             write_constraints,
             index_inspection,
+            relation_inspection,
             fingerprint,
         })
     }
@@ -144,6 +199,12 @@ impl AcceptedInspectionPlan {
     #[must_use]
     pub(in crate::db) const fn index_inspection(&self) -> &AcceptedIndexInspectionPlan {
         &self.index_inspection
+    }
+
+    /// Borrow precompiled active source-owned relation witness authority.
+    #[must_use]
+    pub(in crate::db) const fn relation_inspection(&self) -> &[RelationConstraintProjection] {
+        self.relation_inspection.as_slice()
     }
 
     /// Return the fingerprint of the complete accepted inspection projection.
@@ -236,8 +297,12 @@ mod tests {
         let revision = AcceptedSchemaRevision::INITIAL;
         let identity = identity(revision, [0x11; 16]);
 
-        let plan = AcceptedInspectionPlan::compile(identity, snapshot(), value_catalog(revision))
-            .expect("verified accepted inputs should compile one inspection plan");
+        let plan = AcceptedInspectionPlan::compile_relation_free_for_tests(
+            identity,
+            snapshot(),
+            value_catalog(revision),
+        )
+        .expect("verified accepted inputs should compile one inspection plan");
 
         assert_eq!(plan.identity(), identity);
         assert!(plan.write_constraints().is_empty());
@@ -273,7 +338,7 @@ mod tests {
 
     #[test]
     fn accepted_inspection_plan_rejects_mismatched_catalog_revision() {
-        let error = AcceptedInspectionPlan::compile(
+        let error = AcceptedInspectionPlan::compile_relation_free_for_tests(
             identity(AcceptedSchemaRevision::INITIAL, [0x11; 16]),
             snapshot(),
             value_catalog(AcceptedSchemaRevision::new(2)),

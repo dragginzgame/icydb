@@ -12,7 +12,7 @@ use crate::{
         integrity::{
             IntegrityEntityIdentity, IntegrityFinding, IntegrityFindingClass, IntegrityFindingKind,
             IntegrityPhase, IntegritySeverity, IntegrityVerifierFamily, PhysicalUnitCheckpoint,
-            accepted_relation_projections, relation_field_paths,
+            relation_field_paths,
         },
         relation::RelationConstraintProjection,
         schema::{AcceptedInspectionPlan, PersistedIndexSnapshot},
@@ -273,7 +273,7 @@ pub(in crate::db) fn execute_reverse_integrity_page<C: CanisterKind>(
 ) -> Result<DerivedIntegrityPage, InternalError> {
     let limits = limits.validate()?;
     let identity = plan.identity();
-    let relations = accepted_relation_projections(db, plan)?;
+    let relations = plan.relation_inspection();
     let relation = relations
         .get(relation_ordinal)
         .ok_or_else(InternalError::store_invariant)?;

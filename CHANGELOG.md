@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.212.md](docs/changelog/0.212.md)
 
+- `0.212.3` completes integrity closeout evidence and makes accepted inspection
+  plans the sole reusable owner of active relation projections.
+
 - `0.212.2` adds reproducible Quick/Deep instruction, response, durable-job,
   retained-memory, raw-Wasm, and source-complexity evidence without changing
   production integrity semantics.

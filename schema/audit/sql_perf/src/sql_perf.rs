@@ -107,6 +107,42 @@ pub struct PerfAuditHeapUser {}
 pub struct PerfAuditJournaledUser {}
 
 ///
+/// PerfAuditRelationTarget
+///
+/// Minimal relation target used only by the bounded integrity performance
+/// evidence. Its primary-key domain is shared by deterministic source rows.
+///
+
+#[entity(
+    store = "PerfAuditStore",
+    version = 1,
+    pk(fields = ["id"]),
+    fields(field(ident = "id", value(item(prim = "Int32"))))
+)]
+pub struct PerfAuditRelationTarget {}
+
+///
+/// PerfAuditRelationSource
+///
+/// Minimal relation source used to exercise accepted target validation and
+/// active reverse-relation verification without a second audit canister.
+///
+
+#[entity(
+    store = "PerfAuditStore",
+    version = 1,
+    pk(fields = ["id"]),
+    fields(
+        field(ident = "id", value(item(prim = "Int32"))),
+        field(
+            ident = "target_id",
+            value(item(rel = "PerfAuditRelationTarget", prim = "Int32"))
+        )
+    )
+)]
+pub struct PerfAuditRelationSource {}
+
+///
 /// PerfAuditBlob
 ///
 /// Blob-shaped perf fixture with a scalar metadata covering index beside

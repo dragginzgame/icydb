@@ -3,7 +3,7 @@ use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error,
     db::{
-        DeepIntegrityPageStatus, IntegrityCheckResult, IntegrityJobReceipt,
+        DeepIntegrityPageStatus, IntegrityCheckResult, IntegrityJobReceipt, IntegrityPhase,
         IntegrityTerminalOutcome, QueryExecutionAttribution, SqlIntegrityError,
         SqlQueryExecutionAttribution, sql::SqlQueryResult,
     },
@@ -85,6 +85,42 @@ struct IntegritySqlPerfResult {
     local_instructions: u64,
 }
 
+/// Candid mirror of the audit canister's deterministic scale-payload profile.
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+enum ScalePayloadProfile {
+    /// The selected scale fixture carries no blob payload.
+    #[serde(rename = "not_applicable")]
+    NotApplicable,
+    /// The selected scale fixture uses the maintained deterministic blob cycle.
+    #[serde(rename = "blob_cycle_v1")]
+    BlobCycleV1,
+}
+
+/// Candid mirror of the audit canister's realized scale-fixture facts.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct ScaleFixtureFacts {
+    profile_version: u32,
+    surface: String,
+    fixture_rows: u32,
+    zero_match_rows: u32,
+    one_match_rows: u32,
+    quarter_match_rows: u32,
+    all_match_rows: u32,
+    payload_profile: ScalePayloadProfile,
+}
+
+#[derive(Debug)]
+struct IntegrityCleanPerfObservation {
+    quick_instructions: u64,
+    deep_page_instructions: Vec<u64>,
+    deep_page_phases: Vec<IntegrityPhase>,
+    quick_response_bytes: usize,
+    max_deep_response_bytes: usize,
+    memory_before: (u64, u64),
+    memory_after_quick: (u64, u64),
+    memory_after_deep: (u64, u64),
+}
+
 const SQL_WRITE_MATERIALIZATION_METRICS: [&str; 4] = [
     "update count",
     "update returning",
@@ -94,9 +130,12 @@ const SQL_WRITE_MATERIALIZATION_METRICS: [&str; 4] = [
 const SQL_WRITE_MATERIALIZATION_BUDGET: u64 = 750_000_000;
 const RESUMABLE_UPDATE_STEP_BUDGET: u64 = 2_000_000_000;
 const INTEGRITY_QUICK_OPERATION_BUDGET: u64 = 2_000_000;
+const INTEGRITY_COMPLEX_QUICK_OPERATION_BUDGET: u64 = 30_000_000;
+const INTEGRITY_RELATION_COLD_QUICK_OPERATION_BUDGET: u64 = 250_000_000;
 const INTEGRITY_DEEP_PAGE_BUDGET: u64 = 30_000_000;
 const INTEGRITY_RESPONSE_BYTE_BUDGET: usize = 512 * 1024;
 const INTEGRITY_RETAINED_MEMORY_GROWTH_BUDGET: u64 = 16 * 1024 * 1024;
+const INTEGRITY_RELATION_RECOVERY_BUDGET: u64 = 15_000_000_000;
 
 #[derive(Clone, Copy, Debug)]
 enum SqlPerfSurface {
@@ -200,6 +239,44 @@ fn measure_integrity_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Inte
     result.expect("integrity perf operation should succeed")
 }
 
+fn integrity_page_phase(receipt: &IntegrityJobReceipt) -> IntegrityPhase {
+    let IntegrityJobReceipt::Page(page) = receipt else {
+        panic!("clean Deep measurement should return only page receipts");
+    };
+
+    page.phase()
+}
+
+fn activate_journaled_user_perf_check(fixture: &StandaloneCanisterFixture) {
+    let activation: Result<ConstraintActivationPerfResult, Error> = fixture
+        .update_call("measure_journaled_user_constraint_write_perf", ())
+        .expect("constraint activation perf result should decode");
+    activation.expect("constraint activation should publish");
+
+    let validation: Result<(), Error> = fixture
+        .update_call("validate_journaled_user_perf_check", ())
+        .expect("constraint validation result should decode");
+    validation.expect("constraint validation should promote");
+}
+
+fn load_user_scale_integrity_fixture(fixture: &StandaloneCanisterFixture, row_count: u32) {
+    let result: Result<ScaleFixtureFacts, Error> = fixture
+        .update_call("load_user_scale_fixture", (row_count,))
+        .expect("user scale fixture facts should decode");
+    let facts = result.expect("user scale fixture should load");
+
+    assert_eq!(facts.surface, "user");
+    assert_eq!(facts.fixture_rows, row_count);
+}
+
+fn load_relation_integrity_fixture(fixture: &StandaloneCanisterFixture) {
+    let result: Result<(), Error> = fixture
+        .update_call("load_relation_integrity_fixture", ())
+        .expect("relation integrity fixture result should decode");
+
+    result.expect("relation integrity fixture should load");
+}
+
 fn canister_memory_bytes(fixture: &StandaloneCanisterFixture) -> (u64, u64) {
     fn nat_u64(value: &candid::Nat) -> u64 {
         match value.0.to_u64_digits().as_slice() {
@@ -219,12 +296,124 @@ fn canister_memory_bytes(fixture: &StandaloneCanisterFixture) -> (u64, u64) {
     (wasm, stable)
 }
 
+fn measure_clean_integrity_run(
+    fixture: &StandaloneCanisterFixture,
+    entity: &str,
+    submission_key: &str,
+) -> IntegrityCleanPerfObservation {
+    const MAX_DEEP_STEPS: usize = 64;
+
+    let memory_before = canister_memory_bytes(fixture);
+    let quick_sql = format!("CHECK INTEGRITY {entity} QUICK");
+    let quick = measure_integrity_sql(fixture, quick_sql.as_str());
+    let quick_response_bytes = candid::encode_one(&quick.result)
+        .expect("Quick result should encode")
+        .len();
+    let memory_after_quick = canister_memory_bytes(fixture);
+    let start_sql = format!("CHECK INTEGRITY {entity} DEEP START '{submission_key}'");
+    let start = measure_integrity_sql(fixture, start_sql.as_str());
+    let IntegrityCheckResult::Deep(start_receipt) = start.result else {
+        panic!("Deep start should return a Deep receipt");
+    };
+    let job_id = start_receipt.job_id();
+    let mut sequence = start_receipt.page_sequence();
+    let mut deep_page_instructions = vec![start.local_instructions];
+    let mut deep_page_phases = vec![integrity_page_phase(&start_receipt)];
+    let mut max_deep_response_bytes = candid::encode_one(&start_receipt)
+        .expect("Deep start receipt should encode")
+        .len();
+    let mut terminal = None;
+
+    for _ in 0..MAX_DEEP_STEPS {
+        let sql = format!(
+            "CHECK INTEGRITY DEEP CONTINUE '{}' AFTER {sequence}",
+            job_id.to_hex(),
+        );
+        let sample = measure_integrity_sql(fixture, sql.as_str());
+        let IntegrityCheckResult::Deep(receipt) = sample.result else {
+            panic!("Deep continuation should return a Deep receipt");
+        };
+        sequence = receipt.page_sequence();
+        deep_page_instructions.push(sample.local_instructions);
+        deep_page_phases.push(integrity_page_phase(&receipt));
+        max_deep_response_bytes = max_deep_response_bytes.max(
+            candid::encode_one(&receipt)
+                .expect("Deep receipt should encode")
+                .len(),
+        );
+        if matches!(
+            receipt,
+            IntegrityJobReceipt::Page(ref page)
+                if matches!(page.status(), DeepIntegrityPageStatus::Terminal(_))
+        ) {
+            terminal = Some(receipt);
+            break;
+        }
+    }
+
+    let memory_after_deep = canister_memory_bytes(fixture);
+    let terminal = terminal.expect("small fixture should reach a bounded terminal page");
+    assert!(matches!(
+        terminal,
+        IntegrityJobReceipt::Page(ref page)
+            if page.status()
+                == &DeepIntegrityPageStatus::Terminal(
+                    IntegrityTerminalOutcome::DeepCompleteClean
+                )
+    ));
+
+    IntegrityCleanPerfObservation {
+        quick_instructions: quick.local_instructions,
+        deep_page_instructions,
+        deep_page_phases,
+        quick_response_bytes,
+        max_deep_response_bytes,
+        memory_before,
+        memory_after_quick,
+        memory_after_deep,
+    }
+}
+
+fn assert_clean_integrity_perf_stays_bounded(
+    observation: &IntegrityCleanPerfObservation,
+    quick_instruction_budget: u64,
+) {
+    assert!((1..=quick_instruction_budget).contains(&observation.quick_instructions));
+    assert!(
+        observation
+            .deep_page_instructions
+            .iter()
+            .all(|instructions| (1..=INTEGRITY_DEEP_PAGE_BUDGET).contains(instructions))
+    );
+    assert!(observation.quick_response_bytes <= INTEGRITY_RESPONSE_BYTE_BUDGET);
+    assert!(observation.max_deep_response_bytes <= INTEGRITY_RESPONSE_BYTE_BUDGET);
+    let retained_memory_growth = observation
+        .memory_after_deep
+        .0
+        .saturating_sub(observation.memory_before.0)
+        .saturating_add(
+            observation
+                .memory_after_deep
+                .1
+                .saturating_sub(observation.memory_before.1),
+        );
+    assert!(retained_memory_growth <= INTEGRITY_RETAINED_MEMORY_GROWTH_BUDGET);
+}
+
 fn load_journaled_reentry_probe_fixture(fixture: &StandaloneCanisterFixture) {
     let result: Result<(), Error> = fixture
         .update_call("load_journaled_reentry_probe_fixture", ())
         .expect("journaled reentry probe fixture load should decode");
 
     result.expect("journaled reentry probe fixture load should succeed");
+}
+
+fn load_journal_tail_integrity_fixture(fixture: &StandaloneCanisterFixture) {
+    let result: Result<(), Error> = fixture
+        .update_call("load_journal_tail_integrity_fixture", ())
+        .expect("journal-tail integrity fixture result should decode");
+
+    result.expect("journal-tail integrity fixture should load");
 }
 
 fn query_surface_with_perf(
@@ -1622,11 +1811,12 @@ fn assert_storage_total_and_fluent_limit_one_reports(fixture: &StandaloneCaniste
 fn assert_journaled_guarded_reentry_perf_stays_bounded(
     label: &str,
     perf: &FluentTotalOnlyPerfResult,
+    expected_rows: u32,
     instruction_budget: u64,
 ) {
     assert_eq!(
-        perf.row_count, 1,
-        "{label} guarded reentry probe should return one journaled row",
+        perf.row_count, expected_rows,
+        "{label} guarded reentry probe should return the expected journaled rows",
     );
     assert!(
         perf.instructions > 0,
@@ -1771,88 +1961,244 @@ fn sql_perf_resumable_update_steps_stay_bounded() {
 
 #[test]
 fn sql_perf_integrity_quick_and_deep_pages_stay_bounded() {
-    const MAX_DEEP_STEPS: usize = 16;
-
     let fixture = install_sql_perf_canister_fixture();
     load_journaled_reentry_probe_fixture(&fixture);
-    let memory_before = canister_memory_bytes(&fixture);
+    let observation =
+        measure_clean_integrity_run(&fixture, "PerfAuditJournaledUser", "closeout-evidence");
 
-    let quick = measure_integrity_sql(&fixture, "CHECK INTEGRITY PerfAuditJournaledUser QUICK");
-    let quick_response_bytes = candid::encode_one(&quick.result)
-        .expect("Quick result should encode")
+    println!(
+        "integrity closeout: quick_instructions={} deep_page_instructions={:?} \
+         quick_response_bytes={} max_deep_response_bytes={} \
+         memory_bytes_wasm_stable={:?}->{:?}->{:?}",
+        observation.quick_instructions,
+        observation.deep_page_instructions,
+        observation.quick_response_bytes,
+        observation.max_deep_response_bytes,
+        observation.memory_before,
+        observation.memory_after_quick,
+        observation.memory_after_deep,
+    );
+    assert_clean_integrity_perf_stays_bounded(&observation, INTEGRITY_QUICK_OPERATION_BUDGET);
+}
+
+#[test]
+fn sql_perf_integrity_live_journal_tail_pages_stay_bounded() {
+    let fixture = install_sql_perf_canister_fixture();
+    load_journal_tail_integrity_fixture(&fixture);
+    let observation =
+        measure_clean_integrity_run(&fixture, "PerfAuditJournaledUser", "journal-tail-evidence");
+    let journal_pages = observation
+        .deep_page_phases
+        .iter()
+        .filter(|phase| **phase == IntegrityPhase::JournalTails)
+        .count();
+
+    println!(
+        "integrity live journal tail: quick_instructions={} \
+         deep_page_instructions={:?} deep_page_phases={:?} journal_pages={} \
+         quick_response_bytes={} max_deep_response_bytes={}",
+        observation.quick_instructions,
+        observation.deep_page_instructions,
+        observation.deep_page_phases,
+        journal_pages,
+        observation.quick_response_bytes,
+        observation.max_deep_response_bytes,
+    );
+    assert_clean_integrity_perf_stays_bounded(&observation, INTEGRITY_QUICK_OPERATION_BUDGET);
+    assert!(
+        journal_pages > 1,
+        "six live journal batches should require multiple bounded journal pages",
+    );
+    assert!(
+        observation
+            .deep_page_phases
+            .contains(&IntegrityPhase::FinalProofVectorCheck)
+    );
+}
+
+#[test]
+fn sql_perf_integrity_accepted_check_pages_stay_bounded() {
+    let fixture = install_sql_perf_canister_fixture();
+    activate_journaled_user_perf_check(&fixture);
+    load_journaled_reentry_probe_fixture(&fixture);
+    upgrade_fixture_canister(&fixture, "sql_perf");
+    let guarded_reentry = measure_journaled_guarded_reentry_total_only_perf(&fixture);
+    let observation = measure_clean_integrity_run(
+        &fixture,
+        "PerfAuditJournaledUser",
+        "accepted-check-evidence",
+    );
+
+    println!(
+        "integrity accepted check: guarded_reentry_instructions={} quick_instructions={} \
+         deep_page_instructions={:?} \
+         quick_response_bytes={} max_deep_response_bytes={}",
+        guarded_reentry.instructions,
+        observation.quick_instructions,
+        observation.deep_page_instructions,
+        observation.quick_response_bytes,
+        observation.max_deep_response_bytes,
+    );
+    assert_journaled_guarded_reentry_perf_stays_bounded(
+        "accepted-check setup",
+        &guarded_reentry,
+        1,
+        JOURNALED_UPGRADE_FIRST_REENTRY_BUDGET,
+    );
+    assert_clean_integrity_perf_stays_bounded(&observation, INTEGRITY_QUICK_OPERATION_BUDGET);
+}
+
+#[test]
+fn sql_perf_integrity_many_index_pages_stay_bounded() {
+    const FIXTURE_ROWS: u32 = 16;
+
+    let fixture = install_sql_perf_canister_fixture();
+    load_user_scale_integrity_fixture(&fixture, FIXTURE_ROWS);
+    upgrade_fixture_canister(&fixture, "sql_perf");
+    let guarded_reentry = measure_journaled_guarded_reentry_total_only_perf(&fixture);
+    let observation = measure_clean_integrity_run(&fixture, "PerfAuditUser", "many-index-evidence");
+
+    println!(
+        "integrity many-index: guarded_reentry_instructions={} quick_instructions={} \
+         deep_page_instructions={:?} deep_page_phases={:?} \
+         quick_response_bytes={} max_deep_response_bytes={}",
+        guarded_reentry.instructions,
+        observation.quick_instructions,
+        observation.deep_page_instructions,
+        observation.deep_page_phases,
+        observation.quick_response_bytes,
+        observation.max_deep_response_bytes,
+    );
+    assert_journaled_guarded_reentry_perf_stays_bounded(
+        "many-index setup",
+        &guarded_reentry,
+        0,
+        JOURNALED_UPGRADE_FIRST_REENTRY_BUDGET,
+    );
+    assert_clean_integrity_perf_stays_bounded(
+        &observation,
+        INTEGRITY_COMPLEX_QUICK_OPERATION_BUDGET,
+    );
+    assert!(observation.deep_page_phases.contains(&IntegrityPhase::Rows));
+    assert!(
+        observation
+            .deep_page_phases
+            .contains(&IntegrityPhase::IndexEntries)
+    );
+    assert!(
+        observation
+            .deep_page_phases
+            .contains(&IntegrityPhase::JournalTails)
+    );
+    assert!(
+        observation
+            .deep_page_phases
+            .contains(&IntegrityPhase::FinalProofVectorCheck)
+    );
+}
+
+#[test]
+fn sql_perf_integrity_relation_pages_stay_bounded() {
+    let fixture = install_sql_perf_canister_fixture();
+    load_relation_integrity_fixture(&fixture);
+    upgrade_fixture_canister(&fixture, "sql_perf");
+    let guarded_reentry = measure_journaled_guarded_reentry_total_only_perf(&fixture);
+    let cold_quick =
+        measure_integrity_sql(&fixture, "CHECK INTEGRITY PerfAuditRelationSource QUICK");
+    let cold_quick_response_bytes = candid::encode_one(&cold_quick.result)
+        .expect("cold relation Quick result should encode")
         .len();
-    let memory_after_quick = canister_memory_bytes(&fixture);
+    let observation =
+        measure_clean_integrity_run(&fixture, "PerfAuditRelationSource", "relation-evidence");
 
+    println!(
+        "integrity relation: guarded_reentry_instructions={} \
+         cold_quick_instructions={} warm_quick_instructions={} \
+         deep_page_instructions={:?} deep_page_phases={:?} \
+         cold_quick_response_bytes={} warm_quick_response_bytes={} \
+         max_deep_response_bytes={}",
+        guarded_reentry.instructions,
+        cold_quick.local_instructions,
+        observation.quick_instructions,
+        observation.deep_page_instructions,
+        observation.deep_page_phases,
+        cold_quick_response_bytes,
+        observation.quick_response_bytes,
+        observation.max_deep_response_bytes,
+    );
+    assert_journaled_guarded_reentry_perf_stays_bounded(
+        "relation setup",
+        &guarded_reentry,
+        0,
+        INTEGRITY_RELATION_RECOVERY_BUDGET,
+    );
+    assert!(
+        (1..=INTEGRITY_RELATION_COLD_QUICK_OPERATION_BUDGET)
+            .contains(&cold_quick.local_instructions)
+    );
+    assert!(matches!(cold_quick.result, IntegrityCheckResult::Quick(_)));
+    assert!(cold_quick_response_bytes <= INTEGRITY_RESPONSE_BYTE_BUDGET);
+    assert_clean_integrity_perf_stays_bounded(
+        &observation,
+        INTEGRITY_COMPLEX_QUICK_OPERATION_BUDGET,
+    );
+    assert!(observation.deep_page_phases.contains(&IntegrityPhase::Rows));
+    assert!(
+        observation
+            .deep_page_phases
+            .contains(&IntegrityPhase::ReverseRelations)
+    );
+    assert!(
+        observation
+            .deep_page_phases
+            .contains(&IntegrityPhase::JournalTails)
+    );
+    assert!(
+        observation
+            .deep_page_phases
+            .contains(&IntegrityPhase::FinalProofVectorCheck)
+    );
+}
+
+#[test]
+fn sql_perf_integrity_proof_invalidation_stays_bounded() {
+    let fixture = install_sql_perf_canister_fixture();
+    load_journaled_reentry_probe_fixture(&fixture);
     let start = measure_integrity_sql(
         &fixture,
-        "CHECK INTEGRITY PerfAuditJournaledUser DEEP START 'closeout-evidence'",
+        "CHECK INTEGRITY PerfAuditJournaledUser DEEP START 'invalidation-evidence'",
     );
     let IntegrityCheckResult::Deep(start_receipt) = start.result else {
         panic!("Deep start should return a Deep receipt");
     };
-    let job_id = start_receipt.job_id();
-    let mut sequence = start_receipt.page_sequence();
-    let mut page_instructions = vec![start.local_instructions];
-    let mut max_response_bytes = candid::encode_one(&start_receipt)
-        .expect("Deep start receipt should encode")
-        .len();
-    let mut terminal = None;
 
-    for _ in 0..MAX_DEEP_STEPS {
-        let sql = format!(
-            "CHECK INTEGRITY DEEP CONTINUE '{}' AFTER {sequence}",
-            job_id.to_hex(),
-        );
-        let sample = measure_integrity_sql(&fixture, sql.as_str());
-        let IntegrityCheckResult::Deep(receipt) = sample.result else {
-            panic!("Deep continuation should return a Deep receipt");
-        };
-        sequence = receipt.page_sequence();
-        page_instructions.push(sample.local_instructions);
-        max_response_bytes = max_response_bytes.max(
-            candid::encode_one(&receipt)
-                .expect("Deep receipt should encode")
-                .len(),
-        );
-        if matches!(
-            receipt,
-            IntegrityJobReceipt::Page(ref page)
-                if matches!(page.status(), DeepIntegrityPageStatus::Terminal(_))
-        ) {
-            terminal = Some(receipt);
-            break;
-        }
-    }
-    let memory_after_deep = canister_memory_bytes(&fixture);
-    let terminal = terminal.expect("small fixture should reach a bounded terminal page");
+    load_journaled_reentry_probe_fixture(&fixture);
+    let continue_sql = format!(
+        "CHECK INTEGRITY DEEP CONTINUE '{}' AFTER {}",
+        start_receipt.job_id().to_hex(),
+        start_receipt.page_sequence(),
+    );
+    let invalidated = measure_integrity_sql(&fixture, continue_sql.as_str());
+    let invalidated_response_bytes = candid::encode_one(&invalidated.result)
+        .expect("invalidated result should encode")
+        .len();
     assert!(matches!(
-        terminal,
-        IntegrityJobReceipt::Page(ref page)
+        invalidated.result,
+        IntegrityCheckResult::Deep(IntegrityJobReceipt::Page(ref page))
             if page.status()
                 == &DeepIntegrityPageStatus::Terminal(
-                    IntegrityTerminalOutcome::DeepCompleteClean
+                    IntegrityTerminalOutcome::Invalidated
                 )
     ));
 
     println!(
-        "integrity closeout: quick_instructions={} deep_page_instructions={page_instructions:?} \
-         quick_response_bytes={quick_response_bytes} max_deep_response_bytes={max_response_bytes} \
-         memory_bytes_wasm_stable={memory_before:?}->{memory_after_quick:?}->{memory_after_deep:?}",
-        quick.local_instructions,
+        "integrity invalidation: start_instructions={} invalidation_instructions={} \
+         invalidation_response_bytes={invalidated_response_bytes}",
+        start.local_instructions, invalidated.local_instructions,
     );
-    assert!((1..=INTEGRITY_QUICK_OPERATION_BUDGET).contains(&quick.local_instructions));
-    assert!(
-        page_instructions
-            .iter()
-            .all(|instructions| (1..=INTEGRITY_DEEP_PAGE_BUDGET).contains(instructions))
-    );
-    assert!(quick_response_bytes <= INTEGRITY_RESPONSE_BYTE_BUDGET);
-    assert!(max_response_bytes <= INTEGRITY_RESPONSE_BYTE_BUDGET);
-    let retained_memory_growth = memory_after_deep
-        .0
-        .saturating_sub(memory_before.0)
-        .saturating_add(memory_after_deep.1.saturating_sub(memory_before.1));
-    assert!(retained_memory_growth <= INTEGRITY_RETAINED_MEMORY_GROWTH_BUDGET);
+    assert!((1..=INTEGRITY_DEEP_PAGE_BUDGET).contains(&start.local_instructions));
+    assert!((1..=INTEGRITY_DEEP_PAGE_BUDGET).contains(&invalidated.local_instructions));
+    assert!(invalidated_response_bytes <= INTEGRITY_RESPONSE_BYTE_BUDGET);
 }
 
 #[test]
@@ -1873,11 +2219,13 @@ fn sql_perf_journaled_upgrade_guarded_reentry_stays_bounded() {
     assert_journaled_guarded_reentry_perf_stays_bounded(
         "first",
         &first,
+        1,
         JOURNALED_UPGRADE_FIRST_REENTRY_BUDGET,
     );
     assert_journaled_guarded_reentry_perf_stays_bounded(
         "second",
         &second,
+        1,
         JOURNALED_UPGRADE_WARM_REENTRY_BUDGET,
     );
 }

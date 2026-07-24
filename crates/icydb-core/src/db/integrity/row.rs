@@ -14,8 +14,7 @@ use crate::{
         index::IndexEntryValue,
         integrity::{
             IntegrityEntityIdentity, IntegrityFinding, IntegrityFindingClass, IntegrityFindingKind,
-            IntegrityPhase, IntegritySeverity, IntegrityVerifierFamily,
-            accepted_relation_projections, relation_field_paths,
+            IntegrityPhase, IntegritySeverity, IntegrityVerifierFamily, relation_field_paths,
         },
         key_taxonomy::RawDataStoreKeyRange,
         relation::RelationConstraintProjection,
@@ -293,7 +292,7 @@ pub(in crate::db) fn execute_row_integrity_page<C: CanisterKind>(
     let limits = limits.validate()?;
     let identity = plan.identity();
     let store = db.recovered_store(identity.store_path())?;
-    let relations = accepted_relation_projections(db, plan)?;
+    let relations = plan.relation_inspection();
     let range = RawDataStoreKeyRange::entity_prefix(identity.entity_tag());
     let checkpoint_key = checkpoint.raw_data_key()?;
     if checkpoint_key
@@ -345,14 +344,7 @@ pub(in crate::db) fn execute_row_integrity_page<C: CanisterKind>(
 
             let start = start_atom_for_row(&page.checkpoint, raw_key, plan, relations.len())?;
             inspect_one_row(
-                db,
-                plan,
-                relations.as_slice(),
-                raw_key,
-                raw_row,
-                start,
-                limits,
-                &mut page,
+                db, plan, relations, raw_key, raw_row, start, limits, &mut page,
             )?;
 
             if page.stopped {

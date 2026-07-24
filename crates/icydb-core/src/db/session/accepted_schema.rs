@@ -395,6 +395,7 @@ impl<C: CanisterKind> DbSession<C> {
             .decode_verified()
             .map_err(|error| AcceptedInspectionPlanLoadError::Selected { identity, error })?;
         let inspection_plan = AcceptedInspectionPlan::compile(
+            &self.db,
             identity,
             snapshot,
             selection.value_catalog_handle().clone(),
@@ -525,6 +526,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
         .map_err(|_error| InternalError::store_unsupported())?;
         let inspection_plan = AcceptedInspectionPlan::compile(
+            &self.db,
             selection.identity(),
             snapshot,
             selection.value_catalog_handle().clone(),
@@ -625,6 +627,7 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(None);
         }
         let inspection_plan = AcceptedInspectionPlan::compile(
+            &self.db,
             selection.identity(),
             snapshot,
             selection.value_catalog_handle().clone(),

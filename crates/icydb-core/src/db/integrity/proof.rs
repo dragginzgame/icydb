@@ -7,7 +7,7 @@ use crate::{
     db::{
         Db,
         commit::{database_control_proof_identity, database_incarnation_id, ensure_recovered},
-        integrity::{DatabaseIncarnationId, accepted_relation_projections},
+        integrity::DatabaseIncarnationId,
         journal::JournalTailProofIdentity,
         registry::StoreRuntimeStorageMode,
         schema::AcceptedInspectionPlan,
@@ -167,10 +167,10 @@ pub(in crate::db) fn capture_integrity_proof_vector<C: CanisterKind>(
 
     let identity = plan.identity();
     let source_store = db.store_handle(identity.store_path())?;
-    let relations = accepted_relation_projections(db, plan)?;
+    let relations = plan.relation_inspection();
     let mut participating_stores =
         BTreeMap::from([(identity.store_path().to_string(), source_store)]);
-    for relation in &relations {
+    for relation in relations {
         participating_stores
             .entry(relation.target_store_path().to_string())
             .or_insert_with(|| relation.target_store());

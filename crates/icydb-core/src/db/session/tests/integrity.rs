@@ -350,6 +350,166 @@ fn integrity_response_and_progress_record_bytes_stay_bounded() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the test builds one exact 64-finding physical page and proves it through the durable typed controller boundary"
+)]
+fn finding_saturated_deep_page_and_progress_record_stay_bounded() {
+    const FINDING_SATURATION: usize = 64;
+    const UNIQUE_WITNESSES: u128 = 32;
+    const MAX_MEASURED_BYTES: usize = 512 * 1024;
+
+    reset_indexed_session_sql_store();
+    clear_progress_store_for_tests::<SessionSqlCanister>();
+    let session = indexed_sql_session();
+    let rows = (1..=UNIQUE_WITNESSES)
+        .map(|id| SessionUniquePrefixOffsetEntity {
+            id: Ulid::from_u128(id),
+            tier: "gold".to_string(),
+            handle: format!("initial-{id:02}"),
+            note: "source".to_string(),
+        })
+        .collect::<Vec<_>>();
+    session
+        .insert_many_atomic(rows)
+        .expect("unique source fixture should insert atomically");
+
+    let hooks = session
+        .db
+        .runtime_hook_for_entity_path(SessionUniquePrefixOffsetEntity::PATH)
+        .expect("unique fixture hook should resolve");
+    let store = session
+        .db
+        .recovered_store(hooks.store_path)
+        .expect("unique fixture store should recover");
+    let plan = session
+        .accepted_inspection_plan_for_runtime_hook(hooks, store)
+        .map_err(
+            crate::db::session::accepted_schema::AcceptedInspectionPlanLoadError::into_internal,
+        )
+        .expect("unique fixture accepted plan should load");
+    let mut duplicate_witnesses = Vec::new();
+    for id in 1..=UNIQUE_WITNESSES {
+        let entity = SessionUniquePrefixOffsetEntity {
+            id: Ulid::from_u128(id),
+            tier: "gold".to_string(),
+            handle: "shared".to_string(),
+            note: "source".to_string(),
+        };
+        let key = DecodedDataStoreKey::try_new::<SessionUniquePrefixOffsetEntity>(entity.id)
+            .expect("duplicate fixture key should build");
+        let row = canonical_row_from_entity_for_model_proposal_for_test(&entity)
+            .expect("duplicate fixture row should encode")
+            .into_raw_row();
+        let reader =
+            StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, plan.row_contract())
+                .expect("duplicate fixture row should decode");
+        duplicate_witnesses.push(
+            plan.index_inspection()
+                .project(
+                    0,
+                    SessionUniquePrefixOffsetEntity::ENTITY_TAG,
+                    &key.primary_key_value(),
+                    &reader,
+                )
+                .expect("duplicate fixture witness should project")
+                .expect("unique fixture belongs to its index")
+                .raw_key()
+                .clone(),
+        );
+    }
+    INDEXED_SESSION_SQL_DATA_STORE.with_borrow_mut(DataStore::clear);
+    INDEXED_SESSION_SQL_INDEX_STORE.with_borrow_mut(|store| {
+        store.clear();
+        for witness in duplicate_witnesses {
+            store.insert(witness, IndexEntryValue::presence());
+        }
+    });
+
+    let owner = IntegrityJobOwner::new("tests::finding-saturated").expect("owner should admit");
+    let IntegrityCheckResult::Deep(start) = session
+        .execute_admin_integrity(
+            IntegrityCheckRequest::deep_start::<SessionUniquePrefixOffsetEntity>(
+                IntegritySubmissionKey::new("finding-saturated").expect("submission should admit"),
+            ),
+            owner.clone(),
+        )
+        .expect("Deep start should persist")
+    else {
+        panic!("Deep start should return one receipt");
+    };
+    let job_id = start.job_id();
+    let mut acknowledged_sequence = start.page_sequence();
+    let saturated = loop {
+        let IntegrityCheckResult::Deep(receipt) = session
+            .execute_admin_integrity(
+                IntegrityCheckRequest::deep_continue(job_id, acknowledged_sequence),
+                owner.clone(),
+            )
+            .expect("Deep finding page should advance")
+        else {
+            panic!("Deep continuation should return one receipt");
+        };
+        let IntegrityJobReceipt::Page(page) = &receipt else {
+            panic!("Deep finding page should not abort");
+        };
+        if page.findings().len() == FINDING_SATURATION {
+            let IntegrityCheckResult::Deep(replayed) = session
+                .execute_admin_integrity(
+                    IntegrityCheckRequest::deep_continue(job_id, acknowledged_sequence),
+                    owner,
+                )
+                .expect("lost saturated page should replay")
+            else {
+                panic!("Deep replay should return one receipt");
+            };
+            assert_eq!(replayed, receipt);
+            break receipt;
+        }
+        acknowledged_sequence = receipt.page_sequence();
+        assert!(
+            acknowledged_sequence < 8,
+            "dense finding fixture should reach its saturated page promptly",
+        );
+    };
+    let IntegrityJobReceipt::Page(page) = &saturated else {
+        panic!("saturated receipt should be a page");
+    };
+    assert_eq!(
+        page.findings_seen(),
+        u64::try_from(FINDING_SATURATION).expect("finding bound should fit u64"),
+    );
+    assert_eq!(
+        page.findings()
+            .iter()
+            .filter(|finding| finding.kind() == IntegrityFindingKind::OrphanIndexEntry)
+            .count(),
+        usize::try_from(UNIQUE_WITNESSES).expect("fixture count should fit usize"),
+    );
+    assert_eq!(
+        page.findings()
+            .iter()
+            .filter(|finding| finding.kind() == IntegrityFindingKind::DuplicateUniqueIndexKey)
+            .count(),
+        usize::try_from(UNIQUE_WITNESSES).expect("fixture count should fit usize"),
+    );
+    let response_bytes = candid::encode_one(&saturated)
+        .expect("saturated Deep receipt should encode")
+        .len();
+    let job_record_bytes = progress_job_encoded_len_for_tests::<SessionSqlCanister>(job_id)
+        .expect("saturated persisted Deep record should encode");
+    eprintln!(
+        "finding-saturated integrity bytes: response={response_bytes}, \
+         job_record={job_record_bytes}, findings={FINDING_SATURATION}",
+    );
+    assert!(response_bytes < MAX_MEASURED_BYTES);
+    assert!(job_record_bytes < MAX_MEASURED_BYTES);
+
+    clear_progress_store_for_tests::<SessionSqlCanister>();
+    reset_indexed_session_sql_store();
+}
+
+#[test]
 fn integrity_sql_lowers_to_identical_typed_requests_and_receipts() {
     reset_session_sql_store();
     clear_progress_store_for_tests::<SessionSqlCanister>();

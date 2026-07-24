@@ -17,7 +17,6 @@ use crate::{
             StoreAllocationIdentities, StoreHandle, StoreRuntimeStorageCapabilities,
             StoreRuntimeStorageMode,
         },
-        relation::{RelationConstraintProjection, ReverseRelationSourceInfo},
         schema::AcceptedInspectionPlan,
     },
     entity::EntityKind,
@@ -148,39 +147,16 @@ pub enum IntegrityCheckResult {
     Deep(IntegrityJobReceipt),
 }
 
-fn accepted_relation_projections<C: CanisterKind>(
-    db: &crate::db::Db<C>,
-    plan: &AcceptedInspectionPlan,
-) -> Result<Vec<RelationConstraintProjection>, InternalError> {
-    let identity = plan.identity();
-    let source = ReverseRelationSourceInfo::new(identity.entity_path(), identity.entity_tag());
-
-    plan.snapshot()
-        .persisted_snapshot()
-        .relations()
-        .iter()
-        .map(|edge| {
-            RelationConstraintProjection::new_active(
-                db,
-                source,
-                plan.snapshot().persisted_snapshot(),
-                plan.row_contract(),
-                edge,
-            )
-        })
-        .collect()
-}
-
 fn validate_quick_integrity_control<C: CanisterKind>(
     db: &crate::db::Db<C>,
     plan: &AcceptedInspectionPlan,
 ) -> Result<Vec<IntegrityFinding>, InternalError> {
     let identity = plan.identity();
     let source_store = db.store_handle(identity.store_path())?;
-    let relations = accepted_relation_projections(db, plan)?;
+    let relations = plan.relation_inspection();
     let mut participating_stores =
         BTreeMap::from([(identity.store_path().to_string(), source_store)]);
-    for relation in &relations {
+    for relation in relations {
         participating_stores
             .entry(relation.target_store_path().to_string())
             .or_insert_with(|| relation.target_store());
@@ -1105,7 +1081,7 @@ mod tests {
             revision,
         );
 
-        AcceptedInspectionPlan::compile(identity, snapshot, value_catalog)
+        AcceptedInspectionPlan::compile_relation_free_for_tests(identity, snapshot, value_catalog)
             .expect("accepted Quick plan should compile")
     }
 

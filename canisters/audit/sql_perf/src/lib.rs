@@ -25,8 +25,8 @@ use icydb::{
 #[cfg(feature = "sql")]
 use icydb_testing_audit_sql_perf_fixtures::sql_perf::PerfAuditCanister;
 use icydb_testing_audit_sql_perf_fixtures::sql_perf::{
-    PerfAuditAccount, PerfAuditBlob, PerfAuditHeapUser, PerfAuditJournaledUser, PerfAuditToken,
-    PerfAuditUser,
+    PerfAuditAccount, PerfAuditBlob, PerfAuditHeapUser, PerfAuditJournaledUser,
+    PerfAuditRelationSource, PerfAuditRelationTarget, PerfAuditToken, PerfAuditUser,
 };
 
 icydb::start!();
@@ -208,6 +208,7 @@ struct IntegritySqlPerfResult {
 const STORAGE_WRITE_MATRIX_RUNS: u32 = 10;
 #[cfg(feature = "sql")]
 const SQL_WRITE_MATERIALIZATION_ROWS: i32 = 32;
+const INTEGRITY_JOURNAL_TAIL_BATCHES: i32 = 6;
 const JOURNALED_REENTRY_PROBE_ROWS: i32 = 32;
 const TOKEN_TARGET_COLLECTION: &str = "01KV5N439P0000000000000000";
 const TOKEN_OTHER_COLLECTION: &str = "01KV5N439P1111111111111111";
@@ -1381,6 +1382,8 @@ fn __icydb_fixtures_reset() -> Result<(), icydb::Error> {
     db()?.delete::<PerfAuditBlob>().execute()?;
     db()?.delete::<PerfAuditHeapUser>().execute()?;
     db()?.delete::<PerfAuditJournaledUser>().execute()?;
+    db()?.delete::<PerfAuditRelationSource>().execute()?;
+    db()?.delete::<PerfAuditRelationTarget>().execute()?;
     db()?.delete::<PerfAuditToken>().execute()?;
     db()?.delete::<PerfAuditUser>().execute()?;
 
@@ -1535,6 +1538,8 @@ fn accepted_schema_descriptions() -> Result<Vec<EntitySchemaDescription>, icydb:
         session.try_describe_entity::<PerfAuditBlob>()?,
         session.try_describe_entity::<PerfAuditHeapUser>()?,
         session.try_describe_entity::<PerfAuditJournaledUser>()?,
+        session.try_describe_entity::<PerfAuditRelationSource>()?,
+        session.try_describe_entity::<PerfAuditRelationTarget>()?,
         session.try_describe_entity::<PerfAuditToken>()?,
         session.try_describe_entity::<PerfAuditUser>()?,
     ])
@@ -1547,6 +1552,33 @@ fn accepted_schema_descriptions() -> Result<Vec<EntitySchemaDescription>, icydb:
 fn load_journaled_reentry_probe_fixture() -> Result<(), icydb::Error> {
     __icydb_fixtures_reset()?;
     db()?.insert_many_atomic(perf_audit_journaled_reentry_probe_users())?;
+
+    Ok(())
+}
+
+/// Load one row per commit so Deep integrity must resume within a live journal
+/// tail rather than merely observe an empty or single-batch tail.
+#[update]
+fn load_journal_tail_integrity_fixture() -> Result<(), icydb::Error> {
+    __icydb_fixtures_reset()?;
+    let session = db()?;
+    for id in 1..=INTEGRITY_JOURNAL_TAIL_BATCHES {
+        session.insert(build_perf_audit_journaled_user(
+            id,
+            &format!("integrity-journal-tail-{id:04}"),
+            18 + id,
+        ))?;
+    }
+
+    Ok(())
+}
+
+/// Load the deterministic relation pair used by bounded integrity evidence.
+#[update]
+fn load_relation_integrity_fixture() -> Result<(), icydb::Error> {
+    __icydb_fixtures_reset()?;
+    db()?.insert_many_atomic(perf_audit_relation_targets())?;
+    db()?.insert_many_atomic(perf_audit_relation_sources())?;
 
     Ok(())
 }
@@ -1990,6 +2022,31 @@ fn measure_journaled_user_checked_write_perf() -> Result<StorageWritePerfResult,
         90_000,
         build_perf_audit_journaled_user,
     )
+}
+
+/// Advance the audit-only journaled check activation to accepted authority.
+#[cfg(feature = "sql")]
+#[update]
+fn validate_journaled_user_perf_check() -> Result<(), icydb::Error> {
+    const MAX_VALIDATION_STEPS: usize = 4;
+
+    for _ in 0..MAX_VALIDATION_STEPS {
+        let result = db()?.execute_admin_sql_ddl::<PerfAuditJournaledUser>(
+            "ALTER TABLE PerfAuditJournaledUser \
+             VALIDATE CONSTRAINT perf_audit_age_nonnegative",
+        )?;
+        if matches!(
+            result,
+            SqlQueryResult::Ddl {
+                constraint_validation: Some(ref validation),
+                ..
+            } if validation.complete
+        ) {
+            return Ok(());
+        }
+    }
+
+    Err(query_validate_error())
 }
 
 /// Measure broad SQL write materialization shapes against heap storage.
@@ -3605,6 +3662,27 @@ fn perf_audit_journaled_reentry_probe_users() -> Vec<PerfAuditJournaledUser> {
                 &format!("journaled-reentry-{id:04}"),
                 18 + (id % 13),
             )
+        })
+        .collect()
+}
+
+fn perf_audit_relation_targets() -> Vec<PerfAuditRelationTarget> {
+    (1..=16)
+        .map(|id| PerfAuditRelationTarget {
+            id,
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
+        })
+        .collect()
+}
+
+fn perf_audit_relation_sources() -> Vec<PerfAuditRelationSource> {
+    (1..=16)
+        .map(|id| PerfAuditRelationSource {
+            id,
+            target_id: ((id - 1) % 8) + 1,
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         })
         .collect()
 }
