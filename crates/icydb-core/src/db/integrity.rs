@@ -724,7 +724,7 @@ pub struct IntegrityAuthorityDiagnostic {
 }
 
 impl IntegrityAuthorityDiagnostic {
-    fn from_internal(error: &InternalError) -> Self {
+    pub(in crate::db) fn from_internal(error: &InternalError) -> Self {
         let class = match error.class {
             ErrorClass::Corruption => IntegrityAuthorityClass::Corruption,
             ErrorClass::IncompatiblePersistedFormat => {
@@ -833,8 +833,6 @@ pub enum QuickIntegrityStatus {
     CompleteWithFindings,
     /// Load-bearing accepted authority could not be inspected.
     Uninspectable(IntegrityAuthorityDiagnostic),
-    /// A physical container could not prove progress or exhaustion.
-    UninspectableStorage(StorageTraversalCorruption),
     /// The minimum bounded inspection atom could not be completed.
     ResourceLimited(IntegrityResourceDiagnostic),
 }

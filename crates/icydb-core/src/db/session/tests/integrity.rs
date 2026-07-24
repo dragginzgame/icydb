@@ -5,10 +5,10 @@ use crate::db::{
     index::IndexEntryValue,
     integrity::{
         DeepIntegrityPageStatus, DerivedInspectionLimits, IntegrityAbortStatus,
-        IntegrityCheckRequest, IntegrityCheckResult, IntegrityFindingKind, IntegrityJobError,
-        IntegrityJobOwner, IntegrityJobReceipt, IntegrityPendingTerminal, IntegritySubmissionKey,
-        IntegrityTerminalOutcome, PhysicalUnitCheckpoint, RowInspectionLimits,
-        clear_progress_store_for_tests, corrupt_progress_job_for_tests,
+        IntegrityCheckRequest, IntegrityCheckResult, IntegrityDeepError, IntegrityFindingKind,
+        IntegrityJobError, IntegrityJobOwner, IntegrityJobReceipt, IntegrityPendingTerminal,
+        IntegritySubmissionKey, IntegrityTerminalOutcome, PhysicalUnitCheckpoint,
+        RowInspectionLimits, clear_progress_store_for_tests, corrupt_progress_job_for_tests,
         progress_job_encoded_len_for_tests, reset_integrity_retention_cursor_for_tests,
         run_integrity_retention_page_for_tests, run_next_integrity_retention_page_for_tests,
         set_progress_job_lease_deadline_for_tests,
@@ -188,6 +188,78 @@ fn deep_proof_capture_rejects_heap_storage_without_a_runtime_epoch() {
 }
 
 #[test]
+fn deep_start_plan_load_failure_is_typed_and_publishes_no_job() {
+    reset_session_sql_store();
+    clear_progress_store_for_tests::<SessionSqlCanister>();
+    let session = sql_session();
+    let owner =
+        IntegrityJobOwner::new("tests::deep-start-uninspectable").expect("owner should admit");
+    let submission =
+        IntegritySubmissionKey::new("deep-start-uninspectable-1").expect("submission should admit");
+
+    let error = session
+        .start_deep_integrity_with_plan_load_failure_for_tests(
+            SessionSqlEntity::PATH,
+            owner.clone(),
+            submission.clone(),
+        )
+        .expect_err("load-bearing plan failure must reject before job publication");
+    assert!(matches!(
+        error,
+        IntegrityDeepError::Uninspectable(ref diagnostic)
+            if diagnostic.class() == IntegrityAuthorityClass::Corruption
+    ));
+
+    let start = session
+        .start_deep_integrity_for_entity(SessionSqlEntity::PATH, owner, submission)
+        .expect("the rejected start must not occupy its submission identity");
+    assert_eq!(start.page_sequence(), 0);
+}
+
+#[test]
+fn deep_start_proof_drift_is_typed_and_publishes_no_job() {
+    reset_session_sql_store();
+    clear_progress_store_for_tests::<SessionSqlCanister>();
+    let session = sql_session();
+    let proof_a = session
+        .capture_integrity_proof_for_entity(SessionSqlEntity::PATH)
+        .expect("opening proof should capture");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "start proof drift".to_string(),
+            age: 41,
+        })
+        .expect("fixture mutation should commit");
+    let proof_b = session
+        .capture_integrity_proof_for_entity(SessionSqlEntity::PATH)
+        .expect("changed proof should capture");
+    let owner =
+        IntegrityJobOwner::new("tests::deep-start-invalidated").expect("owner should admit");
+    let submission =
+        IntegritySubmissionKey::new("deep-start-invalidated-1").expect("submission should admit");
+
+    let error = session
+        .start_deep_integrity_with_proofs_for_tests(
+            SessionSqlEntity::PATH,
+            owner.clone(),
+            submission.clone(),
+            proof_a,
+            proof_b,
+        )
+        .expect_err("A/B proof drift must reject before job publication");
+    assert!(matches!(
+        error,
+        IntegrityDeepError::Job(IntegrityJobError::StartInvalidated)
+    ));
+
+    let start = session
+        .start_deep_integrity_for_entity(SessionSqlEntity::PATH, owner, submission)
+        .expect("the invalidated start must not occupy its submission identity");
+    assert_eq!(start.page_sequence(), 0);
+}
+
+#[test]
 fn deep_job_replays_start_and_continue_then_acknowledges_clean_terminal() {
     reset_session_sql_store();
     clear_progress_store_for_tests::<SessionSqlCanister>();
@@ -272,6 +344,79 @@ fn deep_job_replays_start_and_continue_then_acknowledges_clean_terminal() {
             "empty fixture should complete in bounded phases"
         );
     }
+}
+
+#[test]
+fn deep_start_replay_reports_advanced_and_conflicting_submission_identity() {
+    reset_session_sql_store();
+    clear_progress_store_for_tests::<SessionSqlCanister>();
+    let session = sql_session();
+    let owner = IntegrityJobOwner::new("tests::deep-start-replay").expect("owner should admit");
+    let submission =
+        IntegritySubmissionKey::new("deep-start-replay-1").expect("submission should admit");
+    let start = session
+        .start_deep_integrity_for_entity(SessionSqlEntity::PATH, owner.clone(), submission.clone())
+        .expect("Deep start should persist");
+    session
+        .continue_deep_integrity_for_tests(start.job_id(), &owner, start.page_sequence())
+        .expect("fixture job should advance once");
+
+    let advanced = session
+        .start_deep_integrity_for_entity(SessionSqlEntity::PATH, owner.clone(), submission.clone())
+        .expect_err("start replay must not hide an already-delivered page");
+    assert!(matches!(
+        advanced,
+        IntegrityDeepError::Job(IntegrityJobError::SubmissionAlreadyAdvanced)
+    ));
+
+    let conflict = session
+        .start_deep_integrity_for_entity(SessionAggregateEntity::PATH, owner, submission)
+        .expect_err("one owner/submission identity must not select another entity");
+    assert!(matches!(
+        conflict,
+        IntegrityDeepError::Job(IntegrityJobError::SubmissionConflict)
+    ));
+}
+
+#[test]
+fn deep_continuation_plan_load_failure_persists_uninspectable_terminal() {
+    reset_session_sql_store();
+    clear_progress_store_for_tests::<SessionSqlCanister>();
+    let session = sql_session();
+    let owner =
+        IntegrityJobOwner::new("tests::deep-continue-uninspectable").expect("owner should admit");
+    let start = session
+        .start_deep_integrity_for_entity(
+            SessionSqlEntity::PATH,
+            owner.clone(),
+            IntegritySubmissionKey::new("deep-continue-uninspectable-1")
+                .expect("submission should admit"),
+        )
+        .expect("Deep start should persist");
+
+    let terminal = session
+        .continue_deep_integrity_with_plan_load_failure_for_tests(
+            start.job_id(),
+            &owner,
+            start.page_sequence(),
+        )
+        .expect("load-bearing failure should persist one terminal receipt");
+    assert!(matches!(
+        terminal,
+        IntegrityJobReceipt::Page(ref page)
+            if matches!(
+                page.status(),
+                DeepIntegrityPageStatus::Terminal(
+                    IntegrityTerminalOutcome::Uninspectable(diagnostic)
+                ) if diagnostic.class() == IntegrityAuthorityClass::Corruption
+            )
+            && page.findings().is_empty()
+    ));
+
+    let replayed = session
+        .continue_deep_integrity_for_tests(start.job_id(), &owner, start.page_sequence())
+        .expect("the same acknowledgement must replay the terminal receipt");
+    assert_eq!(replayed, terminal);
 }
 
 #[test]

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.212.md](docs/changelog/0.212.md)
 
+- `0.212.4` makes Deep authority failures typed and replay-safe while
+  potentially breaking callers by hard-cutting unreachable Quick traversal and
+  busy-state error variants.
+
 - `0.212.3` completes integrity closeout evidence and makes accepted inspection
   plans the sole reusable owner of active relation projections.
 

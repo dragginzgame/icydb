@@ -121,7 +121,7 @@ pub(in crate::db) fn start_deep_integrity_job<C: CanisterKind>(
     owner.validate()?;
     submission_key.validate()?;
     if proof_a != proof_b {
-        return Err(IntegrityJobError::JobIncarnationMismatch.into());
+        return Err(IntegrityJobError::StartInvalidated.into());
     }
     let incarnation = proof_b.database_incarnation_id();
     let id = integrity_job_id(incarnation, &owner, &submission_key)?;
@@ -210,7 +210,19 @@ pub(in crate::db) fn continue_deep_integrity_job<C: CanisterKind>(
         IntegrityJobState::InProgress
             if acknowledged_sequence == job.last_receipt.receipt.page_sequence() =>
         {
-            let plan = load_plan(job.entity.entity_path())?;
+            let plan = match load_plan(job.entity.entity_path()) {
+                Ok(plan) => plan,
+                Err(error) => {
+                    return terminalize::<C>(
+                        &mut job,
+                        IntegrityTerminalOutcome::Uninspectable(
+                            IntegrityAuthorityDiagnostic::from_internal(&error),
+                        ),
+                        acknowledged_sequence,
+                        Vec::new(),
+                    );
+                }
+            };
             advance_job::<C>(db, &plan, job, acknowledged_sequence)
         }
         IntegrityJobState::TerminalPending(_)
@@ -522,9 +534,6 @@ fn execute_quick_candidate<C: CanisterKind>(
         QuickIntegrityStatus::Uninspectable(diagnostic) => {
             Some(IntegrityTerminalOutcome::Uninspectable(diagnostic.clone()))
         }
-        QuickIntegrityStatus::UninspectableStorage(diagnostic) => Some(
-            IntegrityTerminalOutcome::UninspectableStorage(diagnostic.clone()),
-        ),
         QuickIntegrityStatus::ResourceLimited(diagnostic) => Some(
             IntegrityTerminalOutcome::ResourceLimited(diagnostic.clone()),
         ),

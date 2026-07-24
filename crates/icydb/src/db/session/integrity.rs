@@ -19,6 +19,9 @@ pub enum IntegrityCheckError {
 
     /// The bounded Deep job protocol rejected the request.
     Job(core::db::IntegrityJobError),
+
+    /// Deep start identified but could not safely load accepted authority.
+    Uninspectable(core::db::IntegrityAuthorityDiagnostic),
 }
 
 /// Public failure from administrative `CHECK INTEGRITY` SQL.
@@ -41,6 +44,9 @@ impl From<core::db::IntegrityDeepError> for IntegrityCheckError {
         match error {
             core::db::IntegrityDeepError::Job(error) => Self::Job(error),
             core::db::IntegrityDeepError::Internal(error) => Self::Database(error.into()),
+            core::db::IntegrityDeepError::Uninspectable(diagnostic) => {
+                Self::Uninspectable(diagnostic)
+            }
         }
     }
 }
@@ -67,9 +73,11 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// # Errors
     ///
-    /// Returns [`IntegrityCheckError::Job`] for bounded protocol failures and
-    /// [`IntegrityCheckError::Database`] when accepted authority or physical
-    /// inspection cannot be read safely.
+    /// Returns [`IntegrityCheckError::Job`] for bounded protocol failures,
+    /// [`IntegrityCheckError::Uninspectable`] when Deep start identifies but
+    /// cannot safely load accepted authority, and
+    /// [`IntegrityCheckError::Database`] for other accepted-authority or
+    /// physical inspection failures.
     pub fn execute_admin_integrity(
         &self,
         request: core::db::IntegrityCheckRequest,

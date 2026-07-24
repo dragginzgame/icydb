@@ -705,9 +705,6 @@ pub enum IntegrityJobError {
     /// The idempotency key is empty or exceeds its bound.
     InvalidSubmissionKey,
 
-    /// Another bounded advancement currently owns the job.
-    JobBusy,
-
     /// The job belongs to another database incarnation.
     JobIncarnationMismatch,
 
@@ -719,6 +716,9 @@ pub enum IntegrityJobError {
 
     /// The acknowledgement does not name the outstanding receipt.
     StaleAcknowledgement,
+
+    /// The Deep-start proof changed before a job could be published.
+    StartInvalidated,
 
     /// A retried start names a job that already advanced.
     SubmissionAlreadyAdvanced,
@@ -736,6 +736,9 @@ pub enum IntegrityDeepError {
 
     /// Stable job/progress protocol rejected the request.
     Job(IntegrityJobError),
+
+    /// Deep start could identify but not safely load accepted authority.
+    Uninspectable(IntegrityAuthorityDiagnostic),
 }
 
 impl From<IntegrityJobError> for IntegrityDeepError {

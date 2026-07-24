@@ -17,11 +17,11 @@ use crate::{
         DbSession, QuickIntegrityResult,
         commit::database_incarnation_id,
         integrity::{
-            IntegrityCheckRequest, IntegrityCheckResult, IntegrityDeepError,
-            IntegrityEntityIdentity, IntegrityJobError, IntegrityJobId, IntegrityJobOwner,
-            IntegrityJobReceipt, IntegritySubmissionKey, abort_deep_integrity_job,
-            capture_integrity_proof_vector, continue_deep_integrity_job, execute_quick_integrity,
-            run_next_integrity_retention_page, start_deep_integrity_job,
+            IntegrityAuthorityDiagnostic, IntegrityCheckRequest, IntegrityCheckResult,
+            IntegrityDeepError, IntegrityEntityIdentity, IntegrityJobError, IntegrityJobId,
+            IntegrityJobOwner, IntegrityJobReceipt, IntegritySubmissionKey,
+            abort_deep_integrity_job, capture_integrity_proof_vector, continue_deep_integrity_job,
+            execute_quick_integrity, run_next_integrity_retention_page, start_deep_integrity_job,
             uninspectable_quick_integrity,
         },
         runtime_hooks::EntityRuntimeHooks,
@@ -209,18 +209,35 @@ impl<C: CanisterKind> DbSession<C> {
         owner: IntegrityJobOwner,
         submission_key: IntegritySubmissionKey,
     ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
+        self.start_deep_integrity_for_identity_with_plan_loader(
+            entity,
+            owner,
+            submission_key,
+            |hooks, store| self.accepted_inspection_plan_for_runtime_hook(hooks, store),
+        )
+    }
+
+    fn start_deep_integrity_for_identity_with_plan_loader(
+        &self,
+        entity: &IntegrityEntityIdentity,
+        owner: IntegrityJobOwner,
+        submission_key: IntegritySubmissionKey,
+        mut load_plan: impl FnMut(
+            &EntityRuntimeHooks<C>,
+            crate::db::registry::StoreHandle,
+        )
+            -> Result<AcceptedInspectionPlan, AcceptedInspectionPlanLoadError>,
+    ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
         submission_key.validate()?;
         let (hooks, store) = self.integrity_target(entity)?;
-        let first_plan = self
-            .accepted_inspection_plan_for_runtime_hook(hooks, store)
-            .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
+        let first_plan = load_plan(hooks, store)
+            .map_err(|error| Self::deep_start_plan_load_error(entity, error))?;
         Self::validate_integrity_plan_identity(entity, &first_plan)?;
         let proof_a = capture_integrity_proof_vector(&self.db, &first_plan)?;
 
         let store = self.db.recovered_store(hooks.store_path)?;
-        let second_plan = self
-            .accepted_inspection_plan_for_runtime_hook(hooks, store)
-            .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
+        let second_plan = load_plan(hooks, store)
+            .map_err(|error| Self::deep_start_plan_load_error(entity, error))?;
         Self::validate_integrity_plan_identity(entity, &second_plan)?;
         let proof_b = capture_integrity_proof_vector(&self.db, &second_plan)?;
         start_deep_integrity_job(
@@ -231,6 +248,27 @@ impl<C: CanisterKind> DbSession<C> {
             proof_a,
             proof_b,
         )
+    }
+
+    fn deep_start_plan_load_error(
+        entity: &IntegrityEntityIdentity,
+        error: AcceptedInspectionPlanLoadError,
+    ) -> IntegrityDeepError {
+        match error {
+            AcceptedInspectionPlanLoadError::Selected { identity, error } => {
+                if entity != &IntegrityEntityIdentity::from_accepted_identity(identity) {
+                    return IntegrityJobError::EntityIdentityMismatch.into();
+                }
+                IntegrityDeepError::Uninspectable(IntegrityAuthorityDiagnostic::from_internal(
+                    &error,
+                ))
+            }
+            AcceptedInspectionPlanLoadError::Unselected(error) => {
+                IntegrityDeepError::Uninspectable(IntegrityAuthorityDiagnostic::from_internal(
+                    &error,
+                ))
+            }
+        }
     }
 
     /// Continue or replay one authorized Deep job.
@@ -287,5 +325,61 @@ impl<C: CanisterKind> DbSession<C> {
         acknowledged_sequence: u64,
     ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
         self.continue_deep_integrity(job_id, owner, acknowledged_sequence)
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn start_deep_integrity_with_plan_load_failure_for_tests(
+        &self,
+        entity_path: &str,
+        owner: IntegrityJobOwner,
+        submission_key: IntegritySubmissionKey,
+    ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
+        let hooks = self.db.runtime_hook_for_entity_path(entity_path)?;
+        let store = self.db.recovered_store(hooks.store_path)?;
+        let plan = self
+            .accepted_inspection_plan_for_runtime_hook(hooks, store)
+            .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
+        let entity = IntegrityEntityIdentity::from_accepted_identity(plan.identity());
+
+        self.start_deep_integrity_for_identity_with_plan_loader(
+            &entity,
+            owner,
+            submission_key,
+            |_, _| {
+                Err(AcceptedInspectionPlanLoadError::Unselected(
+                    InternalError::store_corruption(),
+                ))
+            },
+        )
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn start_deep_integrity_with_proofs_for_tests(
+        &self,
+        entity_path: &str,
+        owner: IntegrityJobOwner,
+        submission_key: IntegritySubmissionKey,
+        proof_a: IntegrityProofVector,
+        proof_b: IntegrityProofVector,
+    ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
+        let hooks = self.db.runtime_hook_for_entity_path(entity_path)?;
+        let store = self.db.recovered_store(hooks.store_path)?;
+        let plan = self
+            .accepted_inspection_plan_for_runtime_hook(hooks, store)
+            .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
+
+        start_deep_integrity_job(&self.db, &plan, owner, submission_key, proof_a, proof_b)
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn continue_deep_integrity_with_plan_load_failure_for_tests(
+        &self,
+        job_id: IntegrityJobId,
+        owner: &IntegrityJobOwner,
+        acknowledged_sequence: u64,
+    ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
+        continue_deep_integrity_job(&self.db, job_id, owner, acknowledged_sequence, |_| {
+            Err(InternalError::store_corruption())
+        })
     }
 }
