@@ -50,23 +50,27 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
-use std::{
-    cell::RefCell,
-    collections::BTreeSet,
-    sync::{Mutex, OnceLock},
-};
+#[cfg(not(test))]
+use std::sync::{Mutex, OnceLock};
+use std::{cell::RefCell, collections::BTreeSet};
 
 #[cfg(test)]
 use crate::db::commit::failpoint::{CommitFailpoint, hit_commit_failpoint};
 #[cfg(test)]
 use crate::db::database_format::clear_database_format_admission_for_tests;
 
+#[cfg(not(test))]
 static RECOVERED_KEYS: OnceLock<Mutex<Vec<RecoveryDomainKey>>> = OnceLock::new();
 #[cfg(not(test))]
 static RECOVERY_IN_PROGRESS_KEYS: OnceLock<Mutex<Vec<RecoveryDomainKey>>> = OnceLock::new();
 
 thread_local! {
     static SCHEMA_RECONCILED_KEYS: RefCell<Vec<SchemaReconciliationKey>> =
+        const { RefCell::new(Vec::new()) };
+    // Test stores use thread-local stable memory, so their recovered authority
+    // must have the same ownership boundary.
+    #[cfg(test)]
+    static RECOVERED_KEYS: RefCell<Vec<RecoveryDomainKey>> =
         const { RefCell::new(Vec::new()) };
     #[cfg(test)]
     static RECOVERY_IN_PROGRESS_KEYS: RefCell<Vec<RecoveryDomainKey>> =
@@ -144,11 +148,12 @@ pub(in crate::db) fn clear_recovery_runtime_state_for_tests<C: CanisterKind>(
     db: &Db<C>,
 ) -> Result<(), InternalError> {
     let recovery_key = recovery_domain_key(db)?;
-    let mut recovered = recovered_keys()
-        .lock()
-        .map_err(|_| InternalError::store_invariant())?;
-    recovered.retain(|existing| *existing != recovery_key);
-    drop(recovered);
+    RECOVERED_KEYS.with(|keys| {
+        keys.try_borrow_mut()
+            .map_err(|_| InternalError::store_invariant())?
+            .retain(|existing| *existing != recovery_key);
+        Ok::<(), InternalError>(())
+    })?;
 
     clear_recovery_domain_in_progress(recovery_key);
     let schema_key = schema_reconciliation_key(db);
@@ -1214,6 +1219,7 @@ fn recovery_domain_key<C: CanisterKind>(db: &Db<C>) -> Result<RecoveryDomainKey,
     })
 }
 
+#[cfg(not(test))]
 fn recovered_keys() -> &'static Mutex<Vec<RecoveryDomainKey>> {
     RECOVERED_KEYS.get_or_init(|| Mutex::new(Vec::new()))
 }
@@ -1223,11 +1229,22 @@ fn recovery_in_progress_keys() -> &'static Mutex<Vec<RecoveryDomainKey>> {
     RECOVERY_IN_PROGRESS_KEYS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
+#[cfg(not(test))]
 fn recovery_domain_recovered(key: RecoveryDomainKey) -> Result<bool, InternalError> {
     recovered_keys()
         .lock()
         .map(|keys| keys.contains(&key))
         .map_err(|_| InternalError::store_invariant())
+}
+
+#[cfg(test)]
+fn recovery_domain_recovered(key: RecoveryDomainKey) -> Result<bool, InternalError> {
+    RECOVERED_KEYS.with(|keys| {
+        Ok(keys
+            .try_borrow()
+            .map_err(|_| InternalError::store_invariant())?
+            .contains(&key))
+    })
 }
 
 #[cfg(not(test))]
@@ -1242,6 +1259,7 @@ fn recovery_domain_in_progress(key: RecoveryDomainKey) -> bool {
     RECOVERY_IN_PROGRESS_KEYS.with(|keys| keys.borrow().contains(&key))
 }
 
+#[cfg(not(test))]
 fn mark_recovery_domain_recovered(key: RecoveryDomainKey) -> Result<(), InternalError> {
     {
         let mut keys = recovered_keys()
@@ -1253,6 +1271,20 @@ fn mark_recovery_domain_recovered(key: RecoveryDomainKey) -> Result<(), Internal
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+fn mark_recovery_domain_recovered(key: RecoveryDomainKey) -> Result<(), InternalError> {
+    RECOVERED_KEYS.with(|keys| {
+        let mut keys = keys
+            .try_borrow_mut()
+            .map_err(|_| InternalError::store_invariant())?;
+        if !keys.contains(&key) {
+            keys.push(key);
+        }
+
+        Ok(())
+    })
 }
 
 #[cfg(not(test))]

@@ -2871,6 +2871,22 @@ fn sql_session() -> DbSession<SessionSqlCanister> {
     DbSession::new(SESSION_SQL_DB)
 }
 
+#[test]
+fn recovered_test_authority_is_isolated_with_thread_local_stores() {
+    for _ in 0..2 {
+        std::thread::spawn(|| {
+            init_commit_store_for_tests().expect("commit store init should succeed");
+            ensure_recovered(&SESSION_SQL_DB).expect("thread-local store should recover");
+            assert!(
+                SESSION_SQL_SCHEMA_STORE.with_borrow(|store| !store.is_empty()),
+                "each thread-local store must establish its own accepted schema authority",
+            );
+        })
+        .join()
+        .expect("thread-local recovery test should not panic");
+    }
+}
+
 // Install a generated-compatible snapshot prefix that intentionally omits the
 // non-key write fields. SQL session paths must reject this as unsupported
 // schema evolution before they compile or stage row work against stale layout.
