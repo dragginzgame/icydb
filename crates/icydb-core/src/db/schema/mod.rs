@@ -30,6 +30,7 @@ mod proposal;
 mod reconcile;
 mod runtime;
 mod snapshot;
+mod source_binding;
 mod store;
 mod transition;
 mod types;
@@ -261,6 +262,10 @@ pub(in crate::db) use snapshot::{
     PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexOrigin,
     PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
     PersistedSchemaSnapshot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaInsertDefault,
+};
+pub(in crate::db) use source_binding::AcceptedSourceBindingCatalog;
+pub(in crate::db::schema) use source_binding::{
+    decode_accepted_source_bindings, encode_accepted_source_bindings,
 };
 pub use store::SchemaStore;
 pub(in crate::db) use store::{

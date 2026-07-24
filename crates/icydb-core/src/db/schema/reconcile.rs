@@ -12,13 +12,14 @@ use crate::{
         Db, EntityRuntimeHooks,
         registry::StoreHandle,
         schema::{
-            AcceptedCatalogSnapshotSelection, AcceptedSchemaSnapshot, ConstraintActivationKind,
-            ConstraintId, ConstraintOrigin, GeneratedAcceptedCandidateError,
-            GeneratedConstraintActivationContext, MutationPublicationPreflight,
-            PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaStore, SchemaTransitionDecision,
-            SchemaTransitionPlanKind, advance_check_constraint_activation,
-            advance_not_null_constraint_activation, advance_relation_constraint_activation,
-            advance_unique_constraint_activation, compiled_schema_proposal_for_model,
+            AcceptedCatalogSnapshotSelection, AcceptedSchemaSnapshot, AcceptedSourceBindingCatalog,
+            ConstraintActivationKind, ConstraintId, ConstraintOrigin,
+            GeneratedAcceptedCandidateError, GeneratedConstraintActivationContext,
+            MutationPublicationPreflight, PersistedIndexSnapshot, PersistedSchemaSnapshot,
+            SchemaStore, SchemaTransitionDecision, SchemaTransitionPlanKind,
+            advance_check_constraint_activation, advance_not_null_constraint_activation,
+            advance_relation_constraint_activation, advance_unique_constraint_activation,
+            compiled_schema_proposal_for_model,
             composite_catalog::{
                 AcceptedCompositeCatalog, build_initial_accepted_composite_catalog,
                 generated_composite_type_ids, reconcile_accepted_composite_catalog,
@@ -410,11 +411,17 @@ fn publish_generated_accepted_schema_bundle<C: CanisterKind>(
         AcceptedSchemaRevision::INITIAL,
         AcceptedSchemaRevisionBundle::revision,
     );
-    let comparison = AcceptedSchemaRevisionBundle::new(
+    let source_bindings = current
+        .as_ref()
+        .map_or_else(AcceptedSourceBindingCatalog::default, |current| {
+            current.source_bindings().clone()
+        });
+    let comparison = AcceptedSchemaRevisionBundle::new_with_source_bindings(
         comparison_revision,
         store_path,
         enum_catalog.clone(),
         composite_catalog.clone(),
+        source_bindings.clone(),
         entity_snapshots.clone(),
     )?;
     if current.as_ref() == Some(&comparison) {
@@ -427,11 +434,12 @@ fn publish_generated_accepted_schema_bundle<C: CanisterKind>(
     let candidate_revision = expected_revision
         .checked_next()
         .ok_or_else(InternalError::store_unsupported)?;
-    let bundle = AcceptedSchemaRevisionBundle::new(
+    let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
         candidate_revision,
         store_path,
         enum_catalog,
         composite_catalog,
+        source_bindings,
         entity_snapshots,
     )?;
     let candidate = CandidateSchemaRevision::new(bundle)?;
@@ -531,6 +539,11 @@ pub(in crate::db) fn publish_test_accepted_schema_snapshot(
     } else {
         (proposed_catalog, proposed_composite_catalog)
     };
+    let source_bindings = current
+        .as_ref()
+        .map_or_else(AcceptedSourceBindingCatalog::default, |current| {
+            current.source_bindings().clone()
+        });
     let mut entity_snapshots = current
         .as_ref()
         .map_or_else(BTreeMap::new, |current| current.entity_snapshots().clone());
@@ -541,11 +554,12 @@ pub(in crate::db) fn publish_test_accepted_schema_snapshot(
     let revision = expected_revision
         .checked_next()
         .ok_or_else(InternalError::store_unsupported)?;
-    let bundle = AcceptedSchemaRevisionBundle::new(
+    let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
         revision,
         store_path,
         catalog,
         composite_catalog,
+        source_bindings,
         entity_snapshots,
     )?;
     let candidate = CandidateSchemaRevision::new(bundle)?;
@@ -634,11 +648,12 @@ fn prepare_accepted_entity_snapshot_revision(
     let candidate_revision = expected_revision
         .checked_next()
         .ok_or_else(InternalError::store_unsupported)?;
-    let bundle = AcceptedSchemaRevisionBundle::new(
+    let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
         candidate_revision,
         expected_identity.store_path(),
         current.enum_catalog().clone(),
         current.composite_catalog().clone(),
+        current.source_bindings().clone(),
         entity_snapshots,
     )?;
     let candidate = CandidateSchemaRevision::new(bundle)?;

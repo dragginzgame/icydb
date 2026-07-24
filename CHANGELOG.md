@@ -16,6 +16,11 @@ Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
   application targets while hard-cutting the retired primitive package and
   permissive date construction.
 
+- `0.213.1` adds the fingerprinted accepted source-binding catalog that will
+  preserve immutable proposal identities across renames and schema changes;
+  this hard-cuts the accepted bundle format, so 0.213.0 development stores
+  must be recreated.
+
 ## [0.212.x] 🔍 - 2026-07-24 - Bounded Resumable Integrity Core
 
 Detailed notes: [docs/changelog/0.212.md](docs/changelog/0.212.md)

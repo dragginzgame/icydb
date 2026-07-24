@@ -331,11 +331,12 @@ pub(super) fn candidate_with_snapshot(
         .revision()
         .checked_next()
         .ok_or_else(InternalError::store_unsupported)?;
-    let bundle = AcceptedSchemaRevisionBundle::new(
+    let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
         revision,
         current.store_path(),
         current.enum_catalog().clone(),
         current.composite_catalog().clone(),
+        current.source_bindings().clone(),
         entity_snapshots,
     )?;
     CandidateSchemaRevision::new(bundle)

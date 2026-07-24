@@ -9,6 +9,8 @@ SCHEMA_ROOT="crates/icydb-schema/src"
 LEGACY_CARGO="crates/icydb-model-legacy/Cargo.toml"
 CORE_CARGO="crates/icydb-core/Cargo.toml"
 CORE_APPLICATION="crates/icydb-core/src/db/schema/application.rs"
+CORE_SOURCE_BINDING="crates/icydb-core/src/db/schema/source_binding.rs"
+CORE_ACCEPTED_BUNDLE="crates/icydb-core/src/db/schema/enum_catalog/publication.rs"
 
 status=0
 
@@ -114,6 +116,44 @@ if [[ -n "$application_model_leaks" ]]; then
   fail_with_matches \
     "schema application target issuance must not depend on generated model authority." \
     "$application_model_leaks"
+fi
+
+for required_binding_owner in \
+  'source_bindings: AcceptedSourceBindingCatalog' \
+  'encode_accepted_source_bindings(' \
+  'decode_accepted_source_bindings(' \
+  'hash_len_prefixed(&mut hasher, &source_binding_bytes)?' \
+  'writer.push_len_prefixed_bytes(&source_binding_bytes)?'
+do
+  if ! rg -q --fixed-strings "$required_binding_owner" "$CORE_ACCEPTED_BUNDLE"; then
+    echo "[ERROR] accepted source bindings must remain bundle-, codec-, and fingerprint-owned: $required_binding_owner" >&2
+    status=1
+  fi
+done
+
+for preserving_candidate_owner in \
+  crates/icydb-core/src/db/schema/reconcile.rs \
+  crates/icydb-core/src/db/schema/constraint_activation_runner.rs \
+  crates/icydb-core/src/db/schema/reconcile/sql_ddl/constraint.rs
+do
+  if ! rg -q --fixed-strings \
+    'current.source_bindings().clone()' \
+    "$preserving_candidate_owner"
+  then
+    echo "[ERROR] accepted schema candidates must preserve immutable source bindings: $preserving_candidate_owner" >&2
+    status=1
+  fi
+done
+
+binding_model_leaks="$(
+  rg -n --no-heading --color=never \
+    '\b(EntityModel|CompiledSchemaProposal|EntityRuntimeHooks|E::MODEL)\b' \
+    "$CORE_SOURCE_BINDING" || true
+)"
+if [[ -n "$binding_model_leaks" ]]; then
+  fail_with_matches \
+    "accepted source bindings must map to catalog IDs without generated model authority." \
+    "$binding_model_leaks"
 fi
 
 primitive_residue="$(
