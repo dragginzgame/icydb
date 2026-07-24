@@ -368,6 +368,11 @@ impl AcceptedEnumType {
         self.path.as_str()
     }
 
+    #[must_use]
+    pub(in crate::db::schema) fn variant_count(&self) -> usize {
+        self.variants_by_id.len()
+    }
+
     fn lookup_maps_are_bijective(&self) -> bool {
         self.variants_by_id.len() == self.variant_id_by_name.len()
             && self.variant_id_by_name.iter().all(|(name, variant_id)| {

@@ -11,18 +11,22 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
-- `0.213.0` establishes the bounded standalone schema-proposal and canonical
-  scalar leaf, exact database-scoped composition, and IcyDB-issued optimistic
-  application targets while hard-cutting the retired primitive package and
-  permissive date construction.
+- `0.213.3` completes immutable source bindings for enum variants,
+  hard-cutting accepted-bundle bytes so development stores written through
+  0.213.2 must be recreated.
+
+- `0.213.2` makes multi-store accepted-schema publication atomic and
+  recovery-complete while consolidating its bounded binary codec machinery.
 
 - `0.213.1` adds the fingerprinted accepted source-binding catalog that will
   preserve immutable proposal identities across renames and schema changes;
   this hard-cuts the accepted bundle format, so 0.213.0 development stores
   must be recreated.
 
-- `0.213.2` makes multi-store accepted-schema publication atomic and
-  recovery-complete while consolidating its bounded binary codec machinery.
+- `0.213.0` establishes the bounded standalone schema-proposal and canonical
+  scalar leaf, exact database-scoped composition, and IcyDB-issued optimistic
+  application targets while hard-cutting the retired primitive package and
+  permissive date construction.
 
 ## [0.212.x] 🔍 - 2026-07-24 - Bounded Resumable Integrity Core
 

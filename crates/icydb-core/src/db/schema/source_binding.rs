@@ -20,12 +20,12 @@ use crate::{
     },
     error::InternalError,
     types::EntityTag,
-    value::EnumTypeId,
+    value::{EnumTypeId, EnumVariantId},
 };
 
 const ACCEPTED_SOURCE_BINDING_MAGIC: &[u8; 8] = b"ICYDBASB";
 const ACCEPTED_SOURCE_BINDING_CODEC_VERSION: u16 = 1;
-const ACCEPTED_SOURCE_BINDING_HEADER_BYTES: usize = 34;
+const ACCEPTED_SOURCE_BINDING_HEADER_BYTES: usize = 38;
 const MAX_ACCEPTED_SOURCE_BINDING_BYTES: usize = 2 * 1024 * 1024;
 const TYPE_ENUM: u8 = 0;
 const TYPE_COMPOSITE: u8 = 1;
@@ -64,6 +64,7 @@ pub(in crate::db) enum AcceptedNamedTypeIdentity {
 pub(in crate::db) struct AcceptedSourceBindingCatalog {
     entities: BTreeMap<EntitySourceKey, EntityTag>,
     types: BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
+    enum_variants: BTreeMap<(EnumTypeId, TypeSourceKey), EnumVariantId>,
     fields: BTreeMap<(EntityTag, FieldSourceKey), FieldId>,
     constraints: BTreeMap<(EntityTag, ConstraintSourceKey), ConstraintId>,
     indexes: BTreeMap<(EntityTag, IndexSourceKey), SchemaIndexId>,
@@ -74,6 +75,7 @@ impl AcceptedSourceBindingCatalog {
     const fn from_parts(
         entities: BTreeMap<EntitySourceKey, EntityTag>,
         types: BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
+        enum_variants: BTreeMap<(EnumTypeId, TypeSourceKey), EnumVariantId>,
         fields: BTreeMap<(EntityTag, FieldSourceKey), FieldId>,
         constraints: BTreeMap<(EntityTag, ConstraintSourceKey), ConstraintId>,
         indexes: BTreeMap<(EntityTag, IndexSourceKey), SchemaIndexId>,
@@ -82,6 +84,7 @@ impl AcceptedSourceBindingCatalog {
         Self {
             entities,
             types,
+            enum_variants,
             fields,
             constraints,
             indexes,
@@ -95,8 +98,19 @@ impl AcceptedSourceBindingCatalog {
         composite_catalog: &AcceptedCompositeCatalog,
         entities: &BTreeMap<EntityTag, PersistedSchemaSnapshot>,
     ) -> bool {
+        self.identities_are_one_to_one()
+            && self.type_bindings_close(enum_catalog, composite_catalog)
+            && self.entity_bindings_close(entities)
+    }
+
+    fn identities_are_one_to_one(&self) -> bool {
         unique_values(self.entities.values().copied())
             && unique_values(self.types.values().copied())
+            && unique_values(
+                self.enum_variants
+                    .iter()
+                    .map(|((enum_type, _), variant)| (*enum_type, *variant)),
+            )
             && unique_values(
                 self.fields
                     .iter()
@@ -117,16 +131,46 @@ impl AcceptedSourceBindingCatalog {
                     .iter()
                     .map(|((entity, _), relation)| (*entity, *relation)),
             )
-            && self
-                .entities
+    }
+
+    fn type_bindings_close(
+        &self,
+        enum_catalog: &AcceptedEnumCatalog,
+        composite_catalog: &AcceptedCompositeCatalog,
+    ) -> bool {
+        self.types.values().all(|identity| match identity {
+            AcceptedNamedTypeIdentity::Enum(id) => enum_catalog.enum_type(*id).is_some(),
+            AcceptedNamedTypeIdentity::Composite(id) => {
+                composite_catalog.composite_type(*id).is_some()
+            }
+        }) && self.enum_variants.iter().all(|((enum_type, _), variant)| {
+            self.types
                 .values()
-                .all(|entity| entities.contains_key(entity))
-            && self.types.values().all(|identity| match identity {
-                AcceptedNamedTypeIdentity::Enum(id) => enum_catalog.enum_type(*id).is_some(),
-                AcceptedNamedTypeIdentity::Composite(id) => {
-                    composite_catalog.composite_type(*id).is_some()
-                }
-            })
+                .any(|identity| *identity == AcceptedNamedTypeIdentity::Enum(*enum_type))
+                && enum_catalog
+                    .enum_type(*enum_type)
+                    .is_some_and(|definition| definition.variant(*variant).is_some())
+        }) && self.types.values().all(|identity| match identity {
+            AcceptedNamedTypeIdentity::Enum(enum_type) => enum_catalog
+                .enum_type(*enum_type)
+                .is_some_and(|definition| {
+                    self.enum_variants
+                        .keys()
+                        .filter(|(bound_type, _)| bound_type == enum_type)
+                        .count()
+                        == definition.variant_count()
+                }),
+            AcceptedNamedTypeIdentity::Composite(_) => true,
+        })
+    }
+
+    fn entity_bindings_close(
+        &self,
+        entities: &BTreeMap<EntityTag, PersistedSchemaSnapshot>,
+    ) -> bool {
+        self.entities
+            .values()
+            .all(|entity| entities.contains_key(entity))
             && self.fields.iter().all(|((entity, _), field_id)| {
                 entities.get(entity).is_some_and(|snapshot| {
                     snapshot
@@ -222,6 +266,12 @@ pub(in crate::db::schema) fn encode_accepted_source_bindings(
             }
         }
     }
+    writer.push_len(catalog.enum_variants.len())?;
+    for ((enum_type, source_key), variant) in &catalog.enum_variants {
+        writer.push_u32(enum_type.get());
+        writer.push_string(source_key.as_str())?;
+        writer.push_u32(variant.get());
+    }
     writer.push_len(catalog.fields.len())?;
     for ((entity, source_key), field) in &catalog.fields {
         writer.push_u64(entity.value());
@@ -307,6 +357,22 @@ pub(in crate::db::schema) fn decode_accepted_source_bindings(
         }
     }
 
+    let mut enum_variant_bindings = BTreeMap::new();
+    for _ in 0..reader.read_count()? {
+        let enum_type =
+            EnumTypeId::new(reader.read_u32()?).ok_or_else(InternalError::store_corruption)?;
+        let source = TypeSourceKey::try_new(reader.read_string()?)
+            .map_err(|_| InternalError::store_corruption())?;
+        let variant =
+            EnumVariantId::new(reader.read_u32()?).ok_or_else(InternalError::store_corruption)?;
+        if enum_variant_bindings
+            .insert((enum_type, source), variant)
+            .is_some()
+        {
+            return Err(InternalError::store_corruption());
+        }
+    }
+
     let field_bindings =
         read_entity_local_bindings(&mut reader, FieldSourceKey::try_new, FieldId::new)?;
     let constraint_bindings = read_nonzero_entity_local_bindings(
@@ -329,6 +395,7 @@ pub(in crate::db::schema) fn decode_accepted_source_bindings(
     let catalog = AcceptedSourceBindingCatalog::from_parts(
         entity_bindings,
         type_bindings,
+        enum_variant_bindings,
         field_bindings,
         constraint_bindings,
         index_bindings,
@@ -387,7 +454,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::{
-        AcceptedSourceBindingCatalog, decode_accepted_source_bindings,
+        AcceptedNamedTypeIdentity, AcceptedSourceBindingCatalog, decode_accepted_source_bindings,
         encode_accepted_source_bindings,
     };
     use crate::{
@@ -397,8 +464,17 @@ mod tests {
             PersistedSchemaSnapshot, SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout,
             SchemaVersion, build_initial_accepted_enum_catalog_from_kinds_for_tests,
         },
-        model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
+        model::field::{EnumVariantModel, FieldKind, FieldStorageDecode, LeafCodec, ScalarCodec},
         types::EntityTag,
+    };
+
+    static STATUS_VARIANTS: [EnumVariantModel; 2] = [
+        EnumVariantModel::new("Active", None, FieldStorageDecode::ByKind),
+        EnumVariantModel::new("Disabled", None, FieldStorageDecode::ByKind),
+    ];
+    const STATUS_KIND: FieldKind = FieldKind::Enum {
+        path: "test::Status",
+        variants: &STATUS_VARIANTS,
     };
 
     #[test]
@@ -415,6 +491,25 @@ mod tests {
             .expect("empty source bindings should decode");
 
         assert_eq!(decoded, catalog);
+    }
+
+    #[test]
+    fn superseded_source_binding_shape_fails_closed() {
+        let enums = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[])
+            .expect("empty enum catalog should build");
+        let composites = AcceptedCompositeCatalog::empty();
+        let entities = BTreeMap::new();
+        let mut superseded = b"ICYDBASB".to_vec();
+        superseded.extend_from_slice(&1u16.to_be_bytes());
+        for _ in 0..6 {
+            superseded.extend_from_slice(&0u32.to_be_bytes());
+        }
+
+        assert!(
+            decode_accepted_source_bindings(superseded.as_slice(), &enums, &composites, &entities,)
+                .is_err(),
+            "the pre-variant-binding development shape must not decode",
+        );
     }
 
     #[test]
@@ -480,6 +575,64 @@ mod tests {
             .expect("closed source bindings should decode");
 
         assert_eq!(decoded, catalog);
+    }
+
+    #[test]
+    fn source_binding_catalog_closes_enum_variant_source_identities() {
+        let enums = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[STATUS_KIND])
+            .expect("enum catalog should build");
+        let composites = AcceptedCompositeCatalog::empty();
+        let entities = BTreeMap::new();
+        let enum_type = enums
+            .type_id("test::Status")
+            .expect("accepted enum type should exist");
+        let definition = enums
+            .enum_type(enum_type)
+            .expect("accepted enum definition should exist");
+        let active = definition
+            .variant_id("Active")
+            .expect("accepted active variant should exist");
+        let disabled = definition
+            .variant_id("Disabled")
+            .expect("accepted disabled variant should exist");
+        let mut catalog = AcceptedSourceBindingCatalog::default();
+        catalog.types.insert(
+            icydb_schema::TypeSourceKey::try_new("test:status")
+                .expect("type source key should build"),
+            AcceptedNamedTypeIdentity::Enum(enum_type),
+        );
+        catalog.enum_variants.insert(
+            (
+                enum_type,
+                icydb_schema::TypeSourceKey::try_new("test:status:active")
+                    .expect("variant source key should build"),
+            ),
+            active,
+        );
+        catalog.enum_variants.insert(
+            (
+                enum_type,
+                icydb_schema::TypeSourceKey::try_new("test:status:disabled")
+                    .expect("variant source key should build"),
+            ),
+            disabled,
+        );
+
+        let encoded = encode_accepted_source_bindings(&catalog, &enums, &composites, &entities)
+            .expect("closed enum bindings should encode");
+        let decoded = decode_accepted_source_bindings(&encoded, &enums, &composites, &entities)
+            .expect("closed enum bindings should decode");
+
+        assert_eq!(decoded, catalog);
+
+        let mut incomplete = catalog.clone();
+        incomplete
+            .enum_variants
+            .retain(|(_, source), _| source.as_str() != "test:status:disabled");
+        assert!(
+            encode_accepted_source_bindings(&incomplete, &enums, &composites, &entities).is_err(),
+            "a bound enum type must bind every accepted variant",
+        );
     }
 
     #[test]
