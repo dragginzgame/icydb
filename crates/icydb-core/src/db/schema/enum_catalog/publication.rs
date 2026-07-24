@@ -27,6 +27,7 @@ use crate::{
             PersistedIndexKeySnapshot, PersistedSchemaSnapshot, classify_accepted_field_kind,
             decode_accepted_source_bindings, decode_persisted_schema_snapshot,
             encode_accepted_source_bindings, encode_persisted_schema_snapshot,
+            wire::{SchemaWireReader, SchemaWireWriter},
         },
     },
     error::InternalError,
@@ -45,6 +46,8 @@ const ACCEPTED_SCHEMA_ROOT_CHECKSUM_OFFSET: usize = ACCEPTED_SCHEMA_ROOT_BYTES -
 const ACCEPTED_SCHEMA_FINGERPRINT_PROFILE: &[u8] = b"icydb.accepted-schema.semantic.v1";
 const MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_SCHEMA_STORE_PATH_BYTES: usize = 4 * 1024;
+type BundleWriter = SchemaWireWriter<MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES>;
+type BundleReader<'a> = SchemaWireReader<'a>;
 
 /// Monotonic publication identity for one store-local accepted schema.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -989,132 +992,6 @@ fn read_array_at<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N],
     let mut value = [0_u8; N];
     value.copy_from_slice(slice);
     Ok(value)
-}
-
-struct BundleWriter {
-    bytes: Vec<u8>,
-    overflowed: bool,
-}
-
-impl BundleWriter {
-    const fn new() -> Self {
-        Self {
-            bytes: Vec::new(),
-            overflowed: false,
-        }
-    }
-
-    fn push_u16(&mut self, value: u16) {
-        self.push_bytes(&value.to_be_bytes());
-    }
-
-    fn push_u64(&mut self, value: u64) {
-        self.push_bytes(&value.to_be_bytes());
-    }
-
-    fn push_len(&mut self, value: usize) -> Result<(), InternalError> {
-        let value = u32::try_from(value).map_err(|_| InternalError::store_unsupported())?;
-        self.push_bytes(&value.to_be_bytes());
-        Ok(())
-    }
-
-    fn push_string(&mut self, value: &str) -> Result<(), InternalError> {
-        self.push_len_prefixed_bytes(value.as_bytes())
-    }
-
-    fn push_len_prefixed_bytes(&mut self, value: &[u8]) -> Result<(), InternalError> {
-        self.push_len(value.len())?;
-        self.push_bytes(value);
-        Ok(())
-    }
-
-    fn push_bytes(&mut self, value: &[u8]) {
-        if value.len() > MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES.saturating_sub(self.bytes.len()) {
-            self.overflowed = true;
-            return;
-        }
-        self.bytes.extend_from_slice(value);
-    }
-
-    fn finish(self) -> Result<Vec<u8>, InternalError> {
-        if self.overflowed {
-            return Err(InternalError::store_unsupported());
-        }
-        Ok(self.bytes)
-    }
-}
-
-struct BundleReader<'a> {
-    bytes: &'a [u8],
-    offset: usize,
-}
-
-impl<'a> BundleReader<'a> {
-    const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
-    }
-
-    const fn remaining(&self) -> usize {
-        self.bytes.len().saturating_sub(self.offset)
-    }
-
-    fn read_u16(&mut self) -> Result<u16, InternalError> {
-        Ok(u16::from_be_bytes(self.read_array()?))
-    }
-
-    fn read_u32(&mut self) -> Result<u32, InternalError> {
-        Ok(u32::from_be_bytes(self.read_array()?))
-    }
-
-    fn read_u64(&mut self) -> Result<u64, InternalError> {
-        Ok(u64::from_be_bytes(self.read_array()?))
-    }
-
-    fn read_count(&mut self) -> Result<usize, InternalError> {
-        let count = self.read_u32()? as usize;
-        if count > self.remaining() {
-            return Err(InternalError::store_corruption());
-        }
-        Ok(count)
-    }
-
-    fn read_string(&mut self) -> Result<String, InternalError> {
-        let bytes = self.read_len_prefixed_bytes()?;
-        let value = std::str::from_utf8(bytes).map_err(|_| InternalError::store_corruption())?;
-        Ok(value.to_string())
-    }
-
-    fn read_len_prefixed_bytes(&mut self) -> Result<&'a [u8], InternalError> {
-        let len = self.read_u32()? as usize;
-        self.read_slice(len)
-    }
-
-    fn read_array<const N: usize>(&mut self) -> Result<[u8; N], InternalError> {
-        let slice = self.read_slice(N)?;
-        let mut value = [0_u8; N];
-        value.copy_from_slice(slice);
-        Ok(value)
-    }
-
-    fn read_slice(&mut self, len: usize) -> Result<&'a [u8], InternalError> {
-        let end = self
-            .offset
-            .checked_add(len)
-            .ok_or_else(InternalError::store_corruption)?;
-        let slice = self
-            .bytes
-            .get(self.offset..end)
-            .ok_or_else(InternalError::store_corruption)?;
-        self.offset = end;
-        Ok(slice)
-    }
-
-    fn finish(self) -> Result<(), InternalError> {
-        if self.offset != self.bytes.len() {
-            return Err(InternalError::store_corruption());
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]

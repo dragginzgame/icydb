@@ -150,6 +150,50 @@ fn commit_marker_embeds_marker_bound_journal_batches() {
 }
 
 #[test]
+fn commit_marker_accepts_equal_sequences_from_distinct_journal_tails() {
+    let marker_id = [0xAB; 16];
+    let first = JournalBatch::new(
+        [0x41; 16],
+        marker_id,
+        JournalSequence::new(1),
+        vec![
+            JournalRecord::row_put(
+                "test::FirstEntity",
+                raw_data_store_key(1),
+                vec![0x11],
+                [0x31; 16],
+            )
+            .expect("first row record should build"),
+        ],
+    )
+    .expect("first journal batch should build");
+    let second = JournalBatch::new(
+        [0x42; 16],
+        marker_id,
+        JournalSequence::new(1),
+        vec![
+            JournalRecord::row_put(
+                "test::SecondEntity",
+                raw_data_store_key(2),
+                vec![0x21],
+                [0x32; 16],
+            )
+            .expect("second row record should build"),
+        ],
+    )
+    .expect("second journal batch should build");
+
+    let marker = CommitMarker::from_parts(marker_id, vec![first.clone(), second.clone()])
+        .expect("tail-local sequences may coincide inside one marker");
+    let encoded =
+        encode_commit_marker_payload(&marker).expect("multi-tail marker payload should encode");
+    let decoded =
+        decode_commit_marker_payload(&encoded).expect("multi-tail marker payload should decode");
+
+    assert_eq!(decoded.journal_batches(), &[first, second]);
+}
+
+#[test]
 fn commit_marker_rejects_unbound_journal_batch() {
     let marker_id = [0xAB; 16];
     let journal_batch = JournalBatch::new(

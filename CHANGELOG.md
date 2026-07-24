@@ -21,6 +21,9 @@ Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
   this hard-cuts the accepted bundle format, so 0.213.0 development stores
   must be recreated.
 
+- `0.213.2` makes multi-store accepted-schema publication atomic and
+  recovery-complete while consolidating its bounded binary codec machinery.
+
 ## [0.212.x] 🔍 - 2026-07-24 - Bounded Resumable Integrity Core
 
 Detailed notes: [docs/changelog/0.212.md](docs/changelog/0.212.md)

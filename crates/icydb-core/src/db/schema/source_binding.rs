@@ -14,7 +14,9 @@ use crate::{
     db::schema::{
         AcceptedCompositeCatalog, AcceptedConstraintKind, AcceptedEnumCatalog,
         ConstraintActivationKind, ConstraintId, FieldId, PersistedSchemaSnapshot, RelationId,
-        SchemaIndexId, composite_catalog::CompositeTypeId,
+        SchemaIndexId,
+        composite_catalog::CompositeTypeId,
+        wire::{SchemaWireReader, SchemaWireWriter},
     },
     error::InternalError,
     types::EntityTag,
@@ -27,6 +29,8 @@ const ACCEPTED_SOURCE_BINDING_HEADER_BYTES: usize = 34;
 const MAX_ACCEPTED_SOURCE_BINDING_BYTES: usize = 2 * 1024 * 1024;
 const TYPE_ENUM: u8 = 0;
 const TYPE_COMPOSITE: u8 = 1;
+type BindingWriter = SchemaWireWriter<MAX_ACCEPTED_SOURCE_BINDING_BYTES>;
+type BindingReader<'a> = SchemaWireReader<'a>;
 
 ///
 /// AcceptedNamedTypeIdentity
@@ -201,12 +205,12 @@ pub(in crate::db::schema) fn encode_accepted_source_bindings(
     writer.push_u16(ACCEPTED_SOURCE_BINDING_CODEC_VERSION);
     writer.push_len(catalog.entities.len())?;
     for (source_key, entity) in &catalog.entities {
-        writer.push_source_key(source_key.as_str())?;
+        writer.push_string(source_key.as_str())?;
         writer.push_u64(entity.value());
     }
     writer.push_len(catalog.types.len())?;
     for (source_key, identity) in &catalog.types {
-        writer.push_source_key(source_key.as_str())?;
+        writer.push_string(source_key.as_str())?;
         match identity {
             AcceptedNamedTypeIdentity::Enum(id) => {
                 writer.push_u8(TYPE_ENUM);
@@ -221,25 +225,25 @@ pub(in crate::db::schema) fn encode_accepted_source_bindings(
     writer.push_len(catalog.fields.len())?;
     for ((entity, source_key), field) in &catalog.fields {
         writer.push_u64(entity.value());
-        writer.push_source_key(source_key.as_str())?;
+        writer.push_string(source_key.as_str())?;
         writer.push_u32(field.get());
     }
     writer.push_len(catalog.constraints.len())?;
     for ((entity, source_key), constraint) in &catalog.constraints {
         writer.push_u64(entity.value());
-        writer.push_source_key(source_key.as_str())?;
+        writer.push_string(source_key.as_str())?;
         writer.push_u32(constraint.get());
     }
     writer.push_len(catalog.indexes.len())?;
     for ((entity, source_key), index) in &catalog.indexes {
         writer.push_u64(entity.value());
-        writer.push_source_key(source_key.as_str())?;
+        writer.push_string(source_key.as_str())?;
         writer.push_u32(index.get());
     }
     writer.push_len(catalog.relations.len())?;
     for ((entity, source_key), relation) in &catalog.relations {
         writer.push_u64(entity.value());
-        writer.push_source_key(source_key.as_str())?;
+        writer.push_string(source_key.as_str())?;
         writer.push_u32(relation.get());
     }
     writer.finish()
@@ -273,7 +277,7 @@ pub(in crate::db::schema) fn decode_accepted_source_bindings(
 
     let mut entity_bindings = BTreeMap::new();
     for _ in 0..reader.read_count()? {
-        let source = EntitySourceKey::try_new(reader.read_source_key()?)
+        let source = EntitySourceKey::try_new(reader.read_string()?)
             .map_err(|_| InternalError::store_corruption())?;
         if entity_bindings
             .insert(source, EntityTag::new(reader.read_u64()?))
@@ -285,7 +289,7 @@ pub(in crate::db::schema) fn decode_accepted_source_bindings(
 
     let mut type_bindings = BTreeMap::new();
     for _ in 0..reader.read_count()? {
-        let source = TypeSourceKey::try_new(reader.read_source_key()?)
+        let source = TypeSourceKey::try_new(reader.read_string()?)
             .map_err(|_| InternalError::store_corruption())?;
         let tag = reader.read_u8()?;
         let raw = reader.read_u32()?;
@@ -351,7 +355,7 @@ fn read_entity_local_bindings<K: Ord>(
     for _ in 0..reader.read_count()? {
         let entity = EntityTag::new(reader.read_u64()?);
         let source =
-            source_key(reader.read_source_key()?).map_err(|_| InternalError::store_corruption())?;
+            source_key(reader.read_string()?).map_err(|_| InternalError::store_corruption())?;
         let accepted = identity(reader.read_u32()?);
         if bindings.insert((entity, source), accepted).is_some() {
             return Err(InternalError::store_corruption());
@@ -369,148 +373,13 @@ fn read_nonzero_entity_local_bindings<K: Ord, V>(
     for _ in 0..reader.read_count()? {
         let entity = EntityTag::new(reader.read_u64()?);
         let source =
-            source_key(reader.read_source_key()?).map_err(|_| InternalError::store_corruption())?;
+            source_key(reader.read_string()?).map_err(|_| InternalError::store_corruption())?;
         let accepted = identity(reader.read_u32()?).ok_or_else(InternalError::store_corruption)?;
         if bindings.insert((entity, source), accepted).is_some() {
             return Err(InternalError::store_corruption());
         }
     }
     Ok(bindings)
-}
-
-struct BindingWriter {
-    bytes: Vec<u8>,
-    overflowed: bool,
-}
-
-impl BindingWriter {
-    const fn new() -> Self {
-        Self {
-            bytes: Vec::new(),
-            overflowed: false,
-        }
-    }
-
-    fn push_u8(&mut self, value: u8) {
-        self.push_bytes(&[value]);
-    }
-
-    fn push_u16(&mut self, value: u16) {
-        self.push_bytes(&value.to_be_bytes());
-    }
-
-    fn push_u32(&mut self, value: u32) {
-        self.push_bytes(&value.to_be_bytes());
-    }
-
-    fn push_u64(&mut self, value: u64) {
-        self.push_bytes(&value.to_be_bytes());
-    }
-
-    fn push_len(&mut self, value: usize) -> Result<(), InternalError> {
-        let value = u32::try_from(value).map_err(|_| InternalError::store_unsupported())?;
-        self.push_u32(value);
-        Ok(())
-    }
-
-    fn push_source_key(&mut self, value: &str) -> Result<(), InternalError> {
-        self.push_len(value.len())?;
-        self.push_bytes(value.as_bytes());
-        Ok(())
-    }
-
-    fn push_bytes(&mut self, value: &[u8]) {
-        if value
-            .len()
-            .checked_add(self.bytes.len())
-            .is_none_or(|len| len > MAX_ACCEPTED_SOURCE_BINDING_BYTES)
-        {
-            self.overflowed = true;
-            return;
-        }
-        self.bytes.extend_from_slice(value);
-    }
-
-    fn finish(self) -> Result<Vec<u8>, InternalError> {
-        if self.overflowed {
-            return Err(InternalError::store_unsupported());
-        }
-        Ok(self.bytes)
-    }
-}
-
-struct BindingReader<'a> {
-    bytes: &'a [u8],
-    offset: usize,
-}
-
-impl<'a> BindingReader<'a> {
-    const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
-    }
-
-    const fn remaining(&self) -> usize {
-        self.bytes.len().saturating_sub(self.offset)
-    }
-
-    fn read_u8(&mut self) -> Result<u8, InternalError> {
-        Ok(self.read_array::<1>()?[0])
-    }
-
-    fn read_u16(&mut self) -> Result<u16, InternalError> {
-        Ok(u16::from_be_bytes(self.read_array()?))
-    }
-
-    fn read_u32(&mut self) -> Result<u32, InternalError> {
-        Ok(u32::from_be_bytes(self.read_array()?))
-    }
-
-    fn read_u64(&mut self) -> Result<u64, InternalError> {
-        Ok(u64::from_be_bytes(self.read_array()?))
-    }
-
-    fn read_count(&mut self) -> Result<usize, InternalError> {
-        let count = self.read_u32()? as usize;
-        if count > self.remaining() {
-            return Err(InternalError::store_corruption());
-        }
-        Ok(count)
-    }
-
-    fn read_source_key(&mut self) -> Result<String, InternalError> {
-        let len = self.read_u32()? as usize;
-        let bytes = self.read_slice(len)?;
-        let value = std::str::from_utf8(bytes).map_err(|_| InternalError::store_corruption())?;
-        Ok(value.to_string())
-    }
-
-    fn read_array<const N: usize>(&mut self) -> Result<[u8; N], InternalError> {
-        let bytes = self.read_slice(N)?;
-        let mut value = [0_u8; N];
-        value.copy_from_slice(bytes);
-        Ok(value)
-    }
-
-    fn read_slice(&mut self, len: usize) -> Result<&'a [u8], InternalError> {
-        let end = self
-            .offset
-            .checked_add(len)
-            .ok_or_else(InternalError::store_corruption)?;
-        let value = self
-            .bytes
-            .get(self.offset..end)
-            .ok_or_else(InternalError::store_corruption)?;
-        self.offset = end;
-        Ok(value)
-    }
-
-    fn finish(self) -> Result<(), InternalError> {
-        if self.offset == self.bytes.len() {
-            Ok(())
-        } else {
-            Err(InternalError::store_corruption())
-        }
-    }
 }
 
 #[cfg(test)]

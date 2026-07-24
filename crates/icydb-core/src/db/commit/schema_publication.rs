@@ -5,7 +5,9 @@
 
 use crate::{
     db::{
-        commit::{CommitMarker, begin_commit, finish_commit, generate_commit_id},
+        commit::{
+            CommitMarker, begin_commit, finish_commit, generate_commit_id, generate_marker_batch_id,
+        },
         data::DataStore,
         index::{IndexEntryValue, IndexKey, IndexStore, RawIndexStoreKey},
         journal::{JournalBatch, JournalRecord},
@@ -43,24 +45,119 @@ enum ConstraintValidationJobChange<'a> {
     },
 }
 
+///
+/// AcceptedSchemaPublication
+///
+/// One preconstructed store-local candidate participating in an atomic
+/// database-scoped accepted-schema publication.
+///
+
+pub(in crate::db) struct AcceptedSchemaPublication<'a> {
+    store_path: &'static str,
+    store: StoreHandle,
+    expected_revision: AcceptedSchemaRevision,
+    candidate: &'a CandidateSchemaRevision,
+}
+
+impl<'a> AcceptedSchemaPublication<'a> {
+    /// Bind one catalog-native candidate to its registered store authority.
+    pub(in crate::db) const fn new(
+        store_path: &'static str,
+        store: StoreHandle,
+        expected_revision: AcceptedSchemaRevision,
+        candidate: &'a CandidateSchemaRevision,
+    ) -> Self {
+        Self {
+            store_path,
+            store,
+            expected_revision,
+            candidate,
+        }
+    }
+}
+
 pub(in crate::db) fn publish_accepted_schema_candidate(
     store_path: &'static str,
     store: StoreHandle,
     expected_revision: AcceptedSchemaRevision,
     candidate: &CandidateSchemaRevision,
 ) -> Result<(), InternalError> {
-    if candidate.store_path() != store_path {
-        return Err(InternalError::store_invariant());
-    }
-
-    publish_accepted_schema_candidate_with_prepared_domains(
+    publish_accepted_schema_candidates_atomically(vec![AcceptedSchemaPublication::new(
         store_path,
         store,
         expected_revision,
         candidate,
-        StagedSchemaDomains::None,
-        ConstraintValidationJobChange::None,
-    )
+    )])
+}
+
+/// Publish one or more catalog-native accepted candidates through one durable
+/// marker boundary.
+///
+/// Multi-store publication currently requires journaled stores. A volatile
+/// heap store has no recovery authority capable of completing an interrupted
+/// database-scoped publication, so mixed or multi-heap input rejects before
+/// mutation.
+pub(in crate::db) fn publish_accepted_schema_candidates_atomically(
+    mut publications: Vec<AcceptedSchemaPublication<'_>>,
+) -> Result<(), InternalError> {
+    if publications.is_empty() {
+        return Err(InternalError::store_invariant());
+    }
+    publications.sort_by_key(|publication| publication.store_path);
+    if publications
+        .windows(2)
+        .any(|pair| pair[0].store_path == pair[1].store_path)
+        || publications
+            .iter()
+            .any(|publication| publication.candidate.store_path() != publication.store_path)
+    {
+        return Err(InternalError::store_invariant());
+    }
+    for publication in &publications {
+        validate_constraint_validation_job_change(
+            publication.store,
+            publication.candidate,
+            ConstraintValidationJobChange::None,
+        )?;
+    }
+
+    let already_current = publications
+        .iter()
+        .map(|publication| {
+            publication.store.with_schema(|schema_store| {
+                schema_store.preflight_accepted_schema_candidate(
+                    publication.expected_revision,
+                    publication.candidate,
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if already_current.iter().all(|current| *current) {
+        return Ok(());
+    }
+    if already_current.iter().any(|current| *current) {
+        return Err(InternalError::store_invariant());
+    }
+
+    if publications.len() == 1
+        && publications[0].store.storage_capabilities().recovery() == StoreRecoveryCapability::None
+    {
+        let publication = &publications[0];
+        return publication.store.with_schema_mut(|schema_store| {
+            schema_store.publish_accepted_schema_candidate(
+                publication.expected_revision,
+                publication.candidate,
+            )
+        });
+    }
+    if publications.iter().any(|publication| {
+        publication.store.storage_capabilities().recovery()
+            != StoreRecoveryCapability::StableBasePlusJournalReplay
+    }) {
+        return Err(InternalError::store_unsupported());
+    }
+
+    publish_journaled_candidates_atomically(publications.as_slice())
 }
 
 /// Publish one accepted candidate and the exact validation job its new
@@ -328,6 +425,55 @@ fn publish_journaled_candidate(
         })?;
         apply_constraint_validation_job_change(store, job_change)?;
         apply_staged_schema_domains(store, domains);
+        Ok(())
+    })
+}
+
+fn publish_journaled_candidates_atomically(
+    publications: &[AcceptedSchemaPublication<'_>],
+) -> Result<(), InternalError> {
+    let marker_id = generate_commit_id()?;
+    let mut batches = Vec::with_capacity(publications.len());
+    for (ordinal, publication) in publications.iter().enumerate() {
+        let journal_store = publication
+            .store
+            .journal_tail_store()
+            .ok_or_else(InternalError::store_invariant)?;
+        let sequence = journal_store
+            .with_borrow(crate::db::journal::JournalTailStore::next_mutation_append_sequence)?;
+        let record = JournalRecord::accepted_schema_publish(
+            publication.store_path,
+            publication.expected_revision,
+            publication.candidate.encoded_bundle().to_vec(),
+            publication.candidate.encoded_root().to_vec(),
+        )?;
+        let batch_id = generate_marker_batch_id(marker_id, ordinal)?;
+        batches.push(JournalBatch::new(
+            batch_id,
+            marker_id,
+            sequence,
+            vec![record],
+        )?);
+    }
+    let marker = CommitMarker::from_parts(marker_id, batches.clone())?;
+    let commit = begin_commit(marker)?;
+
+    finish_commit(commit, |_guard| {
+        for (publication, batch) in publications.iter().zip(&batches) {
+            publication
+                .store
+                .journal_tail_store()
+                .ok_or_else(InternalError::store_invariant)?
+                .with_borrow_mut(|journal| journal.append_batch(batch))?;
+        }
+        for publication in publications {
+            publication.store.with_schema_mut(|schema_store| {
+                schema_store.apply_journaled_accepted_schema_candidate(
+                    publication.expected_revision,
+                    publication.candidate,
+                )
+            })?;
+        }
         Ok(())
     })
 }

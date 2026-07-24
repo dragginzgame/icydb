@@ -8,7 +8,11 @@ use super::{
     AcceptedFieldKind, AcceptedValueContract, EnumOrderingPolicy, EnumTypeId, EnumVariantId,
 };
 use crate::{
-    db::schema::{MAX_ACCEPTED_RECURSIVE_DEPTH, composite_catalog::CompositeTypeId},
+    db::schema::{
+        MAX_ACCEPTED_RECURSIVE_DEPTH,
+        composite_catalog::CompositeTypeId,
+        wire::{SchemaWireReader, SchemaWireWriter},
+    },
     error::InternalError,
     model::field::FieldStorageDecode,
     types::EntityTag,
@@ -19,14 +23,14 @@ const ACCEPTED_ENUM_CATALOG_MAGIC: &[u8; 8] = b"ICYDBENX";
 const ACCEPTED_ENUM_CATALOG_CODEC_VERSION: u16 = 1;
 const ACCEPTED_ENUM_CATALOG_HEADER_BYTES: usize = 14;
 pub(super) const MAX_ACCEPTED_ENUM_CATALOG_BYTES: usize = 512 * 1024;
+pub(in crate::db::schema) type CatalogWriter = SchemaWireWriter<MAX_ACCEPTED_ENUM_CATALOG_BYTES>;
+pub(in crate::db::schema) type CatalogReader<'a> = SchemaWireReader<'a>;
 
 const ORDERING_EQUALITY_ONLY: u8 = 0;
 const VARIANT_BODY_UNIT: u8 = 0;
 const VARIANT_BODY_PAYLOAD: u8 = 1;
 const STORAGE_DECODE_BY_KIND: u8 = 0;
 const STORAGE_DECODE_CATALOG_VALUE: u8 = 1;
-const OPTION_NONE: u8 = 0;
-const OPTION_SOME: u8 = 1;
 
 const KIND_ACCOUNT: u8 = 0;
 const KIND_BLOB: u8 = 1;
@@ -377,152 +381,6 @@ pub(in crate::db::schema) fn decode_value_kind(
         },
         _ => return Err(InternalError::store_corruption()),
     })
-}
-
-pub(in crate::db::schema) struct CatalogWriter {
-    bytes: Vec<u8>,
-    overflowed: bool,
-}
-
-impl CatalogWriter {
-    pub(in crate::db::schema) const fn new() -> Self {
-        Self {
-            bytes: Vec::new(),
-            overflowed: false,
-        }
-    }
-
-    pub(in crate::db::schema) fn push_u8(&mut self, value: u8) {
-        self.push_bytes(&[value]);
-    }
-
-    pub(in crate::db::schema) fn push_u16(&mut self, value: u16) {
-        self.push_bytes(&value.to_be_bytes());
-    }
-
-    pub(in crate::db::schema) fn push_u32(&mut self, value: u32) {
-        self.push_bytes(&value.to_be_bytes());
-    }
-
-    pub(in crate::db::schema) fn push_u64(&mut self, value: u64) {
-        self.push_bytes(&value.to_be_bytes());
-    }
-
-    pub(in crate::db::schema) fn push_len(&mut self, value: usize) -> Result<(), InternalError> {
-        self.push_u32(u32::try_from(value).map_err(|_| InternalError::store_unsupported())?);
-        Ok(())
-    }
-
-    pub(in crate::db::schema) fn push_string(&mut self, value: &str) -> Result<(), InternalError> {
-        self.push_len(value.len())?;
-        self.push_bytes(value.as_bytes());
-        Ok(())
-    }
-
-    fn push_optional_u32(&mut self, value: Option<u32>) {
-        match value {
-            Some(value) => {
-                self.push_u8(OPTION_SOME);
-                self.push_u32(value);
-            }
-            None => self.push_u8(OPTION_NONE),
-        }
-    }
-
-    pub(in crate::db::schema) fn push_bytes(&mut self, bytes: &[u8]) {
-        if bytes.len() > MAX_ACCEPTED_ENUM_CATALOG_BYTES.saturating_sub(self.bytes.len()) {
-            self.overflowed = true;
-            return;
-        }
-        self.bytes.extend_from_slice(bytes);
-    }
-
-    pub(in crate::db::schema) fn finish(self) -> Result<Vec<u8>, InternalError> {
-        if self.overflowed {
-            return Err(InternalError::store_unsupported());
-        }
-        Ok(self.bytes)
-    }
-}
-
-pub(in crate::db::schema) struct CatalogReader<'a> {
-    bytes: &'a [u8],
-    offset: usize,
-}
-
-impl<'a> CatalogReader<'a> {
-    pub(in crate::db::schema) const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
-    }
-
-    const fn remaining(&self) -> usize {
-        self.bytes.len().saturating_sub(self.offset)
-    }
-
-    pub(in crate::db::schema) fn read_u8(&mut self) -> Result<u8, InternalError> {
-        Ok(self.read_array::<1>()?[0])
-    }
-
-    pub(in crate::db::schema) fn read_u16(&mut self) -> Result<u16, InternalError> {
-        Ok(u16::from_be_bytes(self.read_array()?))
-    }
-
-    pub(in crate::db::schema) fn read_u32(&mut self) -> Result<u32, InternalError> {
-        Ok(u32::from_be_bytes(self.read_array()?))
-    }
-
-    fn read_u64(&mut self) -> Result<u64, InternalError> {
-        Ok(u64::from_be_bytes(self.read_array()?))
-    }
-
-    pub(in crate::db::schema) fn read_count(&mut self) -> Result<usize, InternalError> {
-        let count = self.read_u32()? as usize;
-        if count > self.remaining() {
-            return Err(InternalError::store_corruption());
-        }
-        Ok(count)
-    }
-
-    pub(in crate::db::schema) fn read_string(&mut self) -> Result<String, InternalError> {
-        let len = self.read_u32()? as usize;
-        let bytes = self.read_slice(len)?;
-        let value = std::str::from_utf8(bytes).map_err(|_| InternalError::store_corruption())?;
-        Ok(value.to_string())
-    }
-
-    fn read_optional_u32(&mut self) -> Result<Option<u32>, InternalError> {
-        match self.read_u8()? {
-            OPTION_NONE => Ok(None),
-            OPTION_SOME => self.read_u32().map(Some),
-            _ => Err(InternalError::store_corruption()),
-        }
-    }
-
-    pub(in crate::db::schema) fn read_array<const N: usize>(
-        &mut self,
-    ) -> Result<[u8; N], InternalError> {
-        let bytes = self.read_slice(N)?;
-        let mut value = [0_u8; N];
-        value.copy_from_slice(bytes);
-        Ok(value)
-    }
-
-    fn read_slice(&mut self, len: usize) -> Result<&'a [u8], InternalError> {
-        let end = self.offset.saturating_add(len);
-        let bytes = self
-            .bytes
-            .get(self.offset..end)
-            .ok_or_else(InternalError::store_corruption)?;
-        self.offset = end;
-        Ok(bytes)
-    }
-
-    pub(in crate::db::schema) fn finish(self) -> Result<(), InternalError> {
-        if self.offset != self.bytes.len() {
-            return Err(InternalError::store_corruption());
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]

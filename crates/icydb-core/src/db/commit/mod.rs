@@ -57,7 +57,7 @@ pub(in crate::db) use marker::commit_marker_payload_capacity_for_single_batch;
 pub(in crate::db) use marker::reset_test_journal_sequence as reset_commit_marker_test_journal_sequence;
 pub(in crate::db) use marker::{
     CommitIndexOp, CommitMarker, CommitRowOp, CommitSchemaFingerprint, MAX_COMMIT_BYTES,
-    generate_commit_id,
+    generate_commit_id, generate_marker_batch_id,
 };
 pub(in crate::db) use memory::{
     CommitMemoryAllocation, commit_memory_handle, current_commit_memory_allocation,
@@ -83,6 +83,10 @@ pub(in crate::db) use schema_publication::publish_accepted_schema_candidate;
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate_with_derived_domains;
 #[cfg(feature = "sql")]
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate_with_user_index_domains;
+#[cfg(test)]
+pub(in crate::db) use schema_publication::{
+    AcceptedSchemaPublication, publish_accepted_schema_candidates_atomically,
+};
 pub(in crate::db) use schema_publication::{
     publish_accepted_schema_candidate_with_constraint_validation_job,
     publish_accepted_schema_candidate_with_constraint_validation_job_removal,

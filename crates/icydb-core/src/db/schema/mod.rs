@@ -34,6 +34,7 @@ mod source_binding;
 mod store;
 mod transition;
 mod types;
+mod wire;
 
 /// Maximum zero-based nesting depth accepted by schema contracts and value codecs.
 ///

@@ -299,6 +299,22 @@ pub(in crate::db) fn generate_commit_id() -> Result<[u8; COMMIT_ID_BYTES], Inter
     Ok(id)
 }
 
+/// Return the marker-local batch identity for one canonical batch ordinal.
+///
+/// The first batch retains the established single-store bytes. Every
+/// additional batch consumes a fresh identity from the same generator used by
+/// commit markers.
+pub(in crate::db) fn generate_marker_batch_id(
+    marker_id: [u8; COMMIT_ID_BYTES],
+    ordinal: usize,
+) -> Result<[u8; COMMIT_ID_BYTES], InternalError> {
+    if ordinal == 0 {
+        Ok(marker_id)
+    } else {
+        generate_commit_id()
+    }
+}
+
 /// Encode one commit-marker payload in the canonical binary format.
 #[cfg(test)]
 pub(in crate::db) fn encode_commit_marker_payload(
@@ -488,18 +504,16 @@ pub(in crate::db) fn decode_data_key(
 ///
 /// The empty shape (`before=None`, `after=None`) is corruption.
 pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), InternalError> {
-    // Validate every embedded journal batch is bound to this marker
-    // and has a unique batch identity and replay sequence.
+    // Validate every embedded journal batch is bound to this marker and has a
+    // unique marker-local identity. Journal sequences are tail-local: two
+    // stores participating in one commit may legitimately use the same next
+    // sequence.
     let mut batch_ids = BTreeSet::new();
-    let mut sequences = BTreeSet::new();
     for batch in &marker.journal_batches {
         if batch.commit_marker_id() != marker.id {
             return Err(InternalError::commit_corruption());
         }
         if !batch_ids.insert(batch.batch_id()) {
-            return Err(InternalError::commit_corruption());
-        }
-        if !sequences.insert(batch.journal_sequence()) {
             return Err(InternalError::commit_corruption());
         }
     }

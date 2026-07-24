@@ -14,7 +14,8 @@ use crate::{
         commit::{
             CommitApplyGuard, CommitGuard, CommitMarker, CommitRowOp, CommitSchemaFingerprint,
             PreparedIndexMutation, PreparedRowCommitOp, begin_commit, finish_commit,
-            generate_commit_id, prepare_commit_context_for_entity_with_schema_fingerprint,
+            generate_commit_id, generate_marker_batch_id,
+            prepare_commit_context_for_entity_with_schema_fingerprint,
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
             prepare_row_commit_with_context, rollback_prepared_row_ops_reverse,
         },
@@ -1116,13 +1117,16 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
 
     let mut journal_appends = Vec::with_capacity(journal_records.len());
     let mut marker_batches = Vec::with_capacity(journal_records.len());
-    for (handle, records) in journal_records {
+    for (ordinal, (handle, records)) in journal_records.into_iter().enumerate() {
         let journal_store = handle
             .journal_tail_store()
             .ok_or_else(InternalError::executor_invariant)?;
         let sequence = journal_store
             .with_borrow(crate::db::journal::JournalTailStore::next_mutation_append_sequence)?;
-        let batch = JournalBatch::new(marker_id, marker_id, sequence, records)?;
+        // Preserve the established single-store bytes while giving every
+        // additional tail its own marker-local batch identity.
+        let batch_id = generate_marker_batch_id(marker_id, ordinal)?;
+        let batch = JournalBatch::new(batch_id, marker_id, sequence, records)?;
         marker_batches.push(batch.clone());
         journal_appends.push(PreparedJournalAppend {
             journal_store,

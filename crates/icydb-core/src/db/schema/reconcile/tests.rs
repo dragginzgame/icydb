@@ -2,12 +2,13 @@ use crate::{
     db::{
         Db, DbSession, EntityRuntimeHooks, Predicate, QueryError,
         commit::{
-            CommitFailpoint, CommitFailpointMode, CommitMarker, CommitRowOp,
-            arm_commit_failpoint_for_tests, begin_commit, clear_commit_failpoint_for_tests,
-            clear_commit_marker_for_tests, clear_recovery_runtime_state_for_tests,
-            commit_marker_present, ensure_recovered, generate_commit_id,
-            init_commit_store_for_tests, publish_accepted_schema_candidate,
+            AcceptedSchemaPublication, CommitFailpoint, CommitFailpointMode, CommitMarker,
+            CommitRowOp, arm_commit_failpoint_for_tests, begin_commit,
+            clear_commit_failpoint_for_tests, clear_commit_marker_for_tests,
+            clear_recovery_runtime_state_for_tests, commit_marker_present, ensure_recovered,
+            generate_commit_id, init_commit_store_for_tests, publish_accepted_schema_candidate,
             publish_accepted_schema_candidate_with_constraint_validation_job_removal,
+            publish_accepted_schema_candidates_atomically,
         },
         data::{
             CanonicalRow, DataStore, DecodedDataStoreKey, emit_raw_row_from_slot_payloads,
@@ -478,6 +479,26 @@ fn reset_reconcile_relation_target_store() {
     RECONCILE_RELATION_TARGET_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
 }
 
+fn next_accepted_candidate(
+    current: &super::AcceptedSchemaRevisionBundle,
+) -> super::CandidateSchemaRevision {
+    let revision = current
+        .revision()
+        .checked_next()
+        .expect("test accepted revision should advance");
+    let bundle = super::AcceptedSchemaRevisionBundle::new_with_source_bindings(
+        revision,
+        current.store_path(),
+        current.enum_catalog().clone(),
+        current.composite_catalog().clone(),
+        current.source_bindings().clone(),
+        current.entity_snapshots().clone(),
+    )
+    .expect("next accepted bundle should build");
+
+    super::CandidateSchemaRevision::new(bundle).expect("next accepted candidate should encode")
+}
+
 fn indexed_schema_snapshot_without_indexes() -> PersistedSchemaSnapshot {
     let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
     let expected = proposal.initial_persisted_schema_snapshot();
@@ -497,6 +518,174 @@ fn indexed_schema_snapshot_without_indexes() -> PersistedSchemaSnapshot {
     )
     .with_constraint_catalog(constraint_catalog)
     .with_relations(expected.relations().to_vec())
+}
+
+#[test]
+fn accepted_schema_publication_advances_two_journaled_stores_atomically() {
+    reset_reconcile_stores();
+    reset_reconcile_relation_target_store();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_recovery_runtime_state_for_tests(&ADDITIVE_RELATION_RECONCILE_DB)
+        .expect("recovery runtime state should clear");
+    super::reconcile_runtime_schemas(
+        &ADDITIVE_RELATION_RECONCILE_DB,
+        ADDITIVE_RELATION_RUNTIME_HOOKS,
+    )
+    .expect("initial two-store schema should reconcile");
+
+    let source = RECONCILE_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("source accepted bundle should decode")
+        .expect("source accepted bundle should exist");
+    let target = RECONCILE_RELATION_TARGET_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("target accepted bundle should decode")
+        .expect("target accepted bundle should exist");
+    let source_candidate = next_accepted_candidate(&source);
+    let target_candidate = next_accepted_candidate(&target);
+    let source_store = RECONCILE_DB
+        .store_handle(SchemaReconcileTestStore::PATH)
+        .expect("source store should resolve");
+    let target_store = RECONCILE_DB
+        .store_handle(SchemaReconcileRelationTargetStore::PATH)
+        .expect("target store should resolve");
+
+    publish_accepted_schema_candidates_atomically(vec![
+        AcceptedSchemaPublication::new(
+            SchemaReconcileRelationTargetStore::PATH,
+            target_store,
+            target.revision(),
+            &target_candidate,
+        ),
+        AcceptedSchemaPublication::new(
+            SchemaReconcileTestStore::PATH,
+            source_store,
+            source.revision(),
+            &source_candidate,
+        ),
+    ])
+    .expect("two-store accepted publication should commit");
+
+    assert_eq!(
+        RECONCILE_SCHEMA_STORE
+            .with_borrow(SchemaStore::current_accepted_schema_bundle)
+            .expect("source accepted bundle should decode")
+            .expect("source accepted bundle should exist")
+            .revision(),
+        source_candidate.revision(),
+    );
+    assert_eq!(
+        RECONCILE_RELATION_TARGET_SCHEMA_STORE
+            .with_borrow(SchemaStore::current_accepted_schema_bundle)
+            .expect("target accepted bundle should decode")
+            .expect("target accepted bundle should exist")
+            .revision(),
+        target_candidate.revision(),
+    );
+    assert_eq!(
+        RECONCILE_JOURNAL_STORE.with_borrow(JournalTailStore::len),
+        1
+    );
+    assert_eq!(
+        RECONCILE_RELATION_TARGET_JOURNAL_STORE.with_borrow(JournalTailStore::len),
+        1
+    );
+    assert!(!commit_marker_present().expect("commit marker should decode"));
+}
+
+#[test]
+fn accepted_schema_multi_store_marker_recovery_completes_missing_tail() {
+    reset_reconcile_stores();
+    reset_reconcile_relation_target_store();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_recovery_runtime_state_for_tests(&ADDITIVE_RELATION_RECONCILE_DB)
+        .expect("recovery runtime state should clear");
+    super::reconcile_runtime_schemas(
+        &ADDITIVE_RELATION_RECONCILE_DB,
+        ADDITIVE_RELATION_RUNTIME_HOOKS,
+    )
+    .expect("initial two-store schema should reconcile");
+
+    let source = RECONCILE_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("source accepted bundle should decode")
+        .expect("source accepted bundle should exist");
+    let target = RECONCILE_RELATION_TARGET_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("target accepted bundle should decode")
+        .expect("target accepted bundle should exist");
+    let source_candidate = next_accepted_candidate(&source);
+    let target_candidate = next_accepted_candidate(&target);
+    let marker_id = generate_commit_id().expect("marker id should generate");
+    let source_record = JournalRecord::accepted_schema_publish(
+        SchemaReconcileTestStore::PATH,
+        source.revision(),
+        source_candidate.encoded_bundle().to_vec(),
+        source_candidate.encoded_root().to_vec(),
+    )
+    .expect("source publication record should build");
+    let target_record = JournalRecord::accepted_schema_publish(
+        SchemaReconcileRelationTargetStore::PATH,
+        target.revision(),
+        target_candidate.encoded_bundle().to_vec(),
+        target_candidate.encoded_root().to_vec(),
+    )
+    .expect("target publication record should build");
+    let source_sequence = RECONCILE_JOURNAL_STORE
+        .with_borrow(JournalTailStore::next_mutation_append_sequence)
+        .expect("source journal sequence should allocate");
+    let target_sequence = RECONCILE_RELATION_TARGET_JOURNAL_STORE
+        .with_borrow(JournalTailStore::next_mutation_append_sequence)
+        .expect("target journal sequence should allocate");
+    let source_batch =
+        JournalBatch::new(marker_id, marker_id, source_sequence, vec![source_record])
+            .expect("source publication batch should build");
+    let target_batch = JournalBatch::new(
+        generate_commit_id().expect("target batch id should generate"),
+        marker_id,
+        target_sequence,
+        vec![target_record],
+    )
+    .expect("target publication batch should build");
+    let marker = CommitMarker::from_parts(marker_id, vec![source_batch.clone(), target_batch])
+        .expect("multi-store publication marker should build");
+    let _unfinished = begin_commit(marker).expect("interrupted publication marker should persist");
+    RECONCILE_JOURNAL_STORE
+        .with_borrow_mut(|journal| journal.append_batch(&source_batch))
+        .expect("source journal prefix should append");
+
+    ensure_recovered(&ADDITIVE_RELATION_RECONCILE_DB)
+        .expect("recovery should complete every marker-owned store publication");
+
+    assert_eq!(
+        RECONCILE_SCHEMA_STORE
+            .with_borrow(SchemaStore::current_accepted_schema_bundle)
+            .expect("source accepted bundle should decode")
+            .expect("source accepted bundle should exist")
+            .revision(),
+        source_candidate.revision(),
+    );
+    assert_eq!(
+        RECONCILE_RELATION_TARGET_SCHEMA_STORE
+            .with_borrow(SchemaStore::current_accepted_schema_bundle)
+            .expect("target accepted bundle should decode")
+            .expect("target accepted bundle should exist")
+            .revision(),
+        target_candidate.revision(),
+    );
+    assert_eq!(
+        RECONCILE_JOURNAL_STORE.with_borrow(JournalTailStore::len),
+        0
+    );
+    assert_eq!(
+        RECONCILE_RELATION_TARGET_JOURNAL_STORE.with_borrow(JournalTailStore::len),
+        0
+    );
+    assert!(!commit_marker_present().expect("commit marker should decode"));
 }
 
 fn stage_and_publish_indexed_schema_snapshot_without_indexes() -> PersistedSchemaSnapshot {

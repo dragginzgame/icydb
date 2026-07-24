@@ -1371,6 +1371,32 @@ impl SchemaStore {
         Ok(())
     }
 
+    /// Preflight one accepted candidate without changing durable or live
+    /// schema state.
+    ///
+    /// Returns `true` only when this exact candidate is already authoritative.
+    /// Multi-store publication uses that distinction to reject partial replay
+    /// before opening one marker-owned commit window.
+    pub(in crate::db) fn preflight_accepted_schema_candidate(
+        &self,
+        expected_revision: AcceptedSchemaRevision,
+        candidate: &CandidateSchemaRevision,
+    ) -> Result<bool, InternalError> {
+        if self.current_root_matches_candidate(candidate)? {
+            return Ok(true);
+        }
+        let first = self.accepted_root_slot_bytes(0)?;
+        let second = self.accepted_root_slot_bytes(1)?;
+        prepare_accepted_schema_root_publication(
+            [first.as_deref(), second.as_deref()],
+            expected_revision,
+            candidate,
+        )
+        .map_err(map_schema_publication_error)?;
+
+        Ok(false)
+    }
+
     /// Apply one marker-bound schema candidate to the journaled live projection.
     pub(in crate::db) fn apply_journaled_accepted_schema_candidate(
         &mut self,
