@@ -617,7 +617,7 @@ mod tests {
         let cases = vec![
             (
                 FieldKind::Date,
-                Value::Date(Date::new_checked(2025, 10, 19).expect("valid date")),
+                Value::Date(Date::try_new(2025, 10, 19).expect("valid date")),
             ),
             (
                 FieldKind::Decimal { scale: 2 },

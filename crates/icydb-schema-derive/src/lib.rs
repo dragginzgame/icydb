@@ -32,7 +32,7 @@ mod prelude {
         trait_kind::{TraitBuilder, TraitKind},
         types::TraitStrategy,
     };
-    pub use icydb_schema::{
+    pub use icydb_model_legacy::{
         MAX_FIELD_NAME_LEN,
         types::{Cardinality, Primitive},
     };

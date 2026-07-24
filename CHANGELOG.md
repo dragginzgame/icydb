@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.213.x] 🧭 - 2026-07-24 - Schema Authority And Application Separation
+
+Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
+
+- `0.213.0` establishes the bounded standalone schema-proposal and canonical
+  scalar leaf, exact database-scoped composition, and IcyDB-issued optimistic
+  application targets while hard-cutting the retired primitive package and
+  permissive date construction.
+
 ## [0.212.x] 🔍 - 2026-07-24 - Bounded Resumable Integrity Core
 
 Detailed notes: [docs/changelog/0.212.md](docs/changelog/0.212.md)

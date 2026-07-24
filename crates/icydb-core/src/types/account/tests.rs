@@ -1,5 +1,10 @@
 use super::*;
 
+const PRINCIPAL_MAX_LEN: usize = Principal::MAX_LENGTH_IN_BYTES as usize;
+const SUBACCOUNT_LEN: usize = 32;
+const TAG_SUBACCOUNT: u8 = 0x80;
+const LEN_MASK: u8 = 0x7F;
+
 fn principal() -> Principal {
     Principal::from_text("rrkah-fqaaa-aaaaa-aaaaq-cai").unwrap()
 }
@@ -43,16 +48,16 @@ fn to_bytes_length_is_consistent() {
 fn from_principal_creates_account_with_empty_subaccount() {
     let p = principal();
     let acc = Account::from(p);
-    assert_eq!(acc.owner, p);
-    assert!(acc.subaccount.is_none());
+    assert_eq!(acc.owner(), p);
+    assert!(acc.subaccount().is_none());
 }
 
 #[test]
 fn new_with_subaccount_sets_fields_correctly() {
     let sub: Subaccount = Subaccount::from_array([42u8; 32]);
     let acc = Account::new(principal(), Some(sub));
-    assert_eq!(acc.owner, principal());
-    assert_eq!(acc.subaccount, Some(sub));
+    assert_eq!(acc.owner(), principal());
+    assert_eq!(acc.subaccount(), Some(sub));
 }
 
 #[test]
@@ -62,21 +67,18 @@ fn to_bytes_produces_expected_layout() {
     let bytes = acc.to_bytes().expect("account encode");
 
     let tag = bytes[0];
-    let len = (tag & Account::LEN_MASK) as usize;
+    let len = (tag & LEN_MASK) as usize;
     let principal_part = if len > 0 { &bytes[1..=len] } else { &[] };
-    let padding = if len < Account::PRINCIPAL_MAX_LEN {
-        &bytes[1 + len..=Account::PRINCIPAL_MAX_LEN]
+    let padding = if len < PRINCIPAL_MAX_LEN {
+        &bytes[1 + len..=PRINCIPAL_MAX_LEN]
     } else {
         &[]
     };
-    let sub_offset = 1 + Account::PRINCIPAL_MAX_LEN;
-    let subaccount_part = &bytes[sub_offset..sub_offset + Account::SUBACCOUNT_LEN];
+    let sub_offset = 1 + PRINCIPAL_MAX_LEN;
+    let subaccount_part = &bytes[sub_offset..sub_offset + SUBACCOUNT_LEN];
 
     assert_eq!(principal_part, p.as_slice(), "principal segment mismatch");
-    assert!(
-        tag & Account::TAG_SUBACCOUNT != 0,
-        "subaccount flag missing"
-    );
+    assert!(tag & TAG_SUBACCOUNT != 0, "subaccount flag missing");
     assert!(
         padding.iter().all(|&b| b == 0),
         "principal padding not zero-filled"
@@ -93,9 +95,9 @@ fn to_bytes_with_none_subaccount_encodes_zero_bytes() {
     let acc = Account::new(p, None::<Subaccount>);
     let bytes = acc.to_bytes().expect("account encode");
     let tag = bytes[0];
-    let sub_offset = 1 + Account::PRINCIPAL_MAX_LEN;
-    let subaccount_part = &bytes[sub_offset..sub_offset + Account::SUBACCOUNT_LEN];
-    assert_eq!(tag & Account::TAG_SUBACCOUNT, 0, "flag must be unset");
+    let sub_offset = 1 + PRINCIPAL_MAX_LEN;
+    let subaccount_part = &bytes[sub_offset..sub_offset + SUBACCOUNT_LEN];
+    assert_eq!(tag & TAG_SUBACCOUNT, 0, "flag must be unset");
     assert!(
         subaccount_part.iter().all(|&b| b == 0),
         "None subaccount not zero-filled"
@@ -159,24 +161,21 @@ fn round_trip_custom_bytes_preserves_data() {
     let bytes = original.to_bytes().expect("account encode");
 
     let tag = bytes[0];
-    let len = (tag & Account::LEN_MASK) as usize;
+    let len = (tag & LEN_MASK) as usize;
     let principal_bytes = if len > 0 { &bytes[1..=len] } else { &[] };
-    let sub_offset = 1 + Account::PRINCIPAL_MAX_LEN;
-    let sub_bytes = &bytes[sub_offset..sub_offset + Account::SUBACCOUNT_LEN];
+    let sub_offset = 1 + PRINCIPAL_MAX_LEN;
+    let sub_bytes = &bytes[sub_offset..sub_offset + SUBACCOUNT_LEN];
 
     let owner = Principal::from_slice(principal_bytes);
     let mut sub = [0u8; 32];
     sub.copy_from_slice(sub_bytes);
-    let sub_opt = if tag & Account::TAG_SUBACCOUNT != 0 {
+    let sub_opt = if tag & TAG_SUBACCOUNT != 0 {
         Some(Subaccount::from_array(sub))
     } else {
         None
     };
 
-    let decoded = Account {
-        owner,
-        subaccount: sub_opt,
-    };
+    let decoded = Account::from_owner_and_subaccount(owner, sub_opt);
 
     assert_eq!(original, decoded, "manual round-trip mismatch");
 }
@@ -204,7 +203,7 @@ fn from_bytes_rejects_invalid_principal_len() {
 fn from_bytes_rejects_principal_padding() {
     let acc = Account::new(Principal::from_slice(&[1]), None::<Subaccount>);
     let mut bytes = acc.to_bytes().expect("account encode");
-    bytes[1 + acc.owner.as_slice().len()] = 1;
+    bytes[1 + acc.owner().as_slice().len()] = 1;
     assert!(Account::try_from_bytes(&bytes).is_err());
 }
 
@@ -212,7 +211,7 @@ fn from_bytes_rejects_principal_padding() {
 fn from_bytes_rejects_subaccount_without_flag() {
     let acc = Account::new(Principal::from_slice(&[1]), None::<Subaccount>);
     let mut bytes = acc.to_bytes().expect("account encode");
-    let sub_offset = 1 + Account::PRINCIPAL_MAX_LEN;
+    let sub_offset = 1 + PRINCIPAL_MAX_LEN;
     bytes[sub_offset] = 1;
     assert!(Account::try_from_bytes(&bytes).is_err());
 }
@@ -223,16 +222,16 @@ fn from_bytes_handles_anonymous_principal_with_subaccount() {
     let owner_bytes = owner.as_slice();
     let mut bytes = vec![0u8; Account::STORED_SIZE as usize];
     let mut tag = u8::try_from(owner_bytes.len()).expect("principal length fits in u8");
-    tag |= Account::TAG_SUBACCOUNT;
+    tag |= TAG_SUBACCOUNT;
     bytes[0] = tag;
     if !owner_bytes.is_empty() {
         bytes[1..=owner_bytes.len()].copy_from_slice(owner_bytes);
     }
 
-    let sub_offset = 1 + Account::PRINCIPAL_MAX_LEN;
+    let sub_offset = 1 + PRINCIPAL_MAX_LEN;
     bytes[sub_offset] = 1;
 
     let decoded = Account::try_from_bytes(&bytes).expect("decode should succeed");
-    assert_eq!(decoded.owner, owner);
-    assert!(decoded.subaccount.is_some());
+    assert_eq!(decoded.owner(), owner);
+    assert!(decoded.subaccount().is_some());
 }

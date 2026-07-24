@@ -445,6 +445,7 @@ check-invariants:
 	bash scripts/ci/check-mutation-atomicity-invariants.sh
 	bash scripts/ci/check-durability-doc-invariants.sh
 	bash scripts/ci/check-read-admission-invariants.sh
+	bash scripts/ci/check-schema-model-boundary-invariants.sh
 	bash scripts/ci/check-sql-branch-ownership-invariants.sh
 	bash scripts/ci/check-memory-id-invariants.sh
 

@@ -4,6 +4,7 @@ use crate::db::query::{
     intent::StructuralQuery,
     plan::expr::{Function, normalize_bool_expr},
 };
+use crate::types::GenerateKey;
 
 // Assert one delete-window intent shape remains fail-closed until an explicit
 // ORDER BY is present.

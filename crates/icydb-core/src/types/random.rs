@@ -27,15 +27,6 @@ pub(in crate::types) fn clear_for_tests() {
     RNG.with_borrow_mut(|rng| *rng = None);
 }
 
-#[cfg(test)]
-pub(in crate::types) fn seed_if_uninitialized_for_tests(seed: [u8; 32]) {
-    RNG.with_borrow_mut(|rng| {
-        if rng.is_none() {
-            *rng = Some(ChaCha20Rng::from_seed(seed));
-        }
-    });
-}
-
 fn seed_from_system() -> Result<ChaCha20Rng, RandomError> {
     #[cfg(not(target_arch = "wasm32"))]
     {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::types::GenerateKey;
 use crate::{
     db::session::sql::{
         DEFAULT_PUBLIC_BOUNDED_DELETE_LIMIT, DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT,

@@ -51,14 +51,15 @@ impl Generator {
     // generate
     /// Monotonic ULID generation; increments within the same millisecond.
     fn generate(&mut self) -> Result<Ulid, UlidGenerationError> {
-        let last_ts = self.previous.timestamp_ms();
+        let previous = ulid::Ulid::from_bytes(self.previous.to_bytes());
+        let last_ts = previous.timestamp_ms();
         let ts = now_millis();
 
         // maybe time went backward, or it is the same ms.
         // increment instead of generating a new random so that it is monotonic
         if ts <= last_ts {
-            if let Some(next) = self.previous.increment() {
-                let ulid = next;
+            if let Ok(next) = previous.increment() {
+                let ulid = Ulid::from_bytes(next.to_bytes());
                 self.previous = ulid;
 
                 return Ok(self.previous);
@@ -71,7 +72,7 @@ impl Generator {
         let component = Self::next_component(ts)?;
         #[cfg(target_arch = "wasm32")]
         let component = self.next_component(ts)?;
-        let ulid = Ulid::from_timestamp_and_randomness(ts, component);
+        let ulid = Ulid::from_bytes(ulid::Ulid::from_parts(ts, component).to_bytes());
 
         self.previous = ulid;
 

@@ -9,9 +9,10 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - `crates/icydb`: public meta-crate re-exporting the workspace API.
 - `crates/icydb-core`: runtime, storage, executors, and core types.
 - `crates/icydb-diagnostic-code`: compact diagnostic code registry.
-- `crates/icydb-primitives`: shared scalar primitive capability metadata.
+- `crates/icydb-schema`: bounded public proposal contract and canonical scalar
+  atoms.
+- `crates/icydb-model-legacy`: temporary unpublished pre-0.213 model AST.
 - `crates/icydb-schema-derive`: derive and codegen macros.
-- `crates/icydb-schema`: schema AST/builders and validation.
 - `crates/icydb-build`: build/codegen helpers and canister glue.
 - `crates/icydb-utils`: shared internal utility helpers.
 - `canisters/audit/*`: SQL audit harnesses for wasm baselines.

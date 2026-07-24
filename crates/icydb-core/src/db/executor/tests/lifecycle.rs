@@ -5,6 +5,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::support::*;
+use crate::types::GenerateKey;
 
 #[test]
 fn singleton_only_round_trips_through_runtime_load() {

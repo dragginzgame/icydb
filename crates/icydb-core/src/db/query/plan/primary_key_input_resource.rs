@@ -5,6 +5,7 @@
 
 use crate::{
     db::query::plan::PrimaryKeyInputResourceSummary,
+    types::AccountStorageCodec,
     value::{Value, ValueEnum},
 };
 

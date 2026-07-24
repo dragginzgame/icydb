@@ -4,7 +4,7 @@
 //! Boundary: translates validated store metadata into actor-local storage wiring tokens.
 
 use crate::ActorBuilder;
-use icydb_schema::node::{Store, StoreHeapConfig, StoreJournaledMemoryConfig, StoreStorage};
+use icydb_model_legacy::node::{Store, StoreHeapConfig, StoreJournaledMemoryConfig, StoreStorage};
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 
@@ -435,7 +435,7 @@ fn store_wiring_tokens(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb_schema::node::Def;
+    use icydb_model_legacy::node::Def;
 
     fn compact_tokens(tokens: TokenStream) -> String {
         tokens

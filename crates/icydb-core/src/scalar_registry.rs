@@ -6,7 +6,7 @@
 ///
 /// Scalar Registry
 ///
-/// Adapter macros that project shared `icydb-primitives` scalar metadata into
+/// Adapter macros that project shared `icydb-schema` scalar metadata into
 /// core `Value`/`CoercionFamily`-aware entries.
 ///
 
@@ -106,7 +106,7 @@ macro_rules! scalar_registry_value_pat {
 
 #[doc(hidden)]
 #[macro_export]
-macro_rules! scalar_registry_entries_from_primitives {
+macro_rules! scalar_registry_entries_from_schema {
     ( @args $consumer:ident; @entries $( ($scalar:ident, $family:ident, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:tt, is_primary_key_component_encodable = $is_primary_key_component_encodable:tt) ),* $(,)? ) => {
         $consumer! {
             @entries
@@ -152,11 +152,11 @@ macro_rules! scalar_registry_entries_from_primitives {
 #[macro_export]
 macro_rules! scalar_registry_entries {
     ($macro:ident) => {
-        icydb_primitives::scalar_kind_registry!(scalar_registry_entries_from_primitives, $macro)
+        icydb_schema::scalar_kind_registry!(scalar_registry_entries_from_schema, $macro)
     };
     ($macro:ident, @args $($args:tt)+) => {
-        icydb_primitives::scalar_kind_registry!(
-            scalar_registry_entries_from_primitives,
+        icydb_schema::scalar_kind_registry!(
+            scalar_registry_entries_from_schema,
             $macro,
             ($($args)+)
         )

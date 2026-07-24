@@ -6,7 +6,7 @@
 use crate::{
     MAX_INDEX_FIELDS,
     db::index::{IndexId, key::codec::IndexKey},
-    types::Account,
+    types::{Account, AccountStorageCodec},
 };
 
 pub(super) const KEY_KIND_TAG_SIZE: usize = 1;

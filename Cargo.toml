@@ -17,7 +17,7 @@ members = [
     "crates/icydb-core",
     "crates/icydb-derive",
     "crates/icydb-diagnostic-code",
-    "crates/icydb-primitives",
+    "crates/icydb-model-legacy",
     "crates/icydb-schema",
     "crates/icydb-schema-derive",
     "crates/icydb-utils",
@@ -80,7 +80,7 @@ icydb-config = { path = "crates/icydb-config", version = "0.212.5" }
 icydb-core = { path = "crates/icydb-core", version = "0.212.5" }
 icydb-derive = { path = "crates/icydb-derive", version = "0.212.5" }
 icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "0.212.5" }
-icydb-primitives = { path = "crates/icydb-primitives", version = "0.212.5" }
+icydb-model-legacy = { path = "crates/icydb-model-legacy", version = "0.212.5" }
 icydb-schema = { path = "crates/icydb-schema", version = "0.212.5" }
 icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.212.5" }
 icydb-testing-audit-default-empty-fixtures = { path = "schema/audit/default_empty" }
@@ -163,7 +163,7 @@ icydb = { path = "crates/icydb" }
 icydb-core = { path = "crates/icydb-core" }
 icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code" }
 icydb-derive = { path = "crates/icydb-derive" }
-icydb-primitives = { path = "crates/icydb-primitives" }
+icydb-model-legacy = { path = "crates/icydb-model-legacy" }
 icydb-schema-derive = { path = "crates/icydb-schema-derive" }
 icydb-schema = { path = "crates/icydb-schema" }
 icydb-build = { path = "crates/icydb-build" }

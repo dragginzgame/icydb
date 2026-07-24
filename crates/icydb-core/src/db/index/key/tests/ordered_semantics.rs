@@ -439,16 +439,6 @@ fn canonical_encoder_supports_decimal_max_scale() {
 }
 
 #[test]
-fn canonical_encoder_rejects_decimal_scale_above_max() {
-    let over_scale = Decimal::max_supported_scale().saturating_add(1);
-    let value = Value::Decimal(Decimal::new_unchecked(1, over_scale));
-
-    let err = encode_canonical_index_component(&value)
-        .expect_err("unordered decimal scale should fail ordered encoding");
-    std::assert_matches!(err, OrderedValueEncodeError::DecimalExponentOverflow);
-}
-
-#[test]
 #[expect(clippy::unreadable_literal)]
 fn canonical_encoder_decimal_large_mantissa_regression() {
     let lhs = Decimal::from_i128_with_scale(100000000000000003890313744798756555321, 2);
@@ -598,7 +588,7 @@ fn canonical_encoder_total_order_matches_value_canonical_cmp_for_supported_sampl
         )),
         Value::Bool(false),
         Value::Bool(true),
-        Value::Date(Date::new(2024, 1, 1)),
+        Value::Date(Date::try_new(2024, 1, 1).expect("valid date")),
         Value::Decimal(Decimal::new(-11, 1)),
         Value::Decimal(Decimal::new(0, 0)),
         Value::Decimal(Decimal::new(11, 1)),

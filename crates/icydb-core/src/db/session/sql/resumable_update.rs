@@ -45,7 +45,7 @@ use crate::{
     metrics::sink::{MetricsEvent, record},
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
     traits::{CanisterKind, Path},
-    types::{EntityTag, Timestamp, Ulid},
+    types::{CurrentTimestamp, EntityTag, Timestamp, Ulid},
 };
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
 use sha2::Digest;

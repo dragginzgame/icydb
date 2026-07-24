@@ -12,9 +12,13 @@ PUBLISH_POLL_SECS="${PUBLISH_POLL_SECS:-10}"
 PUBLISH_TIMEOUT_SECS="${PUBLISH_TIMEOUT_SECS:-300}"
 PUBLISH_VALIDATE_ONLY="${PUBLISH_VALIDATE_ONLY:-0}"
 
+if [[ -d "crates/icydb-model-legacy" ]]; then
+    echo "workspace publication is blocked while the temporary icydb-model-legacy package exists" >&2
+    exit 1
+fi
+
 PUBLISH_ORDER=(
     icydb-diagnostic-code
-    icydb-primitives
     icydb-utils
     icydb-schema
     icydb-build

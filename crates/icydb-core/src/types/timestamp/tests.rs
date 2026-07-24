@@ -1,4 +1,5 @@
 use super::*;
+use crate::types::Duration;
 
 #[test]
 fn test_from_secs() {

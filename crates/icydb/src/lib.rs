@@ -89,7 +89,7 @@
 extern crate self as icydb;
 
 use icydb_core::{error::InternalError, visitor::Visitable};
-pub use icydb_schema as schema;
+pub use icydb_model_legacy as schema;
 pub use icydb_schema_derive as macros;
 
 // core modules

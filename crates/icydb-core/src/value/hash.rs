@@ -8,6 +8,7 @@ mod tests;
 use crate::{
     error::InternalError,
     traits::Repr,
+    types::AccountStorageCodec,
     value::{Value, ValueTag},
 };
 use xxhash_rust::xxh3::Xxh3;

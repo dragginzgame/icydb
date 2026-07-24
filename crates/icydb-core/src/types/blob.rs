@@ -1,56 +1,11 @@
-//! Module: types::blob
-//! Defines the semantic binary blob wrapper used by value conversion,
-//! validation, and typed field access.
+//! Engine operations for the canonical schema-owned `Blob` atom.
+
+pub use icydb_schema::Blob;
 
 use crate::{
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
     visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
-use candid::CandidType;
-use serde::Deserialize;
-use serde_bytes::ByteBuf;
-use std::fmt::{self, Display};
-
-//
-// Blob
-//
-// Blob is a semantic binary value; raw byte access is explicit via accessors (no `Deref`).
-// Display prints a size summary; it does not print content.
-//
-
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Blob(ByteBuf);
-
-impl Blob {
-    #[must_use]
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.0
-    }
-
-    /// Clone the blob into a new byte vector.
-    #[must_use]
-    pub fn to_vec(&self) -> Vec<u8> {
-        self.0.to_vec()
-    }
-
-    /// Length of the blob in bytes.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    /// Whether the blob is empty.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-}
-
-impl Display for Blob {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[blob ({} bytes)]", self.0.len())
-    }
-}
 
 impl RuntimeValueMeta for Blob {
     fn kind() -> RuntimeValueKind {
@@ -60,34 +15,16 @@ impl RuntimeValueMeta for Blob {
 
 impl RuntimeValueEncode for Blob {
     fn to_value(&self) -> Value {
-        Value::Blob(self.0.to_vec())
+        Value::Blob(self.to_vec())
     }
 }
 
 impl RuntimeValueDecode for Blob {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
-            Value::Blob(v) => Some(Self::from(v.clone())),
+            Value::Blob(value) => Some(Self::from(value.clone())),
             _ => None,
         }
-    }
-}
-
-impl From<Vec<u8>> for Blob {
-    fn from(bytes: Vec<u8>) -> Self {
-        Self(ByteBuf::from(bytes))
-    }
-}
-
-impl From<&[u8]> for Blob {
-    fn from(bytes: &[u8]) -> Self {
-        Self(ByteBuf::from(bytes))
-    }
-}
-
-impl<const N: usize> From<&[u8; N]> for Blob {
-    fn from(bytes: &[u8; N]) -> Self {
-        Self(ByteBuf::from(&bytes[..]))
     }
 }
 

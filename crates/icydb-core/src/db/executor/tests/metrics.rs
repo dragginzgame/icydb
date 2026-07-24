@@ -5,6 +5,7 @@
 
 use super::support::*;
 use crate::metrics::sink::{MetricsEvent, MetricsSink, with_shared_metrics_sink};
+use crate::types::GenerateKey;
 use std::{cell::RefCell, rc::Rc};
 
 ///

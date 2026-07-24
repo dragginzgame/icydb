@@ -1280,6 +1280,7 @@ dependencies = [
  "icydb-core",
  "icydb-derive",
  "icydb-diagnostic-code",
+ "icydb-model-legacy",
  "icydb-schema",
  "icydb-schema-derive",
  "icydb-utils",
@@ -1292,7 +1293,7 @@ dependencies = [
 name = "icydb-build"
 version = "0.212.5"
 dependencies = [
- "icydb-schema",
+ "icydb-model-legacy",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -1334,7 +1335,7 @@ dependencies = [
  "icrc-ledger-types",
  "icydb-derive",
  "icydb-diagnostic-code",
- "icydb-primitives",
+ "icydb-schema",
  "icydb-testing-sql-generator",
  "icydb-testing-sqlite-reference",
  "icydb-utils",
@@ -1370,21 +1371,35 @@ dependencies = [
 ]
 
 [[package]]
-name = "icydb-primitives"
+name = "icydb-model-legacy"
 version = "0.212.5"
+dependencies = [
+ "candid",
+ "darling",
+ "icydb-schema",
+ "proc-macro2",
+ "quote",
+ "remain",
+ "serde",
+ "thiserror 2.0.19",
+]
 
 [[package]]
 name = "icydb-schema"
 version = "0.212.5"
 dependencies = [
  "candid",
- "darling",
- "icydb-primitives",
- "proc-macro2",
- "quote",
- "remain",
+ "derive_more",
+ "icrc-ledger-types",
+ "num-bigint",
+ "proptest",
  "serde",
+ "serde_bytes",
+ "serde_json",
+ "sha2",
  "thiserror 2.0.19",
+ "time",
+ "ulid",
 ]
 
 [[package]]
@@ -1395,7 +1410,7 @@ dependencies = [
  "darling",
  "derive_more",
  "icydb-core",
- "icydb-schema",
+ "icydb-model-legacy",
  "icydb-utils",
  "proc-macro2",
  "quote",

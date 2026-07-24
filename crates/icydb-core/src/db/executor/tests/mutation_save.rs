@@ -3,6 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
+use crate::types::GenerateKey;
 use crate::{
     db::{
         Db, DbSession, EntityRuntimeHooks, PersistedRow, PersistedStructuralValueCodec, QueryError,

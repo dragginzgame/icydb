@@ -16,7 +16,10 @@ use crate::{
         index::{IndexId, IndexKey, IndexKeyKind},
     },
     traits::Repr,
-    types::{Account, EntityTag, IntBig, NatBig, Principal, Subaccount, Timestamp, Ulid},
+    types::{
+        Account, AccountStorageCodec, EntityTag, IntBig, NatBig, Principal, Subaccount, Timestamp,
+        Ulid,
+    },
     value::Value,
 };
 

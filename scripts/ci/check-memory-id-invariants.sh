@@ -10,8 +10,8 @@ REQUIRED_MATCHES=(
   $'crates/icydb-core/src/traits/mod.rs\tconst COMMIT_MEMORY_ID: u8;\tCanisterKind must define COMMIT_MEMORY_ID'
   $'crates/icydb-core/src/traits/mod.rs\tconst COMMIT_STABLE_KEY: &\'static str;\tCanisterKind must define COMMIT_STABLE_KEY'
   $'crates/icydb-core/src/db/commit/recovery.rs\tconfigure_commit_memory_id\\(C::COMMIT_MEMORY_ID, C::COMMIT_STABLE_KEY\\)\trecovery must configure explicit commit memory id and stable key from canister contract'
-  $'crates/icydb-schema/src/node/canister.rs\tcommit_memory_id: u8,\tschema canister node must carry commit_memory_id'
-  $'crates/icydb-schema/src/node/canister.rs\tmemory_namespace: &\'static str,\tschema canister node must carry memory_namespace'
+  $'crates/icydb-model-legacy/src/node/canister.rs\tcommit_memory_id: u8,\ttemporary model canister node must carry commit_memory_id'
+  $'crates/icydb-model-legacy/src/node/canister.rs\tmemory_namespace: &\'static str,\ttemporary model canister node must carry memory_namespace'
   $'crates/icydb-schema-derive/src/node/canister.rs\tcommit_memory_id: u8,\tcanister derive node must require commit_memory_id'
   $'crates/icydb-schema-derive/src/node/canister.rs\tmemory_namespace: String,\tcanister derive node must require memory_namespace'
 )

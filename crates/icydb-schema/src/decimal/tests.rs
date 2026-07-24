@@ -1,5 +1,5 @@
-use crate::types::Decimal;
-use crate::types::decimal::{DEFAULT_DIVISION_SCALE, MAX_SUPPORTED_SCALE, ParseDecimalErrorReason};
+use crate::Decimal;
+use crate::decimal::{DEFAULT_DIVISION_SCALE, MAX_SUPPORTED_SCALE, ParseDecimalErrorReason};
 use candid::{decode_one, encode_one};
 use proptest::prelude::*;
 use std::str::FromStr;

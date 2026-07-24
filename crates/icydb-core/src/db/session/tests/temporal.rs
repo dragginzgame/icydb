@@ -10,8 +10,8 @@ use super::*;
 fn session_temporal_projection_matrix_preserves_semantic_types() {
     reset_session_sql_store();
     let session = sql_session();
-    let day_one = Date::new_checked(2025, 10, 19).expect("date should build");
-    let day_two = Date::new_checked(2025, 10, 20).expect("date should build");
+    let day_one = Date::try_new(2025, 10, 19).expect("date should build");
+    let day_two = Date::try_new(2025, 10, 20).expect("date should build");
     let at_one = Timestamp::from_millis(1_760_868_000_000);
     let at_two = Timestamp::from_millis(1_760_954_400_000);
     let elapsed_one = Duration::from_millis(1_500);
@@ -141,8 +141,8 @@ fn session_temporal_projection_matrix_preserves_semantic_types() {
 fn session_temporal_grouped_keys_preserve_semantic_types() {
     reset_session_sql_store();
     let session = sql_session();
-    let day_one = Date::new_checked(2025, 10, 19).expect("date should build");
-    let day_two = Date::new_checked(2025, 10, 20).expect("date should build");
+    let day_one = Date::try_new(2025, 10, 19).expect("date should build");
+    let day_two = Date::try_new(2025, 10, 20).expect("date should build");
     let at_one = Timestamp::from_millis(1_760_868_000_000);
     let at_two = Timestamp::from_millis(1_760_954_400_000);
     let elapsed_one = Duration::from_millis(1_500);
@@ -228,8 +228,8 @@ fn session_temporal_grouped_keys_preserve_semantic_types() {
 fn session_temporal_distinct_projection_values_preserve_semantic_types() {
     reset_session_sql_store();
     let session = sql_session();
-    let day_one = Date::new_checked(2025, 10, 19).expect("date should build");
-    let day_two = Date::new_checked(2025, 10, 20).expect("date should build");
+    let day_one = Date::try_new(2025, 10, 19).expect("date should build");
+    let day_two = Date::try_new(2025, 10, 20).expect("date should build");
     let at_one = Timestamp::from_millis(1_760_868_000_000);
     let at_two = Timestamp::from_millis(1_760_954_400_000);
     let elapsed_one = Duration::from_millis(1_500);
@@ -291,9 +291,9 @@ fn session_temporal_distinct_projection_values_preserve_semantic_types() {
 fn session_temporal_ranked_projection_values_preserve_semantic_types() {
     reset_session_sql_store();
     let session = sql_session();
-    let day_one = Date::new_checked(2025, 10, 19).expect("date should build");
-    let day_two = Date::new_checked(2025, 10, 20).expect("date should build");
-    let day_three = Date::new_checked(2025, 10, 21).expect("date should build");
+    let day_one = Date::try_new(2025, 10, 19).expect("date should build");
+    let day_two = Date::try_new(2025, 10, 20).expect("date should build");
+    let day_three = Date::try_new(2025, 10, 21).expect("date should build");
     let at_one = Timestamp::from_millis(1_760_868_000_000);
     let at_two = Timestamp::from_millis(1_760_954_400_000);
     let at_three = Timestamp::from_millis(1_761_040_800_000);

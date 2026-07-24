@@ -38,7 +38,7 @@ use crate::{
     model::field::{FieldInsertGeneration, FieldWriteManagement},
     sanitize::SanitizeWriteContext,
     traits::AuthoredFieldProjection,
-    types::Ulid,
+    types::{GenerateKey, Ulid},
     value::{InputValue, Value},
 };
 #[cfg(feature = "sql")]

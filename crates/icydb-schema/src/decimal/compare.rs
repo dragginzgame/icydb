@@ -1,11 +1,11 @@
-use crate::types::decimal::{DECIMAL_DIGIT_BUFFER_LEN, Decimal};
+use crate::decimal::{DECIMAL_DIGIT_BUFFER_LEN, Decimal};
 use std::{
     cmp::Ordering,
     hash::{Hash, Hasher},
 };
 
 impl Decimal {
-    pub(in crate::types::decimal) fn cmp_decimal(&self, other: &Self) -> Ordering {
+    pub(in crate::decimal) fn cmp_decimal(&self, other: &Self) -> Ordering {
         let (lhs_m, lhs_s) = self.normalized_parts();
         let (rhs_m, rhs_s) = other.normalized_parts();
 

@@ -1,4 +1,5 @@
 use super::*;
+use crate::types::GenerateKey;
 
 #[test]
 fn global_aggregate_value_matrix_matches_expected_values() {

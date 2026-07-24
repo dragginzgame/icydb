@@ -13,8 +13,8 @@ use crate::{
         },
     },
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-        Timestamp, Ulid,
+        Account, AccountStorageCodec, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig,
+        Principal, Subaccount, Timestamp, Ulid,
     },
     value::{CanonicalEnumBody, EnumTypeId, EnumVariantId, Value, ValueEnum},
 };

@@ -11,7 +11,8 @@ use crate::db::{IndexState, QueryError, query::plan::VisibleIndexes};
 use crate::{
     db::{
         DbSession, EntityCatalogCounts, EntityCatalogDescription, EntityConstraintDescription,
-        EntityFieldDescription, EntitySchemaDescription, StorageReport, StoreCatalogDescription,
+        EntityFieldDescription, EntitySchemaDescription, SchemaApplicationTarget, StorageReport,
+        StoreCatalogDescription,
         schema::{
             AcceptedFieldKind, ConstraintValidationJob, PersistedFieldSnapshot, SchemaInfo,
             describe_entity_fields, describe_entity_fields_with_persisted_schema,
@@ -44,6 +45,12 @@ fn persisted_kind_is_relation_field(kind: &AcceptedFieldKind) -> bool {
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    /// Issue the opaque database/store identities and exact accepted head used
+    /// to compose one optimistic schema proposal.
+    pub fn schema_application_target(&self) -> Result<SchemaApplicationTarget, InternalError> {
+        crate::db::schema::schema_application_target(&self.db)
+    }
+
     /// Return one stable, human-readable index listing for the entity schema.
     ///
     /// Output format mirrors SQL-style introspection:

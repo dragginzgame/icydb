@@ -14,6 +14,7 @@ use crate::db::{
         set_allocation_registry_generation_for_tests, set_progress_job_lease_deadline_for_tests,
     },
 };
+use crate::types::GenerateKey;
 
 #[test]
 fn quick_integrity_uses_accepted_plan_and_durable_database_incarnation() {

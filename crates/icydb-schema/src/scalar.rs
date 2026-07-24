@@ -1,10 +1,13 @@
-//! Module: lib
-//! Responsibility: shared primitive capability metadata used across schema and runtime.
-//! Does not own: query coercion policy, storage encoding, or schema validation.
+//! Canonical scalar-kind identities and intrinsic capability metadata.
+//!
+//! Responsibility: canonical scalar-kind identities and intrinsic capability
+//! facts used by the public proposal contract and consumed by runtime policy.
+//! Does not own: query coercion decisions, storage encoding, or accepted-schema
+//! validation.
 //! Boundary: exposes compact scalar-kind capability descriptors and registry order.
 
-#[macro_use]
-mod macros;
+use candid::CandidType;
+use serde::{Deserialize, Serialize};
 
 ///
 /// ScalarKind
@@ -12,7 +15,9 @@ mod macros;
 /// Canonical scalar kind used for shared capability metadata.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(
+    CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
+)]
 pub enum ScalarKind {
     Account,
     Blob,
@@ -99,7 +104,7 @@ impl ScalarKind {
 /// Capability metadata shared across schema/core layers.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[expect(clippy::struct_excessive_bools)]
 pub struct ScalarMetadata {
     family: ScalarCoercionFamily,
@@ -165,10 +170,10 @@ impl ScalarMetadata {
 ///
 /// ScalarCoercionFamily
 ///
-/// Coarse scalar routing family used by query coercion and validation.
+/// Coarse intrinsic family used by downstream coercion and validation policy.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ScalarCoercionFamily {
     Numeric,
     Textual,

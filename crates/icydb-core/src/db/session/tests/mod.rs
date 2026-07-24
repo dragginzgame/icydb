@@ -132,7 +132,9 @@ use crate::{
     },
     testing::test_memory,
     traits::{FieldTypeMeta, Path},
-    types::{Blob, Date, Duration, EntityTag, Float64, Id, Principal, Timestamp, Ulid},
+    types::{
+        Blob, Date, Duration, EntityTag, Float64, GenerateKey, Id, Principal, Timestamp, Ulid,
+    },
     value::{OutputValue, RuntimeValueDecode, RuntimeValueEncode, Value},
 };
 use ic_stable_structures::{DefaultMemoryImpl, memory_manager::VirtualMemory};
@@ -3020,6 +3022,49 @@ fn reinitialize_journaled_session_sql_store() {
 
 fn journaled_sql_session() -> DbSession<SessionSqlCanister> {
     DbSession::new(JOURNALED_SESSION_SQL_DB)
+}
+
+#[test]
+fn schema_application_target_is_stable_and_accepted_authority_owned() {
+    reset_journaled_session_sql_store();
+    let session = journaled_sql_session();
+
+    let first = session
+        .schema_application_target()
+        .expect("schema application target should derive");
+    let second = session
+        .schema_application_target()
+        .expect("unchanged schema application target should derive");
+
+    assert_eq!(second, first);
+    assert_eq!(first.stores().len(), 1);
+    assert_eq!(first.stores()[0].path(), JournaledSessionSqlStore::PATH);
+    assert!(matches!(
+        first.accepted_head(),
+        icydb_schema::ExpectedAcceptedHead::Exact { revision: 1, .. }
+    ));
+}
+
+#[test]
+fn schema_application_target_binds_complete_store_topology_in_canonical_order() {
+    reset_mixed_journaled_relation_stores();
+    let mixed = mixed_journaled_relation_sql_session()
+        .schema_application_target()
+        .expect("mixed-store application target should derive");
+    let single = journaled_sql_session()
+        .schema_application_target()
+        .expect("single-store application target should derive");
+
+    assert_eq!(
+        mixed
+            .stores()
+            .iter()
+            .map(crate::db::SchemaApplicationStore::path)
+            .collect::<Vec<_>>(),
+        vec![JournaledSessionSqlStore::PATH, SessionSqlStore::PATH],
+    );
+    assert_ne!(mixed.stores()[0].identity(), mixed.stores()[1].identity());
+    assert_ne!(mixed.database_identity(), single.database_identity());
 }
 
 fn reset_mixed_heap_relation_stores() {

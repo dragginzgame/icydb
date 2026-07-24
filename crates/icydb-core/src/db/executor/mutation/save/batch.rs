@@ -13,7 +13,7 @@ use crate::{
     },
     error::InternalError,
     metrics::sink::{ExecKind, MetricsEvent, Span, record},
-    types::Timestamp,
+    types::{CurrentTimestamp, Timestamp},
 };
 use std::collections::HashSet;
 

@@ -6,7 +6,7 @@
 use super::{Field, FieldGeneration, FieldWriteManagement, Value};
 use crate::node::{Arg, ArgNumber, Item};
 use darling::{FromMeta, ast::NestedMeta};
-use icydb_schema::types::Primitive;
+use icydb_model_legacy::types::Primitive;
 use quote::format_ident;
 use quote::quote;
 use std::str::FromStr;
@@ -809,7 +809,7 @@ fn database_default_encodes_date_text_with_scalar_codec() {
     )
     .expect("Date default should encode");
     let expected = icydb_core::__macro::encode_persisted_scalar_slot_payload(
-        &icydb_core::types::Date::parse_flexible("2025-01-02").expect("expected date should parse"),
+        &icydb_core::types::Date::parse("2025-01-02").expect("expected date should parse"),
         "launch_date",
     )
     .expect("expected Date payload should encode");

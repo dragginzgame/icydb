@@ -26,7 +26,7 @@ use crate::{
     error::InternalError,
     metrics::sink::{ExecKind, Span},
     sanitize::SanitizeWriteContext,
-    types::Timestamp,
+    types::{CurrentTimestamp, Timestamp},
 };
 use ic_stable_structures::Storable;
 #[cfg(feature = "sql")]

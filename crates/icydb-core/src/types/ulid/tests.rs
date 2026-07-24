@@ -2,6 +2,7 @@
 //! Covers ULID encoding, decoding, and generation invariants.
 
 use super::*;
+use crate::types::GenerateKey;
 
 #[test]
 fn ulid_max_size_is_bounded() {
@@ -17,9 +18,9 @@ fn ulid_max_size_is_bounded() {
 
 #[test]
 fn increment_preserves_none_on_randomness_overflow() {
-    let ulid = Ulid::from_timestamp_and_randomness(1, (1_u128 << 80) - 1);
+    let ulid = ulid::Ulid::from_parts(1, (1_u128 << 80) - 1);
 
-    assert!(ulid.increment().is_none());
+    assert!(ulid.increment().is_err());
 }
 
 #[test]

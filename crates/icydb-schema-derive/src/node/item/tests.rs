@@ -5,7 +5,7 @@
 
 use super::Item;
 use darling::{FromMeta, ast::NestedMeta};
-use icydb_schema::types::Primitive;
+use icydb_model_legacy::types::Primitive;
 use quote::quote;
 
 #[test]

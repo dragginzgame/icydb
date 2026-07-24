@@ -1,73 +1,12 @@
-//! Module: types::subaccount
-//! Defines the fixed-width subaccount value used by account identifiers, typed
-//! values, and persistence key encoding.
+//! Engine operations for the canonical schema-owned `Subaccount` atom.
+
+pub use icydb_schema::Subaccount;
 
 use crate::{
     db::{EntityKeyBytes, EntityKeyBytesError, validate_entity_key_bytes_buffer},
-    types::Principal,
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
     visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
-use candid::CandidType;
-use serde::{Deserialize, Serialize};
-use std::fmt::{self, Display};
-
-//
-// Subaccount
-//
-
-type SubaccountBytes = [u8; 32];
-
-#[derive(
-    CandidType,
-    Clone,
-    Copy,
-    Debug,
-    Default,
-    Eq,
-    PartialEq,
-    Hash,
-    Ord,
-    PartialOrd,
-    Serialize,
-    Deserialize,
-)]
-pub struct Subaccount(SubaccountBytes);
-
-impl Subaccount {
-    pub const MIN: Self = Self::from_array([0x00; 32]);
-    pub const MAX: Self = Self::from_array([0xFF; 32]);
-
-    #[must_use]
-    pub const fn to_array(&self) -> [u8; 32] {
-        self.0
-    }
-
-    #[must_use]
-    pub const fn from_array(array: [u8; 32]) -> Self {
-        Self(array)
-    }
-
-    #[must_use]
-    pub(crate) const fn as_slice(&self) -> &[u8] {
-        &self.0
-    }
-
-    #[must_use]
-    pub const fn to_bytes(self) -> [u8; 32] {
-        self.0
-    }
-}
-
-impl Display for Subaccount {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for byte in &self.0 {
-            write!(f, "{byte:02x}")?;
-        }
-
-        Ok(())
-    }
-}
 
 impl EntityKeyBytes for Subaccount {
     const BYTE_LEN: usize = 32;
@@ -75,7 +14,6 @@ impl EntityKeyBytes for Subaccount {
     fn write_bytes(&self, out: &mut [u8]) -> Result<(), EntityKeyBytesError> {
         validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;
         out.copy_from_slice(&self.to_bytes());
-
         Ok(())
     }
 }
@@ -95,28 +33,9 @@ impl RuntimeValueEncode for Subaccount {
 impl RuntimeValueDecode for Subaccount {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
-            Value::Subaccount(v) => Some(*v),
+            Value::Subaccount(value) => Some(*value),
             _ => None,
         }
-    }
-}
-
-// code taken from
-// <https://docs.rs/ic-ledger-types/latest/src/ic_ledger_types/lib.rs.html#140-148>
-#[expect(clippy::cast_possible_truncation)]
-impl From<Principal> for Subaccount {
-    fn from(principal: Principal) -> Self {
-        let mut bytes = [0u8; 32];
-        let p = principal.as_slice();
-
-        // Defensive check: Principals are currently <= 29 bytes
-        let len = p.len().min(31); // reserve 1 byte for the length prefix
-        bytes[0] = len as u8;
-
-        // Copy safely without panic risk
-        bytes[1..=len].copy_from_slice(&p[..len]);
-
-        Self(bytes)
     }
 }
 
@@ -131,27 +50,5 @@ impl ValidateCustom for Subaccount {}
 impl Visitable for Subaccount {
     fn requires_application_write_callbacks() -> bool {
         false
-    }
-}
-
-//
-// TESTS
-//
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn subaccount_max_size_is_bounded() {
-        let subaccount = Subaccount::MAX;
-        let size = subaccount.to_bytes().len();
-
-        assert_eq!(
-            size,
-            <Subaccount as EntityKeyBytes>::BYTE_LEN,
-            "serialized Subaccount must be exactly {} bytes; got {size}",
-            <Subaccount as EntityKeyBytes>::BYTE_LEN
-        );
     }
 }

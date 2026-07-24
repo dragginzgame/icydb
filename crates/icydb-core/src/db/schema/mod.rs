@@ -5,6 +5,7 @@
 
 mod accepted_field_kind;
 mod accepted_value_admission;
+mod application;
 pub(in crate::db) mod authored_projection;
 mod capabilities;
 mod check;
@@ -52,6 +53,8 @@ pub use errors::{SchemaLiteralValidationReason, SchemaValidationOperator, Valida
 
 pub(in crate::db) use accepted_field_kind::AcceptedFieldKind;
 pub(in crate::db) use accepted_value_admission::AcceptedValueAdmissionContract;
+pub(in crate::db) use application::schema_application_target;
+pub use application::{SchemaApplicationStore, SchemaApplicationTarget};
 pub(in crate::db) use capabilities::sql_capabilities;
 #[cfg(feature = "sql")]
 pub(in crate::db) use capabilities::{

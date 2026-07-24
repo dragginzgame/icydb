@@ -9,7 +9,7 @@ use crate::node::{
     Type, ValidateNode, Value,
 };
 use darling::{FromMeta, ast::NestedMeta};
-use icydb_schema::types::Primitive;
+use icydb_model_legacy::types::Primitive;
 use proc_macro2::Span;
 use quote::format_ident;
 use quote::quote;

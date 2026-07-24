@@ -20,7 +20,7 @@ use crate::{
     metrics::sink::{ExecKind, Span},
     sanitize::SanitizeWriteContext,
     traits::AuthoredFieldProjection,
-    types::Timestamp,
+    types::{CurrentTimestamp, Timestamp},
 };
 
 impl<E: PersistedRow> SaveExecutor<E> {

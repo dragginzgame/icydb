@@ -290,10 +290,11 @@ usage, IC test prerequisites, and wasm report commands live in
 - `crates/icydb-derive` - public derive helpers.
 - `crates/icydb-diagnostic-code` - compact diagnostic code registry and
   public diagnostic metadata.
-- `crates/icydb-primitives` - shared primitive helpers used by facade,
-  schema, and runtime crates.
-- `crates/icydb-schema-derive` and `crates/icydb-schema` - schema macros and
-  schema AST.
+- `crates/icydb-schema` - bounded public schema-proposal contract and canonical
+  scalar atoms shared by standalone IcyDB and model tooling.
+- `crates/icydb-model-legacy` and `crates/icydb-schema-derive` - temporary
+  unpublished model AST plus the embedded macro compiler during the 0.213
+  package cutover.
 - `crates/icydb-utils` - shared internal utility helpers.
 - `crates/icydb-cli` - developer CLI for local SQL, config checks, canister
   lifecycle helpers, and observability reports.

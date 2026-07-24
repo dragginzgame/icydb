@@ -1,11 +1,15 @@
 # IcyDB Schema
 
-Schema AST, validation, and builder utilities used by IcyDB macros and planning layers.
+Public, bounded, versioned schema-proposal vocabulary for standalone IcyDB.
 
-End-user canister code should normally depend on `icydb`; this crate exists for schema internals and tooling.
+This leaf package owns canonical scalar atoms, immutable source keys, reusable
+entity/type fragments with exact scalar widths and bounds, source-keyed enum
+literals, explicit removals, deterministic cross-fragment closure, and
+database-scoped proposal transport. References absent from the proposal are
+admitted only when an exact expected accepted head can resolve them during
+application. This crate does not own accepted schema, runtime planning,
+storage, application callbacks, clocks, or generated values.
 
-References:
-
-- Workspace overview: `../../README.md`
-- Contracts: `../../docs/contracts/QUERY_CONTRACT.md`, `../../docs/contracts/IDENTITY_CONTRACT.md`
-- Release notes: `../../CHANGELOG.md`
+See the
+[0.213 design](../../docs/design/0.213-schema-authority-and-application-model-separation/0.213-design.md)
+for the package and authority boundary.

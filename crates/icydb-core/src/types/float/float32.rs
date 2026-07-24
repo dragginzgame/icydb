@@ -1,104 +1,11 @@
-//! Module: types::float::float32
-//! Defines the finite `f32` wrapper used by value conversion, comparison, and
-//! visitor-driven validation.
+//! Engine operations for the canonical schema-owned `Float32` atom.
+
+pub use icydb_schema::{Float32, Float32DecodeError};
 
 use crate::{
-    types::{Decimal, NumericValue},
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{
-        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable, VisitorContext,
-    },
+    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
-use candid::CandidType;
-use serde::Deserialize;
-use std::{
-    cmp::Ordering,
-    fmt,
-    hash::{Hash, Hasher},
-};
-
-//
-// Float32DecodeError
-//
-
-#[derive(Debug)]
-pub enum Float32DecodeError {
-    InvalidSize { len: usize },
-
-    NonFinite,
-}
-
-//
-// Float32
-//
-// Finite f32 only; -0.0 canonically stored as 0.0
-//
-
-#[repr(transparent)]
-#[derive(CandidType, Clone, Copy, Debug, Default)]
-pub struct Float32(f32);
-
-impl Float32 {
-    /// Fallible constructor that rejects non-finite values and normalizes -0.0.
-    #[must_use]
-    pub fn try_new(v: f32) -> Option<Self> {
-        if !v.is_finite() {
-            return None;
-        }
-
-        // canonicalize -0.0 → 0.0
-        Some(Self(if v == 0.0 { 0.0 } else { v }))
-    }
-
-    #[must_use]
-    pub const fn get(self) -> f32 {
-        self.0
-    }
-
-    #[must_use]
-    pub const fn to_be_bytes(&self) -> [u8; 4] {
-        self.0.to_bits().to_be_bytes()
-    }
-
-    pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, Float32DecodeError> {
-        if bytes.len() != 4 {
-            return Err(Float32DecodeError::InvalidSize { len: bytes.len() });
-        }
-
-        let mut buf = [0u8; 4];
-        buf.copy_from_slice(bytes);
-        let value = f32::from_bits(u32::from_be_bytes(buf));
-        Self::try_new(value).ok_or(Float32DecodeError::NonFinite)
-    }
-
-    /// Fallible conversion from `f64` that rejects non-finite and out-of-range inputs.
-    #[must_use]
-    #[expect(clippy::cast_possible_truncation)]
-    pub fn try_from_f64(value: f64) -> Option<Self> {
-        if !value.is_finite() {
-            return None;
-        }
-        if value < f64::from(f32::MIN) || value > f64::from(f32::MAX) {
-            return None;
-        }
-
-        Self::try_new(value as f32)
-    }
-}
-
-impl fmt::Display for Float32 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl Eq for Float32 {}
-
-impl PartialEq for Float32 {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
 
 impl RuntimeValueMeta for Float32 {
     fn kind() -> RuntimeValueKind {
@@ -115,58 +22,9 @@ impl RuntimeValueEncode for Float32 {
 impl RuntimeValueDecode for Float32 {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
-            Value::Float32(v) => Some(*v),
+            Value::Float32(value) => Some(*value),
             _ => None,
         }
-    }
-}
-
-#[expect(clippy::cast_precision_loss)]
-impl From<i32> for Float32 {
-    fn from(n: i32) -> Self {
-        Self(n as f32)
-    }
-}
-
-impl TryFrom<f32> for Float32 {
-    type Error = ();
-    fn try_from(v: f32) -> Result<Self, Self::Error> {
-        Self::try_new(v).ok_or(())
-    }
-}
-
-impl From<Float32> for f32 {
-    fn from(x: Float32) -> Self {
-        x.0
-    }
-}
-
-impl NumericValue for Float32 {
-    fn try_to_decimal(&self) -> Option<Decimal> {
-        Decimal::from_f32_lossy(self.0)
-    }
-
-    fn try_from_decimal(value: Decimal) -> Option<Self> {
-        value.to_f32().and_then(Self::try_new)
-    }
-}
-
-impl Hash for Float32 {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write_u32(self.0.to_bits()); // stable 4-byte IEEE-754
-    }
-}
-
-impl Ord for Float32 {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // safe: no NaN, -0 normalized
-        self.0.partial_cmp(&other.0).unwrap()
-    }
-}
-
-impl PartialOrd for Float32 {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
     }
 }
 
@@ -174,61 +32,12 @@ impl SanitizeAuto for Float32 {}
 
 impl SanitizeCustom for Float32 {}
 
-impl TryFrom<&[u8]> for Float32 {
-    type Error = Float32DecodeError;
-
-    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        Self::try_from_bytes(bytes)
-    }
-}
-
 impl ValidateAuto for Float32 {}
 
-impl ValidateCustom for Float32 {
-    fn validate_custom(&self, ctx: &mut dyn VisitorContext) {
-        if !self.0.is_finite() {
-            ctx.issue("Float32 must be finite");
-        }
-    }
-}
+impl ValidateCustom for Float32 {}
 
 impl Visitable for Float32 {
     fn requires_application_write_callbacks() -> bool {
         false
-    }
-}
-
-impl<'de> Deserialize<'de> for Float32 {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = f32::deserialize(deserializer)?;
-        Self::try_new(value)
-            .ok_or_else(|| serde::de::Error::custom(crate::types::TypeParseError::InvalidFloat))
-    }
-}
-
-//
-// TESTS
-//
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde::de::value::{Error as DeError, F32Deserializer};
-
-    #[test]
-    fn deserialize_normalizes_negative_zero() {
-        let value =
-            Float32::deserialize(F32Deserializer::<DeError>::new(-0.0)).expect("deserialize -0.0");
-        assert_eq!(value.to_be_bytes(), 0.0f32.to_bits().to_be_bytes());
-    }
-
-    #[test]
-    fn deserialize_rejects_non_finite() {
-        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-            assert!(Float32::deserialize(F32Deserializer::<DeError>::new(value)).is_err());
-        }
     }
 }

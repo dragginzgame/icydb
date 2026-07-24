@@ -1,4 +1,5 @@
 use super::*;
+use crate::types::GenerateKey;
 
 #[test]
 fn execute_sql_scalar_matrix_queries_match_expected_rows() {

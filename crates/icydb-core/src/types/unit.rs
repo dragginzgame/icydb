@@ -1,6 +1,6 @@
-//! Module: types::unit
-//! Defines the zero-sized unit key/value wrapper used by schemas that need an
-//! explicit empty identity.
+//! Engine operations for the canonical schema-owned `Unit` atom.
+
+pub use icydb_schema::Unit;
 
 use crate::{
     db::{
@@ -10,17 +10,6 @@ use crate::{
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
     visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
-use candid::CandidType;
-use serde::Deserialize;
-
-//
-// Unit
-//
-
-#[derive(
-    CandidType, Clone, Copy, Debug, Default, Eq, PartialEq, Hash, Ord, PartialOrd, Deserialize,
-)]
-pub struct Unit;
 
 impl EntityKeyBytes for Unit {
     const BYTE_LEN: usize = 0;

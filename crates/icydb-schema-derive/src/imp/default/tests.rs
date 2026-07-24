@@ -10,7 +10,7 @@ use crate::{
     },
     trait_kind::{TraitBuilder, TraitKind},
 };
-use icydb_schema::types::Primitive;
+use icydb_model_legacy::types::Primitive;
 use quote::format_ident;
 use syn::parse_quote;
 

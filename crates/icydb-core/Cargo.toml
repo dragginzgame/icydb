@@ -25,7 +25,7 @@ ic-memory = { workspace = true }
 ic-stable-structures = { workspace = true }
 icrc-ledger-types = { workspace = true }
 icydb-diagnostic-code = { workspace = true }
-icydb-primitives = { workspace = true }
+icydb-schema = { workspace = true }
 icydb-utils = { workspace = true }
 num-bigint = { workspace = true }
 rand_chacha = { workspace = true }

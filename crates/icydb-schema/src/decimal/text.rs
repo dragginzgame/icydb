@@ -1,4 +1,4 @@
-use crate::types::decimal::{Decimal, ParseDecimalError, ParseDecimalErrorReason};
+use crate::decimal::{Decimal, ParseDecimalError, ParseDecimalErrorReason};
 use std::{
     fmt::{Display, Formatter},
     str::FromStr,

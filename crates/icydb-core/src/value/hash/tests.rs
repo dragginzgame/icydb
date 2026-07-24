@@ -239,7 +239,7 @@ fn single_list_identity_canonical_hash_matches_generic_hash_contract() {
         )),
         Value::Blob(vec![1u8, 2u8, 3u8]),
         Value::Bool(true),
-        Value::Date(crate::types::Date::new(2024, 1, 2)),
+        Value::Date(crate::types::Date::try_new(2024, 1, 2).expect("valid date")),
         Value::Duration(crate::types::Duration::from_secs(1)),
         Value::Float32(F32::try_new(1.25).expect("finite f32")),
         Value::Float64(F64::try_new(2.5).expect("finite f64")),

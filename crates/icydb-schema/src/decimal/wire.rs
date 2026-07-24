@@ -1,6 +1,6 @@
-use crate::types::{TypeParseError, decimal::Decimal};
+use crate::{TypeParseError, decimal::Decimal};
 use candid::CandidType;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 
 impl CandidType for Decimal {
@@ -58,6 +58,15 @@ impl<'de> Deserialize<'de> for Decimal {
 
         Self::checked_from_mantissa_scale(mantissa, scale)
             .ok_or_else(|| serde::de::Error::custom(TypeParseError::InvalidDecimal))
+    }
+}
+
+impl Serialize for Decimal {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
     }
 }
 

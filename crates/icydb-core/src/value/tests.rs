@@ -2,6 +2,7 @@
 //! Covers value serialization, coercion, comparison, and typed wrapper
 //! roundtrip behavior.
 
+use crate::types::GenerateKey;
 use crate::{
     types::{
         Account, Date, Decimal, Duration, Float32 as F32, Float64 as F64, IntBig, NatBig,
@@ -49,7 +50,7 @@ macro_rules! sample_value_for_scalar {
         Value::Bool(true)
     };
     (Date) => {
-        Value::Date(Date::new(2024, 1, 2))
+        Value::Date(Date::try_new(2024, 1, 2).expect("valid date"))
     };
     (Decimal) => {
         Value::Decimal(Decimal::new(123, 2))
@@ -164,7 +165,10 @@ fn canonical_tag_and_rank_are_stable() {
         ),
         (Value::Blob(vec![1u8]), 2),
         (Value::Bool(true), 3),
-        (Value::Date(Date::new(2024, 1, 2)), 4),
+        (
+            Value::Date(Date::try_new(2024, 1, 2).expect("valid date")),
+            4,
+        ),
         (Value::Decimal(Decimal::new(123, 2)), 5),
         (Value::Duration(Duration::from_secs(1)), 6),
         (Value::Enum(ValueEnum::test_unit(1, 1)), 7),
@@ -217,7 +221,7 @@ fn canonical_ranks_are_unique_across_value_variants() {
         )),
         Value::Blob(vec![1u8]),
         Value::Bool(true),
-        Value::Date(Date::new(2024, 1, 2)),
+        Value::Date(Date::try_new(2024, 1, 2).expect("valid date")),
         Value::Decimal(Decimal::new(123, 2)),
         Value::Duration(Duration::from_secs(1)),
         Value::Enum(ValueEnum::test_unit(1, 1)),
@@ -380,7 +384,7 @@ fn cmp_numeric_respects_registry_numeric_coercion_flag() {
 
 #[test]
 fn cmp_numeric_rejects_date_and_value_big_integers() {
-    let date = Value::Date(Date::new(2024, 1, 2));
+    let date = Value::Date(Date::try_new(2024, 1, 2).expect("valid date"));
     let int_big = Value::IntBig(IntBig::from(10i32));
     let nat_big = Value::NatBig(NatBig::from(10u64));
     let one = Value::Int64(1);

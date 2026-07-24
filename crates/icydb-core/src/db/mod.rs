@@ -62,6 +62,7 @@ pub use catalog::{
 #[doc(hidden)]
 pub use codec::hex::encode_hex_lower;
 pub use runtime_hooks::EntityRuntimeHooks;
+pub use schema::{SchemaApplicationStore, SchemaApplicationTarget};
 // These hidden helper re-exports remain public so the crate-root `__macro`
 // boundary can route generated code through one stable path without widening
 // the normal `db` facade contract.

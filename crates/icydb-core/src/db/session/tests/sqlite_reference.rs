@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::db::schema::{AcceptedFieldKind, AcceptedSchemaSnapshot};
+use crate::types::GenerateKey;
 use icydb_testing_sql_generator::{
     ALL_SELECT_GENERATOR_FAMILIES, ALL_SELECT_VIOLATIONS, GeneratedSelectCase, GeneratedValue,
     SelectComparisonProvider, SelectExecutionPhase, SelectExpectedOutcome, SelectExpectedRejection,

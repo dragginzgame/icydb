@@ -17,7 +17,7 @@ use crate::{
     MAX_INDEX_FIELDS,
     db::index::IndexId,
     traits::Repr,
-    types::{Account, EntityTag, Principal, Subaccount, Timestamp, Ulid},
+    types::{Account, AccountStorageCodec, EntityTag, Principal, Subaccount, Timestamp, Ulid},
     value::Value,
 };
 use std::{cmp::Ordering, fmt};

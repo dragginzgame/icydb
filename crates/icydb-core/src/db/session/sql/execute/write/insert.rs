@@ -32,7 +32,7 @@ use crate::{
     metrics::sink::SqlWriteKind,
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
     traits::CanisterKind,
-    types::Timestamp,
+    types::{CurrentTimestamp, Timestamp},
     value::Value,
 };
 use icydb_diagnostic_code::SqlWriteBoundaryCode;

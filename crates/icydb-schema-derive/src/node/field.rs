@@ -892,7 +892,7 @@ fn date_arg_to_core_date(default: &Arg) -> Result<icydb_core::types::Date, Strin
                 "default Date day-count literal is outside supported range".to_string()
             })
         }
-        Arg::String(value) => icydb_core::types::Date::parse_flexible(value.value().as_str())
+        Arg::String(value) => icydb_core::types::Date::parse(value.value().as_str())
             .ok_or_else(|| "default for primitive Date is invalid".to_string()),
         Arg::Bool(_) | Arg::Char(_) | Arg::ConstPath(_) | Arg::FuncPath(_) => Err(
             "default for primitive Date requires an integer day-count or ISO date literal"

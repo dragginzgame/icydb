@@ -1,6 +1,6 @@
 use crate::prelude::*;
 use darling::FromMeta;
-use icydb_primitives::ScalarKind;
+use icydb_schema::ScalarKind;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 use std::str::FromStr;

@@ -1026,7 +1026,7 @@ fn direct_persisted_by_kind_leaf_codecs_cover_tier_two_family() {
         FieldKind::Account,
     );
     assert_direct_persisted_by_kind_roundtrip(
-        Date::new_checked(2025, 10, 19).expect("valid date"),
+        Date::try_new(2025, 10, 19).expect("valid date"),
         FieldKind::Date,
     );
     assert_direct_persisted_by_kind_roundtrip(

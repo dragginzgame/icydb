@@ -1,11 +1,9 @@
-//! Module: types::numeric_value
-//!
 //! Responsibility: scalar and newtype conversion through the canonical
 //! decimal numeric representation.
 //! Does not own: database coercion, arithmetic, comparison, or ordering policy.
 //! Boundary: typed numeric values <-> `Decimal` for generic typed policies.
 
-use crate::types::Decimal;
+use crate::{Decimal, Duration, Float32, Float64, Timestamp};
 
 /// Fallible numeric round-trip contract used by generic validators and sanitizers.
 ///
@@ -91,5 +89,45 @@ impl NumericValue for f64 {
 
     fn try_from_decimal(value: Decimal) -> Option<Self> {
         value.to_f64()
+    }
+}
+
+impl NumericValue for Duration {
+    fn try_to_decimal(&self) -> Option<Decimal> {
+        Decimal::from_u64(self.as_millis())
+    }
+
+    fn try_from_decimal(value: Decimal) -> Option<Self> {
+        value.to_u64().map(Self::from_millis)
+    }
+}
+
+impl NumericValue for Float32 {
+    fn try_to_decimal(&self) -> Option<Decimal> {
+        Decimal::from_f32_lossy(self.get())
+    }
+
+    fn try_from_decimal(value: Decimal) -> Option<Self> {
+        value.to_f32().and_then(Self::try_new)
+    }
+}
+
+impl NumericValue for Float64 {
+    fn try_to_decimal(&self) -> Option<Decimal> {
+        Decimal::from_f64_lossy(self.get())
+    }
+
+    fn try_from_decimal(value: Decimal) -> Option<Self> {
+        value.to_f64().and_then(Self::try_new)
+    }
+}
+
+impl NumericValue for Timestamp {
+    fn try_to_decimal(&self) -> Option<Decimal> {
+        Decimal::from_i64(self.as_millis())
+    }
+
+    fn try_from_decimal(value: Decimal) -> Option<Self> {
+        value.to_i64().map(Self::from_millis)
     }
 }

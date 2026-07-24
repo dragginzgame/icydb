@@ -7,7 +7,7 @@ mod db;
 
 use std::sync::Arc;
 
-use icydb_schema::{
+use icydb_model_legacy::{
     build::get_schema,
     node::{Canister, Entity, Schema, Store},
 };
@@ -478,7 +478,7 @@ fn generate_metrics(builder: &ActorBuilder) -> TokenStream {
 mod tests {
     use std::sync::Arc;
 
-    use icydb_schema::node::{Canister, Def, Schema};
+    use icydb_model_legacy::node::{Canister, Def, Schema};
     use proc_macro2::TokenStream;
 
     use super::{ActorBuilder, BuildOptions};

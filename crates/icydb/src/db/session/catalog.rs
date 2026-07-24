@@ -10,8 +10,8 @@
 use crate::{
     db::{
         EntityCatalogDescription, EntityConstraintDescription, EntityFieldDescription,
-        EntitySchemaDescription, MemoryCatalogDescription, StorageReport, StoreCatalogDescription,
-        session::DbSession,
+        EntitySchemaDescription, MemoryCatalogDescription, SchemaApplicationTarget, StorageReport,
+        StoreCatalogDescription, session::DbSession,
     },
     error::Error,
     traits::CanisterKind,
@@ -20,6 +20,12 @@ use crate::{
 use icydb_core as core;
 
 impl<C: CanisterKind> DbSession<C> {
+    /// Issue the opaque database/store identities and exact accepted head used
+    /// to compose one optimistic schema proposal.
+    pub fn schema_application_target(&self) -> Result<SchemaApplicationTarget, Error> {
+        Ok(self.inner.schema_application_target()?)
+    }
+
     /// Return one stable, human-readable index listing for the entity schema.
     #[must_use]
     pub fn show_indexes<E>(&self) -> Vec<String>

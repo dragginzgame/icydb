@@ -155,11 +155,11 @@ impl Canister {
     }
 
     fn commit_stable_key(&self) -> String {
-        icydb_schema::node::stable_memory_key(&self.memory_namespace, "commit", "control")
+        icydb_model_legacy::node::stable_memory_key(&self.memory_namespace, "commit", "control")
     }
 
     fn integrity_progress_stable_key(&self) -> String {
-        icydb_schema::node::stable_memory_key(&self.memory_namespace, "integrity", "progress")
+        icydb_model_legacy::node::stable_memory_key(&self.memory_namespace, "integrity", "progress")
     }
 }
 
@@ -196,8 +196,8 @@ mod tests {
             commit_memory_id: 254,
             integrity_progress_memory_id: Some(253),
         };
-        let schema_canister = icydb_schema::node::Canister::new(
-            icydb_schema::node::Def::new("demo::rpg", "DemoCanister"),
+        let schema_canister = icydb_model_legacy::node::Canister::new(
+            icydb_model_legacy::node::Def::new("demo::rpg", "DemoCanister"),
             "demo_rpg",
             100,
             254,

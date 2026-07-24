@@ -1,202 +1,129 @@
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt};
+//! Typed failures at the public proposal-contract boundary.
 
-//
-// ErrorTree
-// Hierarchical error aggregator used by validation to keep nested context.
-//
+use thiserror::Error;
 
-#[derive(Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-pub struct ErrorTree {
-    /// Errors at the current level.
-    messages: Vec<String>,
+/// Failure while constructing, validating, encoding, or decoding proposal data.
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum SchemaContractError {
+    /// A required bounded text identity is empty.
+    #[error("schema contract identity is empty")]
+    EmptyIdentity,
 
-    /// Child errors indexed by field/key.
-    children: HashMap<String, Self>,
-}
+    /// A bounded text identity exceeds its byte limit.
+    #[error("schema contract identity exceeds its byte limit")]
+    IdentityTooLong {
+        /// Actual byte length.
+        len: usize,
+        /// Maximum admitted byte length.
+        max: usize,
+    },
 
-impl ErrorTree {
-    /// Create an empty error tree with no messages or children.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
+    /// A source key contains a non-canonical byte.
+    #[error("schema source key contains a non-canonical byte")]
+    InvalidSourceKey,
 
-    /// Merge a sequence of `Result` values, collecting every `ErrorTree` into one.
-    pub fn collect<I>(iter: I) -> Result<(), Self>
-    where
-        I: IntoIterator<Item = Result<(), Self>>,
-    {
-        let mut errs = Self::new();
-        for res in iter {
-            if let Err(e) = res {
-                errs.merge(e);
-            }
-        }
+    /// One bounded collection exceeds its item limit.
+    #[error("schema contract collection exceeds its item limit")]
+    TooManyItems {
+        /// Collection vocabulary used for bounded diagnostics.
+        kind: &'static str,
+        /// Actual item count.
+        len: usize,
+        /// Maximum admitted item count.
+        max: usize,
+    },
 
-        errs.result()
-    }
+    /// One definition, assignment, or removal key occurs more than once.
+    #[error("schema contract contains a duplicate source key")]
+    DuplicateSourceKey,
 
-    /// Add an error message to the current level.
-    pub fn add<M: ToString>(&mut self, message: M) {
-        self.messages.push(message.to_string());
-    }
+    /// One definition collides with an explicit removal.
+    #[error("schema contract defines and removes the same source key")]
+    DefinitionRemovalConflict,
 
-    /// Push an error message only when the supplied result is `Err`.
-    pub fn add_result<M: ToString>(&mut self, error: Result<(), M>) {
-        if let Err(e) = error {
-            self.messages.push(e.to_string());
-        }
-    }
+    /// Two definitions in one namespace use the same editable name.
+    #[error("schema contract contains an editable-name collision")]
+    DuplicateEditableName,
 
-    /// Format and append an error message.
-    pub fn addf(&mut self, args: fmt::Arguments) {
-        self.messages.push(format!("{args}"));
-    }
+    /// A definition refers to an absent key in its local closure.
+    #[error("schema contract contains an unresolved local reference")]
+    InvalidLocalReference,
 
-    /// Add an error message under a specific child key, creating nodes as needed.
-    pub fn add_for<K: ToString, M: ToString>(&mut self, key: K, message: M) {
-        self.children
-            .entry(key.to_string())
-            .or_default()
-            .add(message);
-    }
+    /// A named-type graph is recursive or exceeds the maintained depth bound.
+    #[error("schema contract contains an invalid named-type graph")]
+    InvalidNamedTypeGraph,
 
-    /// Merge another `ErrorTree` into this one, combining children recursively.
-    pub fn merge(&mut self, other: Self) {
-        self.messages.extend(other.messages);
-        for (key, child_errors) in other.children {
-            self.children.entry(key).or_default().merge(child_errors);
-        }
-    }
+    /// An enum literal names a non-enum type or an absent local variant.
+    #[error("schema contract contains an invalid enum literal reference")]
+    InvalidEnumLiteral,
 
-    /// Merge another `ErrorTree` under one child route key.
-    pub fn merge_for<K: ToString>(&mut self, key: K, other: Self) {
-        self.children
-            .entry(key.to_string())
-            .or_default()
-            .merge(other);
-    }
+    /// A relation's source and target field contracts differ.
+    #[error("schema relation source and target field types differ")]
+    RelationTypeMismatch,
 
-    /// Check if there are any errors.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.messages.is_empty() && self.children.is_empty()
-    }
+    /// One explicit removal deletes a definition still referenced by the proposal.
+    #[error("schema contract removes a referenced definition")]
+    RemovedReference,
 
-    /// Borrow top-level messages.
-    #[must_use]
-    pub fn messages(&self) -> &[String] {
-        &self.messages
-    }
+    /// One entity does not have exactly one target-store assignment.
+    #[error("schema proposal entity routing is incomplete")]
+    MissingEntityStoreAssignment,
 
-    /// Borrow child error trees keyed by route/field.
-    #[must_use]
-    pub const fn children(&self) -> &HashMap<String, Self> {
-        &self.children
-    }
+    /// A field combines incompatible nullability, insert, type, or management policy.
+    #[error("schema field policy is invalid")]
+    InvalidFieldPolicy,
 
-    /// Flatten the error hierarchy without consuming `self`.
-    #[must_use]
-    pub fn flatten_ref(&self) -> Vec<(String, String)> {
-        let mut result = Vec::new();
-        self.flatten_helper_ref(String::new(), &mut result);
-        result
-    }
+    /// A field type carries an impossible width, scale, or bound.
+    #[error("schema field type is invalid")]
+    InvalidFieldType,
 
-    fn flatten_helper_ref(&self, prefix: String, result: &mut Vec<(String, String)>) {
-        // Add messages at the current level.
-        for msg in &self.messages {
-            result.push((prefix.clone(), msg.clone()));
-        }
-        // Process child errors recursively.
-        for (key, child) in &self.children {
-            let new_prefix = if prefix.is_empty() {
-                key.clone()
-            } else {
-                format!("{prefix}.{key}")
-            };
-            child.flatten_helper_ref(new_prefix, result);
-        }
-    }
+    /// A field default literal does not fit the exact declared field contract.
+    #[error("schema field default does not match its exact field type")]
+    LiteralTypeMismatch,
 
-    /// Consume `self` and return `Ok(())` if there are no errors, or `Err(self)` otherwise.
-    pub fn result(self) -> Result<(), Self> {
-        if self.is_empty() { Ok(()) } else { Err(self) }
-    }
-}
+    /// One ordered field/reference list is empty or contains duplicates.
+    #[error("schema contract contains an invalid ordered reference list")]
+    InvalidReferenceList,
 
-#[macro_export]
-macro_rules! err {
-    ($errs:expr, $($arg:tt)*) => {{
-        $errs.addf(format_args!($($arg)*));
-    }};
-}
+    /// A literal is malformed or non-canonical.
+    #[error("schema proposal literal is malformed")]
+    InvalidLiteral,
 
-impl fmt::Display for ErrorTree {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (key, msg) in self.flatten_ref() {
-            if key.is_empty() {
-                writeln!(f, "{msg}")?;
-            } else {
-                writeln!(f, "{key}: {msg}")?;
-            }
-        }
+    /// A source check expression is malformed.
+    #[error("schema source check expression is malformed")]
+    InvalidExpression,
 
-        Ok(())
-    }
-}
+    /// The proposal contract version is not the maintained current version.
+    #[error("schema proposal contract version is unsupported")]
+    UnsupportedVersion {
+        /// Version carried by the proposal.
+        found: u16,
+        /// Sole current version understood by this crate.
+        supported: u16,
+    },
 
-impl From<&str> for ErrorTree {
-    fn from(err: &str) -> Self {
-        let mut tree = Self::new();
-        tree.add(err.to_string());
+    /// The proposal requires a capability not understood by this contract.
+    #[error("schema proposal requires an unsupported capability")]
+    UnsupportedCapability,
 
-        tree
-    }
-}
+    /// A decoded proposal is structurally valid but not canonically ordered.
+    #[error("schema proposal is not canonically ordered")]
+    NonCanonical,
 
-impl From<String> for ErrorTree {
-    fn from(s: String) -> Self {
-        let mut tree = Self::new();
-        tree.add(s);
+    /// Encoded bytes exceed the relevant transport limit.
+    #[error("encoded schema contract exceeds its byte limit")]
+    EncodedTooLarge {
+        /// Actual byte length.
+        len: usize,
+        /// Maximum admitted byte length.
+        max: usize,
+    },
 
-        tree
-    }
-}
+    /// Serialization failed.
+    #[error("schema contract encoding failed")]
+    Encode,
 
-//
-// TESTS
-//
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_empty_errors() {
-        let errs = ErrorTree::new();
-        assert!(errs.is_empty());
-        assert_eq!(errs.result(), Ok(()));
-    }
-
-    #[test]
-    fn test_add_and_merge() {
-        let mut errs = ErrorTree::new();
-        errs.add("top-level error");
-
-        let mut child_errs = ErrorTree::new();
-        child_errs.add("child error 1");
-        child_errs.add("child error 2");
-        errs.add_for("field", "field error");
-        errs.merge_for("nested", child_errs);
-
-        // Check hierarchical structure.
-        assert_eq!(errs.messages().len(), 1);
-        assert!(errs.children().contains_key("field") || errs.children().contains_key("nested"));
-
-        // Flatten and check that errors include keys.
-        let flat = errs.flatten_ref();
-        assert_eq!(flat.len(), 4);
-    }
+    /// Bounded current-form decoding failed.
+    #[error("schema contract decoding failed")]
+    Decode,
 }

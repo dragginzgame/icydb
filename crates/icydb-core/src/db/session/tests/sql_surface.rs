@@ -1,4 +1,5 @@
 use super::*;
+use crate::types::GenerateKey;
 use crate::{
     db::{
         FieldRef, MutationMode, asc,

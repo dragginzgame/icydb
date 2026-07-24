@@ -2,6 +2,7 @@ use super::*;
 use crate::db::{
     data::with_structural_read_metrics, session::sql::with_sql_projection_materialization_metrics,
 };
+use crate::types::GenerateKey;
 
 // Seed the shared text-function projection fixture used by the computed
 // projection tests in this file.

@@ -7,7 +7,7 @@ use crate::{
     node::{Field, Item, ItemTarget, Value},
     prelude::quote_option,
 };
-use icydb_schema::types::{Cardinality, Primitive};
+use icydb_model_legacy::types::{Cardinality, Primitive};
 use proc_macro2::TokenStream;
 use quote::quote;
 
