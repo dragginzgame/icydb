@@ -11,10 +11,7 @@ use crate::{
             IntegrityEntityIdentity, IntegrityJobError, IntegrityJobId, IntegrityJobOwner,
             IntegritySubmissionKey,
         },
-        sql::{
-            identifier::identifiers_tail_match,
-            parser::{SqlIntegrityStatement, parse_integrity_sql},
-        },
+        sql::{SqlIntegrityStatement, identifier::identifiers_tail_match, parse_integrity_sql},
     },
     traits::CanisterKind,
 };

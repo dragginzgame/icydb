@@ -135,9 +135,7 @@ pub(crate) fn parse_sql_with_attribution(
 /// The dedicated entry keeps this administrative capability outside ordinary
 /// query/mutation/DDL dispatch while sharing the canonical lexer and parser
 /// grammar. Generated endpoint routing may call this same owner directly.
-pub(in crate::db) fn parse_integrity_sql(
-    sql: &str,
-) -> Result<SqlIntegrityStatement, SqlParseError> {
+pub(super) fn parse_integrity_sql(sql: &str) -> Result<SqlIntegrityStatement, SqlParseError> {
     let tokens = tokenize_sql(sql)?;
     if tokens.is_empty() {
         return Err(SqlParseError::EmptyInput);
