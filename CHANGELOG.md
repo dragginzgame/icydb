@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.212.md](docs/changelog/0.212.md)
 
+- `0.212.2` adds reproducible Quick/Deep instruction, response, durable-job,
+  retained-memory, raw-Wasm, and source-complexity evidence without changing
+  production integrity semantics.
+
 - `0.212.1` exposes trusted typed, SQL, and opt-in generated integrity
   inspection while completing bounded Quick control verification and durable
   progress retention.

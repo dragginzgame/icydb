@@ -14,8 +14,9 @@ use icydb::{
     ErrorCode, ErrorOrigin,
     db::{
         DirectDataRowAttribution, EntitySchemaDescription, GroupedCountAttribution,
-        GroupedExecutionAttribution, QueryExecutionAttribution, SqlCompileAttribution,
-        SqlExecutionAttribution, SqlPureCoveringAttribution, SqlQueryCacheAttribution,
+        GroupedExecutionAttribution, IntegrityCheckError, IntegrityCheckResult, IntegrityJobOwner,
+        QueryExecutionAttribution, SqlCompileAttribution, SqlExecutionAttribution,
+        SqlIntegrityError, SqlPureCoveringAttribution, SqlQueryCacheAttribution,
         SqlQueryExecutionAttribution, response::QueryResponse, sql::SqlQueryResult,
     },
     prelude::*,
@@ -193,6 +194,14 @@ struct ResumableUpdatePerfResult {
     forward_keys_scanned: u32,
     verify_keys_scanned: u32,
     rows_updated: u32,
+}
+
+/// One public integrity result plus its canister-local execution cost.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
+struct IntegritySqlPerfResult {
+    result: IntegrityCheckResult,
+    local_instructions: u64,
 }
 
 #[cfg(feature = "sql")]
@@ -2066,6 +2075,26 @@ fn measure_journaled_user_resumable_update_perf() -> Result<ResumableUpdatePerfR
     }
 
     Err(query_validate_error())
+}
+
+/// Measure one canonical administrative integrity SQL operation.
+#[cfg(feature = "sql")]
+#[update]
+fn measure_integrity_sql_perf(sql: String) -> Result<IntegritySqlPerfResult, SqlIntegrityError> {
+    let session = db()
+        .map_err(icydb::Error::from)
+        .map_err(SqlIntegrityError::Sql)?;
+    let owner = IntegrityJobOwner::new("audit::sql-perf")
+        .map_err(IntegrityCheckError::Job)
+        .map_err(SqlIntegrityError::Integrity)?;
+    let start = ic_cdk::api::performance_counter(1);
+    let result = session.execute_admin_integrity_sql(sql.as_str(), owner)?;
+    let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+    Ok(IntegritySqlPerfResult {
+        result,
+        local_instructions,
+    })
 }
 
 /// Execute one PerfAuditHeapUser-only SQL query and attach one local

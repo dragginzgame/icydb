@@ -58,7 +58,7 @@ pub(in crate::db) use job::{
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use progress_store::{
     clear_progress_store_for_tests, corrupt_progress_job_for_tests,
-    set_progress_job_lease_deadline_for_tests,
+    progress_job_encoded_len_for_tests, set_progress_job_lease_deadline_for_tests,
 };
 pub(in crate::db) use proof::{IntegrityProofVector, capture_integrity_proof_vector};
 #[cfg(test)]

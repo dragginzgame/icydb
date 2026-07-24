@@ -9,8 +9,9 @@ use crate::db::{
         IntegrityJobOwner, IntegrityJobReceipt, IntegrityPendingTerminal, IntegritySubmissionKey,
         IntegrityTerminalOutcome, PhysicalUnitCheckpoint, RowInspectionLimits,
         clear_progress_store_for_tests, corrupt_progress_job_for_tests,
-        reset_integrity_retention_cursor_for_tests, run_integrity_retention_page_for_tests,
-        run_next_integrity_retention_page_for_tests, set_progress_job_lease_deadline_for_tests,
+        progress_job_encoded_len_for_tests, reset_integrity_retention_cursor_for_tests,
+        run_integrity_retention_page_for_tests, run_next_integrity_retention_page_for_tests,
+        set_progress_job_lease_deadline_for_tests,
     },
 };
 
@@ -271,6 +272,81 @@ fn deep_job_replays_start_and_continue_then_acknowledges_clean_terminal() {
             "empty fixture should complete in bounded phases"
         );
     }
+}
+
+#[test]
+fn integrity_response_and_progress_record_bytes_stay_bounded() {
+    const MAX_MEASURED_BYTES: usize = 512 * 1024;
+
+    reset_session_sql_store();
+    clear_progress_store_for_tests::<SessionSqlCanister>();
+    let session = sql_session();
+    let owner = IntegrityJobOwner::new("tests::integrity-bytes").expect("owner should admit");
+
+    let quick = session
+        .execute_admin_integrity(
+            IntegrityCheckRequest::quick::<SessionSqlEntity>(),
+            owner.clone(),
+        )
+        .expect("Quick measurement should execute");
+    let quick_response_bytes = candid::encode_one(&quick)
+        .expect("Quick response should encode")
+        .len();
+
+    let IntegrityCheckResult::Deep(start) = session
+        .execute_admin_integrity(
+            IntegrityCheckRequest::deep_start::<SessionSqlEntity>(
+                IntegritySubmissionKey::new("integrity-bytes").expect("submission should admit"),
+            ),
+            owner.clone(),
+        )
+        .expect("Deep measurement start should execute")
+    else {
+        panic!("Deep start should return one receipt");
+    };
+    let job_id = start.job_id();
+    let mut sequence = start.page_sequence();
+    let mut max_response_bytes = candid::encode_one(&start)
+        .expect("Deep response should encode")
+        .len();
+    let mut max_job_record_bytes = progress_job_encoded_len_for_tests::<SessionSqlCanister>(job_id)
+        .expect("persisted Deep record should encode");
+
+    loop {
+        let receipt = session
+            .continue_deep_integrity_for_tests(job_id, &owner, sequence)
+            .expect("Deep measurement should advance");
+        sequence = receipt.page_sequence();
+        max_response_bytes = max_response_bytes.max(
+            candid::encode_one(&receipt)
+                .expect("Deep response should encode")
+                .len(),
+        );
+        max_job_record_bytes = max_job_record_bytes.max(
+            progress_job_encoded_len_for_tests::<SessionSqlCanister>(job_id)
+                .expect("advanced Deep record should encode"),
+        );
+
+        if matches!(
+            receipt,
+            IntegrityJobReceipt::Page(ref page)
+                if matches!(page.status(), DeepIntegrityPageStatus::Terminal(_))
+        ) {
+            break;
+        }
+        assert!(
+            sequence < 8,
+            "small measurement fixture should complete in bounded phases"
+        );
+    }
+
+    eprintln!(
+        "integrity closeout bytes: quick_response={quick_response_bytes}, \
+         max_deep_response={max_response_bytes}, max_job_record={max_job_record_bytes}",
+    );
+    assert!(quick_response_bytes < MAX_MEASURED_BYTES);
+    assert!(max_response_bytes < MAX_MEASURED_BYTES);
+    assert!(max_job_record_bytes < MAX_MEASURED_BYTES);
 }
 
 #[test]

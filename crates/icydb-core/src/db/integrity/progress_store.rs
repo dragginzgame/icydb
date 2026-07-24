@@ -382,6 +382,16 @@ pub(in crate::db) fn set_progress_job_lease_deadline_for_tests<C: CanisterKind>(
     with_progress_store::<C, _>(|store| store.set_job_lease_deadline(job_id, lease_deadline_nanos))
 }
 
+#[cfg(all(test, feature = "sql"))]
+pub(in crate::db) fn progress_job_encoded_len_for_tests<C: CanisterKind>(
+    job_id: IntegrityJobId,
+) -> Result<usize, IntegrityJobError> {
+    with_progress_store::<C, _>(|store| {
+        let job = store.load(job_id)?;
+        encode_job_record(&job).map(|bytes| bytes.len())
+    })
+}
+
 #[cfg(test)]
 fn progress_memory<C: CanisterKind>() -> Result<VirtualMemory<DefaultMemoryImpl>, IntegrityJobError>
 {

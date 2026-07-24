@@ -2,7 +2,11 @@ use candid::CandidType;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error,
-    db::{QueryExecutionAttribution, SqlQueryExecutionAttribution, sql::SqlQueryResult},
+    db::{
+        DeepIntegrityPageStatus, IntegrityCheckResult, IntegrityJobReceipt,
+        IntegrityTerminalOutcome, QueryExecutionAttribution, SqlIntegrityError,
+        SqlQueryExecutionAttribution, sql::SqlQueryResult,
+    },
 };
 use icydb_testing_integration::{
     install_fixture_canister, reset_icydb_fixtures, upgrade_fixture_canister,
@@ -75,6 +79,12 @@ struct ResumableUpdatePerfResult {
     rows_updated: u32,
 }
 
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct IntegritySqlPerfResult {
+    result: IntegrityCheckResult,
+    local_instructions: u64,
+}
+
 const SQL_WRITE_MATERIALIZATION_METRICS: [&str; 4] = [
     "update count",
     "update returning",
@@ -83,6 +93,10 @@ const SQL_WRITE_MATERIALIZATION_METRICS: [&str; 4] = [
 ];
 const SQL_WRITE_MATERIALIZATION_BUDGET: u64 = 750_000_000;
 const RESUMABLE_UPDATE_STEP_BUDGET: u64 = 2_000_000_000;
+const INTEGRITY_QUICK_OPERATION_BUDGET: u64 = 2_000_000;
+const INTEGRITY_DEEP_PAGE_BUDGET: u64 = 30_000_000;
+const INTEGRITY_RESPONSE_BYTE_BUDGET: usize = 512 * 1024;
+const INTEGRITY_RETAINED_MEMORY_GROWTH_BUDGET: u64 = 16 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug)]
 enum SqlPerfSurface {
@@ -176,6 +190,33 @@ fn reset_sql_perf_fixtures(fixture: &StandaloneCanisterFixture) {
     // Clear retained state from an earlier scenario batch and reload the
     // deterministic perf fixture window before sampling.
     reset_icydb_fixtures(fixture);
+}
+
+fn measure_integrity_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> IntegritySqlPerfResult {
+    let result: Result<IntegritySqlPerfResult, SqlIntegrityError> = fixture
+        .update_call("measure_integrity_sql_perf", (sql.to_string(),))
+        .expect("integrity perf result should decode");
+
+    result.expect("integrity perf operation should succeed")
+}
+
+fn canister_memory_bytes(fixture: &StandaloneCanisterFixture) -> (u64, u64) {
+    fn nat_u64(value: &candid::Nat) -> u64 {
+        match value.0.to_u64_digits().as_slice() {
+            [] => 0,
+            [value] => *value,
+            _ => panic!("canister memory bytes should fit u64"),
+        }
+    }
+
+    let status = fixture
+        .pic()
+        .canister_status(fixture.canister_id(), None)
+        .expect("audit canister status should be available");
+    let wasm = nat_u64(&status.memory_metrics.wasm_memory_size);
+    let stable = nat_u64(&status.memory_metrics.stable_memory_size);
+
+    (wasm, stable)
 }
 
 fn load_journaled_reentry_probe_fixture(fixture: &StandaloneCanisterFixture) {
@@ -1726,6 +1767,92 @@ fn sql_perf_resumable_update_steps_stay_bounded() {
         result.rows_updated,
     );
     assert_resumable_update_perf_stays_bounded(&result);
+}
+
+#[test]
+fn sql_perf_integrity_quick_and_deep_pages_stay_bounded() {
+    const MAX_DEEP_STEPS: usize = 16;
+
+    let fixture = install_sql_perf_canister_fixture();
+    load_journaled_reentry_probe_fixture(&fixture);
+    let memory_before = canister_memory_bytes(&fixture);
+
+    let quick = measure_integrity_sql(&fixture, "CHECK INTEGRITY PerfAuditJournaledUser QUICK");
+    let quick_response_bytes = candid::encode_one(&quick.result)
+        .expect("Quick result should encode")
+        .len();
+    let memory_after_quick = canister_memory_bytes(&fixture);
+
+    let start = measure_integrity_sql(
+        &fixture,
+        "CHECK INTEGRITY PerfAuditJournaledUser DEEP START 'closeout-evidence'",
+    );
+    let IntegrityCheckResult::Deep(start_receipt) = start.result else {
+        panic!("Deep start should return a Deep receipt");
+    };
+    let job_id = start_receipt.job_id();
+    let mut sequence = start_receipt.page_sequence();
+    let mut page_instructions = vec![start.local_instructions];
+    let mut max_response_bytes = candid::encode_one(&start_receipt)
+        .expect("Deep start receipt should encode")
+        .len();
+    let mut terminal = None;
+
+    for _ in 0..MAX_DEEP_STEPS {
+        let sql = format!(
+            "CHECK INTEGRITY DEEP CONTINUE '{}' AFTER {sequence}",
+            job_id.to_hex(),
+        );
+        let sample = measure_integrity_sql(&fixture, sql.as_str());
+        let IntegrityCheckResult::Deep(receipt) = sample.result else {
+            panic!("Deep continuation should return a Deep receipt");
+        };
+        sequence = receipt.page_sequence();
+        page_instructions.push(sample.local_instructions);
+        max_response_bytes = max_response_bytes.max(
+            candid::encode_one(&receipt)
+                .expect("Deep receipt should encode")
+                .len(),
+        );
+        if matches!(
+            receipt,
+            IntegrityJobReceipt::Page(ref page)
+                if matches!(page.status(), DeepIntegrityPageStatus::Terminal(_))
+        ) {
+            terminal = Some(receipt);
+            break;
+        }
+    }
+    let memory_after_deep = canister_memory_bytes(&fixture);
+    let terminal = terminal.expect("small fixture should reach a bounded terminal page");
+    assert!(matches!(
+        terminal,
+        IntegrityJobReceipt::Page(ref page)
+            if page.status()
+                == &DeepIntegrityPageStatus::Terminal(
+                    IntegrityTerminalOutcome::DeepCompleteClean
+                )
+    ));
+
+    println!(
+        "integrity closeout: quick_instructions={} deep_page_instructions={page_instructions:?} \
+         quick_response_bytes={quick_response_bytes} max_deep_response_bytes={max_response_bytes} \
+         memory_bytes_wasm_stable={memory_before:?}->{memory_after_quick:?}->{memory_after_deep:?}",
+        quick.local_instructions,
+    );
+    assert!((1..=INTEGRITY_QUICK_OPERATION_BUDGET).contains(&quick.local_instructions));
+    assert!(
+        page_instructions
+            .iter()
+            .all(|instructions| (1..=INTEGRITY_DEEP_PAGE_BUDGET).contains(instructions))
+    );
+    assert!(quick_response_bytes <= INTEGRITY_RESPONSE_BYTE_BUDGET);
+    assert!(max_response_bytes <= INTEGRITY_RESPONSE_BYTE_BUDGET);
+    let retained_memory_growth = memory_after_deep
+        .0
+        .saturating_sub(memory_before.0)
+        .saturating_add(memory_after_deep.1.saturating_sub(memory_before.1));
+    assert!(retained_memory_growth <= INTEGRITY_RETAINED_MEMORY_GROWTH_BUDGET);
 }
 
 #[test]
