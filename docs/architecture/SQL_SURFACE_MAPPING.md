@@ -91,6 +91,7 @@ lane:
 | `icydb_query` | yes | build-target policy | no | no |
 | `icydb_ddl` | no | no | no | yes |
 | `icydb_update` | no | no | `UPDATE` only, when explicitly configured | no |
+| `icydb_integrity` | no | `CHECK INTEGRITY` only, when explicitly configured | no | no |
 
 No generated SQL write endpoint is part of the default generated surface.
 `icydb_update` is emitted only when `icydb.toml` selects an explicit update
@@ -98,6 +99,12 @@ policy: `update = true` or `update = "primary_key"` for public primary-key-only
 `UPDATE`, or `update = "bounded"` for public bounded deterministic `UPDATE`.
 The broad trusted mutation ingress rejects `UPDATE`; generated update dispatch
 uses only its configured primary-key or bounded policy.
+
+`icydb_integrity` is likewise default-off and emitted only with
+`[canisters.<name>.sql] integrity = true`. It is an update endpoint because
+Deep requests durably advance diagnostic progress. Its controller guard binds
+the authenticated caller as the job owner before invoking the canonical
+integrity SQL entrypoint; query, DDL, and update dispatch are not involved.
 
 Generated `icydb_query` admits operational SQL introspection only when the
 build target policy allows it. The `[canisters.<name>.sql.introspection]`

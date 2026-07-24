@@ -11,6 +11,7 @@ mod compiled;
 mod ddl;
 mod delete_policy;
 mod execute;
+mod integrity;
 mod projection;
 mod result;
 mod resumable_update;
@@ -70,6 +71,7 @@ pub(in crate::db) use delete_policy::{
     SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,
     SqlPublicPrimaryKeyDeletePlan, SqlValidatedDeletePlan, classify_sql_delete_policy,
 };
+pub use integrity::SqlIntegrityError;
 pub(in crate::db) use projection::SqlProjectionContract;
 pub use result::SqlStatementResult;
 pub use resumable_update::{

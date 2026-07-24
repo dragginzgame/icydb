@@ -256,6 +256,17 @@ impl InspectionProgressStore {
         self.map.insert(key, raw);
         Ok(())
     }
+
+    #[cfg(test)]
+    fn set_job_lease_deadline(
+        &mut self,
+        job_id: IntegrityJobId,
+        lease_deadline_nanos: u64,
+    ) -> Result<(), IntegrityJobError> {
+        let mut job = self.load(job_id)?;
+        job.lease_deadline_nanos = lease_deadline_nanos;
+        self.replace(&job)
+    }
 }
 
 fn encode_progress_header() -> Vec<u8> {
@@ -361,6 +372,14 @@ pub(in crate::db) fn corrupt_progress_job_for_tests<C: CanisterKind>(
     job_id: IntegrityJobId,
 ) -> Result<(), IntegrityJobError> {
     with_progress_store::<C, _>(|store| store.corrupt_job_checksum(job_id))
+}
+
+#[cfg(test)]
+pub(in crate::db) fn set_progress_job_lease_deadline_for_tests<C: CanisterKind>(
+    job_id: IntegrityJobId,
+    lease_deadline_nanos: u64,
+) -> Result<(), IntegrityJobError> {
+    with_progress_store::<C, _>(|store| store.set_job_lease_deadline(job_id, lease_deadline_nanos))
 }
 
 #[cfg(test)]

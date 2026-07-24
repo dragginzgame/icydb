@@ -43,4 +43,13 @@ where
     let _ = db.execute_admin_sql_ddl::<E>(sql);
 }
 
+fn admin_integrity_sql_compiles<C>(db: &DbSession<C>, sql: &str)
+where
+    C: CanisterKind,
+{
+    let owner =
+        icydb::db::IntegrityJobOwner::new("compile-test").expect("static owner should admit");
+    let _ = db.execute_admin_integrity_sql(sql, owner);
+}
+
 fn main() {}

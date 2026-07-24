@@ -19,9 +19,11 @@ pub use icydb_core::db::{
     TrustedResumableUpdateRestartReason,
 };
 pub use response::{ExecutionTrace, GroupedRow, PagedResponse, Response, RowProjectionOutput};
+#[cfg(feature = "sql")]
+pub use session::SqlIntegrityError;
 pub use session::{
-    DbSession, FluentLoadQuery, MutationMode, PartialWindowLoadQuery, SessionDeleteQuery,
-    StructuralPatch,
+    DbSession, FluentLoadQuery, IntegrityCheckError, MutationMode, PartialWindowLoadQuery,
+    SessionDeleteQuery, StructuralPatch,
 };
 #[cfg(feature = "sql")]
 #[doc(hidden)]
@@ -32,14 +34,21 @@ pub use session::{
 // Public core DTOs intentionally carried through the facade database surface.
 pub use icydb_core::db::{
     AdminBatchRequest, ConstraintValidationProgressDescription, DataStoreSnapshot,
-    EntityCatalogCounts, EntityCatalogDescription, EntityConstraintDescription,
-    EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
-    EntityRelationDescription, EntitySchemaCheckDescription, EntitySchemaDescription,
-    ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
-    ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
-    IndexStoreSnapshot, MemoryCatalogDescription, QueryTracePlan, ReadIntentKind, Row,
-    SchemaStoreSnapshot, StorageReport, StoreCatalogDescription, TraceExecutionFamily,
-    TraceReuseEvent,
+    DeepIntegrityPage, DeepIntegrityPageStatus, EntityCatalogCounts, EntityCatalogDescription,
+    EntityConstraintDescription, EntityFieldDescription, EntityIndexDescription,
+    EntityRelationCardinality, EntityRelationDescription, EntitySchemaCheckDescription,
+    EntitySchemaDescription, ExplainAggregateTerminalPlan, ExplainExecutionDescriptor,
+    ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
+    ExplainExecutionOrderingSource, IndexStoreSnapshot, IntegrityAbortReceipt,
+    IntegrityAbortStatus, IntegrityAuthorityClass, IntegrityAuthorityDiagnostic,
+    IntegrityCheckRequest, IntegrityCheckResult, IntegrityEntityIdentity, IntegrityFinding,
+    IntegrityFindingClass, IntegrityFindingKind, IntegrityJobError, IntegrityJobId,
+    IntegrityJobOwner, IntegrityJobReceipt, IntegrityPendingTerminal, IntegrityPhase,
+    IntegrityPhysicalContainer, IntegrityResourceDiagnostic, IntegritySeverity,
+    IntegritySubmissionKey, IntegrityTerminalOutcome, IntegrityVerifierFamily,
+    MemoryCatalogDescription, QueryTracePlan, QuickIntegrityResult, QuickIntegrityStatus,
+    ReadIntentKind, Row, SchemaStoreSnapshot, StorageReport, StorageTraversalCorruption,
+    StoreCatalogDescription, TraceExecutionFamily, TraceReuseEvent,
 };
 
 // Hidden core wiring used by generated code and advanced diagnostics.

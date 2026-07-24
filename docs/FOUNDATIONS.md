@@ -427,6 +427,22 @@ Guarded read and write entrypoints perform the required marker check before
 operation-specific execution. If recovery cannot complete, the guarded
 operation fails rather than proceeding on partial state.
 
+### Explicit integrity inspection
+
+Quick integrity checks one selected accepted entity's bounded metadata and
+control closure. It does not scan application rows, and a clean Quick result
+is not a claim that every row or derived entry is correct.
+
+Deep integrity is a resumable, read-only physical sweep over the selected
+entity's rows, active forward indexes, source-owned reverse relations, and
+participating journal tails. It claims clean integrity only after canonical
+exhaustion under one unchanged accepted plan and proof vector. A changed
+revision invalidates the job rather than being reported as corruption.
+
+Neither mode repairs data or changes storage mode. Heap storage is a valid
+volatile Quick target; Deep requires journaled proof authority and rejects
+unsupported volatile continuation explicitly.
+
 > **Normative guarantees:** see `docs/contracts/ATOMICITY.md` and
 > `docs/contracts/DURABILITY.md`.
 

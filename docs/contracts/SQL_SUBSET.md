@@ -25,7 +25,10 @@ that manifest indexes this contract and does not define or widen SQL behavior.
 ## Core Rule
 
 <!-- icydb-sql-feature id="surface.single_entity" kind="semantic" status="accepted" -->
-Every admitted executable SQL statement targets exactly one entity.
+Every admitted query, mutation, DDL, Quick integrity, or Deep-start statement
+targets exactly one entity. Deep continuation and abort are the explicit
+exception: their authorized job identity already owns the exact accepted
+entity, so those forms reject an additional caller-authored entity.
 
 IcyDB SQL is a constrained single-entity language for:
 
@@ -53,10 +56,13 @@ The remaining public SQL surfaces are:
 - `prepare_trusted_sql_resumable_update::<E>(operation_id, ...)`
 - `resume_trusted_sql_resumable_update::<E>(...)`
 - `execute_admin_sql_ddl::<E>(...)`
+- `execute_admin_integrity_sql(...)`
 
-All stay hard-bound to one concrete entity type. Query and direct mutation
-surfaces return SQL-shaped output; resumable preparation/resume returns an
-opaque trusted continuation and per-call progress receipt instead.
+Query, mutation, and DDL entry points stay hard-bound to one concrete entity
+type. The integrity entry point resolves entity-bearing starts through the
+registered runtime selector and then requires an exact accepted-authority
+match. Query and direct mutation surfaces return SQL-shaped output; resumable
+update and integrity execution return their canonical typed receipts instead.
 
 Read-admission lanes, generated endpoint lane ownership, and the current
 read-surface inventory are documented in `docs/contracts/READ_ADMISSION.md`.
@@ -95,7 +101,7 @@ SQL covers:
 - aggregation
 - mutation
 
-The following are intentionally not part of SQL:
+The following are intentionally not part of query SQL:
 
 <!-- icydb-sql-feature id="operational.transport_controls" kind="syntax" status="rejected" -->
 - cursor-based pagination
@@ -105,6 +111,10 @@ The following are intentionally not part of SQL:
 - byte-metric diagnostics such as `bytes()` and `bytes_by(...)`
 
 These are available only through typed and fluent APIs.
+
+`CHECK INTEGRITY` is the explicit operational exception. It carries only an
+opaque engine-issued job identity and acknowledgement sequence; callers never
+author physical phase, checkpoint, revision, or proof-vector state.
 
 SQL guarantees semantic equivalence for admitted query and mutation shapes, but
 not transport-level or diagnostic behavior.
@@ -267,6 +277,44 @@ never falls back to proposal or source SQL.
 Introspection modifiers not listed above are outside the current subset. In
 particular, filtering clauses and extra entity operands fail closed instead of
 being ignored or interpreted as alternate catalog commands.
+
+### `CHECK INTEGRITY`
+
+The direct administrative SQL surface accepts exactly:
+
+```sql
+CHECK INTEGRITY entity QUICK
+CHECK INTEGRITY entity DEEP START 'submission_key'
+CHECK INTEGRITY DEEP CONTINUE '64-character-job-id' AFTER page_sequence
+CHECK INTEGRITY DEEP ABORT '64-character-job-id'
+```
+
+`execute_admin_integrity_sql(...)` requires the caller to enforce controller
+or equivalent integrity-specific authorization and supply the same bounded
+stable owner identity used by the typed surface. The job ID is an engine-issued
+64-character hexadecimal identity and is never authorization.
+
+SQL lowers these forms directly to `IntegrityCheckRequest`; SQL does not own a
+second execution controller or response shape. Quick and start resolve the SQL
+entity through registered runtime routing, then the integrity controller
+requires the tag, entity path, and store path to match accepted authority.
+Continue and abort resolve entity ownership only from the authorized durable
+job.
+
+Unknown modes, missing submission keys, malformed job IDs, negative or missing
+acknowledgement sequences, additional entity arguments on continue/abort, and
+all predicates, projections, ordering, limits, or caller-authored internal
+progress fail closed.
+
+`[canisters.<name>.sql] integrity = true` emits the distinct
+controller-gated `icydb_integrity` update endpoint. The endpoint derives the
+durable job owner from the authenticated caller principal and delegates to
+`execute_admin_integrity_sql(...)`; it does not pass through generated query,
+DDL, or row-mutation dispatch. The setting defaults to `false`.
+
+Applications using the direct method must provide their own equivalent
+authorization boundary. Ordinary query, mutation, and DDL entry points reject
+this grammar.
 
 ### DDL
 

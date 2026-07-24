@@ -197,6 +197,20 @@ IcyDB explicitly does **not** enforce:
 * deferred checking of a newly authored relation value
 * cross-mutation or cross-message constraints
 
+### 5.4 Integrity inspection scope
+
+Write admission remains the sole authority that permits a new relation
+after-image. Quick checks the bounded accepted relation declaration and its
+registered source/target control closure. Deep verifies each selected source
+row's target and expected reverse witness, then scans the active source-owned
+reverse generation for orphaned or divergent entries.
+
+Inbound relations are not silently folded into the target entity's claim.
+They belong to their source entity scan; the direct target store participates
+in that job's proof vector so target mutation invalidates the sweep. Pending
+candidate generations remain owned by constraint activation and are excluded
+from accepted integrity claims until promotion.
+
 ---
 
 ## 6. Atomicity compatibility

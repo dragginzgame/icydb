@@ -106,11 +106,14 @@ pub(crate) use executor::{
 pub use identity::{EntityName, IndexName};
 pub use index::{IndexState, IndexStore};
 pub use integrity::{
-    DatabaseIncarnationId, IntegrityAuthorityClass, IntegrityAuthorityDiagnostic,
-    IntegrityEntityIdentity, IntegrityFinding, IntegrityFindingClass, IntegrityFindingKind,
+    DatabaseIncarnationId, DeepIntegrityPage, DeepIntegrityPageStatus, IntegrityAbortReceipt,
+    IntegrityAbortStatus, IntegrityAuthorityClass, IntegrityAuthorityDiagnostic,
+    IntegrityCheckRequest, IntegrityCheckResult, IntegrityDeepError, IntegrityEntityIdentity,
+    IntegrityFinding, IntegrityFindingClass, IntegrityFindingKind, IntegrityJobError,
+    IntegrityJobId, IntegrityJobOwner, IntegrityJobReceipt, IntegrityPendingTerminal,
     IntegrityPhase, IntegrityPhysicalContainer, IntegrityResourceDiagnostic, IntegritySeverity,
-    IntegrityVerifierFamily, QuickIntegrityResult, QuickIntegrityStatus,
-    StorageTraversalCorruption,
+    IntegritySubmissionKey, IntegrityTerminalOutcome, IntegrityVerifierFamily,
+    QuickIntegrityResult, QuickIntegrityStatus, StorageTraversalCorruption,
 };
 #[doc(hidden)]
 pub use journal::JournalTailStore;
@@ -187,10 +190,11 @@ pub use session::DbSession;
 pub use session::{
     DbSession, SqlConstraintValidationPage, SqlConstraintValidationRevisionStatus,
     SqlConstraintValidationState, SqlDdlExecutionStatus, SqlDdlMutationKind,
-    SqlDdlPreparationReport, SqlStatementDispatch, SqlStatementResult, SqlStatementShellSurface,
-    SqlStatementSurface, TrustedResumableUpdateContinuation, TrustedResumableUpdatePhase,
-    TrustedResumableUpdateReceipt, TrustedResumableUpdateRestartReason, sql_statement_dispatch,
-    sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
+    SqlDdlPreparationReport, SqlIntegrityError, SqlStatementDispatch, SqlStatementResult,
+    SqlStatementShellSurface, SqlStatementSurface, TrustedResumableUpdateContinuation,
+    TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,
+    TrustedResumableUpdateRestartReason, sql_statement_dispatch, sql_statement_entity_name,
+    sql_statement_shell_surface, sql_statement_surface,
 };
 #[cfg(feature = "diagnostics")]
 pub use session::{

@@ -10,11 +10,12 @@ use super::{
     SqlCreateIndexExpressionFunction, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
     SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlSchemaVersionContract,
     SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement, SqlDropIndexStatement, SqlExpr,
-    SqlExprBinaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
-    SqlParseError, SqlProjection, SqlReturningProjection, SqlScalarFunction, SqlSelectItem,
-    SqlSelectStatement, SqlShowColumnsStatement, SqlShowConstraintsStatement,
+    SqlExprBinaryOp, SqlInsertSource, SqlInsertStatement, SqlIntegrityStatement, SqlOrderDirection,
+    SqlOrderTerm, SqlParseError, SqlProjection, SqlReturningProjection, SqlScalarFunction,
+    SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowConstraintsStatement,
     SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlShowMemoryStatement,
-    SqlShowStoresStatement, SqlStatement, SqlUpdateStatement, SqlWriteValue, parse_sql,
+    SqlShowStoresStatement, SqlStatement, SqlUpdateStatement, SqlWriteValue, parse_integrity_sql,
+    parse_sql,
 };
 #[cfg(feature = "sql-explain")]
 use super::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget};
@@ -5143,4 +5144,59 @@ fn parse_sql_rejects_excessive_token_count() {
             },
         }
     );
+}
+
+#[test]
+fn parse_integrity_sql_accepts_only_the_four_canonical_forms() {
+    assert_eq!(
+        parse_integrity_sql("CHECK INTEGRITY Token QUICK")
+            .expect("Quick integrity SQL should parse"),
+        SqlIntegrityStatement::Quick {
+            entity: "Token".to_string(),
+        },
+    );
+    assert_eq!(
+        parse_integrity_sql("check integrity Token deep start 'owner-key'")
+            .expect("Deep start integrity SQL should parse"),
+        SqlIntegrityStatement::DeepStart {
+            entity: "Token".to_string(),
+            submission_key: "owner-key".to_string(),
+        },
+    );
+    assert_eq!(
+        parse_integrity_sql("CHECK INTEGRITY DEEP CONTINUE '000102' AFTER 7;",)
+            .expect("Deep continue integrity SQL should parse"),
+        SqlIntegrityStatement::DeepContinue {
+            job_id: "000102".to_string(),
+            acknowledged_sequence: 7,
+        },
+    );
+    assert_eq!(
+        parse_integrity_sql("CHECK INTEGRITY DEEP ABORT '000102'")
+            .expect("Deep abort integrity SQL should parse"),
+        SqlIntegrityStatement::DeepAbort {
+            job_id: "000102".to_string(),
+        },
+    );
+}
+
+#[test]
+fn parse_integrity_sql_rejects_noncanonical_mode_and_argument_shapes() {
+    for sql in [
+        "CHECK INTEGRITY Token",
+        "CHECK INTEGRITY Token DEEP",
+        "CHECK INTEGRITY Token DEEP START",
+        "CHECK INTEGRITY Token QUICK LIMIT 1",
+        "CHECK INTEGRITY DEEP CONTINUE '000102'",
+        "CHECK INTEGRITY DEEP CONTINUE Token '000102' AFTER 7",
+        "CHECK INTEGRITY DEEP CONTINUE '000102' AFTER -1",
+        "CHECK INTEGRITY DEEP ABORT Token '000102'",
+        "CHECK INTEGRITY DEEP VERIFY '000102'",
+        "SELECT * FROM Token",
+    ] {
+        assert!(
+            parse_integrity_sql(sql).is_err(),
+            "unsupported integrity SQL should reject: {sql}",
+        );
+    }
 }

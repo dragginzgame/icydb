@@ -1,27 +1,39 @@
 use super::*;
 use crate::db::{
-    QuickIntegrityStatus,
+    IntegrityAuthorityClass, QuickIntegrityStatus, SqlIntegrityError,
     data::{RawRow, StructuralSlotReader},
     index::IndexEntryValue,
     integrity::{
         DeepIntegrityPageStatus, DerivedInspectionLimits, IntegrityAbortStatus,
-        IntegrityFindingKind, IntegrityJobError, IntegrityJobOwner, IntegrityJobReceipt,
-        IntegrityPendingTerminal, IntegritySubmissionKey, IntegrityTerminalOutcome,
-        PhysicalUnitCheckpoint, RowInspectionLimits, clear_progress_store_for_tests,
-        corrupt_progress_job_for_tests, run_integrity_retention_page_for_tests,
+        IntegrityCheckRequest, IntegrityCheckResult, IntegrityFindingKind, IntegrityJobError,
+        IntegrityJobOwner, IntegrityJobReceipt, IntegrityPendingTerminal, IntegritySubmissionKey,
+        IntegrityTerminalOutcome, PhysicalUnitCheckpoint, RowInspectionLimits,
+        clear_progress_store_for_tests, corrupt_progress_job_for_tests,
+        reset_integrity_retention_cursor_for_tests, run_integrity_retention_page_for_tests,
+        run_next_integrity_retention_page_for_tests, set_progress_job_lease_deadline_for_tests,
     },
 };
 
 #[test]
 fn quick_integrity_uses_accepted_plan_and_durable_database_incarnation() {
     let session = sql_session();
+    let owner = IntegrityJobOwner::new("tests::quick").expect("owner should admit");
 
-    let first = session
-        .__icydb_execute_quick_integrity_for_entity(SessionSqlEntity::PATH)
-        .expect("bounded Quick inspection should succeed");
-    let second = session
-        .__icydb_execute_quick_integrity_for_entity(SessionSqlEntity::PATH)
-        .expect("ordinary reopen should preserve Quick control identity");
+    let IntegrityCheckResult::Quick(first) = session
+        .execute_admin_integrity(
+            IntegrityCheckRequest::quick::<SessionSqlEntity>(),
+            owner.clone(),
+        )
+        .expect("bounded Quick inspection should succeed")
+    else {
+        panic!("Quick request should return a Quick result");
+    };
+    let IntegrityCheckResult::Quick(second) = session
+        .execute_admin_integrity(IntegrityCheckRequest::quick::<SessionSqlEntity>(), owner)
+        .expect("ordinary reopen should preserve Quick control identity")
+    else {
+        panic!("Quick request should return a Quick result");
+    };
 
     assert_eq!(first.status(), &QuickIntegrityStatus::CompleteClean);
     assert_eq!(first.entity().entity_path(), SessionSqlEntity::PATH);
@@ -36,6 +48,102 @@ fn quick_integrity_uses_accepted_plan_and_durable_database_incarnation() {
     );
     assert_eq!(first.total_findings(), 0);
     assert_eq!(first.omitted_findings(), 0);
+}
+
+#[test]
+fn quick_integrity_accepts_canonical_heap_and_relation_control_shapes() {
+    reset_heap_session_sql_store();
+    let owner = IntegrityJobOwner::new("tests::quick-control-shapes").expect("owner should admit");
+
+    let IntegrityCheckResult::Quick(heap) = heap_sql_session()
+        .execute_admin_integrity(
+            IntegrityCheckRequest::quick::<HeapSessionSqlEntity>(),
+            owner.clone(),
+        )
+        .expect("Quick should inspect canonical volatile storage without calling it corruption")
+    else {
+        panic!("heap Quick request should return a Quick result");
+    };
+    assert_eq!(heap.status(), &QuickIntegrityStatus::CompleteClean);
+
+    reset_session_sql_store();
+    let IntegrityCheckResult::Quick(relation) = sql_session()
+        .execute_admin_integrity(
+            IntegrityCheckRequest::quick::<SessionSqlSelfRelationEntity>(),
+            owner,
+        )
+        .expect("Quick should resolve the accepted relation and target-store control closure")
+    else {
+        panic!("relation Quick request should return a Quick result");
+    };
+    assert_eq!(relation.status(), &QuickIntegrityStatus::CompleteClean);
+}
+
+#[test]
+fn quick_integrity_reports_corrupt_journal_control_as_uninspectable() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let owner = IntegrityJobOwner::new("tests::quick-corrupt-control").expect("owner should admit");
+    session
+        .execute_admin_integrity(
+            IntegrityCheckRequest::quick::<SessionSqlEntity>(),
+            owner.clone(),
+        )
+        .expect("clean Quick should establish recovered runtime state");
+    SESSION_SQL_JOURNAL_STORE.with_borrow_mut(|store| {
+        store
+            .corrupt_fold_watermark_for_tests()
+            .expect("test should corrupt the bounded journal control envelope");
+    });
+
+    let IntegrityCheckResult::Quick(result) = session
+        .execute_admin_integrity(IntegrityCheckRequest::quick::<SessionSqlEntity>(), owner)
+        .expect("selected control corruption should remain a typed Quick result")
+    else {
+        panic!("corrupt-control Quick request should return a Quick result");
+    };
+    assert!(matches!(
+        result.status(),
+        QuickIntegrityStatus::Uninspectable(diagnostic)
+            if diagnostic.class() == IntegrityAuthorityClass::Corruption
+    ));
+
+    reset_session_sql_store();
+}
+
+#[test]
+fn quick_integrity_reports_readable_journal_control_drift_as_a_finding() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let owner = IntegrityJobOwner::new("tests::quick-control-finding").expect("owner should admit");
+    session
+        .execute_admin_integrity(
+            IntegrityCheckRequest::quick::<SessionSqlEntity>(),
+            owner.clone(),
+        )
+        .expect("clean Quick should establish recovered runtime state");
+    SESSION_SQL_JOURNAL_STORE.with_borrow_mut(|store| {
+        store
+            .diverge_data_mutation_revision_for_tests(JournalSequence::new(7))
+            .expect("test should persist a readable but inconsistent control revision");
+    });
+
+    let IntegrityCheckResult::Quick(result) = session
+        .execute_admin_integrity(IntegrityCheckRequest::quick::<SessionSqlEntity>(), owner)
+        .expect("readable control drift should complete with one typed finding")
+    else {
+        panic!("control-drift Quick request should return a Quick result");
+    };
+    assert_eq!(result.status(), &QuickIntegrityStatus::CompleteWithFindings,);
+    assert_eq!(result.total_findings(), 1);
+    assert_eq!(result.omitted_findings(), 0);
+    assert_eq!(result.findings().len(), 1);
+    assert_eq!(
+        result.findings()[0].kind(),
+        IntegrityFindingKind::JournalControlMismatch,
+    );
+
+    reset_session_sql_store();
 }
 
 #[test]
@@ -86,12 +194,24 @@ fn deep_job_replays_start_and_continue_then_acknowledges_clean_terminal() {
     let owner = IntegrityJobOwner::new("tests::deep-replay").expect("owner should admit");
     let submission = IntegritySubmissionKey::new("deep-replay-1").expect("submission should admit");
 
-    let start = session
-        .start_deep_integrity_for_entity(SessionSqlEntity::PATH, owner.clone(), submission.clone())
-        .expect("Deep start should persist");
-    let replayed_start = session
-        .start_deep_integrity_for_entity(SessionSqlEntity::PATH, owner.clone(), submission)
-        .expect("lost Deep start response should replay");
+    let IntegrityCheckResult::Deep(start) = session
+        .execute_admin_integrity(
+            IntegrityCheckRequest::deep_start::<SessionSqlEntity>(submission.clone()),
+            owner.clone(),
+        )
+        .expect("Deep start should persist")
+    else {
+        panic!("Deep start should return a Deep receipt");
+    };
+    let IntegrityCheckResult::Deep(replayed_start) = session
+        .execute_admin_integrity(
+            IntegrityCheckRequest::deep_start::<SessionSqlEntity>(submission),
+            owner.clone(),
+        )
+        .expect("lost Deep start response should replay")
+    else {
+        panic!("Deep start replay should return a Deep receipt");
+    };
     assert_eq!(replayed_start, start);
     let (job_id, mut sequence) = match start {
         IntegrityJobReceipt::Page(page) => {
@@ -102,18 +222,30 @@ fn deep_job_replays_start_and_continue_then_acknowledges_clean_terminal() {
         IntegrityJobReceipt::Abort(_) => panic!("start must return a page"),
     };
 
-    let first = session
-        .continue_deep_integrity(job_id, &owner, sequence)
-        .expect("first Deep page should advance");
-    let replayed_first = session
-        .continue_deep_integrity(job_id, &owner, sequence)
-        .expect("lost first page should replay");
+    let IntegrityCheckResult::Deep(first) = session
+        .execute_admin_integrity(
+            IntegrityCheckRequest::deep_continue(job_id, sequence),
+            owner.clone(),
+        )
+        .expect("first Deep page should advance")
+    else {
+        panic!("Deep continue should return a Deep receipt");
+    };
+    let IntegrityCheckResult::Deep(replayed_first) = session
+        .execute_admin_integrity(
+            IntegrityCheckRequest::deep_continue(job_id, sequence),
+            owner.clone(),
+        )
+        .expect("lost first page should replay")
+    else {
+        panic!("Deep continue replay should return a Deep receipt");
+    };
     assert_eq!(replayed_first, first);
     sequence = first.page_sequence();
 
     loop {
         let receipt = session
-            .continue_deep_integrity(job_id, &owner, sequence)
+            .continue_deep_integrity_for_tests(job_id, &owner, sequence)
             .expect("Deep should advance to completion");
         sequence = receipt.page_sequence();
         if matches!(
@@ -125,11 +257,11 @@ fn deep_job_replays_start_and_continue_then_acknowledges_clean_terminal() {
                     )
         ) {
             let acknowledged = session
-                .continue_deep_integrity(job_id, &owner, sequence)
+                .continue_deep_integrity_for_tests(job_id, &owner, sequence)
                 .expect("terminal receipt acknowledgement should persist");
             assert_eq!(acknowledged, receipt);
             let replayed_ack = session
-                .continue_deep_integrity(job_id, &owner, sequence)
+                .continue_deep_integrity_for_tests(job_id, &owner, sequence)
                 .expect("acknowledged terminal receipt should replay");
             assert_eq!(replayed_ack, receipt);
             break;
@@ -139,6 +271,96 @@ fn deep_job_replays_start_and_continue_then_acknowledges_clean_terminal() {
             "empty fixture should complete in bounded phases"
         );
     }
+}
+
+#[test]
+fn integrity_sql_lowers_to_identical_typed_requests_and_receipts() {
+    reset_session_sql_store();
+    clear_progress_store_for_tests::<SessionSqlCanister>();
+    let session = sql_session();
+    let owner = IntegrityJobOwner::new("tests::sql-parity").expect("owner should admit");
+
+    let typed_quick = session
+        .execute_admin_integrity(
+            IntegrityCheckRequest::quick::<SessionSqlEntity>(),
+            owner.clone(),
+        )
+        .expect("typed Quick should succeed");
+    let sql_quick = session
+        .execute_admin_integrity_sql("CHECK INTEGRITY SessionSqlEntity QUICK", owner.clone())
+        .expect("SQL Quick should succeed");
+    assert_eq!(sql_quick, typed_quick);
+
+    let submission = IntegritySubmissionKey::new("sql-parity-1").expect("submission should admit");
+    let typed_start = session
+        .execute_admin_integrity(
+            IntegrityCheckRequest::deep_start::<SessionSqlEntity>(submission),
+            owner.clone(),
+        )
+        .expect("typed Deep start should succeed");
+    let sql_start = session
+        .execute_admin_integrity_sql(
+            "CHECK INTEGRITY SessionSqlEntity DEEP START 'sql-parity-1'",
+            owner.clone(),
+        )
+        .expect("SQL Deep start should replay the typed receipt");
+    assert_eq!(sql_start, typed_start);
+
+    let IntegrityCheckResult::Deep(start) = typed_start else {
+        panic!("Deep start should return a Deep receipt");
+    };
+    let job_id = start.job_id();
+    let continue_sql = format!(
+        "CHECK INTEGRITY DEEP CONTINUE '{}' AFTER {}",
+        job_id.to_hex(),
+        start.page_sequence(),
+    );
+    let sql_continue = session
+        .execute_admin_integrity_sql(continue_sql.as_str(), owner.clone())
+        .expect("SQL Deep continuation should advance");
+    let typed_continue = session
+        .execute_admin_integrity(
+            IntegrityCheckRequest::deep_continue(job_id, start.page_sequence()),
+            owner.clone(),
+        )
+        .expect("typed continuation should replay the SQL receipt");
+    assert_eq!(typed_continue, sql_continue);
+
+    let abort_sql = format!("CHECK INTEGRITY DEEP ABORT '{}'", job_id.to_hex());
+    let sql_abort = session
+        .execute_admin_integrity_sql(abort_sql.as_str(), owner.clone())
+        .expect("SQL Deep abort should freeze the job");
+    let typed_abort = session
+        .execute_admin_integrity(IntegrityCheckRequest::deep_abort(job_id), owner)
+        .expect("typed Deep abort should replay the SQL receipt");
+    assert_eq!(typed_abort, sql_abort);
+}
+
+#[test]
+fn integrity_sql_fails_closed_before_controller_execution() {
+    let session = sql_session();
+    let owner = IntegrityJobOwner::new("tests::sql-rejection").expect("owner should admit");
+
+    for sql in [
+        "SELECT * FROM SessionSqlEntity",
+        "CHECK INTEGRITY MissingEntity QUICK",
+    ] {
+        assert!(
+            matches!(
+                session.execute_admin_integrity_sql(sql, owner.clone()),
+                Err(SqlIntegrityError::Sql(_)),
+            ),
+            "grammar and entity-resolution failures should stay SQL-owned: {sql}",
+        );
+    }
+
+    let malformed_job = "CHECK INTEGRITY DEEP CONTINUE 'not-a-current-job-id' AFTER 0";
+    assert!(matches!(
+        session.execute_admin_integrity_sql(malformed_job, owner),
+        Err(SqlIntegrityError::Integrity(
+            crate::db::integrity::IntegrityDeepError::Job(IntegrityJobError::InvalidJobId)
+        )),
+    ));
 }
 
 #[test]
@@ -164,7 +386,7 @@ fn deep_job_discards_candidate_progress_when_the_proof_changes() {
         })
         .expect("fixture mutation should commit");
     let receipt = session
-        .continue_deep_integrity(job_id, &owner, 0)
+        .continue_deep_integrity_for_tests(job_id, &owner, 0)
         .expect("proof drift should be a stable terminal receipt");
 
     assert!(matches!(
@@ -209,7 +431,7 @@ fn deep_job_reports_progressable_journal_corruption_and_completes_with_findings(
     let mut saw_journal_finding = false;
     for _ in 0..8 {
         let receipt = session
-            .continue_deep_integrity(start.job_id(), &owner, sequence)
+            .continue_deep_integrity_for_tests(start.job_id(), &owner, sequence)
             .expect("progressable journal corruption should not terminate traversal");
         sequence = receipt.page_sequence();
         let IntegrityJobReceipt::Page(page) = receipt else {
@@ -248,8 +470,12 @@ fn deep_abort_preserves_the_outstanding_page_until_exact_acknowledgement() {
         .expect("Deep start should persist");
     let job_id = start.job_id();
 
-    let pending = DbSession::<SessionSqlCanister>::abort_deep_integrity(job_id, &owner)
-        .expect("idle job should become abort-pending");
+    let IntegrityCheckResult::Deep(pending) = session
+        .execute_admin_integrity(IntegrityCheckRequest::deep_abort(job_id), owner.clone())
+        .expect("idle job should become abort-pending")
+    else {
+        panic!("Deep abort should return a Deep receipt");
+    };
     assert!(matches!(
         pending,
         IntegrityJobReceipt::Abort(ref receipt)
@@ -259,12 +485,16 @@ fn deep_abort_preserves_the_outstanding_page_until_exact_acknowledgement() {
                         IntegrityPendingTerminal::Aborted
                     )
     ));
-    let replayed_pending = DbSession::<SessionSqlCanister>::abort_deep_integrity(job_id, &owner)
-        .expect("pending abort should replay");
+    let IntegrityCheckResult::Deep(replayed_pending) = session
+        .execute_admin_integrity(IntegrityCheckRequest::deep_abort(job_id), owner.clone())
+        .expect("pending abort should replay")
+    else {
+        panic!("Deep abort replay should return a Deep receipt");
+    };
     assert_eq!(replayed_pending, pending);
 
     let terminal = session
-        .continue_deep_integrity(job_id, &owner, 0)
+        .continue_deep_integrity_for_tests(job_id, &owner, 0)
         .expect("acknowledging the outstanding page should persist abort");
     assert!(matches!(
         terminal,
@@ -293,7 +523,7 @@ fn deep_job_rejects_wrong_owner_without_replaying_progress() {
     let wrong_owner =
         IntegrityJobOwner::new("tests::wrong-owner").expect("wrong owner should still admit");
     let error = session
-        .continue_deep_integrity(start.job_id(), &wrong_owner, 0)
+        .continue_deep_integrity_for_tests(start.job_id(), &wrong_owner, 0)
         .expect_err("wrong owner must fail before receipt replay");
 
     assert!(matches!(
@@ -336,7 +566,7 @@ fn deep_expiry_preserves_then_terminally_acknowledges_the_outstanding_receipt() 
     assert_eq!(replayed_start, start);
 
     let terminal = session
-        .continue_deep_integrity(job_id, &owner, 0)
+        .continue_deep_integrity_for_tests(job_id, &owner, 0)
         .expect("exact page acknowledgement should persist expiry");
     assert!(matches!(
         terminal,
@@ -354,7 +584,7 @@ fn deep_expiry_preserves_then_terminally_acknowledges_the_outstanding_receipt() 
     assert_eq!(unacknowledged.jobs_deleted(), 0);
 
     let acknowledged = session
-        .continue_deep_integrity(job_id, &owner, 1)
+        .continue_deep_integrity_for_tests(job_id, &owner, 1)
         .expect("terminal acknowledgement should persist");
     assert_eq!(acknowledged, terminal);
     let deleted = run_integrity_retention_page_for_tests::<SessionSqlCanister>(None, u64::MAX)
@@ -362,11 +592,95 @@ fn deep_expiry_preserves_then_terminally_acknowledges_the_outstanding_receipt() 
     assert_eq!(deleted.jobs_deleted(), 1);
 
     let error = session
-        .continue_deep_integrity(job_id, &owner, 1)
+        .continue_deep_integrity_for_tests(job_id, &owner, 1)
         .expect_err("deleted progress must not resurrect");
     assert!(matches!(
         error,
         crate::db::integrity::IntegrityDeepError::Job(IntegrityJobError::JobNotFound)
+    ));
+}
+
+#[test]
+fn deep_retention_maintenance_rotates_across_the_bounded_progress_keyspace() {
+    reset_session_sql_store();
+    clear_progress_store_for_tests::<SessionSqlCanister>();
+    reset_integrity_retention_cursor_for_tests::<SessionSqlCanister>();
+    let session = sql_session();
+    for ordinal in 0..17 {
+        let owner = IntegrityJobOwner::new(format!("tests::retention-owner-{}", ordinal / 8))
+            .expect("owner should admit");
+        session
+            .start_deep_integrity_for_entity(
+                SessionSqlEntity::PATH,
+                owner,
+                IntegritySubmissionKey::new(format!("retention-job-{ordinal}"))
+                    .expect("submission should admit"),
+            )
+            .expect("the bounded global capacity should admit the fixture");
+    }
+
+    let first = run_next_integrity_retention_page_for_tests::<SessionSqlCanister>(u64::MAX)
+        .expect("first maintained page should succeed");
+    assert_eq!(first.jobs_scanned(), 16);
+    assert_eq!(first.jobs_expired(), 16);
+    assert!(!first.exhausted());
+
+    let second = run_next_integrity_retention_page_for_tests::<SessionSqlCanister>(u64::MAX)
+        .expect("second maintained page should reach the suffix");
+    assert_eq!(second.jobs_scanned(), 1);
+    assert_eq!(second.jobs_expired(), 1);
+    assert!(second.exhausted());
+
+    let wrapped = run_next_integrity_retention_page_for_tests::<SessionSqlCanister>(u64::MAX)
+        .expect("exhaustion should wrap the advisory cursor");
+    assert_eq!(wrapped.jobs_scanned(), 16);
+    assert_eq!(wrapped.jobs_expired(), 0);
+    assert!(!wrapped.exhausted());
+}
+
+#[test]
+fn typed_integrity_requests_drive_retention_after_the_requested_operation() {
+    reset_session_sql_store();
+    clear_progress_store_for_tests::<SessionSqlCanister>();
+    reset_integrity_retention_cursor_for_tests::<SessionSqlCanister>();
+    let session = sql_session();
+    let expired_owner =
+        IntegrityJobOwner::new("tests::retention-expired").expect("owner should admit");
+    let start = session
+        .start_deep_integrity_for_entity(
+            SessionSqlEntity::PATH,
+            expired_owner.clone(),
+            IntegritySubmissionKey::new("retention-expired-job").expect("submission should admit"),
+        )
+        .expect("Deep fixture should persist");
+    set_progress_job_lease_deadline_for_tests::<SessionSqlCanister>(start.job_id(), 1)
+        .expect("test should make the retained job maintenance-eligible");
+
+    let quick_owner =
+        IntegrityJobOwner::new("tests::retention-trigger").expect("owner should admit");
+    let quick = session
+        .execute_admin_integrity(
+            IntegrityCheckRequest::quick::<SessionSqlEntity>(),
+            quick_owner,
+        )
+        .expect("Quick should execute before bounded maintenance");
+    assert!(matches!(quick, IntegrityCheckResult::Quick(_)));
+
+    let abort = session
+        .execute_admin_integrity(
+            IntegrityCheckRequest::DeepAbort {
+                job_id: start.job_id(),
+            },
+            expired_owner,
+        )
+        .expect("abort should observe the expiry frozen by prior maintenance");
+    assert!(matches!(
+        abort,
+        IntegrityCheckResult::Deep(IntegrityJobReceipt::Abort(ref receipt))
+            if receipt.status()
+                == &IntegrityAbortStatus::TerminationPending(
+                    IntegrityPendingTerminal::Expired
+                )
     ));
 }
 
@@ -417,7 +731,7 @@ fn deep_job_rejects_a_corrupt_current_progress_record_before_replay() {
         .expect("test should corrupt the retained current-form job");
 
     let error = session
-        .continue_deep_integrity(start.job_id(), &owner, 0)
+        .continue_deep_integrity_for_tests(start.job_id(), &owner, 0)
         .expect_err("corrupt progress must fail before cached receipt replay");
     assert!(matches!(
         error,

@@ -3,59 +3,62 @@
 //! Does not own: accepted schema meaning, physical traversal, or inspection progress persistence.
 //! Boundary: database control + accepted inspection plan -> typed Quick inspection result.
 
-#[allow(
-    dead_code,
-    reason = "0.212 Patch 7 exposes the completed internal Deep controller through authorized frontends"
-)]
 mod deep;
 mod derived;
-#[allow(
-    dead_code,
-    reason = "0.212 Patch 7 exposes the completed internal Deep job DTOs"
-)]
 mod job;
-#[allow(
-    dead_code,
-    reason = "0.212 Patch 7 exposes the completed internal Deep progress lifecycle"
-)]
 mod progress_store;
 mod proof;
 mod row;
 
 use crate::{
     db::{
-        commit::{database_incarnation_id, ensure_recovered},
+        commit::{database_control_proof_identity, database_incarnation_id, ensure_recovered},
+        registry::{
+            StoreAllocationIdentities, StoreHandle, StoreRuntimeStorageCapabilities,
+            StoreRuntimeStorageMode,
+        },
         relation::{RelationConstraintProjection, ReverseRelationSourceInfo},
         schema::AcceptedInspectionPlan,
     },
+    entity::EntityKind,
     error::{ErrorClass, InternalError},
-    traits::CanisterKind,
+    traits::{CanisterKind, Path},
 };
 use candid::CandidType;
 use serde::Deserialize;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    collections::BTreeMap,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 #[cfg(test)]
 pub(in crate::db) use deep::run_integrity_retention_page_for_tests;
 pub(in crate::db) use deep::{
-    IntegrityRetentionPage, abort_deep_integrity_job, continue_deep_integrity_job,
-    run_integrity_retention_page, start_deep_integrity_job,
+    abort_deep_integrity_job, continue_deep_integrity_job, run_next_integrity_retention_page,
+    start_deep_integrity_job,
+};
+#[cfg(test)]
+pub(in crate::db) use deep::{
+    reset_integrity_retention_cursor_for_tests, run_next_integrity_retention_page_for_tests,
 };
 #[cfg(test)]
 pub(in crate::db) use derived::DerivedIntegrityPage;
 pub(in crate::db) use derived::{
     DerivedInspectionLimits, execute_index_integrity_page, execute_reverse_integrity_page,
 };
-pub(in crate::db) use job::{
+pub use job::{
     DeepIntegrityPage, DeepIntegrityPageStatus, IntegrityAbortReceipt, IntegrityAbortStatus,
-    IntegrityCheckpoint, IntegrityDeepError, IntegrityJob, IntegrityJobError, IntegrityJobId,
-    IntegrityJobOwner, IntegrityJobReceipt, IntegrityJobState, IntegrityPendingTerminal,
-    IntegrityReceiptEnvelope, IntegrityReceiptReplayKey, IntegritySubmissionKey,
-    IntegrityTerminalOutcome, MAX_INTEGRITY_IN_PROGRESS_PAGES,
+    IntegrityDeepError, IntegrityJobError, IntegrityJobId, IntegrityJobOwner, IntegrityJobReceipt,
+    IntegrityPendingTerminal, IntegritySubmissionKey, IntegrityTerminalOutcome,
+};
+pub(in crate::db) use job::{
+    IntegrityCheckpoint, IntegrityJob, IntegrityJobState, IntegrityReceiptEnvelope,
+    IntegrityReceiptReplayKey, MAX_INTEGRITY_IN_PROGRESS_PAGES,
 };
 #[cfg(test)]
 pub(in crate::db) use progress_store::{
     clear_progress_store_for_tests, corrupt_progress_job_for_tests,
+    set_progress_job_lease_deadline_for_tests,
 };
 pub(in crate::db) use proof::{IntegrityProofVector, capture_integrity_proof_vector};
 #[cfg(test)]
@@ -63,6 +66,87 @@ pub(in crate::db) use row::RowIntegrityPage;
 pub(in crate::db) use row::{
     PhysicalUnitCheckpoint, RowInspectionLimits, execute_row_integrity_page,
 };
+
+pub(in crate::db) const MAX_INTEGRITY_PATH_BYTES: usize = 4 * 1024;
+
+/// One authorization-bound typed integrity operation.
+///
+/// Entity-bearing variants pin the generated selector identity that the
+/// session must match against current accepted authority. Continuation and
+/// abort carry only the opaque job identity; private checkpoints never cross
+/// this boundary.
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub enum IntegrityCheckRequest {
+    /// Execute one bounded metadata/control inspection.
+    Quick {
+        /// Accepted entity selector to resolve and verify.
+        entity: IntegrityEntityIdentity,
+    },
+    /// Create or replay one idempotent Deep job.
+    DeepStart {
+        /// Accepted entity selector to resolve and verify.
+        entity: IntegrityEntityIdentity,
+        /// Owner-scoped idempotency key.
+        submission_key: IntegritySubmissionKey,
+    },
+    /// Advance or replay one retained Deep job.
+    DeepContinue {
+        /// Opaque engine-issued job identity.
+        job_id: IntegrityJobId,
+        /// Sequence of the outstanding receipt being acknowledged.
+        acknowledged_sequence: u64,
+    },
+    /// Freeze one retained Deep job for replayable abort.
+    DeepAbort {
+        /// Opaque engine-issued job identity.
+        job_id: IntegrityJobId,
+    },
+}
+
+impl IntegrityCheckRequest {
+    /// Build a Quick request for one generated entity selector.
+    #[must_use]
+    pub fn quick<E: EntityKind>() -> Self {
+        Self::Quick {
+            entity: IntegrityEntityIdentity::for_entity::<E>(),
+        }
+    }
+
+    /// Build an idempotent Deep-start request for one generated entity selector.
+    #[must_use]
+    pub fn deep_start<E: EntityKind>(submission_key: IntegritySubmissionKey) -> Self {
+        Self::DeepStart {
+            entity: IntegrityEntityIdentity::for_entity::<E>(),
+            submission_key,
+        }
+    }
+
+    /// Build one Deep continuation or exact replay request.
+    #[must_use]
+    pub const fn deep_continue(job_id: IntegrityJobId, acknowledged_sequence: u64) -> Self {
+        Self::DeepContinue {
+            job_id,
+            acknowledged_sequence,
+        }
+    }
+
+    /// Build one replayable Deep-abort request.
+    #[must_use]
+    pub const fn deep_abort(job_id: IntegrityJobId) -> Self {
+        Self::DeepAbort { job_id }
+    }
+}
+
+/// Typed result shared by trusted Rust and SQL integrity frontends.
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub enum IntegrityCheckResult {
+    /// Bounded one-call Quick result.
+    Quick(QuickIntegrityResult),
+    /// Start, continuation, terminal, or abort Deep receipt.
+    Deep(IntegrityJobReceipt),
+}
 
 fn accepted_relation_projections<C: CanisterKind>(
     db: &crate::db::Db<C>,
@@ -85,6 +169,99 @@ fn accepted_relation_projections<C: CanisterKind>(
             )
         })
         .collect()
+}
+
+fn validate_quick_integrity_control<C: CanisterKind>(
+    db: &crate::db::Db<C>,
+    plan: &AcceptedInspectionPlan,
+) -> Result<Vec<IntegrityFinding>, InternalError> {
+    let identity = plan.identity();
+    let source_store = db.store_handle(identity.store_path())?;
+    let relations = accepted_relation_projections(db, plan)?;
+    let mut participating_stores =
+        BTreeMap::from([(identity.store_path().to_string(), source_store)]);
+    for relation in &relations {
+        participating_stores
+            .entry(relation.target_store_path().to_string())
+            .or_insert_with(|| relation.target_store());
+    }
+
+    let _database_control = database_control_proof_identity()?;
+    proof::validate_integrity_allocation_registry()?;
+    let mut findings = Vec::new();
+    for (store_path, store) in &participating_stores {
+        if let Some(finding) = validate_quick_store_control(plan, store_path, *store)? {
+            findings.push(finding);
+        }
+    }
+    for ordinal in 0..plan.index_inspection().len() {
+        let _domain = plan
+            .index_inspection()
+            .domain(ordinal, identity.entity_tag())?;
+    }
+
+    Ok(findings)
+}
+
+fn validate_quick_store_control(
+    plan: &AcceptedInspectionPlan,
+    store_path: &str,
+    store: StoreHandle,
+) -> Result<Option<IntegrityFinding>, InternalError> {
+    let capabilities = store.storage_capabilities();
+    let allocations = store.allocation_identities();
+    match capabilities.storage_mode() {
+        StoreRuntimeStorageMode::Heap => {
+            if capabilities != StoreRuntimeStorageCapabilities::heap()
+                || allocations != StoreAllocationIdentities::absent()
+                || store.journal_tail_store().is_some()
+            {
+                return Err(InternalError::store_invariant());
+            }
+            Ok(None)
+        }
+        StoreRuntimeStorageMode::Journaled => {
+            if capabilities != StoreRuntimeStorageCapabilities::journaled()
+                || !allocations.matches_storage_capabilities(capabilities)
+            {
+                return Err(InternalError::store_invariant());
+            }
+            let journal = store
+                .journal_tail_store()
+                .ok_or_else(InternalError::store_invariant)?
+                .with_borrow(crate::db::journal::JournalTailStore::proof_identity)?;
+            if !journal.is_well_formed() {
+                return Ok(Some(quick_journal_control_finding(plan, store_path)));
+            }
+            Ok(None)
+        }
+    }
+}
+
+fn quick_journal_control_finding(
+    plan: &AcceptedInspectionPlan,
+    store_path: &str,
+) -> IntegrityFinding {
+    let error = InternalError::store_corruption();
+    IntegrityFinding {
+        diagnostic_code: error.diagnostic_code().error_code().raw(),
+        class: IntegrityFindingClass::Corruption,
+        severity: IntegritySeverity::Error,
+        kind: IntegrityFindingKind::JournalControlMismatch,
+        entity: IntegrityEntityIdentity::from_plan(plan),
+        store_path: store_path.to_string(),
+        phase: IntegrityPhase::QuickMetadata,
+        verifier_family: IntegrityVerifierFamily::JournalEnvelope,
+        physical_key: Vec::new(),
+        primary_key: None,
+        field_paths: Vec::new(),
+        constraint_id: None,
+        constraint_name: None,
+        schema_index_id: None,
+        relation_id: None,
+        expected: Some("well-formed-journal-control".to_string()),
+        observed: Some("inconsistent-journal-control".to_string()),
+    }
 }
 
 fn relation_field_paths(plan: &AcceptedInspectionPlan, relation_id: u32) -> Vec<String> {
@@ -110,7 +287,6 @@ fn relation_field_paths(plan: &AcceptedInspectionPlan, relation_id: u32) -> Vec<
         .collect()
 }
 
-#[cfg(test)]
 const MAX_QUICK_RETURNED_FINDINGS: usize = 64;
 #[cfg(target_arch = "wasm32")]
 const DATABASE_INCARNATION_DOMAIN: &[u8] = b"icydb.database-incarnation.v1";
@@ -200,12 +376,57 @@ impl IntegrityEntityIdentity {
         Self::from_accepted_identity(plan.identity())
     }
 
-    fn from_accepted_identity(identity: crate::db::schema::AcceptedCatalogIdentity) -> Self {
+    pub(in crate::db) fn from_accepted_identity(
+        identity: crate::db::schema::AcceptedCatalogIdentity,
+    ) -> Self {
         Self {
             entity_tag: identity.entity_tag().value(),
             entity_path: identity.entity_path().to_string(),
             store_path: identity.store_path().to_string(),
         }
+    }
+
+    /// Build one non-authoritative selector from registered runtime routing.
+    ///
+    /// Integrity execution must still resolve accepted authority and require
+    /// an exact match before inspecting the selected entity.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn from_runtime_selector(
+        entity_tag: u64,
+        entity_path: &str,
+        store_path: &str,
+    ) -> Self {
+        Self {
+            entity_tag,
+            entity_path: entity_path.to_string(),
+            store_path: store_path.to_string(),
+        }
+    }
+
+    /// Build a selector for one generated IcyDB entity.
+    ///
+    /// The selector is not runtime authority. Integrity execution resolves the
+    /// current accepted entity and requires all three identity components to
+    /// match before inspection.
+    #[must_use]
+    pub fn for_entity<E: EntityKind>() -> Self {
+        Self {
+            entity_tag: E::ENTITY_TAG.value(),
+            entity_path: <E as Path>::PATH.to_string(),
+            store_path: <E::Store as Path>::PATH.to_string(),
+        }
+    }
+
+    pub(in crate::db) const fn validate(&self) -> Result<(), IntegrityJobError> {
+        if self.entity_tag == 0
+            || self.entity_path.is_empty()
+            || self.entity_path.len() > MAX_INTEGRITY_PATH_BYTES
+            || self.store_path.is_empty()
+            || self.store_path.len() > MAX_INTEGRITY_PATH_BYTES
+        {
+            return Err(IntegrityJobError::InvalidEntityIdentity);
+        }
+        Ok(())
     }
 
     /// Return the stable accepted entity tag.
@@ -313,6 +534,9 @@ pub enum IntegrityFindingKind {
 
     /// Two durable journal batches carry the same logical batch identity.
     DuplicateJournalBatchIdentity,
+
+    /// Bounded journal control records disagree without requiring tail traversal.
+    JournalControlMismatch,
 }
 
 /// Canonical Deep inspection phase.
@@ -715,7 +939,6 @@ impl QuickIntegrityAccumulator {
         }
     }
 
-    #[cfg(test)]
     fn record(&mut self, finding: IntegrityFinding) -> Result<(), IntegrityResourceDiagnostic> {
         self.total_findings =
             self.total_findings
@@ -755,6 +978,29 @@ impl QuickIntegrityAccumulator {
             findings: self.findings,
         }
     }
+
+    fn resource_limited(
+        self,
+        plan: &AcceptedInspectionPlan,
+        incarnation: DatabaseIncarnationId,
+        diagnostic: IntegrityResourceDiagnostic,
+    ) -> QuickIntegrityResult {
+        let omitted_findings = self
+            .total_findings
+            .saturating_sub(self.findings.len() as u64);
+        let identity = plan.identity();
+
+        QuickIntegrityResult {
+            entity: IntegrityEntityIdentity::from_plan(plan),
+            database_incarnation_id: incarnation,
+            accepted_schema_version: identity.accepted_schema_version().get(),
+            accepted_schema_fingerprint: identity.accepted_schema_fingerprint(),
+            status: QuickIntegrityStatus::ResourceLimited(diagnostic),
+            total_findings: self.total_findings,
+            omitted_findings,
+            findings: self.findings,
+        }
+    }
 }
 
 pub(in crate::db) fn uninspectable_quick_integrity(
@@ -782,10 +1028,24 @@ pub(in crate::db) fn execute_quick_integrity<C: CanisterKind>(
 ) -> Result<QuickIntegrityResult, InternalError> {
     ensure_recovered(db)?;
     let incarnation = database_incarnation_id()?;
-    let identity = plan.identity();
-    let _store = db.recovered_store(identity.store_path())?;
+    let findings = match validate_quick_integrity_control(db, plan) {
+        Ok(findings) => findings,
+        Err(error) => {
+            return Ok(uninspectable_quick_integrity(
+                plan.identity(),
+                incarnation,
+                &error,
+            ));
+        }
+    };
+    let mut accumulator = QuickIntegrityAccumulator::new();
+    for finding in findings {
+        if let Err(diagnostic) = accumulator.record(finding) {
+            return Ok(accumulator.resource_limited(plan, incarnation, diagnostic));
+        }
+    }
 
-    Ok(QuickIntegrityAccumulator::new().complete(plan, incarnation))
+    Ok(accumulator.complete(plan, incarnation))
 }
 
 pub(crate) fn generate_database_incarnation_id() -> Result<DatabaseIncarnationId, InternalError> {

@@ -118,8 +118,35 @@ generators. Candidate generations remain unavailable to planning and
 delete-safety decisions until atomic promotion.
 
 Recovery is not a general repair tool for arbitrary hostile stable-memory
-images. It does not promise to detect every well-formed-but-wrong value without
-a future checksum or integrity-scan design.
+images. It does not promise to detect every well-formed-but-wrong value.
+Checksums remain future work; explicit Quick/Deep integrity inspection is
+read-only diagnostic verification after recovery, not part of replay.
+
+## Integrity Inspection Workflow
+
+Enable `[canisters.<name>.sql] integrity = true` only for canisters that should
+expose the distinct controller-gated `icydb_integrity` update endpoint. The
+direct session API likewise requires the application to enforce controller or
+equivalent integrity-specific authorization.
+
+Use Quick for one bounded metadata/control result. Use Deep when row and
+derived-state proof is required:
+
+1. Start Deep for one entity with a caller-scoped submission key.
+2. Persist the returned job ID, page sequence, findings, and status.
+3. Continue with exactly that job ID and acknowledged page sequence.
+4. Retry the same acknowledgement after response loss; IcyDB replays the
+   cached receipt without scanning twice.
+5. Stop only on a terminal receipt. `Invalidated` means the inspected proof
+   changed and requires a new job, not that corruption was found.
+6. Acknowledge the terminal receipt so bounded retention can later reclaim the
+   job record.
+
+Abort and inactivity expiry preserve any unacknowledged receipt before
+terminalizing. Quick supports heap stores and operator output should label
+them volatile without turning volatility into a finding. Deep currently
+requires journaled proof authority. Neither mode repairs rows, indexes,
+relations, journals, or schema.
 
 ## Backup, Restore, And Import
 
@@ -193,6 +220,10 @@ Before deploying durable IcyDB data:
 - document any `*_many_non_atomic` use as prefix-commit behavior;
 - treat every constraint-validation page as independently atomic and require
   explicit completion before claiming promotion;
+- expect each well-formed authorized integrity request to perform one bounded
+  progress-retention page; acknowledged terminal jobs are reclaimed only
+  after their frozen retention deadline, while abandoned unacknowledged jobs
+  continue to consume the documented bounded capacity;
 - do not rely on returned `Err` to roll back prior successful writes;
 - do not claim raw backup/import support;
 - do not claim checksum-backed corruption detection;

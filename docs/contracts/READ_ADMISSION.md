@@ -62,6 +62,21 @@ mismatch is corruption. Reads do not consult current insert defaults or
 generated models to repair malformed rows, and any successful rewrite of a
 historical row emits a complete current-layout row.
 
+## Integrity Inspection Admission
+
+Quick and Deep integrity inspection are explicit trusted diagnostic operations,
+not query read-admission lanes. Both consume the same fingerprinted
+`AcceptedInspectionPlan` compiled from verified accepted authority. The plan
+owns current and admitted historical row-layout decoding, frozen historical
+fills, exact accepted value catalogs, validated checks, active index
+projections, and source-owned relation declarations. Integrity never
+reconstructs those facts from generated models or current insert defaults.
+
+Quick performs only bounded metadata/control work. Deep privately resumes raw
+physical rows and active derived domains, but public callers provide only an
+authorized job ID and receipt acknowledgement. Neither operation grants a
+trusted query bypass, returns application rows, or repairs malformed state.
+
 ## Read Surface Inventory
 
 | Surface | Admission or bypass | Guard | Query execution authority |
@@ -72,6 +87,7 @@ historical row emits a complete current-layout row.
 | generated `icydb_query` | trusted bypass | controller-gated | Generated SQL query endpoint. It uses the trusted perf-attributed SQL helper and remains admin-only. |
 | generated `icydb_ddl` | not a read-admission lane | controller-gated | Schema mutation frontend, governed by DDL admission, accepted-schema authority, and the write-admission contract. |
 | generated `icydb_update` | not a read-admission lane | controller-gated | SQL write endpoint, governed by write admission and explicit exposure policy. |
+| generated `icydb_integrity` | diagnostic/admin | controller-gated | Opt-in Quick/Deep integrity frontend. It binds durable jobs to the caller and delegates to accepted-native integrity authority; it is not a row-query lane. |
 | generated `icydb_schema` / `icydb_schema_check` | diagnostic/admin | controller-gated | Accepted-schema diagnostics, not row-query execution. |
 | generated `icydb_snapshot` | diagnostic/admin | build-option gated | Storage report diagnostics, not row-query execution. |
 | generated `icydb_metrics` / `icydb_metrics_extended` | diagnostic | build-option gated | Metrics diagnostics, not row-query execution. |

@@ -76,6 +76,14 @@ impl BuildOptions {
         self
     }
 
+    /// Build options with generated administrative integrity endpoint emission configured.
+    #[must_use]
+    pub const fn with_sql_integrity_enabled(mut self, enabled: bool) -> Self {
+        self.sql.surfaces = self.sql.surfaces.with_integrity_enabled(enabled);
+
+        self
+    }
+
     /// Build options with generated read-only SQL introspection configured.
     #[must_use]
     pub const fn with_sql_introspection_enabled(mut self, enabled: bool) -> Self {
@@ -142,6 +150,12 @@ impl BuildOptions {
         self.sql.surfaces.fixtures_enabled()
     }
 
+    /// Return whether generated actor glue should export the integrity endpoint.
+    #[must_use]
+    pub const fn sql_integrity_enabled(self) -> bool {
+        self.sql.surfaces.integrity_enabled()
+    }
+
     /// Return whether generated read-only SQL endpoints should admit introspection.
     #[must_use]
     pub const fn sql_introspection_enabled(self) -> bool {
@@ -195,6 +209,7 @@ impl BuildOptions {
         self.sql_readonly_enabled()
             || self.sql_ddl_enabled()
             || self.sql_fixtures_enabled()
+            || self.sql_integrity_enabled()
             || self.sql_update_enabled()
     }
 }
@@ -212,6 +227,7 @@ impl BuildSqlSurfaceFlags {
     const DDL: u8 = 1 << 1;
     const FIXTURES: u8 = 1 << 2;
     const INTROSPECTION: u8 = 1 << 3;
+    const INTEGRITY: u8 = 1 << 4;
     const READONLY: u8 = 1;
 
     #[must_use]
@@ -227,6 +243,11 @@ impl BuildSqlSurfaceFlags {
     #[must_use]
     pub(crate) const fn with_fixtures_enabled(self, enabled: bool) -> Self {
         self.with_flag(Self::FIXTURES, enabled)
+    }
+
+    #[must_use]
+    pub(crate) const fn with_integrity_enabled(self, enabled: bool) -> Self {
+        self.with_flag(Self::INTEGRITY, enabled)
     }
 
     #[must_use]
@@ -247,6 +268,11 @@ impl BuildSqlSurfaceFlags {
     #[must_use]
     pub(crate) const fn fixtures_enabled(self) -> bool {
         self.contains(Self::FIXTURES)
+    }
+
+    #[must_use]
+    pub(crate) const fn integrity_enabled(self) -> bool {
+        self.contains(Self::INTEGRITY)
     }
 
     #[must_use]
@@ -480,6 +506,7 @@ mod tests {
         assert!(!options.sql_readonly_enabled());
         assert!(!options.sql_ddl_enabled());
         assert!(!options.sql_fixtures_enabled());
+        assert!(!options.sql_integrity_enabled());
         assert!(!options.sql_introspection_enabled());
         assert!(!options.sql_update_enabled());
         assert_eq!(options.sql_update_policy(), None);

@@ -7,6 +7,7 @@
 mod catalog;
 pub mod delete;
 pub(crate) mod generated;
+mod integrity;
 pub mod load;
 mod macros;
 #[cfg(feature = "sql")]
@@ -19,6 +20,9 @@ use icydb_core as core;
 
 // re-exports
 pub use delete::SessionDeleteQuery;
+pub use integrity::IntegrityCheckError;
+#[cfg(feature = "sql")]
+pub use integrity::SqlIntegrityError;
 pub use load::{FluentLoadQuery, PartialWindowLoadQuery};
 #[cfg(feature = "sql")]
 pub use sql::{

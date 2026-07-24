@@ -11,6 +11,7 @@ const GENERATED_EXPORTS: &[&str] = &[
     "icydb_query",
     "icydb_ddl",
     "icydb_update",
+    "icydb_integrity",
     "icydb_fixtures_reset",
     "icydb_fixtures_load",
     "icydb_metrics",
@@ -98,6 +99,7 @@ struct GeneratedEndpointSurface {
     sql_readonly: bool,
     sql_ddl: bool,
     sql_update: bool,
+    sql_integrity: bool,
     sql_fixtures: bool,
     metrics: bool,
     metrics_extended: bool,
@@ -381,6 +383,7 @@ fn endpoint_surface(info: &WasmInfo) -> Build {
         sql_readonly: names.contains(&"icydb_query"),
         sql_ddl: names.contains(&"icydb_ddl"),
         sql_update: names.contains(&"icydb_update"),
+        sql_integrity: names.contains(&"icydb_integrity"),
         sql_fixtures: names.contains(&"icydb_fixtures_reset")
             || names.contains(&"icydb_fixtures_load"),
         metrics: names.contains(&"icydb_metrics"),
@@ -471,6 +474,7 @@ fn render_summary(report: &SizeReport, report_path: &Path) -> String {
         ("sql_readonly", surface.sql_readonly),
         ("sql_ddl", surface.sql_ddl),
         ("sql_update", surface.sql_update),
+        ("sql_integrity", surface.sql_integrity),
         ("sql_fixtures", surface.sql_fixtures),
         ("metrics", surface.metrics),
         ("metrics_extended", surface.metrics_extended),
@@ -554,6 +558,7 @@ mod tests {
         assert!(build.generated_endpoint_surface.sql_ddl);
         assert!(build.generated_endpoint_surface.sql_fixtures);
         assert!(!build.generated_endpoint_surface.sql_update);
+        assert!(!build.generated_endpoint_surface.sql_integrity);
         assert!(build.custom_exports.is_empty());
     }
 
@@ -562,9 +567,11 @@ mod tests {
         let build = endpoint_surface(&wasm_info(&[
             "canister_query icydb_query",
             "canister_update icydb_update",
+            "canister_update icydb_integrity",
         ]));
 
         assert!(build.generated_endpoint_surface.sql_update);
+        assert!(build.generated_endpoint_surface.sql_integrity);
         assert!(build.custom_exports.is_empty());
     }
 }

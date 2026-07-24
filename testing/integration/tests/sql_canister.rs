@@ -12,15 +12,16 @@ use crate::sql_harness::{
     RouteFamily, RouteOutcome, RouteReason, RowOrder, ScenarioMetadata, StatementFamily,
     ValueTypeFamily, WindowSpec, correctness_verdict,
 };
-use candid::CandidType;
+use candid::{CandidType, Principal};
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error, ErrorCode, ErrorOrigin,
     db::{
-        EntitySchemaDescription, RowProjectionOutput,
+        EntitySchemaDescription, IntegrityCheckResult, QuickIntegrityStatus, RowProjectionOutput,
+        SqlIntegrityError,
         sql::{SqlGroupedRowsOutput, SqlQueryResult},
     },
-    diagnostic::DiagnosticCode,
+    diagnostic::{DiagnosticCode, RuntimeBoundaryCode},
     types::Decimal,
     value::OutputValue,
 };
@@ -104,6 +105,15 @@ fn update_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQuery
     fixture
         .update_call("icydb_update", (sql.to_string(),))
         .expect("sql update canister call should decode")
+}
+
+fn integrity_sql(
+    fixture: &StandaloneCanisterFixture,
+    sql: &str,
+) -> Result<IntegrityCheckResult, SqlIntegrityError> {
+    fixture
+        .update_call("icydb_integrity", (sql.to_string(),))
+        .expect("integrity canister call should decode")
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2276,6 +2286,36 @@ fn sql_canister_ddl_endpoint_publishes_rename_column_for_ddl_owned_field() {
             .expect("SHOW INDEXES should read accepted index metadata after RENAME COLUMN"),
     );
     assert_rename_column_index_visibility(&indexes);
+}
+
+#[test]
+fn sql_canister_integrity_endpoint_executes_controller_gated_quick_check() {
+    let fixture = install_sql_canister_fixture();
+
+    let result = integrity_sql(&fixture, "CHECK INTEGRITY SqlTestUser QUICK")
+        .expect("configured generated integrity endpoint should execute Quick");
+    let IntegrityCheckResult::Quick(result) = result else {
+        panic!("Quick integrity SQL should return the canonical Quick payload");
+    };
+
+    assert_eq!(result.status(), &QuickIntegrityStatus::CompleteClean);
+    assert!(result.entity().entity_path().ends_with("SqlTestUser"));
+
+    let outsider = Principal::self_authenticating([7_u8; 32]);
+    let rejected: Result<IntegrityCheckResult, SqlIntegrityError> = fixture
+        .update_call_as(
+            outsider,
+            "icydb_integrity",
+            ("CHECK INTEGRITY SqlTestUser QUICK".to_string(),),
+        )
+        .expect("non-controller integrity call should decode");
+    assert_eq!(
+        rejected,
+        Err(SqlIntegrityError::Sql(Error::from_runtime_boundary(
+            RuntimeBoundaryCode::SqlSurfaceControllerRequired,
+            ErrorOrigin::Interface,
+        ))),
+    );
 }
 
 #[test]

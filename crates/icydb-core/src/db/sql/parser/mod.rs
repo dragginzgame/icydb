@@ -36,8 +36,8 @@ pub(crate) use model::{
     SqlCreateIndexExpressionFunction, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
     SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlSchemaVersionContract,
     SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement, SqlDropIndexStatement, SqlExpr,
-    SqlExprBinaryOp, SqlExprUnaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection,
-    SqlOrderTerm, SqlProjection, SqlReturningProjection, SqlScalarFunction,
+    SqlExprBinaryOp, SqlExprUnaryOp, SqlInsertSource, SqlInsertStatement, SqlIntegrityStatement,
+    SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlReturningProjection, SqlScalarFunction,
     SqlScalarFunctionCallShape, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
     SqlShowConstraintsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
     SqlShowMemoryStatement, SqlShowStoresStatement, SqlStatement, SqlUpdateStatement,
@@ -130,6 +130,34 @@ pub(crate) fn parse_sql_with_attribution(
     ))
 }
 
+/// Parse one bounded `CHECK INTEGRITY` statement.
+///
+/// The dedicated entry keeps this administrative capability outside ordinary
+/// query/mutation/DDL dispatch while sharing the canonical lexer and parser
+/// grammar. Generated endpoint routing may call this same owner directly.
+pub(in crate::db) fn parse_integrity_sql(
+    sql: &str,
+) -> Result<SqlIntegrityStatement, SqlParseError> {
+    let tokens = tokenize_sql(sql)?;
+    if tokens.is_empty() {
+        return Err(SqlParseError::EmptyInput);
+    }
+
+    let mut parser = Parser::new(SqlTokenCursor::new(tokens));
+    let statement = parser.parse_integrity_statement()?;
+
+    if parser.eat_semicolon() && !parser.is_eof() {
+        return Err(SqlParseError::unsupported_feature(
+            SqlFeatureCode::MultiStatementSql,
+        ));
+    }
+    if !parser.is_eof() {
+        return Err(SqlParseError::expected_end_of_input(parser.peek_kind()));
+    }
+
+    Ok(statement)
+}
+
 // Parser state over one pre-tokenized SQL statement.
 struct Parser {
     cursor: SqlTokenCursor,
@@ -155,6 +183,23 @@ impl Parser {
 
     fn parse_literal(&mut self) -> Result<Value, SqlParseError> {
         self.cursor.parse_literal()
+    }
+
+    fn expect_string_literal(&mut self) -> Result<String, SqlParseError> {
+        if !matches!(self.peek_kind(), Some(TokenKind::StringLiteral(_))) {
+            return Err(SqlParseError::expected(
+                SqlExpectedToken::StringLiteral,
+                self.peek_kind(),
+            ));
+        }
+
+        match self.parse_literal()? {
+            Value::Text(value) => Ok(value),
+            _ => Err(SqlParseError::expected(
+                SqlExpectedToken::StringLiteral,
+                self.peek_kind(),
+            )),
+        }
     }
 
     fn parse_u32_literal(&mut self, clause: SqlIntegerLiteralClause) -> Result<u32, SqlParseError> {

@@ -49,6 +49,7 @@ pub fn emit_configured_canister_for_build_script(
         .with_sql_readonly_enabled(config.canister_sql_readonly_enabled(canister_name))
         .with_sql_ddl_enabled(config.canister_sql_ddl_enabled(canister_name))
         .with_sql_fixtures_enabled(config.canister_sql_fixtures_enabled(canister_name))
+        .with_sql_integrity_enabled(config.canister_sql_integrity_enabled(canister_name))
         .with_sql_introspection_enabled(config.canister_sql_introspection_enabled(canister_name))
         .with_sql_update_policy(match config.canister_sql_update_policy(canister_name) {
             Some(crate::GeneratedSqlUpdatePolicy::PublicPrimaryKeyOnly) => {

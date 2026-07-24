@@ -8,10 +8,10 @@ use crate::{
     model::{
         DEFAULT_METRICS_IC_MODE, DEFAULT_METRICS_LOCAL_MODE, DEFAULT_SCHEMA_ENABLED,
         DEFAULT_SNAPSHOT_ENABLED, DEFAULT_SQL_DDL_ENABLED, DEFAULT_SQL_FIXTURES_ENABLED,
-        DEFAULT_SQL_INTROSPECTION_IC_ENABLED, DEFAULT_SQL_INTROSPECTION_LOCAL_ENABLED,
-        DEFAULT_SQL_READONLY_ENABLED, DEFAULT_SQL_UPDATE_POLICY, GeneratedCanisterMetricsConfig,
-        GeneratedCanisterSqlConfig, GeneratedMetricsMode, GeneratedMetricsPolicy,
-        GeneratedSqlIntrospectionPolicy,
+        DEFAULT_SQL_INTEGRITY_ENABLED, DEFAULT_SQL_INTROSPECTION_IC_ENABLED,
+        DEFAULT_SQL_INTROSPECTION_LOCAL_ENABLED, DEFAULT_SQL_READONLY_ENABLED,
+        DEFAULT_SQL_UPDATE_POLICY, GeneratedCanisterMetricsConfig, GeneratedCanisterSqlConfig,
+        GeneratedMetricsMode, GeneratedMetricsPolicy, GeneratedSqlIntrospectionPolicy,
     },
     resolve::resolve_config_path,
 };
@@ -132,17 +132,27 @@ fn generated_canister_config(raw_config: &RawCanisterConfig) -> GeneratedCaniste
 
     GeneratedCanisterConfig::new(
         GeneratedCanisterSqlConfig::new(
-            sql.and_then(|sql| sql.readonly)
-                .unwrap_or(DEFAULT_SQL_READONLY_ENABLED),
-            sql.and_then(|sql| sql.ddl)
-                .unwrap_or(DEFAULT_SQL_DDL_ENABLED),
-            sql.and_then(|sql| sql.fixtures)
-                .unwrap_or(DEFAULT_SQL_FIXTURES_ENABLED),
             sql_introspection_policy(sql.and_then(|sql| sql.introspection.as_ref())),
             sql.and_then(|sql| sql.update.as_ref()).map_or(
                 DEFAULT_SQL_UPDATE_POLICY,
                 RawCanisterSqlUpdateConfig::generated_policy,
             ),
+        )
+        .with_readonly_enabled(
+            sql.and_then(|sql| sql.readonly)
+                .unwrap_or(DEFAULT_SQL_READONLY_ENABLED),
+        )
+        .with_ddl_enabled(
+            sql.and_then(|sql| sql.ddl)
+                .unwrap_or(DEFAULT_SQL_DDL_ENABLED),
+        )
+        .with_fixtures_enabled(
+            sql.and_then(|sql| sql.fixtures)
+                .unwrap_or(DEFAULT_SQL_FIXTURES_ENABLED),
+        )
+        .with_integrity_enabled(
+            sql.and_then(|sql| sql.integrity)
+                .unwrap_or(DEFAULT_SQL_INTEGRITY_ENABLED),
         ),
         GeneratedCanisterMetricsConfig::new(metrics_policy(metrics)),
         raw_config
@@ -215,6 +225,7 @@ struct RawCanisterSqlConfig {
     readonly: Option<bool>,
     ddl: Option<bool>,
     fixtures: Option<bool>,
+    integrity: Option<bool>,
     introspection: Option<RawCanisterSqlIntrospectionConfig>,
     update: Option<RawCanisterSqlUpdateConfig>,
 }

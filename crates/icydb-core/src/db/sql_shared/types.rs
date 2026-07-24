@@ -114,6 +114,8 @@ pub(crate) enum SqlExpectedToken {
     StartsWithSecondArgument,
     BooleanOrNullLiteral,
     NumericLiteralAfterMinus,
+    #[cfg(feature = "sql")]
+    StringLiteral,
     Identifier,
     IdentifierAfterDot,
     #[cfg(feature = "sql")]
@@ -172,11 +174,19 @@ impl SqlExpectedToken {
 #[cfg(feature = "sql")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SqlIdentifierKeyword {
+    Abort,
+    After,
+    Check,
+    Continue,
+    Deep,
+    Integrity,
     Into,
-    Values,
-    Set,
     MaxBytes,
+    Quick,
     Schema,
+    Set,
+    Start,
+    Values,
     Version,
     Other,
 }
@@ -185,11 +195,19 @@ pub(crate) enum SqlIdentifierKeyword {
 impl SqlIdentifierKeyword {
     fn from_str(keyword: &str) -> Self {
         match keyword {
+            "ABORT" => Self::Abort,
+            "AFTER" => Self::After,
+            "CHECK" => Self::Check,
+            "CONTINUE" => Self::Continue,
+            "DEEP" => Self::Deep,
+            "INTEGRITY" => Self::Integrity,
             "INTO" => Self::Into,
-            "VALUES" => Self::Values,
-            "SET" => Self::Set,
             "max_bytes" => Self::MaxBytes,
+            "QUICK" => Self::Quick,
             "SCHEMA" => Self::Schema,
+            "SET" => Self::Set,
+            "START" => Self::Start,
+            "VALUES" => Self::Values,
             "VERSION" => Self::Version,
             _ => Self::Other,
         }
@@ -254,12 +272,13 @@ impl SqlFoundToken {
 #[cfg(feature = "sql")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SqlIntegerLiteralClause {
-    Limit,
-    Offset,
-    MaxBytes,
-    ExpectSchemaVersion,
-    SetSchemaVersion,
     ConstraintPageSequence,
+    ExpectSchemaVersion,
+    IntegrityPageSequence,
+    Limit,
+    MaxBytes,
+    Offset,
+    SetSchemaVersion,
 }
 
 #[cfg(feature = "sql")]

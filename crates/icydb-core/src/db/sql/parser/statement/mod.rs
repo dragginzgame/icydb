@@ -6,6 +6,7 @@
 mod ddl;
 mod delete;
 mod insert;
+mod integrity;
 mod select;
 mod update;
 

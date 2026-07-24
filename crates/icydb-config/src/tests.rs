@@ -18,6 +18,7 @@ fn absent_config_defaults_minimal_metrics_on() {
     assert!(!config.canister_sql_readonly_enabled("demo_rpg"));
     assert!(!config.canister_sql_ddl_enabled("demo_rpg"));
     assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
+    assert!(!config.canister_sql_integrity_enabled("demo_rpg"));
     assert!(!config.canister_sql_introspection_enabled("demo_rpg"));
     assert!(config.canister_sql_introspection_policy("demo_rpg").local());
     assert!(!config.canister_sql_introspection_policy("demo_rpg").ic());
@@ -60,6 +61,7 @@ fn explicit_off_disables_metrics_default_surface() {
     assert!(!config.canister_sql_readonly_enabled("demo_rpg"));
     assert!(!config.canister_sql_ddl_enabled("demo_rpg"));
     assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
+    assert!(!config.canister_sql_integrity_enabled("demo_rpg"));
     assert_eq!(config.canister_sql_update_policy("demo_rpg"), None);
     assert!(!config.canister_metrics_enabled("demo_rpg"));
     assert_eq!(
@@ -92,6 +94,7 @@ fn partial_metrics_config_uses_default_enabled_surface() {
     assert!(!config.canister_sql_readonly_enabled("demo_rpg"));
     assert!(config.canister_sql_ddl_enabled("demo_rpg"));
     assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
+    assert!(!config.canister_sql_integrity_enabled("demo_rpg"));
     assert_eq!(config.canister_sql_update_policy("demo_rpg"), None);
     assert!(config.canister_metrics_enabled("demo_rpg"));
     assert_eq!(
@@ -124,6 +127,7 @@ fn readonly_ddl_fixtures_update_metrics_snapshot_and_schema_config_validate() {
             readonly = true
             ddl = true
             fixtures = true
+            integrity = true
             update = true
 
             [canisters.demo_rpg.metrics]
@@ -143,6 +147,7 @@ fn readonly_ddl_fixtures_update_metrics_snapshot_and_schema_config_validate() {
     assert!(config.canister_sql_readonly_enabled("demo_rpg"));
     assert!(config.canister_sql_ddl_enabled("demo_rpg"));
     assert!(config.canister_sql_fixtures_enabled("demo_rpg"));
+    assert!(config.canister_sql_integrity_enabled("demo_rpg"));
     assert!(config.canister_sql_introspection_policy("demo_rpg").local());
     assert!(!config.canister_sql_introspection_policy("demo_rpg").ic());
     assert_eq!(

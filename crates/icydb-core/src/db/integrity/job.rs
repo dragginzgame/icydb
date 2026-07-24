@@ -4,10 +4,12 @@
 //! Boundary: Deep controller <-> current-form progress record codec.
 
 use crate::db::{
+    codec::hex::encode_hex_lower,
     integrity::{
         DatabaseIncarnationId, IntegrityAuthorityDiagnostic, IntegrityEntityIdentity,
         IntegrityFinding, IntegrityPhase, IntegrityProofVector, IntegrityResourceDiagnostic,
-        IntegrityVerifierFamily, PhysicalUnitCheckpoint, StorageTraversalCorruption,
+        IntegrityVerifierFamily, MAX_INTEGRITY_PATH_BYTES, PhysicalUnitCheckpoint,
+        StorageTraversalCorruption,
     },
     journal::JournalInspectionCheckpoint,
 };
@@ -16,37 +18,95 @@ use serde::Deserialize;
 
 pub(in crate::db) const MAX_INTEGRITY_OWNER_BYTES: usize = 256;
 pub(in crate::db) const MAX_INTEGRITY_SUBMISSION_KEY_BYTES: usize = 256;
-const MAX_INTEGRITY_PATH_BYTES: usize = 4 * 1024;
 const MAX_INTEGRITY_RECEIPT_FINDINGS: usize = 64;
 pub(in crate::db) const MAX_INTEGRITY_IN_PROGRESS_PAGES: u64 = u64::MAX - 1;
 
 /// Opaque lookup identity for one retained Deep inspection job.
+
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(in crate::db) struct IntegrityJobId([u8; 32]);
+pub struct IntegrityJobId([u8; 32]);
 
 impl IntegrityJobId {
     /// Admit one nonzero current-form lookup identity.
-    pub(in crate::db) fn try_from_bytes(bytes: [u8; 32]) -> Result<Self, IntegrityJobError> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IntegrityJobError::CorruptProgressRecord`] when `bytes` is
+    /// the reserved all-zero identity.
+    pub fn try_from_bytes(bytes: [u8; 32]) -> Result<Self, IntegrityJobError> {
         if bytes == [0; 32] {
             return Err(IntegrityJobError::CorruptProgressRecord);
         }
         Ok(Self(bytes))
     }
 
+    /// Decode one exact lowercase or uppercase hexadecimal job identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IntegrityJobError::InvalidJobId`] unless `value` contains
+    /// exactly 64 hexadecimal characters and decodes to a nonzero identity.
+    pub fn try_from_hex(value: &str) -> Result<Self, IntegrityJobError> {
+        if value.len() != 64 {
+            return Err(IntegrityJobError::InvalidJobId);
+        }
+
+        let mut bytes = [0_u8; 32];
+        for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+            let high = decode_hex_nibble(pair[0]).ok_or(IntegrityJobError::InvalidJobId)?;
+            let low = decode_hex_nibble(pair[1]).ok_or(IntegrityJobError::InvalidJobId)?;
+            bytes[index] = (high << 4) | low;
+        }
+        if bytes == [0; 32] {
+            return Err(IntegrityJobError::InvalidJobId);
+        }
+
+        Ok(Self(bytes))
+    }
+
     /// Return the canonical lookup bytes.
     #[must_use]
-    pub(in crate::db) const fn to_bytes(self) -> [u8; 32] {
+    pub const fn to_bytes(self) -> [u8; 32] {
         self.0
+    }
+
+    /// Render the canonical lowercase hexadecimal SQL/shell identity.
+    #[must_use]
+    pub fn to_hex(self) -> String {
+        encode_hex_lower(&self.0)
+    }
+
+    /// Revalidate a possibly deserialized job identity before lookup.
+    pub(in crate::db) fn validate(self) -> Result<(), IntegrityJobError> {
+        if self.0 == [0; 32] {
+            return Err(IntegrityJobError::InvalidJobId);
+        }
+        Ok(())
+    }
+}
+
+const fn decode_hex_nibble(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
     }
 }
 
 /// Bounded authorization identity persisted with one job.
+
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-pub(in crate::db) struct IntegrityJobOwner(String);
+pub struct IntegrityJobOwner(String);
 
 impl IntegrityJobOwner {
     /// Admit one nonempty bounded owner identity.
-    pub(in crate::db) fn new(value: impl Into<String>) -> Result<Self, IntegrityJobError> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IntegrityJobError::InvalidOwner`] when the identity is empty
+    /// or exceeds the protocol bound.
+    pub fn new(value: impl Into<String>) -> Result<Self, IntegrityJobError> {
         let value = value.into();
         if value.is_empty() || value.len() > MAX_INTEGRITY_OWNER_BYTES {
             return Err(IntegrityJobError::InvalidOwner);
@@ -56,18 +116,32 @@ impl IntegrityJobOwner {
 
     /// Borrow the canonical owner identity.
     #[must_use]
-    pub(in crate::db) const fn as_str(&self) -> &str {
+    pub const fn as_str(&self) -> &str {
         self.0.as_str()
+    }
+
+    /// Revalidate a possibly deserialized owner before authorization.
+    pub(in crate::db) const fn validate(&self) -> Result<(), IntegrityJobError> {
+        if self.0.is_empty() || self.0.len() > MAX_INTEGRITY_OWNER_BYTES {
+            return Err(IntegrityJobError::InvalidOwner);
+        }
+        Ok(())
     }
 }
 
 /// Bounded client idempotency identity for Deep start.
+
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-pub(in crate::db) struct IntegritySubmissionKey(String);
+pub struct IntegritySubmissionKey(String);
 
 impl IntegritySubmissionKey {
     /// Admit one nonempty bounded submission key.
-    pub(in crate::db) fn new(value: impl Into<String>) -> Result<Self, IntegrityJobError> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IntegrityJobError::InvalidSubmissionKey`] when the key is
+    /// empty or exceeds the protocol bound.
+    pub fn new(value: impl Into<String>) -> Result<Self, IntegrityJobError> {
         let value = value.into();
         if value.is_empty() || value.len() > MAX_INTEGRITY_SUBMISSION_KEY_BYTES {
             return Err(IntegrityJobError::InvalidSubmissionKey);
@@ -77,8 +151,16 @@ impl IntegritySubmissionKey {
 
     /// Borrow the canonical submission key.
     #[must_use]
-    pub(in crate::db) const fn as_str(&self) -> &str {
+    pub const fn as_str(&self) -> &str {
         self.0.as_str()
+    }
+
+    /// Revalidate a possibly deserialized key before job identity derivation.
+    pub(in crate::db) const fn validate(&self) -> Result<(), IntegrityJobError> {
+        if self.0.is_empty() || self.0.len() > MAX_INTEGRITY_SUBMISSION_KEY_BYTES {
+            return Err(IntegrityJobError::InvalidSubmissionKey);
+        }
+        Ok(())
     }
 }
 
@@ -124,8 +206,9 @@ impl IntegrityCheckpoint {
 }
 
 /// Frozen intent that supersedes advancement after the outstanding page is acknowledged.
+
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-pub(in crate::db) enum IntegrityPendingTerminal {
+pub enum IntegrityPendingTerminal {
     /// The inactivity lease elapsed.
     Expired,
     /// The authorized owner requested abort.
@@ -133,8 +216,9 @@ pub(in crate::db) enum IntegrityPendingTerminal {
 }
 
 /// Stable terminal meaning of a completed Deep job.
+
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-pub(in crate::db) enum IntegrityTerminalOutcome {
+pub enum IntegrityTerminalOutcome {
     /// Every phase exhausted cleanly under one unchanged proof.
     DeepCompleteClean,
     /// Every phase exhausted with one or more definite findings.
@@ -168,8 +252,9 @@ pub(in crate::db) enum IntegrityJobState {
 }
 
 /// Semantic status carried by one bounded Deep page.
+
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-pub(in crate::db) enum DeepIntegrityPageStatus {
+pub enum DeepIntegrityPageStatus {
     /// More physical work or the final proof check remains.
     InProgress,
     /// This receipt records the stable terminal result.
@@ -177,8 +262,9 @@ pub(in crate::db) enum DeepIntegrityPageStatus {
 }
 
 /// One bounded replayable Deep result page.
+
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-pub(in crate::db) struct DeepIntegrityPage {
+pub struct DeepIntegrityPage {
     pub(super) job_id: IntegrityJobId,
     pub(super) page_sequence: u64,
     pub(super) phase: IntegrityPhase,
@@ -192,56 +278,57 @@ pub(in crate::db) struct DeepIntegrityPage {
 impl DeepIntegrityPage {
     /// Return the opaque job lookup identity.
     #[must_use]
-    pub(in crate::db) const fn job_id(&self) -> IntegrityJobId {
+    pub const fn job_id(&self) -> IntegrityJobId {
         self.job_id
     }
 
     /// Return the monotonically increasing receipt sequence.
     #[must_use]
-    pub(in crate::db) const fn page_sequence(&self) -> u64 {
+    pub const fn page_sequence(&self) -> u64 {
         self.page_sequence
     }
 
     /// Return the phase represented by this receipt.
     #[must_use]
-    pub(in crate::db) const fn phase(&self) -> IntegrityPhase {
+    pub const fn phase(&self) -> IntegrityPhase {
         self.phase
     }
 
     /// Borrow the current or terminal status.
     #[must_use]
-    pub(in crate::db) const fn status(&self) -> &DeepIntegrityPageStatus {
+    pub const fn status(&self) -> &DeepIntegrityPageStatus {
         &self.status
     }
 
     /// Return cumulative successfully persisted page count.
     #[must_use]
-    pub(in crate::db) const fn pages_completed(&self) -> u64 {
+    pub const fn pages_completed(&self) -> u64 {
         self.pages_completed
     }
 
     /// Return cumulative definite findings.
     #[must_use]
-    pub(in crate::db) const fn findings_seen(&self) -> u64 {
+    pub const fn findings_seen(&self) -> u64 {
         self.findings_seen
     }
 
     /// Borrow findings produced only by this page.
     #[must_use]
-    pub(in crate::db) const fn findings(&self) -> &[IntegrityFinding] {
+    pub const fn findings(&self) -> &[IntegrityFinding] {
         self.findings.as_slice()
     }
 
     /// Borrow the cumulative canonical blocked-family set.
     #[must_use]
-    pub(in crate::db) const fn blocked_verifier_families(&self) -> &[IntegrityVerifierFamily] {
+    pub const fn blocked_verifier_families(&self) -> &[IntegrityVerifierFamily] {
         self.blocked_verifier_families.as_slice()
     }
 }
 
 /// Abort receipt status.
+
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-pub(in crate::db) enum IntegrityAbortStatus {
+pub enum IntegrityAbortStatus {
     /// Abort is frozen but cannot replace the outstanding page yet.
     TerminationPending(IntegrityPendingTerminal),
     /// The terminal abort result is replayable.
@@ -249,8 +336,9 @@ pub(in crate::db) enum IntegrityAbortStatus {
 }
 
 /// One bounded abort/expiry receipt.
+
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-pub(in crate::db) struct IntegrityAbortReceipt {
+pub struct IntegrityAbortReceipt {
     pub(super) job_id: IntegrityJobId,
     pub(super) page_sequence: u64,
     pub(super) status: IntegrityAbortStatus,
@@ -259,26 +347,27 @@ pub(in crate::db) struct IntegrityAbortReceipt {
 impl IntegrityAbortReceipt {
     /// Return the opaque job identity.
     #[must_use]
-    pub(in crate::db) const fn job_id(&self) -> IntegrityJobId {
+    pub const fn job_id(&self) -> IntegrityJobId {
         self.job_id
     }
 
     /// Return the outstanding or terminal receipt sequence.
     #[must_use]
-    pub(in crate::db) const fn page_sequence(&self) -> u64 {
+    pub const fn page_sequence(&self) -> u64 {
         self.page_sequence
     }
 
     /// Borrow the pending or terminal abort status.
     #[must_use]
-    pub(in crate::db) const fn status(&self) -> &IntegrityAbortStatus {
+    pub const fn status(&self) -> &IntegrityAbortStatus {
         &self.status
     }
 }
 
 /// Persisted receipt body.
+
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-pub(in crate::db) enum IntegrityJobReceipt {
+pub enum IntegrityJobReceipt {
     /// Normal start, advancement, or completion page.
     Page(DeepIntegrityPage),
     /// Abort/expiry terminal or pending acknowledgement.
@@ -288,7 +377,7 @@ pub(in crate::db) enum IntegrityJobReceipt {
 impl IntegrityJobReceipt {
     /// Return the job identity carried by this receipt.
     #[must_use]
-    pub(in crate::db) const fn job_id(&self) -> IntegrityJobId {
+    pub const fn job_id(&self) -> IntegrityJobId {
         match self {
             Self::Page(page) => page.job_id,
             Self::Abort(receipt) => receipt.job_id,
@@ -297,7 +386,7 @@ impl IntegrityJobReceipt {
 
     /// Return the sequence carried by this receipt.
     #[must_use]
-    pub(in crate::db) const fn page_sequence(&self) -> u64 {
+    pub const fn page_sequence(&self) -> u64 {
         match self {
             Self::Page(page) => page.page_sequence,
             Self::Abort(receipt) => receipt.page_sequence,
@@ -319,20 +408,6 @@ pub(in crate::db) enum IntegrityReceiptReplayKey {
 pub(in crate::db) struct IntegrityReceiptEnvelope {
     pub(super) replay_key: IntegrityReceiptReplayKey,
     pub(super) receipt: IntegrityJobReceipt,
-}
-
-impl IntegrityReceiptEnvelope {
-    /// Borrow the exact replay request identity.
-    #[must_use]
-    pub(in crate::db) const fn replay_key(&self) -> IntegrityReceiptReplayKey {
-        self.replay_key
-    }
-
-    /// Borrow the cached bounded receipt.
-    #[must_use]
-    pub(in crate::db) const fn receipt(&self) -> &IntegrityJobReceipt {
-        &self.receipt
-    }
 }
 
 /// Current invariant-bearing durable Deep record.
@@ -594,32 +669,73 @@ fn strictly_sorted_unique(values: &[IntegrityVerifierFamily]) -> bool {
 }
 
 /// Typed Deep protocol or progress-record failure.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum IntegrityJobError {
-    InvalidOwner,
-    InvalidSubmissionKey,
-    SubmissionConflict,
-    SubmissionAlreadyAdvanced,
-    JobNotFound,
-    JobOwnerMismatch,
-    JobIncarnationMismatch,
-    StaleAcknowledgement,
-    JobBusy,
+
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub enum IntegrityJobError {
+    /// The bounded progress store cannot admit another job.
     CapacityExceeded,
+
+    /// The progress-store header is malformed.
     CorruptProgressHeader,
+
+    /// The retained job record violates its current-form contract.
     CorruptProgressRecord,
-    IncompatibleProgressFormat,
+
+    /// A checked protocol counter cannot advance.
     CounterExhausted,
+
+    /// The accepted entity selector no longer matches runtime authority.
+    EntityIdentityMismatch,
+
+    /// The progress store uses an unsupported persisted format.
+    IncompatibleProgressFormat,
+
+    /// An internal Deep controller operation failed.
     Internal,
+
+    /// The accepted entity selector is malformed.
+    InvalidEntityIdentity,
+
+    /// A caller-authored job identity is malformed or reserved.
+    InvalidJobId,
+
+    /// The authorization owner is empty or exceeds its bound.
+    InvalidOwner,
+
+    /// The idempotency key is empty or exceeds its bound.
+    InvalidSubmissionKey,
+
+    /// Another bounded advancement currently owns the job.
+    JobBusy,
+
+    /// The job belongs to another database incarnation.
+    JobIncarnationMismatch,
+
+    /// No retained job has the supplied identity.
+    JobNotFound,
+
+    /// The supplied authorization owner does not own the job.
+    JobOwnerMismatch,
+
+    /// The acknowledgement does not name the outstanding receipt.
+    StaleAcknowledgement,
+
+    /// A retried start names a job that already advanced.
+    SubmissionAlreadyAdvanced,
+
+    /// An owner/key pair was reused for a different target.
+    SubmissionConflict,
 }
 
 /// Deep protocol failures keep persisted-protocol and engine causes distinct.
+
 #[derive(Debug)]
-pub(in crate::db) enum IntegrityDeepError {
-    /// Stable job/progress protocol rejected the request.
-    Job(IntegrityJobError),
+pub enum IntegrityDeepError {
     /// Accepted authority or physical execution failed.
     Internal(crate::error::InternalError),
+
+    /// Stable job/progress protocol rejected the request.
+    Job(IntegrityJobError),
 }
 
 impl From<IntegrityJobError> for IntegrityDeepError {
@@ -637,6 +753,57 @@ impl From<crate::error::InternalError> for IntegrityDeepError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn public_job_inputs_revalidate_after_wire_decode() {
+        let owner_bytes =
+            candid::encode_one(IntegrityJobOwner(String::new())).expect("owner should encode");
+        let owner: IntegrityJobOwner =
+            candid::decode_one(&owner_bytes).expect("owner should decode");
+        assert_eq!(owner.validate(), Err(IntegrityJobError::InvalidOwner));
+
+        let submission_bytes = candid::encode_one(IntegritySubmissionKey(String::new()))
+            .expect("submission key should encode");
+        let submission: IntegritySubmissionKey =
+            candid::decode_one(&submission_bytes).expect("submission key should decode");
+        assert_eq!(
+            submission.validate(),
+            Err(IntegrityJobError::InvalidSubmissionKey),
+        );
+
+        let job_id_bytes =
+            candid::encode_one(IntegrityJobId([0; 32])).expect("job id should encode");
+        let job_id: IntegrityJobId =
+            candid::decode_one(&job_id_bytes).expect("job id should decode");
+        assert_eq!(job_id.validate(), Err(IntegrityJobError::InvalidJobId),);
+    }
+
+    #[test]
+    fn public_job_id_hex_round_trip_is_exact_and_fail_closed() {
+        let mut bytes = [0_u8; 32];
+        bytes[0] = 0x01;
+        bytes[31] = 0xfe;
+        let job_id = IntegrityJobId::try_from_bytes(bytes).expect("job id should admit");
+        let encoded = job_id.to_hex();
+
+        assert_eq!(encoded.len(), 64);
+        assert_eq!(IntegrityJobId::try_from_hex(encoded.as_str()), Ok(job_id),);
+        assert_eq!(
+            IntegrityJobId::try_from_hex(encoded.to_uppercase().as_str()),
+            Ok(job_id),
+        );
+        for malformed in [
+            "",
+            "01",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "g001000000000000000000000000000000000000000000000000000000000000",
+        ] {
+            assert_eq!(
+                IntegrityJobId::try_from_hex(malformed),
+                Err(IntegrityJobError::InvalidJobId),
+            );
+        }
+    }
 
     #[test]
     fn persisted_checkpoint_families_stay_phase_owned() {

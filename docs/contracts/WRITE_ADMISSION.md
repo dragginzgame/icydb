@@ -158,10 +158,11 @@ published. Recovery also does not turn arbitrary external stable-memory bytes
 into an admitted write.
 
 The current durability contract covers internally produced interrupted state,
-not hostile import or arbitrary logical-corruption repair. A future promise to
-detect structurally valid but dangling relations after recovery would
-require a separate global integrity check; it must not be described as replaying
-the original mutation validators.
+not hostile import or arbitrary logical-corruption repair. Explicit Quick and
+Deep inspection can diagnose maintained accepted state after recovery, but
+they do not replay admission, application validators, or mutation-time
+sanitizers and do not repair state. Recovery verification remains limited to
+the bounded durable effect set already authorized by its marker.
 
 ## Unsupported And Future Ingress
 

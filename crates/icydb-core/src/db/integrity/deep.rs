@@ -29,6 +29,7 @@ use crate::{
     traits::CanisterKind,
 };
 use sha2::{Digest, Sha256};
+use std::cell::RefCell;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -51,39 +52,61 @@ pub(in crate::db) struct IntegrityRetentionPage {
 impl IntegrityRetentionPage {
     /// Return the next private retention scan checkpoint.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn next_checkpoint(&self) -> Option<IntegrityJobId> {
         self.next_checkpoint
     }
 
     /// Return whether the progress-record keyspace was exhausted.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn exhausted(&self) -> bool {
         self.exhausted
     }
 
     /// Return progress records visited by this bounded pass.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn jobs_scanned(&self) -> u32 {
         self.jobs_scanned
     }
 
     /// Return jobs frozen as expiry-pending by this pass.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn jobs_expired(&self) -> u32 {
         self.jobs_expired
     }
 
     /// Return acknowledged terminal jobs removed by this pass.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn jobs_deleted(&self) -> u32 {
         self.jobs_deleted
     }
 
     /// Borrow corrupt progress-record identities skipped by this pass.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn corrupt_jobs(&self) -> &[IntegrityJobId] {
         self.corrupt_jobs.as_slice()
     }
+}
+
+/// Heap-only fair-scan position for one stable progress allocation.
+///
+/// This is advisory scheduling state, not durable integrity authority. Losing
+/// it on restart safely resumes scanning from the first progress-record key.
+#[derive(Clone, Copy)]
+struct IntegrityRetentionCursor {
+    memory_id: u8,
+    stable_key: &'static str,
+    checkpoint: Option<IntegrityJobId>,
+}
+
+thread_local! {
+    static INTEGRITY_RETENTION_CURSORS: RefCell<Vec<IntegrityRetentionCursor>> =
+        const { RefCell::new(Vec::new()) };
 }
 
 /// Start one idempotent Deep job after an exact A/B capture handshake.
@@ -95,6 +118,8 @@ pub(in crate::db) fn start_deep_integrity_job<C: CanisterKind>(
     proof_a: crate::db::integrity::IntegrityProofVector,
     proof_b: crate::db::integrity::IntegrityProofVector,
 ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
+    owner.validate()?;
+    submission_key.validate()?;
     if proof_a != proof_b {
         return Err(IntegrityJobError::JobIncarnationMismatch.into());
     }
@@ -218,11 +243,32 @@ pub(in crate::db) fn abort_deep_integrity_job<C: CanisterKind>(
     }
 }
 
-/// Run one bounded progress-only expiry and acknowledged-terminal retention pass.
-pub(in crate::db) fn run_integrity_retention_page<C: CanisterKind>(
-    checkpoint: Option<IntegrityJobId>,
+/// Advance one fair bounded retention page for the current progress allocation.
+pub(in crate::db) fn run_next_integrity_retention_page<C: CanisterKind>()
+-> Result<(), IntegrityDeepError> {
+    run_next_integrity_retention_page_at::<C>(now_nanos()?).map(|_| ())
+}
+
+fn run_next_integrity_retention_page_at<C: CanisterKind>(
+    now: u64,
 ) -> Result<IntegrityRetentionPage, IntegrityDeepError> {
-    run_integrity_retention_page_at::<C>(checkpoint, now_nanos()?)
+    let checkpoint = integrity_retention_checkpoint::<C>();
+    let mut page = run_integrity_retention_page_at::<C>(checkpoint, now)?;
+
+    // A reset progress store or another test can leave an advisory heap cursor
+    // beyond every current key. Wrap immediately without decoding an extra
+    // record so the maintained page still visits at most the frozen limit.
+    if checkpoint.is_some() && page.exhausted && page.jobs_scanned == 0 {
+        page = run_integrity_retention_page_at::<C>(None, now)?;
+    }
+
+    let next_checkpoint = if page.exhausted {
+        None
+    } else {
+        page.next_checkpoint
+    };
+    set_integrity_retention_checkpoint::<C>(next_checkpoint);
+    Ok(page)
 }
 
 fn run_integrity_retention_page_at<C: CanisterKind>(
@@ -287,6 +333,49 @@ pub(in crate::db) fn run_integrity_retention_page_for_tests<C: CanisterKind>(
     now: u64,
 ) -> Result<IntegrityRetentionPage, IntegrityDeepError> {
     run_integrity_retention_page_at::<C>(checkpoint, now)
+}
+
+#[cfg(test)]
+pub(in crate::db) fn run_next_integrity_retention_page_for_tests<C: CanisterKind>(
+    now: u64,
+) -> Result<IntegrityRetentionPage, IntegrityDeepError> {
+    run_next_integrity_retention_page_at::<C>(now)
+}
+
+#[cfg(test)]
+pub(in crate::db) fn reset_integrity_retention_cursor_for_tests<C: CanisterKind>() {
+    set_integrity_retention_checkpoint::<C>(None);
+}
+
+fn integrity_retention_checkpoint<C: CanisterKind>() -> Option<IntegrityJobId> {
+    INTEGRITY_RETENTION_CURSORS.with(|cursors| {
+        cursors
+            .borrow()
+            .iter()
+            .find(|cursor| {
+                cursor.memory_id == C::INTEGRITY_PROGRESS_MEMORY_ID
+                    && cursor.stable_key == C::INTEGRITY_PROGRESS_STABLE_KEY
+            })
+            .and_then(|cursor| cursor.checkpoint)
+    })
+}
+
+fn set_integrity_retention_checkpoint<C: CanisterKind>(checkpoint: Option<IntegrityJobId>) {
+    INTEGRITY_RETENTION_CURSORS.with(|cursors| {
+        let mut cursors = cursors.borrow_mut();
+        if let Some(cursor) = cursors.iter_mut().find(|cursor| {
+            cursor.memory_id == C::INTEGRITY_PROGRESS_MEMORY_ID
+                && cursor.stable_key == C::INTEGRITY_PROGRESS_STABLE_KEY
+        }) {
+            cursor.checkpoint = checkpoint;
+            return;
+        }
+        cursors.push(IntegrityRetentionCursor {
+            memory_id: C::INTEGRITY_PROGRESS_MEMORY_ID,
+            stable_key: C::INTEGRITY_PROGRESS_STABLE_KEY,
+            checkpoint,
+        });
+    });
 }
 
 fn replay_start(

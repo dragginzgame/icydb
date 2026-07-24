@@ -138,6 +138,14 @@ journaled store. Marker authority is cleared only after these postconditions
 hold. This recovered-effect proof is not a claim that unrelated database state
 was inspected; Quick and Deep remain explicit read-only inspection operations.
 
+Deep progress and retention remain outside recovered database authority. Each
+well-formed authorized integrity attempt performs one bounded progress-store
+maintenance page after the requested operation. The persisted job owns expiry
+intent, terminal acknowledgement, and deletion eligibility; the fair-scan
+cursor is heap-only scheduling state that may restart from the first key
+without changing any receipt, proof vector, inspected revision, marker, or
+journal.
+
 Direct raw-store or index access that bypasses guarded recovery is outside this
 contract and may observe transient or stale state during startup or interrupted
 recovery windows.

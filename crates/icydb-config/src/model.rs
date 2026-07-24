@@ -11,6 +11,7 @@ use std::{
 pub(crate) const DEFAULT_SQL_READONLY_ENABLED: bool = false;
 pub(crate) const DEFAULT_SQL_DDL_ENABLED: bool = false;
 pub(crate) const DEFAULT_SQL_FIXTURES_ENABLED: bool = false;
+pub(crate) const DEFAULT_SQL_INTEGRITY_ENABLED: bool = false;
 pub(crate) const DEFAULT_SQL_INTROSPECTION_LOCAL_ENABLED: bool = true;
 pub(crate) const DEFAULT_SQL_INTROSPECTION_IC_ENABLED: bool = false;
 pub(crate) const DEFAULT_SQL_UPDATE_POLICY: Option<GeneratedSqlUpdatePolicy> = None;
@@ -96,6 +97,16 @@ impl GeneratedIcydbConfig {
             canister_name,
             DEFAULT_SQL_FIXTURES_ENABLED,
             GeneratedCanisterConfig::sql_fixtures,
+        )
+    }
+
+    /// Return whether the administrative integrity endpoint should be generated.
+    #[must_use]
+    pub fn canister_sql_integrity_enabled(&self, canister_name: &str) -> bool {
+        self.canister_enabled(
+            canister_name,
+            DEFAULT_SQL_INTEGRITY_ENABLED,
+            GeneratedCanisterConfig::sql_integrity,
         )
     }
 
@@ -263,19 +274,25 @@ impl GeneratedCanisterConfig {
     /// Return whether generated actor glue should export read-only SQL endpoints.
     #[must_use]
     pub const fn sql_readonly(&self) -> bool {
-        self.sql.readonly
+        self.sql.surfaces.readonly_enabled()
     }
 
     /// Return whether generated actor glue should export the SQL DDL endpoint.
     #[must_use]
     pub const fn sql_ddl(&self) -> bool {
-        self.sql.ddl
+        self.sql.surfaces.ddl_enabled()
     }
 
     /// Return whether generated actor glue should export SQL fixture lifecycle endpoints.
     #[must_use]
     pub const fn sql_fixtures(&self) -> bool {
-        self.sql.fixtures
+        self.sql.surfaces.fixtures_enabled()
+    }
+
+    /// Return whether generated actor glue should export the integrity endpoint.
+    #[must_use]
+    pub const fn sql_integrity(&self) -> bool {
+        self.sql.surfaces.integrity_enabled()
     }
 
     /// Return the local/IC policy for operational SQL introspection.
@@ -325,27 +342,98 @@ impl GeneratedCanisterConfig {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct GeneratedCanisterSqlConfig {
-    readonly: bool,
-    ddl: bool,
-    fixtures: bool,
+    surfaces: GeneratedCanisterSqlSurfaceFlags,
     introspection_policy: GeneratedSqlIntrospectionPolicy,
     update_policy: Option<GeneratedSqlUpdatePolicy>,
 }
 
 impl GeneratedCanisterSqlConfig {
     pub(crate) const fn new(
-        readonly: bool,
-        ddl: bool,
-        fixtures: bool,
         introspection_policy: GeneratedSqlIntrospectionPolicy,
         update_policy: Option<GeneratedSqlUpdatePolicy>,
     ) -> Self {
         Self {
-            readonly,
-            ddl,
-            fixtures,
+            surfaces: GeneratedCanisterSqlSurfaceFlags::empty(),
             introspection_policy,
             update_policy,
+        }
+    }
+
+    pub(crate) const fn with_readonly_enabled(mut self, enabled: bool) -> Self {
+        self.surfaces = self.surfaces.with_readonly_enabled(enabled);
+        self
+    }
+
+    pub(crate) const fn with_ddl_enabled(mut self, enabled: bool) -> Self {
+        self.surfaces = self.surfaces.with_ddl_enabled(enabled);
+        self
+    }
+
+    pub(crate) const fn with_fixtures_enabled(mut self, enabled: bool) -> Self {
+        self.surfaces = self.surfaces.with_fixtures_enabled(enabled);
+        self
+    }
+
+    pub(crate) const fn with_integrity_enabled(mut self, enabled: bool) -> Self {
+        self.surfaces = self.surfaces.with_integrity_enabled(enabled);
+        self
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct GeneratedCanisterSqlSurfaceFlags(u8);
+
+impl GeneratedCanisterSqlSurfaceFlags {
+    const DDL: u8 = 1 << 1;
+    const FIXTURES: u8 = 1 << 2;
+    const INTEGRITY: u8 = 1 << 3;
+    const READONLY: u8 = 1;
+
+    const fn empty() -> Self {
+        Self(0)
+    }
+
+    const fn readonly_enabled(self) -> bool {
+        self.contains(Self::READONLY)
+    }
+
+    const fn ddl_enabled(self) -> bool {
+        self.contains(Self::DDL)
+    }
+
+    const fn fixtures_enabled(self) -> bool {
+        self.contains(Self::FIXTURES)
+    }
+
+    const fn integrity_enabled(self) -> bool {
+        self.contains(Self::INTEGRITY)
+    }
+
+    const fn with_readonly_enabled(self, enabled: bool) -> Self {
+        self.with_flag(Self::READONLY, enabled)
+    }
+
+    const fn with_ddl_enabled(self, enabled: bool) -> Self {
+        self.with_flag(Self::DDL, enabled)
+    }
+
+    const fn with_fixtures_enabled(self, enabled: bool) -> Self {
+        self.with_flag(Self::FIXTURES, enabled)
+    }
+
+    const fn with_integrity_enabled(self, enabled: bool) -> Self {
+        self.with_flag(Self::INTEGRITY, enabled)
+    }
+
+    const fn contains(self, flag: u8) -> bool {
+        self.0 & flag == flag
+    }
+
+    const fn with_flag(self, flag: u8, enabled: bool) -> Self {
+        if enabled {
+            Self(self.0 | flag)
+        } else {
+            Self(self.0 & !flag)
         }
     }
 }

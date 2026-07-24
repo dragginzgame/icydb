@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.212.md](docs/changelog/0.212.md)
 
+- `0.212.1` exposes trusted typed, SQL, and opt-in generated integrity
+  inspection while completing bounded Quick control verification and durable
+  progress retention.
+
 - `0.212.0` establishes one accepted-native Quick/Deep integrity core with
   bounded resumable physical verification, durable replay-safe progress, and
   marker-owned recovery verification, while hard-cutting the old aggregate

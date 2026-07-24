@@ -353,11 +353,39 @@ fn sql_surface_endpoint_exports(
         }
     });
 
+    let integrity_endpoint = surfaces.integrity_enabled().then(|| {
+        quote! {
+        #[cfg(feature = "sql")]
+        #[::icydb::__reexports::ic_cdk::update(name = "icydb_integrity")]
+        fn __icydb_integrity(
+            sql: String,
+        ) -> Result<::icydb::db::IntegrityCheckResult, ::icydb::db::SqlIntegrityError> {
+            icydb_sql_surface_require_controller("integrity")
+                .map_err(::icydb::db::SqlIntegrityError::Sql)?;
+
+            let caller = ::icydb::__reexports::ic_cdk::api::msg_caller();
+            let owner = ::icydb::db::IntegrityJobOwner::new(caller.to_text()).map_err(|error| {
+                ::icydb::db::SqlIntegrityError::Integrity(
+                    ::icydb::db::IntegrityCheckError::Job(error),
+                )
+            })?;
+            let session = db().map_err(|error| {
+                ::icydb::db::SqlIntegrityError::Integrity(
+                    ::icydb::db::IntegrityCheckError::Database(error.into()),
+                )
+            })?;
+
+            session.execute_admin_integrity_sql(sql.as_str(), owner)
+        }
+        }
+    });
+
     quote! {
         #query_endpoint
         #ddl_endpoint
         #fixture_endpoints
         #update_endpoint
+        #integrity_endpoint
     }
 }
 
@@ -514,6 +542,7 @@ mod tests {
             .with_readonly_enabled(true)
             .with_ddl_enabled(true)
             .with_fixtures_enabled(true)
+            .with_integrity_enabled(true)
             .with_introspection_enabled(true)
     }
 
@@ -526,8 +555,13 @@ mod tests {
 
     #[test]
     fn generated_sql_surface_exports_only_query_ddl_and_fixture_endpoints() {
+        let non_integrity_surfaces = BuildSqlSurfaceFlags::default()
+            .with_readonly_enabled(true)
+            .with_ddl_enabled(true)
+            .with_fixtures_enabled(true)
+            .with_introspection_enabled(true);
         let surface = compact_tokens(super::sql_surface_endpoint_exports(
-            all_sql_surface_flags(),
+            non_integrity_surfaces,
             None,
             true,
         ));
@@ -536,6 +570,8 @@ mod tests {
         assert!(surface.contains("name=\"icydb_ddl\""));
         assert!(surface.contains("name=\"icydb_fixtures_reset\""));
         assert!(surface.contains("name=\"icydb_fixtures_load\""));
+        assert!(!surface.contains("name=\"icydb_update\""));
+        assert!(!surface.contains("name=\"icydb_integrity\""));
         assert!(surface.contains("fn__icydb_query("));
         assert!(surface.contains("fn__icydb_ddl("));
         assert!(surface.contains("fn__icydb_fixtures_reset("));
@@ -591,6 +627,17 @@ mod tests {
                         fn __icydb_update(
                             sql: String,
                         ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error>
+                    }),
+                ),
+                (
+                    "__icydb_integrity".to_string(),
+                    expected_export_signature(syn::parse_quote! {
+                        fn __icydb_integrity(
+                            sql: String,
+                        ) -> Result<
+                            ::icydb::db::IntegrityCheckResult,
+                            ::icydb::db::SqlIntegrityError
+                        >
                     }),
                 ),
             ]);
@@ -659,6 +706,31 @@ mod tests {
             .expect("generated query endpoint should call its trusted dispatch");
         assert!(controller_guard < trusted_dispatch);
         assert!(surface.contains("execute_trusted_sql_query_with_perf_attribution"));
+    }
+
+    #[test]
+    fn generated_integrity_endpoint_guards_canonical_integrity_dispatch() {
+        let integrity_only = BuildSqlSurfaceFlags::default().with_integrity_enabled(true);
+        let endpoint = compact_tokens(super::sql_surface_endpoint_exports(
+            integrity_only,
+            None,
+            false,
+        ));
+
+        assert!(endpoint.contains("name=\"icydb_integrity\""));
+        let controller_guard = endpoint
+            .find("icydb_sql_surface_require_controller(\"integrity\")")
+            .expect("generated integrity endpoint should require its controller guard");
+        let owner = endpoint
+            .find("IntegrityJobOwner::new")
+            .expect("generated integrity endpoint should bind jobs to the caller");
+        let canonical_dispatch = endpoint
+            .find("execute_admin_integrity_sql")
+            .expect("generated integrity endpoint should use canonical SQL lowering");
+        assert!(controller_guard < owner);
+        assert!(owner < canonical_dispatch);
+        assert!(!endpoint.contains("execute_admin_sql_ddl"));
+        assert!(!endpoint.contains("__icydb_query_dispatch"));
     }
 
     #[test]

@@ -17,7 +17,7 @@ use crate::{
 };
 use candid::CandidType;
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Exact physical state read for one participating journaled store.
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -243,7 +243,74 @@ fn allocation_registry_generation() -> Result<u64, InternalError> {
 
 #[cfg(not(test))]
 fn allocation_registry_generation() -> Result<u64, InternalError> {
-    ic_memory::committed_allocations()
-        .map(|allocations| allocations.generation())
-        .map_err(InternalError::database_format_memory_registration_failed)
+    let allocations = ic_memory::committed_allocations()
+        .map_err(InternalError::database_format_memory_registration_failed)?;
+    validate_committed_allocation_declarations(allocations.declarations())?;
+    Ok(allocations.generation())
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the test backend has no default ic-memory runtime; declaration closure is covered by focused unit tests"
+)]
+pub(super) const fn validate_integrity_allocation_registry() -> Result<(), InternalError> {
+    Ok(())
+}
+
+#[cfg(not(test))]
+pub(super) fn validate_integrity_allocation_registry() -> Result<(), InternalError> {
+    let allocations = ic_memory::committed_allocations()
+        .map_err(InternalError::database_format_memory_registration_failed)?;
+    validate_committed_allocation_declarations(allocations.declarations())
+}
+
+fn validate_committed_allocation_declarations(
+    declarations: &[ic_memory::AllocationDeclaration],
+) -> Result<(), InternalError> {
+    if declarations.len() > usize::from(ic_memory::MEMORY_MANAGER_MAX_ID) + 1 {
+        return Err(InternalError::store_invariant());
+    }
+
+    let mut stable_keys = BTreeSet::new();
+    let mut slots = BTreeSet::new();
+    for declaration in declarations {
+        declaration
+            .validate()
+            .map_err(|_| InternalError::store_invariant())?;
+        if !stable_keys.insert(declaration.stable_key()) || !slots.insert(declaration.slot()) {
+            return Err(InternalError::store_invariant());
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn declaration(key: &str, memory_id: u8) -> ic_memory::AllocationDeclaration {
+        ic_memory::AllocationDeclaration::memory_manager(key, memory_id, key)
+            .expect("test declaration should admit")
+    }
+
+    #[test]
+    fn quick_allocation_registry_closure_requires_unique_keys_and_slots() {
+        let first = declaration("tests.integrity.first.v1", 21);
+        let second = declaration("tests.integrity.second.v1", 22);
+        assert!(
+            validate_committed_allocation_declarations(&[first.clone(), second.clone()]).is_ok(),
+        );
+
+        let duplicate_key = declaration("tests.integrity.first.v1", 23);
+        assert!(
+            validate_committed_allocation_declarations(&[first.clone(), duplicate_key]).is_err(),
+        );
+
+        let duplicate_slot = declaration("tests.integrity.third.v1", 22);
+        assert!(
+            validate_committed_allocation_declarations(&[first, second, duplicate_slot]).is_err(),
+        );
+    }
 }

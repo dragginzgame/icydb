@@ -36,6 +36,32 @@ pub(crate) enum SqlStatement {
 }
 
 ///
+/// SqlIntegrityStatement
+///
+/// Parser-owned `CHECK INTEGRITY` intent. This type carries only SQL spelling;
+/// session lowering resolves entity selectors and opaque job identities into
+/// the canonical typed integrity request.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SqlIntegrityStatement {
+    Quick {
+        entity: String,
+    },
+    DeepStart {
+        entity: String,
+        submission_key: String,
+    },
+    DeepContinue {
+        job_id: String,
+        acknowledged_sequence: u64,
+    },
+    DeepAbort {
+        job_id: String,
+    },
+}
+
+///
 /// SqlDdlStatement
 ///
 /// Parser-owned DDL intent. DDL stays unresolved at this boundary and must bind
