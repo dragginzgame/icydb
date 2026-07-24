@@ -70,6 +70,43 @@ fn session_sql_entity_initial_accepted_schema_cache_fingerprint() -> [u8; 16] {
         .expect("session SQL test schema cache fingerprint should derive")
 }
 
+fn session_sql_field_source_key(field_name: &str) -> String {
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("accepted bundle should decode")
+            .expect("accepted bundle should exist");
+        let field = bundle
+            .entity_snapshots()
+            .get(&SessionSqlEntity::ENTITY_TAG)
+            .expect("session SQL entity should be accepted")
+            .fields()
+            .iter()
+            .find(|field| field.name() == field_name)
+            .expect("bound SQL DDL field should exist");
+        bundle
+            .source_bindings_for_tests()
+            .field_source_key_for_tests(SessionSqlEntity::ENTITY_TAG, field.id())
+            .expect("SQL DDL field should have an immutable source key")
+            .to_string()
+    })
+}
+
+fn session_sql_source_binding_counts() -> (usize, usize, usize) {
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let bundle = store
+            .current_accepted_schema_bundle()
+            .expect("accepted bundle should decode")
+            .expect("accepted bundle should exist");
+        let bindings = bundle.source_bindings_for_tests();
+        (
+            bindings.field_binding_count_for_tests(SessionSqlEntity::ENTITY_TAG),
+            bindings.constraint_binding_count_for_tests(SessionSqlEntity::ENTITY_TAG),
+            bindings.index_binding_count_for_tests(SessionSqlEntity::ENTITY_TAG),
+        )
+    })
+}
+
 fn accepted_schema_info_for_entity<E: EntityDeclaration>() -> SchemaInfo {
     let (accepted, catalog) = accepted_schema_snapshot_and_catalog_for_entity::<E>();
 
@@ -5519,6 +5556,11 @@ fn execute_admin_sql_ddl_add_check_validates_history_and_gates_future_writes() {
     assert_eq!(check.validation_state(), "validated");
     assert_eq!(check.check_sql(), Some("age >= 18"));
     assert!(check.validation_progress().is_none());
+    assert_eq!(
+        session_sql_source_binding_counts().1,
+        1,
+        "accepted SQL CHECK should have one immutable source binding",
+    );
 
     assert!(
         session
@@ -5723,6 +5765,11 @@ fn execute_admin_sql_ddl_check_not_valid_uses_bounded_job_and_atomic_abort() {
             .iter()
             .all(|constraint| constraint.name() != "adult_age"),
         "aborted SQL check must leave no accepted or activation entry",
+    );
+    assert_eq!(
+        session_sql_source_binding_counts().1,
+        0,
+        "aborting the SQL CHECK activation must remove its source binding",
     );
 }
 
@@ -7695,6 +7742,10 @@ fn execute_admin_sql_ddl_publishes_drop_column_for_non_trailing_ddl_owned_field(
             2,
         ))
         .expect("setup second ADD COLUMN should publish");
+    let nickname_source_key = session_sql_field_source_key("nickname");
+    let handle_source_key = session_sql_field_source_key("handle");
+    assert_ne!(nickname_source_key, handle_source_key);
+    assert_eq!(session_sql_source_binding_counts().0, 2);
     let (nickname_slot, handle_slot) = SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
             .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
@@ -7738,6 +7789,16 @@ fn execute_admin_sql_ddl_publishes_drop_column_for_non_trailing_ddl_owned_field(
         assert_ne!(handle.slot(), handle_slot);
         assert_eq!(handle.slot(), nickname_slot);
     });
+    assert_eq!(
+        session_sql_field_source_key("handle"),
+        handle_source_key,
+        "dense FieldId reassignment must preserve the surviving field source key",
+    );
+    assert_eq!(
+        session_sql_source_binding_counts().0,
+        1,
+        "DROP COLUMN must remove only the dropped field source binding",
+    );
 }
 
 #[test]
@@ -7752,6 +7813,7 @@ fn execute_admin_sql_ddl_publishes_rename_column_for_ddl_owned_field() {
             1,
         ))
         .expect("setup nullable ADD COLUMN should publish before rejected RENAME COLUMN");
+    let source_key_before = session_sql_field_source_key("nickname");
     let before =
         statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
             .expect("SHOW COLUMNS should read accepted schema before RENAME COLUMN");
@@ -7787,6 +7849,11 @@ fn execute_admin_sql_ddl_publishes_rename_column_for_ddl_owned_field() {
     assert!(
         after.iter().any(|field| field.name() == "handle"),
         "published RENAME COLUMN should expose the new accepted field name",
+    );
+    assert_eq!(
+        session_sql_field_source_key("handle"),
+        source_key_before,
+        "editable field rename must preserve immutable source identity",
     );
 }
 
@@ -8621,6 +8688,11 @@ fn execute_admin_sql_ddl_publishes_supported_field_path_index() {
                 && !index.unique()),
         "accepted schema publication should expose the DDL-created index",
     );
+    assert_eq!(
+        session_sql_source_binding_counts().2,
+        1,
+        "accepted SQL index should have one immutable source binding",
+    );
     let SqlStatementResult::ShowIndexes(indexes) = session
         .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should read the accepted published index set")
@@ -8718,6 +8790,11 @@ fn execute_admin_sql_ddl_create_index_recovers_marker_authorized_domain_after_in
                 .iter()
                 .any(|index| index.name() == "session_sql_age_idx"),
             "marker replay must publish the accepted-after index metadata",
+        );
+        assert_eq!(
+            session_sql_source_binding_counts().2,
+            1,
+            "marker replay must publish the index source identity with its structural owner",
         );
         SESSION_SQL_INDEX_STORE.with_borrow(|store| {
             assert_eq!(
@@ -8882,6 +8959,7 @@ fn execute_admin_sql_ddl_publishes_and_drops_supported_multi_field_path_index() 
             == "INDEX session_sql_age_name_idx (age, name) [state=ready] [origin=ddl]"),
         "SHOW INDEXES FROM should expose the DDL-created multi-field index",
     );
+    assert_eq!(session_sql_source_binding_counts().2, 1);
 
     let result = session
         .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
@@ -8899,6 +8977,11 @@ fn execute_admin_sql_ddl_publishes_and_drops_supported_multi_field_path_index() 
     assert_eq!(report.target_index(), "session_sql_age_name_idx");
     assert_eq!(report.field_path(), ["age,name".to_string()]);
     assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    assert_eq!(
+        session_sql_source_binding_counts().2,
+        0,
+        "DROP INDEX must remove the SQL index source binding",
+    );
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
 }

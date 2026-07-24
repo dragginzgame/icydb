@@ -648,12 +648,25 @@ fn prepare_accepted_entity_snapshot_revision(
     let candidate_revision = expected_revision
         .checked_next()
         .ok_or_else(InternalError::store_unsupported)?;
+    let accepted_before = current
+        .entity_snapshots()
+        .get(&expected_identity.entity_tag())
+        .ok_or_else(InternalError::store_corruption)?;
+    let source_bindings = current
+        .source_bindings()
+        .clone()
+        .with_sql_ddl_entity_transition(
+            expected_identity.entity_tag(),
+            accepted_before,
+            accepted_after,
+            candidate_revision,
+        )?;
     let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
         candidate_revision,
         expected_identity.store_path(),
         current.enum_catalog().clone(),
         current.composite_catalog().clone(),
-        current.source_bindings().clone(),
+        source_bindings,
         entity_snapshots,
     )?;
     let candidate = CandidateSchemaRevision::new(bundle)?;

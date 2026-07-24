@@ -184,6 +184,12 @@ impl AcceptedSchemaRevisionBundle {
         &self.source_bindings
     }
 
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) const fn source_bindings_for_tests(&self) -> &AcceptedSourceBindingCatalog {
+        &self.source_bindings
+    }
+
     #[must_use]
     pub(in crate::db) const fn entity_snapshots(
         &self,

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- SQL DDL now assigns immutable accepted source identities to newly created
+  fields, indexes, and checks, preserves them through rename and dense field-ID
+  reassignment, and removes them atomically with their structural owners.
+
 ## [0.213.x] 🧭 - 2026-07-24 - Schema Authority And Application Separation
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)

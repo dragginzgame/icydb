@@ -1,6 +1,6 @@
 //! Module: db::schema::source_binding
 //! Responsibility: durable source-key to accepted-identity bindings.
-//! Does not own: accepted structural semantics, identity allocation, proposal lowering, or publication.
+//! Does not own: accepted structural semantics, accepted-ID allocation, proposal lowering, or publication.
 //! Boundary: immutable proposal source keys <-> existing store-local accepted identities.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -21,6 +21,12 @@ use crate::{
     error::InternalError,
     types::EntityTag,
     value::{EnumTypeId, EnumVariantId},
+};
+
+#[cfg(feature = "sql")]
+use crate::db::schema::{
+    AcceptedSchemaRevision, ConstraintOrigin, PersistedFieldOrigin, PersistedIndexOrigin,
+    PersistedIndexSnapshot,
 };
 
 const ACCEPTED_SOURCE_BINDING_MAGIC: &[u8; 8] = b"ICYDBASB";
@@ -90,6 +96,202 @@ impl AcceptedSourceBindingCatalog {
             indexes,
             relations,
         }
+    }
+
+    /// Apply one catalog-native SQL-DDL entity transition.
+    ///
+    /// Existing immutable keys follow their structural owner through rename
+    /// and dense field-ID reassignment. A newly admitted SQL-owned object gets
+    /// one key derived from the monotonic accepted publication revision;
+    /// removed owners lose their binding. The method deliberately does not
+    /// backfill unbound owners from earlier development formats.
+    #[cfg(feature = "sql")]
+    pub(in crate::db::schema) fn with_sql_ddl_entity_transition(
+        mut self,
+        entity: EntityTag,
+        before: &PersistedSchemaSnapshot,
+        after: &PersistedSchemaSnapshot,
+        publication_revision: AcceptedSchemaRevision,
+    ) -> Result<Self, InternalError> {
+        if before.entity_path() != after.entity_path() {
+            return Err(InternalError::store_invariant());
+        }
+
+        self.apply_sql_ddl_field_transition(entity, before, after, publication_revision)?;
+        self.apply_sql_ddl_index_transition(entity, before, after, publication_revision)?;
+        self.apply_sql_ddl_check_transition(entity, before, after, publication_revision)?;
+
+        Ok(self)
+    }
+
+    #[cfg(feature = "sql")]
+    fn apply_sql_ddl_field_transition(
+        &mut self,
+        entity: EntityTag,
+        before: &PersistedSchemaSnapshot,
+        after: &PersistedSchemaSnapshot,
+        publication_revision: AcceptedSchemaRevision,
+    ) -> Result<(), InternalError> {
+        let field_lineage = field_lineage(before, after)?;
+        let mut removed_keys = Vec::new();
+        for ((bound_entity, source_key), field_id) in &mut self.fields {
+            if *bound_entity != entity {
+                continue;
+            }
+            if !before.fields().iter().any(|field| field.id() == *field_id) {
+                return Err(InternalError::store_invariant());
+            }
+            match field_lineage.get(field_id) {
+                Some(after_id) => *field_id = *after_id,
+                None => removed_keys.push((*bound_entity, source_key.clone())),
+            }
+        }
+        for key in removed_keys {
+            self.fields.remove(&key);
+        }
+
+        let added = after
+            .fields()
+            .iter()
+            .filter(|field| {
+                field.origin() == PersistedFieldOrigin::SqlDdl
+                    && !field_lineage
+                        .values()
+                        .any(|after_id| *after_id == field.id())
+            })
+            .collect::<Vec<_>>();
+        if added.len() > 1 {
+            return Err(InternalError::store_invariant());
+        }
+        if let Some(field) = added.first() {
+            let source =
+                FieldSourceKey::try_new(sql_ddl_source_key("field", entity, publication_revision))
+                    .map_err(|_| InternalError::store_invariant())?;
+            if self.fields.insert((entity, source), field.id()).is_some() {
+                return Err(InternalError::store_invariant());
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "sql")]
+    fn apply_sql_ddl_index_transition(
+        &mut self,
+        entity: EntityTag,
+        before: &PersistedSchemaSnapshot,
+        after: &PersistedSchemaSnapshot,
+        publication_revision: AcceptedSchemaRevision,
+    ) -> Result<(), InternalError> {
+        let before_ids = before
+            .indexes()
+            .iter()
+            .chain(before.candidate_indexes())
+            .map(PersistedIndexSnapshot::schema_id)
+            .collect::<BTreeSet<_>>();
+        let after_ids = after
+            .indexes()
+            .iter()
+            .chain(after.candidate_indexes())
+            .map(PersistedIndexSnapshot::schema_id)
+            .collect::<BTreeSet<_>>();
+        self.indexes.retain(|(bound_entity, _), index_id| {
+            *bound_entity != entity || after_ids.contains(index_id)
+        });
+
+        let added = after
+            .indexes()
+            .iter()
+            .chain(after.candidate_indexes())
+            .filter(|index| {
+                index.origin() == PersistedIndexOrigin::SqlDdl
+                    && !before_ids.contains(&index.schema_id())
+            })
+            .collect::<Vec<_>>();
+        if added.len() > 1 {
+            return Err(InternalError::store_invariant());
+        }
+        if let Some(index) = added.first() {
+            let source =
+                IndexSourceKey::try_new(sql_ddl_source_key("index", entity, publication_revision))
+                    .map_err(|_| InternalError::store_invariant())?;
+            if self
+                .indexes
+                .insert((entity, source), index.schema_id())
+                .is_some()
+            {
+                return Err(InternalError::store_invariant());
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "sql")]
+    fn apply_sql_ddl_check_transition(
+        &mut self,
+        entity: EntityTag,
+        before: &PersistedSchemaSnapshot,
+        after: &PersistedSchemaSnapshot,
+        publication_revision: AcceptedSchemaRevision,
+    ) -> Result<(), InternalError> {
+        let before_ids = check_ids(before);
+        let after_ids = check_ids(after);
+        self.constraints
+            .retain(|(bound_entity, _), id| *bound_entity != entity || after_ids.contains(id));
+
+        let added = sql_ddl_check_ids(after)
+            .difference(&before_ids)
+            .copied()
+            .collect::<Vec<_>>();
+        if added.len() > 1 {
+            return Err(InternalError::store_invariant());
+        }
+        if let Some(id) = added.first() {
+            let source = ConstraintSourceKey::try_new(sql_ddl_source_key(
+                "constraint",
+                entity,
+                publication_revision,
+            ))
+            .map_err(|_| InternalError::store_invariant())?;
+            if self.constraints.insert((entity, source), *id).is_some() {
+                return Err(InternalError::store_invariant());
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn field_source_key_for_tests(
+        &self,
+        entity: EntityTag,
+        field_id: FieldId,
+    ) -> Option<&str> {
+        self.fields.iter().find_map(|((bound_entity, source), id)| {
+            (*bound_entity == entity && *id == field_id).then(|| source.as_str())
+        })
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn field_binding_count_for_tests(&self, entity: EntityTag) -> usize {
+        self.fields
+            .keys()
+            .filter(|(bound_entity, _)| *bound_entity == entity)
+            .count()
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn constraint_binding_count_for_tests(&self, entity: EntityTag) -> usize {
+        self.constraints
+            .keys()
+            .filter(|(bound_entity, _)| *bound_entity == entity)
+            .count()
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn index_binding_count_for_tests(&self, entity: EntityTag) -> usize {
+        self.indexes
+            .keys()
+            .filter(|(bound_entity, _)| *bound_entity == entity)
+            .count()
     }
 
     fn validate(
@@ -221,6 +423,102 @@ impl AcceptedSourceBindingCatalog {
                 })
             })
     }
+}
+
+#[cfg(feature = "sql")]
+fn sql_ddl_source_key(
+    object_kind: &str,
+    entity: EntityTag,
+    publication_revision: AcceptedSchemaRevision,
+) -> String {
+    format!(
+        "icydb:sql-ddl:{object_kind}:{}:{}",
+        entity.value(),
+        publication_revision.get(),
+    )
+}
+
+#[cfg(feature = "sql")]
+fn field_lineage(
+    before: &PersistedSchemaSnapshot,
+    after: &PersistedSchemaSnapshot,
+) -> Result<BTreeMap<FieldId, FieldId>, InternalError> {
+    let mut lineage = BTreeMap::new();
+    let mut used_after = BTreeSet::new();
+
+    for before_field in before.fields() {
+        if let Some(after_field) = after
+            .fields()
+            .iter()
+            .find(|after_field| after_field.name() == before_field.name())
+        {
+            lineage.insert(before_field.id(), after_field.id());
+            if !used_after.insert(after_field.id()) {
+                return Err(InternalError::store_invariant());
+            }
+        }
+    }
+    for before_field in before.fields() {
+        if lineage.contains_key(&before_field.id()) {
+            continue;
+        }
+        if let Some(after_field) = after.fields().iter().find(|after_field| {
+            after_field.id() == before_field.id() && !used_after.contains(&after_field.id())
+        }) {
+            lineage.insert(before_field.id(), after_field.id());
+            used_after.insert(after_field.id());
+        }
+    }
+
+    Ok(lineage)
+}
+
+#[cfg(feature = "sql")]
+fn check_ids(snapshot: &PersistedSchemaSnapshot) -> BTreeSet<ConstraintId> {
+    snapshot
+        .constraint_catalog()
+        .constraints()
+        .iter()
+        .filter_map(|constraint| {
+            matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
+                .then_some(constraint.id())
+        })
+        .chain(
+            snapshot
+                .constraint_catalog()
+                .activations()
+                .iter()
+                .filter_map(|activation| {
+                    matches!(activation.kind(), ConstraintActivationKind::Check { .. })
+                        .then_some(activation.id())
+                }),
+        )
+        .collect()
+}
+
+#[cfg(feature = "sql")]
+fn sql_ddl_check_ids(snapshot: &PersistedSchemaSnapshot) -> BTreeSet<ConstraintId> {
+    snapshot
+        .constraint_catalog()
+        .constraints()
+        .iter()
+        .filter_map(|constraint| {
+            (constraint.origin() == ConstraintOrigin::SqlDdl
+                && matches!(constraint.kind(), AcceptedConstraintKind::Check { .. }))
+            .then_some(constraint.id())
+        })
+        .chain(
+            snapshot
+                .constraint_catalog()
+                .activations()
+                .iter()
+                .filter_map(|activation| {
+                    (activation.origin() == ConstraintOrigin::SqlDdl
+                        && matches!(activation.kind(), ConstraintActivationKind::Check { .. }))
+                    .then_some(activation.id())
+                }),
+        )
+        .collect()
 }
 
 fn unique_values<T: Ord>(values: impl Iterator<Item = T>) -> bool {

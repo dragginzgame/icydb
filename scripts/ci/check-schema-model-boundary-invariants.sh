@@ -131,16 +131,37 @@ do
   fi
 done
 
-for preserving_candidate_owner in \
+for sql_ddl_binding_owner in \
   crates/icydb-core/src/db/schema/reconcile.rs \
-  crates/icydb-core/src/db/schema/constraint_activation_runner.rs \
   crates/icydb-core/src/db/schema/reconcile/sql_ddl/constraint.rs
 do
   if ! rg -q --fixed-strings \
-    'current.source_bindings().clone()' \
-    "$preserving_candidate_owner"
+    '.with_sql_ddl_entity_transition(' \
+    "$sql_ddl_binding_owner"
   then
-    echo "[ERROR] accepted schema candidates must preserve immutable source bindings: $preserving_candidate_owner" >&2
+    echo "[ERROR] SQL DDL candidates must evolve immutable source bindings with structural owners: $sql_ddl_binding_owner" >&2
+    status=1
+  fi
+done
+
+if ! rg -q --fixed-strings \
+  'current.source_bindings().clone()' \
+  crates/icydb-core/src/db/schema/constraint_activation_runner.rs
+then
+  echo "[ERROR] activation candidates must preserve immutable source bindings" >&2
+  status=1
+fi
+
+for required_sql_ddl_binding_rule in \
+  'with_sql_ddl_entity_transition(' \
+  'field_lineage(' \
+  'sql_ddl_source_key('
+do
+  if ! rg -q --fixed-strings \
+    "$required_sql_ddl_binding_rule" \
+    "$CORE_SOURCE_BINDING"
+  then
+    echo "[ERROR] SQL DDL source-binding ownership must remain catalog-native: $required_sql_ddl_binding_rule" >&2
     status=1
   fi
 done

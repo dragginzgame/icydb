@@ -325,18 +325,26 @@ pub(super) fn candidate_with_snapshot(
     entity_tag: EntityTag,
     snapshot: PersistedSchemaSnapshot,
 ) -> Result<CandidateSchemaRevision, InternalError> {
+    let accepted_before = current
+        .entity_snapshots()
+        .get(&entity_tag)
+        .ok_or_else(InternalError::store_corruption)?;
     let mut entity_snapshots = current.entity_snapshots().clone();
-    entity_snapshots.insert(entity_tag, snapshot);
+    entity_snapshots.insert(entity_tag, snapshot.clone());
     let revision = current
         .revision()
         .checked_next()
         .ok_or_else(InternalError::store_unsupported)?;
+    let source_bindings = current
+        .source_bindings()
+        .clone()
+        .with_sql_ddl_entity_transition(entity_tag, accepted_before, &snapshot, revision)?;
     let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
         revision,
         current.store_path(),
         current.enum_catalog().clone(),
         current.composite_catalog().clone(),
-        current.source_bindings().clone(),
+        source_bindings,
         entity_snapshots,
     )?;
     CandidateSchemaRevision::new(bundle)
