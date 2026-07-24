@@ -13,19 +13,18 @@ use crate::{
             IntegrityCheckpoint, IntegrityDeepError, IntegrityEntityIdentity, IntegrityFinding,
             IntegrityFindingClass, IntegrityFindingKind, IntegrityJob, IntegrityJobError,
             IntegrityJobId, IntegrityJobOwner, IntegrityJobReceipt, IntegrityJobState,
-            IntegrityPendingTerminal, IntegrityPhase, IntegrityPhysicalContainer,
-            IntegrityReceiptEnvelope, IntegrityReceiptReplayKey, IntegrityResourceDiagnostic,
-            IntegritySeverity, IntegritySubmissionKey, IntegrityTerminalOutcome,
-            IntegrityVerifierFamily, MAX_INTEGRITY_IN_PROGRESS_PAGES, PhysicalUnitCheckpoint,
-            QuickIntegrityStatus, RowInspectionLimits, StorageTraversalCorruption,
-            capture_integrity_proof_vector, execute_index_integrity_page, execute_quick_integrity,
-            execute_reverse_integrity_page, execute_row_integrity_page,
+            IntegrityPendingTerminal, IntegrityPhase, IntegrityReceiptEnvelope,
+            IntegrityReceiptReplayKey, IntegrityResourceDiagnostic, IntegritySeverity,
+            IntegritySubmissionKey, IntegrityTerminalOutcome, IntegrityVerifierFamily,
+            MAX_INTEGRITY_IN_PROGRESS_PAGES, PhysicalUnitCheckpoint, QuickIntegrityStatus,
+            RowInspectionLimits, capture_integrity_proof_vector, execute_index_integrity_page,
+            execute_quick_integrity, execute_reverse_integrity_page, execute_row_integrity_page,
             progress_store::{InsertJobResult, with_progress_store},
         },
         journal::{JournalInspectionCheckpoint, JournalInspectionLimits, JournalIntegrityIssue},
         schema::AcceptedInspectionPlan,
     },
-    error::{ErrorClass, InternalError},
+    error::InternalError,
     traits::CanisterKind,
 };
 use sha2::{Digest, Sha256};
@@ -462,7 +461,9 @@ fn advance_job<C: CanisterKind>(
     let candidate = match execute_candidate_page(db, plan, &job) {
         Ok(candidate) => candidate,
         Err(error) => {
-            let outcome = traversal_failure(plan, &job, &error);
+            let outcome = IntegrityTerminalOutcome::Uninspectable(
+                IntegrityAuthorityDiagnostic::from_internal(&error),
+            );
             return terminalize::<C>(&mut job, outcome, acknowledged_sequence, Vec::new());
         }
     };
@@ -1053,64 +1054,6 @@ fn plan_matches_job(plan: &AcceptedInspectionPlan, job: &IntegrityJob) -> bool {
         && identity.accepted_schema_version().get() == job.accepted_schema_version
         && identity.accepted_schema_fingerprint() == job.accepted_schema_fingerprint
         && plan.fingerprint().to_bytes() == job.inspection_plan_fingerprint
-}
-
-fn traversal_failure(
-    plan: &AcceptedInspectionPlan,
-    job: &IntegrityJob,
-    error: &InternalError,
-) -> IntegrityTerminalOutcome {
-    if error.class() != ErrorClass::Corruption {
-        return IntegrityTerminalOutcome::Uninspectable(
-            IntegrityAuthorityDiagnostic::from_internal(error),
-        );
-    }
-    let (container, store_path) = match &job.checkpoint {
-        IntegrityCheckpoint::QuickMetadata => {
-            return IntegrityTerminalOutcome::Uninspectable(
-                IntegrityAuthorityDiagnostic::from_internal(error),
-            );
-        }
-        IntegrityCheckpoint::Rows(_) | IntegrityCheckpoint::FinalProof => (
-            IntegrityPhysicalContainer::Rows,
-            plan.identity().store_path().to_string(),
-        ),
-        IntegrityCheckpoint::Index { ordinal, .. } => {
-            let path = usize::try_from(*ordinal)
-                .ok()
-                .and_then(|ordinal| {
-                    plan.index_inspection()
-                        .domain(ordinal, plan.identity().entity_tag())
-                        .ok()
-                })
-                .map_or_else(
-                    || plan.identity().store_path().to_string(),
-                    |domain| domain.store_path().to_string(),
-                );
-            (IntegrityPhysicalContainer::IndexEntries, path)
-        }
-        IntegrityCheckpoint::ReverseRelation { .. } => (
-            IntegrityPhysicalContainer::ReverseRelations,
-            plan.identity().store_path().to_string(),
-        ),
-        IntegrityCheckpoint::Journal { store_ordinal, .. } => (
-            IntegrityPhysicalContainer::JournalTails,
-            usize::try_from(*store_ordinal)
-                .ok()
-                .and_then(|ordinal| job.captured_proof_vector.stores().get(ordinal))
-                .map_or_else(
-                    || plan.identity().store_path().to_string(),
-                    |proof| proof.store_path().to_string(),
-                ),
-        ),
-    };
-    IntegrityTerminalOutcome::UninspectableStorage(StorageTraversalCorruption {
-        diagnostic_code: error.diagnostic_code().error_code().raw(),
-        store_path,
-        container,
-        phase: job.checkpoint.phase(),
-        last_verified_physical_key: None,
-    })
 }
 
 fn integrity_job_id(

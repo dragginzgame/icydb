@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.212.md](docs/changelog/0.212.md)
 
+- `0.212.5` completes integrity closeout by hard-cutting unreachable Deep
+  traversal state and strengthening corruption isolation, proof invalidation,
+  and recovery verification.
+
 - `0.212.4` makes Deep authority failures typed and replay-safe while
   potentially breaking callers by hard-cutting unreachable Quick traversal and
   busy-state error variants.

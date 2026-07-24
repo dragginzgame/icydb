@@ -44,11 +44,10 @@ pub use icydb_core::db::{
     IntegrityCheckRequest, IntegrityCheckResult, IntegrityEntityIdentity, IntegrityFinding,
     IntegrityFindingClass, IntegrityFindingKind, IntegrityJobError, IntegrityJobId,
     IntegrityJobOwner, IntegrityJobReceipt, IntegrityPendingTerminal, IntegrityPhase,
-    IntegrityPhysicalContainer, IntegrityResourceDiagnostic, IntegritySeverity,
-    IntegritySubmissionKey, IntegrityTerminalOutcome, IntegrityVerifierFamily,
-    MemoryCatalogDescription, QueryTracePlan, QuickIntegrityResult, QuickIntegrityStatus,
-    ReadIntentKind, Row, SchemaStoreSnapshot, StorageReport, StorageTraversalCorruption,
-    StoreCatalogDescription, TraceExecutionFamily, TraceReuseEvent,
+    IntegrityResourceDiagnostic, IntegritySeverity, IntegritySubmissionKey,
+    IntegrityTerminalOutcome, IntegrityVerifierFamily, MemoryCatalogDescription, QueryTracePlan,
+    QuickIntegrityResult, QuickIntegrityStatus, ReadIntentKind, Row, SchemaStoreSnapshot,
+    StorageReport, StoreCatalogDescription, TraceExecutionFamily, TraceReuseEvent,
 };
 
 // Hidden core wiring used by generated code and advanced diagnostics.

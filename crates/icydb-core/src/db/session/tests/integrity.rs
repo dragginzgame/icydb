@@ -11,7 +11,7 @@ use crate::db::{
         RowInspectionLimits, clear_progress_store_for_tests, corrupt_progress_job_for_tests,
         progress_job_encoded_len_for_tests, reset_integrity_retention_cursor_for_tests,
         run_integrity_retention_page_for_tests, run_next_integrity_retention_page_for_tests,
-        set_progress_job_lease_deadline_for_tests,
+        set_allocation_registry_generation_for_tests, set_progress_job_lease_deadline_for_tests,
     },
 };
 
@@ -185,6 +185,74 @@ fn deep_proof_capture_rejects_heap_storage_without_a_runtime_epoch() {
         .expect_err("heap Deep must reject until a trustworthy runtime epoch exists");
 
     assert_eq!(error.class(), ErrorClass::Unsupported);
+}
+
+#[test]
+fn deep_proof_capture_tracks_direct_relation_target_mutation() {
+    reset_mixed_journaled_relation_stores();
+    let session = mixed_journaled_relation_sql_session();
+    let before = session
+        .capture_integrity_proof_for_entity(DurableSessionSqlSourceToJournaledTargetEntity::PATH)
+        .expect("relation-bearing Deep proof should capture");
+
+    session
+        .insert(JournaledSessionSqlEntity {
+            id: 91,
+            name: "proof target".to_string(),
+            age: 37,
+        })
+        .expect("direct relation-target mutation should commit");
+    let after = session
+        .capture_integrity_proof_for_entity(DurableSessionSqlSourceToJournaledTargetEntity::PATH)
+        .expect("relation-bearing Deep proof should recapture");
+
+    assert_ne!(
+        after, before,
+        "direct relation-target revision must invalidate the source proof",
+    );
+}
+
+#[test]
+fn deep_proof_capture_tracks_index_store_generation() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let before = session
+        .capture_integrity_proof_for_entity(IndexedSessionSqlEntity::PATH)
+        .expect("indexed Deep proof should capture");
+
+    INDEXED_SESSION_SQL_INDEX_STORE.with_borrow_mut(|store| {
+        store.clear();
+        store.mark_ready();
+    });
+    let after = session
+        .capture_integrity_proof_for_entity(IndexedSessionSqlEntity::PATH)
+        .expect("indexed Deep proof should recapture");
+
+    assert_ne!(
+        after, before,
+        "physical index-store generation must invalidate the proof",
+    );
+    reset_indexed_session_sql_store();
+}
+
+#[test]
+fn deep_proof_capture_tracks_allocation_registry_generation() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let previous = set_allocation_registry_generation_for_tests(41);
+    let before = session
+        .capture_integrity_proof_for_entity(SessionSqlEntity::PATH)
+        .expect("Deep proof should capture the opening allocation generation");
+    set_allocation_registry_generation_for_tests(42);
+    let after = session
+        .capture_integrity_proof_for_entity(SessionSqlEntity::PATH)
+        .expect("Deep proof should capture the changed allocation generation");
+    set_allocation_registry_generation_for_tests(previous);
+
+    assert_ne!(
+        after, before,
+        "allocation-registry generation must invalidate the proof",
+    );
 }
 
 #[test]
@@ -1118,6 +1186,39 @@ fn deep_job_rejects_a_corrupt_current_progress_record_before_replay() {
         error,
         crate::db::integrity::IntegrityDeepError::Job(IntegrityJobError::CorruptProgressRecord)
     ));
+}
+
+#[test]
+fn corrupt_progress_record_does_not_block_an_unrelated_deep_start() {
+    reset_session_sql_store();
+    clear_progress_store_for_tests::<SessionSqlCanister>();
+    let session = sql_session();
+    let corrupt_owner =
+        IntegrityJobOwner::new("tests::deep-corrupt-isolation-a").expect("owner should admit");
+    let corrupt = session
+        .start_deep_integrity_for_entity(
+            SessionSqlEntity::PATH,
+            corrupt_owner,
+            IntegritySubmissionKey::new("deep-corrupt-isolation-a")
+                .expect("submission should admit"),
+        )
+        .expect("first Deep start should persist");
+    corrupt_progress_job_for_tests::<SessionSqlCanister>(corrupt.job_id())
+        .expect("test should corrupt only the first retained job");
+
+    let healthy_owner =
+        IntegrityJobOwner::new("tests::deep-corrupt-isolation-b").expect("owner should admit");
+    let healthy = session
+        .start_deep_integrity_for_entity(
+            SessionSqlEntity::PATH,
+            healthy_owner.clone(),
+            IntegritySubmissionKey::new("deep-corrupt-isolation-b")
+                .expect("submission should admit"),
+        )
+        .expect("an unrelated corrupt record must not block Deep admission");
+    session
+        .continue_deep_integrity_for_tests(healthy.job_id(), &healthy_owner, 0)
+        .expect("the unrelated healthy job should remain advanceable");
 }
 
 #[test]

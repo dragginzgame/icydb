@@ -20,7 +20,7 @@ use crate::{
         schema::AcceptedInspectionPlan,
     },
     entity::EntityKind,
-    error::{ErrorClass, InternalError},
+    error::{ErrorClass, ErrorOrigin, InternalError},
     traits::{CanisterKind, Path},
 };
 use candid::CandidType;
@@ -59,6 +59,8 @@ pub(in crate::db) use progress_store::{
     clear_progress_store_for_tests, corrupt_progress_job_for_tests,
     progress_job_encoded_len_for_tests, set_progress_job_lease_deadline_for_tests,
 };
+#[cfg(all(test, feature = "sql"))]
+pub(in crate::db) use proof::set_allocation_registry_generation_for_tests;
 pub(in crate::db) use proof::{IntegrityProofVector, capture_integrity_proof_vector};
 #[cfg(test)]
 pub(in crate::db) use row::RowIntegrityPage;
@@ -769,61 +771,6 @@ impl IntegrityResourceDiagnostic {
     }
 }
 
-/// Physical container whose traversal could not prove progress or exhaustion.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-pub enum IntegrityPhysicalContainer {
-    /// Canonical row storage.
-    Rows,
-    /// Active forward-index storage.
-    IndexEntries,
-    /// Active reverse-relation storage.
-    ReverseRelations,
-    /// Journal-tail storage.
-    JournalTails,
-}
-
-/// Typed load-bearing physical traversal failure.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-pub struct StorageTraversalCorruption {
-    diagnostic_code: u16,
-    store_path: String,
-    container: IntegrityPhysicalContainer,
-    phase: IntegrityPhase,
-    last_verified_physical_key: Option<Vec<u8>>,
-}
-
-impl StorageTraversalCorruption {
-    /// Return the stable compact diagnostic code.
-    #[must_use]
-    pub const fn diagnostic_code(&self) -> u16 {
-        self.diagnostic_code
-    }
-
-    /// Borrow the affected store path.
-    #[must_use]
-    pub const fn store_path(&self) -> &str {
-        self.store_path.as_str()
-    }
-
-    /// Return the affected physical container.
-    #[must_use]
-    pub const fn container(&self) -> IntegrityPhysicalContainer {
-        self.container
-    }
-
-    /// Return the phase whose physical traversal failed.
-    #[must_use]
-    pub const fn phase(&self) -> IntegrityPhase {
-        self.phase
-    }
-
-    /// Borrow the last physical key whose classification completed.
-    #[must_use]
-    pub fn last_verified_physical_key(&self) -> Option<&[u8]> {
-        self.last_verified_physical_key.as_deref()
-    }
-}
-
 /// Outcome of one bounded Quick integrity inspection.
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub enum QuickIntegrityStatus {
@@ -930,18 +877,16 @@ impl QuickIntegrityAccumulator {
         self,
         plan: &AcceptedInspectionPlan,
         incarnation: DatabaseIncarnationId,
-    ) -> QuickIntegrityResult {
+    ) -> Result<QuickIntegrityResult, InternalError> {
         let status = if self.total_findings == 0 {
             QuickIntegrityStatus::CompleteClean
         } else {
             QuickIntegrityStatus::CompleteWithFindings
         };
-        let omitted_findings = self
-            .total_findings
-            .saturating_sub(self.findings.len() as u64);
+        let omitted_findings = self.omitted_findings()?;
         let identity = plan.identity();
 
-        QuickIntegrityResult {
+        Ok(QuickIntegrityResult {
             entity: IntegrityEntityIdentity::from_plan(plan),
             database_incarnation_id: incarnation,
             accepted_schema_version: identity.accepted_schema_version().get(),
@@ -950,7 +895,7 @@ impl QuickIntegrityAccumulator {
             total_findings: self.total_findings,
             omitted_findings,
             findings: self.findings,
-        }
+        })
     }
 
     fn resource_limited(
@@ -958,13 +903,11 @@ impl QuickIntegrityAccumulator {
         plan: &AcceptedInspectionPlan,
         incarnation: DatabaseIncarnationId,
         diagnostic: IntegrityResourceDiagnostic,
-    ) -> QuickIntegrityResult {
-        let omitted_findings = self
-            .total_findings
-            .saturating_sub(self.findings.len() as u64);
+    ) -> Result<QuickIntegrityResult, InternalError> {
+        let omitted_findings = self.omitted_findings()?;
         let identity = plan.identity();
 
-        QuickIntegrityResult {
+        Ok(QuickIntegrityResult {
             entity: IntegrityEntityIdentity::from_plan(plan),
             database_incarnation_id: incarnation,
             accepted_schema_version: identity.accepted_schema_version().get(),
@@ -973,7 +916,16 @@ impl QuickIntegrityAccumulator {
             total_findings: self.total_findings,
             omitted_findings,
             findings: self.findings,
-        }
+        })
+    }
+
+    fn omitted_findings(&self) -> Result<u64, InternalError> {
+        let returned = u64::try_from(self.findings.len()).map_err(|_| {
+            InternalError::classified(ErrorClass::InvariantViolation, ErrorOrigin::Response)
+        })?;
+        self.total_findings.checked_sub(returned).ok_or_else(|| {
+            InternalError::classified(ErrorClass::InvariantViolation, ErrorOrigin::Response)
+        })
     }
 }
 
@@ -1015,11 +967,11 @@ pub(in crate::db) fn execute_quick_integrity<C: CanisterKind>(
     let mut accumulator = QuickIntegrityAccumulator::new();
     for finding in findings {
         if let Err(diagnostic) = accumulator.record(finding) {
-            return Ok(accumulator.resource_limited(plan, incarnation, diagnostic));
+            return accumulator.resource_limited(plan, incarnation, diagnostic);
         }
     }
 
-    Ok(accumulator.complete(plan, incarnation))
+    accumulator.complete(plan, incarnation)
 }
 
 pub(crate) fn generate_database_incarnation_id() -> Result<DatabaseIncarnationId, InternalError> {
@@ -1121,7 +1073,9 @@ mod tests {
     fn quick_clean_result_binds_incarnation_and_accepted_plan_identity() {
         let plan = plan();
         let incarnation = DatabaseIncarnationId::for_tests(8);
-        let result = QuickIntegrityAccumulator::new().complete(&plan, incarnation);
+        let result = QuickIntegrityAccumulator::new()
+            .complete(&plan, incarnation)
+            .expect("clean Quick accounting should remain valid");
 
         assert_eq!(result.status(), &QuickIntegrityStatus::CompleteClean);
         assert_eq!(result.database_incarnation_id(), incarnation);
@@ -1140,7 +1094,9 @@ mod tests {
                 .record(finding(&plan))
                 .expect("bounded test finding count should fit");
         }
-        let result = accumulator.complete(&plan, DatabaseIncarnationId::for_tests(9));
+        let result = accumulator
+            .complete(&plan, DatabaseIncarnationId::for_tests(9))
+            .expect("one-over-cap Quick accounting should remain valid");
 
         assert_eq!(result.status(), &QuickIntegrityStatus::CompleteWithFindings,);
         assert_eq!(result.total_findings(), 65);
@@ -1153,12 +1109,30 @@ mod tests {
     }
 
     #[test]
+    fn quick_findings_at_the_exact_returned_cap_have_no_omissions() {
+        let plan = plan();
+        let mut accumulator = QuickIntegrityAccumulator::new();
+        for _ in 0..MAX_QUICK_RETURNED_FINDINGS {
+            accumulator
+                .record(finding(&plan))
+                .expect("exact-cap finding count should fit");
+        }
+        let result = accumulator
+            .complete(&plan, DatabaseIncarnationId::for_tests(10))
+            .expect("exact-cap Quick accounting should remain valid");
+
+        assert_eq!(result.total_findings(), 64);
+        assert_eq!(result.findings().len(), MAX_QUICK_RETURNED_FINDINGS);
+        assert_eq!(result.omitted_findings(), 0);
+    }
+
+    #[test]
     fn quick_selected_authority_failure_is_not_a_clean_completion() {
         let plan = plan();
         let error = InternalError::accepted_row_constraint_program_corrupt();
         let result = uninspectable_quick_integrity(
             plan.identity(),
-            DatabaseIncarnationId::for_tests(10),
+            DatabaseIncarnationId::for_tests(11),
             &error,
         );
 

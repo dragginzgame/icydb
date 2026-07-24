@@ -111,9 +111,8 @@ pub use integrity::{
     IntegrityCheckRequest, IntegrityCheckResult, IntegrityDeepError, IntegrityEntityIdentity,
     IntegrityFinding, IntegrityFindingClass, IntegrityFindingKind, IntegrityJobError,
     IntegrityJobId, IntegrityJobOwner, IntegrityJobReceipt, IntegrityPendingTerminal,
-    IntegrityPhase, IntegrityPhysicalContainer, IntegrityResourceDiagnostic, IntegritySeverity,
-    IntegritySubmissionKey, IntegrityTerminalOutcome, IntegrityVerifierFamily,
-    QuickIntegrityResult, QuickIntegrityStatus, StorageTraversalCorruption,
+    IntegrityPhase, IntegrityResourceDiagnostic, IntegritySeverity, IntegritySubmissionKey,
+    IntegrityTerminalOutcome, IntegrityVerifierFamily, QuickIntegrityResult, QuickIntegrityStatus,
 };
 #[doc(hidden)]
 pub use journal::JournalTailStore;

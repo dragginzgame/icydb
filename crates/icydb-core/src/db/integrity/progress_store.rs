@@ -221,8 +221,16 @@ impl InspectionProgressStore {
             if *entry.key() == PROGRESS_HEADER_KEY {
                 continue;
             }
-            let job_id = IntegrityJobId::try_from_bytes(entry.key().0)?;
-            let job = decode_job_record(&entry.value().0, job_id)?;
+            // Corrupt records already consume one slot from the global hard
+            // capacity, but their owner cannot be trusted. Skipping them here
+            // isolates the failed job without allowing unbounded progress
+            // growth or blocking every other owner from starting work.
+            let Ok(job_id) = IntegrityJobId::try_from_bytes(entry.key().0) else {
+                continue;
+            };
+            let Ok(job) = decode_job_record(&entry.value().0, job_id) else {
+                continue;
+            };
             if job.owner == *owner {
                 count = count
                     .checked_add(1)

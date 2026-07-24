@@ -2430,6 +2430,40 @@ fn recovered_effect_verification_rejects_marker_row_drift() {
 }
 
 #[test]
+fn recovered_effect_verification_rejects_marker_row_delete_drift() {
+    let case = model_recovery_failpoint_case(8);
+    let primary_key = case
+        .marker
+        .journal_batches()
+        .iter()
+        .flat_map(JournalBatch::records)
+        .find_map(|record| match record {
+            JournalRecord::RowDelete { primary_key, .. } => Some(primary_key.clone()),
+            _ => None,
+        })
+        .expect("selected model marker should contain one row delete");
+
+    begin_commit(case.marker.clone()).expect("model marker should persist before recovery");
+    ensure_recovered(&DB).expect("model marker should recover");
+    verify_recovered_effects(&DB, Some(&case.marker))
+        .expect("recovered marker effects should initially match");
+
+    with_recovery_store(|store| {
+        store.with_data_mut(|data_store| {
+            data_store.insert_raw_for_test(
+                primary_key,
+                RawRow::try_new(vec![0xA5]).expect("bounded corrupt test row should build"),
+            );
+        });
+    });
+    let error = verify_recovered_effects(&DB, Some(&case.marker))
+        .expect_err("marker-owned row deletion drift must fail recovered-effect verification");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+
+    reset_recovery_state();
+}
+
+#[test]
 fn recovered_effect_verification_rejects_marker_index_drift() {
     let case = model_recovery_failpoint_case(5);
     let (entity_path, primary_key, row_bytes, schema_fingerprint) = case
@@ -2479,6 +2513,39 @@ fn recovered_effect_verification_rejects_marker_index_drift() {
 
     let error = verify_recovered_effects(&DB, Some(&case.marker))
         .expect_err("marker-owned index drift must fail recovered-effect verification");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+
+    reset_recovery_state();
+}
+
+#[test]
+fn recovered_effect_verification_rejects_nonempty_physical_tail() {
+    let case = model_recovery_failpoint_case(5);
+    let record = case
+        .marker
+        .journal_batches()
+        .iter()
+        .flat_map(JournalBatch::records)
+        .next()
+        .cloned()
+        .expect("model marker should contain one journal record");
+
+    begin_commit(case.marker.clone()).expect("model marker should persist before recovery");
+    ensure_recovered(&DB).expect("model marker should recover");
+    verify_recovered_effects(&DB, Some(&case.marker))
+        .expect("recovered marker effects should initially match");
+
+    let sequence = RECOVERY_JOURNAL_STORE
+        .with_borrow(JournalTailStore::next_mutation_append_sequence)
+        .expect("stray tail sequence should allocate");
+    let stray = JournalBatch::new([0xD1; 16], [0xD2; 16], sequence, vec![record])
+        .expect("bounded stray tail batch should build");
+    RECOVERY_JOURNAL_STORE
+        .with_borrow_mut(|store| store.append_batch(&stray))
+        .expect("stray tail batch should persist");
+
+    let error = verify_recovered_effects(&DB, Some(&case.marker))
+        .expect_err("nonempty physical tail must fail recovered-effect verification");
     assert_eq!(error.class(), ErrorClass::Corruption);
 
     reset_recovery_state();

@@ -17,7 +17,14 @@ use crate::{
 };
 use candid::CandidType;
 use serde::Deserialize;
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
+
+#[cfg(test)]
+thread_local! {
+    static TEST_ALLOCATION_REGISTRY_GENERATION: Cell<u64> = const { Cell::new(0) };
+}
 
 /// Exact physical state read for one participating journaled store.
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -238,7 +245,12 @@ pub(in crate::db) fn capture_integrity_proof_vector<C: CanisterKind>(
     reason = "the test backend supplies generation zero while preserving the fallible production signature"
 )]
 fn allocation_registry_generation() -> Result<u64, InternalError> {
-    Ok(ic_memory::committed_allocations().map_or(0, |allocations| allocations.generation()))
+    Ok(TEST_ALLOCATION_REGISTRY_GENERATION.with(Cell::get))
+}
+
+#[cfg(test)]
+pub(in crate::db) fn set_allocation_registry_generation_for_tests(generation: u64) -> u64 {
+    TEST_ALLOCATION_REGISTRY_GENERATION.with(|current| current.replace(generation))
 }
 
 #[cfg(not(test))]

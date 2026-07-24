@@ -9,7 +9,6 @@ use crate::db::{
         DatabaseIncarnationId, IntegrityAuthorityDiagnostic, IntegrityEntityIdentity,
         IntegrityFinding, IntegrityPhase, IntegrityProofVector, IntegrityResourceDiagnostic,
         IntegrityVerifierFamily, MAX_INTEGRITY_PATH_BYTES, PhysicalUnitCheckpoint,
-        StorageTraversalCorruption,
     },
     journal::JournalInspectionCheckpoint,
 };
@@ -227,8 +226,6 @@ pub enum IntegrityTerminalOutcome {
     Invalidated,
     /// Accepted authority could not be inspected.
     Uninspectable(IntegrityAuthorityDiagnostic),
-    /// A load-bearing physical traversal could not prove progress.
-    UninspectableStorage(StorageTraversalCorruption),
     /// One frozen bounded resource was insufficient.
     ResourceLimited(IntegrityResourceDiagnostic),
     /// The inactivity lease expired.

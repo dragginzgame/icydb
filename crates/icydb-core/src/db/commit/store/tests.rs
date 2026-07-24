@@ -242,6 +242,9 @@ fn commit_marker_transitions_preserve_database_incarnation() {
     let incarnation_before = store
         .database_incarnation_id()
         .expect("current control slot should carry an incarnation");
+    let proof_before = store
+        .proof_identity()
+        .expect("empty current control slot should fingerprint");
     let marker = CommitMarker {
         id: [0xA7; 16],
         journal_batches: Vec::new(),
@@ -256,6 +259,13 @@ fn commit_marker_transitions_preserve_database_incarnation() {
             .expect("marker-bearing control slot should carry an incarnation"),
         incarnation_before,
     );
+    assert_ne!(
+        store
+            .proof_identity()
+            .expect("marker-bearing current control slot should fingerprint"),
+        proof_before,
+        "marker publication must invalidate the database-control proof",
+    );
 
     store
         .clear_verified()
@@ -265,6 +275,13 @@ fn commit_marker_transitions_preserve_database_incarnation() {
             .database_incarnation_id()
             .expect("cleared control slot should carry an incarnation"),
         incarnation_before,
+    );
+    assert_eq!(
+        store
+            .proof_identity()
+            .expect("cleared current control slot should fingerprint"),
+        proof_before,
+        "clearing the marker must restore the empty control proof",
     );
 }
 
