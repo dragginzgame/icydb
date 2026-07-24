@@ -31,13 +31,13 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use deep::run_integrity_retention_page_for_tests;
 pub(in crate::db) use deep::{
     abort_deep_integrity_job, continue_deep_integrity_job, run_next_integrity_retention_page,
     start_deep_integrity_job,
 };
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use deep::{
     reset_integrity_retention_cursor_for_tests, run_next_integrity_retention_page_for_tests,
 };
@@ -55,7 +55,7 @@ pub(in crate::db) use job::{
     IntegrityCheckpoint, IntegrityJob, IntegrityJobState, IntegrityReceiptEnvelope,
     IntegrityReceiptReplayKey, MAX_INTEGRITY_IN_PROGRESS_PAGES,
 };
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use progress_store::{
     clear_progress_store_for_tests, corrupt_progress_job_for_tests,
     set_progress_job_lease_deadline_for_tests,
