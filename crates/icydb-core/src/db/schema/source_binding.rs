@@ -145,6 +145,28 @@ impl AcceptedSourceBindingCatalog {
         self.fields.get(&(entity, source.clone())).copied()
     }
 
+    /// Remove one exact field binding and move every retained binding through
+    /// the dense accepted field-ID reassignment owned by the schema candidate.
+    pub(in crate::db::schema) fn remove_field_and_remap(
+        &mut self,
+        entity: EntityTag,
+        source: &FieldSourceKey,
+        expected: FieldId,
+        mut retained_field_id: impl FnMut(FieldId) -> Option<FieldId>,
+    ) -> Result<(), InternalError> {
+        match self.fields.remove(&(entity, source.clone())) {
+            Some(actual) if actual == expected => {}
+            Some(_) | None => return Err(InternalError::store_invariant()),
+        }
+        for ((bound_entity, _), field_id) in &mut self.fields {
+            if *bound_entity != entity {
+                continue;
+            }
+            *field_id = retained_field_id(*field_id).ok_or_else(InternalError::store_invariant)?;
+        }
+        Ok(())
+    }
+
     /// Resolve one immutable named-type source identity.
     #[must_use]
     pub(in crate::db::schema) fn named_type(
@@ -1015,7 +1037,7 @@ mod tests {
         model::field::{EnumVariantModel, FieldKind, FieldStorageDecode, LeafCodec, ScalarCodec},
         types::EntityTag,
     };
-    use icydb_schema::ConstraintSourceKey;
+    use icydb_schema::{ConstraintSourceKey, FieldSourceKey};
 
     static STATUS_VARIANTS: [EnumVariantModel; 2] = [
         EnumVariantModel::new("Active", None, FieldStorageDecode::ByKind),
@@ -1076,6 +1098,40 @@ mod tests {
                 )
                 .is_err(),
         );
+    }
+
+    #[test]
+    fn field_removal_carries_retained_source_identity_through_dense_ids() {
+        let entity = EntityTag::new(7);
+        let first = FieldSourceKey::try_new("test:first").expect("first field source should build");
+        let removed =
+            FieldSourceKey::try_new("test:removed").expect("removed field source should build");
+        let retained =
+            FieldSourceKey::try_new("test:retained").expect("retained field source should build");
+        let mut catalog = AcceptedSourceBindingCatalog::default();
+        catalog
+            .fields
+            .insert((entity, first.clone()), FieldId::new(1));
+        catalog
+            .fields
+            .insert((entity, removed.clone()), FieldId::new(2));
+        catalog
+            .fields
+            .insert((entity, retained.clone()), FieldId::new(3));
+
+        catalog
+            .remove_field_and_remap(entity, &removed, FieldId::new(2), |field_id| match field_id
+                .get()
+            {
+                1 => Some(FieldId::new(1)),
+                3 => Some(FieldId::new(2)),
+                _ => None,
+            })
+            .expect("exact removal lineage should apply");
+
+        assert_eq!(catalog.field(entity, &first), Some(FieldId::new(1)));
+        assert_eq!(catalog.field(entity, &retained), Some(FieldId::new(2)));
+        assert_eq!(catalog.field(entity, &removed), None);
     }
 
     #[test]

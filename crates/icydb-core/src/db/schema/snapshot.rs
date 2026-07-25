@@ -915,7 +915,6 @@ impl PersistedRelationEdgeSnapshot {
 
     /// Clone this relation after dense field-identity reassignment.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn clone_with_mapped_field_ids(
         &self,
         mut map: impl FnMut(FieldId) -> Option<FieldId>,
@@ -1132,7 +1131,6 @@ impl PersistedIndexSnapshot {
 
     /// Clone this index after dense ordinal and field-layout reassignment.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn clone_with_dense_identities(
         &self,
         ordinal: u16,
@@ -1225,7 +1223,6 @@ impl PersistedIndexKeySnapshot {
         }
     }
 
-    #[cfg(any(test, feature = "sql"))]
     fn clone_with_mapped_field_layout(
         &self,
         map: impl Copy + Fn(FieldId, SchemaFieldSlot) -> Option<(FieldId, SchemaFieldSlot)>,
@@ -1287,7 +1284,6 @@ impl PersistedIndexKeyItemSnapshot {
         }
     }
 
-    #[cfg(any(test, feature = "sql"))]
     fn clone_with_mapped_field_layout(
         &self,
         map: impl Copy + Fn(FieldId, SchemaFieldSlot) -> Option<(FieldId, SchemaFieldSlot)>,
@@ -1391,7 +1387,6 @@ impl PersistedIndexFieldPathSnapshot {
         }
     }
 
-    #[cfg(any(test, feature = "sql"))]
     fn clone_with_mapped_field_layout(
         &self,
         map: impl Fn(FieldId, SchemaFieldSlot) -> Option<(FieldId, SchemaFieldSlot)>,
@@ -1494,7 +1489,6 @@ impl PersistedIndexExpressionSnapshot {
         }
     }
 
-    #[cfg(any(test, feature = "sql"))]
     fn clone_with_mapped_field_layout(
         &self,
         map: impl Fn(FieldId, SchemaFieldSlot) -> Option<(FieldId, SchemaFieldSlot)>,
@@ -1864,7 +1858,6 @@ impl PersistedFieldSnapshot {
 
     /// Return a copy with a reassigned dense field ID and physical slot.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn clone_with_identity(&self, id: FieldId, slot: SchemaFieldSlot) -> Self {
         Self {
             id,
@@ -1889,7 +1882,6 @@ impl PersistedFieldSnapshot {
     /// admitted row may omit this retained field, so historical fill becomes
     /// `Reject` independently of its future insertion default.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn clone_for_full_layout_rewrite(
         &self,
         id: FieldId,

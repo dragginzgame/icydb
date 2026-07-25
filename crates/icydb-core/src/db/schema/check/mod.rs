@@ -166,7 +166,6 @@ pub(in crate::db) enum AcceptedCheckExprV1Error {
     LiteralBytesExceeded,
     EncodedBytesExceeded,
     NonCanonical,
-    #[cfg(feature = "sql")]
     FieldMappingRejected,
 }
 
@@ -208,7 +207,6 @@ impl AcceptedCheckExprV1 {
     }
 
     /// Rewrite field identities during an exact dense-layout mutation.
-    #[cfg(feature = "sql")]
     pub(in crate::db) fn clone_with_mapped_field_ids(
         &self,
         map: impl Copy + Fn(FieldId) -> Option<FieldId>,

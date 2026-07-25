@@ -198,7 +198,8 @@ pub(in crate::db) use mutation::SchemaDdlSchemaVersionAdmissionError;
 pub(in crate::db::schema) use mutation::{
     GeneratedAcceptedCandidateError, GeneratedConstraintActivationContext, MutationPlan,
     MutationPublicationPreflight, SchemaMutationRequest, SchemaTransitionSourceBudget,
-    derive_generated_accepted_candidate, schema_mutation_request_for_snapshots,
+    derive_dense_field_removal_candidate, derive_generated_accepted_candidate,
+    schema_mutation_request_for_snapshots,
 };
 pub(in crate::db) use mutation::{
     MAX_SCHEMA_PROJECTION_ENTRIES, MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES,

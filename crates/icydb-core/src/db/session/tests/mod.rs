@@ -3193,6 +3193,28 @@ fn checked_named_application_proposal(
     )
 }
 
+fn generated_status_field_removal_proposal(
+    target: &crate::db::SchemaApplicationTarget,
+    submission_key: &str,
+) -> icydb_schema::SchemaProposal {
+    icydb_schema::SchemaProposal::try_compose(
+        Vec::new(),
+        target.database_identity(),
+        icydb_schema::SchemaSubmissionKey::try_new(submission_key)
+            .expect("test submission key should admit"),
+        target.accepted_head().clone(),
+        Vec::new(),
+        Vec::new(),
+        vec![icydb_schema::SchemaRemoval::Field {
+            entity: icydb_schema::EntitySourceKey::try_new("test:entity:standalone")
+                .expect("test entity source should admit"),
+            field: icydb_schema::FieldSourceKey::try_new("test:field:standalone-status")
+                .expect("test field source should admit"),
+        }],
+    )
+    .expect("generated field removal should compose")
+}
+
 fn compose_named_application_proposal(
     target: &crate::db::SchemaApplicationTarget,
     fixture: NamedApplicationProposalFixture<'_>,
@@ -4106,6 +4128,146 @@ fn schema_application_removes_generated_check_with_durable_exact_replay() {
                 constraint.kind(),
                 crate::db::schema::AcceptedConstraintKind::Check { .. }
             )),
+    );
+}
+
+#[test]
+fn schema_application_removes_generated_field_from_exactly_empty_entity() {
+    let session = reset_standalone_schema_application_fixture();
+    let target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial = initial_named_application_proposal(
+        &target,
+        "generated-field-removal-initial",
+        false,
+        "status",
+    );
+    session
+        .apply_schema(&initial)
+        .expect("initial generated schema should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let (&entity_tag, before) = accepted_before
+        .entity_snapshots()
+        .iter()
+        .next()
+        .expect("initial entity should exist");
+    let removed_field = before
+        .fields()
+        .iter()
+        .find(|field| field.name() == "status")
+        .expect("status field should exist");
+    let after_target = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let proposal =
+        generated_status_field_removal_proposal(&after_target, "remove-generated-status-field");
+
+    let receipt = session
+        .apply_schema(&proposal)
+        .expect("empty-domain generated field removal should publish");
+    let replay = session
+        .apply_schema(&proposal)
+        .expect("exact field-removal retry should replay");
+    let accepted_after = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("updated accepted bundle should load")
+        .expect("updated accepted bundle should exist");
+    let after = accepted_after
+        .entity_snapshots()
+        .get(&entity_tag)
+        .expect("entity should survive field removal");
+
+    assert_eq!(replay, receipt);
+    assert!(matches!(
+        receipt.outcome(),
+        crate::db::SchemaChangeOutcome::Applied { .. }
+    ));
+    assert_eq!(accepted_after.revision().get(), 2);
+    assert_eq!(after.version().get(), before.version().get() + 1);
+    assert_eq!(
+        after.row_layout().current_version().get(),
+        before.row_layout().current_version().get() + 1,
+    );
+    assert_eq!(after.fields().len(), before.fields().len() - 1);
+    assert!(
+        after
+            .fields()
+            .iter()
+            .all(|field| field.name() != removed_field.name())
+    );
+    assert_eq!(
+        accepted_after
+            .source_bindings_for_tests()
+            .field_binding_count_for_tests(entity_tag),
+        1,
+    );
+    assert_eq!(
+        accepted_after
+            .source_bindings_for_tests()
+            .named_type_binding_count_for_tests(),
+        1,
+        "an unused accepted named type remains unchanged by absence",
+    );
+}
+
+#[test]
+fn schema_application_rejects_generated_field_removal_from_nonempty_entity() {
+    let session = reset_standalone_schema_application_fixture();
+    let target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial = initial_named_application_proposal(
+        &target,
+        "nonempty-generated-field-removal-initial",
+        false,
+        "status",
+    );
+    session
+        .apply_schema(&initial)
+        .expect("initial generated schema should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let entity_tag = *accepted_before
+        .entity_snapshots()
+        .keys()
+        .next()
+        .expect("initial entity should exist");
+    let key = RawDataStoreKey::from_entity_and_primary_key_bytes(entity_tag, b"one");
+    JOURNALED_SESSION_SQL_DATA_STORE.with_borrow_mut(|store| {
+        store.insert_raw_for_test(
+            key,
+            crate::db::data::RawRow::try_new(vec![0xFF]).expect("bounded raw row should construct"),
+        );
+    });
+    let after_target = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let proposal = generated_status_field_removal_proposal(
+        &after_target,
+        "reject-nonempty-generated-status-field-removal",
+    );
+
+    let rejection = session
+        .apply_schema(&proposal)
+        .expect_err("nonempty field removal must reject before publication");
+    let accepted_after = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("accepted bundle should remain readable")
+        .expect("accepted bundle should remain present");
+
+    assert_eq!(rejection.class(), ErrorClass::Unsupported);
+    assert_eq!(accepted_after, accepted_before);
+    assert_eq!(
+        session
+            .schema_application_receipt(after_target.database_identity(), proposal.submission_key())
+            .expect("rejected receipt lookup should succeed"),
+        None,
     );
 }
 

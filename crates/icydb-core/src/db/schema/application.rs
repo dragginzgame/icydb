@@ -507,6 +507,7 @@ fn preflight_existing_application(
     current_bundles: &[Option<crate::db::schema::AcceptedSchemaRevisionBundle>],
     candidates: &mut [CandidateSchemaRevision],
 ) -> Result<Option<PendingGeneratedCheck>, InternalError> {
+    require_empty_physical_field_removals(authorities, current_bundles, candidates)?;
     let proofs = generated_check_proofs(authorities, current_bundles, candidates)?;
     if proofs
         .iter()
@@ -583,6 +584,44 @@ fn preflight_existing_application(
         candidates[candidate_index] = CandidateSchemaRevision::new(bundle)?;
     }
     Ok(pending)
+}
+
+/// Prove that every dense field-removal candidate has no historical row to
+/// rewrite. Missing or corrupt maintained cardinality fails closed.
+fn require_empty_physical_field_removals(
+    authorities: &[StoreApplicationAuthority],
+    current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
+    candidates: &[CandidateSchemaRevision],
+) -> Result<(), InternalError> {
+    for candidate in candidates {
+        let (position, authority) = authorities
+            .iter()
+            .enumerate()
+            .find(|(_, authority)| authority.path == candidate.store_path())
+            .ok_or_else(InternalError::store_unsupported)?;
+        let current = current_bundles
+            .get(position)
+            .and_then(Option::as_ref)
+            .ok_or_else(InternalError::store_invariant)?;
+        for (entity_tag, after) in candidate.bundle().entity_snapshots() {
+            let before = current
+                .entity_snapshots()
+                .get(entity_tag)
+                .ok_or_else(InternalError::store_unsupported)?;
+            if before.row_layout() == after.row_layout() {
+                continue;
+            }
+            if before.fields().len() != after.fields().len().saturating_add(1)
+                || authority
+                    .handle
+                    .with_data(|store| store.exact_entity_count(*entity_tag))
+                    != Some(0)
+            {
+                return Err(InternalError::store_unsupported());
+            }
+        }
+    }
+    Ok(())
 }
 
 fn generated_check_proofs(

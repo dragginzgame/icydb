@@ -326,7 +326,6 @@ impl AcceptedConstraintSnapshot {
         &self.kind
     }
 
-    #[cfg(feature = "sql")]
     fn clone_with_kind(&self, kind: AcceptedConstraintKind) -> Self {
         Self {
             id: self.id,
@@ -458,7 +457,6 @@ impl AcceptedConstraintCatalog {
     }
 
     /// Remove the structural registry entry for one field made nullable.
-    #[cfg(feature = "sql")]
     pub(in crate::db) fn with_removed_not_null(
         mut self,
         field_id: FieldId,
@@ -809,7 +807,6 @@ impl AcceptedConstraintCatalog {
     }
 
     /// Rewrite field references after an exact dense-layout rewrite.
-    #[cfg(feature = "sql")]
     pub(in crate::db) fn with_mapped_field_ids(
         mut self,
         map: impl Copy + Fn(FieldId) -> Option<FieldId>,

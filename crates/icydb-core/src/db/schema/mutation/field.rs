@@ -1,6 +1,7 @@
 use super::{
     SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmission,
     SchemaDdlMutationAdmissionError, SchemaDdlMutationTarget,
+    field_removal::{DenseFieldRemovalError, derive_dense_field_removal_candidate},
 };
 use crate::db::schema::{
     AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot, PersistedSchemaSnapshot,
@@ -527,94 +528,17 @@ pub(in crate::db) fn derive_sql_ddl_field_drop_accepted_after(
         .iter()
         .find(|field| field.name() == field_name)
         .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
-    let retained_fields = before
-        .fields()
-        .iter()
-        .filter(|field| field.id() != before_field.id())
-        .collect::<Vec<_>>();
-    let dense_identities = retained_fields
-        .iter()
-        .enumerate()
-        .map(|(index, field)| {
-            let ordinal = u32::try_from(index)
-                .ok()
-                .and_then(|index| index.checked_add(1))
-                .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
-            Ok((
-                field.id(),
-                FieldId::new(ordinal),
-                SchemaFieldSlot::from_generated_index(index),
-            ))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let map_field = |field_id: FieldId, _slot: SchemaFieldSlot| {
-        dense_identities
-            .iter()
-            .find(|(before_id, _, _)| *before_id == field_id)
-            .map(|(_, after_id, after_slot)| (*after_id, *after_slot))
-    };
-    let fields = retained_fields
-        .iter()
-        .zip(&dense_identities)
-        .map(|(field, (_, id, slot))| field.clone_for_full_layout_rewrite(*id, *slot))
-        .collect::<Vec<_>>();
-    let rewritten_layout_version = before
-        .row_layout()
-        .current_version()
-        .checked_next()
-        .ok_or(SchemaDdlMutationAdmissionError::RowLayoutVersionExhausted)?;
-    let row_layout = SchemaRowLayout::single_version(
-        rewritten_layout_version,
-        dense_identities
-            .iter()
-            .map(|(_, id, slot)| (*id, *slot))
-            .collect(),
-    );
-    let primary_key_field_ids = before
-        .primary_key_field_ids()
-        .iter()
-        .map(|field_id| map_field(*field_id, SchemaFieldSlot::new(0)).map(|(id, _)| id))
-        .collect::<Option<Vec<_>>>()
-        .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
-    let indexes = before
-        .indexes()
-        .iter()
-        .map(|index| index.clone_with_dense_identities(index.ordinal(), map_field))
-        .collect::<Option<Vec<_>>>()
-        .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
-    let relations = before
-        .relations()
-        .iter()
-        .map(|relation| {
-            relation.clone_with_mapped_field_ids(|field_id| {
-                map_field(field_id, SchemaFieldSlot::new(0)).map(|(id, _)| id)
-            })
-        })
-        .collect::<Option<Vec<_>>>()
-        .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
-    let mut constraint_catalog = before.constraint_catalog().clone();
-    if !before_field.nullable() {
-        constraint_catalog = constraint_catalog
-            .with_removed_not_null(before_field.id())
-            .map_err(SchemaDdlMutationAdmissionError::ConstraintCatalog)?;
-    }
-    let constraint_catalog = constraint_catalog
-        .with_mapped_field_ids(|field_id| {
-            map_field(field_id, SchemaFieldSlot::new(0)).map(|(field_id, _)| field_id)
-        })
-        .map_err(SchemaDdlMutationAdmissionError::ConstraintCatalog)?;
-    let persisted_after = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-        before.version(),
-        before.entity_path().to_string(),
-        before.entity_name().to_string(),
-        primary_key_field_ids,
-        row_layout,
-        fields,
-        indexes,
-    )
-    .with_constraint_catalog(constraint_catalog)
-    .with_relations(relations);
-    let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
+    let removal = derive_dense_field_removal_candidate(before, before_field.id()).map_err(
+        |error| match error {
+            DenseFieldRemovalError::RowLayoutVersionExhausted => {
+                SchemaDdlMutationAdmissionError::RowLayoutVersionExhausted
+            }
+            DenseFieldRemovalError::Unsupported => {
+                SchemaDdlMutationAdmissionError::UnsupportedExecutionPath
+            }
+        },
+    )?;
+    let accepted_after = AcceptedSchemaSnapshot::try_new(removal.into_snapshot())
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
     let admission = admit_sql_ddl_field_drop_candidate(before_field);
 

@@ -32,7 +32,8 @@ use crate::{
                 AcceptedCompositeCatalog, AcceptedCompositeElement, AcceptedCompositeField,
                 AcceptedCompositeShape, CompositeFieldId, CompositeTypeId,
             },
-            render_accepted_check_expr_sql, source_literal_input,
+            derive_dense_field_removal_candidate, render_accepted_check_expr_sql,
+            source_literal_input,
         },
     },
     error::InternalError,
@@ -537,6 +538,7 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
     let mut entities_by_store =
         BTreeMap::<&'static str, (&ExistingProposalStore<'_>, Vec<&EntityFragment>)>::new();
     let mut check_removals_by_store = BTreeMap::<&'static str, Vec<ExistingCheckRemoval>>::new();
+    let mut field_removals_by_store = BTreeMap::<&'static str, Vec<ExistingFieldRemoval>>::new();
     for assignment in proposal.assignments() {
         let store = store_by_identity
             .get(&assignment.store())
@@ -554,18 +556,36 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
             .push(entity);
     }
     for removal in proposal.removals() {
-        let SchemaRemoval::Constraint { entity, constraint } = removal else {
-            return Err(InternalError::store_unsupported());
-        };
-        let (store, resolved) =
-            resolve_existing_generated_check_removal(stores, entity, constraint)?;
-        entities_by_store
-            .entry(store.path)
-            .or_insert_with(|| (store, Vec::new()));
-        check_removals_by_store
-            .entry(store.path)
-            .or_default()
-            .push(resolved);
+        match removal {
+            SchemaRemoval::Constraint { entity, constraint } => {
+                let (store, resolved) =
+                    resolve_existing_generated_check_removal(stores, entity, constraint)?;
+                entities_by_store
+                    .entry(store.path)
+                    .or_insert_with(|| (store, Vec::new()));
+                check_removals_by_store
+                    .entry(store.path)
+                    .or_default()
+                    .push(resolved);
+            }
+            SchemaRemoval::Field { entity, field } => {
+                let (store, resolved) =
+                    resolve_existing_generated_field_removal(stores, entity, field)?;
+                entities_by_store
+                    .entry(store.path)
+                    .or_insert_with(|| (store, Vec::new()));
+                field_removals_by_store
+                    .entry(store.path)
+                    .or_default()
+                    .push(resolved);
+            }
+            SchemaRemoval::Entity(_)
+            | SchemaRemoval::Type(_)
+            | SchemaRemoval::Index { .. }
+            | SchemaRemoval::Relation { .. } => {
+                return Err(InternalError::store_unsupported());
+            }
+        }
     }
 
     let mut used_types = BTreeSet::new();
@@ -574,11 +594,15 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
         let removals = check_removals_by_store
             .remove(store.path)
             .unwrap_or_default();
+        let field_removals = field_removals_by_store
+            .remove(store.path)
+            .unwrap_or_default();
         if let Some(candidate) = lower_existing_store_candidate(
             store,
             stores,
             store_entities,
             removals,
+            field_removals,
             &types,
             &mut used_types,
         )? {
@@ -600,25 +624,41 @@ struct ExistingCheckRemoval {
     id: ConstraintId,
 }
 
+/// One source-resolved generated field selected for exact physical removal.
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
+struct ExistingFieldRemoval {
+    entity_tag: EntityTag,
+    source: FieldSourceKey,
+    id: FieldId,
+}
+
 fn lower_existing_store_candidate(
     store: &ExistingProposalStore<'_>,
     stores: &[ExistingProposalStore<'_>],
     mut entities: Vec<&EntityFragment>,
     mut check_removals: Vec<ExistingCheckRemoval>,
+    mut field_removals: Vec<ExistingFieldRemoval>,
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
     used_types: &mut BTreeSet<TypeSourceKey>,
 ) -> Result<Option<CandidateSchemaRevision>, InternalError> {
     entities.sort_by(|left, right| left.source_key().cmp(right.source_key()));
     check_removals.sort();
+    field_removals.sort();
     let catalogs =
         lower_existing_named_catalogs(store.bundle, entities.as_slice(), types, used_types)?;
     let mut snapshots = store.bundle.entity_snapshots().clone();
     let mut source_bindings = store.bundle.source_bindings().clone();
-    let removal_entity_tags = apply_existing_check_removals(
+    let mut removal_entity_tags = apply_existing_check_removals(
         &mut snapshots,
         &mut source_bindings,
         check_removals.as_slice(),
     )?;
+    removal_entity_tags.extend(apply_existing_field_removals(
+        &mut snapshots,
+        &mut source_bindings,
+        field_removals.as_slice(),
+    )?);
+    advance_removed_entity_schema_versions(&mut snapshots, &removal_entity_tags)?;
     let proposed_entity_tags = entities
         .iter()
         .map(|entity| {
@@ -630,7 +670,7 @@ fn lower_existing_store_candidate(
         })
         .collect::<Result<BTreeSet<_>, _>>()?;
     verify_unrebuildable_enum_predicates(store.bundle, &catalogs, &proposed_entity_tags)?;
-    let mut changed = !check_removals.is_empty();
+    let mut changed = !check_removals.is_empty() || !field_removals.is_empty();
     for entity in entities {
         let entity_tag = store
             .bundle
@@ -737,10 +777,58 @@ fn resolve_existing_generated_check_removal<'store, 'bundle>(
     resolved.ok_or_else(InternalError::store_unsupported)
 }
 
+/// Resolve one generated field removal solely through immutable accepted
+/// source identity.
+fn resolve_existing_generated_field_removal<'store, 'bundle>(
+    stores: &'store [ExistingProposalStore<'bundle>],
+    entity_source: &EntitySourceKey,
+    field_source: &FieldSourceKey,
+) -> Result<(&'store ExistingProposalStore<'bundle>, ExistingFieldRemoval), InternalError> {
+    let mut resolved = None;
+    for store in stores {
+        let Some(entity_tag) = store.bundle.source_bindings().entity(entity_source) else {
+            continue;
+        };
+        if resolved.is_some() {
+            return Err(InternalError::store_unsupported());
+        }
+        let snapshot = store
+            .bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .ok_or_else(InternalError::store_invariant)?;
+        if !snapshot.constraint_activations().is_empty()
+            || !snapshot.candidate_indexes().is_empty()
+            || !snapshot.candidate_relations().is_empty()
+        {
+            return Err(InternalError::store_unsupported());
+        }
+        let field_id = store
+            .bundle
+            .source_bindings()
+            .field(entity_tag, field_source)
+            .ok_or_else(InternalError::store_unsupported)?;
+        let field = snapshot
+            .fields()
+            .iter()
+            .find(|field| field.id() == field_id)
+            .ok_or_else(InternalError::store_invariant)?;
+        if !field.generated() {
+            return Err(InternalError::store_unsupported());
+        }
+        resolved = Some((
+            store,
+            ExistingFieldRemoval {
+                entity_tag,
+                source: field_source.clone(),
+                id: field_id,
+            },
+        ));
+    }
+    resolved.ok_or_else(InternalError::store_unsupported)
+}
+
 /// Remove checks and source bindings as one candidate-local identity update.
-///
-/// Each affected entity advances its schema version exactly once regardless
-/// of how many accepted generated checks the proposal removes.
 fn apply_existing_check_removals(
     snapshots: &mut BTreeMap<EntityTag, PersistedSchemaSnapshot>,
     source_bindings: &mut AcceptedSourceBindingCatalog,
@@ -767,21 +855,70 @@ fn apply_existing_check_removals(
                 .map_err(|_| InternalError::store_invariant())?;
             source_bindings.remove_constraint(entity_tag, &removal.source, removal.id)?;
         }
+        snapshots.insert(entity_tag, current.with_constraint_catalog(catalog));
+        changed_entities.insert(entity_tag);
+    }
+    Ok(changed_entities)
+}
+
+/// Derive one dense generated-field removal per entity and carry every
+/// retained source binding through the candidate-owned field-ID lineage.
+fn apply_existing_field_removals(
+    snapshots: &mut BTreeMap<EntityTag, PersistedSchemaSnapshot>,
+    source_bindings: &mut AcceptedSourceBindingCatalog,
+    removals: &[ExistingFieldRemoval],
+) -> Result<BTreeSet<EntityTag>, InternalError> {
+    let mut removals_by_entity = BTreeMap::<EntityTag, Vec<&ExistingFieldRemoval>>::new();
+    for removal in removals {
+        removals_by_entity
+            .entry(removal.entity_tag)
+            .or_default()
+            .push(removal);
+    }
+
+    let mut changed_entities = BTreeSet::new();
+    for (entity_tag, entity_removals) in removals_by_entity {
+        let [removal] = entity_removals.as_slice() else {
+            return Err(InternalError::store_unsupported());
+        };
+        let current = snapshots
+            .get(&entity_tag)
+            .cloned()
+            .ok_or_else(InternalError::store_invariant)?;
+        let candidate = derive_dense_field_removal_candidate(&current, removal.id)
+            .map_err(|_| InternalError::store_unsupported())?;
+        source_bindings.remove_field_and_remap(
+            entity_tag,
+            &removal.source,
+            removal.id,
+            |field_id| candidate.retained_field_id(field_id),
+        )?;
+        snapshots.insert(entity_tag, candidate.into_snapshot());
+        changed_entities.insert(entity_tag);
+    }
+    Ok(changed_entities)
+}
+
+/// Advance each entity touched by explicit removals exactly once, including
+/// proposals that combine check and field removal.
+fn advance_removed_entity_schema_versions(
+    snapshots: &mut BTreeMap<EntityTag, PersistedSchemaSnapshot>,
+    changed_entities: &BTreeSet<EntityTag>,
+) -> Result<(), InternalError> {
+    for entity_tag in changed_entities {
+        let current = snapshots
+            .get(entity_tag)
+            .cloned()
+            .ok_or_else(InternalError::store_invariant)?;
         let version = current
             .version()
             .get()
             .checked_add(1)
             .map(SchemaVersion::new)
             .ok_or_else(InternalError::store_unsupported)?;
-        snapshots.insert(
-            entity_tag,
-            current
-                .with_constraint_catalog(catalog)
-                .with_schema_version(version),
-        );
-        changed_entities.insert(entity_tag);
+        snapshots.insert(*entity_tag, current.with_schema_version(version));
     }
-    Ok(changed_entities)
+    Ok(())
 }
 
 /// Candidate value catalogs for one exact existing accepted head.
@@ -1048,7 +1185,8 @@ fn lower_existing_entity(
         return Err(InternalError::store_unsupported());
     }
 
-    let field_candidate = lower_existing_fields(bundle, catalogs, entity, entity_tag, current)?;
+    let field_candidate =
+        lower_existing_fields(catalogs, entity, entity_tag, current, source_bindings)?;
     let bindings = &*source_bindings;
     let primary_key = entity
         .primary_key()
@@ -1149,11 +1287,11 @@ struct ExistingFieldCandidate {
 }
 
 fn lower_existing_fields(
-    bundle: &AcceptedSchemaRevisionBundle,
     catalogs: &ExistingCatalogCandidate,
     entity: &EntityFragment,
     entity_tag: EntityTag,
     current: &PersistedSchemaSnapshot,
+    bindings: &AcceptedSourceBindingCatalog,
 ) -> Result<ExistingFieldCandidate, InternalError> {
     let generated_field_count = current
         .fields()
@@ -1163,7 +1301,6 @@ fn lower_existing_fields(
     if generated_field_count != entity.fields().len() {
         return Err(InternalError::store_unsupported());
     }
-    let bindings = bundle.source_bindings();
     let mut fields = current.fields().to_vec();
     let mut changed = false;
     let mut field_names_changed = false;
@@ -2637,7 +2774,7 @@ mod tests {
     }
 
     #[test]
-    fn existing_physical_removal_still_rejects_before_candidate_construction() {
+    fn existing_generated_field_removal_rejects_an_index_dependency() {
         let (initial, entity_source, store) =
             scalar_proposal_fixture(ExpectedAcceptedHead::Empty, "physical-removal-initial", 5);
         let initial_candidates = lower_initial_schema_proposal(
@@ -2677,7 +2814,7 @@ mod tests {
                 }],
             )
             .is_err(),
-            "physical removal must reject until its migration owner participates",
+            "field removal must not discard a dependent accepted index",
         );
     }
 

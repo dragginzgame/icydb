@@ -48,6 +48,9 @@ pub(in crate::db) use field_default_encoding::{
     encode_sql_ddl_add_column_default, encode_sql_ddl_alter_column_default,
 };
 
+mod field_removal;
+pub(in crate::db::schema) use field_removal::derive_dense_field_removal_candidate;
+
 #[cfg(feature = "sql")]
 mod field_type;
 #[cfg(feature = "sql")]
