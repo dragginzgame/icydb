@@ -3123,8 +3123,84 @@ fn schema_application_no_op_receipt_is_durable_and_exactly_replayed() {
     assert_eq!(error.class(), ErrorClass::Conflict);
 }
 
+fn initial_named_application_proposal(
+    target: &crate::db::SchemaApplicationTarget,
+) -> icydb_schema::SchemaProposal {
+    let entity_source = icydb_schema::EntitySourceKey::try_new("test:entity:standalone")
+        .expect("test entity source should admit");
+    let id_source = icydb_schema::FieldSourceKey::try_new("test:field:standalone-id")
+        .expect("test field source should admit");
+    let status_source = icydb_schema::TypeSourceKey::try_new("test:type:standalone-status")
+        .expect("test type source should admit");
+    let active_source = icydb_schema::TypeSourceKey::try_new("test:variant:standalone-active")
+        .expect("test variant source should admit");
+    let status_type = icydb_schema::NamedTypeFragment::Enum(
+        icydb_schema::EnumTypeFragment::try_new(
+            status_source.clone(),
+            icydb_schema::SchemaName::try_new("StandaloneStatus")
+                .expect("test type name should admit"),
+            vec![icydb_schema::EnumVariantFragment::new(
+                active_source.clone(),
+                icydb_schema::SchemaName::try_new("Active")
+                    .expect("test variant name should admit"),
+            )],
+        )
+        .expect("test enum should admit"),
+    );
+    let entity = icydb_schema::EntityFragment::try_new(
+        entity_source.clone(),
+        icydb_schema::SchemaName::try_new("Standalone").expect("test entity name should admit"),
+        vec![
+            icydb_schema::FieldFragment::new(
+                id_source.clone(),
+                icydb_schema::SchemaName::try_new("id").expect("test field name should admit"),
+                icydb_schema::FieldType::Scalar(icydb_schema::ScalarType::Nat64),
+                false,
+                icydb_schema::FieldInsertPolicy::Required,
+                None,
+            ),
+            icydb_schema::FieldFragment::new(
+                icydb_schema::FieldSourceKey::try_new("test:field:standalone-status")
+                    .expect("test field source should admit"),
+                icydb_schema::SchemaName::try_new("status").expect("test field name should admit"),
+                icydb_schema::FieldType::Named(status_source.clone()),
+                false,
+                icydb_schema::FieldInsertPolicy::Default(icydb_schema::ScalarLiteral::EnumUnit {
+                    enum_type: status_source,
+                    variant: active_source,
+                }),
+                None,
+            ),
+        ],
+        vec![id_source],
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("test entity should admit");
+    let fragment = icydb_schema::SchemaFragment::try_new(vec![entity], vec![status_type])
+        .expect("test fragment should admit");
+    icydb_schema::SchemaProposal::try_compose(
+        vec![
+            icydb_schema::SchemaCapability::EXACT_COMPOSITE_TYPES,
+            icydb_schema::SchemaCapability::INSERT_DEFAULTS,
+        ],
+        target.database_identity(),
+        icydb_schema::SchemaSubmissionKey::try_new("initial-named-application")
+            .expect("test submission key should admit"),
+        target.accepted_head().clone(),
+        vec![fragment],
+        vec![icydb_schema::EntityStoreAssignment::new(
+            entity_source,
+            target.stores()[0].identity(),
+        )],
+        Vec::new(),
+    )
+    .expect("test proposal should compose")
+}
+
 #[test]
-fn schema_application_publishes_initial_scalar_proposal_and_receipt_atomically() {
+fn schema_application_publishes_initial_named_proposal_and_receipt_atomically() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     JOURNALED_SESSION_SQL_DATA_STORE.with_borrow_mut(DataStore::clear);
     JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow_mut(|store| {
@@ -3145,44 +3221,7 @@ fn schema_application_publishes_initial_scalar_proposal_and_receipt_atomically()
         target.accepted_head(),
         &icydb_schema::ExpectedAcceptedHead::Empty
     );
-
-    let entity_source = icydb_schema::EntitySourceKey::try_new("test:entity:standalone")
-        .expect("test entity source should admit");
-    let id_source = icydb_schema::FieldSourceKey::try_new("test:field:standalone-id")
-        .expect("test field source should admit");
-    let entity = icydb_schema::EntityFragment::try_new(
-        entity_source.clone(),
-        icydb_schema::SchemaName::try_new("Standalone").expect("test entity name should admit"),
-        vec![icydb_schema::FieldFragment::new(
-            id_source.clone(),
-            icydb_schema::SchemaName::try_new("id").expect("test field name should admit"),
-            icydb_schema::FieldType::Scalar(icydb_schema::ScalarType::Nat64),
-            false,
-            icydb_schema::FieldInsertPolicy::Required,
-            None,
-        )],
-        vec![id_source],
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-    )
-    .expect("test entity should admit");
-    let fragment = icydb_schema::SchemaFragment::try_new(vec![entity], Vec::new())
-        .expect("test fragment should admit");
-    let proposal = icydb_schema::SchemaProposal::try_compose(
-        Vec::new(),
-        target.database_identity(),
-        icydb_schema::SchemaSubmissionKey::try_new("initial-scalar-application")
-            .expect("test submission key should admit"),
-        target.accepted_head().clone(),
-        vec![fragment],
-        vec![icydb_schema::EntityStoreAssignment::new(
-            entity_source,
-            target.stores()[0].identity(),
-        )],
-        Vec::new(),
-    )
-    .expect("test proposal should compose");
+    let proposal = initial_named_application_proposal(&target);
 
     JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow_mut(IndexStore::mark_building);
     let rejection = session
@@ -3200,7 +3239,7 @@ fn schema_application_publishes_initial_scalar_proposal_and_receipt_atomically()
 
     let receipt = session
         .apply_schema(&proposal)
-        .expect("initial scalar proposal should publish");
+        .expect("initial named proposal should publish");
     let after = session
         .schema_application_target()
         .expect("published target should derive");

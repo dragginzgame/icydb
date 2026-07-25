@@ -3,28 +3,35 @@
 //! Does not own: optimistic admission, durable receipts, publication, or activation progress.
 //! Boundary: validated public proposal plus target-store routing -> catalog-native candidates.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use icydb_schema::{
     EntityFragment, EntitySourceKey, FieldInsertPolicy, FieldManagementPolicy, FieldSourceKey,
-    FieldType, IndexKeyFragment, ScalarType, SchemaProposal, TargetStoreIdentity,
+    FieldType, IndexKeyFragment, NamedTypeFragment, ScalarType, SchemaProposal,
+    TargetStoreIdentity, TypeSourceKey,
 };
 
 use crate::{
     db::{
         data::encode_input_value_for_candidate_field_contract,
         schema::{
-            AcceptedCompositeCatalog, AcceptedConstraintCatalog, AcceptedConstraintKind,
-            AcceptedEnumCatalog, AcceptedFieldDecodeContract, AcceptedFieldKind,
+            AcceptedConstraintCatalog, AcceptedConstraintKind, AcceptedEnumCatalog,
+            AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedNamedTypeIdentity,
             AcceptedSchemaFingerprint, AcceptedSchemaRevision, AcceptedSchemaRevisionBundle,
             AcceptedSourceBindingCatalog, AcceptedStoreCatalogScope, AcceptedValueCatalogHandle,
-            CandidateSchemaRevision, ConstraintId, ConstraintOrigin, FieldId, PersistedFieldOrigin,
-            PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+            CandidateSchemaRevision, ConstraintId, ConstraintOrigin, FieldId,
+            MAX_ACCEPTED_RECURSIVE_DEPTH, PersistedFieldOrigin, PersistedFieldSnapshot,
+            PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
-            PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedRelationEdgeSnapshot,
-            PersistedSchemaSnapshot, RelationId, RowLayoutVersion, SchemaFieldSlot,
-            SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaIndexId, SchemaInsertDefault,
-            SchemaRowLayout, SchemaVersion, ValueAdmissionBudget, bind_source_check_expr,
+            PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
+            PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId, RowLayoutVersion,
+            SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaIndexId,
+            SchemaInsertDefault, SchemaRowLayout, SchemaVersion, ValueAdmissionBudget,
+            bind_source_check_expr,
+            composite_catalog::{
+                AcceptedCompositeCatalog, AcceptedCompositeElement, AcceptedCompositeField,
+                AcceptedCompositeShape, CompositeTypeId,
+            },
             render_accepted_check_expr_sql, source_literal_input,
         },
     },
@@ -33,6 +40,7 @@ use crate::{
         FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec, ScalarCodec,
     },
     types::EntityTag,
+    value::{EnumTypeId, EnumVariantId},
 };
 
 /// One registered store routing fact admitted by the application boundary.
@@ -51,6 +59,7 @@ struct InitialStoreContext<'a> {
     accepted_entities: &'a BTreeMap<EntitySourceKey, EntityTag>,
     enum_catalog: AcceptedEnumCatalog,
     composite_catalog: AcceptedCompositeCatalog,
+    named_type_bindings: AcceptedSourceBindingCatalog,
     value_catalog: AcceptedValueCatalogHandle,
 }
 
@@ -60,30 +69,40 @@ impl<'a> InitialStoreContext<'a> {
         assignments: &'a BTreeMap<EntitySourceKey, &'static str>,
         all_entities: &'a BTreeMap<EntitySourceKey, &'a EntityFragment>,
         accepted_entities: &'a BTreeMap<EntitySourceKey, EntityTag>,
-    ) -> Self {
-        let enum_catalog = AcceptedEnumCatalog::empty();
-        let composite_catalog = AcceptedCompositeCatalog::empty();
-        // Rendering scalar-only index predicates consumes only the value
-        // catalogs. The unpublished authority identity cannot enter the
-        // candidate and is replaced by the bundle's computed fingerprint.
+        entities: &[&EntityFragment],
+        types: &BTreeMap<TypeSourceKey, &'a NamedTypeFragment>,
+    ) -> Result<Self, InternalError> {
+        let named_types = lower_initial_named_types(entities, types)?;
+        // Rendering index predicates consumes only the value catalogs. The
+        // unpublished authority identity cannot enter the candidate and is
+        // replaced by the bundle's computed fingerprint.
         let value_catalog = AcceptedValueCatalogHandle::new(
-            enum_catalog.clone(),
-            composite_catalog.clone(),
+            named_types.enum_catalog.clone(),
+            named_types.composite_catalog.clone(),
             AcceptedStoreCatalogScope::new(),
             AcceptedSchemaRevision::INITIAL,
             AcceptedSchemaFingerprint::new([1; 32]),
         );
-        Self {
+        Ok(Self {
             store_path,
             assignments,
             all_entities,
             accepted_entities,
-            enum_catalog,
-            composite_catalog,
+            enum_catalog: named_types.enum_catalog,
+            composite_catalog: named_types.composite_catalog,
+            named_type_bindings: named_types.bindings,
             value_catalog,
-        }
+        })
     }
 }
+
+struct InitialNamedTypes {
+    enum_catalog: AcceptedEnumCatalog,
+    composite_catalog: AcceptedCompositeCatalog,
+    bindings: AcceptedSourceBindingCatalog,
+}
+
+type InitialEnumVariantBindings = BTreeMap<(EnumTypeId, TypeSourceKey), EnumVariantId>;
 
 /// Mutable accepted identities allocated while completing one store-local
 /// initial candidate.
@@ -94,22 +113,245 @@ struct InitialObjectBindings {
     constraints: BTreeMap<(EntityTag, icydb_schema::ConstraintSourceKey), ConstraintId>,
 }
 
-/// Lower a scalar source-keyed proposal against an empty accepted database.
+fn lower_initial_named_types(
+    entities: &[&EntityFragment],
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+) -> Result<InitialNamedTypes, InternalError> {
+    let reachable = collect_reachable_named_types(entities, types)?;
+    let mut type_bindings = BTreeMap::new();
+    let mut next_enum_id = 1_u32;
+    let mut next_composite_id = 1_u32;
+    for source in &reachable {
+        let definition = types
+            .get(source)
+            .copied()
+            .ok_or_else(InternalError::store_unsupported)?;
+        let identity = if matches!(definition, NamedTypeFragment::Enum(_)) {
+            let id = EnumTypeId::new(next_enum_id).ok_or_else(InternalError::store_unsupported)?;
+            next_enum_id = next_enum_id
+                .checked_add(1)
+                .ok_or_else(InternalError::store_unsupported)?;
+            AcceptedNamedTypeIdentity::Enum(id)
+        } else {
+            let id = CompositeTypeId::new(next_composite_id)
+                .ok_or_else(InternalError::store_unsupported)?;
+            next_composite_id = next_composite_id
+                .checked_add(1)
+                .ok_or_else(InternalError::store_unsupported)?;
+            AcceptedNamedTypeIdentity::Composite(id)
+        };
+        type_bindings.insert(source.clone(), identity);
+    }
+
+    let (enum_catalog, enum_variant_bindings) = lower_initial_enum_catalog(types, &type_bindings)?;
+    let composite_catalog = lower_initial_composite_catalog(types, &type_bindings, &enum_catalog)?;
+    let bindings = AcceptedSourceBindingCatalog::default()
+        .with_initial_named_types(type_bindings, enum_variant_bindings);
+    Ok(InitialNamedTypes {
+        enum_catalog,
+        composite_catalog,
+        bindings,
+    })
+}
+
+fn collect_reachable_named_types(
+    entities: &[&EntityFragment],
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+) -> Result<BTreeSet<TypeSourceKey>, InternalError> {
+    let mut pending = entities
+        .iter()
+        .flat_map(|entity| entity.fields())
+        .filter_map(|field| match field.field_type() {
+            FieldType::Named(source) => Some(source.clone()),
+            FieldType::Scalar(_) => None,
+        })
+        .collect::<Vec<_>>();
+    let mut reachable = BTreeSet::new();
+    while let Some(source) = pending.pop() {
+        if !reachable.insert(source.clone()) {
+            continue;
+        }
+        let definition = types
+            .get(&source)
+            .copied()
+            .ok_or_else(InternalError::store_unsupported)?;
+        collect_named_type_dependencies(definition, &mut pending);
+    }
+    Ok(reachable)
+}
+
+fn collect_named_type_dependencies(
+    definition: &NamedTypeFragment,
+    pending: &mut Vec<TypeSourceKey>,
+) {
+    match definition {
+        NamedTypeFragment::Record(record) => {
+            for field in record.fields() {
+                collect_field_type_dependency(field.field_type(), pending);
+            }
+        }
+        NamedTypeFragment::Enum(_) => {}
+        NamedTypeFragment::Newtype { inner, .. }
+        | NamedTypeFragment::List { item: inner, .. }
+        | NamedTypeFragment::Set { item: inner, .. } => {
+            collect_field_type_dependency(inner, pending);
+        }
+        NamedTypeFragment::Map { key, value, .. } => {
+            collect_field_type_dependency(key, pending);
+            collect_field_type_dependency(value, pending);
+        }
+        NamedTypeFragment::Tuple { members, .. } => {
+            for member in members {
+                collect_field_type_dependency(member, pending);
+            }
+        }
+    }
+}
+
+fn collect_field_type_dependency(field_type: &FieldType, pending: &mut Vec<TypeSourceKey>) {
+    if let FieldType::Named(source) = field_type {
+        pending.push(source.clone());
+    }
+}
+
+fn lower_initial_enum_catalog(
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+    bindings: &BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
+) -> Result<(AcceptedEnumCatalog, InitialEnumVariantBindings), InternalError> {
+    let mut definitions = BTreeMap::new();
+    let mut variant_bindings = BTreeMap::new();
+    for (source, identity) in bindings {
+        let AcceptedNamedTypeIdentity::Enum(type_id) = identity else {
+            continue;
+        };
+        let Some(NamedTypeFragment::Enum(definition)) = types.get(source).copied() else {
+            return Err(InternalError::store_invariant());
+        };
+        let mut variants = BTreeMap::new();
+        for (offset, variant) in definition.variants().iter().enumerate() {
+            let raw = u32::try_from(offset)
+                .ok()
+                .and_then(|value| value.checked_add(1))
+                .ok_or_else(InternalError::store_unsupported)?;
+            let variant_id =
+                EnumVariantId::new(raw).ok_or_else(InternalError::store_unsupported)?;
+            variants.insert(variant_id, variant.name().as_str().to_string());
+            variant_bindings.insert((*type_id, variant.source_key().clone()), variant_id);
+        }
+        definitions.insert(*type_id, (definition.name().as_str().to_string(), variants));
+    }
+    let catalog = AcceptedEnumCatalog::from_initial_unit_definitions(definitions)
+        .map_err(|_| InternalError::store_unsupported())?;
+    Ok((catalog, variant_bindings))
+}
+
+fn lower_initial_composite_catalog(
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+    bindings: &BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
+    enum_catalog: &AcceptedEnumCatalog,
+) -> Result<AcceptedCompositeCatalog, InternalError> {
+    let mut definitions = BTreeMap::new();
+    for (source, identity) in bindings {
+        let AcceptedNamedTypeIdentity::Composite(type_id) = identity else {
+            continue;
+        };
+        let definition = types
+            .get(source)
+            .copied()
+            .ok_or_else(InternalError::store_invariant)?;
+        let shape = lower_initial_composite_shape(definition, bindings)?;
+        definitions.insert(*type_id, (definition.name().as_str().to_string(), shape));
+    }
+    AcceptedCompositeCatalog::from_initial_definitions(definitions, enum_catalog)
+        .map_err(|_| InternalError::store_unsupported())
+}
+
+fn lower_initial_composite_shape(
+    definition: &NamedTypeFragment,
+    bindings: &BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
+) -> Result<AcceptedCompositeShape, InternalError> {
+    let shape = match definition {
+        NamedTypeFragment::Record(record) => {
+            let mut fields = record
+                .fields()
+                .iter()
+                .map(|field| {
+                    Ok(AcceptedCompositeField::new(
+                        field.name().as_str().to_string(),
+                        AcceptedCompositeElement::new(
+                            lower_field_type(field.field_type(), |source| {
+                                bindings.get(source).copied()
+                            })?,
+                            field.nullable(),
+                        ),
+                    ))
+                })
+                .collect::<Result<Vec<_>, InternalError>>()?;
+            fields.sort_by(|left, right| left.name().cmp(right.name()));
+            AcceptedCompositeShape::Record(fields)
+        }
+        NamedTypeFragment::Enum(_) => return Err(InternalError::store_invariant()),
+        NamedTypeFragment::Newtype { inner, .. } => {
+            AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
+                lower_field_type(inner, |source| bindings.get(source).copied())?,
+                false,
+            ))
+        }
+        NamedTypeFragment::List { item, .. } => {
+            AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
+                AcceptedFieldKind::List(Box::new(lower_field_type(item, |source| {
+                    bindings.get(source).copied()
+                })?)),
+                false,
+            ))
+        }
+        NamedTypeFragment::Set { item, .. } => {
+            AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
+                AcceptedFieldKind::Set(Box::new(lower_field_type(item, |source| {
+                    bindings.get(source).copied()
+                })?)),
+                false,
+            ))
+        }
+        NamedTypeFragment::Map { key, value, .. } => {
+            AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
+                AcceptedFieldKind::Map {
+                    key: Box::new(lower_field_type(key, |source| {
+                        bindings.get(source).copied()
+                    })?),
+                    value: Box::new(lower_field_type(value, |source| {
+                        bindings.get(source).copied()
+                    })?),
+                },
+                false,
+            ))
+        }
+        NamedTypeFragment::Tuple { members, .. } => AcceptedCompositeShape::Tuple(
+            members
+                .iter()
+                .map(|member| {
+                    Ok(AcceptedCompositeElement::new(
+                        lower_field_type(member, |source| bindings.get(source).copied())?,
+                        false,
+                    ))
+                })
+                .collect::<Result<Vec<_>, InternalError>>()?,
+        ),
+    };
+    Ok(shape)
+}
+
+/// Lower a source-keyed proposal against an empty accepted database.
 ///
-/// This is the sole proposal-to-accepted candidate path. Named types and
-/// mutations of an existing accepted head remain rejected until their
-/// identity-preserving catalog transitions are connected here; callers never
-/// substitute generated model authority or partially publish a proposal.
+/// This is the sole proposal-to-accepted candidate path. Mutations of an
+/// existing accepted head remain rejected until their identity-preserving
+/// catalog transitions are connected here; callers never substitute generated
+/// model authority or partially publish a proposal.
 pub(in crate::db::schema) fn lower_initial_schema_proposal(
     proposal: &SchemaProposal,
     stores: &[ProposalStoreTarget],
 ) -> Result<Vec<CandidateSchemaRevision>, InternalError> {
-    if !proposal.removals().is_empty()
-        || proposal
-            .fragments()
-            .iter()
-            .any(|fragment| !fragment.types().is_empty())
-    {
+    if !proposal.removals().is_empty() {
         return Err(InternalError::store_unsupported());
     }
 
@@ -133,6 +375,12 @@ pub(in crate::db::schema) fn lower_initial_schema_proposal(
         .iter()
         .flat_map(icydb_schema::SchemaFragment::entities)
         .map(|entity| (entity.source_key().clone(), entity))
+        .collect::<BTreeMap<_, _>>();
+    let types = proposal
+        .fragments()
+        .iter()
+        .flat_map(icydb_schema::SchemaFragment::types)
+        .map(|r#type| (r#type.source_key().clone(), r#type))
         .collect::<BTreeMap<_, _>>();
     if entities.len() != proposal.assignments().len()
         || assignments
@@ -163,6 +411,7 @@ pub(in crate::db::schema) fn lower_initial_schema_proposal(
             &assignments,
             &entities,
             &accepted_entities,
+            &types,
         )?);
     }
     candidates.sort_by(|left, right| left.store_path().cmp(right.store_path()));
@@ -191,9 +440,16 @@ fn lower_initial_store(
     assignments: &BTreeMap<EntitySourceKey, &'static str>,
     all_entities: &BTreeMap<EntitySourceKey, &EntityFragment>,
     accepted_entities: &BTreeMap<EntitySourceKey, EntityTag>,
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
 ) -> Result<CandidateSchemaRevision, InternalError> {
-    let context =
-        InitialStoreContext::new(store_path, assignments, all_entities, accepted_entities);
+    let context = InitialStoreContext::new(
+        store_path,
+        assignments,
+        all_entities,
+        accepted_entities,
+        entities,
+        types,
+    )?;
     let mut entity_bindings = BTreeMap::new();
     let mut field_bindings = BTreeMap::new();
     let mut provisional = BTreeMap::new();
@@ -215,7 +471,8 @@ fn lower_initial_store(
         BTreeMap::new(),
         BTreeMap::new(),
         BTreeMap::new(),
-    );
+    )
+    .with_initial_named_types_from(&context.named_type_bindings);
     let mut object_bindings = InitialObjectBindings::default();
     let mut snapshots = BTreeMap::new();
 
@@ -243,7 +500,8 @@ fn lower_initial_store(
         object_bindings.constraints,
         object_bindings.indexes,
         object_bindings.relations,
-    );
+    )
+    .with_initial_named_types_from(&context.named_type_bindings);
     let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
         AcceptedSchemaRevision::INITIAL,
         store_path,
@@ -359,9 +617,18 @@ fn lower_initial_entity_fields(
         let raw_slot = u16::try_from(offset).map_err(|_| InternalError::store_unsupported())?;
         let id = FieldId::new(raw_id);
         let slot = SchemaFieldSlot::new(raw_slot);
-        let kind = lower_scalar_field_type(field.field_type())?;
-        let storage_decode = FieldStorageDecode::ByKind;
-        let leaf_codec = scalar_leaf_codec(&kind);
+        let kind = lower_field_type(field.field_type(), |source| {
+            context.named_type_bindings.named_type(source)
+        })?;
+        let storage_decode = match field.field_type() {
+            FieldType::Scalar(_) => FieldStorageDecode::ByKind,
+            FieldType::Named(_) => FieldStorageDecode::CatalogValue,
+        };
+        let leaf_codec = match field.field_type() {
+            FieldType::Scalar(_) => scalar_leaf_codec(&kind),
+            FieldType::Named(_) => LeafCodec::Structural,
+        };
+        let nested_leaves = lower_nested_leaves(&kind, &context.composite_catalog)?;
         let write_policy = lower_write_policy(field.insert_policy(), field.management(), &kind)?;
         let insert_default = lower_insert_default(
             context,
@@ -377,7 +644,7 @@ fn lower_initial_entity_fields(
             field.name().as_str().to_string(),
             slot,
             kind,
-            Vec::new(),
+            nested_leaves,
             field.nullable(),
             RowLayoutVersion::INITIAL,
             insert_default,
@@ -411,6 +678,72 @@ fn lower_initial_entity_fields(
             Vec::new(),
         ),
     )
+}
+
+fn lower_nested_leaves(
+    kind: &AcceptedFieldKind,
+    catalog: &AcceptedCompositeCatalog,
+) -> Result<Vec<PersistedNestedLeafSnapshot>, InternalError> {
+    let AcceptedFieldKind::Composite { type_id } = kind else {
+        return Ok(Vec::new());
+    };
+    let Some(definition) = catalog.composite_type(*type_id) else {
+        return Err(InternalError::store_invariant());
+    };
+    let AcceptedCompositeShape::Record(fields) = definition.shape() else {
+        return Ok(Vec::new());
+    };
+    let mut leaves = Vec::new();
+    for field in fields {
+        push_nested_leaves(
+            field.name(),
+            field.contract(),
+            catalog,
+            &mut Vec::new(),
+            &mut leaves,
+            0,
+        )?;
+    }
+    leaves.sort_by(|left, right| left.path().cmp(right.path()));
+    Ok(leaves)
+}
+
+fn push_nested_leaves(
+    name: &str,
+    contract: &AcceptedCompositeElement,
+    catalog: &AcceptedCompositeCatalog,
+    path: &mut Vec<String>,
+    leaves: &mut Vec<PersistedNestedLeafSnapshot>,
+    depth: usize,
+) -> Result<(), InternalError> {
+    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
+        return Err(InternalError::store_unsupported());
+    }
+    path.push(name.to_string());
+    leaves.push(PersistedNestedLeafSnapshot::new(
+        path.clone(),
+        contract.kind().clone(),
+        contract.nullable(),
+    ));
+    if let AcceptedFieldKind::Composite { type_id } = contract.kind() {
+        let definition = catalog
+            .composite_type(*type_id)
+            .ok_or_else(InternalError::store_invariant)?;
+        if let AcceptedCompositeShape::Record(fields) = definition.shape() {
+            for field in fields {
+                push_nested_leaves(
+                    field.name(),
+                    field.contract(),
+                    catalog,
+                    path,
+                    leaves,
+                    depth.saturating_add(1),
+                )?;
+            }
+        }
+    }
+    path.pop();
+    Ok(())
 }
 
 fn lower_initial_indexes(
@@ -607,9 +940,13 @@ fn lower_insert_default(
     let FieldInsertPolicy::Default(literal) = policy else {
         return Ok(SchemaInsertDefault::None);
     };
-    let bindings = AcceptedSourceBindingCatalog::default();
-    let input = source_literal_input(literal, kind, &bindings, &context.enum_catalog)
-        .map_err(|_| InternalError::store_unsupported())?;
+    let input = source_literal_input(
+        literal,
+        kind,
+        &context.named_type_bindings,
+        &context.enum_catalog,
+    )
+    .map_err(|_| InternalError::store_unsupported())?;
     let field =
         AcceptedFieldDecodeContract::new(field_name, kind, nullable, storage_decode, leaf_codec);
     let mut budget = ValueAdmissionBudget::standard();
@@ -651,9 +988,22 @@ fn lower_write_policy(
     ))
 }
 
-fn lower_scalar_field_type(field_type: &FieldType) -> Result<AcceptedFieldKind, InternalError> {
-    let FieldType::Scalar(scalar) = field_type else {
-        return Err(InternalError::store_unsupported());
+fn lower_field_type(
+    field_type: &FieldType,
+    resolve_named: impl FnOnce(&TypeSourceKey) -> Option<AcceptedNamedTypeIdentity>,
+) -> Result<AcceptedFieldKind, InternalError> {
+    let scalar = match field_type {
+        FieldType::Scalar(scalar) => scalar,
+        FieldType::Named(source) => {
+            return resolve_named(source)
+                .map(|identity| match identity {
+                    AcceptedNamedTypeIdentity::Enum(type_id) => AcceptedFieldKind::Enum { type_id },
+                    AcceptedNamedTypeIdentity::Composite(type_id) => {
+                        AcceptedFieldKind::Composite { type_id }
+                    }
+                })
+                .ok_or_else(InternalError::store_unsupported);
+        }
     };
     Ok(match scalar {
         ScalarType::Account => AcceptedFieldKind::Account,
@@ -783,10 +1133,11 @@ mod tests {
     use crate::db::schema::{AcceptedConstraintKind, AcceptedSchemaRevision, SchemaInsertDefault};
     use icydb_schema::{
         ConstraintFragment, ConstraintSourceKey, EntityFragment, EntitySourceKey,
-        EntityStoreAssignment, ExpectedAcceptedHead, FieldFragment, FieldInsertPolicy,
-        FieldSourceKey, FieldType, IndexFragment, IndexKeyFragment, IndexSourceKey,
-        NamedTypeFragment, ScalarLiteral, ScalarType, SchemaCapability, SchemaFragment, SchemaName,
-        SchemaProposal, SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction,
+        EntityStoreAssignment, EnumTypeFragment, EnumVariantFragment, ExpectedAcceptedHead,
+        FieldFragment, FieldInsertPolicy, FieldSourceKey, FieldType, IndexFragment,
+        IndexKeyFragment, IndexSourceKey, NamedTypeFragment, RecordFieldFragment,
+        RecordTypeFragment, ScalarLiteral, ScalarType, SchemaCapability, SchemaFragment,
+        SchemaName, SchemaProposal, SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction,
         TargetDatabaseIdentity, TargetStoreIdentity, TypeSourceKey,
     };
 
@@ -934,33 +1285,323 @@ mod tests {
         );
     }
 
-    #[test]
-    fn initial_lowering_rejects_named_types_before_constructing_candidates() {
-        let fragment = SchemaFragment::try_new(
-            Vec::new(),
-            vec![NamedTypeFragment::Newtype {
-                source_key: TypeSourceKey::try_new("test:type:score")
-                    .expect("test type source should admit"),
+    struct NamedTypeKeys {
+        status: TypeSourceKey,
+        profile: TypeSourceKey,
+        score: TypeSourceKey,
+        tags: TypeSourceKey,
+        roles: TypeSourceKey,
+        counters: TypeSourceKey,
+        pair: TypeSourceKey,
+    }
+
+    fn named_type_fragments() -> (NamedTypeKeys, TypeSourceKey, Vec<NamedTypeFragment>) {
+        let keys = NamedTypeKeys {
+            status: TypeSourceKey::try_new("test:type:status").expect("type key should admit"),
+            profile: TypeSourceKey::try_new("test:type:profile").expect("type key should admit"),
+            score: TypeSourceKey::try_new("test:type:score").expect("type key should admit"),
+            tags: TypeSourceKey::try_new("test:type:tags").expect("type key should admit"),
+            roles: TypeSourceKey::try_new("test:type:roles").expect("type key should admit"),
+            counters: TypeSourceKey::try_new("test:type:counters").expect("type key should admit"),
+            pair: TypeSourceKey::try_new("test:type:pair").expect("type key should admit"),
+        };
+        let active =
+            TypeSourceKey::try_new("test:variant:active").expect("variant key should admit");
+        let variants = vec![
+            EnumVariantFragment::new(active.clone(), name("Active")),
+            EnumVariantFragment::new(
+                TypeSourceKey::try_new("test:variant:disabled").expect("variant key should admit"),
+                name("Disabled"),
+            ),
+        ];
+        let record_fields = vec![
+            RecordFieldFragment::new(
+                FieldSourceKey::try_new("test:record:label").expect("field key should admit"),
+                name("label"),
+                FieldType::Scalar(ScalarType::Text { max_len: Some(64) }),
+                false,
+            ),
+            RecordFieldFragment::new(
+                FieldSourceKey::try_new("test:record:status").expect("field key should admit"),
+                name("status"),
+                FieldType::Named(keys.status.clone()),
+                false,
+            ),
+        ];
+        let types = vec![
+            NamedTypeFragment::Enum(
+                EnumTypeFragment::try_new(keys.status.clone(), name("Status"), variants)
+                    .expect("enum should admit"),
+            ),
+            NamedTypeFragment::Record(
+                RecordTypeFragment::try_new(keys.profile.clone(), name("Profile"), record_fields)
+                    .expect("record should admit"),
+            ),
+            NamedTypeFragment::Newtype {
+                source_key: keys.score.clone(),
                 name: name("Score"),
                 inner: FieldType::Scalar(ScalarType::Int64),
-            }],
-        )
-        .expect("test fragment should admit");
-        let proposal = SchemaProposal::try_compose(
+            },
+            NamedTypeFragment::List {
+                source_key: keys.tags.clone(),
+                name: name("Tags"),
+                item: FieldType::Scalar(ScalarType::Text { max_len: Some(32) }),
+            },
+            NamedTypeFragment::Set {
+                source_key: keys.roles.clone(),
+                name: name("Roles"),
+                item: FieldType::Scalar(ScalarType::Text { max_len: Some(32) }),
+            },
+            NamedTypeFragment::Map {
+                source_key: keys.counters.clone(),
+                name: name("Counters"),
+                key: FieldType::Scalar(ScalarType::Text { max_len: Some(32) }),
+                value: FieldType::Scalar(ScalarType::Nat64),
+            },
+            NamedTypeFragment::Tuple {
+                source_key: keys.pair.clone(),
+                name: name("Pair"),
+                members: vec![
+                    FieldType::Scalar(ScalarType::Text { max_len: Some(32) }),
+                    FieldType::Scalar(ScalarType::Nat64),
+                ],
+            },
+        ];
+        (keys, active, types)
+    }
+
+    fn named_holder_entity(
+        keys: &NamedTypeKeys,
+        active: TypeSourceKey,
+    ) -> (EntitySourceKey, EntityFragment) {
+        let entity_source =
+            EntitySourceKey::try_new("test:entity:holder").expect("entity key should admit");
+        let id_source = FieldSourceKey::try_new("test:field:id").expect("field key should admit");
+        let mut fields = vec![FieldFragment::new(
+            id_source.clone(),
+            name("id"),
+            FieldType::Scalar(ScalarType::Nat64),
+            false,
+            FieldInsertPolicy::Required,
+            None,
+        )];
+        for (suffix, field_type) in [
+            ("profile", keys.profile.clone()),
+            ("score", keys.score.clone()),
+            ("tags", keys.tags.clone()),
+            ("roles", keys.roles.clone()),
+            ("counters", keys.counters.clone()),
+            ("pair", keys.pair.clone()),
+        ] {
+            fields.push(FieldFragment::new(
+                FieldSourceKey::try_new(format!("test:field:{suffix}"))
+                    .expect("field key should admit"),
+                name(suffix),
+                FieldType::Named(field_type),
+                false,
+                FieldInsertPolicy::Required,
+                None,
+            ));
+        }
+        fields.push(FieldFragment::new(
+            FieldSourceKey::try_new("test:field:status").expect("field key should admit"),
+            name("status"),
+            FieldType::Named(keys.status.clone()),
+            false,
+            FieldInsertPolicy::Default(ScalarLiteral::EnumUnit {
+                enum_type: keys.status.clone(),
+                variant: active,
+            }),
+            None,
+        ));
+        let entity = EntityFragment::try_new(
+            entity_source.clone(),
+            name("Holder"),
+            fields,
+            vec![id_source],
             Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .expect("entity should admit");
+        (entity_source, entity)
+    }
+
+    fn named_other_entity(status: &TypeSourceKey) -> (EntitySourceKey, EntityFragment) {
+        let source =
+            EntitySourceKey::try_new("test:entity:other").expect("entity key should admit");
+        let id = FieldSourceKey::try_new("test:field:other-id").expect("field key should admit");
+        let entity = EntityFragment::try_new(
+            source.clone(),
+            name("Other"),
+            vec![
+                FieldFragment::new(
+                    id.clone(),
+                    name("id"),
+                    FieldType::Scalar(ScalarType::Nat64),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+                FieldFragment::new(
+                    FieldSourceKey::try_new("test:field:other-status")
+                        .expect("field key should admit"),
+                    name("status"),
+                    FieldType::Named(status.clone()),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+            ],
+            vec![id],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .expect("other entity should admit");
+        (source, entity)
+    }
+
+    fn assert_primary_named_bundle(
+        bundle: &super::AcceptedSchemaRevisionBundle,
+        entity_source: &EntitySourceKey,
+        status: &TypeSourceKey,
+    ) {
+        let bindings = bundle.source_bindings_for_tests();
+        assert_eq!(bindings.named_type_binding_count_for_tests(), 7);
+        assert_eq!(bindings.enum_variant_binding_count_for_tests(), 2);
+        let status_id = match bindings
+            .named_type(status)
+            .expect("enum source should bind")
+        {
+            super::AcceptedNamedTypeIdentity::Enum(type_id) => type_id,
+            super::AcceptedNamedTypeIdentity::Composite(_) => {
+                panic!("status should bind to the enum catalog")
+            }
+        };
+        assert_eq!(
+            bundle
+                .enum_catalog()
+                .enum_type(status_id)
+                .expect("status enum should exist")
+                .variant_count(),
+            2,
+        );
+        let profile_id = bundle
+            .composite_catalog()
+            .type_id("Profile")
+            .expect("profile composite should exist");
+        let super::AcceptedCompositeShape::Record(profile_fields) = bundle
+            .composite_catalog()
+            .composite_type(profile_id)
+            .expect("profile definition should exist")
+            .shape()
+        else {
+            panic!("profile should remain a record")
+        };
+        assert!(matches!(
+            profile_fields[1].contract().kind(),
+            super::AcceptedFieldKind::Enum { type_id } if *type_id == status_id
+        ));
+        for type_name in ["Score", "Tags", "Roles", "Counters", "Pair"] {
+            assert!(bundle.composite_catalog().type_id(type_name).is_some());
+        }
+        let entity_tag = bindings
+            .entity(entity_source)
+            .expect("entity source should bind");
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .expect("entity snapshot should exist");
+        assert!(
+            snapshot
+                .fields()
+                .iter()
+                .filter(|field| field.name() != "id")
+                .all(|field| {
+                    field.storage_decode() == super::FieldStorageDecode::CatalogValue
+                        && field.leaf_codec() == super::LeafCodec::Structural
+                })
+        );
+        assert!(matches!(
+            snapshot
+                .fields()
+                .iter()
+                .find(|field| field.name() == "status")
+                .expect("status should exist")
+                .insert_default(),
+            SchemaInsertDefault::SlotPayload(payload) if !payload.is_empty()
+        ));
+    }
+
+    #[test]
+    fn initial_lowering_freezes_reachable_named_type_shapes_and_enum_defaults() {
+        let (keys, active, named_types) = named_type_fragments();
+        let (entity_source, entity) = named_holder_entity(&keys, active);
+        let (other_entity_source, other_entity) = named_other_entity(&keys.status);
+        let fragment = SchemaFragment::try_new(vec![entity, other_entity], named_types)
+            .expect("fragment should admit");
+        let store = TargetStoreIdentity::from_bytes([0x22; 32]);
+        let other_store = TargetStoreIdentity::from_bytes([0x33; 32]);
+        let proposal = SchemaProposal::try_compose(
+            vec![
+                SchemaCapability::EXACT_COMPOSITE_TYPES,
+                SchemaCapability::INSERT_DEFAULTS,
+            ],
             TargetDatabaseIdentity::from_bytes([0x11; 32]),
-            SchemaSubmissionKey::try_new("named-type-rejection")
+            SchemaSubmissionKey::try_new("named-type-lowering")
                 .expect("test submission key should admit"),
             ExpectedAcceptedHead::Empty,
             vec![fragment],
-            Vec::new(),
+            vec![
+                EntityStoreAssignment::new(entity_source.clone(), store),
+                EntityStoreAssignment::new(other_entity_source.clone(), other_store),
+            ],
             Vec::new(),
         )
         .expect("test proposal should compose");
+        let targets = [
+            ProposalStoreTarget {
+                path: "test::Store",
+                identity: store,
+            },
+            ProposalStoreTarget {
+                path: "test::OtherStore",
+                identity: other_store,
+            },
+        ];
+        let candidates =
+            lower_initial_schema_proposal(&proposal, &targets).expect("named types should lower");
+        let bundle = candidates
+            .iter()
+            .find(|candidate| candidate.store_path() == "test::Store")
+            .expect("primary store candidate should exist")
+            .bundle();
+        assert_primary_named_bundle(bundle, &entity_source, &keys.status);
 
+        let other_bundle = candidates
+            .iter()
+            .find(|candidate| candidate.store_path() == "test::OtherStore")
+            .expect("other store candidate should exist")
+            .bundle();
+        assert_eq!(
+            other_bundle
+                .source_bindings_for_tests()
+                .named_type_binding_count_for_tests(),
+            1,
+            "each store should freeze only its complete reachable type closure"
+        );
         assert!(
-            lower_initial_schema_proposal(&proposal, &[]).is_err(),
-            "named types must fail closed until their catalog-native lowering is connected"
+            other_bundle
+                .source_bindings_for_tests()
+                .entity(&other_entity_source)
+                .is_some()
+        );
+        assert!(
+            other_bundle
+                .composite_catalog()
+                .type_id("Profile")
+                .is_none()
         );
     }
 }

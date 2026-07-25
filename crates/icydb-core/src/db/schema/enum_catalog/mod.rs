@@ -1,7 +1,7 @@
 //! Module: db::schema::enum_catalog
-//! Responsibility: canonicalize generated enum proposals into ID-backed catalog candidates.
+//! Responsibility: canonicalize source or generated enum proposals into ID-backed catalog candidates.
 //! Does not own: durable catalog publication, runtime value admission, or enum key encoding.
-//! Boundary: generated entity models -> deterministic accepted enum catalog candidate.
+//! Boundary: exact source/generated enum definitions -> deterministic accepted enum catalog candidate.
 
 mod admission;
 pub(super) mod codec;
@@ -204,13 +204,53 @@ impl AcceptedValueCatalogHandle {
 }
 
 impl AcceptedEnumCatalog {
-    /// Construct the empty value catalog used by scalar-only accepted stores.
-    #[must_use]
-    pub(in crate::db::schema) const fn empty() -> Self {
-        Self {
-            by_id: BTreeMap::new(),
-            id_by_path: BTreeMap::new(),
+    /// Construct one initial unit-enum catalog from already allocated
+    /// store-local identities.
+    pub(in crate::db::schema) fn from_initial_unit_definitions(
+        definitions: BTreeMap<EnumTypeId, (String, BTreeMap<EnumVariantId, String>)>,
+    ) -> Result<Self, EnumCatalogBuildError> {
+        let mut by_id = BTreeMap::new();
+        let mut id_by_path = BTreeMap::new();
+        for (type_id, (path, variants)) in definitions {
+            if path.is_empty()
+                || variants.is_empty()
+                || id_by_path.insert(path.clone(), type_id).is_some()
+            {
+                return Err(EnumCatalogBuildError::LookupMapInvariant);
+            }
+            let mut variants_by_id = BTreeMap::new();
+            let mut variant_id_by_name = BTreeMap::new();
+            for (variant_id, name) in variants {
+                if name.is_empty()
+                    || variant_id_by_name
+                        .insert(name.clone(), variant_id)
+                        .is_some()
+                {
+                    return Err(EnumCatalogBuildError::LookupMapInvariant);
+                }
+                variants_by_id.insert(
+                    variant_id,
+                    AcceptedEnumVariant {
+                        name,
+                        body: AcceptedEnumVariantBody::Unit,
+                    },
+                );
+            }
+            by_id.insert(
+                type_id,
+                AcceptedEnumType {
+                    path,
+                    variants_by_id,
+                    variant_id_by_name,
+                    ordering: EnumOrderingPolicy::EqualityOnly,
+                },
+            );
         }
+        let catalog = Self { by_id, id_by_path };
+        if !catalog.validate() {
+            return Err(EnumCatalogBuildError::LookupMapInvariant);
+        }
+        Ok(catalog)
     }
 
     fn validate(&self) -> bool {

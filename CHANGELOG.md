@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.8` extends initial catalog-native schema application to the complete
+  store-local closure of named enum, record, newtype, list, set, map, and tuple
+  definitions without generated-model fallback authority.
+
+- `0.213.7` keeps no-default test builds warning-free by matching the
+  multi-store publication test export to its SQL-gated consumer.
+
 - `0.213.6` connects initial scalar schema proposals to catalog-native
   accepted candidates and atomic durable application receipts while
   unsupported transitions fail before mutation.

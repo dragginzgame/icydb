@@ -118,6 +118,31 @@ impl AcceptedSourceBindingCatalog {
         )
     }
 
+    /// Attach the exact named-type and enum-variant identities allocated for
+    /// the same initial accepted candidate.
+    #[must_use]
+    pub(in crate::db::schema) fn with_initial_named_types(
+        mut self,
+        types: BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
+        enum_variants: BTreeMap<(EnumTypeId, TypeSourceKey), EnumVariantId>,
+    ) -> Self {
+        self.types = types;
+        self.enum_variants = enum_variants;
+        self
+    }
+
+    /// Copy the named-type identity closure from the same staged initial
+    /// candidate while adding entity-scoped structural bindings.
+    #[must_use]
+    pub(in crate::db::schema) fn with_initial_named_types_from(
+        mut self,
+        named_types: &Self,
+    ) -> Self {
+        self.types.clone_from(&named_types.types);
+        self.enum_variants.clone_from(&named_types.enum_variants);
+        self
+    }
+
     /// Resolve one immutable entity source identity.
     #[must_use]
     pub(in crate::db::schema) fn entity(&self, source: &EntitySourceKey) -> Option<EntityTag> {
@@ -333,6 +358,16 @@ impl AcceptedSourceBindingCatalog {
             .keys()
             .filter(|(bound_entity, _)| *bound_entity == entity)
             .count()
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn named_type_binding_count_for_tests(&self) -> usize {
+        self.types.len()
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn enum_variant_binding_count_for_tests(&self) -> usize {
+        self.enum_variants.len()
     }
 
     #[cfg(test)]

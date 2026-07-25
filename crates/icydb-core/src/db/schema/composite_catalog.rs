@@ -1,7 +1,7 @@
 //! Module: db::schema::composite_catalog
-//! Responsibility: canonicalize generated composite proposals into ID-backed accepted definitions.
+//! Responsibility: canonicalize source or generated composite proposals into ID-backed accepted definitions.
 //! Does not own: generated codecs, enum definitions, or accepted-schema publication.
-//! Boundary: exact generated record/tuple/newtype shapes -> store-local composite catalog candidate.
+//! Boundary: exact source/generated composite shapes -> store-local composite catalog candidate.
 
 mod codec;
 #[cfg(test)]
@@ -64,12 +64,41 @@ pub(in crate::db) struct AcceptedCompositeCatalog {
 }
 
 impl AcceptedCompositeCatalog {
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn empty() -> Self {
         Self {
             by_id: BTreeMap::new(),
             id_by_path: BTreeMap::new(),
         }
+    }
+
+    /// Construct one initial composite catalog from already allocated
+    /// store-local identities and canonical shapes.
+    pub(in crate::db::schema) fn from_initial_definitions(
+        definitions: BTreeMap<CompositeTypeId, (String, AcceptedCompositeShape)>,
+        enum_catalog: &AcceptedEnumCatalog,
+    ) -> Result<Self, CompositeCatalogBuildError> {
+        let mut by_id = BTreeMap::new();
+        let mut id_by_path = BTreeMap::new();
+        for (type_id, (path, shape)) in definitions {
+            if path.is_empty() || id_by_path.insert(path.clone(), type_id).is_some() {
+                return Err(CompositeCatalogBuildError::FieldKindResolution);
+            }
+            by_id.insert(
+                type_id,
+                AcceptedCompositeType {
+                    path,
+                    codec: CompositeCodec::StructuralV1,
+                    shape,
+                },
+            );
+        }
+        let catalog = Self { by_id, id_by_path };
+        if !catalog.validate(enum_catalog) {
+            return Err(CompositeCatalogBuildError::FieldKindResolution);
+        }
+        Ok(catalog)
     }
 
     #[must_use]
@@ -302,6 +331,15 @@ pub(in crate::db::schema) struct AcceptedCompositeField {
 }
 
 impl AcceptedCompositeField {
+    /// Construct one canonical record member.
+    #[must_use]
+    pub(in crate::db::schema) const fn new(
+        name: String,
+        contract: AcceptedCompositeElement,
+    ) -> Self {
+        Self { name, contract }
+    }
+
     #[must_use]
     pub(in crate::db::schema) fn name(&self) -> &str {
         &self.name
@@ -326,6 +364,12 @@ pub(in crate::db::schema) struct AcceptedCompositeElement {
 }
 
 impl AcceptedCompositeElement {
+    /// Construct one canonical positional or wrapped member.
+    #[must_use]
+    pub(in crate::db::schema) const fn new(kind: AcceptedFieldKind, nullable: bool) -> Self {
+        Self { kind, nullable }
+    }
+
     #[must_use]
     pub(in crate::db::schema) const fn kind(&self) -> &AcceptedFieldKind {
         &self.kind
