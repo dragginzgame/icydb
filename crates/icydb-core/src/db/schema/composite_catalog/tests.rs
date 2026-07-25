@@ -87,8 +87,10 @@ fn accepted_composite_catalog_is_nominal_canonical_and_deterministic() {
         panic!("alpha should remain a record");
     };
     assert_eq!(fields[0].name(), "alpha");
+    assert_eq!(fields[0].id().get(), 1);
     assert!(fields[0].contract().nullable());
     assert_eq!(fields[1].name(), "zeta");
+    assert_eq!(fields[1].id().get(), 2);
     assert!(!fields[1].contract().nullable());
 }
 

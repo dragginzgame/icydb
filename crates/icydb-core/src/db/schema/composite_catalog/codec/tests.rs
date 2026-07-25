@@ -18,6 +18,7 @@ enum TestShape {
 }
 
 struct TestField {
+    id: u32,
     name: &'static str,
     element: TestElement,
 }
@@ -71,6 +72,7 @@ fn encode_test_wire(version: u16, types: &[TestType]) -> Vec<u8> {
                     .push_len(fields.len())
                     .expect("test record field count should fit");
                 for field in fields {
+                    writer.push_u32(field.id);
                     writer
                         .push_string(field.name)
                         .expect("test field name should fit");
@@ -156,7 +158,7 @@ fn accepted_composite_catalog_decode_rejects_invalid_identity_and_tags() {
 }
 
 #[test]
-fn accepted_composite_catalog_decode_rejects_duplicate_or_unsorted_record_names() {
+fn accepted_composite_catalog_decode_rejects_noncanonical_record_identity() {
     let duplicate_paths = encode_test_wire(
         ACCEPTED_COMPOSITE_CATALOG_CODEC_VERSION,
         &[
@@ -172,10 +174,12 @@ fn accepted_composite_catalog_decode_rejects_duplicate_or_unsorted_record_names(
             codec: CODEC_STRUCTURAL_V1,
             shape: TestShape::Record(vec![
                 TestField {
+                    id: 1,
                     name: "same",
                     element: scalar_element(),
                 },
                 TestField {
+                    id: 2,
                     name: "same",
                     element: scalar_element(),
                 },
@@ -190,18 +194,59 @@ fn accepted_composite_catalog_decode_rejects_duplicate_or_unsorted_record_names(
             codec: CODEC_STRUCTURAL_V1,
             shape: TestShape::Record(vec![
                 TestField {
+                    id: 1,
                     name: "zeta",
                     element: scalar_element(),
                 },
                 TestField {
+                    id: 2,
                     name: "alpha",
                     element: scalar_element(),
                 },
             ]),
         }],
     );
+    let duplicate_field_ids = encode_test_wire(
+        ACCEPTED_COMPOSITE_CATALOG_CODEC_VERSION,
+        &[TestType {
+            id: 1,
+            path: "codec::DuplicateFieldIds",
+            codec: CODEC_STRUCTURAL_V1,
+            shape: TestShape::Record(vec![
+                TestField {
+                    id: 1,
+                    name: "alpha",
+                    element: scalar_element(),
+                },
+                TestField {
+                    id: 1,
+                    name: "zeta",
+                    element: scalar_element(),
+                },
+            ]),
+        }],
+    );
+    let zero_field_id = encode_test_wire(
+        ACCEPTED_COMPOSITE_CATALOG_CODEC_VERSION,
+        &[TestType {
+            id: 1,
+            path: "codec::ZeroFieldId",
+            codec: CODEC_STRUCTURAL_V1,
+            shape: TestShape::Record(vec![TestField {
+                id: 0,
+                name: "alpha",
+                element: scalar_element(),
+            }]),
+        }],
+    );
 
-    for encoded in [duplicate_paths, duplicate_fields, unsorted_fields] {
+    for encoded in [
+        duplicate_paths,
+        duplicate_fields,
+        unsorted_fields,
+        duplicate_field_ids,
+        zero_field_id,
+    ] {
         assert_eq!(
             decode_accepted_composite_catalog(&encoded, &empty_enum_catalog())
                 .expect_err("noncanonical composite names must reject")

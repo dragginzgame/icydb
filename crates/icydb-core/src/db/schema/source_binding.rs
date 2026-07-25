@@ -15,7 +15,7 @@ use crate::{
         AcceptedCompositeCatalog, AcceptedConstraintKind, AcceptedEnumCatalog,
         ConstraintActivationKind, ConstraintId, FieldId, PersistedSchemaSnapshot, RelationId,
         SchemaIndexId,
-        composite_catalog::CompositeTypeId,
+        composite_catalog::{AcceptedCompositeShape, CompositeFieldId, CompositeTypeId},
         wire::{SchemaWireReader, SchemaWireWriter},
     },
     error::InternalError,
@@ -31,7 +31,7 @@ use crate::db::schema::{
 
 const ACCEPTED_SOURCE_BINDING_MAGIC: &[u8; 8] = b"ICYDBASB";
 const ACCEPTED_SOURCE_BINDING_CODEC_VERSION: u16 = 1;
-const ACCEPTED_SOURCE_BINDING_HEADER_BYTES: usize = 38;
+const ACCEPTED_SOURCE_BINDING_HEADER_BYTES: usize = 42;
 const MAX_ACCEPTED_SOURCE_BINDING_BYTES: usize = 2 * 1024 * 1024;
 const TYPE_ENUM: u8 = 0;
 const TYPE_COMPOSITE: u8 = 1;
@@ -71,6 +71,7 @@ pub(in crate::db) struct AcceptedSourceBindingCatalog {
     entities: BTreeMap<EntitySourceKey, EntityTag>,
     types: BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
     enum_variants: BTreeMap<(EnumTypeId, TypeSourceKey), EnumVariantId>,
+    composite_fields: BTreeMap<(CompositeTypeId, FieldSourceKey), CompositeFieldId>,
     fields: BTreeMap<(EntityTag, FieldSourceKey), FieldId>,
     constraints: BTreeMap<(EntityTag, ConstraintSourceKey), ConstraintId>,
     indexes: BTreeMap<(EntityTag, IndexSourceKey), SchemaIndexId>,
@@ -78,26 +79,6 @@ pub(in crate::db) struct AcceptedSourceBindingCatalog {
 }
 
 impl AcceptedSourceBindingCatalog {
-    const fn from_parts(
-        entities: BTreeMap<EntitySourceKey, EntityTag>,
-        types: BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
-        enum_variants: BTreeMap<(EnumTypeId, TypeSourceKey), EnumVariantId>,
-        fields: BTreeMap<(EntityTag, FieldSourceKey), FieldId>,
-        constraints: BTreeMap<(EntityTag, ConstraintSourceKey), ConstraintId>,
-        indexes: BTreeMap<(EntityTag, IndexSourceKey), SchemaIndexId>,
-        relations: BTreeMap<(EntityTag, RelationSourceKey), RelationId>,
-    ) -> Self {
-        Self {
-            entities,
-            types,
-            enum_variants,
-            fields,
-            constraints,
-            indexes,
-            relations,
-        }
-    }
-
     /// Construct the exact source-addressable identity closure for one initial
     /// catalog-native proposal.
     pub(in crate::db::schema) const fn initial(
@@ -107,15 +88,16 @@ impl AcceptedSourceBindingCatalog {
         indexes: BTreeMap<(EntityTag, IndexSourceKey), SchemaIndexId>,
         relations: BTreeMap<(EntityTag, RelationSourceKey), RelationId>,
     ) -> Self {
-        Self::from_parts(
+        Self {
             entities,
-            BTreeMap::new(),
-            BTreeMap::new(),
+            types: BTreeMap::new(),
+            enum_variants: BTreeMap::new(),
+            composite_fields: BTreeMap::new(),
             fields,
             constraints,
             indexes,
             relations,
-        )
+        }
     }
 
     /// Attach the exact named-type and enum-variant identities allocated for
@@ -125,9 +107,11 @@ impl AcceptedSourceBindingCatalog {
         mut self,
         types: BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
         enum_variants: BTreeMap<(EnumTypeId, TypeSourceKey), EnumVariantId>,
+        composite_fields: BTreeMap<(CompositeTypeId, FieldSourceKey), CompositeFieldId>,
     ) -> Self {
         self.types = types;
         self.enum_variants = enum_variants;
+        self.composite_fields = composite_fields;
         self
     }
 
@@ -140,6 +124,8 @@ impl AcceptedSourceBindingCatalog {
     ) -> Self {
         self.types.clone_from(&named_types.types);
         self.enum_variants.clone_from(&named_types.enum_variants);
+        self.composite_fields
+            .clone_from(&named_types.composite_fields);
         self
     }
 
@@ -177,6 +163,19 @@ impl AcceptedSourceBindingCatalog {
     ) -> Option<EnumVariantId> {
         self.enum_variants
             .get(&(enum_type, source.clone()))
+            .copied()
+    }
+
+    /// Resolve one immutable member source identity inside an accepted record.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) fn composite_field(
+        &self,
+        composite_type: CompositeTypeId,
+        source: &FieldSourceKey,
+    ) -> Option<CompositeFieldId> {
+        self.composite_fields
+            .get(&(composite_type, source.clone()))
             .copied()
     }
 
@@ -371,6 +370,17 @@ impl AcceptedSourceBindingCatalog {
     }
 
     #[cfg(test)]
+    pub(in crate::db) fn composite_field_binding_count_for_tests(
+        &self,
+        composite_type: CompositeTypeId,
+    ) -> usize {
+        self.composite_fields
+            .keys()
+            .filter(|(bound_type, _)| *bound_type == composite_type)
+            .count()
+    }
+
+    #[cfg(test)]
     pub(in crate::db) fn constraint_binding_count_for_tests(&self, entity: EntityTag) -> usize {
         self.constraints
             .keys()
@@ -406,6 +416,11 @@ impl AcceptedSourceBindingCatalog {
                     .map(|((enum_type, _), variant)| (*enum_type, *variant)),
             )
             && unique_values(
+                self.composite_fields
+                    .iter()
+                    .map(|((composite_type, _), field)| (*composite_type, *field)),
+            )
+            && unique_values(
                 self.fields
                     .iter()
                     .map(|((entity, _), field)| (*entity, *field)),
@@ -437,7 +452,12 @@ impl AcceptedSourceBindingCatalog {
             AcceptedNamedTypeIdentity::Composite(id) => {
                 composite_catalog.composite_type(*id).is_some()
             }
-        }) && self.enum_variants.iter().all(|((enum_type, _), variant)| {
+        }) && self.enum_variant_bindings_close(enum_catalog)
+            && self.composite_field_bindings_close(composite_catalog)
+    }
+
+    fn enum_variant_bindings_close(&self, enum_catalog: &AcceptedEnumCatalog) -> bool {
+        self.enum_variants.iter().all(|((enum_type, _), variant)| {
             self.types
                 .values()
                 .any(|identity| *identity == AcceptedNamedTypeIdentity::Enum(*enum_type))
@@ -456,6 +476,41 @@ impl AcceptedSourceBindingCatalog {
                 }),
             AcceptedNamedTypeIdentity::Composite(_) => true,
         })
+    }
+
+    fn composite_field_bindings_close(&self, composite_catalog: &AcceptedCompositeCatalog) -> bool {
+        self.composite_fields
+            .iter()
+            .all(|((composite_type, _), field_id)| {
+                self.types.values().any(|identity| {
+                    *identity == AcceptedNamedTypeIdentity::Composite(*composite_type)
+                }) && composite_catalog
+                    .composite_type(*composite_type)
+                    .is_some_and(|definition| {
+                        matches!(
+                            definition.shape(),
+                            AcceptedCompositeShape::Record(fields)
+                                if fields.iter().any(|field| field.id() == *field_id)
+                        )
+                    })
+            })
+            && self.types.values().all(|identity| match identity {
+                AcceptedNamedTypeIdentity::Composite(composite_type) => composite_catalog
+                    .composite_type(*composite_type)
+                    .is_some_and(|definition| {
+                        let binding_count = self
+                            .composite_fields
+                            .keys()
+                            .filter(|(bound_type, _)| bound_type == composite_type)
+                            .count();
+                        match definition.shape() {
+                            AcceptedCompositeShape::Record(fields) => binding_count == fields.len(),
+                            AcceptedCompositeShape::Tuple(_)
+                            | AcceptedCompositeShape::Newtype(_) => binding_count == 0,
+                        }
+                    }),
+                AcceptedNamedTypeIdentity::Enum(_) => true,
+            })
     }
 
     fn entity_bindings_close(
@@ -662,6 +717,12 @@ pub(in crate::db::schema) fn encode_accepted_source_bindings(
         writer.push_string(source_key.as_str())?;
         writer.push_u32(variant.get());
     }
+    writer.push_len(catalog.composite_fields.len())?;
+    for ((composite_type, source_key), field) in &catalog.composite_fields {
+        writer.push_u32(composite_type.get());
+        writer.push_string(source_key.as_str())?;
+        writer.push_u32(field.get());
+    }
     writer.push_len(catalog.fields.len())?;
     for ((entity, source_key), field) in &catalog.fields {
         writer.push_u64(entity.value());
@@ -727,41 +788,9 @@ pub(in crate::db::schema) fn decode_accepted_source_bindings(
         }
     }
 
-    let mut type_bindings = BTreeMap::new();
-    for _ in 0..reader.read_count()? {
-        let source = TypeSourceKey::try_new(reader.read_string()?)
-            .map_err(|_| InternalError::store_corruption())?;
-        let tag = reader.read_u8()?;
-        let raw = reader.read_u32()?;
-        let identity = match tag {
-            TYPE_ENUM => AcceptedNamedTypeIdentity::Enum(
-                EnumTypeId::new(raw).ok_or_else(InternalError::store_corruption)?,
-            ),
-            TYPE_COMPOSITE => AcceptedNamedTypeIdentity::Composite(
-                CompositeTypeId::new(raw).ok_or_else(InternalError::store_corruption)?,
-            ),
-            _ => return Err(InternalError::store_corruption()),
-        };
-        if type_bindings.insert(source, identity).is_some() {
-            return Err(InternalError::store_corruption());
-        }
-    }
-
-    let mut enum_variant_bindings = BTreeMap::new();
-    for _ in 0..reader.read_count()? {
-        let enum_type =
-            EnumTypeId::new(reader.read_u32()?).ok_or_else(InternalError::store_corruption)?;
-        let source = TypeSourceKey::try_new(reader.read_string()?)
-            .map_err(|_| InternalError::store_corruption())?;
-        let variant =
-            EnumVariantId::new(reader.read_u32()?).ok_or_else(InternalError::store_corruption)?;
-        if enum_variant_bindings
-            .insert((enum_type, source), variant)
-            .is_some()
-        {
-            return Err(InternalError::store_corruption());
-        }
-    }
+    let type_bindings = read_named_type_bindings(&mut reader)?;
+    let enum_variant_bindings = read_enum_variant_bindings(&mut reader)?;
+    let composite_field_bindings = read_composite_field_bindings(&mut reader)?;
 
     let field_bindings =
         read_entity_local_bindings(&mut reader, FieldSourceKey::try_new, FieldId::new)?;
@@ -782,15 +811,16 @@ pub(in crate::db::schema) fn decode_accepted_source_bindings(
     )?;
     reader.finish()?;
 
-    let catalog = AcceptedSourceBindingCatalog::from_parts(
-        entity_bindings,
-        type_bindings,
-        enum_variant_bindings,
-        field_bindings,
-        constraint_bindings,
-        index_bindings,
-        relation_bindings,
-    );
+    let catalog = AcceptedSourceBindingCatalog {
+        entities: entity_bindings,
+        types: type_bindings,
+        enum_variants: enum_variant_bindings,
+        composite_fields: composite_field_bindings,
+        fields: field_bindings,
+        constraints: constraint_bindings,
+        indexes: index_bindings,
+        relations: relation_bindings,
+    };
     if !catalog.validate(enum_catalog, composite_catalog, entities) {
         return Err(InternalError::store_corruption());
     }
@@ -801,6 +831,67 @@ pub(in crate::db::schema) fn decode_accepted_source_bindings(
         return Err(InternalError::store_corruption());
     }
     Ok(catalog)
+}
+
+fn read_named_type_bindings(
+    reader: &mut BindingReader<'_>,
+) -> Result<BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>, InternalError> {
+    let mut bindings = BTreeMap::new();
+    for _ in 0..reader.read_count()? {
+        let source = TypeSourceKey::try_new(reader.read_string()?)
+            .map_err(|_| InternalError::store_corruption())?;
+        let tag = reader.read_u8()?;
+        let raw = reader.read_u32()?;
+        let identity = match tag {
+            TYPE_ENUM => AcceptedNamedTypeIdentity::Enum(
+                EnumTypeId::new(raw).ok_or_else(InternalError::store_corruption)?,
+            ),
+            TYPE_COMPOSITE => AcceptedNamedTypeIdentity::Composite(
+                CompositeTypeId::new(raw).ok_or_else(InternalError::store_corruption)?,
+            ),
+            _ => return Err(InternalError::store_corruption()),
+        };
+        if bindings.insert(source, identity).is_some() {
+            return Err(InternalError::store_corruption());
+        }
+    }
+    Ok(bindings)
+}
+
+fn read_enum_variant_bindings(
+    reader: &mut BindingReader<'_>,
+) -> Result<BTreeMap<(EnumTypeId, TypeSourceKey), EnumVariantId>, InternalError> {
+    let mut bindings = BTreeMap::new();
+    for _ in 0..reader.read_count()? {
+        let enum_type =
+            EnumTypeId::new(reader.read_u32()?).ok_or_else(InternalError::store_corruption)?;
+        let source = TypeSourceKey::try_new(reader.read_string()?)
+            .map_err(|_| InternalError::store_corruption())?;
+        let variant =
+            EnumVariantId::new(reader.read_u32()?).ok_or_else(InternalError::store_corruption)?;
+        if bindings.insert((enum_type, source), variant).is_some() {
+            return Err(InternalError::store_corruption());
+        }
+    }
+    Ok(bindings)
+}
+
+fn read_composite_field_bindings(
+    reader: &mut BindingReader<'_>,
+) -> Result<BTreeMap<(CompositeTypeId, FieldSourceKey), CompositeFieldId>, InternalError> {
+    let mut bindings = BTreeMap::new();
+    for _ in 0..reader.read_count()? {
+        let composite_type =
+            CompositeTypeId::new(reader.read_u32()?).ok_or_else(InternalError::store_corruption)?;
+        let source = FieldSourceKey::try_new(reader.read_string()?)
+            .map_err(|_| InternalError::store_corruption())?;
+        let field = CompositeFieldId::new(reader.read_u32()?)
+            .ok_or_else(InternalError::store_corruption)?;
+        if bindings.insert((composite_type, source), field).is_some() {
+            return Err(InternalError::store_corruption());
+        }
+    }
+    Ok(bindings)
 }
 
 fn read_entity_local_bindings<K: Ord>(
@@ -853,6 +944,10 @@ mod tests {
             AcceptedSchemaRevisionBundle, CandidateSchemaRevision, FieldId, PersistedFieldSnapshot,
             PersistedSchemaSnapshot, SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout,
             SchemaVersion, build_initial_accepted_enum_catalog_from_kinds_for_tests,
+            composite_catalog::{
+                AcceptedCompositeElement, AcceptedCompositeField, AcceptedCompositeShape,
+                CompositeFieldId, CompositeTypeId,
+            },
         },
         model::field::{EnumVariantModel, FieldKind, FieldStorageDecode, LeafCodec, ScalarCodec},
         types::EntityTag,
@@ -881,25 +976,6 @@ mod tests {
             .expect("empty source bindings should decode");
 
         assert_eq!(decoded, catalog);
-    }
-
-    #[test]
-    fn superseded_source_binding_shape_fails_closed() {
-        let enums = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[])
-            .expect("empty enum catalog should build");
-        let composites = AcceptedCompositeCatalog::empty();
-        let entities = BTreeMap::new();
-        let mut superseded = b"ICYDBASB".to_vec();
-        superseded.extend_from_slice(&1u16.to_be_bytes());
-        for _ in 0..6 {
-            superseded.extend_from_slice(&0u32.to_be_bytes());
-        }
-
-        assert!(
-            decode_accepted_source_bindings(superseded.as_slice(), &enums, &composites, &entities,)
-                .is_err(),
-            "the pre-variant-binding development shape must not decode",
-        );
     }
 
     #[test]
@@ -1022,6 +1098,76 @@ mod tests {
         assert!(
             encode_accepted_source_bindings(&incomplete, &enums, &composites, &entities).is_err(),
             "a bound enum type must bind every accepted variant",
+        );
+    }
+
+    #[test]
+    fn source_binding_catalog_closes_record_member_source_identities() {
+        let enums = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[])
+            .expect("empty enum catalog should build");
+        let composite_type = CompositeTypeId::new(1).expect("one is non-zero");
+        let alpha = CompositeFieldId::new(1).expect("one is non-zero");
+        let zeta = CompositeFieldId::new(2).expect("two is non-zero");
+        let composites = AcceptedCompositeCatalog::from_initial_definitions(
+            BTreeMap::from([(
+                composite_type,
+                (
+                    "test::Record".to_string(),
+                    AcceptedCompositeShape::Record(vec![
+                        AcceptedCompositeField::new(
+                            alpha,
+                            "alpha".to_string(),
+                            AcceptedCompositeElement::new(AcceptedFieldKind::Nat64, false),
+                        ),
+                        AcceptedCompositeField::new(
+                            zeta,
+                            "zeta".to_string(),
+                            AcceptedCompositeElement::new(AcceptedFieldKind::Bool, false),
+                        ),
+                    ]),
+                ),
+            )]),
+            &enums,
+        )
+        .expect("record catalog should build");
+        let entities = BTreeMap::new();
+        let mut catalog = AcceptedSourceBindingCatalog::default();
+        catalog.types.insert(
+            icydb_schema::TypeSourceKey::try_new("test:record")
+                .expect("type source key should build"),
+            AcceptedNamedTypeIdentity::Composite(composite_type),
+        );
+        catalog.composite_fields.insert(
+            (
+                composite_type,
+                icydb_schema::FieldSourceKey::try_new("test:record:alpha")
+                    .expect("field source key should build"),
+            ),
+            alpha,
+        );
+        catalog.composite_fields.insert(
+            (
+                composite_type,
+                icydb_schema::FieldSourceKey::try_new("test:record:zeta")
+                    .expect("field source key should build"),
+            ),
+            zeta,
+        );
+
+        let encoded = encode_accepted_source_bindings(&catalog, &enums, &composites, &entities)
+            .expect("closed record bindings should encode");
+        let decoded = decode_accepted_source_bindings(&encoded, &enums, &composites, &entities)
+            .expect("closed record bindings should decode");
+
+        assert_eq!(decoded, catalog);
+
+        let mut incomplete = catalog;
+        incomplete
+            .composite_fields
+            .retain(|(_, source), _| source.as_str() != "test:record:zeta");
+        assert!(
+            encode_accepted_source_bindings(&incomplete, &enums, &composites, &entities).is_err(),
+            "a bound record type must bind every accepted member",
         );
     }
 

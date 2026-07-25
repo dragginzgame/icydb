@@ -30,7 +30,7 @@ use crate::{
             bind_source_check_expr,
             composite_catalog::{
                 AcceptedCompositeCatalog, AcceptedCompositeElement, AcceptedCompositeField,
-                AcceptedCompositeShape, CompositeTypeId,
+                AcceptedCompositeShape, CompositeFieldId, CompositeTypeId,
             },
             render_accepted_check_expr_sql, source_literal_input,
         },
@@ -103,6 +103,13 @@ struct InitialNamedTypes {
 }
 
 type InitialEnumVariantBindings = BTreeMap<(EnumTypeId, TypeSourceKey), EnumVariantId>;
+type InitialCompositeFieldBindings = BTreeMap<(CompositeTypeId, FieldSourceKey), CompositeFieldId>;
+
+/// Composite catalog and member bindings allocated from one source closure.
+struct InitialCompositeTypes {
+    catalog: AcceptedCompositeCatalog,
+    field_bindings: InitialCompositeFieldBindings,
+}
 
 /// Mutable accepted identities allocated while completing one store-local
 /// initial candidate.
@@ -144,12 +151,15 @@ fn lower_initial_named_types(
     }
 
     let (enum_catalog, enum_variant_bindings) = lower_initial_enum_catalog(types, &type_bindings)?;
-    let composite_catalog = lower_initial_composite_catalog(types, &type_bindings, &enum_catalog)?;
-    let bindings = AcceptedSourceBindingCatalog::default()
-        .with_initial_named_types(type_bindings, enum_variant_bindings);
+    let composite_types = lower_initial_composite_catalog(types, &type_bindings, &enum_catalog)?;
+    let bindings = AcceptedSourceBindingCatalog::default().with_initial_named_types(
+        type_bindings,
+        enum_variant_bindings,
+        composite_types.field_bindings,
+    );
     Ok(InitialNamedTypes {
         enum_catalog,
-        composite_catalog,
+        composite_catalog: composite_types.catalog,
         bindings,
     })
 }
@@ -249,8 +259,9 @@ fn lower_initial_composite_catalog(
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
     bindings: &BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
     enum_catalog: &AcceptedEnumCatalog,
-) -> Result<AcceptedCompositeCatalog, InternalError> {
+) -> Result<InitialCompositeTypes, InternalError> {
     let mut definitions = BTreeMap::new();
+    let mut field_bindings = BTreeMap::new();
     for (source, identity) in bindings {
         let AcceptedNamedTypeIdentity::Composite(type_id) = identity else {
             continue;
@@ -259,24 +270,45 @@ fn lower_initial_composite_catalog(
             .get(source)
             .copied()
             .ok_or_else(InternalError::store_invariant)?;
-        let shape = lower_initial_composite_shape(definition, bindings)?;
+        let shape =
+            lower_initial_composite_shape(*type_id, definition, bindings, &mut field_bindings)?;
         definitions.insert(*type_id, (definition.name().as_str().to_string(), shape));
     }
-    AcceptedCompositeCatalog::from_initial_definitions(definitions, enum_catalog)
-        .map_err(|_| InternalError::store_unsupported())
+    let catalog = AcceptedCompositeCatalog::from_initial_definitions(definitions, enum_catalog)
+        .map_err(|_| InternalError::store_unsupported())?;
+    Ok(InitialCompositeTypes {
+        catalog,
+        field_bindings,
+    })
 }
 
 fn lower_initial_composite_shape(
+    type_id: CompositeTypeId,
     definition: &NamedTypeFragment,
     bindings: &BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
+    field_bindings: &mut InitialCompositeFieldBindings,
 ) -> Result<AcceptedCompositeShape, InternalError> {
     let shape = match definition {
         NamedTypeFragment::Record(record) => {
             let mut fields = record
                 .fields()
                 .iter()
-                .map(|field| {
+                .enumerate()
+                .map(|(offset, field)| {
+                    let raw = u32::try_from(offset)
+                        .ok()
+                        .and_then(|value| value.checked_add(1))
+                        .ok_or_else(InternalError::store_unsupported)?;
+                    let field_id =
+                        CompositeFieldId::new(raw).ok_or_else(InternalError::store_unsupported)?;
+                    if field_bindings
+                        .insert((type_id, field.source_key().clone()), field_id)
+                        .is_some()
+                    {
+                        return Err(InternalError::store_invariant());
+                    }
                     Ok(AcceptedCompositeField::new(
+                        field_id,
                         field.name().as_str().to_string(),
                         AcceptedCompositeElement::new(
                             lower_field_type(field.field_type(), |source| {
@@ -1499,6 +1531,34 @@ mod tests {
         else {
             panic!("profile should remain a record")
         };
+        let label_source =
+            FieldSourceKey::try_new("test:record:label").expect("field source should admit");
+        let status_source =
+            FieldSourceKey::try_new("test:record:status").expect("field source should admit");
+        let label_id = bindings
+            .composite_field(profile_id, &label_source)
+            .expect("label source should bind");
+        let status_field_id = bindings
+            .composite_field(profile_id, &status_source)
+            .expect("status source should bind");
+        assert_eq!(
+            bindings.composite_field_binding_count_for_tests(profile_id),
+            profile_fields.len(),
+        );
+        assert_eq!(
+            profile_fields
+                .iter()
+                .find(|field| field.name() == "label")
+                .map(super::AcceptedCompositeField::id),
+            Some(label_id),
+        );
+        assert_eq!(
+            profile_fields
+                .iter()
+                .find(|field| field.name() == "status")
+                .map(super::AcceptedCompositeField::id),
+            Some(status_field_id),
+        );
         assert!(matches!(
             profile_fields[1].contract().kind(),
             super::AcceptedFieldKind::Enum { type_id } if *type_id == status_id

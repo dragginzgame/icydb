@@ -51,6 +51,30 @@ impl CompositeTypeId {
 }
 
 ///
+/// CompositeFieldId
+///
+/// Stable non-zero member identity owned by one accepted record composite.
+///
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(in crate::db) struct CompositeFieldId(NonZeroU32);
+
+impl CompositeFieldId {
+    #[must_use]
+    pub(in crate::db) const fn new(value: u32) -> Option<Self> {
+        match NonZeroU32::new(value) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn get(self) -> u32 {
+        self.0.get()
+    }
+}
+
+///
 /// AcceptedCompositeCatalog
 ///
 /// Canonical nominal composite definitions owned by one accepted store
@@ -231,6 +255,7 @@ impl AcceptedCompositeType {
             && match &self.shape {
                 AcceptedCompositeShape::Record(fields) => {
                     fields.windows(2).all(|pair| pair[0].name < pair[1].name)
+                        && unique_values(fields.iter().map(|field| field.id))
                         && fields.iter().all(|field| {
                             !field.name.is_empty()
                                 && composite_catalog
@@ -326,6 +351,7 @@ pub(in crate::db::schema) enum AcceptedCompositeShape {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct AcceptedCompositeField {
+    id: CompositeFieldId,
     name: String,
     contract: AcceptedCompositeElement,
 }
@@ -334,10 +360,16 @@ impl AcceptedCompositeField {
     /// Construct one canonical record member.
     #[must_use]
     pub(in crate::db::schema) const fn new(
+        id: CompositeFieldId,
         name: String,
         contract: AcceptedCompositeElement,
     ) -> Self {
-        Self { name, contract }
+        Self { id, name, contract }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn id(&self) -> CompositeFieldId {
+        self.id
     }
 
     #[must_use]
@@ -401,6 +433,8 @@ pub(in crate::db::schema) enum CompositeCatalogBuildError {
     ExistingTypeIdentityChanged { path: String },
 
     FieldKindResolution,
+
+    RecordFieldIdExhausted,
 
     RecursiveContract { cycle: Vec<String> },
 
@@ -686,9 +720,9 @@ fn accepted_definition_from_model(
             let mut accepted = fields
                 .iter()
                 .map(|field| {
-                    Ok(AcceptedCompositeField {
-                        name: field.name().to_string(),
-                        contract: AcceptedCompositeElement {
+                    Ok((
+                        field.name().to_string(),
+                        AcceptedCompositeElement {
                             kind: super::enum_catalog::resolve_model_field_kind_with_composites(
                                 enum_catalog,
                                 composite_ids,
@@ -697,20 +731,31 @@ fn accepted_definition_from_model(
                             .map_err(|_| CompositeCatalogBuildError::FieldKindResolution)?,
                             nullable: field.nullable(),
                         },
-                    })
+                    ))
                 })
                 .collect::<Result<Vec<_>, CompositeCatalogBuildError>>()?;
-            accepted.sort_by(|left, right| left.name.cmp(&right.name));
-            if let Some(pair) = accepted
-                .windows(2)
-                .find(|pair| pair[0].name == pair[1].name)
-            {
+            accepted.sort_by(|left, right| left.0.cmp(&right.0));
+            if let Some(pair) = accepted.windows(2).find(|pair| pair[0].0 == pair[1].0) {
                 return Err(CompositeCatalogBuildError::DuplicateRecordField {
                     path,
-                    name: pair[0].name.clone(),
+                    name: pair[0].0.clone(),
                 });
             }
-            AcceptedCompositeShape::Record(accepted)
+            AcceptedCompositeShape::Record(
+                accepted
+                    .into_iter()
+                    .enumerate()
+                    .map(|(offset, (name, contract))| {
+                        let raw = u32::try_from(offset)
+                            .ok()
+                            .and_then(|value| value.checked_add(1))
+                            .ok_or(CompositeCatalogBuildError::RecordFieldIdExhausted)?;
+                        let id = CompositeFieldId::new(raw)
+                            .ok_or(CompositeCatalogBuildError::RecordFieldIdExhausted)?;
+                        Ok(AcceptedCompositeField { id, name, contract })
+                    })
+                    .collect::<Result<Vec<_>, CompositeCatalogBuildError>>()?,
+            )
         }
         CompositeShapeModel::Tuple(elements) => AcceptedCompositeShape::Tuple(
             elements
@@ -745,6 +790,11 @@ fn accepted_definition_from_model(
         codec: proposal.codec,
         shape,
     })
+}
+
+fn unique_values<T: Ord>(values: impl Iterator<Item = T>) -> bool {
+    let mut seen = BTreeSet::new();
+    values.into_iter().all(|value| seen.insert(value))
 }
 
 fn validate_composite_type_graph(

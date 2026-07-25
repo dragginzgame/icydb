@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### ⚠️ Breaking
+
+- Accepted record composites now give every member a stable store-local
+  identity bound to its immutable source key, so editable member names cannot
+  become reconciliation authority. This hard-cuts accepted bundle bytes;
+  development stores written through `0.213.8` must be recreated.
+
 ## [0.213.x] 🧭 - 2026-07-24 - Schema Authority And Application Separation
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)

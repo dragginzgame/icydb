@@ -8,7 +8,7 @@ mod tests;
 
 use super::{
     AcceptedCompositeCatalog, AcceptedCompositeElement, AcceptedCompositeField,
-    AcceptedCompositeShape, AcceptedCompositeType, CompositeTypeId,
+    AcceptedCompositeShape, AcceptedCompositeType, CompositeFieldId, CompositeTypeId,
 };
 use crate::{
     db::schema::enum_catalog::{
@@ -124,6 +124,7 @@ fn encode_shape(
             writer.push_u8(SHAPE_RECORD);
             writer.push_len(fields.len())?;
             for field in fields {
+                writer.push_u32(field.id.get());
                 writer.push_string(&field.name)?;
                 encode_element(writer, &field.contract)?;
             }
@@ -150,6 +151,8 @@ fn decode_shape(reader: &mut CatalogReader<'_>) -> Result<AcceptedCompositeShape
             let mut fields = Vec::with_capacity(field_count);
             for _ in 0..field_count {
                 fields.push(AcceptedCompositeField {
+                    id: CompositeFieldId::new(reader.read_u32()?)
+                        .ok_or_else(InternalError::store_corruption)?,
                     name: reader.read_string()?,
                     contract: decode_element(reader)?,
                 });
