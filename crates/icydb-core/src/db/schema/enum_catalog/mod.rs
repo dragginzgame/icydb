@@ -253,6 +253,71 @@ impl AcceptedEnumCatalog {
         Ok(catalog)
     }
 
+    /// Re-declare editable unit-enum metadata under existing accepted IDs.
+    ///
+    /// Source bindings resolve the supplied type and variant IDs before this
+    /// boundary. This owner permits only path/name changes; variant identity,
+    /// cardinality, ordering policy, and unit contracts remain exact.
+    pub(in crate::db::schema) fn with_redeclared_unit_metadata(
+        mut self,
+        type_id: EnumTypeId,
+        path: String,
+        variants: BTreeMap<EnumVariantId, String>,
+    ) -> Result<Self, EnumCatalogBuildError> {
+        let accepted = self
+            .by_id
+            .get(&type_id)
+            .ok_or(EnumCatalogBuildError::LookupMapInvariant)?;
+        if path.is_empty()
+            || variants.len() != accepted.variants_by_id.len()
+            || variants.keys().any(|variant_id| {
+                accepted
+                    .variants_by_id
+                    .get(variant_id)
+                    .is_none_or(|variant| !matches!(variant.body, AcceptedEnumVariantBody::Unit))
+            })
+        {
+            return Err(EnumCatalogBuildError::LookupMapInvariant);
+        }
+        let old_path = accepted.path.clone();
+        let ordering = accepted.ordering;
+        let mut variants_by_id = BTreeMap::new();
+        let mut variant_id_by_name = BTreeMap::new();
+        for (variant_id, name) in variants {
+            if name.is_empty()
+                || variant_id_by_name
+                    .insert(name.clone(), variant_id)
+                    .is_some()
+            {
+                return Err(EnumCatalogBuildError::LookupMapInvariant);
+            }
+            variants_by_id.insert(
+                variant_id,
+                AcceptedEnumVariant {
+                    name,
+                    body: AcceptedEnumVariantBody::Unit,
+                },
+            );
+        }
+        self.id_by_path.remove(old_path.as_str());
+        if self.id_by_path.insert(path.clone(), type_id).is_some() {
+            return Err(EnumCatalogBuildError::ConflictingDefinition { path });
+        }
+        self.by_id.insert(
+            type_id,
+            AcceptedEnumType {
+                path,
+                variants_by_id,
+                variant_id_by_name,
+                ordering,
+            },
+        );
+        if !self.validate() {
+            return Err(EnumCatalogBuildError::LookupMapInvariant);
+        }
+        Ok(self)
+    }
+
     fn validate(&self) -> bool {
         self.lookup_maps_are_bijective() && self.contract_graph_is_valid()
     }

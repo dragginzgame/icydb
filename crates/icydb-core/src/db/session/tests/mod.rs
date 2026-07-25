@@ -3129,6 +3129,26 @@ fn initial_named_application_proposal(
     status_has_default: bool,
     status_name: &str,
 ) -> icydb_schema::SchemaProposal {
+    named_application_proposal(
+        target,
+        submission_key,
+        status_has_default,
+        "Standalone",
+        status_name,
+        "StandaloneStatus",
+        "Active",
+    )
+}
+
+fn named_application_proposal(
+    target: &crate::db::SchemaApplicationTarget,
+    submission_key: &str,
+    status_has_default: bool,
+    entity_name: &str,
+    status_name: &str,
+    status_type_name: &str,
+    active_variant_name: &str,
+) -> icydb_schema::SchemaProposal {
     let entity_source = icydb_schema::EntitySourceKey::try_new("test:entity:standalone")
         .expect("test entity source should admit");
     let id_source = icydb_schema::FieldSourceKey::try_new("test:field:standalone-id")
@@ -3140,11 +3160,11 @@ fn initial_named_application_proposal(
     let status_type = icydb_schema::NamedTypeFragment::Enum(
         icydb_schema::EnumTypeFragment::try_new(
             status_source.clone(),
-            icydb_schema::SchemaName::try_new("StandaloneStatus")
+            icydb_schema::SchemaName::try_new(status_type_name)
                 .expect("test type name should admit"),
             vec![icydb_schema::EnumVariantFragment::new(
                 active_source.clone(),
-                icydb_schema::SchemaName::try_new("Active")
+                icydb_schema::SchemaName::try_new(active_variant_name)
                     .expect("test variant name should admit"),
             )],
         )
@@ -3152,7 +3172,7 @@ fn initial_named_application_proposal(
     );
     let entity = icydb_schema::EntityFragment::try_new(
         entity_source.clone(),
-        icydb_schema::SchemaName::try_new("Standalone").expect("test entity name should admit"),
+        icydb_schema::SchemaName::try_new(entity_name).expect("test entity name should admit"),
         vec![
             icydb_schema::FieldFragment::new(
                 id_source.clone(),
@@ -3371,7 +3391,7 @@ fn schema_application_reconciles_existing_future_default_without_identity_or_lay
 }
 
 #[test]
-fn schema_application_rejects_unimplemented_existing_rename_before_publication() {
+fn schema_application_reconciles_source_keyed_display_names_without_identity_or_layout_churn() {
     let session = reset_standalone_schema_application_fixture();
     let target = session
         .schema_application_target()
@@ -3381,31 +3401,70 @@ fn schema_application_rejects_unimplemented_existing_rename_before_publication()
     session
         .apply_schema(&initial)
         .expect("initial named proposal should publish");
+    let initial_bundle = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
     let after = session
         .schema_application_target()
         .expect("published target should derive");
-    let unsupported_rename =
-        initial_named_application_proposal(&after, "existing-rename-rejection", false, "state");
-    let rejection = session
-        .apply_schema(&unsupported_rename)
-        .expect_err("an unimplemented existing-head rename must fail before publication");
-    assert_eq!(rejection.class(), ErrorClass::Unsupported);
+    let renamed = named_application_proposal(
+        &after,
+        "existing-source-keyed-rename",
+        false,
+        "RenamedStandalone",
+        "state",
+        "RenamedStandaloneStatus",
+        "Enabled",
+    );
+    session
+        .apply_schema(&renamed)
+        .expect("source-keyed display metadata should reconcile");
+    let renamed_bundle = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("renamed accepted bundle should load")
+        .expect("renamed accepted bundle should exist");
+
     assert_eq!(
+        renamed_bundle.source_bindings_for_tests(),
+        initial_bundle.source_bindings_for_tests(),
+    );
+    let (&entity_tag, initial_snapshot) = initial_bundle
+        .entity_snapshots()
+        .iter()
+        .next()
+        .expect("initial entity should exist");
+    let renamed_snapshot = renamed_bundle
+        .entity_snapshots()
+        .get(&entity_tag)
+        .expect("renamed entity should keep its tag");
+    assert_eq!(renamed_snapshot.entity_name(), "RenamedStandalone");
+    assert_eq!(renamed_snapshot.row_layout(), initial_snapshot.row_layout());
+    assert_eq!(
+        renamed_snapshot
+            .fields()
+            .iter()
+            .map(crate::db::schema::PersistedFieldSnapshot::id)
+            .collect::<Vec<_>>(),
+        initial_snapshot
+            .fields()
+            .iter()
+            .map(crate::db::schema::PersistedFieldSnapshot::id)
+            .collect::<Vec<_>>(),
+    );
+    assert!(
+        renamed_snapshot
+            .fields()
+            .iter()
+            .any(|field| field.name() == "state"),
+    );
+    assert!(matches!(
         session
             .schema_application_target()
-            .expect("rejected rename should leave the target readable")
+            .expect("renamed target should derive")
             .accepted_head(),
-        after.accepted_head(),
-    );
-    assert_eq!(
-        session
-            .schema_application_receipt(
-                after.database_identity(),
-                unsupported_rename.submission_key(),
-            )
-            .expect("rejected receipt lookup should succeed"),
-        None,
-    );
+        icydb_schema::ExpectedAcceptedHead::Exact { revision: 2, .. }
+    ));
 }
 
 fn reset_mixed_heap_relation_stores() {

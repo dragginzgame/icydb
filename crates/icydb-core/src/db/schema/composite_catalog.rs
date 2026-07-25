@@ -125,6 +125,39 @@ impl AcceptedCompositeCatalog {
         Ok(catalog)
     }
 
+    /// Re-declare an editable composite path under one accepted ID.
+    ///
+    /// Record member names are part of canonical record values and are not
+    /// metadata-only. The full shape and structural codec therefore remain
+    /// exact while only the nominal type path changes.
+    pub(in crate::db::schema) fn with_redeclared_path(
+        mut self,
+        type_id: CompositeTypeId,
+        path: String,
+        enum_catalog: &AcceptedEnumCatalog,
+    ) -> Result<Self, CompositeCatalogBuildError> {
+        let accepted = self
+            .by_id
+            .get(&type_id)
+            .ok_or(CompositeCatalogBuildError::FieldKindResolution)?;
+        if path.is_empty() {
+            return Err(CompositeCatalogBuildError::FieldKindResolution);
+        }
+        let old_path = accepted.path.clone();
+        let codec = accepted.codec;
+        let shape = accepted.shape.clone();
+        self.id_by_path.remove(old_path.as_str());
+        if self.id_by_path.insert(path.clone(), type_id).is_some() {
+            return Err(CompositeCatalogBuildError::ConflictingDefinition { path });
+        }
+        self.by_id
+            .insert(type_id, AcceptedCompositeType { path, codec, shape });
+        if !self.validate(enum_catalog) {
+            return Err(CompositeCatalogBuildError::FieldKindResolution);
+        }
+        Ok(self)
+    }
+
     #[must_use]
     #[cfg(test)]
     pub(in crate::db) fn type_id(&self, path: &str) -> Option<CompositeTypeId> {

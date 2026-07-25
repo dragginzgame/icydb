@@ -32,7 +32,6 @@ use crate::{
                 AcceptedCompositeCatalog, AcceptedCompositeElement, AcceptedCompositeField,
                 AcceptedCompositeShape, CompositeFieldId, CompositeTypeId,
             },
-            enum_catalog::AcceptedEnumVariantBody,
             render_accepted_check_expr_sql, source_literal_input,
         },
     },
@@ -503,11 +502,12 @@ pub(in crate::db::schema) fn lower_initial_schema_proposal(
 
 /// Lower an exact proposal against a non-empty accepted head.
 ///
-/// This first existing-head lane owns future insert-default reconciliation.
-/// Every other declared fact must resolve through immutable source bindings
-/// and match accepted authority exactly. Additions, removals, renames,
-/// activation work, and physical changes therefore fail before candidate
-/// construction instead of falling back to generated-model reconciliation.
+/// This existing-head lane owns future insert-default and source-keyed display
+/// metadata reconciliation. Every structural fact must resolve through
+/// immutable source bindings and match accepted authority exactly. Additions,
+/// removals, activation work, and physical changes therefore fail before
+/// candidate construction instead of falling back to generated-model
+/// reconciliation.
 pub(in crate::db::schema) fn lower_existing_schema_proposal(
     proposal: &SchemaProposal,
     stores: &[ExistingProposalStore<'_>],
@@ -557,42 +557,11 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
 
     let mut used_types = BTreeSet::new();
     let mut candidates = Vec::new();
-    for (_, (store, mut store_entities)) in entities_by_store {
-        store_entities.sort_by(|left, right| left.source_key().cmp(right.source_key()));
-        let mut snapshots = store.bundle.entity_snapshots().clone();
-        let mut changed = false;
-        for entity in &store_entities {
-            verify_existing_named_type_closure(store.bundle, entity, &types, &mut used_types)?;
-            let entity_tag = store
-                .bundle
-                .source_bindings()
-                .entity(entity.source_key())
-                .ok_or_else(InternalError::store_unsupported)?;
-            let current = snapshots
-                .get(&entity_tag)
-                .ok_or_else(InternalError::store_invariant)?;
-            if let Some(candidate) =
-                lower_existing_entity(store.bundle, stores, entity, entity_tag, current)?
-            {
-                snapshots.insert(entity_tag, candidate);
-                changed = true;
-            }
-        }
-        if changed {
-            let revision = store
-                .bundle
-                .revision()
-                .checked_next()
-                .ok_or_else(InternalError::store_unsupported)?;
-            let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
-                revision,
-                store.path,
-                store.bundle.enum_catalog().clone(),
-                store.bundle.composite_catalog().clone(),
-                store.bundle.source_bindings().clone(),
-                snapshots,
-            )?;
-            candidates.push(CandidateSchemaRevision::new(bundle)?);
+    for (_, (store, store_entities)) in entities_by_store {
+        if let Some(candidate) =
+            lower_existing_store_candidate(store, stores, store_entities, &types, &mut used_types)?
+        {
+            candidates.push(candidate);
         }
     }
     if used_types.len() != types.len() {
@@ -600,6 +569,72 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
     }
     candidates.sort_by(|left, right| left.store_path().cmp(right.store_path()));
     Ok(candidates)
+}
+
+fn lower_existing_store_candidate(
+    store: &ExistingProposalStore<'_>,
+    stores: &[ExistingProposalStore<'_>],
+    mut entities: Vec<&EntityFragment>,
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+    used_types: &mut BTreeSet<TypeSourceKey>,
+) -> Result<Option<CandidateSchemaRevision>, InternalError> {
+    entities.sort_by(|left, right| left.source_key().cmp(right.source_key()));
+    let catalogs =
+        lower_existing_named_catalogs(store.bundle, entities.as_slice(), types, used_types)?;
+    let mut snapshots = store.bundle.entity_snapshots().clone();
+    let proposed_entity_tags = entities
+        .iter()
+        .map(|entity| {
+            store
+                .bundle
+                .source_bindings()
+                .entity(entity.source_key())
+                .ok_or_else(InternalError::store_unsupported)
+        })
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    verify_unrebuildable_enum_predicates(store.bundle, &catalogs, &proposed_entity_tags)?;
+    let mut changed = false;
+    for entity in entities {
+        let entity_tag = store
+            .bundle
+            .source_bindings()
+            .entity(entity.source_key())
+            .ok_or_else(InternalError::store_unsupported)?;
+        let current = snapshots
+            .get(&entity_tag)
+            .ok_or_else(InternalError::store_invariant)?;
+        if let Some(candidate) =
+            lower_existing_entity(store.bundle, &catalogs, stores, entity, entity_tag, current)?
+        {
+            snapshots.insert(entity_tag, candidate);
+            changed = true;
+        }
+    }
+    if !changed && !catalogs.changed {
+        return Ok(None);
+    }
+    let revision = store
+        .bundle
+        .revision()
+        .checked_next()
+        .ok_or_else(InternalError::store_unsupported)?;
+    let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
+        revision,
+        store.path,
+        catalogs.enum_catalog,
+        catalogs.composite_catalog,
+        store.bundle.source_bindings().clone(),
+        snapshots,
+    )?;
+    CandidateSchemaRevision::new(bundle).map(Some)
+}
+
+/// Candidate value catalogs for one exact existing accepted head.
+struct ExistingCatalogCandidate {
+    enum_catalog: AcceptedEnumCatalog,
+    composite_catalog: AcceptedCompositeCatalog,
+    enum_changed: bool,
+    changed: bool,
 }
 
 fn verify_unique_entity_binding(
@@ -617,19 +652,16 @@ fn verify_unique_entity_binding(
     Ok(())
 }
 
-fn verify_existing_named_type_closure(
+fn lower_existing_named_catalogs(
     bundle: &AcceptedSchemaRevisionBundle,
-    entity: &EntityFragment,
+    entities: &[&EntityFragment],
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
     used_types: &mut BTreeSet<TypeSourceKey>,
-) -> Result<(), InternalError> {
-    let mut pending = entity
-        .fields()
+) -> Result<ExistingCatalogCandidate, InternalError> {
+    let mut pending = entities
         .iter()
-        .filter_map(|field| match field.field_type() {
-            FieldType::Named(source) => Some(source.clone()),
-            FieldType::Scalar(_) => None,
-        })
+        .flat_map(|entity| entity.fields())
+        .filter_map(|field| named_field_type_source(field.field_type()))
         .collect::<Vec<_>>();
     let mut visited = BTreeSet::new();
     while let Some(source) = pending.pop() {
@@ -641,59 +673,125 @@ fn verify_existing_named_type_closure(
             .named_type(&source)
             .ok_or_else(InternalError::store_unsupported)?;
         if let Some(definition) = types.get(&source).copied() {
-            verify_existing_named_type(bundle, identity, definition)?;
-            collect_named_type_dependencies(definition, &mut pending);
-            used_types.insert(source);
-        }
-    }
-    Ok(())
-}
-
-fn verify_existing_named_type(
-    bundle: &AcceptedSchemaRevisionBundle,
-    identity: AcceptedNamedTypeIdentity,
-    definition: &NamedTypeFragment,
-) -> Result<(), InternalError> {
-    match (identity, definition) {
-        (AcceptedNamedTypeIdentity::Enum(type_id), NamedTypeFragment::Enum(proposed)) => {
-            let accepted = bundle
-                .enum_catalog()
-                .enum_type(type_id)
-                .ok_or_else(InternalError::store_invariant)?;
-            if accepted.path() != proposed.name().as_str()
-                || accepted.variant_count() != proposed.variants().len()
-            {
+            if matches!(
+                (identity, definition),
+                (
+                    AcceptedNamedTypeIdentity::Enum(_),
+                    NamedTypeFragment::Enum(_)
+                ) | (
+                    AcceptedNamedTypeIdentity::Composite(_),
+                    NamedTypeFragment::Record(_)
+                        | NamedTypeFragment::Newtype { .. }
+                        | NamedTypeFragment::List { .. }
+                        | NamedTypeFragment::Set { .. }
+                        | NamedTypeFragment::Map { .. }
+                        | NamedTypeFragment::Tuple { .. }
+                )
+            ) {
+                collect_named_type_dependencies(definition, &mut pending);
+                used_types.insert(source);
+            } else {
                 return Err(InternalError::store_unsupported());
             }
-            for variant in proposed.variants() {
+        }
+    }
+
+    let mut enum_catalog = bundle.enum_catalog().clone();
+    for source in &visited {
+        let Some(NamedTypeFragment::Enum(proposed)) = types.get(source).copied() else {
+            continue;
+        };
+        let AcceptedNamedTypeIdentity::Enum(type_id) = bundle
+            .source_bindings()
+            .named_type(source)
+            .ok_or_else(InternalError::store_unsupported)?
+        else {
+            return Err(InternalError::store_unsupported());
+        };
+        let variants = proposed
+            .variants()
+            .iter()
+            .map(|variant| {
                 let variant_id = bundle
                     .source_bindings()
                     .enum_variant(type_id, variant.source_key())
                     .ok_or_else(InternalError::store_unsupported)?;
-                let accepted_variant = accepted
-                    .variant(variant_id)
-                    .ok_or_else(InternalError::store_invariant)?;
-                if accepted_variant.name() != variant.name().as_str()
-                    || !matches!(accepted_variant.body(), AcceptedEnumVariantBody::Unit)
-                {
-                    return Err(InternalError::store_unsupported());
-                }
-            }
+                Ok((variant_id, variant.name().as_str().to_string()))
+            })
+            .collect::<Result<BTreeMap<_, _>, InternalError>>()?;
+        enum_catalog = enum_catalog
+            .with_redeclared_unit_metadata(type_id, proposed.name().as_str().to_string(), variants)
+            .map_err(|_| InternalError::store_unsupported())?;
+    }
+    let enum_changed = enum_catalog != *bundle.enum_catalog();
+
+    let mut composite_catalog = bundle.composite_catalog().clone();
+    for source in &visited {
+        let Some(definition) = types.get(source).copied() else {
+            continue;
+        };
+        let AcceptedNamedTypeIdentity::Composite(type_id) = bundle
+            .source_bindings()
+            .named_type(source)
+            .ok_or_else(InternalError::store_unsupported)?
+        else {
+            continue;
+        };
+        let shape = lower_existing_composite_shape(bundle.source_bindings(), type_id, definition)?;
+        let accepted = composite_catalog
+            .composite_type(type_id)
+            .ok_or_else(InternalError::store_invariant)?;
+        if accepted.shape() != &shape {
+            return Err(InternalError::store_unsupported());
         }
-        (AcceptedNamedTypeIdentity::Composite(type_id), proposed)
-            if !matches!(proposed, NamedTypeFragment::Enum(_)) =>
-        {
-            let accepted = bundle
-                .composite_catalog()
-                .composite_type(type_id)
-                .ok_or_else(InternalError::store_invariant)?;
-            let proposed_shape =
-                lower_existing_composite_shape(bundle.source_bindings(), type_id, proposed)?;
-            if accepted.path() != proposed.name().as_str() || accepted.shape() != &proposed_shape {
-                return Err(InternalError::store_unsupported());
-            }
-        }
-        _ => return Err(InternalError::store_unsupported()),
+        composite_catalog = composite_catalog
+            .with_redeclared_path(
+                type_id,
+                definition.name().as_str().to_string(),
+                &enum_catalog,
+            )
+            .map_err(|_| InternalError::store_unsupported())?;
+    }
+    let changed = enum_changed || composite_catalog != *bundle.composite_catalog();
+    Ok(ExistingCatalogCandidate {
+        enum_catalog,
+        composite_catalog,
+        enum_changed,
+        changed,
+    })
+}
+
+fn named_field_type_source(field_type: &FieldType) -> Option<TypeSourceKey> {
+    match field_type {
+        FieldType::Named(source) => Some(source.clone()),
+        FieldType::Scalar(_) => None,
+    }
+}
+
+fn verify_unrebuildable_enum_predicates(
+    bundle: &AcceptedSchemaRevisionBundle,
+    catalogs: &ExistingCatalogCandidate,
+    proposed_entity_tags: &BTreeSet<EntityTag>,
+) -> Result<(), InternalError> {
+    if !catalogs.enum_changed {
+        return Ok(());
+    }
+    let has_unrebuildable_predicate =
+        bundle
+            .entity_snapshots()
+            .iter()
+            .any(|(entity_tag, snapshot)| {
+                snapshot
+                    .indexes()
+                    .iter()
+                    .chain(snapshot.candidate_indexes())
+                    .any(|index| {
+                        index.predicate_sql().is_some()
+                            && (!proposed_entity_tags.contains(entity_tag) || !index.generated())
+                    })
+            });
+    if has_unrebuildable_predicate {
+        return Err(InternalError::store_unsupported());
     }
     Ok(())
 }
@@ -778,6 +876,7 @@ fn lower_existing_composite_shape(
 
 fn lower_existing_entity(
     bundle: &AcceptedSchemaRevisionBundle,
+    catalogs: &ExistingCatalogCandidate,
     stores: &[ExistingProposalStore<'_>],
     entity: &EntityFragment,
     entity_tag: EntityTag,
@@ -786,12 +885,11 @@ fn lower_existing_entity(
     if !current.constraint_activations().is_empty()
         || !current.candidate_indexes().is_empty()
         || !current.candidate_relations().is_empty()
-        || current.entity_name() != entity.name().as_str()
     {
         return Err(InternalError::store_unsupported());
     }
 
-    let field_candidate = lower_existing_fields(bundle, entity, entity_tag, current)?;
+    let field_candidate = lower_existing_fields(bundle, catalogs, entity, entity_tag, current)?;
     let bindings = bundle.source_bindings();
     let primary_key = entity
         .primary_key()
@@ -805,11 +903,51 @@ fn lower_existing_entity(
     if primary_key != current.primary_key_field_ids() {
         return Err(InternalError::store_unsupported());
     }
-    verify_existing_indexes(bundle, entity, entity_tag, current, bindings)?;
-    verify_existing_relations(stores, entity, entity_tag, current, bindings)?;
-    verify_existing_checks(bundle, entity, entity_tag, current, bindings)?;
+    if field_candidate.field_names_changed
+        && current.indexes().iter().any(|index| !index.generated())
+    {
+        return Err(InternalError::store_unsupported());
+    }
+    let fields_changed = field_candidate.changed;
 
-    if !field_candidate.changed {
+    let provisional = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+        current.version(),
+        current.entity_path().to_string(),
+        entity.name().as_str().to_string(),
+        current.primary_key_field_ids().to_vec(),
+        current.row_layout().clone(),
+        field_candidate.fields,
+        current.indexes().to_vec(),
+    )
+    .with_constraint_catalog(current.constraint_catalog().clone())
+    .with_relations(current.relations().to_vec())
+    .with_constraint_candidates(
+        current.candidate_indexes().to_vec(),
+        current.candidate_relations().to_vec(),
+    );
+    let indexes = lower_existing_indexes(
+        bundle,
+        catalogs,
+        entity,
+        entity_tag,
+        current,
+        &provisional,
+        bindings,
+    )?;
+    verify_existing_relations(stores, entity, entity_tag, current, bindings)?;
+    verify_existing_checks(
+        catalogs,
+        entity,
+        entity_tag,
+        &provisional,
+        current,
+        bindings,
+    )?;
+
+    if !fields_changed
+        && entity.name().as_str() == current.entity_name()
+        && indexes == current.indexes()
+    {
         return Ok(None);
     }
     let version = current
@@ -822,11 +960,11 @@ fn lower_existing_entity(
         PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
             version,
             current.entity_path().to_string(),
-            current.entity_name().to_string(),
+            entity.name().as_str().to_string(),
             current.primary_key_field_ids().to_vec(),
             current.row_layout().clone(),
-            field_candidate.fields,
-            current.indexes().to_vec(),
+            provisional.fields().to_vec(),
+            indexes,
         )
         .with_constraint_catalog(current.constraint_catalog().clone())
         .with_relations(current.relations().to_vec())
@@ -837,13 +975,16 @@ fn lower_existing_entity(
     ))
 }
 
+/// Re-declared generated fields plus the metadata changes relevant to indexes.
 struct ExistingFieldCandidate {
     fields: Vec<PersistedFieldSnapshot>,
     changed: bool,
+    field_names_changed: bool,
 }
 
 fn lower_existing_fields(
     bundle: &AcceptedSchemaRevisionBundle,
+    catalogs: &ExistingCatalogCandidate,
     entity: &EntityFragment,
     entity_tag: EntityTag,
     current: &PersistedSchemaSnapshot,
@@ -859,6 +1000,7 @@ fn lower_existing_fields(
     let bindings = bundle.source_bindings();
     let mut fields = current.fields().to_vec();
     let mut changed = false;
+    let mut field_names_changed = false;
     for proposed in entity.fields() {
         let field_id = bindings
             .field(entity_tag, proposed.source_key())
@@ -880,13 +1022,13 @@ fn lower_existing_fields(
             FieldType::Scalar(_) => scalar_leaf_codec(&kind),
             FieldType::Named(_) => LeafCodec::Structural,
         };
-        let nested_leaves = lower_nested_leaves(&kind, bundle.composite_catalog())?;
+        let nested_leaves = lower_nested_leaves(&kind, &catalogs.composite_catalog)?;
         let write_policy =
             lower_write_policy(proposed.insert_policy(), proposed.management(), &kind)?;
         let insert_default = AcceptedDefaultLowering {
             bindings,
-            enum_catalog: bundle.enum_catalog(),
-            composite_catalog: bundle.composite_catalog(),
+            enum_catalog: &catalogs.enum_catalog,
+            composite_catalog: &catalogs.composite_catalog,
         }
         .lower(
             proposed.insert_policy(),
@@ -911,24 +1053,38 @@ fn lower_existing_fields(
             storage_decode,
             leaf_codec,
         );
-        if candidate.clone_with_insert_default(accepted.insert_default().clone()) != *accepted {
+        if candidate.kind() != accepted.kind()
+            || candidate.nullable() != accepted.nullable()
+            || candidate.write_policy() != accepted.write_policy()
+            || candidate.storage_decode() != accepted.storage_decode()
+            || candidate.leaf_codec() != accepted.leaf_codec()
+        {
             return Err(InternalError::store_unsupported());
         }
         if candidate != *accepted {
+            if candidate.name() != accepted.name() {
+                field_names_changed = true;
+            }
             fields[position] = candidate;
             changed = true;
         }
     }
-    Ok(ExistingFieldCandidate { fields, changed })
+    Ok(ExistingFieldCandidate {
+        fields,
+        changed,
+        field_names_changed,
+    })
 }
 
-fn verify_existing_indexes(
+fn lower_existing_indexes(
     bundle: &AcceptedSchemaRevisionBundle,
+    catalogs: &ExistingCatalogCandidate,
     entity: &EntityFragment,
     entity_tag: EntityTag,
     current: &PersistedSchemaSnapshot,
+    candidate: &PersistedSchemaSnapshot,
     bindings: &AcceptedSourceBindingCatalog,
-) -> Result<(), InternalError> {
+) -> Result<Vec<PersistedIndexSnapshot>, InternalError> {
     if current
         .indexes()
         .iter()
@@ -938,13 +1094,7 @@ fn verify_existing_indexes(
     {
         return Err(InternalError::store_unsupported());
     }
-    let value_catalog = AcceptedValueCatalogHandle::new(
-        bundle.enum_catalog().clone(),
-        bundle.composite_catalog().clone(),
-        AcceptedStoreCatalogScope::new(),
-        bundle.revision(),
-        AcceptedSchemaFingerprint::new([1; 32]),
-    );
+    let mut indexes = current.indexes().to_vec();
     for proposed in entity.indexes() {
         let index_id = bindings
             .index(entity_tag, proposed.source_key())
@@ -957,23 +1107,81 @@ fn verify_existing_indexes(
         if !accepted.generated() {
             return Err(InternalError::store_unsupported());
         }
-        let key = lower_index_key(proposed.key(), entity_tag, current, bindings)?;
+        let before = ExistingIndexLowering {
+            revision: bundle.revision(),
+            enum_catalog: bundle.enum_catalog(),
+            composite_catalog: bundle.composite_catalog(),
+            entity_tag,
+            snapshot: current,
+            bindings,
+        }
+        .lower(proposed, accepted)?;
+        if before != *accepted {
+            return Err(InternalError::store_unsupported());
+        }
+        let after = ExistingIndexLowering {
+            revision: bundle.revision(),
+            enum_catalog: &catalogs.enum_catalog,
+            composite_catalog: &catalogs.composite_catalog,
+            entity_tag,
+            snapshot: candidate,
+            bindings,
+        }
+        .lower(proposed, accepted)?;
+        let position = indexes
+            .iter()
+            .position(|index| index.schema_id() == accepted.schema_id())
+            .ok_or_else(InternalError::store_invariant)?;
+        indexes[position] = after;
+    }
+    Ok(indexes)
+}
+
+/// Catalog and entity facts used to prove or rebuild one generated index.
+struct ExistingIndexLowering<'a> {
+    revision: AcceptedSchemaRevision,
+    enum_catalog: &'a AcceptedEnumCatalog,
+    composite_catalog: &'a AcceptedCompositeCatalog,
+    entity_tag: EntityTag,
+    snapshot: &'a PersistedSchemaSnapshot,
+    bindings: &'a AcceptedSourceBindingCatalog,
+}
+
+impl ExistingIndexLowering<'_> {
+    fn lower(
+        &self,
+        proposed: &icydb_schema::IndexFragment,
+        accepted: &PersistedIndexSnapshot,
+    ) -> Result<PersistedIndexSnapshot, InternalError> {
+        let value_catalog = AcceptedValueCatalogHandle::new(
+            self.enum_catalog.clone(),
+            self.composite_catalog.clone(),
+            AcceptedStoreCatalogScope::new(),
+            self.revision,
+            AcceptedSchemaFingerprint::new([1; 32]),
+        );
+        let key = lower_index_key(
+            proposed.key(),
+            self.entity_tag,
+            self.snapshot,
+            self.bindings,
+        )?;
         let predicate_sql = proposed
             .predicate()
             .map(|predicate| {
-                let accepted = bind_source_check_expr(
+                let accepted_expression = bind_source_check_expr(
                     predicate,
-                    entity_tag,
-                    bindings,
-                    current,
-                    bundle.enum_catalog(),
-                    bundle.composite_catalog(),
+                    self.entity_tag,
+                    self.bindings,
+                    self.snapshot,
+                    self.enum_catalog,
+                    self.composite_catalog,
                 )
                 .map_err(|_| InternalError::store_unsupported())?;
-                render_accepted_check_expr_sql(&accepted, current, &value_catalog)
+                render_accepted_check_expr_sql(&accepted_expression, self.snapshot, &value_catalog)
             })
             .transpose()?;
-        let candidate = PersistedIndexSnapshot::new(
+        Ok(PersistedIndexSnapshot::new(
             accepted.schema_id(),
             accepted.ordinal(),
             proposed.name().as_str().to_string(),
@@ -986,12 +1194,8 @@ fn verify_existing_indexes(
             accepted.schema_id(),
             accepted.ordinal(),
             accepted.physical_generation(),
-        );
-        if candidate != *accepted {
-            return Err(InternalError::store_unsupported());
-        }
+        ))
     }
-    Ok(())
 }
 
 fn verify_existing_relations(
@@ -1083,13 +1287,14 @@ fn resolve_existing_entity<'bundle>(
 }
 
 fn verify_existing_checks(
-    bundle: &AcceptedSchemaRevisionBundle,
+    catalogs: &ExistingCatalogCandidate,
     entity: &EntityFragment,
     entity_tag: EntityTag,
-    current: &PersistedSchemaSnapshot,
+    candidate: &PersistedSchemaSnapshot,
+    accepted_snapshot: &PersistedSchemaSnapshot,
     bindings: &AcceptedSourceBindingCatalog,
 ) -> Result<(), InternalError> {
-    if current
+    if accepted_snapshot
         .constraints()
         .iter()
         .filter(|constraint| {
@@ -1105,7 +1310,7 @@ fn verify_existing_checks(
         let constraint_id = bindings
             .constraint(entity_tag, proposed.source_key())
             .ok_or_else(InternalError::store_unsupported)?;
-        let accepted = current
+        let accepted = accepted_snapshot
             .constraints()
             .iter()
             .find(|constraint| constraint.id() == constraint_id)
@@ -1114,9 +1319,9 @@ fn verify_existing_checks(
             proposed.expression(),
             entity_tag,
             bindings,
-            current,
-            bundle.enum_catalog(),
-            bundle.composite_catalog(),
+            candidate,
+            &catalogs.enum_catalog,
+            &catalogs.composite_catalog,
         )
         .map_err(|_| InternalError::store_unsupported())?;
         if accepted.origin() != ConstraintOrigin::Generated
@@ -1821,7 +2026,10 @@ mod tests {
         ExistingProposalStore, ProposalStoreTarget, lower_existing_schema_proposal,
         lower_initial_schema_proposal,
     };
-    use crate::db::schema::{AcceptedConstraintKind, AcceptedSchemaRevision, SchemaInsertDefault};
+    use crate::db::schema::{
+        AcceptedConstraintKind, AcceptedNamedTypeIdentity, AcceptedSchemaRevision,
+        PersistedFieldSnapshot, SchemaInsertDefault, composite_catalog::AcceptedCompositeShape,
+    };
     use icydb_schema::{
         ConstraintFragment, ConstraintSourceKey, EntityFragment, EntitySourceKey,
         EntityStoreAssignment, EnumTypeFragment, EnumVariantFragment, ExpectedAcceptedHead,
@@ -1841,6 +2049,22 @@ mod tests {
         submission_key: &str,
         score_default: i128,
     ) -> (SchemaProposal, EntitySourceKey, TargetStoreIdentity) {
+        scalar_proposal_fixture_with_names(
+            expected_head,
+            submission_key,
+            score_default,
+            "Item",
+            "score",
+        )
+    }
+
+    fn scalar_proposal_fixture_with_names(
+        expected_head: ExpectedAcceptedHead,
+        submission_key: &str,
+        score_default: i128,
+        entity_name: &str,
+        score_name: &str,
+    ) -> (SchemaProposal, EntitySourceKey, TargetStoreIdentity) {
         let entity_source =
             EntitySourceKey::try_new("test:entity:item").expect("test entity source should admit");
         let id_source =
@@ -1855,7 +2079,7 @@ mod tests {
         .expect("test check should admit");
         let entity = EntityFragment::try_new(
             entity_source.clone(),
-            name("Item"),
+            name(entity_name),
             vec![
                 FieldFragment::new(
                     id_source.clone(),
@@ -1867,7 +2091,7 @@ mod tests {
                 ),
                 FieldFragment::new(
                     score_source.clone(),
-                    name("score"),
+                    name(score_name),
                     FieldType::Scalar(ScalarType::Int64),
                     false,
                     FieldInsertPolicy::Default(ScalarLiteral::Int(score_default)),
@@ -2037,6 +2261,76 @@ mod tests {
         assert_ne!(after.fields(), before.fields());
     }
 
+    #[test]
+    fn existing_entity_and_indexed_field_rename_relabels_generated_metadata_only() {
+        let (initial, entity_source, store) =
+            scalar_proposal_fixture(ExpectedAcceptedHead::Empty, "rename-initial", 5);
+        let initial_candidates = lower_initial_schema_proposal(
+            &initial,
+            &[ProposalStoreTarget {
+                path: "test::Store",
+                identity: store,
+            }],
+        )
+        .expect("initial scalar proposal should lower");
+        let initial_bundle = initial_candidates[0].bundle();
+        let (renamed, _, _) = scalar_proposal_fixture_with_names(
+            ExpectedAcceptedHead::Exact {
+                revision: 1,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x44; 32]),
+            },
+            "rename-existing",
+            5,
+            "RenamedItem",
+            "points",
+        );
+
+        let renamed_candidates = lower_existing_schema_proposal(
+            &renamed,
+            &[ExistingProposalStore {
+                path: "test::Store",
+                identity: store,
+                bundle: initial_bundle,
+            }],
+        )
+        .expect("source-keyed entity and field renames should lower");
+        let renamed_bundle = renamed_candidates[0].bundle();
+        assert_eq!(
+            renamed_bundle.source_bindings_for_tests(),
+            initial_bundle.source_bindings_for_tests(),
+        );
+        let entity_tag = renamed_bundle
+            .source_bindings_for_tests()
+            .entity(&entity_source)
+            .expect("entity source should remain bound");
+        let before = initial_bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .expect("initial entity should exist");
+        let after = renamed_bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .expect("renamed entity should exist");
+
+        assert_eq!(after.entity_name(), "RenamedItem");
+        assert_eq!(after.row_layout(), before.row_layout());
+        assert_eq!(
+            after.primary_key_field_ids(),
+            before.primary_key_field_ids()
+        );
+        assert_eq!(
+            after.indexes()[0].schema_id(),
+            before.indexes()[0].schema_id()
+        );
+        assert_eq!(after.indexes()[0].ordinal(), before.indexes()[0].ordinal());
+        assert_eq!(
+            after.indexes()[0].physical_generation(),
+            before.indexes()[0].physical_generation(),
+        );
+        assert_eq!(after.indexes()[0].key().field_paths()[0].path(), ["points"],);
+        assert_eq!(after.constraint_catalog(), before.constraint_catalog());
+    }
+
     struct NamedTypeKeys {
         status: TypeSourceKey,
         profile: TypeSourceKey,
@@ -2048,6 +2342,15 @@ mod tests {
     }
 
     fn named_type_fragments() -> (NamedTypeKeys, TypeSourceKey, Vec<NamedTypeFragment>) {
+        named_type_fragments_with_names("Status", "Active", "Profile", "label")
+    }
+
+    fn named_type_fragments_with_names(
+        status_name: &str,
+        active_name: &str,
+        profile_name: &str,
+        label_name: &str,
+    ) -> (NamedTypeKeys, TypeSourceKey, Vec<NamedTypeFragment>) {
         let keys = NamedTypeKeys {
             status: TypeSourceKey::try_new("test:type:status").expect("type key should admit"),
             profile: TypeSourceKey::try_new("test:type:profile").expect("type key should admit"),
@@ -2060,7 +2363,7 @@ mod tests {
         let active =
             TypeSourceKey::try_new("test:variant:active").expect("variant key should admit");
         let variants = vec![
-            EnumVariantFragment::new(active.clone(), name("Active")),
+            EnumVariantFragment::new(active.clone(), name(active_name)),
             EnumVariantFragment::new(
                 TypeSourceKey::try_new("test:variant:disabled").expect("variant key should admit"),
                 name("Disabled"),
@@ -2069,7 +2372,7 @@ mod tests {
         let record_fields = vec![
             RecordFieldFragment::new(
                 FieldSourceKey::try_new("test:record:label").expect("field key should admit"),
-                name("label"),
+                name(label_name),
                 FieldType::Scalar(ScalarType::Text { max_len: Some(64) }),
                 false,
             ),
@@ -2082,12 +2385,16 @@ mod tests {
         ];
         let types = vec![
             NamedTypeFragment::Enum(
-                EnumTypeFragment::try_new(keys.status.clone(), name("Status"), variants)
+                EnumTypeFragment::try_new(keys.status.clone(), name(status_name), variants)
                     .expect("enum should admit"),
             ),
             NamedTypeFragment::Record(
-                RecordTypeFragment::try_new(keys.profile.clone(), name("Profile"), record_fields)
-                    .expect("record should admit"),
+                RecordTypeFragment::try_new(
+                    keys.profile.clone(),
+                    name(profile_name),
+                    record_fields,
+                )
+                .expect("record should admit"),
             ),
             NamedTypeFragment::Newtype {
                 source_key: keys.score.clone(),
@@ -2382,6 +2689,230 @@ mod tests {
                 .composite_catalog()
                 .type_id("Profile")
                 .is_none()
+        );
+    }
+
+    fn named_metadata_proposal(
+        expected_head: ExpectedAcceptedHead,
+        submission_key: &str,
+        status_name: &str,
+        active_name: &str,
+        profile_name: &str,
+        label_name: &str,
+    ) -> (
+        SchemaProposal,
+        NamedTypeKeys,
+        EntitySourceKey,
+        TargetStoreIdentity,
+    ) {
+        let (keys, active, types) =
+            named_type_fragments_with_names(status_name, active_name, profile_name, label_name);
+        let (entity_source, entity) = named_holder_entity(&keys, active);
+        let store = TargetStoreIdentity::from_bytes([0x22; 32]);
+        let fragment =
+            SchemaFragment::try_new(vec![entity], types).expect("named fragment should admit");
+        let proposal = SchemaProposal::try_compose(
+            vec![
+                SchemaCapability::EXACT_COMPOSITE_TYPES,
+                SchemaCapability::INSERT_DEFAULTS,
+            ],
+            TargetDatabaseIdentity::from_bytes([0x11; 32]),
+            SchemaSubmissionKey::try_new(submission_key).expect("test key should admit"),
+            expected_head,
+            vec![fragment],
+            vec![EntityStoreAssignment::new(entity_source.clone(), store)],
+            Vec::new(),
+        )
+        .expect("named proposal should compose");
+        (proposal, keys, entity_source, store)
+    }
+
+    fn initial_named_metadata_candidate() -> (
+        super::CandidateSchemaRevision,
+        NamedTypeKeys,
+        EntitySourceKey,
+        TargetStoreIdentity,
+    ) {
+        let (initial, keys, entity_source, store) = named_metadata_proposal(
+            ExpectedAcceptedHead::Empty,
+            "initial-named-metadata",
+            "Status",
+            "Active",
+            "Profile",
+            "label",
+        );
+        let initial_candidates = lower_initial_schema_proposal(
+            &initial,
+            &[ProposalStoreTarget {
+                path: "test::Store",
+                identity: store,
+            }],
+        )
+        .expect("initial proposal should lower");
+        (
+            initial_candidates
+                .into_iter()
+                .next()
+                .expect("initial candidate should exist"),
+            keys,
+            entity_source,
+            store,
+        )
+    }
+
+    fn assert_renamed_named_metadata(
+        initial_bundle: &super::AcceptedSchemaRevisionBundle,
+        renamed_bundle: &super::AcceptedSchemaRevisionBundle,
+        initial_keys: &NamedTypeKeys,
+        entity_source: &EntitySourceKey,
+    ) {
+        assert_eq!(
+            renamed_bundle.source_bindings_for_tests(),
+            initial_bundle.source_bindings_for_tests(),
+        );
+        let bindings = renamed_bundle.source_bindings_for_tests();
+        let AcceptedNamedTypeIdentity::Enum(status_id) = bindings
+            .named_type(&initial_keys.status)
+            .expect("status source should remain bound")
+        else {
+            panic!("status source should remain enum-owned")
+        };
+        assert_eq!(
+            renamed_bundle.enum_catalog().type_id("LifecycleStatus"),
+            Some(status_id),
+        );
+        assert!(
+            renamed_bundle
+                .enum_catalog()
+                .enum_type(status_id)
+                .expect("status enum should exist")
+                .variant_id("Enabled")
+                .is_some(),
+        );
+        let AcceptedNamedTypeIdentity::Composite(profile_id) = bindings
+            .named_type(&initial_keys.profile)
+            .expect("profile source should remain bound")
+        else {
+            panic!("profile source should remain composite-owned")
+        };
+        assert_eq!(
+            renamed_bundle.composite_catalog().type_id("UserProfile"),
+            Some(profile_id),
+        );
+        let label_source =
+            FieldSourceKey::try_new("test:record:label").expect("label source should admit");
+        let label_id = bindings
+            .composite_field(profile_id, &label_source)
+            .expect("label source should remain bound");
+        let AcceptedCompositeShape::Record(profile_fields) = renamed_bundle
+            .composite_catalog()
+            .composite_type(profile_id)
+            .expect("profile type should exist")
+            .shape()
+        else {
+            panic!("profile should remain record-shaped")
+        };
+        assert!(
+            profile_fields
+                .iter()
+                .any(|field| field.id() == label_id && field.name() == "label"),
+        );
+
+        let entity_tag = bindings
+            .entity(entity_source)
+            .expect("entity source should remain bound");
+        let before = initial_bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .expect("initial entity should exist");
+        let after = renamed_bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .expect("renamed entity should exist");
+        assert_eq!(after.row_layout(), before.row_layout());
+        assert_eq!(
+            after
+                .fields()
+                .iter()
+                .map(PersistedFieldSnapshot::id)
+                .collect::<Vec<_>>(),
+            before
+                .fields()
+                .iter()
+                .map(PersistedFieldSnapshot::id)
+                .collect::<Vec<_>>(),
+        );
+        let profile = after
+            .fields()
+            .iter()
+            .find(|field| field.name() == "profile")
+            .expect("profile field should exist");
+        assert!(
+            profile
+                .nested_leaves()
+                .iter()
+                .any(|leaf| leaf.path() == ["label"]),
+        );
+    }
+
+    #[test]
+    fn existing_named_metadata_reconciliation_preserves_type_shape_and_layout_identity() {
+        let (initial_candidate, initial_keys, entity_source, store) =
+            initial_named_metadata_candidate();
+        let initial_bundle = initial_candidate.bundle();
+        let (renamed, _, _, _) = named_metadata_proposal(
+            ExpectedAcceptedHead::Exact {
+                revision: 1,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x44; 32]),
+            },
+            "renamed-named-metadata",
+            "LifecycleStatus",
+            "Enabled",
+            "UserProfile",
+            "label",
+        );
+        let renamed_candidates = lower_existing_schema_proposal(
+            &renamed,
+            &[ExistingProposalStore {
+                path: "test::Store",
+                identity: store,
+                bundle: initial_bundle,
+            }],
+        )
+        .expect("renamed named metadata should lower");
+        assert_renamed_named_metadata(
+            initial_bundle,
+            renamed_candidates[0].bundle(),
+            &initial_keys,
+            &entity_source,
+        );
+    }
+
+    #[test]
+    fn existing_record_member_rename_rejects_without_rewriting_canonical_values() {
+        let (initial_candidate, _, _, store) = initial_named_metadata_candidate();
+        let (invalid, _, _, _) = named_metadata_proposal(
+            ExpectedAcceptedHead::Exact {
+                revision: 1,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x44; 32]),
+            },
+            "invalid-record-member-rename",
+            "Status",
+            "Active",
+            "Profile",
+            "display_label",
+        );
+        assert!(
+            lower_existing_schema_proposal(
+                &invalid,
+                &[ExistingProposalStore {
+                    path: "test::Store",
+                    identity: store,
+                    bundle: initial_candidate.bundle(),
+                }],
+            )
+            .is_err(),
+            "record member names remain part of canonical value shape",
         );
     }
 }

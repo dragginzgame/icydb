@@ -7,15 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### 🔧 Changed
-
-- Exact non-empty schema proposals now resolve every declared owner through
-  accepted source bindings and may atomically change future insert defaults
-  without changing accepted identity, historical fill, or physical layout.
-
 ## [0.213.x] 🧭 - 2026-07-24 - Schema Authority And Application Separation
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
+
+- `0.213.11` reconciles source-keyed entity, generated-field, enum, variant,
+  and composite-type names without replacing accepted or physical identity.
+
+- `0.213.10` adds exact existing-head proposal replay and future insert-default
+  reconciliation without changing accepted identity or physical row history.
 
 - `0.213.9` gives accepted record members stable source-bound identities so
   later editable renames cannot replace structural authority.
