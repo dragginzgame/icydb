@@ -30,7 +30,9 @@ use std::{
 pub(in crate::db) use metadata::{
     RelationFieldCardinality, RelationFieldMetadata, relation_field_metadata_for_model_iter,
 };
-pub(in crate::db) use reverse_index::{RelationConstraintIndexEntry, RelationConstraintProjection};
+pub(in crate::db) use reverse_index::{
+    RelationConstraintIndexEntry, RelationConstraintProjection, prove_empty_reverse_relation_domain,
+};
 pub(crate) use reverse_index::{
     ReverseRelationSourceInfo, StagedReverseRelationDomainEffectsBuilder,
     prepare_reverse_relation_index_mutations_for_source_slot_readers,

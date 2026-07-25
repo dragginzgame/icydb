@@ -7,8 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use icydb_schema::{
     ConstraintSourceKey, EntityFragment, EntitySourceKey, FieldInsertPolicy, FieldManagementPolicy,
-    FieldSourceKey, FieldType, IndexKeyFragment, IndexSourceKey, NamedTypeFragment, ScalarType,
-    SchemaProposal, SchemaRemoval, TargetStoreIdentity, TypeSourceKey,
+    FieldSourceKey, FieldType, IndexKeyFragment, IndexSourceKey, NamedTypeFragment,
+    RelationSourceKey, ScalarType, SchemaProposal, SchemaRemoval, TargetStoreIdentity,
+    TypeSourceKey,
 };
 
 use crate::{
@@ -33,7 +34,8 @@ use crate::{
                 AcceptedCompositeShape, CompositeFieldId, CompositeTypeId,
             },
             derive_dense_field_removal_candidate, derive_dense_index_removal_candidate,
-            render_accepted_check_expr_sql, source_literal_input,
+            derive_relation_removal_candidate, render_accepted_check_expr_sql,
+            source_literal_input,
         },
     },
     error::InternalError,
@@ -627,6 +629,14 @@ struct ExistingIndexRemoval {
     id: SchemaIndexId,
 }
 
+/// One source-resolved generated relation selected for exact removal.
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
+struct ExistingRelationRemoval {
+    entity_tag: EntityTag,
+    source: RelationSourceKey,
+    id: RelationId,
+}
+
 /// One source-resolved generated named type selected for exact removal.
 #[derive(Eq, Ord, PartialEq, PartialOrd)]
 struct ExistingTypeRemoval {
@@ -640,6 +650,7 @@ struct ExistingStoreRemovals {
     checks: Vec<ExistingCheckRemoval>,
     fields: Vec<ExistingFieldRemoval>,
     indexes: Vec<ExistingIndexRemoval>,
+    relations: Vec<ExistingRelationRemoval>,
     types: Vec<ExistingTypeRemoval>,
 }
 
@@ -649,6 +660,7 @@ impl ExistingStoreRemovals {
             ExistingRemoval::Check(removal) => self.checks.push(removal),
             ExistingRemoval::Field(removal) => self.fields.push(removal),
             ExistingRemoval::Index(removal) => self.indexes.push(removal),
+            ExistingRemoval::Relation(removal) => self.relations.push(removal),
         }
     }
 }
@@ -658,6 +670,7 @@ enum ExistingRemoval {
     Check(ExistingCheckRemoval),
     Field(ExistingFieldRemoval),
     Index(ExistingIndexRemoval),
+    Relation(ExistingRelationRemoval),
 }
 
 fn lower_existing_store_candidate(
@@ -672,6 +685,7 @@ fn lower_existing_store_candidate(
     removals.checks.sort();
     removals.fields.sort();
     removals.indexes.sort();
+    removals.relations.sort();
     removals.types.sort();
     if removals.types.len() > 1 {
         return Err(InternalError::store_unsupported());
@@ -689,6 +703,11 @@ fn lower_existing_store_candidate(
         &mut snapshots,
         &mut source_bindings,
         removals.indexes.as_slice(),
+    )?);
+    removal_entity_tags.extend(apply_existing_relation_removals(
+        &mut snapshots,
+        &mut source_bindings,
+        removals.relations.as_slice(),
     )?);
     removal_entity_tags.extend(apply_existing_field_removals(
         &mut snapshots,
@@ -716,6 +735,7 @@ fn lower_existing_store_candidate(
     let mut changed = !removals.checks.is_empty()
         || !removals.fields.is_empty()
         || !removals.indexes.is_empty()
+        || !removals.relations.is_empty()
         || !removals.types.is_empty();
     for entity in entities {
         let entity_tag = store
@@ -778,7 +798,12 @@ fn resolve_existing_removal<'store, 'bundle>(
             let (store, removal) = resolve_existing_generated_index_removal(stores, entity, index)?;
             Ok((store, ExistingRemoval::Index(removal)))
         }
-        SchemaRemoval::Entity(_) | SchemaRemoval::Type(_) | SchemaRemoval::Relation { .. } => {
+        SchemaRemoval::Relation { entity, relation } => {
+            let (store, removal) =
+                resolve_existing_generated_relation_removal(stores, entity, relation)?;
+            Ok((store, ExistingRemoval::Relation(removal)))
+        }
+        SchemaRemoval::Entity(_) | SchemaRemoval::Type(_) => {
             Err(InternalError::store_unsupported())
         }
     }
@@ -1031,6 +1056,62 @@ fn resolve_existing_generated_index_removal<'store, 'bundle>(
     resolved.ok_or_else(InternalError::store_unsupported)
 }
 
+/// Resolve one generated relation removal solely through immutable accepted
+/// source identity.
+fn resolve_existing_generated_relation_removal<'store, 'bundle>(
+    stores: &'store [ExistingProposalStore<'bundle>],
+    entity_source: &EntitySourceKey,
+    relation_source: &RelationSourceKey,
+) -> Result<
+    (
+        &'store ExistingProposalStore<'bundle>,
+        ExistingRelationRemoval,
+    ),
+    InternalError,
+> {
+    let mut resolved = None;
+    for store in stores {
+        let Some(entity_tag) = store.bundle.source_bindings().entity(entity_source) else {
+            continue;
+        };
+        if resolved.is_some() {
+            return Err(InternalError::store_unsupported());
+        }
+        let snapshot = store
+            .bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .ok_or_else(InternalError::store_invariant)?;
+        if !snapshot.constraint_activations().is_empty()
+            || !snapshot.candidate_indexes().is_empty()
+            || !snapshot.candidate_relations().is_empty()
+        {
+            return Err(InternalError::store_unsupported());
+        }
+        let relation_id = store
+            .bundle
+            .source_bindings()
+            .relation(entity_tag, relation_source)
+            .ok_or_else(InternalError::store_unsupported)?;
+        if !snapshot
+            .relations()
+            .iter()
+            .any(|relation| relation.id() == relation_id)
+        {
+            return Err(InternalError::store_invariant());
+        }
+        resolved = Some((
+            store,
+            ExistingRelationRemoval {
+                entity_tag,
+                source: relation_source.clone(),
+                id: relation_id,
+            },
+        ));
+    }
+    resolved.ok_or_else(InternalError::store_unsupported)
+}
+
 /// Remove checks and source bindings as one candidate-local identity update.
 fn apply_existing_check_removals(
     snapshots: &mut BTreeMap<EntityTag, PersistedSchemaSnapshot>,
@@ -1091,6 +1172,37 @@ fn apply_existing_index_removals(
         let candidate = derive_dense_index_removal_candidate(&current, removal.id)
             .map_err(|_| InternalError::store_unsupported())?;
         source_bindings.remove_index(entity_tag, &removal.source, removal.id)?;
+        snapshots.insert(entity_tag, candidate);
+        changed_entities.insert(entity_tag);
+    }
+    Ok(changed_entities)
+}
+
+/// Remove one generated relation and its paired constraint per entity.
+fn apply_existing_relation_removals(
+    snapshots: &mut BTreeMap<EntityTag, PersistedSchemaSnapshot>,
+    source_bindings: &mut AcceptedSourceBindingCatalog,
+    removals: &[ExistingRelationRemoval],
+) -> Result<BTreeSet<EntityTag>, InternalError> {
+    let mut removals_by_entity = BTreeMap::<EntityTag, Vec<&ExistingRelationRemoval>>::new();
+    for removal in removals {
+        removals_by_entity
+            .entry(removal.entity_tag)
+            .or_default()
+            .push(removal);
+    }
+
+    let mut changed_entities = BTreeSet::new();
+    for (entity_tag, entity_removals) in removals_by_entity {
+        let [removal] = entity_removals.as_slice() else {
+            return Err(InternalError::store_unsupported());
+        };
+        let current = snapshots
+            .get(&entity_tag)
+            .cloned()
+            .ok_or_else(InternalError::store_invariant)?;
+        let candidate = derive_relation_removal_candidate(&current, removal.id)?;
+        source_bindings.remove_relation(entity_tag, &removal.source, removal.id)?;
         snapshots.insert(entity_tag, candidate);
         changed_entities.insert(entity_tag);
     }

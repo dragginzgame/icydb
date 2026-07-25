@@ -21,6 +21,7 @@ use crate::{
             StoreDurability, StoreHandle, StoreRecoveryCapability, StoreRelationSourceCapability,
             StoreRelationTargetCapability, StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
         },
+        relation::prove_empty_reverse_relation_domain,
         schema::{
             AcceptedSchemaRevision, AcceptedSchemaRevisionBundle, CandidateSchemaRevision,
             ConstraintActivationKind, ConstraintId, ConstraintOrigin, ConstraintValidationPhase,
@@ -509,6 +510,7 @@ fn preflight_existing_application(
 ) -> Result<Option<PendingGeneratedCheck>, InternalError> {
     require_empty_physical_field_removals(authorities, current_bundles, candidates)?;
     require_empty_physical_index_removals(authorities, current_bundles, candidates)?;
+    require_empty_physical_relation_removals(authorities, current_bundles, candidates)?;
     let proofs = generated_check_proofs(authorities, current_bundles, candidates)?;
     if proofs
         .iter()
@@ -585,6 +587,97 @@ fn preflight_existing_application(
         candidates[candidate_index] = CandidateSchemaRevision::new(bundle)?;
     }
     Ok(pending)
+}
+
+/// Prove that every removed relation has neither source rows nor surviving
+/// entries in its exact target-owned reverse physical generation.
+fn require_empty_physical_relation_removals(
+    authorities: &[StoreApplicationAuthority],
+    current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
+    candidates: &[CandidateSchemaRevision],
+) -> Result<(), InternalError> {
+    for candidate in candidates {
+        let (position, source_authority) = authorities
+            .iter()
+            .enumerate()
+            .find(|(_, authority)| authority.path == candidate.store_path())
+            .ok_or_else(InternalError::store_unsupported)?;
+        let current = current_bundles
+            .get(position)
+            .and_then(Option::as_ref)
+            .ok_or_else(InternalError::store_invariant)?;
+        for (entity_tag, after) in candidate.bundle().entity_snapshots() {
+            let before = current
+                .entity_snapshots()
+                .get(entity_tag)
+                .ok_or_else(InternalError::store_unsupported)?;
+            let removed = before
+                .relations()
+                .iter()
+                .filter(|relation| {
+                    !after
+                        .relations()
+                        .iter()
+                        .any(|candidate| candidate.id() == relation.id())
+                })
+                .collect::<Vec<_>>();
+            if removed.is_empty() {
+                continue;
+            }
+            let added = after.relations().iter().any(|relation| {
+                !before
+                    .relations()
+                    .iter()
+                    .any(|accepted| accepted.id() == relation.id())
+            });
+            let [removed] = removed.as_slice() else {
+                return Err(InternalError::store_unsupported());
+            };
+            if added
+                || before.relations().len() != after.relations().len().saturating_add(1)
+                || source_authority
+                    .handle
+                    .with_data(|store| store.exact_entity_count(*entity_tag))
+                    != Some(0)
+            {
+                return Err(InternalError::store_unsupported());
+            }
+            let target_store = accepted_entity_store_for_path(
+                authorities,
+                current_bundles,
+                removed.target_path(),
+            )?;
+            target_store.with_index(|store| {
+                prove_empty_reverse_relation_domain(store, *entity_tag, before, removed)
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn accepted_entity_store_for_path(
+    authorities: &[StoreApplicationAuthority],
+    current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
+    entity_path: &str,
+) -> Result<StoreHandle, InternalError> {
+    let mut resolved = None;
+    for (position, bundle) in current_bundles.iter().enumerate() {
+        let Some(bundle) = bundle else {
+            continue;
+        };
+        if !bundle
+            .entity_snapshots()
+            .values()
+            .any(|snapshot| snapshot.entity_path() == entity_path)
+        {
+            continue;
+        }
+        if resolved.is_some() {
+            return Err(InternalError::store_invariant());
+        }
+        resolved = authorities.get(position).map(|authority| authority.handle);
+    }
+    resolved.ok_or_else(InternalError::store_unsupported)
 }
 
 /// Prove that every dense index-removal candidate has neither authoritative

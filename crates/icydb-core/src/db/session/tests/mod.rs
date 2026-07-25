@@ -87,7 +87,10 @@ use crate::{
         },
         direction::Direction,
         executor::ExecutorPlanError,
-        index::{IndexKey, IndexStore, IndexStoreVisit, key_within_envelope},
+        index::{
+            IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexStore, IndexStoreVisit,
+            key_within_envelope,
+        },
         journal::{JournalBatch, JournalSequence, JournalTailStore},
         key_taxonomy::{EncodedPrimaryKey, PrimaryKeyComponent},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
@@ -3279,6 +3282,137 @@ fn generated_status_index_removal_proposal(
     .expect("generated index removal should compose")
 }
 
+fn initial_relation_application_proposal(
+    target: &crate::db::SchemaApplicationTarget,
+    submission_key: &str,
+) -> icydb_schema::SchemaProposal {
+    let target_entity =
+        icydb_schema::EntitySourceKey::try_new("test:entity:relation-application-target")
+            .expect("test target entity source should admit");
+    let target_id =
+        icydb_schema::FieldSourceKey::try_new("test:field:relation-application-target-id")
+            .expect("test target field source should admit");
+    let source_entity =
+        icydb_schema::EntitySourceKey::try_new("test:entity:relation-application-source")
+            .expect("test source entity source should admit");
+    let source_id =
+        icydb_schema::FieldSourceKey::try_new("test:field:relation-application-source-id")
+            .expect("test source primary-key field should admit");
+    let source_target =
+        icydb_schema::FieldSourceKey::try_new("test:field:relation-application-source-target")
+            .expect("test source relation field should admit");
+    let relation =
+        icydb_schema::RelationSourceKey::try_new("test:relation:relation-application-target")
+            .expect("test relation source should admit");
+    let target_fragment = icydb_schema::EntityFragment::try_new(
+        target_entity.clone(),
+        icydb_schema::SchemaName::try_new("RelationApplicationTarget")
+            .expect("test target entity name should admit"),
+        vec![icydb_schema::FieldFragment::new(
+            target_id.clone(),
+            icydb_schema::SchemaName::try_new("id").expect("test field name should admit"),
+            icydb_schema::FieldType::Scalar(icydb_schema::ScalarType::Nat64),
+            false,
+            icydb_schema::FieldInsertPolicy::Required,
+            None,
+        )],
+        vec![target_id.clone()],
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("test target entity should admit");
+    let source_fragment = icydb_schema::EntityFragment::try_new(
+        source_entity.clone(),
+        icydb_schema::SchemaName::try_new("RelationApplicationSource")
+            .expect("test source entity name should admit"),
+        vec![
+            icydb_schema::FieldFragment::new(
+                source_id.clone(),
+                icydb_schema::SchemaName::try_new("id").expect("test field name should admit"),
+                icydb_schema::FieldType::Scalar(icydb_schema::ScalarType::Nat64),
+                false,
+                icydb_schema::FieldInsertPolicy::Required,
+                None,
+            ),
+            icydb_schema::FieldFragment::new(
+                source_target.clone(),
+                icydb_schema::SchemaName::try_new("target_id")
+                    .expect("test relation field name should admit"),
+                icydb_schema::FieldType::Scalar(icydb_schema::ScalarType::Nat64),
+                false,
+                icydb_schema::FieldInsertPolicy::Required,
+                None,
+            ),
+        ],
+        vec![source_id],
+        Vec::new(),
+        vec![
+            icydb_schema::RelationFragment::try_new(
+                relation,
+                icydb_schema::SchemaName::try_new("target")
+                    .expect("test relation name should admit"),
+                vec![source_target],
+                target_entity.clone(),
+                vec![target_id],
+                icydb_schema::RelationDeleteAction::Restrict,
+            )
+            .expect("test relation should admit"),
+        ],
+        Vec::new(),
+    )
+    .expect("test source entity should admit");
+    let fragment =
+        icydb_schema::SchemaFragment::try_new(vec![source_fragment, target_fragment], Vec::new())
+            .expect("test relation fragment should admit");
+    let store = target
+        .stores()
+        .iter()
+        .find(|store| store.path() == JournaledSessionSqlStore::PATH)
+        .expect("standalone journaled store should be registered")
+        .identity();
+    icydb_schema::SchemaProposal::try_compose(
+        vec![icydb_schema::SchemaCapability::RESTRICTIVE_RELATIONS],
+        target.database_identity(),
+        icydb_schema::SchemaSubmissionKey::try_new(submission_key)
+            .expect("test submission key should admit"),
+        target.accepted_head().clone(),
+        vec![fragment],
+        vec![
+            icydb_schema::EntityStoreAssignment::new(source_entity, store),
+            icydb_schema::EntityStoreAssignment::new(target_entity, store),
+        ],
+        Vec::new(),
+    )
+    .expect("initial relation proposal should compose")
+}
+
+fn generated_relation_removal_proposal(
+    target: &crate::db::SchemaApplicationTarget,
+    submission_key: &str,
+) -> icydb_schema::SchemaProposal {
+    icydb_schema::SchemaProposal::try_compose(
+        vec![icydb_schema::SchemaCapability::RESTRICTIVE_RELATIONS],
+        target.database_identity(),
+        icydb_schema::SchemaSubmissionKey::try_new(submission_key)
+            .expect("test submission key should admit"),
+        target.accepted_head().clone(),
+        Vec::new(),
+        Vec::new(),
+        vec![icydb_schema::SchemaRemoval::Relation {
+            entity: icydb_schema::EntitySourceKey::try_new(
+                "test:entity:relation-application-source",
+            )
+            .expect("test source entity should admit"),
+            relation: icydb_schema::RelationSourceKey::try_new(
+                "test:relation:relation-application-target",
+            )
+            .expect("test relation source should admit"),
+        }],
+    )
+    .expect("generated relation removal should compose")
+}
+
 fn compose_named_application_proposal(
     target: &crate::db::SchemaApplicationTarget,
     fixture: NamedApplicationProposalFixture<'_>,
@@ -4584,6 +4718,223 @@ fn schema_application_rejects_generated_index_removal_from_nonempty_entity() {
 
     assert_eq!(rejection.class(), ErrorClass::Unsupported);
     assert_eq!(accepted_after, accepted_before);
+    assert_eq!(
+        session
+            .schema_application_receipt(after_target.database_identity(), proposal.submission_key())
+            .expect("rejected receipt lookup should succeed"),
+        None,
+    );
+}
+
+#[test]
+fn schema_application_removes_generated_relation_from_exactly_empty_domains() {
+    let session = reset_standalone_schema_application_fixture();
+    let initial_target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial =
+        initial_relation_application_proposal(&initial_target, "relation-removal-initial");
+    session
+        .apply_schema(&initial)
+        .expect("initial relation proposal should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let (&source_tag, source_before) = accepted_before
+        .entity_snapshots()
+        .iter()
+        .find(|(_, snapshot)| snapshot.entity_path() == "test:entity:relation-application-source")
+        .expect("source entity should be accepted");
+    let relation_id = source_before
+        .relations()
+        .first()
+        .expect("source relation should be accepted")
+        .id();
+    let target_before = accepted_before
+        .entity_snapshots()
+        .iter()
+        .find_map(|(entity_tag, snapshot)| (*entity_tag != source_tag).then_some(snapshot))
+        .expect("target snapshot should exist");
+    let after_target = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let proposal = generated_relation_removal_proposal(&after_target, "remove-generated-relation");
+
+    let receipt = session
+        .apply_schema(&proposal)
+        .expect("empty-domain generated relation removal should publish");
+    let replay = session
+        .apply_schema(&proposal)
+        .expect("exact relation-removal retry should replay");
+    let accepted_after = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("updated accepted bundle should load")
+        .expect("updated accepted bundle should exist");
+    let source_after = accepted_after
+        .entity_snapshots()
+        .get(&source_tag)
+        .expect("source entity should survive relation removal");
+    let target_after = accepted_after
+        .entity_snapshots()
+        .values()
+        .find(|snapshot| snapshot.entity_path() == target_before.entity_path())
+        .expect("target entity should survive relation removal");
+
+    assert_eq!(replay, receipt);
+    assert!(matches!(
+        receipt.outcome(),
+        crate::db::SchemaChangeOutcome::Applied { .. }
+    ));
+    assert_eq!(accepted_after.revision().get(), 2);
+    assert_eq!(
+        source_after.version().get(),
+        source_before.version().get() + 1
+    );
+    assert!(source_after.relations().is_empty());
+    assert!(
+        source_after
+            .constraints()
+            .iter()
+            .all(|constraint| !matches!(
+                constraint.kind(),
+                crate::db::schema::AcceptedConstraintKind::Relation {
+                    relation_id: accepted
+                } if *accepted == relation_id
+            )),
+    );
+    assert_eq!(target_after, target_before);
+    assert_eq!(
+        accepted_after
+            .source_bindings_for_tests()
+            .relation_binding_count_for_tests(source_tag),
+        0,
+    );
+    assert!(JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow(IndexStore::is_empty));
+}
+
+#[test]
+fn schema_application_rejects_generated_relation_removal_from_nonempty_source() {
+    let session = reset_standalone_schema_application_fixture();
+    let initial_target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial =
+        initial_relation_application_proposal(&initial_target, "nonempty-relation-removal-initial");
+    session
+        .apply_schema(&initial)
+        .expect("initial relation proposal should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let source_tag = accepted_before
+        .entity_snapshots()
+        .iter()
+        .find_map(|(entity_tag, snapshot)| {
+            (snapshot.entity_path() == "test:entity:relation-application-source")
+                .then_some(*entity_tag)
+        })
+        .expect("source entity should be accepted");
+    JOURNALED_SESSION_SQL_DATA_STORE.with_borrow_mut(|store| {
+        store.insert_raw_for_test(
+            RawDataStoreKey::from_entity_and_primary_key_bytes(source_tag, b"one"),
+            crate::db::data::RawRow::try_new(vec![0xFF]).expect("bounded raw row should construct"),
+        );
+    });
+    let after_target = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let proposal =
+        generated_relation_removal_proposal(&after_target, "reject-nonempty-generated-relation");
+
+    let rejection = session
+        .apply_schema(&proposal)
+        .expect_err("nonempty source must reject relation removal before publication");
+
+    assert_eq!(rejection.class(), ErrorClass::Unsupported);
+    assert_eq!(
+        JOURNALED_SESSION_SQL_SCHEMA_STORE
+            .with_borrow(SchemaStore::current_accepted_schema_bundle)
+            .expect("accepted bundle should remain readable")
+            .expect("accepted bundle should remain present"),
+        accepted_before,
+    );
+    assert_eq!(
+        session
+            .schema_application_receipt(after_target.database_identity(), proposal.submission_key())
+            .expect("rejected receipt lookup should succeed"),
+        None,
+    );
+}
+
+#[test]
+fn schema_application_rejects_generated_relation_removal_with_reverse_state() {
+    let session = reset_standalone_schema_application_fixture();
+    let initial_target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial =
+        initial_relation_application_proposal(&initial_target, "reverse-relation-removal-initial");
+    session
+        .apply_schema(&initial)
+        .expect("initial relation proposal should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let source_tag = accepted_before
+        .entity_snapshots()
+        .iter()
+        .find_map(|(entity_tag, snapshot)| {
+            (snapshot.entity_path() == "test:entity:relation-application-source")
+                .then_some(*entity_tag)
+        })
+        .expect("source entity should be accepted");
+    let source_snapshot = accepted_before
+        .entity_snapshots()
+        .get(&source_tag)
+        .expect("source snapshot should exist");
+    let relation = source_snapshot
+        .relations()
+        .first()
+        .expect("source relation should exist");
+    let relation_field = source_snapshot
+        .fields()
+        .iter()
+        .find(|field| relation.local_field_ids().contains(&field.id()))
+        .expect("accepted relation field should exist");
+    let reverse_id = IndexId::new_with_generation(
+        source_tag,
+        relation_field.slot().get(),
+        relation.physical_generation(),
+    );
+    let reverse_key = IndexKey::empty_with_kind(&reverse_id, IndexKeyKind::System)
+        .to_raw()
+        .expect("test reverse key should encode");
+    JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow_mut(|store| {
+        store.insert(reverse_key, IndexEntryValue::presence());
+    });
+    let after_target = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let proposal = generated_relation_removal_proposal(
+        &after_target,
+        "reject-reverse-state-generated-relation",
+    );
+
+    let rejection = session
+        .apply_schema(&proposal)
+        .expect_err("surviving reverse state must reject relation removal");
+
+    assert_eq!(rejection.class(), ErrorClass::Unsupported);
+    assert_eq!(
+        JOURNALED_SESSION_SQL_SCHEMA_STORE
+            .with_borrow(SchemaStore::current_accepted_schema_bundle)
+            .expect("accepted bundle should remain readable")
+            .expect("accepted bundle should remain present"),
+        accepted_before,
+    );
     assert_eq!(
         session
             .schema_application_receipt(after_target.database_identity(), proposal.submission_key())

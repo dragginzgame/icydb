@@ -805,6 +805,29 @@ impl AcceptedConstraintCatalog {
         Ok(self)
     }
 
+    /// Remove the generated registry entry paired with one dropped relation.
+    pub(in crate::db) fn with_removed_relation(
+        mut self,
+        relation_id: RelationId,
+    ) -> Result<Self, AcceptedConstraintCatalogError> {
+        self.reject_live_activation()?;
+        let position = self
+            .constraints
+            .iter()
+            .position(|constraint| {
+                constraint.origin() == ConstraintOrigin::Generated
+                    && matches!(
+                        constraint.kind(),
+                        AcceptedConstraintKind::Relation {
+                            relation_id: constrained
+                        } if *constrained == relation_id
+                    )
+            })
+            .ok_or(AcceptedConstraintCatalogError::OwnerMismatch)?;
+        self.constraints.remove(position);
+        Ok(self)
+    }
+
     /// Rewrite field references after an exact dense-layout rewrite.
     pub(in crate::db) fn with_mapped_field_ids(
         mut self,

@@ -122,6 +122,9 @@ pub(in crate::db) use index::{
 mod index_removal;
 pub(in crate::db::schema) use index_removal::derive_dense_index_removal_candidate;
 
+mod relation_removal;
+pub(in crate::db::schema) use relation_removal::derive_relation_removal_candidate;
+
 mod user_index_domain;
 pub(in crate::db::schema) use user_index_domain::prove_empty_user_index_domain;
 pub(in crate::db) use user_index_domain::{

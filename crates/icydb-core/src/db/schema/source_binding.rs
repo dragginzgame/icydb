@@ -299,6 +299,19 @@ impl AcceptedSourceBindingCatalog {
         self.relations.get(&(entity, source.clone())).copied()
     }
 
+    /// Remove one exact accepted relation source binding.
+    pub(in crate::db::schema) fn remove_relation(
+        &mut self,
+        entity: EntityTag,
+        source: &RelationSourceKey,
+        expected: RelationId,
+    ) -> Result<(), InternalError> {
+        match self.relations.remove(&(entity, source.clone())) {
+            Some(actual) if actual == expected => Ok(()),
+            Some(_) | None => Err(InternalError::store_invariant()),
+        }
+    }
+
     /// Apply one catalog-native SQL-DDL entity transition.
     ///
     /// Existing immutable keys follow their structural owner through rename
@@ -503,6 +516,14 @@ impl AcceptedSourceBindingCatalog {
     #[cfg(test)]
     pub(in crate::db) fn constraint_binding_count_for_tests(&self, entity: EntityTag) -> usize {
         self.constraints
+            .keys()
+            .filter(|(bound_entity, _)| *bound_entity == entity)
+            .count()
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn relation_binding_count_for_tests(&self, entity: EntityTag) -> usize {
+        self.relations
             .keys()
             .filter(|(bound_entity, _)| *bound_entity == entity)
             .count()

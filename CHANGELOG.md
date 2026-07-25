@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.19` removes generated relations by immutable source identity after
+  bounded proofs that their source and reverse physical domains are empty.
+
 - `0.213.18` removes explicitly absent, unreferenced generated named types
   across every accepted store-local copy without changing row layouts.
 

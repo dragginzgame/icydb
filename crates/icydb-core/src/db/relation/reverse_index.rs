@@ -16,8 +16,8 @@ use crate::{
             decode_runtime_value_from_accepted_field_contract,
         },
         index::{
-            IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexRowIdentity, IndexStore,
-            RawIndexStoreKey, raw_keys_for_component_prefix_with_kind,
+            IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexRowIdentity, IndexState,
+            IndexStore, IndexStoreVisit, RawIndexStoreKey, raw_keys_for_component_prefix_with_kind,
         },
         key_taxonomy::{EncodedPrimaryKey, PrimaryKeyComponent, PrimaryKeyValue},
         registry::{StoreHandle, StoreRelationSourceCapability, StoreRelationTargetCapability},
@@ -33,12 +33,12 @@ use crate::{
         schema::{
             AcceptedCatalogIdentity, AcceptedFieldDecodeContract, MAX_SCHEMA_PROJECTION_ENTRIES,
             MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES,
-            OwnedAcceptedRelationEdgeContract, PersistedSchemaSnapshot,
-            accepted_schema_cache_fingerprint_for_persisted_snapshot,
+            OwnedAcceptedRelationEdgeContract, PersistedRelationEdgeSnapshot,
+            PersistedSchemaSnapshot, accepted_schema_cache_fingerprint_for_persisted_snapshot,
         },
     },
     entity::EntityKind,
-    error::InternalError,
+    error::{InternalError, SchemaTransitionBudgetResource},
     model::field::{FieldStorageDecode, LeafCodec},
     traits::CanisterKind,
     types::EntityTag,
@@ -1064,6 +1064,55 @@ fn reverse_index_id_for_relation(
         ordinal,
         relation.physical_generation(),
     ))
+}
+
+/// Prove that one removed relation owns no surviving reverse physical entry.
+///
+/// The observer derives the exact physical generation from accepted source
+/// authority. It scans the target index store through the same canonical
+/// merged view used by runtime reads and rejects malformed or oversized state.
+pub(in crate::db) fn prove_empty_reverse_relation_domain(
+    index_store: &IndexStore,
+    source_entity: EntityTag,
+    source_snapshot: &PersistedSchemaSnapshot,
+    relation: &PersistedRelationEdgeSnapshot,
+) -> Result<(), InternalError> {
+    if index_store.state() != IndexState::Ready {
+        return Err(InternalError::store_unsupported());
+    }
+    let local_field = relation
+        .local_field_ids()
+        .first()
+        .and_then(|field_id| {
+            source_snapshot
+                .fields()
+                .iter()
+                .find(|field| field.id() == *field_id)
+        })
+        .ok_or_else(InternalError::store_corruption)?;
+    let expected = IndexId::new_with_generation(
+        source_entity,
+        local_field.slot().get(),
+        relation.physical_generation(),
+    );
+    let mut work_units = 0_usize;
+    index_store.visit_entries(|raw_key, _| {
+        work_units = work_units.checked_add(1).ok_or_else(|| {
+            InternalError::schema_transition_budget_exceeded(
+                SchemaTransitionBudgetResource::ProjectionWorkUnits,
+            )
+        })?;
+        if work_units > MAX_SCHEMA_PROJECTION_WORK_UNITS {
+            return Err(InternalError::schema_transition_budget_exceeded(
+                SchemaTransitionBudgetResource::ProjectionWorkUnits,
+            ));
+        }
+        let key = IndexKey::try_from_raw(raw_key).map_err(|_| InternalError::store_corruption())?;
+        if key.key_kind() == IndexKeyKind::System && key.index_id() == &expected {
+            return Err(InternalError::store_unsupported());
+        }
+        Ok(IndexStoreVisit::Continue)
+    })
 }
 
 /// Build reverse-index prefix bounds for one complete target primary key.
