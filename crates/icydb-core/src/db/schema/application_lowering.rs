@@ -1095,6 +1095,7 @@ fn lower_existing_entity(
     )?;
     verify_existing_relations(stores, entity, entity_tag, current, bindings)?;
     let constraint_catalog = lower_existing_checks(
+        bundle,
         catalogs,
         entity,
         entity_tag,
@@ -1452,6 +1453,7 @@ fn resolve_existing_entity<'bundle>(
 }
 
 fn lower_existing_checks(
+    bundle: &AcceptedSchemaRevisionBundle,
     catalogs: &ExistingCatalogCandidate,
     entity: &EntityFragment,
     entity_tag: EntityTag,
@@ -1493,11 +1495,18 @@ fn lower_existing_checks(
             continue;
         }
 
+        let activation_epoch = bundle
+            .revision()
+            .checked_next()
+            .ok_or_else(InternalError::store_unsupported)?
+            .get();
         catalog = catalog
-            .with_added_check(
+            .with_added_check_activation(
                 proposed.name().as_str().to_string(),
                 ConstraintOrigin::Generated,
                 expression,
+                bundle.semantic_fingerprint()?,
+                activation_epoch,
             )
             .map_err(|_| InternalError::store_unsupported())?;
         let constraint_id = ConstraintId::new(catalog.allocator().high_water())
@@ -2209,7 +2218,7 @@ mod tests {
     };
     use crate::db::schema::{
         AcceptedConstraintKind, AcceptedNamedTypeIdentity, AcceptedSchemaRevision,
-        ConstraintOrigin, PersistedFieldSnapshot, SchemaInsertDefault,
+        ConstraintActivationKind, ConstraintOrigin, PersistedFieldSnapshot, SchemaInsertDefault,
         composite_catalog::AcceptedCompositeShape,
     };
     use icydb_schema::{
@@ -2453,7 +2462,7 @@ mod tests {
     }
 
     #[test]
-    fn existing_generated_check_addition_allocates_one_source_bound_owner() {
+    fn existing_generated_check_addition_reserves_one_source_bound_activation() {
         let (initial, entity_source, store) = scalar_proposal_fixture_with_names(
             ExpectedAcceptedHead::Empty,
             "check-addition-initial",
@@ -2515,10 +2524,10 @@ mod tests {
             after.constraint_id_allocator().high_water(),
             before.constraint_id_allocator().high_water() + 1,
         );
-        assert!(after.constraints().iter().any(|constraint| {
+        assert!(after.constraint_activations().iter().any(|constraint| {
             constraint.id() == added_id
                 && constraint.origin() == ConstraintOrigin::Generated
-                && matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
+                && matches!(constraint.kind(), ConstraintActivationKind::Check { .. })
         }));
         assert_eq!(after.fields(), before.fields());
         assert_eq!(after.row_layout(), before.row_layout());

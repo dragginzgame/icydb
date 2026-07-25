@@ -3,10 +3,11 @@
 //! Does not own: mutation write gates, SQL syntax, or kind-specific physical staging.
 //! Boundary: accepted activation + canonical rows -> marker-owned job progress/promotion.
 
-use crate::db::schema::enum_catalog::AcceptedSchemaRevisionBundle;
-#[cfg(feature = "sql")]
 use crate::{
-    db::schema::accepted_constraint_field_paths,
+    db::schema::{
+        AcceptedStoreCatalogScope, AcceptedValueCatalogHandle, accepted_constraint_field_paths,
+        accepted_schema_cache_fingerprint, enum_catalog::AcceptedSchemaRevisionBundle,
+    },
     error::{ConstraintDiagnostic, ConstraintDiagnosticKind, SchemaTransitionBudgetResource},
 };
 use crate::{
@@ -228,42 +229,59 @@ pub(in crate::db) fn advance_relation_constraint_activation<C: CanisterKind>(
     }
 }
 
-/// Prove one unpublished SQL check candidate in a single bounded scan.
+/// Prove one unpublished check candidate in a single bounded scan.
 ///
-/// This is the atomic plain-`ADD` boundary: it never publishes the temporary
-/// activation used to compile the candidate semantics.
-#[cfg(feature = "sql")]
+/// This is the atomic direct-addition boundary: it never publishes the
+/// temporary activation used to compile the candidate semantics.
 pub(in crate::db) fn validate_unpublished_check_candidate_exact(
     store: StoreHandle,
     store_path: &'static str,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     candidate: &CandidateSchemaRevision,
     constraint_id: ConstraintId,
 ) -> Result<usize, InternalError> {
-    let selection = crate::db::schema::AcceptedCatalogSnapshotSelection::from_candidate(
-        candidate,
-        entity_tag,
-        entity_path,
-        store_path,
-    )?
-    .ok_or_else(InternalError::store_corruption)?;
-    let accepted = selection.decode_verified()?;
-    let constraints = compile_row_local_activation(
+    if candidate.store_path() != store_path {
+        return Err(InternalError::store_corruption());
+    }
+    let snapshot = candidate
+        .bundle()
+        .entity_snapshots()
+        .get(&entity_tag)
+        .cloned()
+        .ok_or_else(InternalError::store_corruption)?;
+    if snapshot.entity_path() != entity_path {
+        return Err(InternalError::store_corruption());
+    }
+    let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
+    let value_catalog = AcceptedValueCatalogHandle::new(
+        candidate.bundle().enum_catalog().clone(),
+        candidate.bundle().composite_catalog().clone(),
+        AcceptedStoreCatalogScope::new(),
+        candidate.revision(),
+        candidate.root().fingerprint(),
+    );
+    let fingerprint = accepted_schema_cache_fingerprint(&accepted)?;
+    let constraints = CompiledAcceptedRowConstraints::compile_check_activation(
         &accepted,
-        &selection,
+        &value_catalog,
+        fingerprint,
         constraint_id,
-        RowLocalActivationKind::Check,
-    )?;
-    let contract = AcceptedStructuralRowAuthority::from_catalog_selection(entity_path, &selection)?
-        .into_row_contract();
+    )
+    .map_err(map_row_constraint_program_error)?;
+    let contract = AcceptedStructuralRowAuthority::from_candidate_snapshot(
+        entity_path,
+        accepted.clone(),
+        value_catalog,
+    )?
+    .into_row_contract();
     let scan = scan_row_local_validation_page(
         store,
         entity_tag,
         None,
         &contract,
         &constraints,
-        selection.identity().accepted_schema_fingerprint(),
+        fingerprint,
         constraint_id,
         activation_dependency_fields(&accepted, constraint_id)?,
     )?;

@@ -1702,7 +1702,6 @@ impl ConstraintDiagnostic {
     }
 
     /// Build one historical activation finding from its durable compact code.
-    #[cfg(feature = "sql")]
     #[must_use]
     pub(crate) const fn migration_validation(
         constraint_id: u32,

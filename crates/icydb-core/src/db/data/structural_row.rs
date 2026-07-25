@@ -81,16 +81,17 @@ impl AcceptedStructuralRowAuthority {
 
     /// Build candidate row authority from an accepted snapshot and the exact
     /// value catalogs that will be published with it.
-    #[cfg(feature = "sql")]
     pub(in crate::db) fn from_candidate_snapshot(
-        entity_path: &'static str,
+        entity_path: &str,
         accepted_schema: AcceptedSchemaSnapshot,
         value_catalog: crate::db::schema::AcceptedValueCatalogHandle,
     ) -> Result<Self, InternalError> {
         let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted_schema)?;
         let row_decode_contract = descriptor.row_decode_contract(value_catalog);
-        let row_contract =
-            StructuralRowContract::from_accepted_decode_contract(entity_path, row_decode_contract);
+        let row_contract = StructuralRowContract::from_owned_accepted_decode_contract(
+            entity_path.to_string(),
+            row_decode_contract,
+        );
 
         Ok(Self {
             accepted_schema,
@@ -140,7 +141,7 @@ impl AcceptedStructuralRowAuthority {
 ///
 /// StructuralRowContract
 ///
-/// StructuralRowContract is the compact static row-shape authority used by
+/// StructuralRowContract is the compact accepted row-shape authority used by
 /// structural row readers that do not need the full semantic `EntityModel`.
 /// It keeps the entity path and accepted row-decode contract required to open
 /// canonical persisted rows through the data-layer decode boundary.
@@ -148,7 +149,7 @@ impl AcceptedStructuralRowAuthority {
 
 #[derive(Clone, Debug)]
 pub(in crate::db) struct StructuralRowContract {
-    entity_path: &'static str,
+    entity_path: Cow<'static, str>,
     field_count: usize,
     primary_key_slot: usize,
     accepted_decode_contract: Rc<AcceptedRowDecodeContract>,
@@ -173,7 +174,19 @@ impl StructuralRowContract {
         accepted_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {
         Self {
-            entity_path,
+            entity_path: Cow::Borrowed(entity_path),
+            field_count: accepted_decode_contract.required_slot_count(),
+            primary_key_slot: accepted_decode_contract.first_primary_key_slot_index(),
+            accepted_decode_contract: Rc::new(accepted_decode_contract),
+        }
+    }
+
+    fn from_owned_accepted_decode_contract(
+        entity_path: String,
+        accepted_decode_contract: AcceptedRowDecodeContract,
+    ) -> Self {
+        Self {
+            entity_path: Cow::Owned(entity_path),
             field_count: accepted_decode_contract.required_slot_count(),
             primary_key_slot: accepted_decode_contract.first_primary_key_slot_index(),
             accepted_decode_contract: Rc::new(accepted_decode_contract),
@@ -182,8 +195,8 @@ impl StructuralRowContract {
 
     /// Borrow the owning entity path for diagnostics.
     #[must_use]
-    pub(in crate::db) const fn entity_path(&self) -> &'static str {
-        self.entity_path
+    pub(in crate::db) fn entity_path(&self) -> &str {
+        self.entity_path.as_ref()
     }
 
     /// Return the declared structural field count.

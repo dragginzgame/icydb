@@ -22,10 +22,11 @@ use crate::{
             StoreRelationTargetCapability, StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
         },
         schema::{
-            AcceptedConstraintKind, AcceptedSchemaRevision, CandidateSchemaRevision,
-            ConstraintOrigin, ExistingProposalStore, ProposalStoreTarget, SchemaApplicationRecord,
-            SchemaApplicationRecordOp, SchemaChangeOutcome, SchemaChangeReceipt,
-            lower_existing_schema_proposal, lower_initial_schema_proposal,
+            AcceptedSchemaRevision, AcceptedSchemaRevisionBundle, CandidateSchemaRevision,
+            ConstraintActivationKind, ConstraintId, ConstraintOrigin, ExistingProposalStore,
+            ProposalStoreTarget, SchemaApplicationRecord, SchemaApplicationRecordOp,
+            SchemaChangeOutcome, SchemaChangeReceipt, lower_existing_schema_proposal,
+            lower_initial_schema_proposal, validate_unpublished_check_candidate_exact,
             with_schema_application_store,
         },
     },
@@ -130,6 +131,18 @@ struct StoreApplicationAuthority {
 struct AcceptedStoreHead {
     revision: u64,
     fingerprint: [u8; 32],
+}
+
+/// One new generated-check activation awaiting direct bounded proof.
+#[derive(Clone)]
+struct DirectGeneratedCheckProof {
+    candidate_index: usize,
+    store: StoreHandle,
+    store_path: &'static str,
+    entity_tag: crate::types::EntityTag,
+    entity_path: String,
+    constraint_id: ConstraintId,
+    historical_rows: u64,
 }
 
 /// Issue the current proposal-application target from recovered authority.
@@ -266,7 +279,7 @@ fn lower_application_candidates(
         })
         .collect::<Result<Vec<_>, InternalError>>()?;
     let initial_application = matches!(target.accepted_head(), ExpectedAcceptedHead::Empty);
-    let candidates = match target.accepted_head() {
+    let mut candidates = match target.accepted_head() {
         ExpectedAcceptedHead::Empty => {
             let stores = authorities
                 .iter()
@@ -300,7 +313,7 @@ fn lower_application_candidates(
     if initial_application {
         preflight_initial_application(authorities, &candidates)?;
     } else {
-        preflight_existing_application(authorities, &current_bundles, &candidates)?;
+        preflight_existing_application(authorities, &current_bundles, &mut candidates)?;
     }
     Ok((current_bundles, candidates))
 }
@@ -324,17 +337,19 @@ fn preflight_initial_application(
     Ok(())
 }
 
-/// Admit direct generated-check additions only when the maintained entity
-/// cardinality proves their complete historical domain is empty.
+/// Complete generated-check additions only after a bounded exact proof.
 ///
-/// Non-empty domains remain fail-closed until the pending 0.211 activation
-/// route is connected; no partial scan may publish a validated constraint.
+/// Empty domains use maintained exact cardinality. At most one non-empty
+/// activation may consume the canonical 0.211 exact scan budget; work that
+/// needs resumable validation remains fail-closed until the pending-job
+/// protocol is connected.
 fn preflight_existing_application(
     authorities: &[StoreApplicationAuthority],
     current_bundles: &[Option<crate::db::schema::AcceptedSchemaRevisionBundle>],
-    candidates: &[CandidateSchemaRevision],
+    candidates: &mut [CandidateSchemaRevision],
 ) -> Result<(), InternalError> {
-    for candidate in candidates {
+    let mut proofs = Vec::new();
+    for (candidate_index, candidate) in candidates.iter().enumerate() {
         let (position, authority) = authorities
             .iter()
             .enumerate()
@@ -349,31 +364,103 @@ fn preflight_existing_application(
                 .entity_snapshots()
                 .get(entity_tag)
                 .ok_or_else(InternalError::store_unsupported)?;
-            if adds_generated_check(before, after)
-                && authority
+            for constraint_id in added_generated_check_activations(before, after) {
+                let historical_rows = authority
                     .handle
                     .with_data(|store| store.exact_entity_count(*entity_tag))
-                    != Some(0)
-            {
-                return Err(InternalError::store_unsupported());
+                    .ok_or_else(InternalError::store_corruption)?;
+                proofs.push(DirectGeneratedCheckProof {
+                    candidate_index,
+                    store: authority.handle,
+                    store_path: authority.path,
+                    entity_tag: *entity_tag,
+                    entity_path: after.entity_path().to_string(),
+                    constraint_id,
+                    historical_rows,
+                });
             }
         }
+    }
+
+    if proofs
+        .iter()
+        .filter(|proof| proof.historical_rows != 0)
+        .count()
+        > 1
+    {
+        return Err(InternalError::store_unsupported());
+    }
+
+    for candidate_index in 0..candidates.len() {
+        let candidate = candidates
+            .get(candidate_index)
+            .cloned()
+            .ok_or_else(InternalError::store_invariant)?;
+        let candidate_proofs = proofs
+            .iter()
+            .filter(|proof| proof.candidate_index == candidate_index)
+            .collect::<Vec<_>>();
+        if candidate_proofs.is_empty() {
+            continue;
+        }
+
+        let mut snapshots = candidate.bundle().entity_snapshots().clone();
+        for proof in candidate_proofs {
+            if proof.historical_rows != 0 {
+                validate_unpublished_check_candidate_exact(
+                    proof.store,
+                    proof.store_path,
+                    proof.entity_tag,
+                    proof.entity_path.as_str(),
+                    &candidate,
+                    proof.constraint_id,
+                )?;
+            }
+            let snapshot = snapshots
+                .get(&proof.entity_tag)
+                .cloned()
+                .ok_or_else(InternalError::store_invariant)?;
+            let catalog = snapshot
+                .constraint_catalog()
+                .clone()
+                .with_directly_validated_activation(proof.constraint_id)
+                .map_err(|_| InternalError::store_invariant())?;
+            snapshots.insert(proof.entity_tag, snapshot.with_constraint_catalog(catalog));
+        }
+        let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
+            candidate.revision(),
+            candidate.bundle().store_path(),
+            candidate.bundle().enum_catalog().clone(),
+            candidate.bundle().composite_catalog().clone(),
+            candidate.bundle().source_bindings().clone(),
+            snapshots,
+        )?;
+        candidates[candidate_index] = CandidateSchemaRevision::new(bundle)?;
     }
     Ok(())
 }
 
-fn adds_generated_check(
+fn added_generated_check_activations(
     before: &crate::db::schema::PersistedSchemaSnapshot,
     after: &crate::db::schema::PersistedSchemaSnapshot,
-) -> bool {
-    after.constraints().iter().any(|candidate| {
-        candidate.origin() == ConstraintOrigin::Generated
-            && matches!(candidate.kind(), AcceptedConstraintKind::Check { .. })
-            && !before
-                .constraints()
-                .iter()
-                .any(|accepted| accepted.id() == candidate.id())
-    })
+) -> Vec<ConstraintId> {
+    after
+        .constraint_activations()
+        .iter()
+        .filter(|candidate| {
+            candidate.origin() == ConstraintOrigin::Generated
+                && matches!(candidate.kind(), ConstraintActivationKind::Check { .. })
+                && !before
+                    .constraints()
+                    .iter()
+                    .any(|accepted| accepted.id() == candidate.id())
+                && !before
+                    .constraint_activations()
+                    .iter()
+                    .any(|accepted| accepted.id() == candidate.id())
+        })
+        .map(crate::db::schema::ConstraintActivationSnapshot::id)
+        .collect()
 }
 
 fn application_publications<'a>(

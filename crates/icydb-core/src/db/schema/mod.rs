@@ -127,7 +127,6 @@ pub(in crate::db) use constraint::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use constraint_activation_runner::ConstraintValidationProgress;
-#[cfg(feature = "sql")]
 pub(in crate::db) use constraint_activation_runner::validate_unpublished_check_candidate_exact;
 pub(in crate::db) use constraint_activation_runner::{
     advance_check_constraint_activation, advance_not_null_constraint_activation,

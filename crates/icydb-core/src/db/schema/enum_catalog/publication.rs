@@ -293,7 +293,10 @@ impl AcceptedSchemaRevisionBundle {
         Ok(())
     }
 
-    fn semantic_fingerprint(&self) -> Result<AcceptedSchemaFingerprint, InternalError> {
+    /// Compute the exact accepted meaning used to bind activation candidates.
+    pub(in crate::db::schema) fn semantic_fingerprint(
+        &self,
+    ) -> Result<AcceptedSchemaFingerprint, InternalError> {
         let catalog_bytes = encode_accepted_enum_catalog(&self.enum_catalog)?;
         let composite_catalog_bytes =
             encode_accepted_composite_catalog(&self.composite_catalog, &self.enum_catalog)?;

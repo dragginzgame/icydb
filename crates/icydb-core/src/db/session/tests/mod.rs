@@ -82,13 +82,14 @@ use crate::{
         data::{
             DataStore, DecodedDataStoreKey, RawDataStoreKey,
             canonical_row_from_entity_for_model_proposal_for_test,
-            decode_structural_value_storage_bytes, encode_structural_value_storage_bytes,
+            decode_structural_value_storage_bytes, emit_raw_row_from_slot_payloads,
+            encode_structural_value_storage_bytes,
         },
         direction::Direction,
         executor::ExecutorPlanError,
         index::{IndexKey, IndexStore, IndexStoreVisit, key_within_envelope},
         journal::{JournalBatch, JournalSequence, JournalTailStore},
-        key_taxonomy::PrimaryKeyComponent,
+        key_taxonomy::{EncodedPrimaryKey, PrimaryKeyComponent},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
             builder::{
@@ -109,9 +110,9 @@ use crate::{
         registry::StoreRegistry,
         response::EntityResponse,
         schema::{
-            FieldId, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaRowLayout, SchemaStore,
-            SchemaValidationOperator, ValidateError, compiled_schema_proposal_for_model,
-            publish_test_accepted_schema_snapshot,
+            FieldId, PersistedSchemaSnapshot, RowLayoutVersion, SchemaFieldSlot, SchemaRowLayout,
+            SchemaStore, SchemaValidationOperator, ValidateError,
+            compiled_schema_proposal_for_model, publish_test_accepted_schema_snapshot,
         },
         sql::{
             lowering::{
@@ -3315,6 +3316,104 @@ fn standalone_status_constraints(
     )]
 }
 
+fn numeric_check_application_proposal(
+    target: &crate::db::SchemaApplicationTarget,
+    submission_key: &str,
+    include_check: bool,
+) -> icydb_schema::SchemaProposal {
+    let entity_source = icydb_schema::EntitySourceKey::try_new("test:entity:numeric-check")
+        .expect("test entity source should admit");
+    let id_source = icydb_schema::FieldSourceKey::try_new("test:field:numeric-check-id")
+        .expect("test field source should admit");
+    let score_source = icydb_schema::FieldSourceKey::try_new("test:field:numeric-check-score")
+        .expect("test field source should admit");
+    let constraints = include_check
+        .then(|| {
+            let expression = icydb_schema::SourceCheckExpr::try_new(vec![
+                icydb_schema::SourceCheckInstruction::Field(score_source.clone()),
+                icydb_schema::SourceCheckInstruction::Literal(icydb_schema::ScalarLiteral::Int(7)),
+                icydb_schema::SourceCheckInstruction::Equal,
+            ])
+            .expect("test check should admit");
+            icydb_schema::ConstraintFragment::new(
+                icydb_schema::ConstraintSourceKey::try_new("test:check:numeric-score")
+                    .expect("test constraint source should admit"),
+                icydb_schema::SchemaName::try_new("score_is_seven")
+                    .expect("test constraint name should admit"),
+                expression,
+            )
+        })
+        .into_iter()
+        .collect();
+    let entity = icydb_schema::EntityFragment::try_new(
+        entity_source.clone(),
+        icydb_schema::SchemaName::try_new("NumericCheck").expect("test entity name should admit"),
+        vec![
+            icydb_schema::FieldFragment::new(
+                id_source.clone(),
+                icydb_schema::SchemaName::try_new("id").expect("test field name should admit"),
+                icydb_schema::FieldType::Scalar(icydb_schema::ScalarType::Nat64),
+                false,
+                icydb_schema::FieldInsertPolicy::Required,
+                None,
+            ),
+            icydb_schema::FieldFragment::new(
+                score_source,
+                icydb_schema::SchemaName::try_new("score").expect("test field name should admit"),
+                icydb_schema::FieldType::Scalar(icydb_schema::ScalarType::Int64),
+                false,
+                icydb_schema::FieldInsertPolicy::Required,
+                None,
+            ),
+        ],
+        vec![id_source],
+        Vec::new(),
+        Vec::new(),
+        constraints,
+    )
+    .expect("test entity should admit");
+    let fragment = icydb_schema::SchemaFragment::try_new(vec![entity], Vec::new())
+        .expect("test fragment should admit");
+    let capabilities = include_check
+        .then_some(icydb_schema::SchemaCapability::ACCEPTED_CHECKS)
+        .into_iter()
+        .collect();
+
+    icydb_schema::SchemaProposal::try_compose(
+        capabilities,
+        target.database_identity(),
+        icydb_schema::SchemaSubmissionKey::try_new(submission_key)
+            .expect("test submission key should admit"),
+        target.accepted_head().clone(),
+        vec![fragment],
+        vec![icydb_schema::EntityStoreAssignment::new(
+            entity_source,
+            target.stores()[0].identity(),
+        )],
+        Vec::new(),
+    )
+    .expect("test proposal should compose")
+}
+
+fn insert_numeric_check_application_row(entity_tag: crate::types::EntityTag, id: u64, score: i64) {
+    let primary_key = EncodedPrimaryKey::encode(PrimaryKeyComponent::Nat64(id))
+        .expect("test primary key should encode");
+    let key =
+        RawDataStoreKey::from_entity_and_primary_key_bytes(entity_tag, primary_key.as_bytes());
+    let slots = [
+        crate::db::encode_persisted_scalar_slot_payload(&id, "id").expect("test id should encode"),
+        crate::db::encode_persisted_scalar_slot_payload(&score, "score")
+            .expect("test score should encode"),
+    ];
+    let row = emit_raw_row_from_slot_payloads(RowLayoutVersion::INITIAL, slots.len(), &slots)
+        .expect("test row should encode")
+        .into_raw_row();
+
+    JOURNALED_SESSION_SQL_DATA_STORE.with_borrow_mut(|store| {
+        store.insert_raw_for_test(key, row);
+    });
+}
+
 fn reset_standalone_schema_application_fixture() -> DbSession<SessionSqlCanister> {
     init_commit_store_for_tests().expect("commit store init should succeed");
     JOURNALED_SESSION_SQL_DATA_STORE.with_borrow_mut(DataStore::clear);
@@ -3329,6 +3428,38 @@ fn reset_standalone_schema_application_fixture() -> DbSession<SessionSqlCanister
         .expect("standalone journaled database should recover");
     DbSession::<SessionSqlCanister>::clear_accepted_schema_query_cache_for_tests();
     DbSession::new(STANDALONE_JOURNALED_SESSION_DB)
+}
+
+fn prepare_numeric_check_application_fixture(
+    submission_key: &str,
+) -> (
+    DbSession<SessionSqlCanister>,
+    crate::db::schema::AcceptedSchemaRevisionBundle,
+    crate::db::SchemaApplicationTarget,
+    crate::types::EntityTag,
+) {
+    let session = reset_standalone_schema_application_fixture();
+    let target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial = numeric_check_application_proposal(&target, submission_key, false);
+    session
+        .apply_schema(&initial)
+        .expect("initial numeric proposal should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let entity_tag = *accepted_before
+        .entity_snapshots()
+        .keys()
+        .next()
+        .expect("initial entity should exist");
+    let after = session
+        .schema_application_target()
+        .expect("published target should derive");
+
+    (session, accepted_before, after, entity_tag)
 }
 
 #[test]
@@ -3544,14 +3675,117 @@ fn schema_application_adds_generated_check_to_empty_entity_with_exact_replay() {
 }
 
 #[test]
-fn schema_application_rejects_direct_check_addition_without_empty_domain_proof() {
+fn schema_application_directly_validates_nonempty_generated_check() {
+    let (session, accepted_before, after, entity_tag) =
+        prepare_numeric_check_application_fixture("nonempty-check-clean-initial");
+    insert_numeric_check_application_row(entity_tag, 1, 7);
+    let proposal =
+        numeric_check_application_proposal(&after, "nonempty-check-clean-addition", true);
+
+    let receipt = session
+        .apply_schema(&proposal)
+        .expect("bounded clean generated check should publish");
+    let replay = session
+        .apply_schema(&proposal)
+        .expect("exact generated-check retry should replay");
+    let accepted_after = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("updated accepted bundle should load")
+        .expect("updated accepted bundle should exist");
+    let after_snapshot = accepted_after
+        .entity_snapshots()
+        .get(&entity_tag)
+        .expect("entity should survive check addition");
+
+    assert_eq!(replay, receipt);
+    assert_eq!(accepted_after.revision().get(), 2);
+    assert_eq!(
+        after_snapshot.constraint_id_allocator().high_water(),
+        accepted_before
+            .entity_snapshots()
+            .get(&entity_tag)
+            .expect("initial entity should exist")
+            .constraint_id_allocator()
+            .high_water()
+            + 1,
+    );
+    assert!(after_snapshot.constraint_activations().is_empty());
+    assert!(after_snapshot.constraints().iter().any(|constraint| {
+        constraint.origin() == crate::db::schema::ConstraintOrigin::Generated
+            && matches!(
+                constraint.kind(),
+                crate::db::schema::AcceptedConstraintKind::Check { .. }
+            )
+    }));
+}
+
+#[test]
+fn schema_application_rejects_generated_check_violation_before_publication() {
+    let (session, accepted_before, after, entity_tag) =
+        prepare_numeric_check_application_fixture("nonempty-check-violation-initial");
+    insert_numeric_check_application_row(entity_tag, 1, 8);
+    let proposal =
+        numeric_check_application_proposal(&after, "nonempty-check-violation-addition", true);
+
+    let rejection = session
+        .apply_schema(&proposal)
+        .expect_err("violated generated check must reject before publication");
+
+    assert_eq!(rejection.class(), ErrorClass::InvariantViolation);
+    assert_eq!(
+        JOURNALED_SESSION_SQL_SCHEMA_STORE
+            .with_borrow(SchemaStore::current_accepted_schema_bundle)
+            .expect("accepted bundle should remain readable")
+            .expect("accepted bundle should remain present"),
+        accepted_before,
+    );
+    assert_eq!(
+        session
+            .schema_application_receipt(after.database_identity(), proposal.submission_key())
+            .expect("rejected receipt lookup should succeed"),
+        None,
+    );
+}
+
+#[test]
+fn schema_application_rejects_direct_check_proof_that_exceeds_one_page() {
+    let (session, accepted_before, after, entity_tag) =
+        prepare_numeric_check_application_fixture("nonempty-check-bounded-initial");
+    for id in 0..=256 {
+        insert_numeric_check_application_row(entity_tag, id, 7);
+    }
+    let proposal =
+        numeric_check_application_proposal(&after, "nonempty-check-bounded-addition", true);
+
+    let rejection = session
+        .apply_schema(&proposal)
+        .expect_err("proof beyond one bounded page must reject before publication");
+
+    assert_eq!(rejection.class(), ErrorClass::Unsupported);
+    assert_eq!(
+        JOURNALED_SESSION_SQL_SCHEMA_STORE
+            .with_borrow(SchemaStore::current_accepted_schema_bundle)
+            .expect("accepted bundle should remain readable")
+            .expect("accepted bundle should remain present"),
+        accepted_before,
+    );
+    assert_eq!(
+        session
+            .schema_application_receipt(after.database_identity(), proposal.submission_key())
+            .expect("rejected receipt lookup should succeed"),
+        None,
+    );
+}
+
+#[test]
+fn schema_application_rejects_malformed_row_during_direct_check_proof() {
     let session = reset_standalone_schema_application_fixture();
     let target = session
         .schema_application_target()
         .expect("empty standalone target should derive");
     let initial = initial_named_application_proposal(
         &target,
-        "nonempty-check-addition-fixture-initial",
+        "malformed-check-proof-initial",
         false,
         "status",
     );
@@ -3562,9 +3796,9 @@ fn schema_application_rejects_direct_check_addition_without_empty_domain_proof()
         .with_borrow(SchemaStore::current_accepted_schema_bundle)
         .expect("initial accepted bundle should load")
         .expect("initial accepted bundle should exist");
-    let (&entity_tag, _) = accepted_before
+    let entity_tag = *accepted_before
         .entity_snapshots()
-        .iter()
+        .keys()
         .next()
         .expect("initial entity should exist");
     let key = RawDataStoreKey::from_entity_and_primary_key_bytes(entity_tag, b"one");
@@ -3577,13 +3811,16 @@ fn schema_application_rejects_direct_check_addition_without_empty_domain_proof()
     let after = session
         .schema_application_target()
         .expect("published target should derive");
-    let proposal = checked_named_application_proposal(&after, "reject-nonempty-generated-check");
+    let proposal = checked_named_application_proposal(&after, "reject-malformed-generated-check");
 
     let rejection = session
         .apply_schema(&proposal)
-        .expect_err("non-empty direct proof must reject before publication");
+        .expect_err("malformed historical row must reject before publication");
 
-    assert_eq!(rejection.class(), ErrorClass::Unsupported);
+    assert!(matches!(
+        rejection.class(),
+        ErrorClass::Corruption | ErrorClass::Internal
+    ));
     assert_eq!(
         JOURNALED_SESSION_SQL_SCHEMA_STORE
             .with_borrow(SchemaStore::current_accepted_schema_bundle)
