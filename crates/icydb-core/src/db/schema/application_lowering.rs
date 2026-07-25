@@ -515,8 +515,8 @@ pub(in crate::db::schema) fn lower_initial_schema_proposal(
 ///
 /// This existing-head lane owns future insert-default and source-keyed display
 /// metadata reconciliation, plus explicit removal of accepted generated
-/// checks, fields, indexes, and unreferenced named types and addition of
-/// generated checks whose complete historical domain is proven empty at the
+/// entities, checks, fields, indexes, and unreferenced named types and addition
+/// of generated checks whose complete historical domain is proven empty at the
 /// application boundary. Every structural fact must resolve through immutable
 /// source bindings and match accepted authority exactly. Other additions,
 /// activation work, and physical changes therefore fail before candidate
@@ -525,6 +525,17 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
     proposal: &SchemaProposal,
     stores: &[ExistingProposalStore<'_>],
 ) -> Result<Vec<CandidateSchemaRevision>, InternalError> {
+    let removes_entity = proposal
+        .removals()
+        .iter()
+        .any(|removal| matches!(removal, SchemaRemoval::Entity(_)));
+    if removes_entity
+        && (proposal.removals().len() != 1
+            || !proposal.fragments().is_empty()
+            || !proposal.assignments().is_empty())
+    {
+        return Err(InternalError::store_unsupported());
+    }
     let store_by_identity = stores
         .iter()
         .map(|store| (store.identity, store))
@@ -613,6 +624,13 @@ struct ExistingCheckRemoval {
     id: ConstraintId,
 }
 
+/// One source-resolved generated entity selected for exact removal.
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
+struct ExistingEntityRemoval {
+    source: EntitySourceKey,
+    tag: EntityTag,
+}
+
 /// One source-resolved generated field selected for exact physical removal.
 #[derive(Eq, Ord, PartialEq, PartialOrd)]
 struct ExistingFieldRemoval {
@@ -648,6 +666,7 @@ struct ExistingTypeRemoval {
 #[derive(Default)]
 struct ExistingStoreRemovals {
     checks: Vec<ExistingCheckRemoval>,
+    entities: Vec<ExistingEntityRemoval>,
     fields: Vec<ExistingFieldRemoval>,
     indexes: Vec<ExistingIndexRemoval>,
     relations: Vec<ExistingRelationRemoval>,
@@ -655,9 +674,19 @@ struct ExistingStoreRemovals {
 }
 
 impl ExistingStoreRemovals {
+    const fn is_empty(&self) -> bool {
+        self.checks.is_empty()
+            && self.entities.is_empty()
+            && self.fields.is_empty()
+            && self.indexes.is_empty()
+            && self.relations.is_empty()
+            && self.types.is_empty()
+    }
+
     fn push(&mut self, removal: ExistingRemoval) {
         match removal {
             ExistingRemoval::Check(removal) => self.checks.push(removal),
+            ExistingRemoval::Entity(removal) => self.entities.push(removal),
             ExistingRemoval::Field(removal) => self.fields.push(removal),
             ExistingRemoval::Index(removal) => self.indexes.push(removal),
             ExistingRemoval::Relation(removal) => self.relations.push(removal),
@@ -668,6 +697,7 @@ impl ExistingStoreRemovals {
 /// One source-resolved removal whose store owner is carried separately.
 enum ExistingRemoval {
     Check(ExistingCheckRemoval),
+    Entity(ExistingEntityRemoval),
     Field(ExistingFieldRemoval),
     Index(ExistingIndexRemoval),
     Relation(ExistingRelationRemoval),
@@ -683,6 +713,7 @@ fn lower_existing_store_candidate(
 ) -> Result<Option<CandidateSchemaRevision>, InternalError> {
     entities.sort_by(|left, right| left.source_key().cmp(right.source_key()));
     removals.checks.sort();
+    removals.entities.sort();
     removals.fields.sort();
     removals.indexes.sort();
     removals.relations.sort();
@@ -720,6 +751,11 @@ fn lower_existing_store_candidate(
         &mut source_bindings,
         removals.types.as_slice(),
     )?;
+    apply_existing_entity_removals(
+        &mut snapshots,
+        &mut source_bindings,
+        removals.entities.as_slice(),
+    )?;
     advance_removed_entity_schema_versions(&mut snapshots, &removal_entity_tags)?;
     let proposed_entity_tags = entities
         .iter()
@@ -732,11 +768,7 @@ fn lower_existing_store_candidate(
         })
         .collect::<Result<BTreeSet<_>, _>>()?;
     verify_unrebuildable_enum_predicates(store.bundle, &catalogs, &proposed_entity_tags)?;
-    let mut changed = !removals.checks.is_empty()
-        || !removals.fields.is_empty()
-        || !removals.indexes.is_empty()
-        || !removals.relations.is_empty()
-        || !removals.types.is_empty();
+    let mut changed = !removals.is_empty();
     for entity in entities {
         let entity_tag = store
             .bundle
@@ -785,6 +817,10 @@ fn resolve_existing_removal<'store, 'bundle>(
     removal: &SchemaRemoval,
 ) -> Result<(&'store ExistingProposalStore<'bundle>, ExistingRemoval), InternalError> {
     match removal {
+        SchemaRemoval::Entity(entity) => {
+            let (store, removal) = resolve_existing_generated_entity_removal(stores, entity)?;
+            Ok((store, ExistingRemoval::Entity(removal)))
+        }
         SchemaRemoval::Constraint { entity, constraint } => {
             let (store, removal) =
                 resolve_existing_generated_check_removal(stores, entity, constraint)?;
@@ -803,10 +839,50 @@ fn resolve_existing_removal<'store, 'bundle>(
                 resolve_existing_generated_relation_removal(stores, entity, relation)?;
             Ok((store, ExistingRemoval::Relation(removal)))
         }
-        SchemaRemoval::Entity(_) | SchemaRemoval::Type(_) => {
-            Err(InternalError::store_unsupported())
-        }
+        SchemaRemoval::Type(_) => Err(InternalError::store_unsupported()),
     }
+}
+
+/// Resolve one generated entity removal solely through immutable accepted
+/// source identity.
+fn resolve_existing_generated_entity_removal<'store, 'bundle>(
+    stores: &'store [ExistingProposalStore<'bundle>],
+    entity_source: &EntitySourceKey,
+) -> Result<
+    (
+        &'store ExistingProposalStore<'bundle>,
+        ExistingEntityRemoval,
+    ),
+    InternalError,
+> {
+    let mut resolved = None;
+    for store in stores {
+        let Some(entity_tag) = store.bundle.source_bindings().entity(entity_source) else {
+            continue;
+        };
+        if resolved.is_some() {
+            return Err(InternalError::store_unsupported());
+        }
+        let snapshot = store
+            .bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .ok_or_else(InternalError::store_invariant)?;
+        if !snapshot.constraint_activations().is_empty()
+            || !snapshot.candidate_indexes().is_empty()
+            || !snapshot.candidate_relations().is_empty()
+        {
+            return Err(InternalError::store_unsupported());
+        }
+        resolved = Some((
+            store,
+            ExistingEntityRemoval {
+                source: entity_source.clone(),
+                tag: entity_tag,
+            },
+        ));
+    }
+    resolved.ok_or_else(InternalError::store_unsupported)
 }
 
 /// Attach one source-keyed named-type removal to every store-local accepted
@@ -885,6 +961,24 @@ fn apply_existing_type_removals(
         })
     {
         return Err(InternalError::store_unsupported());
+    }
+    Ok(())
+}
+
+/// Remove one exact entity snapshot and its complete source-binding subtree.
+fn apply_existing_entity_removals(
+    snapshots: &mut BTreeMap<EntityTag, PersistedSchemaSnapshot>,
+    source_bindings: &mut AcceptedSourceBindingCatalog,
+    removals: &[ExistingEntityRemoval],
+) -> Result<(), InternalError> {
+    if removals.len() > 1 {
+        return Err(InternalError::store_unsupported());
+    }
+    for removal in removals {
+        snapshots
+            .remove(&removal.tag)
+            .ok_or_else(InternalError::store_invariant)?;
+        source_bindings.remove_entity(&removal.source, removal.tag)?;
     }
     Ok(())
 }

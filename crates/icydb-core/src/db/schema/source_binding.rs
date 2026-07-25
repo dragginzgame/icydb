@@ -135,6 +135,25 @@ impl AcceptedSourceBindingCatalog {
         self.entities.get(source).copied()
     }
 
+    /// Remove one exact entity binding and every entity-scoped child binding.
+    pub(in crate::db::schema) fn remove_entity(
+        &mut self,
+        source: &EntitySourceKey,
+        expected: EntityTag,
+    ) -> Result<(), InternalError> {
+        match self.entities.get(source) {
+            Some(actual) if *actual == expected => {}
+            Some(_) | None => return Err(InternalError::store_invariant()),
+        }
+        let _ = self.entities.remove(source);
+        self.fields.retain(|(entity, _), _| *entity != expected);
+        self.constraints
+            .retain(|(entity, _), _| *entity != expected);
+        self.indexes.retain(|(entity, _), _| *entity != expected);
+        self.relations.retain(|(entity, _), _| *entity != expected);
+        Ok(())
+    }
+
     /// Resolve one immutable field source identity inside an accepted entity.
     #[must_use]
     pub(in crate::db::schema) fn field(
@@ -490,6 +509,11 @@ impl AcceptedSourceBindingCatalog {
             .keys()
             .filter(|(bound_entity, _)| *bound_entity == entity)
             .count()
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn entity_binding_count_for_tests(&self) -> usize {
+        self.entities.len()
     }
 
     #[cfg(test)]

@@ -508,6 +508,7 @@ fn preflight_existing_application(
     current_bundles: &[Option<crate::db::schema::AcceptedSchemaRevisionBundle>],
     candidates: &mut [CandidateSchemaRevision],
 ) -> Result<Option<PendingGeneratedCheck>, InternalError> {
+    require_empty_physical_entity_removal(authorities, current_bundles, candidates)?;
     require_empty_physical_field_removals(authorities, current_bundles, candidates)?;
     require_empty_physical_index_removals(authorities, current_bundles, candidates)?;
     require_empty_physical_relation_removals(authorities, current_bundles, candidates)?;
@@ -587,6 +588,101 @@ fn preflight_existing_application(
         candidates[candidate_index] = CandidateSchemaRevision::new(bundle)?;
     }
     Ok(pending)
+}
+
+/// Prove one exact generated entity removal has no retained logical or
+/// physical authority.
+///
+/// The source row domain, every user-index generation, and every outgoing
+/// reverse-relation generation must be empty. The accepted-after topology must
+/// also contain no retained relation targeting the removed entity.
+fn require_empty_physical_entity_removal(
+    authorities: &[StoreApplicationAuthority],
+    current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
+    candidates: &[CandidateSchemaRevision],
+) -> Result<(), InternalError> {
+    let mut removed_entity = None;
+    for candidate in candidates {
+        let (position, source_authority) = authorities
+            .iter()
+            .enumerate()
+            .find(|(_, authority)| authority.path == candidate.store_path())
+            .ok_or_else(InternalError::store_unsupported)?;
+        let current = current_bundles
+            .get(position)
+            .and_then(Option::as_ref)
+            .ok_or_else(InternalError::store_invariant)?;
+        let removed = current
+            .entity_snapshots()
+            .iter()
+            .filter(|(entity_tag, _)| {
+                !candidate
+                    .bundle()
+                    .entity_snapshots()
+                    .contains_key(entity_tag)
+            })
+            .collect::<Vec<_>>();
+        if removed.is_empty() {
+            continue;
+        }
+        let [(entity_tag, snapshot)] = removed.as_slice() else {
+            return Err(InternalError::store_unsupported());
+        };
+        let entity_tag = **entity_tag;
+        let snapshot = *snapshot;
+        if removed_entity.is_some()
+            || current.entity_snapshots().len()
+                != candidate
+                    .bundle()
+                    .entity_snapshots()
+                    .len()
+                    .saturating_add(1)
+            || source_authority
+                .handle
+                .with_data(|store| store.exact_entity_count(entity_tag))
+                != Some(0)
+        {
+            return Err(InternalError::store_unsupported());
+        }
+        source_authority
+            .handle
+            .with_index(|store| prove_empty_user_index_domain(store, entity_tag))
+            .map_err(StagedUserIndexDomainError::into_internal_error)?;
+        for relation in snapshot.relations() {
+            let target_store = accepted_entity_store_for_path(
+                authorities,
+                current_bundles,
+                relation.target_path(),
+            )?;
+            target_store.with_index(|store| {
+                prove_empty_reverse_relation_domain(store, entity_tag, snapshot, relation)
+            })?;
+        }
+        removed_entity = Some(snapshot.entity_path());
+    }
+
+    let Some(removed_path) = removed_entity else {
+        return Ok(());
+    };
+    for (position, authority) in authorities.iter().enumerate() {
+        let after = candidates
+            .iter()
+            .find(|candidate| candidate.store_path() == authority.path)
+            .map(CandidateSchemaRevision::bundle)
+            .or_else(|| current_bundles.get(position).and_then(Option::as_ref));
+        let Some(after) = after else {
+            continue;
+        };
+        if after
+            .entity_snapshots()
+            .values()
+            .flat_map(crate::db::schema::PersistedSchemaSnapshot::relations)
+            .any(|relation| relation.target_path() == removed_path)
+        {
+            return Err(InternalError::store_unsupported());
+        }
+    }
+    Ok(())
 }
 
 /// Prove that every removed relation has neither source rows nor surviving

@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.20` removes exactly empty generated entities by immutable source
+  identity after proving that no row, index, or relation authority remains.
+
 - `0.213.19` removes generated relations by immutable source identity after
   bounded proofs that their source and reverse physical domains are empty.
 

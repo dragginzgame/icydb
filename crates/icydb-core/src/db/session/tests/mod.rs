@@ -3413,6 +3413,27 @@ fn generated_relation_removal_proposal(
     .expect("generated relation removal should compose")
 }
 
+fn generated_entity_removal_proposal(
+    target: &crate::db::SchemaApplicationTarget,
+    submission_key: &str,
+    entity_source: &str,
+) -> icydb_schema::SchemaProposal {
+    icydb_schema::SchemaProposal::try_compose(
+        Vec::new(),
+        target.database_identity(),
+        icydb_schema::SchemaSubmissionKey::try_new(submission_key)
+            .expect("test submission key should admit"),
+        target.accepted_head().clone(),
+        Vec::new(),
+        Vec::new(),
+        vec![icydb_schema::SchemaRemoval::Entity(
+            icydb_schema::EntitySourceKey::try_new(entity_source)
+                .expect("test entity source should admit"),
+        )],
+    )
+    .expect("generated entity removal should compose")
+}
+
 fn compose_named_application_proposal(
     target: &crate::db::SchemaApplicationTarget,
     fixture: NamedApplicationProposalFixture<'_>,
@@ -4926,6 +4947,302 @@ fn schema_application_rejects_generated_relation_removal_with_reverse_state() {
     let rejection = session
         .apply_schema(&proposal)
         .expect_err("surviving reverse state must reject relation removal");
+
+    assert_eq!(rejection.class(), ErrorClass::Unsupported);
+    assert_eq!(
+        JOURNALED_SESSION_SQL_SCHEMA_STORE
+            .with_borrow(SchemaStore::current_accepted_schema_bundle)
+            .expect("accepted bundle should remain readable")
+            .expect("accepted bundle should remain present"),
+        accepted_before,
+    );
+    assert_eq!(
+        session
+            .schema_application_receipt(after_target.database_identity(), proposal.submission_key())
+            .expect("rejected receipt lookup should succeed"),
+        None,
+    );
+}
+
+#[test]
+fn schema_application_removes_exactly_empty_generated_entity() {
+    let session = reset_standalone_schema_application_fixture();
+    let initial_target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial =
+        initial_indexed_named_application_proposal(&initial_target, "entity-removal-initial");
+    session
+        .apply_schema(&initial)
+        .expect("initial generated schema should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let entity_tag = *accepted_before
+        .entity_snapshots()
+        .keys()
+        .next()
+        .expect("initial entity should exist");
+    let after_target = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let proposal = generated_entity_removal_proposal(
+        &after_target,
+        "remove-exactly-empty-generated-entity",
+        "test:entity:standalone",
+    );
+
+    let receipt = session
+        .apply_schema(&proposal)
+        .expect("exactly empty generated entity should be removed");
+    let replay = session
+        .apply_schema(&proposal)
+        .expect("exact entity-removal retry should replay");
+    let accepted_after = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("updated accepted bundle should load")
+        .expect("updated accepted bundle should exist");
+    let bindings = accepted_after.source_bindings_for_tests();
+
+    assert_eq!(replay, receipt);
+    assert!(matches!(
+        receipt.outcome(),
+        crate::db::SchemaChangeOutcome::Applied { .. }
+    ));
+    assert_eq!(accepted_after.revision().get(), 2);
+    assert!(accepted_after.entity_snapshots().is_empty());
+    assert_eq!(bindings.entity_binding_count_for_tests(), 0);
+    assert_eq!(bindings.field_binding_count_for_tests(entity_tag), 0);
+    assert_eq!(bindings.constraint_binding_count_for_tests(entity_tag), 0);
+    assert_eq!(bindings.index_binding_count_for_tests(entity_tag), 0);
+    assert_eq!(bindings.relation_binding_count_for_tests(entity_tag), 0);
+    assert_eq!(bindings.named_type_binding_count_for_tests(), 1);
+    assert_eq!(bindings.enum_variant_binding_count_for_tests(), 1);
+    assert!(JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow(IndexStore::is_empty));
+}
+
+#[test]
+fn schema_application_rejects_generated_entity_removal_from_nonempty_domain() {
+    let session = reset_standalone_schema_application_fixture();
+    let initial_target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial = initial_indexed_named_application_proposal(
+        &initial_target,
+        "nonempty-entity-removal-initial",
+    );
+    session
+        .apply_schema(&initial)
+        .expect("initial generated schema should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let entity_tag = *accepted_before
+        .entity_snapshots()
+        .keys()
+        .next()
+        .expect("initial entity should exist");
+    JOURNALED_SESSION_SQL_DATA_STORE.with_borrow_mut(|store| {
+        store.insert_raw_for_test(
+            RawDataStoreKey::from_entity_and_primary_key_bytes(entity_tag, b"one"),
+            crate::db::data::RawRow::try_new(vec![0xFF]).expect("bounded raw row should construct"),
+        );
+    });
+    let after_target = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let proposal = generated_entity_removal_proposal(
+        &after_target,
+        "reject-nonempty-generated-entity",
+        "test:entity:standalone",
+    );
+
+    let rejection = session
+        .apply_schema(&proposal)
+        .expect_err("nonempty generated entity removal must reject");
+
+    assert_eq!(rejection.class(), ErrorClass::Unsupported);
+    assert_eq!(
+        JOURNALED_SESSION_SQL_SCHEMA_STORE
+            .with_borrow(SchemaStore::current_accepted_schema_bundle)
+            .expect("accepted bundle should remain readable")
+            .expect("accepted bundle should remain present"),
+        accepted_before,
+    );
+    assert_eq!(
+        session
+            .schema_application_receipt(after_target.database_identity(), proposal.submission_key())
+            .expect("rejected receipt lookup should succeed"),
+        None,
+    );
+}
+
+#[test]
+fn schema_application_rejects_generated_entity_removal_with_user_index_state() {
+    let session = reset_standalone_schema_application_fixture();
+    let initial_target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial = initial_indexed_named_application_proposal(
+        &initial_target,
+        "indexed-entity-removal-initial",
+    );
+    session
+        .apply_schema(&initial)
+        .expect("initial generated schema should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let (&entity_tag, snapshot) = accepted_before
+        .entity_snapshots()
+        .iter()
+        .next()
+        .expect("initial entity should exist");
+    let index = snapshot
+        .indexes()
+        .first()
+        .expect("generated secondary index should exist");
+    let index_id =
+        IndexId::new_with_generation(entity_tag, index.ordinal(), index.physical_generation());
+    let stale_key = IndexKey::empty_with_kind(&index_id, IndexKeyKind::User)
+        .to_raw()
+        .expect("test user-index key should encode");
+    JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow_mut(|store| {
+        store.insert(stale_key, IndexEntryValue::presence());
+    });
+    let after_target = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let proposal = generated_entity_removal_proposal(
+        &after_target,
+        "reject-indexed-generated-entity",
+        "test:entity:standalone",
+    );
+
+    let rejection = session
+        .apply_schema(&proposal)
+        .expect_err("surviving user-index state must reject entity removal");
+
+    assert_eq!(rejection.class(), ErrorClass::Corruption);
+    assert_eq!(
+        JOURNALED_SESSION_SQL_SCHEMA_STORE
+            .with_borrow(SchemaStore::current_accepted_schema_bundle)
+            .expect("accepted bundle should remain readable")
+            .expect("accepted bundle should remain present"),
+        accepted_before,
+    );
+    assert_eq!(
+        session
+            .schema_application_receipt(after_target.database_identity(), proposal.submission_key())
+            .expect("rejected receipt lookup should succeed"),
+        None,
+    );
+}
+
+#[test]
+fn schema_application_removes_empty_relation_source_entity() {
+    let session = reset_standalone_schema_application_fixture();
+    let initial_target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial =
+        initial_relation_application_proposal(&initial_target, "relation-source-removal-initial");
+    session
+        .apply_schema(&initial)
+        .expect("initial relation schema should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let source_tag = accepted_before
+        .entity_snapshots()
+        .iter()
+        .find_map(|(entity_tag, snapshot)| {
+            (snapshot.entity_path() == "test:entity:relation-application-source")
+                .then_some(*entity_tag)
+        })
+        .expect("source entity should be accepted");
+    let target_before = accepted_before
+        .entity_snapshots()
+        .values()
+        .find(|snapshot| snapshot.entity_path() == "test:entity:relation-application-target")
+        .cloned()
+        .expect("target entity should be accepted");
+    let after_target = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let proposal = generated_entity_removal_proposal(
+        &after_target,
+        "remove-empty-relation-source-entity",
+        "test:entity:relation-application-source",
+    );
+
+    let receipt = session
+        .apply_schema(&proposal)
+        .expect("empty relation source entity should be removed");
+    let replay = session
+        .apply_schema(&proposal)
+        .expect("exact relation-source removal retry should replay");
+    let accepted_after = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("updated accepted bundle should load")
+        .expect("updated accepted bundle should exist");
+
+    assert_eq!(replay, receipt);
+    assert_eq!(accepted_after.entity_snapshots().len(), 1);
+    assert_eq!(
+        accepted_after
+            .entity_snapshots()
+            .values()
+            .next()
+            .expect("target entity should survive"),
+        &target_before,
+    );
+    assert_eq!(
+        accepted_after
+            .source_bindings_for_tests()
+            .entity_binding_count_for_tests(),
+        1,
+    );
+    assert_eq!(
+        accepted_after
+            .source_bindings_for_tests()
+            .relation_binding_count_for_tests(source_tag),
+        0,
+    );
+    assert!(JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow(IndexStore::is_empty));
+}
+
+#[test]
+fn schema_application_rejects_removing_a_retained_relation_target_entity() {
+    let session = reset_standalone_schema_application_fixture();
+    let initial_target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial =
+        initial_relation_application_proposal(&initial_target, "relation-target-removal-initial");
+    session
+        .apply_schema(&initial)
+        .expect("initial relation schema should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let after_target = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let proposal = generated_entity_removal_proposal(
+        &after_target,
+        "reject-retained-relation-target-entity",
+        "test:entity:relation-application-target",
+    );
+
+    let rejection = session
+        .apply_schema(&proposal)
+        .expect_err("retained incoming relation must reject target entity removal");
 
     assert_eq!(rejection.class(), ErrorClass::Unsupported);
     assert_eq!(
