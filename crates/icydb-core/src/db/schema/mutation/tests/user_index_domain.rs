@@ -103,6 +103,33 @@ fn complete_domain_stage_rejects_physical_before_projection_mismatch() {
 }
 
 #[test]
+fn empty_user_index_domain_proof_is_entity_and_kind_scoped() {
+    let mut store = IndexStore::init_heap();
+    store.insert(
+        unrelated_key(EntityTag::new(7), IndexKeyKind::System, 9, 91),
+        IndexEntryValue::presence(),
+    );
+    store.insert(
+        unrelated_key(EntityTag::new(8), IndexKeyKind::User, 1, 92),
+        IndexEntryValue::presence(),
+    );
+
+    assert!(
+        super::prove_empty_user_index_domain(&store, EntityTag::new(7)).is_ok(),
+        "system and other-entity keys do not occupy the user domain",
+    );
+
+    store.insert(
+        unrelated_key(EntityTag::new(7), IndexKeyKind::User, 1, 93),
+        IndexEntryValue::presence(),
+    );
+    assert!(matches!(
+        super::prove_empty_user_index_domain(&store, EntityTag::new(7)),
+        Err(super::StagedUserIndexDomainError::CurrentDomainMismatch),
+    ));
+}
+
+#[test]
 fn complete_domain_stage_uses_candidate_logical_rows_for_new_index_fields() {
     let before = base_snapshot();
     let added_field = nullable_text_field("nickname", 3, 2);

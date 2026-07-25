@@ -791,6 +791,26 @@ fn observe_current_user_index_domain(
     Ok(entries)
 }
 
+/// Prove that one entity owns no current physical user-index entries.
+///
+/// The proof consumes the same bounded, fallible physical observer used by
+/// complete-domain replacement staging and therefore rejects malformed keys,
+/// oversized domains, or a non-ready index store.
+pub(in crate::db::schema) fn prove_empty_user_index_domain(
+    index_store: &IndexStore,
+    entity_tag: EntityTag,
+) -> Result<(), StagedUserIndexDomainError> {
+    if index_store.state() != IndexState::Ready {
+        return Err(StagedUserIndexDomainError::IndexStoreNotReady);
+    }
+    let mut budget = StagedUserIndexDomainBudget::standard();
+    if observe_current_user_index_domain(index_store, entity_tag, &mut budget)?.is_empty() {
+        Ok(())
+    } else {
+        Err(StagedUserIndexDomainError::CurrentDomainMismatch)
+    }
+}
+
 fn validate_insertion_collisions(
     index_store: &IndexStore,
     deletion_keys: &[RawIndexStoreKey],

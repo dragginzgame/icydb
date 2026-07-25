@@ -3161,6 +3161,26 @@ fn named_application_proposal(
             status_type_name,
             active_variant_name,
             include_status_check: false,
+            include_status_index: false,
+        },
+    )
+}
+
+fn initial_indexed_named_application_proposal(
+    target: &crate::db::SchemaApplicationTarget,
+    submission_key: &str,
+) -> icydb_schema::SchemaProposal {
+    compose_named_application_proposal(
+        target,
+        NamedApplicationProposalFixture {
+            submission_key,
+            status_has_default: false,
+            entity_name: "Standalone",
+            status_name: "status",
+            status_type_name: "StandaloneStatus",
+            active_variant_name: "Active",
+            include_status_check: false,
+            include_status_index: true,
         },
     )
 }
@@ -3173,6 +3193,7 @@ struct NamedApplicationProposalFixture<'a> {
     status_type_name: &'a str,
     active_variant_name: &'a str,
     include_status_check: bool,
+    include_status_index: bool,
 }
 
 fn checked_named_application_proposal(
@@ -3189,6 +3210,7 @@ fn checked_named_application_proposal(
             status_type_name: "StandaloneStatus",
             active_variant_name: "Active",
             include_status_check: true,
+            include_status_index: false,
         },
     )
 }
@@ -3213,6 +3235,28 @@ fn generated_status_field_removal_proposal(
         }],
     )
     .expect("generated field removal should compose")
+}
+
+fn generated_status_index_removal_proposal(
+    target: &crate::db::SchemaApplicationTarget,
+    submission_key: &str,
+) -> icydb_schema::SchemaProposal {
+    icydb_schema::SchemaProposal::try_compose(
+        Vec::new(),
+        target.database_identity(),
+        icydb_schema::SchemaSubmissionKey::try_new(submission_key)
+            .expect("test submission key should admit"),
+        target.accepted_head().clone(),
+        Vec::new(),
+        Vec::new(),
+        vec![icydb_schema::SchemaRemoval::Index {
+            entity: icydb_schema::EntitySourceKey::try_new("test:entity:standalone")
+                .expect("test entity source should admit"),
+            index: icydb_schema::IndexSourceKey::try_new("test:index:standalone-status")
+                .expect("test index source should admit"),
+        }],
+    )
+    .expect("generated index removal should compose")
 }
 
 fn compose_named_application_proposal(
@@ -3248,6 +3292,7 @@ fn compose_named_application_proposal(
         &status_source,
         &active_source,
     );
+    let indexes = standalone_status_indexes(fixture.include_status_index, &status_field_source);
     let entity = icydb_schema::EntityFragment::try_new(
         entity_source.clone(),
         icydb_schema::SchemaName::try_new(fixture.entity_name)
@@ -3281,7 +3326,7 @@ fn compose_named_application_proposal(
             ),
         ],
         vec![id_source],
-        Vec::new(),
+        indexes,
         Vec::new(),
         constraints,
     )
@@ -3309,6 +3354,27 @@ fn compose_named_application_proposal(
         Vec::new(),
     )
     .expect("test proposal should compose")
+}
+
+fn standalone_status_indexes(
+    include: bool,
+    status_field: &icydb_schema::FieldSourceKey,
+) -> Vec<icydb_schema::IndexFragment> {
+    include
+        .then(|| {
+            icydb_schema::IndexFragment::try_new(
+                icydb_schema::IndexSourceKey::try_new("test:index:standalone-status")
+                    .expect("test index source should admit"),
+                icydb_schema::SchemaName::try_new("status_idx")
+                    .expect("test index name should admit"),
+                vec![icydb_schema::IndexKeyFragment::Field(status_field.clone())],
+                false,
+                None,
+            )
+            .expect("test index should admit")
+        })
+        .into_iter()
+        .collect()
 }
 
 fn standalone_status_constraints(
@@ -4256,6 +4322,126 @@ fn schema_application_rejects_generated_field_removal_from_nonempty_entity() {
     let rejection = session
         .apply_schema(&proposal)
         .expect_err("nonempty field removal must reject before publication");
+    let accepted_after = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("accepted bundle should remain readable")
+        .expect("accepted bundle should remain present");
+
+    assert_eq!(rejection.class(), ErrorClass::Unsupported);
+    assert_eq!(accepted_after, accepted_before);
+    assert_eq!(
+        session
+            .schema_application_receipt(after_target.database_identity(), proposal.submission_key())
+            .expect("rejected receipt lookup should succeed"),
+        None,
+    );
+}
+
+#[test]
+fn schema_application_removes_generated_index_from_exactly_empty_entity() {
+    let session = reset_standalone_schema_application_fixture();
+    let target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial =
+        initial_indexed_named_application_proposal(&target, "generated-index-removal-initial");
+    session
+        .apply_schema(&initial)
+        .expect("initial generated schema should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let (&entity_tag, before) = accepted_before
+        .entity_snapshots()
+        .iter()
+        .next()
+        .expect("initial entity should exist");
+    let removed_index = before
+        .indexes()
+        .first()
+        .expect("generated index should exist");
+    let after_target = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let proposal =
+        generated_status_index_removal_proposal(&after_target, "remove-generated-status-index");
+
+    let receipt = session
+        .apply_schema(&proposal)
+        .expect("empty-domain generated index removal should publish");
+    let replay = session
+        .apply_schema(&proposal)
+        .expect("exact index-removal retry should replay");
+    let accepted_after = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("updated accepted bundle should load")
+        .expect("updated accepted bundle should exist");
+    let after = accepted_after
+        .entity_snapshots()
+        .get(&entity_tag)
+        .expect("entity should survive index removal");
+
+    assert_eq!(replay, receipt);
+    assert!(matches!(
+        receipt.outcome(),
+        crate::db::SchemaChangeOutcome::Applied { .. }
+    ));
+    assert_eq!(accepted_after.revision().get(), 2);
+    assert_eq!(after.version().get(), before.version().get() + 1);
+    assert_eq!(after.row_layout(), before.row_layout());
+    assert!(
+        after
+            .indexes()
+            .iter()
+            .all(|index| index.schema_id() != removed_index.schema_id())
+    );
+    assert_eq!(
+        accepted_after
+            .source_bindings_for_tests()
+            .index_binding_count_for_tests(entity_tag),
+        0,
+    );
+}
+
+#[test]
+fn schema_application_rejects_generated_index_removal_from_nonempty_entity() {
+    let session = reset_standalone_schema_application_fixture();
+    let target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial =
+        initial_indexed_named_application_proposal(&target, "nonempty-index-removal-initial");
+    session
+        .apply_schema(&initial)
+        .expect("initial generated schema should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let entity_tag = *accepted_before
+        .entity_snapshots()
+        .keys()
+        .next()
+        .expect("initial entity should exist");
+    let key = RawDataStoreKey::from_entity_and_primary_key_bytes(entity_tag, b"one");
+    JOURNALED_SESSION_SQL_DATA_STORE.with_borrow_mut(|store| {
+        store.insert_raw_for_test(
+            key,
+            crate::db::data::RawRow::try_new(vec![0xFF]).expect("bounded raw row should construct"),
+        );
+    });
+    let after_target = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let proposal = generated_status_index_removal_proposal(
+        &after_target,
+        "reject-nonempty-generated-status-index-removal",
+    );
+
+    let rejection = session
+        .apply_schema(&proposal)
+        .expect_err("nonempty index removal must reject before publication");
     let accepted_after = JOURNALED_SESSION_SQL_SCHEMA_STORE
         .with_borrow(SchemaStore::current_accepted_schema_bundle)
         .expect("accepted bundle should remain readable")

@@ -253,6 +253,19 @@ impl AcceptedSourceBindingCatalog {
         self.indexes.get(&(entity, source.clone())).copied()
     }
 
+    /// Remove one exact accepted secondary-index source binding.
+    pub(in crate::db::schema) fn remove_index(
+        &mut self,
+        entity: EntityTag,
+        source: &IndexSourceKey,
+        expected: SchemaIndexId,
+    ) -> Result<(), InternalError> {
+        match self.indexes.remove(&(entity, source.clone())) {
+            Some(actual) if actual == expected => Ok(()),
+            Some(_) | None => Err(InternalError::store_invariant()),
+        }
+    }
+
     /// Resolve one immutable relation source identity.
     #[must_use]
     pub(in crate::db::schema) fn relation(

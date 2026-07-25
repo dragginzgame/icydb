@@ -119,7 +119,11 @@ pub(in crate::db) use index::{
     resolve_sql_ddl_secondary_index_drop_candidate,
 };
 
+mod index_removal;
+pub(in crate::db::schema) use index_removal::derive_dense_index_removal_candidate;
+
 mod user_index_domain;
+pub(in crate::db::schema) use user_index_domain::prove_empty_user_index_domain;
 pub(in crate::db) use user_index_domain::{
     SchemaUserIndexDomainRow, StagedUserIndexDomainError, StagedUserIndexDomainReplacement,
     StagedUserIndexDomainReplacementBuilder, UniqueConstraintProjection,

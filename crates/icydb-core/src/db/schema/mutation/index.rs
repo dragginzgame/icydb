@@ -557,41 +557,9 @@ pub(in crate::db) fn derive_sql_ddl_secondary_index_drop_accepted_after(
     index: &PersistedIndexSnapshot,
 ) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
     let before = accepted_before.persisted_snapshot();
-    let constraint_catalog = if index.unique() {
-        before
-            .constraint_catalog()
-            .clone()
-            .with_removed_unique(index.schema_id())
-            .map_err(SchemaDdlMutationAdmissionError::ConstraintCatalog)?
-    } else {
-        before.constraint_catalog().clone()
-    };
-    let indexes = before
-        .indexes()
-        .iter()
-        .filter(|candidate| candidate.name() != index.name())
-        .enumerate()
-        .map(|(offset, candidate)| {
-            let ordinal = u16::try_from(offset)
-                .ok()
-                .and_then(|offset| offset.checked_add(1))
-                .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
-            candidate
-                .clone_with_dense_identities(ordinal, |field_id, slot| Some((field_id, slot)))
-                .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let persisted_after = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-        before.version(),
-        before.entity_path().to_string(),
-        before.entity_name().to_string(),
-        before.primary_key_field_ids().to_vec(),
-        before.row_layout().clone(),
-        before.fields().to_vec(),
-        indexes,
-    )
-    .with_constraint_catalog(constraint_catalog)
-    .with_relations(before.relations().to_vec());
+    let persisted_after =
+        super::index_removal::derive_dense_index_removal_candidate(before, index.schema_id())
+            .map_err(|_| SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
     let admission = admit_sql_ddl_secondary_index_drop_candidate();

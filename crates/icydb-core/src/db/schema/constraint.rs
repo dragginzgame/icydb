@@ -785,7 +785,6 @@ impl AcceptedConstraintCatalog {
     }
 
     /// Remove the registry entry paired with one dropped unique index.
-    #[cfg(feature = "sql")]
     pub(in crate::db) fn with_removed_unique(
         mut self,
         index_id: SchemaIndexId,

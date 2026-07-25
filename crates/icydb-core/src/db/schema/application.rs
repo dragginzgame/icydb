@@ -28,11 +28,11 @@ use crate::{
             SchemaApplicationRecord, SchemaApplicationRecordOp, SchemaChangeActivation,
             SchemaChangeActivationKind, SchemaChangeJob, SchemaChangeJobId, SchemaChangeOutcome,
             SchemaChangeProgress, SchemaChangeProgressStatus, SchemaChangeReceipt,
-            SchemaChangeValidationPhase, UnpublishedCheckValidation,
+            SchemaChangeValidationPhase, StagedUserIndexDomainError, UnpublishedCheckValidation,
             accepted_constraint_field_paths, advance_accepted_check_constraint_activation,
             derive_schema_change_job_id, lower_existing_schema_proposal,
-            lower_initial_schema_proposal, validate_unpublished_check_candidate_bounded,
-            with_schema_application_store,
+            lower_initial_schema_proposal, prove_empty_user_index_domain,
+            validate_unpublished_check_candidate_bounded, with_schema_application_store,
         },
     },
     error::{ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError},
@@ -508,6 +508,7 @@ fn preflight_existing_application(
     candidates: &mut [CandidateSchemaRevision],
 ) -> Result<Option<PendingGeneratedCheck>, InternalError> {
     require_empty_physical_field_removals(authorities, current_bundles, candidates)?;
+    require_empty_physical_index_removals(authorities, current_bundles, candidates)?;
     let proofs = generated_check_proofs(authorities, current_bundles, candidates)?;
     if proofs
         .iter()
@@ -584,6 +585,49 @@ fn preflight_existing_application(
         candidates[candidate_index] = CandidateSchemaRevision::new(bundle)?;
     }
     Ok(pending)
+}
+
+/// Prove that every dense index-removal candidate has neither authoritative
+/// rows nor stale physical user-index state. The staged replacement is empty
+/// by construction and is discarded before schema-only publication.
+fn require_empty_physical_index_removals(
+    authorities: &[StoreApplicationAuthority],
+    current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
+    candidates: &[CandidateSchemaRevision],
+) -> Result<(), InternalError> {
+    for candidate in candidates {
+        let (position, authority) = authorities
+            .iter()
+            .enumerate()
+            .find(|(_, authority)| authority.path == candidate.store_path())
+            .ok_or_else(InternalError::store_unsupported)?;
+        let current = current_bundles
+            .get(position)
+            .and_then(Option::as_ref)
+            .ok_or_else(InternalError::store_invariant)?;
+        for (entity_tag, after) in candidate.bundle().entity_snapshots() {
+            let before = current
+                .entity_snapshots()
+                .get(entity_tag)
+                .ok_or_else(InternalError::store_unsupported)?;
+            if before.indexes().len() == after.indexes().len() {
+                continue;
+            }
+            if before.indexes().len() != after.indexes().len().saturating_add(1)
+                || authority
+                    .handle
+                    .with_data(|store| store.exact_entity_count(*entity_tag))
+                    != Some(0)
+            {
+                return Err(InternalError::store_unsupported());
+            }
+            authority
+                .handle
+                .with_index(|store| prove_empty_user_index_domain(store, *entity_tag))
+                .map_err(StagedUserIndexDomainError::into_internal_error)?;
+        }
+    }
+    Ok(())
 }
 
 /// Prove that every dense field-removal candidate has no historical row to

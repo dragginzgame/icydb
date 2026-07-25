@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.17` removes generated indexes from exactly empty entities by immutable
+  source identity after bounded physical-domain validation.
+
 - `0.213.16` removes generated fields from exactly empty entities through one
   catalog-native dense-layout transition while dependent removals fail closed.
 
