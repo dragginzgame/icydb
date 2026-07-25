@@ -3748,8 +3748,8 @@ fn schema_application_rejects_generated_check_violation_before_publication() {
 }
 
 #[test]
-fn schema_application_rejects_direct_check_proof_that_exceeds_one_page() {
-    let (session, accepted_before, after, entity_tag) =
+fn schema_application_resumes_generated_check_beyond_direct_page() {
+    let (session, _accepted_before, after, entity_tag) =
         prepare_numeric_check_application_fixture("nonempty-check-bounded-initial");
     for id in 0..=256 {
         insert_numeric_check_application_row(entity_tag, id, 7);
@@ -3757,23 +3757,210 @@ fn schema_application_rejects_direct_check_proof_that_exceeds_one_page() {
     let proposal =
         numeric_check_application_proposal(&after, "nonempty-check-bounded-addition", true);
 
-    let rejection = session
+    let pending = session
         .apply_schema(&proposal)
-        .expect_err("proof beyond one bounded page must reject before publication");
-
-    assert_eq!(rejection.class(), ErrorClass::Unsupported);
+        .expect("proof beyond one bounded page should publish a pending activation");
+    let replay = session
+        .apply_schema(&proposal)
+        .expect("the exact pending proposal should replay");
+    assert_eq!(replay, pending);
+    let crate::db::SchemaChangeOutcome::Pending {
+        job,
+        candidate_head,
+    } = pending.outcome()
+    else {
+        panic!("multi-page proof should return a pending job");
+    };
+    let started = session
+        .continue_schema_application(job.id(), None)
+        .expect("the pending proof should create its durable validation job");
     assert_eq!(
-        JOURNALED_SESSION_SQL_SCHEMA_STORE
-            .with_borrow(SchemaStore::current_accepted_schema_bundle)
-            .expect("accepted bundle should remain readable")
-            .expect("accepted bundle should remain present"),
-        accepted_before,
+        started.status(),
+        &crate::db::SchemaChangeProgressStatus::Started,
     );
+
+    let completed = (0..8)
+        .find_map(|_| {
+            let progress = session
+                .continue_schema_application(job.id(), None)
+                .expect("each clean continuation page should advance");
+            matches!(
+                progress.status(),
+                crate::db::SchemaChangeProgressStatus::Applied
+            )
+            .then_some(progress)
+        })
+        .expect("the bounded two-phase proof should complete");
+    let accepted_after = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("accepted bundle should remain readable")
+        .expect("accepted bundle should remain present");
+    let snapshot = accepted_after
+        .entity_snapshots()
+        .get(&entity_tag)
+        .expect("validated entity should remain accepted");
+    assert!(snapshot.constraint_activations().is_empty());
+    assert!(snapshot.constraints().iter().any(|constraint| {
+        constraint.origin() == crate::db::schema::ConstraintOrigin::Generated
+            && matches!(
+                constraint.kind(),
+                crate::db::schema::AcceptedConstraintKind::Check { .. }
+            )
+    }));
+    assert!(matches!(
+        completed.receipt().outcome(),
+        crate::db::SchemaChangeOutcome::Applied { accepted_head }
+            if accepted_head == candidate_head
+    ));
     assert_eq!(
         session
             .schema_application_receipt(after.database_identity(), proposal.submission_key())
-            .expect("rejected receipt lookup should succeed"),
-        None,
+            .expect("terminal receipt lookup should succeed"),
+        Some(completed.receipt().clone()),
+    );
+    assert_eq!(
+        session
+            .continue_schema_application(job.id(), None)
+            .expect("a lost terminal response should replay without rescanning"),
+        completed,
+    );
+}
+
+#[test]
+fn schema_application_replays_generated_check_findings_until_acknowledged() {
+    let (session, _accepted_before, after, entity_tag) =
+        prepare_numeric_check_application_fixture("resumable-check-finding-initial");
+    for id in 0..256 {
+        insert_numeric_check_application_row(entity_tag, id, 7);
+    }
+    insert_numeric_check_application_row(entity_tag, 256, 8);
+    let proposal =
+        numeric_check_application_proposal(&after, "resumable-check-finding-addition", true);
+    let pending = session
+        .apply_schema(&proposal)
+        .expect("the clean direct prefix should publish a pending activation");
+    let crate::db::SchemaChangeOutcome::Pending { job, .. } = pending.outcome() else {
+        panic!("multi-page proof should return a pending job");
+    };
+    session
+        .continue_schema_application(job.id(), None)
+        .expect("the pending proof should start");
+    session
+        .continue_schema_application(job.id(), None)
+        .expect("the first clean Forward page should advance");
+    let finding_page = session
+        .continue_schema_application(job.id(), None)
+        .expect("the violated final row should produce one retained page");
+    let page_sequence = match finding_page.status() {
+        crate::db::SchemaChangeProgressStatus::Findings {
+            page_sequence,
+            findings,
+            ..
+        } => {
+            assert_eq!(findings.len(), 1);
+            assert_ne!(findings[0].constraint_id(), 0);
+            assert_eq!(findings[0].field_paths(), ["score"]);
+            *page_sequence
+        }
+        _ => panic!("violated historical row should produce findings"),
+    };
+
+    let replay = session
+        .continue_schema_application(job.id(), None)
+        .expect("an unacknowledged finding page should replay");
+    assert_eq!(replay, finding_page);
+    let wrong_ack = page_sequence
+        .checked_add(1)
+        .expect("test sequence should remain representable");
+    assert_eq!(
+        session
+            .continue_schema_application(job.id(), Some(wrong_ack))
+            .expect("a wrong acknowledgement should replay, not advance"),
+        finding_page,
+    );
+
+    insert_numeric_check_application_row(entity_tag, 256, 7);
+    let completed = (0..10)
+        .find_map(|step| {
+            let acknowledgement = (step == 0).then_some(page_sequence);
+            let progress = session
+                .continue_schema_application(job.id(), acknowledgement)
+                .expect("repair followed by exact acknowledgement should resume");
+            matches!(
+                progress.status(),
+                crate::db::SchemaChangeProgressStatus::Applied
+            )
+            .then_some(progress)
+        })
+        .expect("the repaired two-phase proof should complete");
+    assert!(matches!(
+        completed.receipt().outcome(),
+        crate::db::SchemaChangeOutcome::Applied { .. }
+    ));
+}
+
+#[test]
+fn schema_application_finalizes_an_already_promoted_pending_check() {
+    let (session, _accepted_before, after, entity_tag) =
+        prepare_numeric_check_application_fixture("promoted-check-finalization-initial");
+    for id in 0..=256 {
+        insert_numeric_check_application_row(entity_tag, id, 7);
+    }
+    let proposal =
+        numeric_check_application_proposal(&after, "promoted-check-finalization-addition", true);
+    let pending = session
+        .apply_schema(&proposal)
+        .expect("multi-page proof should publish a pending activation");
+    let crate::db::SchemaChangeOutcome::Pending { job, .. } = pending.outcome() else {
+        panic!("multi-page proof should return a pending job");
+    };
+    let job_id = job.id();
+    let accepted = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("accepted bundle should remain readable")
+        .expect("accepted bundle should remain present");
+    let snapshot = accepted
+        .entity_snapshots()
+        .get(&entity_tag)
+        .expect("pending entity should remain accepted");
+    let activation = snapshot
+        .constraint_activations()
+        .first()
+        .expect("pending check should retain its accepted activation");
+    let constraint_id = activation.id();
+    let entity_path = snapshot.entity_path().to_string();
+
+    let promoted = (0..8).any(|_| {
+        matches!(
+            crate::db::schema::advance_accepted_check_constraint_activation(
+                STANDALONE_JOURNALED_SESSION_DB
+                    .store_handle(JournaledSessionSqlStore::PATH)
+                    .expect("standalone store should resolve"),
+                JournaledSessionSqlStore::PATH,
+                entity_tag,
+                entity_path.as_str(),
+                constraint_id,
+                None,
+            )
+            .expect("the canonical activation runner should advance"),
+            crate::db::schema::ConstraintValidationProgress::Promoted { .. }
+        )
+    });
+    assert!(promoted, "the clean two-phase proof should promote");
+    assert_eq!(
+        session
+            .schema_application_receipt(after.database_identity(), proposal.submission_key())
+            .expect("pending receipt should remain readable"),
+        Some(pending),
+        "promotion and application-receipt finalization are separate durable boundaries",
+    );
+
+    let completed = session
+        .continue_schema_application(job_id, None)
+        .expect("retry after promotion should finalize the durable receipt");
+    assert_eq!(
+        completed.status(),
+        &crate::db::SchemaChangeProgressStatus::Applied,
     );
 }
 

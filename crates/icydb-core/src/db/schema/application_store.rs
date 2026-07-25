@@ -7,7 +7,10 @@ use crate::{
     db::{
         commit::{MAX_COMMIT_BYTES, commit_memory_handle, current_commit_memory_allocation},
         database_format::crc32c,
-        schema::{SchemaApplicationRecord, SchemaChangeReceipt},
+        schema::{
+            SchemaApplicationRecord, SchemaChangeJobId, SchemaChangeOutcome, SchemaChangeReceipt,
+            derive_schema_change_job_id,
+        },
     },
     error::InternalError,
 };
@@ -92,7 +95,6 @@ impl SchemaApplicationRecordOp {
         Self::from_encoded(key, None, after)
     }
 
-    #[cfg(test)]
     pub(in crate::db) fn replace(
         before: &SchemaApplicationRecord,
         after: &SchemaApplicationRecord,
@@ -262,6 +264,35 @@ impl SchemaApplicationStore {
             .get(&key)
             .map(|raw| decode_application_record(&raw.0, key))
             .transpose()
+    }
+
+    pub(in crate::db) fn load_job(
+        &self,
+        job_id: SchemaChangeJobId,
+    ) -> Result<Option<SchemaApplicationRecord>, InternalError> {
+        let mut found = None;
+        for entry in self.map.iter() {
+            let key = *entry.key();
+            if key == APPLICATION_HEADER_KEY {
+                continue;
+            }
+            let record = decode_application_record(&entry.value().0, key)?;
+            let matches_job =
+                !matches!(record.receipt().outcome(), SchemaChangeOutcome::NoOp { .. })
+                    && derive_schema_change_job_id(
+                        record.receipt().database_identity(),
+                        record.receipt().submission_key(),
+                        record.receipt().proposal_digest(),
+                        record.receipt().prior_head(),
+                    )? == job_id;
+            if !matches_job {
+                continue;
+            }
+            if found.replace(record).is_some() {
+                return Err(InternalError::store_corruption());
+            }
+        }
+        Ok(found)
     }
 
     pub(in crate::db) fn apply(

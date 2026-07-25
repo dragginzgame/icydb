@@ -60,20 +60,21 @@ pub(in crate::db) use accepted_field_kind::AcceptedFieldKind;
 pub(in crate::db) use accepted_value_admission::AcceptedValueAdmissionContract;
 pub use application::{SchemaApplicationStore, SchemaApplicationTarget};
 pub(in crate::db) use application::{
-    apply_schema, schema_application_receipt, schema_application_target,
+    apply_schema, continue_schema_application, schema_application_receipt,
+    schema_application_target,
 };
 pub(in crate::db::schema) use application_lowering::{
     ExistingProposalStore, ProposalStoreTarget, lower_existing_schema_proposal,
     lower_initial_schema_proposal,
 };
 pub(in crate::db) use application_receipt::SchemaApplicationRecord;
-#[cfg(test)]
 pub(in crate::db) use application_receipt::{
     SchemaChangeActivation, SchemaChangeActivationKind, derive_schema_change_job_id,
 };
 pub use application_receipt::{
     SchemaChangeFailure, SchemaChangeJob, SchemaChangeJobId, SchemaChangeOutcome,
-    SchemaChangeReceipt,
+    SchemaChangeProgress, SchemaChangeProgressStatus, SchemaChangeReceipt,
+    SchemaChangeValidationPhase,
 };
 pub(in crate::db) use application_store::{
     ApplicationRecordKey, SchemaApplicationRecordOp, apply_schema_application_record_op,
@@ -125,12 +126,14 @@ pub(in crate::db) use constraint::{
     ConstraintActivationState, ConstraintOrigin, not_null_constraint_name,
     primary_key_constraint_name,
 };
-#[cfg(feature = "sql")]
 pub(in crate::db) use constraint_activation_runner::ConstraintValidationProgress;
+#[cfg(feature = "sql")]
 pub(in crate::db) use constraint_activation_runner::validate_unpublished_check_candidate_exact;
 pub(in crate::db) use constraint_activation_runner::{
+    UnpublishedCheckValidation, advance_accepted_check_constraint_activation,
     advance_check_constraint_activation, advance_not_null_constraint_activation,
     advance_relation_constraint_activation, advance_unique_constraint_activation,
+    validate_unpublished_check_candidate_bounded,
 };
 pub(in crate::db) use constraint_validation::{
     ConstraintStoreRevision, ConstraintValidationFinding, ConstraintValidationJob,

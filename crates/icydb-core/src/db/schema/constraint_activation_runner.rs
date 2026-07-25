@@ -3,18 +3,20 @@
 //! Does not own: mutation write gates, SQL syntax, or kind-specific physical staging.
 //! Boundary: accepted activation + canonical rows -> marker-owned job progress/promotion.
 
+#[cfg(feature = "sql")]
+use crate::error::SchemaTransitionBudgetResource;
 use crate::{
     db::schema::{
         AcceptedStoreCatalogScope, AcceptedValueCatalogHandle, accepted_constraint_field_paths,
         accepted_schema_cache_fingerprint, enum_catalog::AcceptedSchemaRevisionBundle,
     },
-    error::{ConstraintDiagnostic, ConstraintDiagnosticKind, SchemaTransitionBudgetResource},
+    error::{ConstraintDiagnostic, ConstraintDiagnosticKind},
 };
 use crate::{
     db::{
         Db,
         commit::{
-            publish_accepted_schema_candidate,
+            CommitSchemaFingerprint, publish_accepted_schema_candidate,
             publish_accepted_schema_candidate_with_constraint_validation_job,
             publish_accepted_schema_candidate_with_constraint_validation_job_removal,
             publish_constraint_validation_job,
@@ -23,7 +25,7 @@ use crate::{
         },
         data::{
             AcceptedStructuralRowAuthority, DecodedDataStoreKey, RawDataStoreKey, StoreVisit,
-            StructuralSlotReader,
+            StructuralRowContract, StructuralSlotReader,
         },
         direction::Direction,
         index::{IndexKey, RawIndexStoreKey},
@@ -74,6 +76,15 @@ pub(in crate::db) enum ConstraintValidationProgress {
     Promoted { rows_scanned: u64 },
 }
 
+/// Result of one unpublished bounded check proof.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum UnpublishedCheckValidation {
+    /// The complete historical domain satisfied the candidate check.
+    Complete { rows_scanned: usize },
+    /// More historical rows remain after the one-page direct-proof budget.
+    Incomplete,
+}
+
 /// Advance one generated or SQL-owned check activation by at most one bounded page.
 pub(in crate::db) fn advance_check_constraint_activation<C: CanisterKind>(
     db: &Db<C>,
@@ -88,6 +99,81 @@ pub(in crate::db) fn advance_check_constraint_activation<C: CanisterKind>(
         acknowledged_receipt,
         RowLocalActivationKind::Check,
     )
+}
+
+/// Advance one accepted check activation without generated runtime metadata.
+///
+/// Schema application resolves the exact store and accepted entity path from
+/// its durable activation identity before entering the shared 0.211 runner.
+pub(in crate::db) fn advance_accepted_check_constraint_activation(
+    store: StoreHandle,
+    store_path: &'static str,
+    entity_tag: EntityTag,
+    entity_path: &str,
+    constraint_id: ConstraintId,
+    acknowledged_receipt: Option<u64>,
+) -> Result<ConstraintValidationProgress, InternalError> {
+    if store.storage_capabilities().recovery()
+        != StoreRecoveryCapability::StableBasePlusJournalReplay
+    {
+        return Err(InternalError::store_unsupported());
+    }
+    let current = current_bundle(store, store_path)?;
+    let snapshot = current
+        .entity_snapshots()
+        .get(&entity_tag)
+        .cloned()
+        .ok_or_else(InternalError::store_corruption)?;
+    if snapshot.entity_path() != entity_path {
+        return Err(InternalError::store_corruption());
+    }
+    let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
+    let candidate = CandidateSchemaRevision::new(current)?;
+    let value_catalog = AcceptedValueCatalogHandle::new(
+        candidate.bundle().enum_catalog().clone(),
+        candidate.bundle().composite_catalog().clone(),
+        AcceptedStoreCatalogScope::new(),
+        candidate.revision(),
+        candidate.root().fingerprint(),
+    );
+    let fingerprint = accepted_schema_cache_fingerprint(&accepted)?;
+    let contract = AcceptedStructuralRowAuthority::from_candidate_snapshot(
+        entity_path,
+        accepted.clone(),
+        value_catalog.clone(),
+    )?
+    .into_row_contract();
+    let activation = accepted
+        .persisted_snapshot()
+        .constraint_catalog()
+        .activation(constraint_id)
+        .ok_or_else(InternalError::store_invariant)?;
+    if !RowLocalActivationKind::Check.matches(activation.kind()) {
+        return Err(InternalError::store_unsupported());
+    }
+
+    match activation.state() {
+        ConstraintActivationState::EnforcingNewWrites => start_journaled_row_local_validation(
+            store,
+            store_path,
+            entity_tag,
+            entity_path,
+            constraint_id,
+        ),
+        ConstraintActivationState::Validating => resume_journaled_row_local_validation(
+            store,
+            store_path,
+            entity_tag,
+            entity_path,
+            constraint_id,
+            acknowledged_receipt,
+            &accepted,
+            &contract,
+            &value_catalog,
+            fingerprint,
+            RowLocalActivationKind::Check,
+        ),
+    }
 }
 
 /// Advance one not-null activation by at most one bounded page.
@@ -233,6 +319,7 @@ pub(in crate::db) fn advance_relation_constraint_activation<C: CanisterKind>(
 ///
 /// This is the atomic direct-addition boundary: it never publishes the
 /// temporary activation used to compile the candidate semantics.
+#[cfg(feature = "sql")]
 pub(in crate::db) fn validate_unpublished_check_candidate_exact(
     store: StoreHandle,
     store_path: &'static str,
@@ -241,6 +328,33 @@ pub(in crate::db) fn validate_unpublished_check_candidate_exact(
     candidate: &CandidateSchemaRevision,
     constraint_id: ConstraintId,
 ) -> Result<usize, InternalError> {
+    match validate_unpublished_check_candidate_bounded(
+        store,
+        store_path,
+        entity_tag,
+        entity_path,
+        candidate,
+        constraint_id,
+    )? {
+        UnpublishedCheckValidation::Complete { rows_scanned } => Ok(rows_scanned),
+        UnpublishedCheckValidation::Incomplete => {
+            Err(InternalError::schema_transition_budget_exceeded(
+                SchemaTransitionBudgetResource::SourceRows,
+            ))
+        }
+    }
+}
+
+/// Attempt one unpublished check proof without converting bounded
+/// incompleteness into an architectural failure.
+pub(in crate::db) fn validate_unpublished_check_candidate_bounded(
+    store: StoreHandle,
+    store_path: &'static str,
+    entity_tag: EntityTag,
+    entity_path: &str,
+    candidate: &CandidateSchemaRevision,
+    constraint_id: ConstraintId,
+) -> Result<UnpublishedCheckValidation, InternalError> {
     if candidate.store_path() != store_path {
         return Err(InternalError::store_corruption());
     }
@@ -315,11 +429,11 @@ pub(in crate::db) fn validate_unpublished_check_candidate_exact(
         ));
     }
     if !scan.exhausted {
-        return Err(InternalError::schema_transition_budget_exceeded(
-            SchemaTransitionBudgetResource::SourceRows,
-        ));
+        return Ok(UnpublishedCheckValidation::Incomplete);
     }
-    Ok(scan.rows_scanned)
+    Ok(UnpublishedCheckValidation::Complete {
+        rows_scanned: scan.rows_scanned,
+    })
 }
 
 /// Row-local evaluator selected by a typed activation entrypoint.
@@ -380,17 +494,26 @@ fn advance_row_local_constraint_activation<C: CanisterKind>(
                 }
             }
         }
-        ConstraintActivationState::Validating => resume_journaled_row_local_validation(
-            store,
-            hooks.store_path,
-            entity_tag,
-            hooks.entity_path,
-            constraint_id,
-            acknowledged_receipt,
-            &selection,
-            &accepted,
-            required_kind,
-        ),
+        ConstraintActivationState::Validating => {
+            let contract = AcceptedStructuralRowAuthority::from_catalog_selection(
+                hooks.entity_path,
+                &selection,
+            )?
+            .into_row_contract();
+            resume_journaled_row_local_validation(
+                store,
+                hooks.store_path,
+                entity_tag,
+                hooks.entity_path,
+                constraint_id,
+                acknowledged_receipt,
+                &accepted,
+                &contract,
+                selection.value_catalog_handle(),
+                selection.identity().accepted_schema_fingerprint(),
+                required_kind,
+            )
+        }
     }
 }
 
@@ -408,7 +531,7 @@ fn start_journaled_row_local_validation(
     store: StoreHandle,
     store_path: &'static str,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     constraint_id: ConstraintId,
 ) -> Result<ConstraintValidationProgress, InternalError> {
     let current = current_bundle(store, store_path)?;
@@ -718,11 +841,13 @@ fn resume_journaled_row_local_validation(
     store: StoreHandle,
     store_path: &'static str,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     constraint_id: ConstraintId,
     acknowledged_receipt: Option<u64>,
-    selection: &crate::db::schema::AcceptedCatalogSnapshotSelection,
     accepted: &AcceptedSchemaSnapshot,
+    contract: &StructuralRowContract,
+    value_catalog: &AcceptedValueCatalogHandle,
+    fingerprint: CommitSchemaFingerprint,
     required_kind: RowLocalActivationKind,
 ) -> Result<ConstraintValidationProgress, InternalError> {
     if store.storage_capabilities().recovery()
@@ -746,10 +871,16 @@ fn resume_journaled_row_local_validation(
             })
             .ok_or_else(InternalError::store_corruption);
     }
-    let constraints =
-        compile_row_local_activation(accepted, selection, constraint_id, required_kind)?;
-    let contract = AcceptedStructuralRowAuthority::from_catalog_selection(entity_path, selection)?
-        .into_row_contract();
+    if contract.entity_path() != entity_path {
+        return Err(InternalError::store_corruption());
+    }
+    let constraints = compile_row_local_activation(
+        accepted,
+        value_catalog,
+        fingerprint,
+        constraint_id,
+        required_kind,
+    )?;
 
     match job.phase() {
         ConstraintValidationPhase::Forward => {
@@ -757,9 +888,9 @@ fn resume_journaled_row_local_validation(
                 store,
                 entity_tag,
                 job.checkpoint(),
-                &contract,
+                contract,
                 &constraints,
-                selection.identity().accepted_schema_fingerprint(),
+                fingerprint,
                 constraint_id,
                 activation_dependency_fields(accepted, constraint_id)?,
             )?;
@@ -789,9 +920,9 @@ fn resume_journaled_row_local_validation(
                 store,
                 entity_tag,
                 job.checkpoint(),
-                &contract,
+                contract,
                 &constraints,
-                selection.identity().accepted_schema_fingerprint(),
+                fingerprint,
                 constraint_id,
                 activation_dependency_fields(accepted, constraint_id)?,
             )?;
@@ -825,8 +956,13 @@ fn validate_exact_heap_row_local_activation(
     required_kind: RowLocalActivationKind,
 ) -> Result<ConstraintValidationProgress, InternalError> {
     let identity = selection.identity();
-    let constraints =
-        compile_row_local_activation(accepted, selection, constraint_id, required_kind)?;
+    let constraints = compile_row_local_activation(
+        accepted,
+        selection.value_catalog_handle(),
+        identity.accepted_schema_fingerprint(),
+        constraint_id,
+        required_kind,
+    )?;
     let contract =
         AcceptedStructuralRowAuthority::from_catalog_selection(identity.entity_path(), selection)?
             .into_row_contract();
@@ -963,12 +1099,11 @@ fn current_bundle(
 
 fn compile_row_local_activation(
     accepted: &AcceptedSchemaSnapshot,
-    selection: &crate::db::schema::AcceptedCatalogSnapshotSelection,
+    value_catalog: &AcceptedValueCatalogHandle,
+    fingerprint: CommitSchemaFingerprint,
     constraint_id: ConstraintId,
     required_kind: RowLocalActivationKind,
 ) -> Result<CompiledAcceptedRowConstraints, InternalError> {
-    let value_catalog = selection.value_catalog_handle();
-    let fingerprint = selection.identity().accepted_schema_fingerprint();
     match required_kind {
         RowLocalActivationKind::Check => CompiledAcceptedRowConstraints::compile_check_activation(
             accepted,

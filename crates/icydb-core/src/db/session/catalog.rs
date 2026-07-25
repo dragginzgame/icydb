@@ -12,7 +12,8 @@ use crate::{
     db::{
         DbSession, EntityCatalogCounts, EntityCatalogDescription, EntityConstraintDescription,
         EntityFieldDescription, EntitySchemaDescription, SchemaApplicationTarget,
-        SchemaChangeReceipt, StorageReport, StoreCatalogDescription,
+        SchemaChangeJobId, SchemaChangeProgress, SchemaChangeReceipt, StorageReport,
+        StoreCatalogDescription,
         schema::{
             AcceptedFieldKind, ConstraintValidationJob, PersistedFieldSnapshot, SchemaInfo,
             describe_entity_fields, describe_entity_fields_with_persisted_schema,
@@ -69,6 +70,16 @@ impl<C: CanisterKind> DbSession<C> {
         submission_key: &SchemaSubmissionKey,
     ) -> Result<Option<SchemaChangeReceipt>, InternalError> {
         crate::db::schema::schema_application_receipt(&self.db, database_identity, submission_key)
+    }
+
+    /// Advance one pending schema application by at most one bounded
+    /// activation step.
+    pub fn continue_schema_application(
+        &self,
+        job_id: SchemaChangeJobId,
+        acknowledged_receipt: Option<u64>,
+    ) -> Result<SchemaChangeProgress, InternalError> {
+        crate::db::schema::continue_schema_application(&self.db, job_id, acknowledged_receipt)
     }
 
     /// Return one stable, human-readable index listing for the entity schema.

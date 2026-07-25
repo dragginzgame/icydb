@@ -23,15 +23,21 @@ use crate::{
         },
         schema::{
             AcceptedSchemaRevision, AcceptedSchemaRevisionBundle, CandidateSchemaRevision,
-            ConstraintActivationKind, ConstraintId, ConstraintOrigin, ExistingProposalStore,
-            ProposalStoreTarget, SchemaApplicationRecord, SchemaApplicationRecordOp,
-            SchemaChangeOutcome, SchemaChangeReceipt, lower_existing_schema_proposal,
-            lower_initial_schema_proposal, validate_unpublished_check_candidate_exact,
+            ConstraintActivationKind, ConstraintId, ConstraintOrigin, ConstraintValidationPhase,
+            ConstraintValidationProgress, ExistingProposalStore, ProposalStoreTarget,
+            SchemaApplicationRecord, SchemaApplicationRecordOp, SchemaChangeActivation,
+            SchemaChangeActivationKind, SchemaChangeJob, SchemaChangeJobId, SchemaChangeOutcome,
+            SchemaChangeProgress, SchemaChangeProgressStatus, SchemaChangeReceipt,
+            SchemaChangeValidationPhase, UnpublishedCheckValidation,
+            accepted_constraint_field_paths, advance_accepted_check_constraint_activation,
+            derive_schema_change_job_id, lower_existing_schema_proposal,
+            lower_initial_schema_proposal, validate_unpublished_check_candidate_bounded,
             with_schema_application_store,
         },
     },
-    error::InternalError,
+    error::{ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError},
     traits::CanisterKind,
+    types::EntityTag,
 };
 use candid::CandidType;
 use icydb_schema::{
@@ -145,6 +151,19 @@ struct DirectGeneratedCheckProof {
     historical_rows: u64,
 }
 
+/// One generated check whose direct proof requires durable continuation.
+#[derive(Clone)]
+struct PendingGeneratedCheck {
+    proof: DirectGeneratedCheckProof,
+}
+
+/// Catalog-native application staging retained until marker publication.
+struct LoweredApplication {
+    current_bundles: Vec<Option<AcceptedSchemaRevisionBundle>>,
+    candidates: Vec<CandidateSchemaRevision>,
+    pending: Option<PendingGeneratedCheck>,
+}
+
 /// Issue the current proposal-application target from recovered authority.
 pub(in crate::db) fn schema_application_target<C: CanisterKind>(
     db: &Db<C>,
@@ -199,6 +218,115 @@ pub(in crate::db) fn schema_application_receipt<C: CanisterKind>(
     })
 }
 
+/// Advance one durable pending schema application by at most one canonical
+/// 0.211 validation step.
+pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
+    db: &Db<C>,
+    job_id: SchemaChangeJobId,
+    acknowledged_receipt: Option<u64>,
+) -> Result<SchemaChangeProgress, InternalError> {
+    ensure_recovered(db)?;
+    let record = with_schema_application_store(|store| store.load_job(job_id))?
+        .ok_or_else(InternalError::schema_application_conflict)?;
+    let target = schema_application_target(db)?;
+    if target.database_identity() != record.receipt().database_identity() {
+        return Err(InternalError::schema_application_conflict());
+    }
+    let candidate_head = match record.receipt().outcome() {
+        SchemaChangeOutcome::Pending {
+            job,
+            candidate_head,
+        } if job.id() == job_id => candidate_head,
+        SchemaChangeOutcome::Applied { .. } => {
+            return Ok(SchemaChangeProgress::new(
+                record.receipt().clone(),
+                SchemaChangeProgressStatus::Applied,
+            ));
+        }
+        SchemaChangeOutcome::Failed { .. } => {
+            return Ok(SchemaChangeProgress::new(
+                record.receipt().clone(),
+                SchemaChangeProgressStatus::Failed,
+            ));
+        }
+        _ => return Err(InternalError::store_corruption()),
+    };
+    let [activation] = record.activations() else {
+        return Err(InternalError::store_corruption());
+    };
+    if activation.kind() != SchemaChangeActivationKind::Check {
+        return Err(InternalError::store_unsupported());
+    }
+
+    let authorities = application_authorities(db);
+    let authority = authorities
+        .iter()
+        .find(|authority| {
+            derive_store_identity(target.database_identity(), authority) == activation.store()
+        })
+        .ok_or_else(InternalError::store_corruption)?;
+    let entity_tag = EntityTag::new(activation.entity_tag());
+    let constraint_id = ConstraintId::new(activation.constraint_id())
+        .ok_or_else(InternalError::store_corruption)?;
+    let bundle = authority
+        .handle
+        .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
+        .ok_or_else(InternalError::store_corruption)?;
+    if bundle.store_path() != authority.path {
+        return Err(InternalError::store_corruption());
+    }
+    let snapshot = bundle
+        .entity_snapshots()
+        .get(&entity_tag)
+        .ok_or_else(InternalError::store_corruption)?;
+
+    if snapshot
+        .constraint_catalog()
+        .constraints()
+        .iter()
+        .any(|constraint| {
+            constraint.id() == constraint_id
+                && constraint.origin() == ConstraintOrigin::Generated
+                && matches!(
+                    constraint.kind(),
+                    crate::db::schema::AcceptedConstraintKind::Check { .. }
+                )
+        })
+    {
+        return finalize_schema_application(
+            db,
+            &record,
+            candidate_head,
+            SchemaChangeProgressStatus::Applied,
+        );
+    }
+
+    let pending = snapshot
+        .constraint_catalog()
+        .activation(constraint_id)
+        .ok_or_else(InternalError::store_corruption)?;
+    if pending.origin() != ConstraintOrigin::Generated
+        || !matches!(pending.kind(), ConstraintActivationKind::Check { .. })
+    {
+        return Err(InternalError::store_corruption());
+    }
+    let entity_path = snapshot.entity_path().to_string();
+    let progress = advance_accepted_check_constraint_activation(
+        authority.handle,
+        authority.path,
+        entity_tag,
+        entity_path.as_str(),
+        constraint_id,
+        acknowledged_receipt,
+    )?;
+    let status = schema_change_progress_status(snapshot, constraint_id, pending.name(), progress)?;
+    if status == SchemaChangeProgressStatus::Applied {
+        finalize_schema_application(db, &record, candidate_head, status)
+    } else {
+        Ok(SchemaChangeProgress::new(record.receipt().clone(), status))
+    }
+}
+
 /// Apply one exact source-keyed schema proposal through catalog-native
 /// accepted candidates and the durable application-receipt boundary.
 pub(in crate::db) fn apply_schema<C: CanisterKind>(
@@ -232,14 +360,31 @@ pub(in crate::db) fn apply_schema<C: CanisterKind>(
     }
 
     let authorities = application_authorities(db);
-    let (current_bundles, candidates) =
-        lower_application_candidates(&target, proposal, authorities.as_slice())?;
-    let accepted_head = if candidates.is_empty() {
+    let LoweredApplication {
+        current_bundles,
+        candidates,
+        pending,
+    } = lower_application_candidates(&target, proposal, authorities.as_slice())?;
+    let accepted_head = if let Some(pending) = pending.as_ref() {
+        let final_candidates = final_candidates_for_pending_check(&candidates, pending)?;
+        accepted_head_after_candidates(authorities.as_slice(), final_candidates.as_slice())?
+    } else if candidates.is_empty() {
         target.accepted_head().clone()
     } else {
         accepted_head_after_candidates(authorities.as_slice(), candidates.as_slice())?
     };
-    let outcome = if candidates.is_empty() {
+    let outcome = if pending.is_some() {
+        let job_id = derive_schema_change_job_id(
+            target.database_identity(),
+            proposal.submission_key(),
+            proposal_digest,
+            target.accepted_head(),
+        )?;
+        SchemaChangeOutcome::Pending {
+            job: SchemaChangeJob::new(job_id),
+            candidate_head: accepted_head,
+        }
+    } else if candidates.is_empty() {
         SchemaChangeOutcome::NoOp { accepted_head }
     } else {
         SchemaChangeOutcome::Applied { accepted_head }
@@ -251,7 +396,22 @@ pub(in crate::db) fn apply_schema<C: CanisterKind>(
         target.accepted_head().clone(),
         outcome,
     )?;
-    let record = SchemaApplicationRecord::new(receipt.clone(), Vec::new())?;
+    let activations = match pending {
+        Some(pending) => {
+            let authority = authorities
+                .iter()
+                .find(|authority| authority.path == pending.proof.store_path)
+                .ok_or_else(InternalError::store_invariant)?;
+            vec![SchemaChangeActivation::new(
+                derive_store_identity(target.database_identity(), authority),
+                pending.proof.entity_tag.value(),
+                pending.proof.constraint_id.get(),
+                SchemaChangeActivationKind::Check,
+            )?]
+        }
+        None => Vec::new(),
+    };
+    let record = SchemaApplicationRecord::new(receipt.clone(), activations)?;
     let operation = SchemaApplicationRecordOp::insert(&record)?;
     let publications =
         application_publications(authorities.as_slice(), &current_bundles, &candidates)?;
@@ -263,13 +423,7 @@ fn lower_application_candidates(
     target: &SchemaApplicationTarget,
     proposal: &SchemaProposal,
     authorities: &[StoreApplicationAuthority],
-) -> Result<
-    (
-        Vec<Option<crate::db::schema::AcceptedSchemaRevisionBundle>>,
-        Vec<crate::db::schema::CandidateSchemaRevision>,
-    ),
-    InternalError,
-> {
+) -> Result<LoweredApplication, InternalError> {
     let current_bundles = authorities
         .iter()
         .map(|authority| {
@@ -310,12 +464,17 @@ fn lower_application_candidates(
             lower_existing_schema_proposal(proposal, stores.as_slice())?
         }
     };
-    if initial_application {
+    let pending = if initial_application {
         preflight_initial_application(authorities, &candidates)?;
+        None
     } else {
-        preflight_existing_application(authorities, &current_bundles, &mut candidates)?;
-    }
-    Ok((current_bundles, candidates))
+        preflight_existing_application(authorities, &current_bundles, &mut candidates)?
+    };
+    Ok(LoweredApplication {
+        current_bundles,
+        candidates,
+        pending,
+    })
 }
 
 fn preflight_initial_application(
@@ -340,14 +499,97 @@ fn preflight_initial_application(
 /// Complete generated-check additions only after a bounded exact proof.
 ///
 /// Empty domains use maintained exact cardinality. At most one non-empty
-/// activation may consume the canonical 0.211 exact scan budget; work that
-/// needs resumable validation remains fail-closed until the pending-job
-/// protocol is connected.
+/// activation may consume the canonical 0.211 exact scan budget. A journaled
+/// proof that exceeds that page becomes one durable pending application;
+/// volatile or additional non-empty proofs reject before publication.
 fn preflight_existing_application(
     authorities: &[StoreApplicationAuthority],
     current_bundles: &[Option<crate::db::schema::AcceptedSchemaRevisionBundle>],
     candidates: &mut [CandidateSchemaRevision],
-) -> Result<(), InternalError> {
+) -> Result<Option<PendingGeneratedCheck>, InternalError> {
+    let proofs = generated_check_proofs(authorities, current_bundles, candidates)?;
+    if proofs
+        .iter()
+        .filter(|proof| proof.historical_rows != 0)
+        .count()
+        > 1
+    {
+        return Err(InternalError::store_unsupported());
+    }
+
+    let mut pending = None;
+    for candidate_index in 0..candidates.len() {
+        let candidate = candidates
+            .get(candidate_index)
+            .cloned()
+            .ok_or_else(InternalError::store_invariant)?;
+        let candidate_proofs = proofs
+            .iter()
+            .filter(|proof| proof.candidate_index == candidate_index)
+            .collect::<Vec<_>>();
+        if candidate_proofs.is_empty() {
+            continue;
+        }
+
+        let mut snapshots = candidate.bundle().entity_snapshots().clone();
+        for proof in candidate_proofs {
+            let mut promote = true;
+            if proof.historical_rows != 0 {
+                match validate_unpublished_check_candidate_bounded(
+                    proof.store,
+                    proof.store_path,
+                    proof.entity_tag,
+                    proof.entity_path.as_str(),
+                    &candidate,
+                    proof.constraint_id,
+                )? {
+                    UnpublishedCheckValidation::Complete { .. } => {}
+                    UnpublishedCheckValidation::Incomplete => {
+                        if proof.store.storage_capabilities().recovery()
+                            != StoreRecoveryCapability::StableBasePlusJournalReplay
+                            || pending.is_some()
+                        {
+                            return Err(InternalError::store_unsupported());
+                        }
+                        pending = Some(PendingGeneratedCheck {
+                            proof: (*proof).clone(),
+                        });
+                        promote = false;
+                    }
+                }
+            }
+            if !promote {
+                continue;
+            }
+            let snapshot = snapshots
+                .get(&proof.entity_tag)
+                .cloned()
+                .ok_or_else(InternalError::store_invariant)?;
+            let catalog = snapshot
+                .constraint_catalog()
+                .clone()
+                .with_directly_validated_activation(proof.constraint_id)
+                .map_err(|_| InternalError::store_invariant())?;
+            snapshots.insert(proof.entity_tag, snapshot.with_constraint_catalog(catalog));
+        }
+        let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
+            candidate.revision(),
+            candidate.bundle().store_path(),
+            candidate.bundle().enum_catalog().clone(),
+            candidate.bundle().composite_catalog().clone(),
+            candidate.bundle().source_bindings().clone(),
+            snapshots,
+        )?;
+        candidates[candidate_index] = CandidateSchemaRevision::new(bundle)?;
+    }
+    Ok(pending)
+}
+
+fn generated_check_proofs(
+    authorities: &[StoreApplicationAuthority],
+    current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
+    candidates: &[CandidateSchemaRevision],
+) -> Result<Vec<DirectGeneratedCheckProof>, InternalError> {
     let mut proofs = Vec::new();
     for (candidate_index, candidate) in candidates.iter().enumerate() {
         let (position, authority) = authorities
@@ -381,63 +623,7 @@ fn preflight_existing_application(
             }
         }
     }
-
-    if proofs
-        .iter()
-        .filter(|proof| proof.historical_rows != 0)
-        .count()
-        > 1
-    {
-        return Err(InternalError::store_unsupported());
-    }
-
-    for candidate_index in 0..candidates.len() {
-        let candidate = candidates
-            .get(candidate_index)
-            .cloned()
-            .ok_or_else(InternalError::store_invariant)?;
-        let candidate_proofs = proofs
-            .iter()
-            .filter(|proof| proof.candidate_index == candidate_index)
-            .collect::<Vec<_>>();
-        if candidate_proofs.is_empty() {
-            continue;
-        }
-
-        let mut snapshots = candidate.bundle().entity_snapshots().clone();
-        for proof in candidate_proofs {
-            if proof.historical_rows != 0 {
-                validate_unpublished_check_candidate_exact(
-                    proof.store,
-                    proof.store_path,
-                    proof.entity_tag,
-                    proof.entity_path.as_str(),
-                    &candidate,
-                    proof.constraint_id,
-                )?;
-            }
-            let snapshot = snapshots
-                .get(&proof.entity_tag)
-                .cloned()
-                .ok_or_else(InternalError::store_invariant)?;
-            let catalog = snapshot
-                .constraint_catalog()
-                .clone()
-                .with_directly_validated_activation(proof.constraint_id)
-                .map_err(|_| InternalError::store_invariant())?;
-            snapshots.insert(proof.entity_tag, snapshot.with_constraint_catalog(catalog));
-        }
-        let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
-            candidate.revision(),
-            candidate.bundle().store_path(),
-            candidate.bundle().enum_catalog().clone(),
-            candidate.bundle().composite_catalog().clone(),
-            candidate.bundle().source_bindings().clone(),
-            snapshots,
-        )?;
-        candidates[candidate_index] = CandidateSchemaRevision::new(bundle)?;
-    }
-    Ok(())
+    Ok(proofs)
 }
 
 fn added_generated_check_activations(
@@ -461,6 +647,135 @@ fn added_generated_check_activations(
         })
         .map(crate::db::schema::ConstraintActivationSnapshot::id)
         .collect()
+}
+
+fn final_candidates_for_pending_check(
+    candidates: &[CandidateSchemaRevision],
+    pending: &PendingGeneratedCheck,
+) -> Result<Vec<CandidateSchemaRevision>, InternalError> {
+    let mut final_candidates = candidates.to_vec();
+    let candidate = final_candidates
+        .get(pending.proof.candidate_index)
+        .cloned()
+        .ok_or_else(InternalError::store_invariant)?;
+    if candidate.store_path() != pending.proof.store_path {
+        return Err(InternalError::store_invariant());
+    }
+    let mut snapshots = candidate.bundle().entity_snapshots().clone();
+    let snapshot = snapshots
+        .get(&pending.proof.entity_tag)
+        .cloned()
+        .ok_or_else(InternalError::store_invariant)?;
+    let catalog = snapshot
+        .constraint_catalog()
+        .clone()
+        .with_directly_validated_activation(pending.proof.constraint_id)
+        .map_err(|_| InternalError::store_invariant())?;
+    snapshots.insert(
+        pending.proof.entity_tag,
+        snapshot.with_constraint_catalog(catalog),
+    );
+    let final_revision = candidate
+        .revision()
+        .checked_next()
+        .and_then(AcceptedSchemaRevision::checked_next)
+        .ok_or_else(InternalError::store_unsupported)?;
+    let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
+        final_revision,
+        candidate.bundle().store_path(),
+        candidate.bundle().enum_catalog().clone(),
+        candidate.bundle().composite_catalog().clone(),
+        candidate.bundle().source_bindings().clone(),
+        snapshots,
+    )?;
+    final_candidates[pending.proof.candidate_index] = CandidateSchemaRevision::new(bundle)?;
+    Ok(final_candidates)
+}
+
+fn schema_change_progress_status(
+    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+    constraint_id: ConstraintId,
+    constraint_name: &str,
+    progress: ConstraintValidationProgress,
+) -> Result<SchemaChangeProgressStatus, InternalError> {
+    match progress {
+        ConstraintValidationProgress::Started => Ok(SchemaChangeProgressStatus::Started),
+        ConstraintValidationProgress::Advanced {
+            phase,
+            rows_scanned,
+        } => Ok(SchemaChangeProgressStatus::Advanced {
+            phase: schema_change_validation_phase(phase),
+            rows_scanned,
+        }),
+        ConstraintValidationProgress::Findings {
+            receipt,
+            phase,
+            rows_scanned,
+        } => {
+            let findings = receipt
+                .findings()
+                .iter()
+                .map(|finding| {
+                    let primary_key = finding
+                        .primary_key()
+                        .encoded_primary_key_bytes()
+                        .ok_or_else(InternalError::store_invariant)?;
+                    Ok(ConstraintDiagnostic::migration_validation(
+                        constraint_id.get(),
+                        constraint_name.to_string(),
+                        ConstraintDiagnosticKind::Check,
+                        snapshot.entity_path().to_string(),
+                        primary_key.to_vec(),
+                        accepted_constraint_field_paths(snapshot, finding.field_ids())?,
+                        finding.error_code(),
+                    ))
+                })
+                .collect::<Result<Vec<_>, InternalError>>()?;
+            Ok(SchemaChangeProgressStatus::Findings {
+                phase: schema_change_validation_phase(phase),
+                rows_scanned,
+                page_sequence: receipt.page_sequence(),
+                findings,
+            })
+        }
+        ConstraintValidationProgress::Restarted { rows_scanned } => {
+            Ok(SchemaChangeProgressStatus::Restarted { rows_scanned })
+        }
+        ConstraintValidationProgress::Promoted { .. } => Ok(SchemaChangeProgressStatus::Applied),
+    }
+}
+
+const fn schema_change_validation_phase(
+    phase: ConstraintValidationPhase,
+) -> SchemaChangeValidationPhase {
+    match phase {
+        ConstraintValidationPhase::Forward => SchemaChangeValidationPhase::Forward,
+        ConstraintValidationPhase::Verify => SchemaChangeValidationPhase::Verify,
+    }
+}
+
+fn finalize_schema_application<C: CanisterKind>(
+    db: &Db<C>,
+    record: &SchemaApplicationRecord,
+    candidate_head: &ExpectedAcceptedHead,
+    status: SchemaChangeProgressStatus,
+) -> Result<SchemaChangeProgress, InternalError> {
+    if schema_application_target(db)?.accepted_head() != candidate_head {
+        return Err(InternalError::schema_application_conflict());
+    }
+    let receipt = SchemaChangeReceipt::new(
+        record.receipt().database_identity(),
+        record.receipt().submission_key().clone(),
+        record.receipt().proposal_digest(),
+        record.receipt().prior_head().clone(),
+        SchemaChangeOutcome::Applied {
+            accepted_head: candidate_head.clone(),
+        },
+    )?;
+    let terminal = SchemaApplicationRecord::new(receipt.clone(), Vec::new())?;
+    let operation = SchemaApplicationRecordOp::replace(record, &terminal)?;
+    publish_accepted_schema_candidates_with_application_record(Vec::new(), operation)?;
+    Ok(SchemaChangeProgress::new(receipt, status))
 }
 
 fn application_publications<'a>(

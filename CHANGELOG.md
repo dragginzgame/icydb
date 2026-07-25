@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.15` makes generated-check application durably resumable through the
+  canonical activation runner, with acknowledged findings and terminal replay.
+
 - `0.213.14` proves bounded non-empty generated checks through the canonical
   accepted activation evaluator before publishing them.
 

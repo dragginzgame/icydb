@@ -7,7 +7,7 @@ use crate::db::codec::{
     finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_tag_u8,
     write_hash_u64,
 };
-use crate::error::InternalError;
+use crate::error::{ConstraintDiagnostic, InternalError};
 use candid::CandidType;
 use icydb_diagnostic_code::{ErrorClass, ErrorCode, ErrorOrigin};
 use icydb_schema::{
@@ -64,7 +64,6 @@ pub struct SchemaChangeJob {
 }
 
 impl SchemaChangeJob {
-    #[cfg(test)]
     pub(in crate::db) const fn new(id: SchemaChangeJobId) -> Self {
         Self { id }
     }
@@ -73,6 +72,93 @@ impl SchemaChangeJob {
     #[must_use]
     pub const fn id(self) -> SchemaChangeJobId {
         self.id
+    }
+}
+
+///
+/// SchemaChangeValidationPhase
+///
+/// Public phase of the canonical 0.211 proof owned by one schema-change job.
+///
+
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub enum SchemaChangeValidationPhase {
+    /// Classify every historical row and capture the completed-domain revision.
+    Forward,
+    /// Recheck the same domain against the unchanged captured revision.
+    Verify,
+}
+
+///
+/// SchemaChangeProgressStatus
+///
+/// Result of one bounded schema-change continuation call.
+///
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub enum SchemaChangeProgressStatus {
+    /// The durable 0.211 validation job was created.
+    Started,
+    /// One clean bounded page advanced.
+    Advanced {
+        /// Current canonical proof phase.
+        phase: SchemaChangeValidationPhase,
+        /// Cumulative rows classified by this activation.
+        rows_scanned: u64,
+    },
+    /// One bounded finding page remains retained until acknowledged.
+    Findings {
+        /// Current canonical proof phase.
+        phase: SchemaChangeValidationPhase,
+        /// Cumulative rows classified by this activation.
+        rows_scanned: u64,
+        /// Exact sequence required to acknowledge this retained page.
+        page_sequence: u64,
+        /// Bounded accepted-constraint diagnostics for this page.
+        findings: Vec<ConstraintDiagnostic>,
+    },
+    /// Verify authority drifted and the canonical proof restarted at Forward.
+    Restarted {
+        /// Cumulative rows classified by this activation.
+        rows_scanned: u64,
+    },
+    /// Every activation completed and the durable receipt became terminal.
+    Applied,
+    /// The admitted activation ended with the typed failure retained by the
+    /// durable receipt.
+    Failed,
+}
+
+///
+/// SchemaChangeProgress
+///
+/// Durable application receipt paired with one derived bounded progress result.
+///
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct SchemaChangeProgress {
+    receipt: SchemaChangeReceipt,
+    status: SchemaChangeProgressStatus,
+}
+
+impl SchemaChangeProgress {
+    pub(in crate::db) const fn new(
+        receipt: SchemaChangeReceipt,
+        status: SchemaChangeProgressStatus,
+    ) -> Self {
+        Self { receipt, status }
+    }
+
+    /// Borrow the durable application receipt after this continuation.
+    #[must_use]
+    pub const fn receipt(&self) -> &SchemaChangeReceipt {
+        &self.receipt
+    }
+
+    /// Borrow the bounded progress result.
+    #[must_use]
+    pub const fn status(&self) -> &SchemaChangeProgressStatus {
+        &self.status
     }
 }
 
@@ -313,7 +399,6 @@ pub(in crate::db) struct SchemaChangeActivation {
 }
 
 impl SchemaChangeActivation {
-    #[cfg(test)]
     pub(in crate::db) fn new(
         store: TargetStoreIdentity,
         entity_tag: u64,
@@ -329,6 +414,22 @@ impl SchemaChangeActivation {
             constraint_id,
             kind,
         })
+    }
+
+    pub(in crate::db) const fn store(&self) -> TargetStoreIdentity {
+        self.store
+    }
+
+    pub(in crate::db) const fn entity_tag(&self) -> u64 {
+        self.entity_tag
+    }
+
+    pub(in crate::db) const fn constraint_id(&self) -> u32 {
+        self.constraint_id
+    }
+
+    pub(in crate::db) const fn kind(&self) -> SchemaChangeActivationKind {
+        self.kind
     }
 
     fn validate(&self) -> Result<(), InternalError> {
@@ -367,6 +468,10 @@ impl SchemaApplicationRecord {
 
     pub(in crate::db) const fn receipt(&self) -> &SchemaChangeReceipt {
         &self.receipt
+    }
+
+    pub(in crate::db) const fn activations(&self) -> &[SchemaChangeActivation] {
+        self.activations.as_slice()
     }
 
     pub(in crate::db) fn validate(&self) -> Result<(), InternalError> {

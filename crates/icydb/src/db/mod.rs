@@ -48,8 +48,9 @@ pub use icydb_core::db::{
     IntegrityTerminalOutcome, IntegrityVerifierFamily, MemoryCatalogDescription, QueryTracePlan,
     QuickIntegrityResult, QuickIntegrityStatus, ReadIntentKind, Row, SchemaApplicationStore,
     SchemaApplicationTarget, SchemaChangeFailure, SchemaChangeJob, SchemaChangeJobId,
-    SchemaChangeOutcome, SchemaChangeReceipt, SchemaStoreSnapshot, StorageReport,
-    StoreCatalogDescription, TraceExecutionFamily, TraceReuseEvent,
+    SchemaChangeOutcome, SchemaChangeProgress, SchemaChangeProgressStatus, SchemaChangeReceipt,
+    SchemaChangeValidationPhase, SchemaStoreSnapshot, StorageReport, StoreCatalogDescription,
+    TraceExecutionFamily, TraceReuseEvent,
 };
 pub use icydb_schema::{
     ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaSubmissionKey, TargetDatabaseIdentity,
