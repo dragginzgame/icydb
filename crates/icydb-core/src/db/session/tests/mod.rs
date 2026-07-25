@@ -80,7 +80,8 @@ use crate::{
         },
         cursor::CursorPlanError,
         data::{
-            DataStore, DecodedDataStoreKey, canonical_row_from_entity_for_model_proposal_for_test,
+            DataStore, DecodedDataStoreKey, RawDataStoreKey,
+            canonical_row_from_entity_for_model_proposal_for_test,
             decode_structural_value_storage_bytes, encode_structural_value_storage_bytes,
         },
         direction::Direction,
@@ -3472,6 +3473,129 @@ fn schema_application_reconciles_existing_future_default_without_identity_or_lay
             .find(|field| field.id() == field_id)
             .expect("initial status field should exist")
             .historical_fill(),
+    );
+}
+
+#[test]
+fn schema_application_adds_generated_check_to_empty_entity_with_exact_replay() {
+    let session = reset_standalone_schema_application_fixture();
+    let target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial = initial_named_application_proposal(
+        &target,
+        "check-addition-fixture-initial",
+        false,
+        "status",
+    );
+    session
+        .apply_schema(&initial)
+        .expect("initial unchecked proposal should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let after = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let proposal = checked_named_application_proposal(&after, "add-generated-status-check");
+
+    let receipt = session
+        .apply_schema(&proposal)
+        .expect("empty-domain generated check should publish");
+    let replay = session
+        .apply_schema(&proposal)
+        .expect("exact check-addition retry should replay");
+    let accepted_after = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("updated accepted bundle should load")
+        .expect("updated accepted bundle should exist");
+    let (&entity_tag, before_snapshot) = accepted_before
+        .entity_snapshots()
+        .iter()
+        .next()
+        .expect("initial entity should exist");
+    let after_snapshot = accepted_after
+        .entity_snapshots()
+        .get(&entity_tag)
+        .expect("entity should survive check addition");
+
+    assert_eq!(replay, receipt);
+    assert_eq!(accepted_after.revision().get(), 2);
+    assert_eq!(
+        after_snapshot.constraint_id_allocator().high_water(),
+        before_snapshot.constraint_id_allocator().high_water() + 1,
+    );
+    assert_eq!(after_snapshot.fields(), before_snapshot.fields());
+    assert_eq!(after_snapshot.row_layout(), before_snapshot.row_layout());
+    assert_eq!(
+        accepted_after
+            .source_bindings_for_tests()
+            .constraint_binding_count_for_tests(entity_tag),
+        1,
+    );
+    assert!(after_snapshot.constraints().iter().any(|constraint| {
+        constraint.origin() == crate::db::schema::ConstraintOrigin::Generated
+            && matches!(
+                constraint.kind(),
+                crate::db::schema::AcceptedConstraintKind::Check { .. }
+            )
+    }),);
+}
+
+#[test]
+fn schema_application_rejects_direct_check_addition_without_empty_domain_proof() {
+    let session = reset_standalone_schema_application_fixture();
+    let target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial = initial_named_application_proposal(
+        &target,
+        "nonempty-check-addition-fixture-initial",
+        false,
+        "status",
+    );
+    session
+        .apply_schema(&initial)
+        .expect("initial unchecked proposal should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let (&entity_tag, _) = accepted_before
+        .entity_snapshots()
+        .iter()
+        .next()
+        .expect("initial entity should exist");
+    let key = RawDataStoreKey::from_entity_and_primary_key_bytes(entity_tag, b"one");
+    JOURNALED_SESSION_SQL_DATA_STORE.with_borrow_mut(|store| {
+        store.insert_raw_for_test(
+            key,
+            crate::db::data::RawRow::try_new(vec![0xFF]).expect("bounded raw row should construct"),
+        );
+    });
+    let after = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let proposal = checked_named_application_proposal(&after, "reject-nonempty-generated-check");
+
+    let rejection = session
+        .apply_schema(&proposal)
+        .expect_err("non-empty direct proof must reject before publication");
+
+    assert_eq!(rejection.class(), ErrorClass::Unsupported);
+    assert_eq!(
+        JOURNALED_SESSION_SQL_SCHEMA_STORE
+            .with_borrow(SchemaStore::current_accepted_schema_bundle)
+            .expect("accepted bundle should remain readable")
+            .expect("accepted bundle should remain present"),
+        accepted_before,
+    );
+    assert_eq!(
+        session
+            .schema_application_receipt(after.database_identity(), proposal.submission_key())
+            .expect("rejected receipt lookup should succeed"),
+        None,
     );
 }
 

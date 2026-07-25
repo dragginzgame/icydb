@@ -504,10 +504,12 @@ pub(in crate::db::schema) fn lower_initial_schema_proposal(
 ///
 /// This existing-head lane owns future insert-default and source-keyed display
 /// metadata reconciliation, plus explicit removal of accepted generated
-/// checks. Every structural fact must resolve through immutable source
-/// bindings and match accepted authority exactly. Additions, activation work,
-/// and physical changes therefore fail before candidate construction instead
-/// of falling back to generated-model reconciliation.
+/// checks and addition of generated checks whose complete historical domain is
+/// proven empty at the application boundary. Every structural fact must
+/// resolve through immutable source bindings and match accepted authority
+/// exactly. Other additions, activation work, and physical changes therefore
+/// fail before candidate construction instead of falling back to
+/// generated-model reconciliation.
 pub(in crate::db::schema) fn lower_existing_schema_proposal(
     proposal: &SchemaProposal,
     stores: &[ExistingProposalStore<'_>],
@@ -643,9 +645,9 @@ fn lower_existing_store_candidate(
             &catalogs,
             stores,
             entity,
-            entity_tag,
             current,
             removal_entity_tags.contains(&entity_tag),
+            &mut source_bindings,
         )? {
             snapshots.insert(entity_tag, candidate);
             changed = true;
@@ -1032,10 +1034,13 @@ fn lower_existing_entity(
     catalogs: &ExistingCatalogCandidate,
     stores: &[ExistingProposalStore<'_>],
     entity: &EntityFragment,
-    entity_tag: EntityTag,
     current: &PersistedSchemaSnapshot,
     schema_version_already_advanced: bool,
+    source_bindings: &mut AcceptedSourceBindingCatalog,
 ) -> Result<Option<PersistedSchemaSnapshot>, InternalError> {
+    let entity_tag = source_bindings
+        .entity(entity.source_key())
+        .ok_or_else(InternalError::store_invariant)?;
     if !current.constraint_activations().is_empty()
         || !current.candidate_indexes().is_empty()
         || !current.candidate_relations().is_empty()
@@ -1044,7 +1049,7 @@ fn lower_existing_entity(
     }
 
     let field_candidate = lower_existing_fields(bundle, catalogs, entity, entity_tag, current)?;
-    let bindings = bundle.source_bindings();
+    let bindings = &*source_bindings;
     let primary_key = entity
         .primary_key()
         .iter()
@@ -1089,18 +1094,20 @@ fn lower_existing_entity(
         bindings,
     )?;
     verify_existing_relations(stores, entity, entity_tag, current, bindings)?;
-    verify_existing_checks(
+    let constraint_catalog = lower_existing_checks(
         catalogs,
         entity,
         entity_tag,
         &provisional,
         current,
-        bindings,
+        source_bindings,
     )?;
+    let constraints_changed = constraint_catalog != *current.constraint_catalog();
 
     if !fields_changed
         && entity.name().as_str() == current.entity_name()
         && indexes == current.indexes()
+        && !constraints_changed
     {
         return Ok(None);
     }
@@ -1124,7 +1131,7 @@ fn lower_existing_entity(
             provisional.fields().to_vec(),
             indexes,
         )
-        .with_constraint_catalog(current.constraint_catalog().clone())
+        .with_constraint_catalog(constraint_catalog)
         .with_relations(current.relations().to_vec())
         .with_constraint_candidates(
             current.candidate_indexes().to_vec(),
@@ -1444,35 +1451,17 @@ fn resolve_existing_entity<'bundle>(
     resolved.ok_or_else(InternalError::store_unsupported)
 }
 
-fn verify_existing_checks(
+fn lower_existing_checks(
     catalogs: &ExistingCatalogCandidate,
     entity: &EntityFragment,
     entity_tag: EntityTag,
     candidate: &PersistedSchemaSnapshot,
     accepted_snapshot: &PersistedSchemaSnapshot,
-    bindings: &AcceptedSourceBindingCatalog,
-) -> Result<(), InternalError> {
-    if accepted_snapshot
-        .constraints()
-        .iter()
-        .filter(|constraint| {
-            constraint.origin() == ConstraintOrigin::Generated
-                && matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
-        })
-        .count()
-        != entity.constraints().len()
-    {
-        return Err(InternalError::store_unsupported());
-    }
+    bindings: &mut AcceptedSourceBindingCatalog,
+) -> Result<AcceptedConstraintCatalog, InternalError> {
+    let mut catalog = accepted_snapshot.constraint_catalog().clone();
+    let mut declared = BTreeSet::new();
     for proposed in entity.constraints() {
-        let constraint_id = bindings
-            .constraint(entity_tag, proposed.source_key())
-            .ok_or_else(InternalError::store_unsupported)?;
-        let accepted = accepted_snapshot
-            .constraints()
-            .iter()
-            .find(|constraint| constraint.id() == constraint_id)
-            .ok_or_else(InternalError::store_invariant)?;
         let expression = bind_source_check_expr(
             proposed.expression(),
             entity_tag,
@@ -1482,19 +1471,53 @@ fn verify_existing_checks(
             &catalogs.composite_catalog,
         )
         .map_err(|_| InternalError::store_unsupported())?;
-        if accepted.origin() != ConstraintOrigin::Generated
-            || accepted.name() != proposed.name().as_str()
-            || !matches!(
-                accepted.kind(),
-                AcceptedConstraintKind::Check {
-                    expression: accepted_expression
-                } if accepted_expression.as_ref() == &expression
-            )
-        {
-            return Err(InternalError::store_unsupported());
+
+        if let Some(constraint_id) = bindings.constraint(entity_tag, proposed.source_key()) {
+            let accepted = accepted_snapshot
+                .constraints()
+                .iter()
+                .find(|constraint| constraint.id() == constraint_id)
+                .ok_or_else(InternalError::store_invariant)?;
+            if accepted.origin() != ConstraintOrigin::Generated
+                || accepted.name() != proposed.name().as_str()
+                || !matches!(
+                    accepted.kind(),
+                    AcceptedConstraintKind::Check {
+                        expression: accepted_expression
+                    } if accepted_expression.as_ref() == &expression
+                )
+            {
+                return Err(InternalError::store_unsupported());
+            }
+            declared.insert(constraint_id);
+            continue;
         }
+
+        catalog = catalog
+            .with_added_check(
+                proposed.name().as_str().to_string(),
+                ConstraintOrigin::Generated,
+                expression,
+            )
+            .map_err(|_| InternalError::store_unsupported())?;
+        let constraint_id = ConstraintId::new(catalog.allocator().high_water())
+            .ok_or_else(InternalError::store_invariant)?;
+        bindings.insert_constraint(entity_tag, proposed.source_key().clone(), constraint_id)?;
+        declared.insert(constraint_id);
     }
-    Ok(())
+
+    let all_existing_generated_checks_are_declared = accepted_snapshot
+        .constraints()
+        .iter()
+        .filter(|constraint| {
+            constraint.origin() == ConstraintOrigin::Generated
+                && matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
+        })
+        .all(|constraint| declared.contains(&constraint.id()));
+    if !all_existing_generated_checks_are_declared {
+        return Err(InternalError::store_unsupported());
+    }
+    Ok(catalog)
 }
 
 fn allocate_entity_identities(
@@ -2186,7 +2209,8 @@ mod tests {
     };
     use crate::db::schema::{
         AcceptedConstraintKind, AcceptedNamedTypeIdentity, AcceptedSchemaRevision,
-        PersistedFieldSnapshot, SchemaInsertDefault, composite_catalog::AcceptedCompositeShape,
+        ConstraintOrigin, PersistedFieldSnapshot, SchemaInsertDefault,
+        composite_catalog::AcceptedCompositeShape,
     };
     use icydb_schema::{
         ConstraintFragment, ConstraintSourceKey, EntityFragment, EntitySourceKey,
@@ -2426,6 +2450,80 @@ mod tests {
         assert_eq!(after.indexes(), before.indexes());
         assert_eq!(after.constraint_catalog(), before.constraint_catalog());
         assert_ne!(after.fields(), before.fields());
+    }
+
+    #[test]
+    fn existing_generated_check_addition_allocates_one_source_bound_owner() {
+        let (initial, entity_source, store) = scalar_proposal_fixture_with_names(
+            ExpectedAcceptedHead::Empty,
+            "check-addition-initial",
+            5,
+            "Item",
+            "score",
+            false,
+            Vec::new(),
+        );
+        let initial_candidates = lower_initial_schema_proposal(
+            &initial,
+            &[ProposalStoreTarget {
+                path: "test::Store",
+                identity: store,
+            }],
+        )
+        .expect("initial proposal without a generated check should lower");
+        let initial_bundle = initial_candidates[0].bundle();
+        let (addition, _, _) = scalar_proposal_fixture(
+            ExpectedAcceptedHead::Exact {
+                revision: 1,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x44; 32]),
+            },
+            "add-generated-check",
+            5,
+        );
+
+        let candidates = lower_existing_schema_proposal(
+            &addition,
+            &[ExistingProposalStore {
+                path: "test::Store",
+                identity: store,
+                bundle: initial_bundle,
+            }],
+        )
+        .expect("generated check addition should lower");
+        let added_bundle = candidates[0].bundle();
+        let entity_tag = added_bundle
+            .source_bindings_for_tests()
+            .entity(&entity_source)
+            .expect("entity source should remain bound");
+        let before = initial_bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .expect("initial entity should exist");
+        let after = added_bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .expect("entity should survive check addition");
+        let source = ConstraintSourceKey::try_new("test:check:score")
+            .expect("test constraint source should admit");
+        let added_id = added_bundle
+            .source_bindings_for_tests()
+            .constraint(entity_tag, &source)
+            .expect("new check source should bind");
+
+        assert_eq!(after.version().get(), before.version().get() + 1);
+        assert_eq!(
+            after.constraint_id_allocator().high_water(),
+            before.constraint_id_allocator().high_water() + 1,
+        );
+        assert!(after.constraints().iter().any(|constraint| {
+            constraint.id() == added_id
+                && constraint.origin() == ConstraintOrigin::Generated
+                && matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
+        }));
+        assert_eq!(after.fields(), before.fields());
+        assert_eq!(after.row_layout(), before.row_layout());
+        assert_eq!(after.indexes(), before.indexes());
+        assert_eq!(after.relations(), before.relations());
     }
 
     #[test]

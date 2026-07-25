@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.13` adds generated accepted checks when exact maintained cardinality
+  proves that the entity has no historical rows.
+
 - `0.213.12` removes generated accepted checks by immutable source identity
   while retiring their IDs and preserving physical state.
 

@@ -188,6 +188,26 @@ impl AcceptedSourceBindingCatalog {
         self.constraints.get(&(entity, source.clone())).copied()
     }
 
+    /// Add one exact source binding for a newly reserved accepted check.
+    pub(in crate::db::schema) fn insert_constraint(
+        &mut self,
+        entity: EntityTag,
+        source: ConstraintSourceKey,
+        constraint: ConstraintId,
+    ) -> Result<(), InternalError> {
+        let key = (entity, source);
+        if self
+            .constraints
+            .iter()
+            .any(|((bound_entity, _), accepted)| *bound_entity == entity && *accepted == constraint)
+            || self.constraints.contains_key(&key)
+        {
+            return Err(InternalError::store_invariant());
+        }
+        self.constraints.insert(key, constraint);
+        Ok(())
+    }
+
     /// Remove one exact accepted-check source binding with its structural owner.
     pub(in crate::db::schema) fn remove_constraint(
         &mut self,
@@ -983,9 +1003,10 @@ mod tests {
     use crate::{
         db::schema::{
             AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
-            AcceptedSchemaRevisionBundle, CandidateSchemaRevision, FieldId, PersistedFieldSnapshot,
-            PersistedSchemaSnapshot, SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout,
-            SchemaVersion, build_initial_accepted_enum_catalog_from_kinds_for_tests,
+            AcceptedSchemaRevisionBundle, CandidateSchemaRevision, ConstraintId, FieldId,
+            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaInsertDefault,
+            SchemaRowLayout, SchemaVersion,
+            build_initial_accepted_enum_catalog_from_kinds_for_tests,
             composite_catalog::{
                 AcceptedCompositeElement, AcceptedCompositeField, AcceptedCompositeShape,
                 CompositeFieldId, CompositeTypeId,
@@ -994,6 +1015,7 @@ mod tests {
         model::field::{EnumVariantModel, FieldKind, FieldStorageDecode, LeafCodec, ScalarCodec},
         types::EntityTag,
     };
+    use icydb_schema::ConstraintSourceKey;
 
     static STATUS_VARIANTS: [EnumVariantModel; 2] = [
         EnumVariantModel::new("Active", None, FieldStorageDecode::ByKind),
@@ -1018,6 +1040,42 @@ mod tests {
             .expect("empty source bindings should decode");
 
         assert_eq!(decoded, catalog);
+    }
+
+    #[test]
+    fn constraint_binding_insertion_enforces_entity_local_identity() {
+        let mut catalog = AcceptedSourceBindingCatalog::default();
+        let first_entity = EntityTag::new(7);
+        let second_entity = EntityTag::new(8);
+        let first_source = ConstraintSourceKey::try_new("test:first")
+            .expect("first constraint source should build");
+        let second_source = ConstraintSourceKey::try_new("test:second")
+            .expect("second constraint source should build");
+        let third_source = ConstraintSourceKey::try_new("test:third")
+            .expect("third constraint source should build");
+        let local_id = ConstraintId::new(1).expect("local constraint ID should build");
+
+        catalog
+            .insert_constraint(first_entity, first_source.clone(), local_id)
+            .expect("first entity should accept its local ID");
+        catalog
+            .insert_constraint(second_entity, second_source, local_id)
+            .expect("another entity may reuse the same local ID");
+
+        assert!(
+            catalog
+                .insert_constraint(first_entity, third_source, local_id)
+                .is_err(),
+        );
+        assert!(
+            catalog
+                .insert_constraint(
+                    first_entity,
+                    first_source,
+                    ConstraintId::new(2).expect("second local constraint ID should build"),
+                )
+                .is_err(),
+        );
     }
 
     #[test]

@@ -22,9 +22,10 @@ use crate::{
             StoreRelationTargetCapability, StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
         },
         schema::{
-            AcceptedSchemaRevision, ExistingProposalStore, ProposalStoreTarget,
-            SchemaApplicationRecord, SchemaApplicationRecordOp, SchemaChangeOutcome,
-            SchemaChangeReceipt, lower_existing_schema_proposal, lower_initial_schema_proposal,
+            AcceptedConstraintKind, AcceptedSchemaRevision, CandidateSchemaRevision,
+            ConstraintOrigin, ExistingProposalStore, ProposalStoreTarget, SchemaApplicationRecord,
+            SchemaApplicationRecordOp, SchemaChangeOutcome, SchemaChangeReceipt,
+            lower_existing_schema_proposal, lower_initial_schema_proposal,
             with_schema_application_store,
         },
     },
@@ -298,6 +299,8 @@ fn lower_application_candidates(
     };
     if initial_application {
         preflight_initial_application(authorities, &candidates)?;
+    } else {
+        preflight_existing_application(authorities, &current_bundles, &candidates)?;
     }
     Ok((current_bundles, candidates))
 }
@@ -319,6 +322,58 @@ fn preflight_initial_application(
         }
     }
     Ok(())
+}
+
+/// Admit direct generated-check additions only when the maintained entity
+/// cardinality proves their complete historical domain is empty.
+///
+/// Non-empty domains remain fail-closed until the pending 0.211 activation
+/// route is connected; no partial scan may publish a validated constraint.
+fn preflight_existing_application(
+    authorities: &[StoreApplicationAuthority],
+    current_bundles: &[Option<crate::db::schema::AcceptedSchemaRevisionBundle>],
+    candidates: &[CandidateSchemaRevision],
+) -> Result<(), InternalError> {
+    for candidate in candidates {
+        let (position, authority) = authorities
+            .iter()
+            .enumerate()
+            .find(|(_, authority)| authority.path == candidate.store_path())
+            .ok_or_else(InternalError::store_unsupported)?;
+        let current = current_bundles
+            .get(position)
+            .and_then(Option::as_ref)
+            .ok_or_else(InternalError::store_invariant)?;
+        for (entity_tag, after) in candidate.bundle().entity_snapshots() {
+            let before = current
+                .entity_snapshots()
+                .get(entity_tag)
+                .ok_or_else(InternalError::store_unsupported)?;
+            if adds_generated_check(before, after)
+                && authority
+                    .handle
+                    .with_data(|store| store.exact_entity_count(*entity_tag))
+                    != Some(0)
+            {
+                return Err(InternalError::store_unsupported());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn adds_generated_check(
+    before: &crate::db::schema::PersistedSchemaSnapshot,
+    after: &crate::db::schema::PersistedSchemaSnapshot,
+) -> bool {
+    after.constraints().iter().any(|candidate| {
+        candidate.origin() == ConstraintOrigin::Generated
+            && matches!(candidate.kind(), AcceptedConstraintKind::Check { .. })
+            && !before
+                .constraints()
+                .iter()
+                .any(|accepted| accepted.id() == candidate.id())
+    })
 }
 
 fn application_publications<'a>(
