@@ -204,6 +204,15 @@ impl AcceptedValueCatalogHandle {
 }
 
 impl AcceptedEnumCatalog {
+    /// Construct the empty value catalog used by scalar-only accepted stores.
+    #[must_use]
+    pub(in crate::db::schema) const fn empty() -> Self {
+        Self {
+            by_id: BTreeMap::new(),
+            id_by_path: BTreeMap::new(),
+        }
+    }
+
     fn validate(&self) -> bool {
         self.lookup_maps_are_bijective() && self.contract_graph_is_valid()
     }
@@ -410,6 +419,12 @@ pub(in crate::db) struct AcceptedEnumVariant {
 }
 
 impl AcceptedEnumVariant {
+    /// Borrow the accepted schema-visible variant name.
+    #[must_use]
+    pub(in crate::db::schema) const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
     #[must_use]
     pub(in crate::db) const fn body(&self) -> &AcceptedEnumVariantBody {
         &self.body

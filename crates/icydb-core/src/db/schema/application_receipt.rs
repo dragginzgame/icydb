@@ -179,7 +179,6 @@ pub struct SchemaChangeReceipt {
 }
 
 impl SchemaChangeReceipt {
-    #[cfg(test)]
     pub(in crate::db) fn new(
         database_identity: TargetDatabaseIdentity,
         submission_key: SchemaSubmissionKey,
@@ -226,6 +225,19 @@ impl SchemaChangeReceipt {
     #[must_use]
     pub const fn outcome(&self) -> &SchemaChangeOutcome {
         &self.outcome
+    }
+
+    pub(in crate::db) fn is_exact_submission(
+        &self,
+        database_identity: TargetDatabaseIdentity,
+        submission_key: &SchemaSubmissionKey,
+        proposal_digest: SchemaProposalDigest,
+        prior_head: &ExpectedAcceptedHead,
+    ) -> bool {
+        self.database_identity == database_identity
+            && &self.submission_key == submission_key
+            && self.proposal_digest == proposal_digest
+            && &self.prior_head == prior_head
     }
 
     pub(in crate::db) fn validate(&self) -> Result<(), InternalError> {
@@ -341,7 +353,6 @@ pub(in crate::db) struct SchemaApplicationRecord {
 }
 
 impl SchemaApplicationRecord {
-    #[cfg(test)]
     pub(in crate::db) fn new(
         receipt: SchemaChangeReceipt,
         activations: Vec<SchemaChangeActivation>,

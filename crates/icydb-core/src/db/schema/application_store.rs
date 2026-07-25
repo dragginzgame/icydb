@@ -86,7 +86,6 @@ pub(in crate::db) struct SchemaApplicationRecordOp {
 }
 
 impl SchemaApplicationRecordOp {
-    #[cfg(test)]
     pub(in crate::db) fn insert(record: &SchemaApplicationRecord) -> Result<Self, InternalError> {
         let key = ApplicationRecordKey::from_receipt(record.receipt())?;
         let after = encode_application_record(record)?;

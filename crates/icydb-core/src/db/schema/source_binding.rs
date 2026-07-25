@@ -98,6 +98,63 @@ impl AcceptedSourceBindingCatalog {
         }
     }
 
+    /// Construct the exact source-addressable identity closure for one initial
+    /// catalog-native proposal.
+    pub(in crate::db::schema) const fn initial(
+        entities: BTreeMap<EntitySourceKey, EntityTag>,
+        fields: BTreeMap<(EntityTag, FieldSourceKey), FieldId>,
+        constraints: BTreeMap<(EntityTag, ConstraintSourceKey), ConstraintId>,
+        indexes: BTreeMap<(EntityTag, IndexSourceKey), SchemaIndexId>,
+        relations: BTreeMap<(EntityTag, RelationSourceKey), RelationId>,
+    ) -> Self {
+        Self::from_parts(
+            entities,
+            BTreeMap::new(),
+            BTreeMap::new(),
+            fields,
+            constraints,
+            indexes,
+            relations,
+        )
+    }
+
+    /// Resolve one immutable entity source identity.
+    #[must_use]
+    pub(in crate::db::schema) fn entity(&self, source: &EntitySourceKey) -> Option<EntityTag> {
+        self.entities.get(source).copied()
+    }
+
+    /// Resolve one immutable field source identity inside an accepted entity.
+    #[must_use]
+    pub(in crate::db::schema) fn field(
+        &self,
+        entity: EntityTag,
+        source: &FieldSourceKey,
+    ) -> Option<FieldId> {
+        self.fields.get(&(entity, source.clone())).copied()
+    }
+
+    /// Resolve one immutable named-type source identity.
+    #[must_use]
+    pub(in crate::db::schema) fn named_type(
+        &self,
+        source: &TypeSourceKey,
+    ) -> Option<AcceptedNamedTypeIdentity> {
+        self.types.get(source).copied()
+    }
+
+    /// Resolve one immutable unit-variant identity inside an accepted enum.
+    #[must_use]
+    pub(in crate::db::schema) fn enum_variant(
+        &self,
+        enum_type: EnumTypeId,
+        source: &TypeSourceKey,
+    ) -> Option<EnumVariantId> {
+        self.enum_variants
+            .get(&(enum_type, source.clone()))
+            .copied()
+    }
+
     /// Apply one catalog-native SQL-DDL entity transition.
     ///
     /// Existing immutable keys follow their structural owner through rename

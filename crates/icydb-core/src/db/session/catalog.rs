@@ -26,7 +26,7 @@ use crate::{
     model::entity::EntityModel,
     traits::{CanisterKind, Path},
 };
-use icydb_schema::{SchemaSubmissionKey, TargetDatabaseIdentity};
+use icydb_schema::{SchemaProposal, SchemaSubmissionKey, TargetDatabaseIdentity};
 
 fn relation_field_count(fields: &[PersistedFieldSnapshot]) -> usize {
     fields
@@ -46,6 +46,15 @@ fn persisted_kind_is_relation_field(kind: &AcceptedFieldKind) -> bool {
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    /// Apply one exact source-keyed schema proposal through accepted catalog
+    /// authority and return its durable idempotent receipt.
+    pub fn apply_schema(
+        &self,
+        proposal: &SchemaProposal,
+    ) -> Result<SchemaChangeReceipt, InternalError> {
+        crate::db::schema::apply_schema(&self.db, proposal)
+    }
+
     /// Issue the opaque database/store identities and exact accepted head used
     /// to compose one optimistic schema proposal.
     pub fn schema_application_target(&self) -> Result<SchemaApplicationTarget, InternalError> {

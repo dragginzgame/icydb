@@ -1254,6 +1254,11 @@ impl InternalError {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Store)
     }
 
+    /// Construct the typed optimistic/idempotency conflict for schema application.
+    pub(crate) fn schema_application_conflict() -> Self {
+        Self::new(ErrorClass::Conflict, ErrorOrigin::Store)
+    }
+
     /// Construct the canonical schema DDL publication race error.
     #[cfg(any(test, feature = "sql"))]
     pub(crate) fn schema_ddl_publication_race_lost(_entity_path: &'static str) -> Self {

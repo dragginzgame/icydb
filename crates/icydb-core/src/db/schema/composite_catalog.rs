@@ -65,7 +65,6 @@ pub(in crate::db) struct AcceptedCompositeCatalog {
 
 impl AcceptedCompositeCatalog {
     #[must_use]
-    #[cfg(test)]
     pub(in crate::db) const fn empty() -> Self {
         Self {
             by_id: BTreeMap::new(),

@@ -446,6 +446,8 @@ static JOURNALED_SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new_with_hooks(
     &JOURNALED_SESSION_SQL_STORE_REGISTRY,
     JOURNALED_SESSION_SQL_RUNTIME_HOOKS,
 );
+static STANDALONE_JOURNALED_SESSION_DB: Db<SessionSqlCanister> =
+    Db::new_with_hooks(&JOURNALED_SESSION_SQL_STORE_REGISTRY, &[]);
 static MIXED_JOURNALED_RELATION_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCanister>] = &[
     EntityRuntimeHooks::for_entity::<JournaledSessionSqlEntity>(),
     EntityRuntimeHooks::for_entity::<DurableSessionSqlSourceToJournaledTargetEntity>(),
@@ -3065,6 +3067,159 @@ fn schema_application_target_binds_complete_store_topology_in_canonical_order() 
     );
     assert_ne!(mixed.stores()[0].identity(), mixed.stores()[1].identity());
     assert_ne!(mixed.database_identity(), single.database_identity());
+}
+
+#[test]
+fn schema_application_no_op_receipt_is_durable_and_exactly_replayed() {
+    reset_journaled_session_sql_store();
+    let session = journaled_sql_session();
+    let target = session
+        .schema_application_target()
+        .expect("schema application target should derive");
+    let proposal = icydb_schema::SchemaProposal::try_compose(
+        Vec::new(),
+        target.database_identity(),
+        icydb_schema::SchemaSubmissionKey::try_new("session-no-op-replay")
+            .expect("test submission key should admit"),
+        target.accepted_head().clone(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("empty exact proposal should compose");
+
+    let first = session
+        .apply_schema(&proposal)
+        .expect("no-op proposal should publish its receipt");
+    let replay = session
+        .apply_schema(&proposal)
+        .expect("exact retry should replay its receipt");
+    let stored = session
+        .schema_application_receipt(target.database_identity(), proposal.submission_key())
+        .expect("receipt lookup should succeed")
+        .expect("receipt should be durable");
+
+    assert_eq!(replay, first);
+    assert_eq!(stored, first);
+    assert!(matches!(
+        first.outcome(),
+        crate::db::SchemaChangeOutcome::NoOp { accepted_head }
+            if accepted_head == target.accepted_head()
+    ));
+
+    let conflicting = icydb_schema::SchemaProposal::try_compose(
+        vec![icydb_schema::SchemaCapability::ACCEPTED_CHECKS],
+        target.database_identity(),
+        proposal.submission_key().clone(),
+        target.accepted_head().clone(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("conflicting proposal should remain structurally valid");
+    let error = session
+        .apply_schema(&conflicting)
+        .expect_err("same submission key with another digest must conflict");
+    assert_eq!(error.class(), ErrorClass::Conflict);
+}
+
+#[test]
+fn schema_application_publishes_initial_scalar_proposal_and_receipt_atomically() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    JOURNALED_SESSION_SQL_DATA_STORE.with_borrow_mut(DataStore::clear);
+    JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow_mut(|store| {
+        store.clear();
+        store.mark_ready();
+    });
+    JOURNALED_SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    reset_commit_marker_test_journal_sequence();
+    ensure_recovered(&STANDALONE_JOURNALED_SESSION_DB)
+        .expect("standalone journaled database should recover");
+    DbSession::<SessionSqlCanister>::clear_accepted_schema_query_cache_for_tests();
+    let session = DbSession::new(STANDALONE_JOURNALED_SESSION_DB);
+    let target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    assert_eq!(
+        target.accepted_head(),
+        &icydb_schema::ExpectedAcceptedHead::Empty
+    );
+
+    let entity_source = icydb_schema::EntitySourceKey::try_new("test:entity:standalone")
+        .expect("test entity source should admit");
+    let id_source = icydb_schema::FieldSourceKey::try_new("test:field:standalone-id")
+        .expect("test field source should admit");
+    let entity = icydb_schema::EntityFragment::try_new(
+        entity_source.clone(),
+        icydb_schema::SchemaName::try_new("Standalone").expect("test entity name should admit"),
+        vec![icydb_schema::FieldFragment::new(
+            id_source.clone(),
+            icydb_schema::SchemaName::try_new("id").expect("test field name should admit"),
+            icydb_schema::FieldType::Scalar(icydb_schema::ScalarType::Nat64),
+            false,
+            icydb_schema::FieldInsertPolicy::Required,
+            None,
+        )],
+        vec![id_source],
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("test entity should admit");
+    let fragment = icydb_schema::SchemaFragment::try_new(vec![entity], Vec::new())
+        .expect("test fragment should admit");
+    let proposal = icydb_schema::SchemaProposal::try_compose(
+        Vec::new(),
+        target.database_identity(),
+        icydb_schema::SchemaSubmissionKey::try_new("initial-scalar-application")
+            .expect("test submission key should admit"),
+        target.accepted_head().clone(),
+        vec![fragment],
+        vec![icydb_schema::EntityStoreAssignment::new(
+            entity_source,
+            target.stores()[0].identity(),
+        )],
+        Vec::new(),
+    )
+    .expect("test proposal should compose");
+
+    JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow_mut(IndexStore::mark_building);
+    let rejection = session
+        .apply_schema(&proposal)
+        .expect_err("initial publication must reject a non-ready derived store");
+    assert_eq!(rejection.class(), ErrorClass::Unsupported);
+    assert!(JOURNALED_SESSION_SQL_SCHEMA_STORE.with_borrow(SchemaStore::is_empty));
+    assert_eq!(
+        session
+            .schema_application_receipt(target.database_identity(), proposal.submission_key())
+            .expect("rejected receipt lookup should succeed"),
+        None,
+    );
+    JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow_mut(IndexStore::mark_ready);
+
+    let receipt = session
+        .apply_schema(&proposal)
+        .expect("initial scalar proposal should publish");
+    let after = session
+        .schema_application_target()
+        .expect("published target should derive");
+
+    assert!(matches!(
+        receipt.outcome(),
+        crate::db::SchemaChangeOutcome::Applied { accepted_head }
+            if accepted_head == after.accepted_head()
+    ));
+    assert!(matches!(
+        after.accepted_head(),
+        icydb_schema::ExpectedAcceptedHead::Exact { revision: 1, .. }
+    ));
+    assert_eq!(
+        session
+            .schema_application_receipt(target.database_identity(), proposal.submission_key())
+            .expect("receipt lookup should succeed"),
+        Some(receipt),
+    );
 }
 
 fn reset_mixed_heap_relation_stores() {

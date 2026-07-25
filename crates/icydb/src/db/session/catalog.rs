@@ -18,9 +18,15 @@ use crate::{
 };
 
 use icydb_core as core;
-use icydb_schema::{SchemaSubmissionKey, TargetDatabaseIdentity};
+use icydb_schema::{SchemaProposal, SchemaSubmissionKey, TargetDatabaseIdentity};
 
 impl<C: CanisterKind> DbSession<C> {
+    /// Apply one exact source-keyed schema proposal and return its durable
+    /// idempotent receipt.
+    pub fn apply_schema(&self, proposal: &SchemaProposal) -> Result<SchemaChangeReceipt, Error> {
+        Ok(self.inner.apply_schema(proposal)?)
+    }
+
     /// Issue the opaque database/store identities and exact accepted head used
     /// to compose one optimistic schema proposal.
     pub fn schema_application_target(&self) -> Result<SchemaApplicationTarget, Error> {

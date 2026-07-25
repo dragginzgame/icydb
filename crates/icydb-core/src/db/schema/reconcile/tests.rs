@@ -9,6 +9,7 @@ use crate::{
             generate_commit_id, init_commit_store_for_tests, publish_accepted_schema_candidate,
             publish_accepted_schema_candidate_with_constraint_validation_job_removal,
             publish_accepted_schema_candidates_atomically,
+            publish_accepted_schema_candidates_with_application_record,
         },
         data::{
             CanonicalRow, DataStore, DecodedDataStoreKey, emit_raw_row_from_slot_payloads,
@@ -25,8 +26,9 @@ use crate::{
             CandidateSchemaRevision, ConstraintActivationState, ConstraintValidationJob,
             ConstraintValidationPhase, ConstraintValidationProgress, FieldId, PersistedFieldOrigin,
             PersistedFieldSnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
-            PersistedSchemaSnapshot, RowLayoutVersion, SchemaFieldSlot, SchemaHistoricalFill,
-            SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaStore,
+            PersistedSchemaSnapshot, RowLayoutVersion, SchemaApplicationRecord,
+            SchemaApplicationRecordOp, SchemaChangeOutcome, SchemaChangeReceipt, SchemaFieldSlot,
+            SchemaHistoricalFill, SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaStore,
             SchemaTransitionPlanKind, SchemaVersion, compiled_schema_proposal_for_model,
             derive_sql_ddl_field_nullability_persisted_after,
         },
@@ -48,6 +50,10 @@ use crate::{
     value::Value,
 };
 use icydb_derive::{FieldProjection, PersistedRow};
+use icydb_schema::{
+    ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaProposalDigest, SchemaSubmissionKey,
+    TargetDatabaseIdentity,
+};
 use serde::Deserialize;
 use std::{cell::RefCell, sync::LazyLock};
 
@@ -591,6 +597,97 @@ fn accepted_schema_publication_advances_two_journaled_stores_atomically() {
     assert_eq!(
         RECONCILE_RELATION_TARGET_JOURNAL_STORE.with_borrow(JournalTailStore::len),
         1
+    );
+    assert!(!commit_marker_present().expect("commit marker should decode"));
+}
+
+#[test]
+fn accepted_schema_publication_and_application_receipt_share_one_marker() {
+    reset_reconcile_stores();
+    reset_reconcile_relation_target_store();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_recovery_runtime_state_for_tests(&ADDITIVE_RELATION_RECONCILE_DB)
+        .expect("recovery runtime state should clear");
+    super::reconcile_runtime_schemas(
+        &ADDITIVE_RELATION_RECONCILE_DB,
+        ADDITIVE_RELATION_RUNTIME_HOOKS,
+    )
+    .expect("initial two-store schema should reconcile");
+
+    let source = RECONCILE_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("source accepted bundle should decode")
+        .expect("source accepted bundle should exist");
+    let target = RECONCILE_RELATION_TARGET_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("target accepted bundle should decode")
+        .expect("target accepted bundle should exist");
+    let source_candidate = next_accepted_candidate(&source);
+    let target_candidate = next_accepted_candidate(&target);
+    let source_store = RECONCILE_DB
+        .store_handle(SchemaReconcileTestStore::PATH)
+        .expect("source store should resolve");
+    let target_store = RECONCILE_DB
+        .store_handle(SchemaReconcileRelationTargetStore::PATH)
+        .expect("target store should resolve");
+    let database_identity = TargetDatabaseIdentity::from_bytes([0xD1; 32]);
+    let submission_key = SchemaSubmissionKey::try_new("atomic-schema-receipt")
+        .expect("test submission key should admit");
+    let receipt = SchemaChangeReceipt::new(
+        database_identity,
+        submission_key.clone(),
+        SchemaProposalDigest::from_bytes([0xD2; 32]),
+        ExpectedAcceptedHead::Exact {
+            revision: source.revision().get(),
+            fingerprint: ExpectedSchemaFingerprint::from_bytes([0xD3; 32]),
+        },
+        SchemaChangeOutcome::Applied {
+            accepted_head: ExpectedAcceptedHead::Exact {
+                revision: source_candidate.revision().get(),
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0xD4; 32]),
+            },
+        },
+    )
+    .expect("test receipt should admit");
+    let record = SchemaApplicationRecord::new(receipt.clone(), Vec::new())
+        .expect("terminal record should admit");
+    let operation =
+        SchemaApplicationRecordOp::insert(&record).expect("record effect should prepare");
+
+    publish_accepted_schema_candidates_with_application_record(
+        vec![
+            AcceptedSchemaPublication::new(
+                SchemaReconcileRelationTargetStore::PATH,
+                target_store,
+                target.revision(),
+                &target_candidate,
+            ),
+            AcceptedSchemaPublication::new(
+                SchemaReconcileTestStore::PATH,
+                source_store,
+                source.revision(),
+                &source_candidate,
+            ),
+        ],
+        operation,
+    )
+    .expect("schema candidates and receipt should commit together");
+
+    let stored = crate::db::schema::with_schema_application_store(|store| {
+        store.load(database_identity, &submission_key)
+    })
+    .expect("receipt should load")
+    .expect("receipt should exist");
+    assert_eq!(stored.receipt(), &receipt);
+    assert_eq!(
+        RECONCILE_SCHEMA_STORE
+            .with_borrow(SchemaStore::current_accepted_schema_bundle)
+            .expect("source accepted bundle should decode")
+            .expect("source accepted bundle should exist")
+            .revision(),
+        source_candidate.revision(),
     );
     assert!(!commit_marker_present().expect("commit marker should decode"));
 }

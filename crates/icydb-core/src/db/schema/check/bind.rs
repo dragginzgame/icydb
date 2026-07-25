@@ -7,8 +7,8 @@ use crate::{
         schema::{
             AcceptedCheckCompareOpV1, AcceptedCheckExprV1, AcceptedCheckLiteralV1,
             AcceptedCheckValueExprV1, AcceptedCompositeCatalog, AcceptedEnumCatalog,
-            AcceptedFieldDecodeContract, AcceptedFieldKind, PersistedSchemaSnapshot,
-            ValueAdmissionBudget,
+            AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedSourceBindingCatalog,
+            PersistedSchemaSnapshot, ValueAdmissionBudget,
             check::{
                 AcceptedCheckExprV1Error, MAX_CHECK_EXPR_V1_MEMBERSHIP_ITEMS, nat64_codec,
                 nat64_kind,
@@ -17,8 +17,10 @@ use crate::{
         },
     },
     model::field::{FieldStorageDecode, LeafCodec},
-    value::{InputValue, Value},
+    types::EntityTag,
+    value::{InputValue, InputValueEnum, Value},
 };
+use icydb_schema::{ScalarLiteral, SourceCheckExpr, SourceCheckInstruction};
 
 #[cfg(feature = "sql")]
 use crate::db::{
@@ -96,6 +98,294 @@ pub(in crate::db) fn bind_generated_check_predicate(
 ) -> Result<AcceptedCheckExprV1, AcceptedCheckExprV1Error> {
     let input = generated_predicate_input(predicate, snapshot)?;
     bind_check_expr_v1(input, snapshot, enum_catalog, composite_catalog)
+}
+
+/// Bind one immutable-source-key expression through the same accepted
+/// frontend-neutral compiler used by generated and SQL declarations.
+pub(in crate::db::schema) fn bind_source_check_expr(
+    expression: &SourceCheckExpr,
+    entity: EntityTag,
+    bindings: &AcceptedSourceBindingCatalog,
+    snapshot: &PersistedSchemaSnapshot,
+    enum_catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
+) -> Result<AcceptedCheckExprV1, AcceptedCheckExprV1Error> {
+    let mut stack = Vec::new();
+    for instruction in expression.instructions() {
+        match instruction {
+            SourceCheckInstruction::Field(source) => {
+                let field_id = bindings
+                    .field(entity, source)
+                    .ok_or(AcceptedCheckExprV1Error::UnknownField)?;
+                let field = snapshot
+                    .fields()
+                    .iter()
+                    .find(|field| field.id() == field_id)
+                    .ok_or(AcceptedCheckExprV1Error::UnknownField)?;
+                stack.push(SourceCheckNode::Value(SourceCheckValue::Field {
+                    name: field.name().to_string(),
+                    kind: field.kind().clone(),
+                }));
+            }
+            SourceCheckInstruction::Literal(literal) => stack.push(SourceCheckNode::Value(
+                SourceCheckValue::Literal(literal.clone()),
+            )),
+            SourceCheckInstruction::Equal
+            | SourceCheckInstruction::NotEqual
+            | SourceCheckInstruction::LessThan
+            | SourceCheckInstruction::LessThanOrEqual
+            | SourceCheckInstruction::GreaterThan
+            | SourceCheckInstruction::GreaterThanOrEqual => {
+                let right = pop_source_value(&mut stack)?;
+                let left = pop_source_value(&mut stack)?;
+                let (left, right) = source_comparison_values(left, right, bindings, enum_catalog)?;
+                stack.push(SourceCheckNode::Boolean(CheckExprV1Input::Compare {
+                    left,
+                    op: source_compare_op(instruction)
+                        .ok_or(AcceptedCheckExprV1Error::UnsupportedOperator)?,
+                    right,
+                }));
+            }
+            SourceCheckInstruction::And | SourceCheckInstruction::Or => {
+                let right = pop_source_boolean(&mut stack)?;
+                let left = pop_source_boolean(&mut stack)?;
+                stack.push(SourceCheckNode::Boolean(match instruction {
+                    SourceCheckInstruction::And => CheckExprV1Input::And(vec![left, right]),
+                    SourceCheckInstruction::Or => CheckExprV1Input::Or(vec![left, right]),
+                    _ => return Err(AcceptedCheckExprV1Error::UnsupportedOperator),
+                }));
+            }
+            SourceCheckInstruction::Not => {
+                let inner = pop_source_boolean(&mut stack)?;
+                stack.push(SourceCheckNode::Boolean(CheckExprV1Input::Not(Box::new(
+                    inner,
+                ))));
+            }
+            SourceCheckInstruction::IsNull | SourceCheckInstruction::IsNotNull => {
+                let value = source_value_without_literal(pop_source_value(&mut stack)?)?;
+                stack.push(SourceCheckNode::Boolean(match instruction {
+                    SourceCheckInstruction::IsNull => CheckExprV1Input::IsNull(value),
+                    SourceCheckInstruction::IsNotNull => CheckExprV1Input::IsNotNull(value),
+                    _ => return Err(AcceptedCheckExprV1Error::UnsupportedOperator),
+                }));
+            }
+            SourceCheckInstruction::Length => {
+                let value = pop_source_value(&mut stack)?;
+                let SourceCheckValue::Field { name, kind } = value else {
+                    return Err(AcceptedCheckExprV1Error::UnsupportedOperator);
+                };
+                let expression = match kind {
+                    AcceptedFieldKind::Text { .. } => CheckValueExprV1Input::CharLength(name),
+                    AcceptedFieldKind::Blob { .. } => CheckValueExprV1Input::OctetLength(name),
+                    AcceptedFieldKind::List(_)
+                    | AcceptedFieldKind::Set(_)
+                    | AcceptedFieldKind::Map { .. } => CheckValueExprV1Input::Cardinality(name),
+                    _ => return Err(AcceptedCheckExprV1Error::UnsupportedOperator),
+                };
+                stack.push(SourceCheckNode::Value(SourceCheckValue::Bound {
+                    expression,
+                    kind: AcceptedFieldKind::Nat64,
+                }));
+            }
+        }
+    }
+    let [result] = stack.as_slice() else {
+        return Err(AcceptedCheckExprV1Error::UnsupportedOperator);
+    };
+    let input = source_node_boolean(result.clone())?;
+    bind_check_expr_v1(input, snapshot, enum_catalog, composite_catalog)
+}
+
+#[derive(Clone)]
+enum SourceCheckNode {
+    Boolean(CheckExprV1Input),
+    Value(SourceCheckValue),
+}
+
+#[derive(Clone)]
+enum SourceCheckValue {
+    Field {
+        name: String,
+        kind: AcceptedFieldKind,
+    },
+    Bound {
+        expression: CheckValueExprV1Input,
+        kind: AcceptedFieldKind,
+    },
+    Literal(ScalarLiteral),
+}
+
+fn pop_source_value(
+    stack: &mut Vec<SourceCheckNode>,
+) -> Result<SourceCheckValue, AcceptedCheckExprV1Error> {
+    match stack.pop() {
+        Some(SourceCheckNode::Value(value)) => Ok(value),
+        Some(SourceCheckNode::Boolean(_)) | None => {
+            Err(AcceptedCheckExprV1Error::UnsupportedOperator)
+        }
+    }
+}
+
+fn pop_source_boolean(
+    stack: &mut Vec<SourceCheckNode>,
+) -> Result<CheckExprV1Input, AcceptedCheckExprV1Error> {
+    let node = stack
+        .pop()
+        .ok_or(AcceptedCheckExprV1Error::UnsupportedOperator)?;
+    source_node_boolean(node)
+}
+
+fn source_node_boolean(
+    node: SourceCheckNode,
+) -> Result<CheckExprV1Input, AcceptedCheckExprV1Error> {
+    match node {
+        SourceCheckNode::Boolean(expression) => Ok(expression),
+        SourceCheckNode::Value(SourceCheckValue::Literal(ScalarLiteral::Bool(true))) => {
+            Ok(CheckExprV1Input::True)
+        }
+        SourceCheckNode::Value(SourceCheckValue::Literal(ScalarLiteral::Bool(false))) => {
+            Ok(CheckExprV1Input::False)
+        }
+        SourceCheckNode::Value(_) => Err(AcceptedCheckExprV1Error::UnsupportedOperator),
+    }
+}
+
+fn source_comparison_values(
+    left: SourceCheckValue,
+    right: SourceCheckValue,
+    bindings: &AcceptedSourceBindingCatalog,
+    enum_catalog: &AcceptedEnumCatalog,
+) -> Result<(CheckValueExprV1Input, CheckValueExprV1Input), AcceptedCheckExprV1Error> {
+    let left_kind = source_value_kind(&left);
+    let right_kind = source_value_kind(&right);
+    let left = source_value_input(left, right_kind.as_ref(), bindings, enum_catalog)?;
+    let right = source_value_input(right, left_kind.as_ref(), bindings, enum_catalog)?;
+    Ok((left, right))
+}
+
+fn source_value_kind(value: &SourceCheckValue) -> Option<AcceptedFieldKind> {
+    match value {
+        SourceCheckValue::Field { kind, .. } | SourceCheckValue::Bound { kind, .. } => {
+            Some(kind.clone())
+        }
+        SourceCheckValue::Literal(_) => None,
+    }
+}
+
+fn source_value_input(
+    value: SourceCheckValue,
+    expected: Option<&AcceptedFieldKind>,
+    bindings: &AcceptedSourceBindingCatalog,
+    enum_catalog: &AcceptedEnumCatalog,
+) -> Result<CheckValueExprV1Input, AcceptedCheckExprV1Error> {
+    match value {
+        SourceCheckValue::Field { name, .. } => Ok(CheckValueExprV1Input::Field(name)),
+        SourceCheckValue::Bound { expression, .. } => Ok(expression),
+        SourceCheckValue::Literal(literal) => source_literal_input(
+            &literal,
+            expected.ok_or(AcceptedCheckExprV1Error::LiteralAdmissionRejected)?,
+            bindings,
+            enum_catalog,
+        )
+        .map(CheckValueExprV1Input::Literal),
+    }
+}
+
+fn source_value_without_literal(
+    value: SourceCheckValue,
+) -> Result<CheckValueExprV1Input, AcceptedCheckExprV1Error> {
+    match value {
+        SourceCheckValue::Field { name, .. } => Ok(CheckValueExprV1Input::Field(name)),
+        SourceCheckValue::Bound { expression, .. } => Ok(expression),
+        SourceCheckValue::Literal(_) => Err(AcceptedCheckExprV1Error::UnsupportedOperator),
+    }
+}
+
+const fn source_compare_op(
+    instruction: &SourceCheckInstruction,
+) -> Option<AcceptedCheckCompareOpV1> {
+    match instruction {
+        SourceCheckInstruction::Equal => Some(AcceptedCheckCompareOpV1::Eq),
+        SourceCheckInstruction::NotEqual => Some(AcceptedCheckCompareOpV1::Ne),
+        SourceCheckInstruction::LessThan => Some(AcceptedCheckCompareOpV1::Lt),
+        SourceCheckInstruction::LessThanOrEqual => Some(AcceptedCheckCompareOpV1::Lte),
+        SourceCheckInstruction::GreaterThan => Some(AcceptedCheckCompareOpV1::Gt),
+        SourceCheckInstruction::GreaterThanOrEqual => Some(AcceptedCheckCompareOpV1::Gte),
+        _ => None,
+    }
+}
+
+pub(in crate::db::schema) fn source_literal_input(
+    literal: &ScalarLiteral,
+    expected: &AcceptedFieldKind,
+    bindings: &AcceptedSourceBindingCatalog,
+    enum_catalog: &AcceptedEnumCatalog,
+) -> Result<InputValue, AcceptedCheckExprV1Error> {
+    let value = match literal {
+        ScalarLiteral::Account(value) => InputValue::Account(*value),
+        ScalarLiteral::Blob(value) => InputValue::Blob(value.to_vec()),
+        ScalarLiteral::Bool(value) => InputValue::Bool(*value),
+        ScalarLiteral::Date(value) => InputValue::Date(*value),
+        ScalarLiteral::Decimal(value) => InputValue::Decimal(*value),
+        ScalarLiteral::Duration(value) => InputValue::Duration(*value),
+        ScalarLiteral::EnumUnit { enum_type, variant } => {
+            let Some(crate::db::schema::AcceptedNamedTypeIdentity::Enum(type_id)) =
+                bindings.named_type(enum_type)
+            else {
+                return Err(AcceptedCheckExprV1Error::LiteralAdmissionRejected);
+            };
+            let variant_id = bindings
+                .enum_variant(type_id, variant)
+                .ok_or(AcceptedCheckExprV1Error::LiteralAdmissionRejected)?;
+            let definition = enum_catalog
+                .enum_type(type_id)
+                .ok_or(AcceptedCheckExprV1Error::LiteralAdmissionRejected)?;
+            let accepted_variant = definition
+                .variant(variant_id)
+                .ok_or(AcceptedCheckExprV1Error::LiteralAdmissionRejected)?;
+            if !matches!(expected, AcceptedFieldKind::Enum { type_id: expected } if *expected == type_id)
+            {
+                return Err(AcceptedCheckExprV1Error::LiteralAdmissionRejected);
+            }
+            InputValue::Enum(InputValueEnum::new(
+                accepted_variant.name(),
+                Some(definition.path()),
+            ))
+        }
+        ScalarLiteral::Float32(value) => InputValue::Float32(*value),
+        ScalarLiteral::Float64(value) => InputValue::Float64(*value),
+        ScalarLiteral::Int(value) => match expected {
+            AcceptedFieldKind::Int8
+            | AcceptedFieldKind::Int16
+            | AcceptedFieldKind::Int32
+            | AcceptedFieldKind::Int64 => InputValue::Int64(
+                i64::try_from(*value)
+                    .map_err(|_| AcceptedCheckExprV1Error::LiteralAdmissionRejected)?,
+            ),
+            AcceptedFieldKind::Int128 => InputValue::Int128(*value),
+            _ => return Err(AcceptedCheckExprV1Error::LiteralAdmissionRejected),
+        },
+        ScalarLiteral::IntBig(value) => InputValue::IntBig(value.clone()),
+        ScalarLiteral::Nat(value) => match expected {
+            AcceptedFieldKind::Nat8
+            | AcceptedFieldKind::Nat16
+            | AcceptedFieldKind::Nat32
+            | AcceptedFieldKind::Nat64 => InputValue::Nat64(
+                u64::try_from(*value)
+                    .map_err(|_| AcceptedCheckExprV1Error::LiteralAdmissionRejected)?,
+            ),
+            AcceptedFieldKind::Nat128 => InputValue::Nat128(*value),
+            _ => return Err(AcceptedCheckExprV1Error::LiteralAdmissionRejected),
+        },
+        ScalarLiteral::NatBig(value) => InputValue::NatBig(value.clone()),
+        ScalarLiteral::Principal(value) => InputValue::Principal(*value),
+        ScalarLiteral::Subaccount(value) => InputValue::Subaccount(*value),
+        ScalarLiteral::Text(value) => InputValue::Text(value.clone()),
+        ScalarLiteral::Timestamp(value) => InputValue::Timestamp(*value),
+        ScalarLiteral::Ulid(value) => InputValue::Ulid(*value),
+        ScalarLiteral::Unit(_) => InputValue::Unit,
+    };
+    Ok(value)
 }
 
 /// Bind one parser-owned SQL expression into the same accepted check AST used

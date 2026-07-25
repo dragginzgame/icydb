@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.6` connects initial scalar schema proposals to catalog-native
+  accepted candidates and atomic durable application receipts while
+  unsupported transitions fail before mutation.
+
 - `0.213.5` adds bounded durable schema-application receipts and replay-safe
   marker-owned job state without introducing a parallel activation engine.
 

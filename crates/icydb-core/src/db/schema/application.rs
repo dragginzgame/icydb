@@ -1,7 +1,7 @@
 //! Module: db::schema::application
-//! Responsibility: issue database/store proposal targets and one exact database-wide accepted head.
-//! Does not own: proposal lowering, schema mutation, durable receipts, or activation progress.
-//! Boundary: recovered runtime registry plus accepted store roots -> opaque public application target.
+//! Responsibility: issue proposal targets and admit exact schema-application requests.
+//! Does not own: proposal lowering, accepted candidate construction, or activation progress.
+//! Boundary: recovered runtime/catalog authority plus one proposal -> atomic publication and receipt.
 
 use crate::{
     db::{
@@ -10,21 +10,30 @@ use crate::{
             finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_len_u32, write_hash_str_u32,
             write_hash_tag_u8, write_hash_u64,
         },
-        commit::{database_incarnation_id, ensure_recovered},
+        commit::{
+            AcceptedSchemaPublication, database_incarnation_id, ensure_recovered,
+            publish_accepted_schema_candidates_with_application_record,
+        },
+        data::DataStore,
+        index::{IndexState, IndexStore},
         registry::{
             StoreAllocationIdentity, StoreAllocationIdentityCapability, StoreCommitParticipation,
             StoreDurability, StoreHandle, StoreRecoveryCapability, StoreRelationSourceCapability,
             StoreRelationTargetCapability, StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
         },
-        schema::{SchemaChangeReceipt, with_schema_application_store},
+        schema::{
+            AcceptedSchemaRevision, ProposalStoreTarget, SchemaApplicationRecord,
+            SchemaApplicationRecordOp, SchemaChangeOutcome, SchemaChangeReceipt,
+            lower_initial_schema_proposal, with_schema_application_store,
+        },
     },
     error::InternalError,
     traits::CanisterKind,
 };
 use candid::CandidType;
 use icydb_schema::{
-    ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaSubmissionKey, TargetDatabaseIdentity,
-    TargetStoreIdentity,
+    ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaProposal, SchemaSubmissionKey,
+    TargetDatabaseIdentity, TargetStoreIdentity,
 };
 use serde::Deserialize;
 use sha2::Digest;
@@ -173,6 +182,148 @@ pub(in crate::db) fn schema_application_receipt<C: CanisterKind>(
             .load(database_identity, submission_key)
             .map(|record| record.map(|record| record.receipt().clone()))
     })
+}
+
+/// Apply one exact source-keyed schema proposal through catalog-native
+/// accepted candidates and the durable application-receipt boundary.
+pub(in crate::db) fn apply_schema<C: CanisterKind>(
+    db: &Db<C>,
+    proposal: &SchemaProposal,
+) -> Result<SchemaChangeReceipt, InternalError> {
+    ensure_recovered(db)?;
+    let proposal_digest = proposal
+        .digest()
+        .map_err(|_| InternalError::store_unsupported())?;
+    if let Some(record) = with_schema_application_store(|store| {
+        store.load(proposal.target_database(), proposal.submission_key())
+    })? {
+        let receipt = record.receipt();
+        if receipt.is_exact_submission(
+            proposal.target_database(),
+            proposal.submission_key(),
+            proposal_digest,
+            proposal.expected_head(),
+        ) {
+            return Ok(receipt.clone());
+        }
+        return Err(InternalError::schema_application_conflict());
+    }
+
+    let target = schema_application_target(db)?;
+    if target.database_identity() != proposal.target_database()
+        || target.accepted_head() != proposal.expected_head()
+    {
+        return Err(InternalError::schema_application_conflict());
+    }
+
+    let authorities = application_authorities(db);
+    let candidates = match target.accepted_head() {
+        ExpectedAcceptedHead::Empty => {
+            let stores = authorities
+                .iter()
+                .map(|authority| ProposalStoreTarget {
+                    path: authority.path,
+                    identity: derive_store_identity(target.database_identity(), authority),
+                })
+                .collect::<Vec<_>>();
+            lower_initial_schema_proposal(proposal, stores.as_slice())?
+        }
+        ExpectedAcceptedHead::Exact { .. }
+            if proposal.fragments().is_empty() && proposal.removals().is_empty() =>
+        {
+            Vec::new()
+        }
+        ExpectedAcceptedHead::Exact { .. } => return Err(InternalError::store_unsupported()),
+    };
+
+    for candidate in &candidates {
+        let authority = authorities
+            .iter()
+            .find(|authority| authority.path == candidate.store_path())
+            .ok_or_else(InternalError::store_unsupported)?;
+        if authority.handle.with_data(DataStore::len) != 0
+            || authority.handle.index_state() != IndexState::Ready
+            || !authority.handle.with_index(IndexStore::is_empty)
+        {
+            return Err(InternalError::store_unsupported());
+        }
+    }
+    let accepted_head = if candidates.is_empty() {
+        target.accepted_head().clone()
+    } else {
+        accepted_head_after_candidates(authorities.as_slice(), candidates.as_slice())?
+    };
+    let outcome = if candidates.is_empty() {
+        SchemaChangeOutcome::NoOp { accepted_head }
+    } else {
+        SchemaChangeOutcome::Applied { accepted_head }
+    };
+    let receipt = SchemaChangeReceipt::new(
+        target.database_identity(),
+        proposal.submission_key().clone(),
+        proposal_digest,
+        target.accepted_head().clone(),
+        outcome,
+    )?;
+    let record = SchemaApplicationRecord::new(receipt.clone(), Vec::new())?;
+    let operation = SchemaApplicationRecordOp::insert(&record)?;
+    let publications = candidates
+        .iter()
+        .map(|candidate| {
+            let authority = authorities
+                .iter()
+                .find(|authority| authority.path == candidate.store_path())
+                .ok_or_else(InternalError::store_unsupported)?;
+            Ok(AcceptedSchemaPublication::new(
+                authority.path,
+                authority.handle,
+                AcceptedSchemaRevision::NONE,
+                candidate,
+            ))
+        })
+        .collect::<Result<Vec<_>, InternalError>>()?;
+    publish_accepted_schema_candidates_with_application_record(publications, operation)?;
+    Ok(receipt)
+}
+
+fn application_authorities<C: CanisterKind>(db: &Db<C>) -> Vec<StoreApplicationAuthority> {
+    let mut authorities = db.with_store_registry(|registry| {
+        registry
+            .iter()
+            .map(|(path, handle)| StoreApplicationAuthority { path, handle })
+            .collect::<Vec<_>>()
+    });
+    authorities.sort_by(|left, right| left.path.cmp(right.path));
+    authorities
+}
+
+fn accepted_head_after_candidates(
+    authorities: &[StoreApplicationAuthority],
+    candidates: &[crate::db::schema::CandidateSchemaRevision],
+) -> Result<ExpectedAcceptedHead, InternalError> {
+    let heads = authorities
+        .iter()
+        .map(|authority| {
+            let candidate = candidates
+                .iter()
+                .find(|candidate| candidate.store_path() == authority.path);
+            let head = match candidate {
+                Some(candidate) => Some(AcceptedStoreHead {
+                    revision: candidate.revision().get(),
+                    fingerprint: candidate.root().fingerprint().as_bytes(),
+                }),
+                None => authority
+                    .handle
+                    .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_root)?
+                    .map(|selection| AcceptedStoreHead {
+                        revision: selection.root().revision().get(),
+                        fingerprint: selection.root().fingerprint().as_bytes(),
+                    }),
+            };
+            Ok((authority.path, head))
+        })
+        .collect::<Result<Vec<_>, InternalError>>()?;
+    Ok(derive_accepted_head(heads.as_slice()))
 }
 
 fn derive_database_identity(

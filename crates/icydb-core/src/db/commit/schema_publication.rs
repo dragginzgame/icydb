@@ -15,8 +15,10 @@ use crate::{
         relation::{RelationConstraintIndexEntry, RelationConstraintProjection},
         schema::{
             AcceptedSchemaRevision, CandidateSchemaRevision, ConstraintId, ConstraintValidationJob,
-            StagedDerivedDomainReplacement, StagedUserIndexDomainReplacement,
+            SchemaApplicationRecordOp, StagedDerivedDomainReplacement,
+            StagedUserIndexDomainReplacement,
             accepted_schema_cache_fingerprint_for_persisted_snapshot,
+            apply_schema_application_record_op,
         },
     },
     error::InternalError,
@@ -98,10 +100,30 @@ pub(in crate::db) fn publish_accepted_schema_candidate(
 /// database-scoped publication, so mixed or multi-heap input rejects before
 /// mutation.
 pub(in crate::db) fn publish_accepted_schema_candidates_atomically(
+    publications: Vec<AcceptedSchemaPublication<'_>>,
+) -> Result<(), InternalError> {
+    publish_accepted_schema_candidates_with_optional_application_record(publications, None)
+}
+
+/// Publish zero or more accepted candidates and one terminal application
+/// receipt through the same database-wide marker boundary.
+pub(in crate::db) fn publish_accepted_schema_candidates_with_application_record(
+    publications: Vec<AcceptedSchemaPublication<'_>>,
+    application_record: SchemaApplicationRecordOp,
+) -> Result<(), InternalError> {
+    publish_accepted_schema_candidates_with_optional_application_record(
+        publications,
+        Some(application_record),
+    )
+}
+
+fn publish_accepted_schema_candidates_with_optional_application_record(
     mut publications: Vec<AcceptedSchemaPublication<'_>>,
+    application_record: Option<SchemaApplicationRecordOp>,
 ) -> Result<(), InternalError> {
     if publications.is_empty() {
-        return Err(InternalError::store_invariant());
+        let application_record = application_record.ok_or_else(InternalError::store_invariant)?;
+        return publish_application_record_atomically(application_record);
     }
     publications.sort_by_key(|publication| publication.store_path);
     if publications
@@ -133,7 +155,11 @@ pub(in crate::db) fn publish_accepted_schema_candidates_atomically(
         })
         .collect::<Result<Vec<_>, _>>()?;
     if already_current.iter().all(|current| *current) {
-        return Ok(());
+        return if application_record.is_none() {
+            Ok(())
+        } else {
+            Err(InternalError::store_invariant())
+        };
     }
     if already_current.iter().any(|current| *current) {
         return Err(InternalError::store_invariant());
@@ -142,6 +168,9 @@ pub(in crate::db) fn publish_accepted_schema_candidates_atomically(
     if publications.len() == 1
         && publications[0].store.storage_capabilities().recovery() == StoreRecoveryCapability::None
     {
+        if application_record.is_some() {
+            return Err(InternalError::store_unsupported());
+        }
         let publication = &publications[0];
         return publication.store.with_schema_mut(|schema_store| {
             schema_store.publish_accepted_schema_candidate(
@@ -157,7 +186,7 @@ pub(in crate::db) fn publish_accepted_schema_candidates_atomically(
         return Err(InternalError::store_unsupported());
     }
 
-    publish_journaled_candidates_atomically(publications.as_slice())
+    publish_journaled_candidates_atomically(publications.as_slice(), application_record)
 }
 
 /// Publish one accepted candidate and the exact validation job its new
@@ -431,6 +460,7 @@ fn publish_journaled_candidate(
 
 fn publish_journaled_candidates_atomically(
     publications: &[AcceptedSchemaPublication<'_>],
+    application_record: Option<SchemaApplicationRecordOp>,
 ) -> Result<(), InternalError> {
     let marker_id = generate_commit_id()?;
     let mut batches = Vec::with_capacity(publications.len());
@@ -455,7 +485,11 @@ fn publish_journaled_candidates_atomically(
             vec![record],
         )?);
     }
-    let marker = CommitMarker::from_parts(marker_id, batches.clone())?;
+    let marker = CommitMarker::from_parts_with_schema_application(
+        marker_id,
+        batches.clone(),
+        application_record.clone(),
+    )?;
     let commit = begin_commit(marker)?;
 
     finish_commit(commit, |_guard| {
@@ -474,7 +508,25 @@ fn publish_journaled_candidates_atomically(
                 )
             })?;
         }
+        if let Some(operation) = application_record.as_ref() {
+            apply_schema_application_record_op(operation)?;
+        }
         Ok(())
+    })
+}
+
+fn publish_application_record_atomically(
+    application_record: SchemaApplicationRecordOp,
+) -> Result<(), InternalError> {
+    let marker_id = generate_commit_id()?;
+    let marker = CommitMarker::from_parts_with_schema_application(
+        marker_id,
+        Vec::new(),
+        Some(application_record.clone()),
+    )?;
+    let commit = begin_commit(marker)?;
+    finish_commit(commit, |_guard| {
+        apply_schema_application_record_op(&application_record)
     })
 }
 

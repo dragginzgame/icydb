@@ -6,6 +6,7 @@
 mod accepted_field_kind;
 mod accepted_value_admission;
 mod application;
+mod application_lowering;
 mod application_receipt;
 mod application_store;
 pub(in crate::db) mod authored_projection;
@@ -58,7 +59,12 @@ pub use errors::{SchemaLiteralValidationReason, SchemaValidationOperator, Valida
 pub(in crate::db) use accepted_field_kind::AcceptedFieldKind;
 pub(in crate::db) use accepted_value_admission::AcceptedValueAdmissionContract;
 pub use application::{SchemaApplicationStore, SchemaApplicationTarget};
-pub(in crate::db) use application::{schema_application_receipt, schema_application_target};
+pub(in crate::db) use application::{
+    apply_schema, schema_application_receipt, schema_application_target,
+};
+pub(in crate::db::schema) use application_lowering::{
+    ProposalStoreTarget, lower_initial_schema_proposal,
+};
 pub(in crate::db) use application_receipt::SchemaApplicationRecord;
 #[cfg(test)]
 pub(in crate::db) use application_receipt::{
@@ -79,7 +85,6 @@ pub(in crate::db) use capabilities::{
     SqlCapabilities, sql_capabilities_for_model_kind, sql_capabilities_with_enum_catalog,
 };
 pub(in crate::db) use check::bind_generated_check_predicate;
-pub(in crate::db::schema) use check::validate_accepted_check_literals;
 pub(in crate::db) use check::{
     AcceptedCheckCompareOpV1, AcceptedCheckExprV1, AcceptedCheckLiteralV1,
     AcceptedCheckValueExprV1, AcceptedRowConstraintEvaluationError,
@@ -90,6 +95,9 @@ pub(in crate::db) use check::{
 pub(in crate::db) use check::{AcceptedCheckExprV1Error, bind_sql_check_expr};
 #[cfg(test)]
 pub(in crate::db) use check::{CheckExprV1Input, CheckValueExprV1Input, bind_check_expr_v1};
+pub(in crate::db::schema) use check::{
+    bind_source_check_expr, source_literal_input, validate_accepted_check_literals,
+};
 pub(in crate::db) use codec::{
     MAX_SCHEMA_SNAPSHOT_BYTES, decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
 };
@@ -134,6 +142,7 @@ pub(in crate::db) use describe::{
     describe_entity_fields, describe_entity_fields_with_persisted_schema, describe_entity_model,
     describe_entity_model_with_persisted_schema,
 };
+pub(in crate::db::schema) use enum_catalog::AcceptedStoreCatalogScope;
 pub(in crate::db) use enum_catalog::{
     AcceptedEnumCatalog, AcceptedSchemaAuthority, AcceptedSchemaFingerprint,
     AcceptedSchemaRevision, AcceptedSchemaRevisionBundle, AcceptedValueCatalogHandle,
@@ -282,7 +291,7 @@ pub(in crate::db) use snapshot::{
 };
 pub(in crate::db) use source_binding::AcceptedSourceBindingCatalog;
 pub(in crate::db::schema) use source_binding::{
-    decode_accepted_source_bindings, encode_accepted_source_bindings,
+    AcceptedNamedTypeIdentity, decode_accepted_source_bindings, encode_accepted_source_bindings,
 };
 pub use store::SchemaStore;
 pub(in crate::db) use store::{
