@@ -199,3 +199,51 @@ fn accepted_composite_catalog_rejects_recursive_decoded_graphs() {
 
     assert!(!recursive.validate(&enum_catalog));
 }
+
+#[test]
+fn accepted_composite_catalog_removes_only_unreferenced_type_identity() {
+    let enum_catalog =
+        super::super::enum_catalog::build_initial_accepted_enum_catalog_from_kinds_for_tests(&[])
+            .expect("empty enum catalog should build");
+    let leaf_id = CompositeTypeId::new(1).expect("one is non-zero");
+    let wrapper_id = CompositeTypeId::new(2).expect("two is non-zero");
+    let catalog = AcceptedCompositeCatalog::from_initial_definitions(
+        BTreeMap::from([
+            (
+                leaf_id,
+                (
+                    "tests::Leaf".to_string(),
+                    AcceptedCompositeShape::Newtype(AcceptedCompositeElement {
+                        kind: AcceptedFieldKind::Nat64,
+                        nullable: false,
+                    }),
+                ),
+            ),
+            (
+                wrapper_id,
+                (
+                    "tests::Wrapper".to_string(),
+                    AcceptedCompositeShape::Newtype(AcceptedCompositeElement {
+                        kind: AcceptedFieldKind::Composite { type_id: leaf_id },
+                        nullable: false,
+                    }),
+                ),
+            ),
+        ]),
+        &enum_catalog,
+    )
+    .expect("dependent composite catalog should build");
+
+    assert_eq!(
+        catalog.clone().with_removed_type(leaf_id, &enum_catalog),
+        Err(CompositeCatalogBuildError::FieldKindResolution),
+    );
+    let without_wrapper = catalog
+        .with_removed_type(wrapper_id, &enum_catalog)
+        .expect("unreferenced wrapper should remove");
+    let empty = without_wrapper
+        .with_removed_type(leaf_id, &enum_catalog)
+        .expect("leaf should remove after its final dependent");
+
+    assert!(empty.id_by_path().is_empty());
+}

@@ -318,6 +318,25 @@ impl AcceptedEnumCatalog {
         Ok(self)
     }
 
+    /// Remove one exact accepted enum definition.
+    ///
+    /// The application lowerer resolves the immutable source identity and
+    /// removes dependent source bindings separately. Catalog and bundle
+    /// validation reject any definition that still refers to this type.
+    pub(in crate::db::schema) fn with_removed_type(
+        mut self,
+        type_id: EnumTypeId,
+    ) -> Result<Self, EnumCatalogBuildError> {
+        let definition = self
+            .by_id
+            .remove(&type_id)
+            .ok_or(EnumCatalogBuildError::LookupMapInvariant)?;
+        if self.id_by_path.remove(definition.path.as_str()) != Some(type_id) || !self.validate() {
+            return Err(EnumCatalogBuildError::LookupMapInvariant);
+        }
+        Ok(self)
+    }
+
     fn validate(&self) -> bool {
         self.lookup_maps_are_bijective() && self.contract_graph_is_valid()
     }
@@ -398,6 +417,28 @@ impl AcceptedEnumCatalog {
             &mut BTreeSet::new(),
             0,
         )
+    }
+
+    /// Verify that every composite identity reachable from an enum payload is
+    /// owned by the supplied store-local composite catalog.
+    pub(in crate::db::schema) fn composite_references_are_resolved(
+        &self,
+        composite_catalog: &AcceptedCompositeCatalog,
+    ) -> bool {
+        let mut references = BTreeSet::new();
+        let complete = self.by_id.values().all(|definition| {
+            definition.variants_by_id.values().all(|variant| {
+                if let AcceptedEnumVariantBody::Payload { contract } = &variant.body {
+                    self.collect_composite_references(&contract.kind, &mut references)
+                } else {
+                    true
+                }
+            })
+        });
+        complete
+            && references
+                .into_iter()
+                .all(|type_id| composite_catalog.composite_type(type_id).is_some())
     }
 }
 

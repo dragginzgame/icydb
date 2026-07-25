@@ -176,6 +176,29 @@ impl AcceptedSourceBindingCatalog {
         self.types.get(source).copied()
     }
 
+    /// Remove one exact named-type binding and its child identity closure.
+    pub(in crate::db::schema) fn remove_named_type(
+        &mut self,
+        source: &TypeSourceKey,
+        expected: AcceptedNamedTypeIdentity,
+    ) -> Result<(), InternalError> {
+        match self.types.remove(source) {
+            Some(actual) if actual == expected => {}
+            Some(_) | None => return Err(InternalError::store_invariant()),
+        }
+        match expected {
+            AcceptedNamedTypeIdentity::Enum(type_id) => {
+                self.enum_variants
+                    .retain(|(bound_type, _), _| *bound_type != type_id);
+            }
+            AcceptedNamedTypeIdentity::Composite(type_id) => {
+                self.composite_fields
+                    .retain(|(bound_type, _), _| *bound_type != type_id);
+            }
+        }
+        Ok(())
+    }
+
     /// Resolve one immutable unit-variant identity inside an accepted enum.
     #[must_use]
     pub(in crate::db::schema) fn enum_variant(

@@ -158,6 +158,28 @@ impl AcceptedCompositeCatalog {
         Ok(self)
     }
 
+    /// Remove one exact accepted composite definition.
+    ///
+    /// Validation rejects retained composite definitions that still refer to
+    /// the removed identity. Entity-field closure remains owned by the
+    /// accepted revision bundle.
+    pub(in crate::db::schema) fn with_removed_type(
+        mut self,
+        type_id: CompositeTypeId,
+        enum_catalog: &AcceptedEnumCatalog,
+    ) -> Result<Self, CompositeCatalogBuildError> {
+        let definition = self
+            .by_id
+            .remove(&type_id)
+            .ok_or(CompositeCatalogBuildError::FieldKindResolution)?;
+        if self.id_by_path.remove(definition.path.as_str()) != Some(type_id)
+            || !self.validate(enum_catalog)
+        {
+            return Err(CompositeCatalogBuildError::FieldKindResolution);
+        }
+        Ok(self)
+    }
+
     #[must_use]
     #[cfg(test)]
     pub(in crate::db) fn type_id(&self, path: &str) -> Option<CompositeTypeId> {
@@ -229,6 +251,7 @@ impl AcceptedCompositeCatalog {
 
     pub(in crate::db::schema) fn validate(&self, enum_catalog: &AcceptedEnumCatalog) -> bool {
         self.by_id.len() == self.id_by_path.len()
+            && enum_catalog.composite_references_are_resolved(self)
             && self.id_by_path.iter().all(|(path, type_id)| {
                 self.by_id
                     .get(type_id)

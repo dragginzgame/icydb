@@ -3237,6 +3237,26 @@ fn generated_status_field_removal_proposal(
     .expect("generated field removal should compose")
 }
 
+fn generated_status_type_removal_proposal(
+    target: &crate::db::SchemaApplicationTarget,
+    submission_key: &str,
+) -> icydb_schema::SchemaProposal {
+    icydb_schema::SchemaProposal::try_compose(
+        Vec::new(),
+        target.database_identity(),
+        icydb_schema::SchemaSubmissionKey::try_new(submission_key)
+            .expect("test submission key should admit"),
+        target.accepted_head().clone(),
+        Vec::new(),
+        Vec::new(),
+        vec![icydb_schema::SchemaRemoval::Type(
+            icydb_schema::TypeSourceKey::try_new("test:type:standalone-status")
+                .expect("test type source should admit"),
+        )],
+    )
+    .expect("generated named-type removal should compose")
+}
+
 fn generated_status_index_removal_proposal(
     target: &crate::db::SchemaApplicationTarget,
     submission_key: &str,
@@ -4322,6 +4342,121 @@ fn schema_application_rejects_generated_field_removal_from_nonempty_entity() {
     let rejection = session
         .apply_schema(&proposal)
         .expect_err("nonempty field removal must reject before publication");
+    let accepted_after = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("accepted bundle should remain readable")
+        .expect("accepted bundle should remain present");
+
+    assert_eq!(rejection.class(), ErrorClass::Unsupported);
+    assert_eq!(accepted_after, accepted_before);
+    assert_eq!(
+        session
+            .schema_application_receipt(after_target.database_identity(), proposal.submission_key())
+            .expect("rejected receipt lookup should succeed"),
+        None,
+    );
+}
+
+#[test]
+fn schema_application_removes_explicitly_unused_generated_named_type() {
+    let session = reset_standalone_schema_application_fixture();
+    let initial_target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial = initial_named_application_proposal(
+        &initial_target,
+        "generated-type-removal-initial",
+        false,
+        "status",
+    );
+    session
+        .apply_schema(&initial)
+        .expect("initial generated schema should publish");
+
+    let field_target = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let field_removal =
+        generated_status_field_removal_proposal(&field_target, "remove-type-field-first");
+    session
+        .apply_schema(&field_removal)
+        .expect("empty-domain field removal should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("field-removal accepted bundle should load")
+        .expect("field-removal accepted bundle should exist");
+
+    let type_target = session
+        .schema_application_target()
+        .expect("field-removal target should derive");
+    let proposal =
+        generated_status_type_removal_proposal(&type_target, "remove-unused-generated-type");
+    let receipt = session
+        .apply_schema(&proposal)
+        .expect("unused generated named type should be removable");
+    let replay = session
+        .apply_schema(&proposal)
+        .expect("exact named-type removal retry should replay");
+    let accepted_after = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("type-removal accepted bundle should load")
+        .expect("type-removal accepted bundle should exist");
+
+    assert_eq!(replay, receipt);
+    assert!(matches!(
+        receipt.outcome(),
+        crate::db::SchemaChangeOutcome::Applied { .. }
+    ));
+    assert_eq!(accepted_after.revision().get(), 3);
+    assert_eq!(
+        accepted_after.entity_snapshots(),
+        accepted_before.entity_snapshots(),
+        "metadata-only named-type removal must not alter entity or row layout authority",
+    );
+    assert_eq!(
+        accepted_after
+            .source_bindings_for_tests()
+            .named_type_binding_count_for_tests(),
+        0,
+    );
+    assert_eq!(
+        accepted_after
+            .source_bindings_for_tests()
+            .enum_variant_binding_count_for_tests(),
+        0,
+    );
+}
+
+#[test]
+fn schema_application_rejects_generated_named_type_removal_while_referenced() {
+    let session = reset_standalone_schema_application_fixture();
+    let target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial = initial_named_application_proposal(
+        &target,
+        "referenced-generated-type-removal-initial",
+        false,
+        "status",
+    );
+    session
+        .apply_schema(&initial)
+        .expect("initial generated schema should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let after_target = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let proposal = generated_status_type_removal_proposal(
+        &after_target,
+        "reject-referenced-generated-type-removal",
+    );
+
+    let rejection = session
+        .apply_schema(&proposal)
+        .expect_err("referenced generated named type must reject before publication");
     let accepted_after = JOURNALED_SESSION_SQL_SCHEMA_STORE
         .with_borrow(SchemaStore::current_accepted_schema_bundle)
         .expect("accepted bundle should remain readable")

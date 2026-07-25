@@ -171,6 +171,14 @@ struct InitialObjectBindings {
     constraints: BTreeMap<(EntityTag, icydb_schema::ConstraintSourceKey), ConstraintId>,
 }
 
+type ExistingEntitiesByStore<'store, 'bundle, 'proposal> = BTreeMap<
+    &'static str,
+    (
+        &'store ExistingProposalStore<'bundle>,
+        Vec<&'proposal EntityFragment>,
+    ),
+>;
+
 fn lower_initial_named_types(
     entities: &[&EntityFragment],
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
@@ -505,12 +513,12 @@ pub(in crate::db::schema) fn lower_initial_schema_proposal(
 ///
 /// This existing-head lane owns future insert-default and source-keyed display
 /// metadata reconciliation, plus explicit removal of accepted generated
-/// checks and addition of generated checks whose complete historical domain is
-/// proven empty at the application boundary. Every structural fact must
-/// resolve through immutable source bindings and match accepted authority
-/// exactly. Other additions, activation work, and physical changes therefore
-/// fail before candidate construction instead of falling back to
-/// generated-model reconciliation.
+/// checks, fields, indexes, and unreferenced named types and addition of
+/// generated checks whose complete historical domain is proven empty at the
+/// application boundary. Every structural fact must resolve through immutable
+/// source bindings and match accepted authority exactly. Other additions,
+/// activation work, and physical changes therefore fail before candidate
+/// construction instead of falling back to generated-model reconciliation.
 pub(in crate::db::schema) fn lower_existing_schema_proposal(
     proposal: &SchemaProposal,
     stores: &[ExistingProposalStore<'_>],
@@ -535,8 +543,7 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
         return Err(InternalError::store_unsupported());
     }
 
-    let mut entities_by_store =
-        BTreeMap::<&'static str, (&ExistingProposalStore<'_>, Vec<&EntityFragment>)>::new();
+    let mut entities_by_store = ExistingEntitiesByStore::new();
     let mut removals_by_store = BTreeMap::<&'static str, ExistingStoreRemovals>::new();
     for assignment in proposal.assignments() {
         let store = store_by_identity
@@ -555,6 +562,15 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
             .push(entity);
     }
     for removal in proposal.removals() {
+        if let SchemaRemoval::Type(source) = removal {
+            attach_existing_type_removal(
+                stores,
+                source,
+                &mut entities_by_store,
+                &mut removals_by_store,
+            )?;
+            continue;
+        }
         let (store, resolved) = resolve_existing_removal(stores, removal)?;
         entities_by_store
             .entry(store.path)
@@ -611,12 +627,20 @@ struct ExistingIndexRemoval {
     id: SchemaIndexId,
 }
 
+/// One source-resolved generated named type selected for exact removal.
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
+struct ExistingTypeRemoval {
+    source: TypeSourceKey,
+    identity: AcceptedNamedTypeIdentity,
+}
+
 /// Source-resolved removals grouped for one store-local candidate.
 #[derive(Default)]
 struct ExistingStoreRemovals {
     checks: Vec<ExistingCheckRemoval>,
     fields: Vec<ExistingFieldRemoval>,
     indexes: Vec<ExistingIndexRemoval>,
+    types: Vec<ExistingTypeRemoval>,
 }
 
 impl ExistingStoreRemovals {
@@ -648,7 +672,11 @@ fn lower_existing_store_candidate(
     removals.checks.sort();
     removals.fields.sort();
     removals.indexes.sort();
-    let catalogs =
+    removals.types.sort();
+    if removals.types.len() > 1 {
+        return Err(InternalError::store_unsupported());
+    }
+    let mut catalogs =
         lower_existing_named_catalogs(store.bundle, entities.as_slice(), types, used_types)?;
     let mut snapshots = store.bundle.entity_snapshots().clone();
     let mut source_bindings = store.bundle.source_bindings().clone();
@@ -667,6 +695,12 @@ fn lower_existing_store_candidate(
         &mut source_bindings,
         removals.fields.as_slice(),
     )?);
+    apply_existing_type_removals(
+        &mut catalogs,
+        &snapshots,
+        &mut source_bindings,
+        removals.types.as_slice(),
+    )?;
     advance_removed_entity_schema_versions(&mut snapshots, &removal_entity_tags)?;
     let proposed_entity_tags = entities
         .iter()
@@ -679,8 +713,10 @@ fn lower_existing_store_candidate(
         })
         .collect::<Result<BTreeSet<_>, _>>()?;
     verify_unrebuildable_enum_predicates(store.bundle, &catalogs, &proposed_entity_tags)?;
-    let mut changed =
-        !removals.checks.is_empty() || !removals.fields.is_empty() || !removals.indexes.is_empty();
+    let mut changed = !removals.checks.is_empty()
+        || !removals.fields.is_empty()
+        || !removals.indexes.is_empty()
+        || !removals.types.is_empty();
     for entity in entities {
         let entity_tag = store
             .bundle
@@ -746,6 +782,86 @@ fn resolve_existing_removal<'store, 'bundle>(
             Err(InternalError::store_unsupported())
         }
     }
+}
+
+/// Attach one source-keyed named-type removal to every store-local accepted
+/// copy of that same generated definition.
+fn attach_existing_type_removal<'store, 'bundle>(
+    stores: &'store [ExistingProposalStore<'bundle>],
+    source: &TypeSourceKey,
+    entities_by_store: &mut ExistingEntitiesByStore<'store, 'bundle, '_>,
+    removals_by_store: &mut BTreeMap<&'static str, ExistingStoreRemovals>,
+) -> Result<(), InternalError> {
+    let mut found = false;
+    for store in stores {
+        let Some(identity) = store.bundle.source_bindings().named_type(source) else {
+            continue;
+        };
+        found = true;
+        entities_by_store
+            .entry(store.path)
+            .or_insert_with(|| (store, Vec::new()));
+        removals_by_store
+            .entry(store.path)
+            .or_default()
+            .types
+            .push(ExistingTypeRemoval {
+                source: source.clone(),
+                identity,
+            });
+    }
+    if !found {
+        return Err(InternalError::store_unsupported());
+    }
+    Ok(())
+}
+
+fn apply_existing_type_removals(
+    catalogs: &mut ExistingCatalogCandidate,
+    snapshots: &BTreeMap<EntityTag, PersistedSchemaSnapshot>,
+    source_bindings: &mut AcceptedSourceBindingCatalog,
+    removals: &[ExistingTypeRemoval],
+) -> Result<(), InternalError> {
+    for removal in removals {
+        match removal.identity {
+            AcceptedNamedTypeIdentity::Enum(type_id) => {
+                catalogs.enum_catalog = catalogs
+                    .enum_catalog
+                    .clone()
+                    .with_removed_type(type_id)
+                    .map_err(|_| InternalError::store_unsupported())?;
+                if !catalogs.composite_catalog.validate(&catalogs.enum_catalog) {
+                    return Err(InternalError::store_unsupported());
+                }
+            }
+            AcceptedNamedTypeIdentity::Composite(type_id) => {
+                catalogs.composite_catalog = catalogs
+                    .composite_catalog
+                    .clone()
+                    .with_removed_type(type_id, &catalogs.enum_catalog)
+                    .map_err(|_| InternalError::store_unsupported())?;
+            }
+        }
+        source_bindings.remove_named_type(&removal.source, removal.identity)?;
+        catalogs.changed = true;
+    }
+    if snapshots
+        .values()
+        .flat_map(PersistedSchemaSnapshot::fields)
+        .any(|field| {
+            !catalogs
+                .composite_catalog
+                .matches_kind(&catalogs.enum_catalog, field.kind())
+                || field.nested_leaves().iter().any(|leaf| {
+                    !catalogs
+                        .composite_catalog
+                        .matches_kind(&catalogs.enum_catalog, leaf.kind())
+                })
+        })
+    {
+        return Err(InternalError::store_unsupported());
+    }
+    Ok(())
 }
 
 /// Resolve one removal solely through immutable accepted source identity.
