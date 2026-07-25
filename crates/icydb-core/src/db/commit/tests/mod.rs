@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        Db, EntityRuntimeHooks, Predicate,
+        Db, DbSession, EntityRuntimeHooks, Predicate,
         codec::{
             ROW_FORMAT_VERSION_CURRENT, decode_row_payload_bytes, serialize_row_payload,
             serialize_row_payload_with_version,
@@ -34,7 +34,8 @@ use crate::{
         registry::{StoreHandle, StoreRegistry},
         relation::validate_delete_relations_for_source,
         schema::{
-            AcceptedSchemaSnapshot, FieldId, PersistedSchemaSnapshot, SchemaFieldSlot,
+            AcceptedSchemaSnapshot, FieldId, PersistedSchemaSnapshot, SchemaApplicationRecord,
+            SchemaApplicationRecordOp, SchemaChangeOutcome, SchemaChangeReceipt, SchemaFieldSlot,
             SchemaRowLayout, SchemaStore, SchemaVersion, accepted_commit_schema_fingerprint,
             compiled_schema_proposal_for_model, publish_test_accepted_schema_snapshot,
         },
@@ -51,6 +52,10 @@ use crate::{
     value::{RuntimeValueDecode, RuntimeValueEncode, Value, ValueEnum},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
+use icydb_schema::{
+    ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaProposalDigest, SchemaSubmissionKey,
+    TargetDatabaseIdentity,
+};
 use serde::Deserialize;
 use std::{
     cell::RefCell,
@@ -3471,6 +3476,7 @@ fn recovery_rejects_incompatible_marker_format_version_fail_closed() {
     let marker = CommitMarker {
         id: [0xAB; 16],
         journal_batches: Vec::new(),
+        schema_application: None,
     };
     let marker_payload =
         encode_commit_marker_payload(&marker).expect("marker payload encode should succeed");
@@ -3506,10 +3512,51 @@ fn recovery_rejects_incompatible_marker_format_version_fail_closed() {
 }
 
 #[test]
+fn recovery_applies_and_verifies_marker_owned_schema_application_record() {
+    reset_recovery_state();
+    let database_identity = TargetDatabaseIdentity::from_bytes([0xA1; 32]);
+    let submission_key =
+        SchemaSubmissionKey::try_new("commit-recovery").expect("submission key should admit");
+    let receipt = SchemaChangeReceipt::new(
+        database_identity,
+        submission_key.clone(),
+        SchemaProposalDigest::from_bytes([0xA2; 32]),
+        ExpectedAcceptedHead::Empty,
+        SchemaChangeOutcome::Applied {
+            accepted_head: ExpectedAcceptedHead::Exact {
+                revision: 1,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0xA3; 32]),
+            },
+        },
+    )
+    .expect("receipt should admit");
+    let record = SchemaApplicationRecord::new(receipt, Vec::new()).expect("record should admit");
+    let operation =
+        SchemaApplicationRecordOp::insert(&record).expect("record effect should prepare");
+    let marker =
+        CommitMarker::from_parts_with_schema_application([0xA4; 16], Vec::new(), Some(operation))
+            .expect("marker should admit");
+
+    begin_commit(marker).expect("marker should persist");
+    clear_recovery_runtime_state_for_tests(&DB).expect("runtime recovery authority should clear");
+    ensure_recovered(&DB).expect("recovery should apply the record forward");
+
+    let recovered = DbSession::new(DB)
+        .schema_application_receipt(database_identity, &submission_key)
+        .expect("application record should load");
+    assert_eq!(recovered, Some(record.receipt().clone()));
+    assert!(
+        !commit_marker_present().expect("marker presence should be readable"),
+        "recovery must clear only after exact receipt verification",
+    );
+}
+
+#[test]
 fn commit_control_slot_direct_encoder_matches_canonical_two_stage_encoding() {
     let marker = CommitMarker {
         id: [0x6B; 16],
         journal_batches: Vec::new(),
+        schema_application: None,
     };
     let marker_payload = encode_commit_marker_payload(&marker)
         .expect("multi-row marker payload encode should succeed");

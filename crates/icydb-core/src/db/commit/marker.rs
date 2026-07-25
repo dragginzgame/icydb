@@ -13,6 +13,7 @@ use crate::{
         journal::{
             JournalBatch, decode_journal_batch, encode_journal_batch, journal_batch_encoded_len,
         },
+        schema::{ApplicationRecordKey, SchemaApplicationRecordOp},
     },
     error::InternalError,
     runtime::now_millis,
@@ -182,6 +183,7 @@ impl CommitIndexOp {
 pub(crate) struct CommitMarker {
     pub(crate) id: [u8; COMMIT_ID_BYTES],
     pub(in crate::db) journal_batches: Vec<JournalBatch>,
+    pub(in crate::db) schema_application: Option<SchemaApplicationRecordOp>,
 }
 
 impl CommitMarker {
@@ -210,9 +212,20 @@ impl CommitMarker {
         id: [u8; COMMIT_ID_BYTES],
         journal_batches: Vec<JournalBatch>,
     ) -> Result<Self, InternalError> {
+        Self::from_parts_with_schema_application(id, journal_batches, None)
+    }
+
+    /// Construct one marker that also owns an exact schema-application record
+    /// replacement in the database-control region.
+    pub(in crate::db) fn from_parts_with_schema_application(
+        id: [u8; COMMIT_ID_BYTES],
+        journal_batches: Vec<JournalBatch>,
+        schema_application: Option<SchemaApplicationRecordOp>,
+    ) -> Result<Self, InternalError> {
         let marker = Self {
             id,
             journal_batches,
+            schema_application,
         };
         validate_commit_marker_shape(&marker)?;
 
@@ -223,6 +236,12 @@ impl CommitMarker {
     #[must_use]
     pub(in crate::db) fn journal_batches(&self) -> &[JournalBatch] {
         &self.journal_batches
+    }
+
+    /// Borrow the exact database-wide schema-application record effect.
+    #[must_use]
+    pub(in crate::db) const fn schema_application(&self) -> Option<&SchemaApplicationRecordOp> {
+        self.schema_application.as_ref()
     }
 
     // Build the canonical payload corruption for truncated variable-length fields.
@@ -280,6 +299,9 @@ fn journal_record_from_row_op_for_test(
 
 const COMMIT_MARKER_ID_BYTES: usize = COMMIT_ID_BYTES;
 const COMMIT_MARKER_JOURNAL_BATCH_COUNT_BYTES: usize = 4;
+const COMMIT_MARKER_SCHEMA_APPLICATION_TAG_BYTES: usize = 1;
+const COMMIT_MARKER_SCHEMA_APPLICATION_KEY_BYTES: usize = 32;
+const COMMIT_MARKER_SCHEMA_APPLICATION_BEFORE_TAG_BYTES: usize = 1;
 
 /// Generate one deterministic commit id for marker persistence.
 ///
@@ -339,6 +361,16 @@ pub(in crate::db) fn commit_marker_payload_capacity(marker: &CommitMarker) -> us
     for batch in &marker.journal_batches {
         capacity = capacity.saturating_add(4 + journal_batch_encoded_len(batch));
     }
+    capacity = capacity.saturating_add(COMMIT_MARKER_SCHEMA_APPLICATION_TAG_BYTES);
+    if let Some(operation) = marker.schema_application() {
+        capacity = capacity
+            .saturating_add(COMMIT_MARKER_SCHEMA_APPLICATION_KEY_BYTES)
+            .saturating_add(COMMIT_MARKER_SCHEMA_APPLICATION_BEFORE_TAG_BYTES)
+            .saturating_add(size_of::<u32>() + operation.after_bytes().len());
+        if let Some(before) = operation.before_bytes() {
+            capacity = capacity.saturating_add(size_of::<u32>() + before.len());
+        }
+    }
 
     capacity
 }
@@ -353,6 +385,7 @@ pub(in crate::db) const fn commit_marker_payload_capacity_for_single_batch(
         .saturating_add(COMMIT_MARKER_JOURNAL_BATCH_COUNT_BYTES)
         .saturating_add(size_of::<u32>())
         .saturating_add(journal_batch_bytes)
+        .saturating_add(COMMIT_MARKER_SCHEMA_APPLICATION_TAG_BYTES)
 }
 
 // Write the canonical marker payload into an existing output buffer.
@@ -369,6 +402,29 @@ pub(in crate::db) fn write_commit_marker_payload(
     for batch in &marker.journal_batches {
         let encoded = encode_journal_batch(batch)?;
         write_len_prefixed_bytes(out, &encoded, "commit marker journal batch")?;
+    }
+    match marker.schema_application() {
+        None => out.push(0),
+        Some(operation) => {
+            out.push(1);
+            out.extend_from_slice(&operation.key().to_bytes());
+            match operation.before_bytes() {
+                None => out.push(0),
+                Some(before) => {
+                    out.push(1);
+                    write_len_prefixed_bytes(
+                        out,
+                        before,
+                        "commit marker schema application before",
+                    )?;
+                }
+            }
+            write_len_prefixed_bytes(
+                out,
+                operation.after_bytes(),
+                "commit marker schema application after",
+            )?;
+        }
     }
 
     Ok(())
@@ -395,6 +451,46 @@ pub(in crate::db) fn decode_commit_marker_payload(
         let encoded = read_len_prefixed_bytes(bytes, &mut cursor, "commit marker journal batch")?;
         journal_batches.push(decode_journal_batch(encoded)?);
     }
+    let schema_application =
+        match read_tag_u8(bytes, &mut cursor, "commit marker schema application")? {
+            0 => None,
+            1 => {
+                let key = ApplicationRecordKey::from_bytes(read_fixed_array::<
+                    COMMIT_MARKER_SCHEMA_APPLICATION_KEY_BYTES,
+                >(
+                    bytes,
+                    &mut cursor,
+                    "commit marker schema application key",
+                )?);
+                let before = match read_tag_u8(
+                    bytes,
+                    &mut cursor,
+                    "commit marker schema application before",
+                )? {
+                    0 => None,
+                    1 => Some(
+                        read_len_prefixed_bytes(
+                            bytes,
+                            &mut cursor,
+                            "commit marker schema application before",
+                        )?
+                        .to_vec(),
+                    ),
+                    _ => return Err(InternalError::commit_corruption()),
+                };
+                let after = read_len_prefixed_bytes(
+                    bytes,
+                    &mut cursor,
+                    "commit marker schema application after",
+                )?
+                .to_vec();
+                Some(
+                    SchemaApplicationRecordOp::from_encoded(key, before, after)
+                        .map_err(|_| InternalError::commit_corruption())?,
+                )
+            }
+            _ => return Err(InternalError::commit_corruption()),
+        };
 
     // Phase 3: reject trailing bytes so malformed payloads fail closed.
     if cursor != bytes.len() {
@@ -404,7 +500,20 @@ pub(in crate::db) fn decode_commit_marker_payload(
     Ok(CommitMarker {
         id,
         journal_batches,
+        schema_application,
     })
+}
+
+fn read_tag_u8(
+    bytes: &[u8],
+    cursor: &mut usize,
+    _label: &'static str,
+) -> Result<u8, InternalError> {
+    let tag = *bytes
+        .get(*cursor)
+        .ok_or_else(InternalError::commit_corruption)?;
+    *cursor = cursor.saturating_add(1);
+    Ok(tag)
 }
 
 // Write one bounded little-endian u32 length field.
@@ -516,6 +625,11 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
         if !batch_ids.insert(batch.batch_id()) {
             return Err(InternalError::commit_corruption());
         }
+    }
+    if let Some(operation) = marker.schema_application() {
+        operation
+            .validate()
+            .map_err(|_| InternalError::commit_corruption())?;
     }
 
     Ok(())

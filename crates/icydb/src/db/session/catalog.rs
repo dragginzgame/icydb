@@ -10,20 +10,33 @@
 use crate::{
     db::{
         EntityCatalogDescription, EntityConstraintDescription, EntityFieldDescription,
-        EntitySchemaDescription, MemoryCatalogDescription, SchemaApplicationTarget, StorageReport,
-        StoreCatalogDescription, session::DbSession,
+        EntitySchemaDescription, MemoryCatalogDescription, SchemaApplicationTarget,
+        SchemaChangeReceipt, StorageReport, StoreCatalogDescription, session::DbSession,
     },
     error::Error,
     traits::CanisterKind,
 };
 
 use icydb_core as core;
+use icydb_schema::{SchemaSubmissionKey, TargetDatabaseIdentity};
 
 impl<C: CanisterKind> DbSession<C> {
     /// Issue the opaque database/store identities and exact accepted head used
     /// to compose one optimistic schema proposal.
     pub fn schema_application_target(&self) -> Result<SchemaApplicationTarget, Error> {
         Ok(self.inner.schema_application_target()?)
+    }
+
+    /// Load one durable schema-application receipt by exact target and
+    /// submission identity.
+    pub fn schema_application_receipt(
+        &self,
+        database_identity: TargetDatabaseIdentity,
+        submission_key: &SchemaSubmissionKey,
+    ) -> Result<Option<SchemaChangeReceipt>, Error> {
+        Ok(self
+            .inner
+            .schema_application_receipt(database_identity, submission_key)?)
     }
 
     /// Return one stable, human-readable index listing for the entity schema.

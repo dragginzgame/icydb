@@ -16,13 +16,15 @@ use crate::{
             StoreDurability, StoreHandle, StoreRecoveryCapability, StoreRelationSourceCapability,
             StoreRelationTargetCapability, StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
         },
+        schema::{SchemaChangeReceipt, with_schema_application_store},
     },
     error::InternalError,
     traits::CanisterKind,
 };
 use candid::CandidType;
 use icydb_schema::{
-    ExpectedAcceptedHead, ExpectedSchemaFingerprint, TargetDatabaseIdentity, TargetStoreIdentity,
+    ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaSubmissionKey, TargetDatabaseIdentity,
+    TargetStoreIdentity,
 };
 use serde::Deserialize;
 use sha2::Digest;
@@ -155,6 +157,21 @@ pub(in crate::db) fn schema_application_target<C: CanisterKind>(
         database_identity,
         accepted_head: derive_accepted_head(accepted_heads.as_slice()),
         stores: application_stores,
+    })
+}
+
+/// Load one durable schema-application receipt by its exact idempotency
+/// identity.
+pub(in crate::db) fn schema_application_receipt<C: CanisterKind>(
+    db: &Db<C>,
+    database_identity: TargetDatabaseIdentity,
+    submission_key: &SchemaSubmissionKey,
+) -> Result<Option<SchemaChangeReceipt>, InternalError> {
+    ensure_recovered(db)?;
+    with_schema_application_store(|store| {
+        store
+            .load(database_identity, submission_key)
+            .map(|record| record.map(|record| record.receipt().clone()))
     })
 }
 

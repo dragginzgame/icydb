@@ -49,12 +49,15 @@ pub(in crate::db) use failpoint::{
 /// Re-exports
 ///
 pub(in crate::db) use guard::{CommitApplyGuard, CommitGuard, begin_commit, finish_commit};
-#[cfg(test)]
-pub(in crate::db) use marker::COMMIT_MARKER_FORMAT_VERSION_CURRENT;
 #[cfg(feature = "sql")]
 pub(in crate::db) use marker::commit_marker_payload_capacity_for_single_batch;
 #[cfg(test)]
 pub(in crate::db) use marker::reset_test_journal_sequence as reset_commit_marker_test_journal_sequence;
+#[cfg(test)]
+pub(in crate::db) use marker::{
+    COMMIT_MARKER_FORMAT_VERSION_CURRENT, decode_commit_marker_payload,
+    encode_commit_marker_payload,
+};
 pub(in crate::db) use marker::{
     CommitIndexOp, CommitMarker, CommitRowOp, CommitSchemaFingerprint, MAX_COMMIT_BYTES,
     generate_commit_id, generate_marker_batch_id,

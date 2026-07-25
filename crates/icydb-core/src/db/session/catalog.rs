@@ -11,8 +11,8 @@ use crate::db::{IndexState, QueryError, query::plan::VisibleIndexes};
 use crate::{
     db::{
         DbSession, EntityCatalogCounts, EntityCatalogDescription, EntityConstraintDescription,
-        EntityFieldDescription, EntitySchemaDescription, SchemaApplicationTarget, StorageReport,
-        StoreCatalogDescription,
+        EntityFieldDescription, EntitySchemaDescription, SchemaApplicationTarget,
+        SchemaChangeReceipt, StorageReport, StoreCatalogDescription,
         schema::{
             AcceptedFieldKind, ConstraintValidationJob, PersistedFieldSnapshot, SchemaInfo,
             describe_entity_fields, describe_entity_fields_with_persisted_schema,
@@ -26,6 +26,7 @@ use crate::{
     model::entity::EntityModel,
     traits::{CanisterKind, Path},
 };
+use icydb_schema::{SchemaSubmissionKey, TargetDatabaseIdentity};
 
 fn relation_field_count(fields: &[PersistedFieldSnapshot]) -> usize {
     fields
@@ -49,6 +50,16 @@ impl<C: CanisterKind> DbSession<C> {
     /// to compose one optimistic schema proposal.
     pub fn schema_application_target(&self) -> Result<SchemaApplicationTarget, InternalError> {
         crate::db::schema::schema_application_target(&self.db)
+    }
+
+    /// Load one durable schema-application receipt by exact target and
+    /// submission identity.
+    pub fn schema_application_receipt(
+        &self,
+        database_identity: TargetDatabaseIdentity,
+        submission_key: &SchemaSubmissionKey,
+    ) -> Result<Option<SchemaChangeReceipt>, InternalError> {
+        crate::db::schema::schema_application_receipt(&self.db, database_identity, submission_key)
     }
 
     /// Return one stable, human-readable index listing for the entity schema.

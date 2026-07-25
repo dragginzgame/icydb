@@ -78,6 +78,8 @@ rollback as normal control flow:
   row-op preparation happen before durable mutation;
 - after the commit marker is durable, recovery authority belongs to the marker
   and journal protocol;
+- a marker carrying a schema-application receipt owns its exact
+  compare-and-replace effect in the disjoint database-control record region;
 - guarded reentry must converge to the marker-authorized final state;
 - reads and writes must not observe partial durable state through guarded
   entrypoints.
@@ -127,16 +129,25 @@ reverse generations never become delete-safety authority. A retained finding
 receipt remains stable until its exact sequence is acknowledged; recovery does
 not discard it or independently rescan policy.
 
+Schema-application receipts use a checksummed BTreeMap region after the
+bounded commit-control region in the same database-control allocation. The
+restricted regions cannot overlap. A marker carries at most one exact
+before/after record effect; normal apply and recovery both accept only the
+recorded compare value or the already-applied final bytes. Receipt lookup runs
+guarded recovery first, so it cannot observe a receipt ahead of the
+marker-authorized schema transition.
+
 Recovery does not run Quick, Deep, or a whole-database integrity report.
 After journal fold and canonical derived-state rebuild, it verifies only the
 bounded final effect set already carried by the recovered commit marker:
 exact final row state, rebuilt derived effects for recovered row puts, schema
-and validation-job publication identity, marker-batch fold coverage, and empty
-physical journal tails. The effect walk is bounded by the existing 16 MiB
-marker limit, and journal closure costs one ordered-map lookup per registered
-journaled store. Marker authority is cleared only after these postconditions
-hold. This recovered-effect proof is not a claim that unrelated database state
-was inspected; Quick and Deep remain explicit read-only inspection operations.
+and validation-job publication identity, schema-application record identity,
+marker-batch fold coverage, and empty physical journal tails. The effect walk
+is bounded by the existing 16 MiB marker limit, and journal closure costs one
+ordered-map lookup per registered journaled store. Marker authority is cleared
+only after these postconditions hold. This recovered-effect proof is not a
+claim that unrelated database state was inspected; Quick and Deep remain
+explicit read-only inspection operations.
 
 Deep progress and retention remain outside recovered database authority. Each
 well-formed authorized integrity attempt performs one bounded progress-store

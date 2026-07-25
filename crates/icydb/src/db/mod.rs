@@ -47,11 +47,13 @@ pub use icydb_core::db::{
     IntegrityResourceDiagnostic, IntegritySeverity, IntegritySubmissionKey,
     IntegrityTerminalOutcome, IntegrityVerifierFamily, MemoryCatalogDescription, QueryTracePlan,
     QuickIntegrityResult, QuickIntegrityStatus, ReadIntentKind, Row, SchemaApplicationStore,
-    SchemaApplicationTarget, SchemaStoreSnapshot, StorageReport, StoreCatalogDescription,
-    TraceExecutionFamily, TraceReuseEvent,
+    SchemaApplicationTarget, SchemaChangeFailure, SchemaChangeJob, SchemaChangeJobId,
+    SchemaChangeOutcome, SchemaChangeReceipt, SchemaStoreSnapshot, StorageReport,
+    StoreCatalogDescription, TraceExecutionFamily, TraceReuseEvent,
 };
 pub use icydb_schema::{
-    ExpectedAcceptedHead, ExpectedSchemaFingerprint, TargetDatabaseIdentity, TargetStoreIdentity,
+    ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaSubmissionKey, TargetDatabaseIdentity,
+    TargetStoreIdentity,
 };
 
 // Hidden core wiring used by generated code and advanced diagnostics.

@@ -4,10 +4,13 @@
 //! Boundary: executor::mutation -> commit::guard -> commit::store (one-way).
 
 use crate::{
-    db::commit::{
-        PreparedRowCommitOp,
-        marker::CommitMarker,
-        store::{with_commit_store, with_commit_store_infallible},
+    db::{
+        commit::{
+            PreparedRowCommitOp,
+            marker::CommitMarker,
+            store::{with_commit_store, with_commit_store_infallible},
+        },
+        schema::preflight_schema_application_record_op,
     },
     error::InternalError,
 };
@@ -145,6 +148,9 @@ impl CommitGuard {
 
 /// Persist a commit marker and open the commit window.
 pub(crate) fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, InternalError> {
+    if let Some(operation) = marker.schema_application() {
+        preflight_schema_application_record_op(operation)?;
+    }
     with_commit_store(|store| {
         // Phase 1: enforce one in-flight marker at a time before opening the
         // commit window.

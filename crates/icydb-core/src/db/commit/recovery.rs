@@ -41,9 +41,10 @@ use crate::{
         registry::{StoreHandle, StoreRecoveryCapability},
         schema::{
             AcceptedCatalogSnapshotSelection, CandidateSchemaRevision, ConstraintId, SchemaStore,
-            accepted_commit_schema_fingerprint, decode_constraint_validation_job,
-            decode_persisted_schema_snapshot, ensure_accepted_schema_snapshot,
-            reconcile_runtime_schemas, reconcile_runtime_schemas_before_recovery_rebuild,
+            accepted_commit_schema_fingerprint, apply_schema_application_record_op,
+            decode_constraint_validation_job, decode_persisted_schema_snapshot,
+            ensure_accepted_schema_snapshot, reconcile_runtime_schemas,
+            reconcile_runtime_schemas_before_recovery_rebuild, verify_schema_application_record_op,
         },
     },
     error::{ErrorOrigin, InternalError},
@@ -199,6 +200,10 @@ fn perform_recovery<C: CanisterKind>(
     if let Some(marker) = marker.as_ref() {
         publish_marker_bound_journal_batches(db, marker)
             .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+        if let Some(operation) = marker.schema_application() {
+            apply_schema_application_record_op(operation)
+                .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+        }
     }
 
     // Phase 1: fold committed journal-tail records into the canonical stable
@@ -1380,6 +1385,9 @@ pub(in crate::db::commit) fn verify_recovered_effects<C: CanisterKind>(
     let mut verified = BTreeSet::new();
 
     if let Some(marker) = marker {
+        if let Some(operation) = marker.schema_application() {
+            verify_schema_application_record_op(operation)?;
+        }
         for batch in marker.journal_batches().iter().rev() {
             let (_, handle) = journal_batch_store_handle(db, batch)?;
             let watermark = handle

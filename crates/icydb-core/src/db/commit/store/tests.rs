@@ -92,6 +92,7 @@ fn commit_marker_rejects_trailing_payload_bytes() {
     let marker = CommitMarker {
         id: [0u8; 16],
         journal_batches: Vec::new(),
+        schema_application: None,
     };
 
     let mut bytes = encode_test_marker_payload(&marker);
@@ -109,6 +110,7 @@ fn commit_marker_current_version_round_trip_succeeds() {
     let marker = CommitMarker {
         id: [9u8; 16],
         journal_batches: Vec::new(),
+        schema_application: None,
     };
     let encoded = encode_test_marker_payload(&marker);
     let decoded = RawCommitMarker(encoded)
@@ -219,6 +221,7 @@ fn commit_marker_future_version_fails_closed() {
     let marker = CommitMarker {
         id: [6u8; 16],
         journal_batches: Vec::new(),
+        schema_application: None,
     };
     let marker_payload = encode_commit_marker_payload(&marker)
         .expect("marker payload encode for future-version test should work");
@@ -292,6 +295,7 @@ fn commit_marker_transitions_preserve_database_incarnation() {
     let marker = CommitMarker {
         id: [0xA7; 16],
         journal_batches: Vec::new(),
+        schema_application: None,
     };
 
     store

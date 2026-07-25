@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.5` adds bounded durable schema-application receipts and replay-safe
+  marker-owned job state without introducing a parallel activation engine.
+
 - `0.213.4` gives SQL-DDL fields, indexes, and checks immutable accepted
   source identities that survive structural transitions and disappear
   atomically with their owners.
