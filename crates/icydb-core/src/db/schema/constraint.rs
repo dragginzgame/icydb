@@ -717,11 +717,27 @@ impl AcceptedConstraintCatalog {
         Ok(self)
     }
 
+    /// Remove one accepted generated check while retiring its identity.
+    pub(in crate::db) fn with_removed_generated_check(
+        self,
+        id: ConstraintId,
+    ) -> Result<Self, AcceptedConstraintCatalogError> {
+        self.with_removed_check(id, ConstraintOrigin::Generated)
+    }
+
     /// Remove one accepted SQL-DDL-owned check while retiring its identity.
     #[cfg(feature = "sql")]
     pub(in crate::db) fn with_removed_sql_ddl_check(
+        self,
+        id: ConstraintId,
+    ) -> Result<Self, AcceptedConstraintCatalogError> {
+        self.with_removed_check(id, ConstraintOrigin::SqlDdl)
+    }
+
+    fn with_removed_check(
         mut self,
         id: ConstraintId,
+        origin: ConstraintOrigin,
     ) -> Result<Self, AcceptedConstraintCatalogError> {
         let position = self
             .constraints
@@ -732,7 +748,7 @@ impl AcceptedConstraintCatalog {
             .constraints
             .get(position)
             .ok_or(AcceptedConstraintCatalogError::OwnerMismatch)?;
-        if constraint.origin() != ConstraintOrigin::SqlDdl
+        if constraint.origin() != origin
             || !matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
         {
             return Err(AcceptedConstraintCatalogError::OwnerMismatch);
@@ -1060,5 +1076,47 @@ mod tests {
             )
             .expect("new activation should reserve a new identity");
         assert!(next.activations()[0].id() > retired);
+    }
+
+    #[test]
+    fn removed_generated_check_retires_its_identity_without_reuse() {
+        let catalog = AcceptedConstraintCatalog::default()
+            .with_added_check(
+                "first".to_string(),
+                ConstraintOrigin::Generated,
+                AcceptedCheckExprV1::True,
+            )
+            .expect("generated check should admit");
+        let retired = catalog.constraints()[0].id();
+        let allocator = catalog.allocator();
+        let removed = catalog
+            .with_removed_generated_check(retired)
+            .expect("generated check should be removable");
+
+        assert!(removed.constraints().is_empty());
+        assert_eq!(removed.allocator(), allocator);
+
+        let next = removed
+            .with_added_check(
+                "second".to_string(),
+                ConstraintOrigin::Generated,
+                AcceptedCheckExprV1::True,
+            )
+            .expect("new generated check should admit");
+        assert!(next.constraints()[0].id() > retired);
+
+        let sql_owned = AcceptedConstraintCatalog::default()
+            .with_added_check(
+                "sql_owned".to_string(),
+                ConstraintOrigin::SqlDdl,
+                AcceptedCheckExprV1::True,
+            )
+            .expect("SQL-owned check should admit");
+        let sql_owned_id = sql_owned.constraints()[0].id();
+        assert_eq!(
+            sql_owned.with_removed_generated_check(sql_owned_id),
+            Err(AcceptedConstraintCatalogError::OwnerMismatch),
+            "generated removal must not take ownership of SQL DDL state",
+        );
     }
 }

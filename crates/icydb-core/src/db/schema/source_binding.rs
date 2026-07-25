@@ -188,6 +188,19 @@ impl AcceptedSourceBindingCatalog {
         self.constraints.get(&(entity, source.clone())).copied()
     }
 
+    /// Remove one exact accepted-check source binding with its structural owner.
+    pub(in crate::db::schema) fn remove_constraint(
+        &mut self,
+        entity: EntityTag,
+        source: &ConstraintSourceKey,
+        expected: ConstraintId,
+    ) -> Result<(), InternalError> {
+        match self.constraints.remove(&(entity, source.clone())) {
+            Some(actual) if actual == expected => Ok(()),
+            Some(_) | None => Err(InternalError::store_invariant()),
+        }
+    }
+
     /// Resolve one immutable secondary-index source identity.
     #[must_use]
     pub(in crate::db::schema) fn index(

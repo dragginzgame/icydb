@@ -6,9 +6,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use icydb_schema::{
-    EntityFragment, EntitySourceKey, FieldInsertPolicy, FieldManagementPolicy, FieldSourceKey,
-    FieldType, IndexKeyFragment, NamedTypeFragment, ScalarType, SchemaProposal,
-    TargetStoreIdentity, TypeSourceKey,
+    ConstraintSourceKey, EntityFragment, EntitySourceKey, FieldInsertPolicy, FieldManagementPolicy,
+    FieldSourceKey, FieldType, IndexKeyFragment, NamedTypeFragment, ScalarType, SchemaProposal,
+    SchemaRemoval, TargetStoreIdentity, TypeSourceKey,
 };
 
 use crate::{
@@ -503,19 +503,15 @@ pub(in crate::db::schema) fn lower_initial_schema_proposal(
 /// Lower an exact proposal against a non-empty accepted head.
 ///
 /// This existing-head lane owns future insert-default and source-keyed display
-/// metadata reconciliation. Every structural fact must resolve through
-/// immutable source bindings and match accepted authority exactly. Additions,
-/// removals, activation work, and physical changes therefore fail before
-/// candidate construction instead of falling back to generated-model
-/// reconciliation.
+/// metadata reconciliation, plus explicit removal of accepted generated
+/// checks. Every structural fact must resolve through immutable source
+/// bindings and match accepted authority exactly. Additions, activation work,
+/// and physical changes therefore fail before candidate construction instead
+/// of falling back to generated-model reconciliation.
 pub(in crate::db::schema) fn lower_existing_schema_proposal(
     proposal: &SchemaProposal,
     stores: &[ExistingProposalStore<'_>],
 ) -> Result<Vec<CandidateSchemaRevision>, InternalError> {
-    if !proposal.removals().is_empty() {
-        return Err(InternalError::store_unsupported());
-    }
-
     let store_by_identity = stores
         .iter()
         .map(|store| (store.identity, store))
@@ -538,6 +534,7 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
 
     let mut entities_by_store =
         BTreeMap::<&'static str, (&ExistingProposalStore<'_>, Vec<&EntityFragment>)>::new();
+    let mut check_removals_by_store = BTreeMap::<&'static str, Vec<ExistingCheckRemoval>>::new();
     for assignment in proposal.assignments() {
         let store = store_by_identity
             .get(&assignment.store())
@@ -554,13 +551,35 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
             .1
             .push(entity);
     }
+    for removal in proposal.removals() {
+        let SchemaRemoval::Constraint { entity, constraint } = removal else {
+            return Err(InternalError::store_unsupported());
+        };
+        let (store, resolved) =
+            resolve_existing_generated_check_removal(stores, entity, constraint)?;
+        entities_by_store
+            .entry(store.path)
+            .or_insert_with(|| (store, Vec::new()));
+        check_removals_by_store
+            .entry(store.path)
+            .or_default()
+            .push(resolved);
+    }
 
     let mut used_types = BTreeSet::new();
     let mut candidates = Vec::new();
     for (_, (store, store_entities)) in entities_by_store {
-        if let Some(candidate) =
-            lower_existing_store_candidate(store, stores, store_entities, &types, &mut used_types)?
-        {
+        let removals = check_removals_by_store
+            .remove(store.path)
+            .unwrap_or_default();
+        if let Some(candidate) = lower_existing_store_candidate(
+            store,
+            stores,
+            store_entities,
+            removals,
+            &types,
+            &mut used_types,
+        )? {
             candidates.push(candidate);
         }
     }
@@ -571,17 +590,33 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
     Ok(candidates)
 }
 
+/// One source-resolved generated check selected for exact removal.
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
+struct ExistingCheckRemoval {
+    entity_tag: EntityTag,
+    source: ConstraintSourceKey,
+    id: ConstraintId,
+}
+
 fn lower_existing_store_candidate(
     store: &ExistingProposalStore<'_>,
     stores: &[ExistingProposalStore<'_>],
     mut entities: Vec<&EntityFragment>,
+    mut check_removals: Vec<ExistingCheckRemoval>,
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
     used_types: &mut BTreeSet<TypeSourceKey>,
 ) -> Result<Option<CandidateSchemaRevision>, InternalError> {
     entities.sort_by(|left, right| left.source_key().cmp(right.source_key()));
+    check_removals.sort();
     let catalogs =
         lower_existing_named_catalogs(store.bundle, entities.as_slice(), types, used_types)?;
     let mut snapshots = store.bundle.entity_snapshots().clone();
+    let mut source_bindings = store.bundle.source_bindings().clone();
+    let removal_entity_tags = apply_existing_check_removals(
+        &mut snapshots,
+        &mut source_bindings,
+        check_removals.as_slice(),
+    )?;
     let proposed_entity_tags = entities
         .iter()
         .map(|entity| {
@@ -593,7 +628,7 @@ fn lower_existing_store_candidate(
         })
         .collect::<Result<BTreeSet<_>, _>>()?;
     verify_unrebuildable_enum_predicates(store.bundle, &catalogs, &proposed_entity_tags)?;
-    let mut changed = false;
+    let mut changed = !check_removals.is_empty();
     for entity in entities {
         let entity_tag = store
             .bundle
@@ -603,9 +638,15 @@ fn lower_existing_store_candidate(
         let current = snapshots
             .get(&entity_tag)
             .ok_or_else(InternalError::store_invariant)?;
-        if let Some(candidate) =
-            lower_existing_entity(store.bundle, &catalogs, stores, entity, entity_tag, current)?
-        {
+        if let Some(candidate) = lower_existing_entity(
+            store.bundle,
+            &catalogs,
+            stores,
+            entity,
+            entity_tag,
+            current,
+            removal_entity_tags.contains(&entity_tag),
+        )? {
             snapshots.insert(entity_tag, candidate);
             changed = true;
         }
@@ -623,10 +664,122 @@ fn lower_existing_store_candidate(
         store.path,
         catalogs.enum_catalog,
         catalogs.composite_catalog,
-        store.bundle.source_bindings().clone(),
+        source_bindings,
         snapshots,
     )?;
     CandidateSchemaRevision::new(bundle).map(Some)
+}
+
+/// Resolve one removal solely through immutable accepted source identity.
+///
+/// A live activation or independently owned check remains outside this
+/// metadata-only transition and must fail before a candidate exists.
+fn resolve_existing_generated_check_removal<'store, 'bundle>(
+    stores: &'store [ExistingProposalStore<'bundle>],
+    entity_source: &EntitySourceKey,
+    constraint_source: &ConstraintSourceKey,
+) -> Result<(&'store ExistingProposalStore<'bundle>, ExistingCheckRemoval), InternalError> {
+    let mut resolved = None;
+    for store in stores {
+        let Some(entity_tag) = store.bundle.source_bindings().entity(entity_source) else {
+            continue;
+        };
+        if resolved.is_some() {
+            return Err(InternalError::store_unsupported());
+        }
+        let snapshot = store
+            .bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .ok_or_else(InternalError::store_invariant)?;
+        if !snapshot.constraint_activations().is_empty()
+            || !snapshot.candidate_indexes().is_empty()
+            || !snapshot.candidate_relations().is_empty()
+        {
+            return Err(InternalError::store_unsupported());
+        }
+        let constraint_id = store
+            .bundle
+            .source_bindings()
+            .constraint(entity_tag, constraint_source)
+            .ok_or_else(InternalError::store_unsupported)?;
+        let Some(constraint) = snapshot
+            .constraints()
+            .iter()
+            .find(|constraint| constraint.id() == constraint_id)
+        else {
+            return if snapshot
+                .constraint_activations()
+                .iter()
+                .any(|activation| activation.id() == constraint_id)
+            {
+                Err(InternalError::store_unsupported())
+            } else {
+                Err(InternalError::store_invariant())
+            };
+        };
+        if constraint.origin() != ConstraintOrigin::Generated
+            || !matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
+        {
+            return Err(InternalError::store_unsupported());
+        }
+        resolved = Some((
+            store,
+            ExistingCheckRemoval {
+                entity_tag,
+                source: constraint_source.clone(),
+                id: constraint_id,
+            },
+        ));
+    }
+    resolved.ok_or_else(InternalError::store_unsupported)
+}
+
+/// Remove checks and source bindings as one candidate-local identity update.
+///
+/// Each affected entity advances its schema version exactly once regardless
+/// of how many accepted generated checks the proposal removes.
+fn apply_existing_check_removals(
+    snapshots: &mut BTreeMap<EntityTag, PersistedSchemaSnapshot>,
+    source_bindings: &mut AcceptedSourceBindingCatalog,
+    removals: &[ExistingCheckRemoval],
+) -> Result<BTreeSet<EntityTag>, InternalError> {
+    let mut removals_by_entity = BTreeMap::<EntityTag, Vec<&ExistingCheckRemoval>>::new();
+    for removal in removals {
+        removals_by_entity
+            .entry(removal.entity_tag)
+            .or_default()
+            .push(removal);
+    }
+
+    let mut changed_entities = BTreeSet::new();
+    for (entity_tag, entity_removals) in removals_by_entity {
+        let current = snapshots
+            .get(&entity_tag)
+            .cloned()
+            .ok_or_else(InternalError::store_invariant)?;
+        let mut catalog = current.constraint_catalog().clone();
+        for removal in entity_removals {
+            catalog = catalog
+                .with_removed_generated_check(removal.id)
+                .map_err(|_| InternalError::store_invariant())?;
+            source_bindings.remove_constraint(entity_tag, &removal.source, removal.id)?;
+        }
+        let version = current
+            .version()
+            .get()
+            .checked_add(1)
+            .map(SchemaVersion::new)
+            .ok_or_else(InternalError::store_unsupported)?;
+        snapshots.insert(
+            entity_tag,
+            current
+                .with_constraint_catalog(catalog)
+                .with_schema_version(version),
+        );
+        changed_entities.insert(entity_tag);
+    }
+    Ok(changed_entities)
 }
 
 /// Candidate value catalogs for one exact existing accepted head.
@@ -881,6 +1034,7 @@ fn lower_existing_entity(
     entity: &EntityFragment,
     entity_tag: EntityTag,
     current: &PersistedSchemaSnapshot,
+    schema_version_already_advanced: bool,
 ) -> Result<Option<PersistedSchemaSnapshot>, InternalError> {
     if !current.constraint_activations().is_empty()
         || !current.candidate_indexes().is_empty()
@@ -950,12 +1104,16 @@ fn lower_existing_entity(
     {
         return Ok(None);
     }
-    let version = current
-        .version()
-        .get()
-        .checked_add(1)
-        .map(SchemaVersion::new)
-        .ok_or_else(InternalError::store_unsupported)?;
+    let version = if schema_version_already_advanced {
+        current.version()
+    } else {
+        current
+            .version()
+            .get()
+            .checked_add(1)
+            .map(SchemaVersion::new)
+            .ok_or_else(InternalError::store_unsupported)?
+    };
     Ok(Some(
         PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
             version,
@@ -2036,8 +2194,8 @@ mod tests {
         ExpectedSchemaFingerprint, FieldFragment, FieldInsertPolicy, FieldSourceKey, FieldType,
         IndexFragment, IndexKeyFragment, IndexSourceKey, NamedTypeFragment, RecordFieldFragment,
         RecordTypeFragment, ScalarLiteral, ScalarType, SchemaCapability, SchemaFragment,
-        SchemaName, SchemaProposal, SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction,
-        TargetDatabaseIdentity, TargetStoreIdentity, TypeSourceKey,
+        SchemaName, SchemaProposal, SchemaRemoval, SchemaSubmissionKey, SourceCheckExpr,
+        SourceCheckInstruction, TargetDatabaseIdentity, TargetStoreIdentity, TypeSourceKey,
     };
 
     fn name(value: &str) -> SchemaName {
@@ -2055,6 +2213,8 @@ mod tests {
             score_default,
             "Item",
             "score",
+            true,
+            Vec::new(),
         )
     }
 
@@ -2064,6 +2224,8 @@ mod tests {
         score_default: i128,
         entity_name: &str,
         score_name: &str,
+        include_check: bool,
+        removals: Vec<SchemaRemoval>,
     ) -> (SchemaProposal, EntitySourceKey, TargetStoreIdentity) {
         let entity_source =
             EntitySourceKey::try_new("test:entity:item").expect("test entity source should admit");
@@ -2111,12 +2273,17 @@ mod tests {
                 .expect("test index should admit"),
             ],
             Vec::new(),
-            vec![ConstraintFragment::new(
-                ConstraintSourceKey::try_new("test:check:score")
-                    .expect("test check source should admit"),
-                name("score_non_negative"),
-                check,
-            )],
+            include_check
+                .then(|| {
+                    ConstraintFragment::new(
+                        ConstraintSourceKey::try_new("test:check:score")
+                            .expect("test check source should admit"),
+                        name("score_non_negative"),
+                        check,
+                    )
+                })
+                .into_iter()
+                .collect(),
         )
         .expect("test entity should admit");
         let fragment =
@@ -2133,7 +2300,7 @@ mod tests {
             expected_head,
             vec![fragment],
             vec![EntityStoreAssignment::new(entity_source.clone(), store)],
-            Vec::new(),
+            removals,
         )
         .expect("test proposal should compose");
         (proposal, entity_source, store)
@@ -2262,6 +2429,225 @@ mod tests {
     }
 
     #[test]
+    fn existing_generated_check_removal_retires_only_its_source_bound_owner() {
+        let (initial, entity_source, store) =
+            scalar_proposal_fixture(ExpectedAcceptedHead::Empty, "removal-initial", 5);
+        let initial_candidates = lower_initial_schema_proposal(
+            &initial,
+            &[ProposalStoreTarget {
+                path: "test::Store",
+                identity: store,
+            }],
+        )
+        .expect("initial scalar proposal should lower");
+        let initial_bundle = initial_candidates[0].bundle();
+        let removal = SchemaProposal::try_compose(
+            vec![SchemaCapability::ACCEPTED_CHECKS],
+            TargetDatabaseIdentity::from_bytes([0x11; 32]),
+            SchemaSubmissionKey::try_new("remove-generated-check")
+                .expect("test submission key should admit"),
+            ExpectedAcceptedHead::Exact {
+                revision: 1,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x44; 32]),
+            },
+            Vec::new(),
+            Vec::new(),
+            vec![SchemaRemoval::Constraint {
+                entity: entity_source.clone(),
+                constraint: ConstraintSourceKey::try_new("test:check:score")
+                    .expect("test constraint source should admit"),
+            }],
+        )
+        .expect("exact removal proposal should compose");
+
+        let candidates = lower_existing_schema_proposal(
+            &removal,
+            &[ExistingProposalStore {
+                path: "test::Store",
+                identity: store,
+                bundle: initial_bundle,
+            }],
+        )
+        .expect("generated check removal should lower");
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].revision().get(), 2);
+        let removed_bundle = candidates[0].bundle();
+        let entity_tag = initial_bundle
+            .source_bindings_for_tests()
+            .entity(&entity_source)
+            .expect("entity source should bind");
+        let before = initial_bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .expect("initial entity should exist");
+        let after = removed_bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .expect("entity should survive check removal");
+        let removed_id = initial_bundle
+            .source_bindings_for_tests()
+            .constraint(
+                entity_tag,
+                &ConstraintSourceKey::try_new("test:check:score")
+                    .expect("test constraint source should admit"),
+            )
+            .expect("initial check source should bind");
+
+        assert_eq!(after.version().get(), before.version().get() + 1);
+        assert_eq!(
+            after.constraint_id_allocator(),
+            before.constraint_id_allocator()
+        );
+        assert!(
+            after
+                .constraints()
+                .iter()
+                .all(|constraint| constraint.id() != removed_id)
+        );
+        assert_eq!(after.fields(), before.fields());
+        assert_eq!(after.row_layout(), before.row_layout());
+        assert_eq!(after.indexes(), before.indexes());
+        assert_eq!(after.relations(), before.relations());
+        assert_eq!(
+            removed_bundle
+                .source_bindings_for_tests()
+                .constraint_binding_count_for_tests(entity_tag),
+            0,
+        );
+        assert_eq!(
+            removed_bundle
+                .source_bindings_for_tests()
+                .field_binding_count_for_tests(entity_tag),
+            2,
+        );
+        assert_eq!(
+            removed_bundle
+                .source_bindings_for_tests()
+                .index_binding_count_for_tests(entity_tag),
+            1,
+        );
+    }
+
+    #[test]
+    fn existing_physical_removal_still_rejects_before_candidate_construction() {
+        let (initial, entity_source, store) =
+            scalar_proposal_fixture(ExpectedAcceptedHead::Empty, "physical-removal-initial", 5);
+        let initial_candidates = lower_initial_schema_proposal(
+            &initial,
+            &[ProposalStoreTarget {
+                path: "test::Store",
+                identity: store,
+            }],
+        )
+        .expect("initial scalar proposal should lower");
+        let removal = SchemaProposal::try_compose(
+            Vec::new(),
+            TargetDatabaseIdentity::from_bytes([0x11; 32]),
+            SchemaSubmissionKey::try_new("remove-generated-field")
+                .expect("test submission key should admit"),
+            ExpectedAcceptedHead::Exact {
+                revision: 1,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x44; 32]),
+            },
+            Vec::new(),
+            Vec::new(),
+            vec![SchemaRemoval::Field {
+                entity: entity_source,
+                field: FieldSourceKey::try_new("test:field:score")
+                    .expect("test field source should admit"),
+            }],
+        )
+        .expect("exact physical removal proposal should compose");
+
+        assert!(
+            lower_existing_schema_proposal(
+                &removal,
+                &[ExistingProposalStore {
+                    path: "test::Store",
+                    identity: store,
+                    bundle: initial_candidates[0].bundle(),
+                }],
+            )
+            .is_err(),
+            "physical removal must reject until its migration owner participates",
+        );
+    }
+
+    #[test]
+    fn existing_check_removal_and_default_change_advance_schema_version_once() {
+        let (initial, _, store) =
+            scalar_proposal_fixture(ExpectedAcceptedHead::Empty, "combined-change-initial", 5);
+        let initial_candidates = lower_initial_schema_proposal(
+            &initial,
+            &[ProposalStoreTarget {
+                path: "test::Store",
+                identity: store,
+            }],
+        )
+        .expect("initial scalar proposal should lower");
+        let (changed, entity_source, _) = scalar_proposal_fixture_with_names(
+            ExpectedAcceptedHead::Exact {
+                revision: 1,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x44; 32]),
+            },
+            "combined-check-removal-default-change",
+            7,
+            "Item",
+            "score",
+            false,
+            vec![SchemaRemoval::Constraint {
+                entity: EntitySourceKey::try_new("test:entity:item")
+                    .expect("test entity source should admit"),
+                constraint: ConstraintSourceKey::try_new("test:check:score")
+                    .expect("test constraint source should admit"),
+            }],
+        );
+
+        let candidates = lower_existing_schema_proposal(
+            &changed,
+            &[ExistingProposalStore {
+                path: "test::Store",
+                identity: store,
+                bundle: initial_candidates[0].bundle(),
+            }],
+        )
+        .expect("combined metadata change should lower");
+        let bundle = candidates[0].bundle();
+        let entity_tag = bundle
+            .source_bindings_for_tests()
+            .entity(&entity_source)
+            .expect("entity source should remain bound");
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .expect("entity should survive combined change");
+        let before = initial_candidates[0]
+            .bundle()
+            .entity_snapshots()
+            .get(&entity_tag)
+            .expect("initial entity should exist");
+
+        assert_eq!(snapshot.version().get(), 2);
+        assert_eq!(
+            bundle
+                .source_bindings_for_tests()
+                .constraint_binding_count_for_tests(entity_tag),
+            0,
+        );
+        assert_ne!(snapshot.fields(), before.fields());
+        assert!(matches!(
+            snapshot
+                .fields()
+                .iter()
+                .find(|field| field.name() == "score")
+                .expect("score should exist")
+                .insert_default(),
+            SchemaInsertDefault::SlotPayload(payload) if !payload.is_empty()
+        ));
+    }
+
+    #[test]
     fn existing_entity_and_indexed_field_rename_relabels_generated_metadata_only() {
         let (initial, entity_source, store) =
             scalar_proposal_fixture(ExpectedAcceptedHead::Empty, "rename-initial", 5);
@@ -2283,6 +2669,8 @@ mod tests {
             5,
             "RenamedItem",
             "points",
+            true,
+            Vec::new(),
         );
 
         let renamed_candidates = lower_existing_schema_proposal(

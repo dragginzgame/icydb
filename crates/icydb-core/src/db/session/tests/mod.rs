@@ -3149,9 +3149,57 @@ fn named_application_proposal(
     status_type_name: &str,
     active_variant_name: &str,
 ) -> icydb_schema::SchemaProposal {
+    compose_named_application_proposal(
+        target,
+        NamedApplicationProposalFixture {
+            submission_key,
+            status_has_default,
+            entity_name,
+            status_name,
+            status_type_name,
+            active_variant_name,
+            include_status_check: false,
+        },
+    )
+}
+
+struct NamedApplicationProposalFixture<'a> {
+    submission_key: &'a str,
+    status_has_default: bool,
+    entity_name: &'a str,
+    status_name: &'a str,
+    status_type_name: &'a str,
+    active_variant_name: &'a str,
+    include_status_check: bool,
+}
+
+fn checked_named_application_proposal(
+    target: &crate::db::SchemaApplicationTarget,
+    submission_key: &str,
+) -> icydb_schema::SchemaProposal {
+    compose_named_application_proposal(
+        target,
+        NamedApplicationProposalFixture {
+            submission_key,
+            status_has_default: false,
+            entity_name: "Standalone",
+            status_name: "status",
+            status_type_name: "StandaloneStatus",
+            active_variant_name: "Active",
+            include_status_check: true,
+        },
+    )
+}
+
+fn compose_named_application_proposal(
+    target: &crate::db::SchemaApplicationTarget,
+    fixture: NamedApplicationProposalFixture<'_>,
+) -> icydb_schema::SchemaProposal {
     let entity_source = icydb_schema::EntitySourceKey::try_new("test:entity:standalone")
         .expect("test entity source should admit");
     let id_source = icydb_schema::FieldSourceKey::try_new("test:field:standalone-id")
+        .expect("test field source should admit");
+    let status_field_source = icydb_schema::FieldSourceKey::try_new("test:field:standalone-status")
         .expect("test field source should admit");
     let status_source = icydb_schema::TypeSourceKey::try_new("test:type:standalone-status")
         .expect("test type source should admit");
@@ -3160,19 +3208,26 @@ fn named_application_proposal(
     let status_type = icydb_schema::NamedTypeFragment::Enum(
         icydb_schema::EnumTypeFragment::try_new(
             status_source.clone(),
-            icydb_schema::SchemaName::try_new(status_type_name)
+            icydb_schema::SchemaName::try_new(fixture.status_type_name)
                 .expect("test type name should admit"),
             vec![icydb_schema::EnumVariantFragment::new(
                 active_source.clone(),
-                icydb_schema::SchemaName::try_new(active_variant_name)
+                icydb_schema::SchemaName::try_new(fixture.active_variant_name)
                     .expect("test variant name should admit"),
             )],
         )
         .expect("test enum should admit"),
     );
+    let constraints = standalone_status_constraints(
+        fixture.include_status_check,
+        &status_field_source,
+        &status_source,
+        &active_source,
+    );
     let entity = icydb_schema::EntityFragment::try_new(
         entity_source.clone(),
-        icydb_schema::SchemaName::try_new(entity_name).expect("test entity name should admit"),
+        icydb_schema::SchemaName::try_new(fixture.entity_name)
+            .expect("test entity name should admit"),
         vec![
             icydb_schema::FieldFragment::new(
                 id_source.clone(),
@@ -3183,13 +3238,12 @@ fn named_application_proposal(
                 None,
             ),
             icydb_schema::FieldFragment::new(
-                icydb_schema::FieldSourceKey::try_new("test:field:standalone-status")
-                    .expect("test field source should admit"),
-                icydb_schema::SchemaName::try_new(status_name)
+                status_field_source,
+                icydb_schema::SchemaName::try_new(fixture.status_name)
                     .expect("test field name should admit"),
                 icydb_schema::FieldType::Named(status_source.clone()),
                 false,
-                if status_has_default {
+                if fixture.status_has_default {
                     icydb_schema::FieldInsertPolicy::Default(
                         icydb_schema::ScalarLiteral::EnumUnit {
                             enum_type: status_source,
@@ -3205,18 +3259,22 @@ fn named_application_proposal(
         vec![id_source],
         Vec::new(),
         Vec::new(),
-        Vec::new(),
+        constraints,
     )
     .expect("test entity should admit");
     let fragment = icydb_schema::SchemaFragment::try_new(vec![entity], vec![status_type])
         .expect("test fragment should admit");
+    let mut capabilities = vec![
+        icydb_schema::SchemaCapability::EXACT_COMPOSITE_TYPES,
+        icydb_schema::SchemaCapability::INSERT_DEFAULTS,
+    ];
+    if fixture.include_status_check {
+        capabilities.push(icydb_schema::SchemaCapability::ACCEPTED_CHECKS);
+    }
     icydb_schema::SchemaProposal::try_compose(
-        vec![
-            icydb_schema::SchemaCapability::EXACT_COMPOSITE_TYPES,
-            icydb_schema::SchemaCapability::INSERT_DEFAULTS,
-        ],
+        capabilities,
         target.database_identity(),
-        icydb_schema::SchemaSubmissionKey::try_new(submission_key)
+        icydb_schema::SchemaSubmissionKey::try_new(fixture.submission_key)
             .expect("test submission key should admit"),
         target.accepted_head().clone(),
         vec![fragment],
@@ -3227,6 +3285,33 @@ fn named_application_proposal(
         Vec::new(),
     )
     .expect("test proposal should compose")
+}
+
+fn standalone_status_constraints(
+    include: bool,
+    status_field: &icydb_schema::FieldSourceKey,
+    status_type: &icydb_schema::TypeSourceKey,
+    active_variant: &icydb_schema::TypeSourceKey,
+) -> Vec<icydb_schema::ConstraintFragment> {
+    if !include {
+        return Vec::new();
+    }
+    let expression = icydb_schema::SourceCheckExpr::try_new(vec![
+        icydb_schema::SourceCheckInstruction::Field(status_field.clone()),
+        icydb_schema::SourceCheckInstruction::Literal(icydb_schema::ScalarLiteral::EnumUnit {
+            enum_type: status_type.clone(),
+            variant: active_variant.clone(),
+        }),
+        icydb_schema::SourceCheckInstruction::Equal,
+    ])
+    .expect("test check should admit");
+    vec![icydb_schema::ConstraintFragment::new(
+        icydb_schema::ConstraintSourceKey::try_new("test:check:standalone-status")
+            .expect("test constraint source should admit"),
+        icydb_schema::SchemaName::try_new("status_is_active")
+            .expect("test constraint name should admit"),
+        expression,
+    )]
 }
 
 fn reset_standalone_schema_application_fixture() -> DbSession<SessionSqlCanister> {
@@ -3387,6 +3472,92 @@ fn schema_application_reconciles_existing_future_default_without_identity_or_lay
             .find(|field| field.id() == field_id)
             .expect("initial status field should exist")
             .historical_fill(),
+    );
+}
+
+#[test]
+fn schema_application_removes_generated_check_with_durable_exact_replay() {
+    let session = reset_standalone_schema_application_fixture();
+    let target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial = checked_named_application_proposal(&target, "generated-check-removal-initial");
+    session
+        .apply_schema(&initial)
+        .expect("initial checked proposal should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let after = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let proposal = icydb_schema::SchemaProposal::try_compose(
+        vec![icydb_schema::SchemaCapability::ACCEPTED_CHECKS],
+        after.database_identity(),
+        icydb_schema::SchemaSubmissionKey::try_new("remove-generated-status-check")
+            .expect("test submission key should admit"),
+        after.accepted_head().clone(),
+        Vec::new(),
+        Vec::new(),
+        vec![icydb_schema::SchemaRemoval::Constraint {
+            entity: icydb_schema::EntitySourceKey::try_new("test:entity:standalone")
+                .expect("test entity source should admit"),
+            constraint: icydb_schema::ConstraintSourceKey::try_new("test:check:standalone-status")
+                .expect("test constraint source should admit"),
+        }],
+    )
+    .expect("generated check removal should compose");
+
+    let receipt = session
+        .apply_schema(&proposal)
+        .expect("generated check removal should publish");
+    let replay = session
+        .apply_schema(&proposal)
+        .expect("exact removal retry should replay");
+    let accepted_after = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("updated accepted bundle should load")
+        .expect("updated accepted bundle should exist");
+    let (&entity_tag, before_snapshot) = accepted_before
+        .entity_snapshots()
+        .iter()
+        .next()
+        .expect("initial entity should exist");
+    let after_snapshot = accepted_after
+        .entity_snapshots()
+        .get(&entity_tag)
+        .expect("entity should survive check removal");
+
+    assert_eq!(replay, receipt);
+    assert_eq!(
+        session
+            .schema_application_receipt(after.database_identity(), proposal.submission_key())
+            .expect("receipt lookup should succeed"),
+        Some(receipt),
+    );
+    assert_eq!(accepted_after.revision().get(), 2);
+    assert_eq!(
+        after_snapshot.constraint_id_allocator(),
+        before_snapshot.constraint_id_allocator(),
+    );
+    assert_eq!(after_snapshot.fields(), before_snapshot.fields());
+    assert_eq!(after_snapshot.row_layout(), before_snapshot.row_layout());
+    assert_eq!(after_snapshot.indexes(), before_snapshot.indexes());
+    assert_eq!(
+        accepted_after
+            .source_bindings_for_tests()
+            .constraint_binding_count_for_tests(entity_tag),
+        0,
+    );
+    assert!(
+        after_snapshot
+            .constraints()
+            .iter()
+            .all(|constraint| !matches!(
+                constraint.kind(),
+                crate::db::schema::AcceptedConstraintKind::Check { .. }
+            )),
     );
 }
 
