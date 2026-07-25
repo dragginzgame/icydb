@@ -167,9 +167,8 @@ impl AcceptedSourceBindingCatalog {
     }
 
     /// Resolve one immutable member source identity inside an accepted record.
-    #[cfg(test)]
     #[must_use]
-    pub(in crate::db) fn composite_field(
+    pub(in crate::db::schema) fn composite_field(
         &self,
         composite_type: CompositeTypeId,
         source: &FieldSourceKey,
@@ -177,6 +176,36 @@ impl AcceptedSourceBindingCatalog {
         self.composite_fields
             .get(&(composite_type, source.clone()))
             .copied()
+    }
+
+    /// Resolve one immutable accepted-check source identity.
+    #[must_use]
+    pub(in crate::db::schema) fn constraint(
+        &self,
+        entity: EntityTag,
+        source: &ConstraintSourceKey,
+    ) -> Option<ConstraintId> {
+        self.constraints.get(&(entity, source.clone())).copied()
+    }
+
+    /// Resolve one immutable secondary-index source identity.
+    #[must_use]
+    pub(in crate::db::schema) fn index(
+        &self,
+        entity: EntityTag,
+        source: &IndexSourceKey,
+    ) -> Option<SchemaIndexId> {
+        self.indexes.get(&(entity, source.clone())).copied()
+    }
+
+    /// Resolve one immutable relation source identity.
+    #[must_use]
+    pub(in crate::db::schema) fn relation(
+        &self,
+        entity: EntityTag,
+        source: &RelationSourceKey,
+    ) -> Option<RelationId> {
+        self.relations.get(&(entity, source.clone())).copied()
     }
 
     /// Apply one catalog-native SQL-DDL entity transition.

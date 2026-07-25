@@ -7,16 +7,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### ⚠️ Breaking
+### 🔧 Changed
 
-- Accepted record composites now give every member a stable store-local
-  identity bound to its immutable source key, so editable member names cannot
-  become reconciliation authority. This hard-cuts accepted bundle bytes;
-  development stores written through `0.213.8` must be recreated.
+- Exact non-empty schema proposals now resolve every declared owner through
+  accepted source bindings and may atomically change future insert defaults
+  without changing accepted identity, historical fill, or physical layout.
 
 ## [0.213.x] 🧭 - 2026-07-24 - Schema Authority And Application Separation
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
+
+- `0.213.9` gives accepted record members stable source-bound identities so
+  later editable renames cannot replace structural authority.
 
 - `0.213.8` extends initial catalog-native schema application to the complete
   store-local closure of named enum, record, newtype, list, set, map, and tuple

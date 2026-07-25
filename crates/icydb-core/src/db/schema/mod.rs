@@ -63,7 +63,8 @@ pub(in crate::db) use application::{
     apply_schema, schema_application_receipt, schema_application_target,
 };
 pub(in crate::db::schema) use application_lowering::{
-    ProposalStoreTarget, lower_initial_schema_proposal,
+    ExistingProposalStore, ProposalStoreTarget, lower_existing_schema_proposal,
+    lower_initial_schema_proposal,
 };
 pub(in crate::db) use application_receipt::SchemaApplicationRecord;
 #[cfg(test)]

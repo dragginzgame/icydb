@@ -3125,6 +3125,9 @@ fn schema_application_no_op_receipt_is_durable_and_exactly_replayed() {
 
 fn initial_named_application_proposal(
     target: &crate::db::SchemaApplicationTarget,
+    submission_key: &str,
+    status_has_default: bool,
+    status_name: &str,
 ) -> icydb_schema::SchemaProposal {
     let entity_source = icydb_schema::EntitySourceKey::try_new("test:entity:standalone")
         .expect("test entity source should admit");
@@ -3162,13 +3165,20 @@ fn initial_named_application_proposal(
             icydb_schema::FieldFragment::new(
                 icydb_schema::FieldSourceKey::try_new("test:field:standalone-status")
                     .expect("test field source should admit"),
-                icydb_schema::SchemaName::try_new("status").expect("test field name should admit"),
+                icydb_schema::SchemaName::try_new(status_name)
+                    .expect("test field name should admit"),
                 icydb_schema::FieldType::Named(status_source.clone()),
                 false,
-                icydb_schema::FieldInsertPolicy::Default(icydb_schema::ScalarLiteral::EnumUnit {
-                    enum_type: status_source,
-                    variant: active_source,
-                }),
+                if status_has_default {
+                    icydb_schema::FieldInsertPolicy::Default(
+                        icydb_schema::ScalarLiteral::EnumUnit {
+                            enum_type: status_source,
+                            variant: active_source,
+                        },
+                    )
+                } else {
+                    icydb_schema::FieldInsertPolicy::Required
+                },
                 None,
             ),
         ],
@@ -3186,7 +3196,7 @@ fn initial_named_application_proposal(
             icydb_schema::SchemaCapability::INSERT_DEFAULTS,
         ],
         target.database_identity(),
-        icydb_schema::SchemaSubmissionKey::try_new("initial-named-application")
+        icydb_schema::SchemaSubmissionKey::try_new(submission_key)
             .expect("test submission key should admit"),
         target.accepted_head().clone(),
         vec![fragment],
@@ -3199,8 +3209,7 @@ fn initial_named_application_proposal(
     .expect("test proposal should compose")
 }
 
-#[test]
-fn schema_application_publishes_initial_named_proposal_and_receipt_atomically() {
+fn reset_standalone_schema_application_fixture() -> DbSession<SessionSqlCanister> {
     init_commit_store_for_tests().expect("commit store init should succeed");
     JOURNALED_SESSION_SQL_DATA_STORE.with_borrow_mut(DataStore::clear);
     JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow_mut(|store| {
@@ -3213,7 +3222,12 @@ fn schema_application_publishes_initial_named_proposal_and_receipt_atomically() 
     ensure_recovered(&STANDALONE_JOURNALED_SESSION_DB)
         .expect("standalone journaled database should recover");
     DbSession::<SessionSqlCanister>::clear_accepted_schema_query_cache_for_tests();
-    let session = DbSession::new(STANDALONE_JOURNALED_SESSION_DB);
+    DbSession::new(STANDALONE_JOURNALED_SESSION_DB)
+}
+
+#[test]
+fn schema_application_publishes_initial_named_proposal_and_receipt_atomically() {
+    let session = reset_standalone_schema_application_fixture();
     let target = session
         .schema_application_target()
         .expect("empty standalone target should derive");
@@ -3221,7 +3235,8 @@ fn schema_application_publishes_initial_named_proposal_and_receipt_atomically() 
         target.accepted_head(),
         &icydb_schema::ExpectedAcceptedHead::Empty
     );
-    let proposal = initial_named_application_proposal(&target);
+    let proposal =
+        initial_named_application_proposal(&target, "initial-named-application", true, "status");
 
     JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow_mut(IndexStore::mark_building);
     let rejection = session
@@ -3258,6 +3273,138 @@ fn schema_application_publishes_initial_named_proposal_and_receipt_atomically() 
             .schema_application_receipt(target.database_identity(), proposal.submission_key())
             .expect("receipt lookup should succeed"),
         Some(receipt),
+    );
+}
+
+#[test]
+fn schema_application_reconciles_existing_future_default_without_identity_or_layout_churn() {
+    let session = reset_standalone_schema_application_fixture();
+    let target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial =
+        initial_named_application_proposal(&target, "existing-fixture-initial", true, "status");
+    session
+        .apply_schema(&initial)
+        .expect("initial named proposal should publish");
+    let after = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let initial_bundle = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let initial_bindings = initial_bundle.source_bindings_for_tests().clone();
+    let (&entity_tag, initial_snapshot) = initial_bundle
+        .entity_snapshots()
+        .iter()
+        .next()
+        .expect("initial entity snapshot should exist");
+    let field_id = initial_snapshot
+        .fields()
+        .iter()
+        .find(|field| field.name() == "status")
+        .expect("initial status field should exist")
+        .id();
+    let initial_layout = initial_snapshot.row_layout().clone();
+
+    let exact = initial_named_application_proposal(&after, "existing-named-no-op", true, "status");
+    let no_op = session
+        .apply_schema(&exact)
+        .expect("an exact existing-head declaration should be a durable no-op");
+    assert!(matches!(
+        no_op.outcome(),
+        crate::db::SchemaChangeOutcome::NoOp { accepted_head }
+            if accepted_head == after.accepted_head()
+    ));
+
+    let without_default =
+        initial_named_application_proposal(&after, "existing-default-removal", false, "status");
+    let changed = session
+        .apply_schema(&without_default)
+        .expect("future insert-default removal should publish");
+    let after_default = session
+        .schema_application_target()
+        .expect("updated target should derive");
+    assert!(matches!(
+        changed.outcome(),
+        crate::db::SchemaChangeOutcome::Applied { accepted_head }
+            if accepted_head == after_default.accepted_head()
+    ));
+    assert!(matches!(
+        after_default.accepted_head(),
+        icydb_schema::ExpectedAcceptedHead::Exact { revision: 2, .. }
+    ));
+
+    let updated_bundle = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("updated accepted bundle should load")
+        .expect("updated accepted bundle should exist");
+    assert_eq!(
+        updated_bundle.source_bindings_for_tests(),
+        &initial_bindings,
+        "all immutable source identities should survive default reconciliation",
+    );
+    let updated_snapshot = updated_bundle
+        .entity_snapshots()
+        .get(&entity_tag)
+        .expect("updated entity snapshot should exist");
+    let updated_field = updated_snapshot
+        .fields()
+        .iter()
+        .find(|field| field.id() == field_id)
+        .expect("updated status field should exist");
+    assert_eq!(updated_snapshot.row_layout(), &initial_layout);
+    assert_eq!(
+        updated_field.insert_default(),
+        &crate::db::schema::SchemaInsertDefault::None,
+    );
+    assert_eq!(
+        updated_field.historical_fill(),
+        initial_snapshot
+            .fields()
+            .iter()
+            .find(|field| field.id() == field_id)
+            .expect("initial status field should exist")
+            .historical_fill(),
+    );
+}
+
+#[test]
+fn schema_application_rejects_unimplemented_existing_rename_before_publication() {
+    let session = reset_standalone_schema_application_fixture();
+    let target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial =
+        initial_named_application_proposal(&target, "rename-fixture-initial", false, "status");
+    session
+        .apply_schema(&initial)
+        .expect("initial named proposal should publish");
+    let after = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let unsupported_rename =
+        initial_named_application_proposal(&after, "existing-rename-rejection", false, "state");
+    let rejection = session
+        .apply_schema(&unsupported_rename)
+        .expect_err("an unimplemented existing-head rename must fail before publication");
+    assert_eq!(rejection.class(), ErrorClass::Unsupported);
+    assert_eq!(
+        session
+            .schema_application_target()
+            .expect("rejected rename should leave the target readable")
+            .accepted_head(),
+        after.accepted_head(),
+    );
+    assert_eq!(
+        session
+            .schema_application_receipt(
+                after.database_identity(),
+                unsupported_rename.submission_key(),
+            )
+            .expect("rejected receipt lookup should succeed"),
+        None,
     );
 }
 

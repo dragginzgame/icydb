@@ -22,9 +22,10 @@ use crate::{
             StoreRelationTargetCapability, StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
         },
         schema::{
-            AcceptedSchemaRevision, ProposalStoreTarget, SchemaApplicationRecord,
-            SchemaApplicationRecordOp, SchemaChangeOutcome, SchemaChangeReceipt,
-            lower_initial_schema_proposal, with_schema_application_store,
+            AcceptedSchemaRevision, ExistingProposalStore, ProposalStoreTarget,
+            SchemaApplicationRecord, SchemaApplicationRecordOp, SchemaChangeOutcome,
+            SchemaChangeReceipt, lower_existing_schema_proposal, lower_initial_schema_proposal,
+            with_schema_application_store,
         },
     },
     error::InternalError,
@@ -217,37 +218,8 @@ pub(in crate::db) fn apply_schema<C: CanisterKind>(
     }
 
     let authorities = application_authorities(db);
-    let candidates = match target.accepted_head() {
-        ExpectedAcceptedHead::Empty => {
-            let stores = authorities
-                .iter()
-                .map(|authority| ProposalStoreTarget {
-                    path: authority.path,
-                    identity: derive_store_identity(target.database_identity(), authority),
-                })
-                .collect::<Vec<_>>();
-            lower_initial_schema_proposal(proposal, stores.as_slice())?
-        }
-        ExpectedAcceptedHead::Exact { .. }
-            if proposal.fragments().is_empty() && proposal.removals().is_empty() =>
-        {
-            Vec::new()
-        }
-        ExpectedAcceptedHead::Exact { .. } => return Err(InternalError::store_unsupported()),
-    };
-
-    for candidate in &candidates {
-        let authority = authorities
-            .iter()
-            .find(|authority| authority.path == candidate.store_path())
-            .ok_or_else(InternalError::store_unsupported)?;
-        if authority.handle.with_data(DataStore::len) != 0
-            || authority.handle.index_state() != IndexState::Ready
-            || !authority.handle.with_index(IndexStore::is_empty)
-        {
-            return Err(InternalError::store_unsupported());
-        }
-    }
+    let (current_bundles, candidates) =
+        lower_application_candidates(&target, proposal, authorities.as_slice())?;
     let accepted_head = if candidates.is_empty() {
         target.accepted_head().clone()
     } else {
@@ -267,23 +239,113 @@ pub(in crate::db) fn apply_schema<C: CanisterKind>(
     )?;
     let record = SchemaApplicationRecord::new(receipt.clone(), Vec::new())?;
     let operation = SchemaApplicationRecordOp::insert(&record)?;
-    let publications = candidates
+    let publications =
+        application_publications(authorities.as_slice(), &current_bundles, &candidates)?;
+    publish_accepted_schema_candidates_with_application_record(publications, operation)?;
+    Ok(receipt)
+}
+
+fn lower_application_candidates(
+    target: &SchemaApplicationTarget,
+    proposal: &SchemaProposal,
+    authorities: &[StoreApplicationAuthority],
+) -> Result<
+    (
+        Vec<Option<crate::db::schema::AcceptedSchemaRevisionBundle>>,
+        Vec<crate::db::schema::CandidateSchemaRevision>,
+    ),
+    InternalError,
+> {
+    let current_bundles = authorities
+        .iter()
+        .map(|authority| {
+            authority
+                .handle
+                .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)
+        })
+        .collect::<Result<Vec<_>, InternalError>>()?;
+    let initial_application = matches!(target.accepted_head(), ExpectedAcceptedHead::Empty);
+    let candidates = match target.accepted_head() {
+        ExpectedAcceptedHead::Empty => {
+            let stores = authorities
+                .iter()
+                .map(|authority| ProposalStoreTarget {
+                    path: authority.path,
+                    identity: derive_store_identity(target.database_identity(), authority),
+                })
+                .collect::<Vec<_>>();
+            lower_initial_schema_proposal(proposal, stores.as_slice())?
+        }
+        ExpectedAcceptedHead::Exact { .. }
+            if proposal.fragments().is_empty() && proposal.removals().is_empty() =>
+        {
+            Vec::new()
+        }
+        ExpectedAcceptedHead::Exact { .. } => {
+            let stores = authorities
+                .iter()
+                .zip(&current_bundles)
+                .filter_map(|(authority, bundle)| {
+                    bundle.as_ref().map(|bundle| ExistingProposalStore {
+                        path: authority.path,
+                        identity: derive_store_identity(target.database_identity(), authority),
+                        bundle,
+                    })
+                })
+                .collect::<Vec<_>>();
+            lower_existing_schema_proposal(proposal, stores.as_slice())?
+        }
+    };
+    if initial_application {
+        preflight_initial_application(authorities, &candidates)?;
+    }
+    Ok((current_bundles, candidates))
+}
+
+fn preflight_initial_application(
+    authorities: &[StoreApplicationAuthority],
+    candidates: &[crate::db::schema::CandidateSchemaRevision],
+) -> Result<(), InternalError> {
+    for candidate in candidates {
+        let authority = authorities
+            .iter()
+            .find(|authority| authority.path == candidate.store_path())
+            .ok_or_else(InternalError::store_unsupported)?;
+        if authority.handle.with_data(DataStore::len) != 0
+            || authority.handle.index_state() != IndexState::Ready
+            || !authority.handle.with_index(IndexStore::is_empty)
+        {
+            return Err(InternalError::store_unsupported());
+        }
+    }
+    Ok(())
+}
+
+fn application_publications<'a>(
+    authorities: &[StoreApplicationAuthority],
+    current_bundles: &[Option<crate::db::schema::AcceptedSchemaRevisionBundle>],
+    candidates: &'a [crate::db::schema::CandidateSchemaRevision],
+) -> Result<Vec<AcceptedSchemaPublication<'a>>, InternalError> {
+    candidates
         .iter()
         .map(|candidate| {
-            let authority = authorities
+            let (position, authority) = authorities
                 .iter()
-                .find(|authority| authority.path == candidate.store_path())
+                .enumerate()
+                .find(|(_, authority)| authority.path == candidate.store_path())
                 .ok_or_else(InternalError::store_unsupported)?;
+            let expected_revision = current_bundles[position].as_ref().map_or(
+                AcceptedSchemaRevision::NONE,
+                crate::db::schema::AcceptedSchemaRevisionBundle::revision,
+            );
             Ok(AcceptedSchemaPublication::new(
                 authority.path,
                 authority.handle,
-                AcceptedSchemaRevision::NONE,
+                expected_revision,
                 candidate,
             ))
         })
-        .collect::<Result<Vec<_>, InternalError>>()?;
-    publish_accepted_schema_candidates_with_application_record(publications, operation)?;
-    Ok(receipt)
+        .collect()
 }
 
 fn application_authorities<C: CanisterKind>(db: &Db<C>) -> Vec<StoreApplicationAuthority> {
