@@ -86,7 +86,7 @@ pub(in crate::db) use schema_publication::publish_accepted_schema_candidate;
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate_with_derived_domains;
 #[cfg(feature = "sql")]
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate_with_user_index_domains;
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidates_atomically;
 pub(in crate::db) use schema_publication::{
     AcceptedSchemaPublication, publish_accepted_schema_candidates_with_application_record,
