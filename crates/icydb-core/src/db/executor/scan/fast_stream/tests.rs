@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        Db, EntityRuntimeHooks,
+        Db, EntityRegistration,
         access::{AccessPath, AccessPlan},
         data::DataStore,
         direction::Direction,
@@ -103,11 +103,12 @@ thread_local! {
     };
 }
 
-static FAST_STREAM_INVARIANT_RUNTIME_HOOKS: &[EntityRuntimeHooks<FastStreamInvariantCanister>] =
-    &[EntityRuntimeHooks::for_entity::<FastStreamInvariantEntity>()];
-static FAST_STREAM_INVARIANT_DB: Db<FastStreamInvariantCanister> = Db::new_with_hooks(
+static FAST_STREAM_INVARIANT_ENTITY_REGISTRATIONS: &[EntityRegistration<
+    FastStreamInvariantCanister,
+>] = &[EntityRegistration::for_entity::<FastStreamInvariantEntity>()];
+static FAST_STREAM_INVARIANT_DB: Db<FastStreamInvariantCanister> = Db::new_with_registrations(
     &FAST_STREAM_INVARIANT_REGISTRY,
-    FAST_STREAM_INVARIANT_RUNTIME_HOOKS,
+    FAST_STREAM_INVARIANT_ENTITY_REGISTRATIONS,
 );
 
 #[test]

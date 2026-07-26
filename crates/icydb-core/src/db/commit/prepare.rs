@@ -28,15 +28,11 @@ use crate::{
             RelationConstraintProjection, ReverseRelationSourceInfo,
             prepare_reverse_relation_index_mutations_for_source_slot_readers,
         },
-        schema::{
-            ConstraintActivationKind, ConstraintId, SchemaInfo, UniqueConstraintProjection,
-            ensure_accepted_catalog_snapshot_selection,
-        },
+        schema::{ConstraintActivationKind, ConstraintId, SchemaInfo, UniqueConstraintProjection},
     },
     entity::{EntityKind, EntityValue},
     error::{ConstraintDiagnostic, ConstraintDiagnosticKind, ErrorClass, InternalError},
     metrics::sink::{MetricsEvent, record},
-    model::entity::EntityModel,
     traits::{CanisterKind, Path},
     types::EntityTag,
 };
@@ -55,7 +51,6 @@ struct CommitPrepareAuthority {
     schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
     data_store_path: &'static str,
     relation_source: ReverseRelationSourceInfo,
-    model: &'static EntityModel,
 }
 
 /// Accepted row, live-index, and candidate-index contracts shared by one batch.
@@ -103,7 +98,6 @@ impl CommitPrepareAuthority {
             schema_fingerprint,
             data_store_path: E::Store::PATH,
             relation_source: ReverseRelationSourceInfo::for_type::<E>(),
-            model: E::MODEL,
         }
     }
 
@@ -112,7 +106,6 @@ impl CommitPrepareAuthority {
         entity_tag: EntityTag,
         schema_fingerprint: CommitSchemaFingerprint,
         data_store_path: &'static str,
-        model: &'static EntityModel,
     ) -> Self {
         Self {
             entity_path,
@@ -120,7 +113,6 @@ impl CommitPrepareAuthority {
             schema_fingerprint,
             data_store_path,
             relation_source: ReverseRelationSourceInfo::new(entity_path, entity_tag),
-            model,
         }
     }
 }
@@ -305,14 +297,15 @@ where
     )
 }
 
-/// Resolve immutable accepted-schema commit authority from runtime hook metadata.
-pub(in crate::db) fn prepare_commit_context_for_runtime_entity<C: CanisterKind>(
+/// Resolve immutable accepted-schema commit authority from model-free runtime
+/// registration.
+pub(in crate::db) fn prepare_commit_context_for_runtime_registration<C: CanisterKind>(
     db: &Db<C>,
     entity_path: &'static str,
     entity_tag: EntityTag,
     data_store_path: &'static str,
-    model: &'static EntityModel,
     schema_fingerprint: CommitSchemaFingerprint,
+    include_candidate_relation_effects: bool,
 ) -> Result<CommitPrepareContext, InternalError> {
     prepare_commit_context(
         db,
@@ -321,33 +314,8 @@ pub(in crate::db) fn prepare_commit_context_for_runtime_entity<C: CanisterKind>(
             entity_tag,
             schema_fingerprint,
             data_store_path,
-            model,
         ),
-        true,
-    )
-}
-
-/// Resolve accepted commit authority for full recovery rebuild without live
-/// candidate dual-maintenance effects. Candidate prefixes are reconstructed
-/// separately from their durable validation job checkpoints.
-pub(in crate::db) fn prepare_commit_context_for_runtime_entity_rebuild<C: CanisterKind>(
-    db: &Db<C>,
-    entity_path: &'static str,
-    entity_tag: EntityTag,
-    data_store_path: &'static str,
-    model: &'static EntityModel,
-    schema_fingerprint: CommitSchemaFingerprint,
-) -> Result<CommitPrepareContext, InternalError> {
-    prepare_commit_context(
-        db,
-        CommitPrepareAuthority::from_runtime_parts(
-            entity_path,
-            entity_tag,
-            schema_fingerprint,
-            data_store_path,
-            model,
-        ),
-        false,
+        include_candidate_relation_effects,
     )
 }
 
@@ -592,21 +560,17 @@ where
     C: CanisterKind,
 {
     let store = db.with_store_registry(|reg| reg.try_get_store(authority.data_store_path))?;
-    let selection = store.with_schema_mut(|schema_store| {
-        ensure_accepted_catalog_snapshot_selection(
-            schema_store,
-            authority.entity_tag,
-            authority.entity_path,
-            authority.data_store_path,
-            authority.model,
-        )
-    })?;
+    let selection = store
+        .with_schema(|schema_store| {
+            schema_store.current_accepted_catalog_selection(
+                authority.entity_tag,
+                authority.entity_path,
+                authority.data_store_path,
+            )
+        })?
+        .ok_or_else(InternalError::store_corruption)?;
     let accepted_authority =
-        AcceptedStructuralRowAuthority::from_generated_compatible_catalog_selection(
-            authority.entity_path,
-            authority.model,
-            &selection,
-        )?;
+        AcceptedStructuralRowAuthority::from_catalog_selection(authority.entity_path, &selection)?;
     let value_catalog = selection.value_catalog_handle().clone();
     let (accepted, row_contract) = accepted_authority.into_parts();
     let candidate_unique = candidate_unique_commit_contract(
@@ -629,12 +593,7 @@ where
     Ok(AcceptedCommitSchemaContracts {
         row_contract,
         schema_info: (!accepted.persisted_snapshot().indexes().is_empty()).then(|| {
-            SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
-                authority.model,
-                &accepted,
-                value_catalog,
-                true,
-            )
+            SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, value_catalog, true)
         }),
         candidate_unique,
         candidate_relation,

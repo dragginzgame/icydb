@@ -1,6 +1,7 @@
 //! Module: db
 //!
-//! Responsibility: root subsystem wiring, façade re-exports, and runtime hook contracts.
+//! Responsibility: root subsystem wiring, façade re-exports, and entity
+//! registration contracts.
 //! Does not own: feature semantics delegated to child modules (`query`, `executor`, etc.).
 //! Boundary: top-level db API and internal orchestration entrypoints.
 
@@ -9,6 +10,7 @@ pub(crate) mod catalog;
 pub(crate) mod cursor;
 pub(crate) mod diagnostics;
 mod dynamic_write;
+pub(crate) mod entity_registration;
 pub(crate) mod identity;
 pub(crate) mod integrity;
 #[cfg(feature = "diagnostics")]
@@ -17,7 +19,6 @@ pub(crate) mod predicate;
 pub(crate) mod query;
 pub(crate) mod registry;
 pub(crate) mod response;
-pub(crate) mod runtime_hooks;
 pub(crate) mod scalar_expr;
 pub(crate) mod schema;
 pub(crate) mod session;
@@ -62,7 +63,7 @@ pub use catalog::{
 };
 #[doc(hidden)]
 pub use codec::hex::encode_hex_lower;
-pub use runtime_hooks::EntityRuntimeHooks;
+pub use entity_registration::EntityRegistration;
 pub use schema::{
     SchemaApplicationStore, SchemaApplicationTarget, SchemaChangeFailure, SchemaChangeJob,
     SchemaChangeJobId, SchemaChangeOutcome, SchemaChangeProgress, SchemaChangeProgressStatus,
@@ -319,27 +320,27 @@ pub(crate) fn decode_non_enum_protocol_value_bytes(
 
 pub(crate) struct Db<C: CanisterKind> {
     store: &'static LocalKey<StoreRegistry>,
-    entity_runtime_hooks: &'static [EntityRuntimeHooks<C>],
+    entity_registrations: &'static [EntityRegistration<C>],
     _marker: PhantomData<C>,
 }
 
 impl<C: CanisterKind> Db<C> {
-    /// Construct a db handle with explicit per-entity runtime hook wiring.
+    /// Construct a database handle with explicit generated entity registrations.
     #[must_use]
-    pub(crate) const fn new_with_hooks(
+    pub(crate) const fn new_with_registrations(
         store: &'static LocalKey<StoreRegistry>,
-        entity_runtime_hooks: &'static [EntityRuntimeHooks<C>],
+        entity_registrations: &'static [EntityRegistration<C>],
     ) -> Self {
         #[cfg(debug_assertions)]
         {
-            let _ = crate::db::runtime_hooks::debug_assert_unique_runtime_hook_tags(
-                entity_runtime_hooks,
+            let _ = crate::db::entity_registration::debug_assert_unique_entity_registrations(
+                entity_registrations,
             );
         }
 
         Self {
             store,
-            entity_runtime_hooks,
+            entity_registrations,
             _marker: PhantomData,
         }
     }
@@ -424,7 +425,11 @@ impl<C: CanisterKind> Db<C> {
         &self,
         op: &CommitRowOp,
     ) -> Result<PreparedRowCommitOp, InternalError> {
-        runtime_hooks::prepare_row_commit_with_hook(self, self.entity_runtime_hooks, op)
+        entity_registration::prepare_row_commit_with_registration(
+            self,
+            self.entity_registrations,
+            op,
+        )
     }
 
     // Rebuild live derived state while candidate generations follow their
@@ -433,7 +438,11 @@ impl<C: CanisterKind> Db<C> {
         &self,
         op: &CommitRowOp,
     ) -> Result<PreparedRowCommitOp, InternalError> {
-        runtime_hooks::prepare_row_commit_with_hook_for_rebuild(self, self.entity_runtime_hooks, op)
+        entity_registration::prepare_row_commit_with_registration_for_rebuild(
+            self,
+            self.entity_registrations,
+            op,
+        )
     }
 
     // Validate relation constraints for delete-selected target keys.
@@ -442,9 +451,9 @@ impl<C: CanisterKind> Db<C> {
         target_path: &str,
         deleted_target_keys: &BTreeSet<RawDataStoreKey>,
     ) -> Result<(), InternalError> {
-        runtime_hooks::validate_delete_relations_with_hooks(
+        entity_registration::validate_delete_relations_with_registrations(
             self,
-            self.entity_runtime_hooks,
+            self.entity_registrations,
             target_path,
             deleted_target_keys,
         )
@@ -508,22 +517,26 @@ impl<C: CanisterKind> Db<C> {
         memory
     }
 
-    // Resolve exactly one runtime hook for a persisted entity tag.
-    // Duplicate matches are treated as store invariants.
-    pub(crate) fn runtime_hook_for_entity_tag(
+    // Resolve exactly one model-free runtime registration for a persisted tag.
+    pub(in crate::db) fn runtime_registration_for_entity_tag(
         &self,
         entity_tag: EntityTag,
-    ) -> Result<&EntityRuntimeHooks<C>, InternalError> {
-        runtime_hooks::resolve_runtime_hook_by_tag(self.entity_runtime_hooks, entity_tag)
+    ) -> Result<entity_registration::EntityRuntimeRegistration<C>, InternalError> {
+        entity_registration::resolve_runtime_registration_by_tag(
+            self.entity_registrations,
+            entity_tag,
+        )
     }
 
-    // Resolve exactly one runtime hook for a persisted entity path.
-    // Duplicate matches are treated as store invariants.
-    pub(crate) fn runtime_hook_for_entity_path(
+    // Resolve exactly one model-free runtime registration for an entity path.
+    pub(in crate::db) fn runtime_registration_for_entity_path(
         &self,
         entity_path: &str,
-    ) -> Result<&EntityRuntimeHooks<C>, InternalError> {
-        runtime_hooks::resolve_runtime_hook_by_path(self.entity_runtime_hooks, entity_path)
+    ) -> Result<entity_registration::EntityRuntimeRegistration<C>, InternalError> {
+        entity_registration::resolve_runtime_registration_by_path(
+            self.entity_registrations,
+            entity_path,
+        )
     }
 }
 

@@ -305,8 +305,10 @@ impl<C: CanisterKind> StructuralPrimaryRowReader for PreflightStoreOverlay<'_, C
             return Ok(override_row.clone());
         }
 
-        let hooks = self.db.runtime_hook_for_entity_tag(key.entity_tag())?;
-        let store = self.db.recovered_store(hooks.store_path)?;
+        let registration = self
+            .db
+            .runtime_registration_for_entity_tag(key.entity_tag())?;
+        let store = self.db.recovered_store(registration.store_path)?;
 
         Ok(store.with_data(|data_store| data_store.get(&raw_key)))
     }
@@ -592,13 +594,14 @@ fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
     let Some(first_row_op) = row_ops.first() else {
         return Ok(PreparedRowOpBatch::with_row_capacity(0));
     };
-    let hooks = db.runtime_hook_for_entity_path(first_row_op.entity_path.as_ref())?;
-    let context = hooks.prepare_commit_context(db, first_row_op.schema_fingerprint)?;
+    let registration =
+        db.runtime_registration_for_entity_path(first_row_op.entity_path.as_ref())?;
+    let context = registration.prepare_commit_context(db, first_row_op.schema_fingerprint, true)?;
 
-    // The structural runtime-hook path can also bypass overlay simulation for
+    // The structural registration path can also bypass overlay simulation for
     // one-row commits because there is no staged cross-row state to read.
     if let [row_op] = row_ops {
-        let store = db.store_handle(hooks.store_path)?;
+        let store = db.store_handle(registration.store_path)?;
         return prepare_row_commit_with_context(db, row_op, &context, &store, &store).map(
             |prepared| {
                 let mut batch = PreparedRowOpBatch::with_row_capacity(1);

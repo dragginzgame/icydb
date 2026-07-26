@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        Db, EntityRuntimeHooks,
+        Db,
         codec::hex::encode_hex_lower,
         data::{DecodedDataStoreKey, StoreVisit},
         diagnostics::{
@@ -13,6 +13,7 @@ use crate::{
             SchemaStoreSnapshot, StorageReport, StoreSnapshotAllocationIdentity,
             StoreSnapshotSchemaMetadata, StoreSnapshotStorageMode,
         },
+        entity_registration::EntityRuntimeRegistration,
         index::{IndexKey, IndexStoreVisit},
         registry::{StoreAllocationIdentity, StoreRuntimeStorageMode},
     },
@@ -64,15 +65,16 @@ fn update_default_entity_stats(
     entity_stats.push((entity_tag, stats));
 }
 
-fn storage_report_name_for_hook<'a, C: CanisterKind>(
+fn storage_report_name_for_registration<'a, C: CanisterKind>(
     name_map: &BTreeMap<&'static str, &'a str>,
-    hooks: &EntityRuntimeHooks<C>,
+    registration: EntityRuntimeRegistration<C>,
+    accepted_entity_name: &str,
 ) -> &'a str {
     name_map
-        .get(hooks.entity_path)
+        .get(registration.entity_path)
         .copied()
-        .or_else(|| name_map.get(hooks.model.name()).copied())
-        .unwrap_or(hooks.entity_path)
+        .or_else(|| name_map.get(accepted_entity_name).copied())
+        .unwrap_or(registration.entity_path)
 }
 
 // Resolve one default entity path label for storage snapshots without pulling
@@ -81,10 +83,12 @@ fn storage_report_default_name_for_entity_tag<C: CanisterKind>(
     db: &Db<C>,
     entity_tag: EntityTag,
 ) -> String {
-    db.runtime_hook_for_entity_tag(entity_tag).ok().map_or_else(
-        || format!("#{}", entity_tag.value()),
-        |hooks| hooks.entity_path.to_string(),
-    )
+    db.runtime_registration_for_entity_tag(entity_tag)
+        .ok()
+        .map_or_else(
+            || format!("#{}", entity_tag.value()),
+            |registration| registration.entity_path.to_string(),
+        )
 }
 
 fn snapshot_allocation_identity(
@@ -172,9 +176,15 @@ impl StorageReportMode<'_> {
                 .copied()
                 .map(str::to_string)
                 .or_else(|| {
-                    db.runtime_hook_for_entity_tag(entity_tag)
+                    db.runtime_registration_for_entity_tag(entity_tag)
                         .ok()
-                        .map(|hooks| storage_report_name_for_hook(name_map, hooks).to_string())
+                        .map(|registration| {
+                            name_map
+                                .get(registration.entity_path)
+                                .copied()
+                                .unwrap_or(registration.entity_path)
+                                .to_string()
+                        })
                 })
                 .unwrap_or_else(|| format!("#{}", entity_tag.value())),
         }
@@ -288,14 +298,32 @@ pub(in crate::db) fn storage_report<C: CanisterKind>(
 ) -> Result<StorageReport, InternalError> {
     db.ensure_recovered_state()?;
     // Build one optional alias map once, then resolve report names from the
-    // runtime hook table so entity tags keep distinct path identity even when
-    // multiple hooks intentionally share the same model name.
+    // model-free registration table so entity tags keep distinct path identity
+    // even when multiple accepted entities share the same display name.
     let name_map: BTreeMap<&'static str, &str> = name_to_path.iter().copied().collect();
     let mut tag_name_map = BTreeMap::<EntityTag, &str>::new();
-    for hooks in db.entity_runtime_hooks {
+    for entity_registration in db.entity_registrations {
+        let registration = entity_registration.runtime();
+        let store = db.recovered_store(registration.store_path)?;
+        let accepted = store
+            .with_schema(|schema_store| {
+                schema_store.current_accepted_catalog_selection(
+                    registration.entity_tag,
+                    registration.entity_path,
+                    registration.store_path,
+                )
+            })?
+            .ok_or_else(InternalError::store_corruption)?
+            .decode_verified()?;
         tag_name_map
-            .entry(hooks.entity_tag)
-            .or_insert_with(|| storage_report_name_for_hook(&name_map, hooks));
+            .entry(registration.entity_tag)
+            .or_insert_with(|| {
+                storage_report_name_for_registration(
+                    &name_map,
+                    registration,
+                    accepted.entity_name(),
+                )
+            });
     }
 
     Ok(build_storage_report(

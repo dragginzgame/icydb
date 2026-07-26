@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.24` removes callback-bearing generated runtime hooks so accepted
+  catalogs are the sole runtime authority outside schema proposal handling.
+
 - `0.213.23` unifies structural and SQL writes under accepted-schema
   authority, makes managed timestamps database-owned, and moves independent
   build and derive consumers to Syn 3.

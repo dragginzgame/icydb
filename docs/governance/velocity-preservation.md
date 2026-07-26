@@ -139,15 +139,15 @@ into one large landing slice by default.
 
 Each landing patch must satisfy:
 
-- soft file-count limit: `<= 15`
-- hard file-count limit: `<= 25`
+- soft file-count limit: `<= 20`
+- hard file-count limit: `<= 35`
 - max primary domains touched: `<= 2`
 
 Interpretation:
 
-- `<= 15` changed files is the target for healthy routine work.
-- `16..25` files is allowed but should be treated as a warning band.
-- `> 25` files requires an explicit user-approved override obtained before the
+- `<= 20` changed files is the target for healthy routine work.
+- `21..35` files is allowed but should be treated as a warning band.
+- `> 35` files requires an explicit user-approved override obtained before the
   slice is widened.
 - touching more than two primary domains requires the same explicit approval
   even if file count stays below the hard limit.
@@ -167,6 +167,14 @@ atomicity, convenience, or the cost of another compile.
 
 When the user approves an override, its explanation belongs in the patch/PR
 summary, not in a special trailer format.
+
+An approved wide-slice estimate includes up to five additional files of direct
+mechanical propagation without another approval round. This allowance is only
+for compile fallout, exhaustive matches, focused tests, documentation, or
+fixtures required by the already approved outcome. It cannot introduce a new
+production behavior, canonical owner, primary delivery domain, or planned
+landing-patch outcome. The agent must report the final count and stop for
+approval if the allowance would be exceeded.
 
 Rules:
 

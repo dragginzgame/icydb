@@ -729,8 +729,8 @@ fn explain_sql_execution_reuses_catalog_schema_projection() {
         "one accepted catalog context should build one SchemaInfo projection across explain authority, binding, and verbose route finalization",
     );
     assert_eq!(
-        counters.generated_compatible_row_layout_proofs, 1,
-        "EXPLAIN should still construct accepted execution authority once",
+        counters.generated_compatible_row_layout_proofs, 0,
+        "model-free SQL EXPLAIN must not reconstruct accepted authority through the generated layout",
     );
     assert_eq!(
         counters.visible_index_projections, 1,

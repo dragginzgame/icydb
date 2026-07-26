@@ -7,7 +7,7 @@
 
 pub(in crate::db::executor::tests) use crate::{
     db::{
-        Db, DbSession, EntityRuntimeHooks,
+        Db, DbSession, EntityRegistration,
         commit::{
             CommitMarker, begin_commit, commit_marker_present, ensure_recovered,
             init_commit_store_for_tests, reset_commit_marker_test_journal_sequence,
@@ -22,7 +22,6 @@ pub(in crate::db::executor::tests) use crate::{
         predicate::MissingRowPolicy,
         query::intent::Query,
         registry::StoreRegistry,
-        relation::validate_delete_relations_for_source,
         schema::SchemaStore,
     },
     entity::{EntityKind, EntityValue},
@@ -160,16 +159,16 @@ thread_local! {
     };
 }
 
-static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
-    EntityRuntimeHooks::for_entity::<SimpleEntity>(),
-    EntityRuntimeHooks::for_entity::<SingletonUnitEntity>(),
-    EntityRuntimeHooks::for_entity::<IndexedMetricsEntity>(),
-    EntityRuntimeHooks::for_entity::<PushdownParityEntity>(),
-    EntityRuntimeHooks::for_entity::<UniqueIndexRangeEntity>(),
-    EntityRuntimeHooks::for_entity::<PhaseEntity>(),
+static ENTITY_REGISTRATIONS: &[EntityRegistration<TestCanister>] = &[
+    EntityRegistration::for_entity::<SimpleEntity>(),
+    EntityRegistration::for_entity::<SingletonUnitEntity>(),
+    EntityRegistration::for_entity::<IndexedMetricsEntity>(),
+    EntityRegistration::for_entity::<PushdownParityEntity>(),
+    EntityRegistration::for_entity::<UniqueIndexRangeEntity>(),
+    EntityRegistration::for_entity::<PhaseEntity>(),
 ];
 pub(in crate::db::executor::tests) static DB: Db<TestCanister> =
-    Db::new_with_hooks(&STORE_REGISTRY, ENTITY_RUNTIME_HOOKS);
+    Db::new_with_registrations(&STORE_REGISTRY, ENTITY_REGISTRATIONS);
 
 ///
 /// SimpleEntity
@@ -487,55 +486,19 @@ thread_local! {
     };
 }
 
-pub(in crate::db::executor::tests) static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<
+pub(in crate::db::executor::tests) static REL_ENTITY_REGISTRATIONS: &[EntityRegistration<
     RelationTestCanister,
 >] = &[
-    EntityRuntimeHooks::new(
-        RelationTargetEntity::ENTITY_TAG,
-        <RelationTargetEntity as crate::entity::EntityDeclaration>::MODEL,
-        RelationTargetEntity::PATH,
-        RelationTargetStore::PATH,
-        validate_delete_relations_for_source::<RelationTargetEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        RelationSourceEntity::ENTITY_TAG,
-        <RelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
-        RelationSourceEntity::PATH,
-        RelationSourceStore::PATH,
-        validate_delete_relations_for_source::<RelationSourceEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        CompositeRelationTargetEntity::ENTITY_TAG,
-        <CompositeRelationTargetEntity as crate::entity::EntityDeclaration>::MODEL,
-        CompositeRelationTargetEntity::PATH,
-        RelationTargetStore::PATH,
-        validate_delete_relations_for_source::<CompositeRelationTargetEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        CompositeRelationSourceEntity::ENTITY_TAG,
-        <CompositeRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
-        CompositeRelationSourceEntity::PATH,
-        RelationSourceStore::PATH,
-        validate_delete_relations_for_source::<CompositeRelationSourceEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        OptionalCompositeRelationSourceEntity::ENTITY_TAG,
-        <OptionalCompositeRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
-        OptionalCompositeRelationSourceEntity::PATH,
-        RelationSourceStore::PATH,
-        validate_delete_relations_for_source::<OptionalCompositeRelationSourceEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        CompositePkRelationSourceEntity::ENTITY_TAG,
-        <CompositePkRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
-        CompositePkRelationSourceEntity::PATH,
-        RelationSourceStore::PATH,
-        validate_delete_relations_for_source::<CompositePkRelationSourceEntity>,
-    ),
+    EntityRegistration::for_entity::<RelationTargetEntity>(),
+    EntityRegistration::for_entity::<RelationSourceEntity>(),
+    EntityRegistration::for_entity::<CompositeRelationTargetEntity>(),
+    EntityRegistration::for_entity::<CompositeRelationSourceEntity>(),
+    EntityRegistration::for_entity::<OptionalCompositeRelationSourceEntity>(),
+    EntityRegistration::for_entity::<CompositePkRelationSourceEntity>(),
 ];
 
 pub(in crate::db::executor::tests) static REL_DB: Db<RelationTestCanister> =
-    Db::new_with_hooks(&REL_STORE_REGISTRY, REL_ENTITY_RUNTIME_HOOKS);
+    Db::new_with_registrations(&REL_STORE_REGISTRY, REL_ENTITY_REGISTRATIONS);
 
 ///
 /// RelationTargetEntity

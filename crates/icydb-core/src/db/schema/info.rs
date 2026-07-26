@@ -886,7 +886,7 @@ impl SchemaInfo {
     /// Build one snapshot-shaped model bridge for focused tests.
     ///
     /// This intentionally lacks accepted catalog authority. Production runtime
-    /// paths must use `from_accepted_snapshot_and_catalog_for_model`.
+    /// paths must use `from_accepted_snapshot_and_catalog`.
     #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn from_snapshot_with_generated_model_for_test(
@@ -914,7 +914,8 @@ impl SchemaInfo {
         )
     }
 
-    /// Build one accepted schema view retaining its immutable value catalog.
+    /// Build one generated-compatible accepted schema view for focused tests.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn from_accepted_snapshot_and_catalog_for_model(
         model: &EntityModel,

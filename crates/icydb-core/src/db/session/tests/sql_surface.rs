@@ -345,7 +345,7 @@ fn install_nullable_sql_post_transition_schema() {
         )
         .expect("pre-transition nullable SQL schema prefix should publish");
     });
-    crate::db::schema::reconcile_runtime_schemas(&SESSION_SQL_DB, SESSION_SQL_RUNTIME_HOOKS)
+    crate::db::schema::reconcile_runtime_schemas(&SESSION_SQL_DB, SESSION_SQL_ENTITY_REGISTRATIONS)
         .expect("post-transition nullable SQL schema bundle should publish");
     DbSession::<SessionSqlCanister>::clear_accepted_schema_query_cache_for_tests();
 }

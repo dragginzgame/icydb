@@ -10,22 +10,17 @@ mod validate;
 
 use crate::{
     db::{
-        Db, EntityRuntimeHooks,
-        data::RawDataStoreKey,
+        Db,
+        entity_registration::EntityRuntimeRegistration,
         identity::EntityName,
-        schema::{
-            AcceptedFieldKind, classify_accepted_field_kind, ensure_accepted_schema_snapshot,
-        },
+        schema::{AcceptedFieldKind, classify_accepted_field_kind},
     },
     error::InternalError,
     traits::CanisterKind,
     types::EntityTag,
     value::Value,
 };
-use std::{
-    collections::BTreeSet,
-    fmt::{Debug, Display},
-};
+use std::fmt::{Debug, Display};
 
 pub(in crate::db) use metadata::{
     RelationFieldCardinality, RelationFieldMetadata, relation_field_metadata_for_model_iter,
@@ -41,17 +36,9 @@ pub(in crate::db) use save_validate::{
     validate_save_relations_for_structural_row, validate_save_relations_with_accepted_contract,
 };
 pub(in crate::db) use validate::{
-    validate_candidate_relation_target_delete_barrier, validate_delete_relations_for_source,
+    validate_candidate_relation_target_delete_barrier,
+    validate_delete_relations_for_registered_source,
 };
-
-///
-/// RelationDeleteValidateFn
-///
-/// Function-pointer contract for delete-side relation validators.
-///
-
-pub(in crate::db) type RelationDeleteValidateFn<C> =
-    fn(&Db<C>, &str, &BTreeSet<RawDataStoreKey>) -> Result<(), InternalError>;
 
 ///
 /// RelationTargetDecodeContext
@@ -228,13 +215,13 @@ where
         target.target_entity_tag,
         target.target_store_path,
     )?;
-    let target_hook =
+    let target_registration =
         declared_target.validate_against_db(db, source_path, diagnostic_relation_name)?;
-    let target_contract = accepted_relation_target_contract_for_hook(
+    let target_contract = accepted_relation_target_contract_for_registration(
         db,
         source_path,
         diagnostic_relation_name,
-        target_hook,
+        target_registration,
     )?;
     validate_accepted_relation_primary_key_kinds(
         source_path,
@@ -259,29 +246,30 @@ fn accepted_relation_target_contract<C>(
 where
     C: CanisterKind,
 {
-    let target_hook = db.runtime_hook_for_entity_path(target_path)?;
-    accepted_relation_target_contract_for_hook(db, source_path, relation_name, target_hook)
+    let target = db.runtime_registration_for_entity_path(target_path)?;
+    accepted_relation_target_contract_for_registration(db, source_path, relation_name, target)
 }
 
-fn accepted_relation_target_contract_for_hook<C>(
+fn accepted_relation_target_contract_for_registration<C>(
     db: &Db<C>,
     source_path: &str,
     relation_name: &str,
-    target_hook: &EntityRuntimeHooks<C>,
+    target: EntityRuntimeRegistration<C>,
 ) -> Result<AcceptedRelationTargetContract, InternalError>
 where
     C: CanisterKind,
 {
-    let target_store = db.store_handle(target_hook.store_path)?;
-    let accepted = target_store.with_schema_mut(|schema_store| {
-        ensure_accepted_schema_snapshot(
-            schema_store,
-            target_hook.entity_tag,
-            target_hook.entity_path,
-            target_hook.store_path,
-            target_hook.model,
-        )
-    })?;
+    let target_store = db.store_handle(target.store_path)?;
+    let selection = target_store
+        .with_schema(|schema_store| {
+            schema_store.current_accepted_catalog_selection(
+                target.entity_tag,
+                target.entity_path,
+                target.store_path,
+            )
+        })?
+        .ok_or_else(InternalError::store_corruption)?;
+    let accepted = selection.decode_verified()?;
     let primary_key_kinds = accepted
         .primary_key_field_kinds()
         .into_iter()
@@ -290,10 +278,10 @@ where
     let target = AcceptedRelationTargetAuthority::try_new(
         source_path,
         relation_name,
-        target_hook.entity_path,
+        target.entity_path,
         accepted.entity_name(),
-        target_hook.entity_tag,
-        target_hook.store_path,
+        target.entity_tag,
+        target.store_path,
     )?;
 
     Ok(AcceptedRelationTargetContract {
@@ -462,17 +450,17 @@ impl AcceptedRelationTargetAuthority {
         self.store_path.as_str()
     }
 
-    fn validate_against_db<'db, C>(
+    fn validate_against_db<C>(
         &self,
-        db: &'db Db<C>,
+        db: &Db<C>,
         source_path: &str,
         field_name: &str,
-    ) -> Result<&'db EntityRuntimeHooks<C>, InternalError>
+    ) -> Result<EntityRuntimeRegistration<C>, InternalError>
     where
         C: CanisterKind,
     {
-        let hook = db
-            .runtime_hook_for_entity_tag(self.entity_tag)
+        let runtime = db
+            .runtime_registration_for_entity_tag(self.entity_tag)
             .map_err(|err| {
                 InternalError::relation_target_identity_mismatch(
                     source_path,
@@ -485,7 +473,7 @@ impl AcceptedRelationTargetAuthority {
                 )
             })?;
 
-        if hook.entity_path != self.path {
+        if runtime.entity_path != self.path {
             return Err(InternalError::relation_target_identity_mismatch(
                 source_path,
                 field_name,
@@ -493,27 +481,13 @@ impl AcceptedRelationTargetAuthority {
                 format!(
                     "target_entity_tag={} resolves to entity_path={} but relation declares {}",
                     self.entity_tag.value(),
-                    hook.entity_path,
+                    runtime.entity_path,
                     self.path
                 ),
             ));
         }
 
-        if hook.model.name() != self.entity_name.as_str() {
-            return Err(InternalError::relation_target_identity_mismatch(
-                source_path,
-                field_name,
-                self.path.as_str(),
-                format!(
-                    "target_entity_tag={} resolves to entity_name={} but relation declares {}",
-                    self.entity_tag.value(),
-                    hook.model.name(),
-                    self.entity_name.as_str(),
-                ),
-            ));
-        }
-
-        if hook.store_path != self.store_path {
+        if runtime.store_path != self.store_path {
             return Err(InternalError::relation_target_identity_mismatch(
                 source_path,
                 field_name,
@@ -521,13 +495,38 @@ impl AcceptedRelationTargetAuthority {
                 format!(
                     "target_store_path={} does not match runtime store {} for target_entity_tag={}",
                     self.store_path,
-                    hook.store_path,
+                    runtime.store_path,
                     self.entity_tag.value(),
                 ),
             ));
         }
 
-        Ok(hook)
+        let store = db.store_handle(runtime.store_path)?;
+        let selection = store
+            .with_schema(|schema_store| {
+                schema_store.current_accepted_catalog_selection(
+                    runtime.entity_tag,
+                    runtime.entity_path,
+                    runtime.store_path,
+                )
+            })?
+            .ok_or_else(InternalError::store_corruption)?;
+        let accepted = selection.decode_verified()?;
+        if accepted.entity_name() != self.entity_name.as_str() {
+            return Err(InternalError::relation_target_identity_mismatch(
+                source_path,
+                field_name,
+                self.path.as_str(),
+                format!(
+                    "target_entity_tag={} resolves to accepted entity_name={} but relation declares {}",
+                    self.entity_tag.value(),
+                    accepted.entity_name(),
+                    self.entity_name.as_str(),
+                ),
+            ));
+        }
+
+        Ok(runtime)
     }
 }
 

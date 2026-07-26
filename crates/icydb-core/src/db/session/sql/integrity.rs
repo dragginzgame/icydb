@@ -105,26 +105,35 @@ impl<C: CanisterKind> DbSession<C> {
     fn integrity_sql_entity_selector(
         &self,
         sql_entity: &str,
-    ) -> Result<IntegrityEntityIdentity, QueryError> {
+    ) -> Result<IntegrityEntityIdentity, SqlIntegrityError> {
         let mut matched = None;
-        for hooks in self.db.entity_runtime_hooks {
-            if !identifiers_tail_match(sql_entity, hooks.entity_path)
-                && !identifiers_tail_match(sql_entity, hooks.model.name())
+        for entity_registration in self.db.entity_registrations {
+            let registration = entity_registration.runtime();
+            let store = self
+                .db
+                .recovered_store(registration.store_path)
+                .map_err(IntegrityDeepError::from)?;
+            let plan = self
+                .accepted_inspection_plan_for_runtime_registration(registration, store)
+                .map_err(|error| IntegrityDeepError::from(error.into_internal()))?;
+            if !identifiers_tail_match(sql_entity, registration.entity_path)
+                && !identifiers_tail_match(sql_entity, plan.snapshot().entity_name())
             {
                 continue;
             }
             if matched.is_some() {
-                return Err(QueryError::sql_lowering(SqlLoweringCode::EntityMismatch));
+                return Err(QueryError::sql_lowering(SqlLoweringCode::EntityMismatch).into());
             }
-            matched = Some(hooks);
+            matched = Some(registration);
         }
 
-        let hooks =
-            matched.ok_or_else(|| QueryError::sql_lowering(SqlLoweringCode::EntityMismatch))?;
+        let registration = matched.ok_or_else(|| {
+            SqlIntegrityError::from(QueryError::sql_lowering(SqlLoweringCode::EntityMismatch))
+        })?;
         Ok(IntegrityEntityIdentity::from_runtime_selector(
-            hooks.entity_tag.value(),
-            hooks.entity_path,
-            hooks.store_path,
+            registration.entity_tag.value(),
+            registration.entity_path,
+            registration.store_path,
         ))
     }
 }

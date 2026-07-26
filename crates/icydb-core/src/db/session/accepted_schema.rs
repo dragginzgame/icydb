@@ -9,8 +9,8 @@
 use super::DbSession;
 use crate::{
     db::{
-        EntityRuntimeHooks,
         commit::CommitSchemaFingerprint,
+        entity_registration::EntityRuntimeRegistration,
         executor::EntityAuthority,
         schema::{
             AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, AcceptedEnumCatalog,
@@ -44,6 +44,7 @@ pub(in crate::db) struct AcceptedCatalogRuntimeCounterSnapshot {
 #[derive(Clone, Debug)]
 struct AcceptedSchemaQueryCacheEntry {
     inspection_plan: AcceptedInspectionPlan,
+    generated_adapter_proven: bool,
 }
 
 type AcceptedSchemaQueryCacheKey = (usize, &'static str);
@@ -317,12 +318,12 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    pub(in crate::db::session) fn accepted_schema_catalog_context_for_runtime_hook(
+    pub(in crate::db::session) fn accepted_schema_catalog_context_for_runtime_registration(
         &self,
-        hooks: &EntityRuntimeHooks<C>,
+        registration: EntityRuntimeRegistration<C>,
         store: crate::db::registry::StoreHandle,
     ) -> Result<AcceptedSchemaCatalogContext, InternalError> {
-        self.accepted_inspection_plan_for_runtime_hook(hooks, store)
+        self.accepted_inspection_plan_for_runtime_registration(registration, store)
             .map(AcceptedSchemaCatalogContext::new)
             .map_err(AcceptedInspectionPlanLoadError::into_internal)
     }
@@ -341,9 +342,11 @@ impl<C: CanisterKind> DbSession<C> {
 
         let mut matched = None;
 
-        for hooks in self.db.entity_runtime_hooks {
-            let store = self.db.recovered_store(hooks.store_path)?;
-            let context = self.accepted_schema_catalog_context_for_runtime_hook(hooks, store)?;
+        for entity_registration in self.db.entity_registrations {
+            let registration = entity_registration.runtime();
+            let store = self.db.recovered_store(registration.store_path)?;
+            let context =
+                self.accepted_schema_catalog_context_for_runtime_registration(registration, store)?;
             if entity_name.is_some_and(|name| context.snapshot().entity_name() != name) {
                 continue;
             }
@@ -394,15 +397,19 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(matched)
     }
 
-    pub(in crate::db::session) fn accepted_inspection_plan_for_runtime_hook(
+    pub(in crate::db::session) fn accepted_inspection_plan_for_runtime_registration(
         &self,
-        hooks: &EntityRuntimeHooks<C>,
+        registration: EntityRuntimeRegistration<C>,
         store: crate::db::registry::StoreHandle,
     ) -> Result<AcceptedInspectionPlan, AcceptedInspectionPlanLoadError> {
-        let cache_key = self.accepted_schema_query_cache_key(hooks.entity_path);
+        let cache_key = self.accepted_schema_query_cache_key(registration.entity_path);
         if let Some(context) =
-            Self::accepted_schema_catalog_context_from_runtime_hook_cache(cache_key, hooks, store)
-                .map_err(AcceptedInspectionPlanLoadError::Unselected)?
+            Self::accepted_schema_catalog_context_from_runtime_registration_cache(
+                cache_key,
+                registration,
+                store,
+            )
+            .map_err(AcceptedInspectionPlanLoadError::Unselected)?
         {
             return Ok(context.inspection_plan);
         }
@@ -410,9 +417,9 @@ impl<C: CanisterKind> DbSession<C> {
         let selection = store
             .with_schema(|schema_store| {
                 schema_store.current_accepted_catalog_selection(
-                    hooks.entity_tag,
-                    hooks.entity_path,
-                    hooks.store_path,
+                    registration.entity_tag,
+                    registration.entity_path,
+                    registration.store_path,
                 )
             })
             .map_err(AcceptedInspectionPlanLoadError::Unselected)?
@@ -435,9 +442,9 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(inspection_plan)
     }
 
-    fn accepted_schema_catalog_context_from_runtime_hook_cache(
+    fn accepted_schema_catalog_context_from_runtime_registration_cache(
         cache_key: AcceptedSchemaQueryCacheKey,
-        hooks: &EntityRuntimeHooks<C>,
+        registration: EntityRuntimeRegistration<C>,
         store: crate::db::registry::StoreHandle,
     ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
         let context =
@@ -445,15 +452,15 @@ impl<C: CanisterKind> DbSession<C> {
         if let Some(context) = &context {
             debug_assert_eq!(
                 context.inspection_plan.identity().entity_tag(),
-                hooks.entity_tag
+                registration.entity_tag
             );
             debug_assert_eq!(
                 context.inspection_plan.identity().entity_path(),
-                hooks.entity_path
+                registration.entity_path
             );
             debug_assert_eq!(
                 context.inspection_plan.identity().store_path(),
-                hooks.store_path
+                registration.store_path
             );
         }
         Ok(context)
@@ -507,9 +514,13 @@ impl<C: CanisterKind> DbSession<C> {
         inspection_plan: AcceptedInspectionPlan,
     ) {
         ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
-            cache
-                .borrow_mut()
-                .insert(cache_key, AcceptedSchemaQueryCacheEntry { inspection_plan });
+            cache.borrow_mut().insert(
+                cache_key,
+                AcceptedSchemaQueryCacheEntry {
+                    inspection_plan,
+                    generated_adapter_proven: false,
+                },
+            );
         });
     }
 
@@ -533,6 +544,7 @@ impl<C: CanisterKind> DbSession<C> {
         if let Some(context) =
             Self::accepted_schema_catalog_context_from_current_authority_cache(cache_key, store)?
         {
+            self.ensure_generated_entity_adapter_matches_context::<E>(&context)?;
             return Ok(context);
         }
         let selection = self
@@ -543,17 +555,11 @@ impl<C: CanisterKind> DbSession<C> {
             selection.identity(),
             selection.value_catalog_handle().authority(),
         ) {
+            self.ensure_generated_entity_adapter_matches_context::<E>(&context)?;
             return Ok(context);
         }
 
         let snapshot = selection.decode_verified()?;
-        let _runtime_contract = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
-            &snapshot,
-            E::MODEL,
-            selection.value_catalog_handle().enum_catalog(),
-            selection.value_catalog_handle().composite_catalog(),
-        )
-        .map_err(|_error| InternalError::store_unsupported())?;
         let inspection_plan = AcceptedInspectionPlan::compile(
             &self.db,
             selection.identity(),
@@ -562,7 +568,10 @@ impl<C: CanisterKind> DbSession<C> {
         )?;
         Self::insert_accepted_schema_query_cache(cache_key, inspection_plan.clone());
 
-        Ok(AcceptedSchemaCatalogContext::new(inspection_plan))
+        let context = AcceptedSchemaCatalogContext::new(inspection_plan);
+        self.ensure_generated_entity_adapter_matches_context::<E>(&context)?;
+
+        Ok(context)
     }
 
     pub(in crate::db::session) fn ensure_accepted_schema_authority_is_current<E>(
@@ -657,13 +666,11 @@ impl<C: CanisterKind> DbSession<C> {
             selection.identity(),
             selection.value_catalog_handle().authority(),
         ) {
+            self.ensure_generated_entity_adapter_matches_context::<E>(&context)?;
             return Ok(Some(context));
         }
 
         let snapshot = selection.decode_verified()?;
-        if snapshot.persisted_snapshot().fields().len() != E::MODEL.fields().len() {
-            return Ok(None);
-        }
         let inspection_plan = AcceptedInspectionPlan::compile(
             &self.db,
             selection.identity(),
@@ -671,8 +678,8 @@ impl<C: CanisterKind> DbSession<C> {
             selection.value_catalog_handle().clone(),
         )?;
         let context = AcceptedSchemaCatalogContext::new(inspection_plan.clone());
-
         Self::insert_accepted_schema_query_cache(cache_key, inspection_plan);
+        self.ensure_generated_entity_adapter_matches_context::<E>(&context)?;
 
         Ok(Some(context))
     }
@@ -702,6 +709,50 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(catalog.accepted_schema_info_for::<E>())
     }
 
+    // Prove one generated typed adapter still matches accepted row authority
+    // before it can consume a pure accepted runtime context. Patch 6 replaces
+    // this temporary application-boundary proof with generated opaque adapters.
+    fn ensure_generated_entity_adapter_matches_context<E>(
+        &self,
+        context: &AcceptedSchemaCatalogContext,
+    ) -> Result<(), InternalError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let cache_key = self.accepted_schema_query_cache_key(E::PATH);
+        let already_proven = ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
+            cache.borrow().get(&cache_key).is_some_and(|entry| {
+                entry.generated_adapter_proven
+                    && entry.inspection_plan.matches_selection(
+                        context.identity(),
+                        context.value_catalog_handle().authority(),
+                    )
+            })
+        });
+        if already_proven {
+            return Ok(());
+        }
+
+        let _adapter_proof = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
+            context.snapshot(),
+            E::MODEL,
+            context.enum_catalog(),
+            context.composite_catalog(),
+        )?;
+        ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
+            if let Some(entry) = cache.borrow_mut().get_mut(&cache_key)
+                && entry.inspection_plan.matches_selection(
+                    context.identity(),
+                    context.value_catalog_handle().authority(),
+                )
+            {
+                entry.generated_adapter_proven = true;
+            }
+        });
+
+        Ok(())
+    }
+
     // Ensure accepted schema metadata is safe for write paths that still encode
     // rows through generated field contracts. The save contract retains the
     // same immutable catalog and revision selected for schema validation.
@@ -720,12 +771,8 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         let context = self.accepted_schema_catalog_context_for_query::<E>()?;
-        let (descriptor, _) = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
-            context.snapshot(),
-            E::MODEL,
-            context.enum_catalog(),
-            context.composite_catalog(),
-        )?;
+        let descriptor =
+            AcceptedRowLayoutRuntimeContract::from_accepted_schema(context.snapshot())?;
         let row_decode_contract =
             descriptor.row_decode_contract(context.value_catalog_handle().clone());
 

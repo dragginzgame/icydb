@@ -588,16 +588,16 @@ fn finding_saturated_deep_page_and_progress_record_stay_bounded() {
         .insert_many_atomic(rows)
         .expect("unique source fixture should insert atomically");
 
-    let hooks = session
+    let registration = session
         .db
-        .runtime_hook_for_entity_path(SessionUniquePrefixOffsetEntity::PATH)
-        .expect("unique fixture hook should resolve");
+        .runtime_registration_for_entity_path(SessionUniquePrefixOffsetEntity::PATH)
+        .expect("unique fixture registration should resolve");
     let store = session
         .db
-        .recovered_store(hooks.store_path)
+        .recovered_store(registration.store_path)
         .expect("unique fixture store should recover");
     let plan = session
-        .accepted_inspection_plan_for_runtime_hook(hooks, store)
+        .accepted_inspection_plan_for_runtime_registration(registration, store)
         .map_err(
             crate::db::session::accepted_schema::AcceptedInspectionPlanLoadError::into_internal,
         )
@@ -1626,16 +1626,16 @@ fn index_integrity_detects_duplicate_unique_keys_across_page_boundaries() {
         );
     });
 
-    let hooks = session
+    let registration = session
         .db
-        .runtime_hook_for_entity_path(SessionUniquePrefixOffsetEntity::PATH)
-        .expect("unique fixture hook should resolve");
+        .runtime_registration_for_entity_path(SessionUniquePrefixOffsetEntity::PATH)
+        .expect("unique fixture registration should resolve");
     let store = session
         .db
-        .recovered_store(hooks.store_path)
+        .recovered_store(registration.store_path)
         .expect("unique fixture store should recover");
     let plan = session
-        .accepted_inspection_plan_for_runtime_hook(hooks, store)
+        .accepted_inspection_plan_for_runtime_registration(registration, store)
         .map_err(
             crate::db::session::accepted_schema::AcceptedInspectionPlanLoadError::into_internal,
         )

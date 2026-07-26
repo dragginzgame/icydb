@@ -6,7 +6,7 @@
 use crate::types::GenerateKey;
 use crate::{
     db::{
-        Db, DbSession, EntityRuntimeHooks, PersistedRow, PersistedStructuralValueCodec, QueryError,
+        Db, DbSession, EntityRegistration, PersistedRow, PersistedStructuralValueCodec, QueryError,
         codec::serialize_row_payload,
         commit::{
             CommitFailpoint, CommitFailpointMode, CommitRowOp, arm_commit_failpoint_for_tests,
@@ -29,9 +29,7 @@ use crate::{
         predicate::MissingRowPolicy,
         query::intent::Query,
         registry::StoreRegistry,
-        relation::{
-            validate_delete_relations_for_source, validate_save_relations_with_accepted_contract,
-        },
+        relation::validate_save_relations_with_accepted_contract,
         schema::{
             AcceptedCheckCompareOpV1, AcceptedRowDecodeContract, AcceptedSchemaRevision,
             AcceptedValueCatalogHandle, CheckExprV1Input, CheckValueExprV1Input, ConstraintId,
@@ -1616,129 +1614,27 @@ crate::test_entity! {
     entity_value = id_field(id),
 }
 
-static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
-    EntityRuntimeHooks::new(
-        TargetEntity::ENTITY_TAG,
-        <TargetEntity as crate::entity::EntityDeclaration>::MODEL,
-        TargetEntity::PATH,
-        TargetStore::PATH,
-        validate_delete_relations_for_source::<TargetEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        SourceEntity::ENTITY_TAG,
-        <SourceEntity as crate::entity::EntityDeclaration>::MODEL,
-        SourceEntity::PATH,
-        SourceStore::PATH,
-        validate_delete_relations_for_source::<SourceEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        InvalidRelationMetadataEntity::ENTITY_TAG,
-        <InvalidRelationMetadataEntity as crate::entity::EntityDeclaration>::MODEL,
-        InvalidRelationMetadataEntity::PATH,
-        SourceStore::PATH,
-        validate_delete_relations_for_source::<InvalidRelationMetadataEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        WrongTagRelationMetadataEntity::ENTITY_TAG,
-        <WrongTagRelationMetadataEntity as crate::entity::EntityDeclaration>::MODEL,
-        WrongTagRelationMetadataEntity::PATH,
-        SourceStore::PATH,
-        validate_delete_relations_for_source::<WrongTagRelationMetadataEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        WrongStoreRelationMetadataEntity::ENTITY_TAG,
-        <WrongStoreRelationMetadataEntity as crate::entity::EntityDeclaration>::MODEL,
-        WrongStoreRelationMetadataEntity::PATH,
-        SourceStore::PATH,
-        validate_delete_relations_for_source::<WrongStoreRelationMetadataEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        SourceSetEntity::ENTITY_TAG,
-        <SourceSetEntity as crate::entity::EntityDeclaration>::MODEL,
-        SourceSetEntity::PATH,
-        SourceStore::PATH,
-        validate_delete_relations_for_source::<SourceSetEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        SelfRelationEntity::ENTITY_TAG,
-        <SelfRelationEntity as crate::entity::EntityDeclaration>::MODEL,
-        SelfRelationEntity::PATH,
-        SourceStore::PATH,
-        validate_delete_relations_for_source::<SelfRelationEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        CompositeCollectionEntity::ENTITY_TAG,
-        <CompositeCollectionEntity as crate::entity::EntityDeclaration>::MODEL,
-        CompositeCollectionEntity::PATH,
-        SourceStore::PATH,
-        validate_delete_relations_for_source::<CompositeCollectionEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        CompositeSetEntity::ENTITY_TAG,
-        <CompositeSetEntity as crate::entity::EntityDeclaration>::MODEL,
-        CompositeSetEntity::PATH,
-        SourceStore::PATH,
-        validate_delete_relations_for_source::<CompositeSetEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        CompositeMapEntity::ENTITY_TAG,
-        <CompositeMapEntity as crate::entity::EntityDeclaration>::MODEL,
-        CompositeMapEntity::PATH,
-        SourceStore::PATH,
-        validate_delete_relations_for_source::<CompositeMapEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        UniqueEmailEntity::ENTITY_TAG,
-        <UniqueEmailEntity as crate::entity::EntityDeclaration>::MODEL,
-        UniqueEmailEntity::PATH,
-        SourceStore::PATH,
-        validate_delete_relations_for_source::<UniqueEmailEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        MismatchedPkEntity::ENTITY_TAG,
-        <MismatchedPkEntity as crate::entity::EntityDeclaration>::MODEL,
-        MismatchedPkEntity::PATH,
-        SourceStore::PATH,
-        validate_delete_relations_for_source::<MismatchedPkEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        DecimalScaleEntity::ENTITY_TAG,
-        <DecimalScaleEntity as crate::entity::EntityDeclaration>::MODEL,
-        DecimalScaleEntity::PATH,
-        SourceStore::PATH,
-        validate_delete_relations_for_source::<DecimalScaleEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        BoundedTextEntity::ENTITY_TAG,
-        <BoundedTextEntity as crate::entity::EntityDeclaration>::MODEL,
-        BoundedTextEntity::PATH,
-        SourceStore::PATH,
-        validate_delete_relations_for_source::<BoundedTextEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        DatabaseDefaultWriteEntity::ENTITY_TAG,
-        <DatabaseDefaultWriteEntity as crate::entity::EntityDeclaration>::MODEL,
-        DatabaseDefaultWriteEntity::PATH,
-        SourceStore::PATH,
-        validate_delete_relations_for_source::<DatabaseDefaultWriteEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        SanitizerProvenanceEntity::ENTITY_TAG,
-        <SanitizerProvenanceEntity as crate::entity::EntityDeclaration>::MODEL,
-        SanitizerProvenanceEntity::PATH,
-        SourceStore::PATH,
-        validate_delete_relations_for_source::<SanitizerProvenanceEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        NullableAccountEventEntity::ENTITY_TAG,
-        <NullableAccountEventEntity as crate::entity::EntityDeclaration>::MODEL,
-        NullableAccountEventEntity::PATH,
-        SourceStore::PATH,
-        validate_delete_relations_for_source::<NullableAccountEventEntity>,
-    ),
+static ENTITY_REGISTRATIONS: &[EntityRegistration<TestCanister>] = &[
+    EntityRegistration::for_entity::<TargetEntity>(),
+    EntityRegistration::for_entity::<SourceEntity>(),
+    EntityRegistration::for_entity::<InvalidRelationMetadataEntity>(),
+    EntityRegistration::for_entity::<WrongTagRelationMetadataEntity>(),
+    EntityRegistration::for_entity::<WrongStoreRelationMetadataEntity>(),
+    EntityRegistration::for_entity::<SourceSetEntity>(),
+    EntityRegistration::for_entity::<SelfRelationEntity>(),
+    EntityRegistration::for_entity::<CompositeCollectionEntity>(),
+    EntityRegistration::for_entity::<CompositeSetEntity>(),
+    EntityRegistration::for_entity::<CompositeMapEntity>(),
+    EntityRegistration::for_entity::<UniqueEmailEntity>(),
+    EntityRegistration::for_entity::<MismatchedPkEntity>(),
+    EntityRegistration::for_entity::<DecimalScaleEntity>(),
+    EntityRegistration::for_entity::<BoundedTextEntity>(),
+    EntityRegistration::for_entity::<DatabaseDefaultWriteEntity>(),
+    EntityRegistration::for_entity::<SanitizerProvenanceEntity>(),
+    EntityRegistration::for_entity::<NullableAccountEventEntity>(),
 ];
 
-static DB: Db<TestCanister> = Db::new_with_hooks(&STORE_REGISTRY, ENTITY_RUNTIME_HOOKS);
+static DB: Db<TestCanister> = Db::new_with_registrations(&STORE_REGISTRY, ENTITY_REGISTRATIONS);
 
 fn validate_save_relations_with_test_accepted_contract<E>(
     db: &Db<E::Canister>,

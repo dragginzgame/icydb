@@ -69,7 +69,7 @@ pub(in crate::db) use memory::{
 pub(in crate::db) use prepare::prepare_row_commit_for_entity_with_structural_readers;
 pub(in crate::db) use prepare::{
     CommitPrepareContext, prepare_commit_context_for_entity_with_schema_fingerprint,
-    prepare_commit_context_for_runtime_entity, prepare_commit_context_for_runtime_entity_rebuild,
+    prepare_commit_context_for_runtime_registration,
     prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
     prepare_row_commit_with_context,
 };

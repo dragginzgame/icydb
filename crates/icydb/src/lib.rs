@@ -234,7 +234,7 @@ pub mod __macro {
     };
     pub use icydb_core::db::{
         CompositePrimaryKeyValue, CompositePrimaryKeyValueError, DataStore,
-        DbSession as CoreDbSession, EntityKeyBytes, EntityKeyBytesError, EntityRuntimeHooks,
+        DbSession as CoreDbSession, EntityKeyBytes, EntityKeyBytesError, EntityRegistration,
         IndexStore, JournalTailStore, KeyValueCodec, PersistedRow, PrimaryKeyComponent,
         PrimaryKeyDecode, PrimaryKeyEncode, PrimaryKeyEncodeError, PrimaryKeyValue,
         ScalarRelationTargetKey, ScalarRelationTargetKeyMatchesDeclaredPrimitive, SchemaStore,

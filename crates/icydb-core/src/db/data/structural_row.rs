@@ -19,7 +19,7 @@ use crate::{
         },
     },
     error::InternalError,
-    model::{entity::EntityModel, field::LeafCodec},
+    model::field::LeafCodec,
     value::Value,
 };
 use std::{borrow::Cow, rc::Rc};
@@ -49,28 +49,6 @@ impl AcceptedStructuralRowAuthority {
     ) -> Result<Self, InternalError> {
         let accepted_schema = selection.decode_verified()?;
         let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted_schema)?;
-        let row_contract = Self::catalog_backed_row_contract(entity_path, &descriptor, selection);
-
-        Ok(Self {
-            accepted_schema,
-            row_contract,
-        })
-    }
-
-    /// Build generated-compatible row authority from one catalog selection.
-    pub(in crate::db) fn from_generated_compatible_catalog_selection(
-        entity_path: &'static str,
-        model: &'static EntityModel,
-        selection: &AcceptedCatalogSnapshotSelection,
-    ) -> Result<Self, InternalError> {
-        let accepted_schema = selection.decode_verified()?;
-        let (descriptor, _row_proof) =
-            AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
-                &accepted_schema,
-                model,
-                selection.value_catalog_handle().enum_catalog(),
-                selection.value_catalog_handle().composite_catalog(),
-            )?;
         let row_contract = Self::catalog_backed_row_contract(entity_path, &descriptor, selection);
 
         Ok(Self {

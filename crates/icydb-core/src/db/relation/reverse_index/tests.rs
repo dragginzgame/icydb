@@ -248,7 +248,7 @@ fn accepted_relations_require_registered_target_authority() {
         descriptor.row_decode_contract(catalog),
     );
 
-    let db: Db<RelationTestCanister> = Db::new_with_hooks(&TEST_REGISTRY, &[]);
+    let db: Db<RelationTestCanister> = Db::new_with_registrations(&TEST_REGISTRY, &[]);
     super::accepted_relations_for_row_contract(&db, "Source", &row_contract, None)
         .expect_err("accepted relation targets must have registered runtime authority");
 }

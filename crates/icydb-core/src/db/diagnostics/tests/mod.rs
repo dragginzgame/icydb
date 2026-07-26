@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{
     db::{
-        Db, EntityRuntimeHooks,
+        Db, EntityRegistration,
         commit::{ensure_recovered, init_commit_store_for_tests},
         data::{DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow},
         index::{
@@ -25,7 +25,6 @@ use crate::{
             StoreCommitParticipation, StoreDurability, StoreRecoveryCapability, StoreRegistry,
             StoreRuntimeStorageCapabilities, StoreSchemaMetadataCapability,
         },
-        relation::validate_delete_relations_for_source,
         schema::SchemaStore,
     },
     entity::{EntityDeclaration, EntityKind},
@@ -127,43 +126,38 @@ static DIAGNOSTICS_MINMAX_ENTITY_MODEL: EntityModel =
 static DIAGNOSTICS_VALID_ENTITY_MODEL: EntityModel =
     diagnostics_alias_model(VALID_ENTITY_PATH, VALID_ENTITY_NAME);
 
-static DIAGNOSTICS_RUNTIME_HOOKS: &[EntityRuntimeHooks<DiagnosticsCanister>] = &[
-    EntityRuntimeHooks::new(
+static DIAGNOSTICS_ENTITY_REGISTRATIONS: &[EntityRegistration<DiagnosticsCanister>] = &[
+    EntityRegistration::new(
         crate::testing::DIAGNOSTICS_SINGLE_ENTITY_TAG,
         &DIAGNOSTICS_SINGLE_ENTITY_MODEL,
         SINGLE_ENTITY_PATH,
         STORE_A_PATH,
-        validate_delete_relations_for_source::<IntegrityIndexedEntity>,
     ),
-    EntityRuntimeHooks::new(
+    EntityRegistration::new(
         crate::testing::DIAGNOSTICS_FIRST_ENTITY_TAG,
         &DIAGNOSTICS_FIRST_ENTITY_MODEL,
         FIRST_ENTITY_PATH,
         STORE_A_PATH,
-        validate_delete_relations_for_source::<IntegrityIndexedEntity>,
     ),
-    EntityRuntimeHooks::new(
+    EntityRegistration::new(
         crate::testing::DIAGNOSTICS_SECOND_ENTITY_TAG,
         &DIAGNOSTICS_SECOND_ENTITY_MODEL,
         SECOND_ENTITY_PATH,
         STORE_A_PATH,
-        validate_delete_relations_for_source::<IntegrityIndexedEntity>,
     ),
-    EntityRuntimeHooks::new(
+    EntityRegistration::new(
         crate::testing::DIAGNOSTICS_MINMAX_ENTITY_TAG,
         &DIAGNOSTICS_MINMAX_ENTITY_MODEL,
         MINMAX_ENTITY_PATH,
         STORE_A_PATH,
-        validate_delete_relations_for_source::<IntegrityIndexedEntity>,
     ),
-    EntityRuntimeHooks::new(
+    EntityRegistration::new(
         crate::testing::DIAGNOSTICS_VALID_ENTITY_TAG,
         &DIAGNOSTICS_VALID_ENTITY_MODEL,
         VALID_ENTITY_PATH,
         STORE_A_PATH,
-        validate_delete_relations_for_source::<IntegrityIndexedEntity>,
     ),
-    EntityRuntimeHooks::for_entity::<IntegrityIndexedEntity>(),
+    EntityRegistration::for_entity::<IntegrityIndexedEntity>(),
 ];
 
 thread_local! {
@@ -256,7 +250,7 @@ thread_local! {
 }
 
 static DB: Db<DiagnosticsCanister> =
-    Db::new_with_hooks(&DIAGNOSTICS_REGISTRY, DIAGNOSTICS_RUNTIME_HOOKS);
+    Db::new_with_registrations(&DIAGNOSTICS_REGISTRY, DIAGNOSTICS_ENTITY_REGISTRATIONS);
 
 fn with_data_store_mut<R>(path: &'static str, f: impl FnOnce(&mut DataStore) -> R) -> R {
     DB.with_store_registry(|registry| {

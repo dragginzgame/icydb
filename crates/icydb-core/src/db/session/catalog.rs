@@ -211,22 +211,24 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Return one stable list of runtime-registered entity catalog entries.
     pub fn try_show_entities(&self) -> Result<Vec<EntityCatalogDescription>, InternalError> {
-        let mut entities = Vec::with_capacity(self.db.entity_runtime_hooks.len());
+        let mut entities = Vec::with_capacity(self.db.entity_registrations.len());
 
-        for hooks in self.db.entity_runtime_hooks {
-            let store = self.db.recovered_store(hooks.store_path)?;
+        for entity_registration in self.db.entity_registrations {
+            let registration = entity_registration.runtime();
+            let store = self.db.recovered_store(registration.store_path)?;
             let storage = store
                 .storage_capabilities()
                 .storage_mode()
                 .as_str()
                 .to_string();
-            let accepted = self.accepted_schema_catalog_context_for_runtime_hook(hooks, store)?;
+            let accepted =
+                self.accepted_schema_catalog_context_for_runtime_registration(registration, store)?;
             let snapshot = accepted.snapshot().persisted_snapshot();
 
             entities.push(EntityCatalogDescription::new(
                 snapshot.entity_name().to_string(),
                 snapshot.entity_path().to_string(),
-                hooks.store_path.to_string(),
+                registration.store_path.to_string(),
                 storage,
                 EntityCatalogCounts::new(
                     u32::try_from(snapshot.fields().len()).unwrap_or(u32::MAX),

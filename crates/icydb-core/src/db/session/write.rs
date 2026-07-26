@@ -425,11 +425,12 @@ impl<C: CanisterKind> DbSession<C> {
         let mut binding = None;
         let mut visited_stores = BTreeSet::new();
 
-        for hooks in self.db.entity_runtime_hooks {
-            if !visited_stores.insert(hooks.store_path) {
+        for entity_registration in self.db.entity_registrations {
+            let registration = entity_registration.runtime();
+            if !visited_stores.insert(registration.store_path) {
                 continue;
             }
-            let store = self.db.recovered_store(hooks.store_path)?;
+            let store = self.db.recovered_store(registration.store_path)?;
             let Some(bundle) = store
                 .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
             else {

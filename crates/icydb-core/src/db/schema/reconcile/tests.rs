@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        Db, DbSession, EntityRuntimeHooks, Predicate, QueryError,
+        Db, DbSession, EntityRegistration, Predicate, QueryError,
         commit::{
             AcceptedSchemaPublication, CommitFailpoint, CommitFailpointMode, CommitMarker,
             CommitRowOp, arm_commit_failpoint_for_tests, begin_commit,
@@ -382,10 +382,10 @@ thread_local! {
     };
 }
 
-static RECONCILE_RUNTIME_HOOKS: &[EntityRuntimeHooks<SchemaReconcileTestCanister>] =
-    &[EntityRuntimeHooks::for_entity::<SchemaReconcileEntity>()];
+static RECONCILE_ENTITY_REGISTRATIONS: &[EntityRegistration<SchemaReconcileTestCanister>] =
+    &[EntityRegistration::for_entity::<SchemaReconcileEntity>()];
 static RECONCILE_DB: Db<SchemaReconcileTestCanister> =
-    Db::new_with_hooks(&RECONCILE_STORE_REGISTRY, RECONCILE_RUNTIME_HOOKS);
+    Db::new_with_registrations(&RECONCILE_STORE_REGISTRY, RECONCILE_ENTITY_REGISTRATIONS);
 
 fn generated_nonempty_name_check() -> &'static Predicate {
     static CHECK: LazyLock<Predicate> =
@@ -411,16 +411,17 @@ static RECONCILE_CHECK_MODEL: EntityModel =
         &[],
         &RECONCILE_CHECKS,
     );
-static RECONCILE_CHECK_RUNTIME_HOOKS: &[EntityRuntimeHooks<SchemaReconcileTestCanister>] =
-    &[EntityRuntimeHooks::new(
+static RECONCILE_CHECK_ENTITY_REGISTRATIONS: &[EntityRegistration<SchemaReconcileTestCanister>] =
+    &[EntityRegistration::new(
         SchemaReconcileEntity::ENTITY_TAG,
         &RECONCILE_CHECK_MODEL,
         SchemaReconcileEntity::PATH,
         SchemaReconcileTestStore::PATH,
-        crate::db::relation::validate_delete_relations_for_source::<SchemaReconcileEntity>,
     )];
-static RECONCILE_CHECK_DB: Db<SchemaReconcileTestCanister> =
-    Db::new_with_hooks(&RECONCILE_STORE_REGISTRY, RECONCILE_CHECK_RUNTIME_HOOKS);
+static RECONCILE_CHECK_DB: Db<SchemaReconcileTestCanister> = Db::new_with_registrations(
+    &RECONCILE_STORE_REGISTRY,
+    RECONCILE_CHECK_ENTITY_REGISTRATIONS,
+);
 static RECONCILE_UNIQUE_NAME_INDEX: IndexModel = IndexModel::generated_with_ordinal(
     1,
     "unique_name",
@@ -441,26 +442,34 @@ static RECONCILE_UNIQUE_MODEL: EntityModel =
         &[],
         &[],
     );
-static RECONCILE_UNIQUE_RUNTIME_HOOKS: &[EntityRuntimeHooks<SchemaReconcileTestCanister>] =
-    &[EntityRuntimeHooks::new(
+static RECONCILE_UNIQUE_ENTITY_REGISTRATIONS: &[EntityRegistration<SchemaReconcileTestCanister>] =
+    &[EntityRegistration::new(
         SchemaReconcileEntity::ENTITY_TAG,
         &RECONCILE_UNIQUE_MODEL,
         SchemaReconcileEntity::PATH,
         SchemaReconcileTestStore::PATH,
-        crate::db::relation::validate_delete_relations_for_source::<SchemaReconcileEntity>,
     )];
-static RECONCILE_UNIQUE_DB: Db<SchemaReconcileTestCanister> =
-    Db::new_with_hooks(&RECONCILE_STORE_REGISTRY, RECONCILE_UNIQUE_RUNTIME_HOOKS);
-static INDEXED_RECONCILE_RUNTIME_HOOKS: &[EntityRuntimeHooks<SchemaReconcileTestCanister>] =
-    &[EntityRuntimeHooks::for_entity::<IndexedSchemaEntity>()];
-static INDEXED_RECONCILE_DB: Db<SchemaReconcileTestCanister> =
-    Db::new_with_hooks(&RECONCILE_STORE_REGISTRY, INDEXED_RECONCILE_RUNTIME_HOOKS);
-static ADDITIVE_RELATION_RUNTIME_HOOKS: &[EntityRuntimeHooks<SchemaReconcileTestCanister>] = &[
-    EntityRuntimeHooks::for_entity::<AdditiveRelationSourceEntity>(),
-    EntityRuntimeHooks::for_entity::<SchemaReconcileRelationTargetEntity>(),
+static RECONCILE_UNIQUE_DB: Db<SchemaReconcileTestCanister> = Db::new_with_registrations(
+    &RECONCILE_STORE_REGISTRY,
+    RECONCILE_UNIQUE_ENTITY_REGISTRATIONS,
+);
+static INDEXED_RECONCILE_ENTITY_REGISTRATIONS: &[EntityRegistration<
+    SchemaReconcileTestCanister,
+>] = &[EntityRegistration::for_entity::<IndexedSchemaEntity>()];
+static INDEXED_RECONCILE_DB: Db<SchemaReconcileTestCanister> = Db::new_with_registrations(
+    &RECONCILE_STORE_REGISTRY,
+    INDEXED_RECONCILE_ENTITY_REGISTRATIONS,
+);
+static ADDITIVE_RELATION_ENTITY_REGISTRATIONS: &[EntityRegistration<
+    SchemaReconcileTestCanister,
+>] = &[
+    EntityRegistration::for_entity::<AdditiveRelationSourceEntity>(),
+    EntityRegistration::for_entity::<SchemaReconcileRelationTargetEntity>(),
 ];
-static ADDITIVE_RELATION_RECONCILE_DB: Db<SchemaReconcileTestCanister> =
-    Db::new_with_hooks(&RECONCILE_STORE_REGISTRY, ADDITIVE_RELATION_RUNTIME_HOOKS);
+static ADDITIVE_RELATION_RECONCILE_DB: Db<SchemaReconcileTestCanister> = Db::new_with_registrations(
+    &RECONCILE_STORE_REGISTRY,
+    ADDITIVE_RELATION_ENTITY_REGISTRATIONS,
+);
 
 fn reset_schema_store() {
     RECONCILE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
@@ -537,7 +546,7 @@ fn accepted_schema_publication_advances_two_journaled_stores_atomically() {
         .expect("recovery runtime state should clear");
     super::reconcile_runtime_schemas(
         &ADDITIVE_RELATION_RECONCILE_DB,
-        ADDITIVE_RELATION_RUNTIME_HOOKS,
+        ADDITIVE_RELATION_ENTITY_REGISTRATIONS,
     )
     .expect("initial two-store schema should reconcile");
 
@@ -612,7 +621,7 @@ fn accepted_schema_publication_and_application_receipt_share_one_marker() {
         .expect("recovery runtime state should clear");
     super::reconcile_runtime_schemas(
         &ADDITIVE_RELATION_RECONCILE_DB,
-        ADDITIVE_RELATION_RUNTIME_HOOKS,
+        ADDITIVE_RELATION_ENTITY_REGISTRATIONS,
     )
     .expect("initial two-store schema should reconcile");
 
@@ -703,7 +712,7 @@ fn accepted_schema_multi_store_marker_recovery_completes_missing_tail() {
         .expect("recovery runtime state should clear");
     super::reconcile_runtime_schemas(
         &ADDITIVE_RELATION_RECONCILE_DB,
-        ADDITIVE_RELATION_RUNTIME_HOOKS,
+        ADDITIVE_RELATION_ENTITY_REGISTRATIONS,
     )
     .expect("initial two-store schema should reconcile");
 
@@ -925,7 +934,7 @@ fn reconcile_runtime_schemas_writes_initial_snapshot_on_first_contact() {
     reset_schema_store();
     metrics_reset_all();
 
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("initial schema reconciliation should write generated snapshot");
 
     let snapshot = RECONCILE_SCHEMA_STORE
@@ -975,9 +984,9 @@ fn generated_check_activation_advances_through_durable_validation_and_promotion(
     clear_recovery_runtime_state_for_tests(&RECONCILE_CHECK_DB)
         .expect("recovery runtime state should clear");
 
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("initial schema should publish without the generated check");
-    super::reconcile_runtime_schemas(&RECONCILE_CHECK_DB, RECONCILE_CHECK_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_CHECK_DB, RECONCILE_CHECK_ENTITY_REGISTRATIONS)
         .expect("generated check should publish its activation and durable job");
 
     let (constraint_id, state) = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
@@ -1003,7 +1012,7 @@ fn generated_check_activation_advances_through_durable_validation_and_promotion(
         .expect("started validation job should exist");
     assert_eq!(started.phase(), ConstraintValidationPhase::Forward);
 
-    super::reconcile_runtime_schemas(&RECONCILE_CHECK_DB, RECONCILE_CHECK_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_CHECK_DB, RECONCILE_CHECK_ENTITY_REGISTRATIONS)
         .expect("empty Forward sweep should enter Verify");
     let verifying = RECONCILE_SCHEMA_STORE
         .with_borrow(|store| {
@@ -1014,7 +1023,7 @@ fn generated_check_activation_advances_through_durable_validation_and_promotion(
     assert_eq!(verifying.phase(), ConstraintValidationPhase::Verify);
     assert!(verifying.captured_store_revisions().is_some());
 
-    super::reconcile_runtime_schemas(&RECONCILE_CHECK_DB, RECONCILE_CHECK_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_CHECK_DB, RECONCILE_CHECK_ENTITY_REGISTRATIONS)
         .expect("stable empty Verify sweep should promote the check");
     RECONCILE_SCHEMA_STORE.with_borrow(|store| {
         let bundle = store
@@ -1050,9 +1059,9 @@ fn generated_check_activation_rejects_removed_proposal_without_changing_durable_
     clear_recovery_runtime_state_for_tests(&RECONCILE_CHECK_DB)
         .expect("recovery runtime state should clear");
 
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("initial schema should publish without the generated check");
-    super::reconcile_runtime_schemas(&RECONCILE_CHECK_DB, RECONCILE_CHECK_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_CHECK_DB, RECONCILE_CHECK_ENTITY_REGISTRATIONS)
         .expect("generated check should publish its activation and durable job");
 
     let (activation_before, job_before) = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
@@ -1073,7 +1082,7 @@ fn generated_check_activation_rejects_removed_proposal_without_changing_durable_
         (activation, job)
     });
 
-    let error = super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    let error = super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect_err(
             "removing a generated proposal must reject until its live activation is explicitly aborted",
         );
@@ -1116,11 +1125,11 @@ fn generated_unique_activation_stages_isolated_generation_before_promotion() {
     clear_recovery_runtime_state_for_tests(&RECONCILE_UNIQUE_DB)
         .expect("recovery runtime state should clear");
 
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("initial schema should publish without the unique index");
     insert_schema_reconcile_row(1, "Ada");
     insert_schema_reconcile_row(2, "Grace");
-    super::reconcile_runtime_schemas(&RECONCILE_UNIQUE_DB, RECONCILE_UNIQUE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_UNIQUE_DB, RECONCILE_UNIQUE_ENTITY_REGISTRATIONS)
         .expect("unique activation and job should publish");
 
     let (constraint_id, generation) = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
@@ -1203,11 +1212,11 @@ fn generated_unique_activation_retains_duplicate_findings_without_promotion() {
     clear_recovery_runtime_state_for_tests(&RECONCILE_UNIQUE_DB)
         .expect("recovery runtime state should clear");
 
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("initial schema should publish without the unique index");
     insert_schema_reconcile_row(1, "Ada");
     insert_schema_reconcile_row(2, "Ada");
-    super::reconcile_runtime_schemas(&RECONCILE_UNIQUE_DB, RECONCILE_UNIQUE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_UNIQUE_DB, RECONCILE_UNIQUE_ENTITY_REGISTRATIONS)
         .expect("unique activation and job should publish");
     let (constraint_id, generation) = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
         let bundle = store
@@ -1276,11 +1285,11 @@ fn source_delete_removes_its_staged_unique_candidate_entry() {
     clear_recovery_runtime_state_for_tests(&RECONCILE_UNIQUE_DB)
         .expect("recovery runtime state should clear");
 
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("initial schema should publish without the unique index");
     insert_schema_reconcile_row(1, "Ada");
     insert_schema_reconcile_row(2, "Grace");
-    super::reconcile_runtime_schemas(&RECONCILE_UNIQUE_DB, RECONCILE_UNIQUE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_UNIQUE_DB, RECONCILE_UNIQUE_ENTITY_REGISTRATIONS)
         .expect("unique activation and job should publish");
     let (constraint_id, generation) = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
         let bundle = store
@@ -1353,11 +1362,11 @@ fn unique_activation_blocks_typed_insert_at_the_shared_save_boundary() {
     clear_recovery_runtime_state_for_tests(&RECONCILE_UNIQUE_DB)
         .expect("recovery runtime state should clear");
 
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("initial schema should publish without the unique index");
     insert_schema_reconcile_row(1, "Ada");
     insert_schema_reconcile_row(3, "Ada");
-    super::reconcile_runtime_schemas(&RECONCILE_UNIQUE_DB, RECONCILE_UNIQUE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_UNIQUE_DB, RECONCILE_UNIQUE_ENTITY_REGISTRATIONS)
         .expect("unique activation and job should publish");
 
     let error = DbSession::new(RECONCILE_UNIQUE_DB)
@@ -1395,11 +1404,11 @@ fn interrupted_unique_staging_rebuilds_exact_candidate_generation() {
     clear_recovery_runtime_state_for_tests(&RECONCILE_UNIQUE_DB)
         .expect("recovery runtime state should clear");
 
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("initial schema should publish without the unique index");
     insert_schema_reconcile_row(1, "Ada");
     insert_schema_reconcile_row(2, "Grace");
-    super::reconcile_runtime_schemas(&RECONCILE_UNIQUE_DB, RECONCILE_UNIQUE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_UNIQUE_DB, RECONCILE_UNIQUE_ENTITY_REGISTRATIONS)
         .expect("unique activation and job should publish");
     let (constraint_id, generation) = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
         let bundle = store
@@ -1473,7 +1482,7 @@ fn not_null_activation_gates_and_promotes_the_nullable_accepted_field() {
     clear_recovery_runtime_state_for_tests(&RECONCILE_DB)
         .expect("recovery runtime state should clear");
 
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("initial schema should publish");
     let store = RECONCILE_DB
         .store_handle(SchemaReconcileTestStore::PATH)
@@ -1642,11 +1651,11 @@ fn generated_check_validation_replays_findings_until_exact_acknowledgement() {
     clear_recovery_runtime_state_for_tests(&RECONCILE_CHECK_DB)
         .expect("recovery runtime state should clear");
 
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("initial schema should publish without the generated check");
     insert_schema_reconcile_row(1, "Ada");
     insert_schema_reconcile_row(2, "");
-    super::reconcile_runtime_schemas(&RECONCILE_CHECK_DB, RECONCILE_CHECK_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_CHECK_DB, RECONCILE_CHECK_ENTITY_REGISTRATIONS)
         .expect("generated check should publish its activation and durable job");
     let constraint_id = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
         let bundle = store
@@ -1743,11 +1752,11 @@ fn validation_job_markers_recover_start_progress_and_promotion_atomically() {
     clear_recovery_runtime_state_for_tests(&RECONCILE_CHECK_DB)
         .expect("recovery runtime state should clear");
 
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("initial schema should publish without the generated check");
     super::reconcile_runtime_schemas_before_recovery_rebuild(
         &RECONCILE_CHECK_DB,
-        RECONCILE_CHECK_RUNTIME_HOOKS,
+        RECONCILE_CHECK_ENTITY_REGISTRATIONS,
     )
     .expect("recovery-side reconciliation should publish only the activation");
     let constraint_id = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
@@ -1966,11 +1975,11 @@ fn accepted_publication_blocks_unrelated_entity_change_during_live_activation() 
     clear_recovery_runtime_state_for_tests(&RECONCILE_CHECK_DB)
         .expect("recovery runtime state should clear");
 
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("initial schema should publish without the generated check");
     super::reconcile_runtime_schemas_before_recovery_rebuild(
         &RECONCILE_CHECK_DB,
-        RECONCILE_CHECK_RUNTIME_HOOKS,
+        RECONCILE_CHECK_ENTITY_REGISTRATIONS,
     )
     .expect("recovery-side reconciliation should publish only the activation");
 
@@ -2044,11 +2053,11 @@ fn validating_activation_abort_marker_retires_identity_and_job_atomically() {
     clear_recovery_runtime_state_for_tests(&RECONCILE_CHECK_DB)
         .expect("recovery runtime state should clear");
 
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("initial schema should publish without the generated check");
     super::reconcile_runtime_schemas_before_recovery_rebuild(
         &RECONCILE_CHECK_DB,
-        RECONCILE_CHECK_RUNTIME_HOOKS,
+        RECONCILE_CHECK_ENTITY_REGISTRATIONS,
     )
     .expect("recovery-side reconciliation should publish only the activation");
     let constraint_id = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
@@ -2189,12 +2198,12 @@ fn reconcile_runtime_schemas_publishes_declared_version_on_first_contact() {
     reset_schema_store();
     metrics_reset_all();
 
-    let hooks = [EntityRuntimeHooks::for_entity::<IndexedSchemaEntity>()];
+    let registrations = [EntityRegistration::for_entity::<IndexedSchemaEntity>()];
     let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
     let declared_version = proposal.declared_schema_version();
     assert_eq!(declared_version, SchemaVersion::new(2));
 
-    super::reconcile_runtime_schemas(&RECONCILE_DB, &hooks)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, &registrations)
         .expect("initial schema reconciliation should write generated snapshot");
 
     let latest = RECONCILE_SCHEMA_STORE
@@ -2240,10 +2249,10 @@ fn reconcile_runtime_schemas_publishes_declared_version_on_first_contact() {
 fn reconcile_runtime_schemas_accepts_existing_matching_snapshot() {
     reset_schema_store();
     metrics_reset_all();
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("initial schema reconciliation should write generated snapshot");
 
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("matching persisted schema should be accepted");
 
     assert_eq!(RECONCILE_SCHEMA_STORE.with_borrow(SchemaStore::len), 1);
@@ -2305,11 +2314,11 @@ fn accepted_schema_post_root_change_publishes_through_marker_bound_journal() {
     init_commit_store_for_tests().expect("commit store should initialize");
     clear_commit_marker_for_tests().expect("commit marker should clear");
     metrics_reset_all();
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("initial schema reconciliation should publish revision one");
 
     let catalogs =
-        super::build_generated_catalog_candidates(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+        super::build_generated_catalog_candidates(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
             .expect("generated catalog should build")
             .remove(SchemaReconcileTestStore::PATH)
             .expect("store catalog should exist");
@@ -2353,7 +2362,7 @@ fn accepted_schema_marker_recovery_repairs_replays_and_folds_candidate() {
     clear_commit_marker_for_tests().expect("commit marker should clear");
     clear_recovery_runtime_state_for_tests(&RECONCILE_DB)
         .expect("recovery runtime state should clear");
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("initial schema reconciliation should publish revision one");
 
     let current = RECONCILE_SCHEMA_STORE
@@ -2606,14 +2615,13 @@ fn ordinary_generated_addition_requires_ready_complete_domain_staging() {
     });
     RECONCILE_INDEX_STORE.with_borrow_mut(IndexStore::mark_building);
 
-    let hooks = [EntityRuntimeHooks::new(
+    let registrations = [EntityRegistration::new(
         ADDITIVE_NULLABLE_ENTITY_TAG,
         &ADDITIVE_NULLABLE_SCHEMA_MODEL,
         ADDITIVE_NULLABLE_SCHEMA_MODEL.path(),
         SchemaReconcileTestStore::PATH,
-        crate::db::relation::validate_delete_relations_for_source::<SchemaReconcileEntity>,
     )];
-    super::reconcile_runtime_schemas(&RECONCILE_DB, &hooks)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, &registrations)
         .expect_err("ordinary additive publication must not bypass a non-ready index domain");
 
     let accepted = RECONCILE_SCHEMA_STORE
@@ -2732,7 +2740,7 @@ fn generated_additive_relation_activation_retains_missing_target_finding() {
 
     super::reconcile_runtime_schemas(
         &ADDITIVE_RELATION_RECONCILE_DB,
-        ADDITIVE_RELATION_RUNTIME_HOOKS,
+        ADDITIVE_RELATION_ENTITY_REGISTRATIONS,
     )
     .expect("candidate relation and its durable validation job should publish");
 
@@ -2816,7 +2824,7 @@ fn generated_additive_relation_activation_stages_then_promotes() {
     );
     super::reconcile_runtime_schemas(
         &ADDITIVE_RELATION_RECONCILE_DB,
-        ADDITIVE_RELATION_RUNTIME_HOOKS,
+        ADDITIVE_RELATION_ENTITY_REGISTRATIONS,
     )
     .expect_err("marker rejection must keep the relation candidate unpublished");
     assert_eq!(
@@ -2835,7 +2843,7 @@ fn generated_additive_relation_activation_stages_then_promotes() {
 
     super::reconcile_runtime_schemas(
         &ADDITIVE_RELATION_RECONCILE_DB,
-        ADDITIVE_RELATION_RUNTIME_HOOKS,
+        ADDITIVE_RELATION_ENTITY_REGISTRATIONS,
     )
     .expect("additive relation activation and its validation job should publish");
 
@@ -2918,7 +2926,7 @@ fn generated_relation_activation_dual_writes_live_source_lifecycle() {
     insert_additive_relation_target_fixture_row_with_id(2);
     super::reconcile_runtime_schemas(
         &ADDITIVE_RELATION_RECONCILE_DB,
-        ADDITIVE_RELATION_RUNTIME_HOOKS,
+        ADDITIVE_RELATION_ENTITY_REGISTRATIONS,
     )
     .expect("candidate relation and its durable validation job should publish");
     let generation = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
@@ -2990,7 +2998,7 @@ fn generated_relation_activation_blocks_target_delete_until_promotion() {
     insert_additive_relation_target_fixture_row();
     super::reconcile_runtime_schemas(
         &ADDITIVE_RELATION_RECONCILE_DB,
-        ADDITIVE_RELATION_RUNTIME_HOOKS,
+        ADDITIVE_RELATION_ENTITY_REGISTRATIONS,
     )
     .expect("candidate relation and its durable validation job should publish");
 
@@ -3049,7 +3057,7 @@ fn interrupted_relation_staging_rebuilds_exact_candidate_generation() {
     insert_additive_relation_fixture_rows();
     super::reconcile_runtime_schemas(
         &ADDITIVE_RELATION_RECONCILE_DB,
-        ADDITIVE_RELATION_RUNTIME_HOOKS,
+        ADDITIVE_RELATION_ENTITY_REGISTRATIONS,
     )
     .expect("candidate relation and its durable validation job should publish");
     let (constraint_id, generation) = RECONCILE_SCHEMA_STORE.with_borrow(|store| {
@@ -3269,8 +3277,8 @@ fn reconcile_runtime_schemas_executes_supported_field_path_index_addition() {
         let _ = store.insert(raw_key, row);
     });
 
-    let hooks = [EntityRuntimeHooks::for_entity::<IndexedSchemaEntity>()];
-    super::reconcile_runtime_schemas(&RECONCILE_DB, &hooks)
+    let registrations = [EntityRegistration::for_entity::<IndexedSchemaEntity>()];
+    super::reconcile_runtime_schemas(&RECONCILE_DB, &registrations)
         .expect("supported field-path index addition should rebuild and publish");
 
     let latest = RECONCILE_SCHEMA_STORE
@@ -3311,8 +3319,8 @@ fn reconcile_runtime_schemas_keeps_zero_write_stage_when_marker_persistence_reje
         CommitFailpointMode::ReturnError,
     );
 
-    let hooks = [EntityRuntimeHooks::for_entity::<IndexedSchemaEntity>()];
-    super::reconcile_runtime_schemas(&RECONCILE_DB, &hooks)
+    let registrations = [EntityRegistration::for_entity::<IndexedSchemaEntity>()];
+    super::reconcile_runtime_schemas(&RECONCILE_DB, &registrations)
         .expect_err("marker persistence failure should reject staged reconciliation");
 
     assert!(!commit_marker_present().expect("commit marker should decode"));
@@ -3335,7 +3343,7 @@ fn reconcile_runtime_schemas_keeps_zero_write_stage_when_marker_persistence_reje
         assert_eq!(store.state(), IndexState::Ready);
     });
 
-    super::reconcile_runtime_schemas(&RECONCILE_DB, &hooks)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, &registrations)
         .expect("retry should rebuild and publish the field-path index");
     RECONCILE_INDEX_STORE.with_borrow(|store| {
         assert_eq!(store.len(), 1);
@@ -3360,9 +3368,11 @@ fn reconcile_runtime_schemas_recovers_marker_authorized_index_domain_after_inter
         CommitFailpointMode::ReturnError,
     );
 
-    let error =
-        super::reconcile_runtime_schemas(&INDEXED_RECONCILE_DB, INDEXED_RECONCILE_RUNTIME_HOOKS)
-            .expect_err("marker interruption should stop before live index-domain apply");
+    let error = super::reconcile_runtime_schemas(
+        &INDEXED_RECONCILE_DB,
+        INDEXED_RECONCILE_ENTITY_REGISTRATIONS,
+    )
+    .expect_err("marker interruption should stop before live index-domain apply");
 
     assert!(
         commit_marker_present().expect("commit marker should decode"),
@@ -3431,8 +3441,8 @@ fn reconcile_runtime_schemas_rejects_field_path_index_addition_with_populated_ta
         store.insert(sentinel_key, sentinel_entry);
     });
 
-    let hooks = [EntityRuntimeHooks::for_entity::<IndexedSchemaEntity>()];
-    super::reconcile_runtime_schemas(&RECONCILE_DB, &hooks)
+    let registrations = [EntityRegistration::for_entity::<IndexedSchemaEntity>()];
+    super::reconcile_runtime_schemas(&RECONCILE_DB, &registrations)
         .expect_err("populated target physical index should fail closed");
 
     let latest = RECONCILE_SCHEMA_STORE
@@ -3458,8 +3468,8 @@ fn reconcile_runtime_schemas_rejects_field_path_index_addition_with_building_ind
 
     RECONCILE_INDEX_STORE.with_borrow_mut(IndexStore::mark_building);
 
-    let hooks = [EntityRuntimeHooks::for_entity::<IndexedSchemaEntity>()];
-    super::reconcile_runtime_schemas(&RECONCILE_DB, &hooks)
+    let registrations = [EntityRegistration::for_entity::<IndexedSchemaEntity>()];
+    super::reconcile_runtime_schemas(&RECONCILE_DB, &registrations)
         .expect_err("building physical index store should fail closed before schema publish");
 
     let latest = RECONCILE_SCHEMA_STORE
@@ -3496,8 +3506,8 @@ fn reconcile_runtime_schemas_preserves_other_entity_index_entries() {
         store.insert(unrelated_key, unrelated_entry);
     });
 
-    let hooks = [EntityRuntimeHooks::for_entity::<IndexedSchemaEntity>()];
-    super::reconcile_runtime_schemas(&RECONCILE_DB, &hooks)
+    let registrations = [EntityRegistration::for_entity::<IndexedSchemaEntity>()];
+    super::reconcile_runtime_schemas(&RECONCILE_DB, &registrations)
         .expect("another entity's physical index entries should remain outside the replacement");
 
     let latest = RECONCILE_SCHEMA_STORE
@@ -3672,7 +3682,7 @@ fn reconcile_runtime_schemas_rejects_changed_initial_snapshot() {
             .expect("changed schema snapshot should encode");
     });
 
-    let err = super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    let err = super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect_err("schema reconciliation should reject changed persisted snapshot");
 
     assert_eq!(err.class, ErrorClass::Unsupported);
@@ -3715,7 +3725,7 @@ fn reconcile_runtime_schemas_rejects_generated_additive_field_as_field_contract(
             .expect("stored prefix schema snapshot should encode");
     });
 
-    let err = super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    let err = super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect_err("additive generated schema drift should still be rejected");
 
     assert_eq!(err.class, ErrorClass::Unsupported);
@@ -3789,7 +3799,7 @@ fn reconcile_runtime_schemas_rejects_generated_removed_field_as_field_contract()
             .expect("stored removed-field schema snapshot should encode");
     });
 
-    let err = super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    let err = super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect_err("generated field removal should still be rejected");
 
     assert_eq!(err.class, ErrorClass::Unsupported);
@@ -3853,7 +3863,7 @@ fn reconcile_runtime_schemas_preserves_newer_matching_accepted_snapshot() {
         .expect("newer accepted schema snapshot should publish");
     });
 
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("matching generated metadata must not roll back newer accepted authority");
 
     RECONCILE_SCHEMA_STORE.with_borrow(|store| {
@@ -3870,7 +3880,7 @@ fn reconcile_runtime_schemas_preserves_newer_matching_accepted_snapshot() {
 #[test]
 fn runtime_schema_reads_ignore_unpublished_staged_snapshot() {
     reset_schema_store();
-    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_ENTITY_REGISTRATIONS)
         .expect("initial accepted root should publish");
 
     let proposal = compiled_schema_proposal_for_model(SchemaReconcileEntity::MODEL);

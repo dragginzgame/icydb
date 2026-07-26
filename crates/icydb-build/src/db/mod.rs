@@ -25,14 +25,14 @@ pub fn generate(builder: &ActorBuilder) -> TokenStream {
     let canister_path_source = builder.canister_path();
     let canister_path: syn::Path = parse_str(&canister_path_source)
         .unwrap_or_else(|_| panic!("invalid canister path: {canister_path_source}"));
-    let entity_runtime_hooks = entity_runtime_hooks(builder, &canister_path);
+    let entity_registrations = entity_registrations(builder, &canister_path);
 
-    store::generate_store_wiring(builder, &canister_path, entity_runtime_hooks)
+    store::generate_store_wiring(builder, &canister_path, entity_registrations)
 }
 
-/// Emit the entity runtime hook table for all entities bound to this canister.
-fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> TokenStream {
-    let mut hook_inits = quote!();
+/// Emit proposal/runtime registration pairs for entities bound to this canister.
+fn entity_registrations(builder: &ActorBuilder, canister_path: &syn::Path) -> TokenStream {
+    let mut registration_inits = quote!();
     let mut sql_surface = builder.options.sql_enabled().then(|| {
         SqlSurfaceTokens::empty(
             builder.options.sql_surface_flags(),
@@ -48,8 +48,8 @@ fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> To
     for (entity_path, _) in entities {
         let entity_ty: syn::Path = parse_str(&entity_path)
             .unwrap_or_else(|_| panic!("invalid entity path: {entity_path}"));
-        hook_inits.extend(quote! {
-            ::icydb::__macro::EntityRuntimeHooks::<#canister_path>::for_entity::<#entity_ty>(),
+        registration_inits.extend(quote! {
+            ::icydb::__macro::EntityRegistration::<#canister_path>::for_entity::<#entity_ty>(),
         });
         if let Some(sql_surface) = sql_surface.as_mut() {
             sql_surface.push_entity(&entity_ty);
@@ -63,10 +63,10 @@ fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> To
         schema_surface.map_or_else(TokenStream::new, |schema_surface| quote!(#schema_surface));
 
     quote! {
-        static ENTITY_RUNTIME_HOOKS: &[
-            ::icydb::__macro::EntityRuntimeHooks<#canister_path>
+        static ENTITY_REGISTRATIONS: &[
+            ::icydb::__macro::EntityRegistration<#canister_path>
         ] = &[
-            #hook_inits
+            #registration_inits
         ];
 
         #sql_surface

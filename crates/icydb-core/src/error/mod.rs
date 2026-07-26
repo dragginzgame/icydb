@@ -641,15 +641,15 @@ impl InternalError {
         Self::new(ErrorClass::InvariantViolation, ErrorOrigin::Store)
     }
 
-    /// Construct the canonical duplicate runtime-hook entity-tag invariant.
-    pub(crate) fn duplicate_runtime_hooks_for_entity_tag(
+    /// Construct the canonical duplicate entity-registration tag invariant.
+    pub(crate) fn duplicate_entity_registrations_for_tag(
         _entity_tag: crate::types::EntityTag,
     ) -> Self {
         Self::store_invariant()
     }
 
-    /// Construct the canonical duplicate runtime-hook entity-path invariant.
-    pub(crate) fn duplicate_runtime_hooks_for_entity_path(_entity_path: &str) -> Self {
+    /// Construct the canonical duplicate entity-registration path invariant.
+    pub(crate) fn duplicate_entity_registrations_for_path(_entity_path: &str) -> Self {
         Self::store_invariant()
     }
 

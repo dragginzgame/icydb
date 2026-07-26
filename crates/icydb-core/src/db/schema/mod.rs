@@ -266,13 +266,13 @@ pub(in crate::db) use reconcile::{
     execute_admin_sql_ddl_unique_index_activation_abort,
 };
 pub(in crate::db) use reconcile::{
-    StagedDerivedDomainReplacement, ensure_accepted_catalog_snapshot_selection,
-    ensure_accepted_schema_snapshot, reconcile_runtime_schemas,
+    StagedDerivedDomainReplacement, load_accepted_schema_snapshot, reconcile_runtime_schemas,
     reconcile_runtime_schemas_before_recovery_rebuild,
 };
 #[cfg(test)]
 pub(in crate::db) use reconcile::{
-    bootstrap_test_accepted_schema_snapshot, publish_test_accepted_schema_snapshot,
+    bootstrap_test_accepted_schema_snapshot, ensure_accepted_schema_snapshot,
+    publish_test_accepted_schema_snapshot,
 };
 #[cfg(all(test, not(feature = "sql")))]
 pub(in crate::db) use runtime::accepted_insert_field_is_omittable;

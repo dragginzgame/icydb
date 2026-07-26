@@ -35,11 +35,11 @@ struct CanisterMemoryWiring<'a> {
     integrity_progress_stable_key: &'a str,
 }
 
-/// Emit the generated store definitions, runtime hooks, and session accessors.
+/// Emit generated stores, entity registrations, and session accessors.
 pub(super) fn generate_store_wiring(
     builder: &ActorBuilder,
     canister_path: &syn::Path,
-    entity_runtime_hooks: TokenStream,
+    entity_registrations: TokenStream,
 ) -> TokenStream {
     let canister = &builder.canister;
     let memory_namespace = canister.memory_namespace();
@@ -55,7 +55,7 @@ pub(super) fn generate_store_wiring(
     store_wiring_tokens(
         canister_path,
         store_registry,
-        entity_runtime_hooks,
+        entity_registrations,
         CanisterMemoryWiring {
             memory_min,
             memory_max,
@@ -328,7 +328,7 @@ fn journaled_store_registry_entry_tokens(
 fn store_wiring_tokens(
     canister_path: &syn::Path,
     store_registry: StoreRegistryTokens,
-    entity_runtime_hooks: TokenStream,
+    entity_registrations: TokenStream,
     memory: CanisterMemoryWiring<'_>,
 ) -> TokenStream {
     let StoreRegistryTokens {
@@ -403,7 +403,7 @@ fn store_wiring_tokens(
         #data_defs
         #index_defs
         #schema_defs
-        #entity_runtime_hooks
+        #entity_registrations
         thread_local! {
             static STORE_REGISTRY:
                 ::icydb::__macro::StoreRegistry =
@@ -417,9 +417,9 @@ fn store_wiring_tokens(
         > {
             ensure_memory_bootstrap()?;
 
-            Ok(::icydb::__macro::CoreDbSession::<#canister_path>::new_with_hooks(
+            Ok(::icydb::__macro::CoreDbSession::<#canister_path>::new_with_registrations(
                 &STORE_REGISTRY,
-                ENTITY_RUNTIME_HOOKS
+                ENTITY_REGISTRATIONS
             ))
         }
 

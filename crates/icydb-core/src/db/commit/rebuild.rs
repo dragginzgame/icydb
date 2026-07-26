@@ -19,7 +19,7 @@ use crate::{
         schema::{
             AcceptedSchemaSnapshot, ConstraintActivationKind, ConstraintActivationState,
             ConstraintValidationJob, UniqueConstraintProjection,
-            accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot,
+            accepted_commit_schema_fingerprint, load_accepted_schema_snapshot,
         },
     },
     error::InternalError,
@@ -132,33 +132,31 @@ fn rebuild_secondary_indexes_in_place(
                 let authority = match authorities.entry(entity_tag) {
                     Entry::Occupied(entry) => entry.into_mut(),
                     Entry::Vacant(entry) => {
-                        let hooks = db.runtime_hook_for_entity_tag(entity_tag)?;
-                        let accepted_schema = handle.with_schema_mut(|schema_store| {
-                            ensure_accepted_schema_snapshot(
+                        let registration = db.runtime_registration_for_entity_tag(entity_tag)?;
+                        let accepted_schema = handle.with_schema(|schema_store| {
+                            load_accepted_schema_snapshot(
                                 schema_store,
-                                hooks.entity_tag,
-                                hooks.entity_path,
-                                hooks.store_path,
-                                hooks.model,
+                                registration.entity_tag,
+                                registration.entity_path,
                             )
                         })?;
                         let candidate_unique = rebuild_candidate_unique_authority(
                             *handle,
-                            hooks.entity_tag,
-                            hooks.entity_path,
-                            hooks.store_path,
+                            registration.entity_tag,
+                            registration.entity_path,
+                            registration.store_path,
                             &accepted_schema,
                         )?;
                         let candidate_relation = rebuild_candidate_relation_authority(
                             db,
                             *handle,
-                            hooks.entity_tag,
-                            hooks.entity_path,
-                            hooks.store_path,
+                            registration.entity_tag,
+                            registration.entity_path,
+                            registration.store_path,
                             &accepted_schema,
                         )?;
                         entry.insert(RebuildEntityAuthority {
-                            entity_path: hooks.entity_path,
+                            entity_path: registration.entity_path,
                             schema_fingerprint: accepted_commit_schema_fingerprint(
                                 &accepted_schema,
                             )?,

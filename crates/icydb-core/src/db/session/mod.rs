@@ -20,7 +20,7 @@ mod write;
 
 use crate::{
     db::{
-        Db, EntityRuntimeHooks, FluentDeleteQuery, FluentLoadQuery, MissingRowPolicy, PersistedRow,
+        Db, EntityRegistration, FluentDeleteQuery, FluentLoadQuery, MissingRowPolicy, PersistedRow,
         Query, StoreRegistry, WriteBatchResponse,
         commit::CommitSchemaFingerprint,
         executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
@@ -105,13 +105,13 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    /// Construct one session facade from store registry and runtime hooks.
+    /// Construct one session facade from store and entity registrations.
     #[must_use]
-    pub const fn new_with_hooks(
+    pub const fn new_with_registrations(
         store: &'static LocalKey<StoreRegistry>,
-        entity_runtime_hooks: &'static [EntityRuntimeHooks<C>],
+        entity_registrations: &'static [EntityRegistration<C>],
     ) -> Self {
-        Self::new(Db::new_with_hooks(store, entity_runtime_hooks))
+        Self::new(Db::new_with_registrations(store, entity_registrations))
     }
 
     /// Enable debug execution behavior where supported by executors.

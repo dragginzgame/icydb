@@ -1,7 +1,7 @@
 //! Module: db::session::integrity
 //! Responsibility: session routing into accepted-native integrity inspection.
 //! Does not own: inspection semantics, accepted schema construction, or recovery.
-//! Boundary: authorized entity path -> runtime hook -> accepted inspection plan.
+//! Boundary: authorized entity path -> model-free registration -> accepted inspection plan.
 
 #[cfg(test)]
 use crate::{
@@ -16,6 +16,7 @@ use crate::{
     db::{
         DbSession, QuickIntegrityResult,
         commit::database_incarnation_id,
+        entity_registration::EntityRuntimeRegistration,
         integrity::{
             IntegrityAuthorityDiagnostic, IntegrityCheckRequest, IntegrityCheckResult,
             IntegrityDeepError, IntegrityEntityIdentity, IntegrityJobError, IntegrityJobId,
@@ -24,7 +25,6 @@ use crate::{
             execute_quick_integrity, run_next_integrity_retention_page, start_deep_integrity_job,
             uninspectable_quick_integrity,
         },
-        runtime_hooks::EntityRuntimeHooks,
         schema::AcceptedInspectionPlan,
         session::accepted_schema::AcceptedInspectionPlanLoadError,
     },
@@ -81,9 +81,9 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         entity: &IntegrityEntityIdentity,
     ) -> Result<QuickIntegrityResult, IntegrityDeepError> {
-        let (hooks, store) = self.integrity_target(entity)?;
+        let (registration, store) = self.integrity_target(entity)?;
         let incarnation = database_incarnation_id()?;
-        match self.accepted_inspection_plan_for_runtime_hook(hooks, store) {
+        match self.accepted_inspection_plan_for_runtime_registration(registration, store) {
             Ok(plan) => {
                 Self::validate_integrity_plan_identity(entity, &plan)?;
                 execute_quick_integrity(&self.db, &plan).map_err(IntegrityDeepError::from)
@@ -104,18 +104,25 @@ impl<C: CanisterKind> DbSession<C> {
     fn integrity_target(
         &self,
         entity: &IntegrityEntityIdentity,
-    ) -> Result<(&EntityRuntimeHooks<C>, crate::db::registry::StoreHandle), IntegrityDeepError>
-    {
+    ) -> Result<
+        (
+            EntityRuntimeRegistration<C>,
+            crate::db::registry::StoreHandle,
+        ),
+        IntegrityDeepError,
+    > {
         entity.validate()?;
-        let hooks = self.db.runtime_hook_for_entity_path(entity.entity_path())?;
-        if hooks.entity_tag.value() != entity.entity_tag()
-            || hooks.store_path != entity.store_path()
+        let registration = self
+            .db
+            .runtime_registration_for_entity_path(entity.entity_path())?;
+        if registration.entity_tag.value() != entity.entity_tag()
+            || registration.store_path != entity.store_path()
         {
             return Err(IntegrityJobError::EntityIdentityMismatch.into());
         }
-        let store = self.db.recovered_store(hooks.store_path)?;
+        let store = self.db.recovered_store(registration.store_path)?;
 
-        Ok((hooks, store))
+        Ok((registration, store))
     }
 
     fn validate_integrity_plan_identity(
@@ -140,10 +147,10 @@ impl<C: CanisterKind> DbSession<C> {
         checkpoint: PhysicalUnitCheckpoint,
         limits: RowInspectionLimits,
     ) -> Result<RowIntegrityPage, InternalError> {
-        let hooks = self.db.runtime_hook_for_entity_path(entity_path)?;
-        let store = self.db.recovered_store(hooks.store_path)?;
+        let registration = self.db.runtime_registration_for_entity_path(entity_path)?;
+        let store = self.db.recovered_store(registration.store_path)?;
         let plan = self
-            .accepted_inspection_plan_for_runtime_hook(hooks, store)
+            .accepted_inspection_plan_for_runtime_registration(registration, store)
             .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
         execute_row_integrity_page(&self.db, &plan, checkpoint, limits)
     }
@@ -160,10 +167,10 @@ impl<C: CanisterKind> DbSession<C> {
         checkpoint: PhysicalUnitCheckpoint,
         limits: DerivedInspectionLimits,
     ) -> Result<DerivedIntegrityPage, InternalError> {
-        let hooks = self.db.runtime_hook_for_entity_path(entity_path)?;
-        let store = self.db.recovered_store(hooks.store_path)?;
+        let registration = self.db.runtime_registration_for_entity_path(entity_path)?;
+        let store = self.db.recovered_store(registration.store_path)?;
         let plan = self
-            .accepted_inspection_plan_for_runtime_hook(hooks, store)
+            .accepted_inspection_plan_for_runtime_registration(registration, store)
             .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
         execute_index_integrity_page(&self.db, &plan, index_ordinal, checkpoint, limits)
     }
@@ -180,10 +187,10 @@ impl<C: CanisterKind> DbSession<C> {
         checkpoint: PhysicalUnitCheckpoint,
         limits: DerivedInspectionLimits,
     ) -> Result<DerivedIntegrityPage, InternalError> {
-        let hooks = self.db.runtime_hook_for_entity_path(entity_path)?;
-        let store = self.db.recovered_store(hooks.store_path)?;
+        let registration = self.db.runtime_registration_for_entity_path(entity_path)?;
+        let store = self.db.recovered_store(registration.store_path)?;
         let plan = self
-            .accepted_inspection_plan_for_runtime_hook(hooks, store)
+            .accepted_inspection_plan_for_runtime_registration(registration, store)
             .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
         execute_reverse_integrity_page(&self.db, &plan, relation_ordinal, checkpoint, limits)
     }
@@ -194,10 +201,10 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         entity_path: &str,
     ) -> Result<IntegrityProofVector, InternalError> {
-        let hooks = self.db.runtime_hook_for_entity_path(entity_path)?;
-        let store = self.db.recovered_store(hooks.store_path)?;
+        let registration = self.db.runtime_registration_for_entity_path(entity_path)?;
+        let store = self.db.recovered_store(registration.store_path)?;
         let plan = self
-            .accepted_inspection_plan_for_runtime_hook(hooks, store)
+            .accepted_inspection_plan_for_runtime_registration(registration, store)
             .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
         capture_integrity_proof_vector(&self.db, &plan)
     }
@@ -213,7 +220,9 @@ impl<C: CanisterKind> DbSession<C> {
             entity,
             owner,
             submission_key,
-            |hooks, store| self.accepted_inspection_plan_for_runtime_hook(hooks, store),
+            |registration, store| {
+                self.accepted_inspection_plan_for_runtime_registration(registration, store)
+            },
         )
     }
 
@@ -223,20 +232,20 @@ impl<C: CanisterKind> DbSession<C> {
         owner: IntegrityJobOwner,
         submission_key: IntegritySubmissionKey,
         mut load_plan: impl FnMut(
-            &EntityRuntimeHooks<C>,
+            EntityRuntimeRegistration<C>,
             crate::db::registry::StoreHandle,
         )
             -> Result<AcceptedInspectionPlan, AcceptedInspectionPlanLoadError>,
     ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
         submission_key.validate()?;
-        let (hooks, store) = self.integrity_target(entity)?;
-        let first_plan = load_plan(hooks, store)
+        let (registration, store) = self.integrity_target(entity)?;
+        let first_plan = load_plan(registration, store)
             .map_err(|error| Self::deep_start_plan_load_error(entity, error))?;
         Self::validate_integrity_plan_identity(entity, &first_plan)?;
         let proof_a = capture_integrity_proof_vector(&self.db, &first_plan)?;
 
-        let store = self.db.recovered_store(hooks.store_path)?;
-        let second_plan = load_plan(hooks, store)
+        let store = self.db.recovered_store(registration.store_path)?;
+        let second_plan = load_plan(registration, store)
             .map_err(|error| Self::deep_start_plan_load_error(entity, error))?;
         Self::validate_integrity_plan_identity(entity, &second_plan)?;
         let proof_b = capture_integrity_proof_vector(&self.db, &second_plan)?;
@@ -284,9 +293,9 @@ impl<C: CanisterKind> DbSession<C> {
             owner,
             acknowledged_sequence,
             |entity_path| {
-                let hooks = self.db.runtime_hook_for_entity_path(entity_path)?;
-                let store = self.db.recovered_store(hooks.store_path)?;
-                self.accepted_inspection_plan_for_runtime_hook(hooks, store)
+                let registration = self.db.runtime_registration_for_entity_path(entity_path)?;
+                let store = self.db.recovered_store(registration.store_path)?;
+                self.accepted_inspection_plan_for_runtime_registration(registration, store)
                     .map_err(AcceptedInspectionPlanLoadError::into_internal)
             },
         )
@@ -307,10 +316,10 @@ impl<C: CanisterKind> DbSession<C> {
         owner: IntegrityJobOwner,
         submission_key: IntegritySubmissionKey,
     ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
-        let hooks = self.db.runtime_hook_for_entity_path(entity_path)?;
-        let store = self.db.recovered_store(hooks.store_path)?;
+        let registration = self.db.runtime_registration_for_entity_path(entity_path)?;
+        let store = self.db.recovered_store(registration.store_path)?;
         let plan = self
-            .accepted_inspection_plan_for_runtime_hook(hooks, store)
+            .accepted_inspection_plan_for_runtime_registration(registration, store)
             .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
         let entity = IntegrityEntityIdentity::from_accepted_identity(plan.identity());
 
@@ -334,10 +343,10 @@ impl<C: CanisterKind> DbSession<C> {
         owner: IntegrityJobOwner,
         submission_key: IntegritySubmissionKey,
     ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
-        let hooks = self.db.runtime_hook_for_entity_path(entity_path)?;
-        let store = self.db.recovered_store(hooks.store_path)?;
+        let registration = self.db.runtime_registration_for_entity_path(entity_path)?;
+        let store = self.db.recovered_store(registration.store_path)?;
         let plan = self
-            .accepted_inspection_plan_for_runtime_hook(hooks, store)
+            .accepted_inspection_plan_for_runtime_registration(registration, store)
             .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
         let entity = IntegrityEntityIdentity::from_accepted_identity(plan.identity());
 
@@ -362,10 +371,10 @@ impl<C: CanisterKind> DbSession<C> {
         proof_a: IntegrityProofVector,
         proof_b: IntegrityProofVector,
     ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
-        let hooks = self.db.runtime_hook_for_entity_path(entity_path)?;
-        let store = self.db.recovered_store(hooks.store_path)?;
+        let registration = self.db.runtime_registration_for_entity_path(entity_path)?;
+        let store = self.db.recovered_store(registration.store_path)?;
         let plan = self
-            .accepted_inspection_plan_for_runtime_hook(hooks, store)
+            .accepted_inspection_plan_for_runtime_registration(registration, store)
             .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
 
         start_deep_integrity_job(&self.db, &plan, owner, submission_key, proof_a, proof_b)

@@ -70,7 +70,7 @@ use crate::db::{
 use crate::{
     db::{
         Db, EntityCatalogDescription, EntityConstraintDescription, EntityFieldDescription,
-        EntityRuntimeHooks, EntitySchemaDescription, MemoryCatalogDescription, MissingRowPolicy,
+        EntityRegistration, EntitySchemaDescription, MemoryCatalogDescription, MissingRowPolicy,
         PagedGroupedExecutionWithTrace, PersistedByKindCodec, PlanError, QueryError,
         StoreCatalogDescription,
         access::lower_access,
@@ -382,84 +382,86 @@ thread_local! {
     };
 }
 
-static SESSION_SQL_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCanister>] = &[
-    EntityRuntimeHooks::for_entity::<SessionSqlEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionSqliteReferenceEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionSqlFieldPathEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionSqlRecordFieldPathEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionNullableSqlEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionSqlWriteEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionSqlDefaultWriteEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionSqlCompositeWriteEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionSqlBlobEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionSqlGeneratedFieldEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionSqlGeneratedTimestampEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionSqlManagedWriteEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionSqlGeneratedKeyManagedWriteEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionSqlSignedWriteEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionSqlSelfRelationEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionSqlMixedNumericCompareEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionSqlBoolCompareEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionSqlFloatCompareEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionSqlFieldBoundRangeEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionPrincipalKeyEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionAggregateEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionTemporalEntity>(),
+static SESSION_SQL_ENTITY_REGISTRATIONS: &[EntityRegistration<SessionSqlCanister>] = &[
+    EntityRegistration::for_entity::<SessionSqlEntity>(),
+    EntityRegistration::for_entity::<SessionSqliteReferenceEntity>(),
+    EntityRegistration::for_entity::<SessionSqlFieldPathEntity>(),
+    EntityRegistration::for_entity::<SessionSqlRecordFieldPathEntity>(),
+    EntityRegistration::for_entity::<SessionNullableSqlEntity>(),
+    EntityRegistration::for_entity::<SessionSqlWriteEntity>(),
+    EntityRegistration::for_entity::<SessionSqlDefaultWriteEntity>(),
+    EntityRegistration::for_entity::<SessionSqlCompositeWriteEntity>(),
+    EntityRegistration::for_entity::<SessionSqlBlobEntity>(),
+    EntityRegistration::for_entity::<SessionSqlGeneratedFieldEntity>(),
+    EntityRegistration::for_entity::<SessionSqlGeneratedTimestampEntity>(),
+    EntityRegistration::for_entity::<SessionSqlManagedWriteEntity>(),
+    EntityRegistration::for_entity::<SessionSqlGeneratedKeyManagedWriteEntity>(),
+    EntityRegistration::for_entity::<SessionSqlSignedWriteEntity>(),
+    EntityRegistration::for_entity::<SessionSqlSelfRelationEntity>(),
+    EntityRegistration::for_entity::<SessionSqlMixedNumericCompareEntity>(),
+    EntityRegistration::for_entity::<SessionSqlBoolCompareEntity>(),
+    EntityRegistration::for_entity::<SessionSqlFloatCompareEntity>(),
+    EntityRegistration::for_entity::<SessionSqlFieldBoundRangeEntity>(),
+    EntityRegistration::for_entity::<SessionPrincipalKeyEntity>(),
+    EntityRegistration::for_entity::<SessionAggregateEntity>(),
+    EntityRegistration::for_entity::<SessionTemporalEntity>(),
 ];
-static INDEXED_SESSION_SQL_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCanister>] = &[
-    EntityRuntimeHooks::for_entity::<IndexedSessionSqlEntity>(),
-    EntityRuntimeHooks::for_entity::<CompositeIndexedSessionSqlEntity>(),
-    EntityRuntimeHooks::for_entity::<BranchIndexedSessionSqlEntity>(),
+static INDEXED_SESSION_SQL_ENTITY_REGISTRATIONS: &[EntityRegistration<SessionSqlCanister>] = &[
+    EntityRegistration::for_entity::<IndexedSessionSqlEntity>(),
+    EntityRegistration::for_entity::<CompositeIndexedSessionSqlEntity>(),
+    EntityRegistration::for_entity::<BranchIndexedSessionSqlEntity>(),
     #[cfg(feature = "diagnostics")]
-    EntityRuntimeHooks::for_entity::<ExplicitPkSuffixIndexedSessionSqlEntity>(),
-    EntityRuntimeHooks::for_entity::<FilteredIndexedSessionSqlEntity>(),
-    EntityRuntimeHooks::for_entity::<ExpressionIndexedSessionSqlEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionExplainEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionDeterministicChoiceEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionDeterministicRangeEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionRangeStrengthEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionResidualRankingEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionUniquePrefixOffsetEntity>(),
-    EntityRuntimeHooks::for_entity::<SessionOrderOnlyChoiceEntity>(),
+    EntityRegistration::for_entity::<ExplicitPkSuffixIndexedSessionSqlEntity>(),
+    EntityRegistration::for_entity::<FilteredIndexedSessionSqlEntity>(),
+    EntityRegistration::for_entity::<ExpressionIndexedSessionSqlEntity>(),
+    EntityRegistration::for_entity::<SessionExplainEntity>(),
+    EntityRegistration::for_entity::<SessionDeterministicChoiceEntity>(),
+    EntityRegistration::for_entity::<SessionDeterministicRangeEntity>(),
+    EntityRegistration::for_entity::<SessionRangeStrengthEntity>(),
+    EntityRegistration::for_entity::<SessionResidualRankingEntity>(),
+    EntityRegistration::for_entity::<SessionUniquePrefixOffsetEntity>(),
+    EntityRegistration::for_entity::<SessionOrderOnlyChoiceEntity>(),
 ];
-static HEAP_SESSION_SQL_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCanister>] =
-    &[EntityRuntimeHooks::for_entity::<HeapSessionSqlEntity>()];
-static SESSION_SQL_DB: Db<SessionSqlCanister> =
-    Db::new_with_hooks(&SESSION_SQL_STORE_REGISTRY, SESSION_SQL_RUNTIME_HOOKS);
-static INDEXED_SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new_with_hooks(
+static HEAP_SESSION_SQL_ENTITY_REGISTRATIONS: &[EntityRegistration<SessionSqlCanister>] =
+    &[EntityRegistration::for_entity::<HeapSessionSqlEntity>()];
+static SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new_with_registrations(
+    &SESSION_SQL_STORE_REGISTRY,
+    SESSION_SQL_ENTITY_REGISTRATIONS,
+);
+static INDEXED_SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new_with_registrations(
     &INDEXED_SESSION_SQL_STORE_REGISTRY,
-    INDEXED_SESSION_SQL_RUNTIME_HOOKS,
+    INDEXED_SESSION_SQL_ENTITY_REGISTRATIONS,
 );
-static HEAP_SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new_with_hooks(
+static HEAP_SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new_with_registrations(
     &HEAP_SESSION_SQL_STORE_REGISTRY,
-    HEAP_SESSION_SQL_RUNTIME_HOOKS,
+    HEAP_SESSION_SQL_ENTITY_REGISTRATIONS,
 );
-static MIXED_HEAP_RELATION_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCanister>] = &[
-    EntityRuntimeHooks::for_entity::<SessionSqlSelfRelationEntity>(),
-    EntityRuntimeHooks::for_entity::<HeapSessionSqlEntity>(),
-    EntityRuntimeHooks::for_entity::<DurableSessionSqlSourceToHeapTargetEntity>(),
-    EntityRuntimeHooks::for_entity::<HeapSessionSqlSourceToDurableTargetEntity>(),
-    EntityRuntimeHooks::for_entity::<HeapSessionSqlSourceToHeapTargetEntity>(),
+static MIXED_HEAP_RELATION_ENTITY_REGISTRATIONS: &[EntityRegistration<SessionSqlCanister>] = &[
+    EntityRegistration::for_entity::<SessionSqlSelfRelationEntity>(),
+    EntityRegistration::for_entity::<HeapSessionSqlEntity>(),
+    EntityRegistration::for_entity::<DurableSessionSqlSourceToHeapTargetEntity>(),
+    EntityRegistration::for_entity::<HeapSessionSqlSourceToDurableTargetEntity>(),
+    EntityRegistration::for_entity::<HeapSessionSqlSourceToHeapTargetEntity>(),
 ];
-static MIXED_HEAP_RELATION_DB: Db<SessionSqlCanister> = Db::new_with_hooks(
+static MIXED_HEAP_RELATION_DB: Db<SessionSqlCanister> = Db::new_with_registrations(
     &MIXED_HEAP_RELATION_STORE_REGISTRY,
-    MIXED_HEAP_RELATION_RUNTIME_HOOKS,
+    MIXED_HEAP_RELATION_ENTITY_REGISTRATIONS,
 );
-static JOURNALED_SESSION_SQL_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCanister>] =
-    &[EntityRuntimeHooks::for_entity::<JournaledSessionSqlEntity>()];
-static JOURNALED_SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new_with_hooks(
+static JOURNALED_SESSION_SQL_ENTITY_REGISTRATIONS: &[EntityRegistration<SessionSqlCanister>] =
+    &[EntityRegistration::for_entity::<JournaledSessionSqlEntity>()];
+static JOURNALED_SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new_with_registrations(
     &JOURNALED_SESSION_SQL_STORE_REGISTRY,
-    JOURNALED_SESSION_SQL_RUNTIME_HOOKS,
+    JOURNALED_SESSION_SQL_ENTITY_REGISTRATIONS,
 );
 static STANDALONE_JOURNALED_SESSION_DB: Db<SessionSqlCanister> =
-    Db::new_with_hooks(&JOURNALED_SESSION_SQL_STORE_REGISTRY, &[]);
-static MIXED_JOURNALED_RELATION_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCanister>] = &[
-    EntityRuntimeHooks::for_entity::<JournaledSessionSqlEntity>(),
-    EntityRuntimeHooks::for_entity::<DurableSessionSqlSourceToJournaledTargetEntity>(),
+    Db::new_with_registrations(&JOURNALED_SESSION_SQL_STORE_REGISTRY, &[]);
+static MIXED_JOURNALED_RELATION_ENTITY_REGISTRATIONS: &[EntityRegistration<SessionSqlCanister>] = &[
+    EntityRegistration::for_entity::<JournaledSessionSqlEntity>(),
+    EntityRegistration::for_entity::<DurableSessionSqlSourceToJournaledTargetEntity>(),
 ];
-static MIXED_JOURNALED_RELATION_DB: Db<SessionSqlCanister> = Db::new_with_hooks(
+static MIXED_JOURNALED_RELATION_DB: Db<SessionSqlCanister> = Db::new_with_registrations(
     &MIXED_JOURNALED_RELATION_STORE_REGISTRY,
-    MIXED_JOURNALED_RELATION_RUNTIME_HOOKS,
+    MIXED_JOURNALED_RELATION_ENTITY_REGISTRATIONS,
 );
 static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
     LazyLock::new(|| Predicate::eq("active".to_string(), true.into()));

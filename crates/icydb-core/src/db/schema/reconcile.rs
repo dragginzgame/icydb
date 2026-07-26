@@ -9,17 +9,17 @@ mod user_index_domain;
 
 use crate::{
     db::{
-        Db, EntityRuntimeHooks,
+        Db,
+        entity_registration::{EntityRegistration, EntitySchemaProposal},
         registry::StoreHandle,
         schema::{
-            AcceptedCatalogSnapshotSelection, AcceptedSchemaSnapshot, AcceptedSourceBindingCatalog,
-            ConstraintActivationKind, ConstraintId, ConstraintOrigin,
-            GeneratedAcceptedCandidateError, GeneratedConstraintActivationContext,
-            MutationPublicationPreflight, PersistedIndexSnapshot, PersistedSchemaSnapshot,
-            SchemaStore, SchemaTransitionDecision, SchemaTransitionPlanKind,
-            advance_check_constraint_activation, advance_not_null_constraint_activation,
-            advance_relation_constraint_activation, advance_unique_constraint_activation,
-            compiled_schema_proposal_for_model,
+            AcceptedSchemaSnapshot, AcceptedSourceBindingCatalog, ConstraintActivationKind,
+            ConstraintId, ConstraintOrigin, GeneratedAcceptedCandidateError,
+            GeneratedConstraintActivationContext, MutationPublicationPreflight,
+            PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaStore, SchemaTransitionDecision,
+            SchemaTransitionPlanKind, advance_check_constraint_activation,
+            advance_not_null_constraint_activation, advance_relation_constraint_activation,
+            advance_unique_constraint_activation, compiled_schema_proposal_for_model,
             composite_catalog::{
                 AcceptedCompositeCatalog, build_initial_accepted_composite_catalog,
                 generated_composite_type_ids, reconcile_accepted_composite_catalog,
@@ -106,11 +106,11 @@ pub(in crate::db) use sql_ddl::{
 /// closed if any surviving persisted type identity would move.
 pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
     db: &Db<C>,
-    entity_runtime_hooks: &[EntityRuntimeHooks<C>],
+    entity_registrations: &[EntityRegistration<C>],
 ) -> Result<(), InternalError> {
     reconcile_runtime_schemas_with_derived_state(
         db,
-        entity_runtime_hooks,
+        entity_registrations,
         SchemaReconcileDerivedState::StageAgainstReadyDomains,
     )
 }
@@ -120,11 +120,11 @@ pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
 /// succeeds, so candidate domains must not be compared with stale indexes.
 pub(in crate::db) fn reconcile_runtime_schemas_before_recovery_rebuild<C: CanisterKind>(
     db: &Db<C>,
-    entity_runtime_hooks: &[EntityRuntimeHooks<C>],
+    entity_registrations: &[EntityRegistration<C>],
 ) -> Result<(), InternalError> {
     reconcile_runtime_schemas_with_derived_state(
         db,
-        entity_runtime_hooks,
+        entity_registrations,
         SchemaReconcileDerivedState::RecoveryRebuildOwnsDomains,
     )
 }
@@ -144,39 +144,40 @@ enum SchemaReconcileDerivedState {
 
 fn reconcile_runtime_schemas_with_derived_state<C: CanisterKind>(
     db: &Db<C>,
-    entity_runtime_hooks: &[EntityRuntimeHooks<C>],
+    entity_registrations: &[EntityRegistration<C>],
     derived_state: SchemaReconcileDerivedState,
 ) -> Result<(), InternalError> {
-    let catalogs_by_store = build_generated_catalog_candidates(db, entity_runtime_hooks)?;
+    let catalogs_by_store = build_generated_catalog_candidates(db, entity_registrations)?;
     let mut accepted_snapshots_by_store =
         BTreeMap::<&'static str, BTreeMap<EntityTag, PersistedSchemaSnapshot>>::new();
     let mut pending_publications =
         BTreeMap::<&'static str, Vec<PendingUserIndexDomainStage>>::new();
 
-    for hooks in entity_runtime_hooks {
+    for registration in entity_registrations {
+        let proposal = registration.proposal();
         let catalogs = catalogs_by_store
-            .get(hooks.store_path)
+            .get(proposal.store_path)
             .ok_or_else(InternalError::store_invariant)?;
         let reconciled = reconcile_runtime_schema(
             db,
-            hooks,
+            proposal,
             &catalogs.enum_catalog,
             &catalogs.composite_catalog,
             catalogs.activation,
             derived_state,
         )?;
         if accepted_snapshots_by_store
-            .entry(hooks.store_path)
+            .entry(proposal.store_path)
             .or_default()
             .insert(
-                hooks.entity_tag,
+                proposal.entity_tag,
                 reconciled.accepted.persisted_snapshot().clone(),
             )
             .is_some()
         {
             if let Some(pending) = reconciled.pending_publication {
                 pending_publications
-                    .entry(hooks.store_path)
+                    .entry(proposal.store_path)
                     .or_default()
                     .push(pending);
             }
@@ -184,7 +185,7 @@ fn reconcile_runtime_schemas_with_derived_state<C: CanisterKind>(
         }
         if let Some(pending) = reconciled.pending_publication {
             pending_publications
-                .entry(hooks.store_path)
+                .entry(proposal.store_path)
                 .or_default()
                 .push(pending);
         }
@@ -212,7 +213,7 @@ fn reconcile_runtime_schemas_with_derived_state<C: CanisterKind>(
         derived_state,
         SchemaReconcileDerivedState::StageAgainstReadyDomains
     ) {
-        advance_generated_constraint_activations(db, entity_runtime_hooks)?;
+        advance_generated_constraint_activations(db, entity_registrations)?;
     }
 
     Ok(())
@@ -232,21 +233,22 @@ enum GeneratedConstraintActivation {
 
 fn advance_generated_constraint_activations<C: CanisterKind>(
     db: &Db<C>,
-    entity_runtime_hooks: &[EntityRuntimeHooks<C>],
+    entity_registrations: &[EntityRegistration<C>],
 ) -> Result<(), InternalError> {
-    for hooks in entity_runtime_hooks {
+    for registration in entity_registrations {
+        let runtime = registration.runtime();
         let activations = db
-            .store_handle(hooks.store_path)?
+            .store_handle(runtime.store_path)?
             .with_schema(|schema_store| {
                 let selection = schema_store
                     .current_accepted_catalog_selection(
-                        hooks.entity_tag,
-                        hooks.entity_path,
-                        hooks.store_path,
+                        runtime.entity_tag,
+                        runtime.entity_path,
+                        runtime.store_path,
                     )?
                     .ok_or_else(InternalError::store_corruption)?;
                 let snapshot = selection.decode_verified()?;
-                if snapshot.entity_path() != hooks.entity_path {
+                if snapshot.entity_path() != runtime.entity_path {
                     return Err(InternalError::store_corruption());
                 }
                 Ok::<_, InternalError>(
@@ -277,7 +279,7 @@ fn advance_generated_constraint_activations<C: CanisterKind>(
                 GeneratedConstraintActivation::Check(constraint_id) => {
                     let _progress = advance_check_constraint_activation(
                         db,
-                        hooks.entity_tag,
+                        runtime.entity_tag,
                         constraint_id,
                         None,
                     )?;
@@ -285,7 +287,7 @@ fn advance_generated_constraint_activations<C: CanisterKind>(
                 GeneratedConstraintActivation::NotNull(constraint_id) => {
                     let _progress = advance_not_null_constraint_activation(
                         db,
-                        hooks.entity_tag,
+                        runtime.entity_tag,
                         constraint_id,
                         None,
                     )?;
@@ -293,7 +295,7 @@ fn advance_generated_constraint_activations<C: CanisterKind>(
                 GeneratedConstraintActivation::Unique(constraint_id) => {
                     let _progress = advance_unique_constraint_activation(
                         db,
-                        hooks.entity_tag,
+                        runtime.entity_tag,
                         constraint_id,
                         None,
                     )?;
@@ -301,7 +303,7 @@ fn advance_generated_constraint_activations<C: CanisterKind>(
                 GeneratedConstraintActivation::Relation(constraint_id) => {
                     let _progress = advance_relation_constraint_activation(
                         db,
-                        hooks.entity_tag,
+                        runtime.entity_tag,
                         constraint_id,
                         None,
                     )?;
@@ -318,14 +320,15 @@ fn advance_generated_constraint_activations<C: CanisterKind>(
 // surviving row-visible identities remain unchanged.
 fn build_generated_catalog_candidates<C: CanisterKind>(
     db: &Db<C>,
-    entity_runtime_hooks: &[EntityRuntimeHooks<C>],
+    entity_registrations: &[EntityRegistration<C>],
 ) -> Result<BTreeMap<&'static str, GeneratedCatalogCandidates>, InternalError> {
     let mut models_by_store = BTreeMap::<&'static str, Vec<&EntityModel>>::new();
-    for hooks in entity_runtime_hooks {
+    for registration in entity_registrations {
+        let proposal = registration.proposal();
         models_by_store
-            .entry(hooks.store_path)
+            .entry(proposal.store_path)
             .or_default()
-            .push(hooks.model);
+            .push(proposal.model);
     }
 
     let mut catalogs_by_store = BTreeMap::new();
@@ -709,19 +712,19 @@ fn merge_generated_indexes_with_extra_accepted_indexes(
 // between generated metadata and persisted schema metadata.
 fn reconcile_runtime_schema<C: CanisterKind>(
     db: &Db<C>,
-    hooks: &EntityRuntimeHooks<C>,
+    proposal: &EntitySchemaProposal<C>,
     enum_catalog: &AcceptedEnumCatalog,
     composite_catalog: &AcceptedCompositeCatalog,
     activation: Option<GeneratedConstraintActivationContext>,
     derived_state: SchemaReconcileDerivedState,
 ) -> Result<ReconciledRuntimeSchema, InternalError> {
-    let store = db.store_handle(hooks.store_path)?;
+    let store = db.store_handle(proposal.store_path)?;
 
     ensure_accepted_schema_snapshot_for_runtime_store(
         store,
-        hooks.entity_tag,
-        hooks.entity_path,
-        hooks.model,
+        proposal.entity_tag,
+        proposal.entity_path,
+        proposal.model,
         enum_catalog,
         composite_catalog,
         activation,
@@ -733,95 +736,12 @@ fn reconcile_runtime_schema<C: CanisterKind>(
 /// accepted root.
 ///
 /// Recovery and startup reconciliation must publish that root before live
-/// execution reaches this boundary. Generated metadata proves compatibility;
-/// it is never used to reconstruct missing accepted state here.
-#[cfg(not(test))]
-pub(in crate::db) fn ensure_accepted_schema_snapshot(
+/// execution reaches this boundary. No generated proposal participates in
+/// this accepted-runtime lookup.
+pub(in crate::db) fn load_accepted_schema_snapshot(
     schema_store: &SchemaStore,
     entity_tag: EntityTag,
     entity_path: &'static str,
-    _store_path: &'static str,
-    model: &'static EntityModel,
-) -> Result<AcceptedSchemaSnapshot, InternalError> {
-    load_current_accepted_schema_snapshot(schema_store, entity_tag, entity_path, model)
-}
-
-/// Select one entity snapshot and enum catalog from the current accepted root.
-#[cfg(not(test))]
-pub(in crate::db) fn ensure_accepted_catalog_snapshot_selection(
-    schema_store: &SchemaStore,
-    entity_tag: EntityTag,
-    entity_path: &'static str,
-    store_path: &'static str,
-    _model: &'static EntityModel,
-) -> Result<AcceptedCatalogSnapshotSelection, InternalError> {
-    load_current_accepted_catalog_snapshot_selection(
-        schema_store,
-        entity_tag,
-        entity_path,
-        store_path,
-    )
-}
-
-#[cfg(test)]
-pub(in crate::db) fn ensure_accepted_schema_snapshot(
-    schema_store: &mut SchemaStore,
-    entity_tag: EntityTag,
-    entity_path: &'static str,
-    store_path: &'static str,
-    model: &'static EntityModel,
-) -> Result<AcceptedSchemaSnapshot, InternalError> {
-    bootstrap_test_accepted_schema_snapshot(
-        schema_store,
-        entity_tag,
-        entity_path,
-        store_path,
-        model,
-    )?;
-
-    load_current_accepted_schema_snapshot(schema_store, entity_tag, entity_path, model)
-}
-
-#[cfg(test)]
-pub(in crate::db) fn ensure_accepted_catalog_snapshot_selection(
-    schema_store: &mut SchemaStore,
-    entity_tag: EntityTag,
-    entity_path: &'static str,
-    store_path: &'static str,
-    model: &'static EntityModel,
-) -> Result<AcceptedCatalogSnapshotSelection, InternalError> {
-    bootstrap_test_accepted_schema_snapshot(
-        schema_store,
-        entity_tag,
-        entity_path,
-        store_path,
-        model,
-    )?;
-
-    load_current_accepted_catalog_snapshot_selection(
-        schema_store,
-        entity_tag,
-        entity_path,
-        store_path,
-    )
-}
-
-fn load_current_accepted_catalog_snapshot_selection(
-    schema_store: &SchemaStore,
-    entity_tag: EntityTag,
-    entity_path: &'static str,
-    store_path: &'static str,
-) -> Result<AcceptedCatalogSnapshotSelection, InternalError> {
-    schema_store
-        .current_accepted_catalog_selection(entity_tag, entity_path, store_path)?
-        .ok_or_else(InternalError::store_corruption)
-}
-
-fn load_current_accepted_schema_snapshot(
-    schema_store: &SchemaStore,
-    entity_tag: EntityTag,
-    entity_path: &'static str,
-    model: &'static EntityModel,
 ) -> Result<AcceptedSchemaSnapshot, InternalError> {
     let bundle = schema_store
         .current_accepted_schema_bundle()?
@@ -835,16 +755,28 @@ fn load_current_accepted_schema_snapshot(
         return Err(InternalError::store_corruption());
     }
     let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
-    let _runtime_contract = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
-        &accepted,
-        model,
-        bundle.enum_catalog(),
-        bundle.composite_catalog(),
-    )
-    .map_err(|_error| InternalError::store_unsupported())?;
     validate_accepted_runtime_descriptor(&accepted)?;
 
     Ok(accepted)
+}
+
+#[cfg(test)]
+pub(in crate::db) fn ensure_accepted_schema_snapshot(
+    schema_store: &mut SchemaStore,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    store_path: &'static str,
+    model: &'static EntityModel,
+) -> Result<AcceptedSchemaSnapshot, InternalError> {
+    bootstrap_test_accepted_schema_snapshot(
+        schema_store,
+        entity_tag,
+        entity_path,
+        store_path,
+        model,
+    )?;
+
+    load_accepted_schema_snapshot(schema_store, entity_tag, entity_path)
 }
 
 // Build or update the staged entity snapshot used to construct the next

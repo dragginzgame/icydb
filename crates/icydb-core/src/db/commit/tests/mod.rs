@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        Db, DbSession, EntityRuntimeHooks, Predicate,
+        Db, DbSession, EntityRegistration, Predicate,
         codec::{
             ROW_FORMAT_VERSION_CURRENT, decode_row_payload_bytes, serialize_row_payload,
             serialize_row_payload_with_version,
@@ -32,7 +32,6 @@ use crate::{
         },
         journal::{FoldWatermark, JournalBatch, JournalRecord, JournalTailStore},
         registry::{StoreHandle, StoreRegistry},
-        relation::validate_delete_relations_for_source,
         schema::{
             AcceptedSchemaSnapshot, FieldId, PersistedSchemaSnapshot, SchemaApplicationRecord,
             SchemaApplicationRecordOp, SchemaChangeOutcome, SchemaChangeReceipt, SchemaFieldSlot,
@@ -606,94 +605,22 @@ crate::test_entity! {
     entity_value = id_field(id),
 }
 
-static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
-    EntityRuntimeHooks::new(
-        RecoveryTestEntity::ENTITY_TAG,
-        <RecoveryTestEntity as EntityDeclaration>::MODEL,
-        RecoveryTestEntity::PATH,
-        RecoveryTestDataStore::PATH,
-        validate_delete_relations_for_source::<RecoveryTestEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        RecoveryIndexedEntity::ENTITY_TAG,
-        <RecoveryIndexedEntity as EntityDeclaration>::MODEL,
-        RecoveryIndexedEntity::PATH,
-        RecoveryTestDataStore::PATH,
-        validate_delete_relations_for_source::<RecoveryIndexedEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        HeapRecoveryIndexedEntity::ENTITY_TAG,
-        <HeapRecoveryIndexedEntity as EntityDeclaration>::MODEL,
-        HeapRecoveryIndexedEntity::PATH,
-        HeapRecoveryTestDataStore::PATH,
-        validate_delete_relations_for_source::<HeapRecoveryIndexedEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        RecoveryNullableIndexedEntity::ENTITY_TAG,
-        <RecoveryNullableIndexedEntity as EntityDeclaration>::MODEL,
-        RecoveryNullableIndexedEntity::PATH,
-        RecoveryTestDataStore::PATH,
-        validate_delete_relations_for_source::<RecoveryNullableIndexedEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        RecoveryUniqueEntity::ENTITY_TAG,
-        <RecoveryUniqueEntity as EntityDeclaration>::MODEL,
-        RecoveryUniqueEntity::PATH,
-        RecoveryTestDataStore::PATH,
-        validate_delete_relations_for_source::<RecoveryUniqueEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        RecoveryUniqueCasefoldEntity::ENTITY_TAG,
-        <RecoveryUniqueCasefoldEntity as EntityDeclaration>::MODEL,
-        RecoveryUniqueCasefoldEntity::PATH,
-        RecoveryTestDataStore::PATH,
-        validate_delete_relations_for_source::<RecoveryUniqueCasefoldEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        RecoveryUpperExpressionEntity::ENTITY_TAG,
-        <RecoveryUpperExpressionEntity as EntityDeclaration>::MODEL,
-        RecoveryUpperExpressionEntity::PATH,
-        RecoveryTestDataStore::PATH,
-        validate_delete_relations_for_source::<RecoveryUpperExpressionEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        RecoveryConditionalEntity::ENTITY_TAG,
-        <RecoveryConditionalEntity as EntityDeclaration>::MODEL,
-        RecoveryConditionalEntity::PATH,
-        RecoveryTestDataStore::PATH,
-        validate_delete_relations_for_source::<RecoveryConditionalEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        RecoveryConditionalUniqueEntity::ENTITY_TAG,
-        <RecoveryConditionalUniqueEntity as EntityDeclaration>::MODEL,
-        RecoveryConditionalUniqueEntity::PATH,
-        RecoveryTestDataStore::PATH,
-        validate_delete_relations_for_source::<RecoveryConditionalUniqueEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        RecoveryConditionalUniqueCasefoldEntity::ENTITY_TAG,
-        <RecoveryConditionalUniqueCasefoldEntity as EntityDeclaration>::MODEL,
-        RecoveryConditionalUniqueCasefoldEntity::PATH,
-        RecoveryTestDataStore::PATH,
-        validate_delete_relations_for_source::<RecoveryConditionalUniqueCasefoldEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        RecoveryConditionalUniqueEnumEntity::ENTITY_TAG,
-        <RecoveryConditionalUniqueEnumEntity as EntityDeclaration>::MODEL,
-        RecoveryConditionalUniqueEnumEntity::PATH,
-        RecoveryTestDataStore::PATH,
-        validate_delete_relations_for_source::<RecoveryConditionalUniqueEnumEntity>,
-    ),
+static ENTITY_REGISTRATIONS: &[EntityRegistration<RecoveryTestCanister>] = &[
+    EntityRegistration::for_entity::<RecoveryTestEntity>(),
+    EntityRegistration::for_entity::<RecoveryIndexedEntity>(),
+    EntityRegistration::for_entity::<HeapRecoveryIndexedEntity>(),
+    EntityRegistration::for_entity::<RecoveryNullableIndexedEntity>(),
+    EntityRegistration::for_entity::<RecoveryUniqueEntity>(),
+    EntityRegistration::for_entity::<RecoveryUniqueCasefoldEntity>(),
+    EntityRegistration::for_entity::<RecoveryUpperExpressionEntity>(),
+    EntityRegistration::for_entity::<RecoveryConditionalEntity>(),
+    EntityRegistration::for_entity::<RecoveryConditionalUniqueEntity>(),
+    EntityRegistration::for_entity::<RecoveryConditionalUniqueCasefoldEntity>(),
+    EntityRegistration::for_entity::<RecoveryConditionalUniqueEnumEntity>(),
 ];
 
-static PEER_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryPeerCanister>] =
-    &[EntityRuntimeHooks::new(
-        RecoveryPeerEntity::ENTITY_TAG,
-        <RecoveryPeerEntity as EntityDeclaration>::MODEL,
-        RecoveryPeerEntity::PATH,
-        RecoveryPeerDataStore::PATH,
-        validate_delete_relations_for_source::<RecoveryPeerEntity>,
-    )];
+static PEER_ENTITY_REGISTRATIONS: &[EntityRegistration<RecoveryPeerCanister>] =
+    &[EntityRegistration::for_entity::<RecoveryPeerEntity>()];
 
 thread_local! {
     static RECOVERY_DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(test_memory(19)));
@@ -766,49 +693,46 @@ thread_local! {
     };
 }
 
-static DB: Db<RecoveryTestCanister> = Db::new_with_hooks(&STORE_REGISTRY, ENTITY_RUNTIME_HOOKS);
+static DB: Db<RecoveryTestCanister> =
+    Db::new_with_registrations(&STORE_REGISTRY, ENTITY_REGISTRATIONS);
 static PEER_DB: Db<RecoveryPeerCanister> =
-    Db::new_with_hooks(&PEER_STORE_REGISTRY, PEER_ENTITY_RUNTIME_HOOKS);
+    Db::new_with_registrations(&PEER_STORE_REGISTRY, PEER_ENTITY_REGISTRATIONS);
 
-static DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
-    EntityRuntimeHooks::new(
+static DUPLICATE_TAG_ENTITY_REGISTRATIONS: &[EntityRegistration<RecoveryTestCanister>] = &[
+    EntityRegistration::new(
         RecoveryTestEntity::ENTITY_TAG,
         <RecoveryTestEntity as EntityDeclaration>::MODEL,
         RecoveryTestEntity::PATH,
         RecoveryTestDataStore::PATH,
-        validate_delete_relations_for_source::<RecoveryTestEntity>,
     ),
-    EntityRuntimeHooks::new(
+    EntityRegistration::new(
         RecoveryTestEntity::ENTITY_TAG,
         <RecoveryTestEntity as EntityDeclaration>::MODEL,
         RecoveryIndexedEntity::PATH,
         RecoveryTestDataStore::PATH,
-        validate_delete_relations_for_source::<RecoveryIndexedEntity>,
     ),
 ];
 
-static DUPLICATE_PATH_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
-    EntityRuntimeHooks::new(
+static DUPLICATE_PATH_ENTITY_REGISTRATIONS: &[EntityRegistration<RecoveryTestCanister>] = &[
+    EntityRegistration::new(
         RecoveryTestEntity::ENTITY_TAG,
         <RecoveryTestEntity as EntityDeclaration>::MODEL,
         RecoveryTestEntity::PATH,
         RecoveryTestDataStore::PATH,
-        validate_delete_relations_for_source::<RecoveryTestEntity>,
     ),
-    EntityRuntimeHooks::new(
+    EntityRegistration::new(
         RecoveryIndexedEntity::ENTITY_TAG,
         <RecoveryIndexedEntity as EntityDeclaration>::MODEL,
         RecoveryTestEntity::PATH,
         RecoveryTestDataStore::PATH,
-        validate_delete_relations_for_source::<RecoveryIndexedEntity>,
     ),
 ];
 
 static DUPLICATE_PATH_DB: Db<RecoveryTestCanister> =
-    Db::new_with_hooks(&STORE_REGISTRY, DUPLICATE_PATH_ENTITY_RUNTIME_HOOKS);
+    Db::new_with_registrations(&STORE_REGISTRY, DUPLICATE_PATH_ENTITY_REGISTRATIONS);
 
-fn duplicate_name_db() -> Db<RecoveryTestCanister> {
-    Db::new_with_hooks(&STORE_REGISTRY, DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS)
+fn duplicate_tag_db() -> Db<RecoveryTestCanister> {
+    Db::new_with_registrations(&STORE_REGISTRY, DUPLICATE_TAG_ENTITY_REGISTRATIONS)
 }
 
 fn with_recovery_store<R>(f: impl FnOnce(StoreHandle) -> R) -> R {
@@ -3690,21 +3614,21 @@ fn recovery_rejects_unsupported_entity_path_without_fallback() {
 }
 
 #[test]
-fn runtime_hook_lookup_rejects_duplicate_entity_tags() {
+fn runtime_registration_lookup_rejects_duplicate_entity_tags() {
     #[cfg(debug_assertions)]
     {
-        let Err(_) = std::panic::catch_unwind(duplicate_name_db) else {
-            panic!("duplicate entity tags must fail during hook table construction");
+        let Err(_) = std::panic::catch_unwind(duplicate_tag_db) else {
+            panic!("duplicate entity tags must fail during registration table construction");
         };
     }
 
     #[cfg(not(debug_assertions))]
     {
-        let duplicate_name_db = duplicate_name_db();
+        let duplicate_tag_db = duplicate_tag_db();
         let Err(err) =
-            duplicate_name_db.runtime_hook_for_entity_tag(RecoveryTestEntity::ENTITY_TAG)
+            duplicate_tag_db.runtime_registration_for_entity_tag(RecoveryTestEntity::ENTITY_TAG)
         else {
-            panic!("duplicate entity tags must fail runtime-hook lookup")
+            panic!("duplicate entity tags must fail runtime-registration lookup")
         };
         assert_eq!(err.class, ErrorClass::InvariantViolation);
         assert_eq!(err.origin, ErrorOrigin::Store);

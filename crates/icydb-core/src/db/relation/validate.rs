@@ -4,7 +4,6 @@
 //! Boundary: enforces relation target/source consistency before destructive operations.
 
 use crate::{
-    db::key_taxonomy::PrimaryKeyValue,
     db::{
         Db,
         data::{
@@ -23,84 +22,59 @@ use crate::{
                 source_row_references_relation_target_primary_key_value,
             },
         },
-        schema::ensure_accepted_catalog_snapshot_selection,
     },
-    entity::{EntityKind, EntityValue},
     error::{ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError},
     metrics::sink::{MetricsEvent, record},
-    traits::{CanisterKind, Path},
+    traits::CanisterKind,
+    types::EntityTag,
 };
 use std::{collections::BTreeSet, ops::Bound};
 
-///
-/// BlockedDeleteProof
-///
-/// Structural proof payload returned by relation delete validation.
-/// This keeps the heavy blocked-delete scan nongeneric and leaves typed key
-/// reconstruction at the final operator-facing diagnostic boundary only.
-///
-
-struct BlockedDeleteProof {
-    relation: AcceptedRelationInfo,
-    source_data_key: DecodedDataStoreKey,
-    target_key: PrimaryKeyValue,
-}
-
-impl BlockedDeleteProof {
-    // Rebuild the blocked-delete proof into the operator-facing unsupported
-    // delete diagnostic at the final typed boundary.
-    fn into_internal_error<S>(self) -> Result<InternalError, InternalError>
-    where
-        S: EntityKind + EntityValue,
-    {
-        let _ = self.relation;
-        let _ = self.source_data_key.try_key::<S>()?;
-        let _ = self.target_key;
-
-        Ok(InternalError::executor_unsupported())
-    }
-}
-
-/// Validate that source rows do not strongly reference target keys selected for delete.
-pub(in crate::db) fn validate_delete_relations_for_source<S>(
-    db: &Db<S::Canister>,
+/// Validate that one registered source has no accepted relation reference to
+/// target keys selected for deletion.
+pub(in crate::db) fn validate_delete_relations_for_registered_source<C>(
+    db: &Db<C>,
+    source_tag: EntityTag,
+    source_path: &'static str,
+    source_store_path: &'static str,
     target_path: &str,
     deleted_target_keys: &BTreeSet<RawDataStoreKey>,
 ) -> Result<(), InternalError>
 where
-    S: EntityKind + EntityValue,
+    C: CanisterKind,
 {
-    let source_info = ReverseRelationSourceInfo::for_type::<S>();
+    let source_info = ReverseRelationSourceInfo::new(source_path, source_tag);
 
     if deleted_target_keys.is_empty() {
         return Ok(());
     }
 
-    // Phase 1: resolve accepted source row contracts and relation facts once.
-    let source_store = db.with_store_registry(|reg| reg.try_get_store(S::Store::PATH))?;
-    let source_row_contract = accepted_source_row_contract::<S>(source_store)?;
-    let relations =
-        accepted_relations_for_row_contract(db, S::PATH, &source_row_contract, Some(target_path))?;
+    let source_store = db.store_handle(source_store_path)?;
+    let source_row_contract =
+        accepted_source_row_contract(source_store, source_tag, source_path, source_store_path)?;
+    let relations = accepted_relations_for_row_contract(
+        db,
+        source_path,
+        &source_row_contract,
+        Some(target_path),
+    )?;
     if relations.is_empty() {
         return Ok(());
     }
 
-    // Phase 2: run the heavy blocked-delete proof loop without `S`.
-    let Some(blocked) = validate_delete_relations_structural(
+    if validate_delete_relations_structural(
         db,
         source_info,
-        S::PATH,
+        source_path,
         source_row_contract,
         relations,
         source_store,
         deleted_target_keys,
-    )?
-    else {
-        return Ok(());
-    };
+    )? {
+        return Err(InternalError::executor_unsupported());
+    }
 
-    // Phase 3: keep typed key reconstruction at the final diagnostic edge only.
-    Err(blocked.into_internal_error::<S>()?)
+    Ok(())
 }
 
 /// Block target deletion while any matching candidate reverse generation is incomplete.
@@ -142,7 +116,7 @@ fn validate_delete_relations_structural<C>(
     relations: Vec<AcceptedRelationInfo>,
     source_store: StoreHandle,
     deleted_target_keys: &BTreeSet<RawDataStoreKey>,
-) -> Result<Option<BlockedDeleteProof>, InternalError>
+) -> Result<bool, InternalError>
 where
     C: CanisterKind,
 {
@@ -182,7 +156,7 @@ where
             });
 
             let bounds = (Bound::Included(reverse_start), Bound::Excluded(reverse_end));
-            let mut blocked = None;
+            let mut blocked = false;
             target_index_store.with_borrow(|store| {
                 store.visit_raw_entries_in_range(
                     (&bounds.0, &bounds.1),
@@ -228,11 +202,7 @@ where
                                     blocked_deletes: 1,
                                 });
 
-                                blocked = Some(BlockedDeleteProof {
-                                    relation: relation.clone(),
-                                    source_data_key,
-                                    target_key: target_primary_key,
-                                });
+                                blocked = true;
                                 return Ok(true);
                             }
                         }
@@ -242,13 +212,13 @@ where
                 )
             })?;
 
-            if let Some(blocked) = blocked {
-                return Ok(Some(blocked));
+            if blocked {
+                return Ok(true);
             }
         }
     }
 
-    Ok(None)
+    Ok(false)
 }
 
 // Build the accepted-schema row contract used by delete relation validation.
@@ -257,25 +227,21 @@ where
 // marker before-images. It therefore decodes rows written at an earlier
 // accepted append-only layout revision through the accepted layout, so newly
 // appended nullable fields do not make unrelated relation checks fail.
-fn accepted_source_row_contract<S>(
+fn accepted_source_row_contract(
     source_store: StoreHandle,
-) -> Result<StructuralRowContract, InternalError>
-where
-    S: EntityKind,
-{
-    let selection = source_store.with_schema_mut(|schema_store| {
-        ensure_accepted_catalog_snapshot_selection(
-            schema_store,
-            S::ENTITY_TAG,
-            S::PATH,
-            S::Store::PATH,
-            S::MODEL,
-        )
-    })?;
-    AcceptedStructuralRowAuthority::from_generated_compatible_catalog_selection(
-        S::PATH,
-        S::MODEL,
-        &selection,
-    )
-    .map(AcceptedStructuralRowAuthority::into_row_contract)
+    source_tag: EntityTag,
+    source_path: &'static str,
+    source_store_path: &'static str,
+) -> Result<StructuralRowContract, InternalError> {
+    let selection = source_store
+        .with_schema(|schema_store| {
+            schema_store.current_accepted_catalog_selection(
+                source_tag,
+                source_path,
+                source_store_path,
+            )
+        })?
+        .ok_or_else(InternalError::store_corruption)?;
+    AcceptedStructuralRowAuthority::from_catalog_selection(source_path, &selection)
+        .map(AcceptedStructuralRowAuthority::into_row_contract)
 }

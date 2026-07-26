@@ -199,8 +199,8 @@ pub(in crate::db) fn advance_unique_constraint_activation<C: CanisterKind>(
     constraint_id: ConstraintId,
     acknowledged_receipt: Option<u64>,
 ) -> Result<ConstraintValidationProgress, InternalError> {
-    let hooks = db.runtime_hook_for_entity_tag(entity_tag)?;
-    let store = db.store_handle(hooks.store_path)?;
+    let registration = db.runtime_registration_for_entity_tag(entity_tag)?;
+    let store = db.store_handle(registration.store_path)?;
     if store.storage_capabilities().recovery()
         != StoreRecoveryCapability::StableBasePlusJournalReplay
     {
@@ -210,8 +210,8 @@ pub(in crate::db) fn advance_unique_constraint_activation<C: CanisterKind>(
         .with_schema(|schema_store| {
             schema_store.current_accepted_catalog_selection(
                 entity_tag,
-                hooks.entity_path,
-                hooks.store_path,
+                registration.entity_path,
+                registration.store_path,
             )
         })?
         .ok_or_else(InternalError::store_corruption)?;
@@ -226,17 +226,17 @@ pub(in crate::db) fn advance_unique_constraint_activation<C: CanisterKind>(
     match activation.state() {
         ConstraintActivationState::EnforcingNewWrites => start_journaled_staged_validation(
             store,
-            hooks.store_path,
+            registration.store_path,
             entity_tag,
-            hooks.entity_path,
+            registration.entity_path,
             constraint_id,
             candidate.physical_generation(),
         ),
         ConstraintActivationState::Validating => resume_journaled_unique_validation(
             store,
-            hooks.store_path,
+            registration.store_path,
             entity_tag,
-            hooks.entity_path,
+            registration.entity_path,
             constraint_id,
             acknowledged_receipt,
             &accepted,
@@ -253,8 +253,8 @@ pub(in crate::db) fn advance_relation_constraint_activation<C: CanisterKind>(
     constraint_id: ConstraintId,
     acknowledged_receipt: Option<u64>,
 ) -> Result<ConstraintValidationProgress, InternalError> {
-    let hooks = db.runtime_hook_for_entity_tag(entity_tag)?;
-    let store = db.store_handle(hooks.store_path)?;
+    let registration = db.runtime_registration_for_entity_tag(entity_tag)?;
+    let store = db.store_handle(registration.store_path)?;
     if store.storage_capabilities().recovery()
         != StoreRecoveryCapability::StableBasePlusJournalReplay
     {
@@ -264,8 +264,8 @@ pub(in crate::db) fn advance_relation_constraint_activation<C: CanisterKind>(
         .with_schema(|schema_store| {
             schema_store.current_accepted_catalog_selection(
                 entity_tag,
-                hooks.entity_path,
-                hooks.store_path,
+                registration.entity_path,
+                registration.store_path,
             )
         })?
         .ok_or_else(InternalError::store_corruption)?;
@@ -276,12 +276,14 @@ pub(in crate::db) fn advance_relation_constraint_activation<C: CanisterKind>(
         .activation(constraint_id)
         .ok_or_else(InternalError::store_invariant)?;
     let candidate = relation_candidate_for_activation(&accepted, constraint_id)?;
-    let contract =
-        AcceptedStructuralRowAuthority::from_catalog_selection(hooks.entity_path, &selection)?
-            .into_row_contract();
+    let contract = AcceptedStructuralRowAuthority::from_catalog_selection(
+        registration.entity_path,
+        &selection,
+    )?
+    .into_row_contract();
     let projection = RelationConstraintProjection::new(
         db,
-        ReverseRelationSourceInfo::new(hooks.entity_path, entity_tag),
+        ReverseRelationSourceInfo::new(registration.entity_path, entity_tag),
         accepted.persisted_snapshot(),
         &contract,
         candidate,
@@ -295,17 +297,17 @@ pub(in crate::db) fn advance_relation_constraint_activation<C: CanisterKind>(
     match activation.state() {
         ConstraintActivationState::EnforcingNewWrites => start_journaled_staged_validation(
             store,
-            hooks.store_path,
+            registration.store_path,
             entity_tag,
-            hooks.entity_path,
+            registration.entity_path,
             constraint_id,
             candidate.physical_generation(),
         ),
         ConstraintActivationState::Validating => resume_journaled_relation_validation(
             store,
-            hooks.store_path,
+            registration.store_path,
             entity_tag,
-            hooks.entity_path,
+            registration.entity_path,
             constraint_id,
             acknowledged_receipt,
             &selection,
@@ -452,14 +454,14 @@ fn advance_row_local_constraint_activation<C: CanisterKind>(
     acknowledged_receipt: Option<u64>,
     required_kind: RowLocalActivationKind,
 ) -> Result<ConstraintValidationProgress, InternalError> {
-    let hooks = db.runtime_hook_for_entity_tag(entity_tag)?;
-    let store = db.store_handle(hooks.store_path)?;
+    let registration = db.runtime_registration_for_entity_tag(entity_tag)?;
+    let store = db.store_handle(registration.store_path)?;
     let selection = store
         .with_schema(|schema_store| {
             schema_store.current_accepted_catalog_selection(
                 entity_tag,
-                hooks.entity_path,
-                hooks.store_path,
+                registration.entity_path,
+                registration.store_path,
             )
         })?
         .ok_or_else(InternalError::store_corruption)?;
@@ -486,9 +488,9 @@ fn advance_row_local_constraint_activation<C: CanisterKind>(
                 StoreRecoveryCapability::StableBasePlusJournalReplay => {
                     start_journaled_row_local_validation(
                         store,
-                        hooks.store_path,
+                        registration.store_path,
                         entity_tag,
-                        hooks.entity_path,
+                        registration.entity_path,
                         constraint_id,
                     )
                 }
@@ -496,15 +498,15 @@ fn advance_row_local_constraint_activation<C: CanisterKind>(
         }
         ConstraintActivationState::Validating => {
             let contract = AcceptedStructuralRowAuthority::from_catalog_selection(
-                hooks.entity_path,
+                registration.entity_path,
                 &selection,
             )?
             .into_row_contract();
             resume_journaled_row_local_validation(
                 store,
-                hooks.store_path,
+                registration.store_path,
                 entity_tag,
-                hooks.entity_path,
+                registration.entity_path,
                 constraint_id,
                 acknowledged_receipt,
                 &accepted,
