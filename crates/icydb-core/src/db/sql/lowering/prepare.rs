@@ -10,31 +10,30 @@ use crate::db::sql::{
     lowering::aggregate::lower_global_aggregate_select_shape,
     parser::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget},
 };
-use crate::{
-    db::{
-        MissingRowPolicy, QueryError,
-        query::intent::StructuralQuery,
-        schema::SchemaInfo,
-        sql::{
-            lowering::{
-                LoweredDeleteShape, LoweredSelectShape, PreparedSqlStatement, SqlLoweringError,
-                bind_lowered_sql_select_query_structural_with_schema,
-                normalize::{
-                    ensure_entity_matches_expected, normalize_delete_statement_to_expected_entity,
-                    normalize_select_statement_to_expected_entity,
-                    normalize_update_statement_to_expected_entity,
-                },
-                select::{lower_delete_statement_shape, lower_select_shape_with_schema},
+use crate::db::{
+    MissingRowPolicy, QueryError,
+    query::intent::StructuralQuery,
+    schema::SchemaInfo,
+    sql::{
+        lowering::{
+            LoweredDeleteShape, LoweredSelectShape, PreparedSqlStatement, SqlLoweringError,
+            bind_lowered_sql_select_query_structural_with_schema,
+            normalize::{
+                ensure_entity_matches_expected, normalize_delete_statement_to_expected_entity,
+                normalize_select_statement_to_expected_entity,
+                normalize_update_statement_to_expected_entity,
             },
-            parser::{
-                SqlAggregateCall, SqlDeleteStatement, SqlExpr, SqlInsertSource, SqlInsertStatement,
-                SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement, SqlStatement,
-                SqlUpdateStatement,
-            },
+            select::{lower_delete_statement_shape, lower_select_shape_with_schema},
+        },
+        parser::{
+            SqlAggregateCall, SqlDeleteStatement, SqlExpr, SqlInsertSource, SqlInsertStatement,
+            SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement, SqlStatement,
+            SqlUpdateStatement,
         },
     },
-    model::entity::EntityModel,
 };
+#[cfg(test)]
+use crate::model::entity::EntityModel;
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
 
 /// Prepare one parsed SQL statement for one expected entity route.
@@ -210,28 +209,26 @@ pub(crate) fn lower_sql_command_from_prepared_statement_for_model_only(
 #[cfg(feature = "sql-explain")]
 pub(crate) fn lower_sql_explain_command_from_prepared_statement_with_schema(
     prepared: PreparedSqlStatement,
-    model: &'static EntityModel,
     schema: &SchemaInfo,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
     let SqlStatement::Explain(statement) = prepared.into_statement() else {
         return Err(SqlLoweringError::unexpected_query_lane_statement());
     };
 
-    lower_explain_prepared_with_schema(statement, model, schema)
+    lower_explain_prepared_with_schema(statement, schema)
 }
 
 /// Lower one prepared SQL SELECT through an explicit schema projection.
 #[inline(never)]
 pub(crate) fn lower_prepared_sql_select_statement_with_schema(
     prepared: PreparedSqlStatement,
-    model: &'static EntityModel,
     schema: &SchemaInfo,
 ) -> Result<LoweredSelectShape, SqlLoweringError> {
     let SqlStatement::Select(statement) = prepared.into_statement() else {
         return Err(QueryError::prepared_sql_select_lane_mismatch().into());
     };
 
-    lower_select_shape_with_schema(statement, model, schema)
+    lower_select_shape_with_schema(statement, schema)
 }
 
 /// Lower one prepared SQL DELETE statement into its execution-ready artifact.
@@ -253,13 +250,12 @@ pub(crate) fn lower_prepared_sql_delete_statement(
 #[inline(never)]
 pub(in crate::db) fn bind_sql_select_statement_structural_with_schema(
     statement: SqlSelectStatement,
-    model: &'static EntityModel,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
 ) -> Result<StructuralQuery, SqlLoweringError> {
-    let select = lower_select_shape_with_schema(statement, model, schema)?;
+    let select = lower_select_shape_with_schema(statement, schema)?;
 
-    bind_lowered_sql_select_query_structural_with_schema(model, select, consistency, schema)
+    bind_lowered_sql_select_query_structural_with_schema(select, consistency, schema)
 }
 
 /// Extract one normalized prepared SQL INSERT statement.
@@ -505,20 +501,15 @@ fn lower_explain_prepared_for_model_only(
 #[cfg(feature = "sql-explain")]
 fn lower_explain_prepared_with_schema(
     statement: SqlExplainStatement,
-    model: &'static EntityModel,
     schema: &SchemaInfo,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
     let mode = statement.mode;
     let verbose = statement.verbose;
 
     match statement.statement {
-        SqlExplainTarget::Select(select_statement) => lower_explain_select_prepared_with_schema(
-            select_statement,
-            mode,
-            verbose,
-            model,
-            schema,
-        ),
+        SqlExplainTarget::Select(select_statement) => {
+            lower_explain_select_prepared_with_schema(select_statement, mode, verbose, schema)
+        }
         SqlExplainTarget::Delete(delete_statement) => {
             Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
                 mode,
@@ -576,7 +567,6 @@ fn lower_explain_select_prepared_with_schema(
     statement: SqlSelectStatement,
     mode: SqlExplainMode,
     verbose: bool,
-    model: &'static EntityModel,
     schema: &SchemaInfo,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
     if SqlStatement::Select(statement.clone()).is_global_aggregate_lane_shape() {
@@ -591,7 +581,7 @@ fn lower_explain_select_prepared_with_schema(
         ));
     }
 
-    match lower_select_shape_with_schema(statement.clone(), model, schema) {
+    match lower_select_shape_with_schema(statement.clone(), schema) {
         Ok(query) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
             mode,
             verbose,

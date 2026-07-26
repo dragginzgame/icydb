@@ -1,6 +1,7 @@
 use crate::{
     db::{
         query::plan::expr::{Alias, Expr, FieldId, ProjectionField, ProjectionSelection},
+        schema::SchemaInfo,
         sql::{
             identifier::split_qualified_identifier,
             lowering::{
@@ -153,7 +154,7 @@ pub(super) fn lower_grouped_projection(
     projection: SqlProjection,
     projection_aliases: &[Option<String>],
     group_by: &[String],
-    model: &'static EntityModel,
+    schema: &SchemaInfo,
 ) -> Result<LoweredGroupedProjection, SqlLoweringError> {
     if group_by.is_empty() {
         return Err(SqlLoweringError::unsupported_select_group_by());
@@ -171,8 +172,7 @@ pub(super) fn lower_grouped_projection(
     let mut aggregate_call_interner = SqlAggregateCallInterner::new();
 
     for (index, item) in items.into_iter().enumerate() {
-        let analyzed =
-            lower_analyzed_select_item_expr(&item, SqlExprPhase::PostAggregate, Some(model))?;
+        let analyzed = lower_analyzed_select_item_expr(&item, SqlExprPhase::PostAggregate, None)?;
         let expr_facts = analyzed.analysis();
         let contains_aggregate = expr_facts.contains_aggregate();
         if seen_aggregate && !contains_aggregate {
@@ -180,7 +180,12 @@ pub(super) fn lower_grouped_projection(
                 index,
             ));
         }
-        validate_grouped_projection_expr(index, grouped_field_names.as_slice(), expr_facts)?;
+        validate_grouped_projection_expr(
+            index,
+            grouped_field_names.as_slice(),
+            schema,
+            expr_facts,
+        )?;
         seen_aggregate |= contains_aggregate;
         if contains_aggregate {
             aggregate_call_interner.extend_select_item(&mut aggregate_calls, &item);
@@ -212,9 +217,10 @@ pub(super) fn lower_grouped_projection(
 fn validate_grouped_projection_expr(
     index: usize,
     grouped_field_names: &[&str],
+    schema: &SchemaInfo,
     analysis: &LoweredExprAnalysis,
 ) -> Result<(), SqlLoweringError> {
-    if let Some(field) = analysis.first_unknown_field() {
+    if let Some(field) = analysis.first_unknown_field_for_schema(schema) {
         return Err(SqlLoweringError::unknown_field(field));
     }
     if !analysis.references_only_direct_fields(grouped_field_names) {
@@ -268,11 +274,11 @@ fn grouped_projection_is_canonical_identity(
 pub(super) fn validate_distinct_order_terms_against_projection(
     projection: &ProjectionSelection,
     order_by: &[LoweredSqlOrderTerm],
-    model: &'static EntityModel,
+    schema: &SchemaInfo,
 ) -> Result<(), SqlLoweringError> {
     if order_by
         .iter()
-        .all(|term| distinct_order_term_is_derivable_from_projection(projection, term, model))
+        .all(|term| distinct_order_term_is_derivable_from_projection(projection, term, schema))
     {
         return Ok(());
     }
@@ -289,15 +295,11 @@ pub(super) fn validate_distinct_order_terms_against_projection(
 fn distinct_order_term_is_derivable_from_projection(
     projection: &ProjectionSelection,
     order_term: &LoweredSqlOrderTerm,
-    model: &'static EntityModel,
+    schema: &SchemaInfo,
 ) -> bool {
     match projection {
         ProjectionSelection::All => {
-            let projected_fields = model
-                .fields()
-                .iter()
-                .map(crate::model::field::FieldModel::name)
-                .collect::<Vec<_>>();
+            let projected_fields = schema.field_names_in_slot_order();
 
             order_term
                 .analysis

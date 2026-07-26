@@ -7,7 +7,7 @@
 use crate::db::session::query::QueryPlanCompilePhaseAttribution;
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryError,
+        DbSession, QueryError,
         executor::{EntityAuthority, SharedPreparedExecutionPlan},
         query::intent::StructuralQuery,
         schema::{AcceptedSchemaSnapshot, accepted_schema_cache_fingerprint},
@@ -154,11 +154,7 @@ impl<C: CanisterKind> DbSession<C> {
                 query,
             )?;
 
-        Ok(Self::sql_select_projection_from_prepared_plan(
-            prepared_plan,
-            authority,
-            cache_attribution,
-        ))
+        Self::sql_select_projection_from_prepared_plan(prepared_plan, authority, cache_attribution)
     }
 
     fn sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
@@ -182,23 +178,19 @@ impl<C: CanisterKind> DbSession<C> {
                 schema_fingerprint,
                 query,
             )?;
-        Ok(Self::sql_select_projection_from_prepared_plan(
-            prepared_plan,
-            authority,
-            cache_attribution,
-        ))
+        Self::sql_select_projection_from_prepared_plan(prepared_plan, authority, cache_attribution)
     }
 
-    fn select_authority_for_context<E>(
+    fn select_authority_for_context(
         context: &SqlCompiledCommandExecutionContext,
-    ) -> Result<EntityAuthority, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        context
-            .accepted_catalog()
-            .accepted_or_provided_entity_authority_for::<E>(context.accepted_authority())
-            .map_err(QueryError::execute)
+    ) -> Result<EntityAuthority, QueryError> {
+        match context.accepted_authority() {
+            Some(authority) => Ok(authority.clone()),
+            None => context
+                .accepted_catalog()
+                .accepted_entity_authority()
+                .map_err(QueryError::execute),
+        }
     }
 
     fn sql_select_prepared_plan_for_accepted_authority_with_catalog(
@@ -220,11 +212,7 @@ impl<C: CanisterKind> DbSession<C> {
                 catalog,
                 query,
             )?;
-        Ok(Self::sql_select_projection_from_prepared_plan(
-            prepared_plan,
-            authority,
-            cache_attribution,
-        ))
+        Self::sql_select_projection_from_prepared_plan(prepared_plan, authority, cache_attribution)
     }
 
     #[cfg(feature = "diagnostics")]
@@ -253,7 +241,7 @@ impl<C: CanisterKind> DbSession<C> {
                 prepared_plan,
                 authority,
                 cache_attribution,
-            );
+            )?;
 
         Ok((
             prepared_plan,
@@ -267,21 +255,26 @@ impl<C: CanisterKind> DbSession<C> {
         prepared_plan: SharedPreparedExecutionPlan,
         authority: EntityAuthority,
         cache_attribution: QueryPlanCacheAttribution,
-    ) -> (
-        SharedPreparedExecutionPlan,
-        SqlProjectionContract,
-        SqlCacheAttribution,
-    ) {
-        let projection_spec = prepared_plan
-            .logical_plan()
-            .projection_spec(authority.model());
+    ) -> Result<
+        (
+            SharedPreparedExecutionPlan,
+            SqlProjectionContract,
+            SqlCacheAttribution,
+        ),
+        QueryError,
+    > {
+        let projection_spec = prepared_plan.logical_plan().projection_spec_with_schema(
+            authority
+                .accepted_schema_info()
+                .ok_or_else(QueryError::invariant)?,
+        );
         let projection = projection_contract_from_projection_spec(&projection_spec);
 
-        (
+        Ok((
             prepared_plan,
             projection,
             SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
-        )
+        ))
     }
 
     pub(super) fn resolve_select_prepared_plan_for_authority_with_catalog(
@@ -326,14 +319,11 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    pub(super) fn resolve_select_prepared_plan_for_context<E>(
+    pub(super) fn resolve_select_prepared_plan_for_context(
         &self,
         query: &StructuralQuery,
         context: &SqlCompiledCommandExecutionContext,
-    ) -> Result<ResolvedSelectPreparedPlan, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<ResolvedSelectPreparedPlan, QueryError> {
         if let Some((prepared_plan, projection)) = cached_compiled_select_prepared_plan(context) {
             return Ok(ResolvedSelectPreparedPlan::from_compiled_cache_hit(
                 prepared_plan,
@@ -341,7 +331,7 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
-        let authority = Self::select_authority_for_context::<E>(context)?;
+        let authority = Self::select_authority_for_context(context)?;
         let resolved = self.resolve_select_prepared_plan_for_authority_with_catalog(
             query,
             authority,
@@ -357,14 +347,11 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[cfg(feature = "diagnostics")]
-    pub(super) fn resolve_select_prepared_plan_for_context_with_compile_phase_attribution<E>(
+    pub(super) fn resolve_select_prepared_plan_for_context_with_compile_phase_attribution(
         &self,
         query: &StructuralQuery,
         context: &SqlCompiledCommandExecutionContext,
-    ) -> Result<(ResolvedSelectPreparedPlan, QueryPlanCompilePhaseAttribution), QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<(ResolvedSelectPreparedPlan, QueryPlanCompilePhaseAttribution), QueryError> {
         if let Some((prepared_plan, projection)) = cached_compiled_select_prepared_plan(context) {
             return Ok((
                 ResolvedSelectPreparedPlan::from_compiled_cache_hit(prepared_plan, projection),
@@ -372,7 +359,7 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
-        let authority = Self::select_authority_for_context::<E>(context)?;
+        let authority = Self::select_authority_for_context(context)?;
         let (resolved, plan_compile_attribution) = self
             .resolve_select_prepared_plan_for_authority_with_catalog_and_compile_phase_attribution(
                 query,

@@ -764,11 +764,39 @@ pub(in crate::db) fn describe_entity_model_with_persisted_schema(
     value_catalog: &AcceptedValueCatalogHandle,
     validation_jobs: &[ConstraintValidationJob],
 ) -> Result<EntitySchemaDescription, InternalError> {
+    describe_entity_with_persisted_schema(
+        schema,
+        value_catalog,
+        validation_jobs,
+        Some(model.primary_key.name),
+    )
+}
+
+/// Build one entity-schema description solely from accepted persisted authority.
+#[cfg(feature = "sql")]
+pub(in crate::db) fn describe_accepted_entity_with_persisted_schema(
+    schema: &AcceptedSchemaSnapshot,
+    value_catalog: &AcceptedValueCatalogHandle,
+    validation_jobs: &[ConstraintValidationJob],
+) -> Result<EntitySchemaDescription, InternalError> {
+    describe_entity_with_persisted_schema(schema, value_catalog, validation_jobs, None)
+}
+
+fn describe_entity_with_persisted_schema(
+    schema: &AcceptedSchemaSnapshot,
+    value_catalog: &AcceptedValueCatalogHandle,
+    validation_jobs: &[ConstraintValidationJob],
+    model_primary_key_fallback: Option<&str>,
+) -> Result<EntitySchemaDescription, InternalError> {
     let row_layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(schema)?;
     let fields = describe_entity_fields_with_runtime_contract(schema, &row_layout, value_catalog)?;
     let primary_key_fields = schema.primary_key_field_names();
     let primary_key_fields = if primary_key_fields.is_empty() {
-        vec![model.primary_key.name.to_string()]
+        vec![
+            model_primary_key_fallback
+                .ok_or_else(InternalError::store_invariant)?
+                .to_string(),
+        ]
     } else {
         primary_key_fields
             .into_iter()

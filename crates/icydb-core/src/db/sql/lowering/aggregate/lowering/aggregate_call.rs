@@ -1,30 +1,27 @@
-use crate::{
-    db::{
-        query::{
-            builder::{
-                AggregateExpr,
-                aggregate::{avg, count, count_by, max_by, min_by, sum},
-            },
-            plan::expr::{Expr, canonicalize_aggregate_input_expr},
+use crate::db::{
+    query::{
+        builder::{
+            AggregateExpr,
+            aggregate::{avg, count, count_by, max_by, min_by, sum},
         },
-        schema::SchemaInfo,
-        sql::{
-            lowering::{
-                AnalyzedLoweredExpr, SqlLoweringError,
-                aggregate::{
-                    distinct::{apply_distinct_marker, reject_distinct_filter_pairing},
-                    grouped::validate_grouped_aggregate_scalar_subexpressions,
-                    lowering::{
-                        aggregate_shape::LoweredSqlAggregateShape, apply_aggregate_filter_expr,
-                    },
-                },
-                expr::{SqlExprPhase, lower_sql_expr},
-                predicate::lower_sql_pre_aggregate_bool_expr,
-            },
-            parser::{SqlAggregateCall, SqlAggregateKind, SqlExpr},
-        },
+        plan::expr::{Expr, canonicalize_aggregate_input_expr},
     },
-    model::entity::EntityModel,
+    schema::SchemaInfo,
+    sql::{
+        lowering::{
+            AnalyzedLoweredExpr, SqlLoweringError,
+            aggregate::{
+                distinct::{apply_distinct_marker, reject_distinct_filter_pairing},
+                grouped::validate_grouped_aggregate_scalar_subexpressions,
+                lowering::{
+                    aggregate_shape::LoweredSqlAggregateShape, apply_aggregate_filter_expr,
+                },
+            },
+            expr::{SqlExprPhase, lower_sql_expr},
+            predicate::lower_sql_pre_aggregate_bool_expr,
+        },
+        parser::{SqlAggregateCall, SqlAggregateKind, SqlExpr},
+    },
 };
 
 fn lower_sql_aggregate_shape(
@@ -132,13 +129,12 @@ fn lowered_filter_expr(filter_expr: Option<AnalyzedLoweredExpr>) -> Option<Expr>
 // Lower one grouped aggregate call while validating its model-bound scalar
 // subexpressions before grouped execution can compile them into reducer state.
 pub(in crate::db::sql::lowering) fn lower_grouped_aggregate_call(
-    model: &'static EntityModel,
     schema: &SchemaInfo,
     call: SqlAggregateCall,
 ) -> Result<AggregateExpr, SqlLoweringError> {
     let shape = lower_sql_aggregate_shape(call)?;
 
-    validate_grouped_aggregate_scalar_subexpressions(model, schema, &shape)?;
+    validate_grouped_aggregate_scalar_subexpressions(schema, &shape)?;
 
     lower_sql_aggregate_shape_to_expr(shape)
 }

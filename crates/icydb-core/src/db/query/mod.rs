@@ -5,6 +5,8 @@
 pub(in crate::db) mod admission;
 pub(in crate::db) mod api;
 pub(in crate::db) mod builder;
+#[cfg(feature = "sql")]
+mod dynamic;
 pub(in crate::db) mod explain;
 pub(in crate::db) mod expr;
 mod fingerprint;
@@ -15,5 +17,7 @@ pub(in crate::db) mod predicate;
 pub(in crate::db) mod read_intent;
 pub(in crate::db) mod trace;
 
+#[cfg(feature = "sql")]
+pub use dynamic::{DynamicQuery, DynamicQueryResult};
 #[cfg(feature = "sql")]
 pub(in crate::db) use fingerprint::resumable_update_scope_fingerprint;

@@ -49,7 +49,7 @@ Typed and fluent APIs are the canonical public surfaces.
 The remaining public SQL surfaces are:
 
 <!-- icydb-sql-feature id="surface.trusted_entrypoints" kind="policy" status="accepted" -->
-- `execute_trusted_sql_query::<E>(...)`
+- `execute_trusted_sql_query(...)`
 - `execute_trusted_sql_mutation::<E>(...)`
 - `execute_trusted_sql_exact_update::<E>(..., require_affected_at_most)`
 - `execute_trusted_sql_prefix_update::<E>(...)`
@@ -495,7 +495,8 @@ surface policy; it is not a schema-validation bypass.
 Public SQL ownership is split deliberately:
 
 <!-- icydb-sql-feature id="mutation.lane_ownership" kind="policy" status="accepted" -->
-- `execute_trusted_sql_query::<E>(...)` owns read, explain, and introspection SQL
+- `execute_trusted_sql_query(...)` owns accepted-catalog-driven read, explain,
+  and introspection SQL
 - `execute_trusted_sql_mutation::<E>(...)` owns trusted `INSERT` and `DELETE`
 - `execute_trusted_sql_exact_update::<E>(...)` owns complete-set SQL `UPDATE`
 - `execute_trusted_sql_prefix_update::<E>(...)` owns intentional ordered-prefix

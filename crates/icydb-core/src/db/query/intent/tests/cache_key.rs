@@ -91,10 +91,8 @@ fn structural_query_cache_key_matches_for_identical_scalar_queries() {
 
 #[test]
 fn structural_query_cache_key_distinguishes_order_direction() {
-    let asc = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
-        .order_term(crate::db::asc("name"));
-    let desc = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
-        .order_term(crate::db::desc("name"));
+    let asc = StructuralQuery::new(MissingRowPolicy::Ignore).order_term(crate::db::asc("name"));
+    let desc = StructuralQuery::new(MissingRowPolicy::Ignore).order_term(crate::db::desc("name"));
 
     assert_ne!(
         asc.structural_cache_key(),
@@ -105,38 +103,34 @@ fn structural_query_cache_key_distinguishes_order_direction() {
 
 #[test]
 fn structural_query_cache_key_distinguishes_expression_owned_filter_expr() {
-    let left = QueryModel::<Ulid>::new(basic_model(), MissingRowPolicy::Ignore).filter_expr(
-        Expr::FunctionCall {
-            function: Function::StartsWith,
-            args: vec![
-                Expr::FunctionCall {
-                    function: Function::Replace,
-                    args: vec![
-                        Expr::Field(FieldId::new("name")),
-                        Expr::Literal(Value::Text("a".to_string())),
-                        Expr::Literal(Value::Text("A".to_string())),
-                    ],
-                },
-                Expr::Literal(Value::Text("A".to_string())),
-            ],
-        },
-    );
-    let right = QueryModel::<Ulid>::new(basic_model(), MissingRowPolicy::Ignore).filter_expr(
-        Expr::FunctionCall {
-            function: Function::StartsWith,
-            args: vec![
-                Expr::FunctionCall {
-                    function: Function::Replace,
-                    args: vec![
-                        Expr::Field(FieldId::new("name")),
-                        Expr::Literal(Value::Text("a".to_string())),
-                        Expr::Literal(Value::Text("A".to_string())),
-                    ],
-                },
-                Expr::Literal(Value::Text("B".to_string())),
-            ],
-        },
-    );
+    let left = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore).filter_expr(Expr::FunctionCall {
+        function: Function::StartsWith,
+        args: vec![
+            Expr::FunctionCall {
+                function: Function::Replace,
+                args: vec![
+                    Expr::Field(FieldId::new("name")),
+                    Expr::Literal(Value::Text("a".to_string())),
+                    Expr::Literal(Value::Text("A".to_string())),
+                ],
+            },
+            Expr::Literal(Value::Text("A".to_string())),
+        ],
+    });
+    let right = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore).filter_expr(Expr::FunctionCall {
+        function: Function::StartsWith,
+        args: vec![
+            Expr::FunctionCall {
+                function: Function::Replace,
+                args: vec![
+                    Expr::Field(FieldId::new("name")),
+                    Expr::Literal(Value::Text("a".to_string())),
+                    Expr::Literal(Value::Text("A".to_string())),
+                ],
+            },
+            Expr::Literal(Value::Text("B".to_string())),
+        ],
+    });
 
     assert_ne!(
         StructuralQueryCacheKey::from_query_model(&left),
@@ -147,36 +141,32 @@ fn structural_query_cache_key_distinguishes_expression_owned_filter_expr() {
 
 #[test]
 fn structural_query_cache_key_treats_equivalent_expression_owned_boolean_shapes_as_identical() {
-    let left = QueryModel::<Ulid>::new(basic_model(), MissingRowPolicy::Ignore).filter_expr(
-        Expr::Binary {
-            op: crate::db::query::plan::expr::BinaryOp::And,
-            left: Box::new(Expr::Binary {
-                op: crate::db::query::plan::expr::BinaryOp::Eq,
-                left: Box::new(Expr::Field(FieldId::new("name"))),
-                right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
-            }),
-            right: Box::new(Expr::Binary {
-                op: crate::db::query::plan::expr::BinaryOp::Eq,
-                left: Box::new(Expr::Field(FieldId::new("id"))),
-                right: Box::new(Expr::Literal(Ulid::nil().to_value())),
-            }),
-        },
-    );
-    let right = QueryModel::<Ulid>::new(basic_model(), MissingRowPolicy::Ignore).filter_expr(
-        Expr::Binary {
-            op: crate::db::query::plan::expr::BinaryOp::And,
-            left: Box::new(Expr::Binary {
-                op: crate::db::query::plan::expr::BinaryOp::Eq,
-                left: Box::new(Expr::Field(FieldId::new("id"))),
-                right: Box::new(Expr::Literal(Ulid::nil().to_value())),
-            }),
-            right: Box::new(Expr::Binary {
-                op: crate::db::query::plan::expr::BinaryOp::Eq,
-                left: Box::new(Expr::Field(FieldId::new("name"))),
-                right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
-            }),
-        },
-    );
+    let left = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore).filter_expr(Expr::Binary {
+        op: crate::db::query::plan::expr::BinaryOp::And,
+        left: Box::new(Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("name"))),
+            right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
+        }),
+        right: Box::new(Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("id"))),
+            right: Box::new(Expr::Literal(Ulid::nil().to_value())),
+        }),
+    });
+    let right = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore).filter_expr(Expr::Binary {
+        op: crate::db::query::plan::expr::BinaryOp::And,
+        left: Box::new(Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("id"))),
+            right: Box::new(Expr::Literal(Ulid::nil().to_value())),
+        }),
+        right: Box::new(Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("name"))),
+            right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
+        }),
+    });
 
     assert_eq!(
         StructuralQueryCacheKey::from_query_model(&left),
@@ -187,22 +177,19 @@ fn structural_query_cache_key_treats_equivalent_expression_owned_boolean_shapes_
 
 #[test]
 fn structural_query_cache_key_distinguishes_unary_boolean_filter_expr() {
-    let positive = QueryModel::<Ulid>::new(basic_model(), MissingRowPolicy::Ignore).filter_expr(
-        Expr::Binary {
+    let positive = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore).filter_expr(Expr::Binary {
+        op: crate::db::query::plan::expr::BinaryOp::Eq,
+        left: Box::new(Expr::Field(FieldId::new("name"))),
+        right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
+    });
+    let negated = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore).filter_expr(Expr::Unary {
+        op: crate::db::query::plan::expr::UnaryOp::Not,
+        expr: Box::new(Expr::Binary {
             op: crate::db::query::plan::expr::BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("name"))),
             right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
-        },
-    );
-    let negated =
-        QueryModel::<Ulid>::new(basic_model(), MissingRowPolicy::Ignore).filter_expr(Expr::Unary {
-            op: crate::db::query::plan::expr::UnaryOp::Not,
-            expr: Box::new(Expr::Binary {
-                op: crate::db::query::plan::expr::BinaryOp::Eq,
-                left: Box::new(Expr::Field(FieldId::new("name"))),
-                right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
-            }),
-        });
+        }),
+    });
 
     assert_ne!(
         StructuralQueryCacheKey::from_query_model(&positive),
@@ -213,21 +200,19 @@ fn structural_query_cache_key_distinguishes_unary_boolean_filter_expr() {
 
 #[test]
 fn structural_query_cache_key_ignores_predicate_fingerprint_when_filter_expr_exists() {
-    let model = QueryModel::<Ulid>::new(basic_model(), MissingRowPolicy::Ignore).filter_expr(
-        Expr::Binary {
-            op: crate::db::query::plan::expr::BinaryOp::And,
-            left: Box::new(Expr::Binary {
-                op: crate::db::query::plan::expr::BinaryOp::Eq,
-                left: Box::new(Expr::Field(FieldId::new("name"))),
-                right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
-            }),
-            right: Box::new(Expr::Binary {
-                op: crate::db::query::plan::expr::BinaryOp::Eq,
-                left: Box::new(Expr::Field(FieldId::new("id"))),
-                right: Box::new(Expr::Literal(Ulid::nil().to_value())),
-            }),
-        },
-    );
+    let model = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore).filter_expr(Expr::Binary {
+        op: crate::db::query::plan::expr::BinaryOp::And,
+        left: Box::new(Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("name"))),
+            right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
+        }),
+        right: Box::new(Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("id"))),
+            right: Box::new(Expr::Literal(Ulid::nil().to_value())),
+        }),
+    });
 
     assert_eq!(
         model.structural_cache_key_with_normalized_predicate_fingerprint(Some([0x11; 32])),
@@ -244,9 +229,9 @@ fn structural_query_cache_key_uses_filter_expr_for_expression_predicate_handoff(
         left: Box::new(Expr::Field(FieldId::new("name"))),
         right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
     });
-    let left = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+    let left = StructuralQuery::new(MissingRowPolicy::Ignore)
         .filter_expr_with_normalized_predicate(filter_expr.clone(), Predicate::True);
-    let right = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+    let right = StructuralQuery::new(MissingRowPolicy::Ignore)
         .filter_expr_with_normalized_predicate(filter_expr, Predicate::False);
 
     assert_eq!(
@@ -258,7 +243,7 @@ fn structural_query_cache_key_uses_filter_expr_for_expression_predicate_handoff(
 
 #[test]
 fn structural_query_cache_key_keeps_predicate_identity_when_filter_expr_is_absent() {
-    let model = QueryModel::<Ulid>::new(basic_model(), MissingRowPolicy::Ignore);
+    let model = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore);
 
     assert_ne!(
         model.structural_cache_key_with_normalized_predicate_fingerprint(Some([0x11; 32])),
@@ -269,9 +254,9 @@ fn structural_query_cache_key_keeps_predicate_identity_when_filter_expr_is_absen
 
 #[test]
 fn structural_query_cache_key_treats_extrema_distinct_as_semantic_noop() {
-    let plain_min = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
-        .aggregate(crate::db::min_by("name"));
-    let distinct_min = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+    let plain_min =
+        StructuralQuery::new(MissingRowPolicy::Ignore).aggregate(crate::db::min_by("name"));
+    let distinct_min = StructuralQuery::new(MissingRowPolicy::Ignore)
         .aggregate(crate::db::min_by("name").distinct());
 
     assert_eq!(
@@ -283,9 +268,9 @@ fn structural_query_cache_key_treats_extrema_distinct_as_semantic_noop() {
 
 #[test]
 fn structural_query_cache_key_keeps_count_distinct_semantically_distinct() {
-    let plain_count = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
-        .aggregate(crate::db::count_by("name"));
-    let distinct_count = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+    let plain_count =
+        StructuralQuery::new(MissingRowPolicy::Ignore).aggregate(crate::db::count_by("name"));
+    let distinct_count = StructuralQuery::new(MissingRowPolicy::Ignore)
         .aggregate(crate::db::count_by("name").distinct());
 
     assert_ne!(
@@ -297,10 +282,10 @@ fn structural_query_cache_key_keeps_count_distinct_semantically_distinct() {
 
 #[test]
 fn structural_query_cache_key_keeps_sum_distinct_semantically_distinct() {
-    let plain_sum = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
-        .aggregate(crate::db::sum("name"));
-    let distinct_sum = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
-        .aggregate(crate::db::sum("name").distinct());
+    let plain_sum =
+        StructuralQuery::new(MissingRowPolicy::Ignore).aggregate(crate::db::sum("name"));
+    let distinct_sum =
+        StructuralQuery::new(MissingRowPolicy::Ignore).aggregate(crate::db::sum("name").distinct());
 
     assert_ne!(
         plain_sum.structural_cache_key(),
@@ -321,9 +306,9 @@ fn structural_query_cache_key_keeps_aggregate_filter_expr_distinct() {
         left: Box::new(Expr::Field(FieldId::new("name"))),
         right: Box::new(Expr::Literal(Value::Text("Grace".to_string()))),
     };
-    let active_sum = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+    let active_sum = StructuralQuery::new(MissingRowPolicy::Ignore)
         .aggregate(crate::db::sum("name").with_filter_expr(active_filter));
-    let archived_sum = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+    let archived_sum = StructuralQuery::new(MissingRowPolicy::Ignore)
         .aggregate(crate::db::sum("name").with_filter_expr(archived_filter));
 
     assert_ne!(
@@ -335,8 +320,8 @@ fn structural_query_cache_key_keeps_aggregate_filter_expr_distinct() {
 
 #[test]
 fn structural_query_cache_key_distinguishes_grouped_having_expr() {
-    let left = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
-        .group_by("name")
+    let left = StructuralQuery::new(MissingRowPolicy::Ignore)
+        .group_by_for_model(basic_model(), "name")
         .expect("grouped query should accept grouped field")
         .aggregate(crate::db::count())
         .having_expr(crate::db::query::plan::expr::Expr::Binary {
@@ -351,8 +336,8 @@ fn structural_query_cache_key_distinguishes_grouped_having_expr() {
             right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Nat64(5))),
         })
         .expect("widened grouped having should append");
-    let right = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
-        .group_by("name")
+    let right = StructuralQuery::new(MissingRowPolicy::Ignore)
+        .group_by_for_model(basic_model(), "name")
         .expect("grouped query should accept grouped field")
         .aggregate(crate::db::count())
         .having_expr(crate::db::query::plan::expr::Expr::Binary {
@@ -377,21 +362,31 @@ fn structural_query_cache_key_distinguishes_grouped_having_expr() {
 
 #[test]
 fn structural_query_cache_key_treats_equivalent_grouped_having_boolean_shapes_as_identical() {
-    let left = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
-        .group_by("name")
+    let left = StructuralQuery::new(MissingRowPolicy::Ignore)
+        .group_by_for_model(basic_model(), "name")
         .expect("grouped query should accept grouped field")
         .aggregate(crate::db::count())
-        .having_group("name", CompareOp::Eq, Value::Text("Ada".to_string()))
+        .having_group_for_model(
+            basic_model(),
+            "name",
+            CompareOp::Eq,
+            Value::Text("Ada".to_string()),
+        )
         .expect("grouped HAVING group-field compare should append")
         .having_aggregate(0, CompareOp::Gt, Value::Nat64(0))
         .expect("grouped HAVING aggregate compare should append");
-    let right = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
-        .group_by("name")
+    let right = StructuralQuery::new(MissingRowPolicy::Ignore)
+        .group_by_for_model(basic_model(), "name")
         .expect("grouped query should accept grouped field")
         .aggregate(crate::db::count())
         .having_aggregate(0, CompareOp::Gt, Value::Nat64(0))
         .expect("grouped HAVING aggregate compare should append")
-        .having_group("name", CompareOp::Eq, Value::Text("Ada".to_string()))
+        .having_group_for_model(
+            basic_model(),
+            "name",
+            CompareOp::Eq,
+            Value::Text("Ada".to_string()),
+        )
         .expect("grouped HAVING group-field compare should append");
 
     assert_eq!(
@@ -403,8 +398,8 @@ fn structural_query_cache_key_treats_equivalent_grouped_having_boolean_shapes_as
 
 #[test]
 fn structural_query_cache_key_treats_explicit_else_grouped_case_as_canonical_equivalent() {
-    let case = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
-        .group_by("name")
+    let case = StructuralQuery::new(MissingRowPolicy::Ignore)
+        .group_by_for_model(basic_model(), "name")
         .expect("grouped query should accept grouped field")
         .aggregate(crate::db::count())
         .having_expr(Expr::Case {
@@ -419,8 +414,8 @@ fn structural_query_cache_key_treats_explicit_else_grouped_case_as_canonical_equ
             else_expr: Box::new(Expr::Literal(Value::Bool(false))),
         })
         .expect("grouped searched CASE HAVING should append");
-    let canonical = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
-        .group_by("name")
+    let canonical = StructuralQuery::new(MissingRowPolicy::Ignore)
+        .group_by_for_model(basic_model(), "name")
         .expect("grouped query should accept grouped field")
         .aggregate(crate::db::count())
         .having_expr(Expr::Binary {
@@ -449,8 +444,8 @@ fn structural_query_cache_key_treats_explicit_else_grouped_case_as_canonical_equ
 
 #[test]
 fn structural_query_cache_key_treats_omitted_else_grouped_case_as_explicit_null_equivalent() {
-    let omitted_else = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
-        .group_by("name")
+    let omitted_else = StructuralQuery::new(MissingRowPolicy::Ignore)
+        .group_by_for_model(basic_model(), "name")
         .expect("grouped query should accept grouped field")
         .aggregate(crate::db::count())
         .having_expr(Expr::Case {
@@ -465,8 +460,8 @@ fn structural_query_cache_key_treats_omitted_else_grouped_case_as_explicit_null_
             else_expr: Box::new(Expr::Literal(Value::Null)),
         })
         .expect("grouped searched CASE HAVING without ELSE should append");
-    let explicit_null_canonical = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
-        .group_by("name")
+    let explicit_null_canonical = StructuralQuery::new(MissingRowPolicy::Ignore)
+        .group_by_for_model(basic_model(), "name")
         .expect("grouped query should accept grouped field")
         .aggregate(crate::db::count())
         .having_expr(canonicalize_grouped_having_bool_expr(Expr::Case {
@@ -491,8 +486,8 @@ fn structural_query_cache_key_treats_omitted_else_grouped_case_as_explicit_null_
 
 #[test]
 fn structural_query_cache_key_keeps_omitted_else_grouped_case_distinct_from_false_family() {
-    let omitted_else = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
-        .group_by("name")
+    let omitted_else = StructuralQuery::new(MissingRowPolicy::Ignore)
+        .group_by_for_model(basic_model(), "name")
         .expect("grouped query should accept grouped field")
         .aggregate(crate::db::count())
         .having_expr(Expr::Case {
@@ -507,8 +502,8 @@ fn structural_query_cache_key_keeps_omitted_else_grouped_case_distinct_from_fals
             else_expr: Box::new(Expr::Literal(Value::Null)),
         })
         .expect("grouped searched CASE HAVING without ELSE should append");
-    let canonical_false = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
-        .group_by("name")
+    let canonical_false = StructuralQuery::new(MissingRowPolicy::Ignore)
+        .group_by_for_model(basic_model(), "name")
         .expect("grouped query should accept grouped field")
         .aggregate(crate::db::count())
         .having_expr(Expr::Binary {

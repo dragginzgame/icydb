@@ -150,6 +150,46 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_with_accepted_
     None
 }
 
+/// Select one whole-index range scan from accepted semantic index contracts.
+///
+/// Access-choice reranking has already reduced each accepted candidate to its
+/// semantic contract, so it must not reopen generated model metadata merely
+/// to reconstruct the same order terms.
+#[must_use]
+pub(in crate::db::query::plan::planner) fn index_range_from_order_with_accepted_semantic_indexes(
+    schema: &SchemaInfo,
+    candidate_indexes: &[SemanticIndexAccessContract],
+    order: Option<&OrderSpec>,
+    grouped: bool,
+) -> Option<AccessPlan<Value>> {
+    let grouped_order_contract = grouped
+        .then_some(order)
+        .flatten()
+        .and_then(OrderSpec::grouped_index_order_contract);
+    let scalar_order_contract = (!grouped).then_some(order).flatten().and_then(|order| {
+        let primary_key_names = ordered_primary_key_names_from_schema(schema);
+        order.deterministic_secondary_order_contract_fields(primary_key_names.as_slice())
+    });
+
+    for index in candidate_indexes {
+        let index_order_terms = index_key_item_order_terms(index.key_items());
+        let satisfied = if grouped {
+            grouped_order_contract.as_ref().is_some_and(|contract| {
+                grouped_index_order_terms_satisfied(contract, &index_order_terms, 0)
+            })
+        } else {
+            scalar_order_contract.as_ref().is_some_and(|contract| {
+                deterministic_secondary_index_order_terms_satisfied(contract, &index_order_terms, 0)
+            })
+        };
+        if satisfied {
+            return Some(whole_index_ordered_range_scan_from_contract(index.clone()));
+        }
+    }
+
+    None
+}
+
 fn ordered_primary_key_names(model: &EntityModel) -> Vec<&str> {
     model
         .primary_key_model()

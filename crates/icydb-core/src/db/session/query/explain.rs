@@ -17,6 +17,7 @@ use crate::{
         query::explain::{
             ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, ExplainPlan,
         },
+        query::intent::StructuralQuery,
         query::plan::{AccessPlannedQuery, QueryMode, VisibleIndexes},
         session::query::{QueryPlanCacheAttribution, query_plan_cache_reuse_event},
     },
@@ -61,8 +62,7 @@ impl<C: CanisterKind> DbSession<C> {
             .accepted_schema_info()
             .ok_or_else(QueryError::invariant)?;
 
-        plan.finalize_access_choice_for_model_with_semantic_indexes_and_schema(
-            query.structural().model(),
+        plan.finalize_access_choice_with_semantic_indexes_and_schema(
             visible_indexes.accepted_semantic_index_contracts(),
             schema_info,
         );
@@ -164,9 +164,9 @@ impl<C: CanisterKind> DbSession<C> {
             let (plan, authority, _) =
                 self.cached_finalized_explain_plan::<E>(query, visible_indexes)?;
 
-            query
-                .structural()
-                .explain_execution_descriptor_from_plan_with_authority(&plan, &authority)
+            StructuralQuery::explain_execution_descriptor_from_plan_with_authority(
+                &plan, &authority,
+            )
         })
     }
 
@@ -183,14 +183,12 @@ impl<C: CanisterKind> DbSession<C> {
             let (plan, authority, cache_attribution) =
                 self.cached_finalized_explain_plan::<E>(query, visible_indexes)?;
 
-            query
-                .structural()
-                .finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(
-                    &plan,
-                    &authority,
-                    Some(query_plan_cache_reuse_event(cache_attribution)),
-                    |_| {},
-                )
+            StructuralQuery::finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(
+                &plan,
+                &authority,
+                Some(query_plan_cache_reuse_event(cache_attribution)),
+                |_| {},
+            )
                 .map(|diagnostics| diagnostics.render_text_verbose())
         })
     }
@@ -208,14 +206,12 @@ impl<C: CanisterKind> DbSession<C> {
             let (plan, authority, cache_attribution) =
                 self.cached_finalized_explain_plan::<E>(query, visible_indexes)?;
 
-            query
-                .structural()
-                .finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(
-                    &plan,
-                    &authority,
-                    Some(query_plan_cache_reuse_event(cache_attribution)),
-                    |_| {},
-                )
+            StructuralQuery::finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(
+                &plan,
+                &authority,
+                Some(query_plan_cache_reuse_event(cache_attribution)),
+                |_| {},
+            )
                 .map(|diagnostics| diagnostics.render_json_canonical())
         })
     }

@@ -123,7 +123,6 @@ pub(in crate::db::query) fn plan_query_access(
 
         if visible_indexes.accepted_field_path_index_count().is_some() {
             plan_access_selection_with_order_and_accepted_semantic_indexes(
-                model,
                 visible_indexes.accepted_semantic_index_contracts(),
                 visible_indexes.accepted_field_path_indexes(),
                 schema_info,
@@ -142,4 +141,35 @@ pub(in crate::db::query) fn plan_query_access(
             )
         }
     }
+}
+
+/// Select one access plan from accepted schema and accepted semantic indexes.
+///
+/// Standalone SQL and dynamic reads enter here after accepted catalog
+/// selection; generated model metadata is neither required nor consulted.
+pub(in crate::db::query) fn plan_query_access_with_accepted_schema(
+    visible_indexes: &VisibleIndexes<'_>,
+    schema_info: &SchemaInfo,
+    normalized_predicate: Option<&Predicate>,
+    order: Option<&OrderSpec>,
+    grouped: bool,
+    key_access_override: Option<AccessPlan<Value>>,
+) -> Result<PlannedAccessSelection, PlannerError> {
+    if let Some(plan) = key_access_override {
+        return Ok(PlannedAccessSelection::new(
+            plan,
+            Some(crate::db::query::plan::PlannedNonIndexAccessReason::IntentKeyAccessOverride),
+        ));
+    }
+
+    let canonical_order =
+        canonicalize_order_spec_for_grouping(schema_info, order.cloned(), grouped);
+    plan_access_selection_with_order_and_accepted_semantic_indexes(
+        visible_indexes.accepted_semantic_index_contracts(),
+        visible_indexes.accepted_field_path_indexes(),
+        schema_info,
+        normalized_predicate,
+        canonical_order.as_ref(),
+        grouped,
+    )
 }

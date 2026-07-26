@@ -1,6 +1,7 @@
 use super::*;
 use crate::db::{
-    data::with_structural_read_metrics, session::sql::with_sql_projection_materialization_metrics,
+    DynamicQuery, FieldRef, data::with_structural_read_metrics,
+    session::sql::with_sql_projection_materialization_metrics,
 };
 use crate::types::GenerateKey;
 
@@ -57,6 +58,55 @@ fn seeded_projection_window_session() -> DbSession<SessionSqlCanister> {
     seed_projection_window_fixture(&session);
 
     session
+}
+
+#[test]
+fn dynamic_and_sql_reads_share_accepted_schema_planning_and_projection() {
+    let session = seeded_projection_window_session();
+    let dynamic = session
+        .execute_trusted_dynamic_query(
+            &DynamicQuery::new(SessionSqlEntity::MODEL.name())
+                .filter(FieldRef::new("age").gte(20_u64))
+                .order_by(crate::db::desc("age"))
+                .order_by(crate::db::asc("id"))
+                .select(["name", "age"])
+                .limit(2),
+        )
+        .expect("accepted-schema dynamic read should execute");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = session
+        .execute_trusted_sql_query(
+            "SELECT name, age FROM SessionSqlEntity \
+             WHERE age >= 20 ORDER BY age DESC, id ASC LIMIT 2",
+        )
+        .expect("equivalent accepted-schema SQL read should execute")
+    else {
+        panic!("equivalent SQL read should return projected rows");
+    };
+
+    assert_eq!(dynamic.entity, SessionSqlEntity::MODEL.name());
+    assert_eq!(dynamic.columns, columns);
+    assert_eq!(dynamic.rows, rows);
+    assert_eq!(dynamic.row_count, row_count);
+}
+
+#[test]
+fn dynamic_read_rejects_unknown_accepted_fields_before_execution() {
+    let session = seeded_projection_window_session();
+    let error = session
+        .execute_trusted_dynamic_query(
+            &DynamicQuery::new(SessionSqlEntity::MODEL.name())
+                .select(["missing"])
+                .order_by(crate::db::asc("id"))
+                .limit(1),
+        )
+        .expect_err("unknown dynamic projection field must fail closed");
+
+    assert_query_plan_expr_unknown_field(error, "missing", "unknown dynamic projection field");
 }
 
 // Seed the CASE branch-field fixture used by scalar projection retention
@@ -138,7 +188,7 @@ fn sql_primary_order_limit_one_projection_scans_one_row_for_stable_and_journaled
     #[cfg(feature = "diagnostics")]
     {
         let (_result, attribution) = session
-            .execute_trusted_sql_query_with_attribution::<JournaledSessionSqlEntity>(
+            .execute_trusted_sql_query_with_attribution(
                 "SELECT name FROM JournaledSessionSqlEntity ORDER BY id ASC LIMIT 1",
             )
             .expect("journaled repeated projection should execute with attribution");
@@ -286,7 +336,7 @@ fn execute_sql_full_entity_unindexed_order_uses_direct_data_rows() {
     let session = seeded_projection_window_session();
 
     let (result, lane_metrics) = crate::db::with_scalar_materialization_lane_metrics(|| {
-        session.execute_trusted_sql_query::<SessionSqlEntity>(
+        session.execute_trusted_sql_query(
             "SELECT * FROM SessionSqlEntity ORDER BY age DESC, id ASC LIMIT 2",
         )
     });
@@ -417,7 +467,7 @@ fn execute_sql_projection_unindexed_ordered_scalar_expr_uses_retained_slot_rows(
     #[cfg(feature = "diagnostics")]
     {
         let (_, attribution) = session
-            .execute_trusted_sql_query_with_attribution::<SessionSqlEntity>(
+            .execute_trusted_sql_query_with_attribution(
                 "SELECT name, age + age AS doubled \
                  FROM SessionSqlEntity \
                  WHERE name >= 'matrix' \
@@ -434,7 +484,7 @@ fn execute_sql_projection_unindexed_ordered_scalar_expr_uses_retained_slot_rows(
         );
 
         let (_, attribution) = session
-            .execute_trusted_sql_query_with_attribution::<SessionSqlEntity>(
+            .execute_trusted_sql_query_with_attribution(
                 "SELECT name, age + age AS doubled \
                  FROM SessionSqlEntity \
                  WHERE name >= 'matrix' \

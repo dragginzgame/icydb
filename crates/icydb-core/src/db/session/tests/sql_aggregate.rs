@@ -223,7 +223,7 @@ fn global_aggregate_attribution_reports_buffered_terminal_work() {
     );
 
     let (_result, attribution) = session
-        .execute_trusted_sql_query_with_attribution::<SessionSqlEntity>(
+        .execute_trusted_sql_query_with_attribution(
             "SELECT SUM(age + 1), AVG(age + 1), \
              COUNT(*) FILTER (WHERE age >= 30) \
              FROM SessionSqlEntity",
@@ -278,9 +278,7 @@ fn global_aggregate_attribution_keeps_count_equivalent_terms_on_fast_path() {
     );
 
     let (_result, count_attribution) = session
-        .execute_trusted_sql_query_with_attribution::<SessionSqlEntity>(
-            "SELECT COUNT(*) FROM SessionSqlEntity",
-        )
+        .execute_trusted_sql_query_with_attribution("SELECT COUNT(*) FROM SessionSqlEntity")
         .expect("diagnostics count fast-path attribution query should execute");
     assert_eq!(
         count_attribution.scalar_aggregate, None,
@@ -288,9 +286,7 @@ fn global_aggregate_attribution_keeps_count_equivalent_terms_on_fast_path() {
     );
 
     let (_result, literal_count_attribution) = session
-        .execute_trusted_sql_query_with_attribution::<SessionSqlEntity>(
-            "SELECT COUNT(1) FROM SessionSqlEntity",
-        )
+        .execute_trusted_sql_query_with_attribution("SELECT COUNT(1) FROM SessionSqlEntity")
         .expect("diagnostics literal count fast-path attribution query should execute");
     assert_eq!(
         literal_count_attribution.scalar_aggregate, None,
@@ -298,7 +294,7 @@ fn global_aggregate_attribution_keeps_count_equivalent_terms_on_fast_path() {
     );
 
     let (_result, duplicate_count_attribution) = session
-        .execute_trusted_sql_query_with_attribution::<SessionSqlEntity>(
+        .execute_trusted_sql_query_with_attribution(
             "SELECT COUNT(*), COUNT(name), COUNT(*) FROM SessionSqlEntity",
         )
         .expect("diagnostics duplicate count-equivalent query should execute");
@@ -323,7 +319,7 @@ fn global_aggregate_attribution_fans_out_count_equivalent_terms_around_buffered_
     );
 
     let (mixed_result, mixed_attribution) = session
-        .execute_trusted_sql_query_with_attribution::<SessionSqlEntity>(
+        .execute_trusted_sql_query_with_attribution(
             "SELECT COUNT(*), SUM(age), COUNT(name) FROM SessionSqlEntity",
         )
         .expect("diagnostics mixed count-equivalent and buffered aggregate query should execute");
@@ -1115,7 +1111,7 @@ fn global_aggregate_query_execution_context_reuses_compile_catalog() {
     session.clear_query_plan_cache_for_tests();
     DbSession::<SessionSqlCanister>::reset_accepted_catalog_runtime_counters_for_tests();
     let SqlStatementResult::Projection { rows, .. } = session
-        .execute_trusted_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query(
             "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2",
         )
         .expect("context-owned SQL global aggregate should execute")
@@ -1168,8 +1164,8 @@ fn global_aggregate_execution_reuses_catalog_schema_projection_on_shared_plan_mi
         "one accepted catalog context should build one SchemaInfo projection across aggregate request and shared-plan miss",
     );
     assert_eq!(
-        counters.generated_compatible_row_layout_proofs, 1,
-        "shared-plan miss should still construct accepted execution authority once",
+        counters.generated_compatible_row_layout_proofs, 0,
+        "accepted aggregate planning must not rebuild execution authority through generated compatibility",
     );
     assert_eq!(
         counters.visible_index_projections, 1,

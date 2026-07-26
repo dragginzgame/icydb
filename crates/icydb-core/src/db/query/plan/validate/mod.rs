@@ -48,7 +48,8 @@ pub(in crate::db::query) use intent_policy::{
 };
 pub(in crate::db::query) use plan_shape::{has_explicit_order, validate_plan_shape};
 pub(in crate::db::query) use semantic_gates::{
-    validate_group_query_semantics, validate_query_semantics,
+    validate_group_query_semantics, validate_group_query_semantics_with_schema,
+    validate_query_semantics, validate_query_semantics_with_schema,
 };
 pub(in crate::db::query::plan::validate) use symbols::resolve_group_aggregate_target_field_type;
 pub(in crate::db) use symbols::{

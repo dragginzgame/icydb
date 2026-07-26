@@ -131,8 +131,7 @@ fn schema_info_for_plan_cache_authority(
         .accepted_value_catalog_handle()
         .map_err(QueryError::execute)?
         .clone();
-    Ok(SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
-        authority.model(),
+    Ok(SchemaInfo::from_accepted_snapshot_and_catalog(
         accepted_schema,
         enum_catalog,
         true,

@@ -10,29 +10,23 @@ mod terminal;
 
 use crate::{
     db::{
+        Db,
         executor::{
-            PreparedExecutionPlan, SharedPreparedExecutionPlan,
-            aggregate::{
-                scalar_terminals::{
-                    reducer::ScalarAggregateReducerRuntime,
-                    request::CompiledStructuralAggregateRequest,
-                    terminal::{
-                        PreparedScalarAggregateTerminalSet,
-                        compile_structural_scalar_aggregate_terminal,
-                    },
+            SharedPreparedExecutionPlan,
+            aggregate::scalar_terminals::{
+                reducer::ScalarAggregateReducerRuntime,
+                request::CompiledStructuralAggregateRequest,
+                terminal::{
+                    PreparedScalarAggregateTerminalSet,
+                    compile_structural_scalar_aggregate_terminal,
                 },
-                value_reducer::finalize_count,
             },
-            pipeline::{
-                contracts::LoadExecutor,
-                entrypoints::execute_prepared_scalar_aggregate_kernel_row_sink_for_canister,
-            },
+            pipeline::entrypoints::execute_prepared_scalar_aggregate_kernel_row_sink_for_canister,
             projection::{GroupedRowView, evaluate_grouped_having_expr},
         },
-        query::builder::aggregate::ScalarTerminalBoundaryRequest,
     },
-    entity::{EntityKind, EntityValue},
     error::InternalError,
+    traits::CanisterKind,
     value::Value,
 };
 use std::borrow::Cow;
@@ -44,161 +38,110 @@ use crate::db::executor::aggregate::terminal_attribution::{
 pub(in crate::db) use request::StructuralAggregateRequest;
 pub(in crate::db) use terminal::{StructuralAggregateTerminal, StructuralAggregateTerminalKind};
 
-impl<E> LoadExecutor<E>
+/// Execute one structural global aggregate request over a shared prepared scalar plan.
+pub(in crate::db) fn execute_structural_aggregate_rows_for_canister<C>(
+    db: &Db<C>,
+    debug: bool,
+    shared_plan: SharedPreparedExecutionPlan,
+    request: StructuralAggregateRequest,
+) -> Result<Vec<Vec<Value>>, InternalError>
 where
-    E: EntityKind + EntityValue,
+    C: CanisterKind,
 {
-    /// Execute one structural global aggregate request over a shared prepared scalar plan.
-    pub(in crate::db) fn execute_structural_aggregate_rows(
-        &self,
-        shared_plan: &SharedPreparedExecutionPlan,
-        request: StructuralAggregateRequest,
-    ) -> Result<Vec<Vec<Value>>, InternalError> {
-        let compiled = CompiledStructuralAggregateRequest::compile(&request)?;
-        let terminal_count = request.terminals().len();
-        let mut unique_values = vec![None; terminal_count];
-        let mut scalar_aggregate_terminals = Vec::with_capacity(terminal_count);
-        let mut scalar_aggregate_terminal_positions = Vec::with_capacity(terminal_count);
-        let mut shared_count_value: Option<Value> = None;
-
-        // Phase 1: route count-equivalent terminals through the shared scalar
-        // count boundary once, fan it out to equivalent slots, and stage all
-        // remaining terminals for the aggregate reducer sink. Both paths stay
-        // under executor ownership.
-        for (terminal_index, terminal) in request.terminals().iter().enumerate() {
-            if terminal.uses_shared_count_terminal(request.schema_info()) {
-                let count = if let Some(count) = &shared_count_value {
-                    count.clone()
-                } else {
-                    let count = self
-                        .execute_scalar_terminal_request(
-                            shared_plan.typed_clone::<E>()?,
-                            ScalarTerminalBoundaryRequest::Count,
-                        )?
-                        .into_count()?;
-                    let count = finalize_count(u64::from(count));
-                    shared_count_value = Some(count.clone());
-
-                    count
-                };
-                unique_values[terminal_index] = Some(count);
-            } else {
-                scalar_aggregate_terminals.push(compile_structural_scalar_aggregate_terminal(
-                    request.schema_info(),
-                    terminal,
-                )?);
-                scalar_aggregate_terminal_positions.push(terminal_index);
-            }
-        }
-
-        // Phase 2: reduce every non-count-equivalent terminal through the
-        // scalar aggregate terminal sink so row decoding, filter evaluation,
-        // expression evaluation, DISTINCT, and reducer finalization remain
-        // executor-owned.
-        if !scalar_aggregate_terminals.is_empty() {
-            let terminal_values = self.execute_scalar_aggregate_terminals(
-                shared_plan.typed_clone::<E>()?,
-                PreparedScalarAggregateTerminalSet::new(scalar_aggregate_terminals),
-            )?;
-            if terminal_values.len() != scalar_aggregate_terminal_positions.len() {
-                return Err(InternalError::query_executor_invariant());
-            }
-
-            for (terminal_index, value) in scalar_aggregate_terminal_positions
-                .into_iter()
-                .zip(terminal_values)
-            {
-                unique_values[terminal_index] = Some(value);
-            }
-        }
-        let mut ordered_values = Vec::with_capacity(unique_values.len());
-        for value in unique_values {
-            let value = value.ok_or_else(InternalError::query_executor_invariant)?;
-            ordered_values.push(value);
-        }
-
-        // Phase 3: evaluate global aggregate HAVING and final projection
-        // against the implicit single aggregate row. Adapter layers only see
-        // the completed structural row payload.
-        let grouped_row = GroupedRowView::new(
-            &[],
-            ordered_values.as_slice(),
-            &[],
-            compiled.aggregate_execution_specs(),
-        );
-        if let Some(expr) = compiled.having()
-            && !evaluate_grouped_having_expr(expr, &grouped_row)
-                .map_err(|_err| InternalError::query_executor_invariant())?
-        {
-            return Ok(Vec::new());
-        }
-
-        let mut row = Vec::with_capacity(compiled.projection().len());
-        for expr in compiled.projection() {
-            row.push(
-                expr.evaluate(&grouped_row)
-                    .map(Cow::into_owned)
-                    .map_err(|_err| InternalError::query_executor_invariant())?,
-            );
-        }
-
-        Ok(vec![row])
+    let compiled = CompiledStructuralAggregateRequest::compile(&request)?;
+    let terminal_count = request.terminals().len();
+    let terminals = request
+        .terminals()
+        .iter()
+        .map(|terminal| {
+            compile_structural_scalar_aggregate_terminal(request.schema_info(), terminal)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let ordered_values = execute_scalar_aggregate_terminals(
+        db,
+        debug,
+        shared_plan,
+        PreparedScalarAggregateTerminalSet::new(terminals),
+    )?;
+    if ordered_values.len() != terminal_count {
+        return Err(InternalError::query_executor_invariant());
     }
 
-    /// Execute scalar aggregate terminals over one prepared scalar access/window plan.
-    fn execute_scalar_aggregate_terminals(
-        &self,
-        plan: PreparedExecutionPlan<E>,
-        terminals: PreparedScalarAggregateTerminalSet,
-    ) -> Result<Vec<Value>, InternalError> {
-        if terminals.is_empty() {
-            return Ok(Vec::new());
-        }
-        #[cfg(feature = "diagnostics")]
-        let mut terminal_attribution = ScalarAggregateTerminalAttribution::from_terminal_counts(
-            terminals.terminal_count(),
-            terminals.input_expr_count(),
-            terminals.filter_expr_count(),
-        );
-
-        // Phase 1: prepare the scalar plan with an execution-local retained-slot
-        // layout that includes aggregate input and filter slots.
-        let plan = plan.into_prepared_load_plan();
-        let authority = plan.authority();
-        let retained_slot_layout =
-            terminals.retained_slot_layout(&authority, plan.logical_plan())?;
-
-        // Phase 2: reduce every terminal as the scalar runtime emits its final
-        // post-access/windowed row boundary, without constructing a retained-slot
-        // response page for adapter-owned aggregate code to consume.
-        let mut reducer_runtime = ScalarAggregateReducerRuntime::new(terminals);
-        #[cfg(feature = "diagnostics")]
-        {
-            let (total_local_instructions, execution) = measure_phase(|| {
-                execute_prepared_scalar_aggregate_kernel_row_sink_for_canister(
-                    &self.db,
-                    self.debug,
-                    plan,
-                    retained_slot_layout,
-                    |row| reducer_runtime.ingest_row(row),
-                )
-            });
-            execution?;
-            let runtime_attribution = reducer_runtime.attribution();
-            terminal_attribution.merge_runtime(runtime_attribution);
-            terminal_attribution.base_row_local_instructions = total_local_instructions
-                .saturating_sub(terminal_attribution.reducer_fold_local_instructions);
-            record_scalar_aggregate_terminal_attribution(terminal_attribution);
-        }
-        #[cfg(not(feature = "diagnostics"))]
-        execute_prepared_scalar_aggregate_kernel_row_sink_for_canister(
-            &self.db,
-            self.debug,
-            plan,
-            retained_slot_layout,
-            |row| reducer_runtime.ingest_row(row),
-        )?;
-
-        reducer_runtime.finalize()
+    let grouped_row = GroupedRowView::new(
+        &[],
+        ordered_values.as_slice(),
+        &[],
+        compiled.aggregate_execution_specs(),
+    );
+    if let Some(expr) = compiled.having()
+        && !evaluate_grouped_having_expr(expr, &grouped_row)
+            .map_err(|_err| InternalError::query_executor_invariant())?
+    {
+        return Ok(Vec::new());
     }
+
+    let mut row = Vec::with_capacity(compiled.projection().len());
+    for expr in compiled.projection() {
+        row.push(
+            expr.evaluate(&grouped_row)
+                .map(Cow::into_owned)
+                .map_err(|_err| InternalError::query_executor_invariant())?,
+        );
+    }
+
+    Ok(vec![row])
+}
+
+fn execute_scalar_aggregate_terminals<C>(
+    db: &Db<C>,
+    debug: bool,
+    plan: SharedPreparedExecutionPlan,
+    terminals: PreparedScalarAggregateTerminalSet,
+) -> Result<Vec<Value>, InternalError>
+where
+    C: CanisterKind,
+{
+    if terminals.is_empty() {
+        return Ok(Vec::new());
+    }
+    #[cfg(feature = "diagnostics")]
+    let mut terminal_attribution = ScalarAggregateTerminalAttribution::from_terminal_counts(
+        terminals.terminal_count(),
+        terminals.input_expr_count(),
+        terminals.filter_expr_count(),
+    );
+
+    let plan = plan.into_prepared_load_plan();
+    let authority = plan.authority();
+    let retained_slot_layout = terminals.retained_slot_layout(&authority, plan.logical_plan())?;
+
+    let mut reducer_runtime = ScalarAggregateReducerRuntime::new(terminals);
+    #[cfg(feature = "diagnostics")]
+    {
+        let (total_local_instructions, execution) = measure_phase(|| {
+            execute_prepared_scalar_aggregate_kernel_row_sink_for_canister(
+                db,
+                debug,
+                plan,
+                retained_slot_layout,
+                |row| reducer_runtime.ingest_row(row),
+            )
+        });
+        execution?;
+        let runtime_attribution = reducer_runtime.attribution();
+        terminal_attribution.merge_runtime(runtime_attribution);
+        terminal_attribution.base_row_local_instructions = total_local_instructions
+            .saturating_sub(terminal_attribution.reducer_fold_local_instructions);
+        record_scalar_aggregate_terminal_attribution(terminal_attribution);
+    }
+    #[cfg(not(feature = "diagnostics"))]
+    execute_prepared_scalar_aggregate_kernel_row_sink_for_canister(
+        db,
+        debug,
+        plan,
+        retained_slot_layout,
+        |row| reducer_runtime.ingest_row(row),
+    )?;
+
+    reducer_runtime.finalize()
 }

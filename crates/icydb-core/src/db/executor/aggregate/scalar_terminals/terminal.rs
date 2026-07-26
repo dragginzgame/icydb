@@ -57,30 +57,6 @@ impl StructuralAggregateTerminal {
             distinct,
         }
     }
-
-    pub(super) fn uses_shared_count_terminal(&self, schema: &SchemaInfo) -> bool {
-        match self.kind {
-            StructuralAggregateTerminalKind::CountRows => {
-                self.filter_expr.is_none() && !self.distinct
-            }
-            StructuralAggregateTerminalKind::CountValues => {
-                if self.filter_expr.is_some() || self.input_expr.is_some() || self.distinct {
-                    return false;
-                }
-                let Some(target_slot) = self.target_slot.as_ref() else {
-                    return false;
-                };
-
-                schema
-                    .field_nullable(target_slot.field())
-                    .is_some_and(|nullable| !nullable)
-            }
-            StructuralAggregateTerminalKind::Sum
-            | StructuralAggregateTerminalKind::Avg
-            | StructuralAggregateTerminalKind::Min
-            | StructuralAggregateTerminalKind::Max => false,
-        }
-    }
 }
 
 ///

@@ -3,34 +3,29 @@ use crate::db::sql::lowering::apply_lowered_base_query_shape_for_model_only;
 #[cfg(test)]
 use crate::{db::query::intent::Query, entity::EntityKind};
 
-use crate::{
-    db::{
-        predicate::MissingRowPolicy,
-        query::{
-            intent::StructuralQuery,
-            plan::{
-                AggregateKind,
-                expr::{Expr, ProjectionField, ProjectionSpec},
-            },
-        },
-        schema::SchemaInfo,
-        sql::{
-            lowering::{
-                PreparedSqlStatement, SqlLoweringError,
-                aggregate::{
-                    command::{
-                        LoweredSqlGlobalAggregateCommand, lower_global_aggregate_select_shape,
-                    },
-                    strategy::{
-                        PreparedSqlScalarAggregatePlanFragment, PreparedSqlScalarAggregateStrategy,
-                    },
-                },
-                apply_lowered_base_query_shape_with_schema, validate_base_query_sql_capabilities,
-            },
-            parser::SqlStatement,
+use crate::db::{
+    predicate::MissingRowPolicy,
+    query::{
+        intent::StructuralQuery,
+        plan::{
+            AggregateKind,
+            expr::{Expr, ProjectionField, ProjectionSpec},
         },
     },
-    model::entity::EntityModel,
+    schema::SchemaInfo,
+    sql::{
+        lowering::{
+            PreparedSqlStatement, SqlLoweringError,
+            aggregate::{
+                command::{LoweredSqlGlobalAggregateCommand, lower_global_aggregate_select_shape},
+                strategy::{
+                    PreparedSqlScalarAggregatePlanFragment, PreparedSqlScalarAggregateStrategy,
+                },
+            },
+            apply_lowered_base_query_shape_with_schema, validate_base_query_sql_capabilities,
+        },
+        parser::SqlStatement,
+    },
 };
 
 ///
@@ -122,12 +117,6 @@ impl AggregateShapeFacts {
             direct_count_cardinality_metadata_candidate: direct_count_rows
                 && query.direct_count_cardinality_prefix_candidate(),
         }
-    }
-
-    /// Return whether this command is the singleton direct `COUNT(*)` shape.
-    #[must_use]
-    pub(in crate::db) const fn is_direct_count_rows(self) -> bool {
-        self.direct_count_rows
     }
 
     /// Return whether direct prefix-cardinality metadata may answer this command.
@@ -232,7 +221,6 @@ impl LoweredSqlGlobalAggregateCommand {
             .into_iter()
             .map(|terminal| {
                 PreparedSqlScalarAggregateStrategy::from_lowered_terminal_with_schema(
-                    E::MODEL,
                     SchemaInfo::cached_for_generated_entity_model(E::MODEL),
                     terminal,
                 )
@@ -241,7 +229,8 @@ impl LoweredSqlGlobalAggregateCommand {
 
         Ok(TypedSqlGlobalAggregateCommand {
             query: Query::from_inner(apply_lowered_base_query_shape_for_model_only(
-                StructuralQuery::new(E::MODEL, consistency),
+                E::MODEL,
+                StructuralQuery::new(consistency),
                 query,
             )),
             terminals,
@@ -255,7 +244,6 @@ impl LoweredSqlGlobalAggregateCommand {
     /// used by aggregate explain and dynamic SQL execution.
     fn into_command_with_schema(
         self,
-        model: &'static EntityModel,
         consistency: MissingRowPolicy,
         schema: &SchemaInfo,
     ) -> Result<SqlGlobalAggregateCommand, SqlLoweringError> {
@@ -272,14 +260,14 @@ impl LoweredSqlGlobalAggregateCommand {
             .into_iter()
             .map(|terminal| {
                 PreparedSqlScalarAggregateStrategy::from_lowered_terminal_with_schema(
-                    model, schema, terminal,
+                    schema, terminal,
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
         validate_base_query_sql_capabilities(schema, &query)?;
 
         let query = apply_lowered_base_query_shape_with_schema(
-            StructuralQuery::new(model, consistency),
+            StructuralQuery::new(consistency),
             query,
             schema,
         );
@@ -334,7 +322,6 @@ pub(crate) fn compile_sql_global_aggregate_command_from_prepared_for_model_only<
 /// aggregate command envelope with an explicit schema capability projection.
 pub(in crate::db) fn compile_sql_global_aggregate_command_from_prepared_with_schema(
     prepared: PreparedSqlStatement,
-    model: &'static EntityModel,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
 ) -> Result<SqlGlobalAggregateCommand, SqlLoweringError> {
@@ -343,7 +330,6 @@ pub(in crate::db) fn compile_sql_global_aggregate_command_from_prepared_with_sch
     };
 
     bind_lowered_sql_global_aggregate_command_with_schema(
-        model,
         lower_global_aggregate_select_shape(statement)?,
         consistency,
         schema,
@@ -361,10 +347,9 @@ pub(in crate::db::sql::lowering) fn bind_lowered_sql_global_aggregate_command_fo
 }
 
 pub(in crate::db::sql::lowering::aggregate) fn bind_lowered_sql_global_aggregate_command_with_schema(
-    model: &'static EntityModel,
     lowered: LoweredSqlGlobalAggregateCommand,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
 ) -> Result<SqlGlobalAggregateCommand, SqlLoweringError> {
-    lowered.into_command_with_schema(model, consistency, schema)
+    lowered.into_command_with_schema(consistency, schema)
 }

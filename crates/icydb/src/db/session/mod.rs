@@ -114,4 +114,15 @@ impl<C: CanisterKind> DbSession<C> {
             inner: self.inner.delete_with_consistency::<E>(consistency),
         }
     }
+
+    /// Execute one trusted entity-name-driven dynamic read.
+    #[cfg(feature = "sql")]
+    pub fn execute_trusted_dynamic_query(
+        &self,
+        request: &crate::db::DynamicQuery,
+    ) -> Result<crate::db::DynamicQueryResult, crate::Error> {
+        self.inner
+            .execute_trusted_dynamic_query(request)
+            .map_err(Into::into)
+    }
 }

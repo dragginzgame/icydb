@@ -44,19 +44,16 @@ use core::marker::PhantomData;
 
 #[derive(Clone, Debug)]
 pub(in crate::db) struct StructuralQuery {
-    intent: QueryModel<'static, Value>,
+    intent: QueryModel<Value>,
     access_requirements: AccessRequirements,
     structural_cache_key: OnceLock<crate::db::query::intent::StructuralQueryCacheKey>,
 }
 
 impl StructuralQuery {
     #[must_use]
-    pub(in crate::db) const fn new(
-        model: &'static crate::model::entity::EntityModel,
-        consistency: MissingRowPolicy,
-    ) -> Self {
+    pub(in crate::db) const fn new(consistency: MissingRowPolicy) -> Self {
         Self {
-            intent: QueryModel::new(model, consistency),
+            intent: QueryModel::new(consistency),
             access_requirements: AccessRequirements::new(),
             structural_cache_key: OnceLock::new(),
         }
@@ -66,7 +63,7 @@ impl StructuralQuery {
     // query shell so local transformation helpers do not rebuild `Self`
     // ad hoc at each boundary method.
     const fn from_intent_and_access_requirements(
-        intent: QueryModel<'static, Value>,
+        intent: QueryModel<Value>,
         access_requirements: AccessRequirements,
     ) -> Self {
         Self {
@@ -78,10 +75,7 @@ impl StructuralQuery {
 
     // Apply one infallible intent transformation while preserving the
     // structural query shell at this boundary.
-    fn map_intent(
-        self,
-        map: impl FnOnce(QueryModel<'static, Value>) -> QueryModel<'static, Value>,
-    ) -> Self {
+    fn map_intent(self, map: impl FnOnce(QueryModel<Value>) -> QueryModel<Value>) -> Self {
         let Self {
             intent,
             access_requirements,
@@ -95,7 +89,7 @@ impl StructuralQuery {
     // local to the structural query boundary.
     fn try_map_intent(
         self,
-        map: impl FnOnce(QueryModel<'static, Value>) -> Result<QueryModel<'static, Value>, QueryError>,
+        map: impl FnOnce(QueryModel<Value>) -> Result<QueryModel<Value>, QueryError>,
     ) -> Result<Self, QueryError> {
         let Self {
             intent,
@@ -181,8 +175,23 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    pub(in crate::db) fn filter(mut self, expr: impl Into<FilterExpr>) -> Self {
-        self.intent = self.intent.filter(expr.into());
+    fn filter_for_model(
+        mut self,
+        model: &'static crate::model::entity::EntityModel,
+        expr: impl Into<FilterExpr>,
+    ) -> Self {
+        self.intent = self.intent.filter_for_model(model, expr.into());
+        self
+    }
+
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn filter_for_schema(
+        mut self,
+        schema: &SchemaInfo,
+        expr: impl Into<FilterExpr>,
+    ) -> Self {
+        self.intent = self.intent.filter_for_schema(schema, expr);
         self
     }
 
@@ -244,8 +253,12 @@ impl StructuralQuery {
         self
     }
 
-    pub(in crate::db) fn group_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
-        self.try_map_intent(|intent| intent.push_group_field(field.as_ref()))
+    pub(in crate::db::query) fn group_by_for_model(
+        self,
+        model: &'static crate::model::entity::EntityModel,
+        field: impl AsRef<str>,
+    ) -> Result<Self, QueryError> {
+        self.try_map_intent(|intent| intent.push_group_field_for_model(model, field.as_ref()))
     }
 
     pub(in crate::db) fn group_by_with_schema(
@@ -268,14 +281,17 @@ impl StructuralQuery {
         self
     }
 
-    pub(in crate::db) fn having_group(
+    pub(in crate::db::query) fn having_group_for_model(
         self,
+        model: &'static crate::model::entity::EntityModel,
         field: impl AsRef<str>,
         op: CompareOp,
         value: Value,
     ) -> Result<Self, QueryError> {
         let field = field.as_ref().to_owned();
-        self.try_map_intent(|intent| intent.push_having_group_clause(&field, op, value))
+        self.try_map_intent(|intent| {
+            intent.push_having_group_clause_for_model(model, &field, op, value)
+        })
     }
 
     pub(in crate::db) fn having_group_with_schema(
@@ -351,19 +367,29 @@ impl StructuralQuery {
         self
     }
 
-    pub(in crate::db) fn build_plan(&self) -> Result<AccessPlannedQuery, QueryError> {
-        let mut plan = self.intent.build_plan_model()?;
-        self.validate_access_requirements_for_visibility(&mut plan, None)?;
+    pub(in crate::db) fn build_plan_for_model(
+        &self,
+        model: &'static crate::model::entity::EntityModel,
+    ) -> Result<AccessPlannedQuery, QueryError> {
+        let mut plan = self.intent.build_plan_model(model)?;
+        self.validate_access_requirements_for_visibility(&mut plan, None, Some(model))?;
 
         Ok(plan)
     }
 
-    pub(in crate::db) fn build_plan_with_visible_indexes(
+    pub(in crate::db) fn build_plan_with_visible_indexes_for_model(
         &self,
+        model: &'static crate::model::entity::EntityModel,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
-        let mut plan = self.intent.build_plan_model_with_indexes(visible_indexes)?;
-        self.validate_access_requirements_for_visibility(&mut plan, Some(visible_indexes))?;
+        let mut plan = self
+            .intent
+            .build_plan_model_with_indexes(model, visible_indexes)?;
+        self.validate_access_requirements_for_visibility(
+            &mut plan,
+            Some(visible_indexes),
+            Some(model),
+        )?;
 
         Ok(plan)
     }
@@ -387,7 +413,7 @@ impl StructuralQuery {
                 visible_indexes,
                 planning_state,
             )?;
-        self.validate_access_requirements_for_visibility(&mut plan, Some(visible_indexes))?;
+        self.validate_access_requirements_for_visibility(&mut plan, Some(visible_indexes), None)?;
 
         Ok(plan)
     }
@@ -413,7 +439,7 @@ impl StructuralQuery {
             .intent
             .try_build_trivial_scalar_load_plan_with_schema_info(schema_info)?;
         if let Some(plan) = &mut plan {
-            self.validate_access_requirements_for_visibility(plan, None)?;
+            self.validate_access_requirements_for_visibility(plan, None, None)?;
         }
 
         Ok(plan)
@@ -459,39 +485,43 @@ impl StructuralQuery {
     // visibility slice already resolved at the caller boundary.
     fn build_plan_for_visibility(
         &self,
+        model: &'static crate::model::entity::EntityModel,
         visible_indexes: Option<&VisibleIndexes<'_>>,
     ) -> Result<AccessPlannedQuery, QueryError> {
         match visible_indexes {
-            Some(visible_indexes) => self.build_plan_with_visible_indexes(visible_indexes),
-            None => self.build_plan(),
+            Some(visible_indexes) => {
+                self.build_plan_with_visible_indexes_for_model(model, visible_indexes)
+            }
+            None => self.build_plan_for_model(model),
         }
     }
 
     fn finalize_access_choice_for_visibility(
-        &self,
         plan: &mut AccessPlannedQuery,
         visible_indexes: Option<&VisibleIndexes<'_>>,
+        model_only: Option<&'static crate::model::entity::EntityModel>,
     ) {
         match visible_indexes {
             Some(visible_indexes) => {
                 if let Some(schema_info) = visible_indexes.accepted_schema_info() {
-                    plan.finalize_access_choice_for_model_with_semantic_indexes_and_schema(
-                        self.intent.model(),
+                    plan.finalize_access_choice_with_semantic_indexes_and_schema(
                         visible_indexes.accepted_semantic_index_contracts(),
                         schema_info,
                     );
                 } else {
+                    let Some(model) = model_only else {
+                        return;
+                    };
                     plan.finalize_access_choice_for_model_only_with_indexes(
-                        self.intent.model(),
+                        model,
                         visible_indexes.generated_model_only_indexes(),
                     );
                 }
             }
             None => {
-                plan.finalize_access_choice_for_model_only_with_indexes(
-                    self.intent.model(),
-                    self.intent.model().indexes(),
-                );
+                if let Some(model) = model_only {
+                    plan.finalize_access_choice_for_model_only_with_indexes(model, model.indexes());
+                }
             }
         }
     }
@@ -500,12 +530,13 @@ impl StructuralQuery {
         &self,
         plan: &mut AccessPlannedQuery,
         visible_indexes: Option<&VisibleIndexes<'_>>,
+        model_only: Option<&'static crate::model::entity::EntityModel>,
     ) -> Result<(), QueryError> {
         if self.access_requirements.is_empty() {
             return Ok(());
         }
 
-        self.finalize_access_choice_for_visibility(plan, visible_indexes);
+        Self::finalize_access_choice_for_visibility(plan, visible_indexes, model_only);
         self.access_requirements.validate(plan)
     }
 
@@ -527,11 +558,6 @@ impl StructuralQuery {
     const fn require_no_residual_filter(mut self) -> Self {
         self.access_requirements.require_no_residual_filter();
         self
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn model(&self) -> &'static crate::model::entity::EntityModel {
-        self.intent.model()
     }
 }
 
@@ -566,7 +592,7 @@ impl<E: EntityKind> Query<E> {
     /// Use Error to surface missing rows during scan/delete execution.
     #[must_use]
     pub const fn new(consistency: MissingRowPolicy) -> Self {
-        Self::from_inner(StructuralQuery::new(E::MODEL, consistency))
+        Self::from_inner(StructuralQuery::new(consistency))
     }
 
     /// Return the intent mode (load vs delete).
@@ -581,8 +607,11 @@ impl<E: EntityKind> Query<E> {
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<ExplainPlan, QueryError> {
         let mut plan = self.build_plan_for_visibility(Some(visible_indexes))?;
-        self.inner
-            .finalize_access_choice_for_visibility(&mut plan, Some(visible_indexes));
+        StructuralQuery::finalize_access_choice_for_visibility(
+            &mut plan,
+            Some(visible_indexes),
+            Some(E::MODEL),
+        );
 
         Ok(plan.explain())
     }
@@ -603,7 +632,8 @@ impl<E: EntityKind> Query<E> {
         &self,
         visible_indexes: Option<&VisibleIndexes<'_>>,
     ) -> Result<AccessPlannedQuery, QueryError> {
-        self.inner.build_plan_for_visibility(visible_indexes)
+        self.inner
+            .build_plan_for_visibility(E::MODEL, visible_indexes)
     }
 
     #[must_use]
@@ -634,7 +664,7 @@ impl<E: EntityKind> Query<E> {
     /// Add one typed filter expression, implicitly AND-ing with any existing filter.
     #[must_use]
     pub fn filter(mut self, expr: impl Into<FilterExpr>) -> Self {
-        self.inner = self.inner.filter(expr);
+        self.inner = self.inner.filter_for_model(E::MODEL, expr);
         self
     }
 
@@ -701,7 +731,7 @@ impl<E: EntityKind> Query<E> {
     /// Add one GROUP BY field.
     pub fn group_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
         let Self { inner, .. } = self;
-        let inner = inner.group_by(field)?;
+        let inner = inner.group_by_for_model(E::MODEL, field)?;
 
         Ok(Self::from_inner(inner))
     }
@@ -746,7 +776,7 @@ impl<E: EntityKind> Query<E> {
             ))
         })?;
         let Self { inner, .. } = self;
-        let inner = inner.having_group(field, op, value)?;
+        let inner = inner.having_group_for_model(E::MODEL, field, op, value)?;
 
         Ok(Self::from_inner(inner))
     }
@@ -890,8 +920,7 @@ impl<E: EntityKind> Query<E> {
     /// Explain this intent without executing it.
     pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
         let mut plan = self.build_plan_for_visibility(None)?;
-        self.inner
-            .finalize_access_choice_for_visibility(&mut plan, None);
+        StructuralQuery::finalize_access_choice_for_visibility(&mut plan, None, Some(E::MODEL));
 
         Ok(plan.explain())
     }
@@ -901,7 +930,7 @@ impl<E: EntityKind> Query<E> {
     /// The hash is derived from canonical planner contracts and is suitable
     /// for diagnostics, explain diffing, and cache key construction.
     pub fn plan_hash_hex(&self) -> Result<String, QueryError> {
-        let plan = self.inner.build_plan()?;
+        let plan = self.inner.build_plan_for_model(E::MODEL)?;
 
         Ok(plan.plan_hash_hex())
     }

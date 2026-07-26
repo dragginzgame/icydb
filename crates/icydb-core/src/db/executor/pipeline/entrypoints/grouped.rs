@@ -10,6 +10,8 @@ use crate::db::diagnostics::measure_local_instruction_delta as measure_grouped_e
 use crate::db::executor::{
     GroupedCountFoldMetrics, aggregate::GroupedRuntimeStats, with_grouped_count_fold_metrics,
 };
+#[cfg(feature = "sql")]
+use crate::db::executor::{SharedPreparedExecutionPlan, StructuralGroupedProjectionResult};
 use crate::db::registry::StoreHandle;
 use crate::{
     db::{
@@ -41,6 +43,77 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
+
+/// Execute one generic-free shared grouped plan through the canonical runtime.
+#[cfg(feature = "sql")]
+pub(in crate::db) fn execute_shared_grouped_plan_for_canister<C>(
+    db: &crate::db::Db<C>,
+    debug: bool,
+    plan: SharedPreparedExecutionPlan,
+    cursor: ValidatedGroupedCursor,
+) -> Result<(StructuralGroupedProjectionResult, Option<ExecutionTrace>), InternalError>
+where
+    C: CanisterKind,
+{
+    let value_catalog = plan
+        .authority_ref()
+        .accepted_schema_info()
+        .and_then(crate::db::schema::SchemaInfo::value_catalog_handle)
+        .cloned()
+        .ok_or_else(InternalError::query_executor_invariant)?;
+    let prepared = prepare_grouped_route_runtime_for_load_plan(
+        db,
+        debug,
+        plan.into_prepared_load_plan(),
+        cursor,
+    )?;
+    let (page, trace) = execute_prepared_grouped_route_runtime(prepared)?;
+
+    Ok((
+        StructuralGroupedProjectionResult::from_page(page, value_catalog),
+        trace,
+    ))
+}
+
+/// Execute one generic-free shared grouped plan with runtime phase attribution.
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+pub(in crate::db) fn execute_shared_grouped_plan_for_canister_with_phase_attribution<C>(
+    db: &crate::db::Db<C>,
+    debug: bool,
+    plan: SharedPreparedExecutionPlan,
+    cursor: ValidatedGroupedCursor,
+) -> Result<
+    (
+        StructuralGroupedProjectionResult,
+        Option<ExecutionTrace>,
+        GroupedExecutePhaseAttribution,
+    ),
+    InternalError,
+>
+where
+    C: CanisterKind,
+{
+    let value_catalog = plan
+        .authority_ref()
+        .accepted_schema_info()
+        .and_then(crate::db::schema::SchemaInfo::value_catalog_handle)
+        .cloned()
+        .ok_or_else(InternalError::query_executor_invariant)?;
+    let prepared = prepare_grouped_route_runtime_for_load_plan(
+        db,
+        debug,
+        plan.into_prepared_load_plan(),
+        cursor,
+    )?;
+    let (page, trace, phase_attribution) =
+        execute_prepared_grouped_route_runtime_with_phase_attribution(prepared)?;
+
+    Ok((
+        StructuralGroupedProjectionResult::from_page(page, value_catalog),
+        trace,
+        phase_attribution,
+    ))
+}
 
 ///
 /// GroupedPathRuntimeContext

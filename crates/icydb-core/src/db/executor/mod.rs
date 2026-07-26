@@ -55,6 +55,11 @@ pub(in crate::db) use aggregate::{
 pub(in crate::db) use aggregate::{
     StructuralAggregateRequest, StructuralAggregateTerminal, StructuralAggregateTerminalKind,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use aggregate::{
+    execute_direct_count_index_prefix_cardinality_for_canister,
+    execute_structural_aggregate_rows_for_canister,
+};
 pub(in crate::db) use authority::EntityAuthority;
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use covering::resolve_covering_projection_components_from_lowered_specs;
@@ -106,6 +111,10 @@ pub(in crate::db::executor) use pipeline::contracts::{
     AccessScanContinuationInput, AccessStreamBindings,
 };
 pub(in crate::db) use pipeline::contracts::{CursorPage, PageCursor};
+#[cfg(feature = "sql")]
+pub(in crate::db) use pipeline::execute_shared_grouped_plan_for_canister;
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+pub(in crate::db) use pipeline::execute_shared_grouped_plan_for_canister_with_phase_attribution;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use pipeline::{
     GroupedCountAttribution, GroupedExecutePhaseAttribution, GroupedRuntimeAttribution,

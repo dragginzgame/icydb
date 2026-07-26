@@ -663,7 +663,8 @@ fn execute_generated_cold_warm_modes(
     Box<GeneratedSelectMismatch>,
 > {
     let (cold_context, cold_compile_cache, _) = session
-        .compile_sql_query_with_execution_context::<SessionSqliteReferenceEntity>(
+        .compile_sql_query_with_execution_context(
+            Some(SessionSqliteReferenceEntity::MODEL.name()),
             generated.rendered_sql(),
         )
         .map_err(|error| {
@@ -677,9 +678,7 @@ fn execute_generated_cold_warm_modes(
         })?;
     let cold_compiled_cache_len = session.sql_compiled_command_cache_len();
     let (cold_result, cold_cache) = session
-        .execute_compiled_sql_context_with_cache_attribution::<SessionSqliteReferenceEntity>(
-            &cold_context,
-        )
+        .execute_compiled_sql_query_context_with_cache_attribution(&cold_context)
         .map_err(|error| {
             Box::new(GeneratedSelectMismatch::from_query_error(
                 generated,
@@ -690,7 +689,8 @@ fn execute_generated_cold_warm_modes(
             ))
         })?;
     let (warm_context, warm_compile_cache, _) = session
-        .compile_sql_query_with_execution_context::<SessionSqliteReferenceEntity>(
+        .compile_sql_query_with_execution_context(
+            Some(SessionSqliteReferenceEntity::MODEL.name()),
             generated.rendered_sql(),
         )
         .map_err(|error| {
@@ -703,9 +703,7 @@ fn execute_generated_cold_warm_modes(
             ))
         })?;
     let (warm_result, warm_cache) = session
-        .execute_compiled_sql_context_with_cache_attribution::<SessionSqliteReferenceEntity>(
-            &warm_context,
-        )
+        .execute_compiled_sql_query_context_with_cache_attribution(&warm_context)
         .map_err(|error| {
             Box::new(GeneratedSelectMismatch::from_query_error(
                 generated,

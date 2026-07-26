@@ -81,7 +81,8 @@ trusted query bypass, returns application rows, or repairs malformed state.
 
 | Surface | Admission or bypass | Guard | Query execution authority |
 | --- | --- | --- | --- |
-| `DbSession::execute_trusted_sql_query::<E>` | trusted bypass | caller-owned | Explicit trusted single-entity SQL query helper. It is not public-safe by itself. |
+| `DbSession::execute_trusted_sql_query` | trusted bypass | caller-owned | Explicit trusted single-entity SQL query helper. The SQL statement names an accepted entity directly; no generated Rust entity type participates. It is not public-safe by itself. |
+| `DbSession::execute_trusted_dynamic_query` | trusted bypass | caller-owned | Explicit trusted entity-name structural read helper. Accepted catalog authority resolves fields, indexes, ordering, and output shape. It is not public-safe by itself. |
 | `FluentLoadQuery::execute` / `execute_rows` / terminal execution / paged `execute` | `PublicRead` default policy | built-in plus caller auth | Ordinary typed/fluent execution. It rejects unsafe full scans, materialized sorts, missing row bounds, and grouped reads without query hard limits. Exact selected primary-key access supplies its own row bound; cursor/keyset methods own continuation. |
 | `trusted_read_unchecked()` fluent lane | trusted caller contract | caller-owned | Explicit bypass for maintenance/admin fluent code with its own authorization and resource policy. It is not public-safe by itself. Fluent load queries use normal terminal names after entering the trusted lane. |
 | generated `icydb_query` | trusted bypass | controller-gated | Generated SQL query endpoint. It uses the trusted perf-attributed SQL helper and remains admin-only. |

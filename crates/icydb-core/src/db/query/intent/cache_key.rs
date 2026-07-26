@@ -296,9 +296,7 @@ enum ConsistencyCacheKey {
 
 impl StructuralQueryCacheKey {
     #[cfg(test)]
-    pub(in crate::db::query) fn from_query_model<K: KeyValueCodec>(
-        model: &QueryModel<'_, K>,
-    ) -> Self {
+    pub(in crate::db::query) fn from_query_model<K: KeyValueCodec>(model: &QueryModel<K>) -> Self {
         Self::from_query_model_with_predicate(
             model,
             model
@@ -311,7 +309,7 @@ impl StructuralQueryCacheKey {
 
     #[cfg(test)]
     pub(in crate::db::query) fn from_query_model_with_predicate<K: KeyValueCodec>(
-        model: &QueryModel<'_, K>,
+        model: &QueryModel<K>,
         predicate: Option<&Predicate>,
     ) -> Self {
         Self::from_query_model_with_optional_predicate_key(
@@ -323,7 +321,7 @@ impl StructuralQueryCacheKey {
     pub(in crate::db::query) fn from_query_model_with_normalized_predicate_fingerprint<
         K: KeyValueCodec,
     >(
-        model: &QueryModel<'_, K>,
+        model: &QueryModel<K>,
         predicate_fingerprint: Option<[u8; 32]>,
     ) -> Self {
         Self::from_query_model_with_optional_predicate_key(model, predicate_fingerprint)
@@ -333,7 +331,7 @@ impl StructuralQueryCacheKey {
     // fragment so callers that already computed canonical predicate identity
     // do not walk the same normalized tree twice.
     fn from_query_model_with_optional_predicate_key<K: KeyValueCodec>(
-        model: &QueryModel<'_, K>,
+        model: &QueryModel<K>,
         predicate: Option<[u8; 32]>,
     ) -> Self {
         let scalar = model.scalar_intent_for_cache_key();

@@ -3,6 +3,8 @@
 //! Does not own: planner route selection or runtime predicate execution behavior.
 //! Boundary: defines scalar/field type compatibility surfaces used by predicate validation.
 
+#[cfg(feature = "sql")]
+use crate::types::{Account, Decimal, Float32, Float64, Principal};
 use crate::types::{IntBig, NatBig, Ulid};
 use crate::value::{InputValue, InputValueEnum};
 use crate::{
@@ -15,6 +17,8 @@ use crate::{
     value::{CoercionFamily, Value},
 };
 use std::fmt;
+#[cfg(feature = "sql")]
+use std::str::FromStr;
 
 ///
 /// ScalarType
@@ -365,6 +369,243 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
             _ => None,
         },
     }
+}
+
+/// Canonicalize one string-backed public filter literal through accepted kind
+/// authority.
+///
+/// Unlike strict SQL literals, public filter numerics arrive as text so their
+/// Candid shape stays stable across narrow and wide numeric field kinds.
+#[must_use]
+#[cfg(feature = "sql")]
+pub(in crate::db) fn canonicalize_filter_literal_for_persisted_kind(
+    kind: &AcceptedFieldKind,
+    value: &Value,
+) -> Option<Value> {
+    match kind {
+        AcceptedFieldKind::Relation { key_kind, .. } => {
+            canonicalize_filter_literal_for_persisted_kind(key_kind, value)
+        }
+        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => match value {
+            Value::List(values) => values
+                .iter()
+                .map(|item| canonicalize_filter_literal_for_persisted_kind(inner, item))
+                .collect::<Option<Vec<_>>>()
+                .map(Value::List),
+            _ => None,
+        },
+        AcceptedFieldKind::Map { .. } | AcceptedFieldKind::Composite { .. } => None,
+        _ => canonicalize_filter_scalar_literal(kind, value),
+    }
+}
+
+#[cfg(feature = "sql")]
+fn canonicalize_filter_scalar_literal(kind: &AcceptedFieldKind, value: &Value) -> Option<Value> {
+    match kind {
+        AcceptedFieldKind::Account => canonicalize_text_or_exact(
+            value,
+            |value| match value {
+                Value::Account(inner) => Some(*inner),
+                _ => None,
+            },
+            Account::from_str,
+            Value::Account,
+        ),
+        AcceptedFieldKind::Bool => match value {
+            Value::Bool(inner) => Some(Value::Bool(*inner)),
+            _ => None,
+        },
+        AcceptedFieldKind::Decimal { .. } => canonicalize_text_or_exact(
+            value,
+            |value| match value {
+                Value::Decimal(inner) => Some(*inner),
+                _ => None,
+            },
+            Decimal::from_str,
+            Value::Decimal,
+        ),
+        AcceptedFieldKind::Float32 => match value {
+            Value::Float32(inner) => Some(Value::Float32(*inner)),
+            Value::Text(inner) => inner
+                .parse::<f32>()
+                .ok()
+                .and_then(Float32::try_new)
+                .map(Value::Float32),
+            _ => None,
+        },
+        AcceptedFieldKind::Float64 => match value {
+            Value::Float64(inner) => Some(Value::Float64(*inner)),
+            Value::Text(inner) => inner
+                .parse::<f64>()
+                .ok()
+                .and_then(Float64::try_new)
+                .map(Value::Float64),
+            _ => None,
+        },
+        AcceptedFieldKind::Principal => canonicalize_text_or_exact(
+            value,
+            |value| match value {
+                Value::Principal(inner) => Some(*inner),
+                _ => None,
+            },
+            Principal::from_str,
+            Value::Principal,
+        ),
+        AcceptedFieldKind::Text { .. } => match value {
+            Value::Text(inner) => Some(Value::Text(inner.clone())),
+            _ => None,
+        },
+        AcceptedFieldKind::Ulid => canonicalize_text_or_exact(
+            value,
+            |value| match value {
+                Value::Ulid(inner) => Some(*inner),
+                _ => None,
+            },
+            Ulid::from_str,
+            Value::Ulid,
+        ),
+        AcceptedFieldKind::Unit => match value {
+            Value::Null | Value::Unit => Some(Value::Unit),
+            _ => None,
+        },
+        AcceptedFieldKind::Int8
+        | AcceptedFieldKind::Int16
+        | AcceptedFieldKind::Int32
+        | AcceptedFieldKind::Int64
+        | AcceptedFieldKind::Int128
+        | AcceptedFieldKind::IntBig { .. }
+        | AcceptedFieldKind::Nat8
+        | AcceptedFieldKind::Nat16
+        | AcceptedFieldKind::Nat32
+        | AcceptedFieldKind::Nat64
+        | AcceptedFieldKind::Nat128
+        | AcceptedFieldKind::NatBig { .. } => canonicalize_filter_numeric_literal(kind, value),
+        AcceptedFieldKind::Blob { .. }
+        | AcceptedFieldKind::Date
+        | AcceptedFieldKind::Duration
+        | AcceptedFieldKind::Enum { .. }
+        | AcceptedFieldKind::Subaccount
+        | AcceptedFieldKind::Timestamp
+        | AcceptedFieldKind::Relation { .. }
+        | AcceptedFieldKind::List(_)
+        | AcceptedFieldKind::Set(_)
+        | AcceptedFieldKind::Map { .. }
+        | AcceptedFieldKind::Composite { .. } => None,
+    }
+}
+
+#[cfg(feature = "sql")]
+fn canonicalize_filter_numeric_literal(kind: &AcceptedFieldKind, value: &Value) -> Option<Value> {
+    match kind {
+        AcceptedFieldKind::Int8 => {
+            canonicalize_filter_int(value, i64::from(i8::MIN), i64::from(i8::MAX))
+        }
+        AcceptedFieldKind::Int16 => {
+            canonicalize_filter_int(value, i64::from(i16::MIN), i64::from(i16::MAX))
+        }
+        AcceptedFieldKind::Int32 => {
+            canonicalize_filter_int(value, i64::from(i32::MIN), i64::from(i32::MAX))
+        }
+        AcceptedFieldKind::Int64 => canonicalize_filter_int(value, i64::MIN, i64::MAX),
+        AcceptedFieldKind::Int128 => match value {
+            Value::Int128(inner) => Some(Value::Int128(*inner)),
+            Value::Text(inner) => inner.parse::<i128>().ok().map(Value::Int128),
+            _ => None,
+        },
+        AcceptedFieldKind::IntBig { max_bytes } => {
+            let parsed = canonicalize_text_or_exact(
+                value,
+                |value| match value {
+                    Value::IntBig(inner) => Some(inner.clone()),
+                    _ => None,
+                },
+                IntBig::from_str,
+                Value::IntBig,
+            )?;
+            canonicalize_int_big_persisted_literal(&parsed, *max_bytes)
+        }
+        AcceptedFieldKind::Nat8 => canonicalize_filter_nat(value, u64::from(u8::MAX)),
+        AcceptedFieldKind::Nat16 => canonicalize_filter_nat(value, u64::from(u16::MAX)),
+        AcceptedFieldKind::Nat32 => canonicalize_filter_nat(value, u64::from(u32::MAX)),
+        AcceptedFieldKind::Nat64 => canonicalize_filter_nat(value, u64::MAX),
+        AcceptedFieldKind::Nat128 => match value {
+            Value::Nat128(inner) => Some(Value::Nat128(*inner)),
+            Value::Text(inner) => inner.parse::<u128>().ok().map(Value::Nat128),
+            _ => None,
+        },
+        AcceptedFieldKind::NatBig { max_bytes } => {
+            let parsed = canonicalize_text_or_exact(
+                value,
+                |value| match value {
+                    Value::NatBig(inner) => Some(inner.clone()),
+                    _ => None,
+                },
+                NatBig::from_str,
+                Value::NatBig,
+            )?;
+            canonicalize_nat_big_persisted_literal(&parsed, *max_bytes)
+        }
+        AcceptedFieldKind::Account
+        | AcceptedFieldKind::Blob { .. }
+        | AcceptedFieldKind::Bool
+        | AcceptedFieldKind::Date
+        | AcceptedFieldKind::Decimal { .. }
+        | AcceptedFieldKind::Duration
+        | AcceptedFieldKind::Enum { .. }
+        | AcceptedFieldKind::Float32
+        | AcceptedFieldKind::Float64
+        | AcceptedFieldKind::Principal
+        | AcceptedFieldKind::Subaccount
+        | AcceptedFieldKind::Text { .. }
+        | AcceptedFieldKind::Timestamp
+        | AcceptedFieldKind::Ulid
+        | AcceptedFieldKind::Unit
+        | AcceptedFieldKind::Relation { .. }
+        | AcceptedFieldKind::List(_)
+        | AcceptedFieldKind::Set(_)
+        | AcceptedFieldKind::Map { .. }
+        | AcceptedFieldKind::Composite { .. } => None,
+    }
+}
+
+#[cfg(feature = "sql")]
+fn canonicalize_text_or_exact<T, E>(
+    value: &Value,
+    exact: impl FnOnce(&Value) -> Option<T>,
+    parse: impl FnOnce(&str) -> Result<T, E>,
+    wrap: impl FnOnce(T) -> Value,
+) -> Option<Value> {
+    if let Some(exact) = exact(value) {
+        return Some(wrap(exact));
+    }
+    match value {
+        Value::Text(inner) => parse(inner).ok().map(wrap),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "sql")]
+fn canonicalize_filter_int(value: &Value, min: i64, max: i64) -> Option<Value> {
+    let value = match value {
+        Value::Int64(inner) => *inner,
+        Value::Nat64(inner) => i64::try_from(*inner).ok()?,
+        Value::Text(inner) => inner.parse::<i64>().ok()?,
+        _ => return None,
+    };
+
+    (min..=max).contains(&value).then_some(Value::Int64(value))
+}
+
+#[cfg(feature = "sql")]
+fn canonicalize_filter_nat(value: &Value, max: u64) -> Option<Value> {
+    let value = match value {
+        Value::Int64(inner) => u64::try_from(*inner).ok()?,
+        Value::Nat64(inner) => *inner,
+        Value::Text(inner) => inner.parse::<u64>().ok()?,
+        _ => return None,
+    };
+
+    (value <= max).then_some(Value::Nat64(value))
 }
 
 /// Target-type one strict SQL literal against accepted persisted metadata.

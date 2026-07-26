@@ -8,7 +8,6 @@ use crate::{
         schema::SchemaInfo,
     },
     error::InternalError,
-    model::{entity::EntityModel, field::FieldModel},
     value::Value,
 };
 
@@ -86,27 +85,9 @@ impl ProjectionSpec {
         self.fields.iter()
     }
 
-    /// Return whether this projection preserves the model's canonical identity
-    /// field order without aliases or computed expressions.
-    #[must_use]
-    pub(in crate::db) fn is_model_identity_for(&self, model: &EntityModel) -> bool {
-        if self.len() != model.fields().len() {
-            return false;
-        }
-
-        for (field_model, projected_field) in model.fields().iter().zip(self.fields()) {
-            if !projected_field.is_identity_field_projection(field_model) {
-                return false;
-            }
-        }
-
-        true
-    }
-
     /// Return referenced slots using the caller-selected schema authority.
     pub(in crate::db) fn referenced_slots_for_schema(
         &self,
-        _model: &EntityModel,
         schema: &SchemaInfo,
     ) -> Result<Vec<usize>, InternalError> {
         let mut referenced = Vec::new();
@@ -118,6 +99,23 @@ impl ProjectionSpec {
         referenced.sort_unstable();
 
         Ok(referenced)
+    }
+
+    /// Return whether this projection preserves accepted physical field order.
+    #[must_use]
+    pub(in crate::db) fn is_schema_identity_for(&self, schema: &SchemaInfo) -> bool {
+        let field_names = schema.field_names_in_slot_order();
+        self.len() == field_names.len()
+            && field_names
+                .into_iter()
+                .zip(self.fields())
+                .all(|(name, field)| match field {
+                    ProjectionField::Scalar {
+                        expr: Expr::Field(field),
+                        alias: None,
+                    } => field.as_str() == name,
+                    ProjectionField::Scalar { .. } => false,
+                })
     }
 }
 
@@ -135,18 +133,6 @@ impl ProjectionField {
     #[must_use]
     pub(in crate::db) fn direct_field_name(&self) -> Option<&str> {
         direct_projection_expr_field_name(self.expr())
-    }
-
-    // Identity projection stays on the direct field leaf with no alias or
-    // computed wrapper, and must preserve the model-declared field name.
-    fn is_identity_field_projection(&self, field_model: &FieldModel) -> bool {
-        match self {
-            Self::Scalar {
-                expr: Expr::Field(field_id),
-                alias: None,
-            } => field_id.as_str() == field_model.name(),
-            Self::Scalar { .. } => false,
-        }
     }
 }
 
@@ -710,7 +696,7 @@ mod tests {
         }]);
 
         let slots = projection
-            .referenced_slots_for_schema(&MODEL, &schema)
+            .referenced_slots_for_schema(&schema)
             .expect("field-path projection should resolve through accepted schema");
 
         assert_eq!(slots, vec![7]);

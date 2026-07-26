@@ -3,6 +3,8 @@
 //! Does not own: generic scalar terminal dispatch or non-count aggregate reducers.
 //! Boundary: COUNT-specific helpers consumed by aggregate terminal orchestration.
 
+#[cfg(feature = "sql")]
+use crate::{db::Db, traits::CanisterKind};
 use crate::{
     db::{
         access::{ExecutableAccessPlan, ExecutionPathPayload},
@@ -112,27 +114,25 @@ fn measure_index_prefix_cardinality_preflight<T>(run: impl FnOnce() -> T) -> (u6
     (0, run())
 }
 
-impl<E> LoadExecutor<E>
+#[cfg(feature = "sql")]
+pub(in crate::db) fn execute_direct_count_index_prefix_cardinality_for_canister<C>(
+    db: &Db<C>,
+    authority: EntityAuthority,
+    page: Option<&PageSpec>,
+    prefixes: &[LoweredIndexPrefixCardinalitySpec],
+) -> Result<Option<ScalarTerminalBoundaryOutput>, InternalError>
 where
-    E: EntityKind + EntityValue,
+    C: CanisterKind,
 {
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn execute_direct_count_index_prefix_cardinality_request(
-        &self,
-        authority: EntityAuthority,
-        page: Option<&PageSpec>,
-        prefixes: &[LoweredIndexPrefixCardinalitySpec],
-    ) -> Result<Option<ScalarTerminalBoundaryOutput>, InternalError> {
-        let store = self.db.recovered_store(authority.store_path())?;
-        Ok(execute_measured_index_prefix_cardinality_terminal(
-            authority.entity_path(),
-            || {},
-            || {
-                count_index_prefix_cardinality_specs(store, page, prefixes)
-                    .map(ScalarTerminalBoundaryOutput::Count)
-            },
-        ))
-    }
+    let store = db.recovered_store(authority.store_path())?;
+    Ok(execute_measured_index_prefix_cardinality_terminal(
+        authority.entity_path(),
+        || {},
+        || {
+            count_index_prefix_cardinality_specs(store, page, prefixes)
+                .map(ScalarTerminalBoundaryOutput::Count)
+        },
+    ))
 }
 
 fn execute_measured_index_prefix_cardinality_terminal(

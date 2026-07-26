@@ -407,7 +407,12 @@ SQL session commands are available with the `sql` feature. They are
 trusted/admin surfaces unless wrapped by an application-owned policy.
 
 ```rust
-db.execute_trusted_sql_query::<E>(sql)
+db.execute_trusted_sql_query(sql)
+db.execute_trusted_dynamic_query(
+    &DynamicQuery::new("app::User")
+        .select(["name", "age"])
+        .limit(25),
+)
 db.execute_trusted_sql_mutation::<E>(sql)
 db.execute_trusted_sql_exact_update::<E>(sql, require_affected_at_most)
 db.execute_trusted_sql_prefix_update::<E>(sql)
@@ -415,6 +420,11 @@ db.prepare_trusted_sql_resumable_update::<E>(operation_id, sql)
 db.resume_trusted_sql_resumable_update::<E>(operation_id, sql, continuation)
 db.execute_admin_sql_ddl::<E>(sql)
 ```
+
+Trusted SQL and dynamic reads resolve the statement/request entity directly
+through accepted catalog authority. They do not require a generated Rust entity
+type. Typed/fluent reads remain the ergonomic outer adapter when the
+application wants generated entity values.
 
 The broad mutation helper accepts `INSERT` and `DELETE`. An `UPDATE` must state
 whether the complete target is required (`exact`) or one deliberate ordered
@@ -512,8 +522,8 @@ application-owned SQL ingress. Do not call them directly from ordinary endpoint
 code unless that endpoint owns the policy boundary explicitly.
 
 ```rust
-db.execute_trusted_sql_query_with_perf_attribution::<E>(sql)
-db.execute_trusted_sql_query_with_attribution::<E>(sql)
+db.execute_trusted_sql_query_with_perf_attribution(sql)
+db.execute_trusted_sql_query_with_attribution(sql)
 
 db.execute_validated_sql_public_primary_key_update::<E>(plan)
 db.execute_sql_public_primary_key_update::<E>(sql)

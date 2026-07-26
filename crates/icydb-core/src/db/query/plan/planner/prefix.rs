@@ -21,7 +21,7 @@ use crate::{
         },
         schema::SchemaInfo,
     },
-    model::{entity::EntityModel, index::IndexKeyItemsRef},
+    model::index::IndexKeyItemsRef,
     value::{Value, canonicalize_value_set},
 };
 
@@ -39,12 +39,7 @@ fn leading_index_prefix_lookup_value(
 // This helper now carries one explicit planner-visible index slice in addition
 // to the existing schema/field/order inputs so callers can keep lifecycle
 // gating at the planner boundary instead of reopening store state here.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "planner prefix access keeps field/value/order inputs explicit at this boundary"
-)]
 pub(super) fn index_prefix_for_eq(
-    _model: &EntityModel,
     candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     field: &str,
@@ -214,7 +209,6 @@ fn best_strict_field_multi_lookup_index<'a>(
 }
 
 pub(super) fn index_prefix_from_and(
-    _model: &EntityModel,
     candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     children: &[Predicate],
@@ -284,7 +278,6 @@ pub(super) fn index_prefix_from_and(
 }
 
 pub(super) fn index_branch_set_from_and(
-    _model: &EntityModel,
     candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     children: &[Predicate],

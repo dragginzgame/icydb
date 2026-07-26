@@ -2,6 +2,8 @@ use super::contracts::{AccessPlannedQuery, QueryMode};
 #[cfg(feature = "sql")]
 use super::contracts::{CoveringHybridReadExecutionPlan, CoveringReadExecutionPlan};
 #[cfg(feature = "sql")]
+use crate::db::executor::PreparedLoadPlan;
+#[cfg(feature = "sql")]
 use crate::db::executor::{
     PreparedScalarPlanCore, PreparedScalarRuntimeHandoff, SharedPreparedProjectionRuntimeHandoff,
     pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
@@ -113,6 +115,39 @@ impl SharedPreparedExecutionPlan {
 
     pub(in crate::db) fn execution_family(&self) -> Result<ExecutionFamily, InternalError> {
         self.core.execution_family()
+    }
+
+    /// Borrow the accepted schema authority frozen into this shared plan.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn accepted_schema_authority(
+        &self,
+    ) -> Result<&crate::db::schema::AcceptedSchemaAuthority, InternalError> {
+        self.authority.accepted_schema_authority()
+    }
+
+    /// Validate an already-decoded grouped continuation token.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn prepare_grouped_cursor_token(
+        &self,
+        cursor: Option<crate::db::cursor::GroupedContinuationToken>,
+    ) -> Result<crate::db::cursor::ValidatedGroupedCursor, crate::db::executor::ExecutorPlanError>
+    {
+        let Some(contract) = self.core.residents.continuation.as_ref() else {
+            return Err(crate::db::executor::ExecutorPlanError::grouped_cursor_preparation_requires_grouped_plan());
+        };
+
+        contract
+            .prepare_grouped_cursor_token(self.authority.entity_path(), cursor)
+            .map_err(crate::db::executor::ExecutorPlanError::from)
+    }
+
+    /// Consume this generic-free shared plan into grouped/scalar load runtime.
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db::executor) fn into_prepared_load_plan(self) -> PreparedLoadPlan {
+        let Self { authority, core } = self;
+
+        PreparedLoadPlan { authority, core }
     }
 
     #[must_use]

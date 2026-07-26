@@ -27,9 +27,10 @@ use crate::{
 #[cfg(feature = "sql")]
 use crate::{
     db::schema::{
+        canonicalize_filter_literal_for_persisted_kind,
         canonicalize_strict_sql_literal_for_persisted_kind, enum_catalog::ValueAdmissionBudget,
     },
-    model::canonicalize_strict_sql_literal_for_kind,
+    model::{canonicalize_filter_literal_for_kind, canonicalize_strict_sql_literal_for_kind},
     value::Value,
 };
 #[cfg(test)]
@@ -621,15 +622,21 @@ impl SchemaInfo {
         schema_field_info(self.fields.as_slice(), name).map(|field| field.slot)
     }
 
-    /// Return whether one top-level field permits explicit persisted `NULL`.
+    /// Return accepted field names in canonical physical-slot order.
     ///
-    /// Accepted schema views source this from persisted field snapshots, while
-    /// generated schema views retain generated field metadata for test-only
-    /// model queries.
+    /// Structural identity projection uses this ordering instead of reopening
+    /// generated declaration metadata. Accepted row layouts guarantee one
+    /// unique top-level slot per live field.
     #[must_use]
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn field_nullable(&self, name: &str) -> Option<bool> {
-        schema_field_info(self.fields.as_slice(), name).map(|field| field.nullable)
+    pub(in crate::db) fn field_names_in_slot_order(&self) -> Vec<&str> {
+        let mut fields = self
+            .fields
+            .iter()
+            .map(|(name, field)| (field.slot, name.as_str()))
+            .collect::<Vec<_>>();
+        fields.sort_unstable_by_key(|(slot, _)| *slot);
+
+        fields.into_iter().map(|(_, name)| name).collect()
     }
 
     /// Return whether one top-level row slot is backed by a scalar leaf codec.
@@ -835,6 +842,39 @@ impl SchemaInfo {
             .kind
             .as_ref()
             .and_then(|kind| canonicalize_strict_sql_literal_for_kind(kind, value))
+    }
+
+    /// Canonicalize one string-backed public filter literal against this
+    /// schema's accepted field authority.
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn canonicalize_filter_literal(
+        &self,
+        field_name: &str,
+        value: &Value,
+    ) -> Option<Value> {
+        let field = schema_field_info(self.fields.as_slice(), field_name)?;
+
+        if let Some(kind) = field.persisted_kind.as_ref() {
+            if matches!(kind, AcceptedFieldKind::Enum { .. }) {
+                let Value::Text(variant) = value else {
+                    return None;
+                };
+                let contract = self.accepted_field_contract(field_name)?;
+                let input = crate::value::InputValue::Enum(crate::value::InputValueEnum::loose(
+                    variant.clone(),
+                ));
+                return contract
+                    .normalize_input_to_runtime(input, &mut ValueAdmissionBudget::standard())
+                    .ok();
+            }
+            return canonicalize_filter_literal_for_persisted_kind(kind, value);
+        }
+
+        field
+            .kind
+            .as_ref()
+            .and_then(|kind| canonicalize_filter_literal_for_kind(kind, value))
     }
 
     /// Build one owned schema view from trusted generated field metadata.

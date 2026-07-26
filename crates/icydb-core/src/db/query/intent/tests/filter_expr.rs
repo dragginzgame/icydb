@@ -2,9 +2,9 @@ use super::support::*;
 
 #[test]
 fn filter_expr_build_plan_model_preserves_scalar_filter_expression_ownership() {
-    let plan = QueryModel::<Ulid>::new(basic_model(), MissingRowPolicy::Ignore)
-        .filter(FieldRef::new("name").eq("Ada"))
-        .build_plan_model()
+    let plan = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore)
+        .filter_for_model(basic_model(), FieldRef::new("name").eq("Ada"))
+        .build_plan_model(basic_model())
         .expect("fluent filter expression plan should build");
 
     assert!(
@@ -27,16 +27,17 @@ fn filter_expr_build_plan_model_preserves_scalar_filter_expression_ownership() {
 
 #[test]
 fn build_plan_model_rejects_map_field_predicates_before_planning() {
-    let intent = QueryModel::<Ulid>::new(&MAP_PLAN_MODEL, MissingRowPolicy::Ignore)
-        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
+    let intent = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore).filter_predicate(
+        Predicate::Compare(ComparePredicate::with_coercion(
             "attributes",
             CompareOp::Eq,
             Value::Map(Vec::new()),
             crate::db::predicate::CoercionId::Strict,
-        )));
+        )),
+    );
 
     let err = intent
-        .build_plan_model()
+        .build_plan_model(&MAP_PLAN_MODEL)
         .expect_err("map field predicates must be rejected before planning");
     assert!(query_error_is_predicate_validation_error(&err, |inner| {
         matches!(

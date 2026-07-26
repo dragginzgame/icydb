@@ -13,6 +13,7 @@ mod runtime;
 pub(in crate::db) use crate::db::session::sql::projection::contract::SqlProjectionContract;
 #[cfg(feature = "sql-explain")]
 pub(in crate::db::session::sql) use crate::db::session::sql::projection::labels::annotate_sql_projection_debug_on_execution_descriptor;
+pub(in crate::db::session) use crate::db::session::sql::projection::payload::SqlProjectionPayload;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db::session::sql) use crate::db::session::sql::projection::runtime::execute_sql_projection_rows_for_canister_with_direct_data_row_attribution;
 #[cfg(all(test, feature = "sql", not(feature = "diagnostics")))]
@@ -24,7 +25,7 @@ pub use crate::db::session::sql::projection::runtime::{
 pub(in crate::db::session::sql) use crate::db::session::sql::projection::{
     labels::projection_contract_from_projection_spec,
     payload::{
-        SqlProjectionPayload, sql_projection_statement_result_from_fallible_value_rows,
+        sql_projection_statement_result_from_fallible_value_rows,
         sql_projection_statement_result_from_value_rows,
     },
     runtime::execute_sql_projection_rows_for_canister,

@@ -6,13 +6,12 @@ use crate::{
             lowering::{
                 SqlLoweringError,
                 aggregate::lowering::{
-                    LoweredSqlAggregateShape, validate_analyzed_model_bound_scalar_expr,
+                    LoweredSqlAggregateShape, validate_analyzed_schema_bound_scalar_expr,
                 },
             },
             parser::{SqlAggregateCall, SqlExpr, SqlSelectItem},
         },
     },
-    model::entity::EntityModel,
     value::{Value, hash_value},
 };
 use std::{
@@ -119,21 +118,18 @@ pub(in crate::db::sql::lowering) fn resolve_having_aggregate_expr_index(
 // so alias leakage inside FILTER or aggregate inputs fails as a user-facing
 // SQL error before grouped execution reaches its scalar compiler invariant.
 pub(in crate::db::sql::lowering::aggregate) fn validate_grouped_aggregate_scalar_subexpressions(
-    model: &'static EntityModel,
     schema: &SchemaInfo,
     aggregate: &LoweredSqlAggregateShape,
 ) -> Result<(), SqlLoweringError> {
     if let Some(input_expr) = aggregate.input_expr() {
-        validate_analyzed_model_bound_scalar_expr(
-            model,
+        validate_analyzed_schema_bound_scalar_expr(
             schema,
             input_expr,
             SqlLoweringError::unsupported_aggregate_input_expressions,
         )?;
     }
     if let Some(filter_expr) = aggregate.filter_expr() {
-        validate_analyzed_model_bound_scalar_expr(
-            model,
+        validate_analyzed_schema_bound_scalar_expr(
             schema,
             filter_expr,
             SqlLoweringError::unsupported_where_expression,

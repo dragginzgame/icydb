@@ -925,9 +925,8 @@ impl AccessPlannedQuery {
 
     /// Freeze one explain-only access-choice snapshot using already-projected
     /// semantic index contracts from the visible-index boundary.
-    pub(in crate::db) fn finalize_access_choice_for_model_with_semantic_indexes_and_schema(
+    pub(in crate::db) fn finalize_access_choice_with_semantic_indexes_and_schema(
         &mut self,
-        model: &EntityModel,
         semantic_indexes: &[SemanticIndexAccessContract],
         schema_info: &SchemaInfo,
     ) {
@@ -937,7 +936,6 @@ impl AccessPlannedQuery {
 
         self.access_choice =
             project_access_choice_explain_snapshot_with_semantic_indexes_and_schema(
-                model,
                 semantic_indexes,
                 schema_info,
                 self,

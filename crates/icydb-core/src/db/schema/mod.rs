@@ -141,6 +141,8 @@ pub(in crate::db) use constraint_validation::{
     accepted_constraint_field_paths, decode_constraint_validation_job,
     encode_constraint_validation_job,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use describe::describe_accepted_entity_with_persisted_schema;
 pub(in crate::db) use describe::{
     describe_entity_fields, describe_entity_fields_with_persisted_schema, describe_entity_model,
     describe_entity_model_with_persisted_schema,
@@ -275,8 +277,7 @@ pub(in crate::db) use reconcile::{
 #[cfg(feature = "sql")]
 pub(in crate::db) use runtime::AcceptedRowLayoutRuntimeField;
 pub(in crate::db) use runtime::{
-    AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract,
-    AcceptedGeneratedRowCompatibilityProof, AcceptedInsertOmissionPolicy,
+    AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract, AcceptedInsertOmissionPolicy,
     AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract, OwnedAcceptedFieldDecodeContract,
     OwnedAcceptedRelationEdgeContract, accepted_insert_field_is_omittable,
 };
@@ -332,9 +333,12 @@ pub(in crate::db) fn validate_accepted_schema_bundle_format_for_tests(
 pub(in crate::db::schema) use transition::{
     SchemaTransitionDecision, SchemaTransitionPlanKind, decide_schema_transition,
 };
-#[cfg(any(test, feature = "sql"))]
-#[cfg(feature = "sql")]
-pub(in crate::db) use types::canonicalize_strict_sql_literal_for_persisted_kind;
 pub(in crate::db) use types::field_type_from_persisted_kind;
 pub(in crate::db) use types::input_value_from_strict_sql_literal_for_persisted_kind;
 pub(crate) use types::{FieldType, ScalarType, field_type_from_model_kind, literal_matches_type};
+#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
+pub(in crate::db) use types::{
+    canonicalize_filter_literal_for_persisted_kind,
+    canonicalize_strict_sql_literal_for_persisted_kind,
+};

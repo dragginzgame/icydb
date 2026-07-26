@@ -10,8 +10,6 @@ use crate::db::schema::{
 #[cfg(test)]
 use crate::entity::EntityKind;
 #[cfg(test)]
-use crate::model::field::FieldModel;
-#[cfg(test)]
 use crate::traits::Path;
 use crate::{
     db::{
@@ -24,14 +22,10 @@ use crate::{
             AccessPlannedQuery, AggregateKind, CoveringReadExecutionPlan,
             PlannedContinuationContract, covering_read_execution_plan_with_schema_info,
         },
-        schema::{
-            AcceptedGeneratedRowCompatibilityProof, AcceptedRowDecodeContract,
-            AcceptedSchemaAuthority, SchemaInfo,
-        },
+        schema::{AcceptedRowDecodeContract, AcceptedSchemaAuthority, SchemaInfo},
     },
     error::InternalError,
     metrics::sink::record_prepared_shape_already_finalized_for_path,
-    model::entity::EntityModel,
     types::EntityTag,
     value::Value,
 };
@@ -41,16 +35,13 @@ use std::sync::Arc;
 /// EntityAuthority
 ///
 /// EntityAuthority is the canonical structural entity-identity bundle used by
-/// executor runtime preparation once typed API boundaries have resolved the
-/// concrete entity type.
-/// It keeps model, entity-tag, and store path authority aligned while deriving
-/// the entity path from the model itself so execution-core code does not pass
-/// duplicated metadata independently.
+/// executor runtime preparation once a session has resolved accepted schema
+/// authority. It deliberately carries no generated application model.
 ///
 
 #[derive(Clone, Debug)]
 pub(in crate::db) struct EntityAuthority {
-    model: &'static EntityModel,
+    entity_path: &'static str,
     row_layout: Option<RowLayout>,
     entity_tag: EntityTag,
     store_path: &'static str,
@@ -61,21 +52,17 @@ impl EntityAuthority {
     /// Build complete runtime authority from accepted schema contracts.
     #[must_use]
     pub(in crate::db) fn from_accepted_row_decode_contract(
-        model: &'static EntityModel,
+        entity_path: &'static str,
         entity_tag: EntityTag,
         store_path: &'static str,
-        row_proof: AcceptedGeneratedRowCompatibilityProof,
         accepted_decode_contract: AcceptedRowDecodeContract,
         accepted_schema_info: SchemaInfo,
     ) -> Self {
-        let row_layout = RowLayout::from_generated_compatible_accepted_decode_contract(
-            model.path(),
-            row_proof,
-            accepted_decode_contract,
-        );
+        let row_layout =
+            RowLayout::from_accepted_decode_contract(entity_path, accepted_decode_contract);
 
         Self {
-            model,
+            entity_path,
             row_layout: Some(row_layout),
             entity_tag,
             store_path,
@@ -83,26 +70,17 @@ impl EntityAuthority {
         }
     }
 
-    #[cfg(test)]
-    const fn raw_for_test(
-        model: &'static EntityModel,
-        entity_tag: EntityTag,
-        store_path: &'static str,
-    ) -> Self {
-        Self {
-            model,
-            row_layout: None,
-            entity_tag,
-            store_path,
-            accepted_schema_info: None,
-        }
-    }
-
     /// Build raw generated authority from one resolved entity type for tests.
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db) const fn for_generated_type_for_test<E: EntityKind>() -> Self {
-        Self::raw_for_test(E::MODEL, E::ENTITY_TAG, E::Store::PATH)
+    pub(in crate::db) fn for_generated_type_for_test<E: EntityKind>() -> Self {
+        Self {
+            entity_path: E::PATH,
+            row_layout: Some(RowLayout::from_model_proposal_for_test(E::MODEL)),
+            entity_tag: E::ENTITY_TAG,
+            store_path: E::Store::PATH,
+            accepted_schema_info: None,
+        }
     }
 
     /// Build production-shaped accepted authority for executor tests.
@@ -117,7 +95,7 @@ impl EntityAuthority {
             .expect("generated model proposal should resolve through its test catalogs");
         let accepted = AcceptedSchemaSnapshot::try_new(snapshot)
             .expect("generated model proposal should produce an accepted test schema");
-        let (descriptor, row_proof) =
+        let (descriptor, _row_proof) =
             AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
                 &accepted,
                 E::MODEL,
@@ -139,50 +117,23 @@ impl EntityAuthority {
         );
 
         Self::from_accepted_row_decode_contract(
-            E::MODEL,
+            E::PATH,
             E::ENTITY_TAG,
             E::Store::PATH,
-            row_proof,
             row_contract,
             schema_info,
         )
     }
 
-    /// Return authority with generated row decode attached for test-only
-    /// prepared plan construction.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn with_generated_row_layout_for_test(self) -> Self {
-        Self {
-            row_layout: Some(RowLayout::from_model_proposal_for_test(self.model)),
-            ..self
-        }
-    }
-
-    /// Return authority with cursor schema facts supplied by test-only
-    /// generated plan construction.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn with_cursor_schema_info_for_test(self, schema_info: SchemaInfo) -> Self {
-        let authority = self.with_generated_row_layout_for_test();
-
-        Self {
-            accepted_schema_info: Some(Arc::new(schema_info)),
-            ..authority
-        }
-    }
-
-    /// Borrow the entity model authority.
-    #[must_use]
-    pub(in crate::db) const fn model(&self) -> &'static EntityModel {
-        self.model
-    }
-
-    /// Borrow the authoritative generated field table for this entity.
+    /// Attach explicit accepted schema authority to one test-only entity shell.
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db) const fn fields(&self) -> &'static [FieldModel] {
-        self.model.fields()
+    pub(in crate::db) fn with_accepted_schema_info_for_test(
+        mut self,
+        schema_info: SchemaInfo,
+    ) -> Self {
+        self.accepted_schema_info = Some(Arc::new(schema_info));
+        self
     }
 
     /// Borrow the frozen structural row-decode layout for this entity.
@@ -246,7 +197,7 @@ impl EntityAuthority {
     /// Borrow structural entity-path authority.
     #[must_use]
     pub(in crate::db) const fn entity_path(&self) -> &'static str {
-        self.model.path()
+        self.entity_path
     }
 
     /// Borrow structural store-path authority.
@@ -272,11 +223,8 @@ impl EntityAuthority {
             .accepted_schema_info
             .as_ref()
             .ok_or_else(InternalError::query_executor_invariant)?;
-        plan.finalize_static_execution_planning_contract_for_model_with_schema(
-            self.model,
-            schema_info,
-        )
-        .map_err(|_err| InternalError::query_executor_invariant())?;
+        plan.finalize_static_execution_planning_contract_with_schema(schema_info)
+            .map_err(|_err| InternalError::query_executor_invariant())?;
 
         Ok(())
     }
@@ -529,16 +477,18 @@ mod tests {
     #[test]
     fn authority_finalization_preserves_schema_finalized_static_contract() {
         metrics_reset_all();
-        let authority = EntityAuthority::raw_for_test(
-            &MODEL,
-            EntityTag::new(0x1460_0013),
-            AUTHORITY_SCHEMA_SLOT_TEST_STORE_PATH,
-        );
+        let authority = EntityAuthority {
+            entity_path: MODEL.path(),
+            row_layout: None,
+            entity_tag: EntityTag::new(0x1460_0013),
+            store_path: AUTHORITY_SCHEMA_SLOT_TEST_STORE_PATH,
+            accepted_schema_info: None,
+        };
         let schema = accepted_schema_with_profile_slot(SchemaFieldSlot::new(7));
         let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
         plan.projection_selection = ProjectionSelection::Fields(vec![ExprFieldId::new("profile")]);
 
-        plan.finalize_static_execution_planning_contract_for_model_with_schema(&MODEL, &schema)
+        plan.finalize_static_execution_planning_contract_with_schema(&schema)
             .expect("schema-finalized static shape should build");
         assert_eq!(plan.frozen_direct_projection_slots(), Some([7].as_slice()));
 
@@ -558,14 +508,16 @@ mod tests {
     #[test]
     fn authority_finalization_uses_authority_schema_when_shape_is_missing() {
         metrics_reset_all();
-        let authority = EntityAuthority::raw_for_test(
-            &MODEL,
-            EntityTag::new(0x1460_0014),
-            AUTHORITY_SCHEMA_SLOT_TEST_STORE_PATH,
-        )
-        .with_cursor_schema_info_for_test(accepted_schema_with_profile_slot(SchemaFieldSlot::new(
-            7,
-        )));
+        let authority = EntityAuthority {
+            entity_path: MODEL.path(),
+            row_layout: None,
+            entity_tag: EntityTag::new(0x1460_0014),
+            store_path: AUTHORITY_SCHEMA_SLOT_TEST_STORE_PATH,
+            accepted_schema_info: None,
+        }
+        .with_accepted_schema_info_for_test(accepted_schema_with_profile_slot(
+            SchemaFieldSlot::new(7),
+        ));
         let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
         plan.projection_selection = ProjectionSelection::Fields(vec![ExprFieldId::new("profile")]);
 

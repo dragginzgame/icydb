@@ -10,7 +10,7 @@ use crate::types::GenerateKey;
 // ORDER BY is present.
 fn assert_delete_window_requires_order(label: &str, limit: Option<u32>, offset: Option<u32>) {
     let model = basic_model();
-    let mut intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore).delete();
+    let mut intent = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore).delete();
     if let Some(limit) = limit {
         intent = intent.limit(limit);
     }
@@ -20,7 +20,7 @@ fn assert_delete_window_requires_order(label: &str, limit: Option<u32>, offset: 
 
     assert!(
         matches!(
-            intent.build_plan_model(),
+            intent.build_plan_model(model),
             Err(QueryError::Intent(IntentError::PlanShape(
                 crate::db::query::plan::validate::PolicyPlanError::DeleteWindowRequiresOrder
             )))
@@ -58,12 +58,12 @@ fn assert_unordered_pagination_rejects(label: &str, limit: Option<u32>, offset: 
 #[test]
 fn intent_rejects_by_ids_with_predicate() {
     let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore)
+    let intent = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore)
         .by_ids([Ulid::generate()])
         .filter_predicate(Predicate::True);
 
     std::assert_matches!(
-        intent.build_plan_model(),
+        intent.build_plan_model(model),
         Err(QueryError::Intent(IntentError::ByIdsWithPredicate))
     );
 }
@@ -71,12 +71,12 @@ fn intent_rejects_by_ids_with_predicate() {
 #[test]
 fn intent_rejects_only_with_predicate() {
     let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore)
+    let intent = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore)
         .only(Ulid::generate())
         .filter_predicate(Predicate::True);
 
     std::assert_matches!(
-        intent.build_plan_model(),
+        intent.build_plan_model(model),
         Err(QueryError::Intent(IntentError::OnlyWithPredicate))
     );
 }
@@ -94,13 +94,13 @@ fn intent_rejects_delete_window_without_order_matrix() {
 #[test]
 fn intent_accepts_ordered_delete_offset_shape() {
     let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore)
+    let intent = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore)
         .offset(10)
         .delete()
         .order_term(crate::db::asc("id"));
 
     intent
-        .build_plan_model()
+        .build_plan_model(model)
         .expect("ordered delete with offset should pass intent validation");
 }
 
@@ -192,25 +192,23 @@ fn residual_name_filter_expr(value: &str) -> Expr {
 #[cfg(feature = "sql")]
 #[test]
 fn direct_count_cardinality_candidate_requires_full_visible_filter_coverage() {
-    let predicate_only = StructuralQuery::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
+    let predicate_only = StructuralQuery::new(MissingRowPolicy::Ignore)
         .filter_normalized_predicate(name_eq_predicate("Ada"));
     assert!(
         predicate_only.direct_count_cardinality_prefix_candidate(),
         "predicate-only exact-prefix filters should remain direct COUNT cardinality candidates",
     );
 
-    let expression_with_full_predicate =
-        StructuralQuery::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
-            .filter_expr_with_normalized_predicate(name_eq_expr("Ada"), name_eq_predicate("Ada"));
+    let expression_with_full_predicate = StructuralQuery::new(MissingRowPolicy::Ignore)
+        .filter_expr_with_normalized_predicate(name_eq_expr("Ada"), name_eq_predicate("Ada"));
     assert!(
         expression_with_full_predicate.direct_count_cardinality_prefix_candidate(),
         "visible filters whose predicate subset fully covers the expression should remain direct COUNT cardinality candidates",
     );
 
-    let residual_filter_with_predicate =
-        StructuralQuery::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
-            .filter_expr(residual_name_filter_expr("Ada"))
-            .filter_normalized_predicate(name_eq_predicate("Ada"));
+    let residual_filter_with_predicate = StructuralQuery::new(MissingRowPolicy::Ignore)
+        .filter_expr(residual_name_filter_expr("Ada"))
+        .filter_normalized_predicate(name_eq_predicate("Ada"));
     assert!(
         !residual_filter_with_predicate.direct_count_cardinality_prefix_candidate(),
         "direct COUNT cardinality candidates must not ignore visible residual filter semantics",
@@ -285,11 +283,11 @@ fn typed_order_terms_preserve_expression_shape_without_sort_parsing() {
 #[test]
 fn intent_rejects_empty_order_spec() {
     let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore)
+    let intent = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore)
         .order_spec(OrderSpec { fields: Vec::new() });
 
     std::assert_matches!(
-        intent.build_plan_model(),
+        intent.build_plan_model(model),
         Err(QueryError::Intent(IntentError::PlanShape(
             crate::db::query::plan::validate::PolicyPlanError::EmptyOrderSpec
         )))
@@ -299,12 +297,12 @@ fn intent_rejects_empty_order_spec() {
 #[test]
 fn intent_rejects_conflicting_key_access() {
     let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore)
+    let intent = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore)
         .by_id(Ulid::generate())
         .by_ids([Ulid::generate()]);
 
     std::assert_matches!(
-        intent.build_plan_model(),
+        intent.build_plan_model(model),
         Err(QueryError::Intent(IntentError::KeyAccessConflict))
     );
 }
@@ -412,10 +410,10 @@ fn by_id_limit_one_without_order_simplifies_paging_shape() {
 #[test]
 fn by_key_access_strips_redundant_primary_key_equality_predicate() {
     let key = Ulid::generate();
-    let model_plan = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
+    let model_plan = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore)
         .by_id(key)
-        .filter(FieldRef::new("id").eq(key))
-        .build_plan_model()
+        .filter_for_model(basic_model(), FieldRef::new("id").eq(key))
+        .build_plan_model(basic_model())
         .expect("model by_id + id == literal plan should build");
     let AccessPlannedQuery {
         logical,
@@ -447,7 +445,7 @@ fn by_key_access_strips_redundant_primary_key_equality_predicate() {
 fn by_keys_access_strips_redundant_primary_key_in_predicate() {
     let key1 = Ulid::from_u128(9_811);
     let key2 = Ulid::from_u128(9_813);
-    let model_plan = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
+    let model_plan = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore)
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "id",
             CompareOp::In,
@@ -458,7 +456,7 @@ fn by_keys_access_strips_redundant_primary_key_in_predicate() {
             ]),
             CoercionId::Strict,
         )))
-        .build_plan_model()
+        .build_plan_model(basic_model())
         .expect("model id IN literal-set plan should build");
     let AccessPlannedQuery {
         logical,
@@ -494,7 +492,7 @@ fn by_keys_access_strips_redundant_primary_key_in_predicate() {
 fn key_range_access_strips_redundant_primary_key_half_open_bounds() {
     let lower = Ulid::from_u128(9_811);
     let upper = Ulid::from_u128(9_813);
-    let model_plan = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
+    let model_plan = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore)
         .filter_predicate(Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
                 "id",
@@ -509,7 +507,7 @@ fn key_range_access_strips_redundant_primary_key_half_open_bounds() {
                 CoercionId::Strict,
             )),
         ]))
-        .build_plan_model()
+        .build_plan_model(basic_model())
         .expect("model id half-open range plan should build");
     let AccessPlannedQuery {
         logical,
@@ -557,8 +555,10 @@ fn singleton_uses_default_key() {
 #[test]
 fn build_plan_model_full_scan_without_predicate() {
     let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore);
-    let plan = intent.build_plan_model().expect("model plan should build");
+    let intent = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore);
+    let plan = intent
+        .build_plan_model(model)
+        .expect("model plan should build");
 
     std::assert_matches!(
         plan.access,
@@ -568,10 +568,10 @@ fn build_plan_model_full_scan_without_predicate() {
 
 #[test]
 fn build_plan_model_limit_zero_lowers_to_empty_by_keys() {
-    let plan = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
+    let plan = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("id"))
         .limit(0)
-        .build_plan_model()
+        .build_plan_model(basic_model())
         .expect("ordered limit(0) plan should build");
 
     std::assert_matches!(
@@ -588,9 +588,9 @@ fn build_plan_model_limit_zero_lowers_to_empty_by_keys() {
 
 #[test]
 fn build_plan_model_constant_false_lowers_to_empty_by_keys() {
-    let plan = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
+    let plan = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore)
         .filter_predicate(Predicate::False)
-        .build_plan_model()
+        .build_plan_model(basic_model())
         .expect("constant false plan should build");
 
     assert!(
@@ -614,9 +614,9 @@ fn build_plan_model_constant_false_lowers_to_empty_by_keys() {
 
 #[test]
 fn build_plan_model_constant_true_elides_logical_predicate() {
-    let plan = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
+    let plan = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore)
         .filter_predicate(Predicate::True)
-        .build_plan_model()
+        .build_plan_model(basic_model())
         .expect("constant true plan should build");
 
     assert!(
@@ -636,13 +636,15 @@ fn build_plan_model_constant_true_elides_logical_predicate() {
 fn typed_plan_matches_model_plan_for_same_intent() {
     let predicate = FieldRef::new("id").eq(Ulid::nil());
 
-    let model_intent = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
-        .filter(predicate.clone())
+    let model_intent = QueryModel::<Ulid>::new(MissingRowPolicy::Ignore)
+        .filter_for_model(basic_model(), predicate.clone())
         .order_term(crate::db::asc("name"))
         .limit(10)
         .offset(2);
 
-    let model_plan = model_intent.build_plan_model().expect("model plan");
+    let model_plan = model_intent
+        .build_plan_model(basic_model())
+        .expect("model plan");
     let AccessPlannedQuery {
         logical: _model_logical,
         access: _model_access,

@@ -142,7 +142,6 @@ impl<C: CanisterKind> DbSession<C> {
         if let Some((mode, verbose, command)) =
             bind_lowered_sql_explain_global_aggregate_with_schema(
                 lowered,
-                authority.model(),
                 MissingRowPolicy::Ignore,
                 schema_info,
             )
@@ -181,7 +180,6 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         let structural = bind_lowered_sql_query_structural_with_schema(
-            authority.model(),
             query.clone(),
             MissingRowPolicy::Ignore,
             schema_info,
@@ -230,7 +228,6 @@ impl<C: CanisterKind> DbSession<C> {
         };
 
         let structural = bind_lowered_sql_query_structural_with_schema(
-            authority.model(),
             query.clone(),
             MissingRowPolicy::Ignore,
             schema_info,
@@ -245,14 +242,13 @@ impl<C: CanisterKind> DbSession<C> {
                 )?;
             let visible_indexes = self
                 .visible_indexes_for_store_accepted_schema(authority.store_path(), schema_info)?;
-            plan.finalize_access_choice_for_model_with_semantic_indexes_and_schema(
-                authority.model(),
+            plan.finalize_access_choice_with_semantic_indexes_and_schema(
                 visible_indexes.accepted_semantic_index_contracts(),
                 schema_info,
             );
             let projection = plan.frozen_projection_spec().map_err(QueryError::execute)?;
-            let diagnostics = structural
-                .finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(
+            let diagnostics =
+                StructuralQuery::finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(
                     &plan,
                     &authority,
                     Some(query_plan_cache_reuse_event(cache_attribution)),

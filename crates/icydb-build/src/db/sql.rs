@@ -44,7 +44,7 @@ impl SqlSurfaceTokens {
 
     pub(super) fn push_entity(&mut self, entity_ty: &syn::Path) {
         if self.show_entities_dispatch.is_empty() {
-            self.show_entities_dispatch = show_entities_dispatch_for(entity_ty);
+            self.show_entities_dispatch = show_entities_dispatch();
         }
         self.reset_statements
             .extend(sql_surface_reset_statement(entity_ty));
@@ -401,7 +401,7 @@ fn sql_surface_query_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
     quote! {
             Some(entity) if #entity_matches =>
             {
-                db()?.execute_trusted_sql_query_with_perf_attribution::<#entity_ty>(sql)
+                db()?.execute_trusted_sql_query_with_perf_attribution(sql)
             }
     }
 }
@@ -460,9 +460,9 @@ fn empty_sql_surface_query_dispatch() -> TokenStream {
     }
 }
 
-fn show_entities_dispatch_for(entity_ty: &syn::Path) -> TokenStream {
+fn show_entities_dispatch() -> TokenStream {
     quote! {
-        db()?.execute_trusted_sql_query_with_perf_attribution::<#entity_ty>(sql)
+        db()?.execute_trusted_sql_query_with_perf_attribution(sql)
     }
 }
 

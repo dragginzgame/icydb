@@ -331,7 +331,16 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let store = self.db.recovered_store(E::Store::PATH)?;
+        catalog.debug_assert_matches_entity::<E>();
+        self.constraint_validation_jobs_for_accepted_catalog(catalog)
+    }
+
+    pub(in crate::db::session) fn constraint_validation_jobs_for_accepted_catalog(
+        &self,
+        catalog: &crate::db::session::AcceptedSchemaCatalogContext,
+    ) -> Result<Vec<ConstraintValidationJob>, InternalError> {
+        let identity = catalog.inspection_plan().identity();
+        let store = self.db.recovered_store(identity.store_path())?;
         store.with_schema(|schema_store| {
             let jobs = catalog
                 .snapshot()
@@ -339,13 +348,13 @@ impl<C: CanisterKind> DbSession<C> {
                 .constraint_activations()
                 .iter()
                 .map(|activation| {
-                    schema_store.constraint_validation_job(E::ENTITY_TAG, activation.id())
+                    schema_store.constraint_validation_job(identity.entity_tag(), activation.id())
                 })
                 .collect::<Result<Vec<_>, InternalError>>()?;
             jobs.into_iter()
                 .flatten()
                 .map(|job| {
-                    if job.entity_tag() != E::ENTITY_TAG
+                    if job.entity_tag() != identity.entity_tag()
                         || job.entity_path() != catalog.snapshot().entity_path()
                     {
                         return Err(InternalError::store_invariant());

@@ -16,10 +16,12 @@ use crate::{
                 PrimaryKeyAccessProof, PrimaryKeyInputResourceSummary, VisibleIndexes,
                 build_logical_plan, fold_constant_predicate, is_limit_zero_load_window,
                 logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
-                predicate_is_constant_false, primary_key_input_resource_from_value_list,
+                plan_query_access_with_accepted_schema, predicate_is_constant_false,
+                primary_key_input_resource_from_value_list,
                 rerank_access_plan_by_residual_burden_with_indexes,
                 rerank_access_plan_by_residual_burden_with_semantic_indexes,
-                validate_group_query_semantics, validate_query_semantics,
+                validate_group_query_semantics, validate_group_query_semantics_with_schema,
+                validate_query_semantics, validate_query_semantics_with_schema,
             },
         },
         schema::SchemaInfo,
@@ -122,14 +124,16 @@ impl<'a> CountCardinalityPrefixAccess<'a> {
 /// index set.
 #[inline(never)]
 pub(in crate::db::query) fn build_query_model_plan_for_model_only<K>(
-    query: &QueryModel<'_, K>,
+    query: &QueryModel<K>,
+    model: &EntityModel,
 ) -> Result<AccessPlannedQuery, QueryError>
 where
     K: KeyValueCodec,
 {
     build_query_model_plan_with_indexes_for_model_only(
         query,
-        &VisibleIndexes::generated_model_only(query.model().indexes()),
+        model,
+        &VisibleIndexes::generated_model_only(model.indexes()),
     )
 }
 
@@ -137,26 +141,45 @@ where
 /// planner-visible index set.
 #[inline(never)]
 pub(in crate::db::query) fn build_query_model_plan_with_indexes_for_model_only<K>(
-    query: &QueryModel<'_, K>,
+    query: &QueryModel<K>,
+    model: &EntityModel,
     visible_indexes: &VisibleIndexes<'_>,
 ) -> Result<AccessPlannedQuery, QueryError>
 where
     K: KeyValueCodec,
 {
-    let planning_state = prepare_query_model_scalar_planning_state_for_model_only(query)?;
+    let planning_state = prepare_query_model_scalar_planning_state_for_model_only(query, model)?;
 
-    build_query_model_plan_with_indexes_from_scalar_planning_state(
+    build_query_model_plan_with_indexes_from_scalar_planning_state_for_authority(
         query,
         visible_indexes,
         planning_state,
+        Some(model),
     )
 }
 
 /// Build a query model plan from an already prepared scalar planning state.
 pub(in crate::db::query) fn build_query_model_plan_with_indexes_from_scalar_planning_state<K>(
-    query: &QueryModel<'_, K>,
+    query: &QueryModel<K>,
     visible_indexes: &VisibleIndexes<'_>,
     planning_state: PreparedScalarPlanningState<'_>,
+) -> Result<AccessPlannedQuery, QueryError>
+where
+    K: KeyValueCodec,
+{
+    build_query_model_plan_with_indexes_from_scalar_planning_state_for_authority(
+        query,
+        visible_indexes,
+        planning_state,
+        None,
+    )
+}
+
+fn build_query_model_plan_with_indexes_from_scalar_planning_state_for_authority<K>(
+    query: &QueryModel<K>,
+    visible_indexes: &VisibleIndexes<'_>,
+    planning_state: PreparedScalarPlanningState<'_>,
+    model_only: Option<&EntityModel>,
 ) -> Result<AccessPlannedQuery, QueryError>
 where
     K: KeyValueCodec,
@@ -182,6 +205,7 @@ where
         normalized_predicate.as_ref(),
         access_order,
         key_access_override,
+        model_only,
     )?;
     let (access_plan_value, planned_non_index_reason) =
         access_selection.into_access_and_non_index_reason();
@@ -213,14 +237,13 @@ where
     );
     let preferred_access = if visible_indexes.accepted_field_path_index_count().is_some() {
         rerank_access_plan_by_residual_burden_with_semantic_indexes(
-            query.model(),
             visible_indexes.accepted_semantic_index_contracts(),
             &schema_info,
             &plan,
         )
     } else {
         rerank_access_plan_by_residual_burden_with_indexes(
-            query.model(),
+            model_only.ok_or_else(QueryError::invariant)?,
             visible_indexes.generated_model_only_indexes(),
             &schema_info,
             &plan,
@@ -244,16 +267,13 @@ where
 
     // Phase 5: validate the assembled plan against schema, access-shape, and
     // planner-policy contracts before projecting explain metadata.
-    validate_plan_semantics(query.model(), &schema_info, &plan)?;
+    validate_plan_semantics(model_only, &schema_info, &plan)?;
 
     // Phase 6: freeze planner-owned execution metadata only after semantic
     // validation succeeds so user-facing projection/order errors remain
     // planner-domain failures instead of executor invariant violations.
-    plan.finalize_static_execution_planning_contract_for_model_with_schema(
-        query.model(),
-        &schema_info,
-    )
-    .map_err(QueryError::execute)?;
+    plan.finalize_static_execution_planning_contract_with_schema(&schema_info)
+        .map_err(QueryError::execute)?;
 
     Ok(plan)
 }
@@ -262,7 +282,7 @@ where
 /// intent that already carries a normalized SQL predicate subset.
 #[cfg(feature = "sql")]
 pub(in crate::db::query) fn try_build_count_cardinality_prefix_access_from_query_model<'query, K>(
-    query: &'query QueryModel<'_, K>,
+    query: &'query QueryModel<K>,
     visible_indexes: &VisibleIndexes<'_>,
     schema_info: &SchemaInfo,
 ) -> Result<Option<CountCardinalityPrefixAccess<'query>>, QueryError>
@@ -386,20 +406,21 @@ fn direct_count_index_supports_exact_prefix(
 /// is trivial.
 #[cfg(test)]
 pub(in crate::db::query) fn try_build_trivial_scalar_load_plan_for_model_only<K>(
-    query: &QueryModel<'_, K>,
+    query: &QueryModel<K>,
+    model: &EntityModel,
 ) -> Result<Option<AccessPlannedQuery>, QueryError>
 where
     K: KeyValueCodec,
 {
     try_build_trivial_scalar_load_plan_with_schema_info(
         query,
-        SchemaInfo::cached_for_generated_entity_model(query.model()).clone(),
+        SchemaInfo::cached_for_generated_entity_model(model).clone(),
     )
 }
 
 /// Build the no-predicate scalar-load fast path using explicit schema authority.
 pub(in crate::db::query) fn try_build_trivial_scalar_load_plan_with_schema_info<K>(
-    query: &QueryModel<'_, K>,
+    query: &QueryModel<K>,
     schema_info: SchemaInfo,
 ) -> Result<Option<AccessPlannedQuery>, QueryError>
 where
@@ -435,33 +456,31 @@ where
     // Phase 3: preserve the finalized planner/executor contracts produced by
     // the general pipeline for this same simple shape.
     plan.finalize_planner_route_profile_for_model_with_schema(&schema_info);
-    plan.finalize_static_execution_planning_contract_for_model_with_schema(
-        query.model(),
-        &schema_info,
-    )
-    .map_err(QueryError::execute)?;
+    plan.finalize_static_execution_planning_contract_with_schema(&schema_info)
+        .map_err(QueryError::execute)?;
 
     Ok(Some(plan))
 }
 
 /// Prepare model-only scalar planning inputs from generated schema metadata.
 pub(in crate::db::query) fn prepare_query_model_scalar_planning_state_for_model_only<'a, K>(
-    query: &'a QueryModel<'_, K>,
+    query: &'a QueryModel<K>,
+    model: &EntityModel,
 ) -> Result<PreparedScalarPlanningState<'a>, QueryError>
 where
     K: KeyValueCodec,
 {
     prepare_query_model_scalar_planning_state_with_schema_info(
         query,
-        SchemaInfo::cached_for_generated_entity_model(query.model()).clone(),
+        SchemaInfo::cached_for_generated_entity_model(model).clone(),
     )
 }
 
 /// Prepare scalar planning inputs using the caller-provided schema authority.
-pub(in crate::db::query) fn prepare_query_model_scalar_planning_state_with_schema_info<'a, K>(
-    query: &'a QueryModel<'_, K>,
+pub(in crate::db::query) fn prepare_query_model_scalar_planning_state_with_schema_info<K>(
+    query: &QueryModel<K>,
     schema_info: SchemaInfo,
-) -> Result<PreparedScalarPlanningState<'a>, QueryError>
+) -> Result<PreparedScalarPlanningState<'_>, QueryError>
 where
     K: KeyValueCodec,
 {
@@ -492,12 +511,13 @@ where
 // Reuse the caller-provided normalized predicate to choose one access path
 // without recomputing planner inputs or scattering the empty-window gates.
 fn plan_access_from_normalized_predicate<K>(
-    query: &QueryModel<'_, K>,
+    query: &QueryModel<K>,
     visible_indexes: &VisibleIndexes<'_>,
     schema_info: &SchemaInfo,
     normalized_predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
     key_access_override: Option<AccessPlan<Value>>,
+    model_only: Option<&EntityModel>,
 ) -> Result<PlannedAccessSelection, QueryError>
 where
     K: KeyValueCodec,
@@ -517,29 +537,40 @@ where
         ));
     }
 
-    plan_query_access(
-        query.model(),
-        visible_indexes,
-        schema_info,
-        normalized_predicate,
-        order,
-        query.is_grouped(),
-        key_access_override,
-    )
+    match model_only {
+        Some(model) => plan_query_access(
+            model,
+            visible_indexes,
+            schema_info,
+            normalized_predicate,
+            order,
+            query.is_grouped(),
+            key_access_override,
+        ),
+        None => plan_query_access_with_accepted_schema(
+            visible_indexes,
+            schema_info,
+            normalized_predicate,
+            order,
+            query.is_grouped(),
+            key_access_override,
+        ),
+    }
     .map_err(QueryError::from)
 }
 
 // Keep grouped and scalar semantic validation behind one pipeline-local gate so
 // handoff code does not duplicate the route-shape branch.
 fn validate_plan_semantics(
-    model: &EntityModel,
+    model_only: Option<&EntityModel>,
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Result<(), QueryError> {
-    if plan.grouped_plan().is_some() {
-        validate_group_query_semantics(schema_info, model, plan)?;
-    } else {
-        validate_query_semantics(schema_info, model, plan)?;
+    match (model_only, plan.grouped_plan().is_some()) {
+        (Some(model), true) => validate_group_query_semantics(schema_info, model, plan)?,
+        (Some(model), false) => validate_query_semantics(schema_info, model, plan)?,
+        (None, true) => validate_group_query_semantics_with_schema(schema_info, plan)?,
+        (None, false) => validate_query_semantics_with_schema(schema_info, plan)?,
     }
 
     Ok(())

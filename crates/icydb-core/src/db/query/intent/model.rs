@@ -42,25 +42,22 @@ use crate::{
 ///
 /// QueryModel
 ///
-/// Model-level query intent and planning context.
-/// Consumes an `EntityModel` derived from typed entity definitions.
+/// Generic-free query intent and planning context.
+///
+/// Application-model metadata is consumed only by typed outer adapters while
+/// accepted schema owns runtime planning.
 ///
 
 #[derive(Clone, Debug)]
-pub(in crate::db::query) struct QueryModel<'m, K> {
-    model: &'m EntityModel,
+pub(in crate::db::query) struct QueryModel<K> {
     intent: QueryIntent<K>,
     consistency: MissingRowPolicy,
 }
 
-impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
+impl<K: KeyValueCodec> QueryModel<K> {
     #[must_use]
-    pub(in crate::db::query) const fn new(
-        model: &'m EntityModel,
-        consistency: MissingRowPolicy,
-    ) -> Self {
+    pub(in crate::db::query) const fn new(consistency: MissingRowPolicy) -> Self {
         Self {
-            model,
             intent: QueryIntent::new(),
             consistency,
         }
@@ -80,11 +77,6 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     #[must_use]
     pub(in crate::db::query) const fn mode(&self) -> QueryMode {
         self.intent.mode()
-    }
-
-    #[must_use]
-    pub(in crate::db::query) const fn model(&self) -> &'m EntityModel {
-        self.model
     }
 
     #[must_use]
@@ -241,10 +233,22 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     }
 
     #[must_use]
-    pub(in crate::db::query) fn filter(self, expr: impl Into<FilterExpr>) -> Self {
-        let model = self.model;
-
+    pub(in crate::db::query) fn filter_for_model(
+        self,
+        model: &EntityModel,
+        expr: impl Into<FilterExpr>,
+    ) -> Self {
         self.filter_expr(expr.into().lower_bool_expr_for_model(model))
+    }
+
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db::query) fn filter_for_schema(
+        self,
+        schema: &SchemaInfo,
+        expr: impl Into<FilterExpr>,
+    ) -> Self {
+        self.filter_expr(expr.into().lower_bool_expr_for_schema(schema))
     }
 
     #[must_use]
@@ -324,11 +328,12 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
 
     // Resolve one grouped field into one stable field slot and append it to the
     // grouped spec in declaration order.
-    pub(in crate::db::query::intent) fn push_group_field(
+    pub(in crate::db::query::intent) fn push_group_field_for_model(
         mut self,
+        model: &EntityModel,
         field: &str,
     ) -> Result<Self, QueryError> {
-        let field_slot = resolve_group_field_slot(self.model, field).map_err(QueryError::from)?;
+        let field_slot = resolve_group_field_slot(model, field).map_err(QueryError::from)?;
         self.intent.push_group_field_slot(field_slot);
 
         Ok(self)
@@ -341,8 +346,8 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
         field: &str,
         schema: &SchemaInfo,
     ) -> Result<Self, QueryError> {
-        let field_slot = resolve_group_field_slot_with_schema(self.model, schema, field)
-            .map_err(QueryError::from)?;
+        let field_slot =
+            resolve_group_field_slot_with_schema(schema, field).map_err(QueryError::from)?;
         self.intent.push_group_field_slot(field_slot);
 
         Ok(self)
@@ -371,8 +376,9 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     }
 
     // Append one grouped HAVING compare over one grouped key field.
-    pub(in crate::db::query::intent) fn push_having_group_clause(
+    pub(in crate::db::query::intent) fn push_having_group_clause_for_model(
         self,
+        model: &EntityModel,
         field: &str,
         op: CompareOp,
         value: Value,
@@ -381,7 +387,7 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
             return self.push_having_expr(Expr::Literal(Value::Bool(true)));
         }
 
-        let field_slot = resolve_group_field_slot(self.model, field).map_err(QueryError::from)?;
+        let field_slot = resolve_group_field_slot(model, field).map_err(QueryError::from)?;
         let value = canonicalize_grouped_having_numeric_literal_for_slot(&field_slot, &value)
             .unwrap_or(value);
         let expr =
@@ -403,8 +409,8 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
             return self.push_having_expr(Expr::Literal(Value::Bool(true)));
         }
 
-        let field_slot = resolve_group_field_slot_with_schema(self.model, schema, field)
-            .map_err(QueryError::from)?;
+        let field_slot =
+            resolve_group_field_slot_with_schema(schema, field).map_err(QueryError::from)?;
         let value = canonicalize_grouped_having_numeric_literal_for_slot(&field_slot, &value)
             .unwrap_or(value);
         let expr =
@@ -521,8 +527,9 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     #[inline(never)]
     pub(in crate::db::query::intent) fn build_plan_model(
         &self,
+        model: &EntityModel,
     ) -> Result<AccessPlannedQuery, QueryError> {
-        build_query_model_plan_for_model_only(self)
+        build_query_model_plan_for_model_only(self, model)
     }
 
     /// Build a standalone model-only logical plan using one explicit
@@ -530,9 +537,10 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     #[inline(never)]
     pub(in crate::db::query::intent) fn build_plan_model_with_indexes(
         &self,
+        model: &EntityModel,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
-        build_query_model_plan_with_indexes_for_model_only(self, visible_indexes)
+        build_query_model_plan_with_indexes_for_model_only(self, model, visible_indexes)
     }
 
     pub(in crate::db::query::intent) fn build_plan_model_with_indexes_from_scalar_planning_state(

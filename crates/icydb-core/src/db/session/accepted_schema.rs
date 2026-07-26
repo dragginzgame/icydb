@@ -146,7 +146,7 @@ impl AcceptedSchemaCatalogContext {
         self.inspection_plan.identity()
     }
 
-    fn debug_assert_matches_entity<E>(&self)
+    pub(in crate::db::session) fn debug_assert_matches_entity<E>(&self)
     where
         E: EntityKind,
     {
@@ -161,26 +161,16 @@ impl AcceptedSchemaCatalogContext {
     where
         E: EntityKind,
     {
-        let schema_info = self.accepted_schema_info_for::<E>();
-
-        self.accepted_entity_authority_for_schema_info::<E>(schema_info)
+        self.debug_assert_matches_entity::<E>();
+        self.accepted_entity_authority()
     }
 
-    fn accepted_entity_authority_for_schema_info<E>(
+    /// Build executor authority directly from accepted catalog state.
+    pub(in crate::db) fn accepted_entity_authority(
         &self,
-        schema_info: SchemaInfo,
-    ) -> Result<EntityAuthority, InternalError>
-    where
-        E: EntityKind,
-    {
-        self.debug_assert_matches_entity::<E>();
-        let (accepted_row_layout, row_proof) =
-            AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
-                self.inspection_plan.snapshot(),
-                E::MODEL,
-                self.enum_catalog(),
-                self.composite_catalog(),
-            )?;
+    ) -> Result<EntityAuthority, InternalError> {
+        let accepted_row_layout =
+            AcceptedRowLayoutRuntimeContract::from_accepted_schema(self.snapshot())?;
         let row_decode_contract =
             accepted_row_layout.row_decode_contract(self.inspection_plan.value_catalog().clone());
         debug_assert_eq!(
@@ -193,12 +183,11 @@ impl AcceptedSchemaCatalogContext {
         ));
 
         Ok(EntityAuthority::from_accepted_row_decode_contract(
-            E::MODEL,
-            E::ENTITY_TAG,
-            E::Store::PATH,
-            row_proof,
+            self.inspection_plan.identity().entity_path(),
+            self.inspection_plan.identity().entity_tag(),
+            self.inspection_plan.identity().store_path(),
             row_decode_contract,
-            schema_info,
+            self.accepted_schema_info(),
         ))
     }
 
@@ -209,41 +198,22 @@ impl AcceptedSchemaCatalogContext {
     where
         E: EntityKind,
     {
-        let schema_info = self.accepted_schema_info_for::<E>();
-        let authority = self.accepted_entity_authority_for_schema_info::<E>(schema_info.clone())?;
+        self.debug_assert_matches_entity::<E>();
+        let schema_info = self.accepted_schema_info();
+        let authority = self.accepted_entity_authority()?;
 
         Ok((authority, schema_info))
     }
 
     #[cfg(feature = "sql")]
-    pub(in crate::db) fn accepted_or_provided_entity_authority_for<E>(
+    pub(in crate::db) fn accepted_or_provided_entity_authority(
         &self,
         accepted_authority: Option<&EntityAuthority>,
-    ) -> Result<EntityAuthority, InternalError>
-    where
-        E: EntityKind,
-    {
+    ) -> Result<EntityAuthority, InternalError> {
         match accepted_authority {
             Some(authority) => Ok(authority.clone()),
-            None => self.accepted_entity_authority_for::<E>(),
+            None => self.accepted_entity_authority(),
         }
-    }
-
-    #[cfg(feature = "sql-explain")]
-    pub(in crate::db) fn accepted_or_provided_entity_authority_and_schema_info_for<E>(
-        &self,
-        accepted_authority: Option<&EntityAuthority>,
-    ) -> Result<(EntityAuthority, SchemaInfo), InternalError>
-    where
-        E: EntityKind,
-    {
-        let schema_info = self.accepted_schema_info_for::<E>();
-        let authority = match accepted_authority {
-            Some(authority) => authority.clone(),
-            None => self.accepted_entity_authority_for_schema_info::<E>(schema_info.clone())?,
-        };
-
-        Ok((authority, schema_info))
     }
 
     #[must_use]
@@ -252,10 +222,15 @@ impl AcceptedSchemaCatalogContext {
         E: EntityKind,
     {
         self.debug_assert_matches_entity::<E>();
+        self.accepted_schema_info()
+    }
+
+    /// Project schema metadata from the accepted snapshot only.
+    #[must_use]
+    pub(in crate::db) fn accepted_schema_info(&self) -> SchemaInfo {
         self.schema_info
             .get_or_init(|| {
-                let schema_info = SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
-                    E::MODEL,
+                let schema_info = SchemaInfo::from_accepted_snapshot_and_catalog(
                     self.inspection_plan.snapshot(),
                     self.inspection_plan.value_catalog().clone(),
                     true,
@@ -363,6 +338,75 @@ impl<C: CanisterKind> DbSession<C> {
         self.accepted_inspection_plan_for_runtime_hook(hooks, store)
             .map(AcceptedSchemaCatalogContext::new)
             .map_err(AcceptedInspectionPlanLoadError::into_internal)
+    }
+
+    /// Resolve one accepted catalog by its editable SQL/display entity name.
+    #[cfg(feature = "sql")]
+    pub(in crate::db::session) fn accepted_schema_catalog_context_for_entity_name(
+        &self,
+        entity_name: Option<&str>,
+    ) -> Result<AcceptedSchemaCatalogContext, InternalError> {
+        if let Some(entity_name) = entity_name
+            && let Some(context) =
+                self.accepted_schema_catalog_context_from_cached_entity_name(entity_name)?
+        {
+            return Ok(context);
+        }
+
+        let mut matched = None;
+
+        for hooks in self.db.entity_runtime_hooks {
+            let store = self.db.recovered_store(hooks.store_path)?;
+            let context = self.accepted_schema_catalog_context_for_runtime_hook(hooks, store)?;
+            if entity_name.is_some_and(|name| context.snapshot().entity_name() != name) {
+                continue;
+            }
+            if matched.is_some() {
+                return Err(InternalError::store_corruption());
+            }
+            matched = Some(context);
+            if entity_name.is_none() {
+                break;
+            }
+        }
+
+        matched.ok_or_else(|| InternalError::unsupported_entity_path(entity_name))
+    }
+
+    #[cfg(feature = "sql")]
+    fn accepted_schema_catalog_context_from_cached_entity_name(
+        &self,
+        entity_name: &str,
+    ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
+        let scope_id = self.db.cache_scope_id();
+        let candidates = ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
+            cache
+                .borrow()
+                .iter()
+                .filter_map(|(cache_key, entry)| {
+                    (cache_key.0 == scope_id
+                        && entry.inspection_plan.snapshot().entity_name() == entity_name)
+                        .then_some((*cache_key, entry.inspection_plan.identity().store_path()))
+                })
+                .collect::<Vec<_>>()
+        });
+        let mut matched = None;
+
+        for (cache_key, store_path) in candidates {
+            let store = self.db.recovered_store(store_path)?;
+            let Some(context) = Self::accepted_schema_catalog_context_from_current_authority_cache(
+                cache_key, store,
+            )?
+            else {
+                continue;
+            };
+            if matched.is_some() {
+                return Err(InternalError::store_corruption());
+            }
+            matched = Some(context);
+        }
+
+        Ok(matched)
     }
 
     pub(in crate::db::session) fn accepted_inspection_plan_for_runtime_hook(
@@ -543,7 +587,16 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let store = self.db.recovered_store(E::Store::PATH)?;
+        self.ensure_accepted_schema_authority_is_current_for_store_path(E::Store::PATH, expected)
+    }
+
+    /// Verify accepted authority for a schema-resolved structural operation.
+    pub(in crate::db::session) fn ensure_accepted_schema_authority_is_current_for_store_path(
+        &self,
+        store_path: &'static str,
+        expected: &AcceptedSchemaAuthority,
+    ) -> Result<(), InternalError> {
+        let store = self.db.recovered_store(store_path)?;
         if store.with_schema(|schema_store| {
             schema_store.current_accepted_schema_authority_matches(expected)
         })? {

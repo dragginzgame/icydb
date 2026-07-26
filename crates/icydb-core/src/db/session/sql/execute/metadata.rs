@@ -6,7 +6,8 @@
 
 use crate::db::{
     schema::{
-        describe_entity_fields_with_persisted_schema, describe_entity_model_with_persisted_schema,
+        describe_accepted_entity_with_persisted_schema,
+        describe_entity_fields_with_persisted_schema,
     },
     session::{
         AcceptedSchemaCatalogContext,
@@ -40,29 +41,14 @@ fn filter_show_entity_catalog(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    pub(super) fn describe_entity_sql_statement_result<E>(
-        &self,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.try_describe_entity::<E>()
-            .map(SqlStatementResult::Describe)
-            .map_err(QueryError::execute)
-    }
-
-    fn describe_entity_sql_statement_result_with_catalog<E>(
+    fn describe_entity_sql_statement_result_with_catalog(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<SqlStatementResult, QueryError> {
         let validation_jobs = self
-            .constraint_validation_jobs_for_catalog::<E>(catalog)
+            .constraint_validation_jobs_for_accepted_catalog(catalog)
             .map_err(QueryError::execute)?;
-        describe_entity_model_with_persisted_schema(
-            E::MODEL,
+        describe_accepted_entity_with_persisted_schema(
             catalog.snapshot(),
             catalog.value_catalog_handle(),
             validation_jobs.as_slice(),
@@ -71,57 +57,20 @@ impl<C: CanisterKind> DbSession<C> {
         .map_err(QueryError::execute)
     }
 
-    pub(super) fn show_indexes_sql_statement_result<E>(
-        &self,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.try_show_indexes::<E>()
-            .map(SqlStatementResult::ShowIndexes)
-            .map_err(QueryError::execute)
-    }
-
-    pub(super) fn show_constraints_sql_statement_result<E>(
-        &self,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.try_show_constraints::<E>()
-            .map(SqlStatementResult::ShowConstraints)
-            .map_err(QueryError::execute)
-    }
-
-    fn show_constraints_sql_statement_result_with_catalog<E>(
+    fn show_constraints_sql_statement_result_with_catalog(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<SqlStatementResult, QueryError> {
         let validation_jobs = self
-            .constraint_validation_jobs_for_catalog::<E>(catalog)
+            .constraint_validation_jobs_for_accepted_catalog(catalog)
             .map_err(QueryError::execute)?;
-        describe_entity_model_with_persisted_schema(
-            E::MODEL,
+        describe_accepted_entity_with_persisted_schema(
             catalog.snapshot(),
             catalog.value_catalog_handle(),
             validation_jobs.as_slice(),
         )
         .map(|description| SqlStatementResult::ShowConstraints(description.constraints().to_vec()))
         .map_err(QueryError::execute)
-    }
-
-    pub(super) fn show_columns_sql_statement_result<E>(
-        &self,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.try_show_columns::<E>()
-            .map(SqlStatementResult::ShowColumns)
-            .map_err(QueryError::execute)
     }
 
     fn show_columns_sql_statement_result_with_catalog(
@@ -133,6 +82,16 @@ impl<C: CanisterKind> DbSession<C> {
         )
         .map(SqlStatementResult::ShowColumns)
         .map_err(QueryError::execute)
+    }
+
+    fn show_indexes_sql_statement_result_with_catalog(
+        &self,
+        catalog: &AcceptedSchemaCatalogContext,
+    ) -> SqlStatementResult {
+        SqlStatementResult::ShowIndexes(self.show_indexes_for_store_schema_info(
+            catalog.identity().store_path(),
+            &catalog.accepted_schema_info(),
+        ))
     }
 
     pub(super) fn show_entities_sql_statement_result(
@@ -167,46 +126,53 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C>,
     {
-        self.execute_metadata_compiled_sql_with_cache::<E>(compiled, None)
+        if matches!(
+            compiled,
+            CompiledSqlCommand::DescribeEntity
+                | CompiledSqlCommand::ShowConstraintsEntity
+                | CompiledSqlCommand::ShowIndexesEntity
+                | CompiledSqlCommand::ShowColumnsEntity
+        ) {
+            let result = self
+                .accepted_schema_catalog_context_for_query::<E>()
+                .map_err(QueryError::execute)
+                .and_then(|catalog| {
+                    self.execute_metadata_compiled_sql_with_cache(compiled, Some(&catalog))
+                        .ok_or_else(QueryError::invariant)?
+                });
+
+            return Some(result);
+        }
+
+        self.execute_metadata_compiled_sql_with_cache(compiled, None)
     }
 
-    pub(super) fn execute_metadata_compiled_sql_with_catalog_cache<E>(
+    pub(super) fn execute_accepted_metadata_compiled_sql_with_catalog_cache(
         &self,
         compiled: &CompiledSqlCommand,
         catalog: &AcceptedSchemaCatalogContext,
-    ) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.execute_metadata_compiled_sql_with_cache::<E>(compiled, Some(catalog))
+    ) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>> {
+        self.execute_metadata_compiled_sql_with_cache(compiled, Some(catalog))
     }
 
-    fn execute_metadata_compiled_sql_with_cache<E>(
+    fn execute_metadata_compiled_sql_with_cache(
         &self,
         compiled: &CompiledSqlCommand,
         catalog: Option<&AcceptedSchemaCatalogContext>,
-    ) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>> {
         let result = match compiled {
-            CompiledSqlCommand::DescribeEntity => match catalog {
-                Some(catalog) => {
-                    self.describe_entity_sql_statement_result_with_catalog::<E>(catalog)
-                }
-                None => self.describe_entity_sql_statement_result::<E>(),
-            },
-            CompiledSqlCommand::ShowConstraintsEntity => match catalog {
-                Some(catalog) => {
-                    self.show_constraints_sql_statement_result_with_catalog::<E>(catalog)
-                }
-                None => self.show_constraints_sql_statement_result::<E>(),
-            },
-            CompiledSqlCommand::ShowIndexesEntity => self.show_indexes_sql_statement_result::<E>(),
-            CompiledSqlCommand::ShowColumnsEntity => match catalog {
-                Some(catalog) => Self::show_columns_sql_statement_result_with_catalog(catalog),
-                None => self.show_columns_sql_statement_result::<E>(),
-            },
+            CompiledSqlCommand::DescribeEntity => {
+                self.describe_entity_sql_statement_result_with_catalog(catalog?)
+            }
+            CompiledSqlCommand::ShowConstraintsEntity => {
+                self.show_constraints_sql_statement_result_with_catalog(catalog?)
+            }
+            CompiledSqlCommand::ShowIndexesEntity => {
+                Ok(self.show_indexes_sql_statement_result_with_catalog(catalog?))
+            }
+            CompiledSqlCommand::ShowColumnsEntity => {
+                Self::show_columns_sql_statement_result_with_catalog(catalog?)
+            }
             CompiledSqlCommand::ShowEntities { entity, verbose } => {
                 self.show_entities_sql_statement_result(entity.as_deref(), *verbose)
             }

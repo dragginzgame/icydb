@@ -15,7 +15,8 @@ pub mod sql;
 pub use bootstrap::DatabaseBootstrapError;
 #[cfg(feature = "sql")]
 pub use icydb_core::db::{
-    TrustedResumableUpdateContinuation, TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,
+    DynamicQuery, DynamicQueryResult, TrustedResumableUpdateContinuation,
+    TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,
     TrustedResumableUpdateRestartReason,
 };
 pub use response::{ExecutionTrace, GroupedRow, PagedResponse, Response, RowProjectionOutput};

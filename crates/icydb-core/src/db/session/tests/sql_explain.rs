@@ -116,12 +116,9 @@ fn assert_explain_token_matrix<E>(
 // Execute one EXPLAIN statement through the public query entrypoint. Keep this
 // separate from `statement_explain_sql`, which is useful supporting coverage but
 // does not close public-entrypoint proof rows.
-fn public_query_explain_sql<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> String
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
+fn public_query_explain_sql(session: &DbSession<SessionSqlCanister>, sql: &str) -> String {
     let result = session
-        .execute_trusted_sql_query::<E>(sql)
+        .execute_trusted_sql_query(sql)
         .unwrap_or_else(|err| panic!("public EXPLAIN query should succeed: {sql}: {err}"));
 
     let SqlStatementResult::Explain(explain) = result else {
@@ -161,7 +158,7 @@ fn execute_trusted_sql_query_explain_plan_matrix_returns_public_explain_payload(
             ["mode=Load", "access="].as_slice(),
         ),
     ] {
-        let explain = public_query_explain_sql::<SessionSqlEntity>(&session, sql);
+        let explain = public_query_explain_sql(&session, sql);
 
         assert_explain_contains_tokens(explain.as_str(), tokens, sql);
     }
@@ -199,7 +196,7 @@ fn execute_trusted_sql_query_explain_execution_matrix_returns_public_explain_pay
             ["phases:", "execution:", "node_id=0", "layer="].as_slice(),
         ),
     ] {
-        let explain = public_query_explain_sql::<SessionSqlEntity>(&session, sql);
+        let explain = public_query_explain_sql(&session, sql);
 
         assert_explain_contains_tokens(explain.as_str(), tokens, sql);
     }
@@ -210,7 +207,7 @@ fn execute_trusted_sql_query_explain_execution_json_returns_finalized_admission_
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = public_query_explain_sql::<SessionSqlEntity>(
+    let explain = public_query_explain_sql(
         &session,
         "EXPLAIN EXECUTION JSON SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
     );
@@ -236,7 +233,7 @@ fn execute_trusted_sql_query_explain_execution_json_global_aggregate_returns_ter
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = public_query_explain_sql::<SessionSqlEntity>(
+    let explain = public_query_explain_sql(
         &session,
         "EXPLAIN EXECUTION JSON SELECT COUNT(*) FROM SessionSqlEntity",
     );
@@ -285,7 +282,7 @@ fn execute_trusted_sql_query_explain_json_matrix_returns_public_explain_payload(
             ["\"mode\":{\"type\":\"Load\"", "\"access\":"].as_slice(),
         ),
     ] {
-        let explain = public_query_explain_sql::<SessionSqlEntity>(&session, sql);
+        let explain = public_query_explain_sql(&session, sql);
 
         assert!(
             explain.starts_with('{') && explain.ends_with('}'),
@@ -314,10 +311,7 @@ fn execute_trusted_sql_query_explain_unsupported_features_fail_closed_publicly()
             "EXPLAIN casts should stay outside the public query surface",
         ),
     ] {
-        assert_unsupported_sql_surface_result(
-            session.execute_trusted_sql_query::<SessionSqlEntity>(sql),
-            context,
-        );
+        assert_unsupported_sql_surface_result(session.execute_trusted_sql_query(sql), context);
     }
 }
 
@@ -656,7 +650,7 @@ fn execute_trusted_sql_query_explain_execution_separates_index_pushdown_from_res
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
 
-    let explain = public_query_explain_sql::<IndexedSessionSqlEntity>(
+    let explain = public_query_explain_sql(
         &session,
         "EXPLAIN EXECUTION SELECT name \
          FROM IndexedSessionSqlEntity \
@@ -723,7 +717,7 @@ fn explain_sql_execution_reuses_catalog_schema_projection() {
         .expect("accepted schema bootstrap should publish a cached query catalog");
 
     DbSession::<SessionSqlCanister>::reset_accepted_catalog_runtime_counters_for_tests();
-    let explain = public_query_explain_sql::<SessionSqlEntity>(
+    let explain = public_query_explain_sql(
         &session,
         "EXPLAIN EXECUTION VERBOSE SELECT name \
          FROM SessionSqlEntity \

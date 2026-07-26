@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryError,
+        DbSession, QueryError,
         executor::{EntityAuthority, SharedPreparedExecutionPlan},
         session::{
             AcceptedSchemaCatalogContext,
@@ -91,15 +91,12 @@ fn cache_compiled_global_aggregate_prepared_plan(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    pub(super) fn global_aggregate_prepared_plan_authority<E>(
+    pub(super) fn global_aggregate_prepared_plan_authority(
         catalog: &AcceptedSchemaCatalogContext,
         authority: Option<EntityAuthority>,
-    ) -> Result<EntityAuthority, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<EntityAuthority, QueryError> {
         catalog
-            .accepted_or_provided_entity_authority_for::<E>(authority.as_ref())
+            .accepted_or_provided_entity_authority(authority.as_ref())
             .map_err(QueryError::execute)
     }
 
@@ -147,23 +144,20 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    pub(super) fn resolve_compiled_global_aggregate_prepared_plan<E>(
+    pub(super) fn resolve_compiled_global_aggregate_prepared_plan(
         &self,
         compiled: &CompiledSqlCommand,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
         authority: Option<EntityAuthority>,
-    ) -> PreparedAggregatePlanResolution
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> PreparedAggregatePlanResolution {
         if let Some(prepared_plan) =
             cached_compiled_global_aggregate_prepared_plan(compiled, catalog)
         {
             return Ok(ResolvedGlobalAggregatePreparedPlan::from_compiled_cache_hit(prepared_plan));
         }
 
-        let authority = Self::global_aggregate_prepared_plan_authority::<E>(catalog, authority)?;
+        let authority = Self::global_aggregate_prepared_plan_authority(catalog, authority)?;
         let resolved =
             self.resolve_global_aggregate_prepared_plan_for_authority(command, catalog, authority)?;
         cache_compiled_global_aggregate_prepared_plan(compiled, catalog, resolved.prepared_plan());
@@ -172,16 +166,13 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[cfg(feature = "diagnostics")]
-    pub(super) fn resolve_compiled_global_aggregate_prepared_plan_with_phase_attribution<E>(
+    pub(super) fn resolve_compiled_global_aggregate_prepared_plan_with_phase_attribution(
         &self,
         compiled: &CompiledSqlCommand,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
         authority: Option<EntityAuthority>,
-    ) -> MeasuredPreparedAggregatePlanResolution
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> MeasuredPreparedAggregatePlanResolution {
         if let Some(prepared_plan) =
             cached_compiled_global_aggregate_prepared_plan(compiled, catalog)
         {
@@ -191,7 +182,7 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
-        let authority = Self::global_aggregate_prepared_plan_authority::<E>(catalog, authority)?;
+        let authority = Self::global_aggregate_prepared_plan_authority(catalog, authority)?;
         let (resolved, plan_compile_attribution) = self
             .resolve_global_aggregate_prepared_plan_for_authority_with_phase_attribution(
                 command, catalog, authority,

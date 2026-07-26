@@ -2,8 +2,6 @@
 
 use std::num::NonZeroU32;
 
-#[cfg(feature = "sql-explain")]
-use super::SessionSqlWriteEntity;
 use super::{
     FilteredIndexedSessionSqlEntity, HeapSessionSqlEntity, IndexedSessionSqlEntity,
     JournaledSessionSqlEntity, SessionPrincipalKeyEntity, SessionSqlCompositeWriteEntity,
@@ -1327,7 +1325,7 @@ fn sql_explain_expression_wrapped_primary_key_does_not_canonicalize_to_exact_key
     let session = sql_session();
 
     let result = session
-        .execute_trusted_sql_query::<SessionSqlWriteEntity>(
+        .execute_trusted_sql_query(
             "EXPLAIN EXECUTION SELECT name FROM SessionSqlWriteEntity \
              WHERE id + 0 = 1 ORDER BY id ASC LIMIT 1",
         )
@@ -1350,7 +1348,7 @@ fn sql_explain_commuted_primary_key_filter_canonicalizes_to_exact_key() {
     let id = crate::types::Ulid::from_u128(19_742);
 
     let result = session
-        .execute_trusted_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query(
             format!("EXPLAIN EXECUTION SELECT name FROM SessionSqlEntity WHERE '{id}' = id")
                 .as_str(),
         )
@@ -2174,7 +2172,7 @@ fn trusted_sql_query_path_runs_explicit_unbounded_admin_read() {
     seed_session_sql_entities(&session, &[("Alice", 30), ("Bob", 24)]);
 
     let result = session
-        .execute_trusted_sql_query::<SessionSqlEntity>("SELECT name FROM SessionSqlEntity")
+        .execute_trusted_sql_query("SELECT name FROM SessionSqlEntity")
         .expect("trusted SQL query path should keep existing behavior");
     let SqlStatementResult::Projection { row_count, .. } = result else {
         panic!("trusted SQL query should return projection rows");

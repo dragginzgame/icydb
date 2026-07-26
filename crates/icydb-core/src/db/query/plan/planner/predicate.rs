@@ -19,7 +19,6 @@ use crate::{
         schema::SchemaInfo,
     },
     error::InternalError,
-    model::entity::EntityModel,
     value::{Value, canonicalize_value_set},
 };
 use std::cmp::Ordering;
@@ -29,7 +28,6 @@ use std::cmp::Ordering;
     reason = "planner predicate selection still centralizes the bounded family-routing policy in one owner-local entrypoint"
 )]
 pub(super) fn plan_predicate(
-    model: &EntityModel,
     candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     predicate: &Predicate,
@@ -73,24 +71,11 @@ pub(super) fn plan_predicate(
             // so child recursion can reuse the chosen index contract for
             // redundancy stripping without reopening candidate extraction.
             let primary_key_range_access = range::primary_key_range_from_and(schema, children);
-            let index_range_access = range::index_range_from_and(
-                model,
-                candidate_indexes,
-                schema,
-                children,
-                order,
-                grouped,
-            );
-            let prefix_access = prefix::index_prefix_from_and(
-                model,
-                candidate_indexes,
-                schema,
-                children,
-                order,
-                grouped,
-            );
+            let index_range_access =
+                range::index_range_from_and(candidate_indexes, schema, children, order, grouped);
+            let prefix_access =
+                prefix::index_prefix_from_and(candidate_indexes, schema, children, order, grouped);
             let branch_set_access = prefix::index_branch_set_from_and(
-                model,
                 candidate_indexes,
                 schema,
                 children,
@@ -119,7 +104,7 @@ pub(super) fn plan_predicate(
                     )
                 })
                 .map(|child| {
-                    plan_predicate(model, candidate_indexes, schema, child, order, grouped)
+                    plan_predicate(candidate_indexes, schema, child, order, grouped)
                         .map(PlannedAccessSelection::into_access)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
@@ -158,7 +143,7 @@ pub(super) fn plan_predicate(
                 children
                     .iter()
                     .map(|child| {
-                        plan_predicate(model, candidate_indexes, schema, child, order, grouped)
+                        plan_predicate(candidate_indexes, schema, child, order, grouped)
                             .map(PlannedAccessSelection::into_access)
                     })
                     .collect::<Result<Vec<_>, _>>()?,
@@ -166,8 +151,7 @@ pub(super) fn plan_predicate(
             Some(PlannedNonIndexAccessReason::PlannerCompositeNonIndex),
         ),
         Predicate::Compare(cmp) => {
-            let access =
-                compare::plan_compare(model, candidate_indexes, schema, cmp, order, grouped);
+            let access = compare::plan_compare(candidate_indexes, schema, cmp, order, grouped);
 
             PlannedAccessSelection::new(
                 access.clone(),

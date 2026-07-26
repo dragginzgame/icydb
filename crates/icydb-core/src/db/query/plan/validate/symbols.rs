@@ -27,17 +27,10 @@ pub(in crate::db) fn resolve_group_field_slot(
 
 /// Resolve one grouped field through schema slot authority.
 pub(in crate::db) fn resolve_group_field_slot_with_schema(
-    model: &EntityModel,
     schema: &SchemaInfo,
     field: &str,
 ) -> Result<FieldSlot, PlanError> {
-    let model_field = model
-        .fields()
-        .iter()
-        .find(|model_field| model_field.name() == field)
-        .ok_or_else(|| PlanError::from(GroupPlanError::unknown_group_field(field)))?;
-
-    FieldSlot::resolve_with_schema(schema, model_field.name())
+    FieldSlot::resolve_with_schema(schema, field)
         .ok_or_else(|| PlanError::from(GroupPlanError::unknown_group_field(field)))
 }
 
@@ -47,17 +40,10 @@ pub(in crate::db) fn resolve_group_field_slot_with_schema(
 /// from the selected `SchemaInfo`; the generated model is retained only for
 /// field labels and type metadata used by diagnostics and explain surfaces.
 pub(in crate::db) fn resolve_aggregate_target_field_slot_with_schema(
-    model: &EntityModel,
     schema: &SchemaInfo,
     field: &str,
 ) -> Result<FieldSlot, QueryError> {
-    let model_field = model
-        .fields()
-        .iter()
-        .find(|model_field| model_field.name() == field)
-        .ok_or_else(|| QueryError::unknown_aggregate_target_field(field))?;
-
-    FieldSlot::resolve_with_schema(schema, model_field.name())
+    FieldSlot::resolve_with_schema(schema, field)
         .ok_or_else(|| QueryError::unknown_aggregate_target_field(field))
 }
 

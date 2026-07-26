@@ -78,6 +78,8 @@ pub(in crate::db::executor) use contracts::{
 pub(in crate::db::executor) use contracts::{
     ProjectionField, admit_true_only_boolean_value, compile_scalar_projection_expr_from_schema,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use count_terminal::execute_direct_count_index_prefix_cardinality_for_canister;
 pub(in crate::db::executor) use execution::{
     AggregateExecutionDispatch, AggregateFastPathInputs, PreparedAggregateExecutionState,
     PreparedAggregateSpec, PreparedAggregateStreamingInputs, PreparedAggregateTargetField,
@@ -91,6 +93,7 @@ pub(in crate::db::executor) use execution::{
 #[cfg(feature = "sql")]
 pub(in crate::db) use scalar_terminals::{
     StructuralAggregateRequest, StructuralAggregateTerminal, StructuralAggregateTerminalKind,
+    execute_structural_aggregate_rows_for_canister,
 };
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use terminal_attribution::{

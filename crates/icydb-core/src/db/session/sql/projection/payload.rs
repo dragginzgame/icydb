@@ -24,7 +24,7 @@ type SqlProjectionPayloadComponents = (Vec<String>, Vec<Option<u32>>, Vec<Vec<Va
 ///
 
 #[derive(Debug)]
-pub(in crate::db::session::sql) struct SqlProjectionPayload {
+pub(in crate::db::session) struct SqlProjectionPayload {
     columns: Vec<String>,
     fixed_scales: Vec<Option<u32>>,
     rows: Vec<Vec<Value>>,
@@ -55,7 +55,7 @@ impl SqlProjectionPayload {
         (self.columns, self.fixed_scales, self.rows, self.row_count)
     }
 
-    pub(in crate::db::session::sql) fn into_statement_result(
+    pub(in crate::db::session) fn into_statement_result(
         self,
     ) -> Result<SqlStatementResult, QueryError> {
         sql_projection_statement_result_from_value_rows(

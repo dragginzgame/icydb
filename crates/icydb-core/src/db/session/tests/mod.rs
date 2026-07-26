@@ -6856,12 +6856,13 @@ where
         panic!("store-backed execution descriptor helper only supports SELECT");
     };
     let structural = apply_lowered_select_shape_for_model_only(
-        StructuralQuery::new(E::MODEL, MissingRowPolicy::Ignore),
+        E::MODEL,
+        StructuralQuery::new(MissingRowPolicy::Ignore),
         select,
     )
     .expect("store-backed execution descriptor structural query should bind");
     let plan = structural
-        .build_plan()
+        .build_plan_for_model(E::MODEL)
         .expect("store-backed execution descriptor plan should build");
     assemble_load_execution_node_descriptor(E::MODEL.fields(), E::MODEL.primary_key().name(), &plan)
         .expect("store-backed execution descriptor should assemble")
@@ -7366,7 +7367,9 @@ fn assert_query_plan_expr_unknown_field(err: QueryError, expected_field: &str, c
     };
     let field = match *user {
         PlanUserError::Expr(expr) => {
-            let ExprPlanError::UnknownField { field } = *expr else {
+            let (ExprPlanError::UnknownField { field } | ExprPlanError::UnknownExprField { field }) =
+                *expr
+            else {
                 panic!("{context}: expected expression unknown-field error");
             };
             field

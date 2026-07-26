@@ -51,7 +51,8 @@ pub use attribution::{
 };
 pub(in crate::db) use cache::{SqlCacheAttribution, SqlCompiledCommandCacheKey};
 pub(in crate::db::session::sql) use cache::{
-    SqlCompiledCommandSurface, sql_compiled_command_cache_miss_reason,
+    SqlCompiledCommandCacheContext, SqlCompiledCommandSurface,
+    sql_compiled_command_cache_miss_reason,
 };
 pub(in crate::db::session::sql) use compile::{
     SqlCompileAttributionBuilder, SqlCompilePhaseAttribution,
@@ -125,34 +126,32 @@ fn measured<T>(stage: impl FnOnce() -> Result<T, QueryError>) -> Result<(u64, T)
 impl<C: CanisterKind> DbSession<C> {
     /// Execute one trusted/admin single-entity reduced SQL query or introspection statement.
     ///
-    /// This surface stays hard-bound to `E`, rejects state-changing SQL, and
-    /// returns SQL-shaped statement output instead of typed entities. It
+    /// The statement resolves its entity against accepted catalog authority,
+    /// rejects state-changing SQL, and returns SQL-shaped output. It
     /// intentionally bypasses public-read admission, so its caller must own
     /// authorization and resource policy.
-    pub fn execute_trusted_sql_query<E>(&self, sql: &str) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let (compiled, _, _) = self.compile_sql_query_with_execution_context::<E>(sql)?;
+    pub fn execute_trusted_sql_query(&self, sql: &str) -> Result<SqlStatementResult, QueryError> {
+        let entity_name = sql_statement_entity_name(sql)?;
+        let (compiled, _, _) =
+            self.compile_sql_query_with_execution_context(entity_name.as_deref(), sql)?;
 
-        self.execute_compiled_sql_context_owned::<E>(compiled)
+        self.execute_compiled_sql_query_context_owned(compiled)
     }
 
     /// Execute one reduced SQL query while reporting the compile/execute split
     /// at the top-level SQL seam.
     #[cfg(feature = "diagnostics")]
     #[doc(hidden)]
-    pub fn execute_trusted_sql_query_with_attribution<E>(
+    pub fn execute_trusted_sql_query_with_attribution(
         &self,
         sql: &str,
-    ) -> Result<(SqlStatementResult, SqlQueryExecutionAttribution), QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<(SqlStatementResult, SqlQueryExecutionAttribution), QueryError> {
+        let entity_name = sql_statement_entity_name(sql)?;
         // Phase 1: measure the compile side of the new seam, including parse,
         // surface validation, and semantic command construction.
-        let (compile_local_instructions, compiled) =
-            measure_sql_stage(|| self.compile_sql_query_with_execution_context::<E>(sql));
+        let (compile_local_instructions, compiled) = measure_sql_stage(|| {
+            self.compile_sql_query_with_execution_context(entity_name.as_deref(), sql)
+        });
         let (compiled, compile_cache_attribution, compile_phase_attribution) = compiled?;
 
         // Phase 2: measure the execute side separately so repeat-run cache
@@ -163,7 +162,7 @@ impl<C: CanisterKind> DbSession<C> {
             current_pure_covering_row_assembly_local_instructions();
         let (executed, projection_materialization) =
             with_sql_projection_materialization_metrics(|| {
-                self.execute_compiled_sql_context_with_phase_attribution::<E>(&compiled)
+                self.execute_compiled_sql_query_context_with_phase_attribution(&compiled)
             });
         let (result, execute_cache_attribution, execute_phase_attribution) = executed?;
         let store_counters = store_counters_before.delta_since();

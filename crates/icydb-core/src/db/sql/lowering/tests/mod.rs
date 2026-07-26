@@ -3735,7 +3735,6 @@ fn bind_sql_select_with_schema_allows_composite_parent_projection() {
         });
 
     let query = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
-        SqlLowerEntity::MODEL,
         select,
         MissingRowPolicy::Ignore,
         &schema,
@@ -3743,7 +3742,7 @@ fn bind_sql_select_with_schema_allows_composite_parent_projection() {
     .expect("accepted composite parent should be projectable as a SQL result value");
 
     let projection = query
-        .build_plan()
+        .build_plan_for_model(SqlLowerEntity::MODEL)
         .expect("composite parent projection plan should build")
         .projection_spec(SqlLowerEntity::MODEL);
     let fields = projection.fields().collect::<Vec<_>>();
@@ -3773,7 +3772,6 @@ fn bind_sql_select_with_schema_allows_selectable_accepted_nested_leaf() {
     });
 
     let query = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
-        SqlLowerEntity::MODEL,
         select,
         MissingRowPolicy::Ignore,
         &schema,
@@ -3781,7 +3779,7 @@ fn bind_sql_select_with_schema_allows_selectable_accepted_nested_leaf() {
     .expect("accepted selectable nested leaf should lower");
 
     let projection = query
-        .build_plan()
+        .build_plan_for_model(SqlLowerEntity::MODEL)
         .expect("nested leaf projection plan should build")
         .projection_spec(SqlLowerEntity::MODEL);
     let fields = projection.fields().collect::<Vec<_>>();
@@ -3810,7 +3808,6 @@ fn bind_sql_select_with_schema_allows_composite_accepted_nested_leaf() {
         accepted_sql_lower_schema_with_name_nested_leaf_kind(AcceptedFieldKind::test_composite());
 
     let query = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
-        SqlLowerEntity::MODEL,
         select,
         MissingRowPolicy::Ignore,
         &schema,
@@ -3818,7 +3815,7 @@ fn bind_sql_select_with_schema_allows_composite_accepted_nested_leaf() {
     .expect("accepted composite nested leaf should be projectable as a SQL result value");
 
     let projection = query
-        .build_plan()
+        .build_plan_for_model(SqlLowerEntity::MODEL)
         .expect("composite nested leaf projection plan should build")
         .projection_spec(SqlLowerEntity::MODEL);
     let fields = projection.fields().collect::<Vec<_>>();
@@ -3846,7 +3843,6 @@ fn bind_sql_select_with_schema_rejects_field_missing_from_accepted_schema() {
     let schema = accepted_sql_lower_schema_without_name();
 
     let err = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
-        SqlLowerEntity::MODEL,
         select,
         MissingRowPolicy::Ignore,
         &schema,
@@ -3865,7 +3861,6 @@ fn bind_sql_select_with_schema_rejects_field_path_missing_from_accepted_schema()
     let schema = accepted_sql_lower_schema_without_name();
 
     let err = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
-        SqlLowerEntity::MODEL,
         select,
         MissingRowPolicy::Ignore,
         &schema,
@@ -3884,7 +3879,6 @@ fn bind_sql_select_with_schema_rejects_group_by_field_missing_from_accepted_sche
     let schema = accepted_sql_lower_schema_without_name();
 
     let err = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
-        SqlLowerEntity::MODEL,
         select,
         MissingRowPolicy::Ignore,
         &schema,
@@ -3903,7 +3897,6 @@ fn bind_sql_select_with_schema_derives_predicate_from_bound_filter_expr() {
     let schema = accepted_sql_lower_schema_with_name_kind(AcceptedFieldKind::Nat64);
 
     let query = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
-        SqlLowerEntity::MODEL,
         select,
         MissingRowPolicy::Ignore,
         &schema,
@@ -3942,7 +3935,6 @@ fn bind_sql_select_with_schema_derives_in_predicate_from_bound_filter_expr() {
     let schema = accepted_sql_lower_schema_with_name_kind(AcceptedFieldKind::Nat64);
 
     let query = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
-        SqlLowerEntity::MODEL,
         select,
         MissingRowPolicy::Ignore,
         &schema,
@@ -3987,7 +3979,6 @@ fn bind_sql_select_with_schema_rejects_non_groupable_accepted_field() {
     )));
 
     let err = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
-        SqlLowerEntity::MODEL,
         select,
         MissingRowPolicy::Ignore,
         &schema,
@@ -4007,7 +3998,6 @@ fn bind_sql_select_with_schema_rejects_non_orderable_accepted_field() {
         accepted_sql_lower_schema_with_name_kind(AcceptedFieldKind::Blob { max_len: None });
 
     let err = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
-        SqlLowerEntity::MODEL,
         select,
         MissingRowPolicy::Ignore,
         &schema,
@@ -4027,7 +4017,6 @@ fn bind_sql_delete_with_schema_rejects_non_orderable_accepted_field() {
         accepted_sql_lower_schema_with_name_kind(AcceptedFieldKind::Blob { max_len: None });
 
     let err = crate::db::sql::lowering::bind_lowered_sql_delete_query_structural_with_schema(
-        SqlLowerEntity::MODEL,
         delete,
         MissingRowPolicy::Ignore,
         &schema,
@@ -4049,7 +4038,6 @@ fn bind_sql_update_selector_with_schema_rejects_non_orderable_accepted_field() {
         accepted_sql_lower_schema_with_name_kind(AcceptedFieldKind::Blob { max_len: None });
 
     let err = crate::db::sql::lowering::bind_sql_update_selector_query_structural_with_schema(
-        SqlLowerEntity::MODEL,
         &statement,
         MissingRowPolicy::Ignore,
         &schema,
@@ -5881,7 +5869,6 @@ fn compile_sql_global_aggregate_with_schema_rejects_non_numeric_accepted_sum_fie
     let err =
         crate::db::sql::lowering::compile_sql_global_aggregate_command_from_prepared_with_schema(
             prepared,
-            SqlLowerEntity::MODEL,
             MissingRowPolicy::Ignore,
             &schema,
         )

@@ -18,7 +18,7 @@ use crate::{
         },
         schema::SchemaInfo,
     },
-    model::{entity::EntityModel, field::FieldModel},
+    model::entity::EntityModel,
 };
 
 /// Lower one logical plan into the canonical planner-owned projection semantic shape.
@@ -30,6 +30,41 @@ pub(in crate::db::query) fn lower_projection_intent(
 ) -> ProjectionSpec {
     match logical {
         LogicalPlan::Scalar(_) => lower_scalar_projection(model, selection),
+        LogicalPlan::Grouped(grouped) => match selection {
+            ProjectionSelection::Exprs(fields) => ProjectionSpec::new(fields.clone()),
+            ProjectionSelection::All | ProjectionSelection::Fields(_) => lower_grouped_projection(
+                grouped.group.group_fields.as_slice(),
+                grouped.group.aggregates.as_slice(),
+            ),
+        },
+    }
+}
+
+/// Lower one accepted-schema logical plan into canonical projection semantics.
+#[must_use]
+pub(in crate::db::query) fn lower_projection_intent_with_schema(
+    schema: &SchemaInfo,
+    logical: &LogicalPlan,
+    selection: &ProjectionSelection,
+) -> ProjectionSpec {
+    match logical {
+        LogicalPlan::Scalar(_) => {
+            let fields = match selection {
+                ProjectionSelection::All => schema
+                    .field_names_in_slot_order()
+                    .into_iter()
+                    .map(|field| direct_field_projection(FieldId::new(field)))
+                    .collect(),
+                ProjectionSelection::Fields(field_ids) => field_ids
+                    .iter()
+                    .cloned()
+                    .map(direct_field_projection)
+                    .collect(),
+                ProjectionSelection::Exprs(fields) => fields.clone(),
+            };
+
+            ProjectionSpec::new(fields)
+        }
         LogicalPlan::Grouped(grouped) => match selection {
             ProjectionSelection::Exprs(fields) => ProjectionSpec::new(fields.clone()),
             ProjectionSelection::All | ProjectionSelection::Fields(_) => lower_grouped_projection(
@@ -72,7 +107,6 @@ fn lower_scalar_projection(model: &EntityModel, selection: &ProjectionSelection)
 /// Lower a direct slot projection layout using explicit schema authority.
 #[must_use]
 pub(in crate::db::query) fn lower_direct_projection_slots_with_schema(
-    model: &EntityModel,
     schema: &SchemaInfo,
     logical: &LogicalPlan,
     selection: &ProjectionSelection,
@@ -81,7 +115,7 @@ pub(in crate::db::query) fn lower_direct_projection_slots_with_schema(
         LogicalPlan::Scalar(_) => match selection {
             ProjectionSelection::All => collect_unique_direct_projection_slots_with_schema(
                 schema,
-                model.fields().iter().map(FieldModel::name),
+                schema.field_names_in_slot_order(),
             ),
             ProjectionSelection::Fields(field_ids) => {
                 collect_unique_direct_projection_slots_with_schema(
@@ -107,7 +141,6 @@ pub(in crate::db::query) fn lower_direct_projection_slots_with_schema(
 /// readers using explicit schema authority.
 #[must_use]
 pub(in crate::db::query) fn lower_data_row_direct_projection_slots_with_schema(
-    model: &EntityModel,
     schema: &SchemaInfo,
     logical: &LogicalPlan,
     selection: &ProjectionSelection,
@@ -116,7 +149,7 @@ pub(in crate::db::query) fn lower_data_row_direct_projection_slots_with_schema(
         LogicalPlan::Scalar(_) => match selection {
             ProjectionSelection::All => collect_direct_projection_slots_with_schema(
                 schema,
-                model.fields().iter().map(FieldModel::name),
+                schema.field_names_in_slot_order(),
             ),
             ProjectionSelection::Fields(field_ids) => collect_direct_projection_slots_with_schema(
                 schema,

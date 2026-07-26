@@ -18,7 +18,6 @@ mod select_plan;
 mod write;
 mod write_returning;
 
-#[cfg(feature = "sql-explain")]
 use crate::db::executor::EntityAuthority;
 #[cfg(feature = "diagnostics")]
 use crate::db::session::sql::SqlExecutePhaseAttribution;
@@ -45,6 +44,20 @@ use icydb_diagnostic_code::SqlLoweringCode;
 use write::execute_compiled_sql_write_with_default_cache;
 
 impl<C: CanisterKind> DbSession<C> {
+    fn ensure_sql_query_execution_context_is_current(
+        &self,
+        context: &SqlCompiledCommandExecutionContext,
+    ) -> Result<(), QueryError> {
+        self.ensure_accepted_schema_authority_is_current_for_store_path(
+            context.accepted_catalog().identity().store_path(),
+            context
+                .accepted_catalog()
+                .value_catalog_handle()
+                .authority(),
+        )
+        .map_err(QueryError::execute)
+    }
+
     fn ensure_sql_execution_context_is_current<E>(
         &self,
         context: &SqlCompiledCommandExecutionContext,
@@ -124,7 +137,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[cfg(feature = "diagnostics")]
-    pub(in crate::db) fn execute_compiled_sql_context_with_phase_attribution<E>(
+    pub(in crate::db) fn execute_compiled_sql_query_context_with_phase_attribution(
         &self,
         context: &SqlCompiledCommandExecutionContext,
     ) -> Result<
@@ -134,31 +147,15 @@ impl<C: CanisterKind> DbSession<C> {
             SqlExecutePhaseAttribution,
         ),
         QueryError,
-    >
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.ensure_sql_execution_context_is_current::<E>(context)?;
+    > {
+        self.ensure_sql_query_execution_context_is_current(context)?;
 
         match context.command() {
             CompiledSqlCommand::Select { query, .. } => {
-                self.execute_select_compiled_sql_with_context_phase_attribution::<E>(query, context)
-            }
-            #[cfg(feature = "sql-explain")]
-            CompiledSqlCommand::Explain(lowered) => {
-                Self::execute_non_select_compiled_sql_with_phase_attribution_from_executor(
-                    context.command(),
-                    || {
-                        self.execute_explain_sql_with_catalog_cache_attribution::<E>(
-                            lowered,
-                            context.accepted_catalog(),
-                            context.accepted_authority(),
-                        )
-                    },
-                )
+                self.execute_select_compiled_sql_with_context_phase_attribution(query, context)
             }
             CompiledSqlCommand::GlobalAggregate { command, .. } => self
-                .execute_global_aggregate_compiled_statement_ref_with_phase_attribution::<E>(
+                .execute_global_aggregate_compiled_statement_ref_with_phase_attribution(
                     context.command(),
                     command,
                     context.accepted_catalog(),
@@ -166,10 +163,10 @@ impl<C: CanisterKind> DbSession<C> {
             compiled => Self::execute_non_select_compiled_sql_with_phase_attribution_from_executor(
                 compiled,
                 || {
-                    self.execute_compiled_sql_with_catalog_cache_attribution::<E>(
+                    self.execute_compiled_sql_query_with_catalog_cache_attribution(
                         compiled,
                         context.accepted_catalog(),
-                        context.surface(),
+                        context.accepted_authority(),
                     )
                 },
             ),
@@ -200,9 +197,25 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C>,
     {
-        let (authority, schema_info) = catalog
-            .accepted_or_provided_entity_authority_and_schema_info_for::<E>(accepted_authority)
+        catalog.debug_assert_matches_entity::<E>();
+        self.execute_accepted_explain_sql_with_catalog_cache_attribution(
+            lowered,
+            catalog,
+            accepted_authority,
+        )
+    }
+
+    #[cfg(feature = "sql-explain")]
+    fn execute_accepted_explain_sql_with_catalog_cache_attribution(
+        &self,
+        lowered: &LoweredSqlCommand,
+        catalog: &AcceptedSchemaCatalogContext,
+        accepted_authority: Option<&EntityAuthority>,
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
+        let authority = catalog
+            .accepted_or_provided_entity_authority(accepted_authority)
             .map_err(QueryError::execute)?;
+        let schema_info = catalog.accepted_schema_info();
 
         if let Some(explain) = self.explain_lowered_sql_execution_for_authority(
             lowered,
@@ -242,7 +255,7 @@ impl<C: CanisterKind> DbSession<C> {
                 self.execute_select_compiled_sql_with_cache_attribution::<E>(query)
             }
             CompiledSqlCommand::GlobalAggregate { command, .. } => {
-                self.execute_global_aggregate_statement_ref::<E>(command)
+                self.execute_global_aggregate_statement_ref(command)
             }
             #[cfg(feature = "sql-explain")]
             CompiledSqlCommand::Explain(lowered) => {
@@ -274,7 +287,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         match context.command() {
             CompiledSqlCommand::Select { query, .. } => {
-                self.execute_select_compiled_sql_with_context::<E>(query, context)
+                self.execute_select_compiled_sql_with_context(query, context)
             }
             #[cfg(feature = "sql-explain")]
             CompiledSqlCommand::Explain(lowered) => self
@@ -291,6 +304,59 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
+    pub(in crate::db) fn execute_compiled_sql_query_context_with_cache_attribution(
+        &self,
+        context: &SqlCompiledCommandExecutionContext,
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
+        self.ensure_sql_query_execution_context_is_current(context)?;
+
+        match context.command() {
+            CompiledSqlCommand::Select { query, .. } => {
+                self.execute_select_compiled_sql_with_context(query, context)
+            }
+            CompiledSqlCommand::GlobalAggregate { command, .. } => self
+                .execute_global_aggregate_compiled_statement_ref_with_catalog(
+                    context.command(),
+                    command,
+                    context.accepted_catalog(),
+                ),
+            compiled => self.execute_compiled_sql_query_with_catalog_cache_attribution(
+                compiled,
+                context.accepted_catalog(),
+                context.accepted_authority(),
+            ),
+        }
+    }
+
+    fn execute_compiled_sql_query_with_catalog_cache_attribution(
+        &self,
+        compiled: &CompiledSqlCommand,
+        catalog: &AcceptedSchemaCatalogContext,
+        accepted_authority: Option<&EntityAuthority>,
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
+        #[cfg(not(feature = "sql-explain"))]
+        let _ = accepted_authority;
+
+        if let Some(result) =
+            self.execute_accepted_metadata_compiled_sql_with_catalog_cache(compiled, catalog)
+        {
+            return result;
+        }
+
+        #[cfg(feature = "sql-explain")]
+        if let CompiledSqlCommand::Explain(lowered) = compiled {
+            return self.execute_accepted_explain_sql_with_catalog_cache_attribution(
+                lowered,
+                catalog,
+                accepted_authority,
+            );
+        }
+
+        Err(QueryError::execute(
+            InternalError::query_executor_invariant(),
+        ))
+    }
+
     fn execute_compiled_sql_with_catalog_cache_attribution<E>(
         &self,
         compiled: &CompiledSqlCommand,
@@ -301,7 +367,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C>,
     {
         if let Some(result) =
-            self.execute_metadata_compiled_sql_with_catalog_cache::<E>(compiled, catalog)
+            self.execute_accepted_metadata_compiled_sql_with_catalog_cache(compiled, catalog)
         {
             return result;
         }
@@ -316,7 +382,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         match compiled {
             CompiledSqlCommand::GlobalAggregate { command, .. } => self
-                .execute_global_aggregate_compiled_statement_ref_with_catalog::<E>(
+                .execute_global_aggregate_compiled_statement_ref_with_catalog(
                     compiled, command, catalog,
                 ),
             _ => self.execute_compiled_sql_with_cache_attribution::<E>(compiled),
@@ -336,6 +402,16 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(result)
     }
 
+    pub(in crate::db) fn execute_compiled_sql_query_context_owned(
+        &self,
+        context: SqlCompiledCommandExecutionContext,
+    ) -> Result<SqlStatementResult, QueryError> {
+        let (result, _) =
+            self.execute_compiled_sql_query_context_with_cache_attribution(&context)?;
+
+        Ok(result)
+    }
+
     /// Compile and then execute one parsed reduced SQL statement into one
     /// unified SQL payload for session-owned tests.
     #[cfg(test)]
@@ -347,6 +423,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C>,
     {
         let statement = crate::db::session::sql::parse_sql_statement(sql)?;
+        let entity_name = crate::db::session::sql::sql_statement_entity_name(sql)?;
         let (compiled, _, _) = match statement {
             crate::db::sql::parser::SqlStatement::Insert(_)
             | crate::db::sql::parser::SqlStatement::Delete(_) => {
@@ -365,11 +442,11 @@ impl<C: CanisterKind> DbSession<C> {
             | crate::db::sql::parser::SqlStatement::ShowEntities(_)
             | crate::db::sql::parser::SqlStatement::ShowStores(_)
             | crate::db::sql::parser::SqlStatement::ShowMemory(_) => {
-                self.compile_sql_query_with_cache_attribution::<E>(sql)?
+                self.compile_sql_query_with_cache_attribution(entity_name.as_deref(), sql)?
             }
             #[cfg(feature = "sql-explain")]
             crate::db::sql::parser::SqlStatement::Explain(_) => {
-                self.compile_sql_query_with_cache_attribution::<E>(sql)?
+                self.compile_sql_query_with_cache_attribution(entity_name.as_deref(), sql)?
             }
             crate::db::sql::parser::SqlStatement::Ddl(_) => {
                 return Err(QueryError::sql_lowering(

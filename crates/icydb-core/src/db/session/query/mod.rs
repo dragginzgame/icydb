@@ -7,6 +7,8 @@
 mod cache;
 #[cfg(feature = "diagnostics")]
 mod diagnostics;
+#[cfg(feature = "sql")]
+mod dynamic;
 mod execution;
 mod explain;
 mod fluent;

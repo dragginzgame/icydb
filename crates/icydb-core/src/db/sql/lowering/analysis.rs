@@ -1,7 +1,10 @@
 use crate::{
-    db::query::{
-        builder::AggregateExpr,
-        plan::expr::{Expr, FieldPath},
+    db::{
+        query::{
+            builder::AggregateExpr,
+            plan::expr::{Expr, FieldPath},
+        },
+        schema::SchemaInfo,
     },
     model::entity::EntityModel,
 };
@@ -141,18 +144,16 @@ impl LoweredExprAnalysis {
         self.first_unknown_field.as_deref()
     }
 
-    /// Return the first unknown direct field for one model without rewalking
-    /// the expression tree. This lets callers that analyzed without model
-    /// context reuse the recorded field-root order later at a model-bound seam.
+    /// Return the first unknown field root for accepted schema authority.
     #[must_use]
-    pub(in crate::db::sql::lowering) fn first_unknown_field_for_model(
+    pub(in crate::db::sql::lowering) fn first_unknown_field_for_schema(
         &self,
-        model: &EntityModel,
+        schema: &SchemaInfo,
     ) -> Option<&str> {
         self.first_unknown_field().or_else(|| {
             self.source_refs.iter().find_map(|source_ref| {
                 let root = source_ref.root();
-                model.resolve_field_slot(root).is_none().then_some(root)
+                schema.field_slot_index(root).is_none().then_some(root)
             })
         })
     }

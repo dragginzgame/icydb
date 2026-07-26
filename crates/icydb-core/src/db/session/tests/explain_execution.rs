@@ -665,7 +665,7 @@ fn execute_sql_projection_primary_key_covering_full_scan_returns_ordered_ids() {
         // directly instead of reading rows for a planner-proven PK-only covering
         // projection.
         let (_result, attribution) = session
-            .execute_trusted_sql_query_with_attribution::<SessionSqlEntity>(
+            .execute_trusted_sql_query_with_attribution(
                 "SELECT id FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
             )
             .expect("PK-only covering projection attribution should execute");

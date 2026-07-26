@@ -21,7 +21,7 @@ use crate::{
         },
         schema::{SchemaInfo, literal_matches_type},
     },
-    model::{entity::EntityModel, index::IndexKeyItemsRef},
+    model::index::IndexKeyItemsRef,
     value::Value,
 };
 use std::cmp::Ordering;
@@ -89,7 +89,6 @@ pub(in crate::db::query::plan::planner) fn primary_key_range_from_and(
 // - For a chosen index: slots 0..k must be Eq, slot k must be Range,
 //   slots after k must be unconstrained.
 pub(in crate::db::query::plan::planner) fn index_range_from_and(
-    _model: &EntityModel,
     candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     children: &[Predicate],

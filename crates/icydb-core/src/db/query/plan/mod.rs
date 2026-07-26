@@ -51,6 +51,7 @@ pub(in crate::db) use access_plan::{
 };
 pub(in crate::db::query) use access_planner::{
     AccessPlanningInputs, normalize_query_predicate, plan_query_access,
+    plan_query_access_with_accepted_schema,
 };
 pub(in crate::db) use continuation::{
     AcceptedContinuationIdentity, PlannedContinuationContract, ScalarAccessWindowPlan,
@@ -144,7 +145,7 @@ pub(in crate::db::query) use primary_key_input_resource::primary_key_input_resou
 pub(in crate::db) use projection::lower_global_aggregate_projection;
 pub(in crate::db::query) use projection::{
     lower_data_row_direct_projection_slots_with_schema, lower_direct_projection_slots_with_schema,
-    lower_projection_identity, lower_projection_intent,
+    lower_projection_identity, lower_projection_intent, lower_projection_intent_with_schema,
 };
 pub(in crate::db) use semantics::canonicalize_grouped_having_numeric_literal_for_slot;
 pub(in crate::db) use semantics::global_distinct_group_spec_for_aggregate_identity;
@@ -172,8 +173,9 @@ pub(crate) use validate::PolicyPlanError;
 pub(in crate::db::query) use validate::{
     CursorPagingPolicyError, FluentLoadPolicyViolation, IntentKeyAccessKind,
     IntentKeyAccessPolicyViolation, has_explicit_order, validate_fluent_non_paged_mode,
-    validate_fluent_paged_mode, validate_group_query_semantics, validate_intent_key_access_policy,
-    validate_intent_plan_shape, validate_query_semantics,
+    validate_fluent_paged_mode, validate_group_query_semantics,
+    validate_group_query_semantics_with_schema, validate_intent_key_access_policy,
+    validate_intent_plan_shape, validate_query_semantics, validate_query_semantics_with_schema,
 };
 pub(in crate::db) use validate::{
     resolve_aggregate_target_field_slot_with_schema, resolve_group_field_slot,

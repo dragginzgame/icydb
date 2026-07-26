@@ -191,7 +191,7 @@ impl<C: CanisterKind> DbSession<C> {
     // Execute one SQL load query from a structural lowered query through the
     // shared lower query-plan cache while bypassing only the compiled SQL
     // command cache for lowered or aggregate-only paths.
-    pub(in crate::db::session::sql) fn execute_sql_projection_from_structural_query_without_sql_compiled_cache(
+    pub(in crate::db::session) fn execute_sql_projection_from_structural_query_without_sql_compiled_cache(
         &self,
         query: StructuralQuery,
         authority: EntityAuthority,
@@ -233,7 +233,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[cfg(feature = "diagnostics")]
-    pub(super) fn execute_select_compiled_sql_with_phase_attribution_from_resolver<E>(
+    pub(super) fn execute_select_compiled_sql_with_phase_attribution_from_resolver(
         &self,
         query: &StructuralQuery,
         resolve_plan: impl FnOnce() -> Result<
@@ -247,10 +247,7 @@ impl<C: CanisterKind> DbSession<C> {
             SqlExecutePhaseAttribution,
         ),
         QueryError,
-    >
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    > {
         if query.has_grouping() {
             let (planner_local_instructions, resolved_query_plan) = measure_sql_stage(resolve_plan);
             let (resolved, plan_compile_attribution) = resolved_query_plan?;
@@ -262,11 +259,11 @@ impl<C: CanisterKind> DbSession<C> {
                         prepared_plan,
                         projection,
                         |session, prepared_plan| {
-                            let plan = prepared_plan
-                                .typed_clone::<E>()
-                                .map_err(QueryError::execute)?;
                             session
-                                .execute_grouped_with_phase_attribution(plan, None)
+                                .execute_structural_grouped_with_phase_attribution(
+                                    prepared_plan,
+                                    None,
+                                )
                                 .map(|(result, _trace, phase_attribution)| {
                                     (result, phase_attribution)
                                 })
@@ -364,7 +361,7 @@ impl<C: CanisterKind> DbSession<C> {
             .resolve_select_prepared_plan_for_authority_with_catalog(query, authority, &catalog)?;
         let (prepared_plan, projection, cache_attribution) = resolved.into_parts();
 
-        self.execute_select_compiled_sql_from_prepared_plan::<E>(
+        self.execute_select_compiled_sql_from_prepared_plan(
             query,
             prepared_plan,
             projection,
@@ -372,18 +369,15 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    pub(super) fn execute_select_compiled_sql_with_context<E>(
+    pub(super) fn execute_select_compiled_sql_with_context(
         &self,
         query: &StructuralQuery,
         context: &SqlCompiledCommandExecutionContext,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let resolved = self.resolve_select_prepared_plan_for_context::<E>(query, context)?;
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
+        let resolved = self.resolve_select_prepared_plan_for_context(query, context)?;
         let (prepared_plan, projection, cache_attribution) = resolved.into_parts();
 
-        self.execute_select_compiled_sql_from_prepared_plan::<E>(
+        self.execute_select_compiled_sql_from_prepared_plan(
             query,
             prepared_plan,
             projection,
@@ -392,7 +386,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[cfg(feature = "diagnostics")]
-    pub(super) fn execute_select_compiled_sql_with_context_phase_attribution<E>(
+    pub(super) fn execute_select_compiled_sql_with_context_phase_attribution(
         &self,
         query: &StructuralQuery,
         context: &SqlCompiledCommandExecutionContext,
@@ -403,37 +397,28 @@ impl<C: CanisterKind> DbSession<C> {
             SqlExecutePhaseAttribution,
         ),
         QueryError,
-    >
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.execute_select_compiled_sql_with_phase_attribution_from_resolver::<E>(query, || {
-            self.resolve_select_prepared_plan_for_context_with_compile_phase_attribution::<E>(
+    > {
+        self.execute_select_compiled_sql_with_phase_attribution_from_resolver(query, || {
+            self.resolve_select_prepared_plan_for_context_with_compile_phase_attribution(
                 query, context,
             )
         })
     }
 
-    fn execute_select_compiled_sql_from_prepared_plan<E>(
+    fn execute_select_compiled_sql_from_prepared_plan(
         &self,
         query: &StructuralQuery,
         prepared_plan: SharedPreparedExecutionPlan,
         projection: SqlProjectionContract,
         cache_attribution: SqlCacheAttribution,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
         if query.has_grouping() {
             let (statement_result, ()) = self.execute_grouped_sql_statement_from_prepared_plan(
                 prepared_plan,
                 projection,
                 |session, prepared_plan| {
-                    let plan = prepared_plan
-                        .typed_clone::<E>()
-                        .map_err(QueryError::execute)?;
                     session
-                        .execute_grouped_with_trace(plan, None)
+                        .execute_structural_grouped_with_trace(prepared_plan, None)
                         .map(|(result, _trace)| (result, ()))
                 },
             )?;

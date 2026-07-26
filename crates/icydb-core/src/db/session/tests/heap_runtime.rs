@@ -33,12 +33,9 @@ fn capture_mutation_commit_classes<R>(
     (output, classes)
 }
 
-fn public_projection_rows<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> Vec<Vec<Value>>
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
+fn public_projection_rows(session: &DbSession<SessionSqlCanister>, sql: &str) -> Vec<Vec<Value>> {
     let result = session
-        .execute_trusted_sql_query::<E>(sql)
+        .execute_trusted_sql_query(sql)
         .unwrap_or_else(|err| panic!("public SQL query should succeed: {sql}: {err}"));
 
     let SqlStatementResult::Projection { rows, .. } = result else {
@@ -51,12 +48,9 @@ where
 }
 
 #[cfg(feature = "sql-explain")]
-fn public_explain_text<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> String
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
+fn public_explain_text(session: &DbSession<SessionSqlCanister>, sql: &str) -> String {
     let result = session
-        .execute_trusted_sql_query::<E>(sql)
+        .execute_trusted_sql_query(sql)
         .unwrap_or_else(|err| panic!("public EXPLAIN query should succeed: {sql}: {err}"));
 
     let SqlStatementResult::Explain(explain) = result else {
@@ -148,7 +142,7 @@ fn heap_backed_session_write_read_and_index_query_round_trip_while_live() {
         vec![(1, "Atlas", 20), (2, "Beryl", 30), (3, "Cato", 40)],
     );
 
-    let rows = public_projection_rows::<HeapSessionSqlEntity>(
+    let rows = public_projection_rows(
         &session,
         "SELECT name, age FROM HeapSessionSqlEntity \
          WHERE name >= 'B' AND name < 'D' \
@@ -164,7 +158,7 @@ fn heap_backed_session_write_read_and_index_query_round_trip_while_live() {
 
     #[cfg(feature = "sql-explain")]
     {
-        let explain = public_explain_text::<HeapSessionSqlEntity>(
+        let explain = public_explain_text(
             &session,
             "EXPLAIN EXECUTION SELECT name \
              FROM HeapSessionSqlEntity \
@@ -214,7 +208,7 @@ fn heap_backed_session_reinit_loses_rows_and_indexes_but_reconciles_live_schema(
         "heap rows must not be recovered from stable commit state after store reinit",
     );
 
-    let rows = public_projection_rows::<HeapSessionSqlEntity>(
+    let rows = public_projection_rows(
         &session,
         "SELECT name, age FROM HeapSessionSqlEntity \
          WHERE name >= 'A' \

@@ -106,24 +106,32 @@ const fn finalize_trusted_sql_query_attribution(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    fn sql_query_result_from_statement<E>(statement: core::db::SqlStatementResult) -> SqlQueryResult
+    fn sql_query_result_from_statement(
+        statement: core::db::SqlStatementResult,
+        entity: String,
+    ) -> SqlQueryResult {
+        crate::db::sql::sql_query_result_from_statement(statement, entity)
+    }
+
+    fn sql_query_result_from_statement_for_entity<E>(
+        statement: core::db::SqlStatementResult,
+    ) -> SqlQueryResult
     where
         E: crate::traits::EntityFor<C>,
     {
-        crate::db::sql::sql_query_result_from_statement(statement, E::MODEL.name().to_string())
+        Self::sql_query_result_from_statement(statement, E::MODEL.name().to_string())
     }
 
-    /// Execute one trusted/admin reduced SQL query against one concrete entity type.
+    /// Execute one trusted/admin reduced SQL query against accepted catalog authority.
     ///
     /// This helper does not make caller-controlled SQL public-safe. Public
     /// endpoints should prefer ordinary typed/fluent reads, or use an
     /// application-owned SQL allowlist before entering this trusted lane.
-    pub fn execute_trusted_sql_query<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(Self::sql_query_result_from_statement::<E>(
-            self.inner.execute_trusted_sql_query::<E>(sql)?,
+    pub fn execute_trusted_sql_query(&self, sql: &str) -> Result<SqlQueryResult, Error> {
+        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
+        Ok(Self::sql_query_result_from_statement(
+            self.inner.execute_trusted_sql_query(sql)?,
+            entity,
         ))
     }
 
@@ -133,15 +141,12 @@ impl<C: CanisterKind> DbSession<C> {
     /// the same explicit trusted-boundary contract as `execute_trusted_sql_query`.
     #[cfg(not(feature = "diagnostics"))]
     #[doc(hidden)]
-    pub fn execute_trusted_sql_query_with_perf_attribution<E>(
+    pub fn execute_trusted_sql_query_with_perf_attribution(
         &self,
         sql: &str,
-    ) -> Result<(SqlQueryResult, SqlQueryPerfAttribution), Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
+    ) -> Result<(SqlQueryResult, SqlQueryPerfAttribution), Error> {
         Ok((
-            self.execute_trusted_sql_query::<E>(sql)?,
+            self.execute_trusted_sql_query(sql)?,
             SqlQueryPerfAttribution::default(),
         ))
     }
@@ -152,14 +157,11 @@ impl<C: CanisterKind> DbSession<C> {
     /// the same explicit trusted-boundary contract as `execute_trusted_sql_query`.
     #[cfg(feature = "diagnostics")]
     #[doc(hidden)]
-    pub fn execute_trusted_sql_query_with_perf_attribution<E>(
+    pub fn execute_trusted_sql_query_with_perf_attribution(
         &self,
         sql: &str,
-    ) -> Result<(SqlQueryResult, SqlQueryPerfAttribution), Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        let (result, attribution) = self.execute_trusted_sql_query_with_attribution::<E>(sql)?;
+    ) -> Result<(SqlQueryResult, SqlQueryPerfAttribution), Error> {
+        let (result, attribution) = self.execute_trusted_sql_query_with_attribution(sql)?;
 
         Ok((result, SqlQueryPerfAttribution::from(attribution)))
     }
@@ -171,19 +173,16 @@ impl<C: CanisterKind> DbSession<C> {
     /// `execute_trusted_sql_query`.
     #[cfg(feature = "diagnostics")]
     #[doc(hidden)]
-    pub fn execute_trusted_sql_query_with_attribution<E>(
+    pub fn execute_trusted_sql_query_with_attribution(
         &self,
         sql: &str,
-    ) -> Result<(SqlQueryResult, crate::db::SqlQueryExecutionAttribution), Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        let (result, mut attribution) = self
-            .inner
-            .execute_trusted_sql_query_with_attribution::<E>(sql)?;
+    ) -> Result<(SqlQueryResult, crate::db::SqlQueryExecutionAttribution), Error> {
+        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
+        let (result, mut attribution) =
+            self.inner.execute_trusted_sql_query_with_attribution(sql)?;
         let (response_decode_local_instructions, result) =
             measure_sql_response_decode_stage(|| {
-                Self::sql_query_result_from_statement::<E>(result)
+                Self::sql_query_result_from_statement(result, entity)
             });
         attribution =
             finalize_trusted_sql_query_attribution(attribution, response_decode_local_instructions);
@@ -199,7 +198,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(Self::sql_query_result_from_statement::<E>(
+        Ok(Self::sql_query_result_from_statement_for_entity::<E>(
             self.inner.execute_trusted_sql_mutation::<E>(sql)?,
         ))
     }
@@ -219,7 +218,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(Self::sql_query_result_from_statement::<E>(
+        Ok(Self::sql_query_result_from_statement_for_entity::<E>(
             self.inner
                 .execute_trusted_sql_exact_update::<E>(sql, require_affected_at_most)?,
         ))
@@ -233,7 +232,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(Self::sql_query_result_from_statement::<E>(
+        Ok(Self::sql_query_result_from_statement_for_entity::<E>(
             self.inner.execute_trusted_sql_prefix_update::<E>(sql)?,
         ))
     }
@@ -285,7 +284,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(Self::sql_query_result_from_statement::<E>(
+        Ok(Self::sql_query_result_from_statement_for_entity::<E>(
             self.inner.execute_sql_public_primary_key_update::<E>(sql)?,
         ))
     }
@@ -296,7 +295,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(Self::sql_query_result_from_statement::<E>(
+        Ok(Self::sql_query_result_from_statement_for_entity::<E>(
             self.inner.execute_sql_public_bounded_update::<E>(sql)?,
         ))
     }
@@ -310,7 +309,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(Self::sql_query_result_from_statement::<E>(
+        Ok(Self::sql_query_result_from_statement_for_entity::<E>(
             self.inner.execute_sql_public_primary_key_delete::<E>(sql)?,
         ))
     }
@@ -321,7 +320,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(Self::sql_query_result_from_statement::<E>(
+        Ok(Self::sql_query_result_from_statement_for_entity::<E>(
             self.inner.execute_sql_public_bounded_delete::<E>(sql)?,
         ))
     }
@@ -334,7 +333,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(Self::sql_query_result_from_statement::<E>(
+        Ok(Self::sql_query_result_from_statement_for_entity::<E>(
             self.inner.execute_admin_sql_ddl::<E>(sql)?,
         ))
     }

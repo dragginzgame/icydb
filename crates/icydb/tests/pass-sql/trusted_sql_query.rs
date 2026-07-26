@@ -1,14 +1,23 @@
 use icydb::{
-    db::DbSession,
+    db::{DbSession, DynamicQuery},
     traits::{CanisterKind, EntityFor},
 };
 
-fn trusted_sql_query_compiles<C, E>(db: &DbSession<C>, sql: &str)
+fn trusted_sql_query_compiles<C>(db: &DbSession<C>, sql: &str)
 where
     C: CanisterKind,
-    E: EntityFor<C>,
 {
-    let _ = db.execute_trusted_sql_query::<E>(sql);
+    let _ = db.execute_trusted_sql_query(sql);
+}
+
+fn trusted_dynamic_query_compiles<C>(db: &DbSession<C>)
+where
+    C: CanisterKind,
+{
+    let request = DynamicQuery::new("app::User")
+        .select(["name", "age"])
+        .limit(25);
+    let _ = db.execute_trusted_dynamic_query(&request);
 }
 
 fn trusted_sql_mutation_compiles<C, E>(db: &DbSession<C>, sql: &str)

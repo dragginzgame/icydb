@@ -6,7 +6,6 @@ use crate::db::{
     schema::SchemaInfo,
     sql::lowering::{AnalyzedLoweredExpr, LoweredExprAnalysis, SqlLoweringError},
 };
-use crate::model::entity::EntityModel;
 
 // Attach one optional normalized planner-owned filter expression to an
 // aggregate expression so parser/lowering support can stay on the aggregate
@@ -23,14 +22,12 @@ pub(in crate::db::sql::lowering::aggregate) fn apply_aggregate_filter_expr(
 
 // Validate one already-analyzed model-bound scalar expression while preserving
 // first unknown-field diagnostics from the recorded lowered field-root order.
-pub(in crate::db::sql::lowering::aggregate) fn validate_analyzed_model_bound_scalar_expr(
-    model: &'static EntityModel,
+pub(in crate::db::sql::lowering::aggregate) fn validate_analyzed_schema_bound_scalar_expr(
     schema: &SchemaInfo,
     analyzed: &AnalyzedLoweredExpr,
     unsupported: impl FnOnce() -> SqlLoweringError,
 ) -> Result<(), SqlLoweringError> {
-    validate_model_bound_scalar_expr_with_analysis(
-        model,
+    validate_schema_bound_scalar_expr_with_analysis(
         schema,
         analyzed.expr(),
         analyzed.analysis(),
@@ -38,14 +35,13 @@ pub(in crate::db::sql::lowering::aggregate) fn validate_analyzed_model_bound_sca
     )
 }
 
-fn validate_model_bound_scalar_expr_with_analysis(
-    model: &'static EntityModel,
+fn validate_schema_bound_scalar_expr_with_analysis(
     schema: &SchemaInfo,
     expr: &Expr,
     analysis: &LoweredExprAnalysis,
     unsupported: impl FnOnce() -> SqlLoweringError,
 ) -> Result<(), SqlLoweringError> {
-    if let Some(field) = analysis.first_unknown_field_for_model(model) {
+    if let Some(field) = analysis.first_unknown_field_for_schema(schema) {
         return Err(SqlLoweringError::unknown_field(field));
     }
     if compile_scalar_projection_expr_with_schema(schema, expr).is_none() {

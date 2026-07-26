@@ -3,8 +3,12 @@
 //! Does not own: scalar paging or grouped runtime execution semantics.
 //! Boundary: decodes grouped cursor tokens, delegates grouped execution, and finalizes grouped pages.
 
-#[cfg(feature = "diagnostics")]
-use crate::db::executor::GroupedExecutePhaseAttribution;
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+use crate::db::executor::{
+    GroupedExecutePhaseAttribution, execute_shared_grouped_plan_for_canister_with_phase_attribution,
+};
+#[cfg(feature = "sql")]
+use crate::db::executor::{SharedPreparedExecutionPlan, execute_shared_grouped_plan_for_canister};
 #[cfg(test)]
 use crate::db::{
     PagedGroupedExecutionWithTrace, Query, session::finalize_structural_grouped_projection_result,
@@ -22,6 +26,73 @@ use crate::{
 };
 
 impl<C: CanisterKind> DbSession<C> {
+    /// Execute one accepted-schema-owned grouped plan without a generated type.
+    #[cfg(feature = "sql")]
+    pub(in crate::db::session) fn execute_structural_grouped_with_trace(
+        &self,
+        plan: SharedPreparedExecutionPlan,
+        cursor_token: Option<&str>,
+    ) -> Result<(StructuralGroupedProjectionResult, Option<ExecutionTrace>), QueryError> {
+        let authority = plan.authority_ref();
+        self.ensure_accepted_schema_authority_is_current_for_store_path(
+            authority.store_path(),
+            plan.accepted_schema_authority()
+                .map_err(QueryError::execute)?,
+        )
+        .map_err(QueryError::execute)?;
+        Self::ensure_grouped_execution_family(
+            plan.execution_family().map_err(QueryError::execute)?,
+        )?;
+        let cursor = decode_optional_grouped_cursor_token(cursor_token)
+            .map_err(QueryError::from_cursor_plan_error)?;
+        let cursor = plan
+            .prepare_grouped_cursor_token(cursor)
+            .map_err(query_error_from_executor_plan_error)?;
+
+        self.with_metrics(|| {
+            execute_shared_grouped_plan_for_canister(&self.db, self.debug, plan, cursor)
+        })
+        .map_err(QueryError::execute)
+    }
+
+    /// Execute one accepted-schema-owned grouped plan with phase attribution.
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    pub(in crate::db::session) fn execute_structural_grouped_with_phase_attribution(
+        &self,
+        plan: SharedPreparedExecutionPlan,
+        cursor_token: Option<&str>,
+    ) -> Result<
+        (
+            StructuralGroupedProjectionResult,
+            Option<ExecutionTrace>,
+            GroupedExecutePhaseAttribution,
+        ),
+        QueryError,
+    > {
+        let authority = plan.authority_ref();
+        self.ensure_accepted_schema_authority_is_current_for_store_path(
+            authority.store_path(),
+            plan.accepted_schema_authority()
+                .map_err(QueryError::execute)?,
+        )
+        .map_err(QueryError::execute)?;
+        Self::ensure_grouped_execution_family(
+            plan.execution_family().map_err(QueryError::execute)?,
+        )?;
+        let cursor = decode_optional_grouped_cursor_token(cursor_token)
+            .map_err(QueryError::from_cursor_plan_error)?;
+        let cursor = plan
+            .prepare_grouped_cursor_token(cursor)
+            .map_err(query_error_from_executor_plan_error)?;
+
+        self.with_metrics(|| {
+            execute_shared_grouped_plan_for_canister_with_phase_attribution(
+                &self.db, self.debug, plan, cursor,
+            )
+        })
+        .map_err(QueryError::execute)
+    }
+
     /// Execute one grouped query page with optional grouped continuation cursor.
     ///
     /// This is the explicit grouped execution boundary; scalar load APIs reject

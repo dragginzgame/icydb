@@ -154,15 +154,11 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    fn sql_delete_query_from_statement<E>(
+    fn sql_delete_query_from_statement(
         schema_info: &SchemaInfo,
         statement: &SqlDeleteStatement,
-    ) -> Result<StructuralQuery, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<StructuralQuery, QueryError> {
         bind_sql_delete_statement_structural_with_schema(
-            E::MODEL,
             statement.clone(),
             MissingRowPolicy::Ignore,
             schema_info,
@@ -204,7 +200,7 @@ impl<C: CanisterKind> DbSession<C> {
             |catalog, _descriptor| {
                 let (_authority, schema_info) =
                     Self::accepted_sql_write_authority_schema_info::<E>(catalog)?;
-                let query = Self::sql_delete_query_from_statement::<E>(&schema_info, statement)?;
+                let query = Self::sql_delete_query_from_statement(&schema_info, statement)?;
 
                 self.execute_sql_delete_statement_with_execution_bounds::<E>(
                     &query,

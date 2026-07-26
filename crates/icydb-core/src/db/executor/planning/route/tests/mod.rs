@@ -13,10 +13,10 @@ mod structural_guards;
 
 use super::terminal::derive_load_terminal_fast_path_contract;
 use super::{
-    AGGREGATE_FAST_PATH_ORDER, AggregateRouteShape, FastPathOrder, GroupedExecutionMode,
-    GroupedExecutionModeContext, LOAD_FAST_PATH_ORDER, LoadOrderRouteDecision, LoadOrderRouteMode,
-    LoadOrderRouteReason, RouteCapabilityFacts, RouteExecutionMode, RoutePlanRequest,
-    RouteShapeKind, TopNSeekSpec, build_execution_route_plan,
+    AGGREGATE_FAST_PATH_ORDER, FastPathOrder, GroupedExecutionMode, GroupedExecutionModeContext,
+    LOAD_FAST_PATH_ORDER, LoadOrderRouteDecision, LoadOrderRouteMode, LoadOrderRouteReason,
+    RouteCapabilityFacts, RouteExecutionMode, RoutePlanRequest, RouteShapeKind, TopNSeekSpec,
+    build_execution_route_plan,
     capability_facts::{
         count_pushdown_existing_rows_shape_supported,
         index_multi_lookup_prefix_cardinality_preflight_shape_supported,
@@ -214,23 +214,11 @@ fn cursor_boundary_continuation_context() -> ScalarContinuationContext {
 }
 
 fn route_capability_authority() -> EntityAuthority {
-    EntityAuthority::for_generated_type_for_test::<RouteCapabilityEntity>()
-        .with_cursor_schema_info_for_test(
-            crate::db::schema::SchemaInfo::cached_for_generated_entity_model(
-                RouteCapabilityEntity::MODEL,
-            )
-            .clone(),
-        )
+    EntityAuthority::for_accepted_generated_type_for_test::<RouteCapabilityEntity>()
 }
 
 fn unique_route_capability_authority() -> EntityAuthority {
-    EntityAuthority::for_generated_type_for_test::<UniqueRouteCapabilityEntity>()
-        .with_cursor_schema_info_for_test(
-            crate::db::schema::SchemaInfo::cached_for_generated_entity_model(
-                UniqueRouteCapabilityEntity::MODEL,
-            )
-            .clone(),
-        )
+    EntityAuthority::for_accepted_generated_type_for_test::<UniqueRouteCapabilityEntity>()
 }
 
 fn finalized_plan_for_authority(
@@ -394,17 +382,13 @@ fn build_aggregate_spec_route(
     let finalized = finalized_plan_for_authority(authority.clone(), plan);
     let execution_preparation =
         ExecutionPreparation::from_plan(&finalized, slot_map_for_model_plan(&finalized));
-    let primary_key_names = ["id"];
 
     build_execution_route_plan(
         &finalized,
         RoutePlanRequest::Aggregate {
-            aggregate: AggregateRouteShape::new_from_fields(
-                aggregate_expr.kind(),
-                aggregate_expr.target_field(),
-                authority.fields(),
-                &primary_key_names,
-            ),
+            aggregate: authority
+                .aggregate_route_shape(aggregate_expr.kind(), aggregate_expr.target_field())
+                .expect("accepted aggregate route shape should resolve"),
             execution_preparation: &execution_preparation,
         },
     )

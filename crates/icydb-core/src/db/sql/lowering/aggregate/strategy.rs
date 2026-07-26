@@ -1,19 +1,16 @@
-use crate::{
-    db::{
-        query::plan::{
-            AggregateKind, FieldSlot, expr::Expr, resolve_aggregate_target_field_slot_with_schema,
-        },
-        schema::SchemaInfo,
-        sql::lowering::{
-            SqlLoweringError,
-            aggregate::{
-                lowering::validate_analyzed_model_bound_scalar_expr,
-                semantics::{PreparedAggregateSemantics, PreparedAggregateTarget},
-                terminal::{LoweredAggregateInput, LoweredSqlGlobalAggregateTerminal},
-            },
+use crate::db::{
+    query::plan::{
+        AggregateKind, FieldSlot, expr::Expr, resolve_aggregate_target_field_slot_with_schema,
+    },
+    schema::SchemaInfo,
+    sql::lowering::{
+        SqlLoweringError,
+        aggregate::{
+            lowering::validate_analyzed_schema_bound_scalar_expr,
+            semantics::{PreparedAggregateSemantics, PreparedAggregateTarget},
+            terminal::{LoweredAggregateInput, LoweredSqlGlobalAggregateTerminal},
         },
     },
-    model::entity::EntityModel,
 };
 
 ///
@@ -67,7 +64,6 @@ impl PreparedSqlScalarAggregateStrategy {
     // Build one prepared aggregate strategy while reading top-level SQL
     // aggregate-input capabilities from the accepted schema projection.
     pub(in crate::db::sql::lowering::aggregate) fn from_lowered_terminal_with_schema(
-        model: &'static EntityModel,
         schema: &SchemaInfo,
         terminal: LoweredSqlGlobalAggregateTerminal,
     ) -> Result<Self, SqlLoweringError> {
@@ -87,13 +83,12 @@ impl PreparedSqlScalarAggregateStrategy {
             LoweredAggregateInput::Field(field) => {
                 validate_field_target_sql_aggregate_capabilities(schema, field.as_str(), kind)?;
                 let target_slot =
-                    resolve_aggregate_target_field_slot_with_schema(model, schema, field.as_str())
+                    resolve_aggregate_target_field_slot_with_schema(schema, field.as_str())
                         .map_err(SqlLoweringError::from)?;
                 PreparedAggregateTarget::Field(target_slot)
             }
             LoweredAggregateInput::Expr(input_expr) => {
-                validate_analyzed_model_bound_scalar_expr(
-                    model,
+                validate_analyzed_schema_bound_scalar_expr(
                     schema,
                     &input_expr,
                     SqlLoweringError::unsupported_aggregate_input_expressions,
@@ -103,7 +98,7 @@ impl PreparedSqlScalarAggregateStrategy {
         };
         let filter_expr = match filter_expr {
             Some(filter_expr) => {
-                Self::validate_global_aggregate_filter_expr(model, schema, &filter_expr)?;
+                Self::validate_global_aggregate_filter_expr(schema, &filter_expr)?;
                 Some(filter_expr.into_expr())
             }
             None => None,
@@ -119,12 +114,10 @@ impl PreparedSqlScalarAggregateStrategy {
     }
 
     fn validate_global_aggregate_filter_expr(
-        model: &'static EntityModel,
         schema: &SchemaInfo,
         filter_expr: &crate::db::sql::lowering::AnalyzedLoweredExpr,
     ) -> Result<(), SqlLoweringError> {
-        match validate_analyzed_model_bound_scalar_expr(
-            model,
+        match validate_analyzed_schema_bound_scalar_expr(
             schema,
             filter_expr,
             SqlLoweringError::unsupported_where_expression,

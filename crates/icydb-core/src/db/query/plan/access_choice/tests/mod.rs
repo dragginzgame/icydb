@@ -865,7 +865,6 @@ fn residual_free_rerank_skips_same_score_candidate_scan() {
 
     super::reset_same_score_competing_candidate_scan_count_for_tests();
     let reranked = super::rerank_access_plan_by_residual_burden_from_authority(
-        &ACCESS_CHOICE_MODEL,
         visible_indexes.as_slice(),
         schema,
         &plan,
@@ -930,7 +929,6 @@ fn chosen_residual_burden_preference_scans_same_score_candidates_once() {
 
     super::reset_same_score_competing_candidate_scan_count_for_tests();
     let preferred = super::chosen_access_prefers_lower_residual_burden(
-        &ACCESS_CHOICE_MODEL,
         visible_indexes.as_slice(),
         schema,
         &plan,
@@ -948,7 +946,6 @@ fn chosen_residual_burden_preference_scans_same_score_candidates_once() {
 
     super::reset_same_score_competing_candidate_scan_count_for_tests();
     let snapshot = super::project_access_choice_explain_snapshot_from_authority(
-        &ACCESS_CHOICE_MODEL,
         visible_indexes.as_slice(),
         schema,
         &plan,

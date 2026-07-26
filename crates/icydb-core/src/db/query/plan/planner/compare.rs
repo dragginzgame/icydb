@@ -23,13 +23,11 @@ use crate::{
         },
         schema::{FieldType, SchemaInfo, literal_matches_type},
     },
-    model::entity::EntityModel,
     value::Value,
 };
 use std::ops::Bound;
 
 pub(super) fn plan_compare(
-    model: &EntityModel,
     candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
@@ -54,7 +52,6 @@ pub(super) fn plan_compare(
                 return AccessPlan::full_scan();
             }
             if let Some(paths) = index_prefix_for_eq(
-                model,
                 candidate_indexes,
                 schema,
                 &cmp.field,
@@ -101,8 +98,7 @@ pub(super) fn plan_compare(
             if !field_supports_ordered_compare(field_type, cmp.coercion.id) {
                 return AccessPlan::full_scan();
             }
-            if let Some(path) =
-                plan_ordered_compare(model, candidate_indexes, schema, cmp, order, grouped)
+            if let Some(path) = plan_ordered_compare(candidate_indexes, schema, cmp, order, grouped)
             {
                 return path;
             }
@@ -120,7 +116,7 @@ pub(super) fn plan_compare(
             //   because the derived expression ordering does not yet expose one
             //   tighter planner-owned upper-bound contract
             if let Some(path) =
-                plan_starts_with_compare(model, candidate_indexes, schema, cmp, order, grouped)
+                plan_starts_with_compare(candidate_indexes, schema, cmp, order, grouped)
             {
                 return path;
             }
@@ -196,7 +192,6 @@ fn plan_pk_compare(
 }
 
 fn plan_starts_with_compare(
-    _model: &EntityModel,
     candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
@@ -276,7 +271,6 @@ fn plan_starts_with_compare(
 }
 
 fn plan_ordered_compare(
-    _model: &EntityModel,
     candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     cmp: &ComparePredicate,

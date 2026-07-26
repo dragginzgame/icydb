@@ -7,5 +7,5 @@ pub(in crate::db::sql::lowering) use aggregate_call::{
 };
 pub(in crate::db::sql::lowering::aggregate) use aggregate_shape::LoweredSqlAggregateShape;
 pub(in crate::db::sql::lowering::aggregate) use helpers::{
-    apply_aggregate_filter_expr, validate_analyzed_model_bound_scalar_expr,
+    apply_aggregate_filter_expr, validate_analyzed_schema_bound_scalar_expr,
 };

@@ -85,12 +85,9 @@ fn capture_mutation_commit_classes<R>(
     (output, classes)
 }
 
-fn public_projection_rows<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> Vec<Vec<Value>>
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
+fn public_projection_rows(session: &DbSession<SessionSqlCanister>, sql: &str) -> Vec<Vec<Value>> {
     let result = session
-        .execute_trusted_sql_query::<E>(sql)
+        .execute_trusted_sql_query(sql)
         .unwrap_or_else(|err| panic!("public SQL query should succeed: {sql}: {err}"));
 
     let SqlStatementResult::Projection { rows, .. } = result else {
@@ -103,12 +100,9 @@ where
 }
 
 #[cfg(feature = "sql-explain")]
-fn public_explain_text<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> String
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
+fn public_explain_text(session: &DbSession<SessionSqlCanister>, sql: &str) -> String {
     let result = session
-        .execute_trusted_sql_query::<E>(sql)
+        .execute_trusted_sql_query(sql)
         .unwrap_or_else(|err| panic!("public EXPLAIN query should succeed: {sql}: {err}"));
 
     let SqlStatementResult::Explain(explain) = result else {
@@ -168,7 +162,7 @@ fn journaled_session_write_read_and_index_query_round_trip_while_live() {
         vec![(1, "Atlas", 20), (2, "Beryl", 30), (3, "Cato", 40)],
     );
 
-    let rows = public_projection_rows::<JournaledSessionSqlEntity>(
+    let rows = public_projection_rows(
         &session,
         "SELECT name, age FROM JournaledSessionSqlEntity \
          WHERE name >= 'B' AND name < 'D' \
@@ -184,7 +178,7 @@ fn journaled_session_write_read_and_index_query_round_trip_while_live() {
 
     #[cfg(feature = "sql-explain")]
     {
-        let explain = public_explain_text::<JournaledSessionSqlEntity>(
+        let explain = public_explain_text(
             &session,
             "EXPLAIN EXECUTION SELECT name \
              FROM JournaledSessionSqlEntity \
@@ -266,7 +260,7 @@ fn journaled_session_recovery_folds_committed_tail_into_canonical_btrees() {
         vec![(1, "Atlas", 20), (2, "Beryl", 30), (3, "Cato", 40)],
     );
 
-    let rows = public_projection_rows::<JournaledSessionSqlEntity>(
+    let rows = public_projection_rows(
         &recovered_session,
         "SELECT name, age FROM JournaledSessionSqlEntity \
          WHERE name >= 'B' AND name < 'D' \
@@ -403,7 +397,7 @@ fn journaled_temporal_defaults_remain_frozen_through_three_layouts_and_recovery(
     assert_eq!(journaled_session_row_layout_version(2), 2);
     assert_eq!(journaled_session_row_layout_version(3), 3);
     assert_eq!(
-        public_projection_rows::<JournaledSessionSqlEntity>(
+        public_projection_rows(
             &session,
             "SELECT id, score, nickname FROM JournaledSessionSqlEntity ORDER BY id ASC",
         ),
@@ -463,7 +457,7 @@ fn journaled_temporal_defaults_remain_frozen_through_three_layouts_and_recovery(
     }
 
     let expected_rows = expected_promoted_journaled_temporal_rows();
-    let before_rows = public_projection_rows::<JournaledSessionSqlEntity>(
+    let before_rows = public_projection_rows(
         &session,
         "SELECT id, age, score, nickname FROM JournaledSessionSqlEntity ORDER BY id ASC",
     );
@@ -475,7 +469,7 @@ fn journaled_temporal_defaults_remain_frozen_through_three_layouts_and_recovery(
     let recovered_session = journaled_sql_session();
 
     assert_eq!(
-        public_projection_rows::<JournaledSessionSqlEntity>(
+        public_projection_rows(
             &recovered_session,
             "SELECT id, age, score, nickname FROM JournaledSessionSqlEntity ORDER BY id ASC",
         ),

@@ -168,12 +168,12 @@ impl StructuralQuery {
     // access plan so standalone text/json/verbose explain surfaces do not each
     // rebuild it.
     pub(in crate::db) fn explain_execution_descriptor_from_model_only_plan(
-        &self,
+        model: &'static EntityModel,
         plan: &AccessPlannedQuery,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let primary_key_names = model_primary_key_names(self.model());
+        let primary_key_names = model_primary_key_names(model);
         let route_facts = freeze_load_execution_route_facts_for_model_only(
-            self.model().fields(),
+            model.fields(),
             primary_key_names.as_slice(),
             plan,
         )
@@ -185,11 +185,9 @@ impl StructuralQuery {
 
     // Assemble one execution descriptor from accepted executor authority.
     pub(in crate::db) fn explain_execution_descriptor_from_plan_with_authority(
-        &self,
         plan: &AccessPlannedQuery,
         authority: &EntityAuthority,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        debug_assert_eq!(self.model().path(), authority.entity_path());
         let route_facts = freeze_load_execution_route_facts_for_authority(authority, plan)
             .map_err(QueryError::execute)?;
 
@@ -202,13 +200,13 @@ impl StructuralQuery {
     // of returning one wrapper-owned line list that callers still have to
     // extend locally.
     fn finalized_execution_diagnostics_from_model_only_plan(
-        &self,
+        model: &'static EntityModel,
         plan: &AccessPlannedQuery,
         reuse: Option<TraceReuseEvent>,
     ) -> Result<FinalizedQueryDiagnostics, QueryError> {
-        let primary_key_names = model_primary_key_names(self.model());
+        let primary_key_names = model_primary_key_names(model);
         let route_facts = freeze_load_execution_route_facts_for_model_only(
-            self.model().fields(),
+            model.fields(),
             primary_key_names.as_slice(),
             plan,
         )
@@ -220,13 +218,11 @@ impl StructuralQuery {
     /// Freeze one immutable diagnostics artifact through accepted executor
     /// authority while still allowing one caller-owned descriptor mutation.
     pub(in crate::db) fn finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(
-        &self,
         plan: &AccessPlannedQuery,
         authority: &EntityAuthority,
         reuse: Option<TraceReuseEvent>,
         mutate_descriptor: impl FnOnce(&mut ExplainExecutionNodeDescriptor),
     ) -> Result<FinalizedQueryDiagnostics, QueryError> {
-        debug_assert_eq!(self.model().path(), authority.entity_path());
         let route_facts = freeze_load_execution_route_facts_for_authority(authority, plan)
             .map_err(QueryError::execute)?;
         let mut diagnostics =
@@ -239,33 +235,32 @@ impl StructuralQuery {
     // Render one verbose execution explain payload using only the canonical
     // diagnostics artifact owned by this executor boundary.
     fn explain_execution_verbose_from_plan(
-        &self,
+        model: &'static EntityModel,
         plan: &AccessPlannedQuery,
     ) -> Result<String, QueryError> {
-        self.finalized_execution_diagnostics_from_model_only_plan(plan, None)
+        Self::finalized_execution_diagnostics_from_model_only_plan(model, plan, None)
             .map(|diagnostics| diagnostics.render_text_verbose())
     }
 
     // Render one standalone model-only execution explain JSON payload from the
     // same finalized diagnostics artifact used by verbose text explain.
     fn explain_execution_json_from_plan(
-        &self,
+        model: &'static EntityModel,
         plan: &AccessPlannedQuery,
     ) -> Result<String, QueryError> {
-        self.finalized_execution_diagnostics_from_model_only_plan(plan, None)
+        Self::finalized_execution_diagnostics_from_model_only_plan(model, plan, None)
             .map(|diagnostics| diagnostics.render_json_canonical())
     }
 
     // Freeze one explain-only access-choice snapshot from accepted
     // planner-visible indexes before building descriptor diagnostics.
     fn finalize_explain_access_choice_for_visible_indexes(
-        &self,
+        model: &'static EntityModel,
         plan: &mut AccessPlannedQuery,
         visible_indexes: &VisibleIndexes<'_>,
     ) {
         if let Some(schema_info) = visible_indexes.accepted_schema_info() {
-            plan.finalize_access_choice_for_model_with_semantic_indexes_and_schema(
-                self.model(),
+            plan.finalize_access_choice_with_semantic_indexes_and_schema(
                 visible_indexes.accepted_semantic_index_contracts(),
                 schema_info,
             );
@@ -273,7 +268,7 @@ impl StructuralQuery {
         }
 
         plan.finalize_access_choice_for_model_only_with_indexes(
-            self.model(),
+            model,
             visible_indexes.generated_model_only_indexes(),
         );
     }
@@ -281,18 +276,21 @@ impl StructuralQuery {
     // Freeze one explicit model-only access-choice snapshot for standalone
     // query explain surfaces that intentionally do not have accepted runtime
     // schema authority.
-    fn finalize_explain_access_choice_for_model_only(&self, plan: &mut AccessPlannedQuery) {
-        plan.finalize_access_choice_for_model_only_with_indexes(
-            self.model(),
-            self.model().indexes(),
-        );
+    fn finalize_explain_access_choice_for_model_only(
+        model: &'static EntityModel,
+        plan: &mut AccessPlannedQuery,
+    ) {
+        plan.finalize_access_choice_for_model_only_with_indexes(model, model.indexes());
     }
 
     // Build and freeze one explicit model-only access-plan snapshot for
     // standalone query explain surfaces.
-    fn finalized_model_only_explain_plan(&self) -> Result<AccessPlannedQuery, QueryError> {
-        let mut plan = self.build_plan()?;
-        self.finalize_explain_access_choice_for_model_only(&mut plan);
+    fn finalized_model_only_explain_plan(
+        &self,
+        model: &'static EntityModel,
+    ) -> Result<AccessPlannedQuery, QueryError> {
+        let mut plan = self.build_plan_for_model(model)?;
+        Self::finalize_explain_access_choice_for_model_only(model, &mut plan);
 
         Ok(plan)
     }
@@ -301,10 +299,11 @@ impl StructuralQuery {
     // visible-index slice for runtime/session explain surfaces.
     fn finalized_visible_indexes_explain_plan(
         &self,
+        model: &'static EntityModel,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
-        let mut plan = self.build_plan_with_visible_indexes(visible_indexes)?;
-        self.finalize_explain_access_choice_for_visible_indexes(&mut plan, visible_indexes);
+        let mut plan = self.build_plan_with_visible_indexes_for_model(model, visible_indexes)?;
+        Self::finalize_explain_access_choice_for_visible_indexes(model, &mut plan, visible_indexes);
 
         Ok(plan)
     }
@@ -313,76 +312,88 @@ impl StructuralQuery {
     // surfaces that are not bound to a recovered store/accepted schema.
     fn explain_execution_descriptor_for_model_only(
         &self,
+        model: &'static EntityModel,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let plan = self.finalized_model_only_explain_plan()?;
+        let plan = self.finalized_model_only_explain_plan(model)?;
 
-        self.explain_execution_descriptor_from_model_only_plan(&plan)
+        Self::explain_execution_descriptor_from_model_only_plan(model, &plan)
     }
 
     // Build one execution descriptor using the caller-resolved accepted visible
     // indexes for runtime/session explain.
     fn explain_execution_descriptor_for_visible_indexes(
         &self,
+        model: &'static EntityModel,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let plan = self.finalized_visible_indexes_explain_plan(visible_indexes)?;
+        let plan = self.finalized_visible_indexes_explain_plan(model, visible_indexes)?;
 
-        self.explain_execution_descriptor_from_model_only_plan(&plan)
+        Self::explain_execution_descriptor_from_model_only_plan(model, &plan)
     }
 
     // Render one explicit model-only verbose execution payload for standalone
     // query surfaces that are not bound to a recovered store/accepted schema.
-    fn render_execution_verbose_for_model_only(&self) -> Result<String, QueryError> {
-        let plan = self.finalized_model_only_explain_plan()?;
+    fn render_execution_verbose_for_model_only(
+        &self,
+        model: &'static EntityModel,
+    ) -> Result<String, QueryError> {
+        let plan = self.finalized_model_only_explain_plan(model)?;
 
-        self.explain_execution_verbose_from_plan(&plan)
+        Self::explain_execution_verbose_from_plan(model, &plan)
     }
 
     // Render one explicit model-only execution JSON payload for standalone
     // query surfaces that are not bound to a recovered store/accepted schema.
-    fn render_execution_json_for_model_only(&self) -> Result<String, QueryError> {
-        let plan = self.finalized_model_only_explain_plan()?;
+    fn render_execution_json_for_model_only(
+        &self,
+        model: &'static EntityModel,
+    ) -> Result<String, QueryError> {
+        let plan = self.finalized_model_only_explain_plan(model)?;
 
-        self.explain_execution_json_from_plan(&plan)
+        Self::explain_execution_json_from_plan(model, &plan)
     }
 
     // Render one verbose execution payload using the caller-resolved accepted
     // visible indexes for runtime/session explain.
     fn explain_execution_verbose_for_visible_indexes(
         &self,
+        model: &'static EntityModel,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError> {
-        let plan = self.finalized_visible_indexes_explain_plan(visible_indexes)?;
+        let plan = self.finalized_visible_indexes_explain_plan(model, visible_indexes)?;
 
-        self.explain_execution_verbose_from_plan(&plan)
+        Self::explain_execution_verbose_from_plan(model, &plan)
     }
 
     // Render one finalized execution JSON payload using the caller-resolved
     // accepted visible indexes for runtime/session explain.
     fn explain_execution_json_for_visible_indexes(
         &self,
+        model: &'static EntityModel,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError> {
-        let plan = self.finalized_visible_indexes_explain_plan(visible_indexes)?;
+        let plan = self.finalized_visible_indexes_explain_plan(model, visible_indexes)?;
 
-        self.explain_execution_json_from_plan(&plan)
+        Self::explain_execution_json_from_plan(model, &plan)
     }
 
     /// Explain one model-only load execution shape through the structural query core.
     #[inline(never)]
     pub(in crate::db) fn explain_execution_for_model_only(
         &self,
+        model: &'static EntityModel,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        self.explain_execution_descriptor_for_model_only()
+        self.explain_execution_descriptor_for_model_only(model)
     }
 
     /// Explain one load execution shape using a caller-visible index slice.
     #[inline(never)]
     pub(in crate::db) fn explain_execution_with_visible_indexes(
         &self,
+        model: &'static EntityModel,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        self.explain_execution_descriptor_for_visible_indexes(visible_indexes)
+        self.explain_execution_descriptor_for_visible_indexes(model, visible_indexes)
     }
 
     /// Render one model-only verbose scalar load execution payload through the
@@ -390,34 +401,38 @@ impl StructuralQuery {
     #[inline(never)]
     pub(in crate::db) fn explain_execution_verbose_for_model_only(
         &self,
+        model: &'static EntityModel,
     ) -> Result<String, QueryError> {
-        self.render_execution_verbose_for_model_only()
+        self.render_execution_verbose_for_model_only(model)
     }
 
     /// Render the model-only execution explain artifact as finalized JSON.
     #[inline(never)]
     pub(in crate::db) fn explain_execution_json_for_model_only(
         &self,
+        model: &'static EntityModel,
     ) -> Result<String, QueryError> {
-        self.render_execution_json_for_model_only()
+        self.render_execution_json_for_model_only(model)
     }
 
     /// Render one verbose scalar load execution payload using visible indexes.
     #[inline(never)]
     pub(in crate::db) fn explain_execution_verbose_with_visible_indexes(
         &self,
+        model: &'static EntityModel,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError> {
-        self.explain_execution_verbose_for_visible_indexes(visible_indexes)
+        self.explain_execution_verbose_for_visible_indexes(model, visible_indexes)
     }
 
     /// Render the visible-index execution explain artifact as finalized JSON.
     #[inline(never)]
     pub(in crate::db) fn explain_execution_json_with_visible_indexes(
         &self,
+        model: &'static EntityModel,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError> {
-        self.explain_execution_json_for_visible_indexes(visible_indexes)
+        self.explain_execution_json_for_visible_indexes(model, visible_indexes)
     }
 
     /// Explain one aggregate terminal execution route without running it.
@@ -425,10 +440,11 @@ impl StructuralQuery {
     #[cfg(test)]
     pub(in crate::db) fn explain_aggregate_terminal_with_visible_indexes(
         &self,
+        model: &'static crate::model::entity::EntityModel,
         visible_indexes: &VisibleIndexes<'_>,
         aggregate: AggregateRouteShape<'_>,
     ) -> Result<ExplainAggregateTerminalPlan, QueryError> {
-        let plan = self.build_plan_with_visible_indexes(visible_indexes)?;
+        let plan = self.build_plan_with_visible_indexes_for_model(model, visible_indexes)?;
         let query_explain = plan.explain();
         let terminal = aggregate.kind();
         let execution = assemble_aggregate_terminal_execution_descriptor(&plan, aggregate)
@@ -547,8 +563,8 @@ where
         match visible_indexes {
             Some(visible_indexes) => self
                 .structural()
-                .explain_execution_with_visible_indexes(visible_indexes),
-            None => self.structural().explain_execution_for_model_only(),
+                .explain_execution_with_visible_indexes(E::MODEL, visible_indexes),
+            None => self.structural().explain_execution_for_model_only(E::MODEL),
         }
     }
 
@@ -574,8 +590,10 @@ where
         match visible_indexes {
             Some(visible_indexes) => self
                 .structural()
-                .explain_execution_verbose_with_visible_indexes(visible_indexes),
-            None => self.structural().explain_execution_verbose_for_model_only(),
+                .explain_execution_verbose_with_visible_indexes(E::MODEL, visible_indexes),
+            None => self
+                .structural()
+                .explain_execution_verbose_for_model_only(E::MODEL),
         }
     }
 
@@ -588,8 +606,10 @@ where
         match visible_indexes {
             Some(visible_indexes) => self
                 .structural()
-                .explain_execution_json_with_visible_indexes(visible_indexes),
-            None => self.structural().explain_execution_json_for_model_only(),
+                .explain_execution_json_with_visible_indexes(E::MODEL, visible_indexes),
+            None => self
+                .structural()
+                .explain_execution_json_for_model_only(E::MODEL),
         }
     }
 
@@ -634,6 +654,7 @@ where
     ) -> Result<ExplainAggregateTerminalPlan, QueryError> {
         self.structural()
             .explain_aggregate_terminal_with_visible_indexes(
+                E::MODEL,
                 &VisibleIndexes::generated_model_only(E::MODEL.indexes()),
                 AggregateRouteShape::new_from_fields(
                     aggregate.kind(),

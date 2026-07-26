@@ -128,12 +128,13 @@ fn model_with_expression_index() -> &'static EntityModel {
     <PlanValidateExpressionIndexedEntity as EntityDeclaration>::MODEL
 }
 
-fn assert_trivial_scalar_fast_path_matches_general(query: QueryModel<'static, Value>) {
-    let visible_indexes = VisibleIndexes::generated_model_only_for_test(query.model().indexes());
-    let fast = try_build_trivial_scalar_load_plan_for_model_only(&query)
+fn assert_trivial_scalar_fast_path_matches_general(query: QueryModel<Value>) {
+    let model = model_with_index();
+    let visible_indexes = VisibleIndexes::generated_model_only_for_test(model.indexes());
+    let fast = try_build_trivial_scalar_load_plan_for_model_only(&query, model)
         .expect("trivial fast path should build")
         .expect("query should be fast-path eligible");
-    let planning_state = prepare_query_model_scalar_planning_state_for_model_only(&query)
+    let planning_state = prepare_query_model_scalar_planning_state_for_model_only(&query, model)
         .expect("general state should prepare");
     let general = build_query_model_plan_with_indexes_from_scalar_planning_state(
         &query,
@@ -341,14 +342,14 @@ fn finalized_static_contract_owns_full_scan_fallback_pushdown_reason_labels() {
 
 #[test]
 fn trivial_scalar_load_fast_path_matches_general_plan_without_order() {
-    let query = QueryModel::<Value>::new(model_with_index(), MissingRowPolicy::Ignore);
+    let query = QueryModel::<Value>::new(MissingRowPolicy::Ignore);
 
     assert_trivial_scalar_fast_path_matches_general(query);
 }
 
 #[test]
 fn trivial_scalar_load_fast_path_matches_general_plan_for_primary_order() {
-    let query = QueryModel::<Value>::new(model_with_index(), MissingRowPolicy::Ignore)
+    let query = QueryModel::<Value>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("id"))
         .limit(2);
 
@@ -357,10 +358,10 @@ fn trivial_scalar_load_fast_path_matches_general_plan_for_primary_order() {
 
 #[test]
 fn trivial_scalar_load_fast_path_rejects_secondary_order() {
-    let query = QueryModel::<Value>::new(model_with_index(), MissingRowPolicy::Ignore)
+    let query = QueryModel::<Value>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("tag"))
         .limit(2);
-    let fast = try_build_trivial_scalar_load_plan_for_model_only(&query)
+    let fast = try_build_trivial_scalar_load_plan_for_model_only(&query, model_with_index())
         .expect("eligibility check should not fail");
 
     assert!(

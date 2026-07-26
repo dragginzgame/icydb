@@ -148,6 +148,25 @@ pub(in crate::db::session::sql) struct SqlCompiledCommandCacheContext {
 
 impl SqlCompiledCommandCacheContext {
     #[must_use]
+    pub(in crate::db::session::sql) fn from_catalog(
+        surface: SqlCompiledCommandSurface,
+        sql: &str,
+        catalog: AcceptedSchemaCatalogContext,
+    ) -> Self {
+        Self {
+            key: SqlCompiledCommandCacheKey::new(
+                surface,
+                catalog.identity().entity_path(),
+                catalog.revision(),
+                catalog.schema_version(),
+                SqlCompiledSchemaFingerprint::from_catalog(&catalog),
+                sql,
+            ),
+            catalog,
+        }
+    }
+
+    #[must_use]
     pub(in crate::db::session::sql) fn into_cache_inputs(
         self,
     ) -> (SqlCompiledCommandCacheKey, AcceptedSchemaCatalogContext) {

@@ -141,6 +141,8 @@ pub use query::builder::numeric_projection::{
 };
 pub(in crate::db) use query::intent::Query;
 pub use query::plan::validate::PlanError;
+#[cfg(feature = "sql")]
+pub use query::{DynamicQuery, DynamicQueryResult};
 pub use query::{
     api::ResponseCardinalityExt,
     builder::{

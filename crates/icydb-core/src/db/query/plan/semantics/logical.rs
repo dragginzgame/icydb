@@ -25,7 +25,8 @@ use crate::{
             grouped_aggregate_specs_from_projection_spec, grouped_cursor_policy_violation,
             grouped_plan_strategy, lower_data_row_direct_projection_slots_with_schema,
             lower_direct_projection_slots_with_schema, lower_projection_identity,
-            lower_projection_intent, residual_query_predicate_after_access_path_bounds,
+            lower_projection_intent, lower_projection_intent_with_schema,
+            residual_query_predicate_after_access_path_bounds,
             residual_query_predicate_after_filtered_access_contract,
             resolved_grouped_distinct_execution_strategy_with_schema_info,
         },
@@ -146,6 +147,16 @@ impl AccessPlannedQuery {
         }
 
         lower_projection_intent(model, &self.logical, &self.projection_selection)
+    }
+
+    /// Lower this plan through accepted schema projection authority.
+    #[must_use]
+    pub(in crate::db) fn projection_spec_with_schema(&self, schema: &SchemaInfo) -> ProjectionSpec {
+        if let Some(static_contract) = &self.static_execution_planning_contract {
+            return static_contract.projection_spec.clone();
+        }
+
+        lower_projection_intent_with_schema(schema, &self.logical, &self.projection_selection)
     }
 
     /// Lower this plan into one projection semantic shape for identity hashing.
@@ -339,21 +350,19 @@ impl AccessPlannedQuery {
         &mut self,
         model: &EntityModel,
     ) -> Result<(), InternalError> {
-        self.finalize_static_execution_planning_contract_for_model_with_schema(
-            model,
+        self.finalize_static_execution_planning_contract_with_schema(
             SchemaInfo::cached_for_generated_entity_model(model),
         )
     }
 
     /// Freeze planner-owned executor metadata with explicit schema authority.
-    pub(in crate::db) fn finalize_static_execution_planning_contract_for_model_with_schema(
+    pub(in crate::db) fn finalize_static_execution_planning_contract_with_schema(
         &mut self,
-        model: &EntityModel,
         schema_info: &SchemaInfo,
     ) -> Result<(), InternalError> {
         self.bind_group_field_slots_to_schema(schema_info)?;
         self.static_execution_planning_contract = Some(
-            project_static_execution_planning_contract_for_model(model, schema_info, self)?,
+            project_static_execution_planning_contract_with_schema(schema_info, self)?,
         );
 
         Ok(())
@@ -607,18 +616,18 @@ pub(in crate::db) fn project_planner_route_profile_for_schema(
     )
 }
 
-fn project_static_execution_planning_contract_for_model(
-    model: &EntityModel,
+fn project_static_execution_planning_contract_with_schema(
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Result<StaticExecutionPlanningContract, InternalError> {
-    let projection_spec = lower_projection_intent(model, &plan.logical, &plan.projection_selection);
+    let projection_spec =
+        lower_projection_intent_with_schema(schema_info, &plan.logical, &plan.projection_selection);
     let execution_preparation_predicate = plan.execution_preparation_predicate();
     let residual_filter_predicate = derive_residual_filter_predicate_from_preparation(
         plan,
         execution_preparation_predicate.as_ref(),
     );
-    let residual_filter_expr = derive_residual_filter_expr_for_model(model, plan);
+    let residual_filter_expr = derive_residual_filter_expr(plan);
     let effective_runtime_filter_program = compile_effective_runtime_filter_program(
         schema_info,
         residual_filter_expr.as_ref(),
@@ -652,22 +661,19 @@ fn project_static_execution_planning_contract_for_model(
     let (grouped_aggregate_execution_specs, grouped_distinct_execution_strategy) =
         resolve_grouped_static_planning_semantics(schema_info, plan, &projection_spec)?;
     let projection_direct_slots = lower_direct_projection_slots_with_schema(
-        model,
         schema_info,
         &plan.logical,
         &plan.projection_selection,
     );
     let projection_data_row_direct_slots = lower_data_row_direct_projection_slots_with_schema(
-        model,
         schema_info,
         &plan.logical,
         &plan.projection_selection,
     );
-    let projection_referenced_slots =
-        projection_spec.referenced_slots_for_schema(model, schema_info)?;
+    let projection_referenced_slots = projection_spec.referenced_slots_for_schema(schema_info)?;
     let projected_slot_mask =
-        projected_slot_mask_for_spec(model, projection_direct_slots.as_deref());
-    let projection_is_model_identity = projection_spec.is_model_identity_for(model);
+        projected_slot_mask_for_spec(schema_info, projection_direct_slots.as_deref());
+    let projection_is_model_identity = projection_spec.is_schema_identity_for(schema_info);
     let resolved_order = resolved_order_for_plan(schema_info, plan)?;
     let order_referenced_slots = order_referenced_slots_for_resolved_order(resolved_order.as_ref());
     let slot_map = slot_map_for_schema_plan(schema_info, plan);
@@ -785,21 +791,6 @@ fn derive_residual_filter_expr(plan: &AccessPlannedQuery) -> Option<Expr> {
     Some(filter_expr.clone())
 }
 
-// Derive the explicit residual semantic expression during finalization using
-// the trusted entity schema so compare-family literal normalization matches the
-// planner-owned predicate contract before residual ownership is decided.
-fn derive_residual_filter_expr_for_model(
-    model: &EntityModel,
-    plan: &AccessPlannedQuery,
-) -> Option<Expr> {
-    let filter_expr = plan.scalar_plan().filter_expr.as_ref()?;
-    if derive_semantic_filter_fully_satisfied_by_access_contract_for_model(model, plan) {
-        return None;
-    }
-
-    Some(filter_expr.clone())
-}
-
 // Return whether any residual filtering survives after access planning. This
 // helper exists only for pre-finalization assembly; finalized plans must read
 // the explicit residual artifacts frozen in `StaticExecutionPlanningContract`.
@@ -847,16 +838,6 @@ const fn derive_semantic_filter_fully_satisfied_by_access_contract(
     plan.scalar_plan().filter_expr.is_some()
         && plan.scalar_plan().predicate.is_some()
         && plan.scalar_plan().predicate_covers_filter_expr
-}
-
-// Return true when finalized planning can prove that the semantic filter
-// expression is completely represented by the planner-owned predicate contract
-// after aligning compare literals through the trusted entity schema.
-const fn derive_semantic_filter_fully_satisfied_by_access_contract_for_model(
-    _model: &EntityModel,
-    plan: &AccessPlannedQuery,
-) -> bool {
-    derive_semantic_filter_fully_satisfied_by_access_contract(plan)
 }
 
 // Compile one optional planner-frozen predicate program while keeping the
@@ -934,13 +915,19 @@ fn extend_grouped_having_aggregate_specs(
 }
 
 fn projected_slot_mask_for_spec(
-    model: &EntityModel,
+    schema_info: &SchemaInfo,
     direct_projection_slots: Option<&[usize]>,
 ) -> Vec<bool> {
     let schema_slot_len = direct_projection_slots
         .and_then(|slots| slots.iter().copied().max())
         .map_or(0, |slot| slot.saturating_add(1));
-    let mut projected_slots = vec![false; model.fields().len().max(schema_slot_len)];
+    let mut projected_slots = vec![
+        false;
+        schema_info
+            .field_names_in_slot_order()
+            .len()
+            .max(schema_slot_len)
+    ];
 
     let Some(direct_projection_slots) = direct_projection_slots else {
         return projected_slots;

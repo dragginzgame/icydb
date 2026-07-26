@@ -32,7 +32,7 @@ where
             .accepted_schema_info_for_entity::<E>()
             .map_err(QueryError::execute)?;
 
-        resolve_aggregate_target_field_slot_with_schema(E::MODEL, &schema, field.as_ref())
+        resolve_aggregate_target_field_slot_with_schema(&schema, field.as_ref())
     }
 
     pub(super) fn ensure_paged_mode_ready(&self) -> Result<(), QueryError> {

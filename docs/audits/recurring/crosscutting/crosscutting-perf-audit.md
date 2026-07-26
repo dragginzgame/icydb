@@ -314,12 +314,12 @@ For each supported scenario, sample what exists:
   typed/fluent lane
 * typed/fluent load query execution
 * typed/fluent paged query execution
-* `DbSession::execute_trusted_sql_query::<E>(...)`
+* `DbSession::execute_trusted_sql_query(...)`
 * `DbSession::execute_trusted_sql_exact_update::<E>(...)`
 * `DbSession::execute_trusted_sql_prefix_update::<E>(...)`
 * `DbSession::prepare_trusted_sql_resumable_update::<E>(...)`
 * `DbSession::resume_trusted_sql_resumable_update::<E>(...)`
-* `DbSession::execute_trusted_sql_query_with_attribution::<E>(...)` when diagnostics are
+* `DbSession::execute_trusted_sql_query_with_attribution(...)` when diagnostics are
   available
 * current explain SQL surface
 * generated dispatch or canister shell wrappers, but only when the report maps

@@ -128,7 +128,7 @@ impl OrderTerm {
 
     /// Lower one typed fluent order term directly into the planner-owned
     /// `OrderTerm` contract.
-    pub(in crate::db::query) fn lower(&self) -> PlannedOrderTerm {
+    pub(in crate::db) fn lower(&self) -> PlannedOrderTerm {
         self.expr.lower(self.direction)
     }
 }

@@ -78,13 +78,12 @@ fn semantic_candidate_indexes_from_generated_model_only(
 /// explicit schema authority.
 #[must_use]
 pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes_and_schema(
-    model: &EntityModel,
+    _model: &EntityModel,
     generated_model_only_indexes: &[&'static IndexModel],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> AccessChoiceExplainSnapshot {
     project_access_choice_explain_snapshot_from_authority(
-        model,
         semantic_candidate_indexes_from_generated_model_only(generated_model_only_indexes)
             .as_slice(),
         schema_info,
@@ -96,21 +95,14 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes_and_sch
 /// already-projected semantic index contracts from the visible-index boundary.
 #[must_use]
 pub(in crate::db) fn project_access_choice_explain_snapshot_with_semantic_indexes_and_schema(
-    model: &EntityModel,
     semantic_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> AccessChoiceExplainSnapshot {
-    project_access_choice_explain_snapshot_from_authority(
-        model,
-        semantic_indexes,
-        schema_info,
-        plan,
-    )
+    project_access_choice_explain_snapshot_from_authority(semantic_indexes, schema_info, plan)
 }
 
 fn project_access_choice_explain_snapshot_from_authority(
-    model: &EntityModel,
     visible_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
@@ -138,7 +130,6 @@ fn project_access_choice_explain_snapshot_from_authority(
         family,
         chosen_score_hint,
         chosen_index_name.as_str(),
-        model,
         visible_indexes,
         schema_info,
         predicate,
@@ -174,7 +165,7 @@ fn project_access_choice_explain_snapshot_from_authority(
                 eligible_other_scores.push(score);
                 let mut rejected_on_residual_burden = false;
                 if let Some(candidate_access) =
-                    eligible_candidate_access_for_index(model, schema_info, plan, index)
+                    eligible_candidate_access_for_index(schema_info, plan, index)
                 {
                     let candidate_plan = candidate_plan_with_access(plan, candidate_access.clone());
                     let residual_burden = residual_burden_for_plan(&candidate_plan);
@@ -284,13 +275,12 @@ pub(in crate::db) fn non_index_access_choice_snapshot_for_access_plan<K>(
 /// leaves less residual work than the current chosen route.
 #[must_use]
 pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_indexes(
-    model: &EntityModel,
+    _model: &EntityModel,
     generated_model_only_indexes: &[&'static IndexModel],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Option<AccessPlan<Value>> {
     rerank_access_plan_by_residual_burden_from_authority(
-        model,
         semantic_candidate_indexes_from_generated_model_only(generated_model_only_indexes)
             .as_slice(),
         schema_info,
@@ -302,16 +292,14 @@ pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_indexes(
 /// contracts from the runtime visible-index boundary.
 #[must_use]
 pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_semantic_indexes(
-    model: &EntityModel,
     semantic_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Option<AccessPlan<Value>> {
-    rerank_access_plan_by_residual_burden_from_authority(model, semantic_indexes, schema_info, plan)
+    rerank_access_plan_by_residual_burden_from_authority(semantic_indexes, schema_info, plan)
 }
 
 fn rerank_access_plan_by_residual_burden_from_authority(
-    model: &EntityModel,
     visible_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
@@ -321,7 +309,6 @@ fn rerank_access_plan_by_residual_burden_from_authority(
     }
 
     let preferred = preferred_same_score_competing_access_by_residual_burden(
-        model,
         visible_indexes,
         schema_info,
         plan,
@@ -334,7 +321,6 @@ fn rerank_access_plan_by_residual_burden_from_authority(
 // competing candidate on residual burden alone.
 #[cfg(test)]
 fn chosen_access_prefers_lower_residual_burden(
-    model: &EntityModel,
     visible_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
@@ -342,7 +328,7 @@ fn chosen_access_prefers_lower_residual_burden(
     let chosen_burden = residual_burden_for_plan(plan);
     let mut found_worse_candidate = false;
 
-    for candidate in same_score_competing_candidate_plans(model, visible_indexes, schema_info, plan)
+    for candidate in same_score_competing_candidate_plans(visible_indexes, schema_info, plan)
         .into_iter()
         .flatten()
     {
@@ -404,7 +390,6 @@ struct ResidualComparableCandidate {
 // Build the best same-score competing access route that leaves less residual
 // work than the current chosen route.
 fn preferred_same_score_competing_access_by_residual_burden(
-    model: &EntityModel,
     visible_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
@@ -412,7 +397,7 @@ fn preferred_same_score_competing_access_by_residual_burden(
     let chosen_burden = residual_burden_for_plan(plan);
     let mut best: Option<ResidualComparableCandidate> = None;
 
-    for candidate in same_score_competing_candidate_plans(model, visible_indexes, schema_info, plan)
+    for candidate in same_score_competing_candidate_plans(visible_indexes, schema_info, plan)
         .into_iter()
         .flatten()
     {
@@ -440,7 +425,6 @@ fn chosen_score_for_visible_indexes(
     family: AccessChoiceFamily,
     chosen_score_hint: crate::db::query::plan::planner::AccessCandidateScore,
     chosen_index_name: &str,
-    _model: &EntityModel,
     visible_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     predicate: Option<&Predicate>,
@@ -462,13 +446,11 @@ fn chosen_score_for_visible_indexes(
 // Build one candidate access plan through the existing single-index planner
 // entry so explain and reranking consume the same planner-owned route shape.
 fn eligible_candidate_access_for_index(
-    model: &EntityModel,
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
     index: &SemanticIndexAccessContract,
 ) -> Option<AccessPlan<Value>> {
     plan_access_selection_with_order_and_semantic_indexes(
-        model,
         std::slice::from_ref(index),
         schema_info,
         plan.scalar_plan().predicate.as_ref(),
@@ -516,7 +498,6 @@ fn project_candidate_explain_summary(
 // candidate through the existing single-index planner entry and deriving its
 // residual burden from the coupled logical+access plan.
 fn same_score_competing_candidate_plans(
-    model: &EntityModel,
     visible_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
@@ -540,7 +521,6 @@ fn same_score_competing_candidate_plans(
         family,
         chosen_score_hint,
         chosen_index_name.as_str(),
-        model,
         visible_indexes,
         schema_info,
         predicate,
@@ -562,8 +542,7 @@ fn same_score_competing_candidate_plans(
             continue;
         }
 
-        let candidate_access =
-            eligible_candidate_access_for_index(model, schema_info, plan, index)?;
+        let candidate_access = eligible_candidate_access_for_index(schema_info, plan, index)?;
         let candidate_access_name = candidate_access
             .selected_index_contract()
             .map(|contract| contract.name().to_string());

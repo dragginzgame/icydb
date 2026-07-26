@@ -97,10 +97,7 @@ where
         .access_plan_for_test()
         .expect("grouped execution pipeline snapshot should build access plan");
     let executable = crate::db::executor::PreparedExecutionPlan::<E>::from(plan);
-    let authority = EntityAuthority::for_generated_type_for_test::<E>()
-        .with_cursor_schema_info_for_test(
-            crate::db::schema::SchemaInfo::cached_for_generated_entity_model(E::MODEL).clone(),
-        );
+    let authority = EntityAuthority::for_accepted_generated_type_for_test::<E>();
     validate_executor_plan_for_authority(&authority, executable.logical_plan())
         .expect("grouped execution pipeline snapshot should validate executor boundary");
     let grouped_handoff =

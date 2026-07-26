@@ -75,7 +75,7 @@ Legend:
 
 | surface | scalar `SELECT` | grouped `SELECT` | global aggregate `SELECT` | computed projection `SELECT` | `DELETE` | `INSERT` | `UPDATE` | DDL | `EXPLAIN` | `DESCRIBE` / `SHOW` |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `execute_trusted_sql_query::<E>` | yes | yes | yes | yes | no | no | no | no | yes | yes |
+| `execute_trusted_sql_query` | yes | yes | yes | yes | no | no | no | no | yes | yes |
 | `execute_trusted_sql_mutation::<E>` | no | no | no | no | yes | yes | no | no | no | no |
 | `execute_trusted_sql_exact_update::<E>` | no | no | no | no | no | no | exact | no | no | no |
 | `execute_trusted_sql_prefix_update::<E>` | no | no | no | no | no | no | prefix | no | no | no |
@@ -137,7 +137,8 @@ query/runtime model with multiple frontends.
 
 The strongest public SQL execution split is now:
 
-- `execute_trusted_sql_query::<E>(...)` for read, explain, and introspection SQL
+- `execute_trusted_sql_query(...)` for accepted-catalog-driven read, explain,
+  and introspection SQL
 - `execute_trusted_sql_mutation::<E>(...)` for trusted `INSERT` and `DELETE`
 - `execute_trusted_sql_exact_update::<E>(...)` for complete-set `UPDATE`
 - `execute_trusted_sql_prefix_update::<E>(...)` for intentional ordered-prefix
@@ -146,8 +147,9 @@ The strongest public SQL execution split is now:
   stable-revision completion
 - `execute_admin_sql_ddl::<E>(...)` for accepted-catalog DDL SQL
 
-These surfaces stay single-entity and SQL-shaped, but none widens into another
-statement families.
+These surfaces stay single-entity and SQL-shaped, but the query statement now
+names the accepted entity directly instead of requiring a generated Rust type.
+None widens into another statement family.
 
 The strongest row-returning convergence exists on typed/fluent mutation APIs:
 
@@ -362,7 +364,7 @@ the following remain true:
 - every admitted SQL mutation family lowers into the canonical structural
   mutation authority also used by typed/fluent writes
 - the live public SQL surface stays frozen to:
-  - `execute_trusted_sql_query::<E>(...)`
+  - `execute_trusted_sql_query(...)`
   - `execute_trusted_sql_mutation::<E>(...)`
   - `execute_trusted_sql_exact_update::<E>(...)`
   - `execute_trusted_sql_prefix_update::<E>(...)`

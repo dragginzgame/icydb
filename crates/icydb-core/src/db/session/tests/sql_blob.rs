@@ -589,7 +589,7 @@ fn sql_octet_length_reports_blob_byte_lengths() {
     #[cfg(feature = "diagnostics")]
     {
         let (_, attribution) = session
-            .execute_trusted_sql_query_with_attribution::<SessionSqlBlobEntity>(
+            .execute_trusted_sql_query_with_attribution(
                 "SELECT label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk) \
                  FROM SessionSqlBlobEntity \
                  ORDER BY label ASC",
@@ -625,7 +625,7 @@ fn sql_blob_projection_attribution_reports_payload_bytes() {
     seed_blob_rows(&session);
 
     let (_, attribution) = session
-        .execute_trusted_sql_query_with_attribution::<SessionSqlBlobEntity>(
+        .execute_trusted_sql_query_with_attribution(
             "SELECT label, thumbnail, chunk \
              FROM SessionSqlBlobEntity \
              WHERE label = 'hero-thumb-a'",

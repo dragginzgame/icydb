@@ -176,13 +176,10 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(patch)
     }
 
-    pub(in crate::db::session::sql) fn sql_update_selector_query<E>(
+    pub(in crate::db::session::sql) fn sql_update_selector_query(
         schema_info: &crate::db::schema::SchemaInfo,
         statement: &SqlUpdateStatement,
-    ) -> Result<StructuralQuery, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<StructuralQuery, QueryError> {
         if schema_info.primary_key_names().is_empty() {
             return Err(QueryError::invariant());
         }
@@ -192,7 +189,6 @@ impl<C: CanisterKind> DbSession<C> {
             .map(String::as_str)
             .collect::<Vec<_>>();
         let selector = bind_sql_update_selector_query_structural_with_schema(
-            E::MODEL,
             statement,
             MissingRowPolicy::Ignore,
             schema_info,
@@ -240,10 +236,8 @@ impl<C: CanisterKind> DbSession<C> {
             |catalog, descriptor| {
                 let (authority, schema_info) =
                     Self::accepted_sql_write_authority_schema_info::<E>(catalog)?;
-                let selector = execution_contract.selector(Self::sql_update_selector_query::<E>(
-                    &schema_info,
-                    statement,
-                )?);
+                let selector = execution_contract
+                    .selector(Self::sql_update_selector_query(&schema_info, statement)?);
                 let patch = Self::sql_structural_patch(&descriptor, statement)?;
                 let write_context =
                     SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());

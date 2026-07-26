@@ -4582,7 +4582,7 @@ fn execute_sql_ordered_grouped_attribution_reports_bounded_live_state_and_early_
     );
 
     let (_result, attribution) = session
-        .execute_trusted_sql_query_with_attribution::<CompositeIndexedSessionSqlEntity>(sql)
+        .execute_trusted_sql_query_with_attribution(sql)
         .expect("grouped SQL attribution query should execute");
     let grouped = attribution
         .grouped

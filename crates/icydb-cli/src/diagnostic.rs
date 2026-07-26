@@ -547,31 +547,31 @@ const fn sql_surface_mismatch_text(mismatch: SqlSurfaceMismatchCode) -> &'static
             "execute_trusted_sql_query rejects DELETE; use execute_trusted_sql_mutation::<E>()"
         }
         SqlSurfaceMismatchCode::MutationRejectsSelect => {
-            "execute_trusted_sql_mutation rejects SELECT; use execute_trusted_sql_query::<E>()"
+            "execute_trusted_sql_mutation rejects SELECT; use execute_trusted_sql_query()"
         }
         SqlSurfaceMismatchCode::MutationRejectsExplain => {
-            "execute_trusted_sql_mutation rejects EXPLAIN; use execute_trusted_sql_query::<E>()"
+            "execute_trusted_sql_mutation rejects EXPLAIN; use execute_trusted_sql_query()"
         }
         SqlSurfaceMismatchCode::MutationRejectsDescribe => {
-            "execute_trusted_sql_mutation rejects DESCRIBE; use execute_trusted_sql_query::<E>()"
+            "execute_trusted_sql_mutation rejects DESCRIBE; use execute_trusted_sql_query()"
         }
         SqlSurfaceMismatchCode::MutationRejectsShowIndexes => {
-            "execute_trusted_sql_mutation rejects SHOW INDEXES; use execute_trusted_sql_query::<E>()"
+            "execute_trusted_sql_mutation rejects SHOW INDEXES; use execute_trusted_sql_query()"
         }
         SqlSurfaceMismatchCode::MutationRejectsShowConstraints => {
-            "execute_trusted_sql_mutation rejects SHOW CONSTRAINTS; use execute_trusted_sql_query::<E>()"
+            "execute_trusted_sql_mutation rejects SHOW CONSTRAINTS; use execute_trusted_sql_query()"
         }
         SqlSurfaceMismatchCode::MutationRejectsShowColumns => {
-            "execute_trusted_sql_mutation rejects SHOW COLUMNS; use execute_trusted_sql_query::<E>()"
+            "execute_trusted_sql_mutation rejects SHOW COLUMNS; use execute_trusted_sql_query()"
         }
         SqlSurfaceMismatchCode::MutationRejectsShowEntities => {
-            "execute_trusted_sql_mutation rejects SHOW ENTITIES; use execute_trusted_sql_query::<E>()"
+            "execute_trusted_sql_mutation rejects SHOW ENTITIES; use execute_trusted_sql_query()"
         }
         SqlSurfaceMismatchCode::MutationRejectsShowStores => {
-            "execute_trusted_sql_mutation rejects SHOW STORES; use execute_trusted_sql_query::<E>()"
+            "execute_trusted_sql_mutation rejects SHOW STORES; use execute_trusted_sql_query()"
         }
         SqlSurfaceMismatchCode::MutationRejectsShowMemory => {
-            "execute_trusted_sql_mutation rejects SHOW MEMORY; use execute_trusted_sql_query::<E>()"
+            "execute_trusted_sql_mutation rejects SHOW MEMORY; use execute_trusted_sql_query()"
         }
         SqlSurfaceMismatchCode::MutationRequiresExplicitUpdateIntent => {
             "execute_trusted_sql_mutation rejects UPDATE; use execute_trusted_sql_exact_update::<E>() or execute_trusted_sql_prefix_update::<E>()"

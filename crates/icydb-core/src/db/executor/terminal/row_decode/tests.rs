@@ -148,15 +148,12 @@ fn accepted_row_decode_layout_for_model(
     model: &'static EntityModel,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
 ) -> Result<RowLayout, InternalError> {
-    let row_proof = descriptor.generated_row_compatibility_proof_for_model(model)?;
+    descriptor.generated_row_compatibility_proof_for_model(model)?;
 
-    Ok(
-        RowLayout::from_generated_compatible_accepted_decode_contract(
-            model.path(),
-            row_proof,
-            descriptor.row_decode_contract(accepted_value_catalog_handle(&[model])),
-        ),
-    )
+    Ok(RowLayout::from_accepted_decode_contract(
+        model.path(),
+        descriptor.row_decode_contract(accepted_value_catalog_handle(&[model])),
+    ))
 }
 
 // Build one canonical raw row from already encoded slot payloads. The
