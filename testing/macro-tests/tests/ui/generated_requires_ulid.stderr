@@ -1,5 +1,5 @@
 error: generated(insert = "Ulid::generate") requires a primitive Ulid field
-  --> tests/ui/generated_requires_ulid.rs:29:21
+  --> tests/ui/generated_requires_ulid.rs:27:44
    |
-29 |             ident = "name",
-   |                     ^^^^^^
+27 |         field(source_key = "name", ident = "name",
+   |                                            ^^^^^^

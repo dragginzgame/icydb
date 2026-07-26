@@ -15,13 +15,13 @@ pub struct UiCanister {}
 )]
 pub struct UiDataStore {}
 
-#[entity(
+#[entity(source_key = "testing/macro-tests/tests/ui/index_reserved_namespace.rs::entity::1",
     name = "~UiIndexedEntity",
     store = "UiDataStore",
     version = 1,
     pk(fields = ["id"]),
-    index(fields = ["id"]),
-    fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
+    index(source_key = "index.1", fields = ["id"]),
+    fields(field(source_key = "id", ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
 )]
 pub struct ReservedNamespaceIndexEntity;
 

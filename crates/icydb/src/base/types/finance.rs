@@ -15,6 +15,7 @@ use crate::design::prelude::*;
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/finance.rs::newtype::1",
     primitive = "Decimal",
     item(prim = "Decimal", scale = 2),
     ty(
@@ -32,6 +33,7 @@ pub struct Usd {}
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/finance.rs::newtype::2",
     primitive = "Decimal",
     item(prim = "Decimal", scale = 8),
     ty(
@@ -48,6 +50,7 @@ pub struct E8s {}
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/finance.rs::newtype::3",
     primitive = "Decimal",
     item(prim = "Decimal", scale = 18),
     ty(

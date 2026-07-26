@@ -11,11 +11,15 @@ use icydb::design::prelude::*;
 /// operates on the inner value when present.
 ///
 
-#[record(fields(field(
-    ident = "threshold",
-    value(
-        opt,
-        item(prim = "Nat32", validator(path = "base::validator::num::Gt", args(10)))
-    )
-)))]
+#[record(
+    source_key = "schema/test/fixtures/src/macro_test/validate/option.rs::record::1",
+    fields(field(
+        source_key = "threshold",
+        ident = "threshold",
+        value(
+            opt,
+            item(prim = "Nat32", validator(path = "base::validator::num::Gt", args(10)))
+        )
+    ))
+)]
 pub struct OptionalThreshold {}

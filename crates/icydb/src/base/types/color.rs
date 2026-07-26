@@ -10,23 +10,29 @@ use crate::design::prelude::*;
 /// Rgb
 ///
 
-#[record(fields(
-    field(ident = "r", value(item(prim = "Nat8"))),
-    field(ident = "g", value(item(prim = "Nat8"))),
-    field(ident = "b", value(item(prim = "Nat8"))),
-))]
+#[record(
+    source_key = "crates/icydb/src/base/types/color.rs::record::1",
+    fields(
+        field(source_key = "r", ident = "r", value(item(prim = "Nat8"))),
+        field(source_key = "g", ident = "g", value(item(prim = "Nat8"))),
+        field(source_key = "b", ident = "b", value(item(prim = "Nat8"))),
+    )
+)]
 pub struct Rgb {}
 
 ///
 /// Rgba
 ///
 
-#[record(fields(
-    field(ident = "r", value(item(prim = "Nat8"))),
-    field(ident = "g", value(item(prim = "Nat8"))),
-    field(ident = "b", value(item(prim = "Nat8"))),
-    field(ident = "a", value(item(prim = "Nat8"))),
-))]
+#[record(
+    source_key = "crates/icydb/src/base/types/color.rs::record::2",
+    fields(
+        field(source_key = "r", ident = "r", value(item(prim = "Nat8"))),
+        field(source_key = "g", ident = "g", value(item(prim = "Nat8"))),
+        field(source_key = "b", ident = "b", value(item(prim = "Nat8"))),
+        field(source_key = "a", ident = "a", value(item(prim = "Nat8"))),
+    )
+)]
 pub struct Rgba {}
 
 ///
@@ -34,6 +40,7 @@ pub struct Rgba {}
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/color.rs::newtype::1",
     primitive = "Text",
     item(prim = "Text", unbounded),
     default = "FFFFFF",
@@ -50,6 +57,7 @@ pub struct RgbHex {}
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/color.rs::newtype::2",
     primitive = "Text",
     item(prim = "Text", unbounded),
     default = "FFFFFFFF",

@@ -16,6 +16,7 @@ use syn::parse_quote;
 
 fn field_with_primitive_default(ident: &str, primitive: Primitive, default: Arg) -> Field {
     Field {
+        source_key: syn::LitStr::new(ident, proc_macro2::Span::call_site()),
         ident: format_ident!("{ident}"),
         value: Value {
             opt: false,
@@ -33,6 +34,7 @@ fn field_with_primitive_default(ident: &str, primitive: Primitive, default: Arg)
 
 fn required_field_without_default(ident: &str, primitive: Primitive) -> Field {
     Field {
+        source_key: syn::LitStr::new(ident, proc_macro2::Span::call_site()),
         ident: format_ident!("{ident}"),
         value: Value {
             opt: false,
@@ -53,6 +55,7 @@ fn redundant_default_entity() -> Entity {
         def: Def::new(syn::parse_quote!(
             struct RedundantDefaultEntity;
         )),
+        source_key: syn::LitStr::new("entity/redundant_default", proc_macro2::Span::call_site()),
         store: syn::parse_quote!(UiDataStore),
         schema_version: 1,
         primary_key: PrimaryKey {
@@ -143,6 +146,7 @@ fn records_follow_the_same_redundant_default_rule() {
         def: Def::new(syn::parse_quote!(
             struct RedundantDefaultRecord;
         )),
+        source_key: syn::LitStr::new("type/redundant_default", proc_macro2::Span::call_site()),
         fields,
         traits: TraitBuilder::default(),
         ty: Type::default(),
@@ -166,6 +170,7 @@ fn record_default_request_rejects_required_fields_without_construction_values() 
         def: Def::new(syn::parse_quote!(
             struct RequiredRecord;
         )),
+        source_key: syn::LitStr::new("type/required_record", proc_macro2::Span::call_site()),
         fields,
         traits: TraitBuilder::default(),
         ty: Type::default(),

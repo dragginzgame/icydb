@@ -15,11 +15,11 @@ pub struct UiCanister {}
 )]
 pub struct UiDataStore {}
 
-#[entity(
+#[entity(source_key = "testing/macro-tests/tests/ui/schema_version_zero.rs::entity::1",
     store = "UiDataStore",
     version = 0,
     pk(fields = ["id"]),
-    fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
+    fields(field(source_key = "id", ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
 )]
 pub struct ZeroSchemaVersionEntity;
 

@@ -183,6 +183,7 @@ impl HasSchemaPart for FieldWriteManagement {
 
 #[derive(Clone, Debug, FromMeta)]
 pub struct Field {
+    pub(crate) source_key: LitStr,
     pub(crate) ident: Ident,
     pub(crate) value: Value,
 
@@ -352,6 +353,7 @@ impl Field {
 
     pub fn created_at() -> Self {
         Self {
+            source_key: LitStr::new("created_at", Span::call_site()),
             ident: format_ident!("created_at"),
             value: Value {
                 item: Item::created_at(),
@@ -365,6 +367,7 @@ impl Field {
 
     pub fn updated_at() -> Self {
         Self {
+            source_key: LitStr::new("updated_at", Span::call_site()),
             ident: format_ident!("updated_at"),
             value: Value {
                 item: Item::updated_at(),
@@ -1473,6 +1476,7 @@ fn path_ends_with_segments(path: &Path, expected: &[&str]) -> bool {
 
 impl HasSchemaPart for Field {
     fn schema_part(&self) -> TokenStream {
+        let source_key = &self.source_key;
         let ident = quote_one(&self.ident, to_str_lit);
         let value = self.value.schema_part();
         let default = quote_option(self.default.as_ref(), Arg::schema_part);
@@ -1484,6 +1488,7 @@ impl HasSchemaPart for Field {
 
         quote! {
             ::icydb::schema::node::Field::new(
+                #source_key,
                 #ident,
                 #value,
                 #default,

@@ -15,21 +15,21 @@ pub struct UiCanister {}
 )]
 pub struct UiDataStore {}
 
-#[entity(
+#[entity(source_key = "testing/macro-tests/tests/ui/relation_one_suffix_required.rs::entity::1",
     store = "UiDataStore",
     version = 1,
     pk(fields = ["id"]),
-    fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
+    fields(field(source_key = "id", ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
 )]
 pub struct User;
 
-#[entity(
+#[entity(source_key = "testing/macro-tests/tests/ui/relation_one_suffix_required.rs::entity::2",
     store = "UiDataStore",
     version = 1,
     pk(fields = ["id"]),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
-        field(ident = "user", value(item(rel = "User", prim = "Ulid")))
+        field(source_key = "id", ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
+        field(source_key = "user", ident = "user", value(item(rel = "User", prim = "Ulid")))
     )
 )]
 pub struct InvalidRelationName;

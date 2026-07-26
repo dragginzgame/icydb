@@ -1,10 +1,10 @@
 error: Missing field `version`
   --> tests/ui/schema_version_missing.rs:18:1
    |
-18 | / #[entity(
+18 | / #[entity(source_key = "testing/macro-tests/tests/ui/schema_version_missing.rs::entity::1",
 19 | |     store = "UiDataStore",
 20 | |     pk(fields = ["id"]),
-21 | |     fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
+21 | |     fields(field(source_key = "id", ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
 22 | | )]
    | |__^
    |

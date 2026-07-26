@@ -5,6 +5,7 @@ use icydb::design::prelude::*;
 ///
 
 #[newtype(
+    source_key = "schema/test/fixtures/src/macro_test/validate/visitor.rs::newtype::1",
     primitive = "Text",
     default = "String::new",
     item(prim = "Text", unbounded),
@@ -16,7 +17,10 @@ pub struct VisitorLowerText {}
 /// VisitorLowerTextList
 ///
 
-#[list(item(is = "VisitorLowerText"))]
+#[list(
+    source_key = "schema/test/fixtures/src/macro_test/validate/visitor.rs::list::1",
+    item(is = "VisitorLowerText")
+)]
 pub struct VisitorLowerTextList {}
 
 ///
@@ -24,6 +28,7 @@ pub struct VisitorLowerTextList {}
 ///
 
 #[tuple(
+    source_key = "schema/test/fixtures/src/macro_test/validate/visitor.rs::tuple::1",
     value(item(is = "VisitorLowerText")),
     value(item(is = "VisitorLowerText"))
 )]
@@ -33,37 +38,66 @@ pub struct VisitorLowerTextTuple {}
 /// VisitorLowerTextMap
 ///
 
-#[map(key(prim = "Text", unbounded), value(item(is = "VisitorLowerText")))]
+#[map(
+    source_key = "schema/test/fixtures/src/macro_test/validate/visitor.rs::map::1",
+    key(prim = "Text", unbounded),
+    value(item(is = "VisitorLowerText"))
+)]
 pub struct VisitorLowerTextMap {}
 
 ///
 /// VisitorInner
 ///
 
-#[record(fields(field(ident = "leaf", value(item(is = "VisitorLowerText")))))]
+#[record(
+    source_key = "schema/test/fixtures/src/macro_test/validate/visitor.rs::record::1",
+    fields(field(
+        source_key = "leaf",
+        ident = "leaf",
+        value(item(is = "VisitorLowerText"))
+    ))
+)]
 pub struct VisitorInner {}
 
 ///
 /// VisitorOuter
 ///
 
-#[record(fields(
-    field(ident = "list", value(item(is = "VisitorLowerTextList"))),
-    field(ident = "rec", value(item(is = "VisitorInner"))),
-    field(ident = "tup", value(item(is = "VisitorLowerTextTuple"))),
-    field(ident = "map", value(item(is = "VisitorLowerTextMap"))),
-))]
+#[record(
+    source_key = "schema/test/fixtures/src/macro_test/validate/visitor.rs::record::2",
+    fields(
+        field(
+            source_key = "list",
+            ident = "list",
+            value(item(is = "VisitorLowerTextList"))
+        ),
+        field(source_key = "rec", ident = "rec", value(item(is = "VisitorInner"))),
+        field(
+            source_key = "tup",
+            ident = "tup",
+            value(item(is = "VisitorLowerTextTuple"))
+        ),
+        field(
+            source_key = "map",
+            ident = "map",
+            value(item(is = "VisitorLowerTextMap"))
+        ),
+    )
+)]
 pub struct VisitorOuter {}
 
 ///
 /// VisitorLowerTextSetValidated
 ///
 
-#[set(item(
-    prim = "Text",
-    unbounded,
-    validator(path = "base::validator::text::case::Lower")
-))]
+#[set(
+    source_key = "schema/test/fixtures/src/macro_test/validate/visitor.rs::set::1",
+    item(
+        prim = "Text",
+        unbounded,
+        validator(path = "base::validator::text::case::Lower")
+    )
+)]
 pub struct VisitorLowerTextSetValidated {}
 
 ///
@@ -71,6 +105,7 @@ pub struct VisitorLowerTextSetValidated {}
 ///
 
 #[map(
+    source_key = "schema/test/fixtures/src/macro_test/validate/visitor.rs::map::2",
     key(
         prim = "Text",
         unbounded,
@@ -85,6 +120,7 @@ pub struct VisitorLowerTextKeyMapValidated {}
 ///
 
 #[map(
+    source_key = "schema/test/fixtures/src/macro_test/validate/visitor.rs::map::3",
     key(prim = "Text", unbounded),
     value(item(
         prim = "Text",
@@ -98,21 +134,42 @@ pub struct VisitorLowerTextValueMapValidated {}
 /// VisitorSetOuter
 ///
 
-#[record(fields(field(ident = "set", value(item(is = "VisitorLowerTextSetValidated")))))]
+#[record(
+    source_key = "schema/test/fixtures/src/macro_test/validate/visitor.rs::record::3",
+    fields(field(
+        source_key = "set",
+        ident = "set",
+        value(item(is = "VisitorLowerTextSetValidated"))
+    ))
+)]
 pub struct VisitorSetOuter {}
 
 ///
 /// VisitorMapKeyOuter
 ///
 
-#[record(fields(field(ident = "map", value(item(is = "VisitorLowerTextKeyMapValidated")))))]
+#[record(
+    source_key = "schema/test/fixtures/src/macro_test/validate/visitor.rs::record::4",
+    fields(field(
+        source_key = "map",
+        ident = "map",
+        value(item(is = "VisitorLowerTextKeyMapValidated"))
+    ))
+)]
 pub struct VisitorMapKeyOuter {}
 
 ///
 /// VisitorMapValueOuter
 ///
 
-#[record(fields(field(ident = "map", value(item(is = "VisitorLowerTextValueMapValidated")))))]
+#[record(
+    source_key = "schema/test/fixtures/src/macro_test/validate/visitor.rs::record::5",
+    fields(field(
+        source_key = "map",
+        ident = "map",
+        value(item(is = "VisitorLowerTextValueMapValidated"))
+    ))
+)]
 pub struct VisitorMapValueOuter {}
 
 ///
@@ -120,6 +177,7 @@ pub struct VisitorMapValueOuter {}
 ///
 
 #[list(
+    source_key = "schema/test/fixtures/src/macro_test/validate/visitor.rs::list::2",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::len::Max", args(1)))
 )]
@@ -130,6 +188,7 @@ pub struct VisitorLengthList {}
 ///
 
 #[set(
+    source_key = "schema/test/fixtures/src/macro_test/validate/visitor.rs::set::2",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::len::Max", args(1)))
 )]
@@ -140,6 +199,7 @@ pub struct VisitorLengthSet {}
 ///
 
 #[map(
+    source_key = "schema/test/fixtures/src/macro_test/validate/visitor.rs::map::4",
     key(prim = "Text", unbounded),
     value(item(prim = "Text", unbounded)),
     ty(validator(path = "base::validator::len::Max", args(1)))
@@ -150,9 +210,24 @@ pub struct VisitorLengthMap {}
 /// VisitorLengthOuter
 ///
 
-#[record(fields(
-    field(ident = "list", value(item(is = "VisitorLengthList"))),
-    field(ident = "set", value(item(is = "VisitorLengthSet"))),
-    field(ident = "map", value(item(is = "VisitorLengthMap"))),
-))]
+#[record(
+    source_key = "schema/test/fixtures/src/macro_test/validate/visitor.rs::record::6",
+    fields(
+        field(
+            source_key = "list",
+            ident = "list",
+            value(item(is = "VisitorLengthList"))
+        ),
+        field(
+            source_key = "set",
+            ident = "set",
+            value(item(is = "VisitorLengthSet"))
+        ),
+        field(
+            source_key = "map",
+            ident = "map",
+            value(item(is = "VisitorLengthMap"))
+        ),
+    )
+)]
 pub struct VisitorLengthOuter {}

@@ -54,6 +54,7 @@ pub enum FieldWriteManagement {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Field {
+    source_key: &'static str,
     ident: &'static str,
     value: Value,
 
@@ -70,6 +71,7 @@ pub struct Field {
 impl Field {
     #[must_use]
     pub const fn new(
+        source_key: &'static str,
         ident: &'static str,
         value: Value,
         default: Option<Arg>,
@@ -77,12 +79,19 @@ impl Field {
         write_management: Option<FieldWriteManagement>,
     ) -> Self {
         Self {
+            source_key,
             ident,
             value,
             default,
             generated,
             write_management,
         }
+    }
+
+    /// Borrow the immutable field source key.
+    #[must_use]
+    pub const fn source_key(&self) -> &'static str {
+        self.source_key
     }
 
     #[must_use]
@@ -113,7 +122,14 @@ impl Field {
 
 impl ValidateNode for Field {
     fn validate(&self) -> Result<(), ErrorTree> {
-        Ok(())
+        let mut errs = ErrorTree::new();
+        validate_source_key(
+            &mut errs,
+            "field",
+            self.source_key(),
+            icydb_schema::FieldSourceKey::try_new,
+        );
+        errs.result()
     }
 }
 

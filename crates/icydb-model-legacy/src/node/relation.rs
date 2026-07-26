@@ -60,6 +60,7 @@ impl<'a> RelationComponentContract<'a> {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct RelationEdge {
+    source_key: &'static str,
     ident: &'static str,
     target: &'static str,
     local_fields: &'static [&'static str],
@@ -70,15 +71,23 @@ impl RelationEdge {
     /// path, and ordered local component fields.
     #[must_use]
     pub const fn new(
+        source_key: &'static str,
         ident: &'static str,
         target: &'static str,
         local_fields: &'static [&'static str],
     ) -> Self {
         Self {
+            source_key,
             ident,
             target,
             local_fields,
         }
+    }
+
+    /// Borrow the immutable relation source key.
+    #[must_use]
+    pub const fn source_key(&self) -> &'static str {
+        self.source_key
     }
 
     /// Borrow the relation-edge name used by diagnostics.
@@ -328,6 +337,7 @@ mod tests {
     fn generated_field(ident: &'static str, primitive: Primitive) -> Field {
         Field::new(
             ident,
+            ident,
             Value::new(Cardinality::One, primitive_item(primitive)),
             None,
             Some(FieldGeneration::Insert(Arg::FuncPath(
@@ -338,11 +348,19 @@ mod tests {
     }
 
     fn field_with_item(ident: &'static str, item: Item) -> Field {
-        Field::new(ident, Value::new(Cardinality::One, item), None, None, None)
+        Field::new(
+            ident,
+            ident,
+            Value::new(Cardinality::One, item),
+            None,
+            None,
+            None,
+        )
     }
 
     fn optional_field(ident: &'static str, primitive: Primitive) -> Field {
         Field::new(
+            ident,
             ident,
             Value::new(Cardinality::Opt, primitive_item(primitive)),
             None,
@@ -359,10 +377,12 @@ mod tests {
     ) -> Entity {
         Entity::new(
             Def::new(module, ident),
+            ident,
             "RelationEdgeStore",
             1,
             PrimaryKey::new(pk_fields, PrimaryKeySource::External),
             None,
+            &[],
             &[],
             &[],
             FieldList::new(fields),
@@ -413,6 +433,7 @@ mod tests {
 
         RelationEdge::new(
             "author",
+            "author",
             "schema_relation_edge_accepts_tuple::User",
             &["author_tenant_id", "author_user_id"],
         )
@@ -445,6 +466,7 @@ mod tests {
         );
 
         let err = RelationEdge::new(
+            "author",
             "author",
             "schema_relation_edge_rejects_scalar_for_composite::User",
             &["author_user_id"],
@@ -491,6 +513,7 @@ mod tests {
 
         let err = RelationEdge::new(
             "author",
+            "author",
             "schema_relation_edge_rejects_order::User",
             &["author_user_id", "author_tenant_id"],
         )
@@ -531,6 +554,7 @@ mod tests {
 
         let err = RelationEdge::new(
             "author",
+            "author",
             "schema_relation_edge_rejects_missing_local::User",
             &["author_tenant_id", "author_user_id"],
         )
@@ -565,6 +589,7 @@ mod tests {
 
         let err = RelationEdge::new(
             "author",
+            "author",
             "schema_relation_edge_rejects_int_big_target::User",
             &["author_score"],
         )
@@ -598,6 +623,7 @@ mod tests {
         );
 
         let err = RelationEdge::new(
+            "author",
             "author",
             "schema_relation_edge_rejects_generated_local::User",
             &["author_id"],
@@ -644,6 +670,7 @@ mod tests {
 
         let err = RelationEdge::new(
             "author",
+            "author",
             "schema_relation_edge_rejects_mixed_cardinality::User",
             &["author_tenant_id", "author_user_id"],
         )
@@ -675,7 +702,7 @@ mod tests {
             target_fields,
         );
 
-        RelationEdge::new("author", target_path, &["author_id"])
+        RelationEdge::new("author", "author", target_path, &["author_id"])
             .validate_for_source(&source)
             .expect("schema target lookup should validate matching scalar edge");
     }

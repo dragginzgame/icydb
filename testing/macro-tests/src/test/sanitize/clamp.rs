@@ -14,21 +14,20 @@ mod tests {
         types::Decimal,
     };
 
-    #[entity(
+    #[entity(source_key = "testing/macro-tests/src/test/sanitize/clamp.rs::entity::nested::1",
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
         fields(
-            field(
-                ident = "id",
+            field(source_key = "id", ident = "id",
                 value(item(prim = "Ulid")),
                 generated(insert = "Ulid::generate")
             ),
-            field(ident = "cint32", value(item(is = "ClampInt32"))),
-            field(ident = "cint32_opt", value(opt, item(is = "ClampInt32"))),
-            field(ident = "cdec", value(item(is = "ClampDecimal"))),
-            field(ident = "cdec_opt", value(opt, item(is = "ClampDecimal"))),
-            field(ident = "cdec_many", value(many, item(is = "ClampDecimal"))),
+            field(source_key = "cint32", ident = "cint32", value(item(is = "ClampInt32"))),
+            field(source_key = "cint32_opt", ident = "cint32_opt", value(opt, item(is = "ClampInt32"))),
+            field(source_key = "cdec", ident = "cdec", value(item(is = "ClampDecimal"))),
+            field(source_key = "cdec_opt", ident = "cdec_opt", value(opt, item(is = "ClampDecimal"))),
+            field(source_key = "cdec_many", ident = "cdec_many", value(many, item(is = "ClampDecimal"))),
         )
     )]
     pub struct ClampEntityHarness {}

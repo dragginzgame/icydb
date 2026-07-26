@@ -15,14 +15,14 @@ pub struct UiCanister {}
 )]
 pub struct UiDataStore {}
 
-#[entity(
+#[entity(source_key = "testing/macro-tests/tests/ui/index_many_cardinality_field.rs::entity::1",
     store = "UiDataStore",
     version = 1,
     pk(fields = ["id"]),
-    index(fields = ["tags"]),
+    index(source_key = "index.1", fields = ["tags"]),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
-        field(ident = "tags", value(many, item(prim = "Text", unbounded)))
+        field(source_key = "id", ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
+        field(source_key = "tags", ident = "tags", value(many, item(prim = "Text", unbounded)))
     )
 )]
 pub struct InvalidManyIndexField;

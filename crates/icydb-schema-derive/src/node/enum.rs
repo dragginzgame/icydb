@@ -15,6 +15,8 @@ pub struct Enum {
     #[darling(default, skip)]
     pub(crate) def: Def,
 
+    pub(crate) source_key: LitStr,
+
     #[darling(multiple, rename = "variant")]
     pub(crate) variants: Vec<EnumVariant>,
 
@@ -94,6 +96,7 @@ impl HasSchemaPart for Enum {
     fn schema_part(&self) -> TokenStream {
         let ident = self.def.ident();
         let def = &self.def.schema_part();
+        let source_key = &self.source_key;
         let variants = self
             .variants
             .iter()
@@ -102,7 +105,7 @@ impl HasSchemaPart for Enum {
 
         // quote
         quote! {
-            ::icydb::schema::node::Enum::new(#def, &[#(#variants),*], #ty)
+            ::icydb::schema::node::Enum::new(#def, #source_key, &[#(#variants),*], #ty)
         }
     }
 }
@@ -164,6 +167,8 @@ impl ToTokens for Enum {
 
 #[derive(Clone, Debug, FromMeta)]
 pub struct EnumVariant {
+    pub(crate) source_key: LitStr,
+
     pub(crate) ident: Ident,
 
     #[darling(default)]
@@ -218,11 +223,13 @@ impl EnumVariant {
 impl HasSchemaPart for EnumVariant {
     fn schema_part(&self) -> TokenStream {
         let ident = quote_one(&self.ident, to_str_lit);
+        let source_key = &self.source_key;
         let value = quote_option(self.value.as_ref(), Value::schema_part);
 
         // quote
         quote! {
             ::icydb::schema::node::EnumVariant::new(
+                #source_key,
                 #ident,
                 #value,
             )
@@ -233,11 +240,13 @@ impl HasSchemaPart for EnumVariant {
 impl EnumVariant {
     fn schema_part_for_enum(&self, enum_ident: &Ident) -> TokenStream {
         let name_const_ident = self.name_const_ident();
+        let source_key = &self.source_key;
         let value = quote_option(self.value.as_ref(), Value::schema_part);
 
         // quote
         quote! {
             ::icydb::schema::node::EnumVariant::new(
+                #source_key,
                 #enum_ident::#name_const_ident,
                 #value,
             )

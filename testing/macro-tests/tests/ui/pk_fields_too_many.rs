@@ -15,16 +15,16 @@ pub struct UiCanister {}
 )]
 pub struct UiDataStore {}
 
-#[entity(
+#[entity(source_key = "testing/macro-tests/tests/ui/pk_fields_too_many.rs::entity::1",
     store = "UiDataStore",
     version = 1,
     pk(fields = ["a", "b", "c", "d", "e"]),
     fields(
-        field(ident = "a", value(item(prim = "Nat64")), default = 1u64),
-        field(ident = "b", value(item(prim = "Nat64")), default = 2u64),
-        field(ident = "c", value(item(prim = "Nat64")), default = 3u64),
-        field(ident = "d", value(item(prim = "Nat64")), default = 4u64),
-        field(ident = "e", value(item(prim = "Nat64")), default = 5u64),
+        field(source_key = "a", ident = "a", value(item(prim = "Nat64")), default = 1u64),
+        field(source_key = "b", ident = "b", value(item(prim = "Nat64")), default = 2u64),
+        field(source_key = "c", ident = "c", value(item(prim = "Nat64")), default = 3u64),
+        field(source_key = "d", ident = "d", value(item(prim = "Nat64")), default = 4u64),
+        field(source_key = "e", ident = "e", value(item(prim = "Nat64")), default = 5u64),
     )
 )]
 pub struct TooManyPkFields;

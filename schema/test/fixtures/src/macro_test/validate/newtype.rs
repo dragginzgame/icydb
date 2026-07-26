@@ -5,6 +5,7 @@ use icydb::design::prelude::*;
 ///
 
 #[newtype(
+    source_key = "schema/test/fixtures/src/macro_test/validate/newtype.rs::newtype::1",
     primitive = "Blob",
     item(
         prim = "Blob",

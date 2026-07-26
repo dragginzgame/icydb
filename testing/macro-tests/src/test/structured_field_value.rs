@@ -16,36 +16,60 @@ mod tests {
     use std::{collections::BTreeMap, fmt::Debug};
 
     #[record(
+        source_key = "testing/macro-tests/src/test/structured_field_value.rs::record::nested::1",
         fields(
             field(
+                source_key = "bio",
                 ident = "bio",
                 value(item(prim = "Text", unbounded)),
                 default = "String::new"
             ),
-            field(ident = "visits", value(item(prim = "Nat32")), default = 0u32)
+            field(
+                source_key = "visits",
+                ident = "visits",
+                value(item(prim = "Nat32")),
+                default = 0u32
+            )
         ),
         traits(add(Default))
     )]
     pub struct StructuredProfileHarness {}
 
-    #[record(fields(
-        field(
-            ident = "city",
-            value(item(prim = "Text", unbounded)),
-            default = "String::new"
-        ),
-        field(ident = "zip", value(item(prim = "Nat32")), default = 0u32)
-    ))]
+    #[record(
+        source_key = "testing/macro-tests/src/test/structured_field_value.rs::record::nested::2",
+        fields(
+            field(
+                source_key = "city",
+                ident = "city",
+                value(item(prim = "Text", unbounded)),
+                default = "String::new"
+            ),
+            field(
+                source_key = "zip",
+                ident = "zip",
+                value(item(prim = "Nat32")),
+                default = 0u32
+            )
+        )
+    )]
     pub struct StructuredAddressHarness {}
 
-    #[record(fields(
-        field(
-            ident = "name",
-            value(item(prim = "Text", unbounded)),
-            default = "String::new"
-        ),
-        field(ident = "address", value(item(is = "StructuredAddressHarness")))
-    ))]
+    #[record(
+        source_key = "testing/macro-tests/src/test/structured_field_value.rs::record::nested::3",
+        fields(
+            field(
+                source_key = "name",
+                ident = "name",
+                value(item(prim = "Text", unbounded)),
+                default = "String::new"
+            ),
+            field(
+                source_key = "address",
+                ident = "address",
+                value(item(is = "StructuredAddressHarness"))
+            )
+        )
+    )]
     pub struct StructuredNestedProfileHarness {}
 
     ///
@@ -56,12 +80,11 @@ mod tests {
     /// persisted-row boundary.
     ///
 
-    #[entity(
+    #[entity(source_key = "testing/macro-tests/src/test/structured_field_value.rs::entity::nested::1",
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
-        fields(field(
-            ident = "id",
+        fields(field(source_key = "id", ident = "id",
             value(item(prim = "Ulid")),
             generated(insert = "Ulid::generate")
         ))
@@ -76,12 +99,11 @@ mod tests {
     /// application boundary.
     ///
 
-    #[entity(
+    #[entity(source_key = "testing/macro-tests/src/test/structured_field_value.rs::entity::nested::2",
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
-        fields(field(
-            ident = "id",
+        fields(field(source_key = "id", ident = "id",
             value(item(prim = "Ulid")),
             generated(insert = "Ulid::generate")
         ))
@@ -96,16 +118,21 @@ mod tests {
     /// relation-backed record fields.
     ///
 
-    #[record(fields(
-        field(
-            ident = "layer_id",
-            value(item(prim = "Ulid", rel = "StructuredLayerHarness"))
-        ),
-        field(
-            ident = "part_id",
-            value(item(prim = "Ulid", rel = "StructuredPartHarness"))
+    #[record(
+        source_key = "testing/macro-tests/src/test/structured_field_value.rs::record::nested::4",
+        fields(
+            field(
+                source_key = "layer_id",
+                ident = "layer_id",
+                value(item(prim = "Ulid", rel = "StructuredLayerHarness"))
+            ),
+            field(
+                source_key = "part_id",
+                ident = "part_id",
+                value(item(prim = "Ulid", rel = "StructuredPartHarness"))
+            )
         )
-    ))]
+    )]
     pub struct StructuredSelectedPartHarness {}
 
     ///
@@ -117,52 +144,57 @@ mod tests {
     /// record, where null probing must accept local value-storage tags.
     ///
 
-    #[record(fields(
-        field(ident = "asset_ids", value(many, item(prim = "Ulid"))),
-        field(ident = "default_asset_id", value(opt, item(prim = "Ulid")))
-    ))]
+    #[record(
+        source_key = "testing/macro-tests/src/test/structured_field_value.rs::record::nested::5",
+        fields(
+            field(
+                source_key = "asset_ids",
+                ident = "asset_ids",
+                value(many, item(prim = "Ulid"))
+            ),
+            field(
+                source_key = "default_asset_id",
+                ident = "default_asset_id",
+                value(opt, item(prim = "Ulid"))
+            )
+        )
+    )]
     pub struct StructuredAssetSelectionHarness {}
 
-    #[entity(
+    #[entity(source_key = "testing/macro-tests/src/test/structured_field_value.rs::entity::nested::3",
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
         fields(
-            field(
-                ident = "id",
+            field(source_key = "id", ident = "id",
                 value(item(prim = "Ulid")),
                 generated(insert = "Ulid::generate")
             ),
-            field(ident = "profile", value(item(is = "StructuredProfileHarness"))),
-            field(
-                ident = "opt_profile",
+            field(source_key = "profile", ident = "profile", value(item(is = "StructuredProfileHarness"))),
+            field(source_key = "opt_profile", ident = "opt_profile",
                 value(opt, item(is = "StructuredProfileHarness"))
             )
         )
     )]
     pub struct StructuredProfileEntityHarness {}
 
-    #[entity(
+    #[entity(source_key = "testing/macro-tests/src/test/structured_field_value.rs::entity::nested::4",
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
         fields(
-            field(
-                ident = "id",
+            field(source_key = "id", ident = "id",
                 value(item(prim = "Ulid")),
                 generated(insert = "Ulid::generate")
             ),
-            field(ident = "profile", value(item(is = "StructuredProfileHarness"))),
-            field(
-                ident = "opt_profile",
+            field(source_key = "profile", ident = "profile", value(item(is = "StructuredProfileHarness"))),
+            field(source_key = "opt_profile", ident = "opt_profile",
                 value(opt, item(is = "StructuredProfileHarness"))
             ),
-            field(
-                ident = "nested_profile",
+            field(source_key = "nested_profile", ident = "nested_profile",
                 value(item(is = "StructuredNestedProfileHarness"))
             ),
-            field(
-                ident = "profile_history",
+            field(source_key = "profile_history", ident = "profile_history",
                 value(many, item(is = "StructuredProfileHarness"))
             )
         )
@@ -177,18 +209,16 @@ mod tests {
     /// closest framework-level match to `GenerationOutput.selected_parts`.
     ///
 
-    #[entity(
+    #[entity(source_key = "testing/macro-tests/src/test/structured_field_value.rs::entity::nested::5",
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
         fields(
-            field(
-                ident = "id",
+            field(source_key = "id", ident = "id",
                 value(item(prim = "Ulid")),
                 generated(insert = "Ulid::generate")
             ),
-            field(
-                ident = "selected_parts",
+            field(source_key = "selected_parts", ident = "selected_parts",
                 value(many, item(is = "StructuredSelectedPartHarness"))
             )
         )
@@ -203,40 +233,36 @@ mod tests {
     /// path as application reads.
     ///
 
-    #[entity(
+    #[entity(source_key = "testing/macro-tests/src/test/structured_field_value.rs::entity::nested::6",
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
         fields(
-            field(
-                ident = "id",
+            field(source_key = "id", ident = "id",
                 value(item(prim = "Ulid")),
                 generated(insert = "Ulid::generate")
             ),
-            field(
-                ident = "asset_selection",
+            field(source_key = "asset_selection", ident = "asset_selection",
                 value(item(is = "StructuredAssetSelectionHarness"))
             )
         )
     )]
     pub struct StructuredAssetSelectionEntityHarness {}
 
-    #[entity(
+    #[entity(source_key = "testing/macro-tests/src/test/structured_field_value.rs::entity::nested::7",
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
         fields(
-            field(
-                ident = "id",
+            field(source_key = "id", ident = "id",
                 value(item(prim = "Ulid")),
                 generated(insert = "Ulid::generate")
             ),
-            field(
-                ident = "nickname",
+            field(source_key = "nickname", ident = "nickname",
                 value(item(prim = "Text", unbounded)),
                 default = "\"guest\""
             ),
-            field(ident = "note", value(opt, item(prim = "Text", unbounded)))
+            field(source_key = "note", ident = "note", value(opt, item(prim = "Text", unbounded)))
         )
     )]
     pub struct StructuredDefaultedEntityHarness {}

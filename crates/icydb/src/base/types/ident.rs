@@ -11,6 +11,7 @@ use crate::design::prelude::*;
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/ident.rs::newtype::1",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
@@ -25,6 +26,7 @@ pub struct Constant {}
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/ident.rs::newtype::2",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
@@ -41,6 +43,7 @@ pub struct Field {}
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/ident.rs::newtype::3",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
@@ -55,6 +58,7 @@ pub struct Function {}
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/ident.rs::newtype::4",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
@@ -69,6 +73,7 @@ pub struct Variable {}
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/ident.rs::newtype::5",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(

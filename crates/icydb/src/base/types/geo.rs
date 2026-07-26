@@ -15,6 +15,7 @@ use crate::design::prelude::*;
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/geo.rs::newtype::1",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
@@ -34,6 +35,7 @@ pub struct AddressLine {}
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/geo.rs::newtype::2",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
@@ -54,6 +56,7 @@ pub struct CityName {}
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/geo.rs::newtype::3",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
@@ -75,6 +78,7 @@ pub struct PostalCode {}
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/geo.rs::newtype::4",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(

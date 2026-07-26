@@ -7,19 +7,36 @@ use crate::prelude::*;
 #[derive(Clone, Debug, Serialize)]
 pub struct Enum {
     def: Def,
+    source_key: &'static str,
     variants: &'static [EnumVariant],
     ty: Type,
 }
 
 impl Enum {
     #[must_use]
-    pub const fn new(def: Def, variants: &'static [EnumVariant], ty: Type) -> Self {
-        Self { def, variants, ty }
+    pub const fn new(
+        def: Def,
+        source_key: &'static str,
+        variants: &'static [EnumVariant],
+        ty: Type,
+    ) -> Self {
+        Self {
+            def,
+            source_key,
+            variants,
+            ty,
+        }
     }
 
     #[must_use]
     pub const fn def(&self) -> &Def {
         &self.def
+    }
+
+    /// Borrow the immutable enum type source key.
+    #[must_use]
+    pub const fn source_key(&self) -> &'static str {
+        self.source_key
     }
 
     #[must_use]
@@ -41,7 +58,24 @@ impl MacroNode for Enum {
 
 impl ValidateNode for Enum {
     fn validate(&self) -> Result<(), ErrorTree> {
-        Ok(())
+        let mut errs = ErrorTree::new();
+        validate_source_key(
+            &mut errs,
+            "enum type",
+            self.source_key(),
+            icydb_schema::TypeSourceKey::try_new,
+        );
+        let mut seen = std::collections::BTreeSet::new();
+        for variant in self.variants() {
+            if !seen.insert(variant.source_key()) {
+                err!(
+                    errs,
+                    "duplicate enum variant source key '{}'",
+                    variant.source_key(),
+                );
+            }
+        }
+        errs.result()
     }
 }
 
@@ -65,6 +99,7 @@ impl VisitableNode for Enum {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct EnumVariant {
+    source_key: &'static str,
     ident: &'static str,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -73,8 +108,18 @@ pub struct EnumVariant {
 
 impl EnumVariant {
     #[must_use]
-    pub const fn new(ident: &'static str, value: Option<Value>) -> Self {
-        Self { ident, value }
+    pub const fn new(source_key: &'static str, ident: &'static str, value: Option<Value>) -> Self {
+        Self {
+            source_key,
+            ident,
+            value,
+        }
+    }
+
+    /// Borrow the immutable variant source key.
+    #[must_use]
+    pub const fn source_key(&self) -> &'static str {
+        self.source_key
     }
 
     #[must_use]
@@ -90,7 +135,14 @@ impl EnumVariant {
 
 impl ValidateNode for EnumVariant {
     fn validate(&self) -> Result<(), ErrorTree> {
-        Ok(())
+        let mut errs = ErrorTree::new();
+        validate_source_key(
+            &mut errs,
+            "enum variant",
+            self.source_key(),
+            icydb_schema::TypeSourceKey::try_new,
+        );
+        errs.result()
     }
 }
 

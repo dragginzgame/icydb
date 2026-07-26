@@ -15,22 +15,22 @@ pub struct UiCanister {}
 )]
 pub struct UiDataStore {}
 
-#[entity(
+#[entity(source_key = "testing/macro-tests/tests/ui/relation_primitive_mismatch.rs::entity::1",
     store = "UiDataStore",
     version = 1,
     pk(fields = ["id"]),
-    fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
+    fields(field(source_key = "id", ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
 )]
 pub struct Target;
 
-#[entity(
+#[entity(source_key = "testing/macro-tests/tests/ui/relation_primitive_mismatch.rs::entity::2",
     store = "UiDataStore",
     version = 1,
     pk(fields = ["id"]),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
+        field(source_key = "id", ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
         // Relation fields must always declare scalar target key shape explicitly.
-        field(ident = "target_id", value(item(rel = "Target")))
+        field(source_key = "target_id", ident = "target_id", value(item(rel = "Target")))
     )
 )]
 pub struct InvalidRelationPrimitive;

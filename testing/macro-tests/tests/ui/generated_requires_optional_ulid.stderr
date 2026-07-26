@@ -1,5 +1,5 @@
 error: generated(insert = ...) currently supports only single-value fields
-  --> tests/ui/generated_requires_optional_ulid.rs:25:21
+  --> tests/ui/generated_requires_optional_ulid.rs:24:45
    |
-25 |             ident = "token",
-   |                     ^^^^^^^
+24 |         field(source_key = "token", ident = "token",
+   |                                             ^^^^^^^

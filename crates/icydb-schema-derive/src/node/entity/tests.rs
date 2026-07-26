@@ -21,6 +21,7 @@ fn scalar_field(ident: &str) -> Field {
 
 fn primitive_field(ident: &str, primitive: Primitive) -> Field {
     Field {
+        source_key: LitStr::new(ident, Span::call_site()),
         ident: format_ident!("{ident}"),
         value: Value {
             opt: false,
@@ -38,6 +39,7 @@ fn primitive_field(ident: &str, primitive: Primitive) -> Field {
 
 fn many_scalar_field(ident: &str) -> Field {
     Field {
+        source_key: LitStr::new(ident, Span::call_site()),
         ident: format_ident!("{ident}"),
         value: Value {
             opt: false,
@@ -56,6 +58,7 @@ fn many_scalar_field(ident: &str) -> Field {
 
 fn unit_field(ident: &str) -> Field {
     Field {
+        source_key: LitStr::new(ident, Span::call_site()),
         ident: format_ident!("{ident}"),
         value: Value {
             opt: false,
@@ -83,6 +86,7 @@ fn entity_with_fields_and_indexes(fields: Vec<Field>, indexes: Vec<Index>) -> En
         def: Def::new(syn::parse_quote!(
             struct TestEntity;
         )),
+        source_key: LitStr::new("entity/test", Span::call_site()),
         store: syn::parse_quote!(UiDataStore),
         schema_version: 1,
         primary_key: PrimaryKey {
@@ -252,6 +256,7 @@ fn validate_rejects_index_field_not_found() {
     let entity = entity_with_fields_and_indexes(
         vec![scalar_field("id")],
         vec![Index {
+            source_key: LitStr::new("index/missing", Span::call_site()),
             fields: field_list(&["missing_field"]),
             unique: false,
             predicate: None,
@@ -272,6 +277,7 @@ fn validate_rejects_many_cardinality_index_field() {
     let entity = entity_with_fields_and_indexes(
         vec![scalar_field("id"), many_scalar_field("tags")],
         vec![Index {
+            source_key: LitStr::new("index/tags", Span::call_site()),
             fields: field_list(&["tags"]),
             unique: false,
             predicate: None,
@@ -292,6 +298,7 @@ fn validate_rejects_expression_index_field_not_found() {
     let entity = entity_with_fields_and_indexes(
         vec![scalar_field("id"), scalar_field("email")],
         vec![Index {
+            source_key: LitStr::new("index/lower_name", Span::call_site()),
             fields: field_list(&["LOWER(name)"]),
             unique: false,
             predicate: None,
@@ -309,11 +316,13 @@ fn validate_rejects_expression_index_field_not_found() {
 #[test]
 fn from_list_parses_nested_indexes_and_fields() {
     let args = NestedMeta::parse_meta_list(quote!(
+        source_key = "entity/test",
         store = "UiDataStore",
         version = 1,
         pk(fields = ["id"]),
-        index(fields = ["missing_field"]),
+        index(source_key = "index/missing", fields = ["missing_field"]),
         fields(field(
+            source_key = "id",
             ident = "id",
             value(item(prim = "Ulid")),
             generated(insert = "Ulid::generate")
@@ -350,18 +359,28 @@ fn from_list_parses_nested_indexes_and_fields() {
 #[test]
 fn from_list_parses_relation_edges() {
     let args = NestedMeta::parse_meta_list(quote!(
+        source_key = "entity/test",
         store = "UiDataStore",
         version = 1,
         pk(fields = ["id"]),
         relation(
+            source_key = "author",
             ident = "author",
             rel = "User",
             fields = ["author_tenant_id", "author_id"]
         ),
         fields(
-            field(ident = "id", value(item(prim = "Ulid"))),
-            field(ident = "author_tenant_id", value(item(prim = "Nat64"))),
-            field(ident = "author_id", value(item(prim = "Ulid")))
+            field(source_key = "id", ident = "id", value(item(prim = "Ulid"))),
+            field(
+                source_key = "author_tenant_id",
+                ident = "author_tenant_id",
+                value(item(prim = "Nat64"))
+            ),
+            field(
+                source_key = "author_id",
+                ident = "author_id",
+                value(item(prim = "Ulid"))
+            )
         )
     ))
     .expect("entity args should parse");
@@ -391,6 +410,7 @@ fn schema_part_emits_relation_edge_metadata() {
         vec![],
     );
     entity.relations.push(Relation {
+        source_key: LitStr::new("author", Span::call_site()),
         ident: LitStr::new("author", Span::call_site()),
         target: syn::parse_quote!(User),
         fields: field_list(&["author_tenant_id", "author_id"]),

@@ -16,5 +16,9 @@ use crate::design::prelude::*;
 /// Opaque blob memo payload used by Internet Computer transfer flows.
 ///
 
-#[newtype(primitive = "Blob", item(prim = "Blob", unbounded))]
+#[newtype(
+    source_key = "crates/icydb/src/base/types/ic/mod.rs::newtype::1",
+    primitive = "Blob",
+    item(prim = "Blob", unbounded)
+)]
 pub struct Memo {}

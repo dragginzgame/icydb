@@ -11,6 +11,7 @@ use crate::design::prelude::*;
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/bytes.rs::newtype::1",
     primitive = "Blob",
     item(prim = "Blob", unbounded),
     traits(remove(ValidateCustom))

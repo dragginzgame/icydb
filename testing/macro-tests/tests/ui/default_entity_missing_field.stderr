@@ -1,5 +1,5 @@
 error: Default was requested for entity MissingEntityDefault, but required field `email` has no Rust construction value
-  --> tests/ui/default_entity_missing_field.rs:38:12
+  --> tests/ui/default_entity_missing_field.rs:37:12
    |
-38 | pub struct MissingEntityDefault;
+37 | pub struct MissingEntityDefault;
    |            ^^^^^^^^^^^^^^^^^^^^

@@ -9,43 +9,41 @@ mod tests {
     use icydb::db::{CompareOp, Predicate};
 
     #[enum_(
-        variant(ident = "Bronze"),
-        variant(ident = "Silver"),
-        variant(ident = "Gold")
+        source_key = "testing/macro-tests/src/test/check_constraint.rs::enum_::nested::1",
+        variant(source_key = "Bronze", ident = "Bronze"),
+        variant(source_key = "Silver", ident = "Silver"),
+        variant(source_key = "Gold", ident = "Gold")
     )]
     pub struct GeneratedCheckTier {}
 
-    #[entity(
+    #[entity(source_key = "testing/macro-tests/src/test/check_constraint.rs::entity::nested::1",
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
-        constraint(name = "balance_nonnegative", check = "balance >= 0"),
+        constraint(source_key = "balance_nonnegative", name = "balance_nonnegative", check = "balance >= 0"),
         fields(
-            field(
-                ident = "id",
+            field(source_key = "id", ident = "id",
                 value(item(prim = "Ulid")),
                 generated(insert = "Ulid::generate")
             ),
-            field(ident = "balance", value(item(prim = "Int64")))
+            field(source_key = "balance", ident = "balance", value(item(prim = "Int64")))
         )
     )]
     pub struct GeneratedCheckHarness {}
 
-    #[entity(
+    #[entity(source_key = "testing/macro-tests/src/test/check_constraint.rs::entity::nested::2",
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
-        constraint(
-            name = "active_tier",
+        constraint(source_key = "active_tier", name = "active_tier",
             check = "tier IN ('Bronze', 'Silver', 'Gold')"
         ),
         fields(
-            field(
-                ident = "id",
+            field(source_key = "id", ident = "id",
                 value(item(prim = "Ulid")),
                 generated(insert = "Ulid::generate")
             ),
-            field(ident = "tier", value(item(is = "GeneratedCheckTier")))
+            field(source_key = "tier", ident = "tier", value(item(is = "GeneratedCheckTier")))
         )
     )]
     pub struct GeneratedEnumCheckHarness {}

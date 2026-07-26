@@ -9,43 +9,51 @@ mod tests {
     use icydb::visitor::Visitable;
 
     #[record(
+        source_key = "testing/macro-tests/src/test/rust_default.rs::record::nested::1",
         fields(
             field(
+                source_key = "label",
                 ident = "label",
                 value(item(prim = "Text", unbounded)),
                 default = "String::new"
             ),
-            field(ident = "note", value(opt, item(prim = "Text", unbounded)))
+            field(
+                source_key = "note",
+                ident = "note",
+                value(opt, item(prim = "Text", unbounded))
+            )
         ),
         traits(add(Default))
     )]
     pub struct ExplicitDefaultRecord {}
 
-    #[record(fields(field(ident = "owner", value(item(prim = "Principal")))))]
+    #[record(
+        source_key = "testing/macro-tests/src/test/rust_default.rs::record::nested::2",
+        fields(field(source_key = "owner", ident = "owner", value(item(prim = "Principal"))))
+    )]
     pub struct RequiredRecord {}
 
-    #[entity(
+    #[entity(source_key = "testing/macro-tests/src/test/rust_default.rs::entity::nested::1",
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
         fields(
-            field(
-                ident = "id",
+            field(source_key = "id", ident = "id",
                 value(item(prim = "Ulid")),
                 generated(insert = "Ulid::generate")
             ),
-            field(
-                ident = "label",
+            field(source_key = "label", ident = "label",
                 value(item(prim = "Text", unbounded)),
                 default = "guest"
             ),
-            field(ident = "note", value(opt, item(prim = "Text", unbounded)))
+            field(source_key = "note", ident = "note", value(opt, item(prim = "Text", unbounded)))
         ),
         traits(add(Default))
     )]
     pub struct ExplicitDefaultEntity {}
 
     #[newtype(
+        source_key = "testing/macro-tests/src/test/rust_default.rs::newtype::nested::1",
         primitive = "Bool",
         item(prim = "Bool"),
         default = true,
@@ -54,25 +62,42 @@ mod tests {
     pub struct ExplicitDefaultFlag {}
 
     #[enum_(
-        variant(ident = "Pending", default),
-        variant(ident = "Active"),
+        source_key = "testing/macro-tests/src/test/rust_default.rs::enum_::nested::1",
+        variant(source_key = "Pending", ident = "Pending", default),
+        variant(source_key = "Active", ident = "Active"),
         traits(add(Default))
     )]
     pub struct ExplicitDefaultStatus {}
 
     #[enum_(
-        variant(ident = "Count", value(item(prim = "Nat32")), default),
-        variant(ident = "Unknown"),
+        source_key = "testing/macro-tests/src/test/rust_default.rs::enum_::nested::2",
+        variant(
+            source_key = "Count",
+            ident = "Count",
+            value(item(prim = "Nat32")),
+            default
+        ),
+        variant(source_key = "Unknown", ident = "Unknown"),
         traits(add(Default))
     )]
     pub struct ExplicitPayloadDefault {}
 
-    #[enum_(variant(ident = "Pending"), variant(ident = "Active"))]
+    #[enum_(
+        source_key = "testing/macro-tests/src/test/rust_default.rs::enum_::nested::3",
+        variant(source_key = "Pending", ident = "Pending"),
+        variant(source_key = "Active", ident = "Active")
+    )]
     pub struct NoDefaultStatus {}
 
     #[enum_(
-        variant(ident = "Record", value(item(is = "ExplicitDefaultRecord"))),
+        source_key = "testing/macro-tests/src/test/rust_default.rs::enum_::nested::4",
         variant(
+            source_key = "Record",
+            ident = "Record",
+            value(item(is = "ExplicitDefaultRecord"))
+        ),
+        variant(
+            source_key = "Records",
             ident = "Records",
             value(many, item(is = "ExplicitDefaultRecord", indirect))
         )
@@ -80,22 +105,37 @@ mod tests {
     pub struct CompositePayload {}
 
     #[tuple(
+        source_key = "testing/macro-tests/src/test/rust_default.rs::tuple::nested::1",
         value(item(prim = "Nat32")),
         value(item(prim = "Text", unbounded)),
         traits(add(Default))
     )]
     pub struct ExplicitDefaultTuple;
 
-    #[tuple(value(item(prim = "Principal")))]
+    #[tuple(
+        source_key = "testing/macro-tests/src/test/rust_default.rs::tuple::nested::2",
+        value(item(prim = "Principal"))
+    )]
     pub struct NoDefaultTuple;
 
-    #[list(item(prim = "Principal"), traits(add(Default)))]
+    #[list(
+        source_key = "testing/macro-tests/src/test/rust_default.rs::list::nested::1",
+        item(prim = "Principal"),
+        traits(add(Default))
+    )]
     pub struct PrincipalList;
 
-    #[set(item(prim = "Principal"))]
+    #[set(
+        source_key = "testing/macro-tests/src/test/rust_default.rs::set::nested::1",
+        item(prim = "Principal")
+    )]
     pub struct PrincipalSet;
 
-    #[map(key(prim = "Principal"), value(item(prim = "Principal")))]
+    #[map(
+        source_key = "testing/macro-tests/src/test/rust_default.rs::map::nested::1",
+        key(prim = "Principal"),
+        value(item(prim = "Principal"))
+    )]
     pub struct PrincipalMap;
 
     #[test]

@@ -15,13 +15,13 @@ pub struct UiCanister {}
 )]
 pub struct UiDataStore {}
 
-#[entity(
+#[entity(source_key = "testing/macro-tests/tests/ui/pk_fields_composite_unit.rs::entity::1",
     store = "UiDataStore",
     version = 1,
     pk(fields = ["tenant_id", "singleton"]),
     fields(
-        field(ident = "tenant_id", value(item(prim = "Nat64")), default = 1u64),
-        field(ident = "singleton", value(item(prim = "Unit"))),
+        field(source_key = "tenant_id", ident = "tenant_id", value(item(prim = "Nat64")), default = 1u64),
+        field(source_key = "singleton", ident = "singleton", value(item(prim = "Unit"))),
     )
 )]
 pub struct UnitCompositePkField;

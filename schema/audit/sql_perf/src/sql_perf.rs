@@ -48,20 +48,20 @@ pub struct PerfAuditJournaledStore {}
 /// expression indexes.
 ///
 
-#[entity(
+#[entity(source_key = "schema/audit/sql_perf/src/sql_perf.rs::entity::1",
     store = "PerfAuditStore",
     version = 1,
     pk(fields = ["id"]),
-    index(fields = ["name"]),
-    index(fields = ["age", "id"]),
-    index(fields = ["LOWER(name)"]),
+    index(source_key = "index.1", fields = ["name"]),
+    index(source_key = "index.2", fields = ["age", "id"]),
+    index(source_key = "index.3", fields = ["LOWER(name)"]),
     fields(
-        field(ident = "id", value(item(prim = "Int32"))),
-        field(ident = "name", value(item(prim = "Text", unbounded))),
-        field(ident = "age", value(item(prim = "Int32"))),
-        field(ident = "age_nat", value(item(prim = "Nat32"))),
-        field(ident = "rank", value(item(prim = "Int32"))),
-        field(ident = "active", value(item(prim = "Bool")))
+        field(source_key = "id", ident = "id", value(item(prim = "Int32"))),
+        field(source_key = "name", ident = "name", value(item(prim = "Text", unbounded))),
+        field(source_key = "age", ident = "age", value(item(prim = "Int32"))),
+        field(source_key = "age_nat", ident = "age_nat", value(item(prim = "Nat32"))),
+        field(source_key = "rank", ident = "rank", value(item(prim = "Int32"))),
+        field(source_key = "active", ident = "active", value(item(prim = "Bool")))
     )
 )]
 pub struct PerfAuditUser {}
@@ -74,14 +74,14 @@ pub struct PerfAuditUser {}
 /// journaled durable storage path.
 ///
 
-#[entity(
+#[entity(source_key = "schema/audit/sql_perf/src/sql_perf.rs::entity::2",
     store = "PerfAuditHeapStore",
     version = 1,
     pk(fields = ["id"]),
     fields(
-        field(ident = "id", value(item(prim = "Int32"))),
-        field(ident = "name", value(item(prim = "Text", unbounded))),
-        field(ident = "age", value(item(prim = "Int32")))
+        field(source_key = "id", ident = "id", value(item(prim = "Int32"))),
+        field(source_key = "name", ident = "name", value(item(prim = "Text", unbounded))),
+        field(source_key = "age", ident = "age", value(item(prim = "Int32")))
     )
 )]
 pub struct PerfAuditHeapUser {}
@@ -94,14 +94,14 @@ pub struct PerfAuditHeapUser {}
 /// bounded-query path that previously regressed.
 ///
 
-#[entity(
+#[entity(source_key = "schema/audit/sql_perf/src/sql_perf.rs::entity::3",
     store = "PerfAuditJournaledStore",
     version = 1,
     pk(fields = ["id"]),
     fields(
-        field(ident = "id", value(item(prim = "Int32"))),
-        field(ident = "name", value(item(prim = "Text", unbounded))),
-        field(ident = "age", value(item(prim = "Int32")))
+        field(source_key = "id", ident = "id", value(item(prim = "Int32"))),
+        field(source_key = "name", ident = "name", value(item(prim = "Text", unbounded))),
+        field(source_key = "age", ident = "age", value(item(prim = "Int32")))
     )
 )]
 pub struct PerfAuditJournaledUser {}
@@ -113,11 +113,11 @@ pub struct PerfAuditJournaledUser {}
 /// evidence. Its primary-key domain is shared by deterministic source rows.
 ///
 
-#[entity(
+#[entity(source_key = "schema/audit/sql_perf/src/sql_perf.rs::entity::4",
     store = "PerfAuditStore",
     version = 1,
     pk(fields = ["id"]),
-    fields(field(ident = "id", value(item(prim = "Int32"))))
+    fields(field(source_key = "id", ident = "id", value(item(prim = "Int32"))))
 )]
 pub struct PerfAuditRelationTarget {}
 
@@ -128,14 +128,13 @@ pub struct PerfAuditRelationTarget {}
 /// active reverse-relation verification without a second audit canister.
 ///
 
-#[entity(
+#[entity(source_key = "schema/audit/sql_perf/src/sql_perf.rs::entity::5",
     store = "PerfAuditStore",
     version = 1,
     pk(fields = ["id"]),
     fields(
-        field(ident = "id", value(item(prim = "Int32"))),
-        field(
-            ident = "target_id",
+        field(source_key = "id", ident = "id", value(item(prim = "Int32"))),
+        field(source_key = "target_id", ident = "target_id",
             value(item(rel = "PerfAuditRelationTarget", prim = "Int32"))
         )
     )
@@ -150,18 +149,18 @@ pub struct PerfAuditRelationSource {}
 /// byte-length-only, and payload-returning projections.
 ///
 
-#[entity(
+#[entity(source_key = "schema/audit/sql_perf/src/sql_perf.rs::entity::6",
     store = "PerfAuditStore",
     version = 2,
     pk(fields = ["id"]),
-    index(fields = ["bucket", "label", "id"]),
-    index(fields = ["label"]),
+    index(source_key = "index.4", fields = ["bucket", "label", "id"]),
+    index(source_key = "index.5", fields = ["label"]),
     fields(
-        field(ident = "id", value(item(prim = "Int32"))),
-        field(ident = "label", value(item(prim = "Text", unbounded))),
-        field(ident = "bucket", value(item(prim = "Int32"))),
-        field(ident = "thumbnail", value(item(prim = "Blob", unbounded))),
-        field(ident = "chunk", value(item(prim = "Blob", unbounded)))
+        field(source_key = "id", ident = "id", value(item(prim = "Int32"))),
+        field(source_key = "label", ident = "label", value(item(prim = "Text", unbounded))),
+        field(source_key = "bucket", ident = "bucket", value(item(prim = "Int32"))),
+        field(source_key = "thumbnail", ident = "thumbnail", value(item(prim = "Blob", unbounded))),
+        field(source_key = "chunk", ident = "chunk", value(item(prim = "Blob", unbounded)))
     )
 )]
 pub struct PerfAuditBlob {}
@@ -173,20 +172,20 @@ pub struct PerfAuditBlob {}
 /// active-only and active-plus-tier windows over canonicalized handles.
 ///
 
-#[entity(
+#[entity(source_key = "schema/audit/sql_perf/src/sql_perf.rs::entity::7",
     store = "PerfAuditStore",
     version = 1,
     pk(fields = ["id"]),
-    index(fields = ["handle"], predicate = "active = true"),
-    index(fields = ["LOWER(handle)"], predicate = "active = true"),
-    index(fields = ["tier", "handle"], predicate = "active = true"),
-    index(fields = ["tier", "LOWER(handle)"], predicate = "active = true"),
+    index(source_key = "index.6", fields = ["handle"], predicate = "active = true"),
+    index(source_key = "index.7", fields = ["LOWER(handle)"], predicate = "active = true"),
+    index(source_key = "index.8", fields = ["tier", "handle"], predicate = "active = true"),
+    index(source_key = "index.9", fields = ["tier", "LOWER(handle)"], predicate = "active = true"),
     fields(
-        field(ident = "id", value(item(prim = "Int32"))),
-        field(ident = "handle", value(item(prim = "Text", unbounded))),
-        field(ident = "tier", value(item(prim = "Text", unbounded))),
-        field(ident = "active", value(item(prim = "Bool"))),
-        field(ident = "score", value(item(prim = "Int32")))
+        field(source_key = "id", ident = "id", value(item(prim = "Int32"))),
+        field(source_key = "handle", ident = "handle", value(item(prim = "Text", unbounded))),
+        field(source_key = "tier", ident = "tier", value(item(prim = "Text", unbounded))),
+        field(source_key = "active", ident = "active", value(item(prim = "Bool"))),
+        field(source_key = "score", ident = "score", value(item(prim = "Int32")))
     )
 )]
 pub struct PerfAuditAccount {}
@@ -198,16 +197,16 @@ pub struct PerfAuditAccount {}
 /// fixed collection, branch over a small stage set, and globally order by id.
 ///
 
-#[entity(
+#[entity(source_key = "schema/audit/sql_perf/src/sql_perf.rs::entity::8",
     store = "PerfAuditStore",
     version = 1,
     pk(fields = ["id"]),
-    index(fields = ["collection_id", "stage", "id"]),
+    index(source_key = "index.10", fields = ["collection_id", "stage", "id"]),
     fields(
-        field(ident = "id", value(item(prim = "Ulid"))),
-        field(ident = "collection_id", value(item(prim = "Text", unbounded))),
-        field(ident = "stage", value(item(prim = "Text", unbounded))),
-        field(ident = "title", value(item(prim = "Text", unbounded)))
+        field(source_key = "id", ident = "id", value(item(prim = "Ulid"))),
+        field(source_key = "collection_id", ident = "collection_id", value(item(prim = "Text", unbounded))),
+        field(source_key = "stage", ident = "stage", value(item(prim = "Text", unbounded))),
+        field(source_key = "title", ident = "title", value(item(prim = "Text", unbounded)))
     )
 )]
 pub struct PerfAuditToken {}

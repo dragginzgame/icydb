@@ -5,6 +5,7 @@ use icydb::design::prelude::*;
 ///
 
 #[newtype(
+    source_key = "schema/test/fixtures/src/macro_test/validate/case.rs::newtype::1",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::Camel"))
@@ -16,6 +17,7 @@ pub struct CamelCaseText {}
 ///
 
 #[newtype(
+    source_key = "schema/test/fixtures/src/macro_test/validate/case.rs::newtype::2",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::Lower"))
@@ -27,6 +29,7 @@ pub struct LowerCaseText {}
 ///
 
 #[newtype(
+    source_key = "schema/test/fixtures/src/macro_test/validate/case.rs::newtype::3",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::LowerUscore"))
@@ -38,6 +41,7 @@ pub struct LowerUnderscoreText {}
 ///
 
 #[newtype(
+    source_key = "schema/test/fixtures/src/macro_test/validate/case.rs::newtype::4",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::Upper"))
@@ -49,6 +53,7 @@ pub struct UpperCaseText {}
 ///
 
 #[newtype(
+    source_key = "schema/test/fixtures/src/macro_test/validate/case.rs::newtype::5",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::UpperKebab"))
@@ -60,6 +65,7 @@ pub struct UpperKebabText {}
 ///
 
 #[newtype(
+    source_key = "schema/test/fixtures/src/macro_test/validate/case.rs::newtype::6",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::UpperSnake"))
@@ -71,6 +77,7 @@ pub struct UpperSnakeText {}
 ///
 
 #[newtype(
+    source_key = "schema/test/fixtures/src/macro_test/validate/case.rs::newtype::7",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::Sentence"))
@@ -82,6 +89,7 @@ pub struct SentenceCaseText {}
 ///
 
 #[newtype(
+    source_key = "schema/test/fixtures/src/macro_test/validate/case.rs::newtype::8",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::Snake"))
@@ -93,6 +101,7 @@ pub struct SnakeCaseText {}
 ///
 
 #[newtype(
+    source_key = "schema/test/fixtures/src/macro_test/validate/case.rs::newtype::9",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::Kebab"))
@@ -104,6 +113,7 @@ pub struct KebabCaseText {}
 ///
 
 #[newtype(
+    source_key = "schema/test/fixtures/src/macro_test/validate/case.rs::newtype::10",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::Title"))
@@ -115,6 +125,7 @@ pub struct TitleCaseText {}
 ///
 
 #[newtype(
+    source_key = "schema/test/fixtures/src/macro_test/validate/case.rs::newtype::11",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::UpperCamel"))
@@ -125,7 +136,10 @@ pub struct UpperCamelText {}
 /// SnakeCaseTextListValidated
 ///
 
-#[list(item(is = "SnakeCaseText"))]
+#[list(
+    source_key = "schema/test/fixtures/src/macro_test/validate/case.rs::list::1",
+    item(is = "SnakeCaseText")
+)]
 pub struct SnakeCaseTextListValidated {}
 
 ///
@@ -133,6 +147,7 @@ pub struct SnakeCaseTextListValidated {}
 ///
 
 #[map(
+    source_key = "schema/test/fixtures/src/macro_test/validate/case.rs::map::1",
     key(
         prim = "Text",
         unbounded,
@@ -146,5 +161,8 @@ pub struct UpperKeyTitleValueMapValidated {}
 /// KebabCaseTextSetValidated
 ///
 
-#[set(item(is = "KebabCaseText"))]
+#[set(
+    source_key = "schema/test/fixtures/src/macro_test/validate/case.rs::set::1",
+    item(is = "KebabCaseText")
+)]
 pub struct KebabCaseTextSetValidated {}

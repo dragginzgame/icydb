@@ -10,10 +10,11 @@ use icydb_model_legacy::types::Primitive;
 use quote::format_ident;
 use quote::quote;
 use std::str::FromStr;
-use syn::parse_quote;
+use syn::{LitStr, parse_quote};
 
 fn relation_field(ident: &str, many: bool) -> Field {
     Field {
+        source_key: LitStr::new(ident, proc_macro2::Span::call_site()),
         ident: format_ident!("{ident}"),
         value: Value {
             opt: false,
@@ -67,6 +68,7 @@ fn relation_suffix_validation_accepts_canonical_idents() {
 #[test]
 fn default_match_detects_primitive_default_constructors() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("name"),
         value: Value {
             opt: false,
@@ -91,6 +93,7 @@ fn default_match_detects_primitive_default_constructors() {
 #[test]
 fn default_match_detects_custom_type_default_constructors() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("profile"),
         value: Value {
             opt: false,
@@ -114,6 +117,7 @@ fn default_match_detects_custom_type_default_constructors() {
 #[test]
 fn default_match_rejects_custom_non_default_constructors() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("id"),
         value: Value {
             opt: false,
@@ -137,6 +141,7 @@ fn default_match_rejects_custom_non_default_constructors() {
 #[test]
 fn database_default_expr_encodes_explicit_function_schema_default() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("name"),
         value: Value {
             opt: false,
@@ -172,6 +177,7 @@ fn database_default_expr_encodes_explicit_function_schema_default() {
 #[test]
 fn database_default_expr_encodes_supported_literal_schema_default() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("name"),
         value: Value {
             opt: false,
@@ -206,6 +212,7 @@ fn database_default_expr_encodes_supported_literal_schema_default() {
 #[test]
 fn database_default_expr_keeps_unit_enum_default_as_authored_names() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("status"),
         value: Value {
             opt: false,
@@ -234,6 +241,7 @@ fn database_default_expr_keeps_unit_enum_default_as_authored_names() {
 #[test]
 fn database_default_rejects_mismatched_enum_default_type() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("status"),
         value: Value {
             opt: false,
@@ -261,6 +269,7 @@ fn database_default_rejects_mismatched_enum_default_type() {
 #[test]
 fn database_default_expr_encodes_explicit_text_default_payload() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("nickname"),
         value: Value {
             opt: false,
@@ -295,6 +304,7 @@ fn database_default_expr_encodes_explicit_text_default_payload() {
 #[test]
 fn database_default_accepts_optional_literal_default_payload() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("anti_aliasing"),
         value: Value {
             opt: true,
@@ -328,6 +338,7 @@ fn database_default_accepts_optional_literal_default_payload() {
 #[test]
 fn database_default_encodes_decimal_literal_with_declared_scale() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("ratio"),
         value: Value {
             opt: false,
@@ -367,6 +378,7 @@ fn database_default_encodes_decimal_literal_with_declared_scale() {
 #[test]
 fn database_default_encodes_explicit_decimal_text_payload() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("project"),
         value: Value {
             opt: false,
@@ -406,6 +418,7 @@ fn database_default_encodes_explicit_decimal_text_payload() {
 #[test]
 fn database_default_rejects_invalid_decimal_text_payload() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("ratio"),
         value: Value {
             opt: false,
@@ -435,6 +448,7 @@ fn database_default_rejects_invalid_decimal_text_payload() {
 #[test]
 fn database_default_encodes_int128_literal_with_by_kind_codec() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("signed_balance"),
         value: Value {
             opt: false,
@@ -471,6 +485,7 @@ fn database_default_encodes_int128_literal_with_by_kind_codec() {
 #[test]
 fn database_default_encodes_nat128_literal_with_by_kind_codec() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("supply"),
         value: Value {
             opt: false,
@@ -507,6 +522,7 @@ fn database_default_encodes_nat128_literal_with_by_kind_codec() {
 #[test]
 fn database_default_rejects_negative_nat128_literal() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("supply"),
         value: Value {
             opt: false,
@@ -788,6 +804,7 @@ fn database_default_encodes_identity_blob_and_unit_payloads_with_by_kind_codecs(
 #[test]
 fn database_default_encodes_date_text_with_scalar_codec() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("launch_date"),
         value: Value {
             opt: false,
@@ -823,6 +840,7 @@ fn database_default_encodes_date_text_with_scalar_codec() {
 #[test]
 fn database_default_encodes_duration_text_with_scalar_codec() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("cooldown"),
         value: Value {
             opt: false,
@@ -858,6 +876,7 @@ fn database_default_encodes_duration_text_with_scalar_codec() {
 #[test]
 fn database_default_encodes_timestamp_text_with_scalar_codec() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("published_at"),
         value: Value {
             opt: false,
@@ -893,6 +912,7 @@ fn database_default_encodes_timestamp_text_with_scalar_codec() {
 #[test]
 fn database_default_rejects_negative_duration_literal() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("cooldown"),
         value: Value {
             opt: false,
@@ -920,6 +940,7 @@ fn database_default_rejects_negative_duration_literal() {
 
 fn default_test_field(primitive: Primitive, default: Arg) -> Field {
     Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("defaulted"),
         value: Value {
             opt: false,
@@ -940,6 +961,7 @@ fn default_test_field(primitive: Primitive, default: Arg) -> Field {
 #[test]
 fn database_default_rejects_out_of_range_numeric_default() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("rank"),
         value: Value {
             opt: false,
@@ -967,6 +989,7 @@ fn database_default_rejects_out_of_range_numeric_default() {
 #[test]
 fn generated_clause_accepts_single_value_primitive_ulid_fields() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("id"),
         value: Value {
             opt: false,
@@ -1012,6 +1035,7 @@ fn generated_clause_parser_accepts_arbitrary_quoted_generator_paths() {
 #[test]
 fn from_list_parses_generated_insert_clause() {
     let args = NestedMeta::parse_meta_list(quote!(
+        source_key = "id",
         ident = "id",
         value(item(prim = "Ulid")),
         generated(insert = "Ulid::generate")
@@ -1030,6 +1054,7 @@ fn from_list_parses_generated_insert_clause() {
 #[test]
 fn generated_clause_accepts_single_value_primitive_timestamp_fields() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("created_on_insert"),
         value: Value {
             opt: false,
@@ -1054,6 +1079,7 @@ fn generated_clause_accepts_single_value_primitive_timestamp_fields() {
 #[test]
 fn generated_clause_rejects_mismatched_field_and_generator_contracts() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("name"),
         value: Value {
             opt: false,
@@ -1084,6 +1110,7 @@ fn generated_clause_rejects_mismatched_field_and_generator_contracts() {
 #[test]
 fn generated_clause_rejects_non_ulid_generators() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("id"),
         value: Value {
             opt: false,
@@ -1114,6 +1141,7 @@ fn generated_clause_rejects_non_ulid_generators() {
 #[test]
 fn generated_clause_rejects_default_contracts() {
     let field = Field {
+        source_key: LitStr::new("field/test", proc_macro2::Span::call_site()),
         ident: format_ident!("created_on_insert"),
         value: Value {
             opt: false,

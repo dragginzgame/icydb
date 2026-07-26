@@ -5,6 +5,7 @@
 
 mod arg;
 mod canister;
+mod constraint;
 mod def;
 mod entity;
 mod r#enum;
@@ -35,6 +36,7 @@ use thiserror::Error as ThisError;
 
 pub use arg::*;
 pub use canister::*;
+pub use constraint::*;
 pub use def::*;
 pub use entity::*;
 pub use r#enum::*;
@@ -129,6 +131,18 @@ pub(crate) trait VisitableNode: ValidateNode {
 
     // Visit child nodes in canonical order.
     fn drive<V: Visitor>(&self, _: &mut V) {}
+}
+
+// Add one typed protocol-key construction failure to the authoring diagnostic tree.
+pub(crate) fn validate_source_key<K>(
+    errs: &mut ErrorTree,
+    kind: &str,
+    source_key: &str,
+    constructor: impl FnOnce(String) -> Result<K, icydb_schema::SchemaContractError>,
+) {
+    if let Err(error) = constructor(source_key.to_string()) {
+        err!(errs, "invalid {kind} source key '{source_key}': {error}");
+    }
 }
 
 // Validate one memory id against the declared canister range.

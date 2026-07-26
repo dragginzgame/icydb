@@ -14,6 +14,8 @@ pub struct Record {
     #[darling(default, skip)]
     pub(crate) def: Def,
 
+    pub(crate) source_key: LitStr,
+
     #[darling(default)]
     pub(crate) fields: FieldList,
 
@@ -51,12 +53,13 @@ impl HasSchema for Record {
 impl HasSchemaPart for Record {
     fn schema_part(&self) -> TokenStream {
         let def = self.def.schema_part();
+        let source_key = &self.source_key;
         let fields = self.fields.schema_part();
         let ty = self.ty.schema_part();
 
         // quote
         quote! {
-            ::icydb::schema::node::Record::new(#def, #fields, #ty)
+            ::icydb::schema::node::Record::new(#def, #source_key, #fields, #ty)
         }
     }
 }

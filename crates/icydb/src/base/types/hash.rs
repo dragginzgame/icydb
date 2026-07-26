@@ -13,6 +13,7 @@ use crate::design::prelude::*;
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/hash.rs::newtype::1",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::hash::Sha256"))

@@ -15,12 +15,12 @@ pub struct UiCanister {}
 )]
 pub struct UiDataStore {}
 
-#[entity(
+#[entity(source_key = "testing/macro-tests/tests/ui/index_field_not_found.rs::entity::1",
     store = "UiDataStore",
     version = 1,
     pk(fields = ["id"]),
-    index(fields = ["missing_field"]),
-    fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
+    index(source_key = "index.1", fields = ["missing_field"]),
+    fields(field(source_key = "id", ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
 )]
 pub struct InvalidIndexField;
 

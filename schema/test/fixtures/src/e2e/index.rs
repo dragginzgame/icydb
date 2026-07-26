@@ -5,20 +5,19 @@ use icydb::design::prelude::*;
 /// Indexable
 ///
 
-#[entity(
+#[entity(source_key = "schema/test/fixtures/src/e2e/index.rs::entity::1",
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
-    index(fields = ["pid", "ulid", "score"]),
+    index(source_key = "index.1", fields = ["pid", "ulid", "score"]),
     fields(
-        field(
-            ident = "id",
+        field(source_key = "id", ident = "id",
             value(item(prim = "Ulid")),
             generated(insert = "Ulid::generate")
         ),
-        field(ident = "pid", value(item(prim = "Principal"))),
-        field(ident = "ulid", value(item(prim = "Ulid"))),
-        field(ident = "score", value(item(prim = "Nat32"))),
+        field(source_key = "pid", ident = "pid", value(item(prim = "Principal"))),
+        field(source_key = "ulid", ident = "ulid", value(item(prim = "Ulid"))),
+        field(source_key = "score", ident = "score", value(item(prim = "Nat32"))),
     )
 )]
 pub struct Indexable {}
@@ -27,19 +26,18 @@ pub struct Indexable {}
 /// NotIndexable
 ///
 
-#[entity(
+#[entity(source_key = "schema/test/fixtures/src/e2e/index.rs::entity::2",
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
     fields(
-        field(
-            ident = "id",
+        field(source_key = "id", ident = "id",
             value(item(prim = "Ulid")),
             generated(insert = "Ulid::generate")
         ),
-        field(ident = "pid", value(item(prim = "Principal"))),
-        field(ident = "ulid", value(item(prim = "Ulid"))),
-        field(ident = "score", value(item(prim = "Nat32"))),
+        field(source_key = "pid", ident = "pid", value(item(prim = "Principal"))),
+        field(source_key = "ulid", ident = "ulid", value(item(prim = "Ulid"))),
+        field(source_key = "score", ident = "score", value(item(prim = "Nat32"))),
     )
 )]
 pub struct NotIndexable {}
@@ -48,18 +46,17 @@ pub struct NotIndexable {}
 /// IndexableOptText
 ///
 
-#[entity(
+#[entity(source_key = "schema/test/fixtures/src/e2e/index.rs::entity::3",
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
-    index(fields = ["username"], unique),
+    index(source_key = "index.2", fields = ["username"], unique),
     fields(
-        field(
-            ident = "id",
+        field(source_key = "id", ident = "id",
             value(item(prim = "Ulid")),
             generated(insert = "Ulid::generate")
         ),
-        field(ident = "username", value(opt, item(prim = "Text", unbounded))),
+        field(source_key = "username", ident = "username", value(opt, item(prim = "Text", unbounded))),
     )
 )]
 pub struct IndexableOptText {}

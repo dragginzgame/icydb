@@ -9,15 +9,29 @@ use icydb::design::prelude::*;
 /// scalar leaves for text, numeric, and principal projection tests.
 ///
 
-#[record(fields(
-    field(
-        ident = "name",
-        value(item(prim = "Text", unbounded)),
-        default = "String::new"
-    ),
-    field(ident = "level", value(item(prim = "Nat16")), default = 0u16),
-    field(ident = "pid", value(item(prim = "Principal")), default = "2vxsx-fae")
-))]
+#[record(
+    source_key = "schema/demo/rpg/src/schema/character.rs::record::1",
+    fields(
+        field(
+            source_key = "name",
+            ident = "name",
+            value(item(prim = "Text", unbounded)),
+            default = "String::new"
+        ),
+        field(
+            source_key = "level",
+            ident = "level",
+            value(item(prim = "Nat16")),
+            default = 0u16
+        ),
+        field(
+            source_key = "pid",
+            ident = "pid",
+            value(item(prim = "Principal")),
+            default = "2vxsx-fae"
+        )
+    )
+)]
 pub struct CharacterMentor {}
 
 ///
@@ -26,47 +40,46 @@ pub struct CharacterMentor {}
 /// Fixture RPG character entity used by SQL endpoint and integration harnesses.
 ///
 
-#[entity(
+#[entity(source_key = "schema/demo/rpg/src/schema/character.rs::entity::1",
     store = "DemoRpgStore",
     version = 1,
     pk(fields = ["id"]),
-    index(fields = ["name"]),
-    index(fields = ["level", "class_name"]),
+    index(source_key = "index.1", fields = ["name"]),
+    index(source_key = "index.2", fields = ["level", "class_name"]),
     fields(
-        field(
-            ident = "id",
+        field(source_key = "id", ident = "id",
             value(item(prim = "Ulid")),
             generated(insert = "Ulid::generate")
         ),
-        field(ident = "name", value(item(prim = "Text", unbounded))),
-        field(ident = "description", value(item(prim = "Text", unbounded))),
-        field(ident = "class_name", value(item(prim = "Text", unbounded))),
-        field(ident = "background", value(item(prim = "Text", unbounded))),
-        field(ident = "homeland", value(item(prim = "Text", unbounded))),
-        field(ident = "level", value(item(prim = "Nat16"))),
-        field(ident = "experience", value(item(prim = "Nat64"))),
-        field(ident = "renown", value(item(prim = "Int16"))),
-        field(ident = "strength", value(item(prim = "Int16"))),
-        field(ident = "dexterity", value(item(prim = "Int16"))),
-        field(ident = "constitution", value(item(prim = "Int16"))),
-        field(ident = "intelligence", value(item(prim = "Int16"))),
-        field(ident = "wisdom", value(item(prim = "Int16"))),
-        field(ident = "charisma", value(item(prim = "Int16"))),
-        field(ident = "hit_points", value(item(prim = "Int32"))),
-        field(ident = "armor_class", value(item(prim = "Nat8"))),
-        field(ident = "spell_slots", value(item(prim = "Nat8"))),
-        field(ident = "initiative_bonus", value(item(prim = "Int8"))),
-        field(ident = "gold_pieces", value(item(prim = "Nat32"))),
-        field(ident = "critical_chance", value(item(prim = "Decimal", scale = 2))),
-        field(ident = "dodge_chance", value(item(prim = "Float64"))),
-        field(ident = "is_npc", value(item(prim = "Bool"))),
-        field(ident = "guild_rank", value(opt, item(prim = "Text", unbounded))),
-        field(ident = "mentor", value(item(is = "CharacterMentor")),),
-        field(ident = "resistances", value(many, item(prim = "Text", unbounded))),
-        field(ident = "inventory_weights", value(many, item(prim = "Nat16"))),
-        field(ident = "portrait", value(item(prim = "Blob", unbounded))),
-        field(ident = "last_rest_at", value(item(prim = "Timestamp"))),
-        field(ident = "respawn_cooldown", value(item(prim = "Duration")))
+        field(source_key = "name", ident = "name", value(item(prim = "Text", unbounded))),
+        field(source_key = "description", ident = "description", value(item(prim = "Text", unbounded))),
+        field(source_key = "class_name", ident = "class_name", value(item(prim = "Text", unbounded))),
+        field(source_key = "background", ident = "background", value(item(prim = "Text", unbounded))),
+        field(source_key = "homeland", ident = "homeland", value(item(prim = "Text", unbounded))),
+        field(source_key = "level", ident = "level", value(item(prim = "Nat16"))),
+        field(source_key = "experience", ident = "experience", value(item(prim = "Nat64"))),
+        field(source_key = "renown", ident = "renown", value(item(prim = "Int16"))),
+        field(source_key = "strength", ident = "strength", value(item(prim = "Int16"))),
+        field(source_key = "dexterity", ident = "dexterity", value(item(prim = "Int16"))),
+        field(source_key = "constitution", ident = "constitution", value(item(prim = "Int16"))),
+        field(source_key = "intelligence", ident = "intelligence", value(item(prim = "Int16"))),
+        field(source_key = "wisdom", ident = "wisdom", value(item(prim = "Int16"))),
+        field(source_key = "charisma", ident = "charisma", value(item(prim = "Int16"))),
+        field(source_key = "hit_points", ident = "hit_points", value(item(prim = "Int32"))),
+        field(source_key = "armor_class", ident = "armor_class", value(item(prim = "Nat8"))),
+        field(source_key = "spell_slots", ident = "spell_slots", value(item(prim = "Nat8"))),
+        field(source_key = "initiative_bonus", ident = "initiative_bonus", value(item(prim = "Int8"))),
+        field(source_key = "gold_pieces", ident = "gold_pieces", value(item(prim = "Nat32"))),
+        field(source_key = "critical_chance", ident = "critical_chance", value(item(prim = "Decimal", scale = 2))),
+        field(source_key = "dodge_chance", ident = "dodge_chance", value(item(prim = "Float64"))),
+        field(source_key = "is_npc", ident = "is_npc", value(item(prim = "Bool"))),
+        field(source_key = "guild_rank", ident = "guild_rank", value(opt, item(prim = "Text", unbounded))),
+        field(source_key = "mentor", ident = "mentor", value(item(is = "CharacterMentor")),),
+        field(source_key = "resistances", ident = "resistances", value(many, item(prim = "Text", unbounded))),
+        field(source_key = "inventory_weights", ident = "inventory_weights", value(many, item(prim = "Nat16"))),
+        field(source_key = "portrait", ident = "portrait", value(item(prim = "Blob", unbounded))),
+        field(source_key = "last_rest_at", ident = "last_rest_at", value(item(prim = "Timestamp"))),
+        field(source_key = "respawn_cooldown", ident = "respawn_cooldown", value(item(prim = "Duration")))
     )
 )]
 pub struct Character {}

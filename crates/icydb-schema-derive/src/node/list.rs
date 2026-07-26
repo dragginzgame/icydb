@@ -14,6 +14,8 @@ pub struct List {
     #[darling(default, skip)]
     pub(crate) def: Def,
 
+    pub(crate) source_key: LitStr,
+
     pub(crate) item: Item,
 
     #[darling(default)]
@@ -47,12 +49,13 @@ impl HasSchema for List {
 impl HasSchemaPart for List {
     fn schema_part(&self) -> TokenStream {
         let def = self.def.schema_part();
+        let source_key = &self.source_key;
         let item = self.item.schema_part();
         let ty = self.ty.schema_part();
 
         // quote
         quote! {
-            ::icydb::schema::node::List::new(#def, #item, #ty)
+            ::icydb::schema::node::List::new(#def, #source_key, #item, #ty)
         }
     }
 }

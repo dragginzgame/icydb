@@ -12,6 +12,7 @@ use crate::design::prelude::*;
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/lang.rs::newtype::1",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::intl::iso::Iso639_1"))

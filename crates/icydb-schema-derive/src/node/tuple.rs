@@ -9,10 +9,12 @@ use crate::{imp::*, prelude::*};
 /// Tuple
 ///
 
-#[derive(Debug, Default, FromMeta)]
+#[derive(Debug, FromMeta)]
 pub struct Tuple {
     #[darling(default, skip)]
     pub(crate) def: Def,
+
+    pub(crate) source_key: LitStr,
 
     #[darling(multiple, rename = "value")]
     pub(crate) values: Vec<Value>,
@@ -51,12 +53,13 @@ impl HasSchema for Tuple {
 impl HasSchemaPart for Tuple {
     fn schema_part(&self) -> TokenStream {
         let def = self.def.schema_part();
+        let source_key = &self.source_key;
         let values = quote_slice(&self.values, Value::schema_part);
         let ty = &self.ty.schema_part();
 
         // quote
         quote! {
-            ::icydb::schema::node::Tuple::new(#def, #values, #ty)
+            ::icydb::schema::node::Tuple::new(#def, #source_key, #values, #ty)
         }
     }
 }

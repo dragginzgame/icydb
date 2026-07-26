@@ -22,6 +22,7 @@ use std::collections::HashSet;
 
 #[derive(Clone, Debug)]
 pub struct Relation {
+    pub(crate) source_key: LitStr,
     pub(crate) ident: LitStr,
     pub(crate) target: Path,
     pub(crate) fields: Vec<LitStr>,
@@ -30,6 +31,7 @@ pub struct Relation {
 impl FromMeta for Relation {
     fn from_list(items: &[NestedMeta]) -> Result<Self, DarlingError> {
         let mut ident = None;
+        let mut source_key = None;
         let mut target = None;
         let mut fields = None;
 
@@ -41,28 +43,32 @@ impl FromMeta for Relation {
             };
 
             if name_value.path.is_ident("ident") {
-                if ident
-                    .replace(parse_relation_ident(&name_value.value)?)
-                    .is_some()
-                {
-                    return Err(DarlingError::custom(
-                        "relation(...) accepts only one ident = \"...\" argument",
-                    )
-                    .with_span(&name_value.path));
-                }
+                set_relation_arg_once(
+                    &mut ident,
+                    parse_relation_ident(&name_value.value)?,
+                    "relation(...) accepts only one ident = \"...\" argument",
+                    &name_value.path,
+                )?;
+                continue;
+            }
+
+            if name_value.path.is_ident("source_key") {
+                set_relation_arg_once(
+                    &mut source_key,
+                    parse_relation_string_arg("source_key", &name_value.value)?,
+                    "relation(...) accepts only one source_key = \"...\" argument",
+                    &name_value.path,
+                )?;
                 continue;
             }
 
             if name_value.path.is_ident("rel") {
-                if target
-                    .replace(parse_relation_target(&name_value.value)?)
-                    .is_some()
-                {
-                    return Err(DarlingError::custom(
-                        "relation(...) accepts only one rel = \"...\" argument",
-                    )
-                    .with_span(&name_value.path));
-                }
+                set_relation_arg_once(
+                    &mut target,
+                    parse_relation_target(&name_value.value)?,
+                    "relation(...) accepts only one rel = \"...\" argument",
+                    &name_value.path,
+                )?;
                 continue;
             }
 
@@ -96,6 +102,11 @@ impl FromMeta for Relation {
             .with_span(&name_value.path));
         }
 
+        let Some(source_key) = source_key else {
+            return Err(DarlingError::custom(
+                "relation(...) requires source_key = \"...\"",
+            ));
+        };
         let Some(ident) = ident else {
             return Err(DarlingError::custom(
                 "relation(...) requires ident = \"...\"",
@@ -118,11 +129,24 @@ impl FromMeta for Relation {
         reject_duplicate_relation_fields(fields.as_slice())?;
 
         Ok(Self {
+            source_key,
             ident,
             target,
             fields,
         })
     }
+}
+
+fn set_relation_arg_once<T>(
+    target: &mut Option<T>,
+    value: T,
+    duplicate_message: &str,
+    span: &syn::Path,
+) -> Result<(), DarlingError> {
+    if target.replace(value).is_some() {
+        return Err(DarlingError::custom(duplicate_message).with_span(span));
+    }
+    Ok(())
 }
 
 impl Relation {
@@ -169,12 +193,13 @@ impl Relation {
 
 impl HasSchemaPart for Relation {
     fn schema_part(&self) -> TokenStream {
+        let source_key = &self.source_key;
         let ident = quote_one(&self.ident, to_str_lit);
         let target = quote_one(&self.target, to_path);
         let fields = quote_slice(&self.fields, to_str_lit);
 
         quote! {
-            ::icydb::schema::node::RelationEdge::new(#ident, #target, #fields)
+            ::icydb::schema::node::RelationEdge::new(#source_key, #ident, #target, #fields)
         }
     }
 }
@@ -246,11 +271,16 @@ mod tests {
     use super::*;
 
     fn args(tokens: TokenStream) -> Vec<NestedMeta> {
-        NestedMeta::parse_meta_list(tokens).expect("relation args should parse")
+        NestedMeta::parse_meta_list(quote!(
+            source_key = "relation/test",
+            #tokens
+        ))
+        .expect("relation args should parse")
     }
 
     fn field_with_cardinality(ident: &str, opt: bool, many: bool) -> Field {
         Field {
+            source_key: LitStr::new(ident, Span::call_site()),
             ident: format_ident!("{ident}"),
             value: Value {
                 opt,
@@ -268,6 +298,21 @@ mod tests {
 
     fn scalar_field(ident: &str) -> Field {
         field_with_cardinality(ident, false, false)
+    }
+
+    #[test]
+    fn from_list_requires_source_key() {
+        let raw = NestedMeta::parse_meta_list(quote!(
+            ident = "author",
+            rel = "User",
+            field = "author_id"
+        ))
+        .expect("relation args should parse");
+
+        let error =
+            Relation::from_list(&raw).expect_err("relation source identity must be explicit");
+
+        assert!(error.to_string().contains("requires source_key"));
     }
 
     fn optional_field(ident: &str) -> Field {

@@ -15,17 +15,16 @@ pub struct UiCanister {}
 )]
 pub struct UiDataStore {}
 
-#[entity(
+#[entity(source_key = "testing/macro-tests/tests/ui/insert_type_excludes_generated_field.rs::entity::1",
     store = "UiDataStore",
     version = 1,
     pk(fields = ["id"]),
     fields(
-        field(
-            ident = "id",
+        field(source_key = "id", ident = "id",
             value(item(prim = "Ulid")),
             generated(insert = "Ulid::generate")
         ),
-        field(ident = "name", value(item(prim = "Text", unbounded)))
+        field(source_key = "name", ident = "name", value(item(prim = "Text", unbounded)))
     )
 )]
 pub struct UiEntity {}

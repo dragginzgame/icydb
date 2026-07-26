@@ -13,6 +13,7 @@ use crate::design::prelude::*;
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/web.rs::newtype::1",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
@@ -29,6 +30,7 @@ pub struct MimeType {}
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/web.rs::newtype::2",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(

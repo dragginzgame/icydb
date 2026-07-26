@@ -17,17 +17,16 @@ pub mod test {
         value::InputValue,
     };
 
-    #[entity(
+    #[entity(source_key = "testing/macro-tests/src/test/enum_payload.rs::entity::nested::1",
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
         fields(
-            field(
-                ident = "id",
+            field(source_key = "id", ident = "id",
                 value(item(prim = "Ulid")),
                 generated(insert = "Ulid::generate")
             ),
-            field(ident = "cost", value(item(is = "EnumWithPayload")))
+            field(source_key = "cost", ident = "cost", value(item(is = "EnumWithPayload")))
         )
     )]
     pub struct EnumEntityHarness {}
@@ -41,8 +40,13 @@ pub mod test {
     ///
 
     #[enum_(
-        variant(ident = "Loaded", value(item(prim = "Nat32"))),
-        variant(ident = "Named", value(item(prim = "Text", unbounded)))
+        source_key = "testing/macro-tests/src/test/enum_payload.rs::enum_::nested::1",
+        variant(source_key = "Loaded", ident = "Loaded", value(item(prim = "Nat32"))),
+        variant(
+            source_key = "Named",
+            ident = "Named",
+            value(item(prim = "Text", unbounded))
+        )
     )]
     pub struct PrimitiveEnumWithPayload {}
 
@@ -53,21 +57,23 @@ pub mod test {
     /// coupling filter ergonomics to payload enum behavior.
     ///
 
-    #[enum_(variant(ident = "Draft"), variant(ident = "Live"))]
+    #[enum_(
+        source_key = "testing/macro-tests/src/test/enum_payload.rs::enum_::nested::2",
+        variant(source_key = "Draft", ident = "Draft"),
+        variant(source_key = "Live", ident = "Live")
+    )]
     pub struct Stage {}
 
-    #[entity(
+    #[entity(source_key = "testing/macro-tests/src/test/enum_payload.rs::entity::nested::2",
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
         fields(
-            field(
-                ident = "id",
+            field(source_key = "id", ident = "id",
                 value(item(prim = "Ulid")),
                 generated(insert = "Ulid::generate")
             ),
-            field(
-                ident = "stage",
+            field(source_key = "stage", ident = "stage",
                 value(item(is = "Stage")),
                 default = "Stage::Draft"
             )

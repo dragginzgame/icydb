@@ -30,6 +30,7 @@ fn relation_item(primitive: Primitive, target: &'static str) -> Item {
 fn field(ident: &'static str, primitive: Primitive) -> Field {
     Field::new(
         ident,
+        ident,
         Value::new(Cardinality::One, primitive_item(primitive)),
         None,
         None,
@@ -39,6 +40,7 @@ fn field(ident: &'static str, primitive: Primitive) -> Field {
 
 fn relation_field(ident: &'static str, primitive: Primitive, target: &'static str) -> Field {
     Field::new(
+        ident,
         ident,
         Value::new(Cardinality::One, relation_item(primitive, target)),
         None,
@@ -104,12 +106,14 @@ fn entity_in_module(
 ) -> Entity {
     Entity::new(
         Def::new(module, ident),
+        ident,
         store_path,
         1,
         PrimaryKey::new(pk_fields, PrimaryKeySource::External),
         None,
         &[],
         relations,
+        &[],
         FieldList::new(fields),
         Type::new(&[], &[]),
     )
@@ -144,6 +148,7 @@ fn entity_validation_checks_owned_relation_edges() {
     let source_relations = Box::leak(
         vec![RelationEdge::new(
             "author",
+            "author",
             "schema_entity_relation_edge::User",
             &["author_tenant_id", "author_id"],
         )]
@@ -177,6 +182,44 @@ fn entity_validation_rejects_zero_schema_version() {
         err.to_string()
             .contains("entity schema_version must be a positive integer"),
         "unexpected schema_version validation error: {err}",
+    );
+}
+
+#[test]
+fn entity_validation_rejects_duplicate_field_source_keys() {
+    let store_path = "schema_entity_relation_edge::Store";
+    schema_write().insert_node(SchemaNode::Store(store(store_path)));
+    let fields = Box::leak(
+        vec![
+            Field::new(
+                "field/shared",
+                "id",
+                Value::new(Cardinality::One, primitive_item(Primitive::Ulid)),
+                None,
+                None,
+                None,
+            ),
+            Field::new(
+                "field/shared",
+                "name",
+                Value::new(Cardinality::One, primitive_item(Primitive::Text)),
+                None,
+                None,
+                None,
+            ),
+        ]
+        .into_boxed_slice(),
+    );
+    let source = entity("SourceKeyed", store_path, &["id"], &[], fields);
+
+    let error = source
+        .validate()
+        .expect_err("duplicate field source identities must fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("duplicate field source key 'field/shared' within entity"),
     );
 }
 
@@ -286,6 +329,7 @@ fn entity_validation_rejects_durable_source_relation_edge_to_heap_target() {
     let source_relations = Box::leak(
         vec![RelationEdge::new(
             "author",
+            "author",
             "schema_entity_relation_edge_durable_to_heap::User",
             &["author_tenant_id", "author_id"],
         )]
@@ -342,6 +386,7 @@ fn entity_validation_reports_relation_edge_errors_under_relation_name() {
     let source_fields = Box::leak(vec![field("author_id", Primitive::Ulid)].into_boxed_slice());
     let source_relations = Box::leak(
         vec![RelationEdge::new(
+            "author",
             "author",
             "schema_entity_relation_edge_error::User",
             &["author_id"],

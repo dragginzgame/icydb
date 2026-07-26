@@ -15,14 +15,13 @@ pub struct UiCanister {}
 )]
 pub struct UiDataStore {}
 
-#[entity(
+#[entity(source_key = "testing/macro-tests/tests/ui/generated_default_conflict.rs::entity::1",
     store = "UiDataStore",
     version = 1,
     pk(fields = ["id"]),
     fields(
-        field(ident = "id", value(item(prim = "Nat64"))),
-        field(
-            ident = "created_on_insert",
+        field(source_key = "id", ident = "id", value(item(prim = "Nat64"))),
+        field(source_key = "created_on_insert", ident = "created_on_insert",
             value(item(prim = "Timestamp")),
             default = "Timestamp::EPOCH",
             generated(insert = "Timestamp::now")

@@ -105,6 +105,7 @@ pub enum IndexKeyItemsRef {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Index {
+    source_key: &'static str,
     fields: &'static [&'static str],
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -122,44 +123,58 @@ pub struct Index {
 impl Index {
     /// Build one index declaration from field-list and uniqueness metadata.
     #[must_use]
-    pub const fn new(fields: &'static [&'static str], unique: bool) -> Self {
-        Self::new_with_key_items_and_predicate(fields, None, unique, None)
+    pub const fn new(
+        source_key: &'static str,
+        fields: &'static [&'static str],
+        unique: bool,
+    ) -> Self {
+        Self::new_with_key_items_and_predicate(source_key, fields, None, unique, None)
     }
 
     /// Build one index declaration with optional conditional predicate metadata.
     #[must_use]
     pub const fn new_with_predicate(
+        source_key: &'static str,
         fields: &'static [&'static str],
         unique: bool,
         predicate: Option<&'static str>,
     ) -> Self {
-        Self::new_with_key_items_and_predicate(fields, None, unique, predicate)
+        Self::new_with_key_items_and_predicate(source_key, fields, None, unique, predicate)
     }
 
     /// Build one index declaration with explicit canonical key-item metadata.
     #[must_use]
     pub const fn new_with_key_items(
+        source_key: &'static str,
         fields: &'static [&'static str],
         key_items: &'static [IndexKeyItem],
         unique: bool,
     ) -> Self {
-        Self::new_with_key_items_and_predicate(fields, Some(key_items), unique, None)
+        Self::new_with_key_items_and_predicate(source_key, fields, Some(key_items), unique, None)
     }
 
     /// Build one index declaration with explicit key items + predicate metadata.
     #[must_use]
     pub const fn new_with_key_items_and_predicate(
+        source_key: &'static str,
         fields: &'static [&'static str],
         key_items: Option<&'static [IndexKeyItem]>,
         unique: bool,
         predicate: Option<&'static str>,
     ) -> Self {
         Self {
+            source_key,
             fields,
             key_items,
             unique,
             predicate,
         }
+    }
+
+    /// Borrow the immutable index source key.
+    #[must_use]
+    pub const fn source_key(&self) -> &'static str {
+        self.source_key
     }
 
     /// Borrow index field sequence.
@@ -259,7 +274,18 @@ impl MacroNode for Index {
     }
 }
 
-impl ValidateNode for Index {}
+impl ValidateNode for Index {
+    fn validate(&self) -> Result<(), ErrorTree> {
+        let mut errs = ErrorTree::new();
+        validate_source_key(
+            &mut errs,
+            "index",
+            self.source_key(),
+            icydb_schema::IndexSourceKey::try_new,
+        );
+        errs.result()
+    }
+}
 
 impl VisitableNode for Index {
     fn route_key(&self) -> String {
@@ -277,7 +303,8 @@ mod tests {
 
     #[test]
     fn index_with_predicate_reports_conditional_shape() {
-        let index = Index::new_with_predicate(&["email"], false, Some("active = true"));
+        let index =
+            Index::new_with_predicate("email_active", &["email"], false, Some("active = true"));
 
         assert_eq!(index.predicate(), Some("active = true"));
         assert_eq!(index.to_string(), "(email) WHERE active = true");
@@ -285,7 +312,7 @@ mod tests {
 
     #[test]
     fn index_without_predicate_preserves_unconditional_shape() {
-        let index = Index::new(&["email"], true);
+        let index = Index::new("email", &["email"], true);
 
         assert_eq!(index.predicate(), None);
         assert_eq!(index.to_string(), "UNIQUE (email)");
@@ -297,7 +324,8 @@ mod tests {
             IndexKeyItem::Field("tenant_id"),
             IndexKeyItem::Expression(IndexExpression::Lower("email")),
         ];
-        let index = Index::new_with_key_items(&["tenant_id"], &KEY_ITEMS, false);
+        let index =
+            Index::new_with_key_items("tenant_lower_email", &["tenant_id"], &KEY_ITEMS, false);
 
         assert!(index.has_expression_key_items());
         assert_eq!(index.to_string(), "(tenant_id, LOWER(email))");

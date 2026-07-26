@@ -11,6 +11,7 @@ use crate::design::prelude::*;
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/num.rs::newtype::1",
     primitive = "Nat16",
     item(prim = "Nat16"),
     ty(validator(path = "base::validator::num::Range", args(0, 360)))
@@ -24,6 +25,7 @@ pub struct Degrees {}
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/num.rs::newtype::2",
     primitive = "Nat8",
     item(prim = "Nat8"),
     ty(validator(path = "base::validator::num::Range", args(0, 100)))
@@ -35,6 +37,7 @@ pub struct Percent {}
 ///
 
 #[newtype(
+    source_key = "crates/icydb/src/base/types/num.rs::newtype::3",
     primitive = "Nat16",
     item(prim = "Nat16"),
     ty(validator(path = "base::validator::num::Range", args(0, 10_000)))
@@ -46,9 +49,18 @@ pub struct PercentModifier {}
 ///
 
 #[record(
+    source_key = "crates/icydb/src/base/types/num.rs::record::1",
     fields(
-        field(ident = "min", value(item(prim = "Decimal", scale = 18))),
-        field(ident = "max", value(item(prim = "Decimal", scale = 18))),
+        field(
+            source_key = "min",
+            ident = "min",
+            value(item(prim = "Decimal", scale = 18))
+        ),
+        field(
+            source_key = "max",
+            ident = "max",
+            value(item(prim = "Decimal", scale = 18))
+        ),
     ),
     traits(remove(ValidateCustom))
 )]
@@ -74,9 +86,10 @@ impl ValidateCustom for DecimalRange {
 ///
 
 #[record(
+    source_key = "crates/icydb/src/base/types/num.rs::record::2",
     fields(
-        field(ident = "min", value(item(prim = "Duration"))),
-        field(ident = "max", value(item(prim = "Duration"))),
+        field(source_key = "min", ident = "min", value(item(prim = "Duration"))),
+        field(source_key = "max", ident = "max", value(item(prim = "Duration"))),
     ),
     traits(remove(ValidateCustom))
 )]
@@ -102,9 +115,10 @@ impl ValidateCustom for DurationRange {
 ///
 
 #[record(
+    source_key = "crates/icydb/src/base/types/num.rs::record::3",
     fields(
-        field(ident = "min", value(item(prim = "Int32"))),
-        field(ident = "max", value(item(prim = "Int32"))),
+        field(source_key = "min", ident = "min", value(item(prim = "Int32"))),
+        field(source_key = "max", ident = "max", value(item(prim = "Int32"))),
     ),
     traits(remove(ValidateCustom))
 )]
@@ -130,9 +144,10 @@ impl ValidateCustom for Int32Range {
 ///
 
 #[record(
+    source_key = "crates/icydb/src/base/types/num.rs::record::4",
     fields(
-        field(ident = "min", value(item(prim = "Nat32"))),
-        field(ident = "max", value(item(prim = "Nat32"))),
+        field(source_key = "min", ident = "min", value(item(prim = "Nat32"))),
+        field(source_key = "max", ident = "max", value(item(prim = "Nat32"))),
     ),
     traits(remove(ValidateCustom))
 )]

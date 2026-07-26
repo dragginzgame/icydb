@@ -17,6 +17,7 @@ use std::any::Any;
 #[derive(Clone, Debug, Serialize)]
 pub struct Entity {
     def: Def,
+    source_key: &'static str,
     store: &'static str,
     schema_version: u32,
     primary_key: PrimaryKey,
@@ -30,6 +31,9 @@ pub struct Entity {
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     relations: &'static [RelationEdge],
 
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    constraints: &'static [CheckConstraint],
+
     fields: FieldList,
     ty: Type,
 }
@@ -42,26 +46,36 @@ impl Entity {
     )]
     pub const fn new(
         def: Def,
+        source_key: &'static str,
         store: &'static str,
         schema_version: u32,
         primary_key: PrimaryKey,
         name: Option<&'static str>,
         indexes: &'static [Index],
         relations: &'static [RelationEdge],
+        constraints: &'static [CheckConstraint],
         fields: FieldList,
         ty: Type,
     ) -> Self {
         Self {
             def,
+            source_key,
             store,
             schema_version,
             primary_key,
             name,
             indexes,
             relations,
+            constraints,
             fields,
             ty,
         }
+    }
+
+    /// Borrow the immutable entity source key.
+    #[must_use]
+    pub const fn source_key(&self) -> &'static str {
+        self.source_key
     }
 
     #[must_use]
@@ -97,6 +111,12 @@ impl Entity {
     #[must_use]
     pub const fn relations(&self) -> &'static [RelationEdge] {
         self.relations
+    }
+
+    /// Borrow accepted-check declarations owned by this entity.
+    #[must_use]
+    pub const fn constraints(&self) -> &'static [CheckConstraint] {
+        self.constraints
     }
 
     #[must_use]
@@ -189,6 +209,12 @@ impl ValidateNode for Entity {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
 
+        validate_source_key(
+            &mut errs,
+            "entity",
+            self.source_key(),
+            icydb_schema::EntitySourceKey::try_new,
+        );
         if self.schema_version() == 0 {
             err!(errs, "entity schema_version must be a positive integer");
         }
@@ -203,11 +229,26 @@ impl ValidateNode for Entity {
             }
         }
 
+        for index in self.indexes() {
+            validate_source_key(
+                &mut errs,
+                "index",
+                index.source_key(),
+                icydb_schema::IndexSourceKey::try_new,
+            );
+        }
         for relation in self.relations() {
+            validate_source_key(
+                &mut errs,
+                "relation",
+                relation.source_key(),
+                icydb_schema::RelationSourceKey::try_new,
+            );
             if let Err(e) = relation.validate_for_source(self) {
                 errs.merge_for(relation.ident(), e);
             }
         }
+        validate_entity_local_source_keys(self, &mut errs);
         self.validate_relation_storage_policy(&mut errs);
 
         errs.result()
@@ -222,6 +263,48 @@ impl VisitableNode for Entity {
     fn drive<V: Visitor>(&self, v: &mut V) {
         self.def().accept(v);
         self.fields().accept(v);
+        for constraint in self.constraints() {
+            constraint.accept(v);
+        }
         self.ty().accept(v);
+    }
+}
+
+fn validate_entity_local_source_keys(entity: &Entity, errs: &mut ErrorTree) {
+    validate_unique_local_keys(
+        errs,
+        "field",
+        entity.fields().fields().iter().map(Field::source_key),
+    );
+    validate_unique_local_keys(
+        errs,
+        "index",
+        entity.indexes().iter().map(Index::source_key),
+    );
+    validate_unique_local_keys(
+        errs,
+        "relation",
+        entity.relations().iter().map(RelationEdge::source_key),
+    );
+    validate_unique_local_keys(
+        errs,
+        "constraint",
+        entity.constraints().iter().map(CheckConstraint::source_key),
+    );
+}
+
+fn validate_unique_local_keys<'a>(
+    errs: &mut ErrorTree,
+    kind: &str,
+    source_keys: impl IntoIterator<Item = &'a str>,
+) {
+    let mut seen = std::collections::BTreeSet::new();
+    for source_key in source_keys {
+        if !seen.insert(source_key) {
+            err!(
+                errs,
+                "duplicate {kind} source key '{source_key}' within entity",
+            );
+        }
     }
 }

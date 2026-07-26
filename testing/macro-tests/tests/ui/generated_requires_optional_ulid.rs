@@ -15,14 +15,13 @@ pub struct UiCanister {}
 )]
 pub struct UiDataStore {}
 
-#[entity(
+#[entity(source_key = "testing/macro-tests/tests/ui/generated_requires_optional_ulid.rs::entity::1",
     store = "UiDataStore",
     version = 1,
     pk(fields = ["id"]),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
-        field(
-            ident = "token",
+        field(source_key = "id", ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
+        field(source_key = "token", ident = "token",
             value(opt, item(prim = "Ulid")),
             generated(insert = "Ulid::generate")
         )

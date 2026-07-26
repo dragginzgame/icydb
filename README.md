@@ -13,7 +13,7 @@ accepted schema catalogs, indexes, fluent queries, a reduced single-entity SQL
 surface, pagination, grouped aggregates, DDL-backed catalog mutation, and
 generated observability endpoints.
 
-Current workspace version: `0.213.25`
+Current workspace version: `0.213.26`
 
 IcyDB's dependency-facing minimum supported Rust version is `1.88.0` for the
 public `icydb` crate path. Workspace packages declare a `1.96.0` Rust floor;
@@ -47,7 +47,7 @@ Pin IcyDB by tag in downstream canisters:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.25" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.26" }
 ```
 
 The default crate feature set is typed/fluent-only. Enable SQL explicitly when
@@ -55,7 +55,7 @@ the canister uses session/library SQL APIs or generated SQL endpoints:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.25", features = ["sql"] }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.26", features = ["sql"] }
 ```
 
 Canisters normally call `icydb::start!()` in `src/lib.rs`, add `icydb` as a
@@ -65,7 +65,7 @@ glue follows the active `icydb.toml`.
 
 ```toml
 [build-dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.25" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.26" }
 ```
 
 ## Minimal Schema
@@ -97,26 +97,53 @@ pub struct AppCanister {}
 pub struct AppStore {}
 
 #[entity(
+    source_key = "app.user",
     store = "AppStore",
     version = 1,
     pk(field = "id"),
-    index(field = "name"),
-    index(fields = ["active", "score"]),
-    constraint(name = "score_nonnegative", check = "score >= 0"),
+    index(source_key = "app.user.index.name", field = "name"),
+    index(
+        source_key = "app.user.index.active_score",
+        fields = ["active", "score"]
+    ),
+    constraint(
+        source_key = "app.user.score_nonnegative",
+        name = "score_nonnegative",
+        check = "score >= 0"
+    ),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
-        field(ident = "name", value(item(prim = "Text", unbounded))),
-        field(ident = "active", value(item(prim = "Bool"))),
-        field(ident = "score", value(item(prim = "Decimal", scale = 3)))
+        field(
+            source_key = "app.user.id",
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
+        field(
+            source_key = "app.user.name",
+            ident = "name",
+            value(item(prim = "Text", unbounded))
+        ),
+        field(
+            source_key = "app.user.active",
+            ident = "active",
+            value(item(prim = "Bool"))
+        ),
+        field(
+            source_key = "app.user.score",
+            ident = "score",
+            value(item(prim = "Decimal", scale = 3))
+        )
     )
 )]
 pub struct User {}
 
 ```
 
-The main branch also accepts strict scalar shorthand such as `pk(field = "id")`
-and `index(field = "name")`. Composite keys use ordered field lists such as
-`pk(fields = ["tenant_id", "local_id"])`.
+Source keys are explicit, immutable authorship identities. Keep their literals
+unchanged when Rust types, fields, or modules are renamed or moved. The main
+branch also accepts strict scalar shorthand such as `pk(field = "id")` and
+`index(source_key = "app.user.index.name", field = "name")`. Composite keys use
+ordered field lists such as `pk(fields = ["tenant_id", "local_id"])`.
 
 ## Storage Modes
 

@@ -19,6 +19,8 @@ pub struct Entity {
     #[darling(default, skip)]
     pub(crate) def: Def,
 
+    pub(crate) source_key: LitStr,
+
     pub(crate) store: Path,
 
     #[darling(rename = "version")]
@@ -446,12 +448,14 @@ impl HasSchema for Entity {
 impl HasSchemaPart for Entity {
     fn schema_part(&self) -> TokenStream {
         let def = &self.def.schema_part();
+        let source_key = &self.source_key;
         let store = quote_one(&self.store, to_path);
         let schema_version = syn::LitInt::new(&self.schema_version.to_string(), Span::call_site());
         let primary_key = self.primary_key.schema_part();
         let name = quote_option(self.name.as_ref(), to_str_lit);
         let indexes = quote_slice(&self.indexes, Index::schema_part);
         let relations = quote_slice(&self.relations, Relation::schema_part);
+        let constraints = quote_slice(&self.constraints, Constraint::schema_part);
         let fields = &self.fields.schema_part();
         let ty = &self.ty.schema_part();
 
@@ -460,15 +464,18 @@ impl HasSchemaPart for Entity {
             {
                 const __INDEXES: &'static [::icydb::schema::node::Index] = #indexes;
                 const __RELATIONS: &'static [::icydb::schema::node::RelationEdge] = #relations;
+                const __CONSTRAINTS: &'static [::icydb::schema::node::CheckConstraint] = #constraints;
 
                 ::icydb::schema::node::Entity::new(
                     #def,
+                    #source_key,
                     #store,
                     #schema_version,
                     #primary_key,
                     #name,
                     __INDEXES,
                     __RELATIONS,
+                    __CONSTRAINTS,
                     #fields,
                     #ty,
                 )

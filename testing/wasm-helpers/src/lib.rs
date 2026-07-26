@@ -84,13 +84,13 @@ macro_rules! define_simple_audit_entities {
             #[doc = ""]
             #[doc = "Repeated simple audit entity used to measure base per-entity wasm cost."]
             #[doc = ""]
-            #[entity(
+            #[entity(source_key = "testing/wasm-helpers/src/lib.rs::entity::nested::1",
                 store = $store,
                 version = 1,
                 pk(fields = ["id"]),
                 fields(
-                    field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
-                    field(ident = "name", value(item(prim = "Text", unbounded)))
+                    field(source_key = "id", ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
+                    field(source_key = "name", ident = "name", value(item(prim = "Text", unbounded)))
                 )
             )]
             pub struct $entity {}

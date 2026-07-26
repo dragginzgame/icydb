@@ -16,9 +16,10 @@ use icydb_core::db::{
     validate_generated_check_predicate_fields, validate_generated_constraint_name,
 };
 
-/// Parsed `constraint(name = "...", check = "...")` declaration.
+/// Parsed `constraint(source_key = "...", name = "...", check = "...")` declaration.
 #[derive(Debug)]
 pub(crate) struct Constraint {
+    pub(crate) source_key: LitStr,
     pub(crate) name: LitStr,
     pub(crate) check: LitStr,
 }
@@ -88,6 +89,18 @@ impl Constraint {
     }
 }
 
+impl HasSchemaPart for Constraint {
+    fn schema_part(&self) -> TokenStream {
+        let source_key = &self.source_key;
+        let name = &self.name;
+        let check = &self.check;
+
+        quote! {
+            ::icydb::schema::node::CheckConstraint::new(#source_key, #name, #check)
+        }
+    }
+}
+
 fn generated_custom_kind_assertions(
     entity: &Entity,
     predicate: &CorePredicate,
@@ -130,6 +143,7 @@ fn generated_custom_kind_assertions(
 impl FromMeta for Constraint {
     fn from_list(items: &[NestedMeta]) -> Result<Self, DarlingError> {
         let mut name = None;
+        let mut source_key = None;
         let mut check = None;
 
         for item in items {
@@ -138,13 +152,15 @@ impl FromMeta for Constraint {
                     "constraint(...) requires name = \"...\" and check = \"...\"",
                 ));
             };
-            let target = if name_value.path.is_ident("name") {
+            let target = if name_value.path.is_ident("source_key") {
+                &mut source_key
+            } else if name_value.path.is_ident("name") {
                 &mut name
             } else if name_value.path.is_ident("check") {
                 &mut check
             } else {
                 return Err(DarlingError::custom(
-                    "constraint(...) supports only name = \"...\" and check = \"...\"",
+                    "constraint(...) supports only source_key = \"...\", name = \"...\", and check = \"...\"",
                 )
                 .with_span(&name_value.path));
             };
@@ -169,6 +185,9 @@ impl FromMeta for Constraint {
         }
 
         Ok(Self {
+            source_key: source_key.ok_or_else(|| {
+                DarlingError::custom("constraint(...) requires source_key = \"...\"")
+            })?,
             name: name
                 .ok_or_else(|| DarlingError::custom("constraint(...) requires name = \"...\""))?,
             check: check
@@ -190,9 +209,14 @@ mod tests {
 
     #[test]
     fn parses_named_check_declaration() {
-        let constraint = parse(quote!(name = "positive_balance", check = "balance >= 0"))
-            .expect("named check should parse");
+        let constraint = parse(quote!(
+            source_key = "positive_balance",
+            name = "positive_balance",
+            check = "balance >= 0"
+        ))
+        .expect("named check should parse");
 
+        assert_eq!(constraint.source_key.value(), "positive_balance");
         assert_eq!(constraint.name.value(), "positive_balance");
         assert_eq!(constraint.check.value(), "balance >= 0");
     }
@@ -200,6 +224,14 @@ mod tests {
     #[test]
     fn rejects_missing_or_duplicate_arguments() {
         assert!(parse(quote!(name = "missing_check")).is_err());
-        assert!(parse(quote!(name = "a", name = "b", check = "active = true")).is_err());
+        assert!(
+            parse(quote!(
+                source_key = "active",
+                name = "a",
+                name = "b",
+                check = "active = true"
+            ))
+            .is_err()
+        );
     }
 }

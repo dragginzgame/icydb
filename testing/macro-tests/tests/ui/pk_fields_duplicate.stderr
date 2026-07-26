@@ -1,7 +1,7 @@
 error: primary key field 'tenant_id' is declared more than once
   --> tests/ui/pk_fields_duplicate.rs:18:1
    |
-18 | / #[entity(
+18 | / #[entity(source_key = "testing/macro-tests/tests/ui/pk_fields_duplicate.rs::entity::1",
 19 | |     store = "UiDataStore",
 20 | |     version = 1,
 21 | |     pk(fields = ["tenant_id", "tenant_id"]),

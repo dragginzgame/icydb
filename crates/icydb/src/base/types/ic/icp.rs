@@ -10,10 +10,17 @@ use crate::design::prelude::*;
 /// Icp Payment
 ///
 
-#[record(fields(
-    field(ident = "recipient", value(item(prim = "Principal"))),
-    field(ident = "tokens", value(item(is = "Tokens")))
-))]
+#[record(
+    source_key = "crates/icydb/src/base/types/ic/icp.rs::record::1",
+    fields(
+        field(
+            source_key = "recipient",
+            ident = "recipient",
+            value(item(prim = "Principal"))
+        ),
+        field(source_key = "tokens", ident = "tokens", value(item(is = "Tokens")))
+    )
+)]
 pub struct Payment {}
 
 ///
@@ -21,5 +28,9 @@ pub struct Payment {}
 /// always denominated in e8s
 ///
 
-#[newtype(primitive = "Nat64", item(prim = "Nat64"))]
+#[newtype(
+    source_key = "crates/icydb/src/base/types/ic/icp.rs::newtype::1",
+    primitive = "Nat64",
+    item(prim = "Nat64")
+)]
 pub struct Tokens {}

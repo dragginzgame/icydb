@@ -1,7 +1,7 @@
 error: primary key field 'singleton' cannot use Unit inside a composite primary key
   --> tests/ui/pk_fields_composite_unit.rs:18:1
    |
-18 | / #[entity(
+18 | / #[entity(source_key = "testing/macro-tests/tests/ui/pk_fields_composite_unit.rs::entity::1",
 19 | |     store = "UiDataStore",
 20 | |     version = 1,
 21 | |     pk(fields = ["tenant_id", "singleton"]),
