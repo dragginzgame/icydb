@@ -3,7 +3,7 @@
 //! Does not own: production behavior.
 //! Boundary: test-only contracts.
 
-use super::{Entity, composite_primary_key_type_part};
+use super::{Entity, composite_primary_key_type_part, entity_typed_adapter_tokens};
 use crate::node::{
     Def, Field, FieldList, FieldWriteManagement, HasSchemaPart, Index, Item, PrimaryKey,
     PrimaryKeySource, Relation, Type, ValidateNode, Value,
@@ -94,6 +94,7 @@ fn entity_with_fields_and_indexes(fields: Vec<Field>, indexes: Vec<Index>) -> En
             source: PrimaryKeySource::Internal,
         },
         name: None,
+        typed_adapters: false,
         indexes,
         relations: Vec::new(),
         constraints: Vec::new(),
@@ -156,6 +157,52 @@ fn composite_primary_key_struct_implements_key_contracts() {
             "expected generated key contract `{expected}` in tokens: {tokens}",
         );
     }
+}
+
+#[test]
+fn typed_adapter_generation_is_explicitly_opted_in() {
+    let entity = entity_with_fields_and_indexes(vec![scalar_field("id")], vec![]);
+
+    assert!(entity_typed_adapter_tokens(&entity).is_empty());
+}
+
+#[test]
+fn typed_adapter_generation_separates_row_and_operation_shapes() {
+    let mut created_at = primitive_field("created_at", Primitive::Timestamp);
+    created_at.write_management = Some(FieldWriteManagement::CreatedAt);
+    let mut entity = entity_with_fields_and_indexes(
+        vec![
+            scalar_field("id"),
+            primitive_field("name", Primitive::Text),
+            created_at,
+        ],
+        vec![],
+    );
+    entity.typed_adapters = true;
+
+    let tokens = entity_typed_adapter_tokens(&entity).to_string();
+
+    for expected in [
+        "pub struct TestEntityInsert",
+        "pub struct TestEntityPatch",
+        "pub struct TestEntityReplace",
+        "impl :: icydb :: db :: TypedRowAdapter for TestEntity",
+        "impl :: icydb :: db :: TypedWriteAdapter for TestEntityInsert",
+        "impl :: icydb :: db :: TypedWriteAdapter for TestEntityPatch",
+        "impl :: icydb :: db :: TypedWriteAdapter for TestEntityReplace",
+        "TypedFieldBindingRequest :: new",
+        "TypedFieldType :: Scalar",
+        "ScalarType :: Timestamp",
+    ] {
+        assert!(
+            tokens.contains(expected),
+            "expected generated adapter contract `{expected}` in tokens: {tokens}",
+        );
+    }
+    assert!(
+        !tokens.contains("pub created_at : :: icydb :: db :: WriteCell"),
+        "managed fields must be absent from authored write inputs: {tokens}",
+    );
 }
 
 #[test]

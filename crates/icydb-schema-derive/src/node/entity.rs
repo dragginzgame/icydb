@@ -33,6 +33,9 @@ pub struct Entity {
     #[darling(default)]
     pub(crate) name: Option<LitStr>,
 
+    #[darling(default)]
+    pub(crate) typed_adapters: bool,
+
     #[darling(multiple, rename = "index")]
     pub(crate) indexes: Vec<Index>,
 
@@ -711,8 +714,17 @@ fn composite_primary_key_value_codec_tokens(
                     #primary_key_field: <#field_ty as ::icydb::__macro::KeyValueCodec>::from_key_value(&values[#index])?
                 }
             });
+    let input_value_components = key_field_specs.iter().map(
+        |(primary_key_field, _)| quote!(::icydb::value::InputValue::from(value.#primary_key_field)),
+    );
 
     quote! {
+        impl From<#key_ident> for ::icydb::value::InputValue {
+            fn from(value: #key_ident) -> Self {
+                Self::List(::std::vec![#(#input_value_components),*])
+            }
+        }
+
         impl ::icydb::__macro::KeyValueCodec for #key_ident {
             fn to_key_value(&self) -> ::icydb::__macro::Value {
                 ::icydb::__macro::Value::List(::std::vec![
@@ -945,6 +957,336 @@ fn entity_create_tokens(entity: &Entity) -> TokenStream {
     }
 }
 
+fn typed_adapter_input_ident(entity_ident: &Ident, suffix: &str) -> Ident {
+    format_ident!("{entity_ident}{suffix}")
+}
+
+fn typed_item_field_type_tokens(item: &Item) -> TokenStream {
+    let scalar = match item.target() {
+        ItemTarget::Is(path) => {
+            return quote! {
+                ::icydb::__macro::TypedFieldType::Named(
+                    <#path as ::icydb::__macro::TypedNamedType>::SOURCE_KEY,
+                )
+            };
+        }
+        ItemTarget::Primitive(primitive) => primitive,
+    };
+    let scalar = match scalar {
+        Primitive::Account => quote!(::icydb::__macro::ScalarType::Account),
+        Primitive::Blob => {
+            let max_len = quote_option(item.max_len.as_ref(), |value| quote!(#value));
+            quote!(::icydb::__macro::ScalarType::Blob { max_len: #max_len })
+        }
+        Primitive::Bool => quote!(::icydb::__macro::ScalarType::Bool),
+        Primitive::Date => quote!(::icydb::__macro::ScalarType::Date),
+        Primitive::Decimal => {
+            let scale = item.scale.unwrap_or(0);
+            quote!(::icydb::__macro::ScalarType::Decimal { scale: #scale })
+        }
+        Primitive::Duration => quote!(::icydb::__macro::ScalarType::Duration),
+        Primitive::Float32 => quote!(::icydb::__macro::ScalarType::Float32),
+        Primitive::Float64 => quote!(::icydb::__macro::ScalarType::Float64),
+        Primitive::Int8 => quote!(::icydb::__macro::ScalarType::Int8),
+        Primitive::Int16 => quote!(::icydb::__macro::ScalarType::Int16),
+        Primitive::Int32 => quote!(::icydb::__macro::ScalarType::Int32),
+        Primitive::Int64 => quote!(::icydb::__macro::ScalarType::Int64),
+        Primitive::Int128 => quote!(::icydb::__macro::ScalarType::Int128),
+        Primitive::IntBig => {
+            let max_bytes = item.max_bytes.map_or_else(
+                || quote!(::icydb::__macro::DEFAULT_BIG_INT_MAX_BYTES),
+                |value| quote!(#value),
+            );
+            quote!(::icydb::__macro::ScalarType::IntBig { max_bytes: #max_bytes })
+        }
+        Primitive::Nat8 => quote!(::icydb::__macro::ScalarType::Nat8),
+        Primitive::Nat16 => quote!(::icydb::__macro::ScalarType::Nat16),
+        Primitive::Nat32 => quote!(::icydb::__macro::ScalarType::Nat32),
+        Primitive::Nat64 => quote!(::icydb::__macro::ScalarType::Nat64),
+        Primitive::Nat128 => quote!(::icydb::__macro::ScalarType::Nat128),
+        Primitive::NatBig => {
+            let max_bytes = item.max_bytes.map_or_else(
+                || quote!(::icydb::__macro::DEFAULT_BIG_INT_MAX_BYTES),
+                |value| quote!(#value),
+            );
+            quote!(::icydb::__macro::ScalarType::NatBig { max_bytes: #max_bytes })
+        }
+        Primitive::Principal => quote!(::icydb::__macro::ScalarType::Principal),
+        Primitive::Subaccount => quote!(::icydb::__macro::ScalarType::Subaccount),
+        Primitive::Text => {
+            let max_len = quote_option(item.max_len.as_ref(), |value| quote!(#value));
+            quote!(::icydb::__macro::ScalarType::Text { max_len: #max_len })
+        }
+        Primitive::Timestamp => quote!(::icydb::__macro::ScalarType::Timestamp),
+        Primitive::Ulid => quote!(::icydb::__macro::ScalarType::Ulid),
+        Primitive::Unit => quote!(::icydb::__macro::ScalarType::Unit),
+    };
+    quote!(::icydb::__macro::TypedFieldType::Scalar(#scalar))
+}
+
+fn typed_field_type_tokens(value: &Value) -> TokenStream {
+    let item = typed_item_field_type_tokens(&value.item);
+    if value.cardinality() == Cardinality::Many {
+        quote!(::icydb::__macro::TypedFieldType::List(Box::new(#item)))
+    } else {
+        item
+    }
+}
+
+fn field_is_primary_key(entity: &Entity, field: &Field) -> bool {
+    entity.primary_key.fields().contains(&field.ident)
+}
+
+fn typed_write_cell_type(field: &Field) -> TokenStream {
+    match field.value.cardinality() {
+        Cardinality::Opt => field.value.item.type_expr(),
+        Cardinality::One | Cardinality::Many => field.value.type_expr(),
+    }
+}
+
+fn typed_write_cell_input_expr(field: &Field, access: TokenStream) -> TokenStream {
+    let ty = typed_write_cell_type(field);
+
+    quote! {
+        match #access {
+            ::icydb::db::WriteCell::Omitted => ::icydb::db::WriteCell::Omitted,
+            ::icydb::db::WriteCell::Default => ::icydb::db::WriteCell::Default,
+            ::icydb::db::WriteCell::Null => ::icydb::db::WriteCell::Null,
+            ::icydb::db::WriteCell::Value(value) => {
+                ::icydb::db::WriteCell::Value(
+                    <#ty as ::icydb::__macro::TypedInputValue>::encode_typed_input(
+                        value,
+                        binding,
+                    )?
+                )
+            }
+        }
+    }
+}
+
+fn typed_operation_struct_tokens(
+    entity: &Entity,
+    operation_ident: &Ident,
+    include_primary_key: bool,
+) -> TokenStream {
+    let primary_key_fields = entity.fields.iter().filter_map(|field| {
+        if !include_primary_key || !field_is_primary_key(entity, field) {
+            return None;
+        }
+        let ident = &field.ident;
+        let ty = field.value.type_expr();
+
+        Some(quote!(pub #ident: #ty))
+    });
+    let write_fields = entity.fields.iter().filter_map(|field| {
+        if !field_is_insert_authorable(field)
+            || (include_primary_key && field_is_primary_key(entity, field))
+        {
+            return None;
+        }
+        let ident = &field.ident;
+        let ty = typed_write_cell_type(field);
+
+        Some(quote!(pub #ident: ::icydb::db::WriteCell<#ty>))
+    });
+
+    quote! {
+        #[doc = concat!(
+            "Operation-specific accepted-write intent for `",
+            stringify!(#operation_ident),
+            "`."
+        )]
+        #[doc = "Generated and managed fields are structurally absent."]
+        #[derive(
+            ::icydb::__reexports::candid::CandidType,
+            Clone,
+            Debug,
+            ::icydb::__reexports::serde::Deserialize,
+            Eq,
+            PartialEq
+        )]
+        #[candid_path("::icydb::__reexports::candid")]
+        #[serde(crate = "::icydb::__reexports::serde")]
+        pub struct #operation_ident {
+            #(#primary_key_fields,)*
+            #(#write_fields),*
+        }
+    }
+}
+
+fn typed_primary_key_input_expr(entity: &Entity) -> TokenStream {
+    if entity.primary_key.fields().len() == 1 {
+        let primary_key_field = entity.primary_key.scalar_field();
+        let field = entity
+            .fields
+            .iter()
+            .find(|field| field.ident == *primary_key_field)
+            .expect("validated scalar primary-key field must exist");
+        let ty = field.value.type_expr();
+        return quote!(
+            <#ty as ::icydb::__macro::TypedInputValue>::encode_typed_input(
+                self.#primary_key_field,
+                binding,
+            )?
+        );
+    }
+
+    let components = entity.primary_key.fields().iter().map(|field_ident| {
+        let field = entity
+            .fields
+            .iter()
+            .find(|field| field.ident == *field_ident)
+            .expect("validated composite primary-key field must exist");
+        let ty = field.value.type_expr();
+        quote!(
+            <#ty as ::icydb::__macro::TypedInputValue>::encode_typed_input(
+                self.#field_ident,
+                binding,
+            )?
+        )
+    });
+    quote!(::icydb::value::InputValue::List(
+        ::std::vec![#(#components),*]
+    ))
+}
+
+fn typed_write_fields_tokens(entity: &Entity, include_primary_key: bool) -> Vec<TokenStream> {
+    entity
+        .fields
+        .iter()
+        .filter_map(|field| {
+            if !field_is_insert_authorable(field)
+                || (!include_primary_key && field_is_primary_key(entity, field))
+            {
+                return None;
+            }
+            let source_key = &field.source_key;
+            let ident = &field.ident;
+            let input = typed_write_cell_input_expr(field, quote!(self.#ident));
+
+            Some(quote! {
+                fields.push((#source_key, #input));
+            })
+        })
+        .collect()
+}
+
+fn typed_write_adapter_impl_tokens(
+    entity: &Entity,
+    operation_ident: &Ident,
+    operation: &str,
+) -> TokenStream {
+    let include_primary_key = operation == "insert";
+    let fields = typed_write_fields_tokens(entity, include_primary_key);
+    let field_count = fields.len();
+    let build = match operation {
+        "insert" => quote!(::icydb::db::TypedWrite::insert(binding, fields)),
+        "patch" => {
+            let key = typed_primary_key_input_expr(entity);
+            quote!(::icydb::db::TypedWrite::update(binding, #key, fields))
+        }
+        "replace" => {
+            let key = typed_primary_key_input_expr(entity);
+            quote!(::icydb::db::TypedWrite::replace(binding, #key, fields))
+        }
+        _ => unreachable!("generated typed operation must be known"),
+    };
+
+    quote! {
+        impl ::icydb::db::TypedWriteAdapter for #operation_ident {
+            fn encode_write(
+                self,
+                binding: &::icydb::db::TypedEntityBinding,
+            ) -> Result<::icydb::db::TypedWrite, ::icydb::db::TypedAdapterError> {
+                let mut fields = ::std::vec::Vec::with_capacity(#field_count);
+                #(#fields)*
+
+                #build
+            }
+        }
+    }
+}
+
+fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
+    if !entity.typed_adapters {
+        return TokenStream::new();
+    }
+
+    let ident = entity.def.ident();
+    let insert_ident = typed_adapter_input_ident(&ident, "Insert");
+    let patch_ident = typed_adapter_input_ident(&ident, "Patch");
+    let replace_ident = typed_adapter_input_ident(&ident, "Replace");
+    let entity_source_key = &entity.source_key;
+    let field_requests = entity.fields.iter().map(|field| {
+        let source_key = &field.source_key;
+        let field_type = typed_field_type_tokens(&field.value);
+        let nullable = field.value.cardinality() == Cardinality::Opt;
+        quote! {
+            ::icydb::__macro::TypedFieldBindingRequest::new(
+                #source_key,
+                #field_type,
+                #nullable,
+            )
+        }
+    });
+    let decoded_fields = entity.fields.iter().map(|field| {
+        let source_key = &field.source_key;
+        let ident = &field.ident;
+        let ty = field.value.type_expr();
+
+        quote! {
+            #ident: <#ty as ::icydb::__macro::TypedOutputValue>::decode_typed_output(
+                binding,
+                binding.row_value(#source_key, &row)?
+            )?
+        }
+    });
+    let insert_struct = typed_operation_struct_tokens(entity, &insert_ident, false);
+    let patch_struct = typed_operation_struct_tokens(entity, &patch_ident, true);
+    let replace_struct = typed_operation_struct_tokens(entity, &replace_ident, true);
+    let insert_impl = typed_write_adapter_impl_tokens(entity, &insert_ident, "insert");
+    let patch_impl = typed_write_adapter_impl_tokens(entity, &patch_ident, "patch");
+    let replace_impl = typed_write_adapter_impl_tokens(entity, &replace_ident, "replace");
+
+    quote! {
+        #insert_struct
+        #patch_struct
+        #replace_struct
+
+        impl #ident {
+            /// Bind this generated adapter to current accepted schema authority.
+            pub fn typed_binding<C>(
+                session: &::icydb::db::DbSession<C>,
+            ) -> Result<::icydb::db::TypedEntityBinding, ::icydb::db::TypedBindingError>
+            where
+                C: ::icydb::traits::CanisterKind,
+            {
+                session.bind_typed_entity(
+                    #entity_source_key,
+                    [#(#field_requests),*],
+                )
+            }
+        }
+
+        impl ::icydb::db::TypedRowAdapter for #ident {
+            type Row = Self;
+
+            fn decode_row(
+                binding: &::icydb::db::TypedEntityBinding,
+                row: ::icydb::db::OutputRow,
+            ) -> Result<Self::Row, ::icydb::db::TypedAdapterError> {
+                Ok(Self {
+                    #(#decoded_fields),*
+                })
+            }
+        }
+
+        #insert_impl
+        #patch_impl
+        #replace_impl
+    }
+}
+
 impl ToTokens for Entity {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let TraitTokens { derive, impls } = self.resolve_trait_tokens();
@@ -952,6 +1294,7 @@ impl ToTokens for Entity {
         let key_part = composite_primary_key_type_part(self);
         let type_part = self.type_part();
         let insert_part = entity_create_tokens(self);
+        let typed_adapter_part = entity_typed_adapter_tokens(self);
 
         tokens.extend(quote! {
             // SCHEMA CONSTANT
@@ -966,6 +1309,9 @@ impl ToTokens for Entity {
 
             // INSERT-AUTHORED TYPE
             #insert_part
+
+            // OPTED-IN TYPED ADAPTERS
+            #typed_adapter_part
 
             // IMPLEMENTATIONS
             #impls

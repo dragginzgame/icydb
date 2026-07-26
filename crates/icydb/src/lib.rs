@@ -205,6 +205,9 @@ pub type Create<E> = <E as icydb_core::entity::EntityCreateType>::Create;
 #[doc(hidden)]
 pub mod __macro {
     pub use crate::db::execute_generated_storage_report;
+    pub use crate::db::{
+        TypedFieldBindingRequest, TypedFieldType, TypedInputValue, TypedNamedType, TypedOutputValue,
+    };
     pub use icydb_core::__macro::decode_generated_runtime_field_value;
     pub use icydb_core::__macro::{
         Add, AddAssign, AuthoredFieldProjection, CanisterKind, Clone, Copy, Debug, Default, Deref,
@@ -263,8 +266,8 @@ pub mod __macro {
         runtime_value_vec_from_value,
     };
     pub use icydb_schema::{
-        Decimal as SchemaDecimal, FieldSourceKey, ScalarLiteral, SchemaContractError,
-        SourceCheckExpr, SourceCheckInstruction,
+        DEFAULT_BIG_INT_MAX_BYTES, Decimal as SchemaDecimal, FieldSourceKey, ScalarLiteral,
+        ScalarType, SchemaContractError, SourceCheckExpr, SourceCheckInstruction,
     };
 }
 

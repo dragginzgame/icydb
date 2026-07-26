@@ -12,7 +12,8 @@ use crate::db::{data::AuthoredStructuralPatch, schema::accepted_insert_field_is_
 use crate::{
     db::{
         DbSession, DynamicMutation, DynamicMutationResult, DynamicStructuralPatch,
-        DynamicTypedEntityBinding, DynamicWriteCell, PersistedRow, WriteBatchResponse,
+        DynamicTypedBindingError, DynamicTypedEntityBinding, DynamicTypedFieldBindingRequest,
+        DynamicTypedFieldType, DynamicWriteCell, PersistedRow, WriteBatchResponse,
         commit::{CommitRowOp, database_incarnation_id},
         data::{
             AcceptedMutationIntentPatch, DecodedDataStoreKey, FieldSlot, RawRow,
@@ -29,8 +30,8 @@ use crate::{
         },
         relation::validate_save_relations_for_structural_row,
         schema::{
-            AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract,
-            CompiledAcceptedRowConstraints, output_value_from_runtime,
+            AcceptedFieldKind, AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract,
+            CompiledAcceptedRowConstraints, lower_field_type, output_value_from_runtime,
         },
     },
     entity::EntityCreateInput,
@@ -41,7 +42,7 @@ use crate::{
     types::{CurrentTimestamp, Timestamp},
     value::{InputValue, OutputValue, Value},
 };
-use icydb_schema::{EntitySourceKey, FieldSourceKey};
+use icydb_schema::{EntitySourceKey, FieldSourceKey, FieldType, TypeSourceKey};
 use std::collections::BTreeSet;
 
 /// Accepted row identity carried by a structural mutation after frontend
@@ -406,22 +407,58 @@ fn validate_dynamic_after_image<C: CanisterKind>(
     )
 }
 
+fn dynamic_typed_field_type(
+    field_type: DynamicTypedFieldType,
+) -> Result<FieldType, DynamicTypedBindingError> {
+    match field_type {
+        DynamicTypedFieldType::Scalar(scalar) => Ok(FieldType::Scalar(scalar)),
+        DynamicTypedFieldType::List(item) => {
+            Ok(FieldType::List(Box::new(dynamic_typed_field_type(*item)?)))
+        }
+        DynamicTypedFieldType::Named(source_key) => TypeSourceKey::try_new(source_key)
+            .map(FieldType::Named)
+            .map_err(|_| DynamicTypedBindingError::FieldUnavailable),
+    }
+}
+
+fn typed_adapter_field_kind_matches(
+    accepted: &AcceptedFieldKind,
+    expected: &AcceptedFieldKind,
+) -> bool {
+    if accepted == expected {
+        return true;
+    }
+    match (accepted, expected) {
+        (AcceptedFieldKind::Relation { key_kind, .. }, expected) => {
+            typed_adapter_field_kind_matches(key_kind, expected)
+        }
+        (AcceptedFieldKind::List(accepted), AcceptedFieldKind::List(expected)) => {
+            typed_adapter_field_kind_matches(accepted, expected)
+        }
+        _ => false,
+    }
+}
+
 impl<C: CanisterKind> DbSession<C> {
     /// Issue one opaque accepted binding for immutable generated source keys.
     pub fn issue_typed_entity_binding(
         &self,
         entity_source_key: &str,
-        field_source_keys: &[String],
-    ) -> Result<DynamicTypedEntityBinding, InternalError> {
+        field_requests: &[DynamicTypedFieldBindingRequest],
+    ) -> Result<DynamicTypedEntityBinding, DynamicTypedBindingError> {
         let entity_source = EntitySourceKey::try_new(entity_source_key)
-            .map_err(|_| InternalError::executor_unsupported())?;
-        let field_sources = field_source_keys
+            .map_err(|_| DynamicTypedBindingError::FieldUnavailable)?;
+        let field_requests = field_requests
             .iter()
-            .map(|source| {
-                FieldSourceKey::try_new(source.clone())
-                    .map_err(|_| InternalError::executor_unsupported())
+            .map(|request| {
+                Ok((
+                    FieldSourceKey::try_new(request.source_key.clone())
+                        .map_err(|_| DynamicTypedBindingError::FieldUnavailable)?,
+                    dynamic_typed_field_type(request.field_type.clone())?,
+                    request.nullable,
+                ))
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>, DynamicTypedBindingError>>()?;
         let mut binding = None;
         let mut visited_stores = BTreeSet::new();
 
@@ -440,29 +477,39 @@ impl<C: CanisterKind> DbSession<C> {
                 continue;
             };
             if binding.is_some() {
-                return Err(InternalError::store_invariant());
+                return Err(InternalError::store_invariant().into());
             }
             let snapshot = bundle
                 .entity_snapshots()
                 .get(&entity_tag)
                 .ok_or_else(InternalError::store_invariant)?;
-            let mut fields = Vec::with_capacity(field_sources.len());
-            for source in &field_sources {
+            let mut fields = Vec::with_capacity(field_requests.len());
+            for (source, field_type, nullable) in &field_requests {
                 let field_id = bundle
                     .source_bindings()
                     .field(entity_tag, source)
-                    .ok_or_else(InternalError::executor_unsupported)?;
+                    .ok_or(DynamicTypedBindingError::FieldUnavailable)?;
                 let field = snapshot
                     .fields()
                     .iter()
                     .find(|field| field.id() == field_id)
                     .ok_or_else(InternalError::store_invariant)?;
+                let expected_kind = lower_field_type(field_type, |source| {
+                    bundle.source_bindings().named_type(source)
+                })
+                .map_err(|_| DynamicTypedBindingError::IncompatibleField)?;
+                if field.nullable() != *nullable
+                    || !typed_adapter_field_kind_matches(field.kind(), &expected_kind)
+                {
+                    return Err(DynamicTypedBindingError::IncompatibleField);
+                }
                 fields.push((source.as_str().to_string(), field.name().to_string()));
             }
             let catalog =
                 self.accepted_schema_catalog_context_for_entity_name(Some(snapshot.entity_name()))?;
             let descriptor =
                 AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
+            let adapter_names = bundle.typed_adapter_names()?;
             binding = Some(DynamicTypedEntityBinding {
                 database_incarnation: database_incarnation_id()?.to_bytes(),
                 entity: snapshot.entity_name().to_string(),
@@ -471,10 +518,13 @@ impl<C: CanisterKind> DbSession<C> {
                 accepted_fingerprint: catalog.fingerprint(),
                 entity_generation: descriptor.current_layout_version().get(),
                 fields,
+                named_types: adapter_names.named_types,
+                enum_variants: adapter_names.enum_variants,
+                composite_fields: adapter_names.composite_fields,
             });
         }
 
-        binding.ok_or_else(InternalError::executor_unsupported)
+        binding.ok_or(DynamicTypedBindingError::FieldUnavailable)
     }
 
     /// Verify that an opaque typed binding still names the exact accepted authority.
@@ -1205,5 +1255,51 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C>,
     {
         self.execute_save_batch(|save| save.update_many_non_atomic(entities))
+    }
+}
+
+#[cfg(test)]
+mod typed_adapter_tests {
+    use super::{
+        AcceptedFieldKind, DynamicTypedBindingError, DynamicTypedFieldType,
+        dynamic_typed_field_type, typed_adapter_field_kind_matches,
+    };
+    use crate::types::EntityTag;
+    use icydb_schema::ScalarType;
+
+    #[test]
+    fn typed_adapter_kind_matching_is_exact_but_accepts_relation_key_wrappers() {
+        let relation = AcceptedFieldKind::Relation {
+            target_path: "test::Target".to_string(),
+            target_entity_name: "Target".to_string(),
+            target_entity_tag: EntityTag::new(7),
+            target_store_path: "test::Store".to_string(),
+            key_kind: Box::new(AcceptedFieldKind::Nat64),
+        };
+
+        assert!(typed_adapter_field_kind_matches(
+            &relation,
+            &AcceptedFieldKind::Nat64,
+        ));
+        assert!(typed_adapter_field_kind_matches(
+            &AcceptedFieldKind::List(Box::new(relation)),
+            &AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Nat64)),
+        ));
+        assert!(!typed_adapter_field_kind_matches(
+            &AcceptedFieldKind::Nat64,
+            &AcceptedFieldKind::Nat32,
+        ));
+    }
+
+    #[test]
+    fn typed_adapter_field_contract_rejects_invalid_named_source_identity() {
+        assert!(matches!(
+            dynamic_typed_field_type(DynamicTypedFieldType::Named(String::new())),
+            Err(DynamicTypedBindingError::FieldUnavailable),
+        ));
+        assert!(matches!(
+            dynamic_typed_field_type(DynamicTypedFieldType::Scalar(ScalarType::Nat16)),
+            Ok(icydb_schema::FieldType::Scalar(ScalarType::Nat16)),
+        ));
     }
 }

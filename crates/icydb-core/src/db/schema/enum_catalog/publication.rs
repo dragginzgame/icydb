@@ -22,11 +22,12 @@ use crate::{
         database_format::crc32c,
         schema::{
             AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedSchemaSnapshot,
-            AcceptedSourceBindingCatalog, MAX_ACCEPTED_RECURSIVE_DEPTH, MAX_SCHEMA_SNAPSHOT_BYTES,
-            PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
-            PersistedIndexKeySnapshot, PersistedSchemaSnapshot, classify_accepted_field_kind,
-            decode_accepted_source_bindings, decode_persisted_schema_snapshot,
-            encode_accepted_source_bindings, encode_persisted_schema_snapshot,
+            AcceptedSourceBindingCatalog, AcceptedTypedAdapterNames, MAX_ACCEPTED_RECURSIVE_DEPTH,
+            MAX_SCHEMA_SNAPSHOT_BYTES, PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot,
+            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedSchemaSnapshot,
+            classify_accepted_field_kind, decode_accepted_source_bindings,
+            decode_persisted_schema_snapshot, encode_accepted_source_bindings,
+            encode_persisted_schema_snapshot,
             wire::{SchemaWireReader, SchemaWireWriter},
         },
     },
@@ -182,6 +183,14 @@ impl AcceptedSchemaRevisionBundle {
     #[must_use]
     pub(in crate::db) const fn source_bindings(&self) -> &AcceptedSourceBindingCatalog {
         &self.source_bindings
+    }
+
+    /// Derive the source-keyed editable names consumed by one opaque adapter.
+    pub(in crate::db) fn typed_adapter_names(
+        &self,
+    ) -> Result<AcceptedTypedAdapterNames, InternalError> {
+        self.source_bindings
+            .typed_adapter_names(&self.enum_catalog, &self.composite_catalog)
     }
 
     #[cfg(test)]

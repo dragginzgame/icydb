@@ -96,7 +96,10 @@ pub use diagnostics::{
 };
 #[doc(hidden)]
 pub use dynamic_write::{DynamicMutation, DynamicStructuralPatch, DynamicWriteCell};
-pub use dynamic_write::{DynamicMutationResult, DynamicTypedEntityBinding};
+pub use dynamic_write::{
+    DynamicMutationResult, DynamicTypedBindingError, DynamicTypedEntityBinding,
+    DynamicTypedFieldBindingRequest, DynamicTypedFieldType,
+};
 pub use executor::MutationMode;
 pub use executor::{ExecutionFamily, RouteExecutionMode};
 #[cfg(feature = "diagnostics")]

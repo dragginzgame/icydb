@@ -63,6 +63,7 @@ fn redundant_default_entity() -> Entity {
             source: PrimaryKeySource::Internal,
         },
         name: None,
+        typed_adapters: false,
         indexes: vec![],
         relations: vec![],
         constraints: vec![],

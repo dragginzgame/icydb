@@ -78,6 +78,19 @@ pub(in crate::db) struct AcceptedSourceBindingCatalog {
     relations: BTreeMap<(EntityTag, RelationSourceKey), RelationId>,
 }
 
+///
+/// AcceptedTypedAdapterNames
+///
+/// Read-only accepted display-name projection for one opaque generated adapter
+/// binding. Source identities remain the keys; catalogs remain semantic owners.
+///
+
+pub(in crate::db) struct AcceptedTypedAdapterNames {
+    pub(in crate::db) composite_fields: Vec<(String, String, String)>,
+    pub(in crate::db) enum_variants: Vec<(String, String, String)>,
+    pub(in crate::db) named_types: Vec<(String, String)>,
+}
+
 impl AcceptedSourceBindingCatalog {
     /// Construct the exact source-addressable identity closure for one initial
     /// catalog-native proposal.
@@ -164,6 +177,70 @@ impl AcceptedSourceBindingCatalog {
         self.fields.get(&(entity, source.clone())).copied()
     }
 
+    /// Derive the accepted editable names needed by an opaque typed adapter.
+    pub(in crate::db) fn typed_adapter_names(
+        &self,
+        enum_catalog: &AcceptedEnumCatalog,
+        composite_catalog: &AcceptedCompositeCatalog,
+    ) -> Result<AcceptedTypedAdapterNames, InternalError> {
+        let mut named_types = Vec::with_capacity(self.types.len());
+        let mut enum_variants = Vec::with_capacity(self.enum_variants.len());
+        let mut composite_fields = Vec::with_capacity(self.composite_fields.len());
+
+        for (source, identity) in &self.types {
+            match identity {
+                AcceptedNamedTypeIdentity::Enum(type_id) => {
+                    let definition = enum_catalog
+                        .enum_type(*type_id)
+                        .ok_or_else(InternalError::store_invariant)?;
+                    named_types.push((source.as_str().to_string(), definition.path().to_string()));
+                    for ((bound_type, variant_source), variant_id) in &self.enum_variants {
+                        if bound_type != type_id {
+                            continue;
+                        }
+                        let variant = definition
+                            .variant(*variant_id)
+                            .ok_or_else(InternalError::store_invariant)?;
+                        enum_variants.push((
+                            source.as_str().to_string(),
+                            variant_source.as_str().to_string(),
+                            variant.name().to_string(),
+                        ));
+                    }
+                }
+                AcceptedNamedTypeIdentity::Composite(type_id) => {
+                    let definition = composite_catalog
+                        .composite_type(*type_id)
+                        .ok_or_else(InternalError::store_invariant)?;
+                    named_types.push((source.as_str().to_string(), definition.path().to_string()));
+                    let AcceptedCompositeShape::Record(fields) = definition.shape() else {
+                        continue;
+                    };
+                    for ((bound_type, field_source), field_id) in &self.composite_fields {
+                        if bound_type != type_id {
+                            continue;
+                        }
+                        let field = fields
+                            .iter()
+                            .find(|field| field.id() == *field_id)
+                            .ok_or_else(InternalError::store_invariant)?;
+                        composite_fields.push((
+                            source.as_str().to_string(),
+                            field_source.as_str().to_string(),
+                            field.name().to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+
+        Ok(AcceptedTypedAdapterNames {
+            composite_fields,
+            enum_variants,
+            named_types,
+        })
+    }
+
     /// Remove one exact field binding and move every retained binding through
     /// the dense accepted field-ID reassignment owned by the schema candidate.
     pub(in crate::db::schema) fn remove_field_and_remap(
@@ -188,7 +265,7 @@ impl AcceptedSourceBindingCatalog {
 
     /// Resolve one immutable named-type source identity.
     #[must_use]
-    pub(in crate::db::schema) fn named_type(
+    pub(in crate::db) fn named_type(
         &self,
         source: &TypeSourceKey,
     ) -> Option<AcceptedNamedTypeIdentity> {
@@ -1327,6 +1404,28 @@ mod tests {
             .expect("closed enum bindings should decode");
 
         assert_eq!(decoded, catalog);
+        let adapter_names = catalog
+            .typed_adapter_names(&enums, &composites)
+            .expect("accepted adapter names should resolve");
+        assert_eq!(
+            adapter_names.named_types,
+            vec![("test:status".to_string(), "test::Status".to_string())],
+        );
+        assert_eq!(
+            adapter_names.enum_variants,
+            vec![
+                (
+                    "test:status".to_string(),
+                    "test:status:active".to_string(),
+                    "Active".to_string(),
+                ),
+                (
+                    "test:status".to_string(),
+                    "test:status:disabled".to_string(),
+                    "Disabled".to_string(),
+                ),
+            ],
+        );
 
         let mut incomplete = catalog.clone();
         incomplete
@@ -1397,6 +1496,28 @@ mod tests {
             .expect("closed record bindings should decode");
 
         assert_eq!(decoded, catalog);
+        let adapter_names = catalog
+            .typed_adapter_names(&enums, &composites)
+            .expect("accepted adapter names should resolve");
+        assert_eq!(
+            adapter_names.named_types,
+            vec![("test:record".to_string(), "test::Record".to_string())],
+        );
+        assert_eq!(
+            adapter_names.composite_fields,
+            vec![
+                (
+                    "test:record".to_string(),
+                    "test:record:alpha".to_string(),
+                    "alpha".to_string(),
+                ),
+                (
+                    "test:record".to_string(),
+                    "test:record:zeta".to_string(),
+                    "zeta".to_string(),
+                ),
+            ],
+        );
 
         let mut incomplete = catalog;
         incomplete

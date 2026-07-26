@@ -63,6 +63,7 @@ pub(in crate::db) use application::{
     apply_schema, continue_schema_application, schema_application_receipt,
     schema_application_target,
 };
+pub(in crate::db) use application_lowering::lower_field_type;
 pub(in crate::db::schema) use application_lowering::{
     ExistingProposalStore, ProposalStoreTarget, lower_existing_schema_proposal,
     lower_initial_schema_proposal,
@@ -299,10 +300,10 @@ pub(in crate::db) use snapshot::{
     PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
     PersistedSchemaSnapshot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaInsertDefault,
 };
-pub(in crate::db) use source_binding::AcceptedSourceBindingCatalog;
 pub(in crate::db::schema) use source_binding::{
     AcceptedNamedTypeIdentity, decode_accepted_source_bindings, encode_accepted_source_bindings,
 };
+pub(in crate::db) use source_binding::{AcceptedSourceBindingCatalog, AcceptedTypedAdapterNames};
 pub use store::SchemaStore;
 pub(in crate::db) use store::{
     AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, SchemaStoreAllocationMetadata,

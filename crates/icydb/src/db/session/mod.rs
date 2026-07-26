@@ -29,8 +29,13 @@ pub use sql::{
     SqlExecutionPerfAttribution, SqlPureCoveringPerfAttribution, SqlQueryPerfAttribution,
 };
 pub use write::{
-    OutputRow, StructuralMutation, StructuralPatch, TypedAdapterError, TypedEntityBinding,
-    TypedRowAdapter, TypedWrite, TypedWriteAdapter, TypedWriteError, WriteCell,
+    OutputRow, StructuralMutation, StructuralPatch, TypedAdapterError, TypedBindingError,
+    TypedEntityBinding, TypedRowAdapter, TypedRowError, TypedWrite, TypedWriteAdapter,
+    TypedWriteError, WriteCell,
+};
+#[doc(hidden)]
+pub use write::{
+    TypedFieldBindingRequest, TypedFieldType, TypedInputValue, TypedNamedType, TypedOutputValue,
 };
 
 ///

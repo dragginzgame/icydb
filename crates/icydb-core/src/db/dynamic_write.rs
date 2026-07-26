@@ -3,8 +3,12 @@
 //! Does not own: accepted policy resolution, row encoding, or commit execution.
 //! Boundary: public dynamic intent is lowered once by the session write owner.
 
-use crate::value::{InputValue, OutputValue};
+use crate::{
+    error::InternalError,
+    value::{InputValue, OutputValue},
+};
 use candid::CandidType;
+use icydb_schema::ScalarType;
 use serde::Deserialize;
 
 ///
@@ -132,6 +136,67 @@ pub struct DynamicMutationResult {
     pub affected_rows: u32,
 }
 
+///
+/// DynamicTypedFieldBindingRequest
+///
+/// Generated logical field contract supplied only while issuing an opaque
+/// accepted adapter binding.
+///
+
+#[doc(hidden)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DynamicTypedFieldBindingRequest {
+    pub(crate) field_type: DynamicTypedFieldType,
+    pub(crate) nullable: bool,
+    pub(crate) source_key: String,
+}
+
+impl DynamicTypedFieldBindingRequest {
+    /// Construct one generated field binding request.
+    #[must_use]
+    pub const fn new(
+        source_key: String,
+        field_type: DynamicTypedFieldType,
+        nullable: bool,
+    ) -> Self {
+        Self {
+            field_type,
+            nullable,
+            source_key,
+        }
+    }
+}
+
+/// Logical generated field shape used only for accepted compatibility checks.
+#[doc(hidden)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DynamicTypedFieldType {
+    /// Exact schema-owned scalar contract.
+    Scalar(ScalarType),
+    /// Ordered repeated values with one exact item contract.
+    List(Box<Self>),
+    /// Named contract selected by immutable source key.
+    Named(String),
+}
+
+/// Typed binding issuance failure before an opaque binding exists.
+#[doc(hidden)]
+#[derive(Debug)]
+pub enum DynamicTypedBindingError {
+    /// A requested immutable source identity is unavailable.
+    FieldUnavailable,
+    /// The requested logical field contract disagrees with accepted authority.
+    IncompatibleField,
+    /// Accepted database inspection failed.
+    Internal(InternalError),
+}
+
+impl From<InternalError> for DynamicTypedBindingError {
+    fn from(error: InternalError) -> Self {
+        Self::Internal(error)
+    }
+}
+
 /// Opaque accepted-schema identity issued for one generated typed adapter.
 ///
 /// Public facade code may retain and return this value, but its accepted field
@@ -146,6 +211,9 @@ pub struct DynamicTypedEntityBinding {
     pub(crate) accepted_fingerprint: [u8; 16],
     pub(crate) entity_generation: u32,
     pub(crate) fields: Vec<(String, String)>,
+    pub(crate) named_types: Vec<(String, String)>,
+    pub(crate) enum_variants: Vec<(String, String, String)>,
+    pub(crate) composite_fields: Vec<(String, String, String)>,
 }
 
 impl DynamicTypedEntityBinding {
@@ -161,5 +229,33 @@ impl DynamicTypedEntityBinding {
         self.fields
             .iter()
             .find_map(|(source, name)| (source == source_key).then_some(name.as_str()))
+    }
+
+    /// Resolve one immutable named-type source key to its accepted display path.
+    #[must_use]
+    pub fn named_type_name(&self, source_key: &str) -> Option<&str> {
+        self.named_types
+            .iter()
+            .find_map(|(source, name)| (source == source_key).then_some(name.as_str()))
+    }
+
+    /// Resolve one immutable enum-variant source key to its accepted display name.
+    #[must_use]
+    pub fn enum_variant_name(&self, type_source_key: &str, source_key: &str) -> Option<&str> {
+        self.enum_variants
+            .iter()
+            .find_map(|(bound_type, source, name)| {
+                (bound_type == type_source_key && source == source_key).then_some(name.as_str())
+            })
+    }
+
+    /// Resolve one immutable record-member source key to its accepted display name.
+    #[must_use]
+    pub fn composite_field_name(&self, type_source_key: &str, source_key: &str) -> Option<&str> {
+        self.composite_fields
+            .iter()
+            .find_map(|(bound_type, source, name)| {
+                (bound_type == type_source_key && source == source_key).then_some(name.as_str())
+            })
     }
 }

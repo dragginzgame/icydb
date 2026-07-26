@@ -2769,7 +2769,7 @@ fn lower_write_policy(
     ))
 }
 
-fn lower_field_type(
+pub(in crate::db) fn lower_field_type(
     field_type: &FieldType,
     resolve_named: impl FnOnce(&TypeSourceKey) -> Option<AcceptedNamedTypeIdentity>,
 ) -> Result<AcceptedFieldKind, InternalError> {

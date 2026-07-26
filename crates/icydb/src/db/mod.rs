@@ -24,13 +24,18 @@ pub use response::{ExecutionTrace, GroupedRow, PagedResponse, Response, RowProje
 pub use session::SqlIntegrityError;
 pub use session::{
     DbSession, FluentLoadQuery, IntegrityCheckError, OutputRow, PartialWindowLoadQuery,
-    SessionDeleteQuery, StructuralMutation, StructuralPatch, TypedAdapterError, TypedEntityBinding,
-    TypedRowAdapter, TypedWrite, TypedWriteAdapter, TypedWriteError, WriteCell,
+    SessionDeleteQuery, StructuralMutation, StructuralPatch, TypedAdapterError, TypedBindingError,
+    TypedEntityBinding, TypedRowAdapter, TypedRowError, TypedWrite, TypedWriteAdapter,
+    TypedWriteError, WriteCell,
 };
 #[cfg(feature = "sql")]
 #[doc(hidden)]
 pub use session::{
     SqlExecutionPerfAttribution, SqlPureCoveringPerfAttribution, SqlQueryPerfAttribution,
+};
+#[doc(hidden)]
+pub use session::{
+    TypedFieldBindingRequest, TypedFieldType, TypedInputValue, TypedNamedType, TypedOutputValue,
 };
 
 // Public core DTOs intentionally carried through the facade database surface.

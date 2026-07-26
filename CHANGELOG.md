@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.29` adds explicit source-bound typed row and write adapters that
+  preserve authored write intent while accepted schema remains runtime
+  authority.
+
 - `0.213.28` hard-cuts automatic audit fields to explicit
   `audit_timestamps(...)` authoring, so omission emits no hidden fields while
   opted-in schemas preserve accepted management and field identity.

@@ -37,6 +37,8 @@ impl Imp<Enum> for RuntimeValueTrait {
                 .to_token_stream(),
         );
         tokens.extend(enum_input_value_tokens(node));
+        tokens.extend(enum_typed_input_value_tokens(node));
+        tokens.extend(enum_typed_output_value_tokens(node));
 
         Some(TraitStrategy::from_impl(tokens))
     }
@@ -178,6 +180,159 @@ fn input_value_impl_tokens(def: &Def, conversion: TokenStream) -> TokenStream {
             }
         }
     }
+}
+
+fn typed_input_value_impl_tokens(def: &Def, encode: TokenStream) -> TokenStream {
+    let ident = def.ident();
+
+    quote! {
+        impl ::icydb::__macro::TypedInputValue for #ident {
+            fn encode_typed_input(
+                self,
+                binding: &::icydb::db::TypedEntityBinding,
+            ) -> Result<::icydb::value::InputValue, ::icydb::db::TypedAdapterError> {
+                #encode
+            }
+        }
+    }
+}
+
+fn typed_input_value_expr(value: &crate::node::Value, source: TokenStream) -> TokenStream {
+    let ty = value.type_expr();
+
+    quote! {
+        <#ty as ::icydb::__macro::TypedInputValue>::encode_typed_input(#source, binding)?
+    }
+}
+
+fn typed_named_type_tokens(def: &Def, source_key: &LitStr) -> TokenStream {
+    let ident = def.ident();
+
+    quote! {
+        impl ::icydb::__macro::TypedNamedType for #ident {
+            const SOURCE_KEY: &'static str = #source_key;
+        }
+    }
+}
+
+fn enum_typed_input_value_tokens(node: &Enum) -> TokenStream {
+    let type_source_key = &node.source_key;
+    let arms = node.variants.iter().map(|variant| {
+        let variant_match = enum_variant_match_pattern(variant);
+        let variant_source_key = &variant.source_key;
+        let payload = variant
+            .value
+            .as_ref()
+            .map_or_else(TokenStream::new, |value| {
+                let input = typed_input_value_expr(value, quote!(v));
+                quote!(.with_payload(#input))
+            });
+
+        quote! {
+            Self::#variant_match => {
+                let accepted_variant = binding
+                    .enum_variant_name(#type_source_key, #variant_source_key)
+                    .ok_or(::icydb::db::TypedAdapterError::FieldUnavailable)?;
+                Ok(::icydb::value::InputValue::Enum(
+                    ::icydb::value::InputValueEnum::new(
+                        accepted_variant,
+                        Some(accepted_path),
+                    ) #payload
+                ))
+            }
+        }
+    });
+
+    let named_type = typed_named_type_tokens(node.def(), &node.source_key);
+    let input_value = typed_input_value_impl_tokens(
+        node.def(),
+        quote! {
+            let accepted_path = binding
+                .named_type_name(#type_source_key)
+                .ok_or(::icydb::db::TypedAdapterError::FieldUnavailable)?;
+            match self {
+                #(#arms),*
+            }
+        },
+    );
+    quote!(#named_type #input_value)
+}
+
+fn typed_output_value_impl_tokens(def: &Def, decode: TokenStream) -> TokenStream {
+    let ident = def.ident();
+
+    quote! {
+        impl ::icydb::__macro::TypedOutputValue for #ident {
+            fn decode_typed_output(
+                binding: &::icydb::db::TypedEntityBinding,
+                value: &::icydb::value::OutputValue,
+            ) -> Result<Self, ::icydb::db::TypedAdapterError> {
+                #decode
+            }
+        }
+    }
+}
+
+fn typed_output_value_expr(value: &crate::node::Value, source: TokenStream) -> TokenStream {
+    let ty = value.type_expr();
+
+    quote! {
+        <#ty as ::icydb::__macro::TypedOutputValue>::decode_typed_output(binding, #source)?
+    }
+}
+
+fn enum_typed_output_value_tokens(node: &Enum) -> TokenStream {
+    let type_source_key = &node.source_key;
+    let arms = node.variants.iter().map(|variant| {
+        let variant_ident = &variant.ident;
+        let variant_source_key = &variant.source_key;
+
+        if let Some(payload) = &variant.value {
+            let decode = typed_output_value_expr(payload, quote!(payload));
+
+            quote! {
+                if output.variant() == binding
+                    .enum_variant_name(#type_source_key, #variant_source_key)
+                    .ok_or(::icydb::db::TypedAdapterError::FieldUnavailable)?
+                {
+                    let Some(payload) = output.payload() else {
+                        return Err(::icydb::db::TypedAdapterError::ValueShapeMismatch);
+                    };
+                    return Ok(Self::#variant_ident(#decode));
+                }
+            }
+        } else {
+            quote! {
+                if output.variant() == binding
+                    .enum_variant_name(#type_source_key, #variant_source_key)
+                    .ok_or(::icydb::db::TypedAdapterError::FieldUnavailable)?
+                {
+                    if output.payload().is_some() {
+                        return Err(::icydb::db::TypedAdapterError::ValueShapeMismatch);
+                    }
+                    return Ok(Self::#variant_ident);
+                }
+            }
+        }
+    });
+
+    typed_output_value_impl_tokens(
+        node.def(),
+        quote! {
+            let ::icydb::value::OutputValue::Enum(output) = value else {
+                return Err(::icydb::db::TypedAdapterError::ValueShapeMismatch);
+            };
+            let accepted_path = binding
+                .named_type_name(#type_source_key)
+                .ok_or(::icydb::db::TypedAdapterError::FieldUnavailable)?;
+            if output.path() != Some(accepted_path) {
+                return Err(::icydb::db::TypedAdapterError::ValueShapeMismatch);
+            }
+
+            #(#arms)*
+            Err(::icydb::db::TypedAdapterError::ValueShapeMismatch)
+        },
+    )
 }
 
 pub(crate) fn owned_value_to_input_expr(
@@ -582,6 +737,234 @@ fn tuple_input_value_tokens(node: &Tuple) -> TokenStream {
     )
 }
 
+fn list_typed_output_value_tokens(node: &List) -> TokenStream {
+    let item = node.item.type_expr();
+
+    typed_output_value_impl_tokens(
+        node.def(),
+        quote! {
+            <::std::vec::Vec<#item> as ::icydb::__macro::TypedOutputValue>
+                ::decode_typed_output(binding, value)
+                .map(Self)
+        },
+    )
+}
+
+fn list_typed_input_value_tokens(node: &List) -> TokenStream {
+    let item = node.item.type_expr();
+
+    let named_type = typed_named_type_tokens(node.def(), &node.source_key);
+    let input_value = typed_input_value_impl_tokens(
+        node.def(),
+        quote! {
+            <::std::vec::Vec<#item> as ::icydb::__macro::TypedInputValue>
+                ::encode_typed_input(self.0, binding)
+        },
+    );
+    quote!(#named_type #input_value)
+}
+
+fn map_typed_output_value_tokens(node: &Map) -> TokenStream {
+    let key = node.key.type_expr();
+    let value = node.value.type_expr();
+
+    typed_output_value_impl_tokens(
+        node.def(),
+        quote! {
+            <::std::collections::BTreeMap<#key, #value> as ::icydb::__macro::TypedOutputValue>
+                ::decode_typed_output(binding, value)
+                .map(Self)
+        },
+    )
+}
+
+fn map_typed_input_value_tokens(node: &Map) -> TokenStream {
+    let key = node.key.type_expr();
+    let value = node.value.type_expr();
+
+    let named_type = typed_named_type_tokens(node.def(), &node.source_key);
+    let input_value = typed_input_value_impl_tokens(
+        node.def(),
+        quote! {
+            <::std::collections::BTreeMap<#key, #value> as ::icydb::__macro::TypedInputValue>
+                ::encode_typed_input(self.0, binding)
+        },
+    );
+    quote!(#named_type #input_value)
+}
+
+fn newtype_typed_output_value_tokens(node: &Newtype) -> TokenStream {
+    let item = node.item.type_expr();
+
+    typed_output_value_impl_tokens(
+        node.def(),
+        quote! {
+            <#item as ::icydb::__macro::TypedOutputValue>
+                ::decode_typed_output(binding, value)
+                .map(Self)
+        },
+    )
+}
+
+fn newtype_typed_input_value_tokens(node: &Newtype) -> TokenStream {
+    let item = node.item.type_expr();
+
+    let named_type = typed_named_type_tokens(node.def(), &node.source_key);
+    let input_value = typed_input_value_impl_tokens(
+        node.def(),
+        quote! {
+            <#item as ::icydb::__macro::TypedInputValue>
+                ::encode_typed_input(self.0, binding)
+        },
+    );
+    quote!(#named_type #input_value)
+}
+
+fn set_typed_output_value_tokens(node: &Set) -> TokenStream {
+    let item = node.item.type_expr();
+
+    typed_output_value_impl_tokens(
+        node.def(),
+        quote! {
+            <::std::collections::BTreeSet<#item> as ::icydb::__macro::TypedOutputValue>
+                ::decode_typed_output(binding, value)
+                .map(Self)
+        },
+    )
+}
+
+fn set_typed_input_value_tokens(node: &Set) -> TokenStream {
+    let item = node.item.type_expr();
+
+    let named_type = typed_named_type_tokens(node.def(), &node.source_key);
+    let input_value = typed_input_value_impl_tokens(
+        node.def(),
+        quote! {
+            <::std::collections::BTreeSet<#item> as ::icydb::__macro::TypedInputValue>
+                ::encode_typed_input(self.0, binding)
+        },
+    );
+    quote!(#named_type #input_value)
+}
+
+fn record_typed_input_value_tokens(node: &Record) -> TokenStream {
+    let type_source_key = &node.source_key;
+    let entries = node.fields.iter().map(|field| {
+        let ident = &field.ident;
+        let field_source_key = &field.source_key;
+        let input = typed_input_value_expr(&field.value, quote!(self.#ident));
+
+        quote! {
+            {
+                let accepted_name = binding
+                    .composite_field_name(#type_source_key, #field_source_key)
+                    .ok_or(::icydb::db::TypedAdapterError::FieldUnavailable)?;
+                (
+                    ::icydb::value::InputValue::Text(accepted_name.to_string()),
+                    #input,
+                )
+            }
+        }
+    });
+
+    let named_type = typed_named_type_tokens(node.def(), &node.source_key);
+    let input_value = typed_input_value_impl_tokens(
+        node.def(),
+        quote! {
+            Ok(::icydb::value::InputValue::Map(vec![#(#entries),*]))
+        },
+    );
+    quote!(#named_type #input_value)
+}
+
+fn record_typed_output_value_tokens(node: &Record) -> TokenStream {
+    let field_count = node.fields.len();
+    let type_source_key = &node.source_key;
+    let fields = node.fields.iter().map(|field| {
+        let ident = &field.ident;
+        let field_source_key = &field.source_key;
+        let decode = typed_output_value_expr(
+            &field.value,
+            quote! {
+                {
+                    let accepted_name = binding
+                        .composite_field_name(#type_source_key, #field_source_key)
+                        .ok_or(::icydb::db::TypedAdapterError::FieldUnavailable)?;
+                    entries
+                    .iter()
+                    .find_map(|(key, value)| match key {
+                        ::icydb::value::OutputValue::Text(key) if key == accepted_name => Some(value),
+                        _ => None,
+                    })
+                    .ok_or(::icydb::db::TypedAdapterError::ValueShapeMismatch)?
+                }
+            },
+        );
+
+        quote!(#ident: #decode)
+    });
+
+    typed_output_value_impl_tokens(
+        node.def(),
+        quote! {
+            let ::icydb::value::OutputValue::Map(entries) = value else {
+                return Err(::icydb::db::TypedAdapterError::ValueShapeMismatch);
+            };
+            if entries.len() != #field_count {
+                return Err(::icydb::db::TypedAdapterError::ValueShapeMismatch);
+            }
+
+            Ok(Self {
+                #(#fields),*
+            })
+        },
+    )
+}
+
+fn tuple_typed_input_value_tokens(node: &Tuple) -> TokenStream {
+    let items = node.values.iter().enumerate().map(|(index, value)| {
+        let slot = syn::Index::from(index);
+        typed_input_value_expr(value, quote!(self.#slot))
+    });
+
+    let named_type = typed_named_type_tokens(node.def(), &node.source_key);
+    let input_value = typed_input_value_impl_tokens(
+        node.def(),
+        quote! {
+            Ok(::icydb::value::InputValue::List(vec![#(#items),*]))
+        },
+    );
+    quote!(#named_type #input_value)
+}
+
+fn tuple_typed_output_value_tokens(node: &Tuple) -> TokenStream {
+    let item_count = node.values.len();
+    let values = node.values.iter().enumerate().map(|(index, value)| {
+        typed_output_value_expr(
+            value,
+            quote! {
+                items
+                    .get(#index)
+                    .ok_or(::icydb::db::TypedAdapterError::ValueShapeMismatch)?
+            },
+        )
+    });
+
+    typed_output_value_impl_tokens(
+        node.def(),
+        quote! {
+            let ::icydb::value::OutputValue::List(items) = value else {
+                return Err(::icydb::db::TypedAdapterError::ValueShapeMismatch);
+            };
+            if items.len() != #item_count {
+                return Err(::icydb::db::TypedAdapterError::ValueShapeMismatch);
+            }
+
+            Ok(Self(#(#values),*))
+        },
+    )
+}
+
 // Record payloads need a stable key order on encode and strict field accounting
 // on decode so generated codecs remain deterministic and fail closed.
 fn record_direct_persisted_structured_codec_tokens(node: &Record) -> TokenStream {
@@ -831,12 +1214,16 @@ impl Imp<List> for RuntimeValueTrait {
         };
 
         let input = list_input_value_tokens(node);
+        let typed_input = list_typed_input_value_tokens(node);
+        let typed_output = list_typed_output_value_tokens(node);
+        let typed_values = quote!(#typed_input #typed_output);
         if node.item.is.is_some() {
             return Some(runtime_value_strategy_without_encode(
                 node.def(),
                 runtime_value_meta,
                 runtime_value_decode,
                 input,
+                typed_values,
             ));
         }
         Some(runtime_value_strategy(
@@ -845,6 +1232,7 @@ impl Imp<List> for RuntimeValueTrait {
             runtime_value_encode,
             runtime_value_decode,
             input,
+            typed_values,
         ))
     }
 }
@@ -911,12 +1299,16 @@ impl Imp<Map> for RuntimeValueTrait {
         };
 
         let input = map_input_value_tokens(node);
+        let typed_input = map_typed_input_value_tokens(node);
+        let typed_output = map_typed_output_value_tokens(node);
+        let typed_values = quote!(#typed_input #typed_output);
         if node.key.is.is_some() || node.value.item.is.is_some() {
             return Some(runtime_value_strategy_without_encode(
                 node.def(),
                 runtime_value_meta,
                 runtime_value_decode,
                 input,
+                typed_values,
             ));
         }
         Some(runtime_value_strategy(
@@ -925,6 +1317,7 @@ impl Imp<Map> for RuntimeValueTrait {
             runtime_value_encode,
             runtime_value_decode,
             input,
+            typed_values,
         ))
     }
 }
@@ -966,6 +1359,9 @@ impl Imp<Newtype> for RuntimeValueTrait {
         let item = node.item.type_expr();
         let (runtime_value_meta, runtime_value_encode, runtime_value_decode) =
             newtype_runtime_value_tokens(&item);
+        let typed_input = newtype_typed_input_value_tokens(node);
+        let typed_output = newtype_typed_output_value_tokens(node);
+        let typed_values = quote!(#typed_input #typed_output);
 
         if node.item.is.is_some() {
             return Some(runtime_value_strategy_without_encode(
@@ -973,6 +1369,7 @@ impl Imp<Newtype> for RuntimeValueTrait {
                 runtime_value_meta,
                 runtime_value_decode,
                 newtype_input_value_tokens(node),
+                typed_values,
             ));
         }
         Some(runtime_value_strategy(
@@ -981,6 +1378,7 @@ impl Imp<Newtype> for RuntimeValueTrait {
             runtime_value_encode,
             runtime_value_decode,
             newtype_input_value_tokens(node),
+            typed_values,
         ))
     }
 }
@@ -1040,12 +1438,16 @@ impl Imp<Set> for RuntimeValueTrait {
         };
 
         let input = set_input_value_tokens(node);
+        let typed_input = set_typed_input_value_tokens(node);
+        let typed_output = set_typed_output_value_tokens(node);
+        let typed_values = quote!(#typed_input #typed_output);
         if node.item.is.is_some() {
             return Some(runtime_value_strategy_without_encode(
                 node.def(),
                 runtime_value_meta,
                 runtime_value_decode,
                 input,
+                typed_values,
             ));
         }
         Some(runtime_value_strategy(
@@ -1054,6 +1456,7 @@ impl Imp<Set> for RuntimeValueTrait {
             runtime_value_encode,
             runtime_value_decode,
             input,
+            typed_values,
         ))
     }
 }
@@ -1094,6 +1497,9 @@ impl Imp<Record> for RuntimeValueTrait {
         let (runtime_value_meta, runtime_value_encode, runtime_value_decode) =
             record_runtime_value_tokens(node);
         let input = record_input_value_tokens(node);
+        let typed_input = record_typed_input_value_tokens(node);
+        let typed_output = record_typed_output_value_tokens(node);
+        let typed_values = quote!(#typed_input #typed_output);
         if node
             .fields
             .iter()
@@ -1104,6 +1510,7 @@ impl Imp<Record> for RuntimeValueTrait {
                 runtime_value_meta,
                 runtime_value_decode,
                 input,
+                typed_values,
             ));
         }
         Some(runtime_value_strategy(
@@ -1112,6 +1519,7 @@ impl Imp<Record> for RuntimeValueTrait {
             runtime_value_encode,
             runtime_value_decode,
             input,
+            typed_values,
         ))
     }
 }
@@ -1134,12 +1542,16 @@ impl Imp<Tuple> for RuntimeValueTrait {
         let (runtime_value_meta, runtime_value_encode, runtime_value_decode) =
             tuple_runtime_value_tokens(node);
         let input = tuple_input_value_tokens(node);
+        let typed_input = tuple_typed_input_value_tokens(node);
+        let typed_output = tuple_typed_output_value_tokens(node);
+        let typed_values = quote!(#typed_input #typed_output);
         if node.values.iter().any(|value| value.item.is.is_some()) {
             return Some(runtime_value_strategy_without_encode(
                 node.def(),
                 runtime_value_meta,
                 runtime_value_decode,
                 input,
+                typed_values,
             ));
         }
         Some(runtime_value_strategy(
@@ -1148,6 +1560,7 @@ impl Imp<Tuple> for RuntimeValueTrait {
             runtime_value_encode,
             runtime_value_decode,
             input,
+            typed_values,
         ))
     }
 }
@@ -1167,6 +1580,7 @@ fn runtime_value_strategy(
     runtime_value_encode: TokenStream,
     runtime_value_decode: TokenStream,
     input_value: TokenStream,
+    output_value: TokenStream,
 ) -> TraitStrategy {
     let mut tokens = runtime_value_impl_tokens(
         def,
@@ -1175,6 +1589,7 @@ fn runtime_value_strategy(
         runtime_value_decode,
     );
     tokens.extend(input_value);
+    tokens.extend(output_value);
     TraitStrategy::from_impl(tokens)
 }
 
@@ -1183,6 +1598,7 @@ fn runtime_value_strategy_without_encode(
     runtime_value_meta: TokenStream,
     runtime_value_decode: TokenStream,
     input_value: TokenStream,
+    output_value: TokenStream,
 ) -> TraitStrategy {
     let mut tokens = TokenStream::new();
     tokens.extend(
@@ -1196,6 +1612,7 @@ fn runtime_value_strategy_without_encode(
             .to_token_stream(),
     );
     tokens.extend(input_value);
+    tokens.extend(output_value);
     TraitStrategy::from_impl(tokens)
 }
 

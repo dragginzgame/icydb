@@ -1117,6 +1117,9 @@ fn opaque_typed_binding_rejects_fingerprint_and_generation_mismatch() {
         accepted_fingerprint: catalog.fingerprint(),
         entity_generation: descriptor.current_layout_version().get(),
         fields: Vec::new(),
+        named_types: Vec::new(),
+        enum_variants: Vec::new(),
+        composite_fields: Vec::new(),
     };
     assert!(
         session
