@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- **Breaking:** application normalizers and validators are now explicit
-  authoring operations, with `normalizer` replacing `sanitizer`; database
-  writes and recovery never invoke either application behavior.
-
 ## [0.213.x] 🧭 - 2026-07-24 - Schema Authority And Application Separation
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
+
+- `0.213.31` makes opted-in typed adapters persistence-free, so generated
+  adapter code consumes accepted public values without implementing the
+  retired physical-row bridge.
+
+- `0.213.30` hard-cuts automatic application callbacks from database writes
+  and recovery, and replaces the retired `sanitizer` spelling with explicit
+  application `normalizer` operations.
 
 - `0.213.29` adds explicit source-bound typed row and write adapters that
   preserve authored write intent while accepted schema remains runtime

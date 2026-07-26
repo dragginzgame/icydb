@@ -394,6 +394,11 @@ impl ValidateNode for Entity {
         if self.traits.explicitly_adds(TraitKind::Default) {
             validate_struct_default_request("entity", self.def(), &self.fields)?;
         }
+        if self.typed_adapters && self.traits.explicitly_adds(TraitKind::PersistedRow) {
+            return Err(DarlingError::custom(
+                "typed adapters cannot also generate the retired PersistedRow bridge",
+            ));
+        }
 
         // Phase 2: validate entity name and index definitions.
         let def_ident = self.def.ident();
@@ -584,8 +589,11 @@ impl HasTraits for Entity {
             TraitKind::Inherent,
             TraitKind::EntityKind,
             TraitKind::EntityValue,
-            TraitKind::PersistedRow,
+            TraitKind::FieldProjection,
         ]);
+        if !self.typed_adapters {
+            traits.add(TraitKind::PersistedRow);
+        }
 
         traits.into_vec()
     }
@@ -596,6 +604,7 @@ impl HasTraits for Entity {
             TraitKind::Default => DefaultTrait::strategy(self),
             TraitKind::EntityKind => EntityKindTrait::strategy(self),
             TraitKind::EntityValue => EntityValueTrait::strategy(self),
+            TraitKind::FieldProjection => FieldProjectionTrait::strategy(self),
             TraitKind::PersistedRow => PersistedRowTrait::strategy(self),
             TraitKind::NormalizeAuto => NormalizeAutoTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),

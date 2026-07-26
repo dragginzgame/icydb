@@ -67,52 +67,9 @@ impl Imp<Entity> for PersistedRowTrait {
             })
             .to_token_stream();
 
-        let projection_arms = node.fields.iter().enumerate().map(|(slot, field)| {
-            let slot = syn::Index::from(slot);
-            let ident = &field.ident;
-            if field.value.item.is.is_some() {
-                return quote!(#slot => None);
-            }
-            let value = match field.value.cardinality() {
-                Cardinality::One => quote! {
-                    Some(::icydb::__macro::runtime_value_to_value(&self.#ident))
-                },
-                Cardinality::Opt => quote! {
-                    Some(match self.#ident.as_ref() {
-                        Some(value) => ::icydb::__macro::runtime_value_to_value(value),
-                        None => ::icydb::__macro::Value::Null,
-                    })
-                },
-                Cardinality::Many => quote! {
-                    Some(::icydb::__macro::Value::List(
-                        self.#ident
-                            .iter()
-                            .map(::icydb::__macro::runtime_value_to_value)
-                            .collect(),
-                    ))
-                },
-            };
-            quote!(#slot => #value)
-        });
-        let ident = node.def.ident();
-        let projection_tokens = quote! {
-            impl ::icydb::__macro::FieldProjection for #ident {
-                fn get_value_by_index(
-                    &self,
-                    index: usize,
-                ) -> Option<::icydb::__macro::Value> {
-                    match index {
-                        #(#projection_arms),*,
-                        _ => None,
-                    }
-                }
-            }
-        };
-
         let tokens = quote! {
             #(#field_codec_assertions)*
             #impl_tokens
-            #projection_tokens
         };
 
         Some(TraitStrategy::from_impl(tokens))

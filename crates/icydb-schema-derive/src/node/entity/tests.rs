@@ -8,6 +8,7 @@ use crate::node::{
     Def, Field, FieldList, FieldWriteManagement, HasSchemaPart, Index, Item, PrimaryKey,
     PrimaryKeySource, Relation, Type, ValidateNode, Value,
 };
+use crate::trait_kind::TraitKind;
 use darling::{FromMeta, ast::NestedMeta};
 use icydb_model_legacy::types::Primitive;
 use proc_macro2::Span;
@@ -167,6 +168,22 @@ fn typed_adapter_generation_is_explicitly_opted_in() {
 }
 
 #[test]
+fn typed_adapter_generation_rejects_explicit_persisted_row_bridge() {
+    let mut entity = entity_with_fields_and_indexes(vec![scalar_field("id")], vec![]);
+    entity.typed_adapters = true;
+    entity.traits.add.push(TraitKind::PersistedRow);
+
+    let error = entity
+        .validate()
+        .expect_err("typed adapters must not regain generated persistence");
+
+    assert_eq!(
+        error.to_string(),
+        "typed adapters cannot also generate the retired PersistedRow bridge"
+    );
+}
+
+#[test]
 fn typed_adapter_generation_separates_row_and_operation_shapes() {
     let mut created_at = primitive_field("created_at", Primitive::Timestamp);
     created_at.write_management = Some(FieldWriteManagement::CreatedAt);
@@ -181,6 +198,7 @@ fn typed_adapter_generation_separates_row_and_operation_shapes() {
     entity.typed_adapters = true;
 
     let tokens = entity_typed_adapter_tokens(&entity).to_string();
+    let complete_tokens = quote!(#entity).to_string();
 
     for expected in [
         "pub struct TestEntityInsert",
@@ -202,6 +220,21 @@ fn typed_adapter_generation_separates_row_and_operation_shapes() {
     assert!(
         !tokens.contains("pub created_at : :: icydb :: db :: WriteCell"),
         "managed fields must be absent from authored write inputs: {tokens}",
+    );
+    for forbidden in [
+        "PersistedRow",
+        "SlotReader",
+        "materialize_from_slots",
+        "decode_generated_runtime_field_value",
+    ] {
+        assert!(
+            !complete_tokens.contains(forbidden),
+            "opted-in typed adapters must not retain generated persistence token `{forbidden}`: {complete_tokens}",
+        );
+    }
+    assert!(
+        complete_tokens.contains("impl :: icydb :: __macro :: FieldProjection for TestEntity"),
+        "application field projection must stay independent of persistence generation: {complete_tokens}",
     );
 }
 

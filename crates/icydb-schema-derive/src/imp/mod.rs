@@ -6,6 +6,7 @@
 mod collection;
 mod default;
 mod entity;
+mod field_projection;
 mod field_walk;
 mod from;
 mod inherent;
@@ -22,6 +23,7 @@ mod visitable;
 pub use collection::*;
 pub use default::*;
 pub use entity::*;
+pub use field_projection::*;
 pub use from::*;
 pub use inherent::*;
 pub use normalize::*;
