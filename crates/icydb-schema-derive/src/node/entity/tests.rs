@@ -5,8 +5,8 @@
 
 use super::{Entity, composite_primary_key_type_part};
 use crate::node::{
-    Def, Field, FieldList, HasSchemaPart, Index, Item, PrimaryKey, PrimaryKeySource, Relation,
-    Type, ValidateNode, Value,
+    Def, Field, FieldList, FieldWriteManagement, HasSchemaPart, Index, Item, PrimaryKey,
+    PrimaryKeySource, Relation, Type, ValidateNode, Value,
 };
 use darling::{FromMeta, ast::NestedMeta};
 use icydb_model_legacy::types::Primitive;
@@ -97,6 +97,7 @@ fn entity_with_fields_and_indexes(fields: Vec<Field>, indexes: Vec<Index>) -> En
         indexes,
         relations: Vec::new(),
         constraints: Vec::new(),
+        audit_timestamps: None,
         fields: FieldList { fields },
         ty: Type::default(),
         traits: crate::trait_kind::TraitBuilder::default(),
@@ -339,20 +340,145 @@ fn from_list_parses_nested_indexes_and_fields() {
     );
     assert_eq!(
         node.fields.len(),
-        3,
-        "fields(field(...)) should parse into one declared field plus the auto-managed metadata fields"
+        1,
+        "omitting audit_timestamps(...) must not synthesize hidden fields"
     );
     assert!(
         node.fields.get(&format_ident!("id")).is_some(),
         "declared nested field should be preserved in the lowered field list",
     );
-    assert!(
-        node.fields.get(&format_ident!("created_at")).is_some(),
-        "entity lowering should append created_at metadata field",
+    assert!(node.fields.get(&format_ident!("created_at")).is_none());
+    assert!(node.fields.get(&format_ident!("updated_at")).is_none());
+}
+
+#[test]
+fn explicit_audit_timestamps_lower_to_managed_fields() {
+    let args = NestedMeta::parse_meta_list(quote!(
+        source_key = "entity/test",
+        store = "UiDataStore",
+        version = 1,
+        pk(fields = ["id"]),
+        audit_timestamps(
+            created_at(source_key = "audit/created", ident = "created_on"),
+            updated_at(source_key = "audit/updated", ident = "updated_on")
+        ),
+        fields(field(
+            source_key = "id",
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ))
+    ))
+    .expect("entity args should parse");
+
+    let node = Entity::from_list(&args).expect("explicit audit policy should lower");
+
+    assert_eq!(node.fields.len(), 3);
+    let created = node
+        .fields
+        .get(&format_ident!("created_on"))
+        .expect("created field should be present");
+    assert_eq!(created.source_key.value(), "audit/created");
+    assert_eq!(
+        created.write_management,
+        Some(FieldWriteManagement::CreatedAt)
     );
+    let updated = node
+        .fields
+        .get(&format_ident!("updated_on"))
+        .expect("updated field should be present");
+    assert_eq!(updated.source_key.value(), "audit/updated");
+    assert_eq!(
+        updated.write_management,
+        Some(FieldWriteManagement::UpdatedAt)
+    );
+}
+
+#[test]
+fn explicit_audit_timestamps_reject_field_identity_collisions() {
+    let args = NestedMeta::parse_meta_list(quote!(
+        source_key = "entity/test",
+        store = "UiDataStore",
+        version = 1,
+        pk(fields = ["id"]),
+        audit_timestamps(
+            created_at(source_key = "id", ident = "created_on"),
+            updated_at(source_key = "audit/updated", ident = "updated_on")
+        ),
+        fields(field(
+            source_key = "id",
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ))
+    ))
+    .expect("entity args should parse");
+
+    let error = Entity::from_list(&args).expect_err("duplicate source identity must reject");
+
     assert!(
-        node.fields.get(&format_ident!("updated_at")).is_some(),
-        "entity lowering should append updated_at metadata field",
+        error
+            .to_string()
+            .contains("audit timestamp source key 'id' conflicts"),
+        "unexpected diagnostic: {error}",
+    );
+}
+
+#[test]
+fn explicit_audit_timestamps_reject_duplicate_policy_identity() {
+    let args = NestedMeta::parse_meta_list(quote!(
+        source_key = "entity/test",
+        store = "UiDataStore",
+        version = 1,
+        pk(fields = ["id"]),
+        audit_timestamps(
+            created_at(source_key = "audit/shared", ident = "created_on"),
+            updated_at(source_key = "audit/shared", ident = "updated_on")
+        ),
+        fields(field(
+            source_key = "id",
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ))
+    ))
+    .expect("entity args should parse");
+
+    let error = Entity::from_list(&args).expect_err("duplicate audit identity must reject");
+
+    assert!(
+        error
+            .to_string()
+            .contains("audit timestamp fields must use distinct source keys"),
+        "unexpected diagnostic: {error}",
+    );
+}
+
+#[test]
+fn explicit_audit_timestamps_require_both_policies() {
+    let args = NestedMeta::parse_meta_list(quote!(
+        source_key = "entity/test",
+        store = "UiDataStore",
+        version = 1,
+        pk(fields = ["id"]),
+        audit_timestamps(created_at(
+            source_key = "audit/created",
+            ident = "created_on"
+        )),
+        fields(field(
+            source_key = "id",
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ))
+    ))
+    .expect("entity args should parse");
+
+    let error = Entity::from_list(&args).expect_err("partial audit policy must reject");
+
+    assert!(
+        error.to_string().contains("Missing field `updated_at`"),
+        "unexpected diagnostic: {error}",
     );
 }
 

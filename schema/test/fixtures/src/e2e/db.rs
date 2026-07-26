@@ -6,6 +6,10 @@ use icydb::{base, design::prelude::*};
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/e2e/db.rs::entity::1",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -21,6 +25,10 @@ pub struct SimpleEntity {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/e2e/db.rs::entity::2",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -39,6 +47,10 @@ pub struct BlobEntity {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/e2e/db.rs::entity::3",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -58,6 +70,10 @@ pub struct Searchable {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/e2e/db.rs::entity::4",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["value"]),
@@ -70,6 +86,10 @@ pub struct Limit {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/e2e/db.rs::entity::5",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -112,6 +132,10 @@ pub struct MissingFieldLarge {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/e2e/db.rs::entity::6",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -130,6 +154,10 @@ pub struct ContainsBlob {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/e2e/db.rs::entity::7",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -159,6 +187,10 @@ pub struct ContainsOpts {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/e2e/db.rs::entity::8",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -206,6 +238,10 @@ pub struct ContainsManyRelations {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/e2e/db.rs::entity::9",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -252,6 +288,10 @@ pub struct LowerIndexText {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/e2e/db.rs::entity::10",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -272,6 +312,10 @@ pub struct IndexSanitized {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/e2e/db.rs::entity::11",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -293,6 +337,10 @@ pub struct IndexRelation {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/e2e/db.rs::entity::12",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),

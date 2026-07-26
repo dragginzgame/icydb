@@ -15,6 +15,7 @@ use std::collections::HashSet;
 //
 
 #[derive(Debug, FromMeta)]
+#[darling(and_then = "Entity::lower_audit_timestamps")]
 pub struct Entity {
     #[darling(default, skip)]
     pub(crate) def: Def,
@@ -41,7 +42,12 @@ pub struct Entity {
     #[darling(multiple, rename = "constraint")]
     pub(crate) constraints: Vec<Constraint>,
 
-    #[darling(default, map = "Entity::add_metadata")]
+    /// Parser-only shorthand consumed into ordinary managed fields before the
+    /// entity can be validated or emitted.
+    #[darling(default)]
+    pub(crate) audit_timestamps: Option<AuditTimestamps>,
+
+    #[darling(default)]
     pub(crate) fields: FieldList,
 
     #[darling(default)]
@@ -51,12 +57,77 @@ pub struct Entity {
     pub(crate) traits: TraitBuilder,
 }
 
-impl Entity {
-    fn add_metadata(mut fields: FieldList) -> FieldList {
-        fields.push(Field::created_at());
-        fields.push(Field::updated_at());
+/// One explicitly authored managed timestamp field.
 
-        fields
+#[derive(Clone, Debug, FromMeta)]
+pub(crate) struct AuditTimestampField {
+    source_key: LitStr,
+    ident: Ident,
+}
+
+/// Paired authoring shorthand for the two accepted audit policies.
+
+#[derive(Clone, Debug, FromMeta)]
+pub(crate) struct AuditTimestamps {
+    created_at: AuditTimestampField,
+    updated_at: AuditTimestampField,
+}
+
+impl Entity {
+    fn lower_audit_timestamps(mut self) -> Result<Self, DarlingError> {
+        let Some(audit) = self.audit_timestamps.take() else {
+            return Ok(self);
+        };
+        Self::reject_audit_field_collision(&self.fields, &audit.created_at)?;
+        Self::reject_audit_field_collision(&self.fields, &audit.updated_at)?;
+        if audit.created_at.ident == audit.updated_at.ident {
+            return Err(DarlingError::custom(
+                "audit timestamp fields must use distinct identifiers",
+            )
+            .with_span(&audit.updated_at.ident));
+        }
+        if audit.created_at.source_key.value() == audit.updated_at.source_key.value() {
+            return Err(DarlingError::custom(
+                "audit timestamp fields must use distinct source keys",
+            )
+            .with_span(&audit.updated_at.source_key));
+        }
+
+        self.fields.push(Field::managed_timestamp(
+            audit.created_at.source_key,
+            audit.created_at.ident,
+            FieldWriteManagement::CreatedAt,
+        ));
+        self.fields.push(Field::managed_timestamp(
+            audit.updated_at.source_key,
+            audit.updated_at.ident,
+            FieldWriteManagement::UpdatedAt,
+        ));
+        Ok(self)
+    }
+
+    fn reject_audit_field_collision(
+        fields: &FieldList,
+        audit_field: &AuditTimestampField,
+    ) -> Result<(), DarlingError> {
+        if fields.get(&audit_field.ident).is_some() {
+            return Err(DarlingError::custom(format!(
+                "audit timestamp field '{}' conflicts with an explicitly declared field",
+                audit_field.ident
+            ))
+            .with_span(&audit_field.ident));
+        }
+        if fields
+            .iter()
+            .any(|field| field.source_key.value() == audit_field.source_key.value())
+        {
+            return Err(DarlingError::custom(format!(
+                "audit timestamp source key '{}' conflicts with an explicitly declared field",
+                audit_field.source_key.value()
+            ))
+            .with_span(&audit_field.source_key));
+        }
+        Ok(())
     }
 
     fn entity_name_error_text(err: impl std::fmt::Debug) -> String {

@@ -6,6 +6,10 @@ use icydb::design::prelude::*;
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/validate/decimal.rs::entity::1",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),

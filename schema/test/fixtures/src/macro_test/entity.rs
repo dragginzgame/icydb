@@ -7,6 +7,10 @@ use icydb::design::prelude::*;
 
 #[entity(
     source_key = "schema/test/fixtures/src/macro_test/entity.rs::entity::1",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(field = "id"),
@@ -33,6 +37,10 @@ pub struct Entity {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/entity.rs::entity::2",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -48,6 +56,10 @@ pub struct UnitKey {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/entity.rs::entity::3",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     name = "Potato",
     store = "TestStore",
     version = 1,
@@ -64,6 +76,10 @@ pub struct RenamedEntity {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/entity.rs::entity::4",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -82,6 +98,10 @@ pub struct BoundedTextEntity {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/entity.rs::entity::5",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -100,6 +120,10 @@ pub struct BoundedBlobEntity {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/entity.rs::entity::6",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -122,6 +146,10 @@ pub struct DatabaseDefaultEntity {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/entity.rs::entity::7",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["pid"], source = "external"),
@@ -137,6 +165,10 @@ pub struct ExternalPrimaryKeyEntity {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/entity.rs::entity::8",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["tenant_id", "local_id"]),

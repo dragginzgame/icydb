@@ -6,6 +6,10 @@ use icydb::design::prelude::*;
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/e2e/index.rs::entity::1",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -27,6 +31,10 @@ pub struct Indexable {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/e2e/index.rs::entity::2",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -47,6 +55,10 @@ pub struct NotIndexable {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/e2e/index.rs::entity::3",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),

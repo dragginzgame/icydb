@@ -351,31 +351,24 @@ impl Field {
         quote!(::icydb::model::field::FieldDatabaseDefault::EncodedSlotPayload(&[#(#byte_tokens),*]))
     }
 
-    pub fn created_at() -> Self {
+    pub(crate) fn managed_timestamp(
+        source_key: LitStr,
+        ident: Ident,
+        write_management: FieldWriteManagement,
+    ) -> Self {
         Self {
-            source_key: LitStr::new("created_at", Span::call_site()),
-            ident: format_ident!("created_at"),
+            source_key,
+            ident,
             value: Value {
-                item: Item::created_at(),
+                item: Item {
+                    primitive: Some(Primitive::Timestamp),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             default: None,
             generated: None,
-            write_management: Some(FieldWriteManagement::CreatedAt),
-        }
-    }
-
-    pub fn updated_at() -> Self {
-        Self {
-            source_key: LitStr::new("updated_at", Span::call_site()),
-            ident: format_ident!("updated_at"),
-            value: Value {
-                item: Item::updated_at(),
-                ..Default::default()
-            },
-            default: None,
-            generated: None,
-            write_management: Some(FieldWriteManagement::UpdatedAt),
+            write_management: Some(write_management),
         }
     }
 

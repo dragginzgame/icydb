@@ -34,6 +34,10 @@ mod tests {
     pub struct RequiredRecord {}
 
     #[entity(source_key = "testing/macro-tests/src/test/rust_default.rs::entity::nested::1",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),

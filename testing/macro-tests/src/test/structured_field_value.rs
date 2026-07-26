@@ -81,6 +81,10 @@ mod tests {
     ///
 
     #[entity(source_key = "testing/macro-tests/src/test/structured_field_value.rs::entity::nested::1",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
@@ -100,6 +104,10 @@ mod tests {
     ///
 
     #[entity(source_key = "testing/macro-tests/src/test/structured_field_value.rs::entity::nested::2",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
@@ -162,6 +170,10 @@ mod tests {
     pub struct StructuredAssetSelectionHarness {}
 
     #[entity(source_key = "testing/macro-tests/src/test/structured_field_value.rs::entity::nested::3",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
@@ -179,6 +191,10 @@ mod tests {
     pub struct StructuredProfileEntityHarness {}
 
     #[entity(source_key = "testing/macro-tests/src/test/structured_field_value.rs::entity::nested::4",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
@@ -210,6 +226,10 @@ mod tests {
     ///
 
     #[entity(source_key = "testing/macro-tests/src/test/structured_field_value.rs::entity::nested::5",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
@@ -234,6 +254,10 @@ mod tests {
     ///
 
     #[entity(source_key = "testing/macro-tests/src/test/structured_field_value.rs::entity::nested::6",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
@@ -250,6 +274,10 @@ mod tests {
     pub struct StructuredAssetSelectionEntityHarness {}
 
     #[entity(source_key = "testing/macro-tests/src/test/structured_field_value.rs::entity::nested::7",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),

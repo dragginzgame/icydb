@@ -6,6 +6,10 @@ use icydb::design::prelude::*;
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/relation.rs::entity::1",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -26,6 +30,10 @@ pub struct HasRelation;
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/relation.rs::entity::2",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -44,6 +52,10 @@ pub struct HasManyRelation;
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/relation.rs::entity::3",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -62,6 +74,10 @@ pub struct HasPluralRelation;
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/relation.rs::entity::4",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -77,6 +93,10 @@ pub struct EntityA;
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/relation.rs::entity::5",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -89,6 +109,10 @@ pub struct EntityB;
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/relation.rs::entity::6",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -101,6 +125,10 @@ pub struct EntityC;
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/relation.rs::entity::7",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -116,6 +144,10 @@ pub struct Orders;
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/relation.rs::entity::8",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "RelationDataStore",
     version = 1,
     pk(fields = ["id"]),
@@ -131,6 +163,10 @@ pub struct RelationOwner;
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/relation.rs::entity::9",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "RelationDataStore",
     version = 1,
     pk(fields = ["id"]),
@@ -176,6 +212,10 @@ pub struct RelationRecord;
 
 #[cfg(test)]
 #[entity(source_key = "schema/test/fixtures/src/macro_test/relation.rs::entity::10",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),

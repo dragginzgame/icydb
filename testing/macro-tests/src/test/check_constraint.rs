@@ -17,6 +17,10 @@ mod tests {
     pub struct GeneratedCheckTier {}
 
     #[entity(source_key = "testing/macro-tests/src/test/check_constraint.rs::entity::nested::1",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),
@@ -32,6 +36,10 @@ mod tests {
     pub struct GeneratedCheckHarness {}
 
     #[entity(source_key = "testing/macro-tests/src/test/check_constraint.rs::entity::nested::2",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
         store = "TestStore",
         version = 1,
         pk(fields = ["id"]),

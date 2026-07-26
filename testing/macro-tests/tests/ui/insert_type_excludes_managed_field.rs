@@ -16,6 +16,10 @@ pub struct UiCanister {}
 pub struct UiDataStore {}
 
 #[entity(source_key = "testing/macro-tests/tests/ui/insert_type_excludes_managed_field.rs::entity::1",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "UiDataStore",
     version = 1,
     pk(fields = ["id"]),

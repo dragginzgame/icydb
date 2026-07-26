@@ -6,6 +6,10 @@ use icydb::design::prelude::*;
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/identity_borrowing.rs::entity::1",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -21,6 +25,10 @@ pub struct User;
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/identity_borrowing.rs::entity::2",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["user_id"]),
@@ -33,6 +41,10 @@ pub struct UserProjects;
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/identity_borrowing.rs::entity::3",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -45,6 +57,10 @@ pub struct Int128RelationTarget;
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/identity_borrowing.rs::entity::4",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -57,6 +73,10 @@ pub struct Nat128RelationTarget;
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/identity_borrowing.rs::entity::5",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -75,6 +95,10 @@ pub struct Int128RelationOwner;
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/identity_borrowing.rs::entity::6",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),

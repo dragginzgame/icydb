@@ -49,6 +49,10 @@ pub struct PerfAuditJournaledStore {}
 ///
 
 #[entity(source_key = "schema/audit/sql_perf/src/sql_perf.rs::entity::1",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "PerfAuditStore",
     version = 1,
     pk(fields = ["id"]),
@@ -75,6 +79,10 @@ pub struct PerfAuditUser {}
 ///
 
 #[entity(source_key = "schema/audit/sql_perf/src/sql_perf.rs::entity::2",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "PerfAuditHeapStore",
     version = 1,
     pk(fields = ["id"]),
@@ -95,6 +103,10 @@ pub struct PerfAuditHeapUser {}
 ///
 
 #[entity(source_key = "schema/audit/sql_perf/src/sql_perf.rs::entity::3",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "PerfAuditJournaledStore",
     version = 1,
     pk(fields = ["id"]),
@@ -114,6 +126,10 @@ pub struct PerfAuditJournaledUser {}
 ///
 
 #[entity(source_key = "schema/audit/sql_perf/src/sql_perf.rs::entity::4",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "PerfAuditStore",
     version = 1,
     pk(fields = ["id"]),
@@ -129,6 +145,10 @@ pub struct PerfAuditRelationTarget {}
 ///
 
 #[entity(source_key = "schema/audit/sql_perf/src/sql_perf.rs::entity::5",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "PerfAuditStore",
     version = 1,
     pk(fields = ["id"]),
@@ -150,6 +170,10 @@ pub struct PerfAuditRelationSource {}
 ///
 
 #[entity(source_key = "schema/audit/sql_perf/src/sql_perf.rs::entity::6",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "PerfAuditStore",
     version = 2,
     pk(fields = ["id"]),
@@ -173,6 +197,10 @@ pub struct PerfAuditBlob {}
 ///
 
 #[entity(source_key = "schema/audit/sql_perf/src/sql_perf.rs::entity::7",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "PerfAuditStore",
     version = 1,
     pk(fields = ["id"]),
@@ -198,6 +226,10 @@ pub struct PerfAuditAccount {}
 ///
 
 #[entity(source_key = "schema/audit/sql_perf/src/sql_perf.rs::entity::8",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "PerfAuditStore",
     version = 1,
     pk(fields = ["id"]),

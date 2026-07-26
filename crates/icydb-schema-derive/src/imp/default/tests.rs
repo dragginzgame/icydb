@@ -66,6 +66,7 @@ fn redundant_default_entity() -> Entity {
         indexes: vec![],
         relations: vec![],
         constraints: vec![],
+        audit_timestamps: None,
         fields: FieldList {
             fields: vec![
                 field_with_primitive_default(

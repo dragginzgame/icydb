@@ -7,6 +7,7 @@ use super::{Field, FieldGeneration, FieldWriteManagement, Value};
 use crate::node::{Arg, ArgNumber, Item};
 use darling::{FromMeta, ast::NestedMeta};
 use icydb_model_legacy::types::Primitive;
+use proc_macro2::Span;
 use quote::format_ident;
 use quote::quote;
 use std::str::FromStr;
@@ -1172,12 +1173,22 @@ fn generated_clause_rejects_default_contracts() {
 #[test]
 fn created_and_updated_fields_emit_write_management_metadata() {
     assert_eq!(
-        Field::created_at().write_management,
+        Field::managed_timestamp(
+            LitStr::new("created_at", Span::call_site()),
+            format_ident!("created_at"),
+            FieldWriteManagement::CreatedAt,
+        )
+        .write_management,
         Some(FieldWriteManagement::CreatedAt),
         "created_at helper should mark the field as insert-managed",
     );
     assert_eq!(
-        Field::updated_at().write_management,
+        Field::managed_timestamp(
+            LitStr::new("updated_at", Span::call_site()),
+            format_ident!("updated_at"),
+            FieldWriteManagement::UpdatedAt,
+        )
+        .write_management,
         Some(FieldWriteManagement::UpdatedAt),
         "updated_at helper should mark the field as update-managed",
     );

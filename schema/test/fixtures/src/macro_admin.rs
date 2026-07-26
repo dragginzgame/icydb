@@ -11,6 +11,10 @@ use icydb::design::prelude::*;
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_admin.rs::entity::1",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -62,6 +66,10 @@ pub struct ComplexEntity {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_admin.rs::entity::2",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -93,6 +101,10 @@ pub struct AdminEntity {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_admin.rs::entity::3",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -117,6 +129,10 @@ pub struct RelatedEntity {}
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_admin.rs::entity::4",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     name = "AdminSimpleEntity",
     store = "TestStore",
     version = 1,

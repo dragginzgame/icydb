@@ -154,20 +154,6 @@ impl Item {
         ItemTarget::Primitive(Primitive::Unit)
     }
 
-    pub fn created_at() -> Self {
-        Self {
-            primitive: Some(Primitive::Timestamp),
-            ..Default::default()
-        }
-    }
-
-    pub fn updated_at() -> Self {
-        Self {
-            primitive: Some(Primitive::Timestamp),
-            ..Default::default()
-        }
-    }
-
     pub const fn is_relation(&self) -> bool {
         self.relation.is_some()
     }

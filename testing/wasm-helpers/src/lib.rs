@@ -85,6 +85,10 @@ macro_rules! define_simple_audit_entities {
             #[doc = "Repeated simple audit entity used to measure base per-entity wasm cost."]
             #[doc = ""]
             #[entity(source_key = "testing/wasm-helpers/src/lib.rs::entity::nested::1",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
                 store = $store,
                 version = 1,
                 pk(fields = ["id"]),

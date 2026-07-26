@@ -41,6 +41,10 @@ pub struct CharacterMentor {}
 ///
 
 #[entity(source_key = "schema/demo/rpg/src/schema/character.rs::entity::1",
+    audit_timestamps(
+        created_at(source_key = "created_at", ident = "created_at"),
+        updated_at(source_key = "updated_at", ident = "updated_at")
+    ),
     store = "DemoRpgStore",
     version = 1,
     pk(fields = ["id"]),
