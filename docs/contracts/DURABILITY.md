@@ -116,7 +116,7 @@ images.
 
 Recovery is replay, not fresh write admission. It verifies the durable marker,
 journal, store, key, schema-fingerprint, and row boundaries needed to complete
-an internally produced commit. It does not rerun mutation-time sanitizers or
+an internally produced commit. It does not run application normalizers or
 user validators, reevaluate accepted checks or new-write gates, or turn external
 raw bytes into an admitted mutation. Those admission decisions are resolved
 before the original marker and recovery replays their complete row bytes.

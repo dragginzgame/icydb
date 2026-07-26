@@ -1,6 +1,6 @@
 //! Module: visitor::traits
 //! Responsibility: visitable-node traits and default container traversal wiring.
-//! Does not own: concrete sanitize/validate visitor implementations.
+//! Does not own: concrete normalize/validate visitor implementations.
 //! Boundary: structural traversal contract implemented by domain types.
 
 use super::{
@@ -16,23 +16,10 @@ use super::{
 /// A node that participates in visitor-based traversal.
 ///
 /// Invariants:
-/// - Traversal is owned by the visitor, not by sanitize/validate hooks.
+/// - Traversal is owned by the visitor, not by normalize/validate hooks.
 /// - `drive` / `drive_mut` describe *structure only*.
-/// - No validation or sanitization logic lives here.
-pub trait Visitable: Sanitize + Validate {
-    /// Whether this value graph can invoke application-defined write behavior.
-    ///
-    /// Manual implementations default to fail-closed. Generated schema types
-    /// override this with a recursive profile.
-    #[doc(hidden)]
-    #[must_use]
-    fn requires_application_write_callbacks() -> bool
-    where
-        Self: Sized,
-    {
-        true
-    }
-
+/// - No validation or normalization logic lives here.
+pub trait Visitable: Normalize + Validate {
     fn drive(&self, _: &mut dyn VisitorCore) {}
     fn drive_mut(&mut self, _: &mut dyn VisitorMutCore) {}
 }
@@ -41,15 +28,11 @@ pub trait Visitable: Sanitize + Validate {
 // -------------------- Container forwarding --------------------
 //
 
-// `Option` and `Vec` describe child structure here; their sanitize and
+// `Option` and `Vec` describe child structure here; their normalize and
 // validate hooks remain node-local no-ops. `Box` is transparent instead, so
 // its hook forwarding supplies the boxed node's one logical hook call.
 
 impl<T: Visitable> Visitable for Option<T> {
-    fn requires_application_write_callbacks() -> bool {
-        T::requires_application_write_callbacks()
-    }
-
     fn drive(&self, visitor: &mut dyn VisitorCore) {
         if let Some(value) = self.as_ref() {
             perform_visit(visitor, value, PathSegment::Empty);
@@ -64,10 +47,6 @@ impl<T: Visitable> Visitable for Option<T> {
 }
 
 impl<T: Visitable> Visitable for Vec<T> {
-    fn requires_application_write_callbacks() -> bool {
-        T::requires_application_write_callbacks()
-    }
-
     fn drive(&self, visitor: &mut dyn VisitorCore) {
         for (i, value) in self.iter().enumerate() {
             perform_visit(visitor, value, i);
@@ -82,10 +61,6 @@ impl<T: Visitable> Visitable for Vec<T> {
 }
 
 impl<T: Visitable> Visitable for Box<T> {
-    fn requires_application_write_callbacks() -> bool {
-        T::requires_application_write_callbacks()
-    }
-
     fn drive(&self, visitor: &mut dyn VisitorCore) {
         (**self).drive(visitor);
     }
@@ -98,11 +73,7 @@ impl<T: Visitable> Visitable for Box<T> {
 // Primitive leaf nodes: no structure
 macro_rules! impl_primitive_visitable {
     ($($ty:ty),* $(,)?) => {
-        $(impl Visitable for $ty {
-            fn requires_application_write_callbacks() -> bool {
-                false
-            }
-        })*
+        $(impl Visitable for $ty {})*
     };
 }
 
@@ -112,64 +83,64 @@ impl_primitive_visitable!(
 
 //
 // ============================================================================
-// Sanitize
+// Normalize
 // ============================================================================
 //
 
-/// Marker trait: a type supports sanitization.
-pub trait Sanitize: SanitizeAuto + SanitizeCustom {}
+/// Marker trait: a type supports normalization.
+pub trait Normalize: NormalizeAuto + NormalizeCustom {}
 
-impl<T> Sanitize for T where T: SanitizeAuto + SanitizeCustom {}
+impl<T> Normalize for T where T: NormalizeAuto + NormalizeCustom {}
 
 //
-// -------------------- SanitizeAuto --------------------
+// -------------------- NormalizeAuto --------------------
 //
 
-/// Schema-defined sanitization for this node only.
+/// Schema-defined normalization for this node only.
 ///
 /// Rules:
 /// - May mutate only `self`
 /// - Must NOT recurse
 /// - Must NOT fail-fast
 /// - Must report issues via `VisitorContext`
-pub trait SanitizeAuto {
-    fn sanitize_self(&mut self, _ctx: &mut dyn VisitorContext) {}
+pub trait NormalizeAuto {
+    fn normalize_self(&mut self, _ctx: &mut dyn VisitorContext) {}
 }
 
-impl<T: SanitizeAuto> SanitizeAuto for Option<T> {}
+impl<T: NormalizeAuto> NormalizeAuto for Option<T> {}
 
-impl<T: SanitizeAuto> SanitizeAuto for Vec<T> {}
+impl<T: NormalizeAuto> NormalizeAuto for Vec<T> {}
 
-impl<T: SanitizeAuto + ?Sized> SanitizeAuto for Box<T> {
-    fn sanitize_self(&mut self, ctx: &mut dyn VisitorContext) {
-        (**self).sanitize_self(ctx);
+impl<T: NormalizeAuto + ?Sized> NormalizeAuto for Box<T> {
+    fn normalize_self(&mut self, ctx: &mut dyn VisitorContext) {
+        (**self).normalize_self(ctx);
     }
 }
 
-impl_primitive!(SanitizeAuto);
+impl_primitive!(NormalizeAuto);
 
 //
-// -------------------- SanitizeCustom --------------------
+// -------------------- NormalizeCustom --------------------
 //
 
-/// User-defined sanitization hooks.
+/// User-defined normalization hooks.
 ///
-/// Same rules as `SanitizeAuto`.
-pub trait SanitizeCustom {
-    fn sanitize_custom(&mut self, _ctx: &mut dyn VisitorContext) {}
+/// Same rules as `NormalizeAuto`.
+pub trait NormalizeCustom {
+    fn normalize_custom(&mut self, _ctx: &mut dyn VisitorContext) {}
 }
 
-impl<T: SanitizeCustom> SanitizeCustom for Option<T> {}
+impl<T: NormalizeCustom> NormalizeCustom for Option<T> {}
 
-impl<T: SanitizeCustom> SanitizeCustom for Vec<T> {}
+impl<T: NormalizeCustom> NormalizeCustom for Vec<T> {}
 
-impl<T: SanitizeCustom + ?Sized> SanitizeCustom for Box<T> {
-    fn sanitize_custom(&mut self, ctx: &mut dyn VisitorContext) {
-        (**self).sanitize_custom(ctx);
+impl<T: NormalizeCustom + ?Sized> NormalizeCustom for Box<T> {
+    fn normalize_custom(&mut self, ctx: &mut dyn VisitorContext) {
+        (**self).normalize_custom(ctx);
     }
 }
 
-impl_primitive!(SanitizeCustom);
+impl_primitive!(NormalizeCustom);
 
 //
 // ============================================================================
@@ -232,18 +203,18 @@ impl<T: ValidateCustom + ?Sized> ValidateCustom for Box<T> {
 
 impl_primitive!(ValidateCustom);
 
-/// Transforms a value into a sanitized version.
-pub trait Sanitizer<T> {
-    fn sanitize(&self, value: &mut T) -> Result<(), String>;
+/// Transforms a value into a normalized version.
+pub trait Normalizer<T> {
+    fn normalize(&self, value: &mut T) -> Result<(), String>;
 
-    fn sanitize_with_context(
+    fn normalize_with_context(
         &self,
         value: &mut T,
         ctx: &mut dyn VisitorContext,
     ) -> Result<(), String> {
         let _ = ctx;
 
-        self.sanitize(value)
+        self.normalize(value)
     }
 }
 
@@ -256,38 +227,38 @@ pub trait Validator<T: ?Sized> {
 mod tests {
     use super::*;
     use crate::{
-        sanitize::sanitize,
+        normalize::normalize,
         validate::validate,
         visitor::{Issue, VisitorError},
     };
     use std::cell::Cell;
 
-    const AUTO_SANITIZE_ISSUE: &str = "automatic sanitize";
-    const CUSTOM_SANITIZE_ISSUE: &str = "custom sanitize";
+    const AUTO_NORMALIZE_ISSUE: &str = "automatic normalize";
+    const CUSTOM_NORMALIZE_ISSUE: &str = "custom normalize";
     const AUTO_VALIDATE_ISSUE: &str = "automatic validate";
     const CUSTOM_VALIDATE_ISSUE: &str = "custom validate";
 
     #[derive(Default)]
     struct HookProbe {
-        auto_sanitize: u32,
-        custom_sanitize: u32,
+        auto_normalize: u32,
+        custom_normalize: u32,
         auto_validate: Cell<u32>,
         custom_validate: Cell<u32>,
     }
 
     impl Visitable for HookProbe {}
 
-    impl SanitizeAuto for HookProbe {
-        fn sanitize_self(&mut self, ctx: &mut dyn VisitorContext) {
-            self.auto_sanitize += 1;
-            ctx.issue(AUTO_SANITIZE_ISSUE);
+    impl NormalizeAuto for HookProbe {
+        fn normalize_self(&mut self, ctx: &mut dyn VisitorContext) {
+            self.auto_normalize += 1;
+            ctx.issue(AUTO_NORMALIZE_ISSUE);
         }
     }
 
-    impl SanitizeCustom for HookProbe {
-        fn sanitize_custom(&mut self, ctx: &mut dyn VisitorContext) {
-            self.custom_sanitize += 1;
-            ctx.issue(CUSTOM_SANITIZE_ISSUE);
+    impl NormalizeCustom for HookProbe {
+        fn normalize_custom(&mut self, ctx: &mut dyn VisitorContext) {
+            self.custom_normalize += 1;
+            ctx.issue(CUSTOM_NORMALIZE_ISSUE);
         }
     }
 
@@ -315,21 +286,29 @@ mod tests {
     }
 
     #[test]
-    fn option_vec_sanitize_hooks_run_once_at_each_indexed_path() {
+    fn option_vec_normalize_hooks_run_once_at_each_indexed_path() {
         let mut value = Some(vec![HookProbe::default(), HookProbe::default()]);
 
-        let error = sanitize(&mut value).expect_err("probe sanitizers should report issues");
+        let error = normalize(&mut value).expect_err("probe normalizers should report issues");
 
         let Some(probes) = value.as_ref() else {
-            panic!("sanitize should preserve the populated option");
+            panic!("normalize should preserve the populated option");
         };
         for probe in probes {
-            assert_eq!(probe.auto_sanitize, 1);
-            assert_eq!(probe.custom_sanitize, 1);
+            assert_eq!(probe.auto_normalize, 1);
+            assert_eq!(probe.custom_normalize, 1);
         }
         assert!(error.issues().get("").is_none());
-        assert_issues(&error, "[0]", [AUTO_SANITIZE_ISSUE, CUSTOM_SANITIZE_ISSUE]);
-        assert_issues(&error, "[1]", [AUTO_SANITIZE_ISSUE, CUSTOM_SANITIZE_ISSUE]);
+        assert_issues(
+            &error,
+            "[0]",
+            [AUTO_NORMALIZE_ISSUE, CUSTOM_NORMALIZE_ISSUE],
+        );
+        assert_issues(
+            &error,
+            "[1]",
+            [AUTO_NORMALIZE_ISSUE, CUSTOM_NORMALIZE_ISSUE],
+        );
     }
 
     #[test]
@@ -352,10 +331,10 @@ mod tests {
 
     #[test]
     fn box_transparency_keeps_one_forwarded_hook_call() {
-        let mut sanitized = Box::new(HookProbe::default());
-        let _ = sanitize(&mut sanitized).expect_err("probe sanitizers should report issues");
-        assert_eq!(sanitized.auto_sanitize, 1);
-        assert_eq!(sanitized.custom_sanitize, 1);
+        let mut normalized = Box::new(HookProbe::default());
+        let _ = normalize(&mut normalized).expect_err("probe normalizers should report issues");
+        assert_eq!(normalized.auto_normalize, 1);
+        assert_eq!(normalized.custom_normalize, 1);
 
         let validated = Box::new(HookProbe::default());
         let _ = validate(&validated).expect_err("probe validators should report issues");

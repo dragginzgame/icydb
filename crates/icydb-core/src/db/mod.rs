@@ -24,6 +24,7 @@ pub(crate) mod schema;
 pub(crate) mod session;
 #[cfg(feature = "sql")]
 pub(crate) mod sql;
+pub(in crate::db) mod write_context;
 
 pub(in crate::db) mod codec;
 pub(in crate::db) mod commit;
@@ -69,6 +70,7 @@ pub use schema::{
     SchemaChangeJobId, SchemaChangeOutcome, SchemaChangeProgress, SchemaChangeProgressStatus,
     SchemaChangeReceipt, SchemaChangeValidationPhase,
 };
+pub use write_context::MutationMode;
 // These hidden helper re-exports remain public so the crate-root `__macro`
 // boundary can route generated code through one stable path without widening
 // the normal `db` facade contract.
@@ -100,7 +102,6 @@ pub use dynamic_write::{
     DynamicMutationResult, DynamicTypedBindingError, DynamicTypedEntityBinding,
     DynamicTypedFieldBindingRequest, DynamicTypedFieldType,
 };
-pub use executor::MutationMode;
 pub use executor::{ExecutionFamily, RouteExecutionMode};
 #[cfg(feature = "diagnostics")]
 #[doc(hidden)]

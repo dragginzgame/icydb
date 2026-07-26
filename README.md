@@ -13,7 +13,7 @@ accepted schema catalogs, indexes, fluent queries, a reduced single-entity SQL
 surface, pagination, grouped aggregates, DDL-backed catalog mutation, and
 generated observability endpoints.
 
-Current workspace version: `0.213.29`
+Current workspace version: `0.213.30`
 
 IcyDB's dependency-facing minimum supported Rust version is `1.88.0` for the
 public `icydb` crate path. Workspace packages declare a `1.96.0` Rust floor;
@@ -27,7 +27,7 @@ For local development setup, test prerequisites, and troubleshooting, see
 ## Current Shape
 
 - Schema macros declare canisters, stores, entities, fields, indexes, records,
-  enums, collection types, validators, sanitizers, and explicit relations.
+  enums, collection types, validators, normalizers, and explicit relations.
 - Accepted schema snapshots are the runtime authority for row layouts, index
   catalogs, schema reconciliation, SQL DDL, and observability.
 - Primary keys can be scalar or composite. Composite keys use ordered
@@ -47,7 +47,7 @@ Pin IcyDB by tag in downstream canisters:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.29" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.30" }
 ```
 
 The default crate feature set is typed/fluent-only. Enable SQL explicitly when
@@ -55,7 +55,7 @@ the canister uses session/library SQL APIs or generated SQL endpoints:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.29", features = ["sql"] }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.30", features = ["sql"] }
 ```
 
 Canisters normally call `icydb::start!()` in `src/lib.rs`, add `icydb` as a
@@ -65,7 +65,7 @@ glue follows the active `icydb.toml`.
 
 ```toml
 [build-dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.29" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.30" }
 ```
 
 ## Minimal Schema
@@ -278,8 +278,9 @@ publish an explicit new-write gate when historical proof is required;
 `VALIDATE CONSTRAINT` advances the bounded durable proof before atomic
 promotion. `SHOW CONSTRAINTS` exposes the same accepted identity and activation
 state without performing a table scan.
-Application validators and sanitizers remain typed authoring behavior; they do
-not become database constraints or recovery-time policy.
+Application validators and normalizers are explicit typed authoring behavior.
+Database writes never invoke them, and they do not become database constraints
+or recovery-time policy.
 
 IcyDB SQL is not Postgres-style transaction SQL. Mutation statements are
 single-entity IcyDB operations, and returning `Err` from a canister update

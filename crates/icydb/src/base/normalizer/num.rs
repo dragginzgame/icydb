@@ -1,13 +1,13 @@
-//! Module: base::sanitizer::num
+//! Module: base::normalizer::num
 //!
-//! Responsibility: base sanitizer definitions.
+//! Responsibility: base normalizer definitions.
 //! Does not own: validation policy, persistence, or schema mutation semantics.
-//! Boundary: mutates schema field values through facade sanitizer traits.
+//! Boundary: mutates schema field values through facade normalizer traits.
 
 use crate::{
     base::helper::try_cast_decimal,
     design::prelude::*,
-    traits::{NumericValue, Sanitizer},
+    traits::{Normalizer, NumericValue},
 };
 use std::any::type_name;
 
@@ -15,7 +15,7 @@ use std::any::type_name;
 /// Clamp
 ///
 
-#[sanitizer]
+#[normalizer]
 pub struct Clamp {
     min: Decimal,
     max: Decimal,
@@ -30,8 +30,8 @@ impl Clamp {
     }
 }
 
-impl<T: NumericValue> Sanitizer<T> for Clamp {
-    fn sanitize(&self, value: &mut T) -> Result<(), String> {
+impl<T: NumericValue> Normalizer<T> for Clamp {
+    fn normalize(&self, value: &mut T) -> Result<(), String> {
         if self.min > self.max {
             return Err(format!(
                 "Clamp requires min <= max (got {}..={})",
@@ -69,7 +69,7 @@ impl<T: NumericValue> Sanitizer<T> for Clamp {
 /// RoundDecimalPlaces
 ///
 
-#[sanitizer]
+#[normalizer]
 pub struct RoundDecimalPlaces {
     scale: u32,
 }
@@ -83,8 +83,8 @@ impl RoundDecimalPlaces {
     }
 }
 
-impl Sanitizer<Decimal> for RoundDecimalPlaces {
-    fn sanitize(&self, value: &mut Decimal) -> Result<(), String> {
+impl Normalizer<Decimal> for RoundDecimalPlaces {
+    fn normalize(&self, value: &mut Decimal) -> Result<(), String> {
         *value = value.round_dp(self.scale);
 
         Ok(())
@@ -109,15 +109,15 @@ mod tests {
         let clamp = Clamp::new(10, 20);
 
         let mut v = 5;
-        clamp.sanitize(&mut v).unwrap();
+        clamp.normalize(&mut v).unwrap();
         assert_eq!(v, 10);
 
         let mut v = 25;
-        clamp.sanitize(&mut v).unwrap();
+        clamp.normalize(&mut v).unwrap();
         assert_eq!(v, 20);
 
         let mut v = 15;
-        clamp.sanitize(&mut v).unwrap();
+        clamp.normalize(&mut v).unwrap();
         assert_eq!(v, 15);
     }
 
@@ -126,7 +126,7 @@ mod tests {
         let clamp = Clamp::new(20, 10);
 
         let mut v = 15;
-        assert!(clamp.sanitize(&mut v).is_err());
+        assert!(clamp.normalize(&mut v).is_err());
     }
 
     #[test]
@@ -134,15 +134,15 @@ mod tests {
         let round = RoundDecimalPlaces::new(2);
 
         let mut v = dec("1.234");
-        round.sanitize(&mut v).unwrap();
+        round.normalize(&mut v).unwrap();
         assert_eq!(v, dec("1.23"));
 
         let mut v = dec("1.235");
-        round.sanitize(&mut v).unwrap();
+        round.normalize(&mut v).unwrap();
         assert_eq!(v, dec("1.24"));
 
         let mut v = dec("-1.235");
-        round.sanitize(&mut v).unwrap();
+        round.normalize(&mut v).unwrap();
         assert_eq!(v, dec("-1.24"));
     }
 }

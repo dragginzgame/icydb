@@ -9,7 +9,7 @@ use crate::{
     db::{EntityKeyBytes, EntityKeyBytesError, validate_entity_key_bytes_buffer},
     types::{Principal, PrincipalEncodeError, Subaccount},
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
+    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 
 /// Failure while encoding the fixed account storage representation.
@@ -186,16 +186,12 @@ impl RuntimeValueDecode for Account {
     }
 }
 
-impl SanitizeAuto for Account {}
+impl NormalizeAuto for Account {}
 
-impl SanitizeCustom for Account {}
+impl NormalizeCustom for Account {}
 
 impl ValidateAuto for Account {}
 
 impl ValidateCustom for Account {}
 
-impl Visitable for Account {
-    fn requires_application_write_callbacks() -> bool {
-        false
-    }
-}
+impl Visitable for Account {}

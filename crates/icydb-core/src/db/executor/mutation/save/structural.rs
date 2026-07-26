@@ -14,9 +14,9 @@ use crate::{
             mutation::save::{MutationMode, SaveExecutor},
         },
         schema::{AcceptedRowDecodeContract, SchemaInfo},
+        write_context::AcceptedWriteContext,
     },
     error::InternalError,
-    sanitize::SanitizeWriteContext,
 };
 #[cfg(test)]
 use crate::{
@@ -43,7 +43,7 @@ pub(super) struct StructuralMutationRequest<E: PersistedRow> {
     mode: MutationMode,
     target_key: StructuralMutationTargetKey<E::Key>,
     patch: AcceptedMutationIntentPatch,
-    write_context: SanitizeWriteContext,
+    write_context: AcceptedWriteContext,
     accepted_row_decode_contract: AcceptedRowDecodeContract,
 }
 
@@ -66,7 +66,7 @@ impl<E: PersistedRow> StructuralMutationRequest<E> {
         mode: MutationMode,
         target_key: StructuralMutationTargetKey<E::Key>,
         patch: AcceptedMutationIntentPatch,
-        write_context: SanitizeWriteContext,
+        write_context: AcceptedWriteContext,
         accepted_row_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {
         Self {
@@ -84,7 +84,7 @@ impl<E: PersistedRow> StructuralMutationRequest<E> {
         mode: MutationMode,
         key: E::Key,
         patch: AuthoredStructuralPatch,
-        write_context: SanitizeWriteContext,
+        write_context: AcceptedWriteContext,
         accepted_row_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {
         Self::accepted_lowered(
@@ -100,8 +100,8 @@ impl<E: PersistedRow> StructuralMutationRequest<E> {
 impl<E: PersistedRow> SaveExecutor<E> {
     // Build one canonical write preflight context for one structural save mode.
     #[cfg(test)]
-    const fn structural_write_context(mode: MutationMode, now: Timestamp) -> SanitizeWriteContext {
-        SanitizeWriteContext::new(mode.sanitize_write_mode(), now)
+    const fn structural_write_context(mode: MutationMode, now: Timestamp) -> AcceptedWriteContext {
+        AcceptedWriteContext::new(mode, now)
     }
 
     // Run one structural key + patch mutation under one explicit save-mode contract.
@@ -203,7 +203,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
             &accepted_row_decode_contract,
         )?;
         let (structural_after_image, provenance) = resolved.into_parts();
-        let mut entity = Self::materialize_structural_after_image(
+        let entity = Self::materialize_structural_after_image(
             structural_after_image.as_raw_row(),
             accepted_row_decode_contract.clone(),
         )?;
@@ -231,8 +231,8 @@ impl<E: PersistedRow> SaveExecutor<E> {
                 self.accepted_schema_info(),
             )?;
         }
-        let normalized_entity_row = self.preflight_resolved_entity_with_provenance(
-            &mut entity,
+        self.preflight_resolved_entity(
+            &entity,
             &raw_data_key,
             structural_after_image.as_raw_row(),
             provenance.as_slice(),
@@ -241,9 +241,10 @@ impl<E: PersistedRow> SaveExecutor<E> {
             write_context,
         )?;
 
-        // Phase 2: preflight already emitted normalized generated fields and
-        // preserved resolved DDL-owned slots as one complete current row.
-        let row_bytes = normalized_entity_row.into_raw_row().into_bytes();
+        // Accepted resolution already emitted one complete current-layout row.
+        // Materialization above is a typed boundary projection, not a second
+        // mutation or normalization authority.
+        let row_bytes = structural_after_image.into_raw_row().into_bytes();
         let before_bytes = old_raw
             .as_ref()
             .map(|row| {
@@ -273,7 +274,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
         mode: MutationMode,
         target_key: &StructuralMutationTargetKey<E::Key>,
         patch: &AcceptedMutationIntentPatch,
-        write_context: SanitizeWriteContext,
+        write_context: AcceptedWriteContext,
         accepted_row_decode_contract: &AcceptedRowDecodeContract,
     ) -> Result<(ResolvedAcceptedMutationRow, Option<RawRow>), InternalError> {
         match mode {

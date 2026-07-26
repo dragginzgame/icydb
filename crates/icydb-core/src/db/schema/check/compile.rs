@@ -5,6 +5,7 @@ use super::{
     AcceptedCheckLiteralV1, AcceptedCheckValueExprV1, MAX_CHECK_EXPR_V1_NODES, slot_for_field,
 };
 use crate::{
+    db::write_context::MutationMode,
     db::{
         commit::CommitSchemaFingerprint,
         data::{
@@ -18,7 +19,6 @@ use crate::{
             AcceptedValueCatalogHandle, ConstraintActivationKind, ConstraintId,
         },
     },
-    sanitize::SanitizeWriteMode,
     value::Value,
 };
 use std::{borrow::Cow, cmp::Ordering};
@@ -500,7 +500,7 @@ impl CompiledAcceptedRowConstraints {
     /// Return the first incomplete unique activation that blocks this write.
     pub(in crate::db) fn unique_activation_write_blocker(
         &self,
-        mode: SanitizeWriteMode,
+        mode: MutationMode,
         provenance: &[Option<AcceptedFieldWriteProvenance>],
     ) -> Result<Option<&CompiledUniqueWriteBarrier>, AcceptedRowConstraintEvaluationError> {
         if provenance.len() != self.field_count {
@@ -510,8 +510,8 @@ impl CompiledAcceptedRowConstraints {
             .unique_write_barriers
             .iter()
             .find(|barrier| match mode {
-                SanitizeWriteMode::Insert | SanitizeWriteMode::Replace => true,
-                SanitizeWriteMode::Update => barrier.dependency_slots.iter().any(|slot| {
+                MutationMode::Insert | MutationMode::Replace => true,
+                MutationMode::Update => barrier.dependency_slots.iter().any(|slot| {
                     !matches!(
                         provenance.get(*slot).copied().flatten(),
                         Some(

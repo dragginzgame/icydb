@@ -11,8 +11,8 @@ use crate::prelude::*;
 
 #[derive(Clone, Debug, Default, FromMeta)]
 pub struct Type {
-    #[darling(multiple, rename = "sanitizer")]
-    pub(crate) sanitizers: Vec<TypeSanitizer>,
+    #[darling(multiple, rename = "normalizer")]
+    pub(crate) normalizers: Vec<TypeNormalizer>,
 
     #[darling(multiple, rename = "validator")]
     pub(crate) validators: Vec<TypeValidator>,
@@ -20,29 +20,29 @@ pub struct Type {
 
 impl HasSchemaPart for Type {
     fn schema_part(&self) -> TokenStream {
-        let sanitizers = quote_slice(&self.sanitizers, TypeSanitizer::schema_part);
+        let normalizers = quote_slice(&self.normalizers, TypeNormalizer::schema_part);
         let validators = quote_slice(&self.validators, TypeValidator::schema_part);
 
         // quote
         quote! {
-            ::icydb::schema::node::Type::new(#sanitizers, #validators)
+            ::icydb::schema::node::Type::new(#normalizers, #validators)
         }
     }
 }
 
 ///
-/// TypeSanitizer
+/// TypeNormalizer
 ///
 
 #[derive(Clone, Debug, FromMeta)]
-pub struct TypeSanitizer {
+pub struct TypeNormalizer {
     pub(crate) path: Path,
 
     #[darling(default)]
     pub(crate) args: Args,
 }
 
-impl TypeSanitizer {
+impl TypeNormalizer {
     pub fn quote_constructor(&self) -> TokenStream {
         let path = &self.path;
         let args = self.args.iter();
@@ -55,14 +55,14 @@ impl TypeSanitizer {
     }
 }
 
-impl HasSchemaPart for TypeSanitizer {
+impl HasSchemaPart for TypeNormalizer {
     fn schema_part(&self) -> TokenStream {
         let path = quote_one(&self.path, to_path);
         let args = &self.args.schema_part();
 
         // quote
         quote! {
-            ::icydb::schema::node::TypeSanitizer::new(#path, #args)
+            ::icydb::schema::node::TypeNormalizer::new(#path, #args)
         }
     }
 }

@@ -14,11 +14,11 @@ use crate::{
             Context,
             mutation::{emit_index_delta_metrics, mutation_write_context},
         },
+        write_context::AcceptedWriteContext,
     },
     entity::EntityCreateInput,
     error::InternalError,
     metrics::sink::{ExecKind, Span},
-    sanitize::SanitizeWriteContext,
     traits::AuthoredFieldProjection,
     types::{CurrentTimestamp, Timestamp},
 };
@@ -95,7 +95,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
         &self,
         ctx: &Context<'_, E>,
         save_rule: SaveRule,
-        write_context: SanitizeWriteContext,
+        write_context: AcceptedWriteContext,
         entity: E,
     ) -> Result<E, InternalError> {
         let schema = self.accepted_schema_info();

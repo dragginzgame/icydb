@@ -1,8 +1,8 @@
-//! Module: base::sanitizer::web
+//! Module: base::normalizer::web
 //!
-//! Responsibility: base sanitizer definitions.
+//! Responsibility: base normalizer definitions.
 //! Does not own: validation policy, persistence, or schema mutation semantics.
-//! Boundary: mutates schema field values through facade sanitizer traits.
+//! Boundary: mutates schema field values through facade normalizer traits.
 
 use crate::design::prelude::*;
 
@@ -11,11 +11,11 @@ use crate::design::prelude::*;
 /// Lowercases and trims whitespace.
 ///
 
-#[sanitizer]
+#[normalizer]
 pub struct MimeType;
 
-impl Sanitizer<String> for MimeType {
-    fn sanitize(&self, value: &mut String) -> Result<(), String> {
+impl Normalizer<String> for MimeType {
+    fn normalize(&self, value: &mut String) -> Result<(), String> {
         let trimmed = value.trim();
 
         if trimmed.len() != value.len() {
@@ -33,11 +33,11 @@ impl Sanitizer<String> for MimeType {
 /// Trims whitespace and ensures a valid scheme (adds `https://` if missing).
 ///
 
-#[sanitizer]
+#[normalizer]
 pub struct Url;
 
-impl Sanitizer<String> for Url {
-    fn sanitize(&self, value: &mut String) -> Result<(), String> {
+impl Normalizer<String> for Url {
+    fn normalize(&self, value: &mut String) -> Result<(), String> {
         let trimmed = value.trim();
 
         let normalized = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
@@ -73,73 +73,73 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_mime_type_sanitize_trims_and_lowercases() {
-        let sanitizer = MimeType;
+    fn test_mime_type_normalize_trims_and_lowercases() {
+        let normalizer = MimeType;
 
         let mut v = "  Text/HTML  ".to_string();
-        sanitizer.sanitize(&mut v).unwrap();
+        normalizer.normalize(&mut v).unwrap();
         assert_eq!(v, "text/html");
 
         let mut v = "APPLICATION/JSON".to_string();
-        sanitizer.sanitize(&mut v).unwrap();
+        normalizer.normalize(&mut v).unwrap();
         assert_eq!(v, "application/json");
 
         let mut v = " image/JPEG ".to_string();
-        sanitizer.sanitize(&mut v).unwrap();
+        normalizer.normalize(&mut v).unwrap();
         assert_eq!(v, "image/jpeg");
     }
 
     #[test]
-    fn test_url_sanitize_adds_https_when_missing() {
-        let sanitizer = Url;
+    fn test_url_normalize_adds_https_when_missing() {
+        let normalizer = Url;
 
         let mut v = "example.com".to_string();
-        sanitizer.sanitize(&mut v).unwrap();
+        normalizer.normalize(&mut v).unwrap();
         assert_eq!(v, "https://example.com");
 
         let mut v = " www.example.com ".to_string();
-        sanitizer.sanitize(&mut v).unwrap();
+        normalizer.normalize(&mut v).unwrap();
         assert_eq!(v, "https://www.example.com");
 
         let mut v = "example.com:8080/path".to_string();
-        sanitizer.sanitize(&mut v).unwrap();
+        normalizer.normalize(&mut v).unwrap();
         assert_eq!(v, "https://example.com:8080/path");
     }
 
     #[test]
-    fn test_url_sanitize_keeps_existing_scheme() {
-        let sanitizer = Url;
+    fn test_url_normalize_keeps_existing_scheme() {
+        let normalizer = Url;
 
         let mut v = "https://example.com".to_string();
-        sanitizer.sanitize(&mut v).unwrap();
+        normalizer.normalize(&mut v).unwrap();
         assert_eq!(v, "https://example.com");
 
         let mut v = "http://example.com".to_string();
-        sanitizer.sanitize(&mut v).unwrap();
+        normalizer.normalize(&mut v).unwrap();
         assert_eq!(v, "http://example.com");
     }
 
     #[test]
-    fn test_url_sanitize_trims_whitespace() {
-        let sanitizer = Url;
+    fn test_url_normalize_trims_whitespace() {
+        let normalizer = Url;
 
         let mut v = "   https://example.com   ".to_string();
-        sanitizer.sanitize(&mut v).unwrap();
+        normalizer.normalize(&mut v).unwrap();
         assert_eq!(v, "https://example.com");
 
         let mut v = "   example.com   ".to_string();
-        sanitizer.sanitize(&mut v).unwrap();
+        normalizer.normalize(&mut v).unwrap();
         assert_eq!(v, "https://example.com");
     }
 
     #[test]
-    fn test_url_sanitize_rejects_explicit_unsupported_scheme() {
-        let sanitizer = Url;
+    fn test_url_normalize_rejects_explicit_unsupported_scheme() {
+        let normalizer = Url;
 
         let mut v = "ftp://example.com".to_string();
-        assert!(sanitizer.sanitize(&mut v).is_err());
+        assert!(normalizer.normalize(&mut v).is_err());
 
         let mut v = "javascript:alert(1)".to_string();
-        assert!(sanitizer.sanitize(&mut v).is_err());
+        assert!(normalizer.normalize(&mut v).is_err());
     }
 }

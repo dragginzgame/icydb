@@ -33,9 +33,8 @@ use crate::{
         schema::{
             AcceptedCheckCompareOpV1, AcceptedRowDecodeContract, AcceptedSchemaRevision,
             AcceptedValueCatalogHandle, CheckExprV1Input, CheckValueExprV1Input, ConstraintId,
-            ConstraintOrigin, FieldId, PersistedFieldSnapshot, PersistedSchemaSnapshot,
-            RowLayoutVersion, SchemaFieldSlot, SchemaHistoricalFill, SchemaInsertDefault,
-            SchemaRowLayout, SchemaStore, accepted_commit_schema_fingerprint, bind_check_expr_v1,
+            ConstraintOrigin, FieldId, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaRowLayout,
+            SchemaStore, accepted_commit_schema_fingerprint, bind_check_expr_v1,
             build_initial_accepted_catalogs_for_tests, compiled_schema_proposal_for_model,
             ensure_accepted_schema_snapshot, publish_test_accepted_schema_snapshot,
         },
@@ -60,7 +59,7 @@ use crate::{
         InputValue, InputValueEnum, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
         RuntimeValueMeta, Value,
     },
-    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
+    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
@@ -1097,20 +1096,6 @@ fn load_database_default_write_entity(id: Ulid) -> Option<DatabaseDefaultWriteEn
     })
 }
 
-fn load_sanitizer_provenance_entity(id: Ulid) -> Option<SanitizerProvenanceEntity> {
-    let data_key = DecodedDataStoreKey::try_new::<SanitizerProvenanceEntity>(id)
-        .expect("sanitizer provenance data key should build")
-        .to_raw()
-        .expect("sanitizer provenance data key should encode");
-
-    with_data_store(SourceStore::PATH, |data_store| {
-        data_store.get(&data_key).map(|row| {
-            row.try_decode_with_model_proposal_for_test::<SanitizerProvenanceEntity>()
-                .expect("sanitizer provenance row decode should succeed")
-        })
-    })
-}
-
 fn accepted_structural_patch<E, I, S>(
     session: &DbSession<TestCanister>,
     fields: I,
@@ -1168,80 +1153,6 @@ fn install_unique_email_old_accepted_schema_prefix() {
         .expect("unsupported but well-formed old schema snapshot should publish");
     });
     DbSession::<TestCanister>::clear_accepted_schema_query_cache_for_tests();
-}
-
-fn install_sanitizer_provenance_historical_score_schema() {
-    let model = <SanitizerProvenanceEntity as crate::entity::EntityDeclaration>::MODEL;
-    let expected = compiled_schema_proposal_for_model(model).initial_persisted_schema_snapshot();
-    let current = RowLayoutVersion::INITIAL
-        .checked_next()
-        .expect("historical sanitizer fixture layout should advance");
-    let mut fields = expected.fields().to_vec();
-    let score = &expected.fields()[1];
-    fields[1] = PersistedFieldSnapshot::new_with_write_policy(
-        score.id(),
-        score.name().to_string(),
-        score.slot(),
-        score.kind().clone(),
-        score.nested_leaves().to_vec(),
-        score.nullable(),
-        current,
-        SchemaInsertDefault::SlotPayload(DATABASE_DEFAULT_SCORE_PAYLOAD.to_vec()),
-        SchemaHistoricalFill::SlotPayload(DATABASE_DEFAULT_SCORE_PAYLOAD.to_vec()),
-        score.write_policy(),
-        score.storage_decode(),
-        score.leaf_codec(),
-    );
-    let snapshot = PersistedSchemaSnapshot::new(
-        expected.version(),
-        expected.entity_path().to_string(),
-        expected.entity_name().to_string(),
-        expected.first_primary_key_field_id(),
-        SchemaRowLayout::new(
-            current,
-            RowLayoutVersion::INITIAL,
-            expected.row_layout().field_to_slot().to_vec(),
-        ),
-        fields,
-    );
-
-    SOURCE_SCHEMA_STORE.with_borrow_mut(|store| {
-        publish_test_accepted_schema_snapshot(
-            store,
-            SanitizerProvenanceEntity::ENTITY_TAG,
-            SanitizerProvenanceEntity::PATH,
-            SourceStore::PATH,
-            model,
-            snapshot,
-        )
-        .expect("historical sanitizer fixture schema should publish");
-    });
-}
-
-fn insert_historical_sanitizer_provenance_row(id: Ulid) {
-    let id_payload =
-        encode_persisted_scalar_slot_payload(&id, "id").expect("id slot payload should encode");
-    let mut row_payload = Vec::new();
-    row_payload.extend_from_slice(&1_u16.to_be_bytes());
-    row_payload.extend_from_slice(&0_u32.to_be_bytes());
-    row_payload.extend_from_slice(
-        &u32::try_from(id_payload.len())
-            .expect("id payload length should fit")
-            .to_be_bytes(),
-    );
-    row_payload.extend_from_slice(id_payload.as_slice());
-    let raw_row = RawRow::try_new(
-        serialize_row_payload(RowLayoutVersion::INITIAL, row_payload)
-            .expect("historical row should encode"),
-    )
-    .expect("historical row should satisfy row bounds");
-    let raw_key = DecodedDataStoreKey::try_new::<SanitizerProvenanceEntity>(id)
-        .expect("historical row key should build")
-        .to_raw()
-        .expect("historical row key should encode");
-    with_data_store_mut(SourceStore::PATH, |store| {
-        store.insert_raw_for_test(raw_key, raw_row);
-    });
 }
 
 fn load_source_set_entity(id: Ulid) -> Option<SourceSetEntity> {
@@ -1439,14 +1350,14 @@ struct DatabaseDefaultWriteCreate {
 }
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
-struct SanitizerProvenanceEntity {
+struct ApplicationCallbackEntity {
     id: Ulid,
     score: i32,
 }
 
 crate::__icydb_test_entity_model!(
-    SanitizerProvenanceEntity,
-    "SanitizerProvenanceEntity",
+    ApplicationCallbackEntity,
+    "ApplicationCallbackEntity",
     version = 1,
     primary_key = [id],
     fields = [
@@ -1462,75 +1373,80 @@ crate::__icydb_test_entity_model!(
     relations = [],
 );
 
-impl crate::db::EntityKey for SanitizerProvenanceEntity {
+impl crate::db::EntityKey for ApplicationCallbackEntity {
     type Key = Ulid;
 }
 
-impl Path for SanitizerProvenanceEntity {
-    const PATH: &'static str = concat!(module_path!(), "::SanitizerProvenanceEntity");
+impl Path for ApplicationCallbackEntity {
+    const PATH: &'static str = concat!(module_path!(), "::ApplicationCallbackEntity");
 }
 
-impl crate::entity::EntityDeclaration for SanitizerProvenanceEntity {
-    const NAME: &'static str = "SanitizerProvenanceEntity";
+impl crate::entity::EntityDeclaration for ApplicationCallbackEntity {
+    const NAME: &'static str = "ApplicationCallbackEntity";
     const MODEL: &'static crate::model::entity::EntityModel = &Self::MODEL_DEF;
 }
 
-impl crate::entity::EntityPlacement for SanitizerProvenanceEntity {
+impl crate::entity::EntityPlacement for ApplicationCallbackEntity {
     type Store = SourceStore;
     type Canister = TestCanister;
 }
 
-impl EntityKind for SanitizerProvenanceEntity {
+impl EntityKind for ApplicationCallbackEntity {
     const ENTITY_TAG: EntityTag = EntityTag::new(9_000_209);
 }
 
-impl crate::traits::AuthoredFieldProjection for SanitizerProvenanceEntity {
+impl crate::traits::AuthoredFieldProjection for ApplicationCallbackEntity {
     fn get_input_value_by_index(&self, index: usize) -> Option<InputValue> {
         crate::traits::FieldProjection::get_value_by_index(self, index).map(InputValue::from)
     }
 }
 
-impl crate::entity::EntityValue for SanitizerProvenanceEntity {
+impl crate::entity::EntityValue for ApplicationCallbackEntity {
     fn id(&self) -> crate::types::Id<Self> {
         crate::types::Id::from_key(self.id)
     }
 }
 
-impl SanitizeAuto for SanitizerProvenanceEntity {}
+impl NormalizeAuto for ApplicationCallbackEntity {}
 
 thread_local! {
-    static SANITIZER_PROVENANCE_INVOCATIONS: Cell<usize> = const { Cell::new(0) };
+    static APPLICATION_NORMALIZER_INVOCATIONS: Cell<usize> = const { Cell::new(0) };
+    static APPLICATION_VALIDATOR_INVOCATIONS: Cell<usize> = const { Cell::new(0) };
 }
 
-impl SanitizeCustom for SanitizerProvenanceEntity {
-    fn sanitize_custom(&mut self, ctx: &mut dyn crate::visitor::VisitorContext) {
-        SANITIZER_PROVENANCE_INVOCATIONS.set(
-            SANITIZER_PROVENANCE_INVOCATIONS
+impl NormalizeCustom for ApplicationCallbackEntity {
+    fn normalize_custom(&mut self, _ctx: &mut dyn crate::visitor::VisitorContext) {
+        APPLICATION_NORMALIZER_INVOCATIONS.set(
+            APPLICATION_NORMALIZER_INVOCATIONS
                 .get()
                 .checked_add(1)
-                .expect("sanitizer invocation count should remain bounded"),
+                .expect("application normalizer invocation count should remain bounded"),
         );
-        self.score = match ctx
-            .sanitize_write_context()
-            .map(crate::sanitize::SanitizeWriteContext::mode)
-        {
-            Some(crate::sanitize::SanitizeWriteMode::Update) => 100,
-            _ => 99,
-        };
+        self.score = 99;
     }
 }
 
-impl ValidateAuto for SanitizerProvenanceEntity {}
-impl ValidateCustom for SanitizerProvenanceEntity {}
-impl Visitable for SanitizerProvenanceEntity {}
+impl ValidateAuto for ApplicationCallbackEntity {}
+impl ValidateCustom for ApplicationCallbackEntity {
+    fn validate_custom(&self, ctx: &mut dyn crate::visitor::VisitorContext) {
+        APPLICATION_VALIDATOR_INVOCATIONS.set(
+            APPLICATION_VALIDATOR_INVOCATIONS
+                .get()
+                .checked_add(1)
+                .expect("application validator invocation count should remain bounded"),
+        );
+        ctx.issue("application validator must be explicitly invoked");
+    }
+}
+impl Visitable for ApplicationCallbackEntity {}
 
-struct SanitizerProvenanceCreate {
+struct ApplicationCallbackCreate {
     id: Ulid,
     score: Option<i32>,
 }
 
-impl EntityCreateInput for SanitizerProvenanceCreate {
-    type Entity = SanitizerProvenanceEntity;
+impl EntityCreateInput for ApplicationCallbackCreate {
+    type Entity = ApplicationCallbackEntity;
 
     fn into_authored_fields(self) -> Vec<EntityCreateFieldInput> {
         let mut fields = vec![EntityCreateFieldInput::new(0, self.id.into())];
@@ -1630,7 +1546,7 @@ static ENTITY_REGISTRATIONS: &[EntityRegistration<TestCanister>] = &[
     EntityRegistration::for_entity::<DecimalScaleEntity>(),
     EntityRegistration::for_entity::<BoundedTextEntity>(),
     EntityRegistration::for_entity::<DatabaseDefaultWriteEntity>(),
-    EntityRegistration::for_entity::<SanitizerProvenanceEntity>(),
+    EntityRegistration::for_entity::<ApplicationCallbackEntity>(),
     EntityRegistration::for_entity::<NullableAccountEventEntity>(),
 ];
 
@@ -3466,66 +3382,60 @@ fn atomic_typed_insert_uses_the_same_accepted_after_image_resolver() {
 }
 
 #[test]
-fn typed_create_rejects_sanitizer_changes_to_accepted_default_values() {
+fn typed_create_never_runs_application_normalizers_or_validators() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
-
-    let id = Ulid::from_u128(153);
-    let err = DbSession::new(DB)
-        .create(SanitizerProvenanceCreate { id, score: None })
-        .expect_err("sanitizer must not transform an accepted database default");
-
-    assert_eq!(err.class, ErrorClass::Unsupported);
-    let data_key = DecodedDataStoreKey::try_new::<SanitizerProvenanceEntity>(id)
-        .expect("test key should encode");
-    let raw_key = data_key
-        .to_raw()
-        .expect("test key should encode to raw bytes");
-    assert!(
-        with_data_store(SourceStore::PATH, |store| store.get(&raw_key).is_none()),
-        "sanitizer provenance rejection must happen before commit staging",
-    );
-}
-
-#[test]
-fn typed_create_allows_sanitizer_changes_to_authored_values() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    APPLICATION_NORMALIZER_INVOCATIONS.set(0);
+    APPLICATION_VALIDATOR_INVOCATIONS.set(0);
 
     let id = Ulid::from_u128(154);
     let created = DbSession::new(DB)
-        .create(SanitizerProvenanceCreate {
+        .create(ApplicationCallbackCreate {
             id,
             score: Some(42),
         })
-        .expect("sanitizer may transform caller-authored input");
+        .expect("database admission must not run application callbacks");
 
-    assert_eq!(created.score, 99);
+    assert_eq!(created.score, 42);
+    assert_eq!(APPLICATION_NORMALIZER_INVOCATIONS.get(), 0);
+    assert_eq!(APPLICATION_VALIDATOR_INVOCATIONS.get(), 0);
+
+    let defaulted = DbSession::new(DB)
+        .create(ApplicationCallbackCreate {
+            id: Ulid::from_u128(153),
+            score: None,
+        })
+        .expect("accepted default resolution must not run application callbacks");
+    assert_eq!(defaulted.score, 7);
+    assert_eq!(APPLICATION_NORMALIZER_INVOCATIONS.get(), 0);
+    assert_eq!(APPLICATION_VALIDATOR_INVOCATIONS.get(), 0);
 }
 
 #[test]
-fn marker_recovery_replays_resolved_bytes_without_reinvoking_sanitizer() {
+fn marker_recovery_never_invokes_application_callbacks() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
-    SANITIZER_PROVENANCE_INVOCATIONS.set(0);
+    APPLICATION_NORMALIZER_INVOCATIONS.set(0);
+    APPLICATION_VALIDATOR_INVOCATIONS.set(0);
 
     let id = Ulid::from_u128(162);
     let expected =
-        CanonicalRow::from_entity_with_model_proposal_for_test(&SanitizerProvenanceEntity {
+        CanonicalRow::from_entity_with_model_proposal_for_test(&ApplicationCallbackEntity {
             id,
-            score: 99,
+            score: 42,
         })
-        .expect("resolved sanitizer row should encode")
+        .expect("resolved callback-free row should encode")
         .into_raw_row();
     arm_commit_failpoint_for_tests(
         CommitFailpoint::AfterMarkerWrite,
         CommitFailpointMode::ReturnError,
     );
     DbSession::new(DB)
-        .insert(SanitizerProvenanceEntity { id, score: 42 })
+        .insert(ApplicationCallbackEntity { id, score: 42 })
         .expect_err("post-marker interruption should surface to the caller");
 
-    assert_eq!(SANITIZER_PROVENANCE_INVOCATIONS.get(), 1);
+    assert_eq!(APPLICATION_NORMALIZER_INVOCATIONS.get(), 0);
+    assert_eq!(APPLICATION_VALIDATOR_INVOCATIONS.get(), 0);
     assert!(
         commit_marker_present().expect("commit marker probe should succeed"),
         "post-marker interruption must retain marker-owned candidate bytes",
@@ -3533,18 +3443,23 @@ fn marker_recovery_replays_resolved_bytes_without_reinvoking_sanitizer() {
     ensure_recovered(&DB).expect("marker-owned candidate should recover");
 
     assert_eq!(
-        SANITIZER_PROVENANCE_INVOCATIONS.get(),
-        1,
-        "recovery must not invoke the sanitizer again",
+        APPLICATION_NORMALIZER_INVOCATIONS.get(),
+        0,
+        "recovery must not invoke application normalizers",
     );
-    let raw_key = DecodedDataStoreKey::try_new::<SanitizerProvenanceEntity>(id)
-        .expect("recovered sanitizer key should build")
+    assert_eq!(
+        APPLICATION_VALIDATOR_INVOCATIONS.get(),
+        0,
+        "recovery must not invoke application validators",
+    );
+    let raw_key = DecodedDataStoreKey::try_new::<ApplicationCallbackEntity>(id)
+        .expect("recovered callback-free key should build")
         .to_raw()
-        .expect("recovered sanitizer key should encode");
+        .expect("recovered callback-free key should encode");
     let recovered = with_data_store(SourceStore::PATH, |store| {
         store
             .get(&raw_key)
-            .expect("marker-owned sanitizer row should recover")
+            .expect("marker-owned callback-free row should recover")
     });
     assert_eq!(recovered.as_bytes(), expected.as_bytes());
     assert!(
@@ -3554,94 +3469,25 @@ fn marker_recovery_replays_resolved_bytes_without_reinvoking_sanitizer() {
 }
 
 #[test]
-fn structural_insert_rejects_sanitizer_changes_to_accepted_default_values() {
+fn structural_writes_never_run_application_normalizers_or_validators() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
-
-    let session = DbSession::new(DB);
-    let id = Ulid::from_u128(158);
-    let patch = accepted_structural_patch::<SanitizerProvenanceEntity, _, _>(
-        &session,
-        [("id", Value::Ulid(id))],
-    );
-    let err = session
-        .insert_structural::<SanitizerProvenanceEntity>(id, patch)
-        .expect_err("structural omission must retain protected default provenance");
-
-    assert_eq!(err.class, ErrorClass::Unsupported);
-    assert!(load_sanitizer_provenance_entity(id).is_none());
-}
-
-#[test]
-fn structural_insert_allows_sanitizer_changes_to_authored_values() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    APPLICATION_NORMALIZER_INVOCATIONS.set(0);
+    APPLICATION_VALIDATOR_INVOCATIONS.set(0);
 
     let session = DbSession::new(DB);
     let id = Ulid::from_u128(159);
-    let patch = accepted_structural_patch::<SanitizerProvenanceEntity, _, _>(
+    let patch = accepted_structural_patch::<ApplicationCallbackEntity, _, _>(
         &session,
         [("id", Value::Ulid(id)), ("score", Value::Int64(42))],
     );
     let inserted = session
-        .insert_structural::<SanitizerProvenanceEntity>(id, patch)
-        .expect("structural authored input may be sanitized");
+        .insert_structural::<ApplicationCallbackEntity>(id, patch)
+        .expect("structural database admission must not run application callbacks");
 
-    assert_eq!(inserted.score, 99);
-}
-
-#[test]
-fn structural_update_rejects_sanitizer_changes_to_preserved_values() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
-
-    let session = DbSession::new(DB);
-    let id = Ulid::from_u128(160);
-    session
-        .insert(SanitizerProvenanceEntity { id, score: 42 })
-        .expect("authored baseline should insert");
-    let err = session
-        .update_structural::<SanitizerProvenanceEntity>(id, AuthoredStructuralPatch::new())
-        .expect_err("sanitizer must not transform an unassigned preserved field");
-
-    assert_eq!(err.class, ErrorClass::Unsupported);
-    assert_eq!(
-        load_sanitizer_provenance_entity(id)
-            .expect("rejected update must retain the exact baseline")
-            .score,
-        99,
-    );
-}
-
-#[test]
-fn structural_update_rejects_sanitizer_changes_to_historical_fills() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
-    install_sanitizer_provenance_historical_score_schema();
-
-    let session = DbSession::new(DB);
-    let id = Ulid::from_u128(161);
-    insert_historical_sanitizer_provenance_row(id);
-    let err = session
-        .update_structural::<SanitizerProvenanceEntity>(id, AuthoredStructuralPatch::new())
-        .expect_err("sanitizer must not transform a frozen historical fill");
-
-    assert_eq!(err.class, ErrorClass::Unsupported);
-    let raw_key = DecodedDataStoreKey::try_new::<SanitizerProvenanceEntity>(id)
-        .expect("historical row key should build")
-        .to_raw()
-        .expect("historical row key should encode");
-    let layout_version = with_data_store(SourceStore::PATH, |store| {
-        let raw_row = store.get(&raw_key).expect("historical row should remain");
-        crate::db::data::decode_structural_row_payload(&raw_row)
-            .expect("historical row should decode")
-            .layout_version()
-    });
-    assert_eq!(
-        layout_version,
-        RowLayoutVersion::INITIAL,
-        "rejected historical update must not promote or rewrite the row",
-    );
+    assert_eq!(inserted.score, 42);
+    assert_eq!(APPLICATION_NORMALIZER_INVOCATIONS.get(), 0);
+    assert_eq!(APPLICATION_VALIDATOR_INVOCATIONS.get(), 0);
 }
 
 #[test]

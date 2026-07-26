@@ -597,7 +597,7 @@ impl HasTraits for Entity {
             TraitKind::EntityKind => EntityKindTrait::strategy(self),
             TraitKind::EntityValue => EntityValueTrait::strategy(self),
             TraitKind::PersistedRow => PersistedRowTrait::strategy(self),
-            TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),
+            TraitKind::NormalizeAuto => NormalizeAutoTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 

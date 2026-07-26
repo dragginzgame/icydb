@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- **Breaking:** application normalizers and validators are now explicit
+  authoring operations, with `normalizer` replacing `sanitizer`; database
+  writes and recovery never invoke either application behavior.
+
 ## [0.213.x] 🧭 - 2026-07-24 - Schema Authority And Application Separation
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)

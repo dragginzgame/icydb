@@ -9,7 +9,7 @@ use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
         data::AcceptedMutationIntentPatch,
-        executor::{MutationMode, StructuralProjectionScanBudget},
+        executor::StructuralProjectionScanBudget,
         query::intent::StructuralQuery,
         schema::AcceptedRowLayoutRuntimeContract,
         session::{
@@ -27,9 +27,9 @@ use crate::{
             lowering::bind_sql_update_selector_query_structural_with_schema,
             parser::{SqlUpdateStatement, SqlWriteValue},
         },
+        write_context::{AcceptedWriteContext, MutationMode},
     },
     metrics::sink::SqlWriteKind,
-    sanitize::{SanitizeWriteContext, SanitizeWriteMode},
     traits::CanisterKind,
     types::{CurrentTimestamp, Timestamp},
     value::Value,
@@ -229,7 +229,7 @@ impl<C: CanisterKind> DbSession<C> {
                     .selector(Self::sql_update_selector_query(&schema_info, statement)?);
                 let patch = Self::sql_structural_patch(&descriptor, statement)?;
                 let write_context =
-                    SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
+                    AcceptedWriteContext::new(MutationMode::Update, Timestamp::now());
                 let candidate_bounds = execution_contract.candidate_bounds();
                 let scan_budget = execution_contract.scan_budget()?;
                 let collection = self

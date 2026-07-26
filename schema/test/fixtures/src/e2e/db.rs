@@ -279,12 +279,12 @@ impl Index {
     source_key = "schema/test/fixtures/src/e2e/db.rs::newtype::1",
     primitive = "Text",
     item(prim = "Text", unbounded),
-    ty(sanitizer(path = "base::sanitizer::text::case::Lower"))
+    ty(normalizer(path = "base::normalizer::text::case::Lower"))
 )]
 pub struct LowerIndexText {}
 
 ///
-/// IndexSanitized
+/// IndexNormalized
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/e2e/db.rs::entity::10",
@@ -305,7 +305,7 @@ pub struct LowerIndexText {}
         field(source_key = "score", ident = "score", value(item(prim = "Int32")))
     )
 )]
-pub struct IndexSanitized {}
+pub struct IndexNormalized {}
 
 ///
 /// IndexRelation

@@ -115,7 +115,7 @@ macro_node!(list, node::List, r#gen::ListGen);
 macro_node!(map, node::Map, r#gen::MapGen);
 macro_node!(newtype, node::Newtype, r#gen::NewtypeGen);
 macro_node!(record, node::Record, r#gen::RecordGen);
-macro_node!(sanitizer, node::Sanitizer, r#gen::SanitizerGen);
+macro_node!(normalizer, node::Normalizer, r#gen::NormalizerGen);
 macro_node!(set, node::Set, r#gen::SetGen);
 macro_node!(store, node::Store, r#gen::StoreGen);
 macro_node!(tuple, node::Tuple, r#gen::TupleGen);

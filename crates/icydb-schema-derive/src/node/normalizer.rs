@@ -1,4 +1,4 @@
-//! Module: node::sanitizer
+//! Module: node::normalizer
 //! Responsibility: derive-side node parsing.
 //! Does not own: runtime schema semantics.
 //! Boundary: macro metadata to node models.
@@ -9,45 +9,45 @@ use crate::{
 };
 
 ///
-/// Sanitizer
+/// Normalizer
 ///
 
 #[derive(Debug, FromMeta)]
-pub struct Sanitizer {
+pub struct Normalizer {
     #[darling(default, skip)]
     pub(crate) def: Def,
 }
 
-impl HasDef for Sanitizer {
+impl HasDef for Normalizer {
     fn def(&self) -> &Def {
         &self.def
     }
 }
 
-impl ValidateNode for Sanitizer {
+impl ValidateNode for Normalizer {
     fn validate(&self) -> Result<(), DarlingError> {
         Ok(())
     }
 }
 
-impl HasSchema for Sanitizer {
+impl HasSchema for Normalizer {
     fn schema_node_kind() -> SchemaNodeKind {
-        SchemaNodeKind::Sanitizer
+        SchemaNodeKind::Normalizer
     }
 }
 
-impl HasSchemaPart for Sanitizer {
+impl HasSchemaPart for Normalizer {
     fn schema_part(&self) -> TokenStream {
         let def = self.def.schema_part();
 
         // quote
         quote! {
-            ::icydb::schema::node::Sanitizer::new(#def)
+            ::icydb::schema::node::Normalizer::new(#def)
         }
     }
 }
 
-impl HasTraits for Sanitizer {
+impl HasTraits for Normalizer {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = TraitBuilder::default().build();
         traits.add(TraitKind::Default);
@@ -56,7 +56,7 @@ impl HasTraits for Sanitizer {
     }
 }
 
-impl HasType for Sanitizer {
+impl HasType for Normalizer {
     fn type_part(&self) -> TokenStream {
         let item = &self.def.item;
 
@@ -64,7 +64,7 @@ impl HasType for Sanitizer {
     }
 }
 
-impl ToTokens for Sanitizer {
+impl ToTokens for Normalizer {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         tokens.extend(self.all_tokens());
     }

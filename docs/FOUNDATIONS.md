@@ -269,8 +269,8 @@ not accepted-state corruption.
 
 Candidate unique-index and relation generations remain invisible to ordinary
 planning and delete-safety decisions until that promotion. Application
-validators and sanitizers may still participate in typed authoring paths, but
-they are not persisted constraint authority.
+validators and normalizers are explicit typed authoring operations. Database
+writes never invoke them, and they are not persisted constraint authority.
 
 Typed `DESCRIBE` and SQL `SHOW CONSTRAINTS` observe this accepted authority.
 They do not perform or imply a fresh table scan.

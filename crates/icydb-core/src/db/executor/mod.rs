@@ -95,7 +95,6 @@ pub(in crate::db::executor) use index_prefix_cardinality::{
     lowered_index_prefix_liveness_at_generation,
 };
 pub(in crate::db::executor) use kernel::ExecutionKernel;
-pub use mutation::save::MutationMode;
 pub(super) use mutation::save::SaveExecutor;
 pub(in crate::db) use mutation::{
     commit_delete_row_ops_with_window_for_path,

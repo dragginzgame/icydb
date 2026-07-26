@@ -1,4 +1,4 @@
-pub use icydb_testing_test_fixtures::macro_test::sanitize::clamp::*;
+pub use icydb_testing_test_fixtures::macro_test::normalize::clamp::*;
 
 ///
 /// TESTS
@@ -9,7 +9,7 @@ mod tests {
     use super::*;
     use crate::prelude::*;
     use icydb::{
-        sanitize,
+        normalize,
         traits::{Collection, Inner},
         types::Decimal,
     };
@@ -39,30 +39,30 @@ mod tests {
     #[test]
     fn test_clamp_int32() {
         let mut v = ClampInt32::from(5);
-        sanitize(&mut v).unwrap();
+        normalize(&mut v).unwrap();
         assert_eq!(*v.inner(), 10, "should clamp up to min");
 
         let mut v = ClampInt32::from(25);
-        sanitize(&mut v).unwrap();
+        normalize(&mut v).unwrap();
         assert_eq!(*v.inner(), 20, "should clamp down to max");
 
         let mut v = ClampInt32::from(15);
-        sanitize(&mut v).unwrap();
+        normalize(&mut v).unwrap();
         assert_eq!(*v.inner(), 15, "in-range value should be unchanged");
     }
 
     #[test]
     fn test_clamp_decimal() {
         let mut v = ClampDecimal::from(Decimal::from(0.1));
-        sanitize(&mut v).unwrap();
+        normalize(&mut v).unwrap();
         assert_eq!(*v.inner(), Decimal::from(0.5), "should clamp up to min");
 
         let mut v = ClampDecimal::from(Decimal::from(10));
-        sanitize(&mut v).unwrap();
+        normalize(&mut v).unwrap();
         assert_eq!(*v.inner(), Decimal::from(5.5), "should clamp down to max");
 
         let mut v = ClampDecimal::from(Decimal::from(2));
-        sanitize(&mut v).unwrap();
+        normalize(&mut v).unwrap();
         assert_eq!(
             *v.inner(),
             Decimal::from(2.0),
@@ -73,7 +73,7 @@ mod tests {
     #[test]
     fn test_clamp_option_fields() {
         let mut opt: Option<ClampInt32> = Some(ClampInt32::from(5));
-        sanitize(&mut opt).unwrap();
+        normalize(&mut opt).unwrap();
         assert_eq!(
             opt.unwrap(),
             ClampInt32::from(10),
@@ -81,7 +81,7 @@ mod tests {
         );
 
         let mut none: Option<ClampInt32> = None;
-        sanitize(&mut none).unwrap();
+        normalize(&mut none).unwrap();
         assert!(none.is_none(), "None should remain untouched");
     }
 
@@ -92,7 +92,7 @@ mod tests {
             Decimal::from(2.0),
             Decimal::from(10.0),
         ]);
-        sanitize(&mut list).unwrap();
+        normalize(&mut list).unwrap();
 
         let expected = vec![Decimal::from(0.5), Decimal::from(2.0), Decimal::from(5.5)];
         let actual: Vec<_> = list.iter().map(|value| *value.inner()).collect();
@@ -103,7 +103,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sanitize_entity() {
+    fn test_normalize_entity() {
         let mut e = ClampEntityHarness {
             id: Ulid::generate(),
             cint32: ClampInt32::from(5),
@@ -115,7 +115,7 @@ mod tests {
             updated_at: icydb::types::Timestamp::default(),
         };
 
-        sanitize(&mut e).unwrap();
+        normalize(&mut e).unwrap();
 
         assert_eq!(e.cint32, ClampInt32::from(10), "clamped up");
         assert_eq!(e.cint32_opt.unwrap(), ClampInt32::from(20), "clamped down");

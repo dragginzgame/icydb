@@ -46,7 +46,7 @@ fi
 
 schema_operation_leaks="$(
   rg -n --no-heading --color=never \
-    '\b(now|generate|try_generate|sanitize|normalize_for_storage|decode_row|encode_row)\s*\(' \
+    '\b(now|generate|try_generate|normalize_for_storage|decode_row|encode_row)\s*\(' \
     "$SCHEMA_ROOT" || true
 )"
 if [[ -n "$schema_operation_leaks" ]]; then

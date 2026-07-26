@@ -35,8 +35,8 @@ pub struct Item {
     #[darling(default, rename = "rel")]
     pub(crate) relation: Option<Path>,
 
-    #[darling(multiple, rename = "sanitizer")]
-    pub(crate) sanitizers: Vec<TypeSanitizer>,
+    #[darling(multiple, rename = "normalizer")]
+    pub(crate) normalizers: Vec<TypeNormalizer>,
 
     #[darling(multiple, rename = "validator")]
     pub(crate) validators: Vec<TypeValidator>,
@@ -167,7 +167,7 @@ impl HasSchemaPart for Item {
         let max_len = quote_option(self.max_len.as_ref(), |max_len| quote!(#max_len));
         let max_bytes = quote_option(self.max_bytes.as_ref(), |max_bytes| quote!(#max_bytes));
         let validators = quote_slice(&self.validators, TypeValidator::schema_part);
-        let sanitizers = quote_slice(&self.sanitizers, TypeSanitizer::schema_part);
+        let normalizers = quote_slice(&self.normalizers, TypeNormalizer::schema_part);
         let indirect = self.indirect;
 
         quote! {
@@ -178,7 +178,7 @@ impl HasSchemaPart for Item {
                 #max_len,
                 #max_bytes,
                 #validators,
-                #sanitizers,
+                #normalizers,
                 #indirect,
             )
         }

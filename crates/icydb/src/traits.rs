@@ -13,7 +13,7 @@ pub use icydb_core::traits::{CanisterKind, FieldTypeMeta, Inner, Kind, Path, Sto
 pub use icydb_core::types::NumericValue;
 pub use icydb_core::value::{Collection, MapCollection};
 pub use icydb_core::visitor::{
-    Sanitize, SanitizeAuto, SanitizeCustom, Sanitizer, Validate, ValidateAuto, ValidateCustom,
+    Normalize, NormalizeAuto, NormalizeCustom, Normalizer, Validate, ValidateAuto, ValidateCustom,
     Validator, Visitable,
 };
 

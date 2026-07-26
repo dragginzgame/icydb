@@ -37,6 +37,17 @@ status=0
 # Strict semantic authority checks (fail on violation).
 # -----------------------------------------------------------------------------
 
+APPLICATION_BEHAVIOR_PATTERN="crate::(normalize|validate)::|visitor::(NormalizeAuto|NormalizeCustom|ValidateAuto|ValidateCustom|Normalizer|Validator)"
+application_behavior_leaks="$(
+  run_rg "$APPLICATION_BEHAVIOR_PATTERN" "$DB_ROOT" --glob '!**/tests/**' \
+    | strip_comment_only
+)"
+if [[ -n "$application_behavior_leaks" ]]; then
+  echo "[ERROR] Database runtime must not execute application normalizers or validators." >&2
+  echo "$application_behavior_leaks" >&2
+  status=1
+fi
+
 literal_source_scans="$(
   rg -n --no-heading --color=never 'include_str!\s*\(\s*".*\.rs"' "$CORE_ROOT" || true
 )"

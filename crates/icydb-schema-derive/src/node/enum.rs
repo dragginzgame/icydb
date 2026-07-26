@@ -133,7 +133,7 @@ impl HasTraits for Enum {
                 PersistedStructuralValueCodecTrait::strategy(self)
             }
             TraitKind::RuntimeValue => RuntimeValueTrait::strategy(self),
-            TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),
+            TraitKind::NormalizeAuto => NormalizeAutoTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 

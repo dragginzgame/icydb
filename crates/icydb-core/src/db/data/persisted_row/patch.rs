@@ -4,10 +4,18 @@ use crate::db::codec::{
 };
 #[cfg(feature = "sql")]
 use crate::db::data::CanonicalSlotReader;
-#[cfg(test)]
-use crate::db::data::PersistedRow;
 #[cfg(feature = "sql")]
 use crate::db::data::persisted_row::types::FieldSlot;
+#[cfg(test)]
+use crate::{
+    db::{
+        data::PersistedRow,
+        schema::authored_projection::{
+            AcceptedAuthoredFieldProjection, AuthoredFieldAdmissionError,
+        },
+    },
+    traits::AuthoredFieldProjection,
+};
 use crate::{
     db::{
         data::{
@@ -30,14 +38,12 @@ use crate::{
         schema::{
             AcceptedFieldPersistenceContract, AcceptedInsertOmissionPolicy,
             AcceptedRowDecodeContract,
-            authored_projection::{AcceptedAuthoredFieldProjection, AuthoredFieldAdmissionError},
             enum_catalog::{ValueAdmissionBudget, ValueAdmissionError},
         },
+        write_context::AcceptedWriteContext,
     },
     error::InternalError,
     model::field::{FieldInsertGeneration, FieldWriteManagement},
-    sanitize::SanitizeWriteContext,
-    traits::AuthoredFieldProjection,
     types::{GenerateKey, Ulid},
     value::{InputValue, Value},
 };
@@ -51,8 +57,8 @@ const ACCEPTED_FIXED_UPDATE_PATCH_FINGERPRINT_DOMAIN: &[u8] =
 
 /// Provenance of one resolved accepted field in a mutation after-image.
 ///
-/// Sanitizer validation uses this transient fact to distinguish caller-authored
-/// values from canonical database values that application code may not alter.
+/// Accepted constraint and activation gates use this transient fact to
+/// distinguish authored inputs from values resolved by database policy.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum AcceptedFieldWriteProvenance {
     /// Exact caller-authored field input.
@@ -75,19 +81,11 @@ pub(in crate::db) enum AcceptedFieldWriteProvenance {
     HistoricalFill,
 }
 
-impl AcceptedFieldWriteProvenance {
-    /// Return whether an application sanitizer may transform this field.
-    #[must_use]
-    pub(in crate::db) const fn sanitizer_may_transform(self) -> bool {
-        matches!(self, Self::Authored)
-    }
-}
-
 /// Complete canonical accepted row paired with per-slot write provenance.
 ///
 /// Construction resolves every active slot before typed materialization, so a
 /// caller cannot separate canonical database values from the provenance proof
-/// required at the sanitizer boundary.
+/// required by accepted constraint and activation gates.
 pub(in crate::db) struct ResolvedAcceptedMutationRow {
     row: CanonicalRow,
     provenance: Vec<Option<AcceptedFieldWriteProvenance>>,
@@ -258,8 +256,7 @@ where
 
 /// Build a test-only canonical row from typed fields and accepted insert policy.
 ///
-/// Production mutation paths already carry a resolved complete after-image and
-/// use `canonical_row_from_resolved_entity_with_accepted_contract` instead.
+/// Production mutation paths already carry a resolved complete after-image.
 #[cfg(test)]
 pub(in crate::db) fn canonical_row_from_entity_with_accepted_contract<E>(
     entity_path: &'static str,
@@ -277,28 +274,7 @@ where
     )
 }
 
-/// Re-emit one sanitizer-normalized entity while preserving resolved DDL-owned slots.
-///
-/// Generated fields come from the normalized entity. Fields absent from the
-/// generated Rust type come from the already-resolved complete after-image, so
-/// updates never reinterpret preserved values through current insert policy.
-pub(in crate::db) fn canonical_row_from_resolved_entity_with_accepted_contract<E>(
-    entity_path: &'static str,
-    accepted_decode_contract: AcceptedRowDecodeContract,
-    entity: &E,
-    resolved_row: &RawRow,
-) -> Result<CanonicalRow, InternalError>
-where
-    E: AuthoredFieldProjection,
-{
-    canonical_row_from_entity_with_optional_resolved_row(
-        entity_path,
-        accepted_decode_contract,
-        entity,
-        Some(resolved_row),
-    )
-}
-
+#[cfg(test)]
 fn canonical_row_from_entity_with_optional_resolved_row<E>(
     entity_path: &'static str,
     accepted_decode_contract: AcceptedRowDecodeContract,
@@ -364,6 +340,7 @@ where
 // accepted/generated authority drift as an invariant failure. Encoding begins
 // only after exact admission succeeds, so codec failures retain serialize
 // ownership.
+#[cfg(test)]
 fn authored_field_admission_error(error: AuthoredFieldAdmissionError) -> InternalError {
     match error {
         AuthoredFieldAdmissionError::Admission(error) => value_admission_error(error),
@@ -466,7 +443,7 @@ fn resolve_insert_active_slot(
     contract: &StructuralRowContract,
     slot: usize,
     intent: Option<AcceptedMutationFieldWriteIntent>,
-    write_context: SanitizeWriteContext,
+    write_context: AcceptedWriteContext,
 ) -> Result<(Vec<u8>, AcceptedFieldWriteProvenance), InternalError> {
     let field = contract.required_accepted_field_contract(slot)?;
     let write_policy = field.write_policy();
@@ -555,12 +532,12 @@ fn resolve_insert_active_slot(
 ///
 /// Authored inputs remain distinct from omission, while accepted generation,
 /// management, default, and nullable policies produce canonical protected
-/// values before any typed entity or sanitizer can observe the after-image.
+/// values before any typed entity projection can observe the after-image.
 pub(in crate::db) fn resolve_insert_structural_patch_with_accepted_contract(
     entity_path: &'static str,
     accepted_decode_contract: AcceptedRowDecodeContract,
     patch: &AcceptedMutationIntentPatch,
-    write_context: SanitizeWriteContext,
+    write_context: AcceptedWriteContext,
 ) -> Result<ResolvedAcceptedMutationRow, InternalError> {
     let contract =
         StructuralRowContract::from_accepted_decode_contract(entity_path, accepted_decode_contract);
@@ -614,7 +591,7 @@ pub(in crate::db) fn resolve_insert_structural_patch_with_accepted_contract(
 ///
 /// Unassigned fields preserve their accepted logical values, including frozen
 /// historical fills, while update-managed fields resolve from the operation's
-/// stable write context before sanitizer execution.
+/// stable write context before typed materialization.
 #[expect(
     clippy::too_many_lines,
     reason = "the phased resolver keeps provenance, no-op detection, and managed-time ownership in one accepted-contract boundary"
@@ -624,7 +601,7 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
     accepted_decode_contract: AcceptedRowDecodeContract,
     raw_row: &RawRow,
     patch: &AcceptedMutationIntentPatch,
-    write_context: SanitizeWriteContext,
+    write_context: AcceptedWriteContext,
 ) -> Result<ResolvedAcceptedMutationRow, InternalError> {
     let contract =
         StructuralRowContract::from_accepted_decode_contract(entity_path, accepted_decode_contract);
@@ -731,8 +708,12 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
     // accepted clock contract is fail-closed: restored future timestamps are
     // preserved and block a write that would move managed time backward.
     if logical_changed && let Some(slot) = updated_at_slot {
-        validate_managed_timestamp_progression(&contract, &baseline, write_context.now())?;
-        let value = Value::Timestamp(write_context.now());
+        validate_managed_timestamp_progression(
+            &contract,
+            &baseline,
+            write_context.operation_timestamp(),
+        )?;
+        let value = Value::Timestamp(write_context.operation_timestamp());
         let encoding = contract.required_accepted_field_persistence_contract(slot)?;
         payloads[slot] = Some(encode_canonical_value_for_accepted_field_contract(
             encoding, &value,
@@ -765,7 +746,7 @@ pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_con
     accepted_decode_contract: AcceptedRowDecodeContract,
     raw_row: &RawRow,
     patch: &AcceptedMutationIntentPatch,
-    write_context: SanitizeWriteContext,
+    write_context: AcceptedWriteContext,
 ) -> Result<ResolvedAcceptedMutationRow, InternalError> {
     let inserted = resolve_insert_structural_patch_with_accepted_contract(
         entity_path,
@@ -835,11 +816,15 @@ pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_con
     }
 
     if logical_changed && let Some(slot) = updated_at_slot {
-        validate_managed_timestamp_progression(&contract, &baseline, write_context.now())?;
+        validate_managed_timestamp_progression(
+            &contract,
+            &baseline,
+            write_context.operation_timestamp(),
+        )?;
         let encoding = contract.required_accepted_field_persistence_contract(slot)?;
         payloads[slot] = Some(encode_canonical_value_for_accepted_field_contract(
             encoding,
-            &Value::Timestamp(write_context.now()),
+            &Value::Timestamp(write_context.operation_timestamp()),
         )?);
         provenance[slot] = Some(AcceptedFieldWriteProvenance::UpdateManaged);
     } else {
@@ -955,21 +940,21 @@ fn resolve_explicit_update_default(
 
 fn accepted_insert_generated_value(
     generation: FieldInsertGeneration,
-    write_context: SanitizeWriteContext,
+    write_context: AcceptedWriteContext,
 ) -> Value {
     match generation {
         FieldInsertGeneration::Ulid => Value::Ulid(Ulid::generate()),
-        FieldInsertGeneration::Timestamp => Value::Timestamp(write_context.now()),
+        FieldInsertGeneration::Timestamp => Value::Timestamp(write_context.operation_timestamp()),
     }
 }
 
 const fn accepted_insert_managed_value(
     management: FieldWriteManagement,
-    write_context: SanitizeWriteContext,
+    write_context: AcceptedWriteContext,
 ) -> Value {
     match management {
         FieldWriteManagement::CreatedAt | FieldWriteManagement::UpdatedAt => {
-            Value::Timestamp(write_context.now())
+            Value::Timestamp(write_context.operation_timestamp())
         }
     }
 }

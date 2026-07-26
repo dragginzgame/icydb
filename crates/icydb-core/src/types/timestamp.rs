@@ -7,7 +7,7 @@ use crate::{
     runtime::now_millis,
     traits::Repr,
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
+    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 
 /// Runtime clock access for the engine-neutral timestamp atom.
@@ -66,19 +66,15 @@ impl RuntimeValueDecode for Timestamp {
     }
 }
 
-impl SanitizeAuto for Timestamp {}
+impl NormalizeAuto for Timestamp {}
 
-impl SanitizeCustom for Timestamp {}
+impl NormalizeCustom for Timestamp {}
 
 impl ValidateAuto for Timestamp {}
 
 impl ValidateCustom for Timestamp {}
 
-impl Visitable for Timestamp {
-    fn requires_application_write_callbacks() -> bool {
-        false
-    }
-}
+impl Visitable for Timestamp {}
 
 #[cfg(test)]
 mod tests;

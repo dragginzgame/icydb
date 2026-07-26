@@ -1,8 +1,8 @@
-//! Module: base::sanitizer::intl::iso
+//! Module: base::normalizer::intl::iso
 //!
-//! Responsibility: base sanitizer definitions.
+//! Responsibility: base normalizer definitions.
 //! Does not own: validation policy, persistence, or schema mutation semantics.
-//! Boundary: mutates schema field values through facade sanitizer traits.
+//! Boundary: mutates schema field values through facade normalizer traits.
 
 use crate::design::prelude::*;
 
@@ -11,11 +11,11 @@ use crate::design::prelude::*;
 /// Trims and uppercases the code
 ///
 
-#[sanitizer]
+#[normalizer]
 pub struct Iso3166_1A2;
 
-impl Sanitizer<String> for Iso3166_1A2 {
-    fn sanitize(&self, value: &mut String) -> Result<(), String> {
+impl Normalizer<String> for Iso3166_1A2 {
+    fn normalize(&self, value: &mut String) -> Result<(), String> {
         // trim in place
         let trimmed = value.trim();
 
@@ -35,11 +35,11 @@ impl Sanitizer<String> for Iso3166_1A2 {
 /// Trims and lowercases the code
 ///
 
-#[sanitizer]
+#[normalizer]
 pub struct Iso639_1;
 
-impl Sanitizer<String> for Iso639_1 {
-    fn sanitize(&self, value: &mut String) -> Result<(), String> {
+impl Normalizer<String> for Iso639_1 {
+    fn normalize(&self, value: &mut String) -> Result<(), String> {
         let trimmed = value.trim();
 
         if trimmed.len() != value.len() {

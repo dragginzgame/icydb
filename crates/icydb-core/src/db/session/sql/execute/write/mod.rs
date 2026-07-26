@@ -8,7 +8,7 @@ use crate::{
     db::{
         DbSession, QueryError,
         data::AcceptedMutationIntentPatch,
-        executor::{EntityAuthority, MutationMode, StructuralProjectionScanBudget},
+        executor::{EntityAuthority, StructuralProjectionScanBudget},
         query::intent::StructuralQuery,
         response::ResponseError,
         schema::{AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot},
@@ -27,10 +27,10 @@ use crate::{
             write::AcceptedStructuralMutationRow,
         },
         sql::parser::{SqlInsertSource, SqlInsertStatement, SqlReturningProjection},
+        write_context::{AcceptedWriteContext, MutationMode},
     },
     error::ErrorClass,
     metrics::sink::{MetricsEvent, SqlWriteKind, record},
-    sanitize::SanitizeWriteContext,
     traits::CanisterKind,
     value::Value,
 };
@@ -220,7 +220,7 @@ struct SqlWriteMutationExecution {
     staged_rows: SqlWriteCandidateRows,
     kind: SqlWriteKind,
     mode: MutationMode,
-    context: SanitizeWriteContext,
+    context: AcceptedWriteContext,
     returning_bounds: Option<SqlWriteReturningBounds>,
 }
 
@@ -230,7 +230,7 @@ impl SqlWriteMutationExecution {
         bounds: SqlWriteCandidateBounds,
         kind: SqlWriteKind,
         mode: MutationMode,
-        context: SanitizeWriteContext,
+        context: AcceptedWriteContext,
         returning_bounds: Option<SqlWriteReturningBounds>,
     ) -> Result<Self, QueryError> {
         let staged_rows = collection
@@ -327,7 +327,7 @@ impl<C: CanisterKind> DbSession<C> {
                 descriptor,
                 execution.mode,
                 rows,
-                execution.context.now(),
+                execution.context.operation_timestamp(),
             )
             .map_err(QueryError::execute)?;
         let rows = rows

@@ -61,6 +61,6 @@ define_gen!(TupleGen, Tuple);
 //
 
 define_gen!(CanisterGen, Canister);
-define_gen!(SanitizerGen, Sanitizer);
+define_gen!(NormalizerGen, Normalizer);
 define_gen!(StoreGen, Store);
 define_gen!(ValidatorGen, Validator);

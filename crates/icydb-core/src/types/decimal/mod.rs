@@ -4,7 +4,7 @@ pub use icydb_schema::{Decimal, DecimalParts, ParseDecimalError, ParseDecimalErr
 
 use crate::{
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
+    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 
 impl RuntimeValueMeta for Decimal {
@@ -28,16 +28,12 @@ impl RuntimeValueDecode for Decimal {
     }
 }
 
-impl SanitizeAuto for Decimal {}
+impl NormalizeAuto for Decimal {}
 
-impl SanitizeCustom for Decimal {}
+impl NormalizeCustom for Decimal {}
 
 impl ValidateAuto for Decimal {}
 
 impl ValidateCustom for Decimal {}
 
-impl Visitable for Decimal {
-    fn requires_application_write_callbacks() -> bool {
-        false
-    }
-}
+impl Visitable for Decimal {}

@@ -72,8 +72,8 @@ pub enum TraitKind {
     NumericValue,
     Path,
     Sorted,
-    SanitizeAuto,
-    SanitizeCustom,
+    NormalizeAuto,
+    NormalizeCustom,
     ValidateAuto,
     ValidateCustom,
     Visitable,
@@ -131,8 +131,8 @@ impl FromStr for TraitKind {
             "NumericValue" => Ok(Self::NumericValue),
             "Path" => Ok(Self::Path),
             "Sorted" => Ok(Self::Sorted),
-            "SanitizeAuto" => Ok(Self::SanitizeAuto),
-            "SanitizeCustom" => Ok(Self::SanitizeCustom),
+            "NormalizeAuto" => Ok(Self::NormalizeAuto),
+            "NormalizeCustom" => Ok(Self::NormalizeCustom),
             "ValidateAuto" => Ok(Self::ValidateAuto),
             "ValidateCustom" => Ok(Self::ValidateCustom),
             "Visitable" => Ok(Self::Visitable),
@@ -151,8 +151,8 @@ static TYPE_TRAITS: LazyLock<Vec<TraitKind>> = LazyLock::new(|| {
         TraitKind::Eq,
         TraitKind::From,
         TraitKind::PartialEq,
-        TraitKind::SanitizeAuto,
-        TraitKind::SanitizeCustom,
+        TraitKind::NormalizeAuto,
+        TraitKind::NormalizeCustom,
         TraitKind::ValidateAuto,
         TraitKind::ValidateCustom,
         TraitKind::Visitable,
@@ -289,8 +289,8 @@ impl ToTokens for TraitKind {
                 let trait_name = format_ident!("{self:?}");
                 quote!(::icydb::value::#trait_name).to_tokens(tokens);
             }
-            Self::SanitizeAuto
-            | Self::SanitizeCustom
+            Self::NormalizeAuto
+            | Self::NormalizeCustom
             | Self::ValidateAuto
             | Self::ValidateCustom
             | Self::Visitable => {
@@ -378,10 +378,6 @@ pub struct TraitBuilder {
 impl TraitBuilder {
     pub(crate) fn explicitly_adds(&self, tr: TraitKind) -> bool {
         self.add.iter().any(|candidate| *candidate == tr)
-    }
-
-    pub(crate) fn explicitly_removes(&self, tr: TraitKind) -> bool {
-        self.remove.iter().any(|candidate| *candidate == tr)
     }
 
     pub(crate) fn with_type_traits(&self) -> Self {

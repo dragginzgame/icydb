@@ -163,16 +163,16 @@ values. Replay must fail closed on invalid marker or journal envelopes, store or
 entity mismatches, invalid keys, incompatible schema fingerprints, malformed
 rows, rejected primary-key identity, or inconsistent derived index state.
 
-Recovery does not rerun mutation-time sanitizers or user validators. Those may
-depend on authoring context and are required before the original marker is
-published. Recovery also does not turn arbitrary external stable-memory bytes
-into an admitted write.
+Recovery does not run application normalizers or validators. They are explicit
+authoring operations outside write admission, may depend on application
+context, and are never marker-owned database semantics. Recovery also does not
+turn arbitrary external stable-memory bytes into an admitted write.
 
 The current durability contract covers internally produced interrupted state,
 not hostile import or arbitrary logical-corruption repair. Explicit Quick and
 Deep inspection can diagnose maintained accepted state after recovery, but
-they do not replay admission, application validators, or mutation-time
-sanitizers and do not repair state. Recovery verification remains limited to
+they do not replay admission, application validators, or application
+normalizers and do not repair state. Recovery verification remains limited to
 the bounded durable effect set already authorized by its marker.
 
 ## Unsupported And Future Ingress

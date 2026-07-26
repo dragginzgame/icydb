@@ -201,8 +201,8 @@ pub trait HasTraits: HasType {
             // Marker traits — empty impls
             // ─────────────────────────────
             TraitKind::CanisterKind
-            | TraitKind::SanitizeAuto
-            | TraitKind::SanitizeCustom
+            | TraitKind::NormalizeAuto
+            | TraitKind::NormalizeCustom
             | TraitKind::ValidateAuto
             | TraitKind::ValidateCustom
             | TraitKind::Visitable => {
@@ -264,8 +264,8 @@ pub enum SchemaNodeKind {
     List,
     Map,
     Newtype,
+    Normalizer,
     Record,
-    Sanitizer,
     Set,
     Store,
     Tuple,

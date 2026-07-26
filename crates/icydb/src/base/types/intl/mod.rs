@@ -18,7 +18,7 @@ use crate::design::prelude::*;
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        sanitizer(path = "base::sanitizer::intl::iso::Iso3166_1A2"),
+        normalizer(path = "base::normalizer::intl::iso::Iso3166_1A2"),
         validator(path = "base::validator::intl::iso::Iso3166_1A2"),
     )
 )]
@@ -36,7 +36,7 @@ pub struct CountryCode {}
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        sanitizer(path = "base::sanitizer::intl::iso::Iso639_1"),
+        normalizer(path = "base::normalizer::intl::iso::Iso639_1"),
         validator(path = "base::validator::intl::iso::Iso639_1"),
     )
 )]
@@ -54,7 +54,7 @@ pub struct LanguageCode {}
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        sanitizer(path = "base::sanitizer::intl::phone::E164PhoneNumber"),
+        normalizer(path = "base::normalizer::intl::phone::E164PhoneNumber"),
         validator(path = "base::validator::intl::phone::E164PhoneNumber"),
     )
 )]

@@ -19,7 +19,7 @@ use crate::design::prelude::*;
     primitive = "Decimal",
     item(prim = "Decimal", scale = 2),
     ty(
-        sanitizer(path = "base::sanitizer::num::RoundDecimalPlaces", args(2)),
+        normalizer(path = "base::normalizer::num::RoundDecimalPlaces", args(2)),
         validator(path = "base::validator::decimal::MaxDecimalPlaces", args(2)),
         validator(path = "base::validator::num::Gte", args(0))
     )

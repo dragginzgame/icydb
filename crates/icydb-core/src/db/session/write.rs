@@ -24,7 +24,7 @@ use crate::{
             resolve_update_structural_patch_with_accepted_contract,
         },
         executor::{
-            MutationMode, commit_delete_row_ops_with_window_for_path,
+            commit_delete_row_ops_with_window_for_path,
             commit_structural_save_row_ops_with_window_for_path, mutation_key_exists_error,
             validate_structural_accepted_after_image,
         },
@@ -33,11 +33,11 @@ use crate::{
             AcceptedFieldKind, AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract,
             CompiledAcceptedRowConstraints, lower_field_type, output_value_from_runtime,
         },
+        write_context::{AcceptedWriteContext, MutationMode},
     },
     entity::EntityCreateInput,
     error::InternalError,
     metrics::sink::{MetricsEvent, SaveMutationKind, record},
-    sanitize::{SanitizeWriteContext, SanitizeWriteMode},
     traits::CanisterKind,
     types::{CurrentTimestamp, Timestamp},
     value::{InputValue, OutputValue, Value},
@@ -201,13 +201,8 @@ const fn dynamic_mutation_mode(request: &DynamicMutation) -> Option<MutationMode
 const fn dynamic_write_context(
     mode: MutationMode,
     operation_timestamp: Timestamp,
-) -> SanitizeWriteContext {
-    let mode = match mode {
-        MutationMode::Insert => SanitizeWriteMode::Insert,
-        MutationMode::Replace => SanitizeWriteMode::Replace,
-        MutationMode::Update => SanitizeWriteMode::Update,
-    };
-    SanitizeWriteContext::new(mode, operation_timestamp)
+) -> AcceptedWriteContext {
+    AcceptedWriteContext::new(mode, operation_timestamp)
 }
 
 fn dynamic_key(
@@ -376,7 +371,7 @@ fn validate_dynamic_after_image<C: CanisterKind>(
     data_key: &DecodedDataStoreKey,
     row: &RawRow,
     provenance: &[Option<crate::db::data::AcceptedFieldWriteProvenance>],
-    write_context: SanitizeWriteContext,
+    write_context: AcceptedWriteContext,
     row_decode_contract: AcceptedRowDecodeContract,
     schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
     constraints: &CompiledAcceptedRowConstraints,

@@ -82,7 +82,7 @@ impl HasTraits for Record {
             }
             TraitKind::RuntimeValue => RuntimeValueTrait::strategy(self),
             TraitKind::Inherent => InherentTrait::strategy(self),
-            TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),
+            TraitKind::NormalizeAuto => NormalizeAutoTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 

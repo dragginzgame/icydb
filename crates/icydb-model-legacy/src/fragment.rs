@@ -390,7 +390,7 @@ const fn named_type_source_key(node: &crate::node::SchemaNode) -> Option<&str> {
         crate::node::SchemaNode::Tuple(node) => Some(node.source_key()),
         crate::node::SchemaNode::Canister(_)
         | crate::node::SchemaNode::Entity(_)
-        | crate::node::SchemaNode::Sanitizer(_)
+        | crate::node::SchemaNode::Normalizer(_)
         | crate::node::SchemaNode::Store(_)
         | crate::node::SchemaNode::Validator(_) => None,
     }
@@ -415,7 +415,7 @@ fn lower_named_type(
         crate::node::SchemaNode::Tuple(tuple) => lower_tuple(schema, tuple, pending),
         crate::node::SchemaNode::Canister(_)
         | crate::node::SchemaNode::Entity(_)
-        | crate::node::SchemaNode::Sanitizer(_)
+        | crate::node::SchemaNode::Normalizer(_)
         | crate::node::SchemaNode::Store(_)
         | crate::node::SchemaNode::Validator(_) => Err(FragmentLoweringError::InvalidReference(
             "non-type graph node".to_string(),

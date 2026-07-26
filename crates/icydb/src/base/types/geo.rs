@@ -19,7 +19,7 @@ use crate::design::prelude::*;
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        sanitizer(path = "base::sanitizer::text::Trim"),
+        normalizer(path = "base::normalizer::text::Trim"),
         validator(path = "base::validator::len::Range", args(1, 100)),
     )
 )]
@@ -39,8 +39,8 @@ pub struct AddressLine {}
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        sanitizer(path = "base::sanitizer::text::Trim"),
-        sanitizer(path = "base::sanitizer::text::case::Title"),
+        normalizer(path = "base::normalizer::text::Trim"),
+        normalizer(path = "base::normalizer::text::case::Title"),
         validator(path = "base::validator::len::Range", args(1, 100)),
     )
 )]
@@ -60,8 +60,8 @@ pub struct CityName {}
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        sanitizer(path = "base::sanitizer::text::Trim"),
-        sanitizer(path = "base::sanitizer::text::case::Upper"),
+        normalizer(path = "base::normalizer::text::Trim"),
+        normalizer(path = "base::normalizer::text::case::Upper"),
         validator(path = "base::validator::len::Range", args(3, 12)),
     )
 )]
@@ -82,8 +82,8 @@ pub struct PostalCode {}
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        sanitizer(path = "base::sanitizer::text::Trim"),
-        sanitizer(path = "base::sanitizer::text::case::Upper"),
+        normalizer(path = "base::normalizer::text::Trim"),
+        normalizer(path = "base::normalizer::text::case::Upper"),
         validator(path = "base::validator::len::Range", args(2, 50)),
     )
 )]

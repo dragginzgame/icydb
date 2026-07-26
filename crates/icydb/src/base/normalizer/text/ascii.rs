@@ -1,8 +1,8 @@
-//! Module: base::sanitizer::text::ascii
+//! Module: base::normalizer::text::ascii
 //!
-//! Responsibility: base sanitizer definitions.
+//! Responsibility: base normalizer definitions.
 //! Does not own: validation policy, persistence, or schema mutation semantics.
-//! Boundary: mutates schema field values through facade sanitizer traits.
+//! Boundary: mutates schema field values through facade normalizer traits.
 
 use crate::design::prelude::*;
 
@@ -13,11 +13,11 @@ use crate::design::prelude::*;
 /// Keeps only ASCII digits 0–9, A–Z, a–z
 ///
 
-#[sanitizer]
+#[normalizer]
 pub struct AlphaNumeric;
 
-impl Sanitizer<String> for AlphaNumeric {
-    fn sanitize(&self, value: &mut String) -> Result<(), String> {
+impl Normalizer<String> for AlphaNumeric {
+    fn normalize(&self, value: &mut String) -> Result<(), String> {
         // Retain only ASCII alphanumeric characters
         value.retain(|c| c.is_ascii_alphanumeric());
 
@@ -32,11 +32,11 @@ impl Sanitizer<String> for AlphaNumeric {
 /// Keeps only ASCII digits 0–9.
 ///
 
-#[sanitizer]
+#[normalizer]
 pub struct Numeric;
 
-impl Sanitizer<String> for Numeric {
-    fn sanitize(&self, value: &mut String) -> Result<(), String> {
+impl Normalizer<String> for Numeric {
+    fn normalize(&self, value: &mut String) -> Result<(), String> {
         value.retain(|c| c.is_ascii_digit());
 
         Ok(())

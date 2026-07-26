@@ -20,7 +20,7 @@
 //! ## Crate layout
 //!
 //! - `base`
-//!   Design-time helpers, sanitizers, and validators used by schemas and macros.
+//!   Design-time helpers, normalizers, and validators used by schemas and macros.
 //!
 //! - `build` *(host builds)*
 //!   Host-side build-script facade for generated actor glue. Downstream
@@ -88,7 +88,7 @@
 // export so things just work in base/
 extern crate self as icydb;
 
-use icydb_core::{error::InternalError, visitor::Visitable};
+pub use icydb_core::{normalize::normalize, validate::validate};
 pub use icydb_model_legacy as schema;
 pub use icydb_schema_derive as macros;
 
@@ -142,16 +142,14 @@ pub mod metrics {
 
 pub mod visitor {
     pub use icydb_core::visitor::{
-        Issue, PathSegment, Sanitize, SanitizeAuto, SanitizeCustom, SanitizeFieldDescriptor,
-        Sanitizer, ScopedContext, Validate, ValidateAuto, ValidateCustom, ValidateFieldDescriptor,
-        Validator, Visitable, VisitableFieldDescriptor, VisitorContext, VisitorCore, VisitorError,
-        VisitorIssues, VisitorMutCore, drive_sanitize_fields, drive_validate_fields,
-        drive_visitable_fields, drive_visitable_fields_mut, perform_visit, perform_visit_mut,
+        Issue, Normalize, NormalizeAuto, NormalizeCustom, NormalizeFieldDescriptor, Normalizer,
+        PathSegment, ScopedContext, Validate, ValidateAuto, ValidateCustom,
+        ValidateFieldDescriptor, Validator, Visitable, VisitableFieldDescriptor, VisitorContext,
+        VisitorCore, VisitorError, VisitorIssues, VisitorMutCore, drive_normalize_fields,
+        drive_validate_fields, drive_visitable_fields, drive_visitable_fields_mut, perform_visit,
+        perform_visit_mut,
     };
-    pub use icydb_core::{
-        sanitize::{SanitizeWriteContext, SanitizeWriteMode, sanitize, sanitize_with_context},
-        validate::validate,
-    };
+    pub use icydb_core::{normalize::normalize, validate::validate};
 }
 
 // facade modules
@@ -333,13 +331,12 @@ pub mod design {
             macros::*,
             traits::{
                 Collection as _, Entity as _, EntityKind, Inner as _, MapCollection as _,
-                Path as _, Sanitize as _, Sanitizer, Validate as _, ValidateCustom, Validator,
+                Normalize as _, Normalizer, Path as _, Validate as _, ValidateCustom, Validator,
                 Visitable as _,
             },
             types::*,
             value::{InputValue, OutputValue},
             visitor::{Issue, VisitorContext},
-            visitor::{SanitizeWriteContext, SanitizeWriteMode},
         };
         pub use ::serde::Serialize as _;
     }
@@ -381,20 +378,6 @@ macro_rules! db {
 //
 // Helpers
 //
-
-// Run sanitization over a mutable visitable tree.
-pub fn sanitize(node: &mut dyn Visitable) -> Result<(), Error> {
-    icydb_core::sanitize::sanitize(node)
-        .map_err(InternalError::from)
-        .map_err(Error::from)
-}
-
-// Validate a visitable tree, collecting issues by path.
-pub fn validate(node: &dyn Visitable) -> Result<(), Error> {
-    icydb_core::validate::validate(node)
-        .map_err(InternalError::from)
-        .map_err(Error::from)
-}
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {

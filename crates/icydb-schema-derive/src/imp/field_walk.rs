@@ -10,7 +10,7 @@ use crate::prelude::*;
 ///
 /// Shared derive-side lowering for one entity or record field walk step.
 /// This keeps field-name, path-segment, and member-access expansion under one
-/// owner so visit/sanitize/validate generation do not each rebuild that shape
+/// owner so visit/normalize/validate generation do not each rebuild that shape
 /// independently.
 ///
 
@@ -71,10 +71,10 @@ impl FieldWalkBinding {
         format_ident!("__visit_field_{}_mut", self.ident)
     }
 
-    /// Return one stable generated helper name for sanitization dispatch.
+    /// Return one stable generated helper name for normalization dispatch.
     #[must_use]
-    pub fn sanitize_fn_ident(&self) -> Ident {
-        format_ident!("__sanitize_field_{}", self.ident)
+    pub fn normalize_fn_ident(&self) -> Ident {
+        format_ident!("__normalize_field_{}", self.ident)
     }
 
     /// Return one stable generated helper name for validation dispatch.

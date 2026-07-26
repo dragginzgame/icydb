@@ -9,7 +9,7 @@ use crate::design::prelude::*;
 ///
 /// MimeType
 ///
-/// MIME type text wrapper sanitized and validated by web base rules.
+/// MIME type text wrapper normalized and validated by web base rules.
 ///
 
 #[newtype(
@@ -17,7 +17,7 @@ use crate::design::prelude::*;
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        sanitizer(path = "base::sanitizer::web::MimeType"),
+        normalizer(path = "base::normalizer::web::MimeType"),
         validator(path = "base::validator::web::MimeType"),
     )
 )]
@@ -26,7 +26,7 @@ pub struct MimeType {}
 ///
 /// Url
 ///
-/// URL text wrapper sanitized and validated by web base rules.
+/// URL text wrapper normalized and validated by web base rules.
 ///
 
 #[newtype(
@@ -34,7 +34,7 @@ pub struct MimeType {}
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        sanitizer(path = "base::sanitizer::web::Url"),
+        normalizer(path = "base::normalizer::web::Url"),
         validator(path = "base::validator::web::Url"),
     )
 )]

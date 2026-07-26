@@ -2,7 +2,7 @@
 //!
 //! Responsibility: shared base helper routines.
 //! Does not own: domain validation policy or runtime persistence.
-//! Boundary: supports base sanitizers and validators with local conversions.
+//! Boundary: supports base normalizers and validators with local conversions.
 
 use crate::{design::prelude::*, traits::NumericValue};
 

@@ -287,6 +287,7 @@ impl StructuralRowContract {
     }
 
     /// Resolve an omitted field for a future logical insert after-image.
+    #[cfg(test)]
     pub(in crate::db) fn insert_omission_value(&self, slot: usize) -> Result<Value, InternalError> {
         match self.insert_omission_materialization(slot)? {
             FieldMaterialization::Null => Ok(Value::Null),

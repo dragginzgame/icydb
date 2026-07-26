@@ -11,7 +11,7 @@ use crate::{
     types::GenerateKey,
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
     visitor::{
-        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable, VisitorContext,
+        NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable, VisitorContext,
     },
 };
 
@@ -54,9 +54,9 @@ impl GenerateKey for Ulid {
     }
 }
 
-impl SanitizeAuto for Ulid {}
+impl NormalizeAuto for Ulid {}
 
-impl SanitizeCustom for Ulid {}
+impl NormalizeCustom for Ulid {}
 
 impl ValidateAuto for Ulid {
     fn validate_self(&self, context: &mut dyn VisitorContext) {
@@ -68,8 +68,4 @@ impl ValidateAuto for Ulid {
 
 impl ValidateCustom for Ulid {}
 
-impl Visitable for Ulid {
-    fn requires_application_write_callbacks() -> bool {
-        false
-    }
-}
+impl Visitable for Ulid {}

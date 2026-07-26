@@ -9,7 +9,7 @@ use icydb::design::prelude::*;
     primitive = "Text",
     default = "String::new",
     item(prim = "Text", unbounded),
-    ty(sanitizer(path = "base::sanitizer::text::case::Lower"))
+    ty(normalizer(path = "base::normalizer::text::case::Lower"))
 )]
 pub struct VisitorLowerText {}
 
@@ -75,11 +75,11 @@ pub struct VisitorOuter {}
 /// Reject
 ///
 
-#[sanitizer]
+#[normalizer]
 pub struct Reject;
 
-impl Sanitizer<String> for Reject {
-    fn sanitize(&self, _value: &mut String) -> Result<(), String> {
+impl Normalizer<String> for Reject {
+    fn normalize(&self, _value: &mut String) -> Result<(), String> {
         Err("rejected".to_string())
     }
 }
@@ -92,7 +92,7 @@ impl Sanitizer<String> for Reject {
     source_key = "schema/test/fixtures/src/macro_test/sanitize/visitor.rs::newtype::2",
     primitive = "Text",
     item(prim = "Text", unbounded),
-    ty(sanitizer(path = "crate::macro_test::sanitize::visitor::Reject"))
+    ty(normalizer(path = "crate::macro_test::normalize::visitor::Reject"))
 )]
 pub struct VisitorRejectText {}
 
@@ -130,7 +130,7 @@ pub struct VisitorRejectTextMap {}
             value(item(
                 prim = "Text",
                 unbounded,
-                sanitizer(path = "crate::macro_test::sanitize::visitor::Reject")
+                normalizer(path = "crate::macro_test::normalize::visitor::Reject")
             ))
         ),
         field(

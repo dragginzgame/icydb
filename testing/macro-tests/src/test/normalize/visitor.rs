@@ -1,16 +1,16 @@
 #[cfg(test)]
 use crate::prelude::*;
 
-pub use icydb_testing_test_fixtures::macro_test::sanitize::visitor::*;
+pub use icydb_testing_test_fixtures::macro_test::normalize::visitor::*;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::visitor::sanitize;
+    use icydb::visitor::normalize;
     use std::collections::HashMap;
 
     #[test]
-    fn sanitize_updates_nested_structures() {
+    fn normalize_updates_nested_structures() {
         let mut node = VisitorOuter {
             list: VisitorLowerTextList::from(vec!["MiXeD".to_string(), "AnOtHeR".to_string()]),
             tup: VisitorLowerTextTuple(
@@ -23,7 +23,7 @@ mod tests {
             ]),
         };
 
-        sanitize(&mut node).unwrap();
+        normalize(&mut node).unwrap();
 
         let expected_list = vec!["mixed".to_string(), "another".to_string()];
         let actual_list: Vec<_> = node
@@ -50,13 +50,13 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_collects_issue_paths() {
+    fn normalize_collects_issue_paths() {
         let mut node = VisitorRejectOuter {
             field: "bad".to_string(),
             list: VisitorRejectTextList::from(vec!["one".to_string(), "two".to_string()]),
         };
 
-        let err = sanitize(&mut node).expect_err("expected sanitization error");
+        let err = normalize(&mut node).expect_err("expected normalization error");
         let issues = err.issues();
 
         for key in ["field", "list[0]", "list[1]"] {
@@ -74,12 +74,12 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_tracks_paths_for_map_value_sanitizers() {
+    fn normalize_tracks_paths_for_map_value_normalizers() {
         let mut node = VisitorRejectMapOuter {
             map: VisitorRejectTextMap::from(vec![("key".to_string(), "bad".to_string())]),
         };
 
-        let err = sanitize(&mut node).expect_err("expected sanitization error");
+        let err = normalize(&mut node).expect_err("expected normalization error");
         let issues = err.issues();
 
         let key = "map[0]";

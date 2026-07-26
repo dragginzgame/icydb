@@ -166,7 +166,9 @@ A schema mutation that changes row layout or derived state prepares one
 accepted-after candidate and all row, index, and relation effects before marker
 publication. The marker binds those effects to the accepted schema identity.
 Recovery replays the prepared bytes and metadata; it does not reevaluate
-defaults, historical fills, generation, sanitizers, or mutation policy.
+defaults, historical fills, generation, application normalizers, or mutation
+policy. Application normalizers are explicit pre-write authoring operations;
+the database never invokes them during admission or replay.
 
 Publication is redo-only. Rejection before the marker leaves the accepted-before
 schema and physical state authoritative; interruption after the marker is

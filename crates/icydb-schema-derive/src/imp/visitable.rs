@@ -17,17 +17,7 @@ pub struct VisitableTrait {}
 
 impl Imp<Entity> for VisitableTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
-        let local_callbacks = type_has_callbacks(&node.ty)
-            || traits_require_manual_callbacks(&node.traits)
-            || node.fields.iter().any(|field| {
-                !field.value.item.validators.is_empty()
-                    || (field.write_management.is_none() && !field.value.item.sanitizers.is_empty())
-            });
-        Some(field_list_visitable_strategy(
-            node.def(),
-            &node.fields,
-            local_callbacks,
-        ))
+        Some(field_list_visitable_strategy(node.def(), &node.fields))
     }
 }
 
@@ -44,17 +34,9 @@ impl Imp<Enum> for VisitableTrait {
         let inner = quote! { match self { #arms } };
         let inner_mut = quote! { match self { #arms_mut } };
 
-        let child_types = node
-            .variants
-            .iter()
-            .filter_map(|variant| variant.value.as_ref().map(HasTypeExpr::type_expr));
-        let profile = callback_profile(
-            type_has_callbacks(&node.ty) || traits_require_manual_callbacks(&node.traits),
-            child_types,
-        );
         let drives = quote_drives(&inner, &inner_mut);
         let tokens = Implementor::new(node.def(), TraitKind::Visitable)
-            .set_tokens(quote! { #profile #drives })
+            .set_tokens(drives)
             .to_token_stream();
 
         Some(TraitStrategy::from_impl(tokens))
@@ -74,18 +56,9 @@ impl Imp<List> for VisitableTrait {
             }
         };
 
-        let profile = callback_profile(
-            type_has_callbacks(&node.ty)
-                || item_has_callbacks(&node.item)
-                || traits_require_manual_callbacks(&node.traits),
-            [node.item.type_expr()],
-        );
         let drives = quote_drives(&inner, &inner_mut);
 
-        Some(visitable_trait_strategy(
-            node.def(),
-            quote! { #profile #drives },
-        ))
+        Some(visitable_trait_strategy(node.def(), drives))
     }
 }
 
@@ -109,18 +82,10 @@ impl Imp<Map> for VisitableTrait {
             }
         };
 
-        let profile = callback_profile(
-            type_has_callbacks(&node.ty)
-                || item_has_callbacks(&node.key)
-                || item_has_callbacks(&node.value.item)
-                || traits_require_manual_callbacks(&node.traits),
-            [node.key.type_expr(), node.value.type_expr()],
-        );
         let drives = quote_drives(&inner, &inner_mut);
-        let q = quote! { #profile #drives };
 
         let tokens = Implementor::new(node.def(), TraitKind::Visitable)
-            .set_tokens(q)
+            .set_tokens(drives)
             .to_token_stream();
 
         Some(TraitStrategy::from_impl(tokens))
@@ -140,17 +105,10 @@ impl Imp<Newtype> for VisitableTrait {
            perform_visit_mut(visitor, &mut self.0, None);
         };
 
-        let profile = callback_profile(
-            type_has_callbacks(&node.ty)
-                || item_has_callbacks(&node.item)
-                || traits_require_manual_callbacks(&node.traits),
-            [node.item.type_expr()],
-        );
         let drives = quote_drives(&inner, &inner_mut);
-        let q = quote! { #profile #drives };
 
         let tokens = Implementor::new(node.def(), TraitKind::Visitable)
-            .set_tokens(q)
+            .set_tokens(drives)
             .to_token_stream();
 
         Some(TraitStrategy::from_impl(tokens))
@@ -163,16 +121,7 @@ impl Imp<Newtype> for VisitableTrait {
 
 impl Imp<Record> for VisitableTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
-        let local_callbacks = type_has_callbacks(&node.ty)
-            || traits_require_manual_callbacks(&node.traits)
-            || node.fields.iter().any(|field| {
-                !field.value.item.validators.is_empty() || !field.value.item.sanitizers.is_empty()
-            });
-        Some(field_list_visitable_strategy(
-            node.def(),
-            &node.fields,
-            local_callbacks,
-        ))
+        Some(field_list_visitable_strategy(node.def(), &node.fields))
     }
 }
 
@@ -184,18 +133,10 @@ impl Imp<Set> for VisitableTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
         let inner = immutable_collection_visit_tokens();
 
-        let profile = callback_profile(
-            type_has_callbacks(&node.ty)
-                || item_has_callbacks(&node.item)
-                || traits_require_manual_callbacks(&node.traits),
-            [node.item.type_expr()],
-        );
         let drive = quote_drive(&inner);
 
-        Some(visitable_trait_strategy(
-            node.def(),
-            quote! { #profile #drive }, // Only immutable; mutating set entries can break hashing.
-        ))
+        // Only immutable; mutating set entries can break hashing.
+        Some(visitable_trait_strategy(node.def(), drive))
     }
 }
 
@@ -221,20 +162,10 @@ impl Imp<Tuple> for VisitableTrait {
             });
         }
 
-        let profile = callback_profile(
-            type_has_callbacks(&node.ty)
-                || traits_require_manual_callbacks(&node.traits)
-                || node
-                    .values
-                    .iter()
-                    .any(|value| item_has_callbacks(&value.item)),
-            node.values.iter().map(HasTypeExpr::type_expr),
-        );
         let drives = quote_drives(&inner, &inner_mut);
-        let q = quote! { #profile #drives };
 
         let tokens = Implementor::new(node.def(), TraitKind::Visitable)
-            .set_tokens(q)
+            .set_tokens(drives)
             .to_token_stream();
 
         Some(TraitStrategy::from_impl(tokens))
@@ -249,7 +180,7 @@ impl Imp<Tuple> for VisitableTrait {
 ///
 
 // field_list
-fn field_list(def: &Def, fields: &FieldList, local_callbacks: bool) -> TokenStream {
+fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
     let bindings = field_walk_bindings(fields);
     let field_table_ident = format_ident!("__VISITABLE_FIELDS");
 
@@ -305,14 +236,8 @@ fn field_list(def: &Def, fields: &FieldList, local_callbacks: bool) -> TokenStre
         })
         .to_token_stream();
 
-    let profile = callback_profile(
-        local_callbacks,
-        fields.iter().map(|field| field.value.type_expr()),
-    );
     let trait_tokens = Implementor::new(def, TraitKind::Visitable)
         .set_tokens(quote! {
-            #profile
-
             fn drive(&self, visitor: &mut dyn ::icydb::visitor::VisitorCore) {
                 ::icydb::visitor::drive_visitable_fields(visitor, self, Self::#field_table_ident);
             }
@@ -333,12 +258,8 @@ fn field_list(def: &Def, fields: &FieldList, local_callbacks: bool) -> TokenStre
     }
 }
 
-fn field_list_visitable_strategy(
-    def: &Def,
-    fields: &FieldList,
-    local_callbacks: bool,
-) -> TraitStrategy {
-    TraitStrategy::from_impl(field_list(def, fields, local_callbacks))
+fn field_list_visitable_strategy(def: &Def, fields: &FieldList) -> TraitStrategy {
+    TraitStrategy::from_impl(field_list(def, fields))
 }
 
 // enum_variant
@@ -386,41 +307,6 @@ fn immutable_collection_visit_tokens() -> TokenStream {
             perform_visit(visitor, v, i);
         }
     }
-}
-
-fn callback_profile(
-    local_callbacks: bool,
-    child_types: impl IntoIterator<Item = TokenStream>,
-) -> TokenStream {
-    let child_callbacks = child_types.into_iter().map(|ty| {
-        quote!(|| <#ty as ::icydb::visitor::Visitable>::requires_application_write_callbacks())
-    });
-
-    quote! {
-        fn requires_application_write_callbacks() -> bool {
-            #local_callbacks #(#child_callbacks)*
-        }
-    }
-}
-
-const fn item_has_callbacks(item: &Item) -> bool {
-    !item.sanitizers.is_empty() || !item.validators.is_empty()
-}
-
-const fn type_has_callbacks(ty: &Type) -> bool {
-    !ty.sanitizers.is_empty() || !ty.validators.is_empty()
-}
-
-fn traits_require_manual_callbacks(traits: &TraitBuilder) -> bool {
-    [
-        TraitKind::SanitizeAuto,
-        TraitKind::SanitizeCustom,
-        TraitKind::ValidateAuto,
-        TraitKind::ValidateCustom,
-        TraitKind::Visitable,
-    ]
-    .into_iter()
-    .any(|trait_kind| traits.explicitly_removes(trait_kind))
 }
 
 fn quote_drive(inner: &TokenStream) -> TokenStream {

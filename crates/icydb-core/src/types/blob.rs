@@ -4,7 +4,7 @@ pub use icydb_schema::Blob;
 
 use crate::{
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
+    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 
 impl RuntimeValueMeta for Blob {
@@ -28,16 +28,12 @@ impl RuntimeValueDecode for Blob {
     }
 }
 
-impl SanitizeAuto for Blob {}
+impl NormalizeAuto for Blob {}
 
-impl SanitizeCustom for Blob {}
+impl NormalizeCustom for Blob {}
 
 impl ValidateAuto for Blob {}
 
 impl ValidateCustom for Blob {}
 
-impl Visitable for Blob {
-    fn requires_application_write_callbacks() -> bool {
-        false
-    }
-}
+impl Visitable for Blob {}

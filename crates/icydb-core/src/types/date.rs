@@ -4,7 +4,7 @@ pub use icydb_schema::Date;
 
 use crate::{
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
+    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 
 impl RuntimeValueMeta for Date {
@@ -28,16 +28,12 @@ impl RuntimeValueDecode for Date {
     }
 }
 
-impl SanitizeAuto for Date {}
+impl NormalizeAuto for Date {}
 
-impl SanitizeCustom for Date {}
+impl NormalizeCustom for Date {}
 
 impl ValidateAuto for Date {}
 
 impl ValidateCustom for Date {}
 
-impl Visitable for Date {
-    fn requires_application_write_callbacks() -> bool {
-        false
-    }
-}
+impl Visitable for Date {}

@@ -8,7 +8,7 @@ use crate::{
         PrimaryKeyEncode, PrimaryKeyEncodeError, PrimaryKeyValue, validate_entity_key_bytes_buffer,
     },
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
+    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 
 impl EntityKeyBytes for Unit {
@@ -70,16 +70,12 @@ impl PrimaryKeyDecode for Unit {
     }
 }
 
-impl SanitizeAuto for Unit {}
+impl NormalizeAuto for Unit {}
 
-impl SanitizeCustom for Unit {}
+impl NormalizeCustom for Unit {}
 
 impl ValidateAuto for Unit {}
 
 impl ValidateCustom for Unit {}
 
-impl Visitable for Unit {
-    fn requires_application_write_callbacks() -> bool {
-        false
-    }
-}
+impl Visitable for Unit {}

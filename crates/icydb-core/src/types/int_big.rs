@@ -4,7 +4,7 @@ pub use icydb_schema::IntBig;
 
 use crate::{
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
+    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 
 impl RuntimeValueMeta for IntBig {
@@ -28,16 +28,12 @@ impl RuntimeValueDecode for IntBig {
     }
 }
 
-impl SanitizeAuto for IntBig {}
+impl NormalizeAuto for IntBig {}
 
-impl SanitizeCustom for IntBig {}
+impl NormalizeCustom for IntBig {}
 
 impl ValidateAuto for IntBig {}
 
 impl ValidateCustom for IntBig {}
 
-impl Visitable for IntBig {
-    fn requires_application_write_callbacks() -> bool {
-        false
-    }
-}
+impl Visitable for IntBig {}

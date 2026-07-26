@@ -5,7 +5,7 @@ pub use icydb_schema::Duration;
 use crate::{
     traits::Repr,
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
+    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 
 impl Repr for Duration {
@@ -41,19 +41,15 @@ impl RuntimeValueDecode for Duration {
     }
 }
 
-impl SanitizeAuto for Duration {}
+impl NormalizeAuto for Duration {}
 
-impl SanitizeCustom for Duration {}
+impl NormalizeCustom for Duration {}
 
 impl ValidateAuto for Duration {}
 
 impl ValidateCustom for Duration {}
 
-impl Visitable for Duration {
-    fn requires_application_write_callbacks() -> bool {
-        false
-    }
-}
+impl Visitable for Duration {}
 
 #[cfg(test)]
 mod tests {

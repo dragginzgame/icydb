@@ -14,7 +14,7 @@ use std::ops::Not;
 /// Item
 ///
 /// Canonical schema item descriptor for one scalar, relation, or primitive
-/// field target plus its attached sanitizers and validators.
+/// field target plus its attached normalizers and validators.
 ///
 
 #[derive(Clone, Debug, Serialize)]
@@ -37,7 +37,7 @@ pub struct Item {
     validators: &'static [TypeValidator],
 
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
-    sanitizers: &'static [TypeSanitizer],
+    normalizers: &'static [TypeNormalizer],
 
     #[serde(skip_serializing_if = "Not::not")]
     indirect: bool,
@@ -56,7 +56,7 @@ impl Item {
         max_len: Option<u32>,
         max_bytes: Option<u32>,
         validators: &'static [TypeValidator],
-        sanitizers: &'static [TypeSanitizer],
+        normalizers: &'static [TypeNormalizer],
         indirect: bool,
     ) -> Self {
         Self {
@@ -66,7 +66,7 @@ impl Item {
             max_len,
             max_bytes,
             validators,
-            sanitizers,
+            normalizers,
             indirect,
         }
     }
@@ -102,8 +102,8 @@ impl Item {
     }
 
     #[must_use]
-    pub const fn sanitizers(&self) -> &'static [TypeSanitizer] {
-        self.sanitizers
+    pub const fn normalizers(&self) -> &'static [TypeNormalizer] {
+        self.normalizers
     }
 
     #[must_use]

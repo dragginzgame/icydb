@@ -14,11 +14,11 @@ use crate::{
         commit::CommitSchemaFingerprint,
         data::PersistedRow,
         schema::{AcceptedRowDecodeContract, CompiledAcceptedRowConstraints, SchemaInfo},
+        write_context::{AcceptedWriteContext, MutationMode},
     },
     entity::EntityCreateInput,
     error::InternalError,
     metrics::sink::{MetricsEvent, SaveMutationKind, record},
-    sanitize::{SanitizeWriteContext, SanitizeWriteMode},
     traits::AuthoredFieldProjection,
     types::Timestamp,
 };
@@ -105,23 +105,7 @@ struct SavePreflightInputs<'a> {
     schema: &'a SchemaInfo,
     schema_fingerprint: CommitSchemaFingerprint,
     validate_relations: bool,
-    write_context: SanitizeWriteContext,
-}
-
-//
-// MutationMode
-//
-// MutationMode makes the structural patch path spell out the same
-// row-existence contract the typed save surface already owns.
-// This keeps future structural callers from smuggling write-mode meaning
-// through ad hoc helper choice once the seam moves beyond `icydb-core`.
-//
-
-#[derive(Clone, Copy)]
-pub enum MutationMode {
-    Insert,
-    Replace,
-    Update,
+    write_context: AcceptedWriteContext,
 }
 
 impl MutationMode {
@@ -130,15 +114,6 @@ impl MutationMode {
             Self::Insert => SaveRule::RequireAbsent,
             Self::Replace => SaveRule::AllowAny,
             Self::Update => SaveRule::RequirePresent,
-        }
-    }
-
-    #[cfg(test)]
-    const fn sanitize_write_mode(self) -> SanitizeWriteMode {
-        match self {
-            Self::Insert => SanitizeWriteMode::Insert,
-            Self::Replace => SanitizeWriteMode::Replace,
-            Self::Update => SanitizeWriteMode::Update,
         }
     }
 
@@ -154,14 +129,14 @@ impl MutationMode {
 
 impl<E: PersistedRow> SaveExecutor<E> {
     // Build one canonical write preflight context for one typed save mode.
-    const fn save_write_context(mode: SaveMode, now: Timestamp) -> SanitizeWriteContext {
+    const fn save_write_context(mode: SaveMode, now: Timestamp) -> AcceptedWriteContext {
         let mode = match mode {
-            SaveMode::Insert => SanitizeWriteMode::Insert,
-            SaveMode::Replace => SanitizeWriteMode::Replace,
-            SaveMode::Update => SanitizeWriteMode::Update,
+            SaveMode::Insert => MutationMode::Insert,
+            SaveMode::Replace => MutationMode::Replace,
+            SaveMode::Update => MutationMode::Update,
         };
 
-        SanitizeWriteContext::new(mode, now)
+        AcceptedWriteContext::new(mode, now)
     }
 
     // ======================================================================

@@ -1,4 +1,4 @@
-//! Module: imp::sanitize
+//! Module: imp::normalize
 //! Responsibility: generated implementation tokens.
 //! Does not own: runtime trait semantics.
 //! Boundary: parsed nodes to impl tokens.
@@ -6,27 +6,27 @@
 use crate::{imp::field_walk::field_walk_bindings, prelude::*};
 
 /// ---------------------------------------------------------------------------
-/// SanitizeAuto
+/// NormalizeAuto
 /// ---------------------------------------------------------------------------
 
-pub struct SanitizeAutoTrait;
+pub struct NormalizeAutoTrait;
 
-/// Each node type can emit sanitizer code for its *own value only*.
+/// Each node type can emit normalizer code for its *own value only*.
 /// Traversal into children is handled by the visitor.
 
-pub trait SanitizeAutoFn {
+pub trait NormalizeAutoFn {
     fn self_tokens(_: &Self) -> TokenStream {
         quote!()
     }
 }
 
-macro_rules! impl_sanitize_auto {
+macro_rules! impl_normalize_auto {
     ($($ty:ty),* $(,)?) => {
-        $(impl Imp<$ty> for SanitizeAutoTrait {
+        $(impl Imp<$ty> for NormalizeAutoTrait {
             fn strategy(node: &$ty) -> Option<TraitStrategy> {
-                let self_tokens = SanitizeAutoFn::self_tokens(node);
+                let self_tokens = NormalizeAutoFn::self_tokens(node);
 
-                let tokens = Implementor::new(node.def(), TraitKind::SanitizeAuto)
+                let tokens = Implementor::new(node.def(), TraitKind::NormalizeAuto)
                     .add_tokens(self_tokens)
                     .to_token_stream();
 
@@ -36,39 +36,39 @@ macro_rules! impl_sanitize_auto {
     };
 }
 
-impl_sanitize_auto!(Enum, List, Map, Newtype, Set);
+impl_normalize_auto!(Enum, List, Map, Newtype, Set);
 
 /// ---------------------------------------------------------------------------
 /// Entity / Record
 /// ---------------------------------------------------------------------------
-/// Apply field-level sanitizers directly to owned fields.
+/// Apply field-level normalizers directly to owned fields.
 /// Do NOT recurse.
-impl Imp<Entity> for SanitizeAutoTrait {
+impl Imp<Entity> for NormalizeAutoTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
-        Some(field_list_sanitize_strategy(node.def(), &node.fields))
+        Some(field_list_normalize_strategy(node.def(), &node.fields))
     }
 }
 
-impl Imp<Record> for SanitizeAutoTrait {
+impl Imp<Record> for NormalizeAutoTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
-        Some(field_list_sanitize_strategy(node.def(), &node.fields))
+        Some(field_list_normalize_strategy(node.def(), &node.fields))
     }
 }
 
 /// ---------------------------------------------------------------------------
 /// Enum
 /// ---------------------------------------------------------------------------
-/// No direct sanitization for enum selection.
-/// Payload sanitization occurs when payload node is visited.
-impl SanitizeAutoFn for Enum {}
+/// No direct normalization for enum selection.
+/// Payload normalization occurs when payload node is visited.
+impl NormalizeAutoFn for Enum {}
 
 /// ---------------------------------------------------------------------------
 /// Newtype
 /// ---------------------------------------------------------------------------
-/// Apply sanitizers attached to the newtype itself / its inner value.
-impl SanitizeAutoFn for Newtype {
+/// Apply normalizers attached to the newtype itself / its inner value.
+impl NormalizeAutoFn for Newtype {
     fn self_tokens(node: &Self) -> TokenStream {
-        fn_wrap_sanitize_self(newtype_sanitizers(node))
+        fn_wrap_normalize_self(newtype_normalizers(node))
     }
 }
 
@@ -77,24 +77,24 @@ impl SanitizeAutoFn for Newtype {
 /// ---------------------------------------------------------------------------
 /// IMPORTANT:
 /// - Do NOT iterate items here
-/// - List items and map values are sanitized via traversal
+/// - List items and map values are normalized via traversal
 /// - Set items and map keys are not visited in mutable traversal
-/// - Only container-level sanitizers belong here
-impl SanitizeAutoFn for List {
+/// - Only container-level normalizers belong here
+impl NormalizeAutoFn for List {
     fn self_tokens(node: &Self) -> TokenStream {
-        container_self_tokens(&node.ty.sanitizers)
+        container_self_tokens(&node.ty.normalizers)
     }
 }
 
-impl SanitizeAutoFn for Set {
+impl NormalizeAutoFn for Set {
     fn self_tokens(node: &Self) -> TokenStream {
-        container_self_tokens(&node.ty.sanitizers)
+        container_self_tokens(&node.ty.normalizers)
     }
 }
 
-impl SanitizeAutoFn for Map {
+impl NormalizeAutoFn for Map {
     fn self_tokens(node: &Self) -> TokenStream {
-        container_self_tokens(&node.ty.sanitizers)
+        container_self_tokens(&node.ty.normalizers)
     }
 }
 
@@ -102,25 +102,25 @@ impl SanitizeAutoFn for Map {
 /// Helpers
 /// ---------------------------------------------------------------------------
 
-/// Emit sanitizer calls.
+/// Emit normalizer calls.
 /// Errors are recorded via VisitorContext.
-fn generate_sanitizers(
-    sanitizers: &[TypeSanitizer],
+fn generate_normalizers(
+    normalizers: &[TypeNormalizer],
     target: TokenStream,
     seg: Option<TokenStream>,
 ) -> Vec<TokenStream> {
-    sanitizers
+    normalizers
         .iter()
-        .map(|sanitizer| {
-            let ctor = sanitizer.quote_constructor();
+        .map(|normalizer| {
+            let ctor = normalizer.quote_constructor();
             match &seg {
                 None => quote! {
-                    if let Err(msg) = #ctor.sanitize_with_context(&mut #target, ctx) {
+                    if let Err(msg) = #ctor.normalize_with_context(&mut #target, ctx) {
                         ctx.issue(msg);
                     }
                 },
                 Some(seg) => quote! {
-                    if let Err(msg) = #ctor.sanitize_with_context(&mut #target, ctx) {
+                    if let Err(msg) = #ctor.normalize_with_context(&mut #target, ctx) {
                         ctx.issue_at(#seg, msg);
                     }
                 },
@@ -129,9 +129,12 @@ fn generate_sanitizers(
         .collect()
 }
 
-/// Sanitizers attached to the container itself (not items).
-fn container_sanitizers(sanitizers: &[TypeSanitizer], target: TokenStream) -> Option<TokenStream> {
-    let stmts = generate_sanitizers(sanitizers, target, None);
+/// Normalizers attached to the container itself (not items).
+fn container_normalizers(
+    normalizers: &[TypeNormalizer],
+    target: TokenStream,
+) -> Option<TokenStream> {
+    let stmts = generate_normalizers(normalizers, target, None);
     if stmts.is_empty() {
         None
     } else {
@@ -139,27 +142,27 @@ fn container_sanitizers(sanitizers: &[TypeSanitizer], target: TokenStream) -> Op
     }
 }
 
-/// List, set, and map containers share the same direct self-sanitizer shape.
-fn container_self_tokens(sanitizers: &[TypeSanitizer]) -> TokenStream {
-    fn_wrap_sanitize_self(container_sanitizers(sanitizers, quote!(self.0)))
+/// List, set, and map containers share the same direct self-normalizer shape.
+fn container_self_tokens(normalizers: &[TypeNormalizer]) -> TokenStream {
+    fn_wrap_normalize_self(container_normalizers(normalizers, quote!(self.0)))
 }
 
-/// Field-level sanitizers for Entity / Record.
+/// Field-level normalizers for Entity / Record.
 /// Applies directly to owned fields.
 fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
     let bindings = field_walk_bindings(fields);
     let field_table_ident = format_ident!("__SANITIZE_FIELDS");
 
-    let sanitize_helpers = fields
+    let normalize_helpers = fields
         .iter()
         .zip(bindings.iter())
         .filter_map(|(field, binding)| {
-            let stmts = generate_sanitizers(
-                &field.value.item.sanitizers,
+            let stmts = generate_normalizers(
+                &field.value.item.normalizers,
                 binding.member_mut_from(quote!(node)),
                 Some(binding.path_segment()),
             );
-            let fn_ident = binding.sanitize_fn_ident();
+            let fn_ident = binding.normalize_fn_ident();
 
             if stmts.is_empty() {
                 None
@@ -179,29 +182,29 @@ fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
         .iter()
         .zip(fields.iter())
         .filter_map(|(binding, field)| {
-            if field.value.item.sanitizers.is_empty() {
+            if field.value.item.normalizers.is_empty() {
                 None
             } else {
-                let sanitize_fn = binding.sanitize_fn_ident();
+                let normalize_fn = binding.normalize_fn_ident();
 
                 Some(quote! {
-                    ::icydb::visitor::SanitizeFieldDescriptor::new(Self::#sanitize_fn)
+                    ::icydb::visitor::NormalizeFieldDescriptor::new(Self::#normalize_fn)
                 })
             }
         });
 
     let inherent_tokens = Implementor::new(def, TraitKind::Inherent)
         .set_tokens(quote! {
-            #(#sanitize_helpers)*
+            #(#normalize_helpers)*
 
-            const #field_table_ident: &'static [::icydb::visitor::SanitizeFieldDescriptor<Self>] =
+            const #field_table_ident: &'static [::icydb::visitor::NormalizeFieldDescriptor<Self>] =
                 &[#(#descriptors),*];
         })
         .to_token_stream();
 
-    let trait_tokens = Implementor::new(def, TraitKind::SanitizeAuto)
-        .add_tokens(fn_wrap_sanitize_self(Some(quote! {
-            ::icydb::visitor::drive_sanitize_fields(self, ctx, Self::#field_table_ident);
+    let trait_tokens = Implementor::new(def, TraitKind::NormalizeAuto)
+        .add_tokens(fn_wrap_normalize_self(Some(quote! {
+            ::icydb::visitor::drive_normalize_fields(self, ctx, Self::#field_table_ident);
         })))
         .to_token_stream();
 
@@ -211,22 +214,22 @@ fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
     }
 }
 
-/// Entity and record sanitize generation share the same field-driven strategy.
-fn field_list_sanitize_strategy(def: &Def, fields: &FieldList) -> TraitStrategy {
+/// Entity and record normalize generation share the same field-driven strategy.
+fn field_list_normalize_strategy(def: &Def, fields: &FieldList) -> TraitStrategy {
     TraitStrategy::from_impl(field_list(def, fields))
 }
 
-/// Sanitizers for a newtype’s inner value (`self.0`).
-fn newtype_sanitizers(node: &Newtype) -> Option<TokenStream> {
+/// Normalizers for a newtype’s inner value (`self.0`).
+fn newtype_normalizers(node: &Newtype) -> Option<TokenStream> {
     let target = quote!(self.0);
 
     let mut stmts = Vec::new();
-    stmts.extend(generate_sanitizers(
-        &node.ty.sanitizers,
+    stmts.extend(generate_normalizers(
+        &node.ty.normalizers,
         target.clone(),
         None,
     ));
-    stmts.extend(generate_sanitizers(&node.item.sanitizers, target, None));
+    stmts.extend(generate_normalizers(&node.item.normalizers, target, None));
 
     if stmts.is_empty() {
         None
@@ -235,13 +238,13 @@ fn newtype_sanitizers(node: &Newtype) -> Option<TokenStream> {
     }
 }
 
-/// Emit `fn sanitize_self(&mut self, ctx: &mut dyn VisitorContext)`
+/// Emit `fn normalize_self(&mut self, ctx: &mut dyn VisitorContext)`
 /// only if there is something to do.
-fn fn_wrap_sanitize_self(inner: Option<TokenStream>) -> TokenStream {
+fn fn_wrap_normalize_self(inner: Option<TokenStream>) -> TokenStream {
     match inner {
         None => quote!(),
         Some(inner) => quote! {
-            fn sanitize_self(
+            fn normalize_self(
                 &mut self,
                 ctx: &mut dyn ::icydb::visitor::VisitorContext
             ) {

@@ -17,6 +17,10 @@ use crate::visitor::{
 /// issues are collected and returned to the caller, which may choose
 /// how to interpret them.
 ///
+/// # Errors
+///
+/// Returns `VisitorError` when one or more validators report an issue.
+///
 pub fn validate(node: &dyn Visitable) -> Result<(), VisitorError> {
     let visitor = ValidateVisitor::new();
     let mut adapter = VisitorAdapter::new(visitor);

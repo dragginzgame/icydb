@@ -11,9 +11,8 @@ use crate::{
         commit::CommitSchemaFingerprint,
         data::{
             AcceptedFieldWriteProvenance, AcceptedMutationFieldWriteIntent,
-            AcceptedMutationIntentPatch, CanonicalRow, DecodedDataStoreKey, RawDataStoreKey,
-            RawRow, SlotReader, StructuralRowContract, StructuralSlotReader,
-            canonical_row_from_resolved_entity_with_accepted_contract,
+            AcceptedMutationIntentPatch, DecodedDataStoreKey, RawDataStoreKey, RawRow,
+            StructuralRowContract, StructuralSlotReader,
         },
         executor::mutation::save::SaveExecutor,
         predicate::canonical_cmp,
@@ -24,10 +23,9 @@ use crate::{
             CompiledAcceptedRowConstraints, SchemaInfo, classify_accepted_field_kind,
             literal_matches_type,
         },
+        write_context::{AcceptedWriteContext, MutationMode},
     },
     error::{ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError},
-    sanitize::{SanitizeWriteContext, SanitizeWriteMode, sanitize_with_context},
-    validate::validate,
     value::Value,
 };
 use std::cmp::Ordering;
@@ -40,7 +38,7 @@ use std::cmp::Ordering;
 )]
 pub(in crate::db) fn validate_structural_accepted_after_image(
     entity_path: &'static str,
-    mode: SanitizeWriteMode,
+    mode: MutationMode,
     data_key: &RawDataStoreKey,
     row: &RawRow,
     provenance: &[Option<AcceptedFieldWriteProvenance>],
@@ -189,42 +187,29 @@ impl<E: PersistedRow> SaveExecutor<E> {
         Self::validate_structural_row_invariants_with_accepted_contract(&row_fields, schema)
     }
 
-    // Run typed preflight for an after-image whose accepted field provenance
-    // was resolved before materialization. Protected database values must stay
-    // byte-identical across application sanitization.
+    // Run typed structural preflight for an accepted after-image that was fully
+    // resolved before materialization. Application callbacks are deliberately
+    // absent from this database admission boundary.
     #[expect(
         clippy::too_many_arguments,
         reason = "preflight keeps the canonical row key, resolved after-image, provenance, schema, relation policy, and write context explicit at one admission boundary"
     )]
-    pub(in crate::db::executor::mutation) fn preflight_resolved_entity_with_provenance(
+    pub(in crate::db::executor::mutation) fn preflight_resolved_entity(
         &self,
-        entity: &mut E,
+        entity: &E,
         data_key: &RawDataStoreKey,
         resolved_row: &RawRow,
         provenance: &[Option<AcceptedFieldWriteProvenance>],
         schema: &SchemaInfo,
         validate_relations: bool,
-        write_context: SanitizeWriteContext,
-    ) -> Result<CanonicalRow, InternalError> {
-        sanitize_with_context(entity, Some(write_context))?;
-        validate(entity)?;
+        write_context: AcceptedWriteContext,
+    ) -> Result<(), InternalError> {
         self.validate_entity_invariants(entity, schema)?;
-        let normalized = canonical_row_from_resolved_entity_with_accepted_contract(
-            E::PATH,
-            self.accepted_row_decode_contract().clone(),
-            entity,
-            resolved_row,
-        )?;
-        self.validate_sanitizer_preserved_protected_fields(
-            resolved_row,
-            normalized.as_raw_row(),
-            provenance,
-        )?;
         validate_structural_accepted_after_image(
             E::PATH,
             write_context.mode(),
             data_key,
-            normalized.as_raw_row(),
+            resolved_row,
             provenance,
             self.accepted_row_decode_contract().clone(),
             self.accepted_schema_fingerprint(),
@@ -236,49 +221,6 @@ impl<E: PersistedRow> SaveExecutor<E> {
                 entity,
                 self.accepted_row_decode_contract(),
             )?;
-        }
-
-        Ok(normalized)
-    }
-
-    // Compare canonical slot payloads instead of re-decoded runtime values so
-    // protection also covers canonical representation and enum identity.
-    fn validate_sanitizer_preserved_protected_fields(
-        &self,
-        before_sanitize: &RawRow,
-        after_sanitize: &RawRow,
-        provenance: &[Option<AcceptedFieldWriteProvenance>],
-    ) -> Result<(), InternalError> {
-        let contract = StructuralRowContract::from_accepted_decode_contract(
-            E::PATH,
-            self.accepted_row_decode_contract().clone(),
-        );
-        if provenance.len() != contract.field_count() {
-            return Err(InternalError::executor_invariant());
-        }
-        let before = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-            before_sanitize,
-            &contract,
-        )?;
-        let after = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-            after_sanitize,
-            &contract,
-        )?;
-
-        for (slot, provenance) in provenance.iter().copied().enumerate() {
-            let Some(provenance) = provenance else {
-                continue;
-            };
-            let field = contract.required_accepted_field_contract(slot)?;
-            if !field.generated() || provenance.sanitizer_may_transform() {
-                continue;
-            }
-            if before.get_bytes(slot) != after.get_bytes(slot) {
-                return Err(InternalError::mutation_sanitizer_protected_field_changed(
-                    E::PATH,
-                    field.field_name(),
-                ));
-            }
         }
 
         Ok(())

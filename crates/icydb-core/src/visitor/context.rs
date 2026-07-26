@@ -1,9 +1,8 @@
 //! Module: visitor::context
 //! Responsibility: visitor issue-reporting context and path scoping helpers.
-//! Does not own: concrete sanitize/validate traversal behavior.
+//! Does not own: concrete normalize/validate traversal behavior.
 //! Boundary: shared diagnostics context passed through visitor entrypoints.
 
-use crate::sanitize::SanitizeWriteContext;
 use serde::Deserialize;
 use std::fmt;
 
@@ -17,10 +16,6 @@ use std::fmt;
 pub trait VisitorContext {
     fn add_issue(&mut self, issue: Issue);
     fn add_issue_at(&mut self, seg: PathSegment, issue: Issue);
-
-    fn sanitize_write_context(&self) -> Option<SanitizeWriteContext> {
-        None
-    }
 }
 
 impl dyn VisitorContext + '_ {
@@ -53,10 +48,6 @@ impl VisitorContext for ScopedContext<'_> {
 
     fn add_issue_at(&mut self, _seg: PathSegment, issue: Issue) {
         self.ctx.add_issue_at(self.seg.clone(), issue);
-    }
-
-    fn sanitize_write_context(&self) -> Option<SanitizeWriteContext> {
-        self.ctx.sanitize_write_context()
     }
 }
 

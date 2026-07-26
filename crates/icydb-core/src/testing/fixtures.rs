@@ -83,15 +83,11 @@ pub(crate) const fn field_model_index_by_name(
 #[macro_export]
 macro_rules! __icydb_test_entity_markers {
     ($entity:ty) => {
-        impl $crate::visitor::SanitizeAuto for $entity {}
-        impl $crate::visitor::SanitizeCustom for $entity {}
+        impl $crate::visitor::NormalizeAuto for $entity {}
+        impl $crate::visitor::NormalizeCustom for $entity {}
         impl $crate::visitor::ValidateAuto for $entity {}
         impl $crate::visitor::ValidateCustom for $entity {}
-        impl $crate::visitor::Visitable for $entity {
-            fn requires_application_write_callbacks() -> bool {
-                false
-            }
-        }
+        impl $crate::visitor::Visitable for $entity {}
     };
 }
 

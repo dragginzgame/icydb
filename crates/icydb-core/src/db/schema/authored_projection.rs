@@ -2,13 +2,12 @@
 //! Responsibility: bind generated authored field inputs to accepted field and catalog authority.
 //! Does not own: runtime value projection, persisted encoding, or mutation execution.
 //! Boundary: stable generated field slots -> admitted owned values.
+#[cfg(test)]
+use crate::db::data::encode_accepted_value_ref_for_accepted_field_contract;
 use crate::{
-    db::{
-        data::encode_accepted_value_ref_for_accepted_field_contract,
-        schema::{
-            AcceptedFieldPersistenceContract, AcceptedRowDecodeContract,
-            enum_catalog::{AdmittedOwnedValue, ValueAdmissionBudget, ValueAdmissionError},
-        },
+    db::schema::{
+        AcceptedFieldPersistenceContract, AcceptedRowDecodeContract,
+        enum_catalog::{AdmittedOwnedValue, ValueAdmissionBudget, ValueAdmissionError},
     },
     traits::AuthoredFieldProjection,
     value::InputValue,
@@ -17,10 +16,19 @@ use crate::{
 /// Failure to bind or admit one generated authored field slot.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum AuthoredFieldAdmissionError {
-    MissingFieldContract { slot: usize },
-    FieldNotGenerated { slot: usize },
-    MissingAuthoredValue { slot: usize },
-    PersistenceEncoding { slot: usize },
+    MissingFieldContract {
+        slot: usize,
+    },
+    FieldNotGenerated {
+        slot: usize,
+    },
+    MissingAuthoredValue {
+        slot: usize,
+    },
+    #[cfg(test)]
+    PersistenceEncoding {
+        slot: usize,
+    },
     Admission(ValueAdmissionError),
 }
 
@@ -51,6 +59,7 @@ impl<'a> AcceptedAuthoredFieldProjection<'a> {
             .map_err(AuthoredFieldAdmissionError::Admission)
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn encode_field<E>(
         &self,
         entity: &E,

@@ -113,7 +113,7 @@ Current recovery is designed for internally produced interrupted states:
 - marker-cleared readiness restoration on guarded reentry.
 
 Recovery replays already admitted row bytes and durable activation evidence. It
-does not rerun accepted checks, application validators, sanitizers, or
+does not rerun accepted checks, application validators, normalizers, or
 generators. Candidate generations remain unavailable to planning and
 delete-safety decisions until atomic promotion.
 

@@ -1,8 +1,8 @@
-//! Module: base::sanitizer::text::color
+//! Module: base::normalizer::text::color
 //!
-//! Responsibility: base sanitizer definitions.
+//! Responsibility: base normalizer definitions.
 //! Does not own: validation policy, persistence, or schema mutation semantics.
-//! Boundary: mutates schema field values through facade sanitizer traits.
+//! Boundary: mutates schema field values through facade normalizer traits.
 
 use crate::design::prelude::*;
 
@@ -14,11 +14,11 @@ use crate::design::prelude::*;
 /// - anything else → `"FFFFFF"`
 ///
 
-#[sanitizer]
+#[normalizer]
 pub struct RgbHex;
 
-impl Sanitizer<String> for RgbHex {
-    fn sanitize(&self, value: &mut String) -> Result<(), String> {
+impl Normalizer<String> for RgbHex {
+    fn normalize(&self, value: &mut String) -> Result<(), String> {
         *value = normalize_hex(value, "FFFFFF", |hex| {
             is_hex_width(hex, 6).then(|| hex.to_string())
         });
@@ -36,11 +36,11 @@ impl Sanitizer<String> for RgbHex {
 /// - anything else → `"FFFFFFFF"`
 ///
 
-#[sanitizer]
+#[normalizer]
 pub struct RgbaHex;
 
-impl Sanitizer<String> for RgbaHex {
-    fn sanitize(&self, value: &mut String) -> Result<(), String> {
+impl Normalizer<String> for RgbaHex {
+    fn normalize(&self, value: &mut String) -> Result<(), String> {
         *value = normalize_hex(value, "FFFFFFFF", |hex| match hex.len() {
             6 if is_hex(hex) => Some(format!("{hex}FF")),
             8 if is_hex(hex) => Some(hex.to_string()),

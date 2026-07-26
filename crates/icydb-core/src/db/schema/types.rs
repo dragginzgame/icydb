@@ -154,7 +154,7 @@ impl ScalarType {
 /// This intentionally drops:
 /// - record structure
 /// - tuple structure
-/// - validator/sanitizer metadata
+/// - validator/normalizer metadata
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]

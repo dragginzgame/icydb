@@ -6,7 +6,7 @@ use crate::{
     db::{EntityKey, EntityKeyBytes, EntityKeyBytesError, KeyValueCodec},
     types::{GenerateKey, Subaccount},
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
+    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 use candid::CandidType;
 use serde::{Deserialize, de::Deserializer};
@@ -321,18 +321,11 @@ where
     }
 }
 
-impl<E> SanitizeAuto for Id<E> where E: EntityKey {}
-impl<E> SanitizeCustom for Id<E> where E: EntityKey {}
+impl<E> NormalizeAuto for Id<E> where E: EntityKey {}
+impl<E> NormalizeCustom for Id<E> where E: EntityKey {}
 impl<E> ValidateAuto for Id<E> where E: EntityKey {}
 impl<E> ValidateCustom for Id<E> where E: EntityKey {}
-impl<E> Visitable for Id<E>
-where
-    E: EntityKey,
-{
-    fn requires_application_write_callbacks() -> bool {
-        false
-    }
-}
+impl<E> Visitable for Id<E> where E: EntityKey {}
 
 // ----------------------------------------------------------------------
 // Tests

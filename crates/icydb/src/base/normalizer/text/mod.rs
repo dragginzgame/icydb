@@ -1,8 +1,8 @@
-//! Module: base::sanitizer::text
+//! Module: base::normalizer::text
 //!
-//! Responsibility: base sanitizer definitions.
+//! Responsibility: base normalizer definitions.
 //! Does not own: validation policy, persistence, or schema mutation semantics.
-//! Boundary: mutates schema field values through facade sanitizer traits.
+//! Boundary: mutates schema field values through facade normalizer traits.
 
 pub mod ascii;
 pub mod case;
@@ -14,11 +14,11 @@ use crate::design::prelude::*;
 /// Trim
 ///
 
-#[sanitizer]
+#[normalizer]
 pub struct Trim;
 
-impl Sanitizer<String> for Trim {
-    fn sanitize(&self, value: &mut String) -> Result<(), String> {
+impl Normalizer<String> for Trim {
+    fn normalize(&self, value: &mut String) -> Result<(), String> {
         let trimmed = value.trim();
 
         if trimmed.len() != value.len() {

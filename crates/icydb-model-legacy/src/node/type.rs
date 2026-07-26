@@ -3,14 +3,14 @@ use crate::prelude::*;
 ///
 /// Type
 ///
-/// Canonical runtime type descriptor for one schema node's attached sanitizers
+/// Canonical runtime type descriptor for one schema node's attached normalizers
 /// and validators.
 ///
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Type {
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
-    sanitizers: &'static [TypeSanitizer],
+    normalizers: &'static [TypeNormalizer],
 
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     validators: &'static [TypeValidator],
@@ -19,18 +19,18 @@ pub struct Type {
 impl Type {
     #[must_use]
     pub const fn new(
-        sanitizers: &'static [TypeSanitizer],
+        normalizers: &'static [TypeNormalizer],
         validators: &'static [TypeValidator],
     ) -> Self {
         Self {
-            sanitizers,
+            normalizers,
             validators,
         }
     }
 
     #[must_use]
-    pub const fn sanitizers(&self) -> &'static [TypeSanitizer] {
-        self.sanitizers
+    pub const fn normalizers(&self) -> &'static [TypeNormalizer] {
+        self.normalizers
     }
 
     #[must_use]
@@ -43,7 +43,7 @@ impl ValidateNode for Type {}
 
 impl VisitableNode for Type {
     fn drive<V: Visitor>(&self, v: &mut V) {
-        for node in self.sanitizers() {
+        for node in self.normalizers() {
             node.accept(v);
         }
         for node in self.validators() {
@@ -53,18 +53,18 @@ impl VisitableNode for Type {
 }
 
 ///
-/// TypeSanitizer
+/// TypeNormalizer
 ///
-/// Reference to one sanitizer node plus its bound argument list.
+/// Reference to one normalizer node plus its bound argument list.
 ///
 
 #[derive(Clone, Debug, Serialize)]
-pub struct TypeSanitizer {
+pub struct TypeNormalizer {
     path: &'static str,
     args: Args,
 }
 
-impl TypeSanitizer {
+impl TypeNormalizer {
     #[must_use]
     pub const fn new(path: &'static str, args: Args) -> Self {
         Self { path, args }
@@ -81,12 +81,12 @@ impl TypeSanitizer {
     }
 }
 
-impl ValidateNode for TypeSanitizer {
+impl ValidateNode for TypeNormalizer {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
 
-        // Resolve the referenced sanitizer path against the schema graph.
-        let res = schema_read().check_node_as::<Sanitizer>(self.path());
+        // Resolve the referenced normalizer path against the schema graph.
+        let res = schema_read().check_node_as::<Normalizer>(self.path());
         if let Err(e) = res {
             errs.add(e.to_string());
         }
@@ -95,7 +95,7 @@ impl ValidateNode for TypeSanitizer {
     }
 }
 
-impl VisitableNode for TypeSanitizer {}
+impl VisitableNode for TypeNormalizer {}
 
 ///
 /// TypeValidator

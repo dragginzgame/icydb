@@ -45,7 +45,7 @@ pub struct Rgba {}
     item(prim = "Text", unbounded),
     default = "FFFFFF",
     ty(
-        sanitizer(path = "base::sanitizer::text::color::RgbHex"),
+        normalizer(path = "base::normalizer::text::color::RgbHex"),
         validator(path = "base::validator::text::color::RgbHex")
     ),
     traits(add(Default))
@@ -62,7 +62,7 @@ pub struct RgbHex {}
     item(prim = "Text", unbounded),
     default = "FFFFFFFF",
     ty(
-        sanitizer(path = "base::sanitizer::text::color::RgbaHex"),
+        normalizer(path = "base::normalizer::text::color::RgbaHex"),
         validator(path = "base::validator::text::color::RgbaHex")
     ),
     traits(add(Default), remove(From))

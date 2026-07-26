@@ -24,7 +24,7 @@ use icydb::design::prelude::*;
         field(source_key = "cdec_opt", ident = "cdec_opt", value(opt, item(is = "ClampDecimal"))),
     )
 )]
-pub struct SanitizeTest {}
+pub struct NormalizeTest {}
 
 ///
 /// ClampList
@@ -44,7 +44,7 @@ pub struct ClampListDecimal {}
     source_key = "schema/test/fixtures/src/macro_test/sanitize/clamp.rs::newtype::1",
     primitive = "Int32",
     item(prim = "Int32"),
-    ty(sanitizer(path = "base::sanitizer::num::Clamp", args(10, 20)))
+    ty(normalizer(path = "base::normalizer::num::Clamp", args(10, 20)))
 )]
 pub struct ClampInt32 {}
 
@@ -56,6 +56,6 @@ pub struct ClampInt32 {}
     source_key = "schema/test/fixtures/src/macro_test/sanitize/clamp.rs::newtype::2",
     primitive = "Decimal",
     item(prim = "Decimal", scale = 1),
-    ty(sanitizer(path = "base::sanitizer::num::Clamp", args(0.5, 5.5)))
+    ty(normalizer(path = "base::normalizer::num::Clamp", args(0.5, 5.5)))
 )]
 pub struct ClampDecimal {}

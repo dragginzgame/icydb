@@ -421,14 +421,6 @@ impl InternalError {
         }
     }
 
-    /// Construct an executor-origin protected-field sanitizer rejection.
-    pub(crate) fn mutation_sanitizer_protected_field_changed(
-        _entity_path: &str,
-        _field_name: &str,
-    ) -> Self {
-        Self::executor_unsupported()
-    }
-
     /// Construct an executor-origin required-field omission rejection.
     #[must_use]
     pub fn mutation_required_field_missing(_entity_path: &str, _field_names: &str) -> Self {

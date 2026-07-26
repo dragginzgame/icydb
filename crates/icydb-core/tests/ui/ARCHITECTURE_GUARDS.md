@@ -28,7 +28,7 @@ This file maps each UI test to exactly one architecture rule.
 | `query/grouped/handoff_module_private.rs` | Grouped handoff internals are not publicly importable. |
 | `query/logical_plan_private.rs` | Query logical plan internals are not public via deep paths. |
 | `query/plan_module_private.rs` | Query plan internals remain private; only root re-exports are public. |
-| `visitor/sanitize_module_private.rs` | Visitor sanitize internals stay private. |
+| `visitor/normalize_module_private.rs` | Visitor normalization internals stay private. |
 | `visitor/validate_module_private.rs` | Visitor validate internals stay private. |
 
 ## Compile-Pass Guards (`tests/pass/**/*.rs`)

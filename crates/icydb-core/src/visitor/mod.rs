@@ -1,21 +1,17 @@
 //! Module: visitor
 //!
-//! Responsibility: generic sanitize/validate visitor diagnostics and context.
+//! Responsibility: generic normalize/validate visitor diagnostics and context.
 //! Does not own: schema-specific validation rules or session error mapping.
-//! Boundary: shared visitor error/context surface for derived sanitizers and validators.
+//! Boundary: shared visitor error/context surface for derived normalizers and validators.
 
 #[macro_use]
 mod macros;
 mod traits;
 
 pub(crate) mod context;
-pub(crate) mod sanitize;
+pub(crate) mod normalize;
 pub(crate) mod validate;
 
-use crate::{
-    error::{ErrorClass, ErrorOrigin, InternalError},
-    sanitize::SanitizeWriteContext,
-};
 use serde::Deserialize;
 use std::{collections::BTreeMap, fmt};
 use thiserror::Error as ThisError;
@@ -23,13 +19,13 @@ use thiserror::Error as ThisError;
 // re-exports
 pub use context::{Issue, PathSegment, ScopedContext, VisitorContext};
 pub use traits::{
-    Sanitize, SanitizeAuto, SanitizeCustom, Sanitizer, Validate, ValidateAuto, ValidateCustom,
+    Normalize, NormalizeAuto, NormalizeCustom, Normalizer, Validate, ValidateAuto, ValidateCustom,
     Validator, Visitable,
 };
 
 //
 // VisitorError
-// Structured error type for visitor-based sanitization and validation.
+// Structured error type for visitor-based normalization and validation.
 //
 
 #[derive(Debug, ThisError)]
@@ -54,12 +50,6 @@ impl From<VisitorIssues> for VisitorError {
 impl From<VisitorError> for VisitorIssues {
     fn from(err: VisitorError) -> Self {
         err.issues
-    }
-}
-
-impl From<VisitorError> for InternalError {
-    fn from(_err: VisitorError) -> Self {
-        Self::classified(ErrorClass::Unsupported, ErrorOrigin::Executor)
     }
 }
 
@@ -221,34 +211,34 @@ pub fn drive_visitable_fields_mut<T>(
 }
 
 //
-// SanitizeFieldDescriptor
+// NormalizeFieldDescriptor
 //
-// Runtime sanitization descriptor for one generated struct field.
-// Generated code uses this to replace repeated per-field `sanitize_self`
+// Runtime normalization descriptor for one generated struct field.
+// Generated code uses this to replace repeated per-field `normalize_self`
 // bodies with one shared descriptor loop while preserving typed field access
 // at the boundary.
 //
 
-pub struct SanitizeFieldDescriptor<T> {
-    sanitize: fn(&mut T, &mut dyn VisitorContext),
+pub struct NormalizeFieldDescriptor<T> {
+    normalize: fn(&mut T, &mut dyn VisitorContext),
 }
 
-impl<T> SanitizeFieldDescriptor<T> {
-    /// Construct one sanitization descriptor for one generated field.
+impl<T> NormalizeFieldDescriptor<T> {
+    /// Construct one normalization descriptor for one generated field.
     #[must_use]
-    pub const fn new(sanitize: fn(&mut T, &mut dyn VisitorContext)) -> Self {
-        Self { sanitize }
+    pub const fn new(normalize: fn(&mut T, &mut dyn VisitorContext)) -> Self {
+        Self { normalize }
     }
 }
 
-// Drive one generated field table through sanitization dispatch.
-pub fn drive_sanitize_fields<T>(
+// Drive one generated field table through normalization dispatch.
+pub fn drive_normalize_fields<T>(
     node: &mut T,
     ctx: &mut dyn VisitorContext,
-    fields: &[SanitizeFieldDescriptor<T>],
+    fields: &[NormalizeFieldDescriptor<T>],
 ) {
     for field in fields {
-        (field.sanitize)(node, ctx);
+        (field.normalize)(node, ctx);
     }
 }
 
@@ -291,7 +281,6 @@ pub fn drive_validate_fields<T>(
 struct AdapterContext<'a> {
     path: &'a [PathSegment],
     issues: &'a mut VisitorIssues,
-    sanitize_write_context: Option<SanitizeWriteContext>,
 }
 
 impl VisitorContext for AdapterContext<'_> {
@@ -303,10 +292,6 @@ impl VisitorContext for AdapterContext<'_> {
     fn add_issue_at(&mut self, seg: PathSegment, issue: Issue) {
         let key = render_path(self.path, Some(seg));
         self.issues.push(key, issue);
-    }
-
-    fn sanitize_write_context(&self) -> Option<SanitizeWriteContext> {
-        self.sanitize_write_context
     }
 }
 
@@ -387,7 +372,6 @@ where
         let mut ctx = AdapterContext {
             path: &self.path,
             issues: &mut self.issues,
-            sanitize_write_context: None,
         };
         self.visitor.enter(node, &mut ctx);
     }
@@ -396,7 +380,6 @@ where
         let mut ctx = AdapterContext {
             path: &self.path,
             issues: &mut self.issues,
-            sanitize_write_context: None,
         };
         self.visitor.exit(node, &mut ctx);
     }
@@ -459,22 +442,17 @@ pub(crate) struct VisitorMutAdapter<V> {
     visitor: V,
     path: Vec<PathSegment>,
     issues: VisitorIssues,
-    sanitize_write_context: Option<SanitizeWriteContext>,
 }
 
 impl<V> VisitorMutAdapter<V>
 where
     V: VisitorMut,
 {
-    pub(crate) const fn with_sanitize_write_context(
-        visitor: V,
-        sanitize_write_context: Option<SanitizeWriteContext>,
-    ) -> Self {
+    pub(crate) const fn new(visitor: V) -> Self {
         Self {
             visitor,
             path: Vec::new(),
             issues: VisitorIssues::new(),
-            sanitize_write_context,
         }
     }
 
@@ -505,7 +483,6 @@ where
         let mut ctx = AdapterContext {
             path: &self.path,
             issues: &mut self.issues,
-            sanitize_write_context: self.sanitize_write_context,
         };
         self.visitor.enter_mut(node, &mut ctx);
     }
@@ -514,7 +491,6 @@ where
         let mut ctx = AdapterContext {
             path: &self.path,
             issues: &mut self.issues,
-            sanitize_write_context: self.sanitize_write_context,
         };
         self.visitor.exit_mut(node, &mut ctx);
     }

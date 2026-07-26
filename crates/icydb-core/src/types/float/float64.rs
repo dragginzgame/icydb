@@ -4,7 +4,7 @@ pub use icydb_schema::{Float64, Float64DecodeError};
 
 use crate::{
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
+    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 
 impl RuntimeValueMeta for Float64 {
@@ -28,16 +28,12 @@ impl RuntimeValueDecode for Float64 {
     }
 }
 
-impl SanitizeAuto for Float64 {}
+impl NormalizeAuto for Float64 {}
 
-impl SanitizeCustom for Float64 {}
+impl NormalizeCustom for Float64 {}
 
 impl ValidateAuto for Float64 {}
 
 impl ValidateCustom for Float64 {}
 
-impl Visitable for Float64 {
-    fn requires_application_write_callbacks() -> bool {
-        false
-    }
-}
+impl Visitable for Float64 {}

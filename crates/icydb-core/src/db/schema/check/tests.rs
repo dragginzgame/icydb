@@ -1,6 +1,7 @@
 use super::*;
 
 use crate::{
+    db::write_context::MutationMode,
     db::{
         commit::CommitSchemaFingerprint,
         data::AcceptedFieldWriteProvenance,
@@ -15,7 +16,6 @@ use crate::{
         },
     },
     model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
-    sanitize::SanitizeWriteMode,
     value::{InputValue, Value},
 };
 
@@ -517,7 +517,7 @@ fn compiled_unique_activation_blocks_inserts_and_dependency_changes_only() {
         "an activation gate makes the compiled constraint authority non-empty",
     );
     let insert_barrier = program
-        .unique_activation_write_blocker(SanitizeWriteMode::Insert, &provenance)
+        .unique_activation_write_blocker(MutationMode::Insert, &provenance)
         .expect("insert barrier should evaluate")
         .expect("insert should be blocked");
     assert_eq!(insert_barrier.constraint_id(), activation_id);
@@ -525,21 +525,21 @@ fn compiled_unique_activation_blocks_inserts_and_dependency_changes_only() {
     assert_eq!(insert_barrier.field_paths(), &["score".to_string()]);
     assert!(
         program
-            .unique_activation_write_blocker(SanitizeWriteMode::Update, &provenance)
+            .unique_activation_write_blocker(MutationMode::Update, &provenance)
             .expect("unrelated update barrier should evaluate")
             .is_none(),
     );
     provenance[2] = Some(AcceptedFieldWriteProvenance::Authored);
     assert!(
         program
-            .unique_activation_write_blocker(SanitizeWriteMode::Update, &provenance)
+            .unique_activation_write_blocker(MutationMode::Update, &provenance)
             .expect("unrelated authored field should evaluate")
             .is_none(),
     );
     provenance[1] = Some(AcceptedFieldWriteProvenance::Authored);
     assert_eq!(
         program
-            .unique_activation_write_blocker(SanitizeWriteMode::Update, &provenance)
+            .unique_activation_write_blocker(MutationMode::Update, &provenance)
             .expect("dependency barrier should evaluate")
             .map(super::compile::CompiledUniqueWriteBarrier::constraint_id),
         Some(activation_id),

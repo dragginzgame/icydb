@@ -9,7 +9,6 @@ use crate::{
     db::{
         DbSession, QueryError,
         data::AcceptedMutationIntentPatch,
-        executor::MutationMode,
         query::intent::StructuralQuery,
         schema::{
             AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
@@ -28,9 +27,9 @@ use crate::{
         },
         sql::parser::{SqlInsertSource, SqlInsertStatement, SqlProjection, SqlWriteValue},
         sql_shared::SqlSyntaxErrorKind,
+        write_context::{AcceptedWriteContext, MutationMode},
     },
     metrics::sink::SqlWriteKind,
-    sanitize::{SanitizeWriteContext, SanitizeWriteMode},
     traits::CanisterKind,
     types::{CurrentTimestamp, Timestamp},
     value::Value,
@@ -342,7 +341,7 @@ impl<C: CanisterKind> DbSession<C> {
                     ensure_sql_insert_required_fields(&descriptor, columns.as_slice())?;
                 }
                 let write_context =
-                    SanitizeWriteContext::new(SanitizeWriteMode::Insert, Timestamp::now());
+                    AcceptedWriteContext::new(MutationMode::Insert, Timestamp::now());
                 let candidate_bounds =
                     sql_insert_candidate_bounds(execution_bounds, statement.returning.is_some());
                 let mut collection = SqlWriteCandidateCollection::new();

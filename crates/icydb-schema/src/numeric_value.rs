@@ -5,7 +5,7 @@
 
 use crate::{Decimal, Duration, Float32, Float64, Timestamp};
 
-/// Fallible numeric round-trip contract used by generic validators and sanitizers.
+/// Fallible numeric round-trip contract used by generic validators and normalizers.
 ///
 /// Implementors convert through `Decimal` so typed numeric policy stays
 /// explicit and local. Database evaluation semantics remain under `db::numeric`.

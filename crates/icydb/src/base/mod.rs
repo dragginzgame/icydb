@@ -5,6 +5,6 @@
 //! Boundary: keeps public facade shape stable for downstream code.
 
 pub(crate) mod helper;
-pub mod sanitizer;
+pub mod normalizer;
 pub mod types;
 pub mod validator;

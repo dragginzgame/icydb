@@ -6,7 +6,7 @@ pub use icydb_testing_test_fixtures::macro_test::validate::finance::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::{sanitize, types::Decimal, validate};
+    use icydb::{normalize, types::Decimal, validate};
     use std::str::FromStr;
 
     #[test]
@@ -28,9 +28,9 @@ mod tests {
     }
 
     #[test]
-    fn sanitizer_rounds_to_two_decimals() {
+    fn normalizer_rounds_to_two_decimals() {
         let mut value = Usd::from(Decimal::from_str("1.239").unwrap());
-        sanitize(&mut value).unwrap();
+        normalize(&mut value).unwrap();
         assert_eq!(value.into_inner(), Decimal::from_str("1.24").unwrap());
     }
 
