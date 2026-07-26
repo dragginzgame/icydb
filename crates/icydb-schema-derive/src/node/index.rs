@@ -220,7 +220,18 @@ fn parse_index_bool_arg(expr: &syn::Expr) -> Result<bool, DarlingError> {
 
 impl HasSchemaPart for Index {
     fn schema_part(&self) -> TokenStream {
+        TokenStream::new()
+    }
+}
+
+impl Index {
+    pub(crate) fn schema_part_for_entity(
+        &self,
+        entity: &Entity,
+        entity_name: &str,
+    ) -> Result<TokenStream, DarlingError> {
         let source_key = &self.source_key;
+        let name = self.generated_name(entity_name);
         let fields = self.validated_field_idents();
         let fields = quote_slice(&fields, to_str_lit);
         let key_items = self.schema_key_items_tokens();
@@ -234,21 +245,28 @@ impl HasSchemaPart for Index {
         } else {
             quote! { None }
         };
+        let predicate_expression = self
+            .validated_generated_predicate(entity)?
+            .map(|predicate| {
+                predicate_source_expression_tokens(&predicate, entity)
+                    .map(|expression| quote! { Some(|_schema| #expression) })
+            })
+            .transpose()?
+            .unwrap_or_else(|| quote! { None });
 
-        // quote
-        quote! {
+        Ok(quote! {
             ::icydb::schema::node::Index::new_with_key_items_and_predicate(
                 #source_key,
+                #name,
                 #fields,
                 #key_items,
                 #unique,
                 #predicate,
+                #predicate_expression,
             )
-        }
+        })
     }
-}
 
-impl Index {
     /// Build the canonical index name (`idx_entity__key_item...`) shared across
     /// validation and codegen.
     pub fn generated_name(&self, entity_name: &str) -> String {
@@ -823,6 +841,253 @@ pub(crate) fn predicate_runtime_tokens(
                     value: #value,
                 }
             }
+        }
+    })
+}
+
+pub(crate) fn predicate_source_expression_tokens(
+    predicate: &CorePredicate,
+    entity: &Entity,
+) -> Result<TokenStream, DarlingError> {
+    let instructions = source_instruction_tokens(predicate, entity)?;
+    Ok(quote! {
+        ::icydb::__macro::SourceCheckExpr::try_new(vec![#(#instructions),*])
+    })
+}
+
+fn source_instruction_tokens(
+    predicate: &CorePredicate,
+    entity: &Entity,
+) -> Result<Vec<TokenStream>, DarlingError> {
+    match predicate {
+        CorePredicate::True | CorePredicate::False => {
+            let value = matches!(predicate, CorePredicate::True);
+            Ok(vec![
+                quote! {
+                    ::icydb::__macro::SourceCheckInstruction::Literal(
+                        ::icydb::__macro::ScalarLiteral::Bool(#value),
+                    )
+                },
+                quote! {
+                    ::icydb::__macro::SourceCheckInstruction::Literal(
+                        ::icydb::__macro::ScalarLiteral::Bool(true),
+                    )
+                },
+                quote! { ::icydb::__macro::SourceCheckInstruction::Equal },
+            ])
+        }
+        CorePredicate::And(children) | CorePredicate::Or(children) => {
+            let operator = if matches!(predicate, CorePredicate::And(_)) {
+                quote! { ::icydb::__macro::SourceCheckInstruction::And }
+            } else {
+                quote! { ::icydb::__macro::SourceCheckInstruction::Or }
+            };
+            fold_source_children(children, entity, operator)
+        }
+        CorePredicate::Not(inner) => {
+            let mut instructions = source_instruction_tokens(inner, entity)?;
+            instructions.push(quote! { ::icydb::__macro::SourceCheckInstruction::Not });
+            Ok(instructions)
+        }
+        CorePredicate::Compare(compare) => source_compare_instruction_tokens(compare, entity),
+        CorePredicate::CompareFields(compare) => {
+            let mut instructions = vec![
+                source_field_instruction(entity, compare.left_field())?,
+                source_field_instruction(entity, compare.right_field())?,
+            ];
+            instructions.push(source_compare_operator(compare.op())?);
+            Ok(instructions)
+        }
+        CorePredicate::IsNull { field } | CorePredicate::IsNotNull { field } => {
+            let mut instructions = vec![source_field_instruction(entity, field)?];
+            instructions.push(if matches!(predicate, CorePredicate::IsNull { .. }) {
+                quote! { ::icydb::__macro::SourceCheckInstruction::IsNull }
+            } else {
+                quote! { ::icydb::__macro::SourceCheckInstruction::IsNotNull }
+            });
+            Ok(instructions)
+        }
+        CorePredicate::IsMissing { .. }
+        | CorePredicate::IsEmpty { .. }
+        | CorePredicate::IsNotEmpty { .. }
+        | CorePredicate::TextContains { .. }
+        | CorePredicate::TextContainsCi { .. } => Err(DarlingError::custom(
+            "generated schema predicates must use the bounded public source-expression subset",
+        )),
+    }
+}
+
+fn fold_source_children(
+    children: &[CorePredicate],
+    entity: &Entity,
+    operator: TokenStream,
+) -> Result<Vec<TokenStream>, DarlingError> {
+    let mut children = children.iter();
+    let Some(first) = children.next() else {
+        return Err(DarlingError::custom(
+            "generated schema predicate cannot contain an empty boolean group",
+        ));
+    };
+    let mut instructions = source_instruction_tokens(first, entity)?;
+    for child in children {
+        instructions.extend(source_instruction_tokens(child, entity)?);
+        instructions.push(operator.clone());
+    }
+    Ok(instructions)
+}
+
+fn source_compare_instruction_tokens(
+    compare: &CoreComparePredicate,
+    entity: &Entity,
+) -> Result<Vec<TokenStream>, DarlingError> {
+    if matches!(compare.op(), CoreCompareOp::In | CoreCompareOp::NotIn) {
+        let CoreValue::List(values) = compare.value() else {
+            return Err(DarlingError::custom(
+                "generated schema membership predicate must carry a literal list",
+            ));
+        };
+        let mut values = values.iter();
+        let Some(first) = values.next() else {
+            return Err(DarlingError::custom(
+                "generated schema membership predicate cannot use an empty list",
+            ));
+        };
+        let mut instructions = source_equality_instruction_tokens(compare.field(), first, entity)?;
+        for value in values {
+            instructions.extend(source_equality_instruction_tokens(
+                compare.field(),
+                value,
+                entity,
+            )?);
+            instructions.push(quote! { ::icydb::__macro::SourceCheckInstruction::Or });
+        }
+        if matches!(compare.op(), CoreCompareOp::NotIn) {
+            instructions.push(quote! { ::icydb::__macro::SourceCheckInstruction::Not });
+        }
+        return Ok(instructions);
+    }
+
+    let mut instructions = vec![
+        source_field_instruction(entity, compare.field())?,
+        source_literal_instruction(entity, compare.field(), compare.value())?,
+    ];
+    instructions.push(source_compare_operator(compare.op())?);
+    Ok(instructions)
+}
+
+fn source_equality_instruction_tokens(
+    field: &str,
+    value: &CoreValue,
+    entity: &Entity,
+) -> Result<Vec<TokenStream>, DarlingError> {
+    Ok(vec![
+        source_field_instruction(entity, field)?,
+        source_literal_instruction(entity, field, value)?,
+        quote! { ::icydb::__macro::SourceCheckInstruction::Equal },
+    ])
+}
+
+fn source_field_instruction(
+    entity: &Entity,
+    field_name: &str,
+) -> Result<TokenStream, DarlingError> {
+    let field = entity
+        .fields
+        .iter()
+        .find(|field| field.ident == field_name)
+        .ok_or_else(|| DarlingError::custom(format!("unknown schema field '{field_name}'")))?;
+    let source_key = &field.source_key;
+    Ok(quote! {
+        ::icydb::__macro::SourceCheckInstruction::Field(
+            ::icydb::__macro::FieldSourceKey::try_new(#source_key)?
+        )
+    })
+}
+
+fn source_literal_instruction(
+    entity: &Entity,
+    field_name: &str,
+    value: &CoreValue,
+) -> Result<TokenStream, DarlingError> {
+    let field = entity
+        .fields
+        .iter()
+        .find(|field| field.ident == field_name)
+        .ok_or_else(|| DarlingError::custom(format!("unknown schema field '{field_name}'")))?;
+    let literal = if let Some(enum_path) = field.value.item.is.as_ref() {
+        let CoreValue::Text(variant) = value else {
+            return Err(DarlingError::custom(
+                "generated enum predicate literals must name unit variants",
+            ));
+        };
+        quote! {
+            _schema.enum_unit_literal(
+                <#enum_path as ::icydb::__macro::Path>::PATH,
+                #variant,
+            )?
+        }
+    } else {
+        source_scalar_literal(value)?
+    };
+    Ok(quote! {
+        ::icydb::__macro::SourceCheckInstruction::Literal(#literal)
+    })
+}
+
+fn source_scalar_literal(value: &CoreValue) -> Result<TokenStream, DarlingError> {
+    Ok(match value {
+        CoreValue::Bool(value) => quote! { ::icydb::__macro::ScalarLiteral::Bool(#value) },
+        CoreValue::Decimal(value) => {
+            let value = value.to_string();
+            quote! {
+                ::icydb::__macro::ScalarLiteral::Decimal(
+                    <::icydb::__macro::SchemaDecimal as ::std::str::FromStr>::from_str(#value)
+                        .map_err(|_| ::icydb::__macro::SchemaContractError::InvalidLiteral)?
+                )
+            }
+        }
+        CoreValue::Int64(value) => {
+            quote! { ::icydb::__macro::ScalarLiteral::Int(i128::from(#value)) }
+        }
+        CoreValue::Text(value) => {
+            quote! { ::icydb::__macro::ScalarLiteral::Text(#value.to_string()) }
+        }
+        CoreValue::Nat64(value) => {
+            quote! { ::icydb::__macro::ScalarLiteral::Nat(u128::from(#value)) }
+        }
+        CoreValue::List(_) | CoreValue::Null => {
+            return Err(DarlingError::custom(
+                "generated schema predicate contains a non-scalar literal",
+            ));
+        }
+        unexpected => {
+            return Err(DarlingError::custom(format!(
+                "generated schema predicate does not support literal variant {unexpected:?}",
+            )));
+        }
+    })
+}
+
+fn source_compare_operator(op: CoreCompareOp) -> Result<TokenStream, DarlingError> {
+    Ok(match op {
+        CoreCompareOp::Eq => quote! { ::icydb::__macro::SourceCheckInstruction::Equal },
+        CoreCompareOp::Ne => quote! { ::icydb::__macro::SourceCheckInstruction::NotEqual },
+        CoreCompareOp::Lt => quote! { ::icydb::__macro::SourceCheckInstruction::LessThan },
+        CoreCompareOp::Lte => {
+            quote! { ::icydb::__macro::SourceCheckInstruction::LessThanOrEqual }
+        }
+        CoreCompareOp::Gt => quote! { ::icydb::__macro::SourceCheckInstruction::GreaterThan },
+        CoreCompareOp::Gte => {
+            quote! { ::icydb::__macro::SourceCheckInstruction::GreaterThanOrEqual }
+        }
+        CoreCompareOp::In
+        | CoreCompareOp::NotIn
+        | CoreCompareOp::Contains
+        | CoreCompareOp::StartsWith
+        | CoreCompareOp::EndsWith => {
+            return Err(DarlingError::custom(
+                "generated schema comparison operator is outside the public source-expression subset",
+            ));
         }
     })
 }

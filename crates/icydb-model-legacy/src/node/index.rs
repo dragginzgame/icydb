@@ -1,8 +1,11 @@
 use crate::prelude::*;
+use icydb_schema::{SchemaContractError, SourceCheckExpr};
 use std::{
     fmt::{self, Display},
     ops::Not,
 };
+
+use super::{Schema, SourceExpressionResolver};
 
 ///
 /// IndexExpression
@@ -106,6 +109,7 @@ pub enum IndexKeyItemsRef {
 #[derive(Clone, Debug, Serialize)]
 pub struct Index {
     source_key: &'static str,
+    name: &'static str,
     fields: &'static [&'static str],
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -118,6 +122,9 @@ pub struct Index {
     // predicate semantics at runtime schema boundary.
     #[serde(skip_serializing_if = "Option::is_none")]
     predicate: Option<&'static str>,
+
+    #[serde(skip)]
+    predicate_expression: Option<SourceExpressionResolver>,
 }
 
 impl Index {
@@ -125,49 +132,73 @@ impl Index {
     #[must_use]
     pub const fn new(
         source_key: &'static str,
+        name: &'static str,
         fields: &'static [&'static str],
         unique: bool,
     ) -> Self {
-        Self::new_with_key_items_and_predicate(source_key, fields, None, unique, None)
+        Self::new_with_key_items_and_predicate(source_key, name, fields, None, unique, None, None)
     }
 
     /// Build one index declaration with optional conditional predicate metadata.
     #[must_use]
     pub const fn new_with_predicate(
         source_key: &'static str,
+        name: &'static str,
         fields: &'static [&'static str],
         unique: bool,
         predicate: Option<&'static str>,
+        predicate_expression: Option<SourceExpressionResolver>,
     ) -> Self {
-        Self::new_with_key_items_and_predicate(source_key, fields, None, unique, predicate)
+        Self::new_with_key_items_and_predicate(
+            source_key,
+            name,
+            fields,
+            None,
+            unique,
+            predicate,
+            predicate_expression,
+        )
     }
 
     /// Build one index declaration with explicit canonical key-item metadata.
     #[must_use]
     pub const fn new_with_key_items(
         source_key: &'static str,
+        name: &'static str,
         fields: &'static [&'static str],
         key_items: &'static [IndexKeyItem],
         unique: bool,
     ) -> Self {
-        Self::new_with_key_items_and_predicate(source_key, fields, Some(key_items), unique, None)
+        Self::new_with_key_items_and_predicate(
+            source_key,
+            name,
+            fields,
+            Some(key_items),
+            unique,
+            None,
+            None,
+        )
     }
 
     /// Build one index declaration with explicit key items + predicate metadata.
     #[must_use]
     pub const fn new_with_key_items_and_predicate(
         source_key: &'static str,
+        name: &'static str,
         fields: &'static [&'static str],
         key_items: Option<&'static [IndexKeyItem]>,
         unique: bool,
         predicate: Option<&'static str>,
+        predicate_expression: Option<SourceExpressionResolver>,
     ) -> Self {
         Self {
             source_key,
+            name,
             fields,
             key_items,
             unique,
             predicate,
+            predicate_expression,
         }
     }
 
@@ -175,6 +206,12 @@ impl Index {
     #[must_use]
     pub const fn source_key(&self) -> &'static str {
         self.source_key
+    }
+
+    /// Borrow the editable index name.
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        self.name
     }
 
     /// Borrow index field sequence.
@@ -224,6 +261,24 @@ impl Index {
     #[must_use]
     pub const fn predicate(&self) -> Option<&'static str> {
         self.predicate
+    }
+
+    /// Lower the optional compiler-validated predicate into the public source
+    /// AST.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed proposal error when an enum literal no longer resolves
+    /// through the sealed graph or the expression violates public bounds.
+    pub fn source_predicate(
+        &self,
+        schema: &Schema,
+    ) -> Result<Option<SourceCheckExpr>, SchemaContractError> {
+        match (self.predicate, self.predicate_expression) {
+            (None, None) => Ok(None),
+            (Some(_), Some(resolve)) => resolve(schema).map(Some),
+            (None, Some(_)) | (Some(_), None) => Err(SchemaContractError::InvalidExpression),
+        }
     }
 
     #[must_use]
@@ -303,8 +358,14 @@ mod tests {
 
     #[test]
     fn index_with_predicate_reports_conditional_shape() {
-        let index =
-            Index::new_with_predicate("email_active", &["email"], false, Some("active = true"));
+        let index = Index::new_with_predicate(
+            "email_active",
+            "idx_user__email",
+            &["email"],
+            false,
+            Some("active = true"),
+            None,
+        );
 
         assert_eq!(index.predicate(), Some("active = true"));
         assert_eq!(index.to_string(), "(email) WHERE active = true");
@@ -312,7 +373,7 @@ mod tests {
 
     #[test]
     fn index_without_predicate_preserves_unconditional_shape() {
-        let index = Index::new("email", &["email"], true);
+        let index = Index::new("email", "uidx_user__email", &["email"], true);
 
         assert_eq!(index.predicate(), None);
         assert_eq!(index.to_string(), "UNIQUE (email)");
@@ -324,8 +385,13 @@ mod tests {
             IndexKeyItem::Field("tenant_id"),
             IndexKeyItem::Expression(IndexExpression::Lower("email")),
         ];
-        let index =
-            Index::new_with_key_items("tenant_lower_email", &["tenant_id"], &KEY_ITEMS, false);
+        let index = Index::new_with_key_items(
+            "tenant_lower_email",
+            "idx_user__tenant_id__lower_email",
+            &["tenant_id"],
+            &KEY_ITEMS,
+            false,
+        );
 
         assert!(index.has_expression_key_items());
         assert_eq!(index.to_string(), "(tenant_id, LOWER(email))");

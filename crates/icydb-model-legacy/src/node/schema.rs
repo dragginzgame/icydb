@@ -1,4 +1,5 @@
 use crate::{Error, prelude::*};
+use icydb_schema::{ScalarLiteral, SchemaContractError, TypeSourceKey};
 use std::{any::Any, collections::BTreeMap};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -233,6 +234,32 @@ impl Schema {
     #[must_use]
     pub const fn nodes(&self) -> &BTreeMap<String, SchemaNode> {
         &self.nodes
+    }
+
+    /// Resolve one authored unit-enum literal through immutable source keys.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-enum-literal error when the path is not an enum, the
+    /// variant is absent, or either maintained source key is malformed.
+    pub fn enum_unit_literal(
+        &self,
+        enum_path: &str,
+        variant_name: &str,
+    ) -> Result<ScalarLiteral, SchemaContractError> {
+        let r#enum = self
+            .get_node(enum_path)
+            .and_then(|node| node.as_any().downcast_ref::<Enum>())
+            .ok_or(SchemaContractError::InvalidEnumLiteral)?;
+        let variant = r#enum
+            .variants()
+            .iter()
+            .find(|variant| variant.ident() == variant_name && variant.value().is_none())
+            .ok_or(SchemaContractError::InvalidEnumLiteral)?;
+        Ok(ScalarLiteral::EnumUnit {
+            enum_type: TypeSourceKey::try_new(r#enum.source_key())?,
+            variant: TypeSourceKey::try_new(variant.source_key())?,
+        })
     }
 }
 

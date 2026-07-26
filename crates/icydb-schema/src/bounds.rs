@@ -18,6 +18,9 @@ pub const MAX_SCHEMA_SUBMISSION_KEY_BYTES: usize = 128;
 /// Maximum byte length of one text or blob proposal literal.
 pub const MAX_PROPOSAL_LITERAL_BYTES: usize = 64 * 1024;
 
+/// Default maximum canonical encoding for unbounded authored big integers.
+pub const DEFAULT_BIG_INT_MAX_BYTES: u32 = 256;
+
 /// Maximum number of reusable fragments in one proposal.
 pub const MAX_SCHEMA_PROPOSAL_FRAGMENTS: usize = 1_024;
 

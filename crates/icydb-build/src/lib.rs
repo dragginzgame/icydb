@@ -27,6 +27,9 @@ pub fn generate_with_options(canister_path: &str, options: BuildOptions) -> Stri
     let canister = schema
         .cast_node::<Canister>(canister_path)
         .expect("canister path must resolve to a canister node");
+    schema
+        .schema_fragment_for_canister(canister_path)
+        .expect("sealed canister database closure must lower into a schema fragment");
 
     // Render the canister actor glue from the schema-owned metadata.
     let code = ActorBuilder::new(Arc::new(schema.clone()), canister.clone(), options);

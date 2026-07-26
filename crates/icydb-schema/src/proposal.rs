@@ -518,7 +518,13 @@ fn collect_named_type_references(r#type: &NamedTypeFragment, references: &mut Pr
                 collect_field_type_reference(field.field_type(), references);
             }
         }
-        NamedTypeFragment::Enum(_) => {}
+        NamedTypeFragment::Enum(r#enum) => {
+            for variant in r#enum.variants() {
+                if let Some(payload) = variant.payload() {
+                    collect_field_type_reference(payload, references);
+                }
+            }
+        }
         NamedTypeFragment::Newtype { inner, .. }
         | NamedTypeFragment::List { item: inner, .. }
         | NamedTypeFragment::Set { item: inner, .. } => {
@@ -530,7 +536,7 @@ fn collect_named_type_references(r#type: &NamedTypeFragment, references: &mut Pr
         }
         NamedTypeFragment::Tuple { members, .. } => {
             for member in members {
-                collect_field_type_reference(member, references);
+                collect_field_type_reference(member.field_type(), references);
             }
         }
     }
@@ -557,8 +563,12 @@ fn collect_field_references(
 }
 
 fn collect_field_type_reference(field_type: &FieldType, references: &mut ProposalReferences) {
-    if let FieldType::Named(reference) = field_type {
-        references.types.insert(reference.clone());
+    match field_type {
+        FieldType::List(item) => collect_field_type_reference(item, references),
+        FieldType::Named(reference) => {
+            references.types.insert(reference.clone());
+        }
+        FieldType::Scalar(_) => {}
     }
 }
 
@@ -620,7 +630,11 @@ fn validate_local_relation_targets(
                 .iter()
                 .find(|field| field.source_key() == target_key)
                 .ok_or(SchemaContractError::InvalidLocalReference)?;
-            if source_field.field_type() != target_field.field_type() {
+            let source_type = match source_field.field_type() {
+                FieldType::List(item) => item.as_ref(),
+                field_type => field_type,
+            };
+            if source_type != target_field.field_type() {
                 return Err(SchemaContractError::RelationTypeMismatch);
             }
         }
@@ -676,39 +690,44 @@ fn direct_named_type_references(r#type: &NamedTypeFragment) -> Vec<&TypeSourceKe
     let mut references = Vec::new();
     match r#type {
         NamedTypeFragment::Record(record) => {
-            references.extend(record.fields().iter().filter_map(|field| {
-                let FieldType::Named(reference) = field.field_type() else {
-                    return None;
-                };
-                Some(reference)
-            }));
+            for field in record.fields() {
+                collect_direct_named_type_references(field.field_type(), &mut references);
+            }
         }
-        NamedTypeFragment::Enum(_) => {}
+        NamedTypeFragment::Enum(r#enum) => {
+            for variant in r#enum.variants() {
+                if let Some(payload) = variant.payload() {
+                    collect_direct_named_type_references(payload, &mut references);
+                }
+            }
+        }
         NamedTypeFragment::Newtype { inner, .. }
         | NamedTypeFragment::List { item: inner, .. }
         | NamedTypeFragment::Set { item: inner, .. } => {
-            if let FieldType::Named(reference) = inner {
-                references.push(reference);
-            }
+            collect_direct_named_type_references(inner, &mut references);
         }
         NamedTypeFragment::Map { key, value, .. } => {
-            if let FieldType::Named(reference) = key {
-                references.push(reference);
-            }
-            if let FieldType::Named(reference) = value {
-                references.push(reference);
-            }
+            collect_direct_named_type_references(key, &mut references);
+            collect_direct_named_type_references(value, &mut references);
         }
         NamedTypeFragment::Tuple { members, .. } => {
-            references.extend(members.iter().filter_map(|member| {
-                let FieldType::Named(reference) = member else {
-                    return None;
-                };
-                Some(reference)
-            }));
+            for member in members {
+                collect_direct_named_type_references(member.field_type(), &mut references);
+            }
         }
     }
     references
+}
+
+fn collect_direct_named_type_references<'field>(
+    field_type: &'field FieldType,
+    references: &mut Vec<&'field TypeSourceKey>,
+) {
+    match field_type {
+        FieldType::List(item) => collect_direct_named_type_references(item, references),
+        FieldType::Named(reference) => references.push(reference),
+        FieldType::Scalar(_) => {}
+    }
 }
 
 fn ensure_no_adjacent_duplicates<T>(values: &[T]) -> Result<(), SchemaContractError>

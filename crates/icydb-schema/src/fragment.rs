@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     ConstraintSourceKey, Decimal, EntitySourceKey, FieldSourceKey, IndexSourceKey,
     MAX_FRAGMENT_CONSTRAINTS, MAX_FRAGMENT_ENTITIES, MAX_FRAGMENT_FIELDS, MAX_FRAGMENT_INDEXES,
-    MAX_FRAGMENT_RELATIONS, MAX_FRAGMENT_TYPES, RelationSourceKey, ScalarKind, ScalarLiteral,
-    SchemaContractError, SchemaName, SourceCheckExpr, TypeSourceKey,
+    MAX_FRAGMENT_RELATIONS, MAX_FRAGMENT_TYPES, MAX_SCHEMA_TYPE_DEPTH, RelationSourceKey,
+    ScalarKind, ScalarLiteral, SchemaContractError, SchemaName, SourceCheckExpr, TypeSourceKey,
 };
 
 /// Logical type reference in a proposal fragment.
@@ -17,6 +17,8 @@ use crate::{
 pub enum FieldType {
     /// Exact built-in scalar contract.
     Scalar(ScalarType),
+    /// Ordered repeated values with one exact element contract.
+    List(Box<Self>),
     /// Named record, enum, newtype, or collection definition.
     Named(TypeSourceKey),
 }
@@ -178,8 +180,19 @@ impl ScalarType {
 
 impl FieldType {
     pub(crate) const fn validate(&self) -> Result<(), SchemaContractError> {
+        self.validate_at_depth(0)
+    }
+
+    const fn validate_at_depth(&self, depth: usize) -> Result<(), SchemaContractError> {
+        let Some(depth) = depth.checked_add(1) else {
+            return Err(SchemaContractError::InvalidNamedTypeGraph);
+        };
+        if depth > MAX_SCHEMA_TYPE_DEPTH {
+            return Err(SchemaContractError::InvalidNamedTypeGraph);
+        }
         match self {
             Self::Scalar(scalar) => scalar.validate(),
+            Self::List(item) => item.validate_at_depth(depth),
             Self::Named(_) => Ok(()),
         }
     }
@@ -282,7 +295,7 @@ impl FieldFragment {
             match &self.field_type {
                 FieldType::Scalar(scalar) if scalar.accepts_literal(literal) => {}
                 FieldType::Named(_) if matches!(literal, ScalarLiteral::EnumUnit { .. }) => {}
-                FieldType::Scalar(_) | FieldType::Named(_) => {
+                FieldType::Scalar(_) | FieldType::List(_) | FieldType::Named(_) => {
                     return Err(SchemaContractError::LiteralTypeMismatch);
                 }
             }
@@ -797,6 +810,41 @@ impl RecordFieldFragment {
     }
 }
 
+/// One positional tuple member and its explicit-null policy.
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TupleElementFragment {
+    field_type: FieldType,
+    nullable: bool,
+}
+
+impl TupleElementFragment {
+    /// Construct one exact tuple-member contract.
+    #[must_use]
+    pub const fn new(field_type: FieldType, nullable: bool) -> Self {
+        Self {
+            field_type,
+            nullable,
+        }
+    }
+
+    /// Borrow the exact logical member type.
+    #[must_use]
+    pub const fn field_type(&self) -> &FieldType {
+        &self.field_type
+    }
+
+    /// Return whether this tuple member admits explicit null.
+    #[must_use]
+    pub const fn nullable(&self) -> bool {
+        self.nullable
+    }
+
+    const fn validate(&self) -> Result<(), SchemaContractError> {
+        self.field_type.validate()
+    }
+}
+
 /// Named record-type definition.
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RecordTypeFragment {
@@ -867,13 +915,32 @@ impl RecordTypeFragment {
 pub struct EnumVariantFragment {
     source_key: TypeSourceKey,
     name: SchemaName,
+    payload: Option<FieldType>,
 }
 
 impl EnumVariantFragment {
-    /// Construct one variant.
+    /// Construct one unit variant.
     #[must_use]
     pub const fn new(source_key: TypeSourceKey, name: SchemaName) -> Self {
-        Self { source_key, name }
+        Self {
+            source_key,
+            name,
+            payload: None,
+        }
+    }
+
+    /// Construct one payload-bearing variant.
+    #[must_use]
+    pub const fn with_payload(
+        source_key: TypeSourceKey,
+        name: SchemaName,
+        payload: FieldType,
+    ) -> Self {
+        Self {
+            source_key,
+            name,
+            payload: Some(payload),
+        }
     }
 
     /// Borrow the immutable variant source key.
@@ -886,6 +953,19 @@ impl EnumVariantFragment {
     #[must_use]
     pub const fn name(&self) -> &SchemaName {
         &self.name
+    }
+
+    /// Borrow the optional exact payload contract.
+    #[must_use]
+    pub const fn payload(&self) -> Option<&FieldType> {
+        self.payload.as_ref()
+    }
+
+    const fn validate(&self) -> Result<(), SchemaContractError> {
+        match &self.payload {
+            Some(payload) => payload.validate(),
+            None => Ok(()),
+        }
     }
 }
 
@@ -916,6 +996,9 @@ impl EnumTypeFragment {
         variants.sort_by(|left, right| left.source_key.cmp(&right.source_key));
         ensure_unique_sorted_by(&variants, |variant| &variant.source_key)?;
         ensure_unique_names(variants.iter().map(EnumVariantFragment::name))?;
+        for variant in &variants {
+            variant.validate()?;
+        }
         Ok(Self {
             source_key,
             name,
@@ -1006,7 +1089,7 @@ pub enum NamedTypeFragment {
         /// Editable display name.
         name: SchemaName,
         /// Ordered member types.
-        members: Vec<FieldType>,
+        members: Vec<TupleElementFragment>,
     },
 }
 
@@ -1055,7 +1138,7 @@ impl NamedTypeFragment {
                     return Err(SchemaContractError::InvalidReferenceList);
                 }
                 check_len("tuple members", members.len(), MAX_FRAGMENT_FIELDS)?;
-                members.iter().try_for_each(FieldType::validate)
+                members.iter().try_for_each(TupleElementFragment::validate)
             }
         }
     }

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.27` makes the sealed host graph emit one exact store-free database
+  closure, hard-cutting fragment encoding to preserve repeated fields, enum
+  payloads, and nullable tuple members.
+
 - `0.213.26` hard-cuts persisted schema authoring to explicit immutable source
   identities, preventing later Rust or display-name changes from replacing
   authored identity.

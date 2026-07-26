@@ -87,17 +87,31 @@ impl Constraint {
             },
         ))
     }
+
+    pub(crate) fn schema_part_for_entity(
+        &self,
+        entity: &Entity,
+    ) -> Result<TokenStream, DarlingError> {
+        let source_key = &self.source_key;
+        let name = &self.name;
+        let check = &self.check;
+        let predicate = self.validated_predicate(entity)?;
+        let expression = super::index::predicate_source_expression_tokens(&predicate, entity)?;
+
+        Ok(quote! {
+            ::icydb::schema::node::CheckConstraint::new(
+                #source_key,
+                #name,
+                #check,
+                |_schema| #expression,
+            )
+        })
+    }
 }
 
 impl HasSchemaPart for Constraint {
     fn schema_part(&self) -> TokenStream {
-        let source_key = &self.source_key;
-        let name = &self.name;
-        let check = &self.check;
-
-        quote! {
-            ::icydb::schema::node::CheckConstraint::new(#source_key, #name, #check)
-        }
+        TokenStream::new()
     }
 }
 

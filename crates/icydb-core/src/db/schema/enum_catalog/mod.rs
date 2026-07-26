@@ -203,11 +203,29 @@ impl AcceptedValueCatalogHandle {
     }
 }
 
+type InitialEnumVariantDefinitions =
+    BTreeMap<EnumVariantId, (String, Option<(AcceptedFieldKind, FieldStorageDecode)>)>;
+type InitialEnumDefinitions = BTreeMap<EnumTypeId, (String, InitialEnumVariantDefinitions)>;
+
+fn variant_payload_matches(
+    accepted: &AcceptedEnumVariantBody,
+    proposed: Option<&(AcceptedFieldKind, FieldStorageDecode)>,
+) -> bool {
+    match (accepted, proposed) {
+        (AcceptedEnumVariantBody::Unit, None) => true,
+        (AcceptedEnumVariantBody::Payload { contract }, Some((kind, storage_decode))) => {
+            contract.kind() == kind && contract.storage_decode() == *storage_decode
+        }
+        (AcceptedEnumVariantBody::Unit, Some(_))
+        | (AcceptedEnumVariantBody::Payload { .. }, None) => false,
+    }
+}
+
 impl AcceptedEnumCatalog {
-    /// Construct one initial unit-enum catalog from already allocated
-    /// store-local identities.
-    pub(in crate::db::schema) fn from_initial_unit_definitions(
-        definitions: BTreeMap<EnumTypeId, (String, BTreeMap<EnumVariantId, String>)>,
+    /// Construct one initial enum catalog from already allocated store-local
+    /// identities and exact payload contracts.
+    pub(in crate::db::schema) fn from_initial_definitions(
+        definitions: InitialEnumDefinitions,
     ) -> Result<Self, EnumCatalogBuildError> {
         let mut by_id = BTreeMap::new();
         let mut id_by_path = BTreeMap::new();
@@ -220,7 +238,7 @@ impl AcceptedEnumCatalog {
             }
             let mut variants_by_id = BTreeMap::new();
             let mut variant_id_by_name = BTreeMap::new();
-            for (variant_id, name) in variants {
+            for (variant_id, (name, payload)) in variants {
                 if name.is_empty()
                     || variant_id_by_name
                         .insert(name.clone(), variant_id)
@@ -232,7 +250,15 @@ impl AcceptedEnumCatalog {
                     variant_id,
                     AcceptedEnumVariant {
                         name,
-                        body: AcceptedEnumVariantBody::Unit,
+                        body: payload.map_or(
+                            AcceptedEnumVariantBody::Unit,
+                            |(kind, storage_decode)| AcceptedEnumVariantBody::Payload {
+                                contract: AcceptedValueContract {
+                                    kind,
+                                    storage_decode,
+                                },
+                            },
+                        ),
                     },
                 );
             }
@@ -253,16 +279,17 @@ impl AcceptedEnumCatalog {
         Ok(catalog)
     }
 
-    /// Re-declare editable unit-enum metadata under existing accepted IDs.
+    /// Re-declare editable enum metadata under existing accepted IDs while
+    /// preserving every exact unit/payload contract.
     ///
     /// Source bindings resolve the supplied type and variant IDs before this
     /// boundary. This owner permits only path/name changes; variant identity,
     /// cardinality, ordering policy, and unit contracts remain exact.
-    pub(in crate::db::schema) fn with_redeclared_unit_metadata(
+    pub(in crate::db::schema) fn with_redeclared_metadata(
         mut self,
         type_id: EnumTypeId,
         path: String,
-        variants: BTreeMap<EnumVariantId, String>,
+        variants: InitialEnumVariantDefinitions,
     ) -> Result<Self, EnumCatalogBuildError> {
         let accepted = self
             .by_id
@@ -270,11 +297,11 @@ impl AcceptedEnumCatalog {
             .ok_or(EnumCatalogBuildError::LookupMapInvariant)?;
         if path.is_empty()
             || variants.len() != accepted.variants_by_id.len()
-            || variants.keys().any(|variant_id| {
+            || variants.iter().any(|(variant_id, (_, payload))| {
                 accepted
                     .variants_by_id
                     .get(variant_id)
-                    .is_none_or(|variant| !matches!(variant.body, AcceptedEnumVariantBody::Unit))
+                    .is_none_or(|variant| !variant_payload_matches(&variant.body, payload.as_ref()))
             })
         {
             return Err(EnumCatalogBuildError::LookupMapInvariant);
@@ -283,7 +310,7 @@ impl AcceptedEnumCatalog {
         let ordering = accepted.ordering;
         let mut variants_by_id = BTreeMap::new();
         let mut variant_id_by_name = BTreeMap::new();
-        for (variant_id, name) in variants {
+        for (variant_id, (name, payload)) in variants {
             if name.is_empty()
                 || variant_id_by_name
                     .insert(name.clone(), variant_id)
@@ -295,7 +322,15 @@ impl AcceptedEnumCatalog {
                 variant_id,
                 AcceptedEnumVariant {
                     name,
-                    body: AcceptedEnumVariantBody::Unit,
+                    body: payload.map_or(
+                        AcceptedEnumVariantBody::Unit,
+                        |(kind, storage_decode)| AcceptedEnumVariantBody::Payload {
+                            contract: AcceptedValueContract {
+                                kind,
+                                storage_decode,
+                            },
+                        },
+                    ),
                 },
             );
         }

@@ -1,5 +1,6 @@
 pub mod build;
 pub mod error;
+pub mod fragment;
 pub mod node;
 pub mod types;
 mod validate;

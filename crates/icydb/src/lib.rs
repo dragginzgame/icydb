@@ -262,6 +262,10 @@ pub mod __macro {
         runtime_value_into, runtime_value_map_collection_to_value, runtime_value_to_value,
         runtime_value_vec_from_value,
     };
+    pub use icydb_schema::{
+        Decimal as SchemaDecimal, FieldSourceKey, ScalarLiteral, SchemaContractError,
+        SourceCheckExpr, SourceCheckInstruction,
+    };
 }
 
 // re-exports

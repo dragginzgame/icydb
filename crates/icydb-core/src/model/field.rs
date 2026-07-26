@@ -22,7 +22,7 @@ pub(crate) enum FieldStorageValidationError {
 }
 
 /// Default `max_bytes` bound for `int_big` and `nat_big` field payloads.
-pub const DEFAULT_BIG_INT_MAX_BYTES: u32 = 256;
+pub const DEFAULT_BIG_INT_MAX_BYTES: u32 = icydb_schema::DEFAULT_BIG_INT_MAX_BYTES;
 
 ///
 /// FieldStorageDecode

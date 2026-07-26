@@ -453,9 +453,25 @@ impl HasSchemaPart for Entity {
         let schema_version = syn::LitInt::new(&self.schema_version.to_string(), Span::call_site());
         let primary_key = self.primary_key.schema_part();
         let name = quote_option(self.name.as_ref(), to_str_lit);
-        let indexes = quote_slice(&self.indexes, Index::schema_part);
+        let entity_name = self
+            .name
+            .as_ref()
+            .map_or_else(|| self.def.ident().to_string(), LitStr::value);
+        let indexes = self
+            .indexes
+            .iter()
+            .map(|index| index.schema_part_for_entity(self, entity_name.as_str()))
+            .collect::<Result<Vec<_>, _>>()
+            .expect("validated indexes should lower into source fragments");
+        let indexes = quote! { &[#(#indexes),*] };
         let relations = quote_slice(&self.relations, Relation::schema_part);
-        let constraints = quote_slice(&self.constraints, Constraint::schema_part);
+        let constraints = self
+            .constraints
+            .iter()
+            .map(|constraint| constraint.schema_part_for_entity(self))
+            .collect::<Result<Vec<_>, _>>()
+            .expect("validated constraints should lower into source fragments");
+        let constraints = quote! { &[#(#constraints),*] };
         let fields = &self.fields.schema_part();
         let ty = &self.ty.schema_part();
 

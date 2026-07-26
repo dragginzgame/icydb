@@ -229,14 +229,13 @@ fn collect_reachable_named_types(
     entities: &[&EntityFragment],
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
 ) -> Result<BTreeSet<TypeSourceKey>, InternalError> {
-    let mut pending = entities
-        .iter()
-        .flat_map(|entity| entity.fields())
-        .filter_map(|field| match field.field_type() {
-            FieldType::Named(source) => Some(source.clone()),
-            FieldType::Scalar(_) => None,
-        })
-        .collect::<Vec<_>>();
+    let mut pending = entities.iter().flat_map(|entity| entity.fields()).fold(
+        Vec::new(),
+        |mut pending, field| {
+            collect_field_type_dependency(field.field_type(), &mut pending);
+            pending
+        },
+    );
     let mut reachable = BTreeSet::new();
     while let Some(source) = pending.pop() {
         if !reachable.insert(source.clone()) {
@@ -261,7 +260,13 @@ fn collect_named_type_dependencies(
                 collect_field_type_dependency(field.field_type(), pending);
             }
         }
-        NamedTypeFragment::Enum(_) => {}
+        NamedTypeFragment::Enum(r#enum) => {
+            for variant in r#enum.variants() {
+                if let Some(payload) = variant.payload() {
+                    collect_field_type_dependency(payload, pending);
+                }
+            }
+        }
         NamedTypeFragment::Newtype { inner, .. }
         | NamedTypeFragment::List { item: inner, .. }
         | NamedTypeFragment::Set { item: inner, .. } => {
@@ -273,15 +278,17 @@ fn collect_named_type_dependencies(
         }
         NamedTypeFragment::Tuple { members, .. } => {
             for member in members {
-                collect_field_type_dependency(member, pending);
+                collect_field_type_dependency(member.field_type(), pending);
             }
         }
     }
 }
 
 fn collect_field_type_dependency(field_type: &FieldType, pending: &mut Vec<TypeSourceKey>) {
-    if let FieldType::Named(source) = field_type {
-        pending.push(source.clone());
+    match field_type {
+        FieldType::List(item) => collect_field_type_dependency(item, pending),
+        FieldType::Named(source) => pending.push(source.clone()),
+        FieldType::Scalar(_) => {}
     }
 }
 
@@ -306,12 +313,21 @@ fn lower_initial_enum_catalog(
                 .ok_or_else(InternalError::store_unsupported)?;
             let variant_id =
                 EnumVariantId::new(raw).ok_or_else(InternalError::store_unsupported)?;
-            variants.insert(variant_id, variant.name().as_str().to_string());
+            let payload = variant
+                .payload()
+                .map(|payload| {
+                    Ok::<_, InternalError>((
+                        lower_field_type(payload, |source| bindings.get(source).copied())?,
+                        field_storage_decode(payload),
+                    ))
+                })
+                .transpose()?;
+            variants.insert(variant_id, (variant.name().as_str().to_string(), payload));
             variant_bindings.insert((*type_id, variant.source_key().clone()), variant_id);
         }
         definitions.insert(*type_id, (definition.name().as_str().to_string(), variants));
     }
-    let catalog = AcceptedEnumCatalog::from_initial_unit_definitions(definitions)
+    let catalog = AcceptedEnumCatalog::from_initial_definitions(definitions)
         .map_err(|_| InternalError::store_unsupported())?;
     Ok((catalog, variant_bindings))
 }
@@ -424,8 +440,10 @@ fn lower_initial_composite_shape(
                 .iter()
                 .map(|member| {
                     Ok(AcceptedCompositeElement::new(
-                        lower_field_type(member, |source| bindings.get(source).copied())?,
-                        false,
+                        lower_field_type(member.field_type(), |source| {
+                            bindings.get(source).copied()
+                        })?,
+                        member.nullable(),
                     ))
                 })
                 .collect::<Result<Vec<_>, InternalError>>()?,
@@ -1451,11 +1469,22 @@ fn lower_existing_named_catalogs(
                     .source_bindings()
                     .enum_variant(type_id, variant.source_key())
                     .ok_or_else(InternalError::store_unsupported)?;
-                Ok((variant_id, variant.name().as_str().to_string()))
+                let payload = variant
+                    .payload()
+                    .map(|payload| {
+                        Ok::<_, InternalError>((
+                            lower_field_type(payload, |source| {
+                                bundle.source_bindings().named_type(source)
+                            })?,
+                            field_storage_decode(payload),
+                        ))
+                    })
+                    .transpose()?;
+                Ok((variant_id, (variant.name().as_str().to_string(), payload)))
             })
             .collect::<Result<BTreeMap<_, _>, InternalError>>()?;
         enum_catalog = enum_catalog
-            .with_redeclared_unit_metadata(type_id, proposed.name().as_str().to_string(), variants)
+            .with_redeclared_metadata(type_id, proposed.name().as_str().to_string(), variants)
             .map_err(|_| InternalError::store_unsupported())?;
     }
     let enum_changed = enum_catalog != *bundle.enum_catalog();
@@ -1592,6 +1621,7 @@ fn verify_record_member_rename_coverage(
 
 fn named_field_type_source(field_type: &FieldType) -> Option<TypeSourceKey> {
     match field_type {
+        FieldType::List(item) => named_field_type_source(item),
         FieldType::Named(source) => Some(source.clone()),
         FieldType::Scalar(_) => None,
     }
@@ -1692,8 +1722,10 @@ fn lower_existing_composite_shape(
                 .iter()
                 .map(|member| {
                     Ok(AcceptedCompositeElement::new(
-                        lower_field_type(member, |source| bindings.named_type(source))?,
-                        false,
+                        lower_field_type(member.field_type(), |source| {
+                            bindings.named_type(source)
+                        })?,
+                        member.nullable(),
                     ))
                 })
                 .collect::<Result<Vec<_>, InternalError>>()?,
@@ -1854,14 +1886,8 @@ fn lower_existing_fields(
             return Err(InternalError::store_unsupported());
         }
         let kind = lower_field_type(proposed.field_type(), |source| bindings.named_type(source))?;
-        let storage_decode = match proposed.field_type() {
-            FieldType::Scalar(_) => FieldStorageDecode::ByKind,
-            FieldType::Named(_) => FieldStorageDecode::CatalogValue,
-        };
-        let leaf_codec = match proposed.field_type() {
-            FieldType::Scalar(_) => scalar_leaf_codec(&kind),
-            FieldType::Named(_) => LeafCodec::Structural,
-        };
+        let storage_decode = field_storage_decode(proposed.field_type());
+        let leaf_codec = field_leaf_codec(proposed.field_type(), &kind);
         let nested_leaves = lower_nested_leaves(&kind, &catalogs.composite_catalog)?;
         let write_policy =
             lower_write_policy(proposed.insert_policy(), proposed.management(), &kind)?;
@@ -2405,14 +2431,8 @@ fn lower_initial_entity_fields(
         let kind = lower_field_type(field.field_type(), |source| {
             context.named_type_bindings.named_type(source)
         })?;
-        let storage_decode = match field.field_type() {
-            FieldType::Scalar(_) => FieldStorageDecode::ByKind,
-            FieldType::Named(_) => FieldStorageDecode::CatalogValue,
-        };
-        let leaf_codec = match field.field_type() {
-            FieldType::Scalar(_) => scalar_leaf_codec(&kind),
-            FieldType::Named(_) => LeafCodec::Structural,
-        };
+        let storage_decode = field_storage_decode(field.field_type());
+        let leaf_codec = field_leaf_codec(field.field_type(), &kind);
         let nested_leaves = lower_nested_leaves(&kind, &context.composite_catalog)?;
         let write_policy = lower_write_policy(field.insert_policy(), field.management(), &kind)?;
         let insert_default = AcceptedDefaultLowering {
@@ -2702,7 +2722,11 @@ fn lower_initial_relations(
                     .iter()
                     .find(|field| field.source_key() == target_source)
                     .ok_or_else(InternalError::store_invariant)?;
-                if local.field_type() != target_field.field_type() {
+                let local_type = match local.field_type() {
+                    FieldType::List(item) => item.as_ref(),
+                    field_type => field_type,
+                };
+                if local_type != target_field.field_type() {
                     return Err(InternalError::store_unsupported());
                 }
             }
@@ -2751,6 +2775,12 @@ fn lower_field_type(
 ) -> Result<AcceptedFieldKind, InternalError> {
     let scalar = match field_type {
         FieldType::Scalar(scalar) => scalar,
+        FieldType::List(item) => {
+            return Ok(AcceptedFieldKind::List(Box::new(lower_field_type(
+                item,
+                resolve_named,
+            )?)));
+        }
         FieldType::Named(source) => {
             return resolve_named(source)
                 .map(|identity| match identity {
@@ -2794,6 +2824,21 @@ fn lower_field_type(
         ScalarType::Ulid => AcceptedFieldKind::Ulid,
         ScalarType::Unit => AcceptedFieldKind::Unit,
     })
+}
+
+const fn field_storage_decode(field_type: &FieldType) -> FieldStorageDecode {
+    match field_type {
+        FieldType::List(item) => field_storage_decode(item),
+        FieldType::Named(_) => FieldStorageDecode::CatalogValue,
+        FieldType::Scalar(_) => FieldStorageDecode::ByKind,
+    }
+}
+
+const fn field_leaf_codec(field_type: &FieldType, kind: &AcceptedFieldKind) -> LeafCodec {
+    match field_type {
+        FieldType::Scalar(_) => scalar_leaf_codec(kind),
+        FieldType::List(_) | FieldType::Named(_) => LeafCodec::Structural,
+    }
 }
 
 const fn scalar_leaf_codec(kind: &AcceptedFieldKind) -> LeafCodec {
@@ -2893,7 +2938,7 @@ mod tests {
     use crate::db::schema::{
         AcceptedConstraintKind, AcceptedNamedTypeIdentity, AcceptedSchemaRevision,
         ConstraintActivationKind, ConstraintOrigin, PersistedFieldSnapshot, SchemaInsertDefault,
-        composite_catalog::AcceptedCompositeShape,
+        composite_catalog::AcceptedCompositeShape, enum_catalog::AcceptedEnumVariantBody,
     };
     use icydb_schema::{
         ConstraintFragment, ConstraintSourceKey, EntityFragment, EntitySourceKey,
@@ -2902,7 +2947,8 @@ mod tests {
         IndexFragment, IndexKeyFragment, IndexSourceKey, NamedTypeFragment, RecordFieldFragment,
         RecordTypeFragment, ScalarLiteral, ScalarType, SchemaCapability, SchemaFragment,
         SchemaName, SchemaProposal, SchemaRemoval, SchemaSubmissionKey, SourceCheckExpr,
-        SourceCheckInstruction, TargetDatabaseIdentity, TargetStoreIdentity, TypeSourceKey,
+        SourceCheckInstruction, TargetDatabaseIdentity, TargetStoreIdentity, TupleElementFragment,
+        TypeSourceKey,
     };
 
     fn name(value: &str) -> SchemaName {
@@ -3607,9 +3653,10 @@ mod tests {
             TypeSourceKey::try_new("test:variant:active").expect("variant key should admit");
         let variants = vec![
             EnumVariantFragment::new(active.clone(), name(active_name)),
-            EnumVariantFragment::new(
+            EnumVariantFragment::with_payload(
                 TypeSourceKey::try_new("test:variant:disabled").expect("variant key should admit"),
                 name("Disabled"),
+                FieldType::List(Box::new(FieldType::Scalar(ScalarType::Nat16))),
             ),
         ];
         let record_fields = vec![
@@ -3664,8 +3711,11 @@ mod tests {
                 source_key: keys.pair.clone(),
                 name: name("Pair"),
                 members: vec![
-                    FieldType::Scalar(ScalarType::Text { max_len: Some(32) }),
-                    FieldType::Scalar(ScalarType::Nat64),
+                    TupleElementFragment::new(
+                        FieldType::Scalar(ScalarType::Text { max_len: Some(32) }),
+                        false,
+                    ),
+                    TupleElementFragment::new(FieldType::Scalar(ScalarType::Nat64), true),
                 ],
             },
         ];
@@ -3789,6 +3839,7 @@ mod tests {
                 .variant_count(),
             2,
         );
+        assert_payload_enum_and_nullable_tuple(bundle, status_id);
         let profile_id = bundle
             .composite_catalog()
             .type_id("Profile")
@@ -3862,6 +3913,48 @@ mod tests {
                 .insert_default(),
             SchemaInsertDefault::SlotPayload(payload) if !payload.is_empty()
         ));
+    }
+
+    fn assert_payload_enum_and_nullable_tuple(
+        bundle: &super::AcceptedSchemaRevisionBundle,
+        status_id: super::EnumTypeId,
+    ) {
+        let disabled_source =
+            TypeSourceKey::try_new("test:variant:disabled").expect("variant source should admit");
+        let disabled_id = bundle
+            .source_bindings_for_tests()
+            .enum_variant(status_id, &disabled_source)
+            .expect("payload variant source should bind");
+        let disabled = bundle
+            .enum_catalog()
+            .enum_type(status_id)
+            .and_then(|definition| definition.variant(disabled_id))
+            .expect("payload variant should exist");
+        assert!(matches!(
+            disabled.body(),
+            AcceptedEnumVariantBody::Payload { contract }
+                if matches!(
+                    contract.kind(),
+                    super::AcceptedFieldKind::List(item)
+                        if matches!(item.as_ref(), super::AcceptedFieldKind::Nat16)
+                )
+                    && contract.storage_decode() == super::FieldStorageDecode::ByKind
+        ));
+
+        let pair_id = bundle
+            .composite_catalog()
+            .type_id("Pair")
+            .expect("pair composite should exist");
+        let super::AcceptedCompositeShape::Tuple(pair) = bundle
+            .composite_catalog()
+            .composite_type(pair_id)
+            .expect("pair definition should exist")
+            .shape()
+        else {
+            panic!("pair should remain a tuple")
+        };
+        assert!(!pair[0].nullable());
+        assert!(pair[1].nullable());
     }
 
     #[test]

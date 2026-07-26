@@ -8,8 +8,8 @@ use crate::{
     RelationFragment, ScalarLiteral, ScalarType, SchemaCapability, SchemaContractError,
     SchemaFragment, SchemaName, SchemaProposal, SchemaRemoval, SchemaSubmissionKey,
     SourceCheckExpr, SourceCheckInstruction, Subaccount, TargetDatabaseIdentity,
-    TargetStoreIdentity, Timestamp, TypeSourceKey, Ulid, Unit, decode_schema_fragment,
-    decode_schema_proposal, encode_schema_fragment, encode_schema_proposal,
+    TargetStoreIdentity, Timestamp, TupleElementFragment, TypeSourceKey, Ulid, Unit,
+    decode_schema_fragment, decode_schema_proposal, encode_schema_fragment, encode_schema_proposal,
 };
 
 fn source<T>(value: &str, constructor: impl FnOnce(String) -> Result<T, SchemaContractError>) -> T {
@@ -315,8 +315,8 @@ fn named_collection_fragments_roundtrip_canonically() {
             source_key: source("type/point", TypeSourceKey::try_new),
             name: SchemaName::try_new("Point").expect("name should admit"),
             members: vec![
-                FieldType::Scalar(ScalarType::Int64),
-                FieldType::Scalar(ScalarType::Int64),
+                TupleElementFragment::new(FieldType::Scalar(ScalarType::Int64), false),
+                TupleElementFragment::new(FieldType::Scalar(ScalarType::Int64), true),
             ],
         }],
     )
@@ -326,6 +326,28 @@ fn named_collection_fragments_roundtrip_canonically() {
     assert_eq!(
         decode_schema_fragment(&bytes).expect("fragment should decode"),
         fragment,
+    );
+}
+
+#[test]
+fn repeated_field_shape_rejects_excessive_inline_depth() {
+    let mut field_type = FieldType::Scalar(ScalarType::Nat64);
+    for _ in 0..MAX_SCHEMA_TYPE_DEPTH {
+        field_type = FieldType::List(Box::new(field_type));
+    }
+
+    assert_eq!(
+        RecordTypeFragment::try_new(
+            source("type/deep-list", TypeSourceKey::try_new),
+            SchemaName::try_new("DeepList").expect("name should admit"),
+            vec![RecordFieldFragment::new(
+                source("field/deep-list/value", FieldSourceKey::try_new),
+                SchemaName::try_new("value").expect("name should admit"),
+                field_type,
+                false,
+            )],
+        ),
+        Err(SchemaContractError::InvalidNamedTypeGraph),
     );
 }
 
@@ -908,8 +930,8 @@ fn proposal_digest_has_a_fixed_current_form_vector() {
             .expect("proposal should hash")
             .to_bytes(),
         [
-            87, 73, 73, 76, 194, 31, 148, 65, 65, 83, 195, 129, 223, 124, 113, 177, 81, 212, 17,
-            116, 143, 135, 39, 104, 58, 246, 116, 7, 199, 64, 255, 124,
+            96, 104, 108, 119, 143, 39, 199, 119, 145, 113, 166, 202, 32, 36, 182, 190, 140, 29,
+            62, 78, 58, 40, 142, 250, 225, 44, 10, 222, 5, 66, 161, 164,
         ],
     );
 }
