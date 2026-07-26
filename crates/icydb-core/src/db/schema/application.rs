@@ -508,6 +508,7 @@ fn preflight_existing_application(
     current_bundles: &[Option<crate::db::schema::AcceptedSchemaRevisionBundle>],
     candidates: &mut [CandidateSchemaRevision],
 ) -> Result<Option<PendingGeneratedCheck>, InternalError> {
+    require_empty_record_member_renames(authorities, current_bundles, candidates)?;
     require_empty_physical_entity_removal(authorities, current_bundles, candidates)?;
     require_empty_physical_field_removals(authorities, current_bundles, candidates)?;
     require_empty_physical_index_removals(authorities, current_bundles, candidates)?;
@@ -588,6 +589,71 @@ fn preflight_existing_application(
         candidates[candidate_index] = CandidateSchemaRevision::new(bundle)?;
     }
     Ok(pending)
+}
+
+/// Prove that canonical record-member names change only over exactly empty
+/// logical and derived domains.
+///
+/// Member names are encoded inside canonical composite values and therefore
+/// inside any row, index key, or reverse-relation key that projects them.
+/// This preflight admits the metadata transition without inventing a row
+/// migration path only when none of those physical representations exists.
+fn require_empty_record_member_renames(
+    authorities: &[StoreApplicationAuthority],
+    current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
+    candidates: &[CandidateSchemaRevision],
+) -> Result<(), InternalError> {
+    for candidate in candidates {
+        let (position, authority) = authorities
+            .iter()
+            .enumerate()
+            .find(|(_, authority)| authority.path == candidate.store_path())
+            .ok_or_else(InternalError::store_unsupported)?;
+        let current = current_bundles
+            .get(position)
+            .and_then(Option::as_ref)
+            .ok_or_else(InternalError::store_invariant)?;
+        for (entity_tag, after) in candidate.bundle().entity_snapshots() {
+            let before = current
+                .entity_snapshots()
+                .get(entity_tag)
+                .ok_or_else(InternalError::store_unsupported)?;
+            let member_names_changed = before.fields().iter().any(|before_field| {
+                after
+                    .fields()
+                    .iter()
+                    .find(|after_field| after_field.id() == before_field.id())
+                    .is_some_and(|after_field| {
+                        after_field.nested_leaves() != before_field.nested_leaves()
+                    })
+            });
+            if !member_names_changed {
+                continue;
+            }
+            if authority
+                .handle
+                .with_data(|store| store.exact_entity_count(*entity_tag))
+                != Some(0)
+            {
+                return Err(InternalError::store_unsupported());
+            }
+            authority
+                .handle
+                .with_index(|store| prove_empty_user_index_domain(store, *entity_tag))
+                .map_err(StagedUserIndexDomainError::into_internal_error)?;
+            for relation in before.relations() {
+                let target_store = accepted_entity_store_for_path(
+                    authorities,
+                    current_bundles,
+                    relation.target_path(),
+                )?;
+                target_store.with_index(|store| {
+                    prove_empty_reverse_relation_domain(store, *entity_tag, before, relation)
+                })?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Prove one exact generated entity removal has no retained logical or

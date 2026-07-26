@@ -613,6 +613,7 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
         return Err(InternalError::store_unsupported());
     }
     candidates.sort_by(|left, right| left.store_path().cmp(right.store_path()));
+    verify_record_member_rename_coverage(stores, &types, candidates.as_slice())?;
     Ok(candidates)
 }
 
@@ -1459,8 +1460,25 @@ fn lower_existing_named_catalogs(
     }
     let enum_changed = enum_catalog != *bundle.enum_catalog();
 
+    let composite_catalog =
+        lower_existing_composite_catalog(bundle, &visited, types, &enum_catalog)?;
+    let changed = enum_changed || composite_catalog != *bundle.composite_catalog();
+    Ok(ExistingCatalogCandidate {
+        enum_catalog,
+        composite_catalog,
+        enum_changed,
+        changed,
+    })
+}
+
+fn lower_existing_composite_catalog(
+    bundle: &AcceptedSchemaRevisionBundle,
+    visited: &BTreeSet<TypeSourceKey>,
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+    enum_catalog: &AcceptedEnumCatalog,
+) -> Result<AcceptedCompositeCatalog, InternalError> {
     let mut composite_catalog = bundle.composite_catalog().clone();
-    for source in &visited {
+    for source in visited {
         let Some(definition) = types.get(source).copied() else {
             continue;
         };
@@ -1475,24 +1493,101 @@ fn lower_existing_named_catalogs(
         let accepted = composite_catalog
             .composite_type(type_id)
             .ok_or_else(InternalError::store_invariant)?;
-        if accepted.shape() != &shape {
-            return Err(InternalError::store_unsupported());
-        }
-        composite_catalog = composite_catalog
-            .with_redeclared_path(
-                type_id,
-                definition.name().as_str().to_string(),
-                &enum_catalog,
-            )
-            .map_err(|_| InternalError::store_unsupported())?;
+        composite_catalog = match (&shape, accepted.shape()) {
+            (
+                AcceptedCompositeShape::Record(fields),
+                AcceptedCompositeShape::Record(accepted_fields),
+            ) if record_member_names_only_changed(accepted_fields, fields) => composite_catalog
+                .with_redeclared_record_metadata(
+                    type_id,
+                    definition.name().as_str().to_string(),
+                    fields.clone(),
+                    enum_catalog,
+                )
+                .map_err(|_| InternalError::store_unsupported())?,
+            _ if accepted.shape() == &shape => composite_catalog
+                .with_redeclared_path(
+                    type_id,
+                    definition.name().as_str().to_string(),
+                    enum_catalog,
+                )
+                .map_err(|_| InternalError::store_unsupported())?,
+            _ => return Err(InternalError::store_unsupported()),
+        };
     }
-    let changed = enum_changed || composite_catalog != *bundle.composite_catalog();
-    Ok(ExistingCatalogCandidate {
-        enum_catalog,
-        composite_catalog,
-        enum_changed,
-        changed,
-    })
+    Ok(composite_catalog)
+}
+
+fn record_member_names_only_changed(
+    accepted: &[AcceptedCompositeField],
+    candidate: &[AcceptedCompositeField],
+) -> bool {
+    accepted.len() == candidate.len()
+        && accepted.iter().all(|accepted_field| {
+            candidate.iter().any(|candidate_field| {
+                candidate_field.id() == accepted_field.id()
+                    && candidate_field.contract() == accepted_field.contract()
+            })
+        })
+        && accepted != candidate
+}
+
+/// Require one source-keyed record-member rename to reach every accepted
+/// store-local copy of that same generated type.
+///
+/// A complete application proposal normally redeclares every affected entity.
+/// This guard prevents a partial proposal from changing one store-local
+/// catalog while leaving another copy of the same source definition behind.
+fn verify_record_member_rename_coverage(
+    stores: &[ExistingProposalStore<'_>],
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+    candidates: &[CandidateSchemaRevision],
+) -> Result<(), InternalError> {
+    for (source, definition) in types {
+        let NamedTypeFragment::Record(_) = definition else {
+            continue;
+        };
+        for store in stores {
+            let Some(AcceptedNamedTypeIdentity::Composite(type_id)) =
+                store.bundle.source_bindings().named_type(source)
+            else {
+                continue;
+            };
+            let proposed = lower_existing_composite_shape(
+                store.bundle.source_bindings(),
+                type_id,
+                definition,
+            )?;
+            let accepted = store
+                .bundle
+                .composite_catalog()
+                .composite_type(type_id)
+                .ok_or_else(InternalError::store_invariant)?;
+            let (
+                AcceptedCompositeShape::Record(accepted_fields),
+                AcceptedCompositeShape::Record(proposed_fields),
+            ) = (accepted.shape(), &proposed)
+            else {
+                return Err(InternalError::store_unsupported());
+            };
+            if !record_member_names_only_changed(accepted_fields, proposed_fields) {
+                continue;
+            }
+            let candidate = candidates
+                .iter()
+                .find(|candidate| candidate.store_path() == store.path)
+                .ok_or_else(InternalError::store_unsupported)?;
+            let redeclared = candidate
+                .bundle()
+                .composite_catalog()
+                .composite_type(type_id)
+                .ok_or_else(InternalError::store_invariant)?;
+            if redeclared.path() != definition.name().as_str() || redeclared.shape() != &proposed {
+                return Err(InternalError::store_unsupported());
+            }
+        }
+    }
+    Ok(())
 }
 
 fn named_field_type_source(field_type: &FieldType) -> Option<TypeSourceKey> {
@@ -4037,30 +4132,77 @@ mod tests {
     }
 
     #[test]
-    fn existing_record_member_rename_rejects_without_rewriting_canonical_values() {
-        let (initial_candidate, _, _, store) = initial_named_metadata_candidate();
-        let (invalid, _, _, _) = named_metadata_proposal(
+    fn existing_record_member_rename_preserves_member_identity_and_row_layout() {
+        let (initial_candidate, initial_keys, _, store) = initial_named_metadata_candidate();
+        let initial_bundle = initial_candidate.bundle();
+        let (renamed, _, _, _) = named_metadata_proposal(
             ExpectedAcceptedHead::Exact {
                 revision: 1,
                 fingerprint: ExpectedSchemaFingerprint::from_bytes([0x44; 32]),
             },
-            "invalid-record-member-rename",
+            "record-member-rename",
             "Status",
             "Active",
             "Profile",
             "display_label",
         );
-        assert!(
-            lower_existing_schema_proposal(
-                &invalid,
-                &[ExistingProposalStore {
-                    path: "test::Store",
-                    identity: store,
-                    bundle: initial_candidate.bundle(),
-                }],
-            )
-            .is_err(),
-            "record member names remain part of canonical value shape",
+        let candidates = lower_existing_schema_proposal(
+            &renamed,
+            &[ExistingProposalStore {
+                path: "test::Store",
+                identity: store,
+                bundle: initial_bundle,
+            }],
+        )
+        .expect("record member metadata should lower before physical preflight");
+        let [candidate] = candidates.as_slice() else {
+            panic!("record member rename should produce one candidate");
+        };
+        let bindings = candidate.bundle().source_bindings_for_tests();
+        let profile_id = match bindings
+            .named_type(&initial_keys.profile)
+            .expect("profile source binding should survive")
+        {
+            AcceptedNamedTypeIdentity::Composite(type_id) => type_id,
+            AcceptedNamedTypeIdentity::Enum(_) => panic!("profile should remain a record"),
+        };
+        let profile = candidate
+            .bundle()
+            .composite_catalog()
+            .composite_type(profile_id)
+            .expect("profile record should survive");
+        let AcceptedCompositeShape::Record(fields) = profile.shape() else {
+            panic!("profile should remain a record");
+        };
+        let renamed_member = fields
+            .iter()
+            .find(|field| field.name() == "display_label")
+            .expect("renamed member should become accepted metadata");
+        assert_eq!(
+            bindings.composite_field(
+                profile_id,
+                &FieldSourceKey::try_new("test:record:label")
+                    .expect("record member source should admit"),
+            ),
+            Some(renamed_member.id()),
         );
+        let before = initial_bundle
+            .entity_snapshots()
+            .values()
+            .find(|snapshot| snapshot.entity_path() == "test:entity:holder")
+            .expect("holder should exist");
+        let after = candidate
+            .bundle()
+            .entity_snapshots()
+            .values()
+            .find(|snapshot| snapshot.entity_path() == "test:entity:holder")
+            .expect("holder should survive");
+        assert_eq!(after.row_layout(), before.row_layout());
+        assert!(after.fields().iter().any(|field| {
+            field
+                .nested_leaves()
+                .iter()
+                .any(|leaf| leaf.path() == ["display_label"])
+        }));
     }
 }

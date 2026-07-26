@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.21` renames source-bound record members only when exact physical-domain
+  proofs establish that no persisted value retains the previous member name.
+
 - `0.213.20` removes exactly empty generated entities by immutable source
   identity after proving that no row, index, or relation authority remains.
 

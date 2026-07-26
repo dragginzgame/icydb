@@ -158,6 +158,59 @@ impl AcceptedCompositeCatalog {
         Ok(self)
     }
 
+    /// Re-declare one record's editable path and member names.
+    ///
+    /// Stable member IDs and their accepted contracts must remain exact. The
+    /// application boundary separately proves that no persisted row or
+    /// derived key can still contain the previous canonical member names.
+    pub(in crate::db::schema) fn with_redeclared_record_metadata(
+        mut self,
+        type_id: CompositeTypeId,
+        path: String,
+        fields: Vec<AcceptedCompositeField>,
+        enum_catalog: &AcceptedEnumCatalog,
+    ) -> Result<Self, CompositeCatalogBuildError> {
+        if path.is_empty() {
+            return Err(CompositeCatalogBuildError::FieldKindResolution);
+        }
+        let accepted = self
+            .by_id
+            .get(&type_id)
+            .ok_or(CompositeCatalogBuildError::FieldKindResolution)?;
+        let AcceptedCompositeShape::Record(accepted_fields) = &accepted.shape else {
+            return Err(CompositeCatalogBuildError::ExistingTypeContractChanged { path });
+        };
+        if accepted_fields.len() != fields.len()
+            || accepted_fields.iter().any(|accepted_field| {
+                fields.iter().all(|candidate_field| {
+                    candidate_field.id != accepted_field.id
+                        || candidate_field.contract != accepted_field.contract
+                })
+            })
+        {
+            return Err(CompositeCatalogBuildError::ExistingTypeContractChanged { path });
+        }
+
+        let old_path = accepted.path.clone();
+        let codec = accepted.codec;
+        self.id_by_path.remove(old_path.as_str());
+        if self.id_by_path.insert(path.clone(), type_id).is_some() {
+            return Err(CompositeCatalogBuildError::ConflictingDefinition { path });
+        }
+        self.by_id.insert(
+            type_id,
+            AcceptedCompositeType {
+                path,
+                codec,
+                shape: AcceptedCompositeShape::Record(fields),
+            },
+        );
+        if !self.validate(enum_catalog) {
+            return Err(CompositeCatalogBuildError::FieldKindResolution);
+        }
+        Ok(self)
+    }
+
     /// Remove one exact accepted composite definition.
     ///
     /// Validation rejects retained composite definitions that still refer to

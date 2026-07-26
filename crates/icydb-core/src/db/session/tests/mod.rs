@@ -3169,6 +3169,87 @@ fn named_application_proposal(
     )
 }
 
+fn record_member_application_proposal(
+    target: &crate::db::SchemaApplicationTarget,
+    submission_key: &str,
+    member_name: &str,
+) -> icydb_schema::SchemaProposal {
+    let entity_source = icydb_schema::EntitySourceKey::try_new("test:entity:record-member-holder")
+        .expect("test entity source should admit");
+    let id_source = icydb_schema::FieldSourceKey::try_new("test:field:record-member-holder-id")
+        .expect("test id source should admit");
+    let profile_field_source =
+        icydb_schema::FieldSourceKey::try_new("test:field:record-member-profile")
+            .expect("test profile field source should admit");
+    let profile_source = icydb_schema::TypeSourceKey::try_new("test:type:record-member-profile")
+        .expect("test record source should admit");
+    let member_source =
+        icydb_schema::FieldSourceKey::try_new("test:record-field:record-member-label")
+            .expect("test record member source should admit");
+    let profile = icydb_schema::NamedTypeFragment::Record(
+        icydb_schema::RecordTypeFragment::try_new(
+            profile_source.clone(),
+            icydb_schema::SchemaName::try_new("RecordMemberProfile")
+                .expect("test record name should admit"),
+            vec![icydb_schema::RecordFieldFragment::new(
+                member_source,
+                icydb_schema::SchemaName::try_new(member_name)
+                    .expect("test record member name should admit"),
+                icydb_schema::FieldType::Scalar(icydb_schema::ScalarType::Text {
+                    max_len: Some(64),
+                }),
+                false,
+            )],
+        )
+        .expect("test record definition should admit"),
+    );
+    let entity = icydb_schema::EntityFragment::try_new(
+        entity_source.clone(),
+        icydb_schema::SchemaName::try_new("RecordMemberHolder")
+            .expect("test entity name should admit"),
+        vec![
+            icydb_schema::FieldFragment::new(
+                id_source.clone(),
+                icydb_schema::SchemaName::try_new("id").expect("test id name should admit"),
+                icydb_schema::FieldType::Scalar(icydb_schema::ScalarType::Nat64),
+                false,
+                icydb_schema::FieldInsertPolicy::Required,
+                None,
+            ),
+            icydb_schema::FieldFragment::new(
+                profile_field_source,
+                icydb_schema::SchemaName::try_new("profile")
+                    .expect("test profile name should admit"),
+                icydb_schema::FieldType::Named(profile_source),
+                false,
+                icydb_schema::FieldInsertPolicy::Required,
+                None,
+            ),
+        ],
+        vec![id_source],
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("test record holder should admit");
+    let fragment = icydb_schema::SchemaFragment::try_new(vec![entity], vec![profile])
+        .expect("test record fragment should admit");
+    icydb_schema::SchemaProposal::try_compose(
+        vec![icydb_schema::SchemaCapability::EXACT_COMPOSITE_TYPES],
+        target.database_identity(),
+        icydb_schema::SchemaSubmissionKey::try_new(submission_key)
+            .expect("test submission key should admit"),
+        target.accepted_head().clone(),
+        vec![fragment],
+        vec![icydb_schema::EntityStoreAssignment::new(
+            entity_source,
+            target.stores()[0].identity(),
+        )],
+        Vec::new(),
+    )
+    .expect("test record-member proposal should compose")
+}
+
 fn initial_indexed_named_application_proposal(
     target: &crate::db::SchemaApplicationTarget,
     submission_key: &str,
@@ -5335,6 +5416,129 @@ fn schema_application_reconciles_source_keyed_display_names_without_identity_or_
             .accepted_head(),
         icydb_schema::ExpectedAcceptedHead::Exact { revision: 2, .. }
     ));
+}
+
+#[test]
+fn schema_application_renames_record_member_over_exactly_empty_physical_domain() {
+    let session = reset_standalone_schema_application_fixture();
+    let initial_target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial =
+        record_member_application_proposal(&initial_target, "record-member-initial", "label");
+    session
+        .apply_schema(&initial)
+        .expect("initial record-member schema should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let (&entity_tag, before) = accepted_before
+        .entity_snapshots()
+        .iter()
+        .next()
+        .expect("record holder should exist");
+    let after_target = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let renamed = record_member_application_proposal(
+        &after_target,
+        "record-member-exact-empty-rename",
+        "display_label",
+    );
+
+    let receipt = session
+        .apply_schema(&renamed)
+        .expect("exactly empty record-member rename should publish");
+    let replay = session
+        .apply_schema(&renamed)
+        .expect("exact record-member rename retry should replay");
+    let accepted_after = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("renamed accepted bundle should load")
+        .expect("renamed accepted bundle should exist");
+    let after = accepted_after
+        .entity_snapshots()
+        .get(&entity_tag)
+        .expect("record holder should survive");
+
+    assert_eq!(replay, receipt);
+    assert!(matches!(
+        receipt.outcome(),
+        crate::db::SchemaChangeOutcome::Applied { .. }
+    ));
+    assert_eq!(
+        accepted_after.source_bindings_for_tests(),
+        accepted_before.source_bindings_for_tests(),
+    );
+    assert_eq!(accepted_after.revision().get(), 2);
+    assert_eq!(after.version().get(), before.version().get() + 1);
+    assert_eq!(after.row_layout(), before.row_layout());
+    assert!(after.fields().iter().any(|field| {
+        field
+            .nested_leaves()
+            .iter()
+            .any(|leaf| leaf.path() == ["display_label"])
+    }));
+    assert!(JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow(IndexStore::is_empty));
+}
+
+#[test]
+fn schema_application_rejects_record_member_rename_over_nonempty_physical_domain() {
+    let session = reset_standalone_schema_application_fixture();
+    let initial_target = session
+        .schema_application_target()
+        .expect("empty standalone target should derive");
+    let initial = record_member_application_proposal(
+        &initial_target,
+        "nonempty-record-member-initial",
+        "label",
+    );
+    session
+        .apply_schema(&initial)
+        .expect("initial record-member schema should publish");
+    let accepted_before = JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("initial accepted bundle should load")
+        .expect("initial accepted bundle should exist");
+    let entity_tag = *accepted_before
+        .entity_snapshots()
+        .keys()
+        .next()
+        .expect("record holder should exist");
+    JOURNALED_SESSION_SQL_DATA_STORE.with_borrow_mut(|store| {
+        store.insert_raw_for_test(
+            RawDataStoreKey::from_entity_and_primary_key_bytes(entity_tag, b"one"),
+            crate::db::data::RawRow::try_new(vec![0xFF]).expect("bounded raw row should construct"),
+        );
+    });
+    let after_target = session
+        .schema_application_target()
+        .expect("published target should derive");
+    let renamed = record_member_application_proposal(
+        &after_target,
+        "reject-nonempty-record-member-rename",
+        "display_label",
+    );
+
+    let rejection = session
+        .apply_schema(&renamed)
+        .expect_err("nonempty record-member rename must reject before publication");
+
+    assert_eq!(rejection.class(), ErrorClass::Unsupported);
+    assert_eq!(
+        JOURNALED_SESSION_SQL_SCHEMA_STORE
+            .with_borrow(SchemaStore::current_accepted_schema_bundle)
+            .expect("accepted bundle should remain readable")
+            .expect("accepted bundle should remain present"),
+        accepted_before,
+    );
+    assert_eq!(
+        session
+            .schema_application_receipt(after_target.database_identity(), renamed.submission_key(),)
+            .expect("rejected receipt lookup should succeed"),
+        None,
+    );
 }
 
 fn reset_mixed_heap_relation_stores() {
