@@ -64,13 +64,12 @@ pub(super) fn execute_required_sqlite_reference_scenario(
     let sql = scenario
         .render_sql("SessionSqliteReferenceEntity")
         .expect("maintained SQLite reference entity identifier should render");
-    let result = execute_sql_statement_for_tests::<SessionSqliteReferenceEntity>(session, &sql)
-        .unwrap_or_else(|error| {
-            panic!(
-                "IcyDB SQLite reference scenario {:?} should execute: {error}",
-                scenario.id()
-            )
-        });
+    let result = execute_sql_statement_for_tests(session, &sql).unwrap_or_else(|error| {
+        panic!(
+            "IcyDB SQLite reference scenario {:?} should execute: {error}",
+            scenario.id()
+        )
+    });
     let actual = normalize_icydb_result(scenario, result).unwrap_or_else(|error| {
         panic!(
             "IcyDB SQLite reference scenario {:?} should normalize: {error}",
@@ -996,10 +995,7 @@ pub(super) fn compare_generated_native_rejection_case(
         generated.expected(),
         SelectExpectedOutcome::Rejected(violation.expected_rejection()),
     );
-    match execute_sql_statement_for_tests::<SessionSqliteReferenceEntity>(
-        session,
-        generated.rendered_sql(),
-    ) {
+    match execute_sql_statement_for_tests(session, generated.rendered_sql()) {
         Err(error) if generated_rejection_matches(&error, violation) => Ok(()),
         Err(error) => Err(Box::new(GeneratedSelectMismatch::from_rejection_mismatch(
             generated,

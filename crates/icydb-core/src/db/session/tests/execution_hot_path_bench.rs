@@ -163,12 +163,9 @@ fn bench_sql_select_simple_projection(results: &mut Vec<(String, u128, usize)>) 
         "sql select simple projection",
         READ_ITERATIONS,
         || {
-            statement_projection_rows::<SessionSqlEntity>(
-                &session,
-                "SELECT name, age FROM SessionSqlEntity",
-            )
-            .expect("simple SQL projection benchmark should succeed")
-            .len()
+            statement_projection_rows(&session, "SELECT name, age FROM SessionSqlEntity")
+                .expect("simple SQL projection benchmark should succeed")
+                .len()
         },
     );
 }
@@ -185,7 +182,7 @@ fn bench_sql_distinct_wide_projection(results: &mut Vec<(String, u128, usize)>) 
         "sql distinct wide projection",
         READ_ITERATIONS,
         || {
-            statement_projection_rows::<FilteredIndexedSessionSqlEntity>(
+            statement_projection_rows(
                 &session,
                 "SELECT DISTINCT name, active, tier, handle, age \
                  FROM FilteredIndexedSessionSqlEntity ORDER BY name ASC LIMIT 160",
@@ -203,7 +200,7 @@ fn bench_sql_order_by_limit(results: &mut Vec<(String, u128, usize)>) {
     seed_generated_indexed_entities(&session, READ_ROWS, 24);
 
     record_warmed_benchmark(results, "sql order by limit", READ_ITERATIONS, || {
-        statement_projection_rows::<IndexedSessionSqlEntity>(
+        statement_projection_rows(
             &session,
             "SELECT name, age FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 64",
         )
@@ -292,7 +289,7 @@ fn bench_global_count_sum_avg(results: &mut Vec<(String, u128, usize)>) {
         "aggregate count/sum/avg",
         AGGREGATE_ITERATIONS,
         || {
-            statement_projection_rows::<SessionSqlEntity>(
+            statement_projection_rows(
                 &session,
                 "SELECT COUNT(age), SUM(age), AVG(age) FROM SessionSqlEntity",
             )
@@ -310,12 +307,9 @@ fn bench_global_min_max(results: &mut Vec<(String, u128, usize)>) {
     seed_generated_session_sql_entities(&session, GROUP_ROWS, 16);
 
     record_warmed_benchmark(results, "aggregate min/max", AGGREGATE_ITERATIONS, || {
-        statement_projection_rows::<SessionSqlEntity>(
-            &session,
-            "SELECT MIN(age), MAX(age) FROM SessionSqlEntity",
-        )
-        .expect("MIN/MAX benchmark should succeed")
-        .len()
+        statement_projection_rows(&session, "SELECT MIN(age), MAX(age) FROM SessionSqlEntity")
+            .expect("MIN/MAX benchmark should succeed")
+            .len()
     });
 }
 
@@ -353,7 +347,7 @@ fn bench_delete_returning_large_rows(results: &mut Vec<(String, u128, usize)>) {
             seed_generated_session_sql_entities(&session, 48, 2_048);
         },
         || {
-            statement_projection_rows::<SessionSqlEntity>(
+            statement_projection_rows(
                 &session,
                 "DELETE FROM SessionSqlEntity WHERE age < 1000 RETURNING id, name, age",
             )
@@ -377,7 +371,7 @@ fn bench_delete_returning_many_rows(results: &mut Vec<(String, u128, usize)>) {
             seed_generated_session_sql_entities(&session, DELETE_ROWS, 24);
         },
         || {
-            statement_projection_rows::<SessionSqlEntity>(
+            statement_projection_rows(
                 &session,
                 "DELETE FROM SessionSqlEntity WHERE age < 1000 RETURNING id, name, age",
             )

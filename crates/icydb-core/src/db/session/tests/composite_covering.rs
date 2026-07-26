@@ -97,9 +97,8 @@ fn execute_sql_projection_index_coverable_multi_component_matches_entity_rows() 
     // Phase 2: verify the projection lane returns the same `(id, code,
     // serial)` rows as the entity lane for a direct composite covering query.
     let sql = "SELECT id, code, serial FROM CompositeIndexedSessionSqlEntity ORDER BY code ASC, serial ASC, id ASC LIMIT 2";
-    let projected_rows =
-        statement_projection_rows::<CompositeIndexedSessionSqlEntity>(&session, sql)
-            .expect("multi-component covering projection query should execute");
+    let projected_rows = statement_projection_rows(&session, sql)
+        .expect("multi-component covering projection query should execute");
     let entity_rows =
         execute_scalar_select_for_tests::<CompositeIndexedSessionSqlEntity>(&session, sql)
             .expect("multi-component covering entity query should execute");
@@ -295,9 +294,8 @@ fn assert_explicit_pk_suffix_query_avoids_store_gets(
                 case.context
             )
         });
-    let projected_rows =
-        statement_projection_rows::<ExplicitPkSuffixIndexedSessionSqlEntity>(session, case.sql)
-            .unwrap_or_else(|err| panic!("{} should return projected rows: {err:?}", case.context));
+    let projected_rows = statement_projection_rows(session, case.sql)
+        .unwrap_or_else(|err| panic!("{} should return projected rows: {err:?}", case.context));
 
     assert_eq!(
         projected_rows,
@@ -470,11 +468,9 @@ fn execute_sql_projection_explicit_primary_key_suffix_in_secondary_order_preserv
         "pk-suffix secondary-order IN query should keep an index-order covering contract",
     );
 
-    let projected_rows =
-        statement_projection_rows::<ExplicitPkSuffixIndexedSessionSqlEntity>(&session, sql)
-            .unwrap_or_else(|err| {
-                panic!("pk-suffix secondary-order IN query should return projected rows: {err:?}")
-            });
+    let projected_rows = statement_projection_rows(&session, sql).unwrap_or_else(|err| {
+        panic!("pk-suffix secondary-order IN query should return projected rows: {err:?}")
+    });
 
     assert_eq!(
         projected_rows,
@@ -503,11 +499,9 @@ fn execute_sql_projection_computed_multi_lookup_primary_order_sorts_after_access
                WHERE bucket IN (10, 20, 99) \
                ORDER BY id ASC \
                LIMIT 3";
-    let projected_rows =
-        statement_projection_rows::<ExplicitPkSuffixIndexedSessionSqlEntity>(&session, sql)
-            .unwrap_or_else(|err| {
-                panic!("computed primary-order IN query should return projected rows: {err:?}")
-            });
+    let projected_rows = statement_projection_rows(&session, sql).unwrap_or_else(|err| {
+        panic!("computed primary-order IN query should return projected rows: {err:?}")
+    });
 
     assert_eq!(
         projected_rows,
@@ -551,7 +545,7 @@ fn execute_sql_projection_hybrid_covering_projection_mixes_covering_and_row_fiel
     // structural row materialization path.
     let sql = "SELECT id, code, serial, note FROM CompositeIndexedSessionSqlEntity ORDER BY code ASC, serial ASC, id ASC LIMIT 2";
     let (projected_rows, metrics) = with_sql_projection_materialization_metrics(|| {
-        statement_projection_rows::<CompositeIndexedSessionSqlEntity>(&session, sql)
+        statement_projection_rows(&session, sql)
             .expect("hybrid composite covering projection query should execute")
     });
     let entity_rows =
@@ -612,7 +606,7 @@ fn execute_sql_projection_hybrid_covering_residual_predicate_filters_before_row_
                ORDER BY code ASC, serial ASC, id ASC \
                LIMIT 2";
     let (projected_rows, metrics) = with_sql_projection_materialization_metrics(|| {
-        statement_projection_rows::<CompositeIndexedSessionSqlEntity>(&session, sql)
+        statement_projection_rows(&session, sql)
             .expect("hybrid residual covering projection query should execute")
     });
 
@@ -667,7 +661,7 @@ fn execute_sql_projection_hybrid_covering_projection_skips_offset_before_index_p
     // rows discarded by OFFSET after row-presence filtering.
     let sql = "SELECT id, code, serial, note FROM CompositeIndexedSessionSqlEntity ORDER BY code ASC, serial ASC, id ASC LIMIT 1 OFFSET 1";
     let (projected_rows, metrics) = with_sql_projection_materialization_metrics(|| {
-        statement_projection_rows::<CompositeIndexedSessionSqlEntity>(&session, sql)
+        statement_projection_rows(&session, sql)
             .expect("offset hybrid composite covering projection query should execute")
     });
     let entity_rows =
@@ -721,7 +715,7 @@ fn execute_sql_projection_hybrid_covering_projection_admits_pk_plus_row_field_on
     // path even when no projected index component is returned to the caller.
     let sql = "SELECT id, note FROM CompositeIndexedSessionSqlEntity ORDER BY code ASC, serial ASC, id ASC LIMIT 2";
     let (projected_rows, metrics) = with_sql_projection_materialization_metrics(|| {
-        statement_projection_rows::<CompositeIndexedSessionSqlEntity>(&session, sql)
+        statement_projection_rows(&session, sql)
             .expect("pk-plus-row-field covering projection query should execute")
     });
     let entity_rows =

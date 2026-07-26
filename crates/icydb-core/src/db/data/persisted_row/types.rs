@@ -60,6 +60,7 @@ impl AuthoredStructuralFieldUpdate {
     }
 
     /// Return the stable target slot.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn slot(&self) -> FieldSlot {
         self.slot
@@ -108,6 +109,7 @@ impl AuthoredStructuralPatch {
     }
 
     /// Borrow the ordered field updates carried by this patch.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn entries(&self) -> &[AuthoredStructuralFieldUpdate] {
         self.entries.as_slice()
@@ -120,13 +122,6 @@ impl AuthoredStructuralPatch {
 /// `DEFAULT` requests use the exact variants below so the accepted resolver
 /// never has to reconstruct request provenance from an empty value or flag.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg_attr(
-    not(any(test, feature = "sql")),
-    expect(
-        dead_code,
-        reason = "explicit DEFAULT request variants are constructed only by the SQL frontend"
-    )
-)]
 pub(in crate::db) enum AcceptedInsertPolicyRequest {
     /// Field omitted while constructing an insert or replacement after-image.
     OmittedInsert,
@@ -138,13 +133,6 @@ pub(in crate::db) enum AcceptedInsertPolicyRequest {
 
 /// One field intent admitted to the accepted mutation resolver.
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(
-    not(any(test, feature = "sql")),
-    expect(
-        dead_code,
-        reason = "unresolved DEFAULT intent is constructed only by the SQL frontend"
-    )
-)]
 pub(in crate::db) enum AcceptedMutationFieldWriteIntent {
     /// Exact caller-authored input, including explicit `NULL`.
     Authored(InputValue),
@@ -214,7 +202,6 @@ impl AcceptedMutationIntentPatch {
     }
 
     /// Build one empty accepted mutation intent patch.
-    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) const fn new() -> Self {
         Self {
@@ -223,7 +210,6 @@ impl AcceptedMutationIntentPatch {
     }
 
     /// Append one authored field input.
-    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) fn set_authored(mut self, slot: FieldSlot, value: InputValue) -> Self {
         self.entries.push(AcceptedMutationFieldUpdate::new(
@@ -248,7 +234,6 @@ impl AcceptedMutationIntentPatch {
     }
 
     /// Append one explicit insert `DEFAULT` request.
-    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) fn set_explicit_insert_default(mut self, slot: FieldSlot) -> Self {
         self.entries.push(AcceptedMutationFieldUpdate::new(
@@ -261,7 +246,6 @@ impl AcceptedMutationIntentPatch {
     }
 
     /// Append one explicit update `DEFAULT` request.
-    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) fn set_explicit_update_default(mut self, slot: FieldSlot) -> Self {
         self.entries.push(AcceptedMutationFieldUpdate::new(

@@ -170,8 +170,7 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((result, cache_attribution, phase_attribution))
     }
 
-    // Execute one borrowed prepared SQL aggregate command through executor-owned
-    // structural aggregate execution after resolving the accepted catalog.
+    #[cfg(test)]
     pub(in crate::db::session::sql::execute) fn execute_global_aggregate_statement_ref(
         &self,
         command: &SqlGlobalAggregateCommand,
@@ -179,28 +178,17 @@ impl<C: CanisterKind> DbSession<C> {
         let catalog = self
             .accepted_schema_catalog_context_for_entity_name(None)
             .map_err(QueryError::execute)?;
-
-        self.execute_global_aggregate_statement_ref_with_catalog(command, &catalog)
-    }
-
-    // Execute one borrowed prepared SQL aggregate command when the caller
-    // already owns the accepted catalog loaded during SQL compile.
-    pub(in crate::db::session::sql::execute) fn execute_global_aggregate_statement_ref_with_catalog(
-        &self,
-        command: &SqlGlobalAggregateCommand,
-        catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
-        let direct_count_target = self.build_direct_count_cardinality_target(command, catalog)?;
+        let direct_count_target = self.build_direct_count_cardinality_target(command, &catalog)?;
 
         self.execute_global_aggregate_after_direct_count_target(
             command,
-            catalog,
+            &catalog,
             direct_count_target,
             |fallback_authority| {
                 let authority =
-                    Self::global_aggregate_prepared_plan_authority(catalog, fallback_authority)?;
+                    Self::global_aggregate_prepared_plan_authority(&catalog, fallback_authority)?;
                 self.resolve_global_aggregate_prepared_plan_for_authority(
-                    command, catalog, authority,
+                    command, &catalog, authority,
                 )
             },
         )

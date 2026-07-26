@@ -6,25 +6,25 @@ mod update;
 
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryError,
+        DbSession, QueryError,
         data::AcceptedMutationIntentPatch,
-        executor::{
-            EntityAuthority, MutationMode, StructuralMutationTargetKey,
-            StructuralProjectionScanBudget,
-        },
+        executor::{EntityAuthority, MutationMode, StructuralProjectionScanBudget},
         query::intent::StructuralQuery,
         response::ResponseError,
         schema::{AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot},
         session::{
-            AcceptedSchemaCatalogContext,
+            AcceptedSchemaCatalogContext, AcceptedStructuralMutation,
+            AcceptedStructuralMutationTarget,
             sql::{
                 CompiledSqlCommand, SqlCacheAttribution, SqlCompiledCommandSurface,
                 SqlStatementResult,
                 execute::write_returning::{
-                    sql_write_statement_result, validate_sql_returning_bounds,
+                    projection_labels_from_accepted_write_descriptor,
+                    sql_returning_statement_projection, validate_sql_materialized_returning_bounds,
                 },
                 write_policy::SqlWriteReturningBounds,
             },
+            write::AcceptedStructuralMutationRow,
         },
         sql::parser::{SqlInsertSource, SqlInsertStatement, SqlReturningProjection},
     },
@@ -35,11 +35,10 @@ use crate::{
     value::Value,
 };
 use authority::{
-    accepted_sql_write_save_contract, reject_explicit_sql_write_to_generated_field,
-    reject_explicit_sql_write_to_managed_field, require_sql_write_policy_plan,
-    sql_write_input_for_accepted_field, sql_write_key_from_component_literals,
-    sql_write_key_from_literal, sql_write_patch_set_accepted_field,
-    sql_write_patch_set_insert_default, sql_write_patch_set_update_default,
+    reject_explicit_sql_write_to_generated_field, reject_explicit_sql_write_to_managed_field,
+    require_sql_write_policy_plan, sql_write_input_for_accepted_field,
+    sql_write_patch_set_accepted_field, sql_write_patch_set_insert_default,
+    sql_write_patch_set_update_default,
 };
 use candidate::{
     SqlWriteCandidateAccounting, SqlWriteCandidateBoundCheck, SqlWriteCandidateBounds,
@@ -73,75 +72,77 @@ const fn sql_insert_write_kind(statement: &SqlInsertStatement) -> SqlWriteKind {
 
 // Record only rejected SQL writes at the statement boundary. Successful writes
 // are counted by the write executors after they know row cardinalities.
-fn record_sql_write_error<E, C>(kind: SqlWriteKind, result: &Result<SqlStatementResult, QueryError>)
-where
-    E: PersistedRow<Canister = C>,
-    C: CanisterKind,
-{
+fn record_sql_write_error(
+    entity_path: &'static str,
+    kind: SqlWriteKind,
+    result: &Result<SqlStatementResult, QueryError>,
+) {
     if let Err(error) = result {
         record(MetricsEvent::SqlWriteError {
-            entity_path: E::PATH,
+            entity_path,
             kind,
             class: sql_write_error_class(error),
         });
     }
 }
 
-fn sql_write_statement_result_with_default_cache<E, C>(
+fn sql_write_statement_result_with_default_cache(
+    entity_path: &'static str,
     kind: SqlWriteKind,
     result: Result<SqlStatementResult, QueryError>,
-) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
-where
-    E: PersistedRow<Canister = C>,
-    C: CanisterKind,
-{
-    record_sql_write_error::<E, C>(kind, &result);
+) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
+    record_sql_write_error(entity_path, kind, &result);
     SqlCacheAttribution::with_default(result)
 }
 
-pub(super) fn execute_compiled_sql_write_with_default_cache<E, C>(
+pub(super) fn execute_compiled_sql_write_with_default_cache<C>(
     session: &DbSession<C>,
     compiled: &CompiledSqlCommand,
     catalog: Option<&AcceptedSchemaCatalogContext>,
     surface: Option<SqlCompiledCommandSurface>,
 ) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>>
 where
-    E: PersistedRow<Canister = C>,
     C: CanisterKind,
 {
+    let entity_path = catalog.map_or("<unresolved-sql-entity>", |catalog| {
+        catalog.identity().entity_path()
+    });
     match compiled {
         CompiledSqlCommand::Delete { query, returning } => {
-            let result = session.execute_sql_delete_statement::<E>(
+            let result = session.execute_sql_delete_statement(
                 query.as_ref(),
                 returning.as_ref(),
                 catalog,
             );
-            Some(sql_write_statement_result_with_default_cache::<E, C>(
+            Some(sql_write_statement_result_with_default_cache(
+                entity_path,
                 SqlWriteKind::Delete,
                 result,
             ))
         }
         CompiledSqlCommand::Insert(command) => {
             let result = if surface == Some(SqlCompiledCommandSurface::Mutation) {
-                session.execute_sql_insert_statement_with_update_surface_bounds::<E>(
+                session.execute_sql_insert_statement_with_update_surface_bounds(
                     command.statement(),
                     command.source_query(),
                     catalog,
                 )
             } else {
-                session.execute_sql_insert_statement::<E>(
+                session.execute_sql_insert_statement(
                     command.statement(),
                     command.source_query(),
                     catalog,
                 )
             };
-            Some(sql_write_statement_result_with_default_cache::<E, C>(
+            Some(sql_write_statement_result_with_default_cache(
+                entity_path,
                 sql_insert_write_kind(command.statement()),
                 result,
             ))
         }
         CompiledSqlCommand::Update(_statement) => {
-            Some(sql_write_statement_result_with_default_cache::<E, C>(
+            Some(sql_write_statement_result_with_default_cache(
+                entity_path,
                 SqlWriteKind::Update,
                 Err(QueryError::sql_surface_mismatch(
                     icydb_diagnostic_code::SqlSurfaceMismatchCode::MutationRequiresExplicitUpdateIntent,
@@ -191,33 +192,31 @@ fn record_sql_write_mutation_metrics(
     );
 }
 
-fn sql_write_mutation_statement_result<E>(
+fn sql_write_mutation_statement_result(
     entity_path: &'static str,
     kind: SqlWriteKind,
     staged_rows: SqlWriteCandidateRows,
-    entities: Vec<E>,
+    rows: Vec<Vec<Value>>,
     returning: Option<&SqlReturningProjection>,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     catalog: &AcceptedSchemaCatalogContext,
-) -> Result<SqlStatementResult, QueryError>
-where
-    E: PersistedRow,
-{
-    record_sql_write_mutation_metrics(entity_path, kind, staged_rows, entities.len(), returning);
-
-    sql_write_statement_result::<E>(
-        entities,
-        returning,
-        descriptor,
-        catalog.value_catalog_handle(),
-    )
+) -> Result<SqlStatementResult, QueryError> {
+    let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
+    record_sql_write_mutation_metrics(entity_path, kind, staged_rows, rows.len(), returning);
+    match returning {
+        None => Ok(SqlStatementResult::Count { row_count }),
+        Some(returning) => sql_returning_statement_projection(
+            catalog.enum_catalog(),
+            projection_labels_from_accepted_write_descriptor(descriptor),
+            rows,
+            row_count,
+            returning,
+        ),
+    }
 }
 
-struct SqlWriteMutationExecution<E>
-where
-    E: PersistedRow,
-{
-    rows: SqlWriteMutationBatch<StructuralMutationTargetKey<E::Key>>,
+struct SqlWriteMutationExecution {
+    rows: SqlWriteMutationBatch<AcceptedStructuralMutationTarget>,
     staged_rows: SqlWriteCandidateRows,
     kind: SqlWriteKind,
     mode: MutationMode,
@@ -225,12 +224,9 @@ where
     returning_bounds: Option<SqlWriteReturningBounds>,
 }
 
-impl<E> SqlWriteMutationExecution<E>
-where
-    E: PersistedRow,
-{
+impl SqlWriteMutationExecution {
     fn from_bounded_collection(
-        mut collection: SqlWriteCandidateCollection<StructuralMutationTargetKey<E::Key>>,
+        mut collection: SqlWriteCandidateCollection<AcceptedStructuralMutationTarget>,
         bounds: SqlWriteCandidateBounds,
         kind: SqlWriteKind,
         mode: MutationMode,
@@ -311,56 +307,51 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(rows)
     }
 
-    fn execute_sql_write_mutation_batch<E>(
+    fn execute_sql_write_mutation_batch(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-        execution: SqlWriteMutationExecution<E>,
+        execution: SqlWriteMutationExecution,
         returning: Option<&SqlReturningProjection>,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let (
-            row_decode_contract,
-            mutation_row_decode_contract,
-            accepted_schema_info,
-            accepted_schema_fingerprint,
-            accepted_row_constraints,
-        ) = accepted_sql_write_save_contract::<E>(catalog, descriptor);
-        let entities = self
-            .execute_save_with_checked_accepted_row_contract::<E, _, _>(
-                row_decode_contract,
-                accepted_schema_info,
-                accepted_schema_fingerprint,
-                accepted_row_constraints,
-                |save| {
-                    save.apply_internal_lowered_structural_mutation_batch_with_precommit(
-                        execution.mode,
-                        execution.rows.into_rows(),
-                        execution.context,
-                        mutation_row_decode_contract,
-                        |entities| {
-                            validate_sql_returning_bounds(
-                                E::MODEL.name(),
-                                entities,
-                                returning,
-                                descriptor,
-                                catalog.value_catalog_handle(),
-                                execution.returning_bounds,
-                            )
-                        },
-                    )
-                },
-                std::convert::identity,
+    ) -> Result<SqlStatementResult, QueryError> {
+        let entity_path = catalog.identity().entity_path();
+        let rows = execution
+            .rows
+            .into_rows()
+            .into_iter()
+            .map(|(target, patch)| AcceptedStructuralMutation::new(target, patch))
+            .collect();
+        let rows = self
+            .execute_accepted_structural_save_batch(
+                catalog,
+                descriptor,
+                execution.mode,
+                rows,
+                execution.context.now(),
             )
             .map_err(QueryError::execute)?;
+        let rows = rows
+            .into_iter()
+            .map(AcceptedStructuralMutationRow::into_values)
+            .collect::<Vec<_>>();
+        if let Some(returning) = returning {
+            validate_sql_materialized_returning_bounds(
+                catalog.snapshot().persisted_snapshot().entity_name(),
+                &projection_labels_from_accepted_write_descriptor(descriptor),
+                rows.as_slice(),
+                u32::try_from(rows.len()).unwrap_or(u32::MAX),
+                returning,
+                catalog.enum_catalog(),
+                execution.returning_bounds,
+            )
+            .map_err(QueryError::execute)?;
+        }
 
-        sql_write_mutation_statement_result::<E>(
-            E::PATH,
+        sql_write_mutation_statement_result(
+            entity_path,
             execution.kind,
             execution.staged_rows,
-            entities,
+            rows,
             returning,
             descriptor,
             catalog,

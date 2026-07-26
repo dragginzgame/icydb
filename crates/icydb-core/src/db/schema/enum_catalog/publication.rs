@@ -180,7 +180,7 @@ impl AcceptedSchemaRevisionBundle {
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn source_bindings(&self) -> &AcceptedSourceBindingCatalog {
+    pub(in crate::db) const fn source_bindings(&self) -> &AcceptedSourceBindingCatalog {
         &self.source_bindings
     }
 

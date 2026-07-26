@@ -4,13 +4,6 @@
 //! Does not own: row resolution, rollback packaging, or commit preparation.
 //! Boundary: wraps prepared delete plans with metrics and final response shaping.
 
-#[cfg(feature = "sql")]
-use crate::db::executor::{
-    delete::{
-        prepare_structural_delete_count_core_with_bounds, prepare_structural_delete_projection_core,
-    },
-    projection::MaterializedProjectionRows,
-};
 use crate::{
     db::{
         Db, PersistedRow,
@@ -130,37 +123,6 @@ where
         })
     }
 
-    /// Execute one structural delete projection plan with an optional
-    /// pre-commit row bound for bounded SQL exposure policies.
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn execute_structural_projection_with_bounds(
-        self,
-        plan: PreparedExecutionPlan<E>,
-        max_rows: Option<u32>,
-        validate_precommit: impl FnOnce(&MaterializedProjectionRows) -> Result<(), InternalError>,
-    ) -> Result<MaterializedProjectionRows, InternalError> {
-        self.execute_with_delete_runtime(plan, |db, prepared, store| {
-            // Phase 1: run the shared structural delete core and apply the
-            // final typed commit-window bridge only at the boundary.
-            let Some(projection) = prepare_structural_delete_projection_core(
-                db,
-                store,
-                &prepared,
-                max_rows,
-                validate_precommit,
-            )?
-            else {
-                return Ok((MaterializedProjectionRows::empty(), 0));
-            };
-            let row_count = usize::try_from(projection.output.row_count()).unwrap_or(usize::MAX);
-
-            Self::apply_prepared_delete_commit(db, &prepared, projection.commit.row_ops)?;
-
-            // Phase 2: return the already prepared structural delete projection.
-            Ok((projection.output, row_count))
-        })
-    }
-
     /// Execute one delete plan and return only the affected-row count.
     pub(in crate::db) fn execute_count(
         self,
@@ -171,32 +133,6 @@ where
             // row layouts are preserved for old physical rows. Count-only
             // deletes do not need typed entity materialization.
             let Some(count) = prepare_structural_delete_count_core(db, store, &prepared)? else {
-                return Ok((0, 0));
-            };
-            let row_count = Self::structural_count_row_count(&count);
-            let row_count_len = count.row_count;
-
-            Self::apply_prepared_delete_commit(db, &prepared, count.commit.row_ops)?;
-
-            // Phase 2: return only the final affected-row count.
-            Ok((row_count, row_count_len))
-        })
-    }
-
-    /// Execute one delete plan and return only the affected-row count while
-    /// checking the selected-row bound before the commit window.
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn execute_count_with_bounds(
-        self,
-        plan: PreparedExecutionPlan<E>,
-        max_rows: Option<u32>,
-    ) -> Result<u32, InternalError> {
-        self.execute_with_delete_runtime(plan, |db, prepared, store| {
-            // Phase 1: run the structural delete-count core with the SQL
-            // exposure-policy bound before applying the commit payload.
-            let Some(count) =
-                prepare_structural_delete_count_core_with_bounds(db, store, &prepared, max_rows)?
-            else {
                 return Ok((0, 0));
             };
             let row_count = Self::structural_count_row_count(&count);

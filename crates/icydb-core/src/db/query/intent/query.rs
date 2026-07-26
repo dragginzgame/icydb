@@ -355,6 +355,13 @@ impl StructuralQuery {
         self
     }
 
+    /// Re-express a delete target as a load selection for structural mutation staging.
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn into_load_selection(self) -> Self {
+        self.map_intent(QueryModel::into_load_selection)
+    }
+
     #[must_use]
     pub(in crate::db) fn limit(mut self, limit: u32) -> Self {
         self.intent = self.intent.limit(limit);

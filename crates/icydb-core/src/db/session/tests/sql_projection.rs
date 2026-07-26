@@ -149,7 +149,7 @@ fn sql_primary_order_limit_one_projection_scans_one_row_for_stable_and_journaled
     seed_session_sql_entities(&session, &[("Ada", 21), ("Bob", 32), ("Cara", 43)]);
 
     let (_, stable_scanned) = capture_rows_scanned_for_entity(SessionSqlEntity::PATH, || {
-        statement_projection_rows::<SessionSqlEntity>(
+        statement_projection_rows(
             &session,
             "SELECT name FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
         )
@@ -174,7 +174,7 @@ fn sql_primary_order_limit_one_projection_scans_one_row_for_stable_and_journaled
 
     let (_, journaled_scanned) =
         capture_rows_scanned_for_entity(JournaledSessionSqlEntity::PATH, || {
-            statement_projection_rows::<JournaledSessionSqlEntity>(
+            statement_projection_rows(
                 &session,
                 "SELECT name FROM JournaledSessionSqlEntity ORDER BY id ASC LIMIT 1",
             )
@@ -244,7 +244,7 @@ fn sql_cursorless_retained_projection_scan_owns_limit_and_offset_edges() {
 
     for (sql, expected) in cases {
         let (rows, metrics) = with_sql_projection_materialization_metrics(|| {
-            statement_projection_rows::<JournaledSessionSqlEntity>(&session, sql)
+            statement_projection_rows(&session, sql)
                 .expect("cursorless retained projection window should execute")
         });
 
@@ -267,7 +267,7 @@ fn execute_sql_projection_repeated_direct_field_uses_retained_slot_rows() {
     let session = seeded_projection_window_session();
 
     let (rows, metrics) = with_sql_projection_materialization_metrics(|| {
-        statement_projection_rows::<SessionSqlEntity>(
+        statement_projection_rows(
             &session,
             "SELECT DISTINCT age, age FROM SessionSqlEntity ORDER BY age ASC LIMIT 2",
         )
@@ -298,7 +298,7 @@ fn execute_sql_projection_unindexed_ordered_direct_fields_use_retained_slot_rows
 
     let ((rows, metrics), read_metrics) = with_structural_read_metrics(|| {
         with_sql_projection_materialization_metrics(|| {
-            statement_projection_rows::<SessionSqlEntity>(
+            statement_projection_rows(
                 &session,
                 "SELECT name, age FROM SessionSqlEntity \
                  WHERE name >= 'matrix' \
@@ -370,7 +370,7 @@ fn execute_sql_projection_filtered_retained_rows_open_once_with_rejections() {
 
     let ((rows, metrics), read_metrics) = with_structural_read_metrics(|| {
         with_sql_projection_materialization_metrics(|| {
-            statement_projection_rows::<SessionSqlEntity>(
+            statement_projection_rows(
                 &session,
                 "SELECT name, age FROM SessionSqlEntity \
                  WHERE age >= 30 \
@@ -409,7 +409,7 @@ fn execute_sql_projection_unindexed_ordered_scalar_expr_uses_retained_slot_rows(
     let ((rows, projection_metrics), lane_metrics) =
         crate::db::with_scalar_materialization_lane_metrics(|| {
             with_sql_projection_materialization_metrics(|| {
-                statement_projection_rows::<SessionSqlEntity>(
+                statement_projection_rows(
                     &session,
                     "SELECT name, age + age AS doubled \
                      FROM SessionSqlEntity \
@@ -526,9 +526,9 @@ fn assert_projection_columns_and_rows(
     expected_rows: ProjectedRows,
     context: &str,
 ) {
-    let columns = statement_projection_columns::<SessionSqlEntity>(session, sql)
+    let columns = statement_projection_columns(session, sql)
         .unwrap_or_else(|err| panic!("{context} projection columns should derive: {err:?}"));
-    let rows = statement_projection_rows::<SessionSqlEntity>(session, sql)
+    let rows = statement_projection_rows(session, sql)
         .unwrap_or_else(|err| panic!("{context} projection rows should execute: {err:?}"));
 
     assert_eq!(
@@ -553,7 +553,7 @@ fn assert_projection_columns(
     expected_columns: &[&str],
     context: &str,
 ) {
-    let columns = statement_projection_columns::<SessionSqlEntity>(session, sql)
+    let columns = statement_projection_columns(session, sql)
         .unwrap_or_else(|err| panic!("{context} projection columns should derive: {err:?}"));
 
     assert_eq!(
@@ -566,17 +566,15 @@ fn assert_projection_columns(
     );
 }
 
-// Execute one row-producing projection SQL statement for the requested entity
-// type and assert the public row payload stays exactly as expected.
-fn assert_projection_rows_match<E>(
+// Execute one row-producing projection SQL statement and assert the public row
+// payload stays exactly as expected.
+fn assert_projection_rows_match(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
     expected_rows: ProjectedRows,
     context: &str,
-) where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
-    let rows = statement_projection_rows::<E>(session, sql)
+) {
+    let rows = statement_projection_rows(session, sql)
         .unwrap_or_else(|err| panic!("{context} projection rows should execute: {err:?}"));
 
     assert_eq!(
@@ -587,14 +585,12 @@ fn assert_projection_rows_match<E>(
 
 // Run one table of projection row assertions against the requested entity
 // surface so nearby matrix tests can share the same assertion loop.
-fn assert_projection_row_case_matrix<E>(
+fn assert_projection_row_case_matrix(
     session: &DbSession<SessionSqlCanister>,
     cases: &[(&str, ProjectedRows, &str)],
-) where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
+) {
     for (sql, expected_rows, context) in cases {
-        assert_projection_rows_match::<E>(session, sql, expected_rows.clone(), context);
+        assert_projection_rows_match(session, sql, expected_rows.clone(), context);
     }
 }
 
@@ -605,7 +601,7 @@ fn statement_projection_values(
     sql: &str,
     context: &str,
 ) -> Vec<Value> {
-    statement_projection_rows::<SessionSqlEntity>(session, sql)
+    statement_projection_rows(session, sql)
         .unwrap_or_else(|err| panic!("{context} SQL projection should execute: {err:?}"))
         .into_iter()
         .map(|row| {
@@ -1035,14 +1031,10 @@ fn execute_sql_projection_select_star_empty_table_preserves_columns() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let columns = statement_projection_columns::<SessionSqlEntity>(
-        &session,
-        "SELECT * FROM SessionSqlEntity",
-    )
-    .expect("empty SELECT * should still derive projection columns");
-    let rows =
-        statement_projection_rows::<SessionSqlEntity>(&session, "SELECT * FROM SessionSqlEntity")
-            .expect("empty SELECT * should execute as an empty projection result");
+    let columns = statement_projection_columns(&session, "SELECT * FROM SessionSqlEntity")
+        .expect("empty SELECT * should still derive projection columns");
+    let rows = statement_projection_rows(&session, "SELECT * FROM SessionSqlEntity")
+        .expect("empty SELECT * should execute as an empty projection result");
 
     assert_eq!(
         columns,
@@ -1068,9 +1060,9 @@ fn execute_sql_projection_selects_record_subfields() {
     let sql = "SELECT profile.rank, profile.nickname \
                FROM SessionSqlRecordFieldPathEntity \
                ORDER BY name ASC";
-    let columns = statement_projection_columns::<SessionSqlRecordFieldPathEntity>(&session, sql)
+    let columns = statement_projection_columns(&session, sql)
         .expect("record subfield projection columns should derive");
-    let rows = statement_projection_rows::<SessionSqlRecordFieldPathEntity>(&session, sql)
+    let rows = statement_projection_rows(&session, sql)
         .expect("record subfield projection rows should execute");
 
     assert_eq!(
@@ -1102,8 +1094,8 @@ fn execute_sql_projection_orders_by_record_subfield() {
     let sql = "SELECT profile.nickname \
                FROM SessionSqlRecordFieldPathEntity \
                ORDER BY profile.rank DESC";
-    let rows = statement_projection_rows::<SessionSqlRecordFieldPathEntity>(&session, sql)
-        .expect("record subfield ORDER BY should execute");
+    let rows =
+        statement_projection_rows(&session, sql).expect("record subfield ORDER BY should execute");
 
     assert_eq!(
         rows,
@@ -1122,12 +1114,12 @@ fn execute_sql_projection_selects_record_root_as_subtree() {
     let session = sql_session();
     seed_session_sql_record_field_path_entities(&session, &[("Ada", 7, "seer")]);
 
-    let columns = statement_projection_columns::<SessionSqlRecordFieldPathEntity>(
+    let columns = statement_projection_columns(
         &session,
         "SELECT profile FROM SessionSqlRecordFieldPathEntity",
     )
     .expect("record root projection columns should derive");
-    let rows = statement_projection_rows::<SessionSqlRecordFieldPathEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT profile FROM SessionSqlRecordFieldPathEntity",
     )
@@ -1153,16 +1145,11 @@ fn execute_sql_projection_select_star_includes_record_roots() {
     let session = sql_session();
     seed_session_sql_record_field_path_entities(&session, &[("Ada", 7, "seer")]);
 
-    let columns = statement_projection_columns::<SessionSqlRecordFieldPathEntity>(
-        &session,
-        "SELECT * FROM SessionSqlRecordFieldPathEntity",
-    )
-    .expect("SELECT * over mixed scalar/record schema should derive selectable columns");
-    let rows = statement_projection_rows::<SessionSqlRecordFieldPathEntity>(
-        &session,
-        "SELECT * FROM SessionSqlRecordFieldPathEntity",
-    )
-    .expect("SELECT * over mixed scalar/record schema should project selectable rows");
+    let columns =
+        statement_projection_columns(&session, "SELECT * FROM SessionSqlRecordFieldPathEntity")
+            .expect("SELECT * over mixed scalar/record schema should derive selectable columns");
+    let rows = statement_projection_rows(&session, "SELECT * FROM SessionSqlRecordFieldPathEntity")
+        .expect("SELECT * over mixed scalar/record schema should project selectable rows");
 
     assert_eq!(
         columns,
@@ -1197,7 +1184,7 @@ fn execute_sql_projection_order_by_alias_matrix_matches_canonical_rows() {
 
     assert_session_sql_alias_matches_canonical::<Vec<Vec<Value>>>(
         &session,
-        statement_projection_rows::<SessionSqlEntity>,
+        statement_projection_rows,
         "SELECT name AS display_name FROM SessionSqlEntity ORDER BY display_name ASC LIMIT 3",
         "SELECT name FROM SessionSqlEntity ORDER BY name ASC LIMIT 3",
         "ORDER BY field aliases",
@@ -1217,7 +1204,7 @@ fn execute_sql_projection_order_by_alias_matrix_matches_canonical_rows() {
 
     assert_session_sql_alias_matches_canonical::<Vec<Vec<Value>>>(
         &indexed_session,
-        statement_projection_rows::<ExpressionIndexedSessionSqlEntity>,
+        statement_projection_rows,
         "SELECT LOWER(name) AS normalized_name FROM ExpressionIndexedSessionSqlEntity ORDER BY normalized_name ASC LIMIT 3",
         "SELECT LOWER(name) FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC LIMIT 3",
         "ORDER BY LOWER(field) aliases",
@@ -1263,7 +1250,7 @@ fn execute_sql_projection_order_by_supported_scalar_text_aliases_match_canonical
     ] {
         assert_session_sql_alias_matches_canonical::<Vec<Vec<Value>>>(
             &session,
-            statement_projection_rows::<SessionSqlEntity>,
+            statement_projection_rows,
             alias_sql,
             canonical_sql,
             context,
@@ -1275,7 +1262,7 @@ fn execute_sql_projection_order_by_supported_scalar_text_aliases_match_canonical
 fn execute_sql_projection_order_by_bounded_numeric_aliases_runs_from_session_boundary() {
     let session = seeded_projection_bounded_order_session();
 
-    assert_projection_row_case_matrix::<SessionSqlEntity>(
+    assert_projection_row_case_matrix(
         &session,
         &[
             (
@@ -1317,7 +1304,7 @@ fn execute_sql_projection_order_by_bounded_numeric_aliases_runs_from_session_bou
         ],
     );
 
-    assert_projection_row_case_matrix::<SessionAggregateEntity>(
+    assert_projection_row_case_matrix(
         &session,
         &[
             (
@@ -1364,7 +1351,7 @@ fn execute_sql_projection_order_by_bounded_numeric_aliases_runs_from_session_bou
 fn execute_sql_projection_direct_bounded_numeric_order_terms_run_from_session_boundary() {
     let session = seeded_projection_bounded_order_session();
 
-    assert_projection_row_case_matrix::<SessionSqlEntity>(
+    assert_projection_row_case_matrix(
         &session,
         &[
             (
@@ -1394,7 +1381,7 @@ fn execute_sql_projection_direct_scalar_function_expression_order_terms_run_from
 {
     let session = seeded_projection_bounded_order_session();
 
-    assert_projection_row_case_matrix::<SessionSqlEntity>(
+    assert_projection_row_case_matrix(
         &session,
         &[
             (
@@ -1434,7 +1421,7 @@ fn execute_sql_projection_direct_unary_text_function_expression_order_terms_run_
         ],
     );
 
-    assert_projection_row_case_matrix::<SessionNullableSqlEntity>(
+    assert_projection_row_case_matrix(
         &session,
         &[
             (
@@ -1476,7 +1463,7 @@ fn execute_sql_projection_select_field_list_returns_projection_shaped_rows() {
         })
         .expect("seed insert should succeed");
 
-    let response = statement_projection_rows::<SessionSqlEntity>(
+    let response = statement_projection_rows(
         &session,
         "SELECT name FROM SessionSqlEntity ORDER BY age ASC LIMIT 1",
     )
@@ -1714,11 +1701,8 @@ fn execute_sql_projection_computed_function_matrix_runs_from_session_boundary() 
 fn execute_sql_projection_numeric_overflow_returns_query_error() {
     let session = seeded_projection_text_session();
 
-    let err = statement_projection_rows::<SessionSqlEntity>(
-        &session,
-        "SELECT POWER(age, 100) FROM SessionSqlEntity",
-    )
-    .expect_err("overflowing exact numeric projection should fail");
+    let err = statement_projection_rows(&session, "SELECT POWER(age, 100) FROM SessionSqlEntity")
+        .expect_err("overflowing exact numeric projection should fail");
 
     assert_numeric_overflow_query_error(err);
 }
@@ -1738,7 +1722,7 @@ fn execute_sql_projection_log_domain_errors_return_query_error() {
             "LOG invalid base",
         ),
     ] {
-        let Err(err) = statement_projection_rows::<SessionSqlEntity>(&session, sql) else {
+        let Err(err) = statement_projection_rows(&session, sql) else {
             panic!("{context} should fail numeric representation checks");
         };
 
@@ -1875,7 +1859,7 @@ fn execute_sql_projection_select_star_returns_all_fields_in_model_order() {
         })
         .expect("seed insert should succeed");
 
-    let response = statement_projection_rows::<SessionSqlEntity>(
+    let response = statement_projection_rows(
         &session,
         "SELECT * FROM SessionSqlEntity ORDER BY age ASC LIMIT 1",
     )
@@ -1899,7 +1883,7 @@ fn execute_sql_projection_select_star_returns_all_fields_in_model_order() {
 fn execute_sql_projection_searched_case_matrix_matches_expected_values() {
     let session = seeded_projection_window_session();
 
-    assert_projection_row_case_matrix::<SessionSqlEntity>(
+    assert_projection_row_case_matrix(
         &session,
         &[
             (
@@ -1936,7 +1920,7 @@ fn execute_sql_projection_case_branch_field_matrix_matches_expected_values() {
     let session = sql_session();
     seed_projection_case_field_entities(&session);
 
-    assert_projection_row_case_matrix::<SessionSqlFieldBoundRangeEntity>(
+    assert_projection_row_case_matrix(
         &session,
         &[
             (
@@ -1994,7 +1978,7 @@ fn execute_sql_projection_boolean_case_branch_field_matrix_matches_expected_valu
         ],
     );
 
-    assert_projection_row_case_matrix::<FilteredIndexedSessionSqlEntity>(
+    assert_projection_row_case_matrix(
         &session,
         &[
             (
@@ -2078,7 +2062,7 @@ fn execute_sql_projection_qualified_identifier_matrix_executes() {
             "table-alias projection SQL",
         ),
     ] {
-        let rows = statement_projection_rows::<SessionSqlEntity>(&session, sql)
+        let rows = statement_projection_rows(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should execute: {err:?}"));
 
         assert_eq!(rows.len(), 1, "{context} should return one row");
@@ -2118,7 +2102,7 @@ fn execute_sql_projection_ulid_string_literal_predicate_matches_single_row() {
     insert_fixed_session_sql_entity_for_test(target_id, "ulid-target", 21);
     insert_fixed_session_sql_entity_for_test(other_id, "ulid-other", 22);
 
-    let rows = statement_projection_rows::<SessionSqlEntity>(&session, sql.as_str())
+    let rows = statement_projection_rows(&session, sql.as_str())
         .expect("quoted ULID projection predicate should execute");
 
     assert_eq!(rows, vec![vec![Value::Text("ulid-target".to_string())]]);
@@ -2138,7 +2122,7 @@ fn execute_sql_projection_delete_returns_deleted_rows() {
         ],
     );
 
-    let projection = statement_projection_rows::<SessionSqlEntity>(
+    let projection = statement_projection_rows(
         &session,
         "DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1 RETURNING *",
     )
@@ -2249,7 +2233,7 @@ fn execute_sql_projection_distinct_matrix_matches_expected_rows() {
 
         seed_session_sql_entities(&session, &seed_rows);
 
-        let response = statement_projection_rows::<SessionSqlEntity>(&session, sql)
+        let response = statement_projection_rows(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should execute: {err:?}"));
 
         if expect_pk_rows {
@@ -2314,7 +2298,7 @@ fn execute_sql_projection_distinct_limit_and_offset_use_deduped_ordered_stream()
             ],
         );
 
-        let response = statement_projection_rows::<SessionSqlEntity>(&session, sql)
+        let response = statement_projection_rows(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should execute: {err:?}"));
 
         assert_eq!(response, expected_rows, "{context}");
@@ -2352,9 +2336,8 @@ fn execute_sql_projection_retained_slot_index_route_matches_prepared_plan() {
         "prepared projection plan should select the indexed prefix route",
     );
 
-    let (rows, metrics) = with_sql_projection_materialization_metrics(|| {
-        statement_projection_rows::<IndexedSessionSqlEntity>(&session, sql)
-    });
+    let (rows, metrics) =
+        with_sql_projection_materialization_metrics(|| statement_projection_rows(&session, sql));
     let rows = rows.expect("indexed DISTINCT projection should execute");
 
     assert_eq!(
@@ -2394,8 +2377,7 @@ fn execute_sql_projection_limit_cursor_matches_prepared_ordering_contract() {
     let page = session
         .execute_load_query_paged_with_trace(&query, None)
         .expect("prepared paged scalar execution should run");
-    let projected_rows =
-        statement_projection_rows::<SessionSqlEntity>(&session, sql).expect("projection executes");
+    let projected_rows = statement_projection_rows(&session, sql).expect("projection executes");
     let paged_names = page
         .response()
         .iter()
@@ -2432,14 +2414,14 @@ fn execute_sql_projection_distinct_treats_null_as_one_deduped_ordered_value() {
 
     // Phase 2: prove DISTINCT equality keeps one NULL and that paging applies
     // after dedupe on the ordered projected stream.
-    let distinct_rows = statement_projection_rows::<SessionNullableSqlEntity>(
+    let distinct_rows = statement_projection_rows(
         &session,
         "SELECT DISTINCT nickname \
          FROM SessionNullableSqlEntity \
          ORDER BY nickname ASC",
     )
     .expect("DISTINCT nullable projection should execute");
-    let paged_rows = statement_projection_rows::<SessionNullableSqlEntity>(
+    let paged_rows = statement_projection_rows(
         &session,
         "SELECT DISTINCT nickname \
          FROM SessionNullableSqlEntity \
@@ -2488,14 +2470,14 @@ fn execute_sql_projection_distinct_dedupes_expression_outputs() {
 
     // Phase 2: prove DISTINCT operates on the compiled projected expression
     // output and that paging still applies to that deduped ordered stream.
-    let distinct_rows = statement_projection_rows::<ExpressionIndexedSessionSqlEntity>(
+    let distinct_rows = statement_projection_rows(
         &session,
         "SELECT DISTINCT LOWER(name) \
          FROM ExpressionIndexedSessionSqlEntity \
          ORDER BY LOWER(name) ASC",
     )
     .expect("DISTINCT expression projection should execute");
-    let paged_rows = statement_projection_rows::<ExpressionIndexedSessionSqlEntity>(
+    let paged_rows = statement_projection_rows(
         &session,
         "SELECT DISTINCT LOWER(name) \
          FROM ExpressionIndexedSessionSqlEntity \
@@ -2543,7 +2525,7 @@ fn execute_sql_projection_distinct_expression_high_offset_returns_empty_rows() {
 
     // Phase 2: prove a high OFFSET over DISTINCT expression rows returns an
     // empty page cleanly instead of depending on raw pre-dedup row count.
-    let rows = statement_projection_rows::<ExpressionIndexedSessionSqlEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT DISTINCT LOWER(name) \
          FROM ExpressionIndexedSessionSqlEntity \
@@ -2567,7 +2549,7 @@ fn execute_sql_select_distinct_rejects_order_by_non_projected_field() {
         &[("distinct-order-a", 25_u64), ("distinct-order-b", 30_u64)],
     );
 
-    let err = statement_projection_rows::<SessionSqlEntity>(
+    let err = statement_projection_rows(
         &session,
         "SELECT DISTINCT name FROM SessionSqlEntity ORDER BY age ASC",
     )
@@ -2585,7 +2567,7 @@ fn execute_sql_select_distinct_rejects_order_by_wrapped_non_projected_field() {
         &[("distinct-order-a", 25_u64), ("distinct-order-b", 30_u64)],
     );
 
-    let err = statement_projection_rows::<SessionSqlEntity>(
+    let err = statement_projection_rows(
         &session,
         "SELECT DISTINCT name FROM SessionSqlEntity ORDER BY LOWER(age) ASC",
     )
@@ -2600,7 +2582,7 @@ fn execute_sql_select_distinct_rejects_order_by_source_field_from_expression_pro
     let session = indexed_sql_session();
     seed_expression_indexed_session_sql_entities(&session, &[(1, "Alpha", 10), (2, "alpha", 20)]);
 
-    let err = statement_projection_rows::<ExpressionIndexedSessionSqlEntity>(
+    let err = statement_projection_rows(
         &session,
         "SELECT DISTINCT LOWER(name) \
          FROM ExpressionIndexedSessionSqlEntity \
@@ -2653,7 +2635,7 @@ fn execute_sql_projection_matrix_queries_match_expected_projected_rows() {
 
     // Phase 3: assert projected row payloads for each SQL input.
     for (sql, expected_rows) in cases {
-        let response = statement_projection_rows::<SessionSqlEntity>(&session, sql)
+        let response = statement_projection_rows(&session, sql)
             .expect("projection matrix SQL execution should succeed");
         let actual_rows = response;
 

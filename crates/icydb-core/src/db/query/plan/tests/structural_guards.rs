@@ -123,15 +123,16 @@ fn assert_sql_write_mutation_batch_owner(write_mod: &str) {
     assert_source_contains_patterns(
         write_mod,
         &[
-            "struct SqlWriteMutationExecution<E>",
+            "struct SqlWriteMutationExecution",
             "fn from_bounded_collection(",
             "SqlWriteCandidateBoundCheck::MutationBatchHandoff",
             "fn collect_bounded_sql_write_candidate_collection_from_structural_query",
             "record_projected_source_rows(",
             "SqlWriteCandidateBoundCheck::SelectorSourceBatch",
-            "fn execute_sql_write_mutation_batch<E>(",
+            "fn execute_sql_write_mutation_batch(",
+            ".execute_accepted_structural_save_batch(",
         ],
-        "SQL UPDATE/INSERT mutation batch admission should stay centralized in the write execution coordinator",
+        "SQL UPDATE/INSERT mutation admission should stay centralized and hand accepted intent to the generic-free structural owner",
     );
 }
 
@@ -672,11 +673,6 @@ fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit
     let update = source_for(crate_root, "src/db/session/sql/execute/write/update.rs");
     let insert = source_for(crate_root, "src/db/session/sql/execute/write/insert.rs");
     let delete = source_for(crate_root, "src/db/session/sql/execute/write/delete.rs");
-    let delete_api = source_for(crate_root, "src/db/executor/delete/api.rs");
-    let structural_delete = source_for(
-        crate_root,
-        "src/db/executor/delete/structural_projection.rs",
-    );
 
     assert_sql_write_candidate_owner(&candidate);
     assert_sql_write_mutation_batch_owner(&write_mod);
@@ -714,7 +710,7 @@ fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit
             "let candidate_bounds =",
             "sql_insert_candidate_bounds(execution_bounds, statement.returning.is_some())",
             "SqlWriteCandidateBoundCheck::InsertValuesSource",
-            "execute_sql_insert_select_source_patches::<E>(",
+            "execute_sql_insert_select_source_patches(",
             "collect_bounded_sql_write_candidate_collection_from_structural_query(",
             "SqlWriteMutationExecution::from_bounded_collection(",
         ],
@@ -725,36 +721,11 @@ fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit
         &delete,
         &[
             "const fn sql_delete_candidate_bounds(",
-            "sql_delete_candidate_bounds(execution_bounds, false).max_rows()",
-            "sql_delete_candidate_bounds(execution_bounds, true).max_rows()",
-            ".execute_count_with_bounds(plan, max_rows)",
-            ".execute_structural_projection_with_bounds(",
+            "collect_bounded_sql_write_candidate_collection_from_structural_query(",
+            ".execute_accepted_structural_delete_batch(catalog, &descriptor, keys)",
+            "validate_sql_materialized_returning_bounds(",
         ],
-        "SQL DELETE should project SQL write bounds into the delete-specific pre-commit projection/count boundary",
-    );
-
-    assert_source_contains_patterns(
-        &delete_api,
-        &[
-            "prepare_structural_delete_projection_core(",
-            "prepare_structural_delete_count_core_with_bounds(",
-            "Self::apply_prepared_delete_commit(db, &prepared, projection.commit.row_ops)?",
-            "Self::apply_prepared_delete_commit(db, &prepared, count.commit.row_ops)?",
-        ],
-        "delete executor wrappers should keep SQL projection/count bounds before the typed commit-window bridge",
-    );
-
-    assert_source_contains_patterns(
-        &structural_delete,
-        &[
-            "let mut rows = resolve_structural_delete_kernel_rows(store, prepared)?",
-            "apply_delete_post_access_rows(prepared, &mut rows)?",
-            "validate_structural_delete_candidate_bounds(rows.len(), max_selected_rows)?",
-            "package_rows(rows)",
-            "validate_precommit(&prepared_projection.output)?",
-            "prepare_structural_delete_count_core_with_optional_bounds(",
-        ],
-        "structural DELETE count/RETURNING bounds should stay at the post-access candidate boundary, before packaging and commit",
+        "SQL DELETE should collect bounded accepted keys and commit through the canonical accepted structural delete owner",
     );
 }
 

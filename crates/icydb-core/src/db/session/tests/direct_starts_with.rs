@@ -57,17 +57,17 @@ fn execute_sql_direct_starts_with_family_matrix_matches_indexed_like_rows() {
 
     // Phase 2: prove the direct spelling stays aligned with the established
     // strict LIKE and explicit text-range paths on both public lanes.
-    let projection_direct_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+    let projection_direct_rows = statement_projection_rows(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE STARTS_WITH(name, 'S') ORDER BY name ASC",
     )
     .expect("direct STARTS_WITH projection should execute");
-    let projection_like_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+    let projection_like_rows = statement_projection_rows(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC",
     )
     .expect("strict LIKE prefix projection should execute");
-    let projection_range_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+    let projection_range_rows = statement_projection_rows(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE name >= 'S' AND name < 'T' ORDER BY name ASC",
     )
@@ -155,7 +155,7 @@ fn execute_sql_projection_direct_lower_prefix_matrix_matches_indexed_like_rows()
     let session = indexed_sql_session();
     seed_direct_starts_with_fixture(&session);
 
-    let like_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+    let like_rows = statement_projection_rows(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) LIKE 's%' ORDER BY name ASC",
     )
@@ -173,7 +173,7 @@ fn execute_sql_projection_direct_lower_prefix_matrix_matches_indexed_like_rows()
     ];
 
     for (sql, context) in cases {
-        let actual_rows = statement_projection_rows::<IndexedSessionSqlEntity>(&session, sql)
+        let actual_rows = statement_projection_rows(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
 
         assert_eq!(
@@ -189,17 +189,17 @@ fn execute_sql_not_like_prefix_matrix_matches_negated_prefix_rows() {
     let session = indexed_sql_session();
     seed_direct_starts_with_fixture(&session);
 
-    let strict_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+    let strict_rows = statement_projection_rows(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE name NOT LIKE 'S%' ORDER BY name ASC",
     )
     .expect("strict NOT LIKE prefix projection should execute");
-    let lower_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+    let lower_rows = statement_projection_rows(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) NOT LIKE 's%' ORDER BY name ASC",
     )
     .expect("LOWER(field) NOT LIKE projection should execute");
-    let upper_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+    let upper_rows = statement_projection_rows(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) NOT LIKE 'S%' ORDER BY name ASC",
     )
@@ -254,12 +254,12 @@ fn execute_sql_ilike_prefix_matrix_matches_casefold_prefix_rows() {
     let session = indexed_sql_session();
     seed_direct_starts_with_fixture(&session);
 
-    let plain_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+    let plain_rows = statement_projection_rows(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE name ILIKE 's%' ORDER BY name ASC",
     )
     .expect("ILIKE prefix projection should execute");
-    let lower_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+    let lower_rows = statement_projection_rows(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) LIKE 's%' ORDER BY name ASC",
     )
@@ -277,12 +277,12 @@ fn execute_sql_not_ilike_prefix_matrix_matches_negated_casefold_prefix_rows() {
     let session = indexed_sql_session();
     seed_direct_starts_with_fixture(&session);
 
-    let plain_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+    let plain_rows = statement_projection_rows(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE name NOT ILIKE 's%' ORDER BY name ASC",
     )
     .expect("NOT ILIKE prefix projection should execute");
-    let lower_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+    let lower_rows = statement_projection_rows(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) NOT LIKE 's%' ORDER BY name ASC",
     )
@@ -378,19 +378,19 @@ fn execute_sql_delete_direct_starts_with_family_matches_indexed_like_delete_rows
             let session = indexed_sql_session();
             seed_direct_starts_with_fixture(&session);
 
-            let deleted_names = statement_projection_rows::<IndexedSessionSqlEntity>(
-                &session,
-                format!("{sql} RETURNING name").as_str(),
-            )
-            .expect("indexed STARTS_WITH/LIKE delete should execute")
-            .into_iter()
-            .map(|row| {
-                let [Value::Text(name)] = row.as_slice() else {
-                    panic!("indexed delete returning should yield one projected name column");
-                };
-                name.clone()
-            })
-            .collect::<Vec<_>>();
+            let deleted_names =
+                statement_projection_rows(&session, format!("{sql} RETURNING name").as_str())
+                    .expect("indexed STARTS_WITH/LIKE delete should execute")
+                    .into_iter()
+                    .map(|row| {
+                        let [Value::Text(name)] = row.as_slice() else {
+                            panic!(
+                                "indexed delete returning should yield one projected name column"
+                            );
+                        };
+                        name.clone()
+                    })
+                    .collect::<Vec<_>>();
             let remaining_names = session
                 .load::<IndexedSessionSqlEntity>()
                 .trusted_read_unchecked()

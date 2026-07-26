@@ -1832,7 +1832,7 @@ where
     E: EntityFor<PerfAuditCanister>,
 {
     let start = ic_cdk::api::performance_counter(1);
-    let result = db()?.execute_trusted_sql_mutation::<E>(sql)?;
+    let result = db()?.execute_trusted_sql_mutation(sql)?;
     let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
     let row_count = ensure_sql_write_row_count(label, &result, expected_rows)?;
 
@@ -1849,7 +1849,7 @@ where
     E: EntityFor<PerfAuditCanister>,
 {
     let start = ic_cdk::api::performance_counter(1);
-    let result = db()?.execute_trusted_sql_exact_update::<E>(sql, expected_rows)?;
+    let result = db()?.execute_trusted_sql_exact_update(sql, expected_rows)?;
     let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
     let row_count = ensure_sql_write_row_count(label, &result, expected_rows)?;
 
@@ -2082,8 +2082,7 @@ fn measure_journaled_user_resumable_update_perf() -> Result<ResumableUpdatePerfR
     let sql = "UPDATE PerfAuditJournaledUser SET name = 'resumable-measured' WHERE age >= 0";
     let operation_id = Ulid::from_bytes(0x210_0000_0000_0001_u128.to_be_bytes());
     let prepare_start = ic_cdk::api::performance_counter(1);
-    let mut continuation = session
-        .prepare_trusted_sql_resumable_update::<PerfAuditJournaledUser>(operation_id, sql)?;
+    let mut continuation = session.prepare_trusted_sql_resumable_update(operation_id, sql)?;
     let prepare_local_instructions =
         ic_cdk::api::performance_counter(1).saturating_sub(prepare_start);
     let mut phase = icydb::db::TrustedResumableUpdatePhase::Forward;
@@ -2095,11 +2094,8 @@ fn measure_journaled_user_resumable_update_perf() -> Result<ResumableUpdatePerfR
 
     for _ in 0..MAX_STEPS {
         let start = ic_cdk::api::performance_counter(1);
-        let receipt = session.resume_trusted_sql_resumable_update::<PerfAuditJournaledUser>(
-            operation_id,
-            sql,
-            &continuation,
-        )?;
+        let receipt =
+            session.resume_trusted_sql_resumable_update(operation_id, sql, &continuation)?;
         let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
         match phase {
             icydb::db::TrustedResumableUpdatePhase::Forward => {

@@ -36,15 +36,12 @@ fn filtered_composite_expression_prefix_spellings(
          ORDER BY LOWER(handle) {order} LIMIT 2"
     );
 
-    let like_rows =
-        statement_projection_rows::<FilteredIndexedSessionSqlEntity>(session, &like_sql)
-            .expect("filtered composite expression LIKE prefix projection should execute");
-    let starts_with_rows =
-        statement_projection_rows::<FilteredIndexedSessionSqlEntity>(session, &starts_with_sql)
-            .expect("filtered composite expression STARTS_WITH projection should execute");
-    let range_rows =
-        statement_projection_rows::<FilteredIndexedSessionSqlEntity>(session, &range_sql)
-            .expect("filtered composite expression text-range projection should execute");
+    let like_rows = statement_projection_rows(session, &like_sql)
+        .expect("filtered composite expression LIKE prefix projection should execute");
+    let starts_with_rows = statement_projection_rows(session, &starts_with_sql)
+        .expect("filtered composite expression STARTS_WITH projection should execute");
+    let range_rows = statement_projection_rows(session, &range_sql)
+        .expect("filtered composite expression text-range projection should execute");
 
     (like_rows, starts_with_rows, range_rows)
 }
@@ -250,9 +247,8 @@ fn execute_sql_projection_filtered_composite_expression_order_only_matrix_return
 
         // Phase 2: require the projection lane to keep the guarded equality-prefix
         // window on the filtered composite `tier, LOWER(handle)` route.
-        let projected_rows =
-            statement_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
-                .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
+        let projected_rows = statement_projection_rows(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
 
         assert_eq!(
             projected_rows,
@@ -316,9 +312,8 @@ fn execute_sql_projection_filtered_composite_expression_order_only_pagination_ma
     let mut concatenated_projection_pages = Vec::new();
     for (offset, limit) in [(0_u64, 3_u64), (3, 3), (6, 3)] {
         let paged_sql = format!("{base_sql} LIMIT {limit} OFFSET {offset}");
-        let projected_rows =
-            statement_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, &paged_sql)
-                .expect("filtered composite expression paged projection query should execute");
+        let projected_rows = statement_projection_rows(&session, &paged_sql)
+            .expect("filtered composite expression paged projection query should execute");
         let paged_entity_rows = execute_scalar_select_for_tests::<FilteredIndexedSessionSqlEntity>(
             &session, &paged_sql,
         )

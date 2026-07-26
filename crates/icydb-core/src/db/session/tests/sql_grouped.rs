@@ -152,7 +152,7 @@ fn assert_grouped_statement_payload_case(
     expected_row_count: u32,
     context: &str,
 ) {
-    let payload = execute_sql_statement_for_tests::<SessionSqlEntity>(session, sql)
+    let payload = execute_sql_statement_for_tests(session, sql)
         .unwrap_or_else(|err| panic!("{context} should execute through statement SQL: {err}"));
 
     let SqlStatementResult::Grouped {
@@ -206,7 +206,7 @@ fn assert_grouped_statement_matches_prepared_grouped_runtime(
     sql: &str,
     context: &str,
 ) {
-    let statement = execute_sql_statement_for_tests::<SessionSqlEntity>(session, sql)
+    let statement = execute_sql_statement_for_tests(session, sql)
         .unwrap_or_else(|err| panic!("{context} statement SQL should execute: {err}"));
     let prepared = execute_grouped_select_for_tests::<SessionSqlEntity>(session, sql, None)
         .unwrap_or_else(|err| panic!("{context} prepared grouped SQL should execute: {err}"));
@@ -253,9 +253,9 @@ fn assert_grouped_qualified_identifier_explain_case(
     unqualified_sql: &str,
     context: &str,
 ) {
-    let qualified = statement_explain_sql::<SessionSqlEntity>(session, qualified_sql)
+    let qualified = statement_explain_sql(session, qualified_sql)
         .unwrap_or_else(|err| panic!("{context} qualified SQL should succeed: {err}"));
-    let unqualified = statement_explain_sql::<SessionSqlEntity>(session, unqualified_sql)
+    let unqualified = statement_explain_sql(session, unqualified_sql)
         .unwrap_or_else(|err| panic!("{context} unqualified SQL should succeed: {err}"));
 
     assert_eq!(
@@ -410,7 +410,7 @@ fn grouped_and_global_value_aggregates_share_scalar_reducer_semantics() {
 
     // Phase 1: compute the whole-window scalar/global SQL aggregate row that
     // exercises value COUNT, SUM, AVG, MIN, and MAX through the scalar terminal.
-    let global_rows = statement_projection_rows::<SessionSqlEntity>(
+    let global_rows = statement_projection_rows(
         &session,
         "SELECT COUNT(age), SUM(age), AVG(age), MIN(age), MAX(age) FROM SessionSqlEntity",
     )
@@ -552,7 +552,7 @@ fn grouped_and_global_singleton_aggregate_lanes_match_having_and_projection_sema
     ];
 
     for (context, global_sql, grouped_sql) in cases {
-        let global_rows = statement_projection_rows::<SessionSqlEntity>(&session, global_sql)
+        let global_rows = statement_projection_rows(&session, global_sql)
             .unwrap_or_else(|err| panic!("{context} global aggregate SQL should succeed: {err}"));
         let grouped =
             execute_grouped_select_for_tests::<SessionSqlEntity>(&session, grouped_sql, None)
@@ -1802,7 +1802,7 @@ fn execute_sql_projection_rejects_grouped_aggregate_sql() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = statement_projection_rows::<SessionSqlEntity>(
+    let err = statement_projection_rows(
         &session,
         "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
     )
@@ -3315,7 +3315,7 @@ fn execute_sql_statement_grouped_computed_projection_matrix_succeeds() {
             "grouped statement SQL computed-only text projection",
         ),
     ] {
-        let payload = execute_sql_statement_for_tests::<SessionSqlEntity>(&session, sql)
+        let payload = execute_sql_statement_for_tests(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
         let SqlStatementResult::Grouped {
             columns,
@@ -3360,7 +3360,7 @@ fn execute_sql_statement_grouped_projection_unknown_field_stays_specific() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = execute_sql_statement_for_tests::<SessionSqlEntity>(
+    let err = execute_sql_statement_for_tests(
         &session,
         "SELECT agge, AVG(age) FROM SessionSqlEntity GROUP BY age",
     )
@@ -3378,7 +3378,7 @@ fn execute_sql_statement_grouped_filter_alias_unknown_field_stays_specific() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = execute_sql_statement_for_tests::<SessionSqlEntity>(
+    let err = execute_sql_statement_for_tests(
         &session,
         "SELECT age, \
          COUNT(*) FILTER (WHERE total_count > 0) AS total_count \
@@ -3400,7 +3400,7 @@ fn execute_sql_statement_grouped_filter_alias_unknown_field_inside_case_stays_sp
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = execute_sql_statement_for_tests::<SessionSqlEntity>(
+    let err = execute_sql_statement_for_tests(
         &session,
         "SELECT age, \
          COUNT(*) FILTER ( \
@@ -3709,7 +3709,7 @@ fn grouped_statement_sql_preserves_fixed_scale_for_post_aggregate_round_projecti
 
     seed_session_sql_entities(&session, &[("alpha", 12), ("bravo", 12), ("charlie", 14)]);
 
-    let payload = execute_sql_statement_for_tests::<SessionSqlEntity>(
+    let payload = execute_sql_statement_for_tests(
         &session,
         "SELECT age, ROUND(AVG(age), 4) \
          FROM SessionSqlEntity \

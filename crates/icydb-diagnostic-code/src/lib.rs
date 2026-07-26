@@ -490,6 +490,8 @@ pub enum RuntimeBoundaryCode {
     SqlIntrospectionDisabled,
     /// A complete accepted mutation omitted a required field.
     MutationRequiredFieldMissing,
+    /// A logical write would move an accepted managed timestamp backward.
+    MutationManagedTimestampRegression,
     /// A persisted row's stamp falls outside the accepted layout window.
     PersistedRowLayoutOutsideAcceptedWindow,
     /// A persisted row's physical slot count disagrees with its layout stamp.
@@ -506,6 +508,8 @@ pub enum RuntimeBoundaryCode {
     ConstraintActivationWriteBlocked,
     /// A live generated constraint activation no longer matches its proposal.
     GeneratedConstraintActivationStale,
+    /// A caller explicitly authored a field owned by accepted database policy.
+    MutationDatabaseOwnedFieldExplicit,
 }
 
 impl fmt::Debug for RuntimeBoundaryCode {
@@ -718,7 +722,6 @@ pub enum SqlWriteBoundaryCode {
     ResumableUpdateContinuationPatchMismatch,
     ResumableUpdateContinuationBatchPolicyMismatch,
     ResumableUpdateSingleRowResourceExceeded,
-    ResumableUpdateApplicationCallbacksUnsupported,
     ResumableUpdateManagedFieldHasGlobalConstraint,
     ResumableUpdateContinuationOperationMismatch,
 }
@@ -972,7 +975,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 233);
+        assert_eq!(last, 234);
     }
 
     #[test]
@@ -1004,7 +1007,7 @@ mod tests {
 
     #[test]
     fn invalid_raw_error_codes_fail_closed_to_runtime_internal() {
-        for raw in [0, 234, u16::MAX] {
+        for raw in [0, 235, u16::MAX] {
             let code = ErrorCode::from_raw(raw);
 
             assert_eq!(ErrorCode::known(raw), None);

@@ -4,9 +4,11 @@
 //! Does not own: parsed-statement semantic compilation or SQL execution.
 //! Boundary: keeps the public query/mutation compile surfaces on one cache shell.
 
+#[cfg(test)]
+use crate::db::PersistedRow;
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryError,
+        DbSession, QueryError,
         session::{
             AcceptedSchemaCatalogContext,
             sql::{
@@ -82,39 +84,15 @@ impl<C: CanisterKind> DbSession<C> {
     // Compile one SQL mutation-surface string into the session-owned generic-free
     // semantic command artifact before execution.
     #[cfg(test)]
-    pub(in crate::db) fn compile_sql_mutation<E>(
+    pub(in crate::db) fn compile_sql_mutation(
         &self,
         sql: &str,
-    ) -> Result<CompiledSqlCommand, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.compile_sql_mutation_with_execution_context::<E>(sql)
+    ) -> Result<CompiledSqlCommand, QueryError> {
+        self.compile_sql_mutation_with_execution_context(sql)
             .map(|(context, _, _)| context.into_command())
     }
 
-    #[cfg(test)]
-    pub(in crate::db::session::sql) fn compile_sql_mutation_with_cache_attribution<E>(
-        &self,
-        sql: &str,
-    ) -> Result<
-        (
-            CompiledSqlCommand,
-            SqlCacheAttribution,
-            SqlCompilePhaseAttribution,
-        ),
-        QueryError,
-    >
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.compile_sql_mutation_with_execution_context::<E>(sql)
-            .map(|(context, cache_attribution, phase_attribution)| {
-                (context.into_command(), cache_attribution, phase_attribution)
-            })
-    }
-
-    pub(in crate::db) fn compile_sql_mutation_with_execution_context<E>(
+    pub(in crate::db) fn compile_sql_mutation_with_execution_context(
         &self,
         sql: &str,
     ) -> Result<
@@ -124,60 +102,12 @@ impl<C: CanisterKind> DbSession<C> {
             SqlCompilePhaseAttribution,
         ),
         QueryError,
-    >
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.compile_sql_mutation_surface_with_execution_context::<E>(
-            sql,
-            SqlCompiledCommandSurface::Mutation,
-        )
-    }
-
-    // Reuse one internal compile shell for both outward SQL surfaces so query
-    // and mutation no longer duplicate cache-key construction and surface
-    // validation plumbing before they reach the real compile/cache owner.
-    fn compile_sql_mutation_surface_with_execution_context<E>(
-        &self,
-        sql: &str,
-        surface: SqlCompiledCommandSurface,
-    ) -> Result<
-        (
-            SqlCompiledCommandExecutionContext,
-            SqlCacheAttribution,
-            SqlCompilePhaseAttribution,
-        ),
-        QueryError,
-    >
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let cache_context =
-            measured(|| self.sql_compiled_command_cache_context_for_entity::<E>(surface, sql));
-        let (cache_key_local_instructions, context) = match cache_context {
-            Ok(context) => context,
-            Err(error) => {
-                record_sql_compile_reject_for_path(SqlCompileRejectPhase::CacheKey, E::PATH);
-                return Err(error);
-            }
-        };
-        let mut attribution = SqlCompileAttributionBuilder::default();
-        attribution.record_cache_key(cache_key_local_instructions);
-        let (cache_key, catalog) = context.into_cache_inputs();
-
-        let (compiled, cache_attribution, phase_attribution, accepted_authority) = self
-            .compile_sql_statement_with_cache(
-                cache_key,
-                &catalog,
-                attribution,
-                sql,
-                surface,
-                E::PATH,
-            )?;
-        let context =
-            SqlCompiledCommandExecutionContext::new(compiled, catalog, accepted_authority, surface);
-
-        Ok((context, cache_attribution, phase_attribution))
+    > {
+        let entity_name = crate::db::session::sql::sql_statement_entity_name(sql)?;
+        let catalog = self
+            .accepted_schema_catalog_context_for_entity_name(entity_name.as_deref())
+            .map_err(QueryError::execute)?;
+        self.compile_sql_surface_with_catalog(sql, SqlCompiledCommandSurface::Mutation, catalog)
     }
 
     fn compile_sql_surface_with_catalog(

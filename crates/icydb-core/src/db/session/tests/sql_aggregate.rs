@@ -61,7 +61,7 @@ fn global_aggregate_value_matrix_matches_expected_values() {
     ];
 
     for (context, sql, expected) in cases {
-        assert_session_sql_scalar_value::<SessionSqlEntity>(&session, sql, expected, context);
+        assert_session_sql_scalar_value(&session, sql, expected, context);
     }
 }
 
@@ -107,7 +107,7 @@ fn global_aggregate_distinct_value_matrix_matches_expected_values() {
     ];
 
     for (context, sql, expected) in cases {
-        assert_session_sql_scalar_value::<SessionSqlEntity>(&session, sql, expected, context);
+        assert_session_sql_scalar_value(&session, sql, expected, context);
     }
 }
 
@@ -189,7 +189,7 @@ fn global_aggregate_expression_input_value_matrix_matches_expected_values() {
     ];
 
     for (context, sql, expected) in cases {
-        assert_session_sql_scalar_value::<SessionSqlEntity>(&session, sql, expected, context);
+        assert_session_sql_scalar_value(&session, sql, expected, context);
     }
 }
 
@@ -199,7 +199,7 @@ fn global_aggregate_expression_numeric_overflow_returns_query_error() {
     let session = sql_session();
     seed_session_sql_entities(&session, &[("aggregate-overflow", 32)]);
 
-    let err = statement_projection_rows::<SessionSqlEntity>(
+    let err = statement_projection_rows(
         &session,
         "SELECT SUM(POWER(age, 100)) FROM SessionSqlEntity",
     )
@@ -363,13 +363,13 @@ fn global_aggregate_unary_text_expression_input_value_matrix_matches_expected_va
         ],
     );
 
-    assert_session_sql_scalar_value::<SessionNullableSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT MIN(LOWER(COALESCE(nickname, name))) FROM SessionNullableSqlEntity",
         Value::Text(" ally ".to_string()),
         "min lower coalesce text aggregate input",
     );
-    assert_session_sql_scalar_value::<SessionNullableSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT MAX(LENGTH(TRIM(COALESCE(nickname, name)))) FROM SessionNullableSqlEntity",
         Value::Nat64(5),
@@ -405,7 +405,7 @@ fn global_post_aggregate_expression_value_matrix_matches_expected_values() {
     ];
 
     for (context, sql, expected) in cases {
-        assert_session_sql_scalar_value::<SessionSqlEntity>(&session, sql, expected, context);
+        assert_session_sql_scalar_value(&session, sql, expected, context);
     }
 }
 
@@ -439,7 +439,7 @@ fn global_aggregate_case_expression_matrix_matches_expected_values() {
     ];
 
     for (context, sql, expected) in cases {
-        assert_session_sql_scalar_value::<SessionSqlEntity>(&session, sql, expected, context);
+        assert_session_sql_scalar_value(&session, sql, expected, context);
     }
 }
 
@@ -506,9 +506,7 @@ fn global_aggregate_case_branch_field_matrix_matches_expected_values() {
     ];
 
     for (context, sql, expected) in cases {
-        assert_session_sql_scalar_value::<SessionSqlFieldBoundRangeEntity>(
-            &session, sql, expected, context,
-        );
+        assert_session_sql_scalar_value(&session, sql, expected, context);
     }
 }
 
@@ -556,9 +554,7 @@ fn global_aggregate_boolean_case_branch_field_matrix_matches_expected_values() {
     ];
 
     for (context, sql, expected) in cases {
-        assert_session_sql_scalar_value::<FilteredIndexedSessionSqlEntity>(
-            &session, sql, expected, context,
-        );
+        assert_session_sql_scalar_value(&session, sql, expected, context);
     }
 }
 
@@ -614,7 +610,7 @@ fn global_aggregate_filter_value_matrix_matches_expected_values() {
     ];
 
     for (context, sql, expected) in cases {
-        assert_session_sql_scalar_value::<SessionSqlEntity>(&session, sql, expected, context);
+        assert_session_sql_scalar_value(&session, sql, expected, context);
     }
 }
 
@@ -632,7 +628,7 @@ fn global_aggregate_filter_case_null_conditions_fall_through_to_later_arms() {
         ],
     );
 
-    assert_session_sql_scalar_value::<SessionNullableSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT COUNT(*) FILTER ( \
          WHERE CASE \
@@ -661,7 +657,7 @@ fn global_aggregate_filter_mixed_projection_payload_matches_expected_values() {
 
     // Phase 1: execute one mixed global aggregate projection that keeps
     // filtered and unfiltered aggregates in the same reduced row.
-    let payload = execute_sql_statement_for_tests::<SessionSqlEntity>(
+    let payload = execute_sql_statement_for_tests(
         &session,
         "SELECT COUNT(*) FILTER (WHERE age >= 30) AS filtered_rows, \
          COUNT(*) AS total_rows, \
@@ -718,7 +714,7 @@ fn global_aggregate_filter_rejection_matrix_stays_fail_closed() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = statement_projection_rows::<SessionSqlEntity>(
+    let err = statement_projection_rows(
         &session,
         "SELECT COUNT(DISTINCT age) FILTER (WHERE age >= 30) FROM SessionSqlEntity",
     )
@@ -726,7 +722,7 @@ fn global_aggregate_filter_rejection_matrix_stays_fail_closed() {
 
     assert_sql_lowering_detail(err, SqlLoweringCode::SelectProjectionShape);
 
-    let err = statement_projection_rows::<SessionSqlEntity>(
+    let err = statement_projection_rows(
         &session,
         "SELECT COUNT(*) FILTER (WHERE total_rows > 1) AS total_rows FROM SessionSqlEntity",
     )
@@ -759,7 +755,7 @@ fn global_aggregate_having_returns_single_row_when_predicate_matches() {
         &[("aggregate-having-a", 20), ("aggregate-having-b", 21)],
     );
 
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT COUNT(*) FROM SessionSqlEntity HAVING COUNT(*) > 1",
         Value::Nat64(2),
@@ -779,7 +775,7 @@ fn global_aggregate_having_alias_returns_single_row_when_predicate_matches() {
         ],
     );
 
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT COUNT(*) AS total_rows \
          FROM SessionSqlEntity \
@@ -801,17 +797,17 @@ fn global_aggregate_having_null_semantics_stay_distinct() {
         ],
     );
 
-    let is_null_rows = statement_projection_rows::<SessionSqlEntity>(
+    let is_null_rows = statement_projection_rows(
         &session,
         "SELECT COUNT(*) FROM SessionSqlEntity HAVING COUNT(*) IS NULL",
     )
     .expect("global aggregate HAVING IS NULL should execute");
-    let eq_null_rows = statement_projection_rows::<SessionSqlEntity>(
+    let eq_null_rows = statement_projection_rows(
         &session,
         "SELECT COUNT(*) FROM SessionSqlEntity HAVING COUNT(*) = NULL",
     )
     .expect("global aggregate HAVING = NULL should execute");
-    let ne_null_rows = statement_projection_rows::<SessionSqlEntity>(
+    let ne_null_rows = statement_projection_rows(
         &session,
         "SELECT COUNT(*) FROM SessionSqlEntity HAVING COUNT(*) != NULL",
     )
@@ -843,7 +839,7 @@ fn global_aggregate_having_not_null_alias_preserves_single_row() {
         ],
     );
 
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT COUNT(*) AS c \
          FROM SessionSqlEntity \
@@ -859,7 +855,7 @@ fn global_aggregate_having_returns_empty_projection_when_predicate_fails() {
     let session = sql_session();
     seed_session_sql_entities(&session, &[("aggregate-having-fail-a", 20)]);
 
-    let payload = execute_sql_statement_for_tests::<SessionSqlEntity>(
+    let payload = execute_sql_statement_for_tests(
         &session,
         "SELECT ROUND(AVG(age), 0) AS avg_rounded \
          FROM SessionSqlEntity \
@@ -909,7 +905,7 @@ fn global_aggregate_output_order_alias_is_inert_for_singleton_result() {
         ],
     );
 
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT AVG(age) AS avg_age FROM SessionSqlEntity ORDER BY avg_age DESC",
         Value::Decimal(crate::types::Decimal::from(21_u64)),
@@ -929,7 +925,7 @@ fn global_aggregate_wrapped_output_order_alias_is_inert_for_singleton_result() {
         ],
     );
 
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT ROUND(AVG(age), 2) AS avg_age FROM SessionSqlEntity ORDER BY avg_age DESC",
         Value::Decimal(crate::types::Decimal::new(2100, 2)),
@@ -953,7 +949,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
 
     // Phase 1: prove whole-window aggregate SQL shapes against their
     // canonical fluent terminal representations.
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT COUNT(*) FROM SessionSqlEntity",
         Value::Nat64(u64::from(
@@ -965,7 +961,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
         )),
         "COUNT(*)",
     );
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT SUM(age) FROM SessionSqlEntity",
         session
@@ -976,7 +972,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
             .map_or(Value::Null, Value::Decimal),
         "SUM(age)",
     );
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT AVG(age) FROM SessionSqlEntity",
         session
@@ -987,7 +983,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
             .map_or(Value::Null, Value::Decimal),
         "AVG(age)",
     );
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT COUNT(DISTINCT age) FROM SessionSqlEntity",
         Value::Nat64(u64::from(
@@ -999,7 +995,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
         )),
         "COUNT(DISTINCT age)",
     );
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT SUM(DISTINCT age) FROM SessionSqlEntity",
         session
@@ -1010,7 +1006,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
             .map_or(Value::Null, Value::Decimal),
         "SUM(DISTINCT age)",
     );
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT AVG(DISTINCT age) FROM SessionSqlEntity",
         session
@@ -1024,19 +1020,19 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
 
     // Phase 2: prove trusted SQL OFFSET windows directly. Fluent reads do not
     // expose OFFSET; their scalable continuation contract is cursor-based.
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
         Value::Nat64(2),
         "trusted SQL COUNT(*) OFFSET window",
     );
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT SUM(age) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
         Value::Decimal(crate::types::Decimal::from(52u64)),
         "trusted SQL SUM(age) OFFSET window",
     );
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT AVG(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 2 OFFSET 1",
         Value::Decimal(crate::types::Decimal::from(26u64)),
@@ -1063,7 +1059,7 @@ fn global_aggregate_count_star_reuses_shared_query_plan_cache_with_fluent_count(
         0,
         "new session should start with an empty shared query-plan cache",
     );
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2",
         Value::Nat64(2),
@@ -1196,7 +1192,7 @@ fn global_aggregate_count_non_nullable_field_reuses_shared_query_plan_cache_with
         0,
         "new session should start with an empty shared query-plan cache",
     );
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT COUNT(name) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2",
         Value::Nat64(2),
@@ -1243,11 +1239,9 @@ fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
 
     // Phase 1: prove existence helpers are only ergonomic sugar over admitted
     // SQL aggregate query terms, not separate capability lanes.
-    let existing_count = statement_projection_scalar_value::<SessionSqlEntity>(
-        &session,
-        "SELECT COUNT(*) FROM SessionSqlEntity",
-    )
-    .expect("COUNT(*) SQL should execute for exists() parity");
+    let existing_count =
+        statement_projection_scalar_value(&session, "SELECT COUNT(*) FROM SessionSqlEntity")
+            .expect("COUNT(*) SQL should execute for exists() parity");
     assert_eq!(
         session
             .load::<SessionSqlEntity>()
@@ -1258,7 +1252,7 @@ fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
         "exists() should match COUNT(*) > 0 over the same SQL window",
     );
 
-    let missing_count = statement_projection_scalar_value::<SessionSqlEntity>(
+    let missing_count = statement_projection_scalar_value(
         &session,
         "SELECT COUNT(*) FROM SessionSqlEntity WHERE name = 'missing-helper'",
     )
@@ -1276,7 +1270,7 @@ fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
 
     // Phase 2: prove the order-sensitive id helpers map onto ordinary ordered
     // SQL projection windows instead of requiring a separate SQL helper family.
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT id FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
         session
@@ -1287,7 +1281,7 @@ fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
             .map_or(Value::Null, |id| Value::Ulid(id.key())),
         "min()",
     );
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT id FROM SessionSqlEntity ORDER BY id DESC LIMIT 1",
         session
@@ -1298,7 +1292,7 @@ fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
             .map_or(Value::Null, |id| Value::Ulid(id.key())),
         "max()",
     );
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT id FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
         session
@@ -1309,7 +1303,7 @@ fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
             .map_or(Value::Null, |id| Value::Ulid(id.key())),
         "min_by(age)",
     );
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT id FROM SessionSqlEntity ORDER BY age DESC, id ASC LIMIT 1",
         session
@@ -1320,7 +1314,7 @@ fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
             .map_or(Value::Null, |id| Value::Ulid(id.key())),
         "max_by(age)",
     );
-    assert_session_sql_scalar_value::<SessionSqlEntity>(
+    assert_session_sql_scalar_value(
         &session,
         "SELECT id FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1 OFFSET 1",
         session
@@ -1396,7 +1390,7 @@ fn global_aggregate_window_matrix_returns_expected_values() {
         seed_session_sql_entities(&session, seed_rows.as_slice());
 
         for (sql, expected) in assertions {
-            assert_session_sql_scalar_value::<SessionSqlEntity>(&session, sql, expected, context);
+            assert_session_sql_scalar_value(&session, sql, expected, context);
         }
     }
 }
@@ -1455,7 +1449,7 @@ fn execute_sql_statement_global_aggregate_payload_matrix_preserves_projection_la
             "post-aggregate global aggregate statement payload",
         ),
     ] {
-        let payload = execute_sql_statement_for_tests::<SessionSqlEntity>(&session, sql)
+        let payload = execute_sql_statement_for_tests(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
 
         let SqlStatementResult::Projection {
@@ -1540,7 +1534,7 @@ fn global_aggregate_matrix_queries_match_expected_values() {
 
     // Phase 3: assert aggregate outputs for each SQL input.
     for (sql, expected_value) in cases {
-        assert_session_sql_scalar_value::<SessionSqlEntity>(&session, sql, expected_value, sql);
+        assert_session_sql_scalar_value(&session, sql, expected_value, sql);
     }
 }
 
@@ -1558,7 +1552,7 @@ fn global_aggregate_multi_terminal_query_returns_expected_projection_row() {
     );
 
     assert_eq!(
-        statement_projection_columns::<SessionSqlEntity>(
+        statement_projection_columns(
             &session,
             "SELECT MIN(age) AS youngest, MAX(age) AS oldest FROM SessionSqlEntity",
         )
@@ -1567,11 +1561,8 @@ fn global_aggregate_multi_terminal_query_returns_expected_projection_row() {
         "multi-terminal global aggregate SQL should preserve both aggregate labels",
     );
     assert_eq!(
-        statement_projection_rows::<SessionSqlEntity>(
-            &session,
-            "SELECT MIN(age), MAX(age) FROM SessionSqlEntity",
-        )
-        .expect("multi-terminal global aggregate row should load"),
+        statement_projection_rows(&session, "SELECT MIN(age), MAX(age) FROM SessionSqlEntity",)
+            .expect("multi-terminal global aggregate row should load"),
         vec![vec![Value::Nat64(10), Value::Nat64(30)]],
         "multi-terminal global aggregate SQL should emit one row with both reduced values",
     );
@@ -1591,7 +1582,7 @@ fn global_aggregate_duplicate_terminals_preserve_duplicate_output_columns() {
     );
 
     assert_eq!(
-        statement_projection_columns::<SessionSqlEntity>(
+        statement_projection_columns(
             &session,
             "SELECT COUNT(age), COUNT(age), SUM(age), COUNT(age) FROM SessionSqlEntity",
         )
@@ -1605,7 +1596,7 @@ fn global_aggregate_duplicate_terminals_preserve_duplicate_output_columns() {
         "duplicate global aggregate SQL should preserve duplicate outward labels",
     );
     assert_eq!(
-        statement_projection_rows::<SessionSqlEntity>(
+        statement_projection_rows(
             &session,
             "SELECT COUNT(age), COUNT(age), SUM(age), COUNT(age) FROM SessionSqlEntity",
         )
@@ -1634,7 +1625,7 @@ fn global_aggregate_duplicate_terminals_preserve_duplicate_alias_columns() {
     );
 
     assert_eq!(
-        statement_projection_columns::<SessionSqlEntity>(
+        statement_projection_columns(
             &session,
             "SELECT COUNT(age) AS first_count, COUNT(age) AS second_count, COUNT(age) AS third_count FROM SessionSqlEntity",
         )
@@ -1647,7 +1638,7 @@ fn global_aggregate_duplicate_terminals_preserve_duplicate_alias_columns() {
         "duplicate global aggregate SQL should preserve outward alias labels after terminal dedupe",
     );
     assert_eq!(
-        statement_projection_rows::<SessionSqlEntity>(
+        statement_projection_rows(
             &session,
             "SELECT COUNT(age) AS first_count, COUNT(age) AS second_count, COUNT(age) AS third_count FROM SessionSqlEntity",
         )
@@ -1671,7 +1662,7 @@ fn global_aggregate_distinct_terminals_do_not_collapse_into_plain_count_outputs(
     );
 
     assert_eq!(
-        statement_projection_rows::<SessionSqlEntity>(
+        statement_projection_rows(
             &session,
             "SELECT COUNT(age), COUNT(DISTINCT age), COUNT(age) FROM SessionSqlEntity",
         )
@@ -1695,7 +1686,7 @@ fn global_aggregate_qualified_and_unqualified_duplicates_preserve_same_outputs()
     );
 
     assert_eq!(
-        statement_projection_rows::<SessionSqlEntity>(
+        statement_projection_rows(
             &session,
             "SELECT COUNT(age), COUNT(SessionSqlEntity.age), COUNT(age) FROM SessionSqlEntity",
         )
@@ -1712,15 +1703,12 @@ fn sql_aggregate_unknown_target_field_matrix_stays_fail_closed() {
 
     let cases = [
         (
-            statement_projection_rows::<SessionSqlEntity>(
-                &session,
-                "SELECT SUM(missing_field) FROM SessionSqlEntity",
-            )
-            .map(|_| ()),
+            statement_projection_rows(&session, "SELECT SUM(missing_field) FROM SessionSqlEntity")
+                .map(|_| ()),
             "global aggregate statement unknown target field",
         ),
         (
-            statement_explain_sql::<SessionSqlEntity>(
+            statement_explain_sql(
                 &session,
                 "EXPLAIN EXECUTION SELECT SUM(missing_field) FROM SessionSqlEntity",
             )
@@ -1776,7 +1764,7 @@ fn explain_sql_global_aggregate_surface_matrix_returns_expected_tokens() {
     ];
 
     for (context, sql, tokens, require_json_object) in cases {
-        assert_session_sql_explain_tokens::<SessionSqlEntity>(
+        assert_session_sql_explain_tokens(
             &session,
             sql,
             tokens.as_slice(),
@@ -1785,14 +1773,14 @@ fn explain_sql_global_aggregate_surface_matrix_returns_expected_tokens() {
         );
     }
 
-    let qualified = statement_explain_sql::<SessionSqlEntity>(
+    let qualified = statement_explain_sql(
         &session,
         "EXPLAIN JSON SELECT SUM(SessionSqlEntity.age) \
              FROM public.SessionSqlEntity \
              WHERE SessionSqlEntity.age >= 21",
     )
     .expect("qualified global aggregate EXPLAIN JSON should succeed");
-    let unqualified = statement_explain_sql::<SessionSqlEntity>(
+    let unqualified = statement_explain_sql(
         &session,
         "EXPLAIN JSON SELECT SUM(age) FROM SessionSqlEntity WHERE age >= 21",
     )
@@ -1803,7 +1791,7 @@ fn explain_sql_global_aggregate_surface_matrix_returns_expected_tokens() {
         "qualified identifiers should normalize to the same global aggregate EXPLAIN JSON output",
     );
 
-    let multi_execution = statement_explain_sql::<SessionSqlEntity>(
+    let multi_execution = statement_explain_sql(
         &session,
         "EXPLAIN EXECUTION SELECT MIN(age), MAX(age) FROM SessionSqlEntity",
     )
@@ -1817,7 +1805,7 @@ fn explain_sql_global_aggregate_surface_matrix_returns_expected_tokens() {
         "multi-terminal global aggregate EXPLAIN EXECUTION should render the MAX terminal route",
     );
 
-    let expression_execution = statement_explain_sql::<SessionSqlEntity>(
+    let expression_execution = statement_explain_sql(
         &session,
         "EXPLAIN EXECUTION SELECT SUM(age + 1), COUNT(1) FROM SessionSqlEntity",
     )
@@ -1840,7 +1828,7 @@ fn explain_sql_global_aggregate_filter_execution_surfaces_filter_shape() {
     // Phase 1: execute one filtered global aggregate EXPLAIN EXECUTION query
     // and require the terminal descriptor to keep the planner-owned filter
     // expression visible on the public execution surface.
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN EXECUTION SELECT COUNT(*) FILTER (WHERE age >= 30) FROM SessionSqlEntity",
     )

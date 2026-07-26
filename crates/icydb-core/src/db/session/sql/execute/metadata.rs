@@ -15,10 +15,7 @@ use crate::db::{
     },
 };
 use crate::{
-    db::{
-        DbSession, EntityCatalogDescription, PersistedRow, QueryError,
-        session::sql::SqlStatementResult,
-    },
+    db::{DbSession, EntityCatalogDescription, QueryError, session::sql::SqlStatementResult},
     traits::CanisterKind,
 };
 
@@ -119,12 +116,13 @@ impl<C: CanisterKind> DbSession<C> {
         SqlStatementResult::ShowMemory(self.show_memory())
     }
 
+    #[cfg(test)]
     pub(super) fn execute_metadata_compiled_sql_with_default_cache<E>(
         &self,
         compiled: &CompiledSqlCommand,
     ) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>>
     where
-        E: PersistedRow<Canister = C>,
+        E: crate::db::PersistedRow<Canister = C>,
     {
         if matches!(
             compiled,
@@ -140,7 +138,6 @@ impl<C: CanisterKind> DbSession<C> {
                     self.execute_metadata_compiled_sql_with_cache(compiled, Some(&catalog))
                         .ok_or_else(QueryError::invariant)?
                 });
-
             return Some(result);
         }
 

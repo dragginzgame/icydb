@@ -76,6 +76,11 @@ pub(in crate::db) use sql::{
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::{SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics};
+#[cfg(feature = "sql")]
+pub(in crate::db::session) use write::{
+    AcceptedStructuralMutation, AcceptedStructuralMutationTarget,
+    structural_data_key_from_runtime_values,
+};
 
 ///
 /// DbSession
@@ -185,6 +190,7 @@ impl<C: CanisterKind> DbSession<C> {
     // row contract is generated-compatible. SQL and structural writes use this
     // after their pre-staging schema guard so mutation staging and save
     // execution do not rerun schema-store reconciliation in the same statement.
+    #[cfg(test)]
     fn execute_save_with_checked_accepted_row_contract<E, T, R>(
         &self,
         accepted_row_decode_contract: AcceptedRowDecodeContract,

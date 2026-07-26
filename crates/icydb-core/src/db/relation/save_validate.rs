@@ -7,6 +7,7 @@
 use crate::{
     db::{
         Db,
+        data::StructuralSlotReader,
         key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
         registry::{StoreHandle, StoreRelationSourceCapability, StoreRelationTargetCapability},
         relation::{
@@ -80,51 +81,86 @@ pub(in crate::db) fn validate_save_relations_with_accepted_contract<E>(
 where
     E: EntityKind + EntityValue,
 {
-    validate_save_relations_from_relation_edges(db, entity, accepted_row_decode_contract)
+    validate_save_relations_from_relation_edges(
+        db,
+        E::PATH,
+        E::Store::PATH,
+        accepted_row_decode_contract,
+        |index| {
+            entity
+                .get_value_by_index(index)
+                .ok_or_else(InternalError::executor_invariant)
+        },
+    )
 }
 
-fn validate_save_relations_from_relation_edges<E>(
-    db: &Db<E::Canister>,
-    entity: &E,
+/// Validate relation references from one accepted structural after-image.
+pub(in crate::db) fn validate_save_relations_for_structural_row<C>(
+    db: &Db<C>,
+    entity_path: &'static str,
+    store_path: &'static str,
     accepted_row_decode_contract: &AcceptedRowDecodeContract,
+    row: &StructuralSlotReader<'_>,
 ) -> Result<(), InternalError>
 where
-    E: EntityKind + EntityValue,
+    C: crate::traits::CanisterKind,
+{
+    validate_save_relations_from_relation_edges(
+        db,
+        entity_path,
+        store_path,
+        accepted_row_decode_contract,
+        |index| row.required_cached_value(index).cloned(),
+    )
+}
+
+fn validate_save_relations_from_relation_edges<C>(
+    db: &Db<C>,
+    entity_path: &'static str,
+    store_path: &'static str,
+    accepted_row_decode_contract: &AcceptedRowDecodeContract,
+    mut value_at: impl FnMut(usize) -> Result<Value, InternalError>,
+) -> Result<(), InternalError>
+where
+    C: crate::traits::CanisterKind,
 {
     for edge in accepted_row_decode_contract.relation_edges() {
         let Some(relation) =
-            accepted_save_relation_from_edge::<E>(db, accepted_row_decode_contract, edge)?
+            accepted_save_relation_from_edge(db, entity_path, accepted_row_decode_contract, edge)?
         else {
             continue;
         };
 
-        validate_save_relation_for_entity::<E>(db, entity, &relation)?;
+        validate_save_relation(db, entity_path, store_path, &relation, &mut value_at)?;
     }
 
     Ok(())
 }
 
-fn validate_save_relation_for_entity<E>(
-    db: &Db<E::Canister>,
-    entity: &E,
+fn validate_save_relation<C>(
+    db: &Db<C>,
+    entity_path: &'static str,
+    store_path: &'static str,
     relation: &AcceptedSaveRelationInfo,
+    value_at: &mut impl FnMut(usize) -> Result<Value, InternalError>,
 ) -> Result<(), InternalError>
 where
-    E: EntityKind + EntityValue,
+    C: crate::traits::CanisterKind,
 {
-    let target_store = target_store_for_relation::<E>(db, relation)?;
-    validate_relation_storage_capabilities::<E>(db, relation, target_store)?;
+    let target_store = target_store_for_relation(db, entity_path, relation)?;
+    validate_relation_storage_capabilities(db, entity_path, store_path, relation, target_store)?;
 
-    validate_save_relation_targets_for_entity::<E>(relation, target_store, entity)
+    validate_save_relation_targets(entity_path, relation, target_store, value_at)
 }
 
-fn accepted_save_relation_from_edge<E>(
-    db: &Db<E::Canister>,
+fn accepted_save_relation_from_edge<C>(
+    db: &Db<C>,
+    entity_path: &'static str,
     accepted_row_decode_contract: &AcceptedRowDecodeContract,
     edge: &OwnedAcceptedRelationEdgeContract,
 ) -> Result<Option<AcceptedSaveRelationInfo>, InternalError>
 where
-    E: EntityKind,
+    C: crate::traits::CanisterKind,
 {
     let local_fields = edge
         .local_field_slots()
@@ -137,26 +173,27 @@ where
         .collect::<Result<Vec<_>, _>>()?;
 
     if let Some(relation) =
-        accepted_save_scalar_relation_from_edge::<E>(db, edge, local_fields.as_slice())?
+        accepted_save_scalar_relation_from_edge(db, entity_path, edge, local_fields.as_slice())?
     {
         return Ok(Some(relation));
     }
 
-    accepted_save_tuple_relation_from_edge::<E>(db, edge, local_fields.as_slice())
+    accepted_save_tuple_relation_from_edge(db, entity_path, edge, local_fields.as_slice())
 }
 
-fn accepted_save_scalar_relation_from_edge<E>(
-    db: &Db<E::Canister>,
+fn accepted_save_scalar_relation_from_edge<C>(
+    db: &Db<C>,
+    entity_path: &'static str,
     edge: &OwnedAcceptedRelationEdgeContract,
     local_fields: &[&OwnedAcceptedFieldDecodeContract],
 ) -> Result<Option<AcceptedSaveRelationInfo>, InternalError>
 where
-    E: EntityKind,
+    C: crate::traits::CanisterKind,
 {
     if let [field] = local_fields
         && let Some(descriptor) = accepted_scalar_relation_target_descriptor(
             db,
-            E::PATH,
+            entity_path,
             edge.name(),
             field.field_name(),
             field.kind(),
@@ -176,13 +213,14 @@ where
     Ok(None)
 }
 
-fn accepted_save_tuple_relation_from_edge<E>(
-    db: &Db<E::Canister>,
+fn accepted_save_tuple_relation_from_edge<C>(
+    db: &Db<C>,
+    entity_path: &'static str,
     edge: &OwnedAcceptedRelationEdgeContract,
     local_fields: &[&OwnedAcceptedFieldDecodeContract],
 ) -> Result<Option<AcceptedSaveRelationInfo>, InternalError>
 where
-    E: EntityKind,
+    C: crate::traits::CanisterKind,
 {
     let local_component_facts = local_fields
         .iter()
@@ -190,7 +228,7 @@ where
         .collect::<Vec<_>>();
     let tuple_descriptor = accepted_relation_tuple_edge_descriptor(
         db,
-        E::PATH,
+        entity_path,
         edge.name(),
         edge.target_path(),
         local_component_facts.as_slice(),
@@ -210,17 +248,18 @@ where
     )))
 }
 
-fn target_store_for_relation<E>(
-    db: &Db<E::Canister>,
+fn target_store_for_relation<C>(
+    db: &Db<C>,
+    entity_path: &'static str,
     relation: &AcceptedSaveRelationInfo,
 ) -> Result<StoreHandle, InternalError>
 where
-    E: EntityKind + EntityValue,
+    C: crate::traits::CanisterKind,
 {
     db.with_store_registry(|registry| registry.try_get_store(relation.target.store_path()))
         .map_err(|err| {
             InternalError::relation_target_store_missing(
-                E::PATH,
+                entity_path,
                 relation.relation_name.as_str(),
                 relation.target.path(),
                 relation.target.store_path(),
@@ -229,15 +268,17 @@ where
         })
 }
 
-fn validate_relation_storage_capabilities<E>(
-    db: &Db<E::Canister>,
+fn validate_relation_storage_capabilities<C>(
+    db: &Db<C>,
+    entity_path: &'static str,
+    store_path: &'static str,
     relation: &AcceptedSaveRelationInfo,
     target_store: StoreHandle,
 ) -> Result<(), InternalError>
 where
-    E: EntityKind + EntityValue,
+    C: crate::traits::CanisterKind,
 {
-    let source_store = db.with_store_registry(|registry| registry.try_get_store(E::Store::PATH))?;
+    let source_store = db.with_store_registry(|registry| registry.try_get_store(store_path))?;
     let source_capability = source_store.storage_capabilities().relation_source();
     let target_capability = target_store.storage_capabilities().relation_target();
     if matches!(
@@ -248,10 +289,10 @@ where
         )
     ) {
         return Err(InternalError::relation_volatile_target_unsupported(
-            E::PATH,
+            entity_path,
             relation.relation_name.as_str(),
             relation.target.path(),
-            E::Store::PATH,
+            store_path,
             relation.target.store_path(),
         ));
     }
@@ -259,27 +300,26 @@ where
     Ok(())
 }
 
-fn validate_save_relation_targets_for_entity<E>(
+fn validate_save_relation_targets(
+    entity_path: &'static str,
     relation: &AcceptedSaveRelationInfo,
     target_store: StoreHandle,
-    entity: &E,
-) -> Result<(), InternalError>
-where
-    E: EntityKind + EntityValue,
-{
+    value_at: &mut impl FnMut(usize) -> Result<Value, InternalError>,
+) -> Result<(), InternalError> {
     if let Some(component) = relation.scalar_relation_component() {
-        let value = relation_component_value::<E>(entity, component)?;
+        let value = value_at(component.index)?;
         return for_each_relation_target_value(&value, |value| {
             let Some(component) = PrimaryKeyComponent::from_runtime_value(value) else {
                 return Err(InternalError::relation_target_raw_key_error(
-                    E::PATH,
+                    entity_path,
                     relation.relation_name.as_str(),
                     relation.target.path(),
                     value,
                     "relation target key unsupported",
                 ));
             };
-            validate_save_accepted_relation_key::<E>(
+            validate_save_accepted_relation_key(
+                entity_path,
                 relation,
                 target_store,
                 &PrimaryKeyValue::Scalar(component),
@@ -288,21 +328,25 @@ where
         });
     }
 
-    let Some(key) = relation_target_key_from_entity_components::<E>(relation, entity)? else {
+    let Some(key) = relation_target_key_from_components(entity_path, relation, value_at)? else {
         return Ok(());
     };
-    validate_save_accepted_relation_key::<E>(relation, target_store, &key, &key.as_runtime_value())
+    validate_save_accepted_relation_key(
+        entity_path,
+        relation,
+        target_store,
+        &key,
+        &key.as_runtime_value(),
+    )
 }
 
-fn validate_save_accepted_relation_key<E>(
+fn validate_save_accepted_relation_key(
+    entity_path: &'static str,
     relation: &AcceptedSaveRelationInfo,
     target_store: StoreHandle,
     key: &PrimaryKeyValue,
     diagnostic_value: &Value,
-) -> Result<(), InternalError>
-where
-    E: EntityKind + EntityValue,
-{
+) -> Result<(), InternalError> {
     let raw_key = crate::db::data::DecodedDataStoreKey::new(relation.target.entity_tag(), key)
         .to_raw()
         .map_err(|_| InternalError::executor_unsupported())?;
@@ -314,7 +358,7 @@ where
         Ok(())
     } else {
         Err(InternalError::relation_target_missing(
-            E::PATH,
+            entity_path,
             relation.relation_name.as_str(),
             relation.target.path(),
             diagnostic_value,
@@ -322,37 +366,23 @@ where
     }
 }
 
-fn relation_component_value<E>(
-    entity: &E,
-    component: &AcceptedSaveRelationLocalComponent,
-) -> Result<Value, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    entity
-        .get_value_by_index(component.index)
-        .ok_or_else(InternalError::executor_invariant)
-}
-
-fn relation_target_key_from_entity_components<E>(
+fn relation_target_key_from_components(
+    entity_path: &'static str,
     relation: &AcceptedSaveRelationInfo,
-    entity: &E,
-) -> Result<Option<PrimaryKeyValue>, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
+    value_at: &mut impl FnMut(usize) -> Result<Value, InternalError>,
+) -> Result<Option<PrimaryKeyValue>, InternalError> {
     let mut components = Vec::with_capacity(relation.local_components.len());
     let mut null_count = 0usize;
 
     for component in &relation.local_components {
-        let value = relation_component_value::<E>(entity, component)?;
+        let value = value_at(component.index)?;
         if matches!(value, Value::Null) {
             null_count = null_count.saturating_add(1);
             continue;
         }
         let Some(primary_key_component) = PrimaryKeyComponent::from_runtime_value(&value) else {
             return Err(InternalError::relation_target_raw_key_error(
-                E::PATH,
+                entity_path,
                 relation.relation_name.as_str(),
                 relation.target.path(),
                 &value,

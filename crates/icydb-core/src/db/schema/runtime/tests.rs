@@ -407,13 +407,6 @@ fn accepted_row_layout_runtime_contract_exposes_ordered_primary_key_fields() {
     assert!(descriptor.is_primary_key_field_name("id"));
     assert!(descriptor.is_primary_key_field_name("nickname"));
     assert!(!descriptor.is_primary_key_field_name("missing"));
-    assert_eq!(
-        descriptor.primary_key_kinds(),
-        [
-            &AcceptedFieldKind::Ulid,
-            &AcceptedFieldKind::Text { max_len: Some(32) },
-        ],
-    );
 }
 
 #[test]
@@ -610,10 +603,6 @@ fn accepted_row_layout_runtime_contract_builds_descriptor_and_row_compatibility_
     assert_eq!(descriptor.required_slot_count(), 2);
     assert_eq!(descriptor.first_primary_key_slot_index(), 0);
     assert_eq!(descriptor.primary_key_names(), ["id"]);
-    assert_eq!(
-        descriptor.first_primary_key_kind(),
-        &AcceptedFieldKind::Ulid
-    );
     assert_eq!(proof.required_slot_count(), 2);
     assert_eq!(proof.first_primary_key_slot_index(), 0);
     assert_eq!(

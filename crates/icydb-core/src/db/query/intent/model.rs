@@ -504,6 +504,14 @@ impl<K: KeyValueCodec> QueryModel<K> {
         self
     }
 
+    /// Re-express a delete target as a load selection for structural mutation staging.
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db::query) fn into_load_selection(mut self) -> Self {
+        self.intent = self.intent.into_load_selection();
+        self
+    }
+
     /// Apply a limit to the current mode.
     ///
     /// Load limits bound result size; delete limits bound mutation size.

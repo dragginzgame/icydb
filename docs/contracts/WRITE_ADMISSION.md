@@ -76,7 +76,8 @@ complete all fallible work required by that mutation, including:
 - accepted catalog, entity, row-layout, and schema-fingerprint resolution;
 - required-field authorship and omission/default/generated-value handling;
 - accepted input encoding and complete canonical after-image construction;
-- sanitization and user validation;
+- any application-only sanitization or validation performed by an outer typed
+  adapter before it submits authored intent;
 - primary-key shape, type, and row-identity validation;
 - field-kind, nullability, scalar-bound, decimal, text, enum, exact-composite,
   collection, and deterministic-encoding validation;
@@ -103,8 +104,8 @@ in the apply phase.
 | Surface | Write-admission rule |
 | --- | --- |
 | Typed `create`, `insert`, `update`, and `replace` | Materialize through the accepted row contract, run the typed preflight, then prepare the commit from the canonical row. |
-| Public structural mutation | Resolve field names and slots through the accepted layout, construct a complete canonical after-image, materialize it through the generated-compatible boundary, and run the same typed preflight. |
-| SQL `INSERT` and explicit exact/prefix `UPDATE` | Decode literals and omissions against accepted field contracts, then enter the structural mutation pipeline. Exact selection traverses authoritative primary keys and independently proves affected-row and scanned-key fit with cap plus one; prefix selection retains the explicit ordered `LIMIT`. Neither trusted nor generated SQL exposure policy bypasses row admission. |
+| Public structural mutation | Preserve `Omitted`, `Default`, `Null`, and authored `Value` intent until accepted policy resolves field names and slots into one complete canonical after-image. This lane does not materialize a generated entity or invoke application callbacks. |
+| SQL `INSERT` and explicit exact/prefix `UPDATE` | Decode literals, omissions, and `DEFAULT` against accepted field contracts, then enter the same accepted structural after-image owner. Exact selection traverses authoritative primary keys and independently proves affected-row and scanned-key fit with cap plus one; prefix selection retains the explicit ordered `LIMIT`. Neither trusted nor generated SQL exposure policy bypasses row admission. |
 | Typed, fluent, and SQL `DELETE` | Resolve selected rows through accepted authority, validate relation delete safety, and prepare row/index/relation removals before the marker. Deletes have no row after-image. |
 | Atomic single-entity batches | Admit and stage every item before opening one commit window. One rejected item rejects the entire batch. |
 | Non-atomic single-entity batches | Apply the complete admission contract independently to each item. A previously committed prefix is not rolled back when a later item rejects. |
@@ -116,6 +117,16 @@ in the apply phase.
 There is no `trusted_write_unchecked` equivalent to the trusted read bypass.
 The word `trusted` on a SQL mutation API describes caller-owned authorization
 and exposure policy; it does not weaken schema admission.
+
+Database-managed `CreatedAt` and `UpdatedAt` fields are accepted write policy,
+not generated callbacks. One operation timestamp is captured before accepted
+after-image resolution. Insert assigns both fields that timestamp; a logical
+update or replacement preserves `CreatedAt` and advances `UpdatedAt`; a
+semantic no-op preserves both. Atomic batches and the independently committed
+items of one non-atomic request reuse the request timestamp. Resumable updates
+store the timestamp in their continuation before the first row commit and
+reuse it on every retry or resume. A timestamp earlier than a retained
+`UpdatedAt` rejects rather than moving time backward or clamping one row.
 
 ## Schema Mutation And Backfill Rules
 
@@ -194,6 +205,8 @@ internal write path.
 - No supported mutation ingress may persist an incompatible field value or
   unapproved omission.
 - No generated-model fallback may reconstruct missing accepted row authority.
+- No database structural or SQL write may invoke an application validator,
+  normalizer, clock callback, or generated persistence codec.
 - No commit marker may be published before applicable row admission and commit
   preparation complete.
 - No index or relation projection may derive persisted state from an

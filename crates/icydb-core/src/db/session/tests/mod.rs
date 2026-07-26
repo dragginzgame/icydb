@@ -5635,11 +5635,8 @@ fn session_show_indexes_sql_reports_ready_and_building_runtime_index_states() {
     let session = indexed_sql_session();
 
     assert_eq!(
-        statement_show_indexes_sql::<IndexedSessionSqlEntity>(
-            &session,
-            "SHOW INDEXES FROM IndexedSessionSqlEntity",
-        )
-        .expect("SHOW INDEXES FROM should succeed for ready index"),
+        statement_show_indexes_sql(&session, "SHOW INDEXES FROM IndexedSessionSqlEntity",)
+            .expect("SHOW INDEXES FROM should succeed for ready index"),
         vec![
             "PRIMARY KEY (id) [state=ready] [origin=generated]".to_string(),
             "INDEX name (name) [state=ready] [origin=generated]".to_string(),
@@ -5652,11 +5649,8 @@ fn session_show_indexes_sql_reports_ready_and_building_runtime_index_states() {
         .expect("indexed SQL store should recover")
         .mark_index_building();
     assert_eq!(
-        statement_show_indexes_sql::<IndexedSessionSqlEntity>(
-            &session,
-            "SHOW INDEXES FROM IndexedSessionSqlEntity",
-        )
-        .expect("SHOW INDEXES FROM should succeed for building index"),
+        statement_show_indexes_sql(&session, "SHOW INDEXES FROM IndexedSessionSqlEntity",)
+            .expect("SHOW INDEXES FROM should succeed for building index"),
         vec![
             "PRIMARY KEY (id) [state=building] [origin=generated]".to_string(),
             "INDEX name (name) [state=building] [origin=generated]".to_string(),
@@ -5831,34 +5825,25 @@ fn parse_sql_statement_for_tests(
     crate::db::session::sql::parse_sql_statement(sql)
 }
 
-fn execute_sql_statement_for_tests<E>(
+fn execute_sql_statement_for_tests(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
-) -> Result<SqlStatementResult, QueryError>
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
-    session.execute_sql_statement_inner::<E>(sql)
+) -> Result<SqlStatementResult, QueryError> {
+    session.execute_sql_statement_inner(sql)
 }
 
-fn execute_exact_sql_update_for_tests<E>(
+fn execute_exact_sql_update_for_tests(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
-) -> Result<SqlStatementResult, QueryError>
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
-    session.execute_trusted_sql_exact_update::<E>(sql, 4_096)
+) -> Result<SqlStatementResult, QueryError> {
+    session.execute_trusted_sql_exact_update(sql, 4_096)
 }
 
-fn execute_prefix_sql_update_for_tests<E>(
+fn execute_prefix_sql_update_for_tests(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
-) -> Result<SqlStatementResult, QueryError>
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
-    session.execute_trusted_sql_prefix_update::<E>(sql)
+) -> Result<SqlStatementResult, QueryError> {
+    session.execute_trusted_sql_prefix_update(sql)
 }
 
 ///
@@ -5920,15 +5905,12 @@ fn extract_sql_statement_payload<T>(
     extract(result).ok_or_else(|| unsupported_sql_statement_query_error(kind.unsupported_message()))
 }
 
-fn statement_projection_columns<E>(
+fn statement_projection_columns(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
-) -> Result<Vec<String>, QueryError>
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
+) -> Result<Vec<String>, QueryError> {
     extract_sql_statement_payload(
-        execute_sql_statement_for_tests::<E>(session, sql)?,
+        execute_sql_statement_for_tests(session, sql)?,
         SqlStatementPayloadKind::ProjectionColumns,
         |result| match result {
             SqlStatementResult::Projection { columns, .. }
@@ -5938,15 +5920,12 @@ where
     )
 }
 
-fn statement_projection_rows<E>(
+fn statement_projection_rows(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
-) -> Result<Vec<Vec<Value>>, QueryError>
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
+) -> Result<Vec<Vec<Value>>, QueryError> {
     extract_sql_statement_payload(
-        execute_sql_statement_for_tests::<E>(session, sql)?,
+        execute_sql_statement_for_tests(session, sql)?,
         SqlStatementPayloadKind::ProjectionRows,
         |result| match result {
             SqlStatementResult::Projection { rows, .. } => Some(
@@ -5959,15 +5938,12 @@ where
     )
 }
 
-fn exact_update_projection_rows<E>(
+fn exact_update_projection_rows(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
-) -> Result<Vec<Vec<Value>>, QueryError>
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
+) -> Result<Vec<Vec<Value>>, QueryError> {
     extract_sql_statement_payload(
-        execute_exact_sql_update_for_tests::<E>(session, sql)?,
+        execute_exact_sql_update_for_tests(session, sql)?,
         SqlStatementPayloadKind::ProjectionRows,
         |result| match result {
             SqlStatementResult::Projection { rows, .. } => Some(
@@ -5980,15 +5956,12 @@ where
     )
 }
 
-fn prefix_update_projection_rows<E>(
+fn prefix_update_projection_rows(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
-) -> Result<Vec<Vec<Value>>, QueryError>
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
+) -> Result<Vec<Vec<Value>>, QueryError> {
     extract_sql_statement_payload(
-        execute_prefix_sql_update_for_tests::<E>(session, sql)?,
+        execute_prefix_sql_update_for_tests(session, sql)?,
         SqlStatementPayloadKind::ProjectionRows,
         |result| match result {
             SqlStatementResult::Projection { rows, .. } => Some(
@@ -6060,19 +6033,16 @@ fn runtime_outputs(values: &[OutputValue]) -> Vec<Value> {
 // Execute one projection SQL statement and require exactly one scalar output
 // cell from the first row so scalar aggregate tests can share one extraction
 // helper.
-fn statement_projection_scalar_value<Entity>(
+fn statement_projection_scalar_value(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
-) -> Result<Value, QueryError>
-where
-    Entity: PersistedRow<Canister = SessionSqlCanister>,
-{
+) -> Result<Value, QueryError> {
     let unsupported = || {
         unsupported_sql_statement_query_error(
             "scalar projection SQL requires one row with exactly one scalar value",
         )
     };
-    let mut row = statement_projection_rows::<Entity>(session, sql)?
+    let mut row = statement_projection_rows(session, sql)?
         .into_iter()
         .next()
         .ok_or_else(unsupported)?;
@@ -6084,15 +6054,13 @@ where
 
 // Execute one scalar projection SQL statement and assert it emits the expected
 // public scalar value.
-fn assert_session_sql_scalar_value<Entity>(
+fn assert_session_sql_scalar_value(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
     expected: Value,
     context: &str,
-) where
-    Entity: PersistedRow<Canister = SessionSqlCanister>,
-{
-    let actual = statement_projection_scalar_value::<Entity>(session, sql)
+) {
+    let actual = statement_projection_scalar_value(session, sql)
         .unwrap_or_else(|err| panic!("{context} scalar SQL should execute: {err}"));
 
     assert_eq!(
@@ -6102,15 +6070,12 @@ fn assert_session_sql_scalar_value<Entity>(
 }
 
 #[cfg(feature = "sql-explain")]
-fn statement_explain_sql<E>(
+fn statement_explain_sql(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
-) -> Result<String, QueryError>
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
+) -> Result<String, QueryError> {
     extract_sql_statement_payload(
-        execute_sql_statement_for_tests::<E>(session, sql)?,
+        execute_sql_statement_for_tests(session, sql)?,
         SqlStatementPayloadKind::Explain,
         |result| match result {
             SqlStatementResult::Explain(explain) => Some(explain),
@@ -6120,30 +6085,23 @@ where
 }
 
 #[cfg(not(feature = "sql-explain"))]
-fn statement_explain_sql<E>(
+fn statement_explain_sql(
     _session: &DbSession<SessionSqlCanister>,
     _sql: &str,
-) -> Result<String, QueryError>
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
-    let _ = core::marker::PhantomData::<E>;
-
+) -> Result<String, QueryError> {
     Err(QueryError::unsupported_query())
 }
 
 // Execute one EXPLAIN SQL statement and assert the public surface keeps the
 // requested stable tokens.
-fn assert_session_sql_explain_tokens<E>(
+fn assert_session_sql_explain_tokens(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
     tokens: &[&str],
     require_json_object: bool,
     context: &str,
-) where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
-    let explain = statement_explain_sql::<E>(session, sql)
+) {
+    let explain = statement_explain_sql(session, sql)
         .unwrap_or_else(|err| panic!("{context} explain SQL should succeed: {err}"));
 
     if require_json_object {
@@ -6196,15 +6154,12 @@ fn session_verbose_diagnostics_map(verbose: &str) -> BTreeMap<String, String> {
     diagnostics
 }
 
-fn statement_describe_sql<E>(
+fn statement_describe_sql(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
-) -> Result<EntitySchemaDescription, QueryError>
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
+) -> Result<EntitySchemaDescription, QueryError> {
     extract_sql_statement_payload(
-        execute_sql_statement_for_tests::<E>(session, sql)?,
+        execute_sql_statement_for_tests(session, sql)?,
         SqlStatementPayloadKind::Describe,
         |result| match result {
             SqlStatementResult::Describe(description) => Some(description),
@@ -6213,15 +6168,12 @@ where
     )
 }
 
-fn statement_show_indexes_sql<E>(
+fn statement_show_indexes_sql(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
-) -> Result<Vec<String>, QueryError>
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
+) -> Result<Vec<String>, QueryError> {
     extract_sql_statement_payload(
-        execute_sql_statement_for_tests::<E>(session, sql)?,
+        execute_sql_statement_for_tests(session, sql)?,
         SqlStatementPayloadKind::ShowIndexes,
         |result| match result {
             SqlStatementResult::ShowIndexes(indexes) => Some(indexes),
@@ -6230,15 +6182,12 @@ where
     )
 }
 
-fn statement_show_constraints_sql<E>(
+fn statement_show_constraints_sql(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
-) -> Result<Vec<EntityConstraintDescription>, QueryError>
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
+) -> Result<Vec<EntityConstraintDescription>, QueryError> {
     extract_sql_statement_payload(
-        execute_sql_statement_for_tests::<E>(session, sql)?,
+        execute_sql_statement_for_tests(session, sql)?,
         SqlStatementPayloadKind::ShowConstraints,
         |result| match result {
             SqlStatementResult::ShowConstraints(constraints) => Some(constraints),
@@ -6247,15 +6196,12 @@ where
     )
 }
 
-fn statement_show_columns_sql<E>(
+fn statement_show_columns_sql(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
-) -> Result<Vec<EntityFieldDescription>, QueryError>
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
+) -> Result<Vec<EntityFieldDescription>, QueryError> {
     extract_sql_statement_payload(
-        execute_sql_statement_for_tests::<E>(session, sql)?,
+        execute_sql_statement_for_tests(session, sql)?,
         SqlStatementPayloadKind::ShowColumns,
         |result| match result {
             SqlStatementResult::ShowColumns(columns) => Some(columns),
@@ -6269,7 +6215,7 @@ fn statement_show_entities_sql(
     sql: &str,
 ) -> Result<Vec<EntityCatalogDescription>, QueryError> {
     extract_sql_statement_payload(
-        execute_sql_statement_for_tests::<SessionSqlEntity>(session, sql)?,
+        execute_sql_statement_for_tests(session, sql)?,
         SqlStatementPayloadKind::ShowEntities,
         |result| match result {
             SqlStatementResult::ShowEntities { entities, .. } => Some(entities),
@@ -6283,7 +6229,7 @@ fn statement_show_stores_sql(
     sql: &str,
 ) -> Result<Vec<StoreCatalogDescription>, QueryError> {
     extract_sql_statement_payload(
-        execute_sql_statement_for_tests::<SessionSqlEntity>(session, sql)?,
+        execute_sql_statement_for_tests(session, sql)?,
         SqlStatementPayloadKind::ShowStores,
         |result| match result {
             SqlStatementResult::ShowStores { stores, .. } => Some(stores),
@@ -6297,7 +6243,7 @@ fn statement_show_memory_sql(
     sql: &str,
 ) -> Result<Vec<MemoryCatalogDescription>, QueryError> {
     extract_sql_statement_payload(
-        execute_sql_statement_for_tests::<SessionSqlEntity>(session, sql)?,
+        execute_sql_statement_for_tests(session, sql)?,
         SqlStatementPayloadKind::ShowMemory,
         |result| match result {
             SqlStatementResult::ShowMemory(memory) => Some(memory),

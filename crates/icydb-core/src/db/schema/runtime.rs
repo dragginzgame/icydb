@@ -54,6 +54,7 @@ pub(in crate::db) enum AcceptedInsertOmissionPolicy {
 /// Accepted null/default policy and database-owned generation are the only
 /// omission authorities. Rust `Default` and generated construction values do
 /// not participate.
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) const fn accepted_insert_field_is_omittable(
     omission_policy: AcceptedInsertOmissionPolicy,
     write_policy: SchemaFieldWritePolicy,
@@ -110,6 +111,7 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
     }
 
     /// Borrow the accepted persisted field kind.
+    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) const fn kind(&self) -> &'a AcceptedFieldKind {
         self.kind
@@ -705,7 +707,6 @@ pub(in crate::db) struct AcceptedRowLayoutRuntimeContract<'a> {
     history_floor: RowLayoutVersion,
     required_slot_count: usize,
     primary_key_names: Vec<&'a str>,
-    primary_key_kinds: Vec<&'a AcceptedFieldKind>,
     primary_key_slot_indices: Vec<usize>,
     fields: Vec<AcceptedRowLayoutRuntimeField<'a>>,
     relation_edges: Vec<OwnedAcceptedRelationEdgeContract>,
@@ -757,7 +758,6 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
             });
         }
         let mut primary_key_names = Vec::with_capacity(snapshot.primary_key_field_ids().len());
-        let mut primary_key_kinds = Vec::with_capacity(snapshot.primary_key_field_ids().len());
         let mut primary_key_slot_indices =
             Vec::with_capacity(snapshot.primary_key_field_ids().len());
         for primary_key_field_id in snapshot.primary_key_field_ids() {
@@ -768,7 +768,6 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
                 return Err(InternalError::store_invariant());
             };
             primary_key_names.push(primary_key_field.name());
-            primary_key_kinds.push(primary_key_field.kind());
             primary_key_slot_indices.push(usize::from(primary_key_field.slot().get()));
         }
         let relation_edges = snapshot
@@ -784,7 +783,6 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
             history_floor: row_layout.history_floor(),
             required_slot_count,
             primary_key_names,
-            primary_key_kinds,
             primary_key_slot_indices,
             fields,
             relation_edges,
@@ -846,23 +844,6 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn is_primary_key_field_name(&self, field_name: &str) -> bool {
         self.primary_key_names.contains(&field_name)
-    }
-
-    /// Borrow the first accepted primary-key persisted field kind.
-    ///
-    /// This first-component helper remains for scalar-only SQL literal
-    /// coercion paths. Composite-aware code must read `primary_key_kinds`.
-    #[must_use]
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn first_primary_key_kind(&self) -> &'a AcceptedFieldKind {
-        self.primary_key_kinds[0]
-    }
-
-    /// Borrow accepted primary-key persisted field kinds in key order.
-    #[cfg(any(test, feature = "sql"))]
-    #[must_use]
-    pub(in crate::db) const fn primary_key_kinds(&self) -> &[&'a AcceptedFieldKind] {
-        self.primary_key_kinds.as_slice()
     }
 
     /// Return the first accepted primary-key physical slot index.

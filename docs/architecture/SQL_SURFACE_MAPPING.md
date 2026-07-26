@@ -76,9 +76,9 @@ Legend:
 | surface | scalar `SELECT` | grouped `SELECT` | global aggregate `SELECT` | computed projection `SELECT` | `DELETE` | `INSERT` | `UPDATE` | DDL | `EXPLAIN` | `DESCRIBE` / `SHOW` |
 |---|---|---|---|---|---|---|---|---|---|---|
 | `execute_trusted_sql_query` | yes | yes | yes | yes | no | no | no | no | yes | yes |
-| `execute_trusted_sql_mutation::<E>` | no | no | no | no | yes | yes | no | no | no | no |
-| `execute_trusted_sql_exact_update::<E>` | no | no | no | no | no | no | exact | no | no | no |
-| `execute_trusted_sql_prefix_update::<E>` | no | no | no | no | no | no | prefix | no | no | no |
+| `execute_trusted_sql_mutation` | no | no | no | no | yes | yes | no | no | no | no |
+| `execute_trusted_sql_exact_update` | no | no | no | no | no | no | exact | no | no | no |
+| `execute_trusted_sql_prefix_update` | no | no | no | no | no | no | prefix | no | no | no |
 | trusted resumable prepare/resume | no | no | no | no | no | no | resumable | no | no | no |
 | `execute_admin_sql_ddl::<E>` | no | no | no | no | no | no | no | yes | no | no |
 | typed/fluent writes | no | no | no | no | yes | yes | yes | no | no | no |
@@ -139,9 +139,9 @@ The strongest public SQL execution split is now:
 
 - `execute_trusted_sql_query(...)` for accepted-catalog-driven read, explain,
   and introspection SQL
-- `execute_trusted_sql_mutation::<E>(...)` for trusted `INSERT` and `DELETE`
-- `execute_trusted_sql_exact_update::<E>(...)` for complete-set `UPDATE`
-- `execute_trusted_sql_prefix_update::<E>(...)` for intentional ordered-prefix
+- `execute_trusted_sql_mutation(...)` for trusted `INSERT` and `DELETE`
+- `execute_trusted_sql_exact_update(...)` for complete-set `UPDATE`
+- `execute_trusted_sql_prefix_update(...)` for intentional ordered-prefix
   `UPDATE`
 - trusted resumable prepare/resume for bounded journaled convergence with
   stable-revision completion
@@ -264,14 +264,14 @@ Representative evidence:
 The SQL mutation mirror is explicit rather than hidden behind a query-shaped
 entrypoint:
 
-- `execute_trusted_sql_mutation::<E>(...)` for `INSERT` and `DELETE`
+- `execute_trusted_sql_mutation(...)` for `INSERT` and `DELETE`
 - exact and prefix trusted update entrypoints for the two maintained `UPDATE`
   meanings
 
 That means typed write helpers remain an ergonomic owner, not a missing SQL
 mutation capability.
 
-`execute_trusted_sql_mutation::<E>(...)` owns `INSERT`, `DELETE`, and their
+`execute_trusted_sql_mutation(...)` owns `INSERT`, `DELETE`, and their
 narrow write `RETURNING` contract. It rejects `UPDATE` because complete-set
 and ordered-prefix intent cannot be inferred. Exact update uses a positive
 caller assertion with cap-plus-one affected-row proof plus a separate
@@ -365,11 +365,11 @@ the following remain true:
   mutation authority also used by typed/fluent writes
 - the live public SQL surface stays frozen to:
   - `execute_trusted_sql_query(...)`
-  - `execute_trusted_sql_mutation::<E>(...)`
-  - `execute_trusted_sql_exact_update::<E>(...)`
-  - `execute_trusted_sql_prefix_update::<E>(...)`
-  - `prepare_trusted_sql_resumable_update::<E>(...)`
-  - `resume_trusted_sql_resumable_update::<E>(...)`
+  - `execute_trusted_sql_mutation(...)`
+  - `execute_trusted_sql_exact_update(...)`
+  - `execute_trusted_sql_prefix_update(...)`
+  - `prepare_trusted_sql_resumable_update(...)`
+  - `resume_trusted_sql_resumable_update(...)`
   - `execute_admin_sql_ddl::<E>(...)`
 - every admitted family has direct tests on the live surface rather than only
   transitive proof through older internal helpers

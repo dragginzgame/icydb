@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.23` unifies structural and SQL writes under accepted-schema
+  authority, makes managed timestamps database-owned, and moves independent
+  build and derive consumers to Syn 3.
+
 - `0.213.22` adds accepted-schema-driven dynamic reads and hard-cuts the
   obsolete generated-entity parameter from trusted SQL queries.
 

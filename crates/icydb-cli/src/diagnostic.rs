@@ -455,6 +455,9 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::MutationRequiredFieldMissing => {
             "mutation is missing one or more required fields"
         }
+        RuntimeBoundaryCode::MutationManagedTimestampRegression => {
+            "mutation operation time precedes an accepted managed timestamp"
+        }
         RuntimeBoundaryCode::PersistedRowLayoutOutsideAcceptedWindow => {
             "persisted row layout is outside the accepted layout window"
         }
@@ -478,6 +481,9 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         }
         RuntimeBoundaryCode::GeneratedConstraintActivationStale => {
             "generated constraint proposal no longer matches its live activation"
+        }
+        RuntimeBoundaryCode::MutationDatabaseOwnedFieldExplicit => {
+            "mutation explicitly authors a database-owned field"
         }
     }
 }
@@ -538,13 +544,13 @@ const fn schema_ddl_text(reason: SchemaDdlAdmissionCode) -> &'static str {
 const fn sql_surface_mismatch_text(mismatch: SqlSurfaceMismatchCode) -> &'static str {
     match mismatch {
         SqlSurfaceMismatchCode::QueryRejectsInsert => {
-            "execute_trusted_sql_query rejects INSERT; use execute_trusted_sql_mutation::<E>()"
+            "execute_trusted_sql_query rejects INSERT; use execute_trusted_sql_mutation()"
         }
         SqlSurfaceMismatchCode::QueryRejectsUpdate => {
-            "execute_trusted_sql_query rejects UPDATE; use execute_trusted_sql_exact_update::<E>() or execute_trusted_sql_prefix_update::<E>()"
+            "execute_trusted_sql_query rejects UPDATE; use execute_trusted_sql_exact_update() or execute_trusted_sql_prefix_update()"
         }
         SqlSurfaceMismatchCode::QueryRejectsDelete => {
-            "execute_trusted_sql_query rejects DELETE; use execute_trusted_sql_mutation::<E>()"
+            "execute_trusted_sql_query rejects DELETE; use execute_trusted_sql_mutation()"
         }
         SqlSurfaceMismatchCode::MutationRejectsSelect => {
             "execute_trusted_sql_mutation rejects SELECT; use execute_trusted_sql_query()"
@@ -574,7 +580,7 @@ const fn sql_surface_mismatch_text(mismatch: SqlSurfaceMismatchCode) -> &'static
             "execute_trusted_sql_mutation rejects SHOW MEMORY; use execute_trusted_sql_query()"
         }
         SqlSurfaceMismatchCode::MutationRequiresExplicitUpdateIntent => {
-            "execute_trusted_sql_mutation rejects UPDATE; use execute_trusted_sql_exact_update::<E>() or execute_trusted_sql_prefix_update::<E>()"
+            "execute_trusted_sql_mutation rejects UPDATE; use execute_trusted_sql_exact_update() or execute_trusted_sql_prefix_update()"
         }
     }
 }
@@ -693,9 +699,6 @@ const fn sql_write_boundary_text(boundary: SqlWriteBoundaryCode) -> &'static str
         }
         SqlWriteBoundaryCode::ResumableUpdateSingleRowResourceExceeded => {
             "one resumable UPDATE row cannot fit the engine commit window"
-        }
-        SqlWriteBoundaryCode::ResumableUpdateApplicationCallbacksUnsupported => {
-            "resumable UPDATE requires an entity without application write callbacks"
         }
         SqlWriteBoundaryCode::ResumableUpdateManagedFieldHasGlobalConstraint => {
             "resumable UPDATE cannot refresh a globally constrained managed field"
@@ -1010,7 +1013,7 @@ mod tests {
 
         assert_eq!(
             render_error(&err),
-            "E_QUERY_SQL_SURFACE_MISMATCH: execute_trusted_sql_query rejects INSERT; use execute_trusted_sql_mutation::<E>()",
+            "E_QUERY_SQL_SURFACE_MISMATCH: execute_trusted_sql_query rejects INSERT; use execute_trusted_sql_mutation()",
         );
     }
 
@@ -1191,6 +1194,14 @@ mod tests {
             (
                 icydb::diagnostic::RuntimeBoundaryCode::MutationRequiredFieldMissing,
                 "E_RUNTIME_UNSUPPORTED: mutation is missing one or more required fields",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::MutationManagedTimestampRegression,
+                "E_RUNTIME_INVARIANT_VIOLATION: mutation operation time precedes an accepted managed timestamp",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::MutationDatabaseOwnedFieldExplicit,
+                "E_RUNTIME_UNSUPPORTED: mutation explicitly authors a database-owned field",
             ),
             (
                 icydb::diagnostic::RuntimeBoundaryCode::PersistedRowLayoutOutsideAcceptedWindow,

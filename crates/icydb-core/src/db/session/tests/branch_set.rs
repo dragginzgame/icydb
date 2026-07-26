@@ -1225,7 +1225,7 @@ fn session_branch_set_sql_over_cap_fallback_filters_before_primary_key_limit() {
         "fallback route must not pre-limit before residual filtering and primary-key sorting",
     );
 
-    let rows = statement_projection_rows::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
+    let rows = statement_projection_rows(&session, sql.as_str())
         .unwrap_or_else(|err| panic!("over-cap fallback projection should execute: {err:?}"));
 
     assert_eq!(
@@ -1312,7 +1312,7 @@ fn session_branch_set_sql_rows_match_full_filter_primary_key_sort() {
     seed_branch_set_fixture(&session);
     let sql = branch_target_sql("id", BRANCH_LIMIT);
 
-    let rows = statement_projection_rows::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
+    let rows = statement_projection_rows(&session, sql.as_str())
         .unwrap_or_else(|err| panic!("branch-set projection should execute: {err:?}"));
 
     assert_eq!(
@@ -1357,9 +1357,8 @@ fn session_branch_set_sql_and_fluent_share_branch_route_identity() {
         "equivalent SQL and fluent shapes should share the same branch route identity",
     );
 
-    let sql_rows =
-        statement_projection_rows::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
-            .unwrap_or_else(|err| panic!("branch-set SQL projection should execute: {err:?}"));
+    let sql_rows = statement_projection_rows(&session, sql.as_str())
+        .unwrap_or_else(|err| panic!("branch-set SQL projection should execute: {err:?}"));
     let (result, attribution) = session
         .execute_query_result_with_attribution(&fluent_query)
         .expect("fluent branch target should execute");
@@ -1400,11 +1399,8 @@ fn session_branch_set_sql_index_route_matches_forced_full_scan_fallback() {
 
         assert_target_branch_route(&ready_descriptor);
 
-        let ready_rows =
-            statement_projection_rows::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
-                .unwrap_or_else(|err| {
-                    panic!("{context} indexed projection should execute: {err:?}")
-                });
+        let ready_rows = statement_projection_rows(&session, sql.as_str())
+            .unwrap_or_else(|err| panic!("{context} indexed projection should execute: {err:?}"));
 
         hide_indexed_session_indexes();
 
@@ -1426,11 +1422,8 @@ fn session_branch_set_sql_index_route_matches_forced_full_scan_fallback() {
             fallback_descriptor.render_text_tree(),
         );
 
-        let fallback_rows =
-            statement_projection_rows::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
-                .unwrap_or_else(|err| {
-                    panic!("{context} fallback projection should execute: {err:?}")
-                });
+        let fallback_rows = statement_projection_rows(&session, sql.as_str())
+            .unwrap_or_else(|err| panic!("{context} fallback projection should execute: {err:?}"));
 
         assert_eq!(
             ready_rows,
@@ -1698,7 +1691,7 @@ fn session_branch_set_sql_duplicate_branch_literals_do_not_duplicate_rows() {
     seed_branch_set_fixture(&session);
     let sql = branch_target_duplicate_literal_sql("id", 6);
 
-    let rows = statement_projection_rows::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
+    let rows = statement_projection_rows(&session, sql.as_str())
         .unwrap_or_else(|err| panic!("duplicate-branch projection should execute: {err:?}"));
 
     assert_eq!(
@@ -1718,9 +1711,8 @@ fn session_branch_set_sql_explain_output_identifies_branch_route() {
         branch_target_sql("id", BRANCH_LIMIT)
     );
 
-    let explain =
-        statement_explain_sql::<BranchIndexedSessionSqlEntity>(&session, explain_sql.as_str())
-            .unwrap_or_else(|err| panic!("branch-set EXPLAIN EXECUTION should run: {err:?}"));
+    let explain = statement_explain_sql(&session, explain_sql.as_str())
+        .unwrap_or_else(|err| panic!("branch-set EXPLAIN EXECUTION should run: {err:?}"));
 
     assert!(
         explain.contains("IndexBranchSet"),
@@ -1823,12 +1815,10 @@ fn session_branch_set_sql_plan_hash_and_verbose_cache_keep_branch_identity() {
     );
 
     let verbose_sql = format!("EXPLAIN EXECUTION VERBOSE {branch_sql}");
-    let first =
-        statement_explain_sql::<BranchIndexedSessionSqlEntity>(&session, verbose_sql.as_str())
-            .unwrap_or_else(|err| panic!("first branch verbose explain should run: {err:?}"));
-    let second =
-        statement_explain_sql::<BranchIndexedSessionSqlEntity>(&session, verbose_sql.as_str())
-            .unwrap_or_else(|err| panic!("second branch verbose explain should run: {err:?}"));
+    let first = statement_explain_sql(&session, verbose_sql.as_str())
+        .unwrap_or_else(|err| panic!("first branch verbose explain should run: {err:?}"));
+    let second = statement_explain_sql(&session, verbose_sql.as_str())
+        .unwrap_or_else(|err| panic!("second branch verbose explain should run: {err:?}"));
 
     assert!(
         first.contains("IndexBranchSet")
@@ -2952,11 +2942,8 @@ fn session_branch_set_sql_sparse_in_verbose_explain_identifies_child_prefix_expa
     let sql = sparse_collection_sql("id", 8);
     let explain_sql = format!("EXPLAIN EXECUTION VERBOSE {sql}");
 
-    let explain =
-        statement_explain_sql::<BranchIndexedSessionSqlEntity>(&session, explain_sql.as_str())
-            .unwrap_or_else(|err| {
-                panic!("sparse collection verbose EXPLAIN should execute: {err:?}")
-            });
+    let explain = statement_explain_sql(&session, explain_sql.as_str())
+        .unwrap_or_else(|err| panic!("sparse collection verbose EXPLAIN should execute: {err:?}"));
 
     assert!(
         explain.contains("IndexMultiLookup"),
@@ -2977,13 +2964,10 @@ fn session_branch_set_sql_sparse_in_verbose_explain_identifies_child_prefix_expa
 
     let wider_sql = sparse_collection_sql("id", 50);
     let wider_explain_sql = format!("EXPLAIN EXECUTION VERBOSE {wider_sql}");
-    let wider_explain = statement_explain_sql::<BranchIndexedSessionSqlEntity>(
-        &session,
-        wider_explain_sql.as_str(),
-    )
-    .unwrap_or_else(|err| {
-        panic!("wider sparse collection verbose EXPLAIN should execute: {err:?}")
-    });
+    let wider_explain =
+        statement_explain_sql(&session, wider_explain_sql.as_str()).unwrap_or_else(|err| {
+            panic!("wider sparse collection verbose EXPLAIN should execute: {err:?}")
+        });
 
     assert!(
         wider_explain.contains("diag.r.index_prefix_child_expansion_cap=fetch(51)"),
@@ -3022,11 +3006,9 @@ fn session_branch_set_sql_sparse_in_desc_uses_reverse_child_prefix_expansion() {
     );
 
     let explain_sql = format!("EXPLAIN EXECUTION VERBOSE {sql}");
-    let explain =
-        statement_explain_sql::<BranchIndexedSessionSqlEntity>(&session, explain_sql.as_str())
-            .unwrap_or_else(|err| {
-                panic!("sparse collection DESC verbose EXPLAIN should execute: {err:?}")
-            });
+    let explain = statement_explain_sql(&session, explain_sql.as_str()).unwrap_or_else(|err| {
+        panic!("sparse collection DESC verbose EXPLAIN should execute: {err:?}")
+    });
 
     assert!(
         explain.contains("diag.r.index_prefix_child_expansion=true"),

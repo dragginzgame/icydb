@@ -567,11 +567,10 @@ fn primary_key_ordered_stream_matches_materialized_full_scan_oracle() {
         "primary materialized oracle should retain the post-access sort",
     );
 
-    let pushed_rows = statement_projection_rows::<SessionSqlEntity>(&session, pushed_sql)
+    let pushed_rows = statement_projection_rows(&session, pushed_sql)
         .expect("primary ordered stream SQL should execute");
-    let materialized_rows =
-        statement_projection_rows::<SessionSqlEntity>(&session, materialized_sql)
-            .expect("primary materialized oracle SQL should execute");
+    let materialized_rows = statement_projection_rows(&session, materialized_sql)
+        .expect("primary materialized oracle SQL should execute");
 
     assert_eq!(
         pushed_rows, materialized_rows,
@@ -884,7 +883,7 @@ fn delete_targets_match_chunked_scalar_key_stream() {
         "delete-stream",
     );
     let sql_delete_keys = projection_ulid_keys(
-        statement_projection_rows::<SessionSqlEntity>(
+        statement_projection_rows(
             &session,
             "DELETE FROM SessionSqlEntity \
              WHERE age < 130 \
@@ -1179,7 +1178,7 @@ fn delete_target_keys_match_scalar_execution_keys_for_same_predicate() {
     let session = sql_session();
     seed_fixed_session_sql_entities(&session, &rows);
     let sql_delete_keys = projection_ulid_keys(
-        statement_projection_rows::<SessionSqlEntity>(
+        statement_projection_rows(
             &session,
             "DELETE FROM SessionSqlEntity \
              WHERE age < 30 \
@@ -1235,7 +1234,7 @@ fn sql_distinct_projection_matches_logical_distinct_over_scalar_stream() {
 
     // Phase 2: execute SQL DISTINCT and independently derive logical DISTINCT
     // from the ordinary ordered scalar stream.
-    let sql_distinct_rows = statement_projection_rows::<SessionSqlEntity>(
+    let sql_distinct_rows = statement_projection_rows(
         &session,
         "SELECT DISTINCT name \
          FROM SessionSqlEntity \
@@ -1270,7 +1269,7 @@ fn sql_distinct_projection_dedupes_chunked_secondary_stream() {
     let session = indexed_sql_session();
     let expected_names = seed_chunked_indexed_distinct_rows(&session, 14_200, 75, "DistinctStream");
 
-    let distinct_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+    let distinct_rows = statement_projection_rows(
         &session,
         "SELECT DISTINCT name \
          FROM IndexedSessionSqlEntity \
@@ -1307,7 +1306,7 @@ fn sql_distinct_projection_uses_shared_structural_execution_before_dedup() {
     // Phase 2: require DISTINCT to run through the shared scalar retained-slot
     // executor before SQL projection deduplication and final paging.
     let (projected_rows, metrics) = with_sql_projection_materialization_metrics(|| {
-        statement_projection_rows::<IndexedSessionSqlEntity>(
+        statement_projection_rows(
             &session,
             "SELECT DISTINCT name \
              FROM IndexedSessionSqlEntity \

@@ -11,10 +11,7 @@ fn prepare_journaled(
     operation_id: u128,
     sql: &str,
 ) -> Result<crate::db::TrustedResumableUpdateContinuation, QueryError> {
-    session.prepare_trusted_sql_resumable_update::<JournaledSessionSqlEntity>(
-        Ulid::from_u128(operation_id),
-        sql,
-    )
+    session.prepare_trusted_sql_resumable_update(Ulid::from_u128(operation_id), sql)
 }
 
 fn resume_journaled(
@@ -23,11 +20,7 @@ fn resume_journaled(
     sql: &str,
     continuation: &crate::db::TrustedResumableUpdateContinuation,
 ) -> Result<crate::db::TrustedResumableUpdateReceipt, QueryError> {
-    session.resume_trusted_sql_resumable_update::<JournaledSessionSqlEntity>(
-        Ulid::from_u128(operation_id),
-        sql,
-        continuation,
-    )
+    session.resume_trusted_sql_resumable_update(Ulid::from_u128(operation_id), sql, continuation)
 }
 
 fn journaled_accepted_schema_snapshot() -> PersistedSchemaSnapshot {
@@ -105,7 +98,7 @@ fn trusted_resumable_update_prepare_is_deterministic_and_read_only() {
             age: 21,
         })
         .expect("journaled resumable prepare fixture insert should succeed");
-    let before_rows = statement_projection_rows::<JournaledSessionSqlEntity>(
+    let before_rows = statement_projection_rows(
         &session,
         "SELECT id, name, age FROM JournaledSessionSqlEntity ORDER BY id ASC",
     )
@@ -136,7 +129,7 @@ fn trusted_resumable_update_prepare_is_deterministic_and_read_only() {
     .expect("identical resumable update should prepare deterministically");
 
     assert_eq!(prepared, repeated);
-    assert_eq!(prepared.as_bytes().len(), 156);
+    assert_eq!(prepared.as_bytes().len(), 164);
     assert_eq!(&prepared.as_bytes()[..4], b"ICYU");
     assert_eq!(prepared.as_bytes()[4], 1);
     let (payload, checksum) = prepared.as_bytes().split_at(prepared.as_bytes().len() - 4);
@@ -150,7 +143,7 @@ fn trusted_resumable_update_prepare_is_deterministic_and_read_only() {
     );
     assert_eq!(rows_scanned, 0, "prepare must not scan target rows");
     assert_eq!(
-        statement_projection_rows::<JournaledSessionSqlEntity>(
+        statement_projection_rows(
             &session,
             "SELECT id, name, age FROM JournaledSessionSqlEntity ORDER BY id ASC",
         )
@@ -248,7 +241,7 @@ fn trusted_resumable_update_prepare_rejects_heap_window_and_returning() {
     reset_heap_session_sql_store();
     let heap = heap_sql_session();
     let err = heap
-        .prepare_trusted_sql_resumable_update::<HeapSessionSqlEntity>(
+        .prepare_trusted_sql_resumable_update(
             Ulid::from_u128(0x210_0030),
             "UPDATE HeapSessionSqlEntity SET name = 'Updated' WHERE age = 21",
         )
@@ -277,21 +270,6 @@ fn trusted_resumable_update_prepare_rejects_heap_window_and_returning() {
 }
 
 #[test]
-fn trusted_resumable_update_prepare_rejects_entity_mismatch() {
-    reset_journaled_session_sql_store();
-    let session = journaled_sql_session();
-
-    let err = prepare_journaled(
-        &session,
-        0x210_0032,
-        "UPDATE SessionSqlWriteEntity SET name = 'Updated' WHERE age = 21",
-    )
-    .expect_err("resumable SQL target must match its typed entity");
-
-    assert_sql_lowering_detail(err, SqlLoweringCode::EntityMismatch);
-}
-
-#[test]
 fn trusted_resumable_update_prepare_rejects_database_owned_assignments() {
     reset_journaled_session_sql_store();
     let journaled = journaled_sql_session();
@@ -309,7 +287,7 @@ fn trusted_resumable_update_prepare_rejects_database_owned_assignments() {
     reset_session_sql_store();
     let session = sql_session();
     let generated_err = session
-        .prepare_trusted_sql_resumable_update::<SessionSqlGeneratedTimestampEntity>(
+        .prepare_trusted_sql_resumable_update(
             Ulid::from_u128(0x210_0034),
             "UPDATE SessionSqlGeneratedTimestampEntity \
              SET created_on_insert = 7 WHERE id = 1",
@@ -318,7 +296,7 @@ fn trusted_resumable_update_prepare_rejects_database_owned_assignments() {
     assert_sql_write_boundary_detail(generated_err, SqlWriteBoundaryCode::ExplicitGeneratedField);
 
     let managed_err = session
-        .prepare_trusted_sql_resumable_update::<SessionSqlManagedWriteEntity>(
+        .prepare_trusted_sql_resumable_update(
             Ulid::from_u128(0x210_0035),
             "UPDATE SessionSqlManagedWriteEntity SET updated_at = 0 WHERE id = 1",
         )
@@ -386,7 +364,7 @@ fn trusted_resumable_update_prepare_rejects_unique_and_relation_targets() {
     reset_mixed_journaled_relation_stores();
     let relation_session = mixed_journaled_relation_sql_session();
     let relation_err = relation_session
-        .prepare_trusted_sql_resumable_update::<DurableSessionSqlSourceToJournaledTargetEntity>(
+        .prepare_trusted_sql_resumable_update(
             Ulid::from_u128(0x210_0051),
             "UPDATE DurableSessionSqlSourceToJournaledTargetEntity \
              SET target_id = 2 WHERE id = 1",
@@ -463,7 +441,7 @@ fn trusted_resumable_update_forward_commits_one_batch_and_replays_old_token() {
         journal_len_before + 2,
         "replay must not reapply a managed or authored mutation to converged rows",
     );
-    let rows = statement_projection_rows::<JournaledSessionSqlEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT name FROM JournaledSessionSqlEntity ORDER BY id ASC",
     )
@@ -590,7 +568,7 @@ fn trusted_resumable_update_resume_rebinds_scope_patch_and_batch_policy() {
         SqlWriteBoundaryCode::ResumableUpdateContinuationBatchPolicyMismatch,
     );
 
-    let rows = statement_projection_rows::<JournaledSessionSqlEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT name FROM JournaledSessionSqlEntity ORDER BY id ASC",
     )
@@ -792,7 +770,7 @@ fn trusted_resumable_update_forward_retries_before_marker_persistence() {
         !crate::db::commit::commit_marker_present()
             .expect("pre-marker interruption state should remain readable"),
     );
-    let before_retry = statement_projection_rows::<JournaledSessionSqlEntity>(
+    let before_retry = statement_projection_rows(
         &session,
         "SELECT name FROM JournaledSessionSqlEntity ORDER BY id ASC",
     )
@@ -878,7 +856,7 @@ fn trusted_resumable_update_forward_recovers_marker_authorized_batch_before_repl
         journal_sequence_before + 1,
         "recovery must advance durable sequence authority exactly once",
     );
-    let rows = statement_projection_rows::<JournaledSessionSqlEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT name FROM JournaledSessionSqlEntity ORDER BY id ASC",
     )
@@ -1036,7 +1014,7 @@ fn trusted_resumable_update_verify_revision_change_restarts_from_forward_start()
     )
     .expect("restarted Forward scan should revisit behind-checkpoint rows");
     assert_eq!(resumed_forward.rows_updated(), 1);
-    let row = statement_projection_rows::<JournaledSessionSqlEntity>(
+    let row = statement_projection_rows(
         &session,
         "SELECT name FROM JournaledSessionSqlEntity WHERE id = 0",
     )
@@ -1245,7 +1223,7 @@ fn trusted_resumable_update_toko_shaped_tier_reset_converges_only_its_scope() {
 
     assert!(complete, "Toko-shaped tier reset should verify completely");
     assert_eq!(rows_updated, 65);
-    let target_rows = statement_projection_rows::<JournaledSessionSqlEntity>(
+    let target_rows = statement_projection_rows(
         &session,
         "SELECT name FROM JournaledSessionSqlEntity WHERE age = 7 ORDER BY id ASC",
     )
@@ -1256,7 +1234,7 @@ fn trusted_resumable_update_toko_shaped_tier_reset_converges_only_its_scope() {
             .iter()
             .all(|row| row == &[Value::Text("default-tier".to_string())])
     );
-    let outside_rows = statement_projection_rows::<JournaledSessionSqlEntity>(
+    let outside_rows = statement_projection_rows(
         &session,
         "SELECT name FROM JournaledSessionSqlEntity WHERE age = 8 ORDER BY id ASC",
     )

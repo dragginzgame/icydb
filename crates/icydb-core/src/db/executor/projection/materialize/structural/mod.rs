@@ -38,21 +38,10 @@ impl MaterializedProjectionRows {
         Self(rows.into_iter().map(RowView::into_owned).collect())
     }
 
-    /// Build an empty structural projection row payload.
-    pub(in crate::db::executor) const fn empty() -> Self {
-        Self(Vec::new())
-    }
-
     /// Return the number of materialized rows in the public response width.
     #[must_use]
     pub(in crate::db) fn row_count(&self) -> u32 {
         u32::try_from(self.0.len()).unwrap_or(u32::MAX)
-    }
-
-    /// Borrow the materialized structural projection row values.
-    #[must_use]
-    pub(in crate::db) const fn value_rows(&self) -> &[Vec<Value>] {
-        self.0.as_slice()
     }
 
     #[must_use]

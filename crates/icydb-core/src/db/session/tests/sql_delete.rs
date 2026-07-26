@@ -37,7 +37,7 @@ fn execute_sql_delete_returning_name_age_rows(
 ) -> NameAgeRows {
     let returning_sql = format!("{sql} RETURNING name, age");
 
-    statement_projection_rows::<SessionSqlEntity>(session, returning_sql.as_str())
+    statement_projection_rows(session, returning_sql.as_str())
         .unwrap_or_else(|err| {
             panic!("DELETE SQL statement execution should execute with RETURNING: {err:?}")
         })
@@ -77,7 +77,7 @@ fn seed_public_delete_write_entities(session: &DbSession<SessionSqlCanister>) {
 }
 
 fn public_delete_write_rows(session: &DbSession<SessionSqlCanister>) -> Vec<Vec<Value>> {
-    statement_projection_rows::<SessionSqlWriteEntity>(
+    statement_projection_rows(
         session,
         "SELECT id, name, age FROM SessionSqlWriteEntity ORDER BY id ASC",
     )
@@ -160,7 +160,7 @@ fn execute_public_bounded_delete_count(
     context: &str,
 ) -> u32 {
     let payload = session
-        .execute_validated_sql_public_bounded_delete::<SessionSqlWriteEntity>(plan)
+        .execute_validated_sql_public_bounded_delete(plan)
         .unwrap_or_else(|err| panic!("{context} should execute: {err:?}"));
     let SqlStatementResult::Count { row_count } = payload else {
         panic!("{context} should return a count payload");
@@ -206,7 +206,7 @@ fn assert_public_bounded_delete_rejects_without_mutation(
     let plan = public_bounded_delete_plan_with_caps(sql, max_staged_rows, max_returning_rows);
 
     let err = session
-        .execute_validated_sql_public_bounded_delete::<SessionSqlWriteEntity>(&plan)
+        .execute_validated_sql_public_bounded_delete(&plan)
         .expect_err(context);
 
     assert_sql_write_boundary_detail(err, expected_boundary);
@@ -220,7 +220,7 @@ fn assert_public_bounded_delete_rejects_without_mutation(
 // Run one SQL DELETE statement through unified statement and return only the
 // affected-row count from the traditional mutation result surface.
 fn execute_sql_statement_delete_count(session: &DbSession<SessionSqlCanister>, sql: &str) -> u32 {
-    let payload = execute_sql_statement_for_tests::<SessionSqlEntity>(session, sql)
+    let payload = execute_sql_statement_for_tests(session, sql)
         .unwrap_or_else(|err| panic!("DELETE SQL statement execution should execute: {err:?}"));
 
     match payload {
@@ -239,7 +239,7 @@ fn execute_validated_sql_public_primary_key_delete_plan_deletes_one_row() {
     let plan = public_primary_key_delete_plan("DELETE FROM SessionSqlWriteEntity WHERE id = 1");
 
     let payload = session
-        .execute_validated_sql_public_primary_key_delete::<SessionSqlWriteEntity>(&plan)
+        .execute_validated_sql_public_primary_key_delete(&plan)
         .expect("validated public primary-key DELETE should execute");
 
     let SqlStatementResult::Count { row_count } = payload else {
@@ -308,7 +308,7 @@ fn execute_validated_sql_public_bounded_delete_returning_characterizes_order_and
     );
 
     let payload = session
-        .execute_validated_sql_public_bounded_delete::<SessionSqlWriteEntity>(&plan)
+        .execute_validated_sql_public_bounded_delete(&plan)
         .expect("exactly bounded DELETE RETURNING should execute");
     let SqlStatementResult::Projection {
         columns,
@@ -368,7 +368,7 @@ fn execute_validated_sql_public_bounded_delete_count_rejects_bound_before_commit
     plan.set_execution_bounds_for_tests(execution_bounds);
 
     let err = session
-        .execute_validated_sql_public_bounded_delete::<SessionSqlWriteEntity>(&plan)
+        .execute_validated_sql_public_bounded_delete(&plan)
         .expect_err("stricter validated DELETE bound should reject before commit");
 
     assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::StagedRowsTooMany);
@@ -389,7 +389,7 @@ fn execute_validated_sql_public_bounded_delete_returning_rejects_row_cap_before_
     );
 
     let err = session
-        .execute_validated_sql_public_bounded_delete::<SessionSqlWriteEntity>(&plan)
+        .execute_validated_sql_public_bounded_delete(&plan)
         .expect_err("stricter validated DELETE RETURNING row cap should reject before commit");
 
     assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::StagedRowsTooMany);
@@ -406,7 +406,7 @@ fn execute_sql_public_bounded_delete_derives_context_and_deletes_limited_rows() 
     seed_public_delete_write_entities(&session);
 
     let payload = session
-        .execute_sql_public_bounded_delete::<SessionSqlWriteEntity>(
+        .execute_sql_public_bounded_delete(
             "DELETE FROM SessionSqlWriteEntity WHERE age >= 21 ORDER BY id LIMIT 2",
         )
         .expect("schema-derived public bounded DELETE should execute");
@@ -428,9 +428,7 @@ fn execute_sql_public_primary_key_delete_rejects_non_pk_where_without_mutation()
     seed_public_delete_write_entities(&session);
 
     session
-        .execute_sql_public_primary_key_delete::<SessionSqlWriteEntity>(
-            "DELETE FROM SessionSqlWriteEntity WHERE age = 21",
-        )
+        .execute_sql_public_primary_key_delete("DELETE FROM SessionSqlWriteEntity WHERE age = 21")
         .expect_err("public primary-key DELETE should reject non-primary-key predicates");
 
     assert_eq!(
@@ -533,48 +531,6 @@ fn scalar_select_helper_rejects_delete_lane_on_typed_entity_surface() {
 }
 
 #[test]
-fn delete_returning_structural_row_bound_rejects_before_commit() {
-    reset_session_sql_store();
-    let session = sql_session();
-    seed_session_sql_entities(
-        &session,
-        &[("first-minor", 16), ("second-minor", 17), ("adult", 42)],
-    );
-
-    let compiled = session
-        .compile_sql_mutation::<SessionSqlEntity>(
-            "DELETE FROM SessionSqlEntity WHERE age < 20 ORDER BY age ASC RETURNING name",
-        )
-        .expect("DELETE RETURNING should compile through the mutation surface");
-    let crate::db::session::sql::CompiledSqlCommand::Delete { query, .. } = compiled else {
-        panic!("DELETE RETURNING should compile to the delete command lane");
-    };
-    let typed_query = Query::<SessionSqlEntity>::from_inner(query.as_ref().clone());
-    let (plan, _) = session
-        .cached_prepared_query_plan_for_entity::<SessionSqlEntity>(&typed_query)
-        .expect("DELETE RETURNING query plan should prepare");
-    let result = session
-        .delete_executor::<SessionSqlEntity>()
-        .execute_structural_projection_with_bounds(plan, Some(1), |_| Ok(()));
-    let Err(err) = result else {
-        panic!("row-bound DELETE RETURNING should reject before commit");
-    };
-
-    assert_sql_write_boundary_detail(
-        QueryError::execute(err),
-        SqlWriteBoundaryCode::StagedRowsTooMany,
-    );
-    assert_eq!(
-        remaining_session_name_age_rows(&session),
-        vec![
-            ("first-minor".to_string(), 16),
-            ("second-minor".to_string(), 17),
-            ("adult".to_string(), 42),
-        ],
-    );
-}
-
-#[test]
 fn fluent_delete_returns_count_without_materializing_deleted_rows() {
     reset_session_sql_store();
     let session = sql_session();
@@ -634,7 +590,7 @@ fn execute_sql_statement_delete_returning_projection_matrix_projects_deleted_row
         let session = sql_session();
         seed_delete_minor_fixture(&session);
 
-        let rows = statement_projection_rows::<SessionSqlEntity>(&session, sql)
+        let rows = statement_projection_rows(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should return deleted rows: {err:?}"));
         let remaining = remaining_session_name_age_rows(&session);
 

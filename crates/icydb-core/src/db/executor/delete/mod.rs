@@ -7,7 +7,7 @@ mod api;
 mod commit;
 mod post_access;
 mod runtime;
-mod structural_projection;
+mod structural_count;
 mod typed;
 mod types;
 
@@ -20,11 +20,7 @@ pub(in crate::db::executor::delete) use runtime::{
     prepare_delete_leaf_rows, prepare_delete_output_from_leaf, prepare_delete_runtime,
     resolve_delete_candidate_rows_recorded_as,
 };
-pub(in crate::db::executor::delete) use structural_projection::prepare_structural_delete_count_core;
-#[cfg(feature = "sql")]
-pub(in crate::db::executor::delete) use structural_projection::{
-    prepare_structural_delete_count_core_with_bounds, prepare_structural_delete_projection_core,
-};
+pub(in crate::db::executor::delete) use structural_count::prepare_structural_delete_count_core;
 pub(in crate::db::executor::delete) use typed::{
     package_typed_delete_rows, prepare_typed_delete_core,
 };

@@ -5,11 +5,9 @@
 
 use crate::{
     db::{
-        PersistedRow, QueryError,
+        QueryError,
         schema::{
-            AcceptedEnumCatalog, AcceptedRowLayoutRuntimeContract, AcceptedValueCatalogHandle,
-            authored_projection::AcceptedAuthoredFieldProjection,
-            enum_catalog::ValueAdmissionBudget, output_value_from_runtime,
+            AcceptedEnumCatalog, AcceptedRowLayoutRuntimeContract, output_value_from_runtime,
         },
         session::sql::{
             SqlStatementResult,
@@ -21,7 +19,6 @@ use crate::{
         sql::parser::SqlReturningProjection,
     },
     error::InternalError,
-    traits::AuthoredFieldProjection,
     value::{OutputValue, Value},
 };
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
@@ -62,94 +59,12 @@ impl SqlReturningFieldProjection {
         vec![None; self.output_columns.len()]
     }
 
-    pub(super) fn project_entity<E>(
-        &self,
-        accepted: &AcceptedAuthoredFieldProjection<'_>,
-        entity: &E,
-    ) -> Result<Vec<Value>, QueryError>
-    where
-        E: AuthoredFieldProjection,
-    {
-        let mut projected = (0..self.output_columns.len())
-            .map(|_| None)
-            .collect::<Vec<_>>();
-        let mut budget = ValueAdmissionBudget::standard();
-
-        for (input_index, output_index) in &self.selection {
-            let admitted = accepted
-                .admit_field(entity, *input_index, &mut budget)
-                .map_err(|_| QueryError::invariant())?;
-            projected[*output_index] = Some(admitted.value().clone());
-        }
-
-        projected
-            .into_iter()
-            .map(|value| value.ok_or_else(sql_returning_projection_alignment_error))
-            .collect()
-    }
-
     pub(super) fn project_owned_row(&self, row: Vec<Value>) -> Result<Vec<Value>, QueryError> {
         sql_returning_project_owned_row_for_selection(
             row,
             self.selection.as_slice(),
             self.output_ordered,
         )
-    }
-}
-
-/// Shape one SQL INSERT/UPDATE mutation result after the write has already run.
-///
-/// This helper owns only the statement-result envelope conversion for rows that
-/// were returned by the mutation path. It intentionally does not select rows,
-/// build patches, or perform mutation execution.
-pub(in crate::db::session::sql::execute) fn sql_write_statement_result<E>(
-    entities: Vec<E>,
-    returning: Option<&SqlReturningProjection>,
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    value_catalog: &AcceptedValueCatalogHandle,
-) -> Result<SqlStatementResult, QueryError>
-where
-    E: PersistedRow,
-{
-    let row_count = u32::try_from(entities.len()).unwrap_or(u32::MAX);
-    let row_contract = descriptor.row_decode_contract(value_catalog.clone());
-    let accepted = AcceptedAuthoredFieldProjection::new(&row_contract);
-
-    match returning {
-        None => Ok(SqlStatementResult::Count { row_count }),
-        Some(SqlReturningProjection::All) => {
-            let all_columns = projection_labels_from_accepted_write_descriptor(descriptor);
-            let all_field_count = descriptor.required_slot_count();
-
-            sql_projection_statement_result_from_fallible_value_rows(
-                value_catalog.enum_catalog(),
-                all_columns,
-                vec![None; all_field_count],
-                entities
-                    .into_iter()
-                    .map(|entity| sql_returning_all_values(&accepted, &entity, all_field_count)),
-                row_count,
-            )
-        }
-        Some(SqlReturningProjection::Fields(fields)) => {
-            let all_columns = projection_labels_from_accepted_write_descriptor(descriptor);
-            let projection = SqlReturningFieldProjection::from_fields(&all_columns, fields)?;
-            let output_columns = projection.output_columns();
-            let fixed_scales = projection.output_fixed_scales();
-
-            // Project field-list RETURNING rows directly from typed mutation
-            // outputs. This avoids constructing full rows for blob-heavy
-            // entities when callers return only a small subset of fields.
-            sql_projection_statement_result_from_fallible_value_rows(
-                value_catalog.enum_catalog(),
-                output_columns,
-                fixed_scales,
-                entities
-                    .into_iter()
-                    .map(|entity| projection.project_entity(&accepted, &entity)),
-                row_count,
-            )
-        }
     }
 }
 
@@ -179,87 +94,6 @@ pub(in crate::db::session::sql::execute) fn validate_sql_returning_projection_fi
     };
     let columns = projection_labels_from_accepted_write_descriptor(descriptor);
     SqlReturningFieldProjection::from_fields(columns.as_slice(), fields).map(|_| ())
-}
-
-// Materialize every field from one typed write result for `RETURNING *`.
-pub(super) fn sql_returning_all_values<E>(
-    accepted: &AcceptedAuthoredFieldProjection<'_>,
-    entity: &E,
-    field_count: usize,
-) -> Result<Vec<Value>, QueryError>
-where
-    E: AuthoredFieldProjection,
-{
-    let mut row = Vec::with_capacity(field_count);
-    let mut budget = ValueAdmissionBudget::standard();
-
-    for index in 0..field_count {
-        let admitted = accepted
-            .admit_field(entity, index, &mut budget)
-            .map_err(|_| QueryError::invariant())?;
-        row.push(admitted.value().clone());
-    }
-
-    Ok(row)
-}
-
-pub(super) fn sql_returning_projection_rows<E>(
-    entities: &[E],
-    returning: &SqlReturningProjection,
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    value_catalog: &AcceptedValueCatalogHandle,
-) -> Result<SqlReturningProjectionRows, InternalError>
-where
-    E: AuthoredFieldProjection,
-{
-    let row_count = u32::try_from(entities.len()).unwrap_or(u32::MAX);
-    let row_contract = descriptor.row_decode_contract(value_catalog.clone());
-    let accepted = AcceptedAuthoredFieldProjection::new(&row_contract);
-
-    match returning {
-        SqlReturningProjection::All => {
-            let columns = projection_labels_from_accepted_write_descriptor(descriptor);
-            let field_count = descriptor.required_slot_count();
-            let rows = entities
-                .iter()
-                .map(|entity| {
-                    sql_returning_all_values(&accepted, entity, field_count)
-                        .and_then(|row| {
-                            sql_returning_output_value_row(value_catalog.enum_catalog(), row)
-                        })
-                        .map_err(query_error_to_internal_invariant)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-
-            Ok(SqlReturningProjectionRows {
-                columns,
-                rows,
-                row_count,
-            })
-        }
-        SqlReturningProjection::Fields(fields) => {
-            let all_columns = projection_labels_from_accepted_write_descriptor(descriptor);
-            let projection = SqlReturningFieldProjection::from_fields(&all_columns, fields)
-                .map_err(query_error_to_internal_invariant)?;
-            let rows = entities
-                .iter()
-                .map(|entity| {
-                    projection
-                        .project_entity(&accepted, entity)
-                        .and_then(|row| {
-                            sql_returning_output_value_row(value_catalog.enum_catalog(), row)
-                        })
-                        .map_err(query_error_to_internal_invariant)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-
-            Ok(SqlReturningProjectionRows {
-                columns: projection.output_columns(),
-                rows,
-                row_count,
-            })
-        }
-    }
 }
 
 pub(super) fn sql_returning_output_value_row(

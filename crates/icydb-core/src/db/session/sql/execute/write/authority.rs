@@ -6,123 +6,36 @@
 
 use crate::{
     db::{
-        DbSession, KeyValueCodec, PersistedRow, QueryError,
+        DbSession, QueryError,
         data::{AcceptedMutationIntentPatch, FieldSlot},
         executor::EntityAuthority,
         schema::{
             AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, SchemaFieldWritePolicy,
-            SchemaInfo, canonicalize_strict_sql_literal_for_persisted_kind,
-            input_value_from_strict_sql_literal_for_persisted_kind,
+            SchemaInfo, input_value_from_strict_sql_literal_for_persisted_kind,
         },
         session::{
             AcceptedSchemaCatalogContext,
-            accepted_schema::{AcceptedSaveContract, accepted_save_contract_for_catalog_context},
             sql::execute::write_returning::validate_sql_returning_projection_fields,
         },
         sql::parser::SqlReturningProjection,
     },
-    entity::EntityKind,
     traits::CanisterKind,
     value::{InputValue, Value},
 };
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
 
-pub(super) fn sql_write_key_from_literal<E>(
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    value: &Value,
-) -> Result<E::Key, QueryError>
-where
-    E: EntityKind,
-{
-    if descriptor.primary_key_names().len() > 1 {
-        let Value::List(values) = value else {
-            return Err(QueryError::sql_write_boundary(
-                SqlWriteBoundaryCode::PrimaryKeyLiteralShape,
-            ));
-        };
-
-        return sql_write_key_from_component_literals::<E>(descriptor, values.as_slice());
-    }
-
-    if let Some(key) = <E::Key as KeyValueCodec>::from_key_value(value) {
-        return Ok(key);
-    }
-
-    let primary_key_kind = descriptor.first_primary_key_kind();
-    let normalized = canonicalize_strict_sql_literal_for_persisted_kind(primary_key_kind, value)
-        .unwrap_or_else(|| value.clone());
-
-    <E::Key as KeyValueCodec>::from_key_value(&normalized).ok_or_else(|| {
-        QueryError::sql_write_boundary(SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible)
-    })
-}
-
-pub(super) fn sql_write_key_from_component_literals<E>(
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    values: &[Value],
-) -> Result<E::Key, QueryError>
-where
-    E: EntityKind,
-{
-    let primary_key_names = descriptor.primary_key_names();
-    let primary_key_kinds = descriptor.primary_key_kinds();
-    if values.len() != primary_key_names.len() {
-        return Err(QueryError::sql_write_boundary(
-            SqlWriteBoundaryCode::PrimaryKeyLiteralShape,
-        ));
-    }
-
-    let mut normalized = Vec::with_capacity(values.len());
-    for ((_field_name, kind), value) in primary_key_names
-        .iter()
-        .zip(primary_key_kinds.iter())
-        .zip(values.iter())
-    {
-        let value = canonicalize_strict_sql_literal_for_persisted_kind(kind, value)
-            .unwrap_or_else(|| value.clone());
-
-        normalized.push(value);
-    }
-
-    let key_value = if normalized.len() == 1 {
-        normalized
-            .into_iter()
-            .next()
-            .ok_or_else(QueryError::invariant)?
-    } else {
-        Value::List(normalized)
-    };
-
-    <E::Key as KeyValueCodec>::from_key_value(&key_value).ok_or_else(|| {
-        QueryError::sql_write_boundary(SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible)
-    })
-}
-
-fn checked_accepted_write_descriptor<E>(
+fn checked_accepted_write_descriptor(
     catalog: &AcceptedSchemaCatalogContext,
-) -> Result<AcceptedRowLayoutRuntimeContract<'_>, QueryError>
-where
-    E: EntityKind,
-{
-    let (descriptor, _) = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
-        catalog.snapshot(),
-        E::MODEL,
-        catalog.enum_catalog(),
-        catalog.composite_catalog(),
-    )
-    .map_err(QueryError::execute)?;
-
-    Ok(descriptor)
+) -> Result<AcceptedRowLayoutRuntimeContract<'_>, QueryError> {
+    AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
+        .map_err(QueryError::execute)
 }
 
-fn checked_accepted_write_descriptor_for_returning<'a, E>(
+fn checked_accepted_write_descriptor_for_returning<'a>(
     catalog: &'a AcceptedSchemaCatalogContext,
     returning: Option<&SqlReturningProjection>,
-) -> Result<AcceptedRowLayoutRuntimeContract<'a>, QueryError>
-where
-    E: EntityKind,
-{
-    let descriptor = checked_accepted_write_descriptor::<E>(catalog)?;
+) -> Result<AcceptedRowLayoutRuntimeContract<'a>, QueryError> {
+    let descriptor = checked_accepted_write_descriptor(catalog)?;
     validate_sql_returning_projection_fields(&descriptor, returning)?;
 
     Ok(descriptor)
@@ -130,23 +43,6 @@ where
 
 pub(super) fn require_sql_write_policy_plan<T>(plan: Option<T>) -> Result<T, QueryError> {
     plan.ok_or_else(QueryError::unsupported_query)
-}
-
-pub(super) fn accepted_sql_write_save_contract<E>(
-    catalog: &AcceptedSchemaCatalogContext,
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-) -> AcceptedSaveContract
-where
-    E: EntityKind,
-{
-    let contract = accepted_save_contract_for_catalog_context::<E>(catalog, descriptor);
-    debug_assert_eq!(contract.0.accepted_schema_revision(), catalog.revision());
-    debug_assert!(std::ptr::eq(
-        contract.0.enum_catalog(),
-        catalog.enum_catalog(),
-    ));
-
-    contract
 }
 
 fn accepted_write_field_slot(
@@ -268,39 +164,35 @@ pub(super) fn reject_explicit_sql_write_to_generated_field(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    pub(super) fn accepted_sql_write_authority_schema_info<E>(
+    pub(super) fn accepted_sql_write_authority_schema_info(
         catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<(EntityAuthority, SchemaInfo), QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        catalog
-            .accepted_entity_authority_and_schema_info_for::<E>()
-            .map_err(QueryError::execute)
+    ) -> Result<(EntityAuthority, SchemaInfo), QueryError> {
+        let schema_info = catalog.accepted_schema_info();
+        let authority = catalog
+            .accepted_entity_authority()
+            .map_err(QueryError::execute)?;
+        Ok((authority, schema_info))
     }
 
-    pub(in crate::db::session::sql) fn with_checked_accepted_write_descriptor_for_returning<E, T>(
+    pub(in crate::db::session::sql) fn with_checked_accepted_write_descriptor_for_returning<T>(
         &self,
         catalog: Option<&AcceptedSchemaCatalogContext>,
+        entity_name: Option<&str>,
         returning: Option<&SqlReturningProjection>,
         run: impl for<'a> FnOnce(
             &'a AcceptedSchemaCatalogContext,
             AcceptedRowLayoutRuntimeContract<'a>,
         ) -> Result<T, QueryError>,
-    ) -> Result<T, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<T, QueryError> {
         if let Some(catalog) = catalog {
-            let descriptor =
-                checked_accepted_write_descriptor_for_returning::<E>(catalog, returning)?;
+            let descriptor = checked_accepted_write_descriptor_for_returning(catalog, returning)?;
             return run(catalog, descriptor);
         }
 
         let catalog = self
-            .accepted_schema_catalog_context_for_query::<E>()
+            .accepted_schema_catalog_context_for_entity_name(entity_name)
             .map_err(QueryError::execute)?;
-        let descriptor = checked_accepted_write_descriptor_for_returning::<E>(&catalog, returning)?;
+        let descriptor = checked_accepted_write_descriptor_for_returning(&catalog, returning)?;
 
         run(&catalog, descriptor)
     }

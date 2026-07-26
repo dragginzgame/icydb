@@ -134,6 +134,7 @@ impl SqlWriteCandidateBounds {
         }
     }
 
+    #[cfg(test)]
     pub(super) const fn max_rows(self) -> Option<u32> {
         self.max_rows
     }

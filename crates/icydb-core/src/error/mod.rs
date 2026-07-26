@@ -390,6 +390,7 @@ impl InternalError {
     }
 
     /// Construct an executor-origin sparse structural patch required-field rejection.
+    #[cfg(test)]
     pub(crate) fn mutation_structural_patch_required_field_missing(
         entity_path: &str,
         field_name: &str,
@@ -411,7 +412,13 @@ impl InternalError {
         _entity_path: &str,
         _field_name: &str,
     ) -> Self {
-        Self::executor_unsupported()
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Executor,
+            detail: Some(ErrorDetail::Executor(
+                ExecutorErrorDetail::MutationDatabaseOwnedFieldExplicit,
+            )),
+        }
     }
 
     /// Construct an executor-origin protected-field sanitizer rejection.
@@ -430,6 +437,18 @@ impl InternalError {
             origin: ErrorOrigin::Executor,
             detail: Some(ErrorDetail::Executor(
                 ExecutorErrorDetail::MutationRequiredFieldMissing,
+            )),
+        }
+    }
+
+    /// Construct an executor-origin managed-timestamp clock regression.
+    #[must_use]
+    pub(crate) fn mutation_managed_timestamp_regression() -> Self {
+        Self {
+            class: ErrorClass::InvariantViolation,
+            origin: ErrorOrigin::Executor,
+            detail: Some(ErrorDetail::Executor(
+                ExecutorErrorDetail::MutationManagedTimestampRegression,
             )),
         }
     }
@@ -1802,6 +1821,10 @@ pub enum ErrorDetail {
 pub enum ExecutorErrorDetail {
     /// A complete insert or replacement omitted one or more required fields.
     MutationRequiredFieldMissing,
+    /// A logical mutation would move accepted managed time backward.
+    MutationManagedTimestampRegression,
+    /// A caller explicitly authored a field owned by accepted database policy.
+    MutationDatabaseOwnedFieldExplicit,
     /// A final canonical after-image violated one accepted constraint or activation gate.
     ConstraintViolation {
         diagnostic: Box<ConstraintDiagnostic>,
@@ -1821,7 +1844,10 @@ impl ExecutorErrorDetail {
         match self {
             Self::ConstraintActivationWriteBlocked { diagnostic }
             | Self::ConstraintViolation { diagnostic } => Some(diagnostic.as_ref()),
-            Self::MutationRequiredFieldMissing | Self::AcceptedRowConstraintProgramCorrupt => None,
+            Self::MutationRequiredFieldMissing
+            | Self::MutationManagedTimestampRegression
+            | Self::MutationDatabaseOwnedFieldExplicit
+            | Self::AcceptedRowConstraintProgramCorrupt => None,
         }
     }
 }
@@ -2135,8 +2161,11 @@ impl ExecutorErrorDetail {
     #[must_use]
     pub const fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
         match self {
-            Self::MutationRequiredFieldMissing => {
+            Self::MutationRequiredFieldMissing | Self::MutationDatabaseOwnedFieldExplicit => {
                 diagnostic_code::DiagnosticCode::RuntimeUnsupported
+            }
+            Self::MutationManagedTimestampRegression => {
+                diagnostic_code::DiagnosticCode::RuntimeInvariantViolation
             }
             Self::ConstraintViolation { diagnostic }
             | Self::ConstraintActivationWriteBlocked { diagnostic } => {
@@ -2155,6 +2184,18 @@ impl ExecutorErrorDetail {
             Self::MutationRequiredFieldMissing => {
                 Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
                     boundary: diagnostic_code::RuntimeBoundaryCode::MutationRequiredFieldMissing,
+                })
+            }
+            Self::MutationDatabaseOwnedFieldExplicit => {
+                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                    boundary:
+                        diagnostic_code::RuntimeBoundaryCode::MutationDatabaseOwnedFieldExplicit,
+                })
+            }
+            Self::MutationManagedTimestampRegression => {
+                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                    boundary:
+                        diagnostic_code::RuntimeBoundaryCode::MutationManagedTimestampRegression,
                 })
             }
             Self::ConstraintViolation { diagnostic }

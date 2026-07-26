@@ -41,6 +41,7 @@ pub(in crate::db) use persisted_row::{
     canonical_row_from_structural_slot_reader_with_accepted_contract,
     decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
     decode_sparse_raw_row_with_contract, decode_sparse_required_slot_with_contract,
+    resolve_existing_replace_structural_patch_with_accepted_contract,
     resolve_insert_structural_patch_with_accepted_contract,
     resolve_update_structural_patch_with_accepted_contract,
 };

@@ -330,7 +330,7 @@ fn predicate_and_projection_comparisons_match_for_shared_supported_cases() {
     let session = sql_session();
     seed_session_sql_entities(&session, &[("cmp-alpha", 20)]);
 
-    let projection_rows = statement_projection_rows::<SessionSqlEntity>(
+    let projection_rows = statement_projection_rows(
         &session,
         "SELECT age = 20, age > 10, name < 'z' FROM SessionSqlEntity WHERE name = 'cmp-alpha'",
     )
@@ -396,7 +396,7 @@ fn predicate_documents_unsupported_ne_projection_drift() {
     let session = sql_session();
     seed_session_sql_entities(&session, &[("cmp-drift", 20)]);
 
-    let projection_result = statement_projection_rows::<SessionSqlEntity>(
+    let projection_result = statement_projection_rows(
         &session,
         "SELECT name != age FROM SessionSqlEntity WHERE name = 'cmp-drift'",
     );

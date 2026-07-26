@@ -1,6 +1,9 @@
 use icydb::{
-    db::{DbSession, DynamicQuery},
+    db::{
+        DbSession, DynamicQuery, StructuralMutation, StructuralPatch, TypedWrite, WriteCell,
+    },
     traits::{CanisterKind, EntityFor},
+    value::InputValue,
 };
 
 fn trusted_sql_query_compiles<C>(db: &DbSession<C>, sql: &str)
@@ -25,7 +28,34 @@ where
     C: CanisterKind,
     E: EntityFor<C>,
 {
-    let _ = db.execute_trusted_sql_mutation::<E>(sql);
+    let _ = db.execute_trusted_sql_mutation(sql);
+}
+
+fn trusted_structural_mutation_compiles<C>(db: &DbSession<C>)
+where
+    C: CanisterKind,
+{
+    let patch = StructuralPatch::new()
+        .field("name", WriteCell::Value(InputValue::Text("Ada".to_string())))
+        .field("nickname", WriteCell::Null)
+        .field("status", WriteCell::Default)
+        .field("unchanged", WriteCell::Omitted);
+    let _ = db.execute_trusted_structural_mutation(StructuralMutation::Insert {
+        entity: "app::User".to_string(),
+        patch,
+    });
+    if let Ok(binding) = db.bind_typed_entity(
+        "app:entity:user",
+        ["app:field:user-id", "app:field:user-name"],
+    ) {
+        let _ = TypedWrite::insert(
+            &binding,
+            [(
+                "app:field:user-name",
+                WriteCell::Value(InputValue::Text("Ada".to_string())),
+            )],
+        );
+    }
 }
 
 fn trusted_sql_update_contracts_compile<C, E>(db: &DbSession<C>, sql: &str)
@@ -33,14 +63,14 @@ where
     C: CanisterKind,
     E: EntityFor<C>,
 {
-    let _ = db.execute_trusted_sql_exact_update::<E>(sql, 10);
-    let _ = db.execute_trusted_sql_prefix_update::<E>(sql);
+    let _ = db.execute_trusted_sql_exact_update(sql, 10);
+    let _ = db.execute_trusted_sql_prefix_update(sql);
     let operation_id = icydb::types::Ulid::MIN;
-    if let Ok(continuation) = db.prepare_trusted_sql_resumable_update::<E>(operation_id, sql) {
+    if let Ok(continuation) = db.prepare_trusted_sql_resumable_update(operation_id, sql) {
         let _ = icydb::db::TrustedResumableUpdateContinuation::try_from_bytes(
             continuation.as_bytes().to_vec(),
         );
-        let _ = db.resume_trusted_sql_resumable_update::<E>(operation_id, sql, &continuation);
+        let _ = db.resume_trusted_sql_resumable_update(operation_id, sql, &continuation);
     }
 }
 

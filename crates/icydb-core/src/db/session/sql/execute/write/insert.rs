@@ -7,16 +7,16 @@ use super::{
 };
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryError,
+        DbSession, QueryError,
         data::AcceptedMutationIntentPatch,
-        executor::{MutationMode, StructuralMutationTargetKey},
+        executor::MutationMode,
         query::intent::StructuralQuery,
         schema::{
             AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
             SchemaFieldWritePolicy, accepted_insert_field_is_omittable,
         },
         session::{
-            AcceptedSchemaCatalogContext,
+            AcceptedSchemaCatalogContext, AcceptedStructuralMutationTarget,
             sql::{
                 SqlStatementResult,
                 write_policy::{
@@ -243,19 +243,15 @@ impl<C: CanisterKind> DbSession<C> {
     // projected rows directly into the structural mutation batch. SQL
     // projection still owns row materialization, but write execution no longer
     // exposes that materialized source as a separate helper result.
-    fn execute_sql_insert_select_source_patches<E>(
+    fn execute_sql_insert_select_source_patches(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         source_query: &StructuralQuery,
         columns: &[String],
         candidate_bounds: SqlWriteCandidateBounds,
-    ) -> Result<SqlWriteCandidateCollection<StructuralMutationTargetKey<E::Key>>, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let (authority, _schema_info) =
-            Self::accepted_sql_write_authority_schema_info::<E>(catalog)?;
+    ) -> Result<SqlWriteCandidateCollection<AcceptedStructuralMutationTarget>, QueryError> {
+        let (authority, _schema_info) = Self::accepted_sql_write_authority_schema_info(catalog)?;
         let rows = self.collect_bounded_sql_write_candidate_collection_from_structural_query(
             catalog.snapshot(),
             authority,
@@ -271,7 +267,7 @@ impl<C: CanisterKind> DbSession<C> {
 
                 let patch = Self::sql_insert_literal_patch(descriptor, columns, row)?;
                 Ok((
-                    StructuralMutationTargetKey::resolve_from_after_image(),
+                    AcceptedStructuralMutationTarget::ResolveFromAfterImage,
                     patch,
                 ))
             },
@@ -284,34 +280,28 @@ impl<C: CanisterKind> DbSession<C> {
     // mutation batch. Keeping this helper at the row boundary lets VALUES and
     // INSERT SELECT feed patches directly without first cloning/staging the
     // whole source row set behind a shared temporary vector.
-    fn sql_insert_push_patch_row<E>(
+    fn sql_insert_push_patch_row(
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-        rows: &mut SqlWriteCandidateCollection<StructuralMutationTargetKey<E::Key>>,
+        rows: &mut SqlWriteCandidateCollection<AcceptedStructuralMutationTarget>,
         columns: &[String],
         values: &[SqlWriteValue],
-    ) -> Result<(), QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<(), QueryError> {
         let patch = Self::sql_insert_values_patch(descriptor, columns, values)?;
         rows.push(
-            StructuralMutationTargetKey::resolve_from_after_image(),
+            AcceptedStructuralMutationTarget::ResolveFromAfterImage,
             patch,
         );
 
         Ok(())
     }
 
-    pub(in crate::db::session::sql::execute) fn execute_sql_insert_statement<E>(
+    pub(in crate::db::session::sql::execute) fn execute_sql_insert_statement(
         &self,
         statement: &SqlInsertStatement,
         source_query: Option<&StructuralQuery>,
         catalog: Option<&AcceptedSchemaCatalogContext>,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.execute_sql_insert_statement_with_execution_bounds::<E>(
+    ) -> Result<SqlStatementResult, QueryError> {
+        self.execute_sql_insert_statement_with_execution_bounds(
             statement,
             source_query,
             catalog,
@@ -319,18 +309,13 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    pub(in crate::db::session::sql::execute) fn execute_sql_insert_statement_with_update_surface_bounds<
-        E,
-    >(
+    pub(in crate::db::session::sql::execute) fn execute_sql_insert_statement_with_update_surface_bounds(
         &self,
         statement: &SqlInsertStatement,
         source_query: Option<&StructuralQuery>,
         catalog: Option<&AcceptedSchemaCatalogContext>,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.execute_sql_insert_statement_with_execution_bounds::<E>(
+    ) -> Result<SqlStatementResult, QueryError> {
+        self.execute_sql_insert_statement_with_execution_bounds(
             statement,
             source_query,
             catalog,
@@ -340,18 +325,16 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    fn execute_sql_insert_statement_with_execution_bounds<E>(
+    fn execute_sql_insert_statement_with_execution_bounds(
         &self,
         statement: &SqlInsertStatement,
         source_query: Option<&StructuralQuery>,
         catalog: Option<&AcceptedSchemaCatalogContext>,
         execution_bounds: Option<SqlWriteExecutionBounds>,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
+    ) -> Result<SqlStatementResult, QueryError> {
+        self.with_checked_accepted_write_descriptor_for_returning(
             catalog,
+            Some(statement.entity.as_str()),
             statement.returning.as_ref(),
             |catalog, descriptor| {
                 let columns = sql_insert_columns(&descriptor, statement);
@@ -381,7 +364,7 @@ impl<C: CanisterKind> DbSession<C> {
                                 ));
                             }
 
-                            Self::sql_insert_push_patch_row::<E>(
+                            Self::sql_insert_push_patch_row(
                                 &descriptor,
                                 &mut collection,
                                 columns.as_slice(),
@@ -395,13 +378,13 @@ impl<C: CanisterKind> DbSession<C> {
                             SqlWriteCandidateBoundCheck::InsertValuesSource,
                         )?;
                         collection.push(
-                            StructuralMutationTargetKey::resolve_from_after_image(),
+                            AcceptedStructuralMutationTarget::ResolveFromAfterImage,
                             Self::sql_insert_default_values_patch(&descriptor)?,
                         );
                     }
                     SqlInsertSource::Select(_) => {
                         let source_query = source_query.ok_or_else(QueryError::invariant)?;
-                        collection = self.execute_sql_insert_select_source_patches::<E>(
+                        collection = self.execute_sql_insert_select_source_patches(
                             catalog,
                             &descriptor,
                             source_query,
@@ -416,7 +399,7 @@ impl<C: CanisterKind> DbSession<C> {
                     }
                     SqlInsertSource::Select(_) => SqlWriteKind::InsertSelect,
                 };
-                self.execute_sql_write_mutation_batch::<E>(
+                self.execute_sql_write_mutation_batch(
                     catalog,
                     &descriptor,
                     SqlWriteMutationExecution::from_bounded_collection(

@@ -50,16 +50,18 @@ The remaining public SQL surfaces are:
 
 <!-- icydb-sql-feature id="surface.trusted_entrypoints" kind="policy" status="accepted" -->
 - `execute_trusted_sql_query(...)`
-- `execute_trusted_sql_mutation::<E>(...)`
-- `execute_trusted_sql_exact_update::<E>(..., require_affected_at_most)`
-- `execute_trusted_sql_prefix_update::<E>(...)`
-- `prepare_trusted_sql_resumable_update::<E>(operation_id, ...)`
-- `resume_trusted_sql_resumable_update::<E>(...)`
+- `execute_trusted_sql_mutation(...)`
+- `execute_trusted_sql_exact_update(..., require_affected_at_most)`
+- `execute_trusted_sql_prefix_update(...)`
+- `prepare_trusted_sql_resumable_update(operation_id, ...)`
+- `resume_trusted_sql_resumable_update(...)`
 - `execute_admin_sql_ddl::<E>(...)`
 - `execute_admin_integrity_sql(...)`
 
-Query, mutation, and DDL entry points stay hard-bound to one concrete entity
-type. The integrity entry point resolves entity-bearing starts through the
+Query and row-mutation entry points resolve the entity named by the statement
+directly through accepted catalog authority; they do not require a generated
+Rust entity parameter. DDL remains bound to its current typed administrative
+surface. The integrity entry point resolves entity-bearing starts through the
 registered runtime selector and then requires an exact accepted-authority
 match. Query and direct mutation surfaces return SQL-shaped output; resumable
 update and integrity execution return their canonical typed receipts instead.
@@ -486,6 +488,8 @@ Mutation ownership still primarily lives on typed and fluent APIs:
 - `replace(...)`
 - `delete::<E>()`
 - the corresponding typed/fluent `...returning...` helpers
+- `execute_trusted_structural_mutation(...)` for accepted-schema-driven
+  field-name writes
 
 Every SQL row after-image is decoded against accepted field contracts and then
 enters the same structural write-admission pipeline used by non-SQL structural
@@ -497,12 +501,12 @@ Public SQL ownership is split deliberately:
 <!-- icydb-sql-feature id="mutation.lane_ownership" kind="policy" status="accepted" -->
 - `execute_trusted_sql_query(...)` owns accepted-catalog-driven read, explain,
   and introspection SQL
-- `execute_trusted_sql_mutation::<E>(...)` owns trusted `INSERT` and `DELETE`
-- `execute_trusted_sql_exact_update::<E>(...)` owns complete-set SQL `UPDATE`
-- `execute_trusted_sql_prefix_update::<E>(...)` owns intentional ordered-prefix
+- `execute_trusted_sql_mutation(...)` owns trusted `INSERT` and `DELETE`
+- `execute_trusted_sql_exact_update(...)` owns complete-set SQL `UPDATE`
+- `execute_trusted_sql_prefix_update(...)` owns intentional ordered-prefix
   SQL `UPDATE`
-- `prepare_trusted_sql_resumable_update::<E>(...)` and
-  `resume_trusted_sql_resumable_update::<E>(...)` own trusted, journaled,
+- `prepare_trusted_sql_resumable_update(...)` and
+  `resume_trusted_sql_resumable_update(...)` own trusted, journaled,
   bounded convergence over multiple calls
 - `execute_admin_sql_ddl::<E>(...)` owns accepted-catalog schema DDL SQL
 
@@ -515,14 +519,14 @@ endpoint with an explicit public-safe policy.
 Current boundary:
 
 <!-- icydb-sql-feature id="mutation.trusted_update" kind="policy" status="accepted" -->
-- `execute_trusted_sql_exact_update::<E>(...)` accepts a positive
+- `execute_trusted_sql_exact_update(...)` accepts a positive
   `require_affected_at_most` assertion and selects in canonical primary-key
   order. A cap-plus-one match proves affected-row overflow; an independent
   cap-plus-one scanned-key probe enforces the engine scan budget. Either bound
   rejects before mutation, while success commits the complete matching set.
 - exact `UPDATE` accepts current narrow `RETURNING` forms under the same row
   assertion and the engine response-byte bound.
-- `execute_trusted_sql_mutation::<E>(...)` rejects `UPDATE`; it cannot infer
+- `execute_trusted_sql_mutation(...)` rejects `UPDATE`; it cannot infer
   exact versus prefix intent.
 <!-- icydb-sql-feature id="mutation.trusted_resumable_update" kind="interaction" status="accepted" -->
 - trusted resumable `UPDATE` first prepares a read-only current-format
@@ -549,7 +553,7 @@ Current boundary:
   requires explicit primary-key ordering and a limit.
 
 <!-- icydb-sql-feature id="mutation.trusted_update_window" kind="interaction" status="accepted" -->
-`execute_trusted_sql_prefix_update::<E>(...)` retains the maintained bounded
+`execute_trusted_sql_prefix_update(...)` retains the maintained bounded
 policy: a positive limit no greater than 100, explicit canonical ascending
 primary-key order, and no offset. The limit selects only that intentional
 prefix and makes no complete-set claim. Generated `icydb_update` dispatch uses

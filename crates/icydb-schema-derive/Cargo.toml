@@ -21,7 +21,7 @@ proc-macro2 = { workspace = true }
 quote = { workspace = true }
 remain = { workspace = true }
 serde = { workspace = true }
-syn = { workspace = true }
+syn-darling = { workspace = true }
 
 [dev-dependencies]
 candid = { workspace = true }

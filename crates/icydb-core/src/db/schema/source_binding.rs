@@ -131,7 +131,7 @@ impl AcceptedSourceBindingCatalog {
 
     /// Resolve one immutable entity source identity.
     #[must_use]
-    pub(in crate::db::schema) fn entity(&self, source: &EntitySourceKey) -> Option<EntityTag> {
+    pub(in crate::db) fn entity(&self, source: &EntitySourceKey) -> Option<EntityTag> {
         self.entities.get(source).copied()
     }
 
@@ -156,7 +156,7 @@ impl AcceptedSourceBindingCatalog {
 
     /// Resolve one immutable field source identity inside an accepted entity.
     #[must_use]
-    pub(in crate::db::schema) fn field(
+    pub(in crate::db) fn field(
         &self,
         entity: EntityTag,
         source: &FieldSourceKey,

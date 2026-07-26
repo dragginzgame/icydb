@@ -407,6 +407,24 @@ impl<K> QueryIntent<K> {
         }
     }
 
+    /// Re-express one delete target as a load selection without changing its
+    /// predicate, ordering, offset, or limit.
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db::query::intent) fn into_load_selection(self) -> Self {
+        match self {
+            Self::Load(load) => Self::Load(load),
+            Self::Delete(delete) => Self::Load(LoadIntentState {
+                spec: LoadSpec {
+                    limit: delete.spec.limit,
+                    offset: delete.spec.offset,
+                },
+                offset_requested: delete.spec.offset != 0,
+                shape: QueryShape::Scalar(delete.scalar),
+            }),
+        }
+    }
+
     #[must_use]
     pub(in crate::db::query::intent) const fn apply_limit(mut self, limit: u32) -> Self {
         match &mut self {

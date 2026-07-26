@@ -799,31 +799,22 @@ fn sql_metadata_surfaces_match_typed_payloads() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let describe_from_sql =
-        statement_describe_sql::<SessionSqlEntity>(&session, "DESCRIBE SessionSqlEntity")
-            .expect("describe_sql should succeed");
-    let show_indexes_from_sql = statement_show_indexes_sql::<SessionSqlEntity>(
-        &session,
-        "SHOW INDEXES FROM SessionSqlEntity",
-    )
-    .expect("show_indexes_sql should succeed");
-    let show_indexes_in_from_sql = statement_show_indexes_sql::<SessionSqlEntity>(
-        &session,
-        "SHOW INDEXES IN SessionSqlEntity",
-    )
-    .expect("show_indexes_sql should accept the SHOW INDEXES IN alias");
-    let show_constraints_from_sql = statement_show_constraints_sql::<SessionSqlEntity>(
-        &session,
-        "SHOW CONSTRAINTS FROM SessionSqlEntity",
-    )
-    .expect("show_constraints_sql should succeed");
-    let show_constraints_in_from_sql = statement_show_constraints_sql::<SessionSqlEntity>(
-        &session,
-        "SHOW CONSTRAINTS IN SessionSqlEntity",
-    )
-    .expect("show_constraints_sql should accept the SHOW CONSTRAINTS IN alias");
+    let describe_from_sql = statement_describe_sql(&session, "DESCRIBE SessionSqlEntity")
+        .expect("describe_sql should succeed");
+    let show_indexes_from_sql =
+        statement_show_indexes_sql(&session, "SHOW INDEXES FROM SessionSqlEntity")
+            .expect("show_indexes_sql should succeed");
+    let show_indexes_in_from_sql =
+        statement_show_indexes_sql(&session, "SHOW INDEXES IN SessionSqlEntity")
+            .expect("show_indexes_sql should accept the SHOW INDEXES IN alias");
+    let show_constraints_from_sql =
+        statement_show_constraints_sql(&session, "SHOW CONSTRAINTS FROM SessionSqlEntity")
+            .expect("show_constraints_sql should succeed");
+    let show_constraints_in_from_sql =
+        statement_show_constraints_sql(&session, "SHOW CONSTRAINTS IN SessionSqlEntity")
+            .expect("show_constraints_sql should accept the SHOW CONSTRAINTS IN alias");
     let show_columns_from_sql =
-        statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
+        statement_show_columns_sql(&session, "SHOW COLUMNS SessionSqlEntity")
             .expect("show_columns_sql should succeed");
     let show_entities_from_sql = statement_show_entities_sql(&session, "SHOW ENTITIES")
         .expect("show_entities_sql should succeed");
@@ -886,16 +877,11 @@ fn accepted_sql_metadata_resolves_composite_catalog_identity_and_shape() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let described = statement_describe_sql::<SessionSqlRecordFieldPathEntity>(
-        &session,
-        "DESCRIBE SessionSqlRecordFieldPathEntity",
-    )
-    .expect("DESCRIBE should resolve the accepted composite catalog");
-    let columns = statement_show_columns_sql::<SessionSqlRecordFieldPathEntity>(
-        &session,
-        "SHOW COLUMNS SessionSqlRecordFieldPathEntity",
-    )
-    .expect("SHOW COLUMNS should resolve the accepted composite catalog");
+    let described = statement_describe_sql(&session, "DESCRIBE SessionSqlRecordFieldPathEntity")
+        .expect("DESCRIBE should resolve the accepted composite catalog");
+    let columns =
+        statement_show_columns_sql(&session, "SHOW COLUMNS SessionSqlRecordFieldPathEntity")
+            .expect("SHOW COLUMNS should resolve the accepted composite catalog");
 
     assert_eq!(described.fields(), columns.as_slice());
     let profile = columns
@@ -1274,7 +1260,7 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
                 "describe_sql should reject SHOW STORES statements",
             ),
         ],
-        |sql| statement_describe_sql::<SessionSqlEntity>(&session, sql),
+        |sql| statement_describe_sql(&session, sql),
     );
     assert_sql_surface_rejects_statement_lanes(
         &[
@@ -1303,7 +1289,7 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
                 "show_indexes_sql should reject SHOW STORES statements",
             ),
         ],
-        |sql| statement_show_indexes_sql::<SessionSqlEntity>(&session, sql),
+        |sql| statement_show_indexes_sql(&session, sql),
     );
     assert_sql_surface_rejects_statement_lanes(
         &[
@@ -1332,7 +1318,7 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
                 "show_columns_sql should reject SHOW STORES statements",
             ),
         ],
-        |sql| statement_show_columns_sql::<SessionSqlEntity>(&session, sql),
+        |sql| statement_show_columns_sql(&session, sql),
     );
     assert_sql_surface_rejects_statement_lanes(
         &[
@@ -1415,7 +1401,7 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
                 "explain_sql should reject SHOW STORES statements",
             ),
         ],
-        |sql| statement_explain_sql::<SessionSqlEntity>(&session, sql),
+        |sql| statement_explain_sql(&session, sql),
     );
 }
 
@@ -1436,14 +1422,14 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
         execute_scalar_select_for_tests::<SessionSqlEntity>(&session, sql)
     });
     assert_sql_surface_preserves_unsupported_feature_detail(&lowering_owned_cases, |sql| {
-        statement_projection_rows::<SessionSqlEntity>(&session, sql)
+        statement_projection_rows(&session, sql)
     });
     assert_sql_surface_preserves_unsupported_feature_detail(&lowering_owned_cases, |sql| {
         execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
     });
     assert_sql_surface_preserves_unsupported_feature_detail(&lowering_owned_cases, |sql| {
         let explain_sql = format!("EXPLAIN {sql}");
-        statement_explain_sql::<SessionSqlEntity>(&session, explain_sql.as_str())
+        statement_explain_sql(&session, explain_sql.as_str())
     });
     let sql = "INSERT INTO SessionSqlEntity (name, age) VALUES ('Ada', 21) RETURNING id";
 
@@ -1455,7 +1441,7 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
         execute_scalar_select_for_tests::<SessionSqlEntity>(&session, sql),
         "scalar SELECT helper should reject INSERT lane even when RETURNING is present",
     );
-    let returning_rows = statement_projection_rows::<SessionSqlEntity>(&session, sql)
+    let returning_rows = statement_projection_rows(&session, sql)
         .expect("statement execution should admit INSERT RETURNING");
     assert_eq!(returning_rows.len(), 1);
     assert_eq!(returning_rows[0].len(), 1);
@@ -1479,9 +1465,8 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
         execute_scalar_select_for_tests::<SessionSqlEntity>(&session, update_returning_sql),
         "scalar SELECT helper should reject UPDATE lane even when RETURNING is present",
     );
-    let updated_rows =
-        exact_update_projection_rows::<SessionSqlEntity>(&session, update_returning_sql)
-            .expect("exact UPDATE execution should admit UPDATE RETURNING");
+    let updated_rows = exact_update_projection_rows(&session, update_returning_sql)
+        .expect("exact UPDATE execution should admit UPDATE RETURNING");
     assert_eq!(updated_rows.len(), 1);
     assert_eq!(updated_rows[0].len(), 2);
     assert!(
@@ -1696,7 +1681,7 @@ fn execute_sql_statement_admits_supported_single_entity_read_shapes() {
     let session = sql_session();
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("carol", 32)]);
 
-    let scalar = execute_sql_statement_for_tests::<SessionSqlEntity>(
+    let scalar = execute_sql_statement_for_tests(
         &session,
         "SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
     )
@@ -1714,7 +1699,7 @@ fn execute_sql_statement_admits_supported_single_entity_read_shapes() {
     assert_eq!(rows, vec![vec![output(Value::Text("ada".to_string()))]]);
     assert_eq!(row_count, 1);
 
-    let grouped = execute_sql_statement_for_tests::<SessionSqlEntity>(
+    let grouped = execute_sql_statement_for_tests(
         &session,
         "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
     )
@@ -1728,11 +1713,9 @@ fn execute_sql_statement_admits_supported_single_entity_read_shapes() {
     assert_eq!(columns, vec!["age".to_string(), "COUNT(*)".to_string()]);
     assert_eq!(row_count, 2);
 
-    let aggregate = execute_sql_statement_for_tests::<SessionSqlEntity>(
-        &session,
-        "SELECT COUNT(*) FROM SessionSqlEntity",
-    )
-    .expect("execute_sql_statement should admit global aggregate SELECT");
+    let aggregate =
+        execute_sql_statement_for_tests(&session, "SELECT COUNT(*) FROM SessionSqlEntity")
+            .expect("execute_sql_statement should admit global aggregate SELECT");
     let SqlStatementResult::Projection {
         columns,
         rows,
@@ -1761,7 +1744,7 @@ fn execute_sql_statement_rejects_unsupported_schema_transition_before_select_com
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     install_session_sql_write_old_accepted_schema_prefix();
 
-    let err = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+    let err = execute_sql_statement_for_tests(
         &session,
         "SELECT id, name FROM SessionSqlWriteEntity WHERE id = 1",
     )
@@ -1785,7 +1768,7 @@ fn execute_sql_statement_reads_old_rows_after_nullable_additive_schema_transitio
     let id = Ulid::from_u128(1480);
     insert_old_nullable_sql_row_for_test(id, "Ada");
 
-    let result = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+    let result = execute_sql_statement_for_tests(
         &session,
         "SELECT name, nickname FROM SessionNullableSqlEntity",
     )
@@ -1860,17 +1843,17 @@ fn execute_sql_statement_filters_old_rows_by_added_nullable_field_null_semantics
     let session = sql_session();
     insert_old_nullable_sql_row_for_test(Ulid::from_u128(1497), "Ada");
 
-    let null_result = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+    let null_result = execute_sql_statement_for_tests(
         &session,
         "SELECT name FROM SessionNullableSqlEntity WHERE nickname IS NULL",
     )
     .expect("SQL SELECT should evaluate appended nullable field IS NULL on old row");
-    let not_null_result = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+    let not_null_result = execute_sql_statement_for_tests(
         &session,
         "SELECT name FROM SessionNullableSqlEntity WHERE nickname IS NOT NULL",
     )
     .expect("SQL SELECT should evaluate appended nullable field IS NOT NULL on old row");
-    let eq_null_result = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+    let eq_null_result = execute_sql_statement_for_tests(
         &session,
         "SELECT name FROM SessionNullableSqlEntity WHERE nickname = NULL",
     )
@@ -1932,16 +1915,10 @@ fn sql_metadata_surfaces_show_added_nullable_field_after_schema_transition() {
     install_nullable_sql_post_transition_schema();
     let session = sql_session();
 
-    let described = statement_describe_sql::<SessionNullableSqlEntity>(
-        &session,
-        "DESCRIBE SessionNullableSqlEntity",
-    )
-    .expect("DESCRIBE should accept nullable append-only schema transition");
-    let columns = statement_show_columns_sql::<SessionNullableSqlEntity>(
-        &session,
-        "SHOW COLUMNS SessionNullableSqlEntity",
-    )
-    .expect("SHOW COLUMNS should accept nullable append-only schema transition");
+    let described = statement_describe_sql(&session, "DESCRIBE SessionNullableSqlEntity")
+        .expect("DESCRIBE should accept nullable append-only schema transition");
+    let columns = statement_show_columns_sql(&session, "SHOW COLUMNS SessionNullableSqlEntity")
+        .expect("SHOW COLUMNS should accept nullable append-only schema transition");
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
 
@@ -1988,7 +1965,7 @@ fn exact_sql_update_rewrites_old_rows_after_nullable_additive_schema_transition(
     insert_old_nullable_sql_row_for_test(id, "Ada");
 
     let result = session
-        .execute_trusted_sql_exact_update::<SessionNullableSqlEntity>(
+        .execute_trusted_sql_exact_update(
             "UPDATE SessionNullableSqlEntity SET name = 'Ada Lovelace' WHERE name = 'Ada'",
             1,
         )
@@ -2013,9 +1990,7 @@ fn compiled_sql_delete_removes_old_rows_after_nullable_additive_schema_transitio
     insert_old_nullable_sql_row_for_test(id, "Ada");
 
     let compiled = session
-        .compile_sql_mutation::<SessionNullableSqlEntity>(
-            "DELETE FROM SessionNullableSqlEntity WHERE name = 'Ada'",
-        )
+        .compile_sql_mutation("DELETE FROM SessionNullableSqlEntity WHERE name = 'Ada'")
         .expect("compiled SQL DELETE should accept nullable append-only schema transition");
     let result = session
         .execute_compiled_sql::<SessionNullableSqlEntity>(&compiled)
@@ -2047,7 +2022,7 @@ fn compiled_sql_delete_returning_projects_old_rows_after_nullable_additive_schem
     insert_old_nullable_sql_row_for_test(id, "Ada");
 
     let compiled = session
-        .compile_sql_mutation::<SessionNullableSqlEntity>(
+        .compile_sql_mutation(
             "DELETE FROM SessionNullableSqlEntity WHERE name = 'Ada' RETURNING name, nickname",
         )
         .expect(
@@ -2304,7 +2279,7 @@ fn structural_update_rewrites_old_rows_after_nullable_additive_schema_transition
         .mutate_structural::<SessionNullableSqlEntity>(id, patch, MutationMode::Update)
         .expect("structural update should rewrite old row through accepted nullable transition");
     assert_nullable_sql_current_layout_row(id);
-    let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+    let selected = execute_sql_statement_for_tests(
         &session,
         "SELECT name, nickname FROM SessionNullableSqlEntity",
     )
@@ -2345,7 +2320,7 @@ fn structural_update_sets_appended_nullable_field_after_nullable_additive_schema
         .mutate_structural::<SessionNullableSqlEntity>(id, patch, MutationMode::Update)
         .expect("structural update should set appended nullable field on old row");
     assert_nullable_sql_current_layout_row(id);
-    let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+    let selected = execute_sql_statement_for_tests(
         &session,
         "SELECT name, nickname FROM SessionNullableSqlEntity",
     )
@@ -2384,7 +2359,7 @@ fn typed_update_rewrites_old_rows_after_nullable_additive_schema_transition() {
         })
         .expect("typed update should rewrite old row through accepted nullable transition");
     assert_nullable_sql_current_layout_row(id);
-    let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+    let selected = execute_sql_statement_for_tests(
         &session,
         "SELECT name, nickname FROM SessionNullableSqlEntity",
     )
@@ -2423,7 +2398,7 @@ fn typed_replace_rewrites_old_rows_after_nullable_additive_schema_transition() {
         })
         .expect("typed replace should rewrite old row through accepted nullable transition");
     assert_nullable_sql_current_layout_row(id);
-    let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+    let selected = execute_sql_statement_for_tests(
         &session,
         "SELECT name, nickname FROM SessionNullableSqlEntity",
     )
@@ -2484,7 +2459,7 @@ fn typed_insert_existing_old_row_reports_conflict_after_nullable_additive_schema
             nickname: Some("Duplicate".to_string()),
         })
         .expect_err("typed insert should report conflict for an existing old row");
-    let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+    let selected = execute_sql_statement_for_tests(
         &session,
         "SELECT name, nickname FROM SessionNullableSqlEntity",
     )
@@ -2622,7 +2597,7 @@ fn execute_trusted_sql_exact_update_rewrites_old_rows_after_nullable_additive_sc
     let id = Ulid::from_u128(1481);
     insert_old_nullable_sql_row_for_test(id, "Ada");
 
-    let result = execute_exact_sql_update_for_tests::<SessionNullableSqlEntity>(
+    let result = execute_exact_sql_update_for_tests(
         &session,
         "UPDATE SessionNullableSqlEntity SET name = 'Ada Lovelace' WHERE name = 'Ada'",
     )
@@ -2631,7 +2606,7 @@ fn execute_trusted_sql_exact_update_rewrites_old_rows_after_nullable_additive_sc
         panic!("SQL UPDATE over old nullable row should emit a count result");
     };
     assert_nullable_sql_current_layout_row(id);
-    let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+    let selected = execute_sql_statement_for_tests(
         &session,
         "SELECT name, nickname FROM SessionNullableSqlEntity",
     )
@@ -2661,7 +2636,7 @@ fn execute_sql_delete_removes_old_rows_after_nullable_additive_schema_transition
     let id = Ulid::from_u128(1482);
     insert_old_nullable_sql_row_for_test(id, "Ada");
 
-    let result = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+    let result = execute_sql_statement_for_tests(
         &session,
         "DELETE FROM SessionNullableSqlEntity WHERE name = 'Ada'",
     )
@@ -2669,7 +2644,7 @@ fn execute_sql_delete_removes_old_rows_after_nullable_additive_schema_transition
     let SqlStatementResult::Count { row_count } = result else {
         panic!("SQL DELETE over old nullable row should emit a count result");
     };
-    let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+    let selected = execute_sql_statement_for_tests(
         &session,
         "SELECT name, nickname FROM SessionNullableSqlEntity",
     )
@@ -2699,7 +2674,7 @@ fn execute_sql_delete_returning_projects_old_rows_after_nullable_additive_schema
     let id = Ulid::from_u128(1483);
     insert_old_nullable_sql_row_for_test(id, "Ada");
 
-    let result = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+    let result = execute_sql_statement_for_tests(
         &session,
         "DELETE FROM SessionNullableSqlEntity WHERE name = 'Ada' RETURNING name, nickname",
     )
@@ -2740,7 +2715,7 @@ fn execute_sql_statement_admits_supported_single_entity_mutation_shapes() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let insert = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+    let insert = execute_sql_statement_for_tests(
         &session,
         "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
     )
@@ -2750,7 +2725,7 @@ fn execute_sql_statement_admits_supported_single_entity_mutation_shapes() {
     };
     assert_eq!(row_count, 1);
 
-    let update = execute_exact_sql_update_for_tests::<SessionSqlWriteEntity>(
+    let update = execute_exact_sql_update_for_tests(
         &session,
         "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
     )
@@ -2760,7 +2735,7 @@ fn execute_sql_statement_admits_supported_single_entity_mutation_shapes() {
     };
     assert_eq!(row_count, 1);
 
-    let delete = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+    let delete = execute_sql_statement_for_tests(
         &session,
         "DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada' RETURNING name",
     )
@@ -3022,7 +2997,7 @@ fn trusted_sql_mutation_rejects_show_constraints_with_typed_surface_cause() {
     let session = sql_session();
 
     let err = session
-        .execute_trusted_sql_mutation::<SessionSqlEntity>("SHOW CONSTRAINTS FROM SessionSqlEntity")
+        .execute_trusted_sql_mutation("SHOW CONSTRAINTS FROM SessionSqlEntity")
         .expect_err("mutation SQL surface must reject accepted-catalog introspection");
 
     assert_sql_surface_mismatch_detail(err, SqlSurfaceMismatchCode::MutationRejectsShowConstraints);
@@ -4224,7 +4199,7 @@ fn sql_ddl_create_index_is_rejected_by_query_and_update_surfaces() {
     );
     assert_sql_lowering_detail(
         session
-            .execute_trusted_sql_mutation::<SessionSqlEntity>(sql)
+            .execute_trusted_sql_mutation(sql)
             .expect_err("mutation surface should reject parsed DDL before execution"),
         SqlLoweringCode::SqlDdlExecutionUnsupported,
     );
@@ -5446,12 +5421,10 @@ fn execute_admin_sql_ddl_publishes_supported_nullable_add_column() {
         assert!(nickname.nullable());
         assert!(nickname.insert_default().is_none());
     });
-    let columns =
-        statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
-            .expect("SHOW COLUMNS should read DDL-published fields");
-    let described =
-        statement_describe_sql::<SessionSqlEntity>(&session, "DESCRIBE SessionSqlEntity")
-            .expect("DESCRIBE should read DDL-published fields");
+    let columns = statement_show_columns_sql(&session, "SHOW COLUMNS SessionSqlEntity")
+        .expect("SHOW COLUMNS should read DDL-published fields");
+    let described = statement_describe_sql(&session, "DESCRIBE SessionSqlEntity")
+        .expect("DESCRIBE should read DDL-published fields");
     assert_eq!(
         described.fields(),
         columns.as_slice(),
@@ -6224,12 +6197,10 @@ fn execute_admin_sql_ddl_publishes_supported_defaulted_add_column() {
         assert!(!score.nullable());
         assert!(!score.insert_default().is_none());
     });
-    let columns =
-        statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
-            .expect("SHOW COLUMNS should read DDL-published defaulted fields");
-    let described =
-        statement_describe_sql::<SessionSqlEntity>(&session, "DESCRIBE SessionSqlEntity")
-            .expect("DESCRIBE should read DDL-published defaulted fields");
+    let columns = statement_show_columns_sql(&session, "SHOW COLUMNS SessionSqlEntity")
+        .expect("SHOW COLUMNS should read DDL-published defaulted fields");
+    let described = statement_describe_sql(&session, "DESCRIBE SessionSqlEntity")
+        .expect("DESCRIBE should read DDL-published defaulted fields");
     assert_eq!(
         described.fields(),
         columns.as_slice(),
@@ -6272,13 +6243,11 @@ fn execute_admin_sql_ddl_publishes_supported_defaulted_add_column() {
     );
     assert_eq!(row_count, 1);
 
-    let SqlStatementResult::Count { row_count } =
-        execute_sql_statement_for_tests::<SessionSqlEntity>(
-            &session,
-            "INSERT INTO SessionSqlEntity (name, age) VALUES ('Bea', 37)",
-        )
-        .expect("SQL INSERT should omit a field owned by the accepted database default")
-    else {
+    let SqlStatementResult::Count { row_count } = execute_sql_statement_for_tests(
+        &session,
+        "INSERT INTO SessionSqlEntity (name, age) VALUES ('Bea', 37)",
+    )
+    .expect("SQL INSERT should omit a field owned by the accepted database default") else {
         panic!("SQL INSERT without RETURNING should return a row count");
     };
     assert_eq!(row_count, 1);
@@ -6412,9 +6381,8 @@ fn execute_admin_sql_ddl_publishes_supported_set_default() {
         assert_eq!(score.kind(), &AcceptedFieldKind::Nat64);
         assert!(!score.insert_default().is_none());
     });
-    let columns =
-        statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
-            .expect("SHOW COLUMNS should read DDL-published default changes");
+    let columns = statement_show_columns_sql(&session, "SHOW COLUMNS SessionSqlEntity")
+        .expect("SHOW COLUMNS should read DDL-published default changes");
     assert!(
         columns.iter().any(|field| field.name() == "score"
             && field.kind() == "nat64"
@@ -6430,7 +6398,7 @@ fn execute_admin_sql_ddl_default_changes_preserve_frozen_historical_fill() {
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     let session = sql_session();
 
-    execute_sql_statement_for_tests::<SessionSqlEntity>(
+    execute_sql_statement_for_tests(
         &session,
         "INSERT INTO SessionSqlEntity (name, age) VALUES ('Historical', 36)",
     )
@@ -6447,7 +6415,7 @@ fn execute_admin_sql_ddl_default_changes_preserve_frozen_historical_fill() {
             2,
         ))
         .expect("SET DEFAULT should change only future omission policy");
-    execute_sql_statement_for_tests::<SessionSqlEntity>(
+    execute_sql_statement_for_tests(
         &session,
         "INSERT INTO SessionSqlEntity (name, age) VALUES ('Future', 37)",
     )
@@ -6459,7 +6427,7 @@ fn execute_admin_sql_ddl_default_changes_preserve_frozen_historical_fill() {
         ))
         .expect("DROP DEFAULT should leave historical values unchanged");
 
-    let rows = statement_projection_rows::<SessionSqlEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT name, score FROM SessionSqlEntity ORDER BY name ASC",
     )
@@ -6563,7 +6531,7 @@ fn advance_successive_layout_history_floor(
         ))
         .expect("nullable floor guard should allocate layout four");
     for name in ["Early", "Middle", "Current"] {
-        execute_exact_sql_update_for_tests::<SessionSqlEntity>(
+        execute_exact_sql_update_for_tests(
             session,
             &format!("UPDATE SessionSqlEntity SET floor_guard = 'sealed' WHERE name = '{name}'"),
         )
@@ -6626,7 +6594,7 @@ fn execute_admin_sql_ddl_successive_layouts_freeze_fills_and_promote_old_rows() 
     let session = sql_session();
     let [early_id, middle_id, current_id] = seed_successive_default_layout_rows(&session);
 
-    let rows = statement_projection_rows::<SessionSqlEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT name, score, nickname FROM SessionSqlEntity ORDER BY name ASC",
     )
@@ -6663,7 +6631,7 @@ fn execute_admin_sql_ddl_successive_layouts_freeze_fills_and_promote_old_rows() 
         assert_eq!(raw_row_slot_count_for_test(&raw_row), expected_slots);
     }
 
-    execute_exact_sql_update_for_tests::<SessionSqlEntity>(
+    execute_exact_sql_update_for_tests(
         &session,
         "UPDATE SessionSqlEntity SET age = 40 WHERE name = 'Early'",
     )
@@ -6674,7 +6642,7 @@ fn execute_admin_sql_ddl_successive_layouts_freeze_fills_and_promote_old_rows() 
     assert_eq!(promoted_payload.layout_version().get(), 3);
     assert_eq!(raw_row_slot_count_for_test(&promoted), 5);
     assert_eq!(
-        statement_projection_rows::<SessionSqlEntity>(
+        statement_projection_rows(
             &session,
             "SELECT age, score, nickname FROM SessionSqlEntity WHERE name = 'Early'",
         )
@@ -6712,12 +6680,12 @@ fn sql_insert_distinguishes_omitted_database_default_from_explicit_null() {
         ))
         .expect("nullable defaulted field should publish");
 
-    execute_sql_statement_for_tests::<SessionSqlEntity>(
+    execute_sql_statement_for_tests(
         &session,
         "INSERT INTO SessionSqlEntity (name, age) VALUES ('OmittedDefault', 38)",
     )
     .expect("omitted nullable field should use its accepted database default");
-    execute_sql_statement_for_tests::<SessionSqlEntity>(
+    execute_sql_statement_for_tests(
         &session,
         "INSERT INTO SessionSqlEntity (name, age, score) VALUES ('ExplicitNull', 39, NULL)",
     )
@@ -6741,12 +6709,12 @@ fn sql_insert_distinguishes_omitted_database_default_from_explicit_null() {
     };
     assert_eq!(rows, vec![vec![output(Value::Null)]]);
 
-    execute_exact_sql_update_for_tests::<SessionSqlEntity>(
+    execute_exact_sql_update_for_tests(
         &session,
         "UPDATE SessionSqlEntity SET age = 40 WHERE name = 'ExplicitNull'",
     )
     .expect("an unrelated update should preserve the accepted DDL field payload");
-    execute_exact_sql_update_for_tests::<SessionSqlEntity>(
+    execute_exact_sql_update_for_tests(
         &session,
         "UPDATE SessionSqlEntity SET score = 9 WHERE name = 'OmittedDefault'",
     )
@@ -7061,7 +7029,7 @@ fn execute_admin_sql_ddl_drops_required_insert_default_future_only() {
         assert!(score.insert_default().is_none());
     });
 
-    let err = execute_sql_statement_for_tests::<SessionSqlEntity>(
+    let err = execute_sql_statement_for_tests(
         &session,
         "INSERT INTO SessionSqlEntity (name, age) VALUES ('MissingScore', 38)",
     )
@@ -7400,7 +7368,7 @@ fn execute_admin_sql_ddl_set_not_null_closes_historical_null_fill() {
             1,
         ))
         .expect("setup nullable additive field should publish");
-    execute_sql_statement_for_tests::<SessionSqlEntity>(
+    execute_sql_statement_for_tests(
         &session,
         "INSERT INTO SessionSqlEntity (name, age, nickname) VALUES ('Ada', 36, 'ada')",
     )
@@ -7784,9 +7752,8 @@ fn execute_admin_sql_ddl_publishes_rename_column_for_ddl_owned_field() {
         ))
         .expect("setup nullable ADD COLUMN should publish before rejected RENAME COLUMN");
     let source_key_before = session_sql_field_source_key("nickname");
-    let before =
-        statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
-            .expect("SHOW COLUMNS should read accepted schema before RENAME COLUMN");
+    let before = statement_show_columns_sql(&session, "SHOW COLUMNS SessionSqlEntity")
+        .expect("SHOW COLUMNS should read accepted schema before RENAME COLUMN");
 
     let SqlStatementResult::Ddl(report) = session
         .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
@@ -7797,9 +7764,8 @@ fn execute_admin_sql_ddl_publishes_rename_column_for_ddl_owned_field() {
     else {
         panic!("RENAME COLUMN should return a DDL report");
     };
-    let after =
-        statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
-            .expect("SHOW COLUMNS should read accepted schema after RENAME COLUMN");
+    let after = statement_show_columns_sql(&session, "SHOW COLUMNS SessionSqlEntity")
+        .expect("SHOW COLUMNS should read accepted schema after RENAME COLUMN");
 
     assert_eq!(report.mutation_kind(), SqlDdlMutationKind::RenameField);
     assert_eq!(report.target_index(), "handle");
@@ -10119,7 +10085,7 @@ fn trusted_sql_mutation_requires_explicit_update_intent() {
     let session = sql_session();
 
     let insert = session
-        .execute_trusted_sql_mutation::<SessionSqlWriteEntity>(
+        .execute_trusted_sql_mutation(
             "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
         )
         .expect("execute_trusted_sql_mutation should admit INSERT");
@@ -10146,9 +10112,7 @@ fn trusted_sql_mutation_requires_explicit_update_intent() {
     );
 
     let err = session
-        .execute_trusted_sql_mutation::<SessionSqlWriteEntity>(
-            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
-        )
+        .execute_trusted_sql_mutation("UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1")
         .expect_err("broad mutation ingress should reject ambiguous UPDATE intent");
     assert_sql_surface_mismatch_detail(
         err,
@@ -10156,7 +10120,7 @@ fn trusted_sql_mutation_requires_explicit_update_intent() {
     );
 
     let update = session
-        .execute_trusted_sql_exact_update::<SessionSqlWriteEntity>(
+        .execute_trusted_sql_exact_update(
             "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
             1,
         )
@@ -10184,9 +10148,7 @@ fn trusted_sql_mutation_requires_explicit_update_intent() {
     );
 
     let delete = session
-        .execute_trusted_sql_mutation::<SessionSqlWriteEntity>(
-            "DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada'",
-        )
+        .execute_trusted_sql_mutation("DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada'")
         .expect("execute_trusted_sql_mutation should admit DELETE");
     let SqlStatementResult::Count { row_count } = delete else {
         panic!("execute_trusted_sql_mutation DELETE should emit count payload");
@@ -10211,7 +10173,7 @@ fn compile_sql_mutation_and_execute_compiled_preserve_supported_mutation_familie
     let session = sql_session();
 
     let insert = session
-        .compile_sql_mutation::<SessionSqlWriteEntity>(
+        .compile_sql_mutation(
             "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
         )
         .expect("INSERT should compile");
@@ -10231,9 +10193,7 @@ fn compile_sql_mutation_and_execute_compiled_preserve_supported_mutation_familie
     assert_eq!(row_count, 1);
 
     let update = session
-        .compile_sql_mutation::<SessionSqlWriteEntity>(
-            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
-        )
+        .compile_sql_mutation("UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1")
         .expect("UPDATE should compile");
     assert!(
         matches!(
@@ -10246,7 +10206,7 @@ fn compile_sql_mutation_and_execute_compiled_preserve_supported_mutation_familie
         .execute_compiled_sql::<SessionSqlWriteEntity>(&update)
         .expect_err("compiled UPDATE execution must require an explicit semantic lane");
     let SqlStatementResult::Count { row_count } = session
-        .execute_trusted_sql_exact_update::<SessionSqlWriteEntity>(
+        .execute_trusted_sql_exact_update(
             "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
             1,
         )
@@ -10257,9 +10217,7 @@ fn compile_sql_mutation_and_execute_compiled_preserve_supported_mutation_familie
     assert_eq!(row_count, 1);
 
     let delete = session
-        .compile_sql_mutation::<SessionSqlWriteEntity>(
-            "DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada' RETURNING name",
-        )
+        .compile_sql_mutation("DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada' RETURNING name")
         .expect("DELETE RETURNING should compile through mutation surface");
     let crate::db::session::sql::CompiledSqlCommand::Delete { returning, .. } = &delete else {
         panic!("DELETE RETURNING should compile to lowered DELETE artifact");
@@ -10288,7 +10246,7 @@ fn sql_compile_cache_keeps_query_and_mutation_surfaces_separate() {
 
     let insert_sql = "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)";
     let insert = session
-        .compile_sql_mutation::<SessionSqlWriteEntity>(insert_sql)
+        .compile_sql_mutation(insert_sql)
         .expect("mutation surface should compile INSERT into the session-local cache");
     assert!(
         matches!(
@@ -10803,14 +10761,14 @@ fn compiled_sql_write_reuses_its_revision_checked_catalog_context() {
     reset_session_sql_store();
     let session = sql_session();
     let (context, _, _) = session
-        .compile_sql_mutation_with_execution_context::<SessionSqlWriteEntity>(
+        .compile_sql_mutation_with_execution_context(
             "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
         )
         .expect("SQL INSERT should compile with accepted catalog authority");
 
     DbSession::<SessionSqlCanister>::reset_accepted_catalog_runtime_counters_for_tests();
     let _ = session
-        .execute_compiled_sql_context_owned::<SessionSqlWriteEntity>(context)
+        .execute_compiled_sql_context_owned(context)
         .expect("compiled SQL INSERT should execute under its accepted revision");
     let counters =
         DbSession::<SessionSqlCanister>::accepted_catalog_runtime_counter_snapshot_for_tests();
@@ -10988,12 +10946,12 @@ fn shared_query_plan_cache_keeps_is_true_and_is_not_true_filters_separate() {
         )
         .expect("IS NOT TRUE query should compile");
 
-    let true_rows = statement_projection_rows::<SessionSqlBoolCompareEntity>(
+    let true_rows = statement_projection_rows(
         &session,
         "SELECT label FROM SessionSqlBoolCompareEntity WHERE active IS TRUE ORDER BY label ASC",
     )
     .expect("IS TRUE query should execute");
-    let not_true_rows = statement_projection_rows::<SessionSqlBoolCompareEntity>(
+    let not_true_rows = statement_projection_rows(
         &session,
         "SELECT label FROM SessionSqlBoolCompareEntity WHERE active IS NOT TRUE ORDER BY label ASC",
     )
@@ -12922,7 +12880,7 @@ fn sql_compile_cache_covers_insert_update_and_delete_mutation_families() {
     );
 
     let insert = session
-        .compile_sql_mutation::<SessionSqlWriteEntity>(
+        .compile_sql_mutation(
             "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
         )
         .expect("INSERT should compile into the mutation-surface cache");
@@ -12940,7 +12898,7 @@ fn sql_compile_cache_covers_insert_update_and_delete_mutation_families() {
     );
 
     let insert_repeat = session
-        .compile_sql_mutation::<SessionSqlWriteEntity>(
+        .compile_sql_mutation(
             "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
         )
         .expect("same INSERT should compile from the existing mutation-surface cache entry");
@@ -12958,9 +12916,7 @@ fn sql_compile_cache_covers_insert_update_and_delete_mutation_families() {
     );
 
     let update = session
-        .compile_sql_mutation::<SessionSqlWriteEntity>(
-            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
-        )
+        .compile_sql_mutation("UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1")
         .expect("UPDATE should compile into the mutation-surface cache");
     assert!(
         matches!(
@@ -12971,9 +12927,7 @@ fn sql_compile_cache_covers_insert_update_and_delete_mutation_families() {
     );
 
     let delete = session
-        .compile_sql_mutation::<SessionSqlWriteEntity>(
-            "DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada' RETURNING name",
-        )
+        .compile_sql_mutation("DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada' RETURNING name")
         .expect("DELETE RETURNING should compile into the mutation-surface cache");
     assert!(
         matches!(

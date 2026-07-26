@@ -2,19 +2,18 @@ use super::{
     SqlWriteMutationExecution, reject_explicit_sql_write_to_generated_field,
     reject_explicit_sql_write_to_managed_field, require_sql_write_policy_plan,
     sql_exact_update_candidate_bounds, sql_update_candidate_bounds,
-    sql_write_input_for_accepted_field, sql_write_key_from_component_literals,
-    sql_write_key_from_literal, sql_write_patch_set_accepted_field,
+    sql_write_input_for_accepted_field, sql_write_patch_set_accepted_field,
     sql_write_patch_set_update_default,
 };
 use crate::{
     db::{
-        DbSession, MissingRowPolicy, PersistedRow, QueryError,
+        DbSession, MissingRowPolicy, QueryError,
         data::AcceptedMutationIntentPatch,
-        executor::{MutationMode, StructuralMutationTargetKey, StructuralProjectionScanBudget},
+        executor::{MutationMode, StructuralProjectionScanBudget},
         query::intent::StructuralQuery,
         schema::AcceptedRowLayoutRuntimeContract,
         session::{
-            AcceptedSchemaCatalogContext,
+            AcceptedSchemaCatalogContext, AcceptedStructuralMutationTarget,
             sql::{
                 SqlExactUpdatePolicy, SqlExactUpdatePolicyRejection, SqlPublicBoundedUpdatePlan,
                 SqlPublicPrimaryKeyUpdatePlan, SqlStatementResult, SqlTrustedExactUpdatePlan,
@@ -22,13 +21,13 @@ use crate::{
                 SqlValidatedUpdatePlan, classify_sql_update_policy_for_entity,
                 with_accepted_sql_update_policy_context, write_policy::SqlWriteExecutionBounds,
             },
+            structural_data_key_from_runtime_values,
         },
         sql::{
             lowering::bind_sql_update_selector_query_structural_with_schema,
             parser::{SqlUpdateStatement, SqlWriteValue},
         },
     },
-    entity::EntityKind,
     metrics::sink::SqlWriteKind,
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
     traits::CanisterKind,
@@ -198,44 +197,34 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(selector.select_fields(primary_key_names))
     }
 
-    fn sql_write_key_from_projected_row<E>(
+    fn sql_write_key_from_projected_row(
+        entity_tag: crate::types::EntityTag,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         row: &[Value],
-    ) -> Result<E::Key, QueryError>
-    where
-        E: EntityKind,
-    {
+    ) -> Result<crate::db::data::DecodedDataStoreKey, QueryError> {
         let primary_key_names = descriptor.primary_key_names();
-        if primary_key_names.len() == 1 {
-            let Some(value) = row.first() else {
-                return Err(QueryError::invariant());
-            };
-
-            return sql_write_key_from_literal::<E>(descriptor, value);
-        }
-
         if row.len() != primary_key_names.len() {
             return Err(QueryError::invariant());
         }
 
-        sql_write_key_from_component_literals::<E>(descriptor, row)
+        structural_data_key_from_runtime_values(entity_tag, row.to_vec())
+            .map_err(QueryError::execute)
     }
 
-    fn execute_sql_update_statement_with_contract<E>(
+    fn execute_sql_update_statement_with_contract(
         &self,
         statement: &SqlUpdateStatement,
         catalog: Option<&AcceptedSchemaCatalogContext>,
         execution_contract: SqlUpdateExecutionContract,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
+    ) -> Result<SqlStatementResult, QueryError> {
+        self.with_checked_accepted_write_descriptor_for_returning(
             catalog,
+            Some(statement.entity.as_str()),
             statement.returning.as_ref(),
             |catalog, descriptor| {
                 let (authority, schema_info) =
-                    Self::accepted_sql_write_authority_schema_info::<E>(catalog)?;
+                    Self::accepted_sql_write_authority_schema_info(catalog)?;
+                let entity_tag = catalog.identity().entity_tag();
                 let selector = execution_contract
                     .selector(Self::sql_update_selector_query(&schema_info, statement)?);
                 let patch = Self::sql_structural_patch(&descriptor, statement)?;
@@ -251,13 +240,19 @@ impl<C: CanisterKind> DbSession<C> {
                         candidate_bounds,
                         scan_budget,
                         |row| {
-                            let key =
-                                Self::sql_write_key_from_projected_row::<E>(&descriptor, row)?;
+                            let key = Self::sql_write_key_from_projected_row(
+                                entity_tag,
+                                &descriptor,
+                                row,
+                            )?;
 
-                            Ok((StructuralMutationTargetKey::expected(key), patch.clone()))
+                            Ok((
+                                AcceptedStructuralMutationTarget::expected(key),
+                                patch.clone(),
+                            ))
                         },
                     )?;
-                self.execute_sql_write_mutation_batch::<E>(
+                self.execute_sql_write_mutation_batch(
                     catalog,
                     &descriptor,
                     SqlWriteMutationExecution::from_bounded_collection(
@@ -274,16 +269,15 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    fn schema_derived_sql_update_report<E>(
+    fn schema_derived_sql_update_report(
         &self,
         sql: &str,
         policy: SqlUpdateExposurePolicy,
-    ) -> Result<SqlUpdatePolicyReport, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
+    ) -> Result<SqlUpdatePolicyReport, QueryError> {
+        let entity_name = crate::db::session::sql::sql_statement_entity_name(sql)?;
+        self.with_checked_accepted_write_descriptor_for_returning(
             None,
+            entity_name.as_deref(),
             None,
             |catalog, descriptor| {
                 with_accepted_sql_update_policy_context(&descriptor, |context| {
@@ -298,15 +292,12 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    fn schema_derived_sql_update_plan<E>(
+    fn schema_derived_sql_update_plan(
         &self,
         sql: &str,
         policy: SqlUpdateExposurePolicy,
-    ) -> Result<SqlValidatedUpdatePlan, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let report = self.schema_derived_sql_update_report::<E>(sql, policy)?;
+    ) -> Result<SqlValidatedUpdatePlan, QueryError> {
+        let report = self.schema_derived_sql_update_report(sql, policy)?;
 
         require_sql_write_policy_plan(report.plan)
     }
@@ -318,14 +309,11 @@ impl<C: CanisterKind> DbSession<C> {
     /// session-current or bounded/admin plans through this at-most-one-row
     /// execution path by accident.
     #[doc(hidden)]
-    pub(in crate::db) fn execute_validated_sql_public_primary_key_update<E>(
+    pub(in crate::db) fn execute_validated_sql_public_primary_key_update(
         &self,
         plan: &SqlPublicPrimaryKeyUpdatePlan,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.execute_sql_update_statement_with_contract::<E>(
+    ) -> Result<SqlStatementResult, QueryError> {
+        self.execute_sql_update_statement_with_contract(
             plan.statement(),
             None,
             SqlUpdateExecutionContract::Validated(plan.execution_bounds()),
@@ -334,14 +322,11 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Execute a policy-validated bounded deterministic SQL `UPDATE` plan.
     #[doc(hidden)]
-    pub(in crate::db) fn execute_validated_sql_public_bounded_update<E>(
+    pub(in crate::db) fn execute_validated_sql_public_bounded_update(
         &self,
         plan: &SqlPublicBoundedUpdatePlan,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.execute_sql_update_statement_with_contract::<E>(
+    ) -> Result<SqlStatementResult, QueryError> {
+        self.execute_sql_update_statement_with_contract(
             plan.statement(),
             None,
             SqlUpdateExecutionContract::Validated(plan.execution_bounds()),
@@ -350,14 +335,11 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Execute a validated exact complete-set SQL `UPDATE` plan.
     #[doc(hidden)]
-    pub(in crate::db) fn execute_validated_sql_trusted_exact_update<E>(
+    pub(in crate::db) fn execute_validated_sql_trusted_exact_update(
         &self,
         plan: &SqlTrustedExactUpdatePlan,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.execute_sql_update_statement_with_contract::<E>(
+    ) -> Result<SqlStatementResult, QueryError> {
+        self.execute_sql_update_statement_with_contract(
             plan.statement(),
             None,
             SqlUpdateExecutionContract::Exact {
@@ -373,34 +355,26 @@ impl<C: CanisterKind> DbSession<C> {
     /// callers cannot accidentally validate public SQL against generated model
     /// facts or hand-authored field lists.
     #[doc(hidden)]
-    pub fn execute_sql_public_primary_key_update<E>(
+    pub fn execute_sql_public_primary_key_update(
         &self,
         sql: &str,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let plan = self.schema_derived_sql_update_plan::<E>(
-            sql,
-            SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
-        )?;
+    ) -> Result<SqlStatementResult, QueryError> {
+        let plan = self
+            .schema_derived_sql_update_plan(sql, SqlUpdateExposurePolicy::PublicPrimaryKeyOnly)?;
         let SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(plan) = plan else {
             return Err(QueryError::invariant());
         };
 
-        self.execute_validated_sql_public_primary_key_update::<E>(&plan)
+        self.execute_validated_sql_public_primary_key_update(&plan)
     }
 
     /// Classify and execute one bounded deterministic public SQL `UPDATE`.
     #[doc(hidden)]
-    pub fn execute_sql_public_bounded_update<E>(
+    pub fn execute_sql_public_bounded_update(
         &self,
         sql: &str,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let plan = self.schema_derived_sql_update_plan::<E>(
+    ) -> Result<SqlStatementResult, QueryError> {
+        let plan = self.schema_derived_sql_update_plan(
             sql,
             SqlUpdateExposurePolicy::PublicBoundedDeterministic,
         )?;
@@ -408,21 +382,18 @@ impl<C: CanisterKind> DbSession<C> {
             return Err(QueryError::invariant());
         };
 
-        self.execute_validated_sql_public_bounded_update::<E>(&plan)
+        self.execute_validated_sql_public_bounded_update(&plan)
     }
 
     /// Execute one intentional primary-key-ordered prefix SQL `UPDATE`.
     ///
     /// The statement's positive `LIMIT` selects the prefix to mutate. This
     /// contract does not claim that every matching row was updated.
-    pub fn execute_trusted_sql_prefix_update<E>(
+    pub fn execute_trusted_sql_prefix_update(
         &self,
         sql: &str,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.execute_sql_public_bounded_update::<E>(sql)
+    ) -> Result<SqlStatementResult, QueryError> {
+        self.execute_sql_public_bounded_update(sql)
     }
 
     /// Execute one trusted exact complete-set SQL `UPDATE`.
@@ -432,14 +403,11 @@ impl<C: CanisterKind> DbSession<C> {
     /// rejects before mutation when either the affected-row assertion or the
     /// separate scanned-key budget is exceeded. Both current per-call ceilings
     /// are 4,096.
-    pub fn execute_trusted_sql_exact_update<E>(
+    pub fn execute_trusted_sql_exact_update(
         &self,
         sql: &str,
         require_affected_at_most: u32,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<SqlStatementResult, QueryError> {
         let policy =
             SqlExactUpdatePolicy::try_new(require_affected_at_most).map_err(|rejection| {
                 QueryError::sql_write_boundary(match rejection {
@@ -451,12 +419,10 @@ impl<C: CanisterKind> DbSession<C> {
                     }
                 })
             })?;
-        let report = self.schema_derived_sql_update_report::<E>(
-            sql,
-            SqlUpdateExposurePolicy::TrustedExact(policy),
-        )?;
+        let report = self
+            .schema_derived_sql_update_report(sql, SqlUpdateExposurePolicy::TrustedExact(policy))?;
         let plan = require_sql_exact_update_plan(report)?;
 
-        self.execute_validated_sql_trusted_exact_update::<E>(&plan)
+        self.execute_validated_sql_trusted_exact_update(&plan)
     }
 }

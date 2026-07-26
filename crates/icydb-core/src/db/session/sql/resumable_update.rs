@@ -7,7 +7,7 @@
 
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryError,
+        DbSession, QueryError,
         codec::{
             finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_u64,
         },
@@ -16,9 +16,7 @@ use crate::{
             RawDataStoreKey, StoreVisit, StructuralRowContract, StructuralSlotReader,
         },
         database_format::crc32c,
-        executor::{
-            StructuralMutationTargetKey, eval_compiled_filter_expr_with_required_slot_reader,
-        },
+        executor::eval_compiled_filter_expr_with_required_slot_reader,
         journal::JournalTailStore,
         key_taxonomy::RawDataStoreKeyRange,
         query::{
@@ -37,14 +35,13 @@ use crate::{
             classify_sql_resumable_update_policy, with_accepted_sql_update_policy_context,
         },
         session::{
-            AcceptedSchemaCatalogContext,
-            accepted_schema::accepted_save_contract_for_catalog_context,
+            AcceptedSchemaCatalogContext, AcceptedStructuralMutation,
+            AcceptedStructuralMutationTarget,
         },
     },
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
-    sanitize::{SanitizeWriteContext, SanitizeWriteMode},
-    traits::{CanisterKind, Path},
+    traits::CanisterKind,
     types::{CurrentTimestamp, EntityTag, Timestamp, Ulid},
 };
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
@@ -86,7 +83,8 @@ const RESUMABLE_UPDATE_CHECKPOINT_POLICY_VERSION: u32 = 1;
 const RESUMABLE_UPDATE_NEEDS_PATCH_POLICY_VERSION: u32 = 1;
 const RESUMABLE_UPDATE_REVISION_POLICY_VERSION: u32 = 1;
 const RESUMABLE_UPDATE_MARKER_ACCOUNTING_POLICY_VERSION: u32 = 1;
-const RESUMABLE_UPDATE_BATCH_POLICY_INPUTS: [u32; 10] = [
+const RESUMABLE_UPDATE_OPERATION_TIMESTAMP_POLICY_VERSION: u32 = 1;
+const RESUMABLE_UPDATE_BATCH_POLICY_INPUTS: [u32; 11] = [
     u32::from_be_bytes(*RESUMABLE_UPDATE_CONTINUATION_MAGIC),
     RESUMABLE_UPDATE_CONTINUATION_FORMAT_VERSION as u32,
     RESUMABLE_UPDATE_CONTINUATION_BYTES_POLICY,
@@ -97,11 +95,12 @@ const RESUMABLE_UPDATE_BATCH_POLICY_INPUTS: [u32; 10] = [
     RESUMABLE_UPDATE_NEEDS_PATCH_POLICY_VERSION,
     RESUMABLE_UPDATE_REVISION_POLICY_VERSION,
     RESUMABLE_UPDATE_MARKER_ACCOUNTING_POLICY_VERSION,
+    RESUMABLE_UPDATE_OPERATION_TIMESTAMP_POLICY_VERSION,
 ];
 const RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY: u32 =
     resumable_update_batch_policy_identity(RESUMABLE_UPDATE_BATCH_POLICY_INPUTS);
 
-const fn resumable_update_batch_policy_identity(inputs: [u32; 10]) -> u32 {
+const fn resumable_update_batch_policy_identity(inputs: [u32; 11]) -> u32 {
     let mut identity = 0x811c_9dc5_u32;
     let mut index = 0;
     while index < inputs.len() {
@@ -182,6 +181,10 @@ impl TrustedResumableUpdateContinuation {
         Ok(Self { bytes })
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the current continuation constructor binds every persisted proof component explicitly"
+    )]
     fn initial(
         operation_id: Ulid,
         entity_tag: u64,
@@ -190,6 +193,7 @@ impl TrustedResumableUpdateContinuation {
         schema_fingerprint: [u8; 16],
         scope_fingerprint: [u8; 32],
         patch_fingerprint: [u8; 32],
+        operation_timestamp: Timestamp,
     ) -> Result<Self, QueryError> {
         DecodedResumableUpdateContinuation {
             operation_id,
@@ -199,6 +203,7 @@ impl TrustedResumableUpdateContinuation {
             schema_fingerprint,
             scope_fingerprint,
             patch_fingerprint,
+            operation_timestamp,
             phase: TrustedResumableUpdatePhase::Forward,
             checkpoint: None,
             verify_revision: None,
@@ -272,6 +277,7 @@ struct DecodedResumableUpdateContinuation {
     schema_fingerprint: [u8; 16],
     scope_fingerprint: [u8; 32],
     patch_fingerprint: [u8; 32],
+    operation_timestamp: Timestamp,
     phase: TrustedResumableUpdatePhase,
     checkpoint: Option<RawDataStoreKey>,
     verify_revision: Option<u64>,
@@ -296,6 +302,7 @@ impl DecodedResumableUpdateContinuation {
         bytes.extend_from_slice(&self.schema_fingerprint);
         bytes.extend_from_slice(&self.scope_fingerprint);
         bytes.extend_from_slice(&self.patch_fingerprint);
+        bytes.extend_from_slice(&self.operation_timestamp.as_millis().to_be_bytes());
         bytes.push(self.phase.wire());
         bytes.extend_from_slice(&checkpoint_len.to_be_bytes());
         bytes.extend_from_slice(checkpoint);
@@ -319,7 +326,7 @@ impl DecodedResumableUpdateContinuation {
 
     fn decode(bytes: &[u8]) -> Result<Self, QueryError> {
         if bytes.len() > MAX_RESUMABLE_UPDATE_CONTINUATION_BYTES
-            || bytes.len() < 156
+            || bytes.len() < 164
             || bytes.get(..4) != Some(RESUMABLE_UPDATE_CONTINUATION_MAGIC)
         {
             return Err(malformed_continuation());
@@ -346,6 +353,7 @@ impl DecodedResumableUpdateContinuation {
         let schema_fingerprint = reader.read_array()?;
         let scope_fingerprint = reader.read_array()?;
         let patch_fingerprint = reader.read_array()?;
+        let operation_timestamp = Timestamp::from_millis(reader.read_i64()?);
         let phase = TrustedResumableUpdatePhase::from_wire(reader.read_u8()?)?;
         let checkpoint_bytes = reader.read_len_prefixed_bytes()?;
         let checkpoint = if checkpoint_bytes.is_empty() {
@@ -380,6 +388,7 @@ impl DecodedResumableUpdateContinuation {
             schema_fingerprint,
             scope_fingerprint,
             patch_fingerprint,
+            operation_timestamp,
             phase,
             checkpoint,
             verify_revision,
@@ -435,6 +444,10 @@ impl<'a> ResumableTokenReader<'a> {
         Ok(u64::from_be_bytes(self.read_array()?))
     }
 
+    fn read_i64(&mut self) -> Result<i64, QueryError> {
+        Ok(i64::from_be_bytes(self.read_array()?))
+    }
+
     fn read_len_prefixed_bytes(&mut self) -> Result<&'a [u8], QueryError> {
         let len = usize::try_from(self.read_u32()?).map_err(|_| malformed_continuation())?;
         self.read_exact(len)
@@ -461,69 +474,67 @@ impl<C: CanisterKind> DbSession<C> {
     /// single-entity scope in a journaled store. This call only validates and
     /// binds current accepted authority. The application must durably custody
     /// the returned continuation before a later resume call may mutate rows.
-    pub fn prepare_trusted_sql_resumable_update<E>(
+    pub fn prepare_trusted_sql_resumable_update(
         &self,
         operation_id: Ulid,
         sql: &str,
-    ) -> Result<TrustedResumableUpdateContinuation, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<TrustedResumableUpdateContinuation, QueryError> {
+        let entity_name = crate::db::session::sql::sql_statement_entity_name(sql)?
+            .ok_or_else(QueryError::unsupported_query)?;
+        let catalog = self
+            .accepted_schema_catalog_context_for_entity_name(Some(entity_name.as_str()))
+            .map_err(QueryError::execute)?;
+        let identity = catalog.identity();
         let store = self
             .db
-            .recovered_store(E::Store::PATH)
+            .recovered_store(identity.store_path())
             .map_err(QueryError::execute)?;
         if store.storage_capabilities().storage_mode() != StoreRuntimeStorageMode::Journaled {
             return Err(QueryError::sql_write_boundary(
                 SqlWriteBoundaryCode::ResumableUpdateRequiresJournaledStore,
             ));
         }
-        self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
-            None,
-            None,
-            |catalog, descriptor| {
-                let report = with_accepted_sql_update_policy_context(&descriptor, |context| {
-                    classify_sql_resumable_update_policy(
-                        sql,
-                        catalog.snapshot().persisted_snapshot().entity_name(),
-                        context,
-                    )
-                })?;
-                let plan = require_resumable_update_plan(report)?;
-                let selector = Self::sql_update_selector_query(
-                    &catalog.accepted_schema_info_for::<E>(),
-                    plan.statement(),
-                )?;
-                let patch = Self::sql_structural_patch(&descriptor, plan.statement())?;
-                let fixed_patch = AcceptedFixedUpdatePatch::from_update_intent(
-                    E::PATH,
-                    descriptor.row_decode_contract(catalog.value_catalog_handle().clone()),
-                    &patch,
-                )
-                .map_err(QueryError::execute)?;
-                let eligibility = prove_resumable_update_eligibility::<E>(
-                    catalog.snapshot().persisted_snapshot(),
-                    &descriptor,
-                    &selector,
-                    &fixed_patch,
-                )?;
-                let target_identity = resumable_update_target_identity(
-                    &store,
-                    E::Store::PATH,
-                    E::PATH,
-                    E::ENTITY_TAG.value(),
-                )?;
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
+            .map_err(QueryError::execute)?;
+        let report = with_accepted_sql_update_policy_context(&descriptor, |context| {
+            classify_sql_resumable_update_policy(
+                sql,
+                catalog.snapshot().persisted_snapshot().entity_name(),
+                context,
+            )
+        })?;
+        let plan = require_resumable_update_plan(report)?;
+        let selector =
+            Self::sql_update_selector_query(&catalog.accepted_schema_info(), plan.statement())?;
+        let patch = Self::sql_structural_patch(&descriptor, plan.statement())?;
+        let fixed_patch = AcceptedFixedUpdatePatch::from_update_intent(
+            identity.entity_path(),
+            descriptor.row_decode_contract(catalog.value_catalog_handle().clone()),
+            &patch,
+        )
+        .map_err(QueryError::execute)?;
+        let eligibility = prove_resumable_update_eligibility(
+            catalog.snapshot().persisted_snapshot(),
+            &descriptor,
+            &selector,
+            &fixed_patch,
+        )?;
+        let target_identity = resumable_update_target_identity(
+            &store,
+            identity.store_path(),
+            identity.entity_path(),
+            identity.entity_tag().value(),
+        )?;
 
-                TrustedResumableUpdateContinuation::initial(
-                    operation_id,
-                    E::ENTITY_TAG.value(),
-                    target_identity,
-                    catalog.fingerprint_method_version(),
-                    catalog.fingerprint(),
-                    eligibility.scope_fingerprint,
-                    eligibility.patch_fingerprint,
-                )
-            },
+        TrustedResumableUpdateContinuation::initial(
+            operation_id,
+            identity.entity_tag().value(),
+            target_identity,
+            catalog.fingerprint_method_version(),
+            catalog.fingerprint(),
+            eligibility.scope_fingerprint,
+            eligibility.patch_fingerprint,
+            Timestamp::now(),
         )
     }
 
@@ -535,15 +546,12 @@ impl<C: CanisterKind> DbSession<C> {
     /// scans at most 256 authoritative keys, stages at most 64 updates, and
     /// commits at most one atomic batch. Verify steps are read-only and return
     /// complete only after a stable full accepted-keyspace sweep.
-    pub fn resume_trusted_sql_resumable_update<E>(
+    pub fn resume_trusted_sql_resumable_update(
         &self,
         operation_id: Ulid,
         sql: &str,
         continuation: &TrustedResumableUpdateContinuation,
-    ) -> Result<TrustedResumableUpdateReceipt, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<TrustedResumableUpdateReceipt, QueryError> {
         let mut decoded = DecodedResumableUpdateContinuation::decode(continuation.as_bytes())?;
         if decoded.operation_id != operation_id {
             return Err(QueryError::sql_write_boundary(
@@ -551,9 +559,15 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
+        let entity_name = crate::db::session::sql::sql_statement_entity_name(sql)?
+            .ok_or_else(QueryError::unsupported_query)?;
+        let catalog = self
+            .accepted_schema_catalog_context_for_entity_name(Some(entity_name.as_str()))
+            .map_err(QueryError::execute)?;
+        let identity = catalog.identity();
         let store = self
             .db
-            .recovered_store(E::Store::PATH)
+            .recovered_store(identity.store_path())
             .map_err(QueryError::execute)?;
         if store.storage_capabilities().storage_mode() != StoreRuntimeStorageMode::Journaled {
             return Err(QueryError::sql_write_boundary(
@@ -561,24 +575,20 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
-        self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
-            None,
-            None,
-            |catalog, descriptor| {
-                resume_resumable_update_with_authority::<C, E>(
-                    self,
-                    sql,
-                    &store,
-                    &mut decoded,
-                    catalog,
-                    descriptor,
-                )
-            },
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
+            .map_err(QueryError::execute)?;
+        resume_resumable_update_with_authority(
+            self,
+            sql,
+            &store,
+            &mut decoded,
+            &catalog,
+            descriptor,
         )
     }
 }
 
-fn resume_resumable_update_with_authority<C, E>(
+fn resume_resumable_update_with_authority<C>(
     session: &DbSession<C>,
     sql: &str,
     store: &StoreHandle,
@@ -588,7 +598,6 @@ fn resume_resumable_update_with_authority<C, E>(
 ) -> Result<TrustedResumableUpdateReceipt, QueryError>
 where
     C: CanisterKind,
-    E: PersistedRow<Canister = C>,
 {
     let report = with_accepted_sql_update_policy_context(&descriptor, |context| {
         classify_sql_resumable_update_policy(
@@ -598,32 +607,37 @@ where
         )
     })?;
     let plan = require_resumable_update_plan(report)?;
-    let schema_info = catalog.accepted_schema_info_for::<E>();
+    let identity = catalog.identity();
+    let schema_info = catalog.accepted_schema_info();
     let selector = DbSession::<C>::sql_update_selector_query(&schema_info, plan.statement())?;
     let patch = DbSession::<C>::sql_structural_patch(&descriptor, plan.statement())?;
     let fixed_patch = AcceptedFixedUpdatePatch::from_update_intent(
-        E::PATH,
+        identity.entity_path(),
         descriptor.row_decode_contract(catalog.value_catalog_handle().clone()),
         &patch,
     )
     .map_err(QueryError::execute)?;
-    let eligibility = prove_resumable_update_eligibility::<E>(
+    let eligibility = prove_resumable_update_eligibility(
         catalog.snapshot().persisted_snapshot(),
         &descriptor,
         &selector,
         &fixed_patch,
     )?;
-    let target_identity =
-        resumable_update_target_identity(store, E::Store::PATH, E::PATH, E::ENTITY_TAG.value())?;
+    let target_identity = resumable_update_target_identity(
+        store,
+        identity.store_path(),
+        identity.entity_path(),
+        identity.entity_tag().value(),
+    )?;
     validate_resumable_update_bindings(
         continuation,
-        E::ENTITY_TAG.value(),
+        identity.entity_tag().value(),
         target_identity,
         catalog.fingerprint_method_version(),
         catalog.fingerprint(),
         &eligibility,
     )?;
-    validate_resumable_update_checkpoint::<E>(continuation)?;
+    validate_resumable_update_checkpoint(continuation, identity.entity_tag())?;
 
     let scope = selector.scalar_filter_expr().ok_or_else(|| {
         QueryError::sql_write_boundary(SqlWriteBoundaryCode::UpdateMissingWherePredicate)
@@ -636,12 +650,12 @@ where
             )
         })?;
     let row_contract = StructuralRowContract::from_accepted_decode_contract(
-        E::PATH,
+        identity.entity_path(),
         descriptor.row_decode_contract(catalog.value_catalog_handle().clone()),
     );
 
     match continuation.phase {
-        TrustedResumableUpdatePhase::Forward => resume_resumable_update_forward::<C, E>(
+        TrustedResumableUpdatePhase::Forward => resume_resumable_update_forward(
             session,
             store,
             continuation,
@@ -652,9 +666,11 @@ where
             &fixed_patch,
             &patch,
         ),
-        TrustedResumableUpdatePhase::Verify => resume_resumable_update_verify::<E>(
+        TrustedResumableUpdatePhase::Verify => resume_resumable_update_verify(
             store,
             continuation,
+            identity.entity_path(),
+            identity.entity_tag(),
             &compiled_scope,
             &row_contract,
             &fixed_patch,
@@ -666,7 +682,7 @@ where
     clippy::too_many_arguments,
     reason = "the Forward boundary keeps each already-bound authority explicit"
 )]
-fn resume_resumable_update_forward<C, E>(
+fn resume_resumable_update_forward<C>(
     session: &DbSession<C>,
     store: &StoreHandle,
     continuation: &mut DecodedResumableUpdateContinuation,
@@ -679,23 +695,24 @@ fn resume_resumable_update_forward<C, E>(
 ) -> Result<TrustedResumableUpdateReceipt, QueryError>
 where
     C: CanisterKind,
-    E: PersistedRow<Canister = C>,
 {
-    let scan = scan_resumable_update_forward::<E>(
+    let identity = catalog.identity();
+    let scan = scan_resumable_update_forward(
         store,
         continuation.checkpoint.as_ref(),
+        identity.entity_tag(),
         compiled_scope,
         row_contract,
         fixed_patch,
     )?;
-    record_resumable_rows_scanned::<E>(scan.physical_keys_scanned);
+    record_resumable_rows_scanned(identity.entity_path(), scan.physical_keys_scanned);
 
     let candidate_rows = scan
         .candidates
         .iter()
         .map(|candidate| {
-            (
-                StructuralMutationTargetKey::expected(candidate.key),
+            AcceptedStructuralMutation::new(
+                AcceptedStructuralMutationTarget::expected(candidate.key.clone()),
                 patch.clone(),
             )
         })
@@ -703,27 +720,12 @@ where
     let committed_rows = if candidate_rows.is_empty() {
         0
     } else {
-        let (
-            row_decode_contract,
-            mutation_row_decode_contract,
-            accepted_schema_info,
-            accepted_schema_fingerprint,
-            accepted_row_constraints,
-        ) = accepted_save_contract_for_catalog_context::<E>(catalog, descriptor);
         session
-            .execute_save_with_checked_accepted_row_contract::<E, _, _>(
-                row_decode_contract,
-                accepted_schema_info,
-                accepted_schema_fingerprint,
-                accepted_row_constraints,
-                |save| {
-                    save.apply_internal_lowered_resumable_structural_update_prefix(
-                        candidate_rows,
-                        SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now()),
-                        mutation_row_decode_contract,
-                    )
-                },
-                std::convert::identity,
+            .execute_accepted_structural_update_prefix(
+                catalog,
+                descriptor,
+                candidate_rows,
+                continuation.operation_timestamp,
             )
             .map_err(QueryError::execute)?
     };
@@ -810,17 +812,15 @@ impl<K> ResumableForwardScan<K> {
     }
 }
 
-fn scan_resumable_update_forward<E>(
+fn scan_resumable_update_forward(
     store: &StoreHandle,
     checkpoint: Option<&RawDataStoreKey>,
+    entity_tag: EntityTag,
     compiled_scope: &CompiledExpr,
     row_contract: &StructuralRowContract,
     fixed_patch: &AcceptedFixedUpdatePatch,
-) -> Result<ResumableForwardScan<E::Key>, QueryError>
-where
-    E: PersistedRow,
-{
-    let range = RawDataStoreKeyRange::entity_prefix(E::ENTITY_TAG);
+) -> Result<ResumableForwardScan<DecodedDataStoreKey>, QueryError> {
+    let range = RawDataStoreKeyRange::entity_prefix(entity_tag);
     let lower = checkpoint.cloned().map_or_else(
         || Bound::Included(RawDataStoreKey::store_range_lower_key(&range)),
         Bound::Excluded,
@@ -846,7 +846,7 @@ where
 
                 let decoded_key = DecodedDataStoreKey::try_from_raw(raw_key)
                     .map_err(|_| InternalError::identity_corruption())?;
-                if decoded_key.entity_tag() != E::ENTITY_TAG {
+                if decoded_key.entity_tag() != entity_tag {
                     return Err(InternalError::identity_corruption());
                 }
                 let row = StructuralSlotReader::from_raw_row_with_validated_contract(
@@ -855,7 +855,7 @@ where
                 )?;
                 if resumable_row_needs_patch(compiled_scope, fixed_patch, &row)? {
                     candidates.push(ResumableForwardCandidate {
-                        key: decoded_key.try_key::<E>()?,
+                        key: decoded_key,
                         checkpoint_before: final_checkpoint.clone(),
                         keys_scanned_before: physical_keys_scanned,
                     });
@@ -883,16 +883,15 @@ struct ResumableVerifyScan {
     residual_work: bool,
 }
 
-fn resume_resumable_update_verify<E>(
+fn resume_resumable_update_verify(
     store: &StoreHandle,
     continuation: &mut DecodedResumableUpdateContinuation,
+    entity_path: &'static str,
+    entity_tag: EntityTag,
     compiled_scope: &CompiledExpr,
     row_contract: &StructuralRowContract,
     fixed_patch: &AcceptedFixedUpdatePatch,
-) -> Result<TrustedResumableUpdateReceipt, QueryError>
-where
-    E: PersistedRow,
-{
+) -> Result<TrustedResumableUpdateReceipt, QueryError> {
     let captured_revision = continuation
         .verify_revision
         .ok_or_else(QueryError::invariant)?;
@@ -906,14 +905,15 @@ where
         );
     }
 
-    let scan = scan_resumable_update_verify::<E>(
+    let scan = scan_resumable_update_verify(
         store,
         continuation.checkpoint.as_ref(),
+        entity_tag,
         compiled_scope,
         row_contract,
         fixed_patch,
     )?;
-    record_resumable_rows_scanned::<E>(scan.keys_scanned);
+    record_resumable_rows_scanned(entity_path, scan.keys_scanned);
     if scan.residual_work {
         continuation.restart_forward();
         return in_progress_receipt(
@@ -941,17 +941,15 @@ where
     complete_receipt(scan.keys_scanned)
 }
 
-fn scan_resumable_update_verify<E>(
+fn scan_resumable_update_verify(
     store: &StoreHandle,
     checkpoint: Option<&RawDataStoreKey>,
+    entity_tag: EntityTag,
     compiled_scope: &CompiledExpr,
     row_contract: &StructuralRowContract,
     fixed_patch: &AcceptedFixedUpdatePatch,
-) -> Result<ResumableVerifyScan, QueryError>
-where
-    E: PersistedRow,
-{
-    let range = RawDataStoreKeyRange::entity_prefix(E::ENTITY_TAG);
+) -> Result<ResumableVerifyScan, QueryError> {
+    let range = RawDataStoreKeyRange::entity_prefix(entity_tag);
     let lower = checkpoint.cloned().map_or_else(
         || Bound::Included(RawDataStoreKey::store_range_lower_key(&range)),
         Bound::Excluded,
@@ -975,10 +973,9 @@ where
 
                 let decoded_key = DecodedDataStoreKey::try_from_raw(raw_key)
                     .map_err(|_| InternalError::identity_corruption())?;
-                if decoded_key.entity_tag() != E::ENTITY_TAG {
+                if decoded_key.entity_tag() != entity_tag {
                     return Err(InternalError::identity_corruption());
                 }
-                let _ = decoded_key.try_key::<E>()?;
                 let row = StructuralSlotReader::from_raw_row_with_validated_contract(
                     raw_row,
                     row_contract.clone(),
@@ -1014,12 +1011,9 @@ fn resumable_row_needs_patch(
     )
 }
 
-fn record_resumable_rows_scanned<E>(keys_scanned: usize)
-where
-    E: PersistedRow,
-{
+fn record_resumable_rows_scanned(entity_path: &'static str, keys_scanned: usize) {
     record(MetricsEvent::RowsScanned {
-        entity_path: E::PATH,
+        entity_path,
         rows_scanned: u64::try_from(keys_scanned).unwrap_or(u64::MAX),
     });
 }
@@ -1072,20 +1066,18 @@ fn validate_resumable_update_bindings(
     Ok(())
 }
 
-fn validate_resumable_update_checkpoint<E>(
+fn validate_resumable_update_checkpoint(
     continuation: &DecodedResumableUpdateContinuation,
-) -> Result<(), QueryError>
-where
-    E: PersistedRow,
-{
+    entity_tag: EntityTag,
+) -> Result<(), QueryError> {
     let Some(checkpoint) = continuation.checkpoint.as_ref() else {
         return Ok(());
     };
     let decoded =
         DecodedDataStoreKey::try_from_raw(checkpoint).map_err(|_| malformed_continuation())?;
-    let _ = decoded
-        .try_key::<E>()
-        .map_err(|_| malformed_continuation())?;
+    if decoded.entity_tag() != entity_tag {
+        return Err(malformed_continuation());
+    }
 
     Ok(())
 }
@@ -1134,17 +1126,12 @@ fn require_resumable_update_plan(
     Err(QueryError::sql_write_boundary(boundary))
 }
 
-fn prove_resumable_update_eligibility<E>(
+fn prove_resumable_update_eligibility(
     snapshot: &PersistedSchemaSnapshot,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     selector: &crate::db::query::intent::StructuralQuery,
     patch: &AcceptedFixedUpdatePatch,
-) -> Result<ResumableUpdateEligibility, QueryError>
-where
-    E: PersistedRow,
-{
-    require_resumable_update_without_application_callbacks::<E>()
-        .map_err(QueryError::sql_write_boundary)?;
+) -> Result<ResumableUpdateEligibility, QueryError> {
     if snapshot.update_management_requires_global_write_validation() {
         return Err(QueryError::sql_write_boundary(
             SqlWriteBoundaryCode::ResumableUpdateManagedFieldHasGlobalConstraint,
@@ -1189,17 +1176,6 @@ where
     })
 }
 
-fn require_resumable_update_without_application_callbacks<E>() -> Result<(), SqlWriteBoundaryCode>
-where
-    E: crate::visitor::Visitable,
-{
-    if E::requires_application_write_callbacks() {
-        return Err(SqlWriteBoundaryCode::ResumableUpdateApplicationCallbacksUnsupported);
-    }
-
-    Ok(())
-}
-
 fn resumable_update_target_identity(
     store: &StoreHandle,
     store_path: &str,
@@ -1235,28 +1211,6 @@ fn hash_store_allocation_identity(hasher: &mut sha2::Sha256, identity: StoreAllo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable};
-
-    struct ApplicationCallbackProfile;
-
-    impl SanitizeAuto for ApplicationCallbackProfile {}
-    impl SanitizeCustom for ApplicationCallbackProfile {}
-    impl ValidateAuto for ApplicationCallbackProfile {}
-    impl ValidateCustom for ApplicationCallbackProfile {}
-
-    impl Visitable for ApplicationCallbackProfile {
-        fn requires_application_write_callbacks() -> bool {
-            true
-        }
-    }
-
-    #[test]
-    fn application_callback_profile_rejects_resumable_execution() {
-        assert_eq!(
-            require_resumable_update_without_application_callbacks::<ApplicationCallbackProfile>(),
-            Err(SqlWriteBoundaryCode::ResumableUpdateApplicationCallbacksUnsupported),
-        );
-    }
 
     #[test]
     fn resumable_batch_policy_identity_covers_every_compatibility_input() {

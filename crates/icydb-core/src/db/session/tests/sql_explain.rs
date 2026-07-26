@@ -9,9 +9,9 @@ fn assert_explain_identifier_normalization_case(
     rhs_sql: &str,
     context: &str,
 ) {
-    let lhs = statement_explain_sql::<SessionSqlEntity>(session, lhs_sql)
+    let lhs = statement_explain_sql(session, lhs_sql)
         .unwrap_or_else(|err| panic!("{context} left-hand SQL should succeed: {err}"));
-    let rhs = statement_explain_sql::<SessionSqlEntity>(session, rhs_sql)
+    let rhs = statement_explain_sql(session, rhs_sql)
         .unwrap_or_else(|err| panic!("{context} right-hand SQL should succeed: {err}"));
 
     assert_eq!(
@@ -22,17 +22,15 @@ fn assert_explain_identifier_normalization_case(
 
 // Execute one EXPLAIN equivalence pair and require the full public explain
 // surface to match exactly, including semantic and residual filter rendering.
-fn assert_explain_exact_equivalence_case<E>(
+fn assert_explain_exact_equivalence_case(
     session: &DbSession<SessionSqlCanister>,
     left_sql: &str,
     right_sql: &str,
     context: &str,
-) where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
-    let left = statement_explain_sql::<E>(session, left_sql)
+) {
+    let left = statement_explain_sql(session, left_sql)
         .unwrap_or_else(|err| panic!("{context} left SQL should succeed: {err}"));
-    let right = statement_explain_sql::<E>(session, right_sql)
+    let right = statement_explain_sql(session, right_sql)
         .unwrap_or_else(|err| panic!("{context} right SQL should succeed: {err}"));
 
     assert_eq!(
@@ -41,14 +39,12 @@ fn assert_explain_exact_equivalence_case<E>(
     );
 }
 
-fn assert_explain_load_shape_case<E>(
+fn assert_explain_load_shape_case(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
     context: &str,
-) where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
-    let explain = statement_explain_sql::<E>(session, sql)
+) {
+    let explain = statement_explain_sql(session, sql)
         .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
 
     assert!(
@@ -68,7 +64,7 @@ fn assert_explain_index_range_case(
     context: &str,
     require_json_object: bool,
 ) {
-    let explain = statement_explain_sql::<IndexedSessionSqlEntity>(session, sql)
+    let explain = statement_explain_sql(session, sql)
         .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
 
     if require_json_object {
@@ -90,16 +86,14 @@ fn assert_explain_index_range_case(
 
 // Execute one table of EXPLAIN SQL surfaces and assert each surface keeps the
 // expected token contract, optionally requiring one JSON object payload.
-fn assert_explain_token_matrix<E>(
+fn assert_explain_token_matrix(
     session: &DbSession<SessionSqlCanister>,
     cases: &[(&str, Vec<&str>)],
     context: &str,
     require_json_object: bool,
-) where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
+) {
     for (sql, tokens) in cases {
-        let explain = statement_explain_sql::<E>(session, sql)
+        let explain = statement_explain_sql(session, sql)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
 
         if require_json_object {
@@ -348,7 +342,7 @@ fn explain_sql_plan_matrix_queries_include_expected_tokens() {
     ];
 
     // Phase 2: execute each EXPLAIN plan query and assert stable output tokens.
-    assert_explain_token_matrix::<SessionSqlEntity>(
+    assert_explain_token_matrix(
         &session,
         cases.as_slice(),
         "EXPLAIN plan matrix query",
@@ -390,7 +384,7 @@ fn explain_sql_execution_matrix_queries_include_expected_tokens() {
     ];
 
     // Phase 2: execute each EXPLAIN EXECUTION query and assert stable output tokens.
-    assert_explain_token_matrix::<SessionSqlEntity>(
+    assert_explain_token_matrix(
         &session,
         cases.as_slice(),
         "EXPLAIN EXECUTION matrix query",
@@ -420,7 +414,7 @@ fn explain_sql_global_aggregate_reuses_runtime_shared_query_plan_cache() {
         0,
         "global aggregate cache test should start from an empty shared query-plan cache",
     );
-    let runtime = execute_sql_statement_for_tests::<SessionSqlEntity>(&session, aggregate_sql)
+    let runtime = execute_sql_statement_for_tests(&session, aggregate_sql)
         .expect("runtime global aggregate should execute through the shared cache");
     assert!(
         matches!(runtime, SqlStatementResult::Projection { .. }),
@@ -455,7 +449,7 @@ fn explain_sql_global_aggregate_reuses_runtime_shared_query_plan_cache() {
             "global aggregate EXPLAIN EXECUTION",
         ),
     ] {
-        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+        let explain = statement_explain_sql(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
         assert!(
             explain.contains("access=")
@@ -483,7 +477,7 @@ fn explain_sql_global_aggregate_terminal_matrix_keeps_cached_descriptors() {
         ],
     );
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN EXECUTION SELECT COUNT(*), SUM(age), MIN(age), MAX(age) \
          FROM SessionSqlEntity \
@@ -528,7 +522,7 @@ fn explain_sql_global_aggregate_indexed_input_uses_cached_index_route() {
             "indexed global aggregate EXPLAIN EXECUTION",
         ),
     ] {
-        let explain = statement_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+        let explain = statement_explain_sql(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
         assert!(
             !explain.contains("access=FullScan")
@@ -549,7 +543,7 @@ fn explain_sql_execution_surfaces_direct_slot_row_projection_materialization() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN EXECUTION SELECT name FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
     )
@@ -567,7 +561,7 @@ fn explain_sql_execution_surfaces_covering_read_projection_materialization() {
     let session = indexed_sql_session();
 
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-    let explain = statement_explain_sql::<IndexedSessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN EXECUTION SELECT name FROM IndexedSessionSqlEntity WHERE name = 'Sam' ORDER BY id ASC LIMIT 1",
     )
@@ -584,7 +578,7 @@ fn explain_sql_execution_expression_owned_where_surfaces_explicit_residual_filte
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN EXECUTION SELECT name \
          FROM SessionSqlEntity \
@@ -617,7 +611,7 @@ fn explain_sql_execution_separates_index_pushdown_from_residual_predicate() {
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
 
-    let explain = statement_explain_sql::<IndexedSessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN EXECUTION SELECT name \
          FROM IndexedSessionSqlEntity \
@@ -681,7 +675,7 @@ fn explain_sql_execution_verbose_keyword_is_accepted_in_sql_surface() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN EXECUTION VERBOSE SELECT name \
          FROM SessionSqlEntity \
@@ -753,9 +747,9 @@ fn explain_sql_execution_verbose_reports_shared_query_plan_reuse_after_first_bui
                WHERE age >= 20 \
                ORDER BY age ASC, id ASC LIMIT 2";
 
-    let first = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+    let first = statement_explain_sql(&session, sql)
         .expect("first SQL verbose execution explain should succeed");
-    let second = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+    let second = statement_explain_sql(&session, sql)
         .expect("second SQL verbose execution explain should succeed");
 
     assert!(
@@ -774,7 +768,7 @@ fn explain_sql_execution_verbose_reports_shared_query_plan_reuse_after_first_bui
 fn explain_sql_execution_verbose_keeps_distinct_semantic_identity_on_reuse_miss() {
     reset_session_sql_store();
     let session = sql_session();
-    let left = statement_explain_sql::<SessionSqlEntity>(
+    let left = statement_explain_sql(
         &session,
         "EXPLAIN EXECUTION VERBOSE SELECT name \
          FROM SessionSqlEntity \
@@ -782,7 +776,7 @@ fn explain_sql_execution_verbose_keeps_distinct_semantic_identity_on_reuse_miss(
          ORDER BY age ASC, id ASC LIMIT 2",
     )
     .expect("left SQL verbose execution explain should succeed");
-    let right = statement_explain_sql::<SessionSqlEntity>(
+    let right = statement_explain_sql(
         &session,
         "EXPLAIN EXECUTION VERBOSE SELECT name \
          FROM SessionSqlEntity \
@@ -817,7 +811,7 @@ fn explain_sql_execution_verbose_searched_case_where_keeps_expression_residual_s
         ],
     );
 
-    let left = statement_explain_sql::<SessionNullableSqlEntity>(
+    let left = statement_explain_sql(
         &session,
         "EXPLAIN EXECUTION VERBOSE SELECT name, nickname \
          FROM SessionNullableSqlEntity \
@@ -825,7 +819,7 @@ fn explain_sql_execution_verbose_searched_case_where_keeps_expression_residual_s
          ORDER BY name ASC LIMIT 5",
     )
     .expect("searched CASE verbose execution explain should succeed");
-    let right = statement_explain_sql::<SessionNullableSqlEntity>(
+    let right = statement_explain_sql(
         &session,
         "EXPLAIN EXECUTION VERBOSE SELECT name, nickname \
          FROM SessionNullableSqlEntity \
@@ -884,7 +878,7 @@ fn explain_sql_execution_equivalent_and_shapes_preserve_exact_filter_surface() {
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+    assert_explain_exact_equivalence_case(
         &session,
         "EXPLAIN EXECUTION SELECT name \
          FROM SessionSqlEntity \
@@ -903,7 +897,7 @@ fn explain_sql_execution_equivalent_residual_and_shapes_preserve_exact_filter_su
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+    assert_explain_exact_equivalence_case(
         &session,
         "EXPLAIN EXECUTION SELECT name \
          FROM SessionSqlEntity \
@@ -922,7 +916,7 @@ fn explain_sql_execution_equivalent_or_shapes_preserve_exact_filter_surface() {
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+    assert_explain_exact_equivalence_case(
         &session,
         "EXPLAIN EXECUTION SELECT name \
          FROM SessionSqlEntity \
@@ -941,7 +935,7 @@ fn explain_sql_execution_equivalent_residual_or_shapes_preserve_exact_filter_sur
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+    assert_explain_exact_equivalence_case(
         &session,
         "EXPLAIN EXECUTION SELECT name \
          FROM SessionSqlEntity \
@@ -960,7 +954,7 @@ fn explain_sql_execution_equivalent_mixed_extractable_shapes_preserve_exact_filt
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+    assert_explain_exact_equivalence_case(
         &session,
         "EXPLAIN EXECUTION SELECT name \
          FROM SessionSqlEntity \
@@ -979,7 +973,7 @@ fn explain_sql_execution_equivalent_mixed_residual_shapes_preserve_exact_filter_
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+    assert_explain_exact_equivalence_case(
         &session,
         "EXPLAIN EXECUTION SELECT name \
          FROM SessionSqlEntity \
@@ -998,7 +992,7 @@ fn explain_sql_execution_duplicate_extractable_boolean_children_collapse() {
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+    assert_explain_exact_equivalence_case(
         &session,
         "EXPLAIN EXECUTION SELECT name \
          FROM SessionSqlEntity \
@@ -1017,7 +1011,7 @@ fn explain_sql_execution_duplicate_residual_boolean_children_collapse() {
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+    assert_explain_exact_equivalence_case(
         &session,
         "EXPLAIN EXECUTION SELECT name \
          FROM SessionSqlEntity \
@@ -1038,7 +1032,7 @@ fn explain_sql_execution_equivalent_extractable_compare_orientations_preserve_ex
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+    assert_explain_exact_equivalence_case(
         &session,
         "EXPLAIN EXECUTION SELECT name \
          FROM SessionSqlEntity \
@@ -1057,7 +1051,7 @@ fn explain_sql_execution_equivalent_residual_compare_orientations_preserve_exact
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+    assert_explain_exact_equivalence_case(
         &session,
         "EXPLAIN EXECUTION SELECT name \
          FROM SessionSqlEntity \
@@ -1104,7 +1098,7 @@ fn explain_sql_json_matrix_queries_include_expected_tokens() {
     ];
 
     // Phase 2: execute each EXPLAIN JSON query and assert stable output tokens.
-    assert_explain_token_matrix::<SessionSqlEntity>(
+    assert_explain_token_matrix(
         &session,
         cases.as_slice(),
         "EXPLAIN JSON matrix query",
@@ -1129,7 +1123,7 @@ fn explain_sql_delete_rejection_matrix_preserves_unsupported_feature_detail() {
             "EXPLAIN JSON JOIN",
         ),
     ] {
-        let err = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+        let err = statement_explain_sql(&session, sql)
             .expect_err("unsupported EXPLAIN feature should stay fail-closed");
 
         assert!(
@@ -1173,10 +1167,10 @@ fn explain_sql_delete_direct_starts_with_family_matches_like_output() {
     // Phase 2: assert the logical plan text remains the same across both
     // spellings, proving the accepted direct family reuses the same delete path.
     for (direct_sql, like_sql, context) in cases {
-        let direct = statement_explain_sql::<IndexedSessionSqlEntity>(&session, direct_sql)
+        let direct = statement_explain_sql(&session, direct_sql)
             .expect("direct STARTS_WITH delete EXPLAIN should succeed");
-        let like = statement_explain_sql::<IndexedSessionSqlEntity>(&session, like_sql)
-            .expect("LIKE delete EXPLAIN should succeed");
+        let like =
+            statement_explain_sql(&session, like_sql).expect("LIKE delete EXPLAIN should succeed");
 
         assert_eq!(
             direct, like,
@@ -1451,7 +1445,7 @@ fn explain_sql_distinct_surface_matrix_returns_expected_tokens() {
             "logical explain distinct scalar projection",
         ),
     ] {
-        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+        let explain = statement_explain_sql(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
         assert_explain_contains_tokens(explain.as_str(), tokens, context);
     }
@@ -1476,7 +1470,7 @@ fn explain_sql_distinct_rejects_order_by_non_projected_field() {
             "execution EXPLAIN DISTINCT ORDER BY non-projected field",
         ),
     ] {
-        let err = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+        let err = statement_explain_sql(&session, sql)
             .expect_err("EXPLAIN DISTINCT ORDER BY on a non-projected field should fail closed");
 
         assert_sql_lowering_detail(err, SqlLoweringCode::DistinctOrderByProjection);
@@ -1501,7 +1495,7 @@ fn explain_sql_alias_normalization_matrix_matches_canonical_plan_output() {
     ] {
         assert_session_sql_alias_matches_canonical::<String>(
             &session,
-            statement_explain_sql::<SessionSqlEntity>,
+            statement_explain_sql,
             aliased_sql,
             canonical_sql,
             context,
@@ -1511,7 +1505,7 @@ fn explain_sql_alias_normalization_matrix_matches_canonical_plan_output() {
     let indexed_session = indexed_sql_session();
     assert_session_sql_alias_matches_canonical::<String>(
         &indexed_session,
-        statement_explain_sql::<ExpressionIndexedSessionSqlEntity>,
+        statement_explain_sql,
         "EXPLAIN SELECT LOWER(name) AS normalized_name FROM ExpressionIndexedSessionSqlEntity ORDER BY normalized_name ASC LIMIT 1",
         "EXPLAIN SELECT LOWER(name) FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC LIMIT 1",
         "ORDER BY LOWER(field) aliases",
@@ -1523,7 +1517,7 @@ fn explain_sql_where_searched_case_matches_canonical_boolean_output() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let left = statement_explain_sql::<SessionSqlEntity>(
+    let left = statement_explain_sql(
         &session,
         "EXPLAIN SELECT name \
          FROM SessionSqlEntity \
@@ -1531,7 +1525,7 @@ fn explain_sql_where_searched_case_matches_canonical_boolean_output() {
          ORDER BY age ASC",
     )
     .expect("searched CASE explain parity left SQL should succeed");
-    let right = statement_explain_sql::<SessionSqlEntity>(
+    let right = statement_explain_sql(
         &session,
         "EXPLAIN SELECT name \
          FROM SessionSqlEntity \
@@ -1552,7 +1546,7 @@ fn explain_sql_where_coalesce_and_nullif_surfaces_filter_expr_with_fallback_pred
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT name \
          FROM SessionSqlEntity \
@@ -1576,7 +1570,7 @@ fn explain_sql_where_text_predicate_constant_arguments_surface_filter_expr_and_p
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT name \
          FROM SessionSqlEntity \
@@ -1602,7 +1596,7 @@ fn explain_sql_where_compare_constant_arguments_surface_filter_expr_and_predicat
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT name \
          FROM SessionSqlEntity \
@@ -1628,7 +1622,7 @@ fn explain_sql_where_casefold_compare_constant_arguments_surface_filter_expr_and
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT name \
          FROM SessionSqlEntity \
@@ -1655,7 +1649,7 @@ fn explain_sql_where_compare_and_true_constant_arguments_surface_filter_expr_and
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT name \
          FROM SessionSqlEntity \
@@ -1681,7 +1675,7 @@ fn explain_sql_where_compare_and_false_constant_arguments_surface_folded_false_p
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT name \
          FROM SessionSqlEntity \
@@ -1702,7 +1696,7 @@ fn explain_sql_where_compare_or_false_constant_arguments_surface_filter_expr_and
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT name \
          FROM SessionSqlEntity \
@@ -1728,7 +1722,7 @@ fn explain_sql_where_compare_or_true_constant_arguments_surface_folded_true_filt
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT name \
          FROM SessionSqlEntity \
@@ -1769,7 +1763,7 @@ fn explain_sql_where_constant_null_test_arguments_surface_folded_boolean_predica
             "constant null-test WHERE that folds to FALSE",
         ),
     ] {
-        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+        let explain = statement_explain_sql(&session, sql)
             .unwrap_or_else(|err| panic!("{context} explain should succeed: {err:?}"));
 
         assert_explain_contains_tokens(
@@ -1786,7 +1780,7 @@ fn explain_sql_where_casefold_text_predicate_and_true_constant_arguments_surface
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT name \
          FROM SessionSqlEntity \
@@ -1815,7 +1809,7 @@ fn explain_sql_where_casefold_text_predicate_or_false_constant_arguments_surface
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT name \
          FROM SessionSqlEntity \
@@ -1844,7 +1838,7 @@ fn explain_sql_where_casefold_text_predicate_constant_arguments_surface_filter_e
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT name \
          FROM SessionSqlEntity \
@@ -1885,7 +1879,7 @@ fn explain_sql_delete_wrapped_like_and_ilike_surface_filter_expr_with_fallback_p
             "wrapped ILIKE delete explain",
         ),
     ] {
-        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+        let explain = statement_explain_sql(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err:?}"));
 
         assert_explain_contains_tokens(
@@ -1906,7 +1900,7 @@ fn explain_sql_delete_text_predicate_expression_arguments_surface_filter_expr_wi
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN DELETE FROM SessionSqlEntity \
          WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al')) \
@@ -1956,7 +1950,7 @@ fn explain_sql_delete_compare_boolean_constant_arguments_surface_recovered_predi
             "compare OR TRUE delete explain",
         ),
     ] {
-        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+        let explain = statement_explain_sql(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err:?}"));
 
         assert_explain_contains_tokens(
@@ -2002,7 +1996,7 @@ fn explain_sql_delete_casefold_text_predicate_boolean_constant_arguments_surface
             "casefold text predicate OR TRUE delete explain",
         ),
     ] {
-        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+        let explain = statement_explain_sql(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err:?}"));
 
         assert_explain_contains_tokens(
@@ -2052,7 +2046,7 @@ fn explain_sql_order_by_supported_scalar_text_aliases_match_canonical_plan_outpu
     ] {
         assert_session_sql_alias_matches_canonical::<String>(
             &session,
-            statement_explain_sql::<SessionSqlEntity>,
+            statement_explain_sql,
             alias_sql,
             canonical_sql,
             context,
@@ -2069,22 +2063,14 @@ fn explain_sql_accepts_order_by_bounded_numeric_aliases() {
         "EXPLAIN SELECT age + 1 AS next_age FROM SessionSqlEntity ORDER BY next_age ASC LIMIT 1",
         "EXPLAIN SELECT ROUND(age / 3, 2) AS rounded_age FROM SessionSqlEntity ORDER BY rounded_age DESC LIMIT 1",
     ] {
-        assert_explain_load_shape_case::<SessionSqlEntity>(
-            &session,
-            sql,
-            "bounded numeric ORDER BY alias explain",
-        );
+        assert_explain_load_shape_case(&session, sql, "bounded numeric ORDER BY alias explain");
     }
 
     for sql in [
         "EXPLAIN SELECT rank + rank AS total FROM SessionAggregateEntity ORDER BY total ASC LIMIT 1",
         "EXPLAIN SELECT ROUND(rank + rank, 2) AS rounded_total FROM SessionAggregateEntity ORDER BY rounded_total DESC LIMIT 1",
     ] {
-        assert_explain_load_shape_case::<SessionAggregateEntity>(
-            &session,
-            sql,
-            "bounded numeric ORDER BY alias explain",
-        );
+        assert_explain_load_shape_case(&session, sql, "bounded numeric ORDER BY alias explain");
     }
 }
 
@@ -2097,11 +2083,7 @@ fn explain_sql_accepts_direct_bounded_numeric_order_terms() {
         "EXPLAIN SELECT age FROM SessionSqlEntity ORDER BY age + 1 ASC LIMIT 1",
         "EXPLAIN SELECT age FROM SessionSqlEntity ORDER BY ROUND(age / 3, 2) DESC LIMIT 1",
     ] {
-        assert_explain_load_shape_case::<SessionSqlEntity>(
-            &session,
-            sql,
-            "direct bounded numeric ORDER BY explain",
-        );
+        assert_explain_load_shape_case(&session, sql, "direct bounded numeric ORDER BY explain");
     }
 }
 
@@ -2110,7 +2092,7 @@ fn explain_sql_text_specific_computed_projection_matrix_preserves_surface_contra
     reset_session_sql_store();
     let session = sql_session();
 
-    let scalar_explain = statement_explain_sql::<SessionSqlEntity>(
+    let scalar_explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT TRIM(name) FROM SessionSqlEntity ORDER BY age LIMIT 1",
     )
@@ -2126,7 +2108,7 @@ fn explain_sql_text_specific_computed_projection_matrix_preserves_surface_contra
         "text-specific computed projection explain should still expose the routed access shape",
     );
 
-    let grouped_explain = statement_explain_sql::<SessionSqlEntity>(
+    let grouped_explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT TRIM(name), COUNT(*) \
          FROM SessionSqlEntity \
@@ -2148,9 +2130,7 @@ fn explain_sql_text_specific_computed_projection_matrix_preserves_surface_contra
         "EXPLAIN SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
         "top-level grouped SELECT DISTINCT explain",
     );
-    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
-        &session, left_sql, right_sql, context,
-    );
+    assert_explain_exact_equivalence_case(&session, left_sql, right_sql, context);
 }
 
 #[test]
@@ -2168,7 +2148,7 @@ fn explain_sql_grouped_additive_order_terms_preserve_surface_contracts() {
          GROUP BY age \
          ORDER BY next_age ASC LIMIT 10",
     ] {
-        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+        let explain = statement_explain_sql(&session, sql)
             .expect("grouped additive ORDER BY explain should succeed");
         assert!(
             explain.contains("grouping="),
@@ -2189,7 +2169,7 @@ fn explain_sql_grouped_filter_aggregate_surfaces_filter_shape_across_plan_and_js
     // Phase 1: run one grouped filtered aggregate explain through the plain
     // text surface and require the grouped aggregate filter shape to stay
     // visible to the public explain contract.
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT age, COUNT(*) FILTER (WHERE age >= 20), COUNT(*) \
          FROM SessionSqlEntity \
@@ -2210,7 +2190,7 @@ fn explain_sql_grouped_filter_aggregate_surfaces_filter_shape_across_plan_and_js
 
     // Phase 2: require the JSON explain surface to expose the same filtered
     // aggregate shape instead of dropping it during serialization.
-    let explain_json = statement_explain_sql::<SessionSqlEntity>(
+    let explain_json = statement_explain_sql(
         &session,
         "EXPLAIN JSON SELECT age, COUNT(*) FILTER (WHERE age >= 20), COUNT(*) \
          FROM SessionSqlEntity \
@@ -2235,7 +2215,7 @@ fn explain_sql_grouped_boolean_searched_case_having_uses_canonical_semantic_shap
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT age, COUNT(*) \
          FROM SessionSqlEntity \
@@ -2266,7 +2246,7 @@ fn explain_sql_grouped_boolean_searched_case_truth_wrapper_matches_canonical_out
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+    assert_explain_exact_equivalence_case(
         &session,
         "EXPLAIN SELECT age, COUNT(*) \
          FROM SessionSqlEntity \
@@ -2287,7 +2267,7 @@ fn explain_sql_grouped_boolean_searched_case_without_else_matches_explicit_null_
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+    assert_explain_exact_equivalence_case(
         &session,
         "EXPLAIN SELECT age, COUNT(*) \
          FROM SessionSqlEntity \
@@ -2309,7 +2289,7 @@ fn explain_sql_grouped_boolean_searched_case_without_else_truth_wrapper_matches_
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+    assert_explain_exact_equivalence_case(
         &session,
         "EXPLAIN SELECT age, COUNT(*) \
          FROM SessionSqlEntity \
@@ -2330,7 +2310,7 @@ fn explain_sql_grouped_boolean_searched_case_without_else_uses_canonical_null_fa
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT age, COUNT(*) \
          FROM SessionSqlEntity \
@@ -2356,7 +2336,7 @@ fn explain_sql_global_aggregate_having_without_else_matches_explicit_null_output
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+    assert_explain_exact_equivalence_case(
         &session,
         "EXPLAIN SELECT COUNT(*) \
          FROM SessionSqlEntity \
@@ -2373,7 +2353,7 @@ fn explain_sql_global_aggregate_having_without_else_truth_wrapper_matches_explic
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+    assert_explain_exact_equivalence_case(
         &session,
         "EXPLAIN SELECT COUNT(*) \
          FROM SessionSqlEntity \
@@ -2390,7 +2370,7 @@ fn explain_sql_scalar_where_surfaces_filter_expr_and_predicate_across_plan_and_j
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT * FROM SessionSqlEntity WHERE age >= 20 ORDER BY id ASC LIMIT 5",
     )
@@ -2405,7 +2385,7 @@ fn explain_sql_scalar_where_surfaces_filter_expr_and_predicate_across_plan_and_j
         "scalar WHERE explain should expose semantic filter expression and derived predicate separately",
     );
 
-    let explain_json = statement_explain_sql::<SessionSqlEntity>(
+    let explain_json = statement_explain_sql(
         &session,
         "EXPLAIN JSON SELECT * FROM SessionSqlEntity WHERE age >= 20 ORDER BY id ASC LIMIT 5",
     )
@@ -2426,7 +2406,7 @@ fn explain_sql_grouped_where_surfaces_filter_expr_and_predicate_across_plan_and_
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT age, COUNT(*) \
          FROM SessionSqlEntity \
@@ -2445,7 +2425,7 @@ fn explain_sql_grouped_where_surfaces_filter_expr_and_predicate_across_plan_and_
         "grouped WHERE explain should expose semantic filter expression and derived predicate separately",
     );
 
-    let explain_json = statement_explain_sql::<SessionSqlEntity>(
+    let explain_json = statement_explain_sql(
         &session,
         "EXPLAIN JSON SELECT age, COUNT(*) \
          FROM SessionSqlEntity \
@@ -2470,7 +2450,7 @@ fn explain_sql_grouped_where_coalesce_and_nullif_surfaces_filter_expr_with_fallb
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT age, COUNT(*) \
          FROM SessionSqlEntity \
@@ -2518,7 +2498,7 @@ fn explain_sql_grouped_where_compare_boolean_constant_arguments_surface_recovere
             "grouped compare OR TRUE explain",
         ),
     ] {
-        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+        let explain = statement_explain_sql(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err:?}"));
 
         assert_explain_contains_tokens(
@@ -2532,7 +2512,7 @@ fn explain_sql_grouped_where_compare_boolean_constant_arguments_surface_recovere
         );
     }
 
-    let explain_json = statement_explain_sql::<SessionSqlEntity>(
+    let explain_json = statement_explain_sql(
         &session,
         "EXPLAIN JSON SELECT age, COUNT(*) \
          FROM SessionSqlEntity \
@@ -2582,7 +2562,7 @@ fn explain_sql_grouped_where_casefold_text_predicate_boolean_constant_arguments_
             "grouped casefold text predicate OR TRUE explain",
         ),
     ] {
-        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+        let explain = statement_explain_sql(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err:?}"));
 
         assert_explain_contains_tokens(
@@ -2603,7 +2583,7 @@ fn explain_sql_grouped_where_casefold_compare_boolean_constant_arguments_surface
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = statement_explain_sql::<SessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN SELECT age, COUNT(*) \
          FROM SessionSqlEntity \
@@ -2635,7 +2615,7 @@ fn explain_sql_grouped_aggregate_order_alias_matches_canonical_plan_output() {
 
     assert_session_sql_alias_matches_canonical::<String>(
         &session,
-        statement_explain_sql::<IndexedSessionSqlEntity>,
+        statement_explain_sql,
         "EXPLAIN SELECT name, AVG(age) AS avg_age \
          FROM IndexedSessionSqlEntity \
          GROUP BY name \
@@ -2655,7 +2635,7 @@ fn explain_sql_grouped_aggregate_input_order_alias_matches_canonical_plan_output
 
     assert_session_sql_alias_matches_canonical::<String>(
         &session,
-        statement_explain_sql::<IndexedSessionSqlEntity>,
+        statement_explain_sql,
         "EXPLAIN SELECT name, AVG(age + 1) AS avg_plus_one \
          FROM IndexedSessionSqlEntity \
          GROUP BY name \
@@ -2673,7 +2653,7 @@ fn explain_sql_rejects_non_explain_statements() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = statement_explain_sql::<SessionSqlEntity>(&session, "SELECT * FROM SessionSqlEntity")
+    let err = statement_explain_sql(&session, "SELECT * FROM SessionSqlEntity")
         .expect_err("explain_sql must reject non-EXPLAIN statements");
 
     assert!(
@@ -2692,7 +2672,7 @@ fn explain_sql_field_to_field_predicate_stays_visible_in_predicate_tree() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
-    let explain = statement_explain_sql::<SessionDeterministicRangeEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN JSON SELECT label \
          FROM SessionDeterministicRangeEntity \

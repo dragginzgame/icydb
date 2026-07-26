@@ -8,6 +8,7 @@ pub(crate) mod access;
 pub(crate) mod catalog;
 pub(crate) mod cursor;
 pub(crate) mod diagnostics;
+mod dynamic_write;
 pub(crate) mod identity;
 pub(crate) mod integrity;
 #[cfg(feature = "diagnostics")]
@@ -92,6 +93,9 @@ pub use diagnostics::{
     ExecutionOptimization, ExecutionStats, ExecutionTrace, IndexStoreSnapshot, SchemaStoreSnapshot,
     StorageReport, StoreSnapshotStorageMode,
 };
+#[doc(hidden)]
+pub use dynamic_write::{DynamicMutation, DynamicStructuralPatch, DynamicWriteCell};
+pub use dynamic_write::{DynamicMutationResult, DynamicTypedEntityBinding};
 pub use executor::MutationMode;
 pub use executor::{ExecutionFamily, RouteExecutionMode};
 #[cfg(feature = "diagnostics")]

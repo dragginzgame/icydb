@@ -3,6 +3,8 @@
 //! Does not own: runtime schema semantics.
 //! Boundary: macro input to generated tokens.
 
+extern crate syn_darling as syn;
+
 mod r#gen;
 mod helper;
 mod imp;

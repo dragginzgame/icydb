@@ -1,38 +1,34 @@
-#[cfg(feature = "sql")]
-use crate::db::commit::journaled_row_ops_fit_commit_window;
 use crate::{
     db::{
         KeyValueCodec,
-        commit::{
-            CommitRowOp, CommitSchemaFingerprint,
-            prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
-        },
+        commit::{CommitRowOp, CommitSchemaFingerprint},
         data::{
-            AcceptedMutationIntentPatch, AuthoredStructuralPatch, DecodedDataStoreKey,
-            PersistedRow, RawRow, ResolvedAcceptedMutationRow, StructuralRowContract,
-            StructuralSlotReader, canonical_row_from_raw_row_with_accepted_decode_contract,
+            AcceptedMutationIntentPatch, DecodedDataStoreKey, PersistedRow, RawRow,
+            ResolvedAcceptedMutationRow, StructuralRowContract, StructuralSlotReader,
+            canonical_row_from_raw_row_with_accepted_decode_contract,
             resolve_insert_structural_patch_with_accepted_contract,
             resolve_update_structural_patch_with_accepted_contract,
         },
         executor::{
             Context,
-            mutation::{
-                emit_index_delta_metrics, mutation_write_context,
-                save::{MutationMode, SaveExecutor},
-            },
+            mutation::save::{MutationMode, SaveExecutor},
         },
         schema::{AcceptedRowDecodeContract, SchemaInfo},
     },
     error::InternalError,
-    metrics::sink::{ExecKind, Span},
     sanitize::SanitizeWriteContext,
+};
+#[cfg(test)]
+use crate::{
+    db::{
+        commit::prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
+        data::AuthoredStructuralPatch,
+        executor::mutation::{emit_index_delta_metrics, mutation_write_context},
+    },
+    metrics::sink::{ExecKind, Span},
     types::{CurrentTimestamp, Timestamp},
 };
 use ic_stable_structures::Storable;
-#[cfg(feature = "sql")]
-use icydb_diagnostic_code::SqlWriteBoundaryCode;
-#[cfg(feature = "sql")]
-use std::collections::HashSet;
 
 ///
 /// StructuralMutationRequest
@@ -51,20 +47,6 @@ pub(super) struct StructuralMutationRequest<E: PersistedRow> {
     accepted_row_decode_contract: AcceptedRowDecodeContract,
 }
 
-///
-/// StructuralMutationBatchItem
-///
-/// One internally lowered structural mutation staged by a batch write caller.
-/// SQL INSERT/UPDATE uses this private executor boundary after SQL-facing
-/// admission has already rejected generated and managed field ownership escapes.
-///
-
-#[cfg(feature = "sql")]
-struct StructuralMutationBatchItem<E: PersistedRow> {
-    target_key: StructuralMutationTargetKey<E::Key>,
-    patch: AcceptedMutationIntentPatch,
-}
-
 /// Row-identity request carried by one structural mutation ingress.
 ///
 /// SQL inserts whose accepted policy generates a primary key resolve identity
@@ -75,34 +57,6 @@ pub(in crate::db) enum StructuralMutationTargetKey<K> {
     ResolveFromAfterImage,
     /// Require the accepted after-image to match this caller-selected key.
     Expected(K),
-}
-
-impl<K> StructuralMutationTargetKey<K> {
-    /// Build one keyless insert identity request.
-    #[cfg(feature = "sql")]
-    #[must_use]
-    pub(in crate::db) const fn resolve_from_after_image() -> Self {
-        Self::ResolveFromAfterImage
-    }
-
-    /// Build one exact keyed mutation identity request.
-    #[cfg(feature = "sql")]
-    #[must_use]
-    pub(in crate::db) const fn expected(key: K) -> Self {
-        Self::Expected(key)
-    }
-}
-
-#[cfg(feature = "sql")]
-impl<E: PersistedRow> StructuralMutationBatchItem<E> {
-    // Build one internally lowered structural batch item after the caller has
-    // crossed its admission boundary and selected the batch mutation mode.
-    const fn internal_lowered(
-        target_key: StructuralMutationTargetKey<E::Key>,
-        patch: AcceptedMutationIntentPatch,
-    ) -> Self {
-        Self { target_key, patch }
-    }
 }
 
 impl<E: PersistedRow> StructuralMutationRequest<E> {
@@ -125,6 +79,7 @@ impl<E: PersistedRow> StructuralMutationRequest<E> {
     }
 
     // Build one request from a public structural patch authored by a caller.
+    #[cfg(test)]
     fn public_authored(
         mode: MutationMode,
         key: E::Key,
@@ -140,35 +95,17 @@ impl<E: PersistedRow> StructuralMutationRequest<E> {
             accepted_row_decode_contract,
         )
     }
-
-    // Build one request from an internally lowered structural patch, such as a
-    // SQL INSERT/UPDATE assignment set that has already crossed its own syntax
-    // and generated-field policy boundary.
-    #[cfg(feature = "sql")]
-    const fn internal_lowered(
-        mode: MutationMode,
-        target_key: StructuralMutationTargetKey<E::Key>,
-        patch: AcceptedMutationIntentPatch,
-        write_context: SanitizeWriteContext,
-        accepted_row_decode_contract: AcceptedRowDecodeContract,
-    ) -> Self {
-        Self::accepted_lowered(
-            mode,
-            target_key,
-            patch,
-            write_context,
-            accepted_row_decode_contract,
-        )
-    }
 }
 
 impl<E: PersistedRow> SaveExecutor<E> {
     // Build one canonical write preflight context for one structural save mode.
+    #[cfg(test)]
     const fn structural_write_context(mode: MutationMode, now: Timestamp) -> SanitizeWriteContext {
         SanitizeWriteContext::new(mode.sanitize_write_mode(), now)
     }
 
     // Run one structural key + patch mutation under one explicit save-mode contract.
+    #[cfg(test)]
     pub(in crate::db) fn apply_structural_mutation(
         &self,
         mode: MutationMode,
@@ -188,192 +125,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
         self.save_structural_mutation(request)
     }
 
-    // Apply one internally lowered structural batch after giving the caller a
-    // final chance to inspect validated after-images before commit publication.
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn apply_internal_lowered_structural_mutation_batch_with_precommit<F>(
-        &self,
-        mode: MutationMode,
-        rows: Vec<(
-            StructuralMutationTargetKey<E::Key>,
-            AcceptedMutationIntentPatch,
-        )>,
-        write_context: SanitizeWriteContext,
-        accepted_row_decode_contract: AcceptedRowDecodeContract,
-        precommit: F,
-    ) -> Result<Vec<E>, InternalError>
-    where
-        F: FnOnce(&[E]) -> Result<(), InternalError>,
-    {
-        let items = rows
-            .into_iter()
-            .map(|(target_key, patch)| {
-                StructuralMutationBatchItem::internal_lowered(target_key, patch)
-            })
-            .collect();
-
-        self.apply_internal_structural_mutation_batch(
-            mode,
-            items,
-            write_context,
-            accepted_row_decode_contract,
-            precommit,
-        )
-    }
-
-    /// Apply the largest durable prefix of one ordered resumable update batch.
-    ///
-    /// Every candidate is fully materialized and validated before its exact
-    /// journal marker cost is admitted. The first candidate that would exceed
-    /// the durable control window is left untouched for the next continuation.
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn apply_internal_lowered_resumable_structural_update_prefix(
-        &self,
-        rows: Vec<(
-            StructuralMutationTargetKey<E::Key>,
-            AcceptedMutationIntentPatch,
-        )>,
-        write_context: SanitizeWriteContext,
-        accepted_row_decode_contract: AcceptedRowDecodeContract,
-    ) -> Result<usize, InternalError> {
-        let mut span = Span::<E>::new(ExecKind::Save);
-        let result = (|| {
-            let ctx = mutation_write_context::<E>(&self.db)?;
-            let schema = self.accepted_schema_info();
-            let schema_fingerprint = self.accepted_schema_fingerprint();
-            let validate_relations = schema.has_any_relations();
-            let mut marker_row_ops = Vec::with_capacity(rows.len());
-            let mut seen_row_keys = HashSet::with_capacity(rows.len());
-
-            for (target_key, patch) in rows {
-                let request = StructuralMutationRequest::internal_lowered(
-                    MutationMode::Update,
-                    target_key,
-                    patch,
-                    write_context,
-                    accepted_row_decode_contract.clone(),
-                );
-                let (entity, marker_row_op) = self.prepare_structural_mutation_row_op(
-                    &ctx,
-                    schema,
-                    schema_fingerprint,
-                    validate_relations,
-                    request,
-                )?;
-                if !seen_row_keys.insert(marker_row_op.key.clone()) {
-                    let data_key = DecodedDataStoreKey::try_new::<E>(entity.id().key())?;
-                    return Err(InternalError::mutation_atomic_save_duplicate_key(
-                        E::PATH,
-                        data_key,
-                    ));
-                }
-                marker_row_ops.push(marker_row_op);
-                if !journaled_row_ops_fit_commit_window(marker_row_ops.as_slice()) {
-                    let _ = marker_row_ops.pop();
-                    if marker_row_ops.is_empty() {
-                        return Err(InternalError::query_sql_write_boundary(
-                            SqlWriteBoundaryCode::ResumableUpdateSingleRowResourceExceeded,
-                        ));
-                    }
-                    break;
-                }
-            }
-
-            let committed_rows = marker_row_ops.len();
-            if committed_rows == 0 {
-                return Ok(0);
-            }
-            Self::commit_atomic_batch(&self.db, marker_row_ops, schema_fingerprint, &mut span)?;
-            Self::record_save_mutation(
-                MutationMode::Update.save_mutation_kind(),
-                u64::try_from(committed_rows).unwrap_or(u64::MAX),
-            );
-
-            Ok(committed_rows)
-        })();
-        if let Err(err) = &result {
-            span.set_error(err);
-        }
-
-        result
-    }
-
-    // Prepare and commit one executor-owned batch of internal structural
-    // mutation items. Keeping the item type private prevents SQL/session code
-    // from depending on mutation staging internals.
-    #[cfg(feature = "sql")]
-    fn apply_internal_structural_mutation_batch<F>(
-        &self,
-        mode: MutationMode,
-        items: Vec<StructuralMutationBatchItem<E>>,
-        write_context: SanitizeWriteContext,
-        accepted_row_decode_contract: AcceptedRowDecodeContract,
-        precommit: F,
-    ) -> Result<Vec<E>, InternalError>
-    where
-        F: FnOnce(&[E]) -> Result<(), InternalError>,
-    {
-        let mut span = Span::<E>::new(ExecKind::Save);
-        let result = (|| {
-            let ctx = mutation_write_context::<E>(&self.db)?;
-            let schema = self.accepted_schema_info();
-            let schema_fingerprint = self.accepted_schema_fingerprint();
-            let validate_relations = schema.has_any_relations();
-            let mut entities = Vec::with_capacity(items.len());
-            let mut marker_row_ops = Vec::with_capacity(items.len());
-            let mut seen_row_keys = HashSet::with_capacity(items.len());
-
-            // Phase 1: lower, materialize, and validate every structural after-image
-            // before the shared commit-window helper can persist a marker.
-            for item in items {
-                let request = StructuralMutationRequest::internal_lowered(
-                    mode,
-                    item.target_key,
-                    item.patch,
-                    write_context,
-                    accepted_row_decode_contract.clone(),
-                );
-                let (entity, marker_row_op) = self.prepare_structural_mutation_row_op(
-                    &ctx,
-                    schema,
-                    schema_fingerprint,
-                    validate_relations,
-                    request,
-                )?;
-                if !seen_row_keys.insert(marker_row_op.key.clone()) {
-                    let data_key = DecodedDataStoreKey::try_new::<E>(entity.id().key())?;
-                    return Err(InternalError::mutation_atomic_save_duplicate_key(
-                        E::PATH,
-                        data_key,
-                    ));
-                }
-                marker_row_ops.push(marker_row_op);
-                entities.push(entity);
-            }
-
-            precommit(entities.as_slice())?;
-
-            if marker_row_ops.is_empty() {
-                return Ok(entities);
-            }
-
-            // Phase 2: open one marker/control-slot window and let commit preflight
-            // simulate index/data overlay state across the staged row ops.
-            Self::commit_atomic_batch(&self.db, marker_row_ops, schema_fingerprint, &mut span)?;
-            Self::record_save_mutation(
-                mode.save_mutation_kind(),
-                u64::try_from(entities.len()).unwrap_or(u64::MAX),
-            );
-
-            Ok(entities)
-        })();
-        if let Err(err) = &result {
-            span.set_error(err);
-        }
-
-        result
-    }
-
+    #[cfg(test)]
     fn save_structural_mutation(
         &self,
         request: StructuralMutationRequest<E>,

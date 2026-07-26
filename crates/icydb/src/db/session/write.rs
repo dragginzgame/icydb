@@ -8,7 +8,7 @@
 
 use crate::{
     ErrorCode,
-    db::{response::RowProjectionOutput, session::DbSession},
+    db::{DynamicMutationResult, response::RowProjectionOutput, session::DbSession},
     diagnostic::RuntimeBoundaryCode,
     error::{Error, ErrorOrigin},
     traits::CanisterKind,
@@ -16,28 +16,260 @@ use crate::{
 };
 
 use icydb_core as core;
+use std::{error::Error as StdError, fmt};
 
 ///
-/// MutationMode
+/// WriteCell
 ///
-/// Public write-mode contract for structural session mutations.
-/// This keeps insert, update, and replace under one API surface instead of
-/// freezing separate partial helpers with divergent semantics.
+/// Explicit authored intent for one structural or generated typed write field.
+/// The database retains the distinction through accepted-policy resolution.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum MutationMode {
-    Insert,
-    Replace,
-    Update,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum WriteCell<T> {
+    /// Supply no authored value for this operation.
+    Omitted,
+    /// Explicitly request the accepted database default.
+    Default,
+    /// Explicitly author `NULL`.
+    Null,
+    /// Explicitly author one concrete value.
+    Value(T),
 }
 
-impl MutationMode {
-    const fn into_core(self) -> core::db::MutationMode {
+/// One complete accepted row supplied to an opted-in generated adapter.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OutputRow {
+    entity: String,
+    columns: Vec<String>,
+    values: Vec<OutputValue>,
+}
+
+impl OutputRow {
+    /// Build one accepted row projection.
+    pub fn new(
+        entity: impl Into<String>,
+        columns: Vec<String>,
+        values: Vec<OutputValue>,
+    ) -> Result<Self, TypedAdapterError> {
+        if columns.len() != values.len() {
+            return Err(TypedAdapterError::RowShapeMismatch);
+        }
+        Ok(Self {
+            entity: entity.into(),
+            columns,
+            values,
+        })
+    }
+
+    /// Borrow the accepted entity display name.
+    #[must_use]
+    pub const fn entity(&self) -> &str {
+        self.entity.as_str()
+    }
+}
+
+/// Stable typed-adapter boundary failures.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TypedAdapterError {
+    /// The binding no longer matches current accepted authority.
+    StaleBinding,
+    /// The row belongs to another accepted entity.
+    EntityMismatch,
+    /// An immutable source key is absent from the binding projection.
+    FieldUnavailable,
+    /// The row does not contain the bound accepted field.
+    RowFieldUnavailable,
+    /// Column and value cardinalities disagree.
+    RowShapeMismatch,
+}
+
+impl fmt::Display for TypedAdapterError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::StaleBinding => "typed binding is stale",
+            Self::EntityMismatch => "typed binding entity mismatch",
+            Self::FieldUnavailable => "typed binding field unavailable",
+            Self::RowFieldUnavailable => "typed row field unavailable",
+            Self::RowShapeMismatch => "typed row shape mismatch",
+        })
+    }
+}
+
+impl StdError for TypedAdapterError {}
+
+/// Failure while validating or executing one typed write.
+#[derive(Debug)]
+pub enum TypedWriteError {
+    /// The opaque adapter binding is stale or mismatched.
+    Adapter(TypedAdapterError),
+    /// The accepted database write rejected or failed.
+    Database(Error),
+}
+
+impl fmt::Display for TypedWriteError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Insert => core::db::MutationMode::Insert,
-            Self::Replace => core::db::MutationMode::Replace,
-            Self::Update => core::db::MutationMode::Update,
+            Self::Adapter(error) => error.fmt(formatter),
+            Self::Database(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl StdError for TypedWriteError {}
+
+impl From<Error> for TypedWriteError {
+    fn from(error: Error) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// Opaque accepted-schema binding for one opted-in generated adapter.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TypedEntityBinding {
+    inner: core::db::DynamicTypedEntityBinding,
+}
+
+impl TypedEntityBinding {
+    const fn new(inner: core::db::DynamicTypedEntityBinding) -> Self {
+        Self { inner }
+    }
+
+    /// Borrow one bound row value by immutable field source key.
+    pub fn row_value<'a>(
+        &self,
+        field_source_key: &str,
+        row: &'a OutputRow,
+    ) -> Result<&'a OutputValue, TypedAdapterError> {
+        if row.entity != self.inner.entity() {
+            return Err(TypedAdapterError::EntityMismatch);
+        }
+        let field = self
+            .inner
+            .field_name(field_source_key)
+            .ok_or(TypedAdapterError::FieldUnavailable)?;
+        let index = row
+            .columns
+            .iter()
+            .position(|column| column == field)
+            .ok_or(TypedAdapterError::RowFieldUnavailable)?;
+        row.values
+            .get(index)
+            .ok_or(TypedAdapterError::RowShapeMismatch)
+    }
+}
+
+/// IcyDB-owned decode adapter implemented only by opted-in generated code.
+pub trait TypedRowAdapter {
+    /// Complete application row produced by decoding.
+    type Row;
+
+    /// Decode one accepted output row through an opaque current binding.
+    fn decode_row(
+        binding: &TypedEntityBinding,
+        row: OutputRow,
+    ) -> Result<Self::Row, TypedAdapterError>;
+}
+
+/// IcyDB-owned write adapter implemented only by opted-in generated inputs.
+pub trait TypedWriteAdapter {
+    /// Lower explicit application write intent without resolving database policy.
+    fn encode_write(self, binding: &TypedEntityBinding) -> Result<TypedWrite, TypedAdapterError>;
+}
+
+/// One generated write lowered through immutable source keys.
+#[derive(Clone, Debug)]
+pub struct TypedWrite {
+    binding: TypedEntityBinding,
+    mutation: StructuralMutation,
+}
+
+impl TypedWrite {
+    /// Build one insert intent from immutable field source keys.
+    pub fn insert<I, S>(binding: &TypedEntityBinding, fields: I) -> Result<Self, TypedAdapterError>
+    where
+        I: IntoIterator<Item = (S, WriteCell<InputValue>)>,
+        S: AsRef<str>,
+    {
+        let patch = structural_patch_from_binding(binding, fields)?;
+        Ok(Self {
+            binding: binding.clone(),
+            mutation: StructuralMutation::Insert {
+                entity: binding.inner.entity().to_string(),
+                patch,
+            },
+        })
+    }
+
+    /// Build one patch/update intent from immutable field source keys.
+    pub fn update<I, S>(
+        binding: &TypedEntityBinding,
+        key: InputValue,
+        fields: I,
+    ) -> Result<Self, TypedAdapterError>
+    where
+        I: IntoIterator<Item = (S, WriteCell<InputValue>)>,
+        S: AsRef<str>,
+    {
+        let patch = structural_patch_from_binding(binding, fields)?;
+        Ok(Self {
+            binding: binding.clone(),
+            mutation: StructuralMutation::Update {
+                entity: binding.inner.entity().to_string(),
+                key,
+                patch,
+            },
+        })
+    }
+
+    /// Build one replacement intent from immutable field source keys.
+    pub fn replace<I, S>(
+        binding: &TypedEntityBinding,
+        key: InputValue,
+        fields: I,
+    ) -> Result<Self, TypedAdapterError>
+    where
+        I: IntoIterator<Item = (S, WriteCell<InputValue>)>,
+        S: AsRef<str>,
+    {
+        let patch = structural_patch_from_binding(binding, fields)?;
+        Ok(Self {
+            binding: binding.clone(),
+            mutation: StructuralMutation::Replace {
+                entity: binding.inner.entity().to_string(),
+                key,
+                patch,
+            },
+        })
+    }
+}
+
+fn structural_patch_from_binding<I, S>(
+    binding: &TypedEntityBinding,
+    fields: I,
+) -> Result<StructuralPatch, TypedAdapterError>
+where
+    I: IntoIterator<Item = (S, WriteCell<InputValue>)>,
+    S: AsRef<str>,
+{
+    let mut patch = StructuralPatch::new();
+    for (source, cell) in fields {
+        let field = binding
+            .inner
+            .field_name(source.as_ref())
+            .ok_or(TypedAdapterError::FieldUnavailable)?;
+        patch = patch.field(field, cell);
+    }
+    Ok(patch)
+}
+
+impl WriteCell<InputValue> {
+    fn into_core(self) -> core::db::DynamicWriteCell {
+        match self {
+            Self::Omitted => core::db::DynamicWriteCell::Omitted,
+            Self::Default => core::db::DynamicWriteCell::Default,
+            Self::Null => core::db::DynamicWriteCell::Null,
+            Self::Value(value) => core::db::DynamicWriteCell::Value(value),
         }
     }
 }
@@ -45,32 +277,102 @@ impl MutationMode {
 ///
 /// StructuralPatch
 ///
-/// Public structural mutation patch wrapper.
-/// Public callers should construct field-bearing patches through
-/// `DbSession::structural_patch(...)` so field lookup follows the accepted
-/// persisted schema instead of generated model field order.
-/// Empty patches remain representable for callers that need to explicitly
-/// exercise sparse mutation behavior.
+/// Public field-name-driven structural mutation patch.
+/// Names are resolved only when the request is admitted against accepted
+/// schema; the patch cannot carry physical row slots or generated field order.
 ///
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct StructuralPatch {
-    inner: core::db::AuthoredStructuralPatch,
+    fields: Vec<(String, WriteCell<InputValue>)>,
 }
 
 impl StructuralPatch {
     /// Build one empty structural patch.
-    ///
-    /// Use `DbSession::structural_patch(...)` for patches with field updates.
     #[must_use]
     pub const fn new() -> Self {
-        Self {
-            inner: core::db::AuthoredStructuralPatch::new(),
-        }
+        Self { fields: Vec::new() }
     }
 
-    const fn from_core(inner: core::db::AuthoredStructuralPatch) -> Self {
-        Self { inner }
+    /// Append one named field intent.
+    #[must_use]
+    pub fn field(mut self, name: impl Into<String>, value: WriteCell<InputValue>) -> Self {
+        self.fields.push((name.into(), value));
+        self
+    }
+
+    fn into_core(self) -> core::db::DynamicStructuralPatch {
+        core::db::DynamicStructuralPatch::new(
+            self.fields
+                .into_iter()
+                .map(|(name, value)| (name, value.into_core()))
+                .collect(),
+        )
+    }
+}
+
+///
+/// StructuralMutation
+///
+/// Entity-name-driven dynamic mutation request.
+/// Each variant owns its key requirement and row-existence semantics.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum StructuralMutation {
+    /// Insert one row and derive its identity from the accepted after-image.
+    Insert {
+        /// Accepted entity display name.
+        entity: String,
+        /// Authored insert fields.
+        patch: StructuralPatch,
+    },
+    /// Patch one existing row.
+    Update {
+        /// Accepted entity display name.
+        entity: String,
+        /// Public scalar or composite primary key.
+        key: InputValue,
+        /// Authored update fields.
+        patch: StructuralPatch,
+    },
+    /// Replace one row, inserting it when absent.
+    Replace {
+        /// Accepted entity display name.
+        entity: String,
+        /// Public scalar or composite primary key.
+        key: InputValue,
+        /// Authored replacement fields.
+        patch: StructuralPatch,
+    },
+    /// Delete one existing row.
+    Delete {
+        /// Accepted entity display name.
+        entity: String,
+        /// Public scalar or composite primary key.
+        key: InputValue,
+    },
+}
+
+impl StructuralMutation {
+    fn into_core(self) -> core::db::DynamicMutation {
+        match self {
+            Self::Insert { entity, patch } => core::db::DynamicMutation::Insert {
+                entity,
+                patch: patch.into_core(),
+            },
+            Self::Update { entity, key, patch } => core::db::DynamicMutation::Update {
+                entity,
+                key,
+                patch: patch.into_core(),
+            },
+            Self::Replace { entity, key, patch } => core::db::DynamicMutation::Replace {
+                entity,
+                key,
+                patch: patch.into_core(),
+            },
+            Self::Delete { entity, key } => core::db::DynamicMutation::Delete { entity, key },
+        }
     }
 }
 
@@ -359,47 +661,69 @@ impl<C: CanisterKind> DbSession<C> {
         self.row_projection_output_from_entity::<E>(entity, Some(fields.as_slice()))
     }
 
-    /// Apply one structural mutation under one explicit write-mode contract.
+    /// Execute one trusted structural mutation through accepted schema only.
     ///
-    /// This is a dynamic, field-name-driven write ingress, not a weaker write
-    /// path: the same entity validation and commit rules still apply before
-    /// the write can succeed.
-    ///
-    /// `mode` semantics are explicit:
-    /// - `Insert`: sparse patches are allowed; missing fields must materialize
-    ///   through explicit defaults or managed-field preflight, and the write
-    ///   still fails if the row already exists.
-    /// - `Update`: patch applies over the existing row; fails if the row is missing.
-    /// - `Replace`: sparse patches are allowed, but omitted fields are not inherited
-    ///   from the previous value; they must materialize through explicit defaults
-    ///   or managed-field preflight, and the row is inserted if it is missing.
-    pub fn mutate_structural<E>(
+    /// This dynamic lane never materializes a generated entity and never runs
+    /// application validators or normalizers. The caller must enforce any
+    /// required authorization before dispatch.
+    pub fn execute_trusted_structural_mutation(
         &self,
-        key: E::Key,
-        patch: StructuralPatch,
-        mode: MutationMode,
-    ) -> Result<E, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
+        request: StructuralMutation,
+    ) -> Result<DynamicMutationResult, Error> {
         Ok(self
             .inner
-            .mutate_structural::<E>(key, patch.inner, mode.into_core())?)
+            .execute_trusted_dynamic_mutation(&request.into_core())?)
     }
 
-    /// Build one structural mutation patch through the active accepted schema.
-    ///
-    /// This session-owned constructor resolves field names through persisted
-    /// schema metadata before returning the patch to the caller.
-    pub fn structural_patch<E, I, S>(&self, fields: I) -> Result<StructuralPatch, Error>
+    /// Issue one opaque current accepted binding for generated immutable source keys.
+    pub fn bind_typed_entity<I, S>(
+        &self,
+        entity_source_key: &str,
+        field_source_keys: I,
+    ) -> Result<TypedEntityBinding, Error>
     where
-        E: crate::traits::EntityFor<C>,
-        I: IntoIterator<Item = (S, InputValue)>,
+        I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        let patch = self.inner.structural_patch::<E, _, _, _>(fields)?;
+        let fields = field_source_keys
+            .into_iter()
+            .map(|source| source.as_ref().to_string())
+            .collect::<Vec<_>>();
+        Ok(TypedEntityBinding::new(
+            self.inner
+                .issue_typed_entity_binding(entity_source_key, fields.as_slice())?,
+        ))
+    }
 
-        Ok(StructuralPatch::from_core(patch))
+    /// Execute one generated write only while its opaque accepted binding is current.
+    pub fn execute_trusted_typed_write(
+        &self,
+        write: TypedWrite,
+    ) -> Result<DynamicMutationResult, TypedWriteError> {
+        if !self
+            .inner
+            .typed_entity_binding_is_current(&write.binding.inner)
+            .map_err(Error::from)?
+        {
+            return Err(TypedWriteError::Adapter(TypedAdapterError::StaleBinding));
+        }
+        self.execute_trusted_structural_mutation(write.mutation)
+            .map_err(TypedWriteError::Database)
+    }
+
+    /// Build one field-name-driven structural patch.
+    #[must_use]
+    pub fn structural_patch<I, S>(&self, fields: I) -> StructuralPatch
+    where
+        I: IntoIterator<Item = (S, WriteCell<InputValue>)>,
+        S: Into<String>,
+    {
+        StructuralPatch {
+            fields: fields
+                .into_iter()
+                .map(|(name, value)| (name.into(), value))
+                .collect(),
+        }
     }
 
     /// Update a single-entity-type batch atomically in one commit window.

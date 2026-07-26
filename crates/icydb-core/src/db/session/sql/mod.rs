@@ -29,7 +29,7 @@ use crate::db::executor::{
 #[cfg(test)]
 use crate::db::sql::parser::{SqlStatement, parse_sql};
 use crate::{
-    db::{DbSession, PersistedRow, QueryError},
+    db::{DbSession, QueryError},
     traits::CanisterKind,
 };
 
@@ -195,15 +195,12 @@ impl<C: CanisterKind> DbSession<C> {
     /// This surface stays hard-bound to `E` and rejects reads and `UPDATE`.
     /// Trusted updates must choose the exact complete-set or intentional
     /// ordered-prefix contract explicitly.
-    pub fn execute_trusted_sql_mutation<E>(
+    pub fn execute_trusted_sql_mutation(
         &self,
         sql: &str,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let (compiled, _, _) = self.compile_sql_mutation_with_execution_context::<E>(sql)?;
+    ) -> Result<SqlStatementResult, QueryError> {
+        let (compiled, _, _) = self.compile_sql_mutation_with_execution_context(sql)?;
 
-        self.execute_compiled_sql_context_owned::<E>(compiled)
+        self.execute_compiled_sql_context_owned(compiled)
     }
 }

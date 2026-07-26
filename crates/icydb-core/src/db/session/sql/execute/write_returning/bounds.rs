@@ -5,26 +5,18 @@
 
 use crate::{
     db::{
-        schema::{
-            AcceptedEnumCatalog, AcceptedRowLayoutRuntimeContract, AcceptedValueCatalogHandle,
-            authored_projection::AcceptedAuthoredFieldProjection,
-        },
-        session::sql::write_policy::SqlWriteReturningBounds,
+        schema::AcceptedEnumCatalog, session::sql::write_policy::SqlWriteReturningBounds,
         sql::parser::SqlReturningProjection,
     },
-    entity::EntityValue,
     error::InternalError,
-    traits::AuthoredFieldProjection,
     value::{OutputValue, Value},
 };
 use candid::{CandidType, Encode};
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
 
 use super::projection::{
-    SqlReturningFieldProjection, SqlReturningProjectionRows,
-    projection_labels_from_accepted_write_descriptor, query_error_to_internal_invariant,
-    sql_materialized_returning_projection_rows, sql_returning_all_values,
-    sql_returning_output_value_row, sql_returning_projection_rows,
+    SqlReturningFieldProjection, SqlReturningProjectionRows, query_error_to_internal_invariant,
+    sql_materialized_returning_projection_rows, sql_returning_output_value_row,
 };
 
 #[derive(CandidType)]
@@ -38,59 +30,6 @@ struct SqlReturningProjectionSizeProbe {
     columns: Vec<String>,
     rows: Vec<Vec<OutputValue>>,
     row_count: u32,
-}
-
-/// Validate one SQL write `RETURNING` row and response budget against the
-/// already-prepared mutation after-images.
-///
-/// This must run after structural mutation validation has produced sanitized
-/// after-images but before the executor opens its commit window.
-pub(in crate::db::session::sql::execute) fn validate_sql_returning_bounds<E>(
-    entity_name: &str,
-    entities: &[E],
-    returning: Option<&SqlReturningProjection>,
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    value_catalog: &AcceptedValueCatalogHandle,
-    bounds: Option<SqlWriteReturningBounds>,
-) -> Result<(), InternalError>
-where
-    E: EntityValue,
-{
-    let Some(returning) = returning else {
-        return Ok(());
-    };
-    let Some(bounds) = bounds else {
-        return Ok(());
-    };
-
-    validate_sql_returning_row_count(entities.len(), bounds.max_rows)?;
-
-    if let Some(max_response_bytes) = bounds.max_response_bytes {
-        let max_response_bytes = usize::try_from(max_response_bytes).unwrap_or(usize::MAX);
-        if encoded_sql_returning_projection_response_len_exceeds_max(
-            entity_name,
-            entities,
-            returning,
-            descriptor,
-            value_catalog,
-            max_response_bytes,
-        )? {
-            return Err(sql_returning_response_too_large_error());
-        }
-
-        let payload_len = encoded_sql_returning_projection_response_len(
-            entity_name,
-            entities,
-            returning,
-            descriptor,
-            value_catalog,
-        )?;
-        if payload_len > max_response_bytes {
-            return Err(sql_returning_response_too_large_error());
-        }
-    }
-
-    Ok(())
 }
 
 /// Validate SQL write `RETURNING` bounds for rows that are already materialized
@@ -162,83 +101,6 @@ fn validate_sql_returning_row_count(
 
 fn sql_returning_response_too_large_error() -> InternalError {
     InternalError::query_sql_write_boundary(SqlWriteBoundaryCode::ReturningResponseTooLarge)
-}
-
-fn encoded_sql_returning_projection_response_len<E>(
-    entity_name: &str,
-    entities: &[E],
-    returning: &SqlReturningProjection,
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    value_catalog: &AcceptedValueCatalogHandle,
-) -> Result<usize, InternalError>
-where
-    E: AuthoredFieldProjection,
-{
-    let projected = sql_returning_projection_rows(entities, returning, descriptor, value_catalog)?;
-    encoded_sql_returning_projection_payload_len(entity_name, projected)
-}
-
-fn encoded_sql_returning_projection_response_len_exceeds_max<E>(
-    entity_name: &str,
-    entities: &[E],
-    returning: &SqlReturningProjection,
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    value_catalog: &AcceptedValueCatalogHandle,
-    max_response_bytes: usize,
-) -> Result<bool, InternalError>
-where
-    E: AuthoredFieldProjection,
-{
-    let row_count = u32::try_from(entities.len()).unwrap_or(u32::MAX);
-    let row_contract = descriptor.row_decode_contract(value_catalog.clone());
-    let accepted = AcceptedAuthoredFieldProjection::new(&row_contract);
-
-    match returning {
-        SqlReturningProjection::All => {
-            let columns = projection_labels_from_accepted_write_descriptor(descriptor);
-            let field_count = descriptor.required_slot_count();
-            let base_len = encoded_empty_sql_returning_projection_payload_len(
-                entity_name,
-                columns,
-                row_count,
-            )?;
-
-            encoded_sql_returning_rows_len_exceeds_max(
-                base_len,
-                max_response_bytes,
-                entities.iter().map(|entity| {
-                    sql_returning_all_values(&accepted, entity, field_count)
-                        .and_then(|row| {
-                            sql_returning_output_value_row(value_catalog.enum_catalog(), row)
-                        })
-                        .map_err(query_error_to_internal_invariant)
-                }),
-            )
-        }
-        SqlReturningProjection::Fields(fields) => {
-            let all_columns = projection_labels_from_accepted_write_descriptor(descriptor);
-            let projection = SqlReturningFieldProjection::from_fields(&all_columns, fields)
-                .map_err(query_error_to_internal_invariant)?;
-            let base_len = encoded_empty_sql_returning_projection_payload_len(
-                entity_name,
-                projection.output_columns(),
-                row_count,
-            )?;
-
-            encoded_sql_returning_rows_len_exceeds_max(
-                base_len,
-                max_response_bytes,
-                entities.iter().map(|entity| {
-                    projection
-                        .project_entity(&accepted, entity)
-                        .and_then(|row| {
-                            sql_returning_output_value_row(value_catalog.enum_catalog(), row)
-                        })
-                        .map_err(query_error_to_internal_invariant)
-                }),
-            )
-        }
-    }
 }
 
 fn encoded_sql_materialized_returning_projection_response_len_exceeds_max(

@@ -97,8 +97,10 @@ pub(in crate::db::executor) use index_prefix_cardinality::{
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub use mutation::save::MutationMode;
 pub(super) use mutation::save::SaveExecutor;
-#[cfg(feature = "sql")]
-pub(in crate::db) use mutation::save::StructuralMutationTargetKey;
+pub(in crate::db) use mutation::{
+    commit_delete_row_ops_with_window_for_path,
+    commit_structural_save_row_ops_with_window_for_path, validate_structural_accepted_after_image,
+};
 pub(in crate::db::executor) use order::{
     BoundedOrderWindow, OrderReadableRow, PendingOrderRows, apply_structural_order_window,
     apply_structural_order_window_to_data_rows, compare_orderable_row_with_boundary,
@@ -389,6 +391,11 @@ impl ExecutorError {
     ) -> Self {
         Self::store_corruption()
     }
+}
+
+/// Construct the canonical executor conflict for an occupied mutation key.
+pub(in crate::db) fn mutation_key_exists_error() -> InternalError {
+    ExecutorError::KeyExists.into()
 }
 
 impl From<ExecutorError> for InternalError {

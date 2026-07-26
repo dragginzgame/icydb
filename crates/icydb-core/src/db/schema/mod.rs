@@ -274,12 +274,16 @@ pub(in crate::db) use reconcile::{
 pub(in crate::db) use reconcile::{
     bootstrap_test_accepted_schema_snapshot, publish_test_accepted_schema_snapshot,
 };
-#[cfg(feature = "sql")]
-pub(in crate::db) use runtime::AcceptedRowLayoutRuntimeField;
+#[cfg(all(test, not(feature = "sql")))]
+pub(in crate::db) use runtime::accepted_insert_field_is_omittable;
 pub(in crate::db) use runtime::{
     AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract, AcceptedInsertOmissionPolicy,
     AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract, OwnedAcceptedFieldDecodeContract,
-    OwnedAcceptedRelationEdgeContract, accepted_insert_field_is_omittable,
+    OwnedAcceptedRelationEdgeContract,
+};
+#[cfg(feature = "sql")]
+pub(in crate::db) use runtime::{
+    AcceptedRowLayoutRuntimeField, accepted_insert_field_is_omittable,
 };
 #[cfg(test)]
 pub(in crate::db) use runtime::{

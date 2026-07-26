@@ -118,9 +118,8 @@ fn execute_sql_projection_filtered_composite_order_only_matrix_returns_guarded_r
 
         // Phase 2: require the projection lane to return only the guarded
         // equality-prefix subset under that ordered `handle, id` suffix shape.
-        let projected_rows =
-            statement_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
-                .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
+        let projected_rows = statement_projection_rows(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
 
         assert_eq!(
             projected_rows, expected_rows,
@@ -158,9 +157,8 @@ fn filtered_composite_order_only_pushdown_matches_forced_full_scan_fallback() {
             ExplainExecutionNodeType::IndexPrefixScan,
             "{context} should use the equality-prefix index route before fallback",
         );
-        let pushed_rows =
-            statement_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
-                .unwrap_or_else(|err| panic!("{context} should execute with indexes: {err:?}"));
+        let pushed_rows = statement_projection_rows(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should execute with indexes: {err:?}"));
 
         hide_indexed_session_indexes();
 
@@ -190,11 +188,8 @@ fn filtered_composite_order_only_pushdown_matches_forced_full_scan_fallback() {
             "{context} hidden-index route should retain materialized ordering:\n{}",
             fallback_descriptor.render_text_tree(),
         );
-        let fallback_rows =
-            statement_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
-                .unwrap_or_else(|err| {
-                    panic!("{context} should execute with hidden indexes: {err:?}")
-                });
+        let fallback_rows = statement_projection_rows(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should execute with hidden indexes: {err:?}"));
 
         assert_eq!(
             pushed_rows, fallback_rows,

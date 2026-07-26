@@ -70,7 +70,7 @@ fn session_sql_global_aggregate_explain_execution_stays_off_secondary_authority_
     let session = sql_session();
     seed_session_aggregate_entities(&session, &[(9_451, 7, 10), (9_452, 7, 20), (9_453, 8, 99)]);
 
-    let explain = statement_explain_sql::<SessionAggregateEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN EXECUTION SELECT COUNT(*) FROM SessionAggregateEntity",
     )
@@ -95,7 +95,7 @@ fn session_sql_filtered_global_aggregate_explain_execution_hides_non_ready_secon
     );
     let sql = "EXPLAIN EXECUTION SELECT COUNT(*) FROM IndexedSessionSqlEntity WHERE name = 'Sam'";
 
-    let ready_explain = statement_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+    let ready_explain = statement_explain_sql(&session, sql)
         .expect("filtered aggregate EXPLAIN EXECUTION should succeed while the index is ready");
     assert!(
         ready_explain.contains("AggregateCount execution_mode=")
@@ -117,7 +117,7 @@ fn session_sql_filtered_global_aggregate_explain_execution_hides_non_ready_secon
         .expect("indexed SQL store should recover")
         .mark_index_building();
 
-    let building_explain = statement_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+    let building_explain = statement_explain_sql(&session, sql)
         .expect("filtered aggregate EXPLAIN EXECUTION should still succeed once the shared index becomes building");
     assert!(
         building_explain.contains("AggregateCount execution_mode=")
@@ -650,7 +650,7 @@ fn execute_sql_projection_primary_key_covering_full_scan_returns_ordered_ids() {
     insert_fixed_session_sql_entity_for_test(Ulid::from_u128(9_802), "beta", 22);
 
     // Phase 2: execute the PK-only projection through the SQL statement execution lane.
-    let rows = statement_projection_rows::<SessionSqlEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT id FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
     )

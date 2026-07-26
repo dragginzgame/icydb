@@ -161,9 +161,8 @@ fn execute_sql_projection_expression_order_matrix_matches_entity_rows() {
             "descending expression order",
         ),
     ] {
-        let projected_rows =
-            statement_projection_rows::<ExpressionIndexedSessionSqlEntity>(&session, sql)
-                .unwrap_or_else(|err| panic!("{context} projection query should execute: {err:?}"));
+        let projected_rows = statement_projection_rows(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} projection query should execute: {err:?}"));
         let entity_rows =
             execute_scalar_select_for_tests::<ExpressionIndexedSessionSqlEntity>(&session, sql)
                 .unwrap_or_else(|err| panic!("{context} entity query should execute: {err:?}"));
@@ -211,7 +210,7 @@ fn execute_sql_projection_expression_order_pk_plus_row_field_uses_sparse_sql_pat
     // plus one uncovered row-backed field.
     let sql = "SELECT id, age FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2";
     let (projected_rows, metrics) = with_sql_projection_materialization_metrics(|| {
-        statement_projection_rows::<ExpressionIndexedSessionSqlEntity>(&session, sql)
+        statement_projection_rows(&session, sql)
             .expect("expression-order pk-plus-row projection query should execute")
     });
     let entity_rows =
@@ -301,7 +300,7 @@ fn execute_sql_projection_expression_order_projected_expression_uses_pure_coveri
     );
 
     let sql = "SELECT id, LOWER(name) FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2";
-    let explain = statement_explain_sql::<ExpressionIndexedSessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN EXECUTION SELECT id, LOWER(name) FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
     )
@@ -574,7 +573,7 @@ fn session_sql_expression_order_without_matching_index_materializes_rows() {
     seed_session_sql_entities(&session, &[("bravo", 20), ("Alpha", 30), ("charlie", 40)]);
 
     let sql = "SELECT name FROM SessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2";
-    let projection_rows = statement_projection_rows::<SessionSqlEntity>(&session, sql)
+    let projection_rows = statement_projection_rows(&session, sql)
         .expect("unindexed expression-order SQL projection should materialize");
     let entity_rows = execute_scalar_select_for_tests::<SessionSqlEntity>(
         &session,

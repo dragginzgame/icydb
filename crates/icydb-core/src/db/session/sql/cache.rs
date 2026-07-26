@@ -3,9 +3,11 @@
 //! Does not own: SQL parsing, lowering, execution, or result shaping.
 //! Boundary: keeps syntax-bound SQL cache state separate from shared query-plan cache state.
 
+#[cfg(test)]
+use crate::db::PersistedRow;
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryError,
+        DbSession, QueryError,
         schema::{AcceptedSchemaRevision, SchemaVersion},
         session::{
             AcceptedSchemaCatalogContext,
@@ -386,31 +388,6 @@ impl SqlCompiledCommandCacheKey {
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    pub(in crate::db::session::sql) fn sql_compiled_command_cache_context_for_entity<E>(
-        &self,
-        surface: SqlCompiledCommandSurface,
-        sql: &str,
-    ) -> Result<SqlCompiledCommandCacheContext, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let catalog = self
-            .accepted_schema_catalog_context_for_query::<E>()
-            .map_err(QueryError::execute)?;
-
-        Ok(SqlCompiledCommandCacheContext {
-            key: SqlCompiledCommandCacheKey::new(
-                surface,
-                E::PATH,
-                catalog.revision(),
-                catalog.schema_version(),
-                SqlCompiledSchemaFingerprint::from_catalog(&catalog),
-                sql,
-            ),
-            catalog,
-        })
-    }
-
     pub(in crate::db::session::sql) fn with_sql_compiled_command_cache<R>(
         &self,
         f: impl FnOnce(&mut SqlCompiledCommandCache) -> R,

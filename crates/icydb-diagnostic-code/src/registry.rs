@@ -579,34 +579,36 @@ define_error_code_registry! {
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateContinuationBatchPolicyMismatch });
     SQL_WRITE_RESUMABLE_UPDATE_SINGLE_ROW_RESOURCE_EXCEEDED = 218 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateSingleRowResourceExceeded });
-    SQL_WRITE_RESUMABLE_UPDATE_APPLICATION_CALLBACKS_UNSUPPORTED = 219 => QuerySqlWriteBoundary,
-        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateApplicationCallbacksUnsupported });
-    SQL_WRITE_RESUMABLE_UPDATE_MANAGED_FIELD_HAS_GLOBAL_CONSTRAINT = 220 => QuerySqlWriteBoundary,
+    SQL_WRITE_RESUMABLE_UPDATE_MANAGED_FIELD_HAS_GLOBAL_CONSTRAINT = 219 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateManagedFieldHasGlobalConstraint });
-    SQL_WRITE_RESUMABLE_UPDATE_CONTINUATION_OPERATION_MISMATCH = 221 => QuerySqlWriteBoundary,
+    SQL_WRITE_RESUMABLE_UPDATE_CONTINUATION_OPERATION_MISMATCH = 220 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateContinuationOperationMismatch });
-    RUNTIME_BOUNDARY_JOURNAL_MUTATION_REVISION_EXHAUSTED = 222 => RuntimeUnsupported,
+    RUNTIME_BOUNDARY_JOURNAL_MUTATION_REVISION_EXHAUSTED = 221 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::JournalMutationRevisionExhausted });
-    SQL_SURFACE_MUTATION_REJECTS_SHOW_CONSTRAINTS = 223 => QuerySqlSurfaceMismatch,
+    SQL_SURFACE_MUTATION_REJECTS_SHOW_CONSTRAINTS = 222 => QuerySqlSurfaceMismatch,
         detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::MutationRejectsShowConstraints });
-    RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION = 224 => RuntimeInvariantViolation,
+    RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION = 223 => RuntimeInvariantViolation,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::ConstraintViolation });
-    RUNTIME_BOUNDARY_ACCEPTED_ROW_CONSTRAINT_PROGRAM_CORRUPT = 225 => RuntimeCorruption,
+    RUNTIME_BOUNDARY_ACCEPTED_ROW_CONSTRAINT_PROGRAM_CORRUPT = 224 => RuntimeCorruption,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::AcceptedRowConstraintProgramCorrupt });
-    RUNTIME_BOUNDARY_CONSTRAINT_ACTIVATION_WRITE_BLOCKED = 226 => RuntimeConflict,
+    RUNTIME_BOUNDARY_CONSTRAINT_ACTIVATION_WRITE_BLOCKED = 225 => RuntimeConflict,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::ConstraintActivationWriteBlocked });
-    SQL_FEATURE_ALTER_TABLE_ADD_CONSTRAINT_BEYOND_CHECK = 227 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_ADD_CONSTRAINT_BEYOND_CHECK = 226 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableAddConstraintBeyondCheck });
-    SQL_FEATURE_ALTER_TABLE_ADD_CONSTRAINT_MODIFIERS = 228 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_ADD_CONSTRAINT_MODIFIERS = 227 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableAddConstraintModifiers });
-    SQL_FEATURE_ALTER_TABLE_DROP_CONSTRAINT_IF_EXISTS_SYNTAX = 229 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_DROP_CONSTRAINT_IF_EXISTS_SYNTAX = 228 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableDropConstraintIfExistsSyntax });
-    SQL_FEATURE_ALTER_TABLE_DROP_CONSTRAINT_MODIFIERS = 230 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_DROP_CONSTRAINT_MODIFIERS = 229 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableDropConstraintModifiers });
-    SQL_FEATURE_ALTER_TABLE_VALIDATE_BEYOND_CONSTRAINT = 231 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_VALIDATE_BEYOND_CONSTRAINT = 230 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableValidateBeyondConstraint });
-    SQL_FEATURE_ALTER_TABLE_VALIDATE_CONSTRAINT_MODIFIERS = 232 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_VALIDATE_CONSTRAINT_MODIFIERS = 231 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableValidateConstraintModifiers });
-    RUNTIME_BOUNDARY_GENERATED_CONSTRAINT_ACTIVATION_STALE = 233 => RuntimeConflict,
+    RUNTIME_BOUNDARY_GENERATED_CONSTRAINT_ACTIVATION_STALE = 232 => RuntimeConflict,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::GeneratedConstraintActivationStale });
+    RUNTIME_BOUNDARY_MUTATION_MANAGED_TIMESTAMP_REGRESSION = 233 => RuntimeInvariantViolation,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationManagedTimestampRegression });
+    RUNTIME_BOUNDARY_MUTATION_DATABASE_OWNED_FIELD_EXPLICIT = 234 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationDatabaseOwnedFieldExplicit });
 }

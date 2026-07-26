@@ -43,14 +43,6 @@ pub struct TypeSanitizer {
 }
 
 impl TypeSanitizer {
-    /// Creates a new TypeSanitizer from a string path.
-    pub fn new(path: &str, args: Args) -> Self {
-        Self {
-            path: syn::parse_str(path).unwrap(),
-            args,
-        }
-    }
-
     pub fn quote_constructor(&self) -> TokenStream {
         let path = &self.path;
         let args = self.args.iter();

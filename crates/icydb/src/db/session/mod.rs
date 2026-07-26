@@ -28,7 +28,10 @@ pub use load::{FluentLoadQuery, PartialWindowLoadQuery};
 pub use sql::{
     SqlExecutionPerfAttribution, SqlPureCoveringPerfAttribution, SqlQueryPerfAttribution,
 };
-pub use write::{MutationMode, StructuralPatch};
+pub use write::{
+    OutputRow, StructuralMutation, StructuralPatch, TypedAdapterError, TypedEntityBinding,
+    TypedRowAdapter, TypedWrite, TypedWriteAdapter, TypedWriteError, WriteCell,
+};
 
 ///
 /// DbSession

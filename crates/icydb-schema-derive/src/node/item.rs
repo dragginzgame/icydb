@@ -157,10 +157,6 @@ impl Item {
     pub fn created_at() -> Self {
         Self {
             primitive: Some(Primitive::Timestamp),
-            sanitizers: vec![TypeSanitizer::new(
-                "icydb::base::sanitizer::time::CreatedAt",
-                Args::none(),
-            )],
             ..Default::default()
         }
     }
@@ -168,10 +164,6 @@ impl Item {
     pub fn updated_at() -> Self {
         Self {
             primitive: Some(Primitive::Timestamp),
-            sanitizers: vec![TypeSanitizer::new(
-                "icydb::base::sanitizer::time::UpdatedAt",
-                Args::none(),
-            )],
             ..Default::default()
         }
     }

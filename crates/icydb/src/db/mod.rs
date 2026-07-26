@@ -23,8 +23,9 @@ pub use response::{ExecutionTrace, GroupedRow, PagedResponse, Response, RowProje
 #[cfg(feature = "sql")]
 pub use session::SqlIntegrityError;
 pub use session::{
-    DbSession, FluentLoadQuery, IntegrityCheckError, MutationMode, PartialWindowLoadQuery,
-    SessionDeleteQuery, StructuralPatch,
+    DbSession, FluentLoadQuery, IntegrityCheckError, OutputRow, PartialWindowLoadQuery,
+    SessionDeleteQuery, StructuralMutation, StructuralPatch, TypedAdapterError, TypedEntityBinding,
+    TypedRowAdapter, TypedWrite, TypedWriteAdapter, TypedWriteError, WriteCell,
 };
 #[cfg(feature = "sql")]
 #[doc(hidden)]
@@ -35,27 +36,28 @@ pub use session::{
 // Public core DTOs intentionally carried through the facade database surface.
 pub use icydb_core::db::{
     AdminBatchRequest, ConstraintValidationProgressDescription, DataStoreSnapshot,
-    DeepIntegrityPage, DeepIntegrityPageStatus, EntityCatalogCounts, EntityCatalogDescription,
-    EntityConstraintDescription, EntityFieldDescription, EntityIndexDescription,
-    EntityRelationCardinality, EntityRelationDescription, EntitySchemaCheckDescription,
-    EntitySchemaDescription, ExplainAggregateTerminalPlan, ExplainExecutionDescriptor,
-    ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-    ExplainExecutionOrderingSource, IndexStoreSnapshot, IntegrityAbortReceipt,
-    IntegrityAbortStatus, IntegrityAuthorityClass, IntegrityAuthorityDiagnostic,
-    IntegrityCheckRequest, IntegrityCheckResult, IntegrityEntityIdentity, IntegrityFinding,
-    IntegrityFindingClass, IntegrityFindingKind, IntegrityJobError, IntegrityJobId,
-    IntegrityJobOwner, IntegrityJobReceipt, IntegrityPendingTerminal, IntegrityPhase,
-    IntegrityResourceDiagnostic, IntegritySeverity, IntegritySubmissionKey,
-    IntegrityTerminalOutcome, IntegrityVerifierFamily, MemoryCatalogDescription, QueryTracePlan,
-    QuickIntegrityResult, QuickIntegrityStatus, ReadIntentKind, Row, SchemaApplicationStore,
-    SchemaApplicationTarget, SchemaChangeFailure, SchemaChangeJob, SchemaChangeJobId,
-    SchemaChangeOutcome, SchemaChangeProgress, SchemaChangeProgressStatus, SchemaChangeReceipt,
-    SchemaChangeValidationPhase, SchemaStoreSnapshot, StorageReport, StoreCatalogDescription,
-    TraceExecutionFamily, TraceReuseEvent,
+    DeepIntegrityPage, DeepIntegrityPageStatus, DynamicMutationResult, EntityCatalogCounts,
+    EntityCatalogDescription, EntityConstraintDescription, EntityFieldDescription,
+    EntityIndexDescription, EntityRelationCardinality, EntityRelationDescription,
+    EntitySchemaCheckDescription, EntitySchemaDescription, ExplainAggregateTerminalPlan,
+    ExplainExecutionDescriptor, ExplainExecutionMode, ExplainExecutionNodeDescriptor,
+    ExplainExecutionNodeType, ExplainExecutionOrderingSource, IndexStoreSnapshot,
+    IntegrityAbortReceipt, IntegrityAbortStatus, IntegrityAuthorityClass,
+    IntegrityAuthorityDiagnostic, IntegrityCheckRequest, IntegrityCheckResult,
+    IntegrityEntityIdentity, IntegrityFinding, IntegrityFindingClass, IntegrityFindingKind,
+    IntegrityJobError, IntegrityJobId, IntegrityJobOwner, IntegrityJobReceipt,
+    IntegrityPendingTerminal, IntegrityPhase, IntegrityResourceDiagnostic, IntegritySeverity,
+    IntegritySubmissionKey, IntegrityTerminalOutcome, IntegrityVerifierFamily,
+    MemoryCatalogDescription, QueryTracePlan, QuickIntegrityResult, QuickIntegrityStatus,
+    ReadIntentKind, Row, SchemaApplicationStore, SchemaApplicationTarget, SchemaChangeFailure,
+    SchemaChangeJob, SchemaChangeJobId, SchemaChangeOutcome, SchemaChangeProgress,
+    SchemaChangeProgressStatus, SchemaChangeReceipt, SchemaChangeValidationPhase,
+    SchemaStoreSnapshot, StorageReport, StoreCatalogDescription, TraceExecutionFamily,
+    TraceReuseEvent,
 };
 pub use icydb_schema::{
-    ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaSubmissionKey, TargetDatabaseIdentity,
-    TargetStoreIdentity,
+    EntitySourceKey, ExpectedAcceptedHead, ExpectedSchemaFingerprint, FieldSourceKey,
+    SchemaSubmissionKey, TargetDatabaseIdentity, TargetStoreIdentity,
 };
 
 // Hidden core wiring used by generated code and advanced diagnostics.

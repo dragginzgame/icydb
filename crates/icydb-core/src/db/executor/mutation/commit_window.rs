@@ -836,7 +836,7 @@ pub(in crate::db::executor) fn commit_save_row_ops_with_window_and_schema_finger
 }
 
 /// Commit delete-mode row operations through one nongeneric commit window.
-pub(in crate::db::executor) fn commit_delete_row_ops_with_window_for_path<C: CanisterKind>(
+pub(in crate::db) fn commit_delete_row_ops_with_window_for_path<C: CanisterKind>(
     db: &Db<C>,
     entity_path: &'static str,
     row_ops: Vec<CommitRowOp>,
@@ -874,6 +874,38 @@ pub(in crate::db::executor) fn commit_delete_row_ops_with_window_for_path<C: Can
         journal_appends,
         index_store_guards,
         || emit_delete_index_delta_metrics_for_path(entity_path, &delta),
+        || {},
+    )?;
+    mark_store_handles_index_ready(synchronized_store_handles.as_slice());
+    Ok(())
+}
+
+/// Commit save-mode row operations through the nongeneric structural window.
+pub(in crate::db) fn commit_structural_save_row_ops_with_window_for_path<C: CanisterKind>(
+    db: &Db<C>,
+    entity_path: &'static str,
+    row_ops: Vec<CommitRowOp>,
+    apply_phase: &'static str,
+) -> Result<(), InternalError> {
+    let OpenCommitWindow {
+        commit,
+        prepared_row_ops,
+        journal_appends,
+        index_store_guards,
+        delta,
+        commit_class,
+    } = open_commit_window_structural(db, row_ops)?;
+    record_mutation_commit_plan(entity_path, commit_class);
+    let synchronized_store_handles =
+        synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
+
+    apply_prepared_row_ops(
+        commit,
+        apply_phase,
+        prepared_row_ops,
+        journal_appends,
+        index_store_guards,
+        || emit_index_delta_metrics_for_path(entity_path, &delta),
         || {},
     )?;
     mark_store_handles_index_ready(synchronized_store_handles.as_slice());

@@ -67,7 +67,7 @@ fn secondary_route_surfaces_preserve_current_covering_contract_matrix() {
                 .unwrap_or_else(|err| panic!("{context} fixture insert should succeed: {err}"));
         }
 
-        let surface = statement_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+        let surface = statement_explain_sql(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
 
         if let Some(token) = required_token {
@@ -154,7 +154,7 @@ fn execute_sql_statement_explain_execution_secondary_covering_order_field_buildi
         .expect("indexed SQL store should recover")
         .mark_index_building();
 
-    let explain = statement_explain_sql::<IndexedSessionSqlEntity>(
+    let explain = statement_explain_sql(
         &session,
         "EXPLAIN EXECUTION SELECT id, name FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
     )
@@ -170,7 +170,7 @@ fn execute_sql_statement_explain_execution_secondary_covering_order_field_buildi
             && !explain.contains("index_state"),
         "building indexes must disappear from planner visibility and explain as a materialized full-scan fallback: {explain}",
     );
-    let projected_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+    let projected_rows = statement_projection_rows(
         &session,
         "SELECT id, name FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
     )

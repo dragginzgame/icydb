@@ -647,17 +647,14 @@ fn execute_generated_native_mutation_statement(
     match step.statement().operation() {
         MutationOperation::Update {
             window: Some(_), ..
-        } => execute_prefix_sql_update_for_tests::<SessionSqlWriteEntity>(
-            session,
-            step.rendered_sql(),
-        ),
-        MutationOperation::Update { window: None, .. } => execute_exact_sql_update_for_tests::<
-            SessionSqlWriteEntity,
-        >(session, step.rendered_sql()),
+        } => execute_prefix_sql_update_for_tests(session, step.rendered_sql()),
+        MutationOperation::Update { window: None, .. } => {
+            execute_exact_sql_update_for_tests(session, step.rendered_sql())
+        }
         MutationOperation::Delete { .. }
         | MutationOperation::Insert { .. }
         | MutationOperation::InsertFromQuery { .. } => {
-            execute_sql_statement_for_tests::<SessionSqlWriteEntity>(session, step.rendered_sql())
+            execute_sql_statement_for_tests(session, step.rendered_sql())
         }
     }
 }
@@ -808,7 +805,7 @@ fn normalize_native_mutation_result(
 fn read_native_mutation_state(
     session: &DbSession<SessionSqlCanister>,
 ) -> Result<Vec<MutationRow>, String> {
-    let rows = statement_projection_rows::<SessionSqlWriteEntity>(
+    let rows = statement_projection_rows(
         session,
         "SELECT id, name, age FROM SessionSqlWriteEntity ORDER BY id ASC",
     )

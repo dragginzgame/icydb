@@ -24,10 +24,14 @@ use crate::{
 
 pub(super) use commit_window::{
     PreparedRowOpDelta, affected_store_handles_for_prepared_row_ops, classify_mutation_commit_plan,
-    commit_delete_row_ops_with_window_for_path, commit_prepared_single_save_row_op_with_window,
+    commit_prepared_single_save_row_op_with_window,
     commit_save_row_ops_with_window_and_schema_fingerprint, emit_index_delta_metrics,
     record_mutation_commit_plan, synchronized_store_handles_for_prepared_row_ops,
 };
+pub(in crate::db) use commit_window::{
+    commit_delete_row_ops_with_window_for_path, commit_structural_save_row_ops_with_window_for_path,
+};
+pub(in crate::db) use save_validation::validate_structural_accepted_after_image;
 
 /// Run mutation write-entry recovery checks and return a write-ready context.
 pub(in crate::db::executor) fn mutation_write_context<E>(

@@ -115,14 +115,14 @@ where
         perf_name(STORAGE_BACKEND_INDEX_HIGH),
     );
 
-    let warm_full_rows = black_box(sql_projection_row_count::<E>(&session, &full_sql));
+    let warm_full_rows = black_box(sql_projection_row_count(&session, &full_sql));
     assert_eq!(
         warm_full_rows,
         expected_full_rows(),
         "{label} full SQL warm-up should read every row"
     );
     let full_sql_started_at = Instant::now();
-    let full_rows = black_box(sql_projection_row_count::<E>(&session, &full_sql));
+    let full_rows = black_box(sql_projection_row_count(&session, &full_sql));
     let full_sql_read = full_sql_started_at.elapsed();
     assert_eq!(
         full_rows,
@@ -131,13 +131,13 @@ where
     );
 
     let expected_index_rows = expected_index_rows();
-    let warm_index_rows = black_box(sql_projection_row_count::<E>(&session, &indexed_sql));
+    let warm_index_rows = black_box(sql_projection_row_count(&session, &indexed_sql));
     assert_eq!(
         warm_index_rows, expected_index_rows,
         "{label} indexed SQL warm-up should read the selected range"
     );
     let indexed_sql_started_at = Instant::now();
-    let indexed_rows = black_box(sql_projection_row_count::<E>(&session, &indexed_sql));
+    let indexed_rows = black_box(sql_projection_row_count(&session, &indexed_sql));
     let indexed_sql_read = indexed_sql_started_at.elapsed();
     assert_eq!(
         indexed_rows, expected_index_rows,
@@ -165,11 +165,8 @@ where
     timing
 }
 
-fn sql_projection_row_count<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> usize
-where
-    E: PersistedRow<Canister = SessionSqlCanister>,
-{
-    statement_projection_rows::<E>(session, sql)
+fn sql_projection_row_count(session: &DbSession<SessionSqlCanister>, sql: &str) -> usize {
+    statement_projection_rows(session, sql)
         .expect("storage backend timing SQL projection should succeed")
         .len()
 }

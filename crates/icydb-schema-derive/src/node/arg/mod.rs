@@ -136,11 +136,6 @@ pub struct Args(Vec<Arg>);
 
 impl Args {
     #[must_use]
-    pub const fn none() -> Self {
-        Self(vec![])
-    }
-
-    #[must_use]
     pub(crate) const fn is_empty(&self) -> bool {
         self.0.is_empty()
     }

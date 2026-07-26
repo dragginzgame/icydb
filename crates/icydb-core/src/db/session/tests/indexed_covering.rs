@@ -67,7 +67,7 @@ fn assert_projection_matches_entity_rows(
     shape: CoveringProjectionShape,
     context: &str,
 ) {
-    let projected_rows = statement_projection_rows::<IndexedSessionSqlEntity>(session, sql)
+    let projected_rows = statement_projection_rows(session, sql)
         .unwrap_or_else(|err| panic!("{context} projection query should execute: {err:?}"));
     let entity_rows = execute_scalar_select_for_tests::<IndexedSessionSqlEntity>(&session, sql)
         .unwrap_or_else(|err| panic!("{context} entity query should execute: {err:?}"));
@@ -141,7 +141,7 @@ fn execute_sql_projection_index_covering_residual_predicate_filters_before_limit
                WHERE name != 'alice' \
                ORDER BY name ASC \
                LIMIT 2";
-    let projected_rows = statement_projection_rows::<IndexedSessionSqlEntity>(&session, sql)
+    let projected_rows = statement_projection_rows(&session, sql)
         .expect("index-covered residual predicate projection should execute");
 
     assert_eq!(
@@ -275,9 +275,8 @@ fn execute_sql_projection_order_only_filtered_covering_query_returns_guarded_row
     // Phase 2: require the projection lane to return only the guarded active
     // subset under the order-only `ORDER BY name, id` shape.
     let sql = "SELECT name FROM FilteredIndexedSessionSqlEntity WHERE active = true ORDER BY name ASC, id ASC LIMIT 2";
-    let projected_rows =
-        statement_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
-            .expect("filtered order-only covering projection query should execute");
+    let projected_rows = statement_projection_rows(&session, sql)
+        .expect("filtered order-only covering projection query should execute");
 
     assert_eq!(
         projected_rows,

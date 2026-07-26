@@ -48,6 +48,7 @@ struct AcceptedSchemaQueryCacheEntry {
 
 type AcceptedSchemaQueryCacheKey = (usize, &'static str);
 
+#[cfg(test)]
 pub(in crate::db) type AcceptedSaveContract = (
     AcceptedRowDecodeContract,
     AcceptedRowDecodeContract,
@@ -141,7 +142,6 @@ impl AcceptedSchemaCatalogContext {
     }
 
     #[must_use]
-    #[cfg(feature = "sql")]
     pub(in crate::db) const fn identity(&self) -> AcceptedCatalogIdentity {
         self.inspection_plan.identity()
     }
@@ -192,20 +192,6 @@ impl AcceptedSchemaCatalogContext {
     }
 
     #[cfg(feature = "sql")]
-    pub(in crate::db) fn accepted_entity_authority_and_schema_info_for<E>(
-        &self,
-    ) -> Result<(EntityAuthority, SchemaInfo), InternalError>
-    where
-        E: EntityKind,
-    {
-        self.debug_assert_matches_entity::<E>();
-        let schema_info = self.accepted_schema_info();
-        let authority = self.accepted_entity_authority()?;
-
-        Ok((authority, schema_info))
-    }
-
-    #[cfg(feature = "sql")]
     pub(in crate::db) fn accepted_or_provided_entity_authority(
         &self,
         accepted_authority: Option<&EntityAuthority>,
@@ -247,6 +233,7 @@ impl AcceptedSchemaCatalogContext {
 }
 
 /// Build one save contract pinned to the selected catalog context.
+#[cfg(test)]
 pub(in crate::db) fn accepted_save_contract_for_catalog_context<E>(
     context: &AcceptedSchemaCatalogContext,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
@@ -341,7 +328,6 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Resolve one accepted catalog by its editable SQL/display entity name.
-    #[cfg(feature = "sql")]
     pub(in crate::db::session) fn accepted_schema_catalog_context_for_entity_name(
         &self,
         entity_name: Option<&str>,
@@ -373,7 +359,6 @@ impl<C: CanisterKind> DbSession<C> {
         matched.ok_or_else(|| InternalError::unsupported_entity_path(entity_name))
     }
 
-    #[cfg(feature = "sql")]
     fn accepted_schema_catalog_context_from_cached_entity_name(
         &self,
         entity_name: &str,

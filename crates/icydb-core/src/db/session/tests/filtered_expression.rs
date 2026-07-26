@@ -44,15 +44,12 @@ fn filtered_expression_prefix_spellings(
          ORDER BY LOWER(handle) {order} LIMIT 2"
     );
 
-    let like_rows =
-        statement_projection_rows::<FilteredIndexedSessionSqlEntity>(session, &like_sql)
-            .expect("filtered expression LIKE prefix projection should execute");
-    let starts_with_rows =
-        statement_projection_rows::<FilteredIndexedSessionSqlEntity>(session, &starts_with_sql)
-            .expect("filtered expression STARTS_WITH projection should execute");
-    let range_rows =
-        statement_projection_rows::<FilteredIndexedSessionSqlEntity>(session, &range_sql)
-            .expect("filtered expression text-range projection should execute");
+    let like_rows = statement_projection_rows(session, &like_sql)
+        .expect("filtered expression LIKE prefix projection should execute");
+    let starts_with_rows = statement_projection_rows(session, &starts_with_sql)
+        .expect("filtered expression STARTS_WITH projection should execute");
+    let range_rows = statement_projection_rows(session, &range_sql)
+        .expect("filtered expression text-range projection should execute");
 
     (like_rows, starts_with_rows, range_rows)
 }
@@ -165,9 +162,8 @@ fn execute_sql_projection_filtered_expression_order_only_matrix_returns_guarded_
 
         // Phase 2: require both the projection and entity lanes to preserve
         // the same guarded ordered window.
-        let projected_rows =
-            statement_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
-                .unwrap_or_else(|err| panic!("{context} projection should execute: {err}"));
+        let projected_rows = statement_projection_rows(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} projection should execute: {err}"));
         let entity_rows =
             execute_scalar_select_for_tests::<FilteredIndexedSessionSqlEntity>(&session, sql)
                 .unwrap_or_else(|err| panic!("{context} entity query should execute: {err}"));

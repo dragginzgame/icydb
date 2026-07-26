@@ -8,6 +8,7 @@ use crate::model::field::FieldKind;
 use crate::{
     db::{
         PersistedRow,
+        commit::CommitSchemaFingerprint,
         data::{
             AcceptedFieldWriteProvenance, AcceptedMutationFieldWriteIntent,
             AcceptedMutationIntentPatch, CanonicalRow, DecodedDataStoreKey, RawDataStoreKey,
@@ -20,15 +21,102 @@ use crate::{
         schema::{
             AcceptedFieldKind, AcceptedFieldKindCategory, AcceptedRowConstraintEvaluationError,
             AcceptedRowConstraintViolationKind, AcceptedRowDecodeContract, AcceptedScalarClass,
-            SchemaInfo, classify_accepted_field_kind, literal_matches_type,
+            CompiledAcceptedRowConstraints, SchemaInfo, classify_accepted_field_kind,
+            literal_matches_type,
         },
     },
     error::{ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError},
-    sanitize::{SanitizeWriteContext, sanitize_with_context},
+    sanitize::{SanitizeWriteContext, SanitizeWriteMode, sanitize_with_context},
     validate::validate,
     value::Value,
 };
 use std::cmp::Ordering;
+
+/// Validate activation gates and accepted row checks over one canonical
+/// structural after-image.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the accepted write boundary keeps identity, mode, provenance, row contract, fingerprint, and compiled constraints explicit"
+)]
+pub(in crate::db) fn validate_structural_accepted_after_image(
+    entity_path: &'static str,
+    mode: SanitizeWriteMode,
+    data_key: &RawDataStoreKey,
+    row: &RawRow,
+    provenance: &[Option<AcceptedFieldWriteProvenance>],
+    accepted_row_decode_contract: AcceptedRowDecodeContract,
+    accepted_schema_fingerprint: CommitSchemaFingerprint,
+    constraints: &CompiledAcceptedRowConstraints,
+) -> Result<(), InternalError> {
+    match constraints.unique_activation_write_blocker(mode, provenance) {
+        Ok(Some(barrier)) => {
+            let primary_key = data_key
+                .encoded_primary_key_bytes()
+                .ok_or_else(InternalError::store_invariant)?;
+            return Err(InternalError::mutation_constraint_activation_write_blocked(
+                ConstraintDiagnostic::write_activation_blocked(
+                    barrier.constraint_id().get(),
+                    barrier.constraint_name().to_string(),
+                    ConstraintDiagnosticKind::Unique,
+                    entity_path.to_string(),
+                    Some(primary_key.to_vec()),
+                    barrier.field_paths().to_vec(),
+                ),
+            ));
+        }
+        Ok(None) => {}
+        Err(_) => return Err(InternalError::accepted_row_constraint_program_corrupt()),
+    }
+
+    if constraints.is_empty() {
+        return Ok(());
+    }
+    let contract = StructuralRowContract::from_accepted_decode_contract(
+        entity_path,
+        accepted_row_decode_contract,
+    );
+    let row_fields =
+        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(row, &contract)?;
+    let values = row_fields.decode_selected_slot_values(constraints.required_slots())?;
+    let primary_key = data_key
+        .encoded_primary_key_bytes()
+        .ok_or_else(InternalError::store_invariant)?;
+
+    constraints
+        .evaluate(accepted_schema_fingerprint, values.as_slice())
+        .map_err(|error| match error {
+            AcceptedRowConstraintEvaluationError::Violation {
+                constraint_id,
+                constraint_name,
+                kind,
+                field_paths,
+            } => {
+                InternalError::mutation_constraint_violation(ConstraintDiagnostic::write_violation(
+                    constraint_id.get(),
+                    constraint_name,
+                    match kind {
+                        AcceptedRowConstraintViolationKind::Check => {
+                            ConstraintDiagnosticKind::Check
+                        }
+                        AcceptedRowConstraintViolationKind::NotNull => {
+                            ConstraintDiagnosticKind::NotNull
+                        }
+                    },
+                    entity_path.to_string(),
+                    Some(primary_key.to_vec()),
+                    field_paths,
+                ))
+            }
+            AcceptedRowConstraintEvaluationError::InvalidExpression(_)
+            | AcceptedRowConstraintEvaluationError::LiteralCorrupt
+            | AcceptedRowConstraintEvaluationError::FingerprintMismatch
+            | AcceptedRowConstraintEvaluationError::MissingSlot
+            | AcceptedRowConstraintEvaluationError::RuntimeValueMismatch
+            | AcceptedRowConstraintEvaluationError::WorkBudgetExceeded => {
+                InternalError::accepted_row_constraint_program_corrupt()
+            }
+        })
+}
 
 impl<E: PersistedRow> SaveExecutor<E> {
     // Enforce accepted-contract scalar bounds before structural patch values are
@@ -132,8 +220,16 @@ impl<E: PersistedRow> SaveExecutor<E> {
             normalized.as_raw_row(),
             provenance,
         )?;
-        self.validate_unique_activation_write_gate(write_context.mode(), data_key, provenance)?;
-        self.validate_accepted_row_constraints(data_key, normalized.as_raw_row())?;
+        validate_structural_accepted_after_image(
+            E::PATH,
+            write_context.mode(),
+            data_key,
+            normalized.as_raw_row(),
+            provenance,
+            self.accepted_row_decode_contract().clone(),
+            self.accepted_schema_fingerprint(),
+            self.accepted_row_constraints(),
+        )?;
         if validate_relations {
             validate_save_relations_with_accepted_contract::<E>(
                 &self.db,
@@ -143,94 +239,6 @@ impl<E: PersistedRow> SaveExecutor<E> {
         }
 
         Ok(normalized)
-    }
-
-    fn validate_unique_activation_write_gate(
-        &self,
-        mode: crate::sanitize::SanitizeWriteMode,
-        data_key: &RawDataStoreKey,
-        provenance: &[Option<AcceptedFieldWriteProvenance>],
-    ) -> Result<(), InternalError> {
-        match self
-            .accepted_row_constraints()
-            .unique_activation_write_blocker(mode, provenance)
-        {
-            Ok(Some(barrier)) => {
-                let primary_key = data_key
-                    .encoded_primary_key_bytes()
-                    .ok_or_else(InternalError::store_invariant)?;
-                Err(InternalError::mutation_constraint_activation_write_blocked(
-                    ConstraintDiagnostic::write_activation_blocked(
-                        barrier.constraint_id().get(),
-                        barrier.constraint_name().to_string(),
-                        ConstraintDiagnosticKind::Unique,
-                        E::PATH.to_string(),
-                        Some(primary_key.to_vec()),
-                        barrier.field_paths().to_vec(),
-                    ),
-                ))
-            }
-            Ok(None) => Ok(()),
-            Err(_) => Err(InternalError::accepted_row_constraint_program_corrupt()),
-        }
-    }
-
-    // Evaluate fingerprint-bound row constraints over the exact canonical
-    // after-image that enters commit preflight. All gates share one slot decode.
-    fn validate_accepted_row_constraints(
-        &self,
-        data_key: &RawDataStoreKey,
-        row: &RawRow,
-    ) -> Result<(), InternalError> {
-        let constraints = self.accepted_row_constraints();
-        if constraints.is_empty() {
-            return Ok(());
-        }
-        let contract = StructuralRowContract::from_accepted_decode_contract(
-            E::PATH,
-            self.accepted_row_decode_contract().clone(),
-        );
-        let row_fields =
-            StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(row, &contract)?;
-        let values = row_fields.decode_selected_slot_values(constraints.required_slots())?;
-        let primary_key = data_key
-            .encoded_primary_key_bytes()
-            .ok_or_else(InternalError::store_invariant)?;
-
-        constraints
-            .evaluate(self.accepted_schema_fingerprint(), values.as_slice())
-            .map_err(|error| match error {
-                AcceptedRowConstraintEvaluationError::Violation {
-                    constraint_id,
-                    constraint_name,
-                    kind,
-                    field_paths,
-                } => InternalError::mutation_constraint_violation(
-                    ConstraintDiagnostic::write_violation(
-                        constraint_id.get(),
-                        constraint_name,
-                        match kind {
-                            AcceptedRowConstraintViolationKind::Check => {
-                                ConstraintDiagnosticKind::Check
-                            }
-                            AcceptedRowConstraintViolationKind::NotNull => {
-                                ConstraintDiagnosticKind::NotNull
-                            }
-                        },
-                        E::PATH.to_string(),
-                        Some(primary_key.to_vec()),
-                        field_paths,
-                    ),
-                ),
-                AcceptedRowConstraintEvaluationError::InvalidExpression(_)
-                | AcceptedRowConstraintEvaluationError::LiteralCorrupt
-                | AcceptedRowConstraintEvaluationError::FingerprintMismatch
-                | AcceptedRowConstraintEvaluationError::MissingSlot
-                | AcceptedRowConstraintEvaluationError::RuntimeValueMismatch
-                | AcceptedRowConstraintEvaluationError::WorkBudgetExceeded => {
-                    InternalError::accepted_row_constraint_program_corrupt()
-                }
-            })
     }
 
     // Compare canonical slot payloads instead of re-decoded runtime values so

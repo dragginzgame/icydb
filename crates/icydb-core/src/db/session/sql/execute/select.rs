@@ -11,7 +11,7 @@ use crate::db::session::{
 };
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryError,
+        DbSession, QueryError,
         executor::{
             EntityAuthority, SharedPreparedExecutionPlan, StructuralGroupedProjectionResult,
             StructuralProjectionScanBudget,
@@ -94,6 +94,32 @@ impl<C: CanisterKind> DbSession<C> {
             SqlProjectionPayload::new(columns, fixed_scales, rows, row_count, enum_catalog),
             cache_attribution,
         ))
+    }
+
+    #[cfg(test)]
+    pub(super) fn execute_select_compiled_sql_with_cache_attribution<E>(
+        &self,
+        query: &StructuralQuery,
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
+    where
+        E: crate::db::PersistedRow<Canister = C>,
+    {
+        let catalog = self
+            .accepted_schema_catalog_context_for_query::<E>()
+            .map_err(QueryError::execute)?;
+        let authority = catalog
+            .accepted_entity_authority_for::<E>()
+            .map_err(QueryError::execute)?;
+        let resolved = self
+            .resolve_select_prepared_plan_for_authority_with_catalog(query, authority, &catalog)?;
+        let (prepared_plan, projection, cache_attribution) = resolved.into_parts();
+
+        self.execute_select_compiled_sql_from_prepared_plan(
+            query,
+            prepared_plan,
+            projection,
+            cache_attribution,
+        )
     }
 
     // Execute one SQL projection and immediately shape it into the public
@@ -341,32 +367,6 @@ impl<C: CanisterKind> DbSession<C> {
                 kernel_row,
             ),
         ))
-    }
-
-    pub(super) fn execute_select_compiled_sql_with_cache_attribution<E>(
-        &self,
-        query: &StructuralQuery,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let catalog = self
-            .accepted_schema_catalog_context_for_query::<E>()
-            .map_err(QueryError::execute)?;
-        let authority = catalog
-            .accepted_entity_authority_for::<E>()
-            .map_err(QueryError::execute)?;
-
-        let resolved = self
-            .resolve_select_prepared_plan_for_authority_with_catalog(query, authority, &catalog)?;
-        let (prepared_plan, projection, cache_attribution) = resolved.into_parts();
-
-        self.execute_select_compiled_sql_from_prepared_plan(
-            query,
-            prepared_plan,
-            projection,
-            cache_attribution,
-        )
     }
 
     pub(super) fn execute_select_compiled_sql_with_context(

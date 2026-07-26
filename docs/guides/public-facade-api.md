@@ -413,11 +413,11 @@ db.execute_trusted_dynamic_query(
         .select(["name", "age"])
         .limit(25),
 )
-db.execute_trusted_sql_mutation::<E>(sql)
-db.execute_trusted_sql_exact_update::<E>(sql, require_affected_at_most)
-db.execute_trusted_sql_prefix_update::<E>(sql)
-db.prepare_trusted_sql_resumable_update::<E>(operation_id, sql)
-db.resume_trusted_sql_resumable_update::<E>(operation_id, sql, continuation)
+db.execute_trusted_sql_mutation(sql)
+db.execute_trusted_sql_exact_update(sql, require_affected_at_most)
+db.execute_trusted_sql_prefix_update(sql)
+db.prepare_trusted_sql_resumable_update(operation_id, sql)
+db.resume_trusted_sql_resumable_update(operation_id, sql, continuation)
 db.execute_admin_sql_ddl::<E>(sql)
 ```
 
@@ -425,6 +425,13 @@ Trusted SQL and dynamic reads resolve the statement/request entity directly
 through accepted catalog authority. They do not require a generated Rust entity
 type. Typed/fluent reads remain the ergonomic outer adapter when the
 application wants generated entity values.
+
+Trusted SQL mutations and `execute_trusted_structural_mutation(...)` use the
+same accepted-schema after-image resolver. `StructuralMutation` selects the
+entity by accepted name and `StructuralPatch` retains each field as
+`WriteCell::Omitted`, `Default`, `Null`, or `Value(...)` until database policy
+resolves it. Neither structural nor SQL writes run application validators or
+normalizers.
 
 The broad mutation helper accepts `INSERT` and `DELETE`. An `UPDATE` must state
 whether the complete target is required (`exact`) or one deliberate ordered

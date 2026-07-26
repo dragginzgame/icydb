@@ -7,34 +7,6 @@
 use crate::design::prelude::*;
 
 ///
-/// CreatedAt
-///
-/// Creation timestamp wrapper.
-/// A zero value is sanitized to the current `Timestamp`.
-///
-
-#[newtype(
-    primitive = "Timestamp",
-    item(prim = "Timestamp"),
-    ty(sanitizer(path = "base::sanitizer::time::CreatedAt"))
-)]
-pub struct CreatedAt {}
-
-///
-/// UpdatedAt
-///
-/// Last-updated timestamp wrapper.
-/// Always sanitized to the current `Timestamp`.
-///
-
-#[newtype(
-    primitive = "Timestamp",
-    item(prim = "Timestamp"),
-    ty(sanitizer(path = "base::sanitizer::time::UpdatedAt"))
-)]
-pub struct UpdatedAt {}
-
-///
 /// Milliseconds
 ///
 /// Duration wrapper expressed in milliseconds.

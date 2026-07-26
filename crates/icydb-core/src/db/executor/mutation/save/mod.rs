@@ -8,9 +8,6 @@ mod shared;
 mod structural;
 mod typed;
 
-#[cfg(feature = "sql")]
-pub(in crate::db) use structural::StructuralMutationTargetKey;
-
 use crate::{
     db::{
         Db,
@@ -136,6 +133,7 @@ impl MutationMode {
         }
     }
 
+    #[cfg(test)]
     const fn sanitize_write_mode(self) -> SanitizeWriteMode {
         match self {
             Self::Insert => SanitizeWriteMode::Insert,
@@ -144,6 +142,7 @@ impl MutationMode {
         }
     }
 
+    #[cfg(test)]
     const fn save_mutation_kind(self) -> SaveMutationKind {
         match self {
             Self::Insert => SaveMutationKind::Insert,

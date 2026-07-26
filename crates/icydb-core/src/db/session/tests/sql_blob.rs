@@ -153,8 +153,7 @@ fn select_blob_rows(
          ORDER BY label ASC"
     );
 
-    statement_projection_rows::<SessionSqlBlobEntity>(session, sql.as_str())
-        .expect("large blob SQL SELECT should succeed")
+    statement_projection_rows(session, sql.as_str()).expect("large blob SQL SELECT should succeed")
 }
 
 fn blob_index_entries_for_test() -> Vec<(RawIndexStoreKey, IndexEntryValue)> {
@@ -191,7 +190,7 @@ fn sql_insert_select_copies_multiple_large_blob_rows() {
     // Phase 1: copy the two hot-bucket blob rows through SQL INSERT SELECT.
     // This exercises SQL INSERT over blob values without requiring a blob
     // literal syntax in the reduced parser.
-    let inserted = statement_projection_rows::<SessionSqlBlobEntity>(
+    let inserted = statement_projection_rows(
         &session,
         "INSERT INTO SessionSqlBlobEntity (label, bucket, thumbnail, chunk) \
          SELECT label, bucket, thumbnail, chunk \
@@ -292,7 +291,7 @@ fn sql_insert_values_writes_multiple_large_hex_blob_literals() {
         hex_blob_literal(second_chunk.as_slice()),
     );
 
-    let inserted = statement_projection_rows::<SessionSqlBlobEntity>(&session, sql.as_str())
+    let inserted = statement_projection_rows(&session, sql.as_str())
         .expect("large blob INSERT VALUES RETURNING should succeed");
 
     assert_eq!(
@@ -328,7 +327,7 @@ fn sql_insert_values_writes_multiple_large_hex_blob_literals() {
     );
     assert_eq!(
         blob_payload_pairs(
-            &statement_projection_rows::<SessionSqlBlobEntity>(
+            &statement_projection_rows(
                 &session,
                 "SELECT thumbnail, chunk \
                  FROM SessionSqlBlobEntity \
@@ -363,9 +362,7 @@ fn sql_blob_literals_fail_closed_through_public_update_entrypoint() {
         ),
     ] {
         assert!(
-            session
-                .execute_trusted_sql_mutation::<SessionSqlBlobEntity>(sql)
-                .is_err(),
+            session.execute_trusted_sql_mutation(sql).is_err(),
             "{context} should fail before mutation",
         );
     }
@@ -376,7 +373,7 @@ fn sql_blob_literals_fail_closed_through_public_update_entrypoint() {
          VALUES ('oversized', 1, X'{oversized_hex}', X'00')"
     );
     session
-        .execute_trusted_sql_mutation::<SessionSqlBlobEntity>(oversized_sql.as_str())
+        .execute_trusted_sql_mutation(oversized_sql.as_str())
         .expect_err("oversized blob literal should fail before mutation");
 
     assert!(
@@ -399,7 +396,7 @@ fn sql_update_metadata_preserves_large_blob_payloads() {
     // Phase 1: update scalar metadata on rows carrying large blobs. Reduced SQL
     // UPDATE does not parse blob literals yet, so this locks the important
     // row-wide patch behavior: unchanged blob fields must survive the update.
-    let updated = exact_update_projection_rows::<SessionSqlBlobEntity>(
+    let updated = exact_update_projection_rows(
         &session,
         "UPDATE SessionSqlBlobEntity \
          SET label = 'hot-updated', bucket = 70 \
@@ -429,7 +426,7 @@ fn sql_update_metadata_preserves_large_blob_payloads() {
 
     assert_eq!(
         blob_payload_pairs_sorted_by_shape(
-            &statement_projection_rows::<SessionSqlBlobEntity>(
+            &statement_projection_rows(
                 &session,
                 "SELECT thumbnail, chunk \
                  FROM SessionSqlBlobEntity \
@@ -458,7 +455,7 @@ fn sql_update_writes_large_hex_blob_literals_to_multiple_rows() {
         hex_blob_literal(updated_chunk.as_slice()),
     );
 
-    let updated = exact_update_projection_rows::<SessionSqlBlobEntity>(&session, sql.as_str())
+    let updated = exact_update_projection_rows(&session, sql.as_str())
         .expect("large blob literal UPDATE RETURNING should succeed");
 
     assert_eq!(
@@ -494,7 +491,7 @@ fn sql_update_writes_large_hex_blob_literals_to_multiple_rows() {
     );
     assert_eq!(
         blob_payload_pairs(
-            &statement_projection_rows::<SessionSqlBlobEntity>(
+            &statement_projection_rows(
                 &session,
                 "SELECT thumbnail, chunk \
                  FROM SessionSqlBlobEntity \
@@ -521,7 +518,7 @@ fn sql_octet_length_reports_blob_byte_lengths() {
         with_structural_read_metrics(|| {
             crate::db::with_scalar_materialization_lane_metrics(|| {
                 with_sql_projection_materialization_metrics(|| {
-                    statement_projection_rows::<SessionSqlBlobEntity>(
+                    statement_projection_rows(
                         &session,
                         "SELECT label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk) \
                      FROM SessionSqlBlobEntity \
@@ -656,7 +653,7 @@ fn sql_blob_equality_predicates_compare_bytes() {
     let matching_thumbnail = seeded[0].thumbnail.to_vec();
     let matching_literal = hex_blob_literal(matching_thumbnail.as_slice());
 
-    let equal_rows = statement_projection_rows::<SessionSqlBlobEntity>(
+    let equal_rows = statement_projection_rows(
         &session,
         format!(
             "SELECT label \
@@ -674,7 +671,7 @@ fn sql_blob_equality_predicates_compare_bytes() {
         "blob equality should return only the row with matching bytes",
     );
 
-    let not_equal_rows = statement_projection_rows::<SessionSqlBlobEntity>(
+    let not_equal_rows = statement_projection_rows(
         &session,
         format!(
             "SELECT label \
@@ -702,7 +699,7 @@ fn sql_order_by_blob_field_is_rejected() {
     let session = sql_session();
     seed_blob_rows(&session);
 
-    let err = statement_projection_rows::<SessionSqlBlobEntity>(
+    let err = statement_projection_rows(
         &session,
         "SELECT label \
          FROM SessionSqlBlobEntity \
@@ -762,7 +759,7 @@ fn typed_replace_then_sql_select_and_delete_large_blobs() {
     );
     assert_eq!(
         blob_payload_pairs(
-            &statement_projection_rows::<SessionSqlBlobEntity>(
+            &statement_projection_rows(
                 &session,
                 "SELECT thumbnail, chunk \
                  FROM SessionSqlBlobEntity \
@@ -776,7 +773,7 @@ fn typed_replace_then_sql_select_and_delete_large_blobs() {
 
     // Phase 2: delete a bounded window of blob rows and require RETURNING to
     // materialize the large payloads before the rows disappear.
-    let deleted = statement_projection_rows::<SessionSqlBlobEntity>(
+    let deleted = statement_projection_rows(
         &session,
         "DELETE FROM SessionSqlBlobEntity \
          WHERE bucket >= 7 \

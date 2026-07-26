@@ -194,12 +194,11 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// `UPDATE` requires an explicit exact or prefix contract and is rejected
     /// by this broad mutation surface.
-    pub fn execute_trusted_sql_mutation<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(Self::sql_query_result_from_statement_for_entity::<E>(
-            self.inner.execute_trusted_sql_mutation::<E>(sql)?,
+    pub fn execute_trusted_sql_mutation(&self, sql: &str) -> Result<SqlQueryResult, Error> {
+        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
+        Ok(Self::sql_query_result_from_statement(
+            self.inner.execute_trusted_sql_mutation(sql)?,
+            entity,
         ))
     }
 
@@ -210,17 +209,16 @@ impl<C: CanisterKind> DbSession<C> {
     /// rejects before mutation. Exact selection uses authoritative primary-key
     /// traversal. The affected-row and scanned-key ceilings are independently
     /// enforced and are currently 4,096 each.
-    pub fn execute_trusted_sql_exact_update<E>(
+    pub fn execute_trusted_sql_exact_update(
         &self,
         sql: &str,
         require_affected_at_most: u32,
-    ) -> Result<SqlQueryResult, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(Self::sql_query_result_from_statement_for_entity::<E>(
+    ) -> Result<SqlQueryResult, Error> {
+        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
+        Ok(Self::sql_query_result_from_statement(
             self.inner
-                .execute_trusted_sql_exact_update::<E>(sql, require_affected_at_most)?,
+                .execute_trusted_sql_exact_update(sql, require_affected_at_most)?,
+            entity,
         ))
     }
 
@@ -228,12 +226,11 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// The statement must carry a positive bounded `LIMIT`; only that ordered
     /// prefix is mutated and no complete-target claim is made.
-    pub fn execute_trusted_sql_prefix_update<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(Self::sql_query_result_from_statement_for_entity::<E>(
-            self.inner.execute_trusted_sql_prefix_update::<E>(sql)?,
+    pub fn execute_trusted_sql_prefix_update(&self, sql: &str) -> Result<SqlQueryResult, Error> {
+        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
+        Ok(Self::sql_query_result_from_statement(
+            self.inner.execute_trusted_sql_prefix_update(sql)?,
+            entity,
         ))
     }
 
@@ -242,17 +239,14 @@ impl<C: CanisterKind> DbSession<C> {
     /// The returned proof-bearing continuation must be stored durably outside
     /// the target store before a later resume call. It is not authorization and
     /// must not be accepted through an untrusted public endpoint.
-    pub fn prepare_trusted_sql_resumable_update<E>(
+    pub fn prepare_trusted_sql_resumable_update(
         &self,
         operation_id: crate::types::Ulid,
         sql: &str,
-    ) -> Result<crate::db::TrustedResumableUpdateContinuation, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
+    ) -> Result<crate::db::TrustedResumableUpdateContinuation, Error> {
         Ok(self
             .inner
-            .prepare_trusted_sql_resumable_update::<E>(operation_id, sql)?)
+            .prepare_trusted_sql_resumable_update(operation_id, sql)?)
     }
 
     /// Resume one trusted resumable SQL `UPDATE` for one bounded engine step.
@@ -261,67 +255,60 @@ impl<C: CanisterKind> DbSession<C> {
     /// operation id, and the SQL must preserve the exact prepared scope and
     /// fixed patch. Forward commits at most one batch; Verify is read-only and
     /// alone may report completion.
-    pub fn resume_trusted_sql_resumable_update<E>(
+    pub fn resume_trusted_sql_resumable_update(
         &self,
         operation_id: crate::types::Ulid,
         sql: &str,
         continuation: &crate::db::TrustedResumableUpdateContinuation,
-    ) -> Result<crate::db::TrustedResumableUpdateReceipt, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
+    ) -> Result<crate::db::TrustedResumableUpdateReceipt, Error> {
         Ok(self
             .inner
-            .resume_trusted_sql_resumable_update::<E>(operation_id, sql, continuation)?)
+            .resume_trusted_sql_resumable_update(operation_id, sql, continuation)?)
     }
 
     /// Execute one public primary-key-only SQL `UPDATE` against one entity type.
     #[doc(hidden)]
-    pub fn execute_sql_public_primary_key_update<E>(
+    pub fn execute_sql_public_primary_key_update(
         &self,
         sql: &str,
-    ) -> Result<SqlQueryResult, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(Self::sql_query_result_from_statement_for_entity::<E>(
-            self.inner.execute_sql_public_primary_key_update::<E>(sql)?,
+    ) -> Result<SqlQueryResult, Error> {
+        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
+        Ok(Self::sql_query_result_from_statement(
+            self.inner.execute_sql_public_primary_key_update(sql)?,
+            entity,
         ))
     }
 
     /// Execute one bounded deterministic public SQL `UPDATE`.
     #[doc(hidden)]
-    pub fn execute_sql_public_bounded_update<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(Self::sql_query_result_from_statement_for_entity::<E>(
-            self.inner.execute_sql_public_bounded_update::<E>(sql)?,
+    pub fn execute_sql_public_bounded_update(&self, sql: &str) -> Result<SqlQueryResult, Error> {
+        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
+        Ok(Self::sql_query_result_from_statement(
+            self.inner.execute_sql_public_bounded_update(sql)?,
+            entity,
         ))
     }
 
     /// Execute one public primary-key-only SQL `DELETE` against one entity type.
     #[doc(hidden)]
-    pub fn execute_sql_public_primary_key_delete<E>(
+    pub fn execute_sql_public_primary_key_delete(
         &self,
         sql: &str,
-    ) -> Result<SqlQueryResult, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(Self::sql_query_result_from_statement_for_entity::<E>(
-            self.inner.execute_sql_public_primary_key_delete::<E>(sql)?,
+    ) -> Result<SqlQueryResult, Error> {
+        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
+        Ok(Self::sql_query_result_from_statement(
+            self.inner.execute_sql_public_primary_key_delete(sql)?,
+            entity,
         ))
     }
 
     /// Execute one bounded deterministic public SQL `DELETE`.
     #[doc(hidden)]
-    pub fn execute_sql_public_bounded_delete<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(Self::sql_query_result_from_statement_for_entity::<E>(
-            self.inner.execute_sql_public_bounded_delete::<E>(sql)?,
+    pub fn execute_sql_public_bounded_delete(&self, sql: &str) -> Result<SqlQueryResult, Error> {
+        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
+        Ok(Self::sql_query_result_from_statement(
+            self.inner.execute_sql_public_bounded_delete(sql)?,
+            entity,
         ))
     }
 

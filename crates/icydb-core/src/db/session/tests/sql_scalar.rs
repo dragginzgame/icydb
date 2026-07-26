@@ -124,7 +124,7 @@ fn execute_sql_scalar_field_path_where_matches_expected_rows() {
     ];
 
     for (sql, expected_rows, context) in cases {
-        let rows = statement_projection_rows::<SessionSqlFieldPathEntity>(&session, sql)
+        let rows = statement_projection_rows(&session, sql)
             .unwrap_or_else(|err| panic!("{context}: {err:?}"));
 
         assert_eq!(rows, expected_rows, "{context}");
@@ -189,7 +189,7 @@ fn execute_sql_scalar_searched_case_where_matches_expected_rows() {
 
     // Phase 2: require searched CASE WHERE to flow through the same scalar
     // expression seam as the other admitted clause positions.
-    let rows = statement_projection_rows::<SessionSqlEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -228,7 +228,7 @@ fn execute_sql_scalar_affine_numeric_where_compare_matches_expected_rows() {
 
     // Phase 2: require one simple field-plus-literal compare to execute as
     // the same canonical filter as the equivalent direct field threshold.
-    let rows = statement_projection_rows::<SessionSqlEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -267,7 +267,7 @@ fn execute_sql_scalar_coalesce_and_nullif_where_matches_expected_rows() {
 
     // Phase 2: require nested NULLIF/COALESCE evaluation to stay correct even
     // when the derived predicate falls back to one residual runtime filter.
-    let rows = statement_projection_rows::<SessionSqlEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -297,7 +297,7 @@ fn execute_sql_scalar_unary_text_wrapped_value_selection_where_matches_expected_
         ],
     );
 
-    let coalesce_rows = statement_projection_rows::<SessionNullableSqlEntity>(
+    let coalesce_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionNullableSqlEntity \
@@ -305,7 +305,7 @@ fn execute_sql_scalar_unary_text_wrapped_value_selection_where_matches_expected_
          ORDER BY name ASC",
     )
     .expect("unary text wrapped COALESCE WHERE query should execute");
-    let nullif_rows = statement_projection_rows::<SessionNullableSqlEntity>(
+    let nullif_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionNullableSqlEntity \
@@ -341,7 +341,7 @@ fn execute_sql_scalar_text_transform_where_matches_expected_rows() {
         ],
     );
 
-    let rows = statement_projection_rows::<SessionSqlEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -372,7 +372,7 @@ fn execute_sql_scalar_text_predicate_wrapped_transform_where_matches_expected_ro
         ],
     );
 
-    let rows = statement_projection_rows::<SessionSqlEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -406,7 +406,7 @@ fn execute_sql_scalar_text_predicate_expression_arguments_where_match_expected_r
         ],
     );
 
-    let rows = statement_projection_rows::<SessionSqlEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -463,7 +463,7 @@ fn execute_sql_scalar_constant_null_test_where_matches_expected_rows() {
             "constant null-test WHERE that folds to FALSE",
         ),
     ] {
-        let rows = statement_projection_rows::<SessionSqlEntity>(&session, sql)
+        let rows = statement_projection_rows(&session, sql)
             .unwrap_or_else(|err| panic!("{context} query should execute: {err:?}"));
 
         assert_eq!(
@@ -504,7 +504,7 @@ fn execute_sql_scalar_wrapped_like_and_ilike_where_match_expected_rows() {
             "wrapped ILIKE target WHERE query",
         ),
     ] {
-        let rows = statement_projection_rows::<SessionSqlEntity>(&session, sql)
+        let rows = statement_projection_rows(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should execute: {err:?}"));
 
         assert_eq!(
@@ -537,7 +537,7 @@ fn execute_sql_scalar_searched_case_where_null_boolean_context_matches_canonical
 
     // Phase 2: compare NULL-condition and NULL-result CASE filters against
     // their direct canonical boolean forms.
-    let null_condition_rows = statement_projection_rows::<SessionSqlEntity>(
+    let null_condition_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -545,7 +545,7 @@ fn execute_sql_scalar_searched_case_where_null_boolean_context_matches_canonical
          ORDER BY age ASC",
     )
     .expect("searched CASE WHERE with NULL condition should execute");
-    let direct_age_rows = statement_projection_rows::<SessionSqlEntity>(
+    let direct_age_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -553,7 +553,7 @@ fn execute_sql_scalar_searched_case_where_null_boolean_context_matches_canonical
          ORDER BY age ASC",
     )
     .expect("direct age-equality WHERE should execute");
-    let null_result_rows = statement_projection_rows::<SessionSqlEntity>(
+    let null_result_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -561,7 +561,7 @@ fn execute_sql_scalar_searched_case_where_null_boolean_context_matches_canonical
          ORDER BY age ASC",
     )
     .expect("searched CASE WHERE with NULL result should execute");
-    let direct_threshold_rows = statement_projection_rows::<SessionSqlEntity>(
+    let direct_threshold_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -596,7 +596,7 @@ fn execute_sql_scalar_searched_case_where_implicit_null_else_matches_threshold_r
         ],
     );
 
-    let case_rows = statement_projection_rows::<SessionSqlEntity>(
+    let case_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -604,7 +604,7 @@ fn execute_sql_scalar_searched_case_where_implicit_null_else_matches_threshold_r
          ORDER BY age ASC",
     )
     .expect("searched CASE WHERE with implicit NULL ELSE should execute");
-    let direct_rows = statement_projection_rows::<SessionSqlEntity>(
+    let direct_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -637,7 +637,7 @@ fn execute_sql_scalar_not_searched_case_where_null_semantics_match_expected_rows
 
     // Phase 2: require NOT to preserve NULL searched-CASE semantics instead
     // of treating unknown as false too early.
-    let rows = statement_projection_rows::<SessionSqlEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -672,7 +672,7 @@ fn execute_sql_scalar_combined_boolean_searched_case_where_matches_canonical_row
 
     // Phase 2: compare one composed searched-CASE boolean filter against its
     // equivalent direct boolean predicate.
-    let case_rows = statement_projection_rows::<SessionSqlEntity>(
+    let case_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -680,7 +680,7 @@ fn execute_sql_scalar_combined_boolean_searched_case_where_matches_canonical_row
          ORDER BY age ASC",
     )
     .expect("composed searched CASE WHERE query should execute");
-    let canonical_rows = statement_projection_rows::<SessionSqlEntity>(
+    let canonical_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -714,7 +714,7 @@ fn execute_sql_scalar_null_boolean_and_true_filters_all_rows() {
 
     // Phase 2: require literal NULL boolean composition to collapse only at
     // the final WHERE truth boundary.
-    let rows = statement_projection_rows::<SessionSqlEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -747,7 +747,7 @@ fn execute_sql_scalar_not_null_filters_all_rows() {
     );
 
     // Phase 2: require NOT NULL in WHERE to stay unknown and filter rows.
-    let rows = statement_projection_rows::<SessionSqlEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -782,7 +782,7 @@ fn execute_sql_scalar_case_with_null_true_branch_keeps_else_rows_only() {
 
     // Phase 2: require searched CASE to keep NULL branch results until the
     // final WHERE truth collapse.
-    let rows = statement_projection_rows::<SessionSqlEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -820,7 +820,7 @@ fn execute_sql_scalar_eq_null_on_non_nullable_field_returns_no_rows() {
 
     // Phase 2: require equality-to-NULL over the current non-nullable field
     // surface to return no rows.
-    let rows = statement_projection_rows::<SessionSqlEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -851,7 +851,7 @@ fn execute_sql_scalar_null_compare_boolean_composition_preserves_unknown() {
         ],
     );
 
-    let not_rows = statement_projection_rows::<SessionSqlEntity>(
+    let not_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -859,7 +859,7 @@ fn execute_sql_scalar_null_compare_boolean_composition_preserves_unknown() {
          ORDER BY age ASC",
     )
     .expect("NOT compare-to-NULL WHERE query should execute");
-    let or_true_rows = statement_projection_rows::<SessionSqlEntity>(
+    let or_true_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -867,7 +867,7 @@ fn execute_sql_scalar_null_compare_boolean_composition_preserves_unknown() {
          ORDER BY age ASC",
     )
     .expect("compare-to-NULL OR TRUE WHERE query should execute");
-    let and_true_rows = statement_projection_rows::<SessionSqlEntity>(
+    let and_true_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -917,7 +917,7 @@ fn execute_sql_scalar_is_not_null_differs_from_ne_null_on_non_nullable_field() {
 
     // Phase 2: require IS NOT NULL to keep the seeded rows while != NULL
     // still behaves like unknown-at-WHERE and drops everything.
-    let is_not_null_rows = statement_projection_rows::<SessionSqlEntity>(
+    let is_not_null_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -925,7 +925,7 @@ fn execute_sql_scalar_is_not_null_differs_from_ne_null_on_non_nullable_field() {
          ORDER BY age ASC",
     )
     .expect("field IS NOT NULL WHERE query should execute on the non-nullable fixture");
-    let ne_null_rows = statement_projection_rows::<SessionSqlEntity>(
+    let ne_null_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionSqlEntity \
@@ -971,7 +971,7 @@ fn execute_sql_scalar_nullable_field_distinguishes_null_tests_from_null_compares
 
     // Phase 2: execute the four relevant NULL spellings against the same
     // nullable field and keep the row-shape contract explicit.
-    let is_null_rows = statement_projection_rows::<SessionNullableSqlEntity>(
+    let is_null_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionNullableSqlEntity \
@@ -979,7 +979,7 @@ fn execute_sql_scalar_nullable_field_distinguishes_null_tests_from_null_compares
          ORDER BY name ASC",
     )
     .expect("nullable-field IS NULL WHERE query should execute");
-    let eq_null_rows = statement_projection_rows::<SessionNullableSqlEntity>(
+    let eq_null_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionNullableSqlEntity \
@@ -987,7 +987,7 @@ fn execute_sql_scalar_nullable_field_distinguishes_null_tests_from_null_compares
          ORDER BY name ASC",
     )
     .expect("nullable-field = NULL WHERE query should execute");
-    let is_not_null_rows = statement_projection_rows::<SessionNullableSqlEntity>(
+    let is_not_null_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionNullableSqlEntity \
@@ -995,7 +995,7 @@ fn execute_sql_scalar_nullable_field_distinguishes_null_tests_from_null_compares
          ORDER BY name ASC",
     )
     .expect("nullable-field IS NOT NULL WHERE query should execute");
-    let ne_null_rows = statement_projection_rows::<SessionNullableSqlEntity>(
+    let ne_null_rows = statement_projection_rows(
         &session,
         "SELECT name \
          FROM SessionNullableSqlEntity \
@@ -1078,7 +1078,7 @@ fn execute_sql_scalar_field_to_field_predicate_matches_expected_rows() {
     }
 
     // Phase 2: require field-to-field filtering to execute as a residual row comparison.
-    let rows = statement_projection_rows::<SessionDeterministicRangeEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT label FROM SessionDeterministicRangeEntity \
          WHERE handle > label \
@@ -1120,7 +1120,7 @@ fn execute_sql_scalar_field_to_field_equality_widens_mixed_numeric_fields() {
 
     // Phase 2: require field-to-field equality to widen mixed numeric fields
     // instead of failing strict runtime coercion.
-    let rows = statement_projection_rows::<SessionSqlMixedNumericCompareEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT label FROM SessionSqlMixedNumericCompareEntity \
          WHERE left_score = right_score \
@@ -1163,7 +1163,7 @@ fn execute_sql_scalar_field_to_field_matches_fluent_runtime_result() {
     }
 
     // Phase 2: execute the SQL and fluent surfaces over the same predicate.
-    let sql_rows = statement_projection_rows::<SessionDeterministicRangeEntity>(
+    let sql_rows = statement_projection_rows(
         &session,
         "SELECT label FROM SessionDeterministicRangeEntity \
          WHERE handle > label \
@@ -1294,14 +1294,14 @@ fn execute_sql_scalar_symmetric_compare_forms_match_canonical_results() {
             .expect("deterministic range fixture insert should succeed");
     }
 
-    let canonical_eq = statement_projection_rows::<SessionDeterministicRangeEntity>(
+    let canonical_eq = statement_projection_rows(
         &indexed,
         "SELECT label FROM SessionDeterministicRangeEntity \
          WHERE handle = label \
          ORDER BY score ASC, id ASC",
     )
     .expect("canonical field equality query should execute");
-    let swapped_eq = statement_projection_rows::<SessionDeterministicRangeEntity>(
+    let swapped_eq = statement_projection_rows(
         &indexed,
         "SELECT label FROM SessionDeterministicRangeEntity \
          WHERE label = handle \
@@ -1344,14 +1344,14 @@ fn execute_sql_scalar_field_bound_between_and_not_between_match_fluent_results()
         );
     }
 
-    let between_rows = statement_projection_rows::<SessionSqlFieldBoundRangeEntity>(
+    let between_rows = statement_projection_rows(
         &session,
         "SELECT label FROM SessionSqlFieldBoundRangeEntity \
          WHERE score BETWEEN min_score AND max_score \
          ORDER BY label ASC",
     )
     .expect("field-bound BETWEEN query should execute");
-    let not_between_rows = statement_projection_rows::<SessionSqlFieldBoundRangeEntity>(
+    let not_between_rows = statement_projection_rows(
         &session,
         "SELECT label FROM SessionSqlFieldBoundRangeEntity \
          WHERE score NOT BETWEEN min_score AND max_score \
@@ -1428,7 +1428,7 @@ fn execute_sql_scalar_field_to_field_same_field_compare_keeps_all_rows() {
 
     // Phase 2: require same-field equality to behave as a normal residual
     // compare instead of tripping a special-case path.
-    let rows = statement_projection_rows::<SessionDeterministicRangeEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT label FROM SessionDeterministicRangeEntity \
          WHERE score = score \
@@ -1479,7 +1479,7 @@ fn execute_sql_scalar_float_field_decimal_literal_order_compare_matches_expected
         ],
     );
 
-    let rows = statement_projection_rows::<SessionSqlFloatCompareEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT label \
          FROM SessionSqlFloatCompareEntity \
@@ -1570,22 +1570,22 @@ fn execute_sql_scalar_is_true_false_and_is_not_true_false_match_expected_rows() 
             .expect("bool compare fixture insert should succeed");
     }
 
-    let true_rows = statement_projection_rows::<SessionSqlBoolCompareEntity>(
+    let true_rows = statement_projection_rows(
         &session,
         "SELECT label FROM SessionSqlBoolCompareEntity WHERE active IS TRUE ORDER BY label ASC",
     )
     .expect("IS TRUE query should execute");
-    let false_rows = statement_projection_rows::<SessionSqlBoolCompareEntity>(
+    let false_rows = statement_projection_rows(
         &session,
         "SELECT label FROM SessionSqlBoolCompareEntity WHERE active IS FALSE ORDER BY label ASC",
     )
     .expect("IS FALSE query should execute");
-    let not_true_rows = statement_projection_rows::<SessionSqlBoolCompareEntity>(
+    let not_true_rows = statement_projection_rows(
         &session,
         "SELECT label FROM SessionSqlBoolCompareEntity WHERE active IS NOT TRUE ORDER BY label ASC",
     )
     .expect("IS NOT TRUE query should execute");
-    let not_false_rows = statement_projection_rows::<SessionSqlBoolCompareEntity>(
+    let not_false_rows = statement_projection_rows(
         &session,
         "SELECT label FROM SessionSqlBoolCompareEntity WHERE active IS NOT FALSE ORDER BY label ASC",
     )
@@ -1643,7 +1643,7 @@ fn execute_sql_scalar_searched_case_where_bool_field_matches_expected_rows() {
 
     // Phase 2: require searched CASE to admit boolean field conditions and
     // preserve their row-filter behavior through the shared WHERE seam.
-    let rows = statement_projection_rows::<SessionSqlBoolCompareEntity>(
+    let rows = statement_projection_rows(
         &session,
         "SELECT label \
          FROM SessionSqlBoolCompareEntity \
