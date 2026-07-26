@@ -76,6 +76,9 @@ mod tests {
                     "build validation errors must remain wrapped as build-boundary failures",
                 );
             }
+            Error::BuildError(BuildError::Graph(error)) => {
+                panic!("unexpected graph error: {error}");
+            }
             Error::NodeError(_) => {
                 panic!("build validation failures must not be remapped into node-boundary errors");
             }

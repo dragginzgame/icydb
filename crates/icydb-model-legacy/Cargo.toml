@@ -19,5 +19,9 @@ remain = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+
 [lints]
 workspace = true

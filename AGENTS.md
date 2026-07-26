@@ -65,11 +65,11 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Batch coherent routine work within the current landing patch, never across
   planned patch boundaries. A landing patch receives a version number only
   when the user names the release target.
-- Treat the file/domain limits in `docs/governance/velocity-preservation.md` as
-  hard landing-patch limits. Split the patch or obtain an explicit user-approved
-  override before exceeding them; an agent may not self-authorize an override
-  merely because the wider change appears coherent. Prefer a bounded override
-  for inseparable mechanical propagation over manufacturing tiny patches.
+- Treat file and delivery-domain counts as reporting signals, not execution
+  limits. Include direct tests, documentation, fixtures, exhaustive matches,
+  and mechanical propagation required by the current planned outcome. If work
+  reveals another independently reviewable outcome, stop and split or update
+  the tracker instead of folding it into the active patch.
 - Run `cargo fmt --all` after code edits; reserve `cargo fmt --all --check` for non-mutating release/readiness verification.
 - Run focused checks after edits; run broader checks only when the slice is otherwise ready.
 - Do not repeatedly rerun expensive failing commands; capture the first failure and report it.

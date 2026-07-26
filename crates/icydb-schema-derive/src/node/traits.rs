@@ -247,7 +247,7 @@ pub trait HasSchema: HasSchemaPart + HasDef {
             #[cfg(not(target_arch = "wasm32"))]
             #[::icydb::__reexports::ctor::ctor(unsafe, anonymous, crate_path = ::icydb::__reexports::ctor)]
             fn __ctor() {
-                ::icydb::schema::build::schema_write().insert_node(
+                ::icydb::schema::build::register_node(
                     ::icydb::schema::node::SchemaNode::#kind(#const_var)
                 );
             }

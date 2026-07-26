@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.25` gives the embedded host model graph one deterministic, sealed
+  registration boundary, rejecting duplicate or late constructor registration
+  before build output can observe an incomplete schema.
+
 - `0.213.24` removes callback-bearing generated runtime hooks so accepted
   catalogs are the sole runtime authority outside schema proposal handling.
 

@@ -45,10 +45,10 @@ line must group the whole intended line into roughly 6-8 ordered landing
 patches. Multiple design documents in the same minor line share this total;
 they do not each receive a separate 6-8-patch allowance.
 
-The normal planning range is 5-9 patches. Fewer than 5 or more than 9 requires
-an explicit user agreement and a brief explanation in the tracker. The target
-is intentionally approximate: it exists to prevent both dozens of tiny pushes
-and one or two multi-hour mega-slices.
+Six to eight patches is the default planning target, not a quota. Fewer or more
+is appropriate when the design's actual dependency and review boundaries
+justify it; record the reason in the tracker. The target exists to prevent both
+dozens of tiny pushes and one or two multi-hour mega-slices.
 
 Each landing patch must name:
 
@@ -95,10 +95,10 @@ Do not infer that authorization from a roadmap, an existing next design, an
 empty tracker, a clean worktree, a successful push, or status questions such
 as `what is next?`, `are we done?`, or `push?`.
 
-If honest patches cannot keep the minor line near the target range and the
-limits below, re-scope the minor line or agree a different patch count with the
-user. Do not make each patch wider to preserve an oversized plan, and do not
-manufacture micro-patches solely to hit a number.
+If honest patches cannot keep the minor line near the target range, re-scope
+the minor line and explain the different patch count in the tracker. Do not
+make each patch wider to preserve an oversized plan, and do not manufacture
+micro-patches solely to hit a number.
 
 A completed landing patch is normally handed back as a candidate push for the
 next patch release in the minor line. Agents must not invent release numbers;
@@ -106,11 +106,7 @@ the user decides the exact target and whether a particular handoff is pushed.
 
 ---
 
-# 3. Release Engineering Rule #1
-
-A routine feature change may span at most two primary delivery domains unless
-the user explicitly approves a slice override before implementation crosses
-that boundary.
+# 3. Delivery-Domain Reporting
 
 Primary delivery domains:
 
@@ -121,9 +117,13 @@ Primary delivery domains:
 - `Integration Tests`
 
 Unclassified core runtime files count as `Other Core` until they are assigned
-to a more specific domain by rule.
+to a more specific domain by rule. Record the domains touched at handoff so
+cross-layer work is visible during review.
 
-This rule exists to prevent routine work from combining:
+Crossing several domains is justified when one planned end-to-end outcome
+requires direct propagation through them. It is not a reason to stop for a
+mechanical approval. It is evidence that the agent should check whether the
+work has accidentally combined independent outcomes such as:
 
 - frontend grammar changes
 - semantic lowering/runtime changes
@@ -131,50 +131,42 @@ This rule exists to prevent routine work from combining:
 - deployment wiring
 - integration-harness expansion
 
-into one large landing slice by default.
+into one landing slice. If it has, split or update the tracker before
+implementing the additional outcome.
 
 ---
 
-# 4. Slice Shape Limits
+# 4. Slice Shape Signals
 
-Each landing patch must satisfy:
+There is no file-count or delivery-domain execution limit. A coherent hard cut
+may legitimately touch many declarations, generated fixtures, tests, and
+documentation files while still owning one reviewable architectural outcome.
 
-- soft file-count limit: `<= 20`
-- hard file-count limit: `<= 35`
-- max primary domains touched: `<= 2`
+At handoff, report:
 
-Interpretation:
+- files touched and approximate line delta;
+- primary delivery domains crossed;
+- whether the width is semantic or mechanical propagation; and
+- whether implementation structure became simpler, stayed neutral, or became
+  more complex.
 
-- `<= 20` changed files is the target for healthy routine work.
-- `21..35` files is allowed but should be treated as a warning band.
-- `> 35` files requires an explicit user-approved override obtained before the
-  slice is widened.
-- touching more than two primary domains requires the same explicit approval
-  even if file count stays below the hard limit.
-
-Docs-only or governance-only edits are not the primary target of this rule.
-They may still trip the hard limit mechanically, but should be rare and require
-the same documented override path.
+File count alone must not manufacture micro-patches or interrupt direct
+propagation. Conversely, a low file count does not justify combining two
+independent planned outcomes.
 
 ---
 
 # 5. Wide Slice Review
 
-If a projected landing patch exceeds the hard file limit or the domain limit,
-the agent must split it or stop and obtain explicit user approval before making
-the wider edit. The agent cannot grant its own override based on coherence,
-atomicity, convenience, or the cost of another compile.
+A wide patch remains one landing patch only when every changed file is required
+by the same planned owner and outcome. Direct compile fallout, exhaustive
+matches, focused tests, documentation, fixtures, and mechanical propagation
+belong to that patch without another approval round.
 
-When the user approves an override, its explanation belongs in the patch/PR
-summary, not in a special trailer format.
-
-An approved wide-slice estimate includes up to five additional files of direct
-mechanical propagation without another approval round. This allowance is only
-for compile fallout, exhaustive matches, focused tests, documentation, or
-fixtures required by the already approved outcome. It cannot introduce a new
-production behavior, canonical owner, primary delivery domain, or planned
-landing-patch outcome. The agent must report the final count and stop for
-approval if the allowance would be exceeded.
+Stop and split or update the tracker when the work reveals a new production
+behavior, canonical owner, or independently reviewable outcome. Width,
+atomicity, convenience, or the cost of another compile cannot justify folding
+that additional outcome into the active patch.
 
 Rules:
 
@@ -183,7 +175,7 @@ Rules:
   unit;
 - keep follow-up cleanup work separate unless it is needed for correctness.
 
-CI may not enforce every limit, but the limits remain agent execution rules.
+CI does not use file count as a proxy for architectural coherence.
 
 ---
 
@@ -244,8 +236,10 @@ Allowed:
 
 This phased landing pattern is the default for routine SQL growth.
 
-If one landing patch needs to cross all three phases, stop and use the explicit
-user-approved slice override contract before making the cross-phase edits.
+One landing patch may cross all three phases when they are direct propagation
+of the same planned end-to-end outcome. If the phases expose independently
+reviewable outcomes, split them into separate landing patches instead of using
+cross-phase width to hide a mega-slice.
 
 These phases should land as separate reviewable slices. They do not acquire
 separate version numbers unless the user chooses to publish them separately.
@@ -286,7 +280,9 @@ Guarded roots:
 Rule:
 
 - adding more than approximately `200` lines to one guarded root in one change
-  requires an explicit user-approved slice override or a split before handoff
+  is a mandatory review signal: localize the logic where practical, explain
+  unavoidable root growth at handoff, and split it only when the growth
+  represents another independently reviewable outcome
 
 This rule is about new accretion, not the historical size of the file.
 
