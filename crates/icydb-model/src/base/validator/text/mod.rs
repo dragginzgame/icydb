@@ -1,0 +1,57 @@
+//! Module: base::validator::text
+//!
+//! Responsibility: base validator definitions.
+//! Does not own: normalization policy, persistence, or schema mutation semantics.
+//! Boundary: reports typed visitor issues for facade schema values.
+
+pub mod case;
+pub mod color;
+
+use crate::{prelude::*, visitor::Validator};
+
+///
+/// AlphaUscore
+/// this doesn't force ASCII; it uses Unicode `is_alphabetic`
+/// ASCII is handled by a separate validator
+///
+
+#[validator]
+pub struct AlphaUscore;
+
+impl Validator<str> for AlphaUscore {
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !s.chars().all(|c| c.is_alphabetic() || c == '_') {
+            ctx.issue("text must be alphabetic or underscore");
+        }
+    }
+}
+
+///
+/// AlphanumUscore
+///
+
+#[validator]
+pub struct AlphanumUscore;
+
+impl Validator<str> for AlphanumUscore {
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !s.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            ctx.issue("text must be alphanumeric or underscore");
+        }
+    }
+}
+
+///
+/// Ascii
+///
+
+#[validator]
+pub struct Ascii;
+
+impl Validator<str> for Ascii {
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !s.is_ascii() {
+            ctx.issue("text must be ASCII");
+        }
+    }
+}

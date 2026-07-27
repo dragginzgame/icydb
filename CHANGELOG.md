@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.32` establishes independently publishable model packages with
+  schema-only authoring and accepted-schema-bound typed adapters, removing the
+  obsolete generated create bridge from the final compiler.
+
 - `0.213.31` makes opted-in typed adapters persistence-free, so generated
   adapter code consumes accepted public values without implementing the
   retired physical-row bridge.

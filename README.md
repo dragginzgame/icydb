@@ -13,7 +13,7 @@ accepted schema catalogs, indexes, fluent queries, a reduced single-entity SQL
 surface, pagination, grouped aggregates, DDL-backed catalog mutation, and
 generated observability endpoints.
 
-Current workspace version: `0.213.31`
+Current workspace version: `0.213.32`
 
 IcyDB's dependency-facing minimum supported Rust version is `1.88.0` for the
 public `icydb` crate path. Workspace packages declare a `1.96.0` Rust floor;
@@ -47,7 +47,7 @@ Pin IcyDB by tag in downstream canisters:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.31" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.32" }
 ```
 
 The default crate feature set is typed/fluent-only. Enable SQL explicitly when
@@ -55,7 +55,7 @@ the canister uses session/library SQL APIs or generated SQL endpoints:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.31", features = ["sql"] }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.32", features = ["sql"] }
 ```
 
 Canisters normally call `icydb::start!()` in `src/lib.rs`, add `icydb` as a
@@ -65,7 +65,7 @@ glue follows the active `icydb.toml`.
 
 ```toml
 [build-dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.31" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.32" }
 ```
 
 ## Minimal Schema
@@ -332,9 +332,13 @@ usage, IC test prerequisites, and wasm report commands live in
   public diagnostic metadata.
 - `crates/icydb-schema` - bounded public schema-proposal contract and canonical
   scalar atoms shared by standalone IcyDB and model tooling.
+- `crates/icydb-model` - application-model declarations, host graph, reusable
+  model types and behavior, fragment lowering, and actor traversal.
+- `crates/icydb-model-macros` - procedural compiler and application helper
+  derives consumed through `icydb-model`.
 - `crates/icydb-model-legacy` and `crates/icydb-schema-derive` - temporary
   unpublished model AST plus the embedded macro compiler during the 0.213
-  package cutover.
+  consumer cutover; Patch 8 deletes both.
 - `crates/icydb-utils` - shared internal utility helpers.
 - `crates/icydb-cli` - developer CLI for local SQL, config checks, canister
   lifecycle helpers, and observability reports.

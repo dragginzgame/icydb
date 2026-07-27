@@ -1,0 +1,266 @@
+//! Module: node::newtype
+//! Responsibility: derive-side node parsing.
+//! Does not own: runtime schema semantics.
+//! Boundary: macro metadata to node models.
+
+use crate::{
+    imp::*,
+    node::traits::{HasDef, HasSchema},
+    prelude::*,
+};
+
+///
+/// Newtype
+///
+
+#[derive(Debug, FromMeta)]
+pub struct Newtype {
+    #[darling(default, skip)]
+    pub(crate) def: Def,
+
+    pub(crate) source_key: LitStr,
+
+    pub(crate) primitive: Option<Primitive>,
+    pub(crate) item: Item,
+
+    #[darling(default)]
+    pub(crate) default: Option<Arg>,
+
+    #[darling(default)]
+    pub(crate) ty: Type,
+
+    #[darling(default)]
+    pub(crate) traits: TraitBuilder,
+}
+
+impl HasDef for Newtype {
+    fn def(&self) -> &Def {
+        &self.def
+    }
+}
+
+impl ValidateNode for Newtype {
+    fn validate(&self) -> Result<(), DarlingError> {
+        self.traits.with_type_traits().validate()?;
+        self.item.validate()?;
+
+        if self.traits.explicitly_adds(TraitKind::Default) && self.default.is_none() {
+            return Err(DarlingError::custom(format!(
+                "Default was requested for newtype {}, but no `default = ...` constructor is configured",
+                self.def.ident()
+            ))
+            .with_span(&self.def.ident()));
+        }
+
+        match (self.primitive, self.item.primitive) {
+            (Some(a), Some(b)) if a != b => Err(DarlingError::custom(format!(
+                "invalid #[newtype] config: conflicting primitive ({a:?}) and item({b:?})"
+            ))),
+            (None, Some(_)) => Err(DarlingError::custom(
+                "invalid #[newtype] config: item has a primitive but outer 'primitive' is not set",
+            )),
+            _ => Ok(()),
+        }
+    }
+}
+
+impl HasSchema for Newtype {
+    fn schema_node_kind() -> SchemaNodeKind {
+        SchemaNodeKind::Newtype
+    }
+}
+
+impl HasSchemaPart for Newtype {
+    fn schema_part(&self) -> TokenStream {
+        debug_assert!(self.validate().is_ok(), "invalid #[newtype] config");
+
+        let def = self.def.schema_part();
+        let source_key = &self.source_key;
+        let item = self.item.schema_part();
+        let default = quote_option(self.default.as_ref(), Arg::schema_part);
+        let ty = self.ty.schema_part();
+
+        // quote
+        quote! {
+            ::icydb_model::node::Newtype::new(#def, #source_key, #item, #default, #ty)
+        }
+    }
+}
+
+impl HasTraits for Newtype {
+    fn traits(&self) -> Vec<TraitKind> {
+        let mut traits = self.traits.with_type_traits().build();
+
+        // all newtypes
+        traits.add(TraitKind::Inner);
+
+        // primitive traits
+        if let Some(primitive) = self.primitive {
+            if primitive.supports_arithmetic() {
+                traits.extend([
+                    TraitKind::Add,
+                    TraitKind::AddAssign,
+                    TraitKind::Div,
+                    TraitKind::DivAssign,
+                    TraitKind::Mul,
+                    TraitKind::MulAssign,
+                    TraitKind::Sub,
+                    TraitKind::SubAssign,
+                    TraitKind::Sum,
+                ]);
+            }
+            if primitive.supports_remainder() {
+                traits.add(TraitKind::Rem);
+            }
+            if primitive.supports_copy() {
+                traits.add(TraitKind::Copy);
+            }
+            if primitive.supports_hash() {
+                traits.add(TraitKind::Hash);
+            }
+            if primitive.supports_numeric_value() {
+                traits.add(TraitKind::NumericValue);
+            }
+            if primitive.supports_ord() {
+                traits.add(TraitKind::Ord);
+                traits.add(TraitKind::PartialOrd);
+            }
+        }
+
+        traits.into_vec()
+    }
+
+    fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
+        match t {
+            TraitKind::Default => DefaultTrait::strategy(self),
+            TraitKind::From => FromTrait::strategy(self),
+            TraitKind::Inner => Some(TraitStrategy::from_derive(TraitKind::Inner)),
+            TraitKind::NumericValue => NumericValueTrait::strategy(self),
+            TraitKind::PartialEq => PartialEqTrait::strategy(self).map(|s| s.with_derive(t)),
+            TraitKind::PartialOrd => PartialOrdTrait::strategy(self).map(|s| s.with_derive(t)),
+            TraitKind::NormalizeAuto => NormalizeAutoTrait::strategy(self),
+            TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
+            TraitKind::Visitable => VisitableTrait::strategy(self),
+
+            _ => None,
+        }
+    }
+}
+
+impl HasType for Newtype {
+    fn type_part(&self) -> TokenStream {
+        let ident = self.def.ident();
+        let item = &self.item.type_expr();
+
+        quote! {
+            #[repr(transparent)]
+            pub struct #ident(pub #item);
+        }
+    }
+}
+
+impl ToTokens for Newtype {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        tokens.extend(self.all_tokens());
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::Newtype;
+    use crate::prelude::*;
+    use darling::{FromMeta, ast::NestedMeta};
+    use quote::quote;
+
+    const ALL_PRIMITIVES: [Primitive; 26] = [
+        Primitive::Account,
+        Primitive::Blob,
+        Primitive::Bool,
+        Primitive::Date,
+        Primitive::Decimal,
+        Primitive::Duration,
+        Primitive::Float32,
+        Primitive::Float64,
+        Primitive::IntBig,
+        Primitive::Int8,
+        Primitive::Int16,
+        Primitive::Int32,
+        Primitive::Int64,
+        Primitive::Int128,
+        Primitive::NatBig,
+        Primitive::Nat8,
+        Primitive::Nat16,
+        Primitive::Nat32,
+        Primitive::Nat64,
+        Primitive::Nat128,
+        Primitive::Principal,
+        Primitive::Subaccount,
+        Primitive::Text,
+        Primitive::Timestamp,
+        Primitive::Ulid,
+        Primitive::Unit,
+    ];
+
+    const ARITHMETIC_TRAITS: [TraitKind; 9] = [
+        TraitKind::Add,
+        TraitKind::AddAssign,
+        TraitKind::Div,
+        TraitKind::DivAssign,
+        TraitKind::Mul,
+        TraitKind::MulAssign,
+        TraitKind::Sub,
+        TraitKind::SubAssign,
+        TraitKind::Sum,
+    ];
+
+    #[test]
+    fn from_list_parses_nested_item_primitive() {
+        let args = NestedMeta::parse_meta_list(quote!(
+            source_key = "type/test_decimal",
+            primitive = "Decimal",
+            item(prim = "Decimal")
+        ))
+        .expect("newtype args should parse");
+
+        let node = Newtype::from_list(&args).expect("newtype meta should lower");
+
+        assert_eq!(node.primitive, Some(Primitive::Decimal));
+        assert_eq!(node.item.primitive, Some(Primitive::Decimal));
+    }
+
+    fn newtype_with_primitive(primitive: Primitive) -> Newtype {
+        Newtype {
+            def: Def::default(),
+            source_key: syn::parse_quote!("type/test_newtype"),
+            primitive: Some(primitive),
+            item: Item {
+                primitive: Some(primitive),
+                ..Default::default()
+            },
+            default: None,
+            ty: Type::default(),
+            traits: TraitBuilder::default(),
+        }
+    }
+
+    fn has_all_arithmetic_traits(traits: &[TraitKind]) -> bool {
+        ARITHMETIC_TRAITS
+            .iter()
+            .all(|trait_kind| traits.contains(trait_kind))
+    }
+
+    #[test]
+    fn arithmetic_traits_match_supports_arithmetic() {
+        for primitive in ALL_PRIMITIVES {
+            let newtype = newtype_with_primitive(primitive);
+            let traits = newtype.traits();
+            let has_arithmetic = has_all_arithmetic_traits(&traits);
+
+            assert_eq!(has_arithmetic, primitive.supports_arithmetic());
+        }
+    }
+}

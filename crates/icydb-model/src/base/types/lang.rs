@@ -1,0 +1,55 @@
+//! Module: base::types::lang
+//!
+//! Responsibility: base domain type declarations.
+//! Does not own: runtime storage, query execution, or validator implementation internals.
+//! Boundary: declares macro-modeled domain wrappers and records for downstream schemas.
+
+use crate::prelude::*;
+
+///
+/// Code
+/// ISO 639-1 standard language codes
+///
+
+#[newtype(
+    source_key = "crates/icydb/src/base/types/lang.rs::newtype::1",
+    primitive = "Text",
+    item(prim = "Text", unbounded),
+    ty(validator(path = "base::validator::intl::iso::Iso639_1"))
+)]
+pub struct Code {}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_code() {
+        let test_cases = [
+            // Valid codes
+            ("en", true),
+            ("de", true),
+            // Invalid codes
+            ("D", false),
+            ("DE", false),
+            ("en-us", false),
+            ("EN-US", false),
+            ("EN-USSR", false),
+        ];
+
+        for (key, expected) in test_cases {
+            let code = Code(key.into());
+            assert!(
+                crate::validate(&code).is_ok() == expected,
+                "testing: '{}' - expected: {}, got: {}",
+                key,
+                expected,
+                crate::validate(&code).is_ok()
+            );
+        }
+    }
+}

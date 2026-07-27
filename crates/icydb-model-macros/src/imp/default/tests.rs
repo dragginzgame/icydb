@@ -1,0 +1,183 @@
+//! Module: imp::default::tests
+//! Responsibility: regression coverage for this module.
+//! Does not own: production behavior.
+//! Boundary: test-only contracts.
+
+use super::{default_strategy_entity, record_default_strategy, validate_struct_default_request};
+use crate::authoring_types::Primitive;
+use crate::{
+    node::{
+        Arg, Def, Entity, Field, FieldList, Item, PrimaryKey, PrimaryKeySource, Record, Type, Value,
+    },
+    trait_kind::{TraitBuilder, TraitKind},
+};
+use quote::format_ident;
+use syn::parse_quote;
+
+fn field_with_primitive_default(ident: &str, primitive: Primitive, default: Arg) -> Field {
+    Field {
+        source_key: syn::LitStr::new(ident, proc_macro2::Span::call_site()),
+        ident: format_ident!("{ident}"),
+        value: Value {
+            opt: false,
+            many: false,
+            item: Item {
+                primitive: Some(primitive),
+                ..Item::default()
+            },
+        },
+        default: Some(default),
+        generated: None,
+        write_management: None,
+    }
+}
+
+fn required_field_without_default(ident: &str, primitive: Primitive) -> Field {
+    Field {
+        source_key: syn::LitStr::new(ident, proc_macro2::Span::call_site()),
+        ident: format_ident!("{ident}"),
+        value: Value {
+            opt: false,
+            many: false,
+            item: Item {
+                primitive: Some(primitive),
+                ..Item::default()
+            },
+        },
+        default: None,
+        generated: None,
+        write_management: None,
+    }
+}
+
+fn redundant_default_entity() -> Entity {
+    Entity {
+        def: Def::new(syn::parse_quote!(
+            struct RedundantDefaultEntity;
+        )),
+        source_key: syn::LitStr::new("entity/redundant_default", proc_macro2::Span::call_site()),
+        store: syn::parse_quote!(UiDataStore),
+        schema_version: 1,
+        primary_key: PrimaryKey {
+            fields: vec![format_ident!("id")],
+            source: PrimaryKeySource::Internal,
+        },
+        name: None,
+        typed_adapters: false,
+        indexes: vec![],
+        relations: vec![],
+        constraints: vec![],
+        audit_timestamps: None,
+        fields: FieldList {
+            fields: vec![
+                field_with_primitive_default(
+                    "id",
+                    Primitive::Nat64,
+                    Arg::FuncPath(parse_quote!(u64::default)),
+                ),
+                field_with_primitive_default(
+                    "name",
+                    Primitive::Text,
+                    Arg::FuncPath(parse_quote!(String::new)),
+                ),
+            ],
+        },
+        ty: Type::default(),
+        traits: TraitBuilder::default(),
+    }
+}
+
+#[test]
+fn entity_defaults_derive_when_explicit_defaults_match_implicit_defaults() {
+    let strategy = default_strategy_entity(&redundant_default_entity());
+
+    assert_eq!(strategy.derive, Some(TraitKind::Default));
+    assert!(
+        strategy.imp.is_none(),
+        "redundant defaults should not force a manual Default impl",
+    );
+}
+
+#[test]
+fn entity_default_request_rejects_required_fields_without_construction_values() {
+    let mut entity = redundant_default_entity();
+    entity
+        .fields
+        .fields
+        .push(required_field_without_default("score", Primitive::Int32));
+
+    validate_struct_default_request("entity", &entity.def, &entity.fields)
+        .expect_err("an explicit entity Default request must reject missing construction values");
+}
+
+#[test]
+fn entity_defaults_keep_manual_impl_for_custom_default_constructors() {
+    let mut entity = redundant_default_entity();
+    entity.fields.fields[0].default = Some(Arg::FuncPath(parse_quote!(Ulid::generate)));
+    entity.fields.fields[0].value.item.primitive = Some(Primitive::Ulid);
+
+    let strategy = default_strategy_entity(&entity);
+
+    assert!(
+        strategy.derive.is_none(),
+        "custom defaults must still bypass derive(Default)",
+    );
+    assert!(
+        strategy.imp.is_some(),
+        "custom defaults still require an explicit Default impl",
+    );
+}
+
+#[test]
+fn records_follow_the_same_redundant_default_rule() {
+    let fields = FieldList {
+        fields: vec![
+            field_with_primitive_default(
+                "enabled",
+                Primitive::Bool,
+                Arg::FuncPath(parse_quote!(bool::default)),
+            ),
+            field_with_primitive_default(
+                "name",
+                Primitive::Text,
+                Arg::FuncPath(parse_quote!(String::new)),
+            ),
+        ],
+    };
+    let record = Record {
+        def: Def::new(syn::parse_quote!(
+            struct RedundantDefaultRecord;
+        )),
+        source_key: syn::LitStr::new("type/redundant_default", proc_macro2::Span::call_site()),
+        fields,
+        traits: TraitBuilder::default(),
+        ty: Type::default(),
+    };
+
+    let strategy = record_default_strategy(&record.def, &record.fields);
+
+    assert_eq!(strategy.derive, Some(TraitKind::Default));
+    assert!(
+        strategy.imp.is_none(),
+        "records with redundant defaults should derive Default",
+    );
+}
+
+#[test]
+fn record_default_request_rejects_required_fields_without_construction_values() {
+    let fields = FieldList {
+        fields: vec![required_field_without_default("score", Primitive::Int32)],
+    };
+    let record = Record {
+        def: Def::new(syn::parse_quote!(
+            struct RequiredRecord;
+        )),
+        source_key: syn::LitStr::new("type/required_record", proc_macro2::Span::call_site()),
+        fields,
+        traits: TraitBuilder::default(),
+        ty: Type::default(),
+    };
+
+    validate_struct_default_request("record", &record.def, &record.fields)
+        .expect_err("an explicit record Default request must reject missing construction values");
+}

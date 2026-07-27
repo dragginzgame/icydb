@@ -1,0 +1,529 @@
+//! Module: visitor
+//!
+//! Responsibility: generic normalize/validate visitor diagnostics and context.
+//! Does not own: schema-specific validation rules or session error mapping.
+//! Boundary: shared visitor error/context surface for derived normalizers and validators.
+
+#[macro_use]
+mod macros;
+mod traits;
+
+pub(crate) mod context;
+pub(crate) mod normalize;
+pub(crate) mod validate;
+
+use serde::Deserialize;
+use std::{collections::BTreeMap, fmt};
+use thiserror::Error as ThisError;
+
+// re-exports
+pub use context::{Issue, PathSegment, ScopedContext, VisitorContext};
+pub use traits::{
+    Normalize, NormalizeAuto, NormalizeCustom, Normalizer, Validate, ValidateAuto, ValidateCustom,
+    Validator, Visitable,
+};
+
+//
+// VisitorError
+// Structured error type for visitor-based normalization and validation.
+//
+
+#[derive(Debug, ThisError)]
+#[error("{issues}")]
+pub struct VisitorError {
+    issues: VisitorIssues,
+}
+
+impl VisitorError {
+    #[must_use]
+    pub const fn issues(&self) -> &VisitorIssues {
+        &self.issues
+    }
+}
+
+impl From<VisitorIssues> for VisitorError {
+    fn from(issues: VisitorIssues) -> Self {
+        Self { issues }
+    }
+}
+
+impl From<VisitorError> for VisitorIssues {
+    fn from(err: VisitorError) -> Self {
+        err.issues
+    }
+}
+
+//
+// VisitorIssues
+// Aggregated visitor diagnostics.
+//
+// NOTE: This is not an error type. It does not represent failure.
+// It is converted into a `VisitorError` at the runtime boundary and
+// may be lifted into an `InternalError` as needed.
+//
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct VisitorIssues(BTreeMap<String, Vec<Issue>>);
+
+impl VisitorIssues {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self(BTreeMap::new())
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Return the number of distinct issue paths.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[must_use]
+    pub fn get(&self, path: impl AsRef<str>) -> Option<&[Issue]> {
+        self.0.get(path.as_ref()).map(Vec::as_slice)
+    }
+
+    pub fn push(&mut self, path: String, issue: Issue) {
+        self.0.entry(path).or_default().push(issue);
+    }
+}
+
+impl From<BTreeMap<String, Vec<Issue>>> for VisitorIssues {
+    fn from(map: BTreeMap<String, Vec<Issue>>) -> Self {
+        Self(map)
+    }
+}
+
+impl fmt::Display for VisitorIssues {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut wrote = false;
+
+        for (path, messages) in &self.0 {
+            for message in messages {
+                if wrote {
+                    writeln!(f)?;
+                }
+
+                if path.is_empty() {
+                    write!(f, "{message}")?;
+                } else {
+                    write!(f, "{path}: {message}")?;
+                }
+
+                wrote = true;
+            }
+        }
+
+        if !wrote {
+            write!(f, "no visitor issues")?;
+        }
+
+        Ok(())
+    }
+}
+
+impl std::error::Error for VisitorIssues {}
+
+//
+// Visitor
+// (immutable)
+//
+
+pub(crate) trait Visitor {
+    fn enter(&mut self, node: &dyn Visitable, ctx: &mut dyn VisitorContext);
+    fn exit(&mut self, node: &dyn Visitable, ctx: &mut dyn VisitorContext);
+}
+
+// ============================================================================
+// VisitorCore (object-safe traversal)
+// ============================================================================
+
+// Object-safe visitor contract for immutable traversal dispatch.
+pub trait VisitorCore {
+    fn enter(&mut self, node: &dyn Visitable);
+    fn exit(&mut self, node: &dyn Visitable);
+
+    fn push(&mut self, _: PathSegment) {}
+    fn pop(&mut self) {}
+}
+
+//
+// VisitableFieldDescriptor
+//
+// Runtime traversal descriptor for one generated struct field.
+// Generated code uses this to replace repeated per-field `drive` bodies with
+// one shared descriptor loop while preserving typed field access at the
+// boundary.
+//
+
+pub struct VisitableFieldDescriptor<T> {
+    name: &'static str,
+    drive: fn(&T, &mut dyn VisitorCore),
+    drive_mut: fn(&mut T, &mut dyn VisitorMutCore),
+}
+
+impl<T> VisitableFieldDescriptor<T> {
+    /// Construct one traversal descriptor for one generated field.
+    #[must_use]
+    pub const fn new(
+        name: &'static str,
+        drive: fn(&T, &mut dyn VisitorCore),
+        drive_mut: fn(&mut T, &mut dyn VisitorMutCore),
+    ) -> Self {
+        Self {
+            name,
+            drive,
+            drive_mut,
+        }
+    }
+
+    /// Return the field name carried by this descriptor.
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+}
+
+// Drive one generated field table through immutable visitor traversal.
+pub fn drive_visitable_fields<T>(
+    visitor: &mut dyn VisitorCore,
+    node: &T,
+    fields: &[VisitableFieldDescriptor<T>],
+) {
+    for field in fields {
+        (field.drive)(node, visitor);
+    }
+}
+
+// Drive one generated field table through mutable visitor traversal.
+pub fn drive_visitable_fields_mut<T>(
+    visitor: &mut dyn VisitorMutCore,
+    node: &mut T,
+    fields: &[VisitableFieldDescriptor<T>],
+) {
+    for field in fields {
+        (field.drive_mut)(node, visitor);
+    }
+}
+
+//
+// NormalizeFieldDescriptor
+//
+// Runtime normalization descriptor for one generated struct field.
+// Generated code uses this to replace repeated per-field `normalize_self`
+// bodies with one shared descriptor loop while preserving typed field access
+// at the boundary.
+//
+
+pub struct NormalizeFieldDescriptor<T> {
+    normalize: fn(&mut T, &mut dyn VisitorContext),
+}
+
+impl<T> NormalizeFieldDescriptor<T> {
+    /// Construct one normalization descriptor for one generated field.
+    #[must_use]
+    pub const fn new(normalize: fn(&mut T, &mut dyn VisitorContext)) -> Self {
+        Self { normalize }
+    }
+}
+
+// Drive one generated field table through normalization dispatch.
+pub fn drive_normalize_fields<T>(
+    node: &mut T,
+    ctx: &mut dyn VisitorContext,
+    fields: &[NormalizeFieldDescriptor<T>],
+) {
+    for field in fields {
+        (field.normalize)(node, ctx);
+    }
+}
+
+//
+// ValidateFieldDescriptor
+//
+// Runtime validation descriptor for one generated struct field.
+// Generated code uses this to replace repeated per-field `validate_self`
+// bodies with one shared descriptor loop while preserving typed field access
+// at the boundary.
+//
+
+pub struct ValidateFieldDescriptor<T> {
+    validate: fn(&T, &mut dyn VisitorContext),
+}
+
+impl<T> ValidateFieldDescriptor<T> {
+    /// Construct one validation descriptor for one generated field.
+    #[must_use]
+    pub const fn new(validate: fn(&T, &mut dyn VisitorContext)) -> Self {
+        Self { validate }
+    }
+}
+
+// Drive one generated field table through validation dispatch.
+pub fn drive_validate_fields<T>(
+    node: &T,
+    ctx: &mut dyn VisitorContext,
+    fields: &[ValidateFieldDescriptor<T>],
+) {
+    for field in fields {
+        (field.validate)(node, ctx);
+    }
+}
+
+// ============================================================================
+// Internal adapter context (fixes borrow checker)
+// ============================================================================
+
+struct AdapterContext<'a> {
+    path: &'a [PathSegment],
+    issues: &'a mut VisitorIssues,
+}
+
+impl VisitorContext for AdapterContext<'_> {
+    fn add_issue(&mut self, issue: Issue) {
+        let key = render_path(self.path, None);
+        self.issues.push(key, issue);
+    }
+
+    fn add_issue_at(&mut self, seg: PathSegment, issue: Issue) {
+        let key = render_path(self.path, Some(seg));
+        self.issues.push(key, issue);
+    }
+}
+
+fn render_path(path: &[PathSegment], extra: Option<PathSegment>) -> String {
+    use std::fmt::Write;
+
+    let mut out = String::new();
+    let mut first = true;
+
+    let iter = path.iter().cloned().chain(extra);
+
+    for seg in iter {
+        match seg {
+            PathSegment::Field(s) => {
+                if !first {
+                    out.push('.');
+                }
+                out.push_str(s);
+                first = false;
+            }
+            PathSegment::Index(i) => {
+                let _ = write!(out, "[{i}]");
+                first = false;
+            }
+            PathSegment::Empty => {}
+        }
+    }
+
+    out
+}
+
+// ============================================================================
+// VisitorAdapter (immutable)
+// ============================================================================
+
+pub(crate) struct VisitorAdapter<V> {
+    visitor: V,
+    path: Vec<PathSegment>,
+    issues: VisitorIssues,
+}
+
+impl<V> VisitorAdapter<V>
+where
+    V: Visitor,
+{
+    pub(crate) const fn new(visitor: V) -> Self {
+        Self {
+            visitor,
+            path: Vec::new(),
+            issues: VisitorIssues::new(),
+        }
+    }
+
+    pub(crate) fn result(self) -> Result<(), VisitorIssues> {
+        if self.issues.is_empty() {
+            Ok(())
+        } else {
+            Err(self.issues)
+        }
+    }
+}
+
+impl<V> VisitorCore for VisitorAdapter<V>
+where
+    V: Visitor,
+{
+    fn push(&mut self, seg: PathSegment) {
+        if !matches!(seg, PathSegment::Empty) {
+            self.path.push(seg);
+        }
+    }
+
+    fn pop(&mut self) {
+        self.path.pop();
+    }
+
+    fn enter(&mut self, node: &dyn Visitable) {
+        let mut ctx = AdapterContext {
+            path: &self.path,
+            issues: &mut self.issues,
+        };
+        self.visitor.enter(node, &mut ctx);
+    }
+
+    fn exit(&mut self, node: &dyn Visitable) {
+        let mut ctx = AdapterContext {
+            path: &self.path,
+            issues: &mut self.issues,
+        };
+        self.visitor.exit(node, &mut ctx);
+    }
+}
+
+// ============================================================================
+// Traversal (immutable)
+// ============================================================================
+
+pub fn perform_visit<S: Into<PathSegment>>(
+    visitor: &mut dyn VisitorCore,
+    node: &dyn Visitable,
+    seg: S,
+) {
+    let seg = seg.into();
+    let should_push = !matches!(seg, PathSegment::Empty);
+
+    if should_push {
+        visitor.push(seg);
+    }
+
+    visitor.enter(node);
+    node.drive(visitor);
+    visitor.exit(node);
+
+    if should_push {
+        visitor.pop();
+    }
+}
+
+// ============================================================================
+// VisitorMut (mutable)
+// ============================================================================
+
+// Mutable visitor callbacks paired with a scoped visitor context.
+pub(crate) trait VisitorMut {
+    fn enter_mut(&mut self, node: &mut dyn Visitable, ctx: &mut dyn VisitorContext);
+    fn exit_mut(&mut self, node: &mut dyn Visitable, ctx: &mut dyn VisitorContext);
+}
+
+// ============================================================================
+// VisitorMutCore
+// ============================================================================
+
+// Object-safe mutable visitor contract used by traversal drivers.
+pub trait VisitorMutCore {
+    fn enter_mut(&mut self, node: &mut dyn Visitable);
+    fn exit_mut(&mut self, node: &mut dyn Visitable);
+
+    fn push(&mut self, _: PathSegment) {}
+    fn pop(&mut self) {}
+}
+
+// ============================================================================
+// VisitorMutAdapter
+// ============================================================================
+
+// Adapter that binds `VisitorMut` to object-safe traversal and path tracking.
+pub(crate) struct VisitorMutAdapter<V> {
+    visitor: V,
+    path: Vec<PathSegment>,
+    issues: VisitorIssues,
+}
+
+impl<V> VisitorMutAdapter<V>
+where
+    V: VisitorMut,
+{
+    pub(crate) const fn new(visitor: V) -> Self {
+        Self {
+            visitor,
+            path: Vec::new(),
+            issues: VisitorIssues::new(),
+        }
+    }
+
+    pub(crate) fn result(self) -> Result<(), VisitorIssues> {
+        if self.issues.is_empty() {
+            Ok(())
+        } else {
+            Err(self.issues)
+        }
+    }
+}
+
+impl<V> VisitorMutCore for VisitorMutAdapter<V>
+where
+    V: VisitorMut,
+{
+    fn push(&mut self, seg: PathSegment) {
+        if !matches!(seg, PathSegment::Empty) {
+            self.path.push(seg);
+        }
+    }
+
+    fn pop(&mut self) {
+        self.path.pop();
+    }
+
+    fn enter_mut(&mut self, node: &mut dyn Visitable) {
+        let mut ctx = AdapterContext {
+            path: &self.path,
+            issues: &mut self.issues,
+        };
+        self.visitor.enter_mut(node, &mut ctx);
+    }
+
+    fn exit_mut(&mut self, node: &mut dyn Visitable) {
+        let mut ctx = AdapterContext {
+            path: &self.path,
+            issues: &mut self.issues,
+        };
+        self.visitor.exit_mut(node, &mut ctx);
+    }
+}
+
+// ============================================================================
+// Traversal (mutable)
+// ============================================================================
+
+// Perform a mutable visitor traversal starting at a trait-object node.
+//
+// This is the *core* traversal entrypoint. It operates on `&mut dyn Visitable`
+// because visitor callbacks (`enter_mut` / `exit_mut`) require a trait object.
+//
+// Path segments are pushed/popped around the traversal unless the segment is
+// `PathSegment::Empty`.
+pub fn perform_visit_mut<S: Into<PathSegment>>(
+    visitor: &mut dyn VisitorMutCore,
+    node: &mut dyn Visitable,
+    seg: S,
+) {
+    let seg = seg.into();
+    let should_push = !matches!(seg, PathSegment::Empty);
+
+    if should_push {
+        visitor.push(seg);
+    }
+
+    visitor.enter_mut(node);
+    node.drive_mut(visitor);
+    visitor.exit_mut(node);
+
+    if should_push {
+        visitor.pop();
+    }
+}

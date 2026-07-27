@@ -12,15 +12,12 @@ PUBLISH_POLL_SECS="${PUBLISH_POLL_SECS:-10}"
 PUBLISH_TIMEOUT_SECS="${PUBLISH_TIMEOUT_SECS:-300}"
 PUBLISH_VALIDATE_ONLY="${PUBLISH_VALIDATE_ONLY:-0}"
 
-if [[ -d "crates/icydb-model-legacy" ]]; then
-    echo "workspace publication is blocked while the temporary icydb-model-legacy package exists" >&2
-    exit 1
-fi
-
 PUBLISH_ORDER=(
     icydb-diagnostic-code
     icydb-utils
     icydb-schema
+    icydb-model-macros
+    icydb-model
     icydb-build
     icydb-derive
     icydb-core
@@ -139,6 +136,11 @@ validate_publish_order
 if [ "$PUBLISH_VALIDATE_ONLY" = "1" ]; then
     echo "Publish order validated for IcyDB workspace version $version"
     exit 0
+fi
+
+if [[ -d "crates/icydb-model-legacy" ]]; then
+    echo "workspace publication is blocked while the temporary icydb-model-legacy package exists" >&2
+    exit 1
 fi
 
 started=0

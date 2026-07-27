@@ -1,0 +1,31 @@
+[package]
+name = "icydb-model-macros"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+license = { workspace = true }
+description = "Procedural macros for IcyDB application models"
+repository = { workspace = true }
+authors = { workspace = true }
+
+[lib]
+proc-macro = true
+
+[dependencies]
+convert_case = { workspace = true }
+darling = { workspace = true }
+derive_more = { workspace = true }
+icydb-schema = { workspace = true }
+proc-macro-crate = { workspace = true }
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+remain = { workspace = true }
+serde = { workspace = true }
+syn-darling = { workspace = true }
+
+[dev-dependencies]
+candid = { workspace = true }
+trybuild = { workspace = true }
+
+[lints]
+workspace = true

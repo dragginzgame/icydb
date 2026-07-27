@@ -1,0 +1,17 @@
+[package]
+name = "icydb-testing-model-typed-adapter"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+license = { workspace = true }
+description = "Renamed-dependency typed-adapter fixture for IcyDB model packages"
+repository = { workspace = true }
+authors = { workspace = true }
+
+[dependencies]
+model_api = { package = "icydb-model", path = "../../crates/icydb-model" }
+runtime_api = { package = "icydb", path = "../../crates/icydb" }
+
+[lints]
+workspace = true

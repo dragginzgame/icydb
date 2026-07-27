@@ -7,6 +7,12 @@ cd "$ROOT"
 SCHEMA_CARGO="crates/icydb-schema/Cargo.toml"
 SCHEMA_ROOT="crates/icydb-schema/src"
 LEGACY_CARGO="crates/icydb-model-legacy/Cargo.toml"
+MODEL_CARGO="crates/icydb-model/Cargo.toml"
+MODEL_ROOT="crates/icydb-model/src"
+MODEL_MACROS_CARGO="crates/icydb-model-macros/Cargo.toml"
+MODEL_MACROS_ROOT="crates/icydb-model-macros/src"
+SCHEMA_ONLY_FIXTURE_CARGO="testing/model-schema-only/Cargo.toml"
+TYPED_ADAPTER_FIXTURE_CARGO="testing/model-typed-adapter/Cargo.toml"
 CORE_CARGO="crates/icydb-core/Cargo.toml"
 CORE_APPLICATION="crates/icydb-core/src/db/schema/application.rs"
 CORE_SOURCE_BINDING="crates/icydb-core/src/db/schema/source_binding.rs"
@@ -85,6 +91,78 @@ if ! rg -q --no-heading --color=never \
 then
   echo "[ERROR] workspace publication must fail explicitly while icydb-model-legacy exists." >&2
   status=1
+fi
+
+for package_contract in \
+  "$MODEL_CARGO:icydb-model" \
+  "$MODEL_MACROS_CARGO:icydb-model-macros"
+do
+  manifest="${package_contract%%:*}"
+  package="${package_contract#*:}"
+  if ! rg -q --fixed-strings "name = \"$package\"" "$manifest"; then
+    echo "[ERROR] final model package metadata must retain package identity: $package" >&2
+    status=1
+  fi
+  if rg -q --no-heading --color=never '^publish[[:space:]]*=[[:space:]]*false$' "$manifest"; then
+    echo "[ERROR] final model package must remain independently publishable: $package" >&2
+    status=1
+  fi
+done
+
+model_dependency_leaks="$(
+  rg -n --no-heading --color=never \
+    '^[[:space:]]*icydb(-build|-cli|-config|-core|-derive|-diagnostic-code|-model-legacy|-schema-derive|-utils)?[[:space:]]*=|package[[:space:]]*=[[:space:]]*"icydb(-build|-cli|-config|-core|-derive|-diagnostic-code|-model-legacy|-schema-derive|-utils)?"' \
+    "$MODEL_CARGO" "$MODEL_MACROS_CARGO" || true
+)"
+if [[ -n "$model_dependency_leaks" ]]; then
+  fail_with_matches \
+    "final model packages may depend on icydb-schema and each other, never database/runtime packages." \
+    "$model_dependency_leaks"
+fi
+
+for model_manifest in "$MODEL_CARGO" "$MODEL_MACROS_CARGO"; do
+  if ! rg -q --no-heading --color=never \
+    '^[[:space:]]*icydb-schema[[:space:]]*=' \
+    "$model_manifest"
+  then
+    echo "[ERROR] final model packages must lower through icydb-schema: $model_manifest" >&2
+    status=1
+  fi
+done
+
+schema_only_runtime_leaks="$(
+  rg -n --no-heading --color=never \
+    'package[[:space:]]*=[[:space:]]*"icydb(-core)?"|^[[:space:]]*icydb(-core)?[[:space:]]*=' \
+    "$SCHEMA_ONLY_FIXTURE_CARGO" || true
+)"
+if [[ -n "$schema_only_runtime_leaks" ]]; then
+  fail_with_matches \
+    "the schema-only model fixture must not depend on icydb or icydb-core." \
+    "$schema_only_runtime_leaks"
+fi
+
+for required_typed_fixture_dependency in \
+  'package = "icydb-model"' \
+  'package = "icydb"'
+do
+  if ! rg -q --fixed-strings \
+    "$required_typed_fixture_dependency" \
+    "$TYPED_ADAPTER_FIXTURE_CARGO"
+  then
+    echo "[ERROR] typed-adapter fixture must exercise both renamed direct dependencies: $required_typed_fixture_dependency" >&2
+    status=1
+  fi
+done
+
+model_source_dependency_leaks="$(
+  rg -n --no-heading --color=never \
+    'icydb_core|icydb_model_legacy|icydb_schema_derive|icydb_derive' \
+    "$MODEL_ROOT" "$MODEL_MACROS_ROOT" || true
+)"
+if [[ -n "$model_source_dependency_leaks" ]]; then
+  fail_with_matches \
+    "final model source must not reference retired or database-runtime package owners." \
+    "$model_source_dependency_leaks"
 fi
 
 legacy_core_edge="$(
