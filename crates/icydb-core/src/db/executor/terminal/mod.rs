@@ -8,6 +8,7 @@ mod row_decode;
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "sql")]
 pub(in crate::db) use page::KernelRow;
 pub(in crate::db) use page::RetainedSlotRow;
 #[cfg(feature = "diagnostics")]

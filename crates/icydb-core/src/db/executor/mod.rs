@@ -56,6 +56,7 @@ pub(in crate::db) use aggregate::{
 pub(in crate::db) use authority::EntityAuthority;
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use covering::resolve_covering_projection_components_from_lowered_specs;
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) use covering::{
     CoveringProjectionComponentRows, covering_projection_scan_direction,
     decode_single_covering_projection_pairs, reorder_covering_projection_pairs,
@@ -72,6 +73,7 @@ pub(in crate::db) use explain::{
     assemble_load_execution_node_descriptor_from_route_facts,
     freeze_load_execution_route_facts_for_authority,
 };
+#[cfg(feature = "sql")]
 pub(in crate::db) use index_prefix_cardinality::exact_count_cardinality_prefixes_for_plan;
 #[cfg(feature = "sql")]
 pub(in crate::db) use index_prefix_cardinality::lowered_index_prefix_cardinality_specs_from_plan;
@@ -147,12 +149,13 @@ pub(in crate::db::executor) use runtime_context::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use stream::access::PrimaryRangeKeyStream;
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) use stream::access::TraversalRuntime;
 pub(in crate::db::executor) use stream::access::{
     ACCESS_SCAN_CHUNK_ENTRIES, AccessStreamExecutionPolicy, ExecutableAccess, IndexLeafOrderPolicy,
-    IndexScan, PrimaryScan, TraversalRuntime, active_lowered_index_prefix_specs,
-    apply_index_scan_chunk_progress, branch_stream_chunk_entries,
-    index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
-    index_stream_output_limit_for_chunk,
+    IndexScan, PrimaryScan, active_lowered_index_prefix_specs, apply_index_scan_chunk_progress,
+    branch_stream_chunk_entries, index_predicate_rejects_prefix_components,
+    index_stream_chunk_entries_for_remaining, index_stream_output_limit_for_chunk,
 };
 pub(in crate::db::executor) use stream::key::{
     KeyOrderComparator, OrderedKeyStream, OrderedKeyStreamBox, exact_output_key_count_hint,
@@ -175,9 +178,9 @@ pub(crate) use terminal::{
 pub(in crate::db) use terminal::{
     with_direct_data_row_phase_attribution, with_kernel_row_phase_attribution,
 };
-pub(in crate::db::executor) use util::{
-    apply_data_key_ordered_dedup_window, apply_offset_limit_window, saturating_u32_len,
-};
+pub(in crate::db::executor) use util::apply_data_key_ordered_dedup_window;
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) use util::{apply_offset_limit_window, saturating_u32_len};
 
 /// Validate plans at executor boundaries using structural entity authority.
 pub(in crate::db::executor) fn validate_executor_plan_for_authority(

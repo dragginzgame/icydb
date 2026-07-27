@@ -10,9 +10,10 @@ mod load_plan;
 mod shared_plan;
 
 pub use core::ExecutionFamily;
+#[cfg(feature = "sql")]
+pub(in crate::db::executor::prepared_execution_plan) use core::build_prepared_execution_plan_core_with_lowered_access;
 pub(in crate::db::executor::prepared_execution_plan) use core::{
-    PreparedExecutionPlanCore, build_prepared_execution_plan_core_with_lowered_access,
-    build_prepared_execution_plan_core_with_schema_fingerprint,
+    PreparedExecutionPlanCore, build_prepared_execution_plan_core_with_schema_fingerprint,
 };
 pub(in crate::db::executor) use core::{PreparedGroupedRuntimeResidents, PreparedScalarPlanCore};
 #[cfg(feature = "sql")]
