@@ -39,6 +39,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "array-init"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d62b7694a562cdf5a74227903507c56ab2cc8bdd1f781ed5cb4cf9c9f810bfc"
+
+[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -98,26 +104,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
-name = "binread"
-version = "2.2.0"
+name = "binrw"
+version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16598dfc8e6578e9b597d9910ba2e73618385dc9f4b1d43dd92c349d6be6418f"
+checksum = "6ad120d555272286c1017d25165ab8bd74806f13fc85b258484ec7e4ce75458f"
 dependencies = [
- "binread_derive",
- "lazy_static",
- "rustversion",
+ "array-init",
+ "binrw_derive",
+ "bytemuck",
 ]
 
 [[package]]
-name = "binread_derive"
-version = "2.1.0"
+name = "binrw_derive"
+version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d9672209df1714ee804b1f4d4f68c8eb2a90b1f7a07acf472f88ce198ef1fed"
+checksum = "6df92e0e9baae4dc82c7bad7715ca40c0a5c71539057bf2ea04a5c29c980410b"
 dependencies = [
  "either",
  "proc-macro2",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -171,6 +177,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
+name = "bytemuck"
+version = "1.25.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95832e849adfb21180ccb6826a99da14e5d266ae5c2e668e1602cf234f153797"
+
+[[package]]
 name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -184,12 +196,12 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "candid"
-version = "0.10.32"
+version = "0.10.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b649560badafa98cdf260958393f317c013b5aa819dba26f21cc3e26cae41dae"
+checksum = "cdec808f2220b263bbc88557a2a44fb6b2db5875c99731ad00aae575ad59215c"
 dependencies = [
  "anyhow",
- "binread",
+ "binrw",
  "byteorder",
  "candid_derive",
  "hex",
@@ -207,9 +219,9 @@ dependencies = [
 
 [[package]]
 name = "candid_derive"
-version = "0.10.32"
+version = "0.10.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f94f9df97dd04077b5a30e82dfb5a5f2eae1a6e8c9d6a98fd24351c8a333464"
+checksum = "2ee4839d8e442990b2853556e57ee9f6f4527371bbbfd7b4dcdd4f3c7d910964"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -219,7 +231,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_default_empty"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -229,7 +241,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_default_empty_metrics"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -239,7 +251,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_entity_sql_query"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -249,7 +261,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_entity_typed_query"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -260,7 +272,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_sql_perf"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -272,7 +284,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_ten_entity_typed_query"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -283,7 +295,7 @@ dependencies = [
 
 [[package]]
 name = "canister_demo_rpg"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -294,7 +306,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_sql"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -305,7 +317,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_sql_bounded"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -1258,7 +1270,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "ctor",
@@ -1276,7 +1288,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-cli"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "clap",
@@ -1289,7 +1301,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-config"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "icydb-model",
  "serde",
@@ -1299,7 +1311,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "derive_more",
@@ -1329,14 +1341,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-diagnostic-code"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "remain",
 ]
 
 [[package]]
 name = "icydb-model"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "convert_case",
@@ -1356,7 +1368,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-model-macros"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "convert_case",
@@ -1374,7 +1386,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "derive_more",
@@ -1392,7 +1404,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-default-empty-fixtures"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "icydb",
@@ -1402,7 +1414,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-one-simple-fixtures"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "icydb",
@@ -1412,7 +1424,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-sql-perf-fixtures"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "icydb",
@@ -1422,7 +1434,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-ten-simple-fixtures"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "icydb",
@@ -1432,7 +1444,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-demo-rpg-fixtures"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "icydb",
@@ -1442,7 +1454,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-integration"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "blake3",
  "candid",
@@ -1457,14 +1469,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-model-schema-only"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "icydb-model",
 ]
 
 [[package]]
 name = "icydb-testing-model-typed-adapter"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1472,7 +1484,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-sql-generator"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "blake3",
  "serde",
@@ -1481,7 +1493,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-sqlite-reference"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "blake3",
  "icydb-testing-sql-generator",
@@ -1490,7 +1502,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-test-fixtures"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "icydb",
@@ -1500,7 +1512,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-test-sql-fixtures"
-version = "0.213.32"
+version = "0.213.33"
 dependencies = [
  "candid",
  "icydb",
@@ -1510,7 +1522,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-wasm-helpers"
-version = "0.213.32"
+version = "0.213.33"
 
 [[package]]
 name = "ident_case"
@@ -3006,9 +3018,9 @@ dependencies = [
 
 [[package]]
 name = "toml_parser"
-version = "1.1.2+spec-1.1.0"
+version = "1.1.3+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2abe9b86193656635d2411dc43050282ca48aa31c2451210f4202550afb7526"
+checksum = "1d38ac1cf9b95face32296c0a3ede1fdc270627c9d9c02a7274dd6d960dc4d56"
 dependencies = [
  "winnow",
 ]
