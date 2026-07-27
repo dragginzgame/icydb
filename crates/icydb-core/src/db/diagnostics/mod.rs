@@ -16,7 +16,7 @@ pub use execution_trace::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionStats,
     ExecutionTrace,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use local_instructions::measure_local_instruction_delta;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use local_instructions::read_local_instruction_counter;

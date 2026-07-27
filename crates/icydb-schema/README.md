@@ -10,6 +10,11 @@ admitted only when an exact expected accepted head can resolve them during
 application. This crate does not own accepted schema, runtime planning,
 storage, application callbacks, clocks, or generated values.
 
+Canonical scalar representation is exposed here through `ScalarKind`,
+`ScalarMetadata`, `ScalarCoercionFamily`, `ALL_SCALAR_KINDS`, and the scalar
+`scalar_kind_registry!` macro. Runtime value operations, coercion policy,
+codecs, and storage behavior remain in `icydb-core`.
+
 See the
 [0.213 design](../../docs/design/0.213-schema-authority-and-application-model-separation/0.213-design.md)
 for the package and authority boundary.

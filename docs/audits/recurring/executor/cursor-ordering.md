@@ -24,10 +24,8 @@ Method V5 keeps the Method V4 scalar/grouped cursor, envelope, accepted
 authority, and live-state checks, but updates the verification surface for the
 current source tree:
 
-* the old top-level `crates/icydb-core/tests/write_boundary_guards.rs`
-  integration target no longer exists
-* continuation ownership guards now live in executor unit tests backed by
-  source-guard helpers
+* continuation ownership guards live with the maintained cursor and executor
+  units they protect
 * schema-bound continuation signatures and accepted query-cache fingerprints
   are verified through source inspection and focused unit tests
 * verification statuses are normalized to `PASS`, `FAIL`, and `BLOCKED`
@@ -143,7 +141,7 @@ Primary owners to inspect:
 * `db/schema/info.rs`
   * accepted `SchemaInfo` field/index contract exposure used by cursor boundary
     validation
-* `db/executor/prepared_execution_plan.rs`
+* `db/executor/prepared_execution_plan/mod.rs`
 * `db/executor/planning/continuation/*`
 * `db/executor/authority/entity.rs`
   * authority-selected `SchemaInfo` used for scalar cursor validation and
@@ -151,13 +149,12 @@ Primary owners to inspect:
 * `db/executor/pipeline/entrypoints/mod.rs`
   * `execute_paged_with_cursor_traced`
   * grouped paged continuation entrypoints when applicable
-* `db/executor/tests/continuation_structure.rs`
-  * cursor semantic ownership and signature-validation source guards
 * `db/executor/authority/entity.rs`
   * accepted `SchemaInfo` authority tests for executor finalization/cursor schema
-* `db/session/tests/sql_surface.rs`
-  * accepted schema fingerprint/cache identity tests relevant to stale cursor
-    rejection and prepared-plan reuse
+* `db/cursor/tests/mod.rs`
+  * grouped cursor direction, signature, and offset validation
+* `testing/integration/tests/sql_canister.rs`
+  * maintained public SQL ordering and pagination behavior
 
 Historical targets such as `plan_cursor` are obsolete and must not be used as
 the audit frame.
@@ -312,18 +309,15 @@ Every run must include evidence from current tests and live source inspection.
 Use current tests from:
 
 * `db/cursor/tests/mod.rs`
-* `db/executor/tests/cursor_validation.rs`
-* `db/executor/tests/pagination.rs`
-* `db/executor/tests/live_state.rs`
+* `db/executor/terminal/page/tests.rs`
 * `db/index/envelope/tests.rs`
-* `db/executor/tests/continuation_structure.rs`
 * `db/executor/authority/entity.rs`
-* `db/query/fingerprint/shape_signature/tests/mod.rs`
-* `db/session/tests/sql_surface.rs`
+* `db/query/fingerprint/hash_sections/tests.rs`
+* `testing/integration/tests/sql_canister.rs`
 
 Required live command baseline:
 
-* `cargo test -p icydb-core cursor_validation --features sql -- --nocapture`
+* `cargo test -p icydb-core cursor --features sql -- --nocapture`
 * `cargo test -p icydb-core pk_cursor_decode_error_mapping_is_explicit_for_all_cursor_variants --features sql -- --nocapture`
 * `cargo test -p icydb-core anchor_containment_guard_rejects_out_of_envelope_anchor --features sql -- --nocapture`
 * `cargo test -p icydb-core anchor_equal_to_upper_resumes_to_empty_envelope --features sql -- --nocapture`

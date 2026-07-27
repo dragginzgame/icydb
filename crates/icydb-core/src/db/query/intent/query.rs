@@ -4,12 +4,11 @@
 //! Boundary: exposes query APIs and emits planner-owned compiled query contracts.
 
 #[cfg(feature = "sql")]
-use crate::db::query::plan::expr::ProjectionSelection;
+use crate::db::query::{expr::FilterExpr, plan::expr::ProjectionSelection};
 use crate::db::{
     predicate::MissingRowPolicy,
     query::{
         builder::AggregateExpr,
-        expr::FilterExpr,
         expr::OrderTerm as FluentOrderTerm,
         intent::{AccessRequirements, QueryError, QueryModel},
         plan::{AccessPlannedQuery, PreparedScalarPlanningState, VisibleIndexes},

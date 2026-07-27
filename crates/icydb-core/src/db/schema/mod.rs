@@ -84,7 +84,7 @@ pub(in crate::db) use application_store::{
     preflight_schema_application_record_op, verify_schema_application_record_op,
     with_schema_application_store,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use capabilities::sql_capabilities;
 #[cfg(feature = "sql")]
 pub(in crate::db) use capabilities::{SqlCapabilities, sql_capabilities_with_enum_catalog};
@@ -123,7 +123,7 @@ pub(in crate::db) use constraint_activation_runner::{
     UnpublishedCheckValidation, advance_accepted_check_constraint_activation,
     validate_unpublished_check_candidate_bounded,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use constraint_activation_runner::{
     advance_check_constraint_activation, advance_not_null_constraint_activation,
     advance_unique_constraint_activation,
@@ -135,7 +135,7 @@ pub(in crate::db) use constraint_validation::{
     encode_constraint_validation_job,
 };
 pub(in crate::db) use describe::describe_accepted_entity_with_persisted_schema;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use describe::describe_entity_fields_with_persisted_schema;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use enum_catalog::AcceptedSchemaAuthority;
@@ -165,7 +165,7 @@ pub(in crate::db) use fingerprint::{
 pub(in crate::db::schema) use fingerprint::{
     accepted_schema_admission_fingerprint, accepted_schema_admission_fingerprint_method_version,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use format::show_indexes_for_schema_info_with_runtime_state;
 pub(in crate::db) use identity::{
     ConstraintId, ConstraintIdAllocator, FieldId, RelationId, SchemaIndexId,
@@ -221,7 +221,7 @@ pub(in crate::db) use mutation::{
 pub(in crate::db) use mutation::{
     SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget, StagedUserIndexDomainError,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use mutation::{
     SchemaUserIndexDomainRow, StagedUserIndexDomainReplacement,
     StagedUserIndexDomainReplacementBuilder,
@@ -230,9 +230,6 @@ pub(in crate::db::schema) use mutation::{
     derive_dense_field_removal_candidate, derive_dense_index_removal_candidate,
     derive_relation_removal_candidate, prove_empty_user_index_domain,
 };
-#[cfg(test)]
-#[cfg(all(test, not(feature = "sql")))]
-pub(in crate::db) use runtime::accepted_insert_field_is_omittable;
 pub(in crate::db) use runtime::{
     AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract, AcceptedInsertOmissionPolicy,
     AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract, OwnedAcceptedFieldDecodeContract,
@@ -292,17 +289,16 @@ pub(in crate::db) fn validate_accepted_schema_bundle_format_for_tests(
 ) -> Result<(), crate::error::InternalError> {
     enum_catalog::decode_accepted_schema_revision_bundle(bytes).map(drop)
 }
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db::schema) use transition::{
     SchemaTransitionDecision, SchemaTransitionPlanKind, decide_schema_transition,
 };
 pub(crate) use types::FieldType;
 pub(in crate::db) use types::field_type_from_persisted_kind;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use types::input_value_from_strict_sql_literal_for_persisted_kind;
 #[cfg(any(test, feature = "sql"))]
 pub(crate) use types::{ScalarType, literal_matches_type};
-#[cfg(any(test, feature = "sql"))]
 #[cfg(feature = "sql")]
 pub(in crate::db) use types::{
     canonicalize_filter_literal_for_persisted_kind,

@@ -1,10 +1,17 @@
 # IcyDB
 
-Public meta-crate for IcyDB.
+Public runtime facade for IcyDB.
 
-This crate re-exports the IcyDB ecosystem, including runtime query APIs, schema/macros, and shared types.
+This crate exposes accepted-schema database sessions, structural writes,
+optional SQL and typed reads, shared runtime types, and the host build facade
+used by generated canister actor glue.
 
-Use this crate when building canister data models and queries.
+Application model declarations and macros are owned by `icydb-model` and are
+not re-exported here. Schema-proposal vocabulary and canonical scalar metadata
+live in `icydb-schema`.
+
+Runtime canister crates normally depend on `icydb`; schema-authoring crates
+normally depend on `icydb-model`.
 
 For full setup, examples, and release notes:
 

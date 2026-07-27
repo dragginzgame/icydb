@@ -12,7 +12,7 @@ use std::borrow::Cow;
 
 use self::contracts::EffectiveRuntimeFilterProgram;
 pub(in crate::db) use contracts::ProjectionEvalError;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) use scalar::eval_compiled_expr_with_required_slot_reader_cow;
 pub(in crate::db::executor) use scalar::eval_compiled_expr_with_value_reader;
 pub(in crate::db::executor) use scalar::eval_compiled_expr_with_value_ref_reader;

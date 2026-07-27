@@ -13,12 +13,12 @@ mod instrumentation;
 
 use crate::metrics::state as metrics;
 use dispatch::GLOBAL_METRICS_SINK;
-#[cfg(feature = "sql")]
-pub(crate) use instrumentation::record_sql_compile_reject_for_path;
 #[cfg(any(test, feature = "sql"))]
+pub(crate) use instrumentation::{PathSpan, record_prepared_shape_already_finalized_for_path};
+#[cfg(feature = "sql")]
 pub(crate) use instrumentation::{
-    PathSpan, record_cache_entries, record_cache_event_for_path, record_cache_miss_reason_for_path,
-    record_prepared_shape_already_finalized_for_path,
+    record_cache_entries, record_cache_event_for_path, record_cache_miss_reason_for_path,
+    record_sql_compile_reject_for_path,
 };
 #[cfg(any(test, feature = "sql"))]
 use std::cell::RefCell;

@@ -81,8 +81,8 @@ Also inspect module sizes:
 ```bash
 find crates/icydb-core/src/db -name '*.rs' -print0 | xargs -0 wc -l | sort -nr | head -40
 wc -l crates/icydb-core/src/db/session/query/mod.rs \
-  crates/icydb-core/src/db/session/query/execution.rs \
-  crates/icydb-core/src/db/session/query/fluent.rs \
+  crates/icydb-core/src/db/session/query/dynamic.rs \
+  crates/icydb-core/src/db/session/query/grouped.rs \
   crates/icydb-core/src/db/session/query/cache.rs \
   crates/icydb-core/src/db/session/sql/execute/mod.rs \
   crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/mod.rs \

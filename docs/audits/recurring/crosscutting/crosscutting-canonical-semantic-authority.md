@@ -25,8 +25,9 @@ Primary scope:
 Secondary scope (when relevant to canonical lowering boundaries):
 
 * `crates/icydb/src`
-* `crates/icydb-build/src`
-* schema/derive surfaces that emit canonical metadata or typed semantic tokens
+* `crates/icydb-schema/src`
+* `crates/icydb-model/src` and `crates/icydb-model-macros/src` where application
+  declarations lower into canonical schema metadata or typed semantic tokens
 
 Core question:
 

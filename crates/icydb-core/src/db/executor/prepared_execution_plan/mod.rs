@@ -21,5 +21,7 @@ pub(in crate::db::executor) use handoff::SharedPreparedProjectionRuntimeHandoff;
 pub(in crate::db::executor) use handoff::{
     PreparedAccessPlanHandoff, PreparedScalarRuntimeHandoff,
 };
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) use load_plan::PreparedLoadPlan;
+#[cfg(feature = "sql")]
 pub(in crate::db) use shared_plan::SharedPreparedExecutionPlan;

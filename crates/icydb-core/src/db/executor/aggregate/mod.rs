@@ -27,14 +27,14 @@ pub(in crate::db::executor) use contracts::FieldId;
 pub(in crate::db::executor) use contracts::GroupedRuntimeStats;
 pub(in crate::db::executor) use contracts::{
     AccessPlannedQuery, AggregateFoldMode, AggregateKind, CompiledExpr,
-    EffectiveRuntimeFilterProgram, ExecutionConfig, ExecutionContext, Expr, FieldSlot, FoldControl,
+    EffectiveRuntimeFilterProgram, ExecutionConfig, ExecutionContext, FieldSlot, FoldControl,
     GlobalDistinctAggregateKind, GroupError, GroupedAggregateExecutionSpec,
-    GroupedDistinctExecutionStrategy, OrderDirection, PageSpec, PlannedProjectionLayout,
-    ProjectionSpec,
+    GroupedDistinctExecutionStrategy, OrderDirection, PlannedProjectionLayout, ProjectionSpec,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use contracts::{
-    ProjectionField, admit_true_only_boolean_value, compile_scalar_projection_expr_from_schema,
+    Expr, PageSpec, ProjectionField, admit_true_only_boolean_value,
+    compile_scalar_projection_expr_from_schema,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use count_terminal::execute_direct_count_index_prefix_cardinality_for_canister;

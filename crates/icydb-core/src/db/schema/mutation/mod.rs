@@ -102,7 +102,7 @@ pub(in crate::db::schema) use relation_removal::derive_relation_removal_candidat
 
 mod user_index_domain;
 pub(in crate::db::schema) use user_index_domain::prove_empty_user_index_domain;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use user_index_domain::{
     SchemaUserIndexDomainRow, StagedUserIndexDomainReplacement,
     StagedUserIndexDomainReplacementBuilder,

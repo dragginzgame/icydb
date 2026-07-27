@@ -18,11 +18,12 @@ use crate::db::schema::SchemaExpressionIndexRebuildTarget;
 #[cfg(test)]
 use crate::db::schema::{FieldId, SchemaFieldSlot};
 
-#[cfg(any(test, feature = "sql"))]
+pub(in crate::db::schema) use admission::SchemaAdmissionRejectionClassification;
+#[cfg(feature = "sql")]
 pub(in crate::db::schema) use admission::SchemaAdmissionRejectionReason;
+#[cfg(feature = "sql")]
 pub(in crate::db::schema) use admission::{
-    SchemaAdmissionIdentityComparison, SchemaAdmissionRejectionClassification,
-    schema_admission_rejection,
+    SchemaAdmissionIdentityComparison, schema_admission_rejection,
 };
 use compatibility::{
     accepted_snapshot_extends_generated_indexes,

@@ -121,6 +121,7 @@ pub(in crate::db::query) use projection::{
 };
 #[cfg(any(test, feature = "sql-explain"))]
 pub(in crate::db) use semantics::access_plan_label;
+#[cfg(feature = "sql")]
 pub(in crate::db) use semantics::canonicalize_grouped_having_numeric_literal_for_slot;
 pub(in crate::db) use semantics::{
     AccessPlanProjection, AggregateIdentity, AggregateSemanticKey, GroupDistinctAdmissibility,
@@ -135,9 +136,10 @@ pub(in crate::db) use semantics::{
 };
 pub(crate) use validate::PlanError;
 pub(crate) use validate::PolicyPlanError;
+#[cfg(feature = "sql")]
+pub(in crate::db) use validate::resolve_aggregate_target_field_slot_with_schema;
 pub(in crate::db) use validate::{
-    resolve_aggregate_target_field_slot_with_schema, resolve_group_field_slot_with_schema,
-    validate_cursor_order_plan_shape,
+    resolve_group_field_slot_with_schema, validate_cursor_order_plan_shape,
 };
 pub(in crate::db::query) use validate::{
     validate_group_query_semantics_with_schema, validate_intent_plan_shape,

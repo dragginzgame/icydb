@@ -92,7 +92,7 @@ pub(in crate::db) use ast::collect_scalar_expr_field_roots;
 pub(in crate::db) use ast::{
     BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function, PathSpec, UnaryOp,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use canonicalize::canonicalize_scalar_where_bool_expr;
 pub(in crate::db) use canonicalize::{
     CanonicalExpr, canonicalize_grouped_having_bool_expr, is_normalized_bool_expr,
@@ -114,7 +114,7 @@ pub(in crate::db::query::plan::expr) use function_semantics::{
 };
 pub(in crate::db) use function_semantics::{NumericSubtype, TextPredicateFunctionKind};
 pub(in crate::db) use path::CompiledPath;
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use predicate::compile_normalized_bool_expr_to_predicate;
 pub(in crate::db) use predicate::derive_normalized_bool_expr_predicate_subset;
 #[cfg(feature = "sql")]

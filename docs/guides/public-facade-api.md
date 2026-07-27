@@ -100,10 +100,9 @@ Integrity requests use the typed `IntegrityCheckRequest` protocol or the
 admin SQL integrity surface. They never accept caller-authored checkpoints,
 proof vectors, or physical traversal state.
 
-## Removed Surfaces
+## Current Construction Surfaces
 
-The pre-0.213 fluent entity builder, `Entity`/`EntityValue` runtime traits,
-`PersistedRow` derive/trait path, response-cardinality facade, old generated
-`*_Create` inputs, and facade macro re-exports were removed outright. There
-are no aliases or compatibility wrappers. Use generated `*Insert` inputs,
-accepted-schema typed queries, structural mutations, or explicit SQL lanes.
+Use generated `*Insert` inputs for application-authored inserts. Runtime reads
+and writes enter through accepted-schema typed queries, structural mutations,
+or explicit SQL lanes; generated declarations remain proposal and
+reconciliation input rather than runtime authority.

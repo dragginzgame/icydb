@@ -4,15 +4,17 @@
 //! Boundary: centralizes query-plan DTOs consumed by aggregate execution.
 
 #[cfg(feature = "sql")]
+pub(in crate::db::executor) use crate::db::query::plan::PageSpec;
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) use crate::db::query::plan::expr::{
-    FieldId, ProjectionField, admit_true_only_boolean_value,
+    Expr, FieldId, ProjectionField, admit_true_only_boolean_value,
     compile_scalar_projection_expr_from_schema,
 };
 pub(in crate::db::executor) use crate::db::query::plan::{
     AccessPlannedQuery, AggregateKind, EffectiveRuntimeFilterProgram, FieldSlot,
     GlobalDistinctAggregateKind, GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy,
-    OrderDirection, PageSpec, PlannedProjectionLayout,
-    expr::{CompiledExpr, Expr, ProjectionSpec, collapse_true_only_boolean_admission},
+    OrderDirection, PlannedProjectionLayout,
+    expr::{CompiledExpr, ProjectionSpec, collapse_true_only_boolean_admission},
 };
 
 #[cfg(all(test, feature = "sql"))]

@@ -86,10 +86,11 @@ Authoritative current lanes:
   * generates broad deterministic SQL query coverage for hotspot discovery;
     typed correctness generation is owned by the dedicated correctness lanes
   * emits ranked JSON/Markdown reports under `artifacts/perf-audit/` by default
-* typed/fluent lane:
-  * `testing/integration/tests/fluent_perf_audit.rs`
-  * covers fluent query/update, repeat/cache, direct-row, grouped, and finalize
-    attribution scenarios
+* typed lane:
+  * typed query behavior is covered by the generated/typed correctness and
+    canister audit lanes;
+  * add a dedicated typed performance harness only when a current typed path
+    needs comparable instruction evidence.
 
 Secondary context lane:
 
@@ -309,11 +310,8 @@ For each supported scenario, sample what exists:
 * focused PocketIC SQL checks in `sql_perf_audit` only for write, storage,
   repeat, route, or cache contracts not yet owned by the profile; this target
   has no scheduled baseline or independent repeated-sampling authority
-* PocketIC typed/fluent perf harness
-  `fluent_perf_audit_harness_reports_instruction_samples`, as the authoritative
-  typed/fluent lane
-* typed/fluent load query execution
-* typed/fluent paged query execution
+* current typed query canister scenarios when the audit includes a typed
+  comparison lane
 * `DbSession::execute_trusted_sql_query(...)`
 * `DbSession::execute_trusted_sql_exact_update::<E>(...)`
 * `DbSession::execute_trusted_sql_prefix_update::<E>(...)`
@@ -464,7 +462,7 @@ Before capturing instruction data:
 
 Recommended current scans:
 
-* `rg -n "PerformanceProfile|p1_shard|p2_candidates|fluent_perf_scenarios|scenario_key|baseline_path" testing/integration/tests/sql_perf_matrix_audit.rs testing/integration/tests/sql_perf_p*.rs testing/integration/tests/sql_perf_audit.rs testing/integration/tests/fluent_perf_audit.rs`
+* `rg -n "PerformanceProfile|p1_shard|p2_candidates|scenario_key|baseline_path" testing/integration/tests/sql_perf_matrix_audit.rs testing/integration/tests/sql_perf_p*.rs testing/integration/tests/sql_perf_audit.rs`
 * `rg -n "SqlQueryExecutionAttribution|QueryExecutionAttribution|store_get_calls|grouped_stream_local_instructions" crates/icydb-core/src canisters/audit/sql_perf/src`
 * `rg -n "execute_trusted_sql_query|execute_trusted_sql_exact_update|execute_trusted_sql_prefix_update|prepare_trusted_sql_resumable_update|resume_trusted_sql_resumable_update|execute_trusted_sql_query_with_attribution|execute_compiled_sql|execute_compiled_sql_with_phase_attribution" crates/icydb-core/src/db/session`
 * `rg -n "compile_sql_command|compile_sql_query|compile_sql_mutation" crates/icydb-core/src/db`
@@ -560,27 +558,20 @@ Do not turn this into a redesign proposal.
 
 ## Baseline Verification Commands
 
-Current recurring runs should first verify that the dedicated harnesses are
+Current recurring runs should first verify that the dedicated SQL harness is
 registered:
 
 * `cargo test -p icydb-testing-integration --test sql_perf_audit -- --list`
-* `cargo test -p icydb-testing-integration --test fluent_perf_audit -- --list`
 
-Then verify both harnesses compile:
+Then verify that harness compiles:
 
 * `cargo test -p icydb-testing-integration --test sql_perf_audit --no-run`
-* `cargo test -p icydb-testing-integration --test fluent_perf_audit --no-run`
-
-The remaining dedicated typed/fluent instruction capture command is:
-
-* `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 cargo test -p icydb-testing-integration --test fluent_perf_audit fluent_perf_audit_harness_reports_instruction_samples -- --nocapture`
 
 Focused SQL contract and follow-up attribution commands:
 
 * `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_update_warm_persists_compiled_and_shared_cache_across_calls -- --nocapture`
 * `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_repeated_query_contracts_keep_compiled_and_shared_cache_path -- --nocapture`
 * `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_shared_floor_queries_report_phase_breakdown -- --nocapture`
-* `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 cargo test -p icydb-testing-integration --test fluent_perf_audit fluent_perf_update_warm_persists_query_cache_across_calls -- --nocapture`
 
 Deterministic P1 shard commands:
 

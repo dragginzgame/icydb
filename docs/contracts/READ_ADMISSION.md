@@ -107,5 +107,4 @@ See [the read-intent guide](../guides/read-intent.md) for maintained examples.
 - default budgets remain synchronized with this contract;
 - typed execution enters `execute_public_dynamic_query`;
 - trusted SQL documentation and generated-controller ownership remain intact;
-- custom policies, old fluent surfaces, and legacy consumer crates do not
-  reappear.
+- public reads enter through the maintained typed or SQL admission boundaries.

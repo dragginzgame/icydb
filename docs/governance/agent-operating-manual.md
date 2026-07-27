@@ -6,7 +6,8 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 
 ## Project Map
 
-- `crates/icydb`: public meta-crate re-exporting the workspace API.
+- `crates/icydb`: public runtime facade, accepted-schema session APIs, and
+  generated actor-wiring/build surfaces.
 - `crates/icydb-core`: runtime, storage, executors, and core types.
 - `crates/icydb-diagnostic-code`: compact diagnostic code registry.
 - `crates/icydb-schema`: bounded public proposal contract and canonical scalar

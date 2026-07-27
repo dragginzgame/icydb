@@ -17,14 +17,13 @@ pub(in crate::db::executor) use grouped::{ExecutionConfig, ExecutionContext};
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db::executor) use plan::BinaryOp;
 pub(in crate::db::executor) use plan::{
-    AccessPlannedQuery, AggregateKind, CompiledExpr, EffectiveRuntimeFilterProgram, Expr,
-    FieldSlot, GlobalDistinctAggregateKind, GroupedAggregateExecutionSpec,
-    GroupedDistinctExecutionStrategy, OrderDirection, PageSpec, PlannedProjectionLayout,
-    ProjectionSpec,
+    AccessPlannedQuery, AggregateKind, CompiledExpr, EffectiveRuntimeFilterProgram, FieldSlot,
+    GlobalDistinctAggregateKind, GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy,
+    OrderDirection, PlannedProjectionLayout, ProjectionSpec,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use plan::{
-    FieldId, ProjectionField, admit_true_only_boolean_value,
+    Expr, FieldId, PageSpec, ProjectionField, admit_true_only_boolean_value,
     compile_scalar_projection_expr_from_schema,
 };
 pub(in crate::db::executor) use state::{

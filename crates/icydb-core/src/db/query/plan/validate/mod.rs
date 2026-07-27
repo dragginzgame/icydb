@@ -33,7 +33,7 @@ pub(in crate::db::query) use plan_shape::validate_plan_shape;
 pub(in crate::db::query) use semantic_gates::{
     validate_group_query_semantics_with_schema, validate_query_semantics_with_schema,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use symbols::resolve_aggregate_target_field_slot_with_schema;
 pub(in crate::db::query::plan::validate) use symbols::resolve_group_aggregate_target_field_type;
-pub(in crate::db) use symbols::{
-    resolve_aggregate_target_field_slot_with_schema, resolve_group_field_slot_with_schema,
-};
+pub(in crate::db) use symbols::resolve_group_field_slot_with_schema;

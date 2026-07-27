@@ -9,7 +9,7 @@ Pin IcyDB by tag in the canister crate:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.207.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.32" }
 ```
 
 The default crate feature set provides structural writes and accepted-schema
@@ -18,10 +18,20 @@ session/library SQL APIs, or generated SQL endpoints:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.207.0", features = ["sql"] }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.32", features = ["sql"] }
 ```
 
-The public `icydb` crate path supports Rust `1.88.0` and newer. Repository
+Schema-authoring crates use `icydb-model` with the same tag:
+
+```toml
+[dependencies]
+icydb-model = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.32" }
+```
+
+The runtime `icydb` facade does not re-export model declaration macros.
+
+The public runtime `icydb` crate path supports Rust `1.88.0` and newer.
+`icydb-model` follows the workspace package floor of Rust `1.96.0`. Repository
 maintenance uses the newer internal toolchain listed below.
 
 Generated endpoint build scripts should depend on `icydb` with the same tag and

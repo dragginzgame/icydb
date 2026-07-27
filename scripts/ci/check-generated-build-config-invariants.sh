@@ -9,20 +9,19 @@ if ! command -v rg >/dev/null 2>&1; then
   exit 1
 fi
 
-violations="$(
-  rg -n --no-heading --color=never \
-    'icydb::build_with_options!|icydb_build::|icydb_config::build_configured_canister!' \
-    crates canisters testing schema scripts \
-    --glob '*.rs' \
-    --glob '!crates/icydb-model/src/build/**' \
-    --glob '!crates/icydb-config/src/**' \
-    || true
-)"
+configured_macro_violations=""
+while IFS= read -r -d '' build_script; do
+  if ! rg -q \
+    'icydb::build::build_configured_canister!|icydb_testing_wasm_helpers::build_configured_canister!' \
+    "$build_script"
+  then
+    configured_macro_violations+="${build_script}"$'\n'
+  fi
+done < <(find canisters -name build.rs -print0)
 
-if [[ -n "$violations" ]]; then
-  echo "[ERROR] Generated canister build scripts must use icydb::build::build_configured_canister!()." >&2
-  echo "[ERROR] Direct legacy build or icydb-config usage is restricted to owner crates behind the icydb::build facade." >&2
-  echo "$violations" >&2
+if [[ -n "$configured_macro_violations" ]]; then
+  echo "[ERROR] Every maintained canister build script must use a current configured-canister macro." >&2
+  echo "$configured_macro_violations" >&2
   exit 1
 fi
 

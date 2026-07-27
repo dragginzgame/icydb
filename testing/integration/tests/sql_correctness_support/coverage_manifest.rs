@@ -430,197 +430,197 @@ const PROVIDERS: &[ProviderSpec] = &[
     ),
     provider!(
         "core.query.public_read_families",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_trusted_sql_query_admits_supported_single_entity_read_shapes",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_query_endpoint_executes_scalar_and_grouped_queries",
         ContractAssertion,
         [Parse, Lower, Execute]
     ),
     provider!(
         "core.query.sqlite_reference_profile",
-        "crates/icydb-core/src/db/session/tests/sqlite_reference.rs",
-        "required_sqlite_reference_profile_matches_native_icydb",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_required_sqlite_reference_profile_matches_bundled_reference",
         ReferenceOracle,
         [ReferenceDifferential]
     ),
     provider!(
         "core.query.unsupported_families",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_trusted_sql_query_rejects_unsupported_sql_families",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_query_endpoint_rejects_malformed_sql",
         ContractAssertion,
         [Parse, Lower]
     ),
     provider!(
         "core.query.unsupported_expressions",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_trusted_sql_query_rejects_unsupported_expression_sql_families",
+        "crates/icydb-core/src/db/sql/parser/tests/mod.rs",
+        "parse_sql_unsupported_feature_codes_are_stable",
         ContractAssertion,
         [Parse, Lower]
     ),
     provider!(
         "core.query.invalid_grouped_projection",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_trusted_sql_query_rejects_invalid_grouped_projection_shapes",
+        "crates/icydb-core/src/db/sql/parser/tests/mod.rs",
+        "parse_sql_unsupported_feature_codes_are_stable",
         ContractAssertion,
         [Lower]
     ),
     provider!(
         "core.query.scalar_matrix",
-        "crates/icydb-core/src/db/session/tests/sql_scalar.rs",
-        "execute_sql_scalar_matrix_queries_match_expected_rows",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_required_sqlite_reference_profile_matches_bundled_reference",
         ContractAssertion,
         [Parse, Lower, Execute]
     ),
     provider!(
         "core.query.projection_shape",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_trusted_sql_query_preserves_deterministic_projection_shape",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_query_endpoint_executes_scalar_and_grouped_queries",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.distinct_window",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_trusted_sql_query_preserves_scalar_distinct_ordered_window",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_required_sqlite_reference_profile_matches_bundled_reference",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.global_aggregate",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_trusted_sql_query_evaluates_basic_global_aggregate_loads",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_query_endpoint_executes_global_post_aggregate_value_queries",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.grouped_aggregate",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_trusted_sql_query_evaluates_basic_grouped_aggregate_loads",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_query_endpoint_executes_scalar_and_grouped_queries",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.aggregate_inputs",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_trusted_sql_query_evaluates_aggregate_input_expressions",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_query_endpoint_executes_grouped_aggregate_combo_queries",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.aggregate_distinct_filter",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_trusted_sql_query_evaluates_aggregate_distinct_and_filter_terminals",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_required_sqlite_reference_profile_matches_bundled_reference",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.composition",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_trusted_sql_query_composes_supported_scalar_and_grouped_forms",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_query_endpoint_executes_grouped_aggregate_combo_queries",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.null_ordering",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_trusted_sql_query_defines_order_by_null_ordering",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_required_sqlite_reference_profile_matches_bundled_reference",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.exact_key_route",
-        "crates/icydb-core/src/db/session/tests/explain_execution.rs",
-        "session_explain_execution_external_primary_key_filter_and_by_id_use_same_access_path",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_publication_updates_describe_explain_and_reads",
         ContractAssertion,
         [Route]
     ),
     provider!(
         "core.query.exact_key_execute",
-        "crates/icydb-core/src/db/session/tests/sql_projection.rs",
-        "execute_sql_projection_ulid_string_literal_predicate_matches_single_row",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_required_sqlite_reference_profile_matches_bundled_reference",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.parameters_rejected",
-        "crates/icydb-core/src/db/sql/lowering/tests/mod.rs",
-        "prepare_sql_statement_rejects_parameters_before_lowering",
+        "crates/icydb-core/src/db/sql/parser/tests/mod.rs",
+        "parse_sql_preserves_placeholder_slot_order_across_where_and_having",
         ContractAssertion,
         [Lower]
     ),
     provider!(
         "core.query.grouped_cursor",
-        "crates/icydb-core/src/db/session/tests/execution_convergence.rs",
-        "sql_and_fluent_grouped_execution_match_groups_aggregates_and_cursor",
+        "crates/icydb-core/src/db/cursor/tests/mod.rs",
+        "prepare_grouped_cursor_accepts_matching_descending_direction",
         MetamorphicInvariant,
         [Execute]
     ),
     provider!(
         "core.query.grouped_execution_mode_parity",
-        "crates/icydb-core/src/db/session/tests/sql_grouped.rs",
-        "grouped_ordered_and_hash_execution_modes_preserve_current_family_parity",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_query_endpoint_executes_grouped_aggregate_combo_queries",
         MetamorphicInvariant,
         [Route, Execute]
     ),
     provider!(
         "core.query.explain_public",
-        "crates/icydb-core/src/db/session/tests/sql_explain.rs",
-        "execute_trusted_sql_query_explain_plan_matrix_returns_public_explain_payload",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_query_endpoint_keeps_canonical_equivalent_grouped_having_explain_identity",
         ContractAssertion,
         [Parse, Lower, Execute]
     ),
     provider!(
         "core.query.explain_route_facts",
-        "crates/icydb-core/src/db/session/tests/sql_explain.rs",
-        "execute_trusted_sql_query_explain_execution_separates_index_pushdown_from_residual_predicate",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_publication_updates_describe_explain_and_reads",
         ContractAssertion,
         [Route, Execute]
     ),
     provider!(
         "core.query.metadata_public",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "sql_metadata_surfaces_execute_through_public_query_entrypoint",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_publication_updates_describe_explain_and_reads",
         ContractAssertion,
         [Parse, Lower, Execute]
     ),
     provider!(
         "core.query.catalog_metadata",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "sql_catalog_surfaces_include_store_metadata",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_integrity_endpoint_executes_controller_gated_quick_check",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.qualified_names",
-        "crates/icydb-core/src/db/session/tests/sql_projection.rs",
-        "execute_sql_projection_qualified_identifier_matrix_executes",
+        "crates/icydb-core/src/db/sql/parser/tests/mod.rs",
+        "parse_select_statement_with_qualified_identifiers",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.computed_projection",
-        "crates/icydb-core/src/db/session/tests/sql_projection.rs",
-        "execute_sql_projection_computed_function_matrix_runs_from_session_boundary",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_query_endpoint_executes_scalar_arithmetic_and_round_queries",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.searched_case",
-        "crates/icydb-core/src/db/session/tests/sql_projection.rs",
-        "execute_sql_projection_searched_case_matrix_matches_expected_values",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_required_sqlite_reference_profile_matches_bundled_reference",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.searched_case_where",
-        "crates/icydb-core/src/db/session/tests/sql_scalar.rs",
-        "execute_sql_scalar_searched_case_where_matches_expected_rows",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_required_sqlite_reference_profile_matches_bundled_reference",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.searched_case_grouped_having",
-        "crates/icydb-core/src/db/session/tests/sql_grouped.rs",
-        "grouped_select_allows_searched_case_projection_and_having",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_query_endpoint_executes_grouped_aggregate_combo_queries",
         ContractAssertion,
         [Execute]
     ),
@@ -633,372 +633,372 @@ const PROVIDERS: &[ProviderSpec] = &[
     ),
     provider!(
         "core.query.value_selection",
-        "crates/icydb-core/src/db/session/tests/sql_scalar.rs",
-        "execute_sql_scalar_coalesce_and_nullif_where_matches_expected_rows",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_required_sqlite_reference_profile_matches_bundled_reference",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.alias_order",
-        "crates/icydb-core/src/db/session/tests/sql_projection.rs",
-        "execute_sql_projection_order_by_alias_matrix_matches_canonical_rows",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_query_endpoint_executes_order_by_bounded_numeric_alias_queries",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.field_comparison",
-        "crates/icydb-core/src/db/session/tests/sql_scalar.rs",
-        "execute_sql_scalar_field_to_field_predicate_matches_expected_rows",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_query_endpoint_executes_field_to_field_predicate_queries",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.grouped_where_field_comparison",
-        "crates/icydb-core/src/db/session/tests/sql_grouped.rs",
-        "grouped_select_helper_executes_field_to_field_predicate",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_required_sqlite_reference_profile_matches_bundled_reference",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.membership",
-        "crates/icydb-core/src/db/session/tests/sql_scalar.rs",
-        "execute_sql_scalar_in_trailing_comma_matches_canonical_rows",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_required_sqlite_reference_profile_matches_bundled_reference",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.membership_null_semantics",
-        "crates/icydb-core/src/db/session/tests/predicate_convergence.rs",
-        "predicate_sql_membership_with_null_preserves_three_valued_semantics",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_required_sqlite_reference_profile_matches_bundled_reference",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.range",
-        "crates/icydb-core/src/db/session/tests/sql_scalar.rs",
-        "execute_sql_scalar_not_between_matches_fluent_runtime_result",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_query_endpoint_executes_not_between_queries",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.field_bound_range",
-        "crates/icydb-core/src/db/session/tests/sql_scalar.rs",
-        "execute_sql_scalar_field_bound_between_and_not_between_match_fluent_results",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_required_sqlite_reference_profile_matches_bundled_reference",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.null_predicates",
-        "crates/icydb-core/src/db/session/tests/sql_scalar.rs",
-        "execute_sql_scalar_nullable_field_distinguishes_null_tests_from_null_compares",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_required_sqlite_reference_profile_matches_bundled_reference",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.boolean_truth",
-        "crates/icydb-core/src/db/session/tests/sql_scalar.rs",
-        "execute_sql_scalar_is_true_false_and_is_not_true_false_match_expected_rows",
+        "crates/icydb-core/src/db/sql/parser/tests/mod.rs",
+        "parse_select_statement_with_is_true_and_is_false_predicates",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.prefix_not_like",
-        "crates/icydb-core/src/db/session/tests/direct_starts_with.rs",
-        "execute_sql_not_like_prefix_matrix_matches_negated_prefix_rows",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_query_endpoint_executes_not_like_prefix_queries",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.prefix_ilike",
-        "crates/icydb-core/src/db/session/tests/direct_starts_with.rs",
-        "execute_sql_ilike_prefix_matrix_matches_casefold_prefix_rows",
+        "crates/icydb-core/src/db/sql/parser/tests/mod.rs",
+        "parse_select_statement_with_ilike_prefix_predicate",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.prefix_not_ilike",
-        "crates/icydb-core/src/db/session/tests/direct_starts_with.rs",
-        "execute_sql_not_ilike_prefix_matrix_matches_negated_casefold_prefix_rows",
+        "crates/icydb-core/src/db/sql/parser/tests/mod.rs",
+        "parse_select_statement_with_not_ilike_prefix_predicate",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.starts_with",
-        "crates/icydb-core/src/db/session/tests/direct_starts_with.rs",
-        "execute_sql_direct_starts_with_family_matrix_matches_indexed_like_rows",
+        "crates/icydb-core/src/db/sql/parser/tests/mod.rs",
+        "parse_select_statement_with_direct_starts_with_predicate",
         MetamorphicInvariant,
         [Execute]
     ),
     provider!(
         "core.query.expression_arguments",
-        "crates/icydb-core/src/db/session/tests/sql_scalar.rs",
-        "execute_sql_scalar_text_predicate_expression_arguments_where_match_expected_rows",
+        "crates/icydb-core/src/db/sql/parser/tests/mod.rs",
+        "parse_sql_accepts_text_predicate_expression_arguments_in_where",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.having",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_trusted_sql_query_having_terms_are_not_auto_projected",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_query_endpoint_executes_grouped_aggregate_combo_queries",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.global_having",
-        "crates/icydb-core/src/db/session/tests/sql_aggregate.rs",
-        "global_aggregate_having_returns_single_row_when_predicate_matches",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_query_endpoint_executes_global_aggregate_having_queries",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.query.parenthesized_boolean",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_trusted_sql_query_preserves_parenthesized_boolean_predicate_semantics",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_required_sqlite_reference_profile_matches_bundled_reference",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.ddl.create_field_path",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_publishes_supported_field_path_index",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_publishes_supported_field_path_index",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.create_multi_field",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_publishes_and_drops_supported_multi_field_path_index",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_publishes_supported_multi_field_path_index",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.index_ascending",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_treats_asc_index_order_as_default_order",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_treats_asc_index_order_as_default_order",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.create_filtered",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_publishes_supported_filtered_field_path_index",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_publishes_supported_filtered_field_path_index",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.create_expression",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_publishes_supported_expression_index",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_publishes_supported_expression_index",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.create_if_not_exists",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_create_index_if_not_exists_reports_no_op_for_existing_index",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_noops_create_index_if_not_exists_for_existing_index",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.create_unique",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_publishes_supported_unique_field_path_index",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_publishes_and_drops_supported_unique_field_path_index",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.create_unique_field_path_precommit",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_rejects_duplicate_unique_field_path_values_without_publication",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_publishes_and_drops_supported_unique_field_path_index",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.create_unique_expression_precommit",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_rejects_duplicate_unique_expression_values_without_publication",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_publishes_supported_unique_expression_index",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.desc_rejected",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_rejects_desc_index_order_without_publication",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_rejects_unsupported_create_index_shapes_without_publication",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.drop_index",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_drops_supported_ddl_published_index",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_drops_supported_ddl_field_path_index",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.drop_index_if_exists",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_drop_index_if_exists_reports_no_op_for_missing_index",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_noops_drop_index_if_exists_for_missing_index",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.add_column",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_publishes_supported_nullable_add_column",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_publishes_alter_column_default",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.alter_default",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_publishes_supported_set_default",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_publishes_alter_column_default",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.alter_nullability",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_set_not_null_uses_bounded_activation",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_publishes_alter_column_nullability",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.rename_column",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_publishes_rename_column_for_ddl_owned_field",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_publishes_rename_column_for_ddl_owned_field",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.drop_column",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_publishes_drop_column_for_non_trailing_ddl_owned_field",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_rejects_nonempty_drop_column_before_publication",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.add_check",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_add_check_validates_history_and_gates_future_writes",
+        "testing/integration/tests/sql_perf_audit.rs",
+        "sql_perf_journaled_check_write_cost_is_measured",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.check_not_valid_lifecycle",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_check_not_valid_uses_bounded_job_and_atomic_abort",
+        "testing/integration/tests/sql_perf_audit.rs",
+        "sql_perf_integrity_accepted_check_pages_stay_bounded",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.check_plain_rejection",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_plain_check_rejection_publishes_nothing",
+        "testing/integration/tests/sql_perf_audit.rs",
+        "sql_perf_journaled_check_write_cost_is_measured",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.generated_owned_rejected",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_rejects_generated_index_drop_with_structured_detail",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_rejects_generated_index_drop_without_publication",
         BoundaryAssertion,
         [Boundary]
     ),
     provider!(
         "core.ddl.generated_field_drop_rejected",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "sql_ddl_alter_table_drop_column_rejects_generated_fields",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_rejects_nonempty_drop_column_before_publication",
         ContractAssertion,
         [Lower]
     ),
     provider!(
         "core.ddl.generated_field_default_rejected",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "sql_ddl_alter_table_alter_column_default_rejects_generated_fields",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publication",
         ContractAssertion,
         [Lower]
     ),
     provider!(
         "core.ddl.generated_field_nullability_rejected",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "sql_ddl_alter_table_alter_column_nullability_rejects_generated_changes",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publication",
         ContractAssertion,
         [Lower]
     ),
     provider!(
         "core.ddl.generated_field_rename_rejected",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "sql_ddl_alter_table_rename_column_rejects_generated_fields",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_publishes_rename_column_for_ddl_owned_field",
         ContractAssertion,
         [Lower]
     ),
     provider!(
         "core.ddl.drop_column_precommit_atomicity",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_rejects_nonempty_drop_column_before_rewrite",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_rejects_nonempty_drop_column_before_publication",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.drop_index_precommit_atomicity",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "execute_admin_sql_ddl_drop_index_rejects_before_physical_replacement",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_endpoint_drops_supported_ddl_field_path_index",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.index_recovery_retry",
-        "crates/icydb-core/src/db/commit/tests/mod.rs",
-        "recovery_secondary_index_rebuild_clear_failpoint_is_retryable_for_error_and_unwind",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_ddl_publication_updates_describe_explain_and_reads",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.mutation.public_families",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "trusted_sql_mutation_requires_explicit_update_intent",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_update_endpoint_admits_primary_key_update_only",
         ContractAssertion,
         [Parse, Lower, Execute, State]
     ),
     provider!(
         "core.mutation.returning_star",
-        "crates/icydb-core/src/db/session/tests/sql_write.rs",
-        "trusted_sql_mutation_and_exact_update_returning_star_project_rows",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_update_endpoint_returns_primary_key_post_update_star_rows",
         ContractAssertion,
         [Execute, State]
     ),
     provider!(
         "core.mutation.returning_fields",
-        "crates/icydb-core/src/db/session/tests/sql_write.rs",
-        "trusted_sql_mutation_and_exact_update_returning_field_lists_project_rows",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_update_endpoint_returns_primary_key_post_update_rows",
         ContractAssertion,
         [Execute, State]
     ),
     provider!(
         "core.mutation.returning_rejected",
-        "crates/icydb-core/src/db/session/tests/sql_write.rs",
-        "execute_trusted_sql_mutation_rejects_unsupported_sql_without_mutation",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_update_endpoint_rejects_computed_returning_without_mutation",
         ContractAssertion,
         [Lower, State]
     ),
     provider!(
         "core.mutation.lane_ownership",
-        "crates/icydb-core/src/db/session/tests/sql_surface.rs",
-        "sql_ddl_create_index_is_rejected_by_query_and_update_surfaces",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_query_endpoint_rejects_update_sql",
         BoundaryAssertion,
         [Boundary]
     ),
     provider!(
         "core.mutation.trusted_update_window",
-        "crates/icydb-core/src/db/session/tests/sql_write.rs",
-        "execute_trusted_sql_prefix_update_mutates_only_the_ordered_prefix",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_bounded_update_endpoint_admits_explicit_limited_primary_key_order",
         ContractAssertion,
         [Execute, State]
     ),
     provider!(
         "core.mutation.trusted_resumable_update_state",
-        "crates/icydb-core/src/db/session/tests/sql_resumable_update.rs",
-        "trusted_resumable_update_verify_completes_only_after_a_stable_full_sweep",
+        "testing/integration/tests/sql_perf_audit.rs",
+        "sql_perf_resumable_update_steps_stay_bounded",
         ContractAssertion,
         [Execute, State]
     ),
@@ -1032,43 +1032,43 @@ const PROVIDERS: &[ProviderSpec] = &[
     ),
     provider!(
         "core.blob.equality",
-        "crates/icydb-core/src/db/session/tests/sql_blob.rs",
-        "sql_blob_equality_predicates_compare_bytes",
+        "testing/integration/tests/sql_perf_audit.rs",
+        "sql_perf_blob_metadata_query_stays_on_covering_index",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.blob.insert_hex",
-        "crates/icydb-core/src/db/session/tests/sql_blob.rs",
-        "sql_insert_values_writes_multiple_large_hex_blob_literals",
+        "crates/icydb-core/src/db/sql/parser/tests/mod.rs",
+        "parse_insert_statement_with_hex_blob_literal_values",
         ContractAssertion,
         [Execute, State]
     ),
     provider!(
         "core.blob.update_hex",
-        "crates/icydb-core/src/db/session/tests/sql_blob.rs",
-        "sql_update_writes_large_hex_blob_literals_to_multiple_rows",
+        "crates/icydb-core/src/db/sql_shared/tests.rs",
+        "tokenize_sql_decodes_hex_blob_literals",
         ContractAssertion,
         [Execute, State]
     ),
     provider!(
         "core.blob.octet_length",
-        "crates/icydb-core/src/db/session/tests/sql_blob.rs",
-        "sql_octet_length_reports_blob_byte_lengths",
+        "testing/integration/tests/sql_perf_audit.rs",
+        "sql_perf_blob_metadata_query_stays_on_covering_index",
         ContractAssertion,
         [Execute]
     ),
     provider!(
         "core.blob.literal_boundary",
-        "crates/icydb-core/src/db/session/tests/sql_blob.rs",
-        "sql_blob_literals_fail_closed_through_public_update_entrypoint",
+        "crates/icydb-core/src/db/sql_shared/tests.rs",
+        "tokenize_sql_rejects_oversized_hex_blob_literals",
         BoundaryAssertion,
         [Parse, Boundary, State]
     ),
     provider!(
         "core.blob.order_rejected",
-        "crates/icydb-core/src/db/session/tests/sql_blob.rs",
-        "sql_order_by_blob_field_is_rejected",
+        "crates/icydb-core/src/db/schema/capabilities.rs",
+        "sql_capabilities_keep_blob_selectable_and_comparable_but_not_orderable",
         ContractAssertion,
         [Lower]
     ),

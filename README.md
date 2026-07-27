@@ -59,6 +59,11 @@ session/library SQL APIs, or generated SQL endpoints:
 icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.32", features = ["sql"] }
 ```
 
+Application schema crates depend separately on `icydb-model`; the runtime
+`icydb` facade does not re-export model declaration macros. Low-level tools
+that construct schema proposals or inspect canonical scalar metadata may
+depend on `icydb-schema` directly.
+
 Canisters normally call `icydb::start!()` in `src/lib.rs`, add `icydb` as a
 build dependency using the same tag, and use
 `icydb::build::build_configured_canister!()` in `build.rs` so generated actor
@@ -333,7 +338,8 @@ usage, IC test prerequisites, and wasm report commands live in
 
 ## Repository Map
 
-- `crates/icydb` - public API crate and facade.
+- `crates/icydb` - public runtime facade, accepted-schema session APIs, and
+  generated actor-wiring/build surfaces.
 - `crates/icydb-core` - runtime, planner, executor, persisted rows, stores,
   SQL, schema catalog, and metrics internals.
 - `crates/icydb-config` - host-side `icydb.toml` parsing behind

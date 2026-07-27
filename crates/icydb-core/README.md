@@ -6,6 +6,10 @@ Runtime engine for IcyDB.
 lowering and execution, schema catalog handling, diagnostics, and observability
 plumbing used by the public `icydb` crate.
 
+Canonical scalar representation and metadata come from `icydb-schema`;
+`icydb-core` owns their runtime value operations, coercion policy, codecs, and
+storage behavior.
+
 Most applications should depend on `icydb` directly. Use `icydb-core` only when
 you explicitly need internal runtime surfaces.
 

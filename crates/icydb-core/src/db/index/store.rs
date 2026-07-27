@@ -458,7 +458,7 @@ impl IndexStore {
     }
 
     /// Return the monotonic perf-only count of index-entry fetches seen by this process.
-    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+    #[cfg(all(feature = "diagnostics", any(test, feature = "sql")))]
     pub(in crate::db) fn current_get_call_count() -> u64 {
         INDEX_STORE_GET_CALL_COUNT.with(Cell::get)
     }

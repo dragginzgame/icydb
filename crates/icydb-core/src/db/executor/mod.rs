@@ -124,7 +124,7 @@ pub(in crate::db::executor) use order::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use pipeline::contracts::StructuralCursorPage;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use pipeline::contracts::StructuralGroupedProjectionResult;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db::executor) use pipeline::contracts::{
@@ -151,20 +151,24 @@ pub(in crate::db::executor) use planning::route::ExecutionRoutePlan;
 pub use planning::route::RouteExecutionMode;
 #[cfg(any(test, feature = "sql"))]
 pub use prepared_execution_plan::ExecutionFamily;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) use prepared_execution_plan::PreparedLoadPlan;
+#[cfg(feature = "sql")]
 pub(in crate::db) use prepared_execution_plan::SharedPreparedExecutionPlan;
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use prepared_execution_plan::SharedPreparedProjectionRuntimeHandoff;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db::executor) use prepared_execution_plan::{
-    PreparedGroupedRuntimeResidents, PreparedLoadPlan, PreparedScalarPlanCore,
-    PreparedScalarRuntimeHandoff,
+    PreparedGroupedRuntimeResidents, PreparedScalarPlanCore, PreparedScalarRuntimeHandoff,
+};
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) use profiling::{
+    ExecutionProfileStats, record_aggregation, with_execution_stats_capture,
 };
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db::executor) use profiling::{
-    ExecutionProfileStats, measure_execution_stats_phase, record_aggregation,
-    record_key_stream_micros, record_key_stream_yield, record_ordering, record_projection,
-    record_rows_after_predicate, with_execution_stats_capture,
+    measure_execution_stats_phase, record_key_stream_micros, record_key_stream_yield,
+    record_ordering, record_projection, record_rows_after_predicate,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::CoveringProjectionMetricsRecorder;
@@ -211,7 +215,7 @@ pub(in crate::db::executor) use stream::{
     FlatMergeOrderedChild, FlatMergeSiblingSet, FlatMergeStream, PrefixSetExecutionShape,
     PrefixSetMergeSafety,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) use terminal::RetainedSlotLayout;
 #[cfg(all(feature = "diagnostics", any(test, feature = "sql")))]
 pub(in crate::db) use terminal::{DirectDataRowPhaseAttribution, KernelRowPhaseAttribution};

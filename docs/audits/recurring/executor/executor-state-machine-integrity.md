@@ -50,11 +50,11 @@ Every run must re-check this map and update the report when ownership moved.
 
 | State Boundary | Current Owner Paths | Adjacent Audit |
 | -------------- | ------------------- | -------------- |
-| schema transition admission | `crates/icydb-core/src/db/schema/transition.rs`, `crates/icydb-core/src/db/schema/reconcile.rs` | canonical semantic authority |
-| schema DDL admission and publication | `crates/icydb-core/src/db/schema/mutation/ddl_admission.rs`, `crates/icydb-core/src/db/schema/mutation/user_index_domain.rs`, `crates/icydb-core/src/db/schema/reconcile/sql_ddl.rs`, `crates/icydb-core/src/db/schema/reconcile.rs` | invariant preservation |
-| route-plan validation handoff | `crates/icydb-core/src/db/executor/planning/route/*`, `crates/icydb-core/src/db/executor/planning/route/tests/structural_guards.rs` | layer violation |
+| schema transition admission | `crates/icydb-core/src/db/schema/transition.rs`, `crates/icydb-core/src/db/schema/transition/admission.rs` | canonical semantic authority |
+| schema DDL admission and publication | `crates/icydb-core/src/db/schema/mutation/ddl_admission.rs`, `crates/icydb-core/src/db/schema/mutation/user_index_domain.rs`, `crates/icydb-core/src/db/schema/sql_ddl/user_index_domain.rs` | invariant preservation |
+| route-plan validation handoff | `crates/icydb-core/src/db/executor/planning/route/*` | layer violation |
 | commit-window open/apply/finish | `crates/icydb-core/src/db/executor/mutation/commit_window.rs`, `crates/icydb-core/src/db/commit/guard.rs` | recovery consistency |
-| SQL/fluent write transition barrier | `crates/icydb-core/src/db/session/sql/*`, `crates/icydb-core/src/db/executor/tests/mutation_save.rs` | completeness |
+| SQL/structural write transition barrier | `crates/icydb-core/src/db/session/sql/*`, `crates/icydb-core/src/db/session/write.rs` | completeness |
 | recovery write gate handoff | `crates/icydb-core/src/db/commit/recovery.rs`, `crates/icydb-core/src/db/mod.rs` | recovery consistency |
 
 ---

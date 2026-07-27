@@ -88,11 +88,11 @@ Default in-scope roots:
 
 * `crates/icydb-core/src`
 * `crates/icydb/src`
-* `crates/icydb-build/src`
+* `crates/icydb-model/src`
+* `crates/icydb-model-macros/src`
 * `crates/icydb-config/src`
 * `crates/icydb-cli/src`
 * `crates/icydb-schema/src`
-* `crates/icydb-schema-derive/src`
 
 Default exclusions:
 

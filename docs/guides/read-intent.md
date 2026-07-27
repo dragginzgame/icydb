@@ -118,4 +118,5 @@ lane.
 - Treat admission rejection as a typed failure, never as an empty result.
 - Bound the final encoded response.
 - Use trusted methods only for explicit admin work.
-- Do not reintroduce fluent aliases, offsets, or compatibility pagination.
+- Use the maintained typed cursor contract for continuation; public typed reads
+  do not expose offset pagination.

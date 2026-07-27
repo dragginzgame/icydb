@@ -49,7 +49,9 @@ pub(in crate::db) use render::{
 pub(in crate::db) use rewrite::rewrite_field_identifiers;
 
 #[cfg(any(test, feature = "sql"))]
-pub(in crate::db) use fingerprint::{hash_predicate, predicate_fingerprint_normalized};
+pub(in crate::db) use fingerprint::hash_predicate;
+#[cfg(feature = "sql")]
+pub(in crate::db) use fingerprint::predicate_fingerprint_normalized;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use membership::canonical_membership_value_list;
 pub(in crate::db) use membership::{MembershipCompareLeaf, collapse_membership_compare_leaves};
