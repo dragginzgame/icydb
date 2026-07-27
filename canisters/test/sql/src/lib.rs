@@ -6,7 +6,7 @@ use ic_cdk::update;
 use icydb::types::{Decimal, Float32, Float64};
 use icydb::{
     ErrorKind, ErrorOrigin, QueryErrorKind,
-    db::{DynamicQuery, StructuralMutation, StructuralPatch, WriteCell},
+    db::{DynamicQuery, StructuralMutation, StructuralPatch, WriteCell, query::asc},
     prelude::FieldRef,
     value::{InputValue, OutputValue},
 };
@@ -57,6 +57,7 @@ fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
     let session = db()?;
     let query = DynamicQuery::new("SqlTestNumericTypes")
         .filter(FieldRef::new("label").eq("alpha"))
+        .order_by(asc("id"))
         .select(["id"])
         .limit(1);
     let result = session.execute_trusted_dynamic_query(&query)?;

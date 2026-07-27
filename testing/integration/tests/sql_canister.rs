@@ -3437,8 +3437,8 @@ fn sql_canister_update_endpoint_returns_primary_key_post_update_star_rows() {
     assert_eq!(returning.entity, "SqlTestUser");
     assert_eq!(
         returning.columns,
-        ["id", "name", "age", "rank", "created_at", "updated_at"],
-        "primary-key generated UPDATE RETURNING * should preserve schema column order",
+        ["age", "created_at", "id", "name", "rank", "updated_at"],
+        "primary-key generated UPDATE RETURNING * should preserve accepted row-layout order",
     );
     assert_eq!(returning.row_count, 1);
     let rows = returning.rendered_rows();
@@ -3450,14 +3450,14 @@ fn sql_canister_update_endpoint_returns_primary_key_post_update_star_rows() {
         returning.columns.len(),
         "primary-key generated UPDATE RETURNING * should return a complete row image",
     );
-    assert_eq!(row[0], alice_id);
-    assert_eq!(row[1], "alice");
+    assert_eq!(row[2], alice_id);
+    assert_eq!(row[3], "alice");
     assert_eq!(
-        row[2], "35",
+        row[0], "35",
         "primary-key generated UPDATE RETURNING * should expose the post-update value",
     );
     assert_eq!(
-        row[3], "28",
+        row[4], "28",
         "primary-key generated UPDATE RETURNING * should preserve unchanged fields",
     );
 }
@@ -3910,8 +3910,8 @@ fn sql_canister_bounded_update_endpoint_returns_post_update_star_rows() {
     assert_eq!(returning.entity, "SqlTestUser");
     assert_eq!(
         returning.columns,
-        ["id", "name", "age", "rank", "created_at", "updated_at"],
-        "bounded generated UPDATE RETURNING * should preserve schema column order",
+        ["age", "created_at", "id", "name", "rank", "updated_at"],
+        "bounded generated UPDATE RETURNING * should preserve accepted row-layout order",
     );
     assert_eq!(returning.row_count, 2);
     assert_eq!(
@@ -3927,14 +3927,14 @@ fn sql_canister_bounded_update_endpoint_returns_post_update_star_rows() {
             returning.columns.len(),
             "bounded generated UPDATE RETURNING * should return complete row images",
         );
-        assert_eq!(row[0], target[0]);
-        assert_eq!(row[1], target[1]);
+        assert_eq!(row[2], target[0]);
+        assert_eq!(row[3], target[1]);
         assert_eq!(
-            row[2], "36",
+            row[0], "36",
             "bounded generated UPDATE RETURNING * should expose post-update values",
         );
         assert_eq!(
-            row[3], target[2],
+            row[4], target[2],
             "bounded generated UPDATE RETURNING * should preserve unchanged fields",
         );
     }

@@ -318,6 +318,7 @@ impl<C: CanisterKind> DbSession<C> {
             .into_iter()
             .map(|(target, patch)| AcceptedStructuralMutation::new(target, patch))
             .collect();
+        let columns = projection_labels_from_accepted_write_descriptor(descriptor);
         let rows = self
             .execute_accepted_structural_save_batch(
                 catalog,
@@ -325,24 +326,27 @@ impl<C: CanisterKind> DbSession<C> {
                 execution.mode,
                 rows,
                 execution.context.operation_timestamp(),
+                |rows| {
+                    let values = rows
+                        .into_iter()
+                        .map(AcceptedStructuralMutationRow::into_values)
+                        .collect::<Vec<_>>();
+                    let Some(returning) = returning else {
+                        return Ok(values);
+                    };
+                    validate_sql_materialized_returning_bounds(
+                        catalog.snapshot().persisted_snapshot().entity_name(),
+                        columns.as_slice(),
+                        values.as_slice(),
+                        u32::try_from(values.len()).unwrap_or(u32::MAX),
+                        returning,
+                        catalog.enum_catalog(),
+                        execution.returning_bounds,
+                    )?;
+                    Ok(values)
+                },
             )
             .map_err(QueryError::execute)?;
-        let rows = rows
-            .into_iter()
-            .map(AcceptedStructuralMutationRow::into_values)
-            .collect::<Vec<_>>();
-        if let Some(returning) = returning {
-            validate_sql_materialized_returning_bounds(
-                catalog.snapshot().persisted_snapshot().entity_name(),
-                &projection_labels_from_accepted_write_descriptor(descriptor),
-                rows.as_slice(),
-                u32::try_from(rows.len()).unwrap_or(u32::MAX),
-                returning,
-                catalog.enum_catalog(),
-                execution.returning_bounds,
-            )
-            .map_err(QueryError::execute)?;
-        }
 
         sql_write_mutation_statement_result(
             entity_path,

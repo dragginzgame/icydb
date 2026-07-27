@@ -438,13 +438,15 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    /// Validate and atomically commit one accepted single-entity delete batch.
+    /// Materialize one accepted delete batch, run bounded frontend validation,
+    /// then commit it atomically.
     #[cfg(feature = "sql")]
     pub(in crate::db::session) fn execute_accepted_structural_delete_batch(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         keys: Vec<DecodedDataStoreKey>,
+        precommit_validation: impl FnOnce(&[Vec<Value>]) -> Result<(), InternalError>,
     ) -> Result<Vec<Vec<Value>>, InternalError> {
         let identity = catalog.identity();
         let entity_path = identity.entity_path();
@@ -497,6 +499,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         self.db.validate_delete_relations(entity_path, &raw_keys)?;
+        precommit_validation(rows.as_slice())?;
         if !row_ops.is_empty() {
             commit_delete_row_ops_with_window_for_path(
                 &self.db,
@@ -508,20 +511,24 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(rows)
     }
 
-    /// Materialize and atomically commit one accepted single-entity structural batch.
+    /// Materialize one accepted structural batch, let its caller prepare and
+    /// validate the final after-images, then commit atomically.
     ///
     /// The caller freezes one operation timestamp and supplies frontend-lowered
     /// intent only. Accepted defaults, generated values, managed timestamps,
     /// constraints, relations, row encoding, and commit preparation remain
     /// owned by this database boundary.
-    pub(in crate::db::session) fn execute_accepted_structural_save_batch(
+    pub(in crate::db::session) fn execute_accepted_structural_save_batch<T>(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         mode: MutationMode,
         mutations: Vec<AcceptedStructuralMutation>,
         operation_timestamp: Timestamp,
-    ) -> Result<Vec<AcceptedStructuralMutationRow>, InternalError> {
+        precommit_preparation: impl FnOnce(
+            Vec<AcceptedStructuralMutationRow>,
+        ) -> Result<T, InternalError>,
+    ) -> Result<T, InternalError> {
         self.execute_accepted_structural_save_batch_inner(
             catalog,
             descriptor,
@@ -529,6 +536,7 @@ impl<C: CanisterKind> DbSession<C> {
             mutations,
             operation_timestamp,
             false,
+            precommit_preparation,
         )
     }
 
@@ -548,15 +556,16 @@ impl<C: CanisterKind> DbSession<C> {
             mutations,
             operation_timestamp,
             true,
+            |rows| Ok(rows.len()),
         )
-        .map(|rows| rows.len())
     }
 
     #[expect(
+        clippy::too_many_arguments,
         clippy::too_many_lines,
-        reason = "one phased owner keeps accepted resolution, validation, output capture, and commit staging inseparable"
+        reason = "one phased owner keeps accepted authority, mutation context, precommit preparation, output capture, and commit staging inseparable"
     )]
-    fn execute_accepted_structural_save_batch_inner(
+    fn execute_accepted_structural_save_batch_inner<T>(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
@@ -564,7 +573,10 @@ impl<C: CanisterKind> DbSession<C> {
         mutations: Vec<AcceptedStructuralMutation>,
         operation_timestamp: Timestamp,
         largest_journaled_prefix: bool,
-    ) -> Result<Vec<AcceptedStructuralMutationRow>, InternalError> {
+        precommit_preparation: impl FnOnce(
+            Vec<AcceptedStructuralMutationRow>,
+        ) -> Result<T, InternalError>,
+    ) -> Result<T, InternalError> {
         let identity = catalog.identity();
         let entity_path = identity.entity_path();
         let store_path = identity.store_path();
@@ -741,6 +753,7 @@ impl<C: CanisterKind> DbSession<C> {
         #[cfg(not(feature = "sql"))]
         let _ = largest_journaled_prefix;
 
+        let prepared = precommit_preparation(output)?;
         if !row_ops.is_empty() {
             commit_structural_save_row_ops_with_window_for_path(
                 &self.db,
@@ -749,7 +762,7 @@ impl<C: CanisterKind> DbSession<C> {
                 "accepted_structural_batch_apply",
             )?;
         }
-        Ok(output)
+        Ok(prepared)
     }
 
     /// Execute one trusted entity-name-driven structural mutation.
@@ -849,6 +862,7 @@ impl<C: CanisterKind> DbSession<C> {
             mode,
             vec![AcceptedStructuralMutation::new(target, patch)],
             operation_timestamp,
+            Ok,
         )?;
         let result = rows.pop().ok_or_else(InternalError::executor_invariant)?;
         record(MetricsEvent::SaveMutation {
@@ -919,6 +933,7 @@ impl<C: CanisterKind> DbSession<C> {
             MutationMode::Insert,
             mutations,
             Timestamp::now(),
+            Ok,
         )?;
         let affected_rows = results.iter().try_fold(0_u32, |total, result| {
             total
