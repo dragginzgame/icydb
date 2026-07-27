@@ -27,6 +27,7 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
+use icydb_schema::EntitySourceKey;
 #[cfg(feature = "sql")]
 use std::cell::OnceCell;
 use std::{cell::RefCell, collections::HashMap};
@@ -211,33 +212,61 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         entity_name: Option<&str>,
     ) -> Result<AcceptedSchemaCatalogContext, InternalError> {
-        if let Some(entity_name) = entity_name
-            && let Some(context) =
-                self.accepted_schema_catalog_context_from_cached_entity_name(entity_name)?
+        if let Some(entity_name) = entity_name {
+            return self
+                .find_accepted_schema_catalog_context_for_entity_name(entity_name)?
+                .ok_or_else(|| InternalError::unsupported_entity_path(entity_name));
+        }
+
+        self.db.ensure_recovered_state()?;
+
+        let route = self
+            .db
+            .entity_registrations
+            .first()
+            .ok_or_else(|| InternalError::unsupported_entity_path(entity_name))?
+            .runtime();
+        let store = self.db.store_handle(route.store_path)?;
+        let registration = route.resolve(&self.db)?;
+
+        self.accepted_schema_catalog_context_for_runtime_registration(registration, store)
+    }
+
+    /// Resolve an exact accepted SQL/display entity name without compiling
+    /// unrelated entity plans.
+    pub(in crate::db::session) fn find_accepted_schema_catalog_context_for_entity_name(
+        &self,
+        entity_name: &str,
+    ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
+        self.db.ensure_recovered_state()?;
+        if let Some(context) =
+            self.accepted_schema_catalog_context_from_cached_entity_name(entity_name)?
         {
-            return Ok(context);
+            return Ok(Some(context));
         }
 
         let mut matched = None;
-
         for entity_registration in self.db.entity_registrations {
-            let registration = entity_registration.runtime().resolve(&self.db)?;
-            let store = self.db.recovered_store(registration.store_path)?;
-            let context =
-                self.accepted_schema_catalog_context_for_runtime_registration(registration, store)?;
-            if entity_name.is_some_and(|name| context.snapshot().entity_name() != name) {
+            let route = entity_registration.runtime();
+            let store = self.db.store_handle(route.store_path)?;
+            let source = EntitySourceKey::try_new(route.source_key)
+                .map_err(|_| InternalError::store_invariant())?;
+            let accepted_name = store
+                .with_schema(|schema| schema.current_accepted_entity_name_for_source(&source))?;
+            if accepted_name != entity_name {
                 continue;
             }
-            if matched.is_some() {
+            let registration = route.resolve(&self.db)?;
+            if matched.replace((registration, store)).is_some() {
                 return Err(InternalError::store_corruption());
-            }
-            matched = Some(context);
-            if entity_name.is_none() {
-                break;
             }
         }
 
-        matched.ok_or_else(|| InternalError::unsupported_entity_path(entity_name))
+        matched
+            .map(|(registration, store)| {
+                self.accepted_schema_catalog_context_for_runtime_registration(registration, store)
+            })
+            .transpose()
     }
 
     fn accepted_schema_catalog_context_from_cached_entity_name(
@@ -259,7 +288,7 @@ impl<C: CanisterKind> DbSession<C> {
         let mut matched = None;
 
         for (cache_key, store_path) in candidates {
-            let store = self.db.recovered_store(store_path)?;
+            let store = self.db.store_handle(store_path)?;
             let Some(context) = Self::accepted_schema_catalog_context_from_current_authority_cache(
                 cache_key, store,
             )?

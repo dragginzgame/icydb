@@ -39,32 +39,44 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<SchemaChangeReceipt, Error> {
         let fragment =
             decode_schema_fragment(fragment_bytes).map_err(|_| generated_schema_input_error())?;
-        let target = self.schema_application_target()?;
         let submission_key = SchemaSubmissionKey::try_new(submission_key)
             .map_err(|_| generated_schema_input_error())?;
-        let assignments = entity_stores
-            .iter()
-            .map(|(entity_source, store_path)| {
-                let entity = EntitySourceKey::try_new(*entity_source)
-                    .map_err(|_| generated_schema_input_error())?;
-                let store = target
-                    .stores()
-                    .iter()
-                    .find(|store| store.path() == *store_path)
-                    .ok_or_else(generated_schema_input_error)?;
-                Ok(EntityStoreAssignment::new(entity, store.identity()))
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
-        let proposal = SchemaProposal::try_compose(
-            generated_fragment_capabilities(&fragment),
-            target.database_identity(),
+        let mut target = self.schema_application_target()?;
+        if let Some(receipt) =
+            self.schema_application_receipt(target.database_identity(), &submission_key)?
+        {
+            let proposal = generated_schema_proposal(
+                &fragment,
+                &target,
+                submission_key,
+                receipt.prior_head().clone(),
+                entity_stores,
+            )?;
+            self.inner.rebuild_generated_live_schema(&proposal)?;
+            return self.apply_schema(&proposal);
+        }
+
+        if !matches!(
+            target.accepted_head(),
+            icydb_schema::ExpectedAcceptedHead::Empty
+        ) {
+            let rebuild = generated_schema_proposal(
+                &fragment,
+                &target,
+                submission_key.clone(),
+                target.accepted_head().clone(),
+                entity_stores,
+            )?;
+            self.inner.rebuild_generated_live_schema(&rebuild)?;
+            target = self.schema_application_target()?;
+        }
+        let proposal = generated_schema_proposal(
+            &fragment,
+            &target,
             submission_key,
             target.accepted_head().clone(),
-            vec![fragment],
-            assignments,
-            Vec::new(),
-        )
-        .map_err(|_| generated_schema_input_error())?;
+            entity_stores,
+        )?;
 
         self.apply_schema(&proposal)
     }
@@ -146,6 +158,38 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<StorageReport, Error> {
         Ok(self.inner.storage_report(name_to_path)?)
     }
+}
+
+fn generated_schema_proposal(
+    fragment: &SchemaFragment,
+    target: &SchemaApplicationTarget,
+    submission_key: SchemaSubmissionKey,
+    expected_head: icydb_schema::ExpectedAcceptedHead,
+    entity_stores: &[(&str, &str)],
+) -> Result<SchemaProposal, Error> {
+    let assignments = entity_stores
+        .iter()
+        .map(|(entity_source, store_path)| {
+            let entity = EntitySourceKey::try_new(*entity_source)
+                .map_err(|_| generated_schema_input_error())?;
+            let store = target
+                .stores()
+                .iter()
+                .find(|store| store.path() == *store_path)
+                .ok_or_else(generated_schema_input_error)?;
+            Ok(EntityStoreAssignment::new(entity, store.identity()))
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+    SchemaProposal::try_compose(
+        generated_fragment_capabilities(fragment),
+        target.database_identity(),
+        submission_key,
+        expected_head,
+        vec![fragment.clone()],
+        assignments,
+        Vec::new(),
+    )
+    .map_err(|_| generated_schema_input_error())
 }
 
 fn generated_fragment_capabilities(fragment: &SchemaFragment) -> Vec<SchemaCapability> {

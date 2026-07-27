@@ -32,8 +32,9 @@ use crate::{
             SchemaChangeValidationPhase, StagedUserIndexDomainError, UnpublishedCheckValidation,
             accepted_constraint_field_paths, advance_accepted_check_constraint_activation,
             derive_schema_change_job_id, lower_existing_schema_proposal,
-            lower_initial_schema_proposal, prove_empty_user_index_domain,
-            validate_unpublished_check_candidate_bounded, with_schema_application_store,
+            lower_initial_schema_proposal, lower_live_rebuilt_schema_proposal,
+            prove_empty_user_index_domain, validate_unpublished_check_candidate_bounded,
+            with_schema_application_store,
         },
     },
     error::{ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError},
@@ -42,8 +43,8 @@ use crate::{
 };
 use candid::CandidType;
 use icydb_schema::{
-    ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaProposal, SchemaSubmissionKey,
-    TargetDatabaseIdentity, TargetStoreIdentity,
+    EntitySourceKey, ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaProposal,
+    SchemaSubmissionKey, TargetDatabaseIdentity, TargetStoreIdentity,
 };
 use serde::Deserialize;
 use sha2::Digest;
@@ -217,6 +218,107 @@ pub(in crate::db) fn schema_application_receipt<C: CanisterKind>(
             .load(database_identity, submission_key)
             .map(|record| record.map(|record| record.receipt().clone()))
     })
+}
+
+/// Rebuild absent live-only accepted metadata from one exact generated
+/// declaration before an existing durable catalog is reconciled.
+///
+/// Durable accepted identities seed cross-store references. Only empty stores
+/// whose schema metadata is explicitly live-rebuilt may be initialized here;
+/// ordinary accepted-schema application remains the sole durable publication
+/// authority.
+pub(in crate::db) fn rebuild_generated_live_schema<C: CanisterKind>(
+    db: &Db<C>,
+    proposal: &SchemaProposal,
+) -> Result<(), InternalError> {
+    ensure_recovered(db)?;
+    let target = schema_application_target(db)?;
+    if target.database_identity() != proposal.target_database() {
+        return Err(InternalError::schema_application_conflict());
+    }
+
+    let authorities = application_authorities(db);
+    let current_bundles = authorities
+        .iter()
+        .map(|authority| {
+            authority
+                .handle
+                .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)
+        })
+        .collect::<Result<Vec<_>, InternalError>>()?;
+    let declared_entities = proposal
+        .fragments()
+        .iter()
+        .flat_map(icydb_schema::SchemaFragment::entities)
+        .map(icydb_schema::EntityFragment::source_key)
+        .collect::<Vec<_>>();
+    let mut retained_entities = std::collections::BTreeMap::<EntitySourceKey, EntityTag>::new();
+    for source in declared_entities {
+        let mut retained = None;
+        for bundle in current_bundles.iter().flatten() {
+            let Some(entity_tag) = bundle.source_bindings().entity(source) else {
+                continue;
+            };
+            if retained.replace(entity_tag).is_some() {
+                return Err(InternalError::store_corruption());
+            }
+        }
+        if let Some(entity_tag) = retained {
+            retained_entities.insert(source.clone(), entity_tag);
+        }
+    }
+    let stores = authorities
+        .iter()
+        .map(|authority| ProposalStoreTarget {
+            path: authority.path,
+            identity: derive_store_identity(target.database_identity(), authority),
+        })
+        .collect::<Vec<_>>();
+    let live_store_paths = authorities
+        .iter()
+        .filter_map(|authority| {
+            (authority.handle.storage_capabilities().schema_metadata()
+                == StoreSchemaMetadataCapability::LiveRebuiltMetadata)
+                .then_some(authority.path)
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let candidates = lower_live_rebuilt_schema_proposal(
+        proposal,
+        stores.as_slice(),
+        &retained_entities,
+        &live_store_paths,
+    )?;
+
+    for candidate in &candidates {
+        let (position, authority) = authorities
+            .iter()
+            .enumerate()
+            .find(|(_, authority)| authority.path == candidate.store_path())
+            .ok_or_else(InternalError::store_unsupported)?;
+        if authority.handle.storage_capabilities().schema_metadata()
+            != StoreSchemaMetadataCapability::LiveRebuiltMetadata
+        {
+            continue;
+        }
+        if current_bundles
+            .get(position)
+            .and_then(Option::as_ref)
+            .is_some()
+        {
+            continue;
+        }
+        if authority.handle.with_data(DataStore::len) != 0
+            || authority.handle.index_state() != IndexState::Ready
+            || !authority.handle.with_index(IndexStore::is_empty)
+        {
+            return Err(InternalError::store_corruption());
+        }
+        authority.handle.with_schema_mut(|store| {
+            store.publish_accepted_schema_candidate(AcceptedSchemaRevision::NONE, candidate)
+        })?;
+    }
+
+    Ok(())
 }
 
 /// Advance one durable pending schema application by at most one canonical

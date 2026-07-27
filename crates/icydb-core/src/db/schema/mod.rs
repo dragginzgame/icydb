@@ -62,13 +62,13 @@ pub(in crate::db) use accepted_field_kind::AcceptedFieldKind;
 pub(in crate::db) use accepted_value_admission::AcceptedValueAdmissionContract;
 pub use application::{SchemaApplicationStore, SchemaApplicationTarget};
 pub(in crate::db) use application::{
-    apply_schema, continue_schema_application, schema_application_receipt,
-    schema_application_target,
+    apply_schema, continue_schema_application, rebuild_generated_live_schema,
+    schema_application_receipt, schema_application_target,
 };
 pub(in crate::db) use application_lowering::lower_field_type;
 pub(in crate::db::schema) use application_lowering::{
     ExistingProposalStore, ProposalStoreTarget, lower_existing_schema_proposal,
-    lower_initial_schema_proposal,
+    lower_initial_schema_proposal, lower_live_rebuilt_schema_proposal,
 };
 pub(in crate::db) use application_receipt::SchemaApplicationRecord;
 pub(in crate::db) use application_receipt::{
@@ -172,7 +172,8 @@ pub(in crate::db) use identity::{
 };
 pub(in crate::db) use info::{
     SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo, SchemaIndexFieldPathInfo,
-    SchemaIndexInfo, SchemaInfo,
+    SchemaIndexInfo, SchemaInfo, schema_expression_index_info_from_accepted_index,
+    schema_index_info_from_accepted_index,
 };
 pub(in crate::db) use inspection_plan::AcceptedInspectionPlan;
 pub(in crate::db::schema) use integrity::{

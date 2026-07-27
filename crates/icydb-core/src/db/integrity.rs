@@ -329,23 +329,6 @@ impl IntegrityEntityIdentity {
         }
     }
 
-    /// Build one non-authoritative selector from registered runtime routing.
-    ///
-    /// Integrity execution must still resolve accepted authority and require
-    /// an exact match before inspecting the selected entity.
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn from_runtime_selector(
-        entity_tag: u64,
-        entity_path: &str,
-        store_path: &str,
-    ) -> Self {
-        Self {
-            entity_tag,
-            entity_path: entity_path.to_string(),
-            store_path: store_path.to_string(),
-        }
-    }
-
     pub(in crate::db) const fn validate(&self) -> Result<(), IntegrityJobError> {
         if self.entity_tag == 0
             || self.entity_path.is_empty()

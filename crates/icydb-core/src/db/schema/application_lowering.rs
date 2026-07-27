@@ -462,6 +462,31 @@ pub(in crate::db::schema) fn lower_initial_schema_proposal(
     proposal: &SchemaProposal,
     stores: &[ProposalStoreTarget],
 ) -> Result<Vec<CandidateSchemaRevision>, InternalError> {
+    lower_initial_schema_proposal_with_entity_identities(proposal, stores, &BTreeMap::new(), None)
+}
+
+/// Lower current generated declarations for live-rebuilt stores while
+/// preserving accepted entity identities owned by durable stores.
+pub(in crate::db::schema) fn lower_live_rebuilt_schema_proposal(
+    proposal: &SchemaProposal,
+    stores: &[ProposalStoreTarget],
+    retained_entities: &BTreeMap<EntitySourceKey, EntityTag>,
+    live_store_paths: &BTreeSet<&'static str>,
+) -> Result<Vec<CandidateSchemaRevision>, InternalError> {
+    lower_initial_schema_proposal_with_entity_identities(
+        proposal,
+        stores,
+        retained_entities,
+        Some(live_store_paths),
+    )
+}
+
+fn lower_initial_schema_proposal_with_entity_identities(
+    proposal: &SchemaProposal,
+    stores: &[ProposalStoreTarget],
+    retained_entities: &BTreeMap<EntitySourceKey, EntityTag>,
+    selected_store_paths: Option<&BTreeSet<&'static str>>,
+) -> Result<Vec<CandidateSchemaRevision>, InternalError> {
     if !proposal.removals().is_empty() {
         return Err(InternalError::store_unsupported());
     }
@@ -513,9 +538,12 @@ pub(in crate::db::schema) fn lower_initial_schema_proposal(
         store_entities.sort_by(|left, right| left.source_key().cmp(right.source_key()));
     }
 
-    let accepted_entities = allocate_entity_identities(&entities_by_store)?;
+    let accepted_entities = allocate_entity_identities(&entities_by_store, retained_entities)?;
     let mut candidates = Vec::with_capacity(entities_by_store.len());
     for (store_path, store_entities) in entities_by_store {
+        if selected_store_paths.is_some_and(|selected| !selected.contains(store_path)) {
+            continue;
+        }
         candidates.push(lower_initial_store(
             store_path,
             store_entities.as_slice(),
@@ -2231,15 +2259,38 @@ fn lower_existing_checks(
 
 fn allocate_entity_identities(
     entities_by_store: &BTreeMap<&'static str, Vec<&EntityFragment>>,
+    retained_entities: &BTreeMap<EntitySourceKey, EntityTag>,
 ) -> Result<BTreeMap<EntitySourceKey, EntityTag>, InternalError> {
     let mut accepted = BTreeMap::new();
+    let mut used = retained_entities.values().copied().collect::<BTreeSet<_>>();
+    if used.len() != retained_entities.len() {
+        return Err(InternalError::store_corruption());
+    }
+    let mut next = 1u64;
     for entities in entities_by_store.values() {
-        for (offset, entity) in entities.iter().enumerate() {
-            let raw = u64::try_from(offset)
-                .ok()
-                .and_then(|value| value.checked_add(1))
-                .ok_or_else(InternalError::store_unsupported)?;
-            accepted.insert(entity.source_key().clone(), EntityTag::new(raw));
+        for entity in entities {
+            let entity_tag =
+                if let Some(retained) = retained_entities.get(entity.source_key()).copied() {
+                    retained
+                } else {
+                    while used.contains(&EntityTag::new(next)) {
+                        next = next
+                            .checked_add(1)
+                            .ok_or_else(InternalError::store_unsupported)?;
+                    }
+                    let allocated = EntityTag::new(next);
+                    used.insert(allocated);
+                    next = next
+                        .checked_add(1)
+                        .ok_or_else(InternalError::store_unsupported)?;
+                    allocated
+                };
+            if accepted
+                .insert(entity.source_key().clone(), entity_tag)
+                .is_some()
+            {
+                return Err(InternalError::store_unsupported());
+            }
         }
     }
     Ok(accepted)
@@ -2932,14 +2983,16 @@ fn index_expression_text(op: PersistedIndexExpressionOp, field: &str) -> String 
 #[cfg(test)]
 mod tests {
     use super::{
-        ExistingProposalStore, ProposalStoreTarget, lower_existing_schema_proposal,
-        lower_initial_schema_proposal,
+        ExistingProposalStore, ProposalStoreTarget, allocate_entity_identities,
+        lower_existing_schema_proposal, lower_initial_schema_proposal,
     };
     use crate::db::schema::{
         AcceptedConstraintKind, AcceptedNamedTypeIdentity, AcceptedSchemaRevision,
         ConstraintActivationKind, ConstraintOrigin, PersistedFieldSnapshot, SchemaInsertDefault,
         composite_catalog::AcceptedCompositeShape, enum_catalog::AcceptedEnumVariantBody,
     };
+    use crate::error::ErrorClass;
+    use crate::types::EntityTag;
     use icydb_schema::{
         ConstraintFragment, ConstraintSourceKey, EntityFragment, EntitySourceKey,
         EntityStoreAssignment, EnumTypeFragment, EnumVariantFragment, ExpectedAcceptedHead,
@@ -2950,9 +3003,30 @@ mod tests {
         SourceCheckInstruction, TargetDatabaseIdentity, TargetStoreIdentity, TupleElementFragment,
         TypeSourceKey,
     };
+    use std::collections::BTreeMap;
 
     fn name(value: &str) -> SchemaName {
         SchemaName::try_new(value).expect("test schema name should admit")
+    }
+
+    #[test]
+    fn live_rebuild_rejects_duplicate_retained_entity_tags() {
+        let retained = BTreeMap::from([
+            (
+                EntitySourceKey::try_new("test:entity:first")
+                    .expect("first entity source should admit"),
+                EntityTag::new(1),
+            ),
+            (
+                EntitySourceKey::try_new("test:entity:second")
+                    .expect("second entity source should admit"),
+                EntityTag::new(1),
+            ),
+        ]);
+
+        let error = allocate_entity_identities(&BTreeMap::new(), &retained)
+            .expect_err("duplicate retained tags must fail closed");
+        assert_eq!(error.class(), ErrorClass::Corruption);
     }
 
     fn scalar_proposal_fixture(

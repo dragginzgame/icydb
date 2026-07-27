@@ -828,7 +828,7 @@ impl SchemaInfo {
     }
 }
 
-fn schema_index_info_from_accepted_index(
+pub(in crate::db) fn schema_index_info_from_accepted_index(
     index: &PersistedIndexSnapshot,
     snapshot: &PersistedSchemaSnapshot,
     value_catalog: Option<&AcceptedValueCatalogHandle>,
@@ -855,7 +855,7 @@ fn schema_index_info_from_accepted_index(
     })
 }
 
-fn schema_expression_index_info_from_accepted_index(
+pub(in crate::db) fn schema_expression_index_info_from_accepted_index(
     index: &PersistedIndexSnapshot,
     snapshot: &PersistedSchemaSnapshot,
     value_catalog: Option<&AcceptedValueCatalogHandle>,

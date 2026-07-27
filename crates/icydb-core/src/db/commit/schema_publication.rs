@@ -18,7 +18,7 @@ use crate::{
         commit::{
             CommitMarker, begin_commit, finish_commit, generate_commit_id, generate_marker_batch_id,
         },
-        journal::{JournalBatch, JournalRecord},
+        journal::{JournalBatch, JournalRecord, JournalSequence},
         registry::{StoreHandle, StoreRecoveryCapability},
         schema::{
             AcceptedSchemaRevision, CandidateSchemaRevision, ConstraintId, ConstraintValidationJob,
@@ -185,14 +185,15 @@ fn publish_accepted_schema_candidates_with_optional_application_record(
             )
         });
     }
-    if publications.iter().any(|publication| {
-        publication.store.storage_capabilities().recovery()
-            != StoreRecoveryCapability::StableBasePlusJournalReplay
-    }) {
+    if application_record.is_none()
+        && publications.iter().any(|publication| {
+            publication.store.storage_capabilities().recovery() == StoreRecoveryCapability::None
+        })
+    {
         return Err(InternalError::store_unsupported());
     }
 
-    publish_journaled_candidates_atomically(publications.as_slice(), application_record)
+    publish_candidates_atomically(publications.as_slice(), application_record)
 }
 
 /// Publish one accepted candidate and the exact validation job its new
@@ -398,19 +399,21 @@ fn publish_journaled_candidate(
     })
 }
 
-fn publish_journaled_candidates_atomically(
+fn publish_candidates_atomically(
     publications: &[AcceptedSchemaPublication<'_>],
     application_record: Option<SchemaApplicationRecordOp>,
 ) -> Result<(), InternalError> {
     let marker_id = generate_commit_id()?;
     let mut batches = Vec::with_capacity(publications.len());
     for (ordinal, publication) in publications.iter().enumerate() {
-        let journal_store = publication
-            .store
-            .journal_tail_store()
-            .ok_or_else(InternalError::store_invariant)?;
-        let sequence = journal_store
-            .with_borrow(crate::db::journal::JournalTailStore::next_mutation_append_sequence)?;
+        let sequence = match (
+            publication.expected_revision,
+            publication.store.journal_tail_store(),
+        ) {
+            (AcceptedSchemaRevision::NONE, _) | (_, None) => JournalSequence::new(0),
+            (_, Some(journal_store)) => journal_store
+                .with_borrow(crate::db::journal::JournalTailStore::next_mutation_append_sequence)?,
+        };
         let record = JournalRecord::accepted_schema_publish(
             publication.store_path,
             publication.expected_revision,
@@ -434,18 +437,30 @@ fn publish_journaled_candidates_atomically(
 
     finish_commit(commit, |_guard| {
         for (publication, batch) in publications.iter().zip(&batches) {
-            publication
-                .store
-                .journal_tail_store()
-                .ok_or_else(InternalError::store_invariant)?
-                .with_borrow_mut(|journal| journal.append_batch(batch))?;
+            if batch.journal_sequence() != JournalSequence::new(0)
+                && let Some(journal_store) = publication.store.journal_tail_store()
+            {
+                journal_store.with_borrow_mut(|journal| journal.append_batch(batch))?;
+            }
         }
         for publication in publications {
             publication.store.with_schema_mut(|schema_store| {
-                schema_store.apply_journaled_accepted_schema_candidate(
+                match (
                     publication.expected_revision,
-                    publication.candidate,
-                )
+                    publication.store.storage_capabilities().recovery(),
+                ) {
+                    (AcceptedSchemaRevision::NONE, _) | (_, StoreRecoveryCapability::None) => {
+                        schema_store.publish_accepted_schema_candidate(
+                            publication.expected_revision,
+                            publication.candidate,
+                        )
+                    }
+                    (_, StoreRecoveryCapability::StableBasePlusJournalReplay) => schema_store
+                        .apply_journaled_accepted_schema_candidate(
+                            publication.expected_revision,
+                            publication.candidate,
+                        ),
+                }
             })?;
         }
         if let Some(operation) = application_record.as_ref() {

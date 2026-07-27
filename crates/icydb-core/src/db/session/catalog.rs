@@ -70,6 +70,16 @@ impl<C: CanisterKind> DbSession<C> {
         crate::db::schema::schema_application_receipt(&self.db, database_identity, submission_key)
     }
 
+    /// Rebuild absent live-only schema metadata from one exact generated
+    /// declaration before catalog reconciliation.
+    #[doc(hidden)]
+    pub fn rebuild_generated_live_schema(
+        &self,
+        proposal: &SchemaProposal,
+    ) -> Result<(), InternalError> {
+        crate::db::schema::rebuild_generated_live_schema(&self.db, proposal)
+    }
+
     /// Advance one pending schema application by at most one bounded
     /// activation step.
     pub fn continue_schema_application(

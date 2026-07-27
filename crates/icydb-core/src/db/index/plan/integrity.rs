@@ -18,7 +18,9 @@ use crate::{
         predicate::{PredicateProgram, normalize, parse_sql_predicate},
         schema::{
             AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, PersistedIndexKeySnapshot,
-            SchemaExpressionIndexInfo, SchemaIndexId, SchemaIndexInfo, SchemaInfo,
+            SchemaExpressionIndexInfo, SchemaIndexId, SchemaIndexInfo,
+            schema_expression_index_info_from_accepted_index,
+            schema_index_info_from_accepted_index,
         },
     },
     error::InternalError,
@@ -129,8 +131,6 @@ impl AcceptedIndexInspectionPlan {
         value_catalog: AcceptedValueCatalogHandle,
         row_contract: &StructuralRowContract,
     ) -> Result<Self, InternalError> {
-        let schema_info =
-            SchemaInfo::from_accepted_snapshot_and_catalog(schema, value_catalog, true);
         let snapshot = schema.persisted_snapshot();
         let mut indexes = Vec::with_capacity(snapshot.indexes().len());
 
@@ -138,12 +138,12 @@ impl AcceptedIndexInspectionPlan {
             let predicate = compile_predicate(accepted.predicate_sql(), row_contract)?;
             let entry = match accepted.key() {
                 PersistedIndexKeySnapshot::FieldPath(_) => {
-                    let info = schema_info
-                        .field_path_indexes()
-                        .iter()
-                        .find(|info| info.ordinal() == accepted.ordinal())
-                        .cloned()
-                        .ok_or_else(InternalError::store_corruption)?;
+                    let info = schema_index_info_from_accepted_index(
+                        accepted,
+                        snapshot,
+                        Some(&value_catalog),
+                    )
+                    .ok_or_else(InternalError::store_corruption)?;
                     validate_projection_identity(
                         info.ordinal(),
                         info.physical_generation(),
@@ -159,12 +159,12 @@ impl AcceptedIndexInspectionPlan {
                     }
                 }
                 PersistedIndexKeySnapshot::Items(_) => {
-                    let info = schema_info
-                        .expression_indexes()
-                        .iter()
-                        .find(|info| info.ordinal() == accepted.ordinal())
-                        .cloned()
-                        .ok_or_else(InternalError::store_corruption)?;
+                    let info = schema_expression_index_info_from_accepted_index(
+                        accepted,
+                        snapshot,
+                        Some(&value_catalog),
+                    )
+                    .ok_or_else(InternalError::store_corruption)?;
                     validate_projection_identity(
                         info.ordinal(),
                         info.physical_generation(),

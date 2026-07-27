@@ -39,6 +39,7 @@ use ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, memory_manager::VirtualMemory,
     storable::Bound as StorableBound,
 };
+use icydb_schema::EntitySourceKey;
 use sha2::Digest;
 use std::borrow::Cow;
 #[cfg(test)]
@@ -953,17 +954,42 @@ impl SchemaStore {
     pub(in crate::db) fn current_accepted_schema_bundle(
         &self,
     ) -> Result<Option<AcceptedSchemaRevisionBundle>, InternalError> {
-        let Some(selection) = self.current_accepted_schema_root()? else {
+        let Some(bundle) = self.current_accepted_schema_bundle_ref()? else {
             return Ok(None);
         };
-        let key = RawSchemaKey::from_accepted_bundle(selection.root().bundle_key());
-        let raw = self
-            .get_raw_snapshot(&key)
-            .ok_or_else(InternalError::store_corruption)?;
-        let bundle =
-            decode_verified_accepted_schema_revision_bundle(selection.root(), raw.as_bytes())?;
         self.validate_constraint_validation_job_closure(&bundle)?;
-        Ok(Some(bundle))
+        Ok(Some(bundle.clone()))
+    }
+
+    /// Resolve one generated entity source through the cached current accepted
+    /// bundle without cloning or independently decoding that bundle.
+    pub(in crate::db) fn current_accepted_entity_tag_for_source(
+        &self,
+        source: &EntitySourceKey,
+    ) -> Result<EntityTag, InternalError> {
+        self.current_accepted_schema_bundle_ref()?
+            .and_then(|bundle| bundle.source_bindings().entity(source))
+            .ok_or_else(InternalError::store_corruption)
+    }
+
+    /// Resolve one generated entity source to its current accepted display
+    /// name without compiling its runtime inspection plan.
+    pub(in crate::db) fn current_accepted_entity_name_for_source(
+        &self,
+        source: &EntitySourceKey,
+    ) -> Result<String, InternalError> {
+        let bundle = self
+            .current_accepted_schema_bundle_ref()?
+            .ok_or_else(InternalError::store_corruption)?;
+        let entity_tag = bundle
+            .source_bindings()
+            .entity(source)
+            .ok_or_else(InternalError::store_corruption)?;
+        bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .map(|snapshot| snapshot.entity_name().to_string())
+            .ok_or_else(InternalError::store_corruption)
     }
 
     /// Return the current accepted revision without decoding its bundle.
@@ -1273,9 +1299,11 @@ impl SchemaStore {
         Ok(expected.matches_store_root(store_scope, root.revision(), root.fingerprint()))
     }
 
-    /// Bootstrap an immutable candidate directly into the schema allocation.
+    /// Publish a candidate directly into its canonical schema allocation.
     ///
-    /// Journaled online revisions must use `apply_journaled_accepted_schema_candidate`.
+    /// Journaled online revisions must use
+    /// `apply_journaled_accepted_schema_candidate`; this path owns initial
+    /// bootstrap and live-rebuilt metadata.
     pub(in crate::db) fn publish_accepted_schema_candidate(
         &mut self,
         expected_revision: AcceptedSchemaRevision,

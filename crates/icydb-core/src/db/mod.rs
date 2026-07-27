@@ -427,6 +427,15 @@ impl<C: CanisterKind> Db<C> {
             entity_path,
         )
     }
+
+    // Resolve generated source routing while an accepted candidate is still
+    // unpublished and therefore cannot yet supply runtime identity.
+    pub(in crate::db) fn generated_route_for_entity_path(
+        &self,
+        entity_path: &str,
+    ) -> Result<entity_registration::GeneratedEntityRoute<C>, InternalError> {
+        entity_registration::resolve_generated_route_by_path(self.entity_registrations, entity_path)
+    }
 }
 
 impl<C: CanisterKind> Copy for Db<C> {}

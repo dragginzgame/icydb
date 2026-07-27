@@ -49,14 +49,7 @@ impl<C: CanisterKind> GeneratedEntityRoute<C> {
         let source = icydb_schema::EntitySourceKey::try_new(self.source_key)
             .map_err(|_| InternalError::store_invariant())?;
         let store = db.store_handle(self.store_path)?;
-        let bundle = store
-            .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
-            .ok_or_else(InternalError::store_corruption)?;
-
-        bundle
-            .source_bindings()
-            .entity(&source)
-            .ok_or_else(InternalError::store_corruption)
+        store.with_schema(|schema| schema.current_accepted_entity_tag_for_source(&source))
     }
 
     /// Resolve this authored route into current accepted runtime identity.
@@ -157,6 +150,15 @@ pub(in crate::db) fn resolve_runtime_registration_by_tag<C: CanisterKind>(
     let mut matched = None;
     for registration in registrations {
         let runtime = registration.runtime();
+        let store = db.store_handle(runtime.store_path)?;
+        if store.storage_capabilities().schema_metadata()
+            == crate::db::registry::StoreSchemaMetadataCapability::LiveRebuiltMetadata
+            && store
+                .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
+                .is_none()
+        {
+            continue;
+        }
         let resolved = runtime.resolve(db)?;
         if resolved.entity_tag != entity_tag {
             continue;
@@ -178,6 +180,15 @@ pub(in crate::db) fn resolve_runtime_registration_by_path<C: CanisterKind>(
     registrations: &[EntityRegistration<C>],
     entity_path: &str,
 ) -> Result<EntityRuntimeRegistration<C>, InternalError> {
+    resolve_generated_route_by_path(registrations, entity_path)?.resolve(db)
+}
+
+/// Resolve exactly one generated source route without requiring accepted
+/// schema authority to have been published already.
+pub(in crate::db) fn resolve_generated_route_by_path<C: CanisterKind>(
+    registrations: &[EntityRegistration<C>],
+    entity_path: &str,
+) -> Result<GeneratedEntityRoute<C>, InternalError> {
     let mut matched = None;
     for registration in registrations {
         let runtime = registration.runtime();
@@ -189,7 +200,7 @@ pub(in crate::db) fn resolve_runtime_registration_by_path<C: CanisterKind>(
                 entity_path,
             ));
         }
-        matched = Some(runtime.resolve(db)?);
+        matched = Some(runtime);
     }
 
     matched.ok_or_else(|| InternalError::unsupported_entity_path(entity_path))

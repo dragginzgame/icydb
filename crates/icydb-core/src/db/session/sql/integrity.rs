@@ -11,7 +11,7 @@ use crate::{
             IntegrityEntityIdentity, IntegrityJobError, IntegrityJobId, IntegrityJobOwner,
             IntegritySubmissionKey,
         },
-        sql::{SqlIntegrityStatement, identifier::identifiers_tail_match, parse_integrity_sql},
+        sql::{SqlIntegrityStatement, parse_integrity_sql},
     },
     traits::CanisterKind,
 };
@@ -106,37 +106,12 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         sql_entity: &str,
     ) -> Result<IntegrityEntityIdentity, SqlIntegrityError> {
-        let mut matched = None;
-        for entity_registration in self.db.entity_registrations {
-            let registration = entity_registration
-                .runtime()
-                .resolve(&self.db)
-                .map_err(IntegrityDeepError::from)?;
-            let store = self
-                .db
-                .recovered_store(registration.store_path)
-                .map_err(IntegrityDeepError::from)?;
-            let plan = self
-                .accepted_inspection_plan_for_runtime_registration(registration, store)
-                .map_err(|error| IntegrityDeepError::from(error.into_internal()))?;
-            if !identifiers_tail_match(sql_entity, registration.entity_path)
-                && !identifiers_tail_match(sql_entity, plan.snapshot().entity_name())
-            {
-                continue;
-            }
-            if matched.is_some() {
-                return Err(QueryError::sql_lowering(SqlLoweringCode::EntityMismatch).into());
-            }
-            matched = Some(registration);
-        }
-
-        let registration = matched.ok_or_else(|| {
-            SqlIntegrityError::from(QueryError::sql_lowering(SqlLoweringCode::EntityMismatch))
-        })?;
-        Ok(IntegrityEntityIdentity::from_runtime_selector(
-            registration.entity_tag.value(),
-            registration.entity_path,
-            registration.store_path,
+        let catalog = self
+            .find_accepted_schema_catalog_context_for_entity_name(sql_entity)
+            .map_err(IntegrityDeepError::from)?
+            .ok_or_else(|| QueryError::sql_lowering(SqlLoweringCode::EntityMismatch))?;
+        Ok(IntegrityEntityIdentity::from_accepted_identity(
+            catalog.identity(),
         ))
     }
 }

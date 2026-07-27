@@ -236,6 +236,27 @@ impl AcceptedSchemaRevisionBundle {
         {
             return Err(InternalError::store_invariant());
         }
+        for snapshot in self.entity_snapshots.values() {
+            if encode_persisted_schema_snapshot(snapshot)?.len()
+                > MAX_SCHEMA_SNAPSHOT_BYTES as usize
+            {
+                return Err(InternalError::store_unsupported());
+            }
+        }
+        self.validate_decoded_semantics()
+    }
+
+    // Component decoders already enforce their current codec, bounds, order,
+    // and source-binding closure. Persisted bundle decode therefore reruns
+    // only the cross-component semantic checks instead of encoding and
+    // decoding every accepted component a second time.
+    fn validate_decoded_semantics(&self) -> Result<(), InternalError> {
+        if self.revision == AcceptedSchemaRevision::NONE
+            || self.store_path.is_empty()
+            || self.store_path.len() > MAX_SCHEMA_STORE_PATH_BYTES
+        {
+            return Err(InternalError::store_invariant());
+        }
         if !catalog_relation_key_contracts_are_supported(
             &self.enum_catalog,
             &self.composite_catalog,
@@ -243,10 +264,6 @@ impl AcceptedSchemaRevisionBundle {
             return Err(InternalError::store_invariant());
         }
         for snapshot in self.entity_snapshots.values() {
-            let encoded = encode_persisted_schema_snapshot(snapshot)?;
-            if encoded.len() > MAX_SCHEMA_SNAPSHOT_BYTES as usize {
-                return Err(InternalError::store_unsupported());
-            }
             let accepted_snapshot = AcceptedSchemaSnapshot::try_new(snapshot.clone())?;
             for field in snapshot.fields() {
                 if !self
@@ -837,7 +854,7 @@ pub(in crate::db::schema) fn decode_accepted_schema_revision_bundle(
         entity_snapshots,
     };
     bundle
-        .validate()
+        .validate_decoded_semantics()
         .map_err(|_| InternalError::store_corruption())?;
     Ok(bundle)
 }
