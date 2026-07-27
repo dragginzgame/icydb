@@ -10,6 +10,7 @@ use candid::{
     types::{CandidType, Label, Type, TypeInner},
 };
 use ic_memory::RuntimeBootstrapError;
+#[cfg(feature = "sql")]
 use icydb_core::db::{PlanError, QueryExecutionError, ValidateError};
 use icydb_core::error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin};
 use serde::Serialize;
@@ -58,6 +59,7 @@ fn expect_record_fields(ty: Type) -> Vec<String> {
 }
 
 #[test]
+#[cfg(feature = "sql")]
 fn query_validate_maps_to_validate_kind() {
     let err = QueryError::Validate(Box::new(ValidateError::UnknownField {
         field: "field".to_string(),
@@ -72,6 +74,7 @@ fn query_validate_maps_to_validate_kind() {
 }
 
 #[test]
+#[cfg(feature = "sql")]
 fn query_validate_exposes_compact_diagnostic_bridge() {
     let err = QueryError::Validate(Box::new(ValidateError::UnknownField {
         field: "field".to_string(),
@@ -97,6 +100,7 @@ fn query_validate_exposes_compact_diagnostic_bridge() {
 }
 
 #[test]
+#[cfg(feature = "sql")]
 fn plan_errors_map_to_plan_kind() {
     let err = QueryError::Plan(Box::new(PlanError::from(ValidateError::UnknownField {
         field: "field".to_string(),
@@ -261,6 +265,7 @@ fn internal_error_class_matrix_maps_to_runtime_kind_and_preserves_origin() {
 }
 
 #[test]
+#[cfg(feature = "sql")]
 fn query_execute_preserves_runtime_class_and_origin() {
     let cases = [
         (
@@ -328,6 +333,7 @@ fn runtime_error_exposes_compact_diagnostic_bridge() {
 }
 
 #[test]
+#[cfg(feature = "sql")]
 fn query_execute_storage_and_index_origins_map_to_runtime_contract() {
     let cases = [
         (

@@ -7,17 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Removed the obsolete `icydb-utils` package and gave `icydb-schema` one
-  canonical index-name normalization contract shared by model generation and
-  runtime identity.
-
 ## [0.213.x] 🧭 - 2026-07-24 - Schema Authority And Application Separation
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
 - `0.213.33` completes the model consumer hard cut, moving maintained callers
-  to the current typed, dynamic, and structural APIs while deleting the
-  retired package and facade owners without compatibility aliases.
+  to current APIs while deleting retired package and facade owners, including
+  `icydb-utils`, without compatibility aliases.
 
 - `0.213.32` establishes independently publishable model packages with
   schema-only authoring and accepted-schema-bound typed adapters, removing the
