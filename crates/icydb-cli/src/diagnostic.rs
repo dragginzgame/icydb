@@ -922,7 +922,7 @@ mod tests {
 
         assert_eq!(
             render_error(&err),
-            "E_RUNTIME_INVARIANT_VIOLATION: mutation violates an accepted constraint or activation gate; constraint id=41 name=adult_age kind=check entity=example::Person primary_key=0409 fields=age context=write_admission class=invariant-violation code=E224",
+            "E_RUNTIME_INVARIANT_VIOLATION: mutation violates an accepted constraint or activation gate; constraint id=41 name=adult_age kind=check entity=example::Person primary_key=0409 fields=age context=write_admission class=invariant-violation code=E223",
         );
     }
 

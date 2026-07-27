@@ -383,7 +383,7 @@ fn ddl_constraint_validation_page_roundtrips_typed_acknowledgement_state() {
     assert_eq!(constraint_validation, Some(expected));
     assert!(
         rendered.contains(
-            "constraint_finding id=41 name=adult_age kind=check entity=example::Character primary_key=010203 fields=age context=migration_validation class=invariant_violation code=E224"
+            "constraint_finding id=41 name=adult_age kind=check entity=example::Character primary_key=010203 fields=age context=migration_validation class=invariant_violation code=E223"
         ),
         "CLI SQL rendering should retain the complete constraint finding",
     );
