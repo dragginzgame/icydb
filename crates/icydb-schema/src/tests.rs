@@ -2,8 +2,8 @@ use crate::{
     Account, Blob, ConstraintFragment, ConstraintSourceKey, Date, Decimal, Duration,
     EntityFragment, EntitySourceKey, EntityStoreAssignment, EnumTypeFragment, EnumVariantFragment,
     ExpectedAcceptedHead, ExpectedSchemaFingerprint, FieldFragment, FieldInsertPolicy,
-    FieldSourceKey, FieldType, Float32, Float64, IntBig, MAX_SCHEMA_PROPOSAL_BYTES,
-    MAX_SCHEMA_TYPE_DEPTH, MAX_SOURCE_KEY_BYTES, NamedTypeFragment, NatBig,
+    FieldSourceKey, FieldType, Float32, Float64, IntBig, MAX_SCHEMA_FIELD_TYPE_DEPTH,
+    MAX_SCHEMA_PROPOSAL_BYTES, MAX_SOURCE_KEY_BYTES, NamedTypeFragment, NatBig,
     ProposalContractVersion, RecordFieldFragment, RecordTypeFragment, RelationDeleteAction,
     RelationFragment, ScalarLiteral, ScalarType, SchemaCapability, SchemaContractError,
     SchemaFragment, SchemaName, SchemaProposal, SchemaRemoval, SchemaSubmissionKey,
@@ -332,7 +332,7 @@ fn named_collection_fragments_roundtrip_canonically() {
 #[test]
 fn repeated_field_shape_rejects_excessive_inline_depth() {
     let mut field_type = FieldType::Scalar(ScalarType::Nat64);
-    for _ in 0..MAX_SCHEMA_TYPE_DEPTH {
+    for _ in 0..MAX_SCHEMA_FIELD_TYPE_DEPTH {
         field_type = FieldType::List(Box::new(field_type));
     }
 
@@ -347,7 +347,7 @@ fn repeated_field_shape_rejects_excessive_inline_depth() {
                 false,
             )],
         ),
-        Err(SchemaContractError::InvalidNamedTypeGraph),
+        Err(SchemaContractError::FieldTypeDepthExceeded),
     );
 }
 
@@ -673,10 +673,10 @@ fn source_keyed_enum_defaults_validate_against_local_type_and_variant() {
 }
 
 #[test]
-fn named_type_graphs_reject_cycles_and_excessive_depth() {
+fn named_type_graphs_accept_resolved_cycles_and_long_chains() {
     let a = source("type/a", TypeSourceKey::try_new);
     let b = source("type/b", TypeSourceKey::try_new);
-    assert_eq!(
+    assert!(
         compose_types(
             vec![
                 NamedTypeFragment::Newtype {
@@ -692,16 +692,16 @@ fn named_type_graphs_reject_cycles_and_excessive_depth() {
             ],
             ExpectedAcceptedHead::Empty,
             Vec::new(),
-        ),
-        Err(SchemaContractError::InvalidNamedTypeGraph),
+        )
+        .is_ok(),
     );
 
     let mut deep = Vec::new();
-    for ordinal in 0..=MAX_SCHEMA_TYPE_DEPTH {
+    for ordinal in 0..=MAX_SCHEMA_FIELD_TYPE_DEPTH {
         deep.push(NamedTypeFragment::Newtype {
             source_key: source(&format!("type/deep/{ordinal:03}"), TypeSourceKey::try_new),
             name: SchemaName::try_new(format!("Deep{ordinal:03}")).expect("name should admit"),
-            inner: if ordinal == MAX_SCHEMA_TYPE_DEPTH {
+            inner: if ordinal == MAX_SCHEMA_FIELD_TYPE_DEPTH {
                 FieldType::Scalar(ScalarType::Unit)
             } else {
                 FieldType::Named(source(
@@ -711,10 +711,7 @@ fn named_type_graphs_reject_cycles_and_excessive_depth() {
             },
         });
     }
-    assert_eq!(
-        compose_types(deep, ExpectedAcceptedHead::Empty, Vec::new()),
-        Err(SchemaContractError::InvalidNamedTypeGraph),
-    );
+    assert!(compose_types(deep, ExpectedAcceptedHead::Empty, Vec::new()).is_ok());
 }
 
 #[test]

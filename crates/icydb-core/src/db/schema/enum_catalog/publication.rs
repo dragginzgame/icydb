@@ -9,7 +9,7 @@ use super::{
     equality_key::{EqualityCapability, enum_equality_capability},
 };
 use crate::db::schema::composite_catalog::{
-    AcceptedCompositeCatalog, AcceptedCompositeElement, AcceptedCompositeShape,
+    AcceptedCompositeCatalog, AcceptedCompositeElement, AcceptedCompositeShape, CompositeTypeId,
     decode_accepted_composite_catalog, encode_accepted_composite_catalog,
 };
 use crate::{
@@ -32,7 +32,7 @@ use crate::{
     types::EntityTag,
 };
 use sha2::Digest;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const ACCEPTED_SCHEMA_BUNDLE_MAGIC: &[u8; 8] = b"ICYDBAEB";
 const ACCEPTED_SCHEMA_BUNDLE_CODEC_VERSION: u16 = 1;
@@ -358,19 +358,28 @@ fn nested_leaf_contracts_match_composite_catalog(
         return field.nested_leaves().is_empty();
     };
 
-    let mut path = Vec::new();
-    let mut expected_count = 0usize;
+    let mut traversal = NestedLeafValidation {
+        path: Vec::new(),
+        expected_count: 0,
+        active: BTreeSet::from([*type_id]),
+    };
     fields.iter().all(|member| {
         nested_leaf_contract_matches(
             catalog,
             field,
             member.name(),
             member.contract(),
-            &mut path,
-            &mut expected_count,
+            &mut traversal,
             0,
         )
-    }) && expected_count == field.nested_leaves().len()
+    }) && traversal.expected_count == field.nested_leaves().len()
+}
+
+/// Mutable proof state for one deterministic nested-leaf catalog walk.
+struct NestedLeafValidation {
+    path: Vec<String>,
+    expected_count: usize,
+    active: BTreeSet<CompositeTypeId>,
 }
 
 fn nested_leaf_contract_matches(
@@ -378,28 +387,27 @@ fn nested_leaf_contract_matches(
     field: &PersistedFieldSnapshot,
     name: &str,
     contract: &AcceptedCompositeElement,
-    path: &mut Vec<String>,
-    expected_count: &mut usize,
+    traversal: &mut NestedLeafValidation,
     depth: usize,
 ) -> bool {
     if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
         return false;
     }
-    path.push(name.to_string());
-    let leaf_index = *expected_count;
-    let Some(next_count) = expected_count.checked_add(1) else {
-        path.pop();
+    traversal.path.push(name.to_string());
+    let leaf_index = traversal.expected_count;
+    let Some(next_count) = traversal.expected_count.checked_add(1) else {
+        traversal.path.pop();
         return false;
     };
-    *expected_count = next_count;
+    traversal.expected_count = next_count;
     let matches = field.nested_leaves().get(leaf_index).is_some_and(|leaf| {
-        let path_matches = leaf.path() == path.as_slice();
+        let path_matches = leaf.path() == traversal.path.as_slice();
         let kind_matches = leaf.kind() == contract.kind();
         let nullability_matches = leaf.nullable() == contract.nullable();
         path_matches && kind_matches && nullability_matches
     });
     if !matches {
-        path.pop();
+        traversal.path.pop();
         return false;
     }
 
@@ -408,22 +416,27 @@ fn nested_leaf_contract_matches(
             AcceptedFieldKind::Composite { type_id } => catalog
                 .composite_type(*type_id)
                 .is_some_and(|definition| match definition.shape() {
-                    AcceptedCompositeShape::Record(fields) => fields.iter().all(|member| {
-                        nested_leaf_contract_matches(
-                            catalog,
-                            field,
-                            member.name(),
-                            member.contract(),
-                            path,
-                            expected_count,
-                            depth.saturating_add(1),
-                        )
-                    }),
-                    AcceptedCompositeShape::Tuple(_) | AcceptedCompositeShape::Newtype(_) => true,
+                    AcceptedCompositeShape::Record(fields) if traversal.active.insert(*type_id) => {
+                        let matches = fields.iter().all(|member| {
+                            nested_leaf_contract_matches(
+                                catalog,
+                                field,
+                                member.name(),
+                                member.contract(),
+                                traversal,
+                                depth.saturating_add(1),
+                            )
+                        });
+                        traversal.active.remove(type_id);
+                        matches
+                    }
+                    AcceptedCompositeShape::Record(_)
+                    | AcceptedCompositeShape::Tuple(_)
+                    | AcceptedCompositeShape::Newtype(_) => true,
                 }),
             _ => true,
         };
-    path.pop();
+    traversal.path.pop();
     nested_matches
 }
 

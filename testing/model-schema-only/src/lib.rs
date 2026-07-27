@@ -33,6 +33,104 @@ pub struct SchemaOnlyProfile {}
 )]
 pub struct SchemaOnlyState {}
 
+#[newtype(
+    source_key = "fixture/model-schema-only/field-key",
+    primitive = "Text",
+    item(prim = "Text", max_len = 64)
+)]
+pub struct FieldKey {}
+
+#[map(
+    source_key = "fixture/model-schema-only/values",
+    key(is = "FieldKey"),
+    value(item(is = "FieldValue"))
+)]
+pub struct Values {}
+
+#[enum_(
+    source_key = "fixture/model-schema-only/field-value",
+    variant(source_key = "one", ident = "One", value(item(indirect, is = "Value"))),
+    variant(
+        source_key = "many",
+        ident = "Many",
+        value(many, item(indirect, is = "Value"))
+    )
+)]
+pub struct FieldValue {}
+
+#[enum_(
+    source_key = "fixture/model-schema-only/value",
+    variant(
+        source_key = "text",
+        ident = "Text",
+        value(item(prim = "Text", max_len = 128))
+    ),
+    variant(
+        source_key = "record",
+        ident = "Record",
+        value(item(indirect, is = "Values"))
+    )
+)]
+pub struct Value {}
+
+#[newtype(
+    source_key = "fixture/model-schema-only/tokens",
+    primitive = "Nat64",
+    item(prim = "Nat64")
+)]
+pub struct Tokens {}
+
+#[newtype(
+    source_key = "fixture/model-schema-only/token-amount",
+    primitive = "Nat64",
+    item(prim = "Nat64")
+)]
+pub struct TokenAmount {}
+
+#[newtype(
+    source_key = "fixture/model-schema-only/tier",
+    primitive = "Text",
+    item(prim = "Text", max_len = 32)
+)]
+pub struct Tier {}
+
+#[enum_(
+    source_key = "fixture/model-schema-only/claim-cost",
+    variant(source_key = "free", ident = "Free"),
+    variant(source_key = "icp", ident = "Icp", value(item(is = "crate::Tokens"))),
+    variant(
+        source_key = "icrc1",
+        ident = "Icrc1",
+        value(item(is = "crate::TokenAmount"))
+    )
+)]
+pub struct ClaimCost {}
+
+#[map(
+    source_key = "fixture/model-schema-only/claim-cost-tiers",
+    key(is = "Tier"),
+    value(item(is = "crate::ClaimCost"))
+)]
+pub struct ClaimCostTiers {}
+
+#[record(
+    source_key = "fixture/model-schema-only/collection-policy",
+    fields(
+        field(source_key = "values", ident = "values", value(item(is = "Values"))),
+        field(
+            source_key = "fallback",
+            ident = "fallback",
+            value(opt, item(is = "Value"))
+        ),
+        field(
+            source_key = "claim-cost-tiers",
+            ident = "claim_cost_tiers",
+            value(item(is = "ClaimCostTiers"))
+        )
+    )
+)]
+pub struct CollectionPolicy {}
+
 #[entity(
     source_key = "fixture/model-schema-only/entity",
     store = "SchemaOnlyStore",
@@ -53,6 +151,11 @@ pub struct SchemaOnlyState {}
             source_key = "profile",
             ident = "profile",
             value(item(is = "SchemaOnlyProfile"))
+        ),
+        field(
+            source_key = "policy",
+            ident = "policy",
+            value(item(is = "CollectionPolicy"))
         )
     )
 )]
@@ -61,7 +164,9 @@ pub struct SchemaOnlyEntity {}
 #[cfg(test)]
 mod tests {
     use model_api::build::{BuildOptions, generate_with_options, get_schema};
-    use model_api::schema::{decode_schema_fragment, encode_schema_fragment};
+    use model_api::schema::{
+        FieldType, NamedTypeFragment, decode_schema_fragment, encode_schema_fragment,
+    };
 
     use super::SchemaOnlyCanister;
     use model_api::Path as _;
@@ -74,7 +179,63 @@ mod tests {
             .schema_fragment_for_canister(canister_path)
             .expect("schema-only fixture should lower one complete fragment");
         assert_eq!(fragment.entities().len(), 1);
-        assert_eq!(fragment.types().len(), 3);
+        let named_type = |source_key: &str| {
+            fragment
+                .types()
+                .iter()
+                .find(|candidate| candidate.source_key().as_str() == source_key)
+                .expect("reachable named type should be present")
+        };
+        let NamedTypeFragment::Enum(field_value) =
+            named_type("fixture/model-schema-only/field-value")
+        else {
+            panic!("FieldValue should remain an enum")
+        };
+        let many = field_value
+            .variants()
+            .iter()
+            .find(|variant| variant.name().as_str() == "Many")
+            .and_then(model_api::schema::EnumVariantFragment::payload)
+            .expect("FieldValue::Many should retain its payload");
+        assert!(matches!(
+            many,
+            FieldType::List(item)
+                if matches!(
+                    item.as_ref(),
+                    FieldType::Named(source)
+                        if source.as_str() == "fixture/model-schema-only/value"
+                )
+        ));
+        let NamedTypeFragment::Enum(value) = named_type("fixture/model-schema-only/value") else {
+            panic!("Value should remain an enum")
+        };
+        assert!(matches!(
+            value
+                .variants()
+                .iter()
+                .find(|variant| variant.name().as_str() == "Record")
+                .and_then(model_api::schema::EnumVariantFragment::payload),
+            Some(FieldType::Named(source))
+                if source.as_str() == "fixture/model-schema-only/values"
+        ));
+        let NamedTypeFragment::Enum(claim_cost) =
+            named_type("fixture/model-schema-only/claim-cost")
+        else {
+            panic!("ClaimCost should remain an enum")
+        };
+        for (variant_name, payload_source) in [
+            ("Icp", "fixture/model-schema-only/tokens"),
+            ("Icrc1", "fixture/model-schema-only/token-amount"),
+        ] {
+            assert!(matches!(
+                claim_cost
+                    .variants()
+                    .iter()
+                    .find(|variant| variant.name().as_str() == variant_name)
+                    .and_then(model_api::schema::EnumVariantFragment::payload),
+                Some(FieldType::Named(source)) if source.as_str() == payload_source
+            ));
+        }
         let encoded =
             encode_schema_fragment(&fragment).expect("fixture fragment should encode canonically");
         assert_eq!(

@@ -257,7 +257,7 @@ fn accepted_composite_catalog_decode_rejects_noncanonical_record_identity() {
 }
 
 #[test]
-fn accepted_composite_catalog_decode_rejects_unknown_and_recursive_references() {
+fn accepted_composite_catalog_decode_rejects_unknown_references() {
     let unknown_type_id = CompositeTypeId::new(2).expect("two is non-zero");
     let unknown = encode_test_wire(
         ACCEPTED_COMPOSITE_CATALOG_CODEC_VERSION,
@@ -269,8 +269,18 @@ fn accepted_composite_catalog_decode_rejects_unknown_and_recursive_references() 
             },
         )],
     );
+    assert_eq!(
+        decode_accepted_composite_catalog(&unknown, &empty_enum_catalog())
+            .expect_err("unknown composite references must reject")
+            .class(),
+        ErrorClass::Corruption,
+    );
+}
+
+#[test]
+fn accepted_composite_catalog_decode_accepts_resolved_recursion() {
     let recursive_type_id = CompositeTypeId::new(1).expect("one is non-zero");
-    let recursive = encode_test_wire(
+    let encoded = encode_test_wire(
         ACCEPTED_COMPOSITE_CATALOG_CODEC_VERSION,
         &[newtype(
             1,
@@ -281,14 +291,13 @@ fn accepted_composite_catalog_decode_rejects_unknown_and_recursive_references() 
         )],
     );
 
-    for encoded in [unknown, recursive] {
-        assert_eq!(
-            decode_accepted_composite_catalog(&encoded, &empty_enum_catalog())
-                .expect_err("unknown or recursive composite references must reject")
-                .class(),
-            ErrorClass::Corruption,
-        );
-    }
+    let decoded = decode_accepted_composite_catalog(&encoded, &empty_enum_catalog())
+        .expect("resolved recursive composite graph should admit");
+    assert_eq!(
+        encode_accepted_composite_catalog(&decoded, &empty_enum_catalog())
+            .expect("recursive catalog should re-encode"),
+        encoded,
+    );
 }
 
 #[test]

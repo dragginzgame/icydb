@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     ConstraintSourceKey, Decimal, EntitySourceKey, FieldSourceKey, IndexSourceKey,
     MAX_FRAGMENT_CONSTRAINTS, MAX_FRAGMENT_ENTITIES, MAX_FRAGMENT_FIELDS, MAX_FRAGMENT_INDEXES,
-    MAX_FRAGMENT_RELATIONS, MAX_FRAGMENT_TYPES, MAX_SCHEMA_TYPE_DEPTH, RelationSourceKey,
+    MAX_FRAGMENT_RELATIONS, MAX_FRAGMENT_TYPES, MAX_SCHEMA_FIELD_TYPE_DEPTH, RelationSourceKey,
     ScalarKind, ScalarLiteral, SchemaContractError, SchemaName, SourceCheckExpr, TypeSourceKey,
 };
 
@@ -185,10 +185,10 @@ impl FieldType {
 
     const fn validate_at_depth(&self, depth: usize) -> Result<(), SchemaContractError> {
         let Some(depth) = depth.checked_add(1) else {
-            return Err(SchemaContractError::InvalidNamedTypeGraph);
+            return Err(SchemaContractError::FieldTypeDepthExceeded);
         };
-        if depth > MAX_SCHEMA_TYPE_DEPTH {
-            return Err(SchemaContractError::InvalidNamedTypeGraph);
+        if depth > MAX_SCHEMA_FIELD_TYPE_DEPTH {
+            return Err(SchemaContractError::FieldTypeDepthExceeded);
         }
         match self {
             Self::Scalar(scalar) => scalar.validate(),

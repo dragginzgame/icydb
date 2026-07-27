@@ -49,9 +49,9 @@ pub enum SchemaContractError {
     #[error("schema contract contains an unresolved local reference")]
     InvalidLocalReference,
 
-    /// A named-type graph is recursive or exceeds the maintained depth bound.
-    #[error("schema contract contains an invalid named-type graph")]
-    InvalidNamedTypeGraph,
+    /// One inline field-type contract exceeds the maintained depth bound.
+    #[error("schema field type exceeds its inline depth bound")]
+    FieldTypeDepthExceeded,
 
     /// An enum literal names a non-enum type or an absent local variant.
     #[error("schema contract contains an invalid enum literal reference")]

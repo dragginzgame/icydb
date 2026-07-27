@@ -247,7 +247,7 @@ fn accepted_enum_catalog_decode_rejects_unknown_reference() {
 }
 
 #[test]
-fn accepted_enum_catalog_decode_rejects_mutual_recursion() {
+fn accepted_enum_catalog_decode_accepts_resolved_mutual_recursion() {
     let encoded = encode_test_wire(
         ACCEPTED_ENUM_CATALOG_CODEC_VERSION,
         &[
@@ -256,11 +256,11 @@ fn accepted_enum_catalog_decode_rejects_mutual_recursion() {
         ],
     );
 
+    let decoded =
+        decode_accepted_enum_catalog(&encoded).expect("resolved recursive enum graph should admit");
     assert_eq!(
-        decode_accepted_enum_catalog(&encoded)
-            .expect_err("recursive enum graph must reject")
-            .class(),
-        ErrorClass::Corruption,
+        encode_accepted_enum_catalog(&decoded).expect("recursive catalog should re-encode"),
+        encoded,
     );
 }
 

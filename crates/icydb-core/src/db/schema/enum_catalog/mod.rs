@@ -13,17 +13,21 @@ mod value_wire;
 use crate::{
     db::schema::{
         AcceptedFieldKind, MAX_ACCEPTED_RECURSIVE_DEPTH,
-        composite_catalog::{AcceptedCompositeCatalog, CompositeTypeId},
+        composite_catalog::AcceptedCompositeCatalog,
     },
     model::field::FieldStorageDecode,
     value::{CanonicalEnumBody, CanonicalEnumValue},
     value::{RuntimeEnumContext, RuntimeEnumSelection},
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[cfg(test)]
+use crate::db::schema::composite_catalog::CompositeTypeId;
+#[cfg(test)]
 use crate::model::field::{EnumVariantModel, FieldKind};
+#[cfg(test)]
+use std::collections::BTreeSet;
 
 pub(in crate::db) use crate::value::{EnumTypeId, EnumVariantId};
 #[cfg(any(test, feature = "sql"))]
@@ -365,7 +369,15 @@ impl AcceptedEnumCatalog {
     }
 
     fn validate(&self) -> bool {
-        self.lookup_maps_are_bijective() && self.contract_graph_is_valid()
+        self.lookup_maps_are_bijective()
+            && self.by_id.values().all(|definition| {
+                definition.variants_by_id.values().all(|variant| {
+                    let AcceptedEnumVariantBody::Payload { contract } = &variant.body else {
+                        return true;
+                    };
+                    accepted_kind_matches_catalog(self, &contract.kind, 0)
+                })
+            })
     }
 
     fn lookup_maps_are_bijective(&self) -> bool {
@@ -379,15 +391,6 @@ impl AcceptedEnumCatalog {
                 self.id_by_path.get(definition.path.as_str()) == Some(type_id)
                     && definition.lookup_maps_are_bijective()
             })
-    }
-
-    fn contract_graph_is_valid(&self) -> bool {
-        let mut visited = BTreeSet::new();
-        let mut active = BTreeSet::new();
-        self.by_id
-            .keys()
-            .copied()
-            .all(|type_id| validate_enum_type_graph(self, type_id, &mut visited, &mut active, 0))
     }
 
     #[must_use]
@@ -425,41 +428,21 @@ impl AcceptedEnumCatalog {
         accepted_kind_matches_catalog(self, kind, 0)
     }
 
-    pub(in crate::db::schema) fn collect_composite_references(
-        &self,
-        kind: &AcceptedFieldKind,
-        references: &mut BTreeSet<CompositeTypeId>,
-    ) -> bool {
-        collect_composite_type_references(
-            self,
-            kind,
-            references,
-            &mut BTreeSet::new(),
-            &mut BTreeSet::new(),
-            0,
-        )
-    }
-
     /// Verify that every composite identity reachable from an enum payload is
     /// owned by the supplied store-local composite catalog.
     pub(in crate::db::schema) fn composite_references_are_resolved(
         &self,
         composite_catalog: &AcceptedCompositeCatalog,
     ) -> bool {
-        let mut references = BTreeSet::new();
-        let complete = self.by_id.values().all(|definition| {
+        self.by_id.values().all(|definition| {
             definition.variants_by_id.values().all(|variant| {
                 if let AcceptedEnumVariantBody::Payload { contract } = &variant.body {
-                    self.collect_composite_references(&contract.kind, &mut references)
+                    accepted_kind_composites_are_resolved(&contract.kind, composite_catalog, 0)
                 } else {
                     true
                 }
             })
-        });
-        complete
-            && references
-                .into_iter()
-                .all(|type_id| composite_catalog.composite_type(type_id).is_some())
+        })
     }
 }
 
@@ -685,10 +668,6 @@ pub(in crate::db) enum EnumCatalogBuildError {
         path: String,
     },
     #[cfg(test)]
-    RecursiveEnumContract {
-        cycle: Vec<String>,
-    },
-    #[cfg(test)]
     ContractDepthExceeded,
     #[cfg(test)]
     EnumTypeIdExhausted,
@@ -854,10 +833,8 @@ fn collect_enum_definition(
     if path.is_empty() {
         return Err(EnumCatalogBuildError::EmptyTypePath);
     }
-    if let Some(cycle_start) = active_paths.iter().position(|active| active == path) {
-        let mut cycle = active_paths[cycle_start..].to_vec();
-        cycle.push(path.to_string());
-        return Err(EnumCatalogBuildError::RecursiveEnumContract { cycle });
+    if active_paths.iter().any(|active| active == path) {
+        return Ok(());
     }
 
     let mut variant_names = BTreeSet::new();
@@ -1225,71 +1202,32 @@ fn next_variant_id(
     EnumVariantId::new(value).ok_or_else(exhausted)
 }
 
-fn validate_enum_type_graph(
-    catalog: &AcceptedEnumCatalog,
-    type_id: EnumTypeId,
-    visited: &mut BTreeSet<EnumTypeId>,
-    active: &mut BTreeSet<EnumTypeId>,
-    depth: usize,
-) -> bool {
-    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
-        return false;
-    }
-    if visited.contains(&type_id) {
-        return true;
-    }
-    if !active.insert(type_id) {
-        return false;
-    }
-    let Some(definition) = catalog.by_id.get(&type_id) else {
-        return false;
-    };
-    let mut references = BTreeSet::new();
-    for variant in definition.variants_by_id.values() {
-        if let AcceptedEnumVariantBody::Payload { contract } = &variant.body
-            && !collect_enum_type_references(&contract.kind, &mut references, 0)
-        {
-            return false;
-        }
-    }
-    for referenced_type in references {
-        if !catalog.by_id.contains_key(&referenced_type)
-            || !validate_enum_type_graph(
-                catalog,
-                referenced_type,
-                visited,
-                active,
-                depth.saturating_add(1),
-            )
-        {
-            return false;
-        }
-    }
-    active.remove(&type_id);
-    visited.insert(type_id);
-    true
-}
-
-fn collect_enum_type_references(
+fn accepted_kind_composites_are_resolved(
     kind: &AcceptedFieldKind,
-    references: &mut BTreeSet<EnumTypeId>,
+    composite_catalog: &AcceptedCompositeCatalog,
     depth: usize,
 ) -> bool {
     if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
         return false;
     }
     match kind {
-        AcceptedFieldKind::Enum { type_id } => {
-            references.insert(*type_id);
+        AcceptedFieldKind::Composite { type_id } => {
+            composite_catalog.composite_type(*type_id).is_some()
         }
         AcceptedFieldKind::Relation { key_kind, .. }
         | AcceptedFieldKind::List(key_kind)
-        | AcceptedFieldKind::Set(key_kind) => {
-            return collect_enum_type_references(key_kind, references, depth.saturating_add(1));
-        }
+        | AcceptedFieldKind::Set(key_kind) => accepted_kind_composites_are_resolved(
+            key_kind,
+            composite_catalog,
+            depth.saturating_add(1),
+        ),
         AcceptedFieldKind::Map { key, value } => {
-            return collect_enum_type_references(key, references, depth.saturating_add(1))
-                && collect_enum_type_references(value, references, depth.saturating_add(1));
+            accepted_kind_composites_are_resolved(key, composite_catalog, depth.saturating_add(1))
+                && accepted_kind_composites_are_resolved(
+                    value,
+                    composite_catalog,
+                    depth.saturating_add(1),
+                )
         }
         AcceptedFieldKind::Account
         | AcceptedFieldKind::Blob { .. }
@@ -1317,109 +1255,6 @@ fn collect_enum_type_references(
         | AcceptedFieldKind::NatBig { .. }
         | AcceptedFieldKind::Ulid
         | AcceptedFieldKind::Unit
-        | AcceptedFieldKind::Composite { .. } => {}
+        | AcceptedFieldKind::Enum { .. } => true,
     }
-    true
-}
-
-fn collect_composite_type_references(
-    catalog: &AcceptedEnumCatalog,
-    kind: &AcceptedFieldKind,
-    references: &mut BTreeSet<CompositeTypeId>,
-    visited_enums: &mut BTreeSet<EnumTypeId>,
-    active_enums: &mut BTreeSet<EnumTypeId>,
-    depth: usize,
-) -> bool {
-    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
-        return false;
-    }
-    let nested_depth = depth.saturating_add(1);
-    match kind {
-        AcceptedFieldKind::Composite { type_id } => {
-            references.insert(*type_id);
-        }
-        AcceptedFieldKind::Enum { type_id } => {
-            if visited_enums.contains(type_id) {
-                return true;
-            }
-            if !active_enums.insert(*type_id) {
-                return false;
-            }
-            let Some(definition) = catalog.by_id.get(type_id) else {
-                return false;
-            };
-            for variant in definition.variants_by_id.values() {
-                if let AcceptedEnumVariantBody::Payload { contract } = &variant.body
-                    && !collect_composite_type_references(
-                        catalog,
-                        &contract.kind,
-                        references,
-                        visited_enums,
-                        active_enums,
-                        nested_depth,
-                    )
-                {
-                    return false;
-                }
-            }
-            active_enums.remove(type_id);
-            visited_enums.insert(*type_id);
-        }
-        AcceptedFieldKind::Relation { key_kind, .. }
-        | AcceptedFieldKind::List(key_kind)
-        | AcceptedFieldKind::Set(key_kind) => {
-            return collect_composite_type_references(
-                catalog,
-                key_kind,
-                references,
-                visited_enums,
-                active_enums,
-                nested_depth,
-            );
-        }
-        AcceptedFieldKind::Map { key, value } => {
-            return collect_composite_type_references(
-                catalog,
-                key,
-                references,
-                visited_enums,
-                active_enums,
-                nested_depth,
-            ) && collect_composite_type_references(
-                catalog,
-                value,
-                references,
-                visited_enums,
-                active_enums,
-                nested_depth,
-            );
-        }
-        AcceptedFieldKind::Account
-        | AcceptedFieldKind::Blob { .. }
-        | AcceptedFieldKind::Bool
-        | AcceptedFieldKind::Date
-        | AcceptedFieldKind::Decimal { .. }
-        | AcceptedFieldKind::Duration
-        | AcceptedFieldKind::Float32
-        | AcceptedFieldKind::Float64
-        | AcceptedFieldKind::Int8
-        | AcceptedFieldKind::Int16
-        | AcceptedFieldKind::Int32
-        | AcceptedFieldKind::Int64
-        | AcceptedFieldKind::Int128
-        | AcceptedFieldKind::IntBig { .. }
-        | AcceptedFieldKind::Principal
-        | AcceptedFieldKind::Subaccount
-        | AcceptedFieldKind::Text { .. }
-        | AcceptedFieldKind::Timestamp
-        | AcceptedFieldKind::Nat8
-        | AcceptedFieldKind::Nat16
-        | AcceptedFieldKind::Nat32
-        | AcceptedFieldKind::Nat64
-        | AcceptedFieldKind::Nat128
-        | AcceptedFieldKind::NatBig { .. }
-        | AcceptedFieldKind::Ulid
-        | AcceptedFieldKind::Unit => {}
-    }
-    true
 }

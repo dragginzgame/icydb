@@ -292,15 +292,6 @@ impl AcceptedCompositeCatalog {
                 self.id_by_path.get(definition.path.as_str()) == Some(type_id)
                     && definition.validate(self, enum_catalog)
             })
-            && self.contract_graph_is_acyclic(enum_catalog)
-    }
-
-    fn contract_graph_is_acyclic(&self, enum_catalog: &AcceptedEnumCatalog) -> bool {
-        let mut visited = BTreeSet::new();
-        let mut active = BTreeSet::new();
-        self.by_id.keys().copied().all(|type_id| {
-            validate_composite_type_graph(self, enum_catalog, type_id, &mut visited, &mut active, 0)
-        })
     }
 }
 
@@ -456,58 +447,4 @@ pub(in crate::db::schema) enum CompositeCatalogBuildError {
 fn unique_values<T: Ord>(values: impl Iterator<Item = T>) -> bool {
     let mut seen = BTreeSet::new();
     values.into_iter().all(|value| seen.insert(value))
-}
-
-fn validate_composite_type_graph(
-    composite_catalog: &AcceptedCompositeCatalog,
-    enum_catalog: &AcceptedEnumCatalog,
-    type_id: CompositeTypeId,
-    visited: &mut BTreeSet<CompositeTypeId>,
-    active: &mut BTreeSet<CompositeTypeId>,
-    depth: usize,
-) -> bool {
-    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
-        return false;
-    }
-    if visited.contains(&type_id) {
-        return true;
-    }
-    if !active.insert(type_id) {
-        return false;
-    }
-    let Some(definition) = composite_catalog.by_id.get(&type_id) else {
-        return false;
-    };
-    let mut references = BTreeSet::new();
-    let valid_shape = match &definition.shape {
-        AcceptedCompositeShape::Record(fields) => fields.iter().all(|field| {
-            enum_catalog.collect_composite_references(&field.contract.kind, &mut references)
-        }),
-        AcceptedCompositeShape::Tuple(elements) => elements.iter().all(|element| {
-            enum_catalog.collect_composite_references(&element.kind, &mut references)
-        }),
-        AcceptedCompositeShape::Newtype(inner) => {
-            enum_catalog.collect_composite_references(&inner.kind, &mut references)
-        }
-    };
-    if !valid_shape {
-        return false;
-    }
-    for referenced_type in references {
-        if !composite_catalog.by_id.contains_key(&referenced_type)
-            || !validate_composite_type_graph(
-                composite_catalog,
-                enum_catalog,
-                referenced_type,
-                visited,
-                active,
-                depth.saturating_add(1),
-            )
-        {
-            return false;
-        }
-    }
-    active.remove(&type_id);
-    visited.insert(type_id);
-    true
 }

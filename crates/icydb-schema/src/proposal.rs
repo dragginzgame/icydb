@@ -9,10 +9,10 @@ use sha2::{Digest, Sha256};
 use crate::{
     ConstraintSourceKey, EntityFragment, EntitySourceKey, FieldFragment, FieldSourceKey, FieldType,
     IndexSourceKey, MAX_SCHEMA_ASSIGNMENTS, MAX_SCHEMA_CAPABILITIES, MAX_SCHEMA_PROPOSAL_FRAGMENTS,
-    MAX_SCHEMA_REMOVALS, MAX_SCHEMA_TYPE_DEPTH, NamedTypeFragment, RelationSourceKey,
-    ScalarLiteral, SchemaContractError, SchemaFragment, SchemaProposalDigest, SchemaSubmissionKey,
-    SourceCheckExpr, SourceCheckInstruction, TargetDatabaseIdentity, TargetStoreIdentity,
-    TypeSourceKey, check_len, encode_schema_fragment, encode_schema_proposal,
+    MAX_SCHEMA_REMOVALS, NamedTypeFragment, RelationSourceKey, ScalarLiteral, SchemaContractError,
+    SchemaFragment, SchemaProposalDigest, SchemaSubmissionKey, SourceCheckExpr,
+    SourceCheckInstruction, TargetDatabaseIdentity, TargetStoreIdentity, TypeSourceKey, check_len,
+    encode_schema_fragment, encode_schema_proposal,
 };
 
 /// Sole maintained proposal contract version.
@@ -441,7 +441,6 @@ fn validate_proposal_closure(
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
     removals: &[SchemaRemoval],
 ) -> Result<(), SchemaContractError> {
-    validate_local_type_graph(types)?;
     let mut references = ProposalReferences::default();
     for entity in entities.values() {
         collect_entity_references(entity, types, &mut references)?;
@@ -640,94 +639,6 @@ fn validate_local_relation_targets(
         }
     }
     Ok(())
-}
-
-fn validate_local_type_graph(
-    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
-) -> Result<(), SchemaContractError> {
-    let mut active = BTreeSet::new();
-    let mut depths = BTreeMap::new();
-    for source_key in types.keys() {
-        type_depth(source_key, types, &mut active, &mut depths)?;
-    }
-    Ok(())
-}
-
-fn type_depth(
-    source_key: &TypeSourceKey,
-    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
-    active: &mut BTreeSet<TypeSourceKey>,
-    depths: &mut BTreeMap<TypeSourceKey, usize>,
-) -> Result<usize, SchemaContractError> {
-    if let Some(depth) = depths.get(source_key) {
-        return Ok(*depth);
-    }
-    if !active.insert(source_key.clone()) || active.len() > MAX_SCHEMA_TYPE_DEPTH {
-        return Err(SchemaContractError::InvalidNamedTypeGraph);
-    }
-    let Some(r#type) = types.get(source_key) else {
-        active.remove(source_key);
-        return Ok(0);
-    };
-    let mut max_child_depth = 0usize;
-    for reference in direct_named_type_references(r#type) {
-        if types.contains_key(reference) {
-            max_child_depth = max_child_depth.max(type_depth(reference, types, active, depths)?);
-        }
-    }
-    active.remove(source_key);
-    let depth = max_child_depth
-        .checked_add(1)
-        .ok_or(SchemaContractError::InvalidNamedTypeGraph)?;
-    if depth > MAX_SCHEMA_TYPE_DEPTH {
-        return Err(SchemaContractError::InvalidNamedTypeGraph);
-    }
-    depths.insert(source_key.clone(), depth);
-    Ok(depth)
-}
-
-fn direct_named_type_references(r#type: &NamedTypeFragment) -> Vec<&TypeSourceKey> {
-    let mut references = Vec::new();
-    match r#type {
-        NamedTypeFragment::Record(record) => {
-            for field in record.fields() {
-                collect_direct_named_type_references(field.field_type(), &mut references);
-            }
-        }
-        NamedTypeFragment::Enum(r#enum) => {
-            for variant in r#enum.variants() {
-                if let Some(payload) = variant.payload() {
-                    collect_direct_named_type_references(payload, &mut references);
-                }
-            }
-        }
-        NamedTypeFragment::Newtype { inner, .. }
-        | NamedTypeFragment::List { item: inner, .. }
-        | NamedTypeFragment::Set { item: inner, .. } => {
-            collect_direct_named_type_references(inner, &mut references);
-        }
-        NamedTypeFragment::Map { key, value, .. } => {
-            collect_direct_named_type_references(key, &mut references);
-            collect_direct_named_type_references(value, &mut references);
-        }
-        NamedTypeFragment::Tuple { members, .. } => {
-            for member in members {
-                collect_direct_named_type_references(member.field_type(), &mut references);
-            }
-        }
-    }
-    references
-}
-
-fn collect_direct_named_type_references<'field>(
-    field_type: &'field FieldType,
-    references: &mut Vec<&'field TypeSourceKey>,
-) {
-    match field_type {
-        FieldType::List(item) => collect_direct_named_type_references(item, references),
-        FieldType::Named(reference) => references.push(reference),
-        FieldType::Scalar(_) => {}
-    }
 }
 
 fn ensure_no_adjacent_duplicates<T>(values: &[T]) -> Result<(), SchemaContractError>

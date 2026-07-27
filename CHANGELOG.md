@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Named schema types may now form bounded resolved cycles through stable
+  accepted enum/composite IDs, while qualified enum payloads retain their
+  exact unit or payload contracts and finite values remain resource-bounded.
+
 ## [0.213.x] 🧭 - 2026-07-24 - Schema Authority And Application Separation
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)

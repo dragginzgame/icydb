@@ -45,11 +45,12 @@ pub const MAX_FRAGMENT_CONSTRAINTS: usize = 256;
 /// Maximum number of instructions in one source-level check expression.
 pub const MAX_SOURCE_CHECK_INSTRUCTIONS: usize = 1_024;
 
-/// Maximum resolved depth of one named-type graph.
+/// Maximum inline nesting depth of one field-type contract.
 ///
-/// The root named type occupies depth one. References that must be resolved
-/// against the expected accepted head are checked during application.
-pub const MAX_SCHEMA_TYPE_DEPTH: usize = 64;
+/// Named references terminate inline traversal. The separately bounded named
+/// type catalog may contain resolved cycles without recursively expanding
+/// their definitions.
+pub const MAX_SCHEMA_FIELD_TYPE_DEPTH: usize = 64;
 
 /// Maximum number of explicit removals in one proposal.
 pub const MAX_SCHEMA_REMOVALS: usize = 4_096;

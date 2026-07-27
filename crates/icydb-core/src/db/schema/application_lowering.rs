@@ -2554,6 +2554,7 @@ fn lower_nested_leaves(
         return Ok(Vec::new());
     };
     let mut leaves = Vec::new();
+    let mut active = BTreeSet::from([*type_id]);
     for field in fields {
         push_nested_leaves(
             field.name(),
@@ -2561,6 +2562,7 @@ fn lower_nested_leaves(
             catalog,
             &mut Vec::new(),
             &mut leaves,
+            &mut active,
             0,
         )?;
     }
@@ -2574,6 +2576,7 @@ fn push_nested_leaves(
     catalog: &AcceptedCompositeCatalog,
     path: &mut Vec<String>,
     leaves: &mut Vec<PersistedNestedLeafSnapshot>,
+    active: &mut BTreeSet<CompositeTypeId>,
     depth: usize,
 ) -> Result<(), InternalError> {
     if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
@@ -2589,7 +2592,9 @@ fn push_nested_leaves(
         let definition = catalog
             .composite_type(*type_id)
             .ok_or_else(InternalError::store_invariant)?;
-        if let AcceptedCompositeShape::Record(fields) = definition.shape() {
+        if let AcceptedCompositeShape::Record(fields) = definition.shape()
+            && active.insert(*type_id)
+        {
             for field in fields {
                 push_nested_leaves(
                     field.name(),
@@ -2597,9 +2602,11 @@ fn push_nested_leaves(
                     catalog,
                     path,
                     leaves,
+                    active,
                     depth.saturating_add(1),
                 )?;
             }
+            active.remove(type_id);
         }
     }
     path.pop();
@@ -2986,13 +2993,24 @@ mod tests {
         ExistingProposalStore, ProposalStoreTarget, allocate_entity_identities,
         lower_existing_schema_proposal, lower_initial_schema_proposal,
     };
-    use crate::db::schema::{
-        AcceptedConstraintKind, AcceptedNamedTypeIdentity, AcceptedSchemaRevision,
-        ConstraintActivationKind, ConstraintOrigin, PersistedFieldSnapshot, SchemaInsertDefault,
-        composite_catalog::AcceptedCompositeShape, enum_catalog::AcceptedEnumVariantBody,
+    use crate::db::{
+        data::{
+            decode_canonical_value_storage_bytes, encode_input_value_for_candidate_field_contract,
+            validate_default_payload_for_accepted_field_contract,
+        },
+        schema::{
+            AcceptedConstraintKind, AcceptedFieldDecodeContract, AcceptedNamedTypeIdentity,
+            AcceptedSchemaRevision, AcceptedValueContract, ConstraintActivationKind,
+            ConstraintOrigin, PersistedFieldSnapshot, SchemaInsertDefault, ValueAdmissionBudget,
+            composite_catalog::AcceptedCompositeShape,
+            enum_catalog::{
+                AcceptedEnumVariantBody, ValueAdmissionError, normalize_candidate_value,
+            },
+        },
     };
     use crate::error::ErrorClass;
     use crate::types::EntityTag;
+    use crate::value::{InputValue, InputValueEnum};
     use icydb_schema::{
         ConstraintFragment, ConstraintSourceKey, EntityFragment, EntitySourceKey,
         EntityStoreAssignment, EnumTypeFragment, EnumVariantFragment, ExpectedAcceptedHead,
@@ -4029,6 +4047,579 @@ mod tests {
         };
         assert!(!pair[0].nullable());
         assert!(pair[1].nullable());
+    }
+
+    #[test]
+    // Keep the complete downstream schema shape visible in one regression.
+    #[allow(clippy::too_many_lines)]
+    fn initial_lowering_publishes_and_round_trips_toko_shaped_named_type_cycles() {
+        let field_key =
+            TypeSourceKey::try_new("toko:type:field-key").expect("type source should admit");
+        let values = TypeSourceKey::try_new("toko:type:values").expect("type source should admit");
+        let field_value =
+            TypeSourceKey::try_new("toko:type:field-value").expect("type source should admit");
+        let value = TypeSourceKey::try_new("toko:type:value").expect("type source should admit");
+        let tokens = TypeSourceKey::try_new("toko:type:tokens").expect("type source should admit");
+        let token_amount =
+            TypeSourceKey::try_new("toko:type:token-amount").expect("type source should admit");
+        let tier = TypeSourceKey::try_new("toko:type:tier").expect("type source should admit");
+        let claim_cost =
+            TypeSourceKey::try_new("toko:type:claim-cost").expect("type source should admit");
+        let claim_cost_tiers =
+            TypeSourceKey::try_new("toko:type:claim-cost-tiers").expect("type source should admit");
+        let policy = TypeSourceKey::try_new("toko:type:collection-policy")
+            .expect("type source should admit");
+        let named_types = vec![
+            NamedTypeFragment::Newtype {
+                source_key: field_key.clone(),
+                name: name("FieldKey"),
+                inner: FieldType::Scalar(ScalarType::Text { max_len: Some(64) }),
+            },
+            NamedTypeFragment::Map {
+                source_key: values.clone(),
+                name: name("Values"),
+                key: FieldType::Named(field_key),
+                value: FieldType::Named(field_value.clone()),
+            },
+            NamedTypeFragment::Enum(
+                EnumTypeFragment::try_new(
+                    field_value.clone(),
+                    name("FieldValue"),
+                    vec![
+                        EnumVariantFragment::with_payload(
+                            TypeSourceKey::try_new("toko:variant:field-value:one")
+                                .expect("variant source should admit"),
+                            name("One"),
+                            FieldType::Named(value.clone()),
+                        ),
+                        EnumVariantFragment::with_payload(
+                            TypeSourceKey::try_new("toko:variant:field-value:many")
+                                .expect("variant source should admit"),
+                            name("Many"),
+                            FieldType::List(Box::new(FieldType::Named(value.clone()))),
+                        ),
+                    ],
+                )
+                .expect("field-value enum should admit"),
+            ),
+            NamedTypeFragment::Enum(
+                EnumTypeFragment::try_new(
+                    value.clone(),
+                    name("Value"),
+                    vec![
+                        EnumVariantFragment::with_payload(
+                            TypeSourceKey::try_new("toko:variant:value:text")
+                                .expect("variant source should admit"),
+                            name("Text"),
+                            FieldType::Scalar(ScalarType::Text { max_len: Some(128) }),
+                        ),
+                        EnumVariantFragment::with_payload(
+                            TypeSourceKey::try_new("toko:variant:value:record")
+                                .expect("variant source should admit"),
+                            name("Record"),
+                            FieldType::Named(values.clone()),
+                        ),
+                    ],
+                )
+                .expect("value enum should admit"),
+            ),
+            NamedTypeFragment::Newtype {
+                source_key: tokens.clone(),
+                name: name("Tokens"),
+                inner: FieldType::Scalar(ScalarType::Nat64),
+            },
+            NamedTypeFragment::Newtype {
+                source_key: token_amount.clone(),
+                name: name("TokenAmount"),
+                inner: FieldType::Scalar(ScalarType::Nat64),
+            },
+            NamedTypeFragment::Newtype {
+                source_key: tier.clone(),
+                name: name("Tier"),
+                inner: FieldType::Scalar(ScalarType::Text { max_len: Some(32) }),
+            },
+            NamedTypeFragment::Enum(
+                EnumTypeFragment::try_new(
+                    claim_cost.clone(),
+                    name("ClaimCost"),
+                    vec![
+                        EnumVariantFragment::new(
+                            TypeSourceKey::try_new("toko:variant:claim-cost:free")
+                                .expect("variant source should admit"),
+                            name("Free"),
+                        ),
+                        EnumVariantFragment::with_payload(
+                            TypeSourceKey::try_new("toko:variant:claim-cost:icp")
+                                .expect("variant source should admit"),
+                            name("Icp"),
+                            FieldType::Named(tokens),
+                        ),
+                        EnumVariantFragment::with_payload(
+                            TypeSourceKey::try_new("toko:variant:claim-cost:icrc1")
+                                .expect("variant source should admit"),
+                            name("Icrc1"),
+                            FieldType::Named(token_amount),
+                        ),
+                    ],
+                )
+                .expect("claim-cost enum should admit"),
+            ),
+            NamedTypeFragment::Map {
+                source_key: claim_cost_tiers.clone(),
+                name: name("ClaimCostTiers"),
+                key: FieldType::Named(tier),
+                value: FieldType::Named(claim_cost.clone()),
+            },
+            NamedTypeFragment::Record(
+                RecordTypeFragment::try_new(
+                    policy.clone(),
+                    name("CollectionPolicy"),
+                    vec![
+                        RecordFieldFragment::new(
+                            FieldSourceKey::try_new("toko:field:policy:claim-cost-tiers")
+                                .expect("field source should admit"),
+                            name("claim_cost_tiers"),
+                            FieldType::Named(claim_cost_tiers),
+                            false,
+                        ),
+                        RecordFieldFragment::new(
+                            FieldSourceKey::try_new("toko:field:policy:fallback")
+                                .expect("field source should admit"),
+                            name("fallback"),
+                            FieldType::Named(value.clone()),
+                            true,
+                        ),
+                        RecordFieldFragment::new(
+                            FieldSourceKey::try_new("toko:field:policy:values")
+                                .expect("field source should admit"),
+                            name("values"),
+                            FieldType::Named(values.clone()),
+                            false,
+                        ),
+                    ],
+                )
+                .expect("collection policy should admit"),
+            ),
+        ];
+        let entity_source =
+            EntitySourceKey::try_new("toko:entity:collection").expect("entity source should admit");
+        let id_source =
+            FieldSourceKey::try_new("toko:field:collection:id").expect("field source should admit");
+        let entity = EntityFragment::try_new(
+            entity_source.clone(),
+            name("Collection"),
+            vec![
+                FieldFragment::new(
+                    id_source.clone(),
+                    name("id"),
+                    FieldType::Scalar(ScalarType::Nat64),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+                FieldFragment::new(
+                    FieldSourceKey::try_new("toko:field:collection:policy")
+                        .expect("field source should admit"),
+                    name("policy"),
+                    FieldType::Named(policy),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+            ],
+            vec![id_source],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .expect("collection entity should admit");
+        let fragment =
+            SchemaFragment::try_new(vec![entity], named_types).expect("cyclic graph should admit");
+        let store = TargetStoreIdentity::from_bytes([0x72; 32]);
+        let proposal = SchemaProposal::try_compose(
+            vec![SchemaCapability::EXACT_COMPOSITE_TYPES],
+            TargetDatabaseIdentity::from_bytes([0x71; 32]),
+            SchemaSubmissionKey::try_new("toko-cyclic-named-types")
+                .expect("submission key should admit"),
+            ExpectedAcceptedHead::Empty,
+            vec![fragment],
+            vec![EntityStoreAssignment::new(entity_source.clone(), store)],
+            Vec::new(),
+        )
+        .expect("cyclic proposal should compose");
+
+        let candidates = lower_initial_schema_proposal(
+            &proposal,
+            &[ProposalStoreTarget {
+                path: "toko::Store",
+                identity: store,
+            }],
+        )
+        .expect("cyclic named types should lower");
+        let candidate = &candidates[0];
+        let recovered = super::CandidateSchemaRevision::from_encoded(
+            candidate.encoded_bundle().to_vec(),
+            candidate.encoded_root().to_vec(),
+        )
+        .expect("persisted cyclic candidate should recover");
+        assert_eq!(recovered.root(), candidate.root());
+        assert_eq!(recovered.bundle(), candidate.bundle());
+        let bundle = candidate.bundle();
+        let bindings = bundle.source_bindings_for_tests();
+        let values_composite_id = match bindings.named_type(&values).expect("Values should bind") {
+            AcceptedNamedTypeIdentity::Composite(type_id) => type_id,
+            AcceptedNamedTypeIdentity::Enum(_) => panic!("Values should be composite"),
+        };
+        let field_value_id = match bindings
+            .named_type(&field_value)
+            .expect("FieldValue should bind")
+        {
+            AcceptedNamedTypeIdentity::Enum(type_id) => type_id,
+            AcceptedNamedTypeIdentity::Composite(_) => panic!("FieldValue should be enum"),
+        };
+        let value_enum_id = match bindings.named_type(&value).expect("Value should bind") {
+            AcceptedNamedTypeIdentity::Enum(type_id) => type_id,
+            AcceptedNamedTypeIdentity::Composite(_) => panic!("Value should be enum"),
+        };
+        let AcceptedCompositeShape::Newtype(values_contract) = bundle
+            .composite_catalog()
+            .composite_type(values_composite_id)
+            .expect("Values should exist")
+            .shape()
+        else {
+            panic!("Values should lower as one map newtype")
+        };
+        assert!(matches!(
+            values_contract.kind(),
+            super::AcceptedFieldKind::Map { value, .. }
+                if matches!(
+                    value.as_ref(),
+                    super::AcceptedFieldKind::Enum { type_id } if *type_id == field_value_id
+                )
+        ));
+        let field_value_definition = bundle
+            .enum_catalog()
+            .enum_type(field_value_id)
+            .expect("FieldValue should exist");
+        for variant_name in ["One", "Many"] {
+            let variant = field_value_definition
+                .variant(
+                    field_value_definition
+                        .variant_id(variant_name)
+                        .expect("variant should exist"),
+                )
+                .expect("variant definition should exist");
+            assert!(matches!(
+                variant.body(),
+                AcceptedEnumVariantBody::Payload { contract }
+                    if match contract.kind() {
+                        super::AcceptedFieldKind::Enum { type_id } => {
+                            variant_name == "One" && *type_id == value_enum_id
+                        }
+                        super::AcceptedFieldKind::List(item) => {
+                            variant_name == "Many"
+                                && matches!(
+                                    item.as_ref(),
+                                    super::AcceptedFieldKind::Enum { type_id }
+                                        if *type_id == value_enum_id
+                                )
+                        }
+                        _ => false,
+                    }
+            ));
+        }
+        let record_variant = bundle
+            .enum_catalog()
+            .enum_type(value_enum_id)
+            .and_then(|definition| definition.variant_id("Record").map(|id| (definition, id)))
+            .and_then(|(definition, id)| definition.variant(id))
+            .expect("Value::Record should exist");
+        assert!(matches!(
+            record_variant.body(),
+            AcceptedEnumVariantBody::Payload { contract }
+                if matches!(
+                    contract.kind(),
+                    super::AcceptedFieldKind::Composite { type_id }
+                        if *type_id == values_composite_id
+                )
+        ));
+
+        let claim_cost_id = match bindings
+            .named_type(&claim_cost)
+            .expect("ClaimCost should bind")
+        {
+            AcceptedNamedTypeIdentity::Enum(type_id) => type_id,
+            AcceptedNamedTypeIdentity::Composite(_) => panic!("ClaimCost should be enum"),
+        };
+        let claim_cost_definition = bundle
+            .enum_catalog()
+            .enum_type(claim_cost_id)
+            .expect("ClaimCost should exist");
+        assert!(matches!(
+            claim_cost_definition
+                .variant(
+                    claim_cost_definition
+                        .variant_id("Free")
+                        .expect("Free should exist")
+                )
+                .expect("Free definition should exist")
+                .body(),
+            AcceptedEnumVariantBody::Unit
+        ));
+        for variant_name in ["Icp", "Icrc1"] {
+            assert!(matches!(
+                claim_cost_definition
+                    .variant(
+                        claim_cost_definition
+                            .variant_id(variant_name)
+                            .expect("payload variant should exist")
+                    )
+                    .expect("payload variant definition should exist")
+                    .body(),
+                AcceptedEnumVariantBody::Payload { contract }
+                    if matches!(
+                        contract.kind(),
+                        super::AcceptedFieldKind::Composite { .. }
+                    )
+            ));
+        }
+
+        let entity_tag = bindings
+            .entity(&entity_source)
+            .expect("collection entity should bind");
+        let policy_field = bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .and_then(|snapshot| {
+                snapshot
+                    .fields()
+                    .iter()
+                    .find(|field| field.name() == "policy")
+            })
+            .expect("policy field should exist");
+        let field_contract = AcceptedFieldDecodeContract::new(
+            policy_field.name(),
+            policy_field.kind(),
+            policy_field.nullable(),
+            policy_field.storage_decode(),
+            policy_field.leaf_codec(),
+        );
+        let finite_value = InputValue::Map(vec![
+            (
+                InputValue::Text("claim_cost_tiers".to_string()),
+                InputValue::Map(vec![
+                    (
+                        InputValue::Text("free".to_string()),
+                        InputValue::Enum(InputValueEnum::loose("Free")),
+                    ),
+                    (
+                        InputValue::Text("gold".to_string()),
+                        InputValue::Enum(
+                            InputValueEnum::loose("Icp").with_payload(InputValue::Nat64(10)),
+                        ),
+                    ),
+                    (
+                        InputValue::Text("silver".to_string()),
+                        InputValue::Enum(
+                            InputValueEnum::loose("Icrc1").with_payload(InputValue::Nat64(20)),
+                        ),
+                    ),
+                ]),
+            ),
+            (InputValue::Text("fallback".to_string()), InputValue::Null),
+            (
+                InputValue::Text("values".to_string()),
+                InputValue::Map(vec![(
+                    InputValue::Text("root".to_string()),
+                    InputValue::Enum(InputValueEnum::loose("One").with_payload(InputValue::Enum(
+                        InputValueEnum::loose("Record").with_payload(InputValue::Map(vec![(
+                            InputValue::Text("nested".to_string()),
+                            InputValue::Enum(InputValueEnum::loose("Many").with_payload(
+                                InputValue::List(vec![InputValue::Enum(
+                                        InputValueEnum::loose("Text")
+                                            .with_payload(InputValue::Text("leaf".to_string())),
+                                    )]),
+                            )),
+                        )])),
+                    ))),
+                )]),
+            ),
+        ]);
+        let mut budget = ValueAdmissionBudget::standard();
+        let encoded = encode_input_value_for_candidate_field_contract(
+            bundle.enum_catalog(),
+            bundle.composite_catalog(),
+            field_contract,
+            finite_value,
+            &mut budget,
+        )
+        .expect("finite cyclic-contract value should encode");
+        validate_default_payload_for_accepted_field_contract(
+            bundle.enum_catalog(),
+            bundle.composite_catalog(),
+            field_contract,
+            &encoded,
+        )
+        .expect("encoded finite value should validate against accepted catalogs");
+        assert!(
+            decode_canonical_value_storage_bytes(&encoded).is_ok(),
+            "finite cyclic-contract value should use the bounded canonical wire",
+        );
+
+        let values_kind = super::AcceptedFieldKind::Composite {
+            type_id: values_composite_id,
+        };
+        let values_contract = AcceptedValueContract::from_candidate_catalogs(
+            bundle.enum_catalog(),
+            bundle.composite_catalog(),
+            &values_kind,
+            super::FieldStorageDecode::CatalogValue,
+        )
+        .expect("Values contract should resolve");
+        let mut nested = InputValue::Enum(
+            InputValueEnum::loose("Text").with_payload(InputValue::Text("leaf".to_string())),
+        );
+        for level in 0..=super::MAX_ACCEPTED_RECURSIVE_DEPTH {
+            nested = InputValue::Enum(InputValueEnum::loose("Record").with_payload(
+                InputValue::Map(vec![(
+                    InputValue::Text(format!("level-{level}")),
+                    InputValue::Enum(InputValueEnum::loose("One").with_payload(nested)),
+                )]),
+            ));
+        }
+        let mut budget = ValueAdmissionBudget::standard();
+        let error = normalize_candidate_value(
+            bundle.enum_catalog(),
+            bundle.composite_catalog(),
+            &values_contract,
+            InputValue::Map(vec![(
+                InputValue::Text("root".to_string()),
+                InputValue::Enum(InputValueEnum::loose("One").with_payload(nested)),
+            )]),
+            &mut budget,
+        )
+        .expect_err("an excessive runtime value depth should reject");
+        assert_eq!(error, ValueAdmissionError::DepthExceeded);
+    }
+
+    #[test]
+    // Keep both named definitions and the resulting leaf projection together.
+    #[allow(clippy::too_many_lines)]
+    fn initial_lowering_cuts_mutual_record_leaf_expansion_at_the_resolved_back_edge() {
+        let left = TypeSourceKey::try_new("cycle:type:left").expect("type source should admit");
+        let right = TypeSourceKey::try_new("cycle:type:right").expect("type source should admit");
+        let named_types = vec![
+            NamedTypeFragment::Record(
+                RecordTypeFragment::try_new(
+                    left.clone(),
+                    name("Left"),
+                    vec![RecordFieldFragment::new(
+                        FieldSourceKey::try_new("cycle:field:left:right")
+                            .expect("field source should admit"),
+                        name("right"),
+                        FieldType::Named(right.clone()),
+                        false,
+                    )],
+                )
+                .expect("left record should admit"),
+            ),
+            NamedTypeFragment::Record(
+                RecordTypeFragment::try_new(
+                    right,
+                    name("Right"),
+                    vec![RecordFieldFragment::new(
+                        FieldSourceKey::try_new("cycle:field:right:left")
+                            .expect("field source should admit"),
+                        name("left"),
+                        FieldType::Named(left.clone()),
+                        false,
+                    )],
+                )
+                .expect("right record should admit"),
+            ),
+        ];
+        let entity_source =
+            EntitySourceKey::try_new("cycle:entity:holder").expect("entity source should admit");
+        let id_source =
+            FieldSourceKey::try_new("cycle:field:holder:id").expect("field source should admit");
+        let entity = EntityFragment::try_new(
+            entity_source.clone(),
+            name("CycleHolder"),
+            vec![
+                FieldFragment::new(
+                    id_source.clone(),
+                    name("id"),
+                    FieldType::Scalar(ScalarType::Nat64),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+                FieldFragment::new(
+                    FieldSourceKey::try_new("cycle:field:holder:left")
+                        .expect("field source should admit"),
+                    name("left"),
+                    FieldType::Named(left),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+            ],
+            vec![id_source],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .expect("cycle holder should admit");
+        let store = TargetStoreIdentity::from_bytes([0x82; 32]);
+        let proposal = SchemaProposal::try_compose(
+            vec![SchemaCapability::EXACT_COMPOSITE_TYPES],
+            TargetDatabaseIdentity::from_bytes([0x81; 32]),
+            SchemaSubmissionKey::try_new("mutual-record-cycle")
+                .expect("submission key should admit"),
+            ExpectedAcceptedHead::Empty,
+            vec![
+                SchemaFragment::try_new(vec![entity], named_types)
+                    .expect("resolved record cycle should compose"),
+            ],
+            vec![EntityStoreAssignment::new(entity_source.clone(), store)],
+            Vec::new(),
+        )
+        .expect("record-cycle proposal should compose");
+
+        let candidates = lower_initial_schema_proposal(
+            &proposal,
+            &[ProposalStoreTarget {
+                path: "cycle::Store",
+                identity: store,
+            }],
+        )
+        .expect("record cycle should lower and survive bundle round-trip");
+        let bundle = candidates[0].bundle();
+        let entity_tag = bundle
+            .source_bindings_for_tests()
+            .entity(&entity_source)
+            .expect("cycle holder should bind");
+        let left_field = bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .and_then(|snapshot| {
+                snapshot
+                    .fields()
+                    .iter()
+                    .find(|field| field.name() == "left")
+            })
+            .expect("left field should exist");
+        assert_eq!(
+            left_field
+                .nested_leaves()
+                .iter()
+                .map(super::PersistedNestedLeafSnapshot::path)
+                .collect::<Vec<_>>(),
+            [
+                ["right".to_string()].as_slice(),
+                ["right".to_string(), "left".to_string()].as_slice(),
+            ],
+        );
     }
 
     #[test]
