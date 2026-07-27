@@ -1,6 +1,8 @@
 # UI Architecture Guards
 
 This file maps each UI test to exactly one architecture rule.
+The `compile` test target requires the `sql` feature because these guards cover
+the complete SQL execution graph and its root diagnostics surface.
 
 ## Compile-Fail Guards (`tests/ui/**/*.rs`)
 

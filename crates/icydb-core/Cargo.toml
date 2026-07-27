@@ -47,5 +47,10 @@ proptest = { workspace = true }
 serde_json = { workspace = true }
 trybuild = { workspace = true }
 
+[[test]]
+name = "compile"
+path = "tests/compile.rs"
+required-features = ["sql"]
+
 [lints]
 workspace = true
