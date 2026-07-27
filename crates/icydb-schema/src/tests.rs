@@ -5,15 +5,34 @@ use crate::{
     FieldSourceKey, FieldType, Float32, Float64, IntBig, MAX_SCHEMA_FIELD_TYPE_DEPTH,
     MAX_SCHEMA_PROPOSAL_BYTES, MAX_SOURCE_KEY_BYTES, NamedTypeFragment, NatBig,
     ProposalContractVersion, RecordFieldFragment, RecordTypeFragment, RelationDeleteAction,
-    RelationFragment, ScalarLiteral, ScalarType, SchemaCapability, SchemaContractError,
-    SchemaFragment, SchemaName, SchemaProposal, SchemaRemoval, SchemaSubmissionKey,
-    SourceCheckExpr, SourceCheckInstruction, Subaccount, TargetDatabaseIdentity,
-    TargetStoreIdentity, Timestamp, TupleElementFragment, TypeSourceKey, Ulid, Unit,
-    decode_schema_fragment, decode_schema_proposal, encode_schema_fragment, encode_schema_proposal,
+    RelationFragment, RuleSourceKey, ScalarLiteral, ScalarType, SchemaCapability,
+    SchemaContractError, SchemaFragment, SchemaName, SchemaProposal, SchemaRemoval,
+    SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction, Subaccount,
+    TargetDatabaseIdentity, TargetStoreIdentity, Timestamp, TupleElementFragment, TypeSourceKey,
+    Ulid, Unit, decode_schema_fragment, decode_schema_proposal, encode_schema_fragment,
+    encode_schema_proposal,
 };
 
 fn source<T>(value: &str, constructor: impl FnOnce(String) -> Result<T, SchemaContractError>) -> T {
     constructor(value.to_string()).expect("fixture source key should admit")
+}
+
+#[test]
+fn field_rule_constraint_source_is_deterministic_and_bounded() {
+    let field = FieldSourceKey::try_new("f".repeat(MAX_SOURCE_KEY_BYTES))
+        .expect("maximum field source key should admit");
+    let rule = RuleSourceKey::try_new("r".repeat(MAX_SOURCE_KEY_BYTES))
+        .expect("maximum rule source key should admit");
+    let first = ConstraintSourceKey::for_field_rule(&field, &rule);
+    let second = ConstraintSourceKey::for_field_rule(&field, &rule);
+    let other = ConstraintSourceKey::for_field_rule(
+        &FieldSourceKey::try_new("other").expect("other field source should admit"),
+        &rule,
+    );
+
+    assert_eq!(first, second);
+    assert_ne!(first, other);
+    assert!(first.as_str().len() <= MAX_SOURCE_KEY_BYTES);
 }
 
 fn proposal(entity_name: &str, reverse_input: bool) -> SchemaProposal {

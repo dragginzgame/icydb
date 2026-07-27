@@ -15,7 +15,11 @@ use crate::prelude::*;
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        validator(path = "base::validator::len::Range", args(1, 40)),
+        rule(
+            source_key = "icydb.base.rule.ident.constant.length.v1",
+            kind = "length_range_inclusive",
+            args(1, 40)
+        ),
         validator(path = "base::validator::text::case::UpperSnake"),
     )
 )]
@@ -30,7 +34,11 @@ pub struct Constant {}
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        validator(path = "base::validator::len::Range", args(2, 40)),
+        rule(
+            source_key = "icydb.base.rule.ident.field.length.v1",
+            kind = "length_range_inclusive",
+            args(2, 40)
+        ),
         validator(path = "base::validator::text::case::Snake"),
     )
 )]
@@ -47,7 +55,11 @@ pub struct Field {}
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        validator(path = "base::validator::len::Range", args(2, 64)),
+        rule(
+            source_key = "icydb.base.rule.ident.function.length.v1",
+            kind = "length_range_inclusive",
+            args(2, 64)
+        ),
         validator(path = "base::validator::text::case::Snake"),
     )
 )]
@@ -62,7 +74,11 @@ pub struct Function {}
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        validator(path = "base::validator::len::Range", args(2, 40)),
+        rule(
+            source_key = "icydb.base.rule.ident.variable.length.v1",
+            kind = "length_range_inclusive",
+            args(2, 40)
+        ),
         validator(path = "base::validator::text::case::Snake"),
     )
 )]
@@ -77,7 +93,11 @@ pub struct Variable {}
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        validator(path = "base::validator::len::Range", args(1, 40)),
+        rule(
+            source_key = "icydb.base.rule.ident.variant.length.v1",
+            kind = "length_range_inclusive",
+            args(1, 40)
+        ),
         validator(path = "base::validator::text::case::UpperCamel"),
     )
 )]

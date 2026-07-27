@@ -4,6 +4,7 @@ use std::fmt::{self, Display, Formatter};
 
 use candid::CandidType;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as DeError};
+use sha2::{Digest, Sha256};
 
 use crate::{
     MAX_SCHEMA_NAME_BYTES, MAX_SCHEMA_SUBMISSION_KEY_BYTES, MAX_SOURCE_KEY_BYTES,
@@ -96,6 +97,37 @@ source_key!(TypeSourceKey);
 source_key!(ConstraintSourceKey);
 source_key!(IndexSourceKey);
 source_key!(RelationSourceKey);
+source_key!(RuleSourceKey);
+
+impl ConstraintSourceKey {
+    /// Derive the immutable identity of one reusable rule instantiated on one
+    /// persisted field.
+    ///
+    /// The domain-separated digest keeps the result within the frozen source
+    /// key bound even when both authored identities use their maximum length.
+    #[must_use]
+    pub fn for_field_rule(field: &FieldSourceKey, rule: &RuleSourceKey) -> Self {
+        let mut hasher = Sha256::new();
+        hasher.update(b"icydb:constraint-source:field-rule:v1");
+        hash_bounded_part(&mut hasher, field.as_str());
+        hash_bounded_part(&mut hasher, rule.as_str());
+        let digest = hasher.finalize();
+        let mut value = String::with_capacity(5 + (digest.len() * 2));
+        value.push_str("rule:");
+        for byte in digest {
+            value.push(HEX_DIGITS[usize::from(byte >> 4)] as char);
+            value.push(HEX_DIGITS[usize::from(byte & 0x0f)] as char);
+        }
+        Self(value)
+    }
+}
+
+const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
+
+fn hash_bounded_part(hasher: &mut Sha256, value: &str) {
+    hasher.update(u32::try_from(value.len()).unwrap_or(u32::MAX).to_be_bytes());
+    hasher.update(value.as_bytes());
+}
 
 /// Bounded editable SQL/display name.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]

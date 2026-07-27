@@ -115,7 +115,7 @@ fn entity_in_module(
         relations,
         &[],
         FieldList::new(fields),
-        Type::new(&[], &[]),
+        Type::new(&[], &[], &[]),
     )
 }
 

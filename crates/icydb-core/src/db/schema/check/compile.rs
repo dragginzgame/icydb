@@ -346,7 +346,7 @@ impl CompiledAcceptedRowConstraints {
             .copied()
             .map(|(id, name, expression, validated)| {
                 expression
-                    .validate(snapshot)
+                    .validate(snapshot, value_catalog.composite_catalog())
                     .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)?;
                 Ok(CompiledAcceptedRowConstraint::Check(
                     CompiledAcceptedCheck {
@@ -900,6 +900,9 @@ pub(in crate::db::schema) fn validate_accepted_check_literals(
 ) -> Result<(), AcceptedRowConstraintEvaluationError> {
     for constraint in schema.persisted_snapshot().constraints() {
         if let AcceptedConstraintKind::Check { expression } = constraint.kind() {
+            expression
+                .validate(schema.persisted_snapshot(), composite_catalog)
+                .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)?;
             validate_expression_literals(expression, enum_catalog, composite_catalog)?;
         }
     }

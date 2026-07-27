@@ -20,7 +20,11 @@ use crate::prelude::*;
     item(prim = "Text", unbounded),
     ty(
         normalizer(path = "base::normalizer::text::Trim"),
-        validator(path = "base::validator::len::Range", args(1, 100)),
+        rule(
+            source_key = "icydb.base.rule.geo.address_line.length.v1",
+            kind = "length_range_inclusive",
+            args(1, 100)
+        ),
     )
 )]
 pub struct AddressLine {}
@@ -41,7 +45,11 @@ pub struct AddressLine {}
     ty(
         normalizer(path = "base::normalizer::text::Trim"),
         normalizer(path = "base::normalizer::text::case::Title"),
-        validator(path = "base::validator::len::Range", args(1, 100)),
+        rule(
+            source_key = "icydb.base.rule.geo.city_name.length.v1",
+            kind = "length_range_inclusive",
+            args(1, 100)
+        ),
     )
 )]
 pub struct CityName {}
@@ -62,7 +70,11 @@ pub struct CityName {}
     ty(
         normalizer(path = "base::normalizer::text::Trim"),
         normalizer(path = "base::normalizer::text::case::Upper"),
-        validator(path = "base::validator::len::Range", args(3, 12)),
+        rule(
+            source_key = "icydb.base.rule.geo.postal_code.length.v1",
+            kind = "length_range_inclusive",
+            args(3, 12)
+        ),
     )
 )]
 pub struct PostalCode {}
@@ -84,7 +96,11 @@ pub struct PostalCode {}
     ty(
         normalizer(path = "base::normalizer::text::Trim"),
         normalizer(path = "base::normalizer::text::case::Upper"),
-        validator(path = "base::validator::len::Range", args(2, 50)),
+        rule(
+            source_key = "icydb.base.rule.geo.region_name.length.v1",
+            kind = "length_range_inclusive",
+            args(2, 50)
+        ),
     )
 )]
 pub struct RegionName {}

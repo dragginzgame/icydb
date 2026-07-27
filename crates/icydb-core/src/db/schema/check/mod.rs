@@ -11,7 +11,10 @@ mod render;
 mod tests;
 
 use crate::{
-    db::schema::{AcceptedFieldKind, FieldId, PersistedSchemaSnapshot, SchemaFieldSlot},
+    db::schema::{
+        AcceptedCompositeCatalog, AcceptedFieldKind, FieldId, PersistedSchemaSnapshot,
+        SchemaFieldSlot,
+    },
     model::field::{FieldStorageDecode, LeafCodec},
 };
 
@@ -193,16 +196,25 @@ impl AcceptedCheckExprV1 {
     pub(in crate::db) fn validate(
         &self,
         snapshot: &PersistedSchemaSnapshot,
+        composite_catalog: &AcceptedCompositeCatalog,
     ) -> Result<(), AcceptedCheckExprV1Error> {
-        self.validate_snapshot_local(snapshot.fields())
+        self.validate_with_catalog(snapshot.fields(), Some(composite_catalog))
     }
 
     pub(in crate::db::schema) fn validate_snapshot_local(
         &self,
         fields: &[crate::db::schema::PersistedFieldSnapshot],
     ) -> Result<(), AcceptedCheckExprV1Error> {
+        self.validate_with_catalog(fields, None)
+    }
+
+    fn validate_with_catalog(
+        &self,
+        fields: &[crate::db::schema::PersistedFieldSnapshot],
+        composite_catalog: Option<&AcceptedCompositeCatalog>,
+    ) -> Result<(), AcceptedCheckExprV1Error> {
         let mut bounds = CheckExprV1Bounds::default();
-        self.validate_at(fields, 0, &mut bounds)?;
+        self.validate_at(fields, composite_catalog, 0, &mut bounds)?;
         if self.canonical_key().len() > MAX_CHECK_EXPR_V1_BYTES {
             return Err(AcceptedCheckExprV1Error::EncodedBytesExceeded);
         }
@@ -299,6 +311,7 @@ impl AcceptedCheckExprV1 {
     fn validate_at(
         &self,
         fields: &[crate::db::schema::PersistedFieldSnapshot],
+        composite_catalog: Option<&AcceptedCompositeCatalog>,
         depth: u16,
         bounds: &mut CheckExprV1Bounds,
     ) -> Result<(), AcceptedCheckExprV1Error> {
@@ -315,20 +328,23 @@ impl AcceptedCheckExprV1 {
 
         match self {
             Self::True | Self::False => Ok(()),
-            Self::Not(inner) => inner.validate_at(fields, depth + 1, bounds),
+            Self::Not(inner) => inner.validate_at(fields, composite_catalog, depth + 1, bounds),
             Self::And(children) | Self::Or(children) => {
-                validate_boolean_children(self, children, fields, depth, bounds)
+                validate_boolean_children(self, children, fields, composite_catalog, depth, bounds)
             }
             Self::Compare { left, op, right } => {
-                let left_kind = validate_value_expr(left, fields, bounds)?;
-                let right_kind = validate_value_expr(right, fields, bounds)?;
-                if left_kind != right_kind {
-                    return Err(AcceptedCheckExprV1Error::OperandKindMismatch);
+                let left_kind = validate_value_expr(left, fields, composite_catalog, bounds)?;
+                let right_kind = validate_value_expr(right, fields, composite_catalog, bounds)?;
+                if let (Some(left_kind), Some(right_kind)) = (left_kind, right_kind) {
+                    if left_kind != right_kind {
+                        return Err(AcceptedCheckExprV1Error::OperandKindMismatch);
+                    }
+                    validate_compare_capability(&left_kind, *op)?;
                 }
-                validate_compare_capability(left_kind, *op)
+                Ok(())
             }
             Self::IsNull(value) | Self::IsNotNull(value) => {
-                let _ = validate_value_expr(value, fields, bounds)?;
+                let _ = validate_value_expr(value, fields, composite_catalog, bounds)?;
                 Ok(())
             }
         }
@@ -398,6 +414,7 @@ fn validate_boolean_children(
     parent: &AcceptedCheckExprV1,
     children: &[AcceptedCheckExprV1],
     fields: &[crate::db::schema::PersistedFieldSnapshot],
+    composite_catalog: Option<&AcceptedCompositeCatalog>,
     depth: u16,
     bounds: &mut CheckExprV1Bounds,
 ) -> Result<(), AcceptedCheckExprV1Error> {
@@ -421,27 +438,34 @@ fn validate_boolean_children(
             return Err(AcceptedCheckExprV1Error::NonCanonical);
         }
         prior = Some(key);
-        child.validate_at(fields, depth + 1, bounds)?;
+        child.validate_at(fields, composite_catalog, depth + 1, bounds)?;
     }
     Ok(())
 }
 
-fn validate_value_expr<'a>(
-    value: &'a AcceptedCheckValueExprV1,
-    fields: &'a [crate::db::schema::PersistedFieldSnapshot],
+fn validate_value_expr(
+    value: &AcceptedCheckValueExprV1,
+    fields: &[crate::db::schema::PersistedFieldSnapshot],
+    composite_catalog: Option<&AcceptedCompositeCatalog>,
     bounds: &mut CheckExprV1Bounds,
-) -> Result<&'a AcceptedFieldKind, AcceptedCheckExprV1Error> {
+) -> Result<Option<AcceptedFieldKind>, AcceptedCheckExprV1Error> {
     match value {
         AcceptedCheckValueExprV1::Field(field_id) => {
             let field = field_for_id_in_fields(fields, *field_id)
                 .ok_or(AcceptedCheckExprV1Error::UnknownField)?;
-            if matches!(
-                field.kind(),
-                AcceptedFieldKind::Relation { .. } | AcceptedFieldKind::Composite { .. }
-            ) {
-                return Err(AcceptedCheckExprV1Error::UnsupportedFieldKind);
+            match field.kind() {
+                AcceptedFieldKind::Relation { .. } => {
+                    Err(AcceptedCheckExprV1Error::UnsupportedFieldKind)
+                }
+                AcceptedFieldKind::Composite { .. } => composite_catalog
+                    .map(|catalog| {
+                        catalog
+                            .resolve_newtype_value_kind(field.kind())
+                            .ok_or(AcceptedCheckExprV1Error::UnsupportedFieldKind)
+                    })
+                    .transpose(),
+                kind => Ok(Some(kind.clone())),
             }
-            Ok(field.kind())
         }
         AcceptedCheckValueExprV1::Literal(literal) => {
             bounds.literal_bytes = bounds
@@ -453,37 +477,67 @@ fn validate_value_expr<'a>(
             {
                 return Err(AcceptedCheckExprV1Error::LiteralBytesExceeded);
             }
-            Ok(literal.kind())
+            Ok(Some(literal.kind().clone()))
         }
         AcceptedCheckValueExprV1::CharLength(field_id) => {
             let field = field_for_id_in_fields(fields, *field_id)
                 .ok_or(AcceptedCheckExprV1Error::UnknownField)?;
-            if !matches!(field.kind(), AcceptedFieldKind::Text { .. }) {
+            let kind = resolved_length_source_kind(field.kind(), composite_catalog)?;
+            if kind
+                .as_ref()
+                .is_some_and(|kind| !matches!(kind, AcceptedFieldKind::Text { .. }))
+            {
                 return Err(AcceptedCheckExprV1Error::LengthOperationKindMismatch);
             }
-            Ok(nat64_kind())
+            Ok(Some(nat64_kind().clone()))
         }
         AcceptedCheckValueExprV1::OctetLength(field_id) => {
             let field = field_for_id_in_fields(fields, *field_id)
                 .ok_or(AcceptedCheckExprV1Error::UnknownField)?;
-            if !matches!(field.kind(), AcceptedFieldKind::Blob { .. }) {
+            let kind = resolved_length_source_kind(field.kind(), composite_catalog)?;
+            if kind
+                .as_ref()
+                .is_some_and(|kind| !matches!(kind, AcceptedFieldKind::Blob { .. }))
+            {
                 return Err(AcceptedCheckExprV1Error::LengthOperationKindMismatch);
             }
-            Ok(nat64_kind())
+            Ok(Some(nat64_kind().clone()))
         }
         AcceptedCheckValueExprV1::Cardinality(field_id) => {
             let field = field_for_id_in_fields(fields, *field_id)
                 .ok_or(AcceptedCheckExprV1Error::UnknownField)?;
-            if !matches!(
-                field.kind(),
-                AcceptedFieldKind::List(_)
-                    | AcceptedFieldKind::Set(_)
-                    | AcceptedFieldKind::Map { .. }
-            ) {
+            let kind = resolved_length_source_kind(field.kind(), composite_catalog)?;
+            if kind.as_ref().is_some_and(|kind| {
+                !matches!(
+                    kind,
+                    AcceptedFieldKind::List(_)
+                        | AcceptedFieldKind::Set(_)
+                        | AcceptedFieldKind::Map { .. }
+                )
+            }) {
                 return Err(AcceptedCheckExprV1Error::LengthOperationKindMismatch);
             }
-            Ok(nat64_kind())
+            Ok(Some(nat64_kind().clone()))
         }
+    }
+}
+
+fn resolved_length_source_kind(
+    kind: &AcceptedFieldKind,
+    composite_catalog: Option<&AcceptedCompositeCatalog>,
+) -> Result<Option<AcceptedFieldKind>, AcceptedCheckExprV1Error> {
+    match kind {
+        AcceptedFieldKind::Relation { .. } => {
+            Err(AcceptedCheckExprV1Error::LengthOperationKindMismatch)
+        }
+        AcceptedFieldKind::Composite { .. } => composite_catalog
+            .map(|catalog| {
+                catalog
+                    .resolve_newtype_value_kind(kind)
+                    .ok_or(AcceptedCheckExprV1Error::LengthOperationKindMismatch)
+            })
+            .transpose(),
+        kind => Ok(Some(kind.clone())),
     }
 }
 

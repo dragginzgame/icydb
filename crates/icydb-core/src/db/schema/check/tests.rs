@@ -11,13 +11,18 @@ use crate::{
             ConstraintId, ConstraintOrigin, FieldId, PersistedFieldSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
             PersistedSchemaSnapshot, SchemaFieldSlot, SchemaIndexId, SchemaInsertDefault,
-            SchemaRowLayout, SchemaVersion, composite_catalog::CompositeTypeId,
+            SchemaRowLayout, SchemaVersion,
+            composite_catalog::{
+                AcceptedCompositeElement, AcceptedCompositeShape, CompositeTypeId,
+            },
             enum_catalog::build_initial_accepted_enum_catalog,
         },
     },
     model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
     value::{InputValue, Value},
 };
+use icydb_schema::Decimal;
+use std::collections::BTreeMap;
 
 const FINGERPRINT: CommitSchemaFingerprint = [7; 16];
 
@@ -627,22 +632,247 @@ fn binder_rejects_empty_or_oversized_membership() {
 }
 
 #[test]
-fn local_validation_rejects_relations_and_composites_even_for_null_checks() {
+fn local_validation_defers_composite_meaning_but_exact_validation_rejects_non_newtypes() {
     let mut fields = snapshot().fields().to_vec();
+    let type_id = CompositeTypeId::new(1).expect("test composite type ID should be non-zero");
     fields.push(field(
         6,
         5,
         "details",
-        AcceptedFieldKind::Composite {
-            type_id: CompositeTypeId::new(1).expect("test composite type ID should be non-zero"),
-        },
+        AcceptedFieldKind::Composite { type_id },
         true,
         LeafCodec::Structural,
     ));
     let expression = AcceptedCheckExprV1::IsNull(AcceptedCheckValueExprV1::Field(FieldId::new(6)));
 
+    assert!(
+        expression
+            .validate_snapshot_local(fields.as_slice())
+            .is_ok()
+    );
+    let enum_catalog =
+        build_initial_accepted_enum_catalog(&[]).expect("empty enum catalog should build");
+    let composite_catalog = AcceptedCompositeCatalog::from_initial_definitions(
+        BTreeMap::from([(
+            type_id,
+            (
+                "tests::Details".to_string(),
+                AcceptedCompositeShape::Tuple(vec![AcceptedCompositeElement::new(
+                    AcceptedFieldKind::Nat64,
+                    false,
+                )]),
+            ),
+        )]),
+        &enum_catalog,
+    )
+    .expect("tuple composite fixture should build");
+    let snapshot = PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "tests::CheckedEntity".to_string(),
+        "CheckedEntity".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(
+            fields
+                .iter()
+                .map(|field| (field.id(), field.slot()))
+                .collect(),
+        ),
+        fields,
+    );
     assert_eq!(
-        expression.validate_snapshot_local(fields.as_slice()),
+        expression.validate(&snapshot, &composite_catalog),
         Err(AcceptedCheckExprV1Error::UnsupportedFieldKind)
     );
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one compiled-program fixture proves numeric, decimal, and length nominal-newtype semantics together"
+)]
+fn accepted_checks_resolve_nominal_newtype_values_through_catalog_authority() {
+    let type_id = CompositeTypeId::new(1).expect("test composite type ID should be non-zero");
+    let label_type_id = CompositeTypeId::new(2).expect("test composite type ID should be non-zero");
+    let amount_type_id =
+        CompositeTypeId::new(3).expect("test composite type ID should be non-zero");
+    let enum_catalog =
+        build_initial_accepted_enum_catalog(&[]).expect("empty enum catalog should build");
+    let composite_catalog = AcceptedCompositeCatalog::from_initial_definitions(
+        BTreeMap::from([
+            (
+                type_id,
+                (
+                    "tests::Degrees".to_string(),
+                    AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
+                        AcceptedFieldKind::Nat16,
+                        false,
+                    )),
+                ),
+            ),
+            (
+                label_type_id,
+                (
+                    "tests::Label".to_string(),
+                    AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
+                        AcceptedFieldKind::Text { max_len: None },
+                        false,
+                    )),
+                ),
+            ),
+            (
+                amount_type_id,
+                (
+                    "tests::Amount".to_string(),
+                    AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
+                        AcceptedFieldKind::Decimal { scale: 8 },
+                        false,
+                    )),
+                ),
+            ),
+        ]),
+        &enum_catalog,
+    )
+    .expect("newtype composite fixture should build");
+    let fields = vec![
+        field(
+            1,
+            0,
+            "id",
+            AcceptedFieldKind::Ulid,
+            false,
+            LeafCodec::Scalar(ScalarCodec::Ulid),
+        ),
+        field(
+            2,
+            1,
+            "degrees",
+            AcceptedFieldKind::Composite { type_id },
+            false,
+            LeafCodec::Structural,
+        ),
+        field(
+            3,
+            2,
+            "label",
+            AcceptedFieldKind::Composite {
+                type_id: label_type_id,
+            },
+            false,
+            LeafCodec::Structural,
+        ),
+        field(
+            4,
+            3,
+            "amount",
+            AcceptedFieldKind::Composite {
+                type_id: amount_type_id,
+            },
+            false,
+            LeafCodec::Structural,
+        ),
+    ];
+    let snapshot = PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "tests::Compass".to_string(),
+        "Compass".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(
+            fields
+                .iter()
+                .map(|field| (field.id(), field.slot()))
+                .collect(),
+        ),
+        fields,
+    );
+    let expression = bind_check_expr_v1(
+        CheckExprV1Input::And(vec![
+            CheckExprV1Input::Compare {
+                left: CheckValueExprV1Input::Field("degrees".to_string()),
+                op: AcceptedCheckCompareOpV1::Lte,
+                right: CheckValueExprV1Input::Literal(InputValue::Nat64(360)),
+            },
+            CheckExprV1Input::Compare {
+                left: CheckValueExprV1Input::CharLength("label".to_string()),
+                op: AcceptedCheckCompareOpV1::Gte,
+                right: CheckValueExprV1Input::Literal(InputValue::Nat64(2)),
+            },
+            CheckExprV1Input::Compare {
+                left: CheckValueExprV1Input::Field("amount".to_string()),
+                op: AcceptedCheckCompareOpV1::Gte,
+                right: CheckValueExprV1Input::Literal(InputValue::Decimal(
+                    Decimal::from_i128_with_scale(0, 8),
+                )),
+            },
+        ]),
+        &snapshot,
+        &enum_catalog,
+        &composite_catalog,
+    )
+    .expect("newtype scalar check should bind through accepted catalog authority");
+    let catalog = snapshot
+        .constraint_catalog()
+        .clone()
+        .with_added_check(
+            "degrees_range".to_string(),
+            ConstraintOrigin::Generated,
+            expression,
+        )
+        .expect("newtype check constraint should allocate");
+    let accepted = AcceptedSchemaSnapshot::try_new(snapshot.with_constraint_catalog(catalog))
+        .expect("catalog-bound newtype check schema should be structurally accepted");
+    let value_catalog = AcceptedValueCatalogHandle::new_for_tests(
+        enum_catalog,
+        composite_catalog,
+        AcceptedSchemaRevision::INITIAL,
+    );
+    let program = CompiledAcceptedRowConstraints::compile(&accepted, &value_catalog, FINGERPRINT)
+        .expect("newtype check should compile once through accepted authority");
+
+    program
+        .evaluate(
+            FINGERPRINT,
+            &[
+                None,
+                Some(Value::Nat64(360)),
+                Some(Value::Text("ok".to_string())),
+                Some(Value::Decimal(Decimal::from_i128_with_scale(1, 8))),
+            ],
+        )
+        .expect("inclusive newtype bound should pass");
+    assert!(matches!(
+        program.evaluate(
+            FINGERPRINT,
+            &[
+                None,
+                Some(Value::Nat64(361)),
+                Some(Value::Text("ok".to_string())),
+                Some(Value::Decimal(Decimal::from_i128_with_scale(1, 8))),
+            ],
+        ),
+        Err(AcceptedRowConstraintEvaluationError::Violation { .. })
+    ));
+    assert!(matches!(
+        program.evaluate(
+            FINGERPRINT,
+            &[
+                None,
+                Some(Value::Nat64(360)),
+                Some(Value::Text("x".to_string())),
+                Some(Value::Decimal(Decimal::from_i128_with_scale(1, 8))),
+            ],
+        ),
+        Err(AcceptedRowConstraintEvaluationError::Violation { .. })
+    ));
+    assert!(matches!(
+        program.evaluate(
+            FINGERPRINT,
+            &[
+                None,
+                Some(Value::Nat64(360)),
+                Some(Value::Text("ok".to_string())),
+                Some(Value::Decimal(Decimal::from_i128_with_scale(-1, 8))),
+            ],
+        ),
+        Err(AcceptedRowConstraintEvaluationError::Violation { .. })
+    ));
 }

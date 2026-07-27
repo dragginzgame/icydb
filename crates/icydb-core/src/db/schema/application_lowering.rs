@@ -39,9 +39,7 @@ use crate::{
         },
     },
     error::InternalError,
-    model::field::{
-        FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec, ScalarCodec,
-    },
+    model::field::{FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec},
     types::EntityTag,
     value::{EnumTypeId, EnumVariantId},
 };
@@ -2893,36 +2891,7 @@ const fn field_storage_decode(field_type: &FieldType) -> FieldStorageDecode {
 }
 
 const fn field_leaf_codec(field_type: &FieldType, kind: &AcceptedFieldKind) -> LeafCodec {
-    match field_type {
-        FieldType::Scalar(_) => scalar_leaf_codec(kind),
-        FieldType::List(_) | FieldType::Named(_) => LeafCodec::Structural,
-    }
-}
-
-const fn scalar_leaf_codec(kind: &AcceptedFieldKind) -> LeafCodec {
-    match kind {
-        AcceptedFieldKind::Blob { .. } => LeafCodec::Scalar(ScalarCodec::Blob),
-        AcceptedFieldKind::Bool => LeafCodec::Scalar(ScalarCodec::Bool),
-        AcceptedFieldKind::Date => LeafCodec::Scalar(ScalarCodec::Date),
-        AcceptedFieldKind::Duration => LeafCodec::Scalar(ScalarCodec::Duration),
-        AcceptedFieldKind::Float32 => LeafCodec::Scalar(ScalarCodec::Float32),
-        AcceptedFieldKind::Float64 => LeafCodec::Scalar(ScalarCodec::Float64),
-        AcceptedFieldKind::Int8
-        | AcceptedFieldKind::Int16
-        | AcceptedFieldKind::Int32
-        | AcceptedFieldKind::Int64 => LeafCodec::Scalar(ScalarCodec::Int64),
-        AcceptedFieldKind::Principal => LeafCodec::Scalar(ScalarCodec::Principal),
-        AcceptedFieldKind::Subaccount => LeafCodec::Scalar(ScalarCodec::Subaccount),
-        AcceptedFieldKind::Text { .. } => LeafCodec::Scalar(ScalarCodec::Text),
-        AcceptedFieldKind::Timestamp => LeafCodec::Scalar(ScalarCodec::Timestamp),
-        AcceptedFieldKind::Nat8
-        | AcceptedFieldKind::Nat16
-        | AcceptedFieldKind::Nat32
-        | AcceptedFieldKind::Nat64 => LeafCodec::Scalar(ScalarCodec::Nat64),
-        AcceptedFieldKind::Ulid => LeafCodec::Scalar(ScalarCodec::Ulid),
-        AcceptedFieldKind::Unit => LeafCodec::Scalar(ScalarCodec::Unit),
-        _ => LeafCodec::Structural,
-    }
+    kind.leaf_codec_for_storage(field_storage_decode(field_type))
 }
 
 const fn index_expression_op(component: &IndexKeyFragment) -> Option<PersistedIndexExpressionOp> {
@@ -3214,6 +3183,119 @@ mod tests {
                 .constraint_binding_count_for_tests(entity_tag),
             1,
         );
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the source-rule seam proof keeps proposal, accepted catalog, and field identity in one fixture"
+    )]
+    fn initial_newtype_rules_bind_through_the_accepted_composite_catalog() {
+        let entity_source = EntitySourceKey::try_new("test:entity:compass")
+            .expect("test entity source should admit");
+        let id_source =
+            FieldSourceKey::try_new("test:field:id").expect("test id source should admit");
+        let degrees_source = FieldSourceKey::try_new("test:field:degrees")
+            .expect("test degrees source should admit");
+        let degrees_type =
+            TypeSourceKey::try_new("test:type:degrees").expect("test type source should admit");
+        let expression = SourceCheckExpr::try_new(vec![
+            SourceCheckInstruction::Field(degrees_source.clone()),
+            SourceCheckInstruction::Literal(ScalarLiteral::Nat(360)),
+            SourceCheckInstruction::LessThanOrEqual,
+        ])
+        .expect("test newtype rule should admit");
+        let entity = EntityFragment::try_new(
+            entity_source.clone(),
+            name("Compass"),
+            vec![
+                FieldFragment::new(
+                    id_source.clone(),
+                    name("id"),
+                    FieldType::Scalar(ScalarType::Nat64),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+                FieldFragment::new(
+                    degrees_source.clone(),
+                    name("degrees"),
+                    FieldType::Named(degrees_type.clone()),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+            ],
+            vec![id_source],
+            Vec::new(),
+            Vec::new(),
+            vec![ConstraintFragment::new(
+                ConstraintSourceKey::try_new("test:constraint:degrees")
+                    .expect("test constraint source should admit"),
+                name("degrees_range"),
+                expression,
+            )],
+        )
+        .expect("test entity should admit");
+        let fragment = SchemaFragment::try_new(
+            vec![entity],
+            vec![NamedTypeFragment::Newtype {
+                source_key: degrees_type,
+                name: name("Degrees"),
+                inner: FieldType::Scalar(ScalarType::Nat16),
+            }],
+        )
+        .expect("test newtype fragment should admit");
+        let store = TargetStoreIdentity::from_bytes([0x24; 32]);
+        let proposal = SchemaProposal::try_compose(
+            vec![
+                SchemaCapability::ACCEPTED_CHECKS,
+                SchemaCapability::EXACT_COMPOSITE_TYPES,
+            ],
+            TargetDatabaseIdentity::from_bytes([0x14; 32]),
+            SchemaSubmissionKey::try_new("initial-newtype-rule")
+                .expect("test submission key should admit"),
+            ExpectedAcceptedHead::Empty,
+            vec![fragment],
+            vec![EntityStoreAssignment::new(entity_source.clone(), store)],
+            Vec::new(),
+        )
+        .expect("test proposal should compose");
+
+        let candidates = lower_initial_schema_proposal(
+            &proposal,
+            &[ProposalStoreTarget {
+                path: "test::Store",
+                identity: store,
+            }],
+        )
+        .expect("newtype rule should lower through accepted catalog authority");
+        let bundle = candidates[0].bundle();
+        let entity_tag = bundle
+            .source_bindings_for_tests()
+            .entity(&entity_source)
+            .expect("entity source should bind");
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .expect("entity snapshot should exist");
+
+        assert!(snapshot.constraints().iter().any(|constraint| {
+            constraint.name() == "degrees_range"
+                && matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
+        }));
+        assert!(matches!(
+            snapshot
+                .fields()
+                .iter()
+                .find(|field| field.id()
+                    == bundle
+                        .source_bindings_for_tests()
+                        .field(entity_tag, &degrees_source)
+                        .expect("degrees field source should bind"))
+                .map(PersistedFieldSnapshot::kind),
+            Some(crate::db::schema::AcceptedFieldKind::Composite { .. })
+        ));
     }
 
     #[test]

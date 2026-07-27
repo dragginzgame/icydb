@@ -246,6 +246,33 @@ impl AcceptedCompositeCatalog {
         self.by_id.get(&id)
     }
 
+    /// Resolve an exact chain of nominal newtype wrappers to the canonical
+    /// value kind observed by row-local accepted checks.
+    ///
+    /// Records, tuples, missing definitions, and recursive wrapper-only
+    /// cycles have no scalar/collection operand contract and return `None`.
+    #[must_use]
+    pub(in crate::db::schema) fn resolve_newtype_value_kind(
+        &self,
+        kind: &AcceptedFieldKind,
+    ) -> Option<AcceptedFieldKind> {
+        let mut current = kind;
+        let mut visited = BTreeSet::new();
+        loop {
+            let AcceptedFieldKind::Composite { type_id } = current else {
+                return Some(current.clone());
+            };
+            if !visited.insert(*type_id) {
+                return None;
+            }
+            let accepted = self.composite_type(*type_id)?;
+            let AcceptedCompositeShape::Newtype(inner) = accepted.shape() else {
+                return None;
+            };
+            current = inner.kind();
+        }
+    }
+
     #[must_use]
     pub(in crate::db::schema) fn matches_kind(
         &self,

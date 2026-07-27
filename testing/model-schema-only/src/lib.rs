@@ -2,7 +2,10 @@
 //!
 //! This crate intentionally has no dependency on `icydb` or `icydb-core`.
 
-use model_api::{base::types::web::Url, prelude::*};
+use model_api::{
+    base::types::{num::Degrees, web::Url},
+    prelude::*,
+};
 
 #[canister(
     memory_namespace = "model_schema_only",
@@ -153,6 +156,11 @@ pub struct CollectionPolicy {}
             value(item(is = "SchemaOnlyProfile"))
         ),
         field(
+            source_key = "degrees",
+            ident = "degrees",
+            value(item(is = "Degrees"))
+        ),
+        field(
             source_key = "policy",
             ident = "policy",
             value(item(is = "CollectionPolicy"))
@@ -165,7 +173,8 @@ pub struct SchemaOnlyEntity {}
 mod tests {
     use model_api::build::{BuildOptions, generate_with_options, get_schema};
     use model_api::schema::{
-        FieldType, NamedTypeFragment, decode_schema_fragment, encode_schema_fragment,
+        ConstraintSourceKey, FieldSourceKey, FieldType, NamedTypeFragment, RuleSourceKey,
+        decode_schema_fragment, encode_schema_fragment,
     };
 
     use super::SchemaOnlyCanister;
@@ -179,6 +188,18 @@ mod tests {
             .schema_fragment_for_canister(canister_path)
             .expect("schema-only fixture should lower one complete fragment");
         assert_eq!(fragment.entities().len(), 1);
+        let expected_rule_source = ConstraintSourceKey::for_field_rule(
+            &FieldSourceKey::try_new("degrees").expect("fixture field source should admit"),
+            &RuleSourceKey::try_new("icydb.base.rule.num.degrees.range.v1")
+                .expect("base rule source should admit"),
+        );
+        assert!(
+            fragment.entities()[0]
+                .constraints()
+                .iter()
+                .any(|constraint| constraint.source_key() == &expected_rule_source),
+            "the compiler-authored Degrees rule should lower into an ordinary field-bound constraint",
+        );
         let named_type = |source_key: &str| {
             fragment
                 .types()

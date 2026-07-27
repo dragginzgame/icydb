@@ -105,7 +105,7 @@ mod tests {
             &[],
             &[],
             FieldList::new(&[]),
-            Type::new(&[], &[]),
+            Type::new(&[], &[], &[]),
         )));
     }
 

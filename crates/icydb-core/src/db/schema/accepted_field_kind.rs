@@ -5,7 +5,12 @@
 
 #[cfg(test)]
 use crate::model::field::FieldKind;
-use crate::{db::schema::composite_catalog::CompositeTypeId, types::EntityTag, value::EnumTypeId};
+use crate::{
+    db::schema::composite_catalog::CompositeTypeId,
+    model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
+    types::EntityTag,
+    value::EnumTypeId,
+};
 
 /// Canonical field-kind shape stored by accepted schema snapshots.
 /// Enum and composite references carry store-local catalog IDs and never embed definitions.
@@ -69,6 +74,53 @@ pub(in crate::db) enum AcceptedFieldKind {
 }
 
 impl AcceptedFieldKind {
+    /// Resolve the canonical leaf codec for this accepted kind and storage
+    /// contract. Catalog-decoded values always retain the structural envelope;
+    /// direct scalar storage uses the same leaf codec throughout schema
+    /// admission and accepted-check literal binding.
+    #[must_use]
+    pub(in crate::db) const fn leaf_codec_for_storage(
+        &self,
+        storage_decode: FieldStorageDecode,
+    ) -> LeafCodec {
+        if matches!(storage_decode, FieldStorageDecode::CatalogValue) {
+            return LeafCodec::Structural;
+        }
+
+        match self {
+            Self::Blob { .. } => LeafCodec::Scalar(ScalarCodec::Blob),
+            Self::Bool => LeafCodec::Scalar(ScalarCodec::Bool),
+            Self::Date => LeafCodec::Scalar(ScalarCodec::Date),
+            Self::Duration => LeafCodec::Scalar(ScalarCodec::Duration),
+            Self::Float32 => LeafCodec::Scalar(ScalarCodec::Float32),
+            Self::Float64 => LeafCodec::Scalar(ScalarCodec::Float64),
+            Self::Int8 | Self::Int16 | Self::Int32 | Self::Int64 => {
+                LeafCodec::Scalar(ScalarCodec::Int64)
+            }
+            Self::Principal => LeafCodec::Scalar(ScalarCodec::Principal),
+            Self::Subaccount => LeafCodec::Scalar(ScalarCodec::Subaccount),
+            Self::Text { .. } => LeafCodec::Scalar(ScalarCodec::Text),
+            Self::Timestamp => LeafCodec::Scalar(ScalarCodec::Timestamp),
+            Self::Nat8 | Self::Nat16 | Self::Nat32 | Self::Nat64 => {
+                LeafCodec::Scalar(ScalarCodec::Nat64)
+            }
+            Self::Ulid => LeafCodec::Scalar(ScalarCodec::Ulid),
+            Self::Unit => LeafCodec::Scalar(ScalarCodec::Unit),
+            Self::Account
+            | Self::Composite { .. }
+            | Self::Decimal { .. }
+            | Self::Enum { .. }
+            | Self::Int128
+            | Self::IntBig { .. }
+            | Self::List(_)
+            | Self::Map { .. }
+            | Self::Nat128
+            | Self::NatBig { .. }
+            | Self::Relation { .. }
+            | Self::Set(_) => LeafCodec::Structural,
+        }
+    }
+
     /// Build one catalog-reference kind for metadata-only unit tests.
     #[cfg(test)]
     #[must_use]

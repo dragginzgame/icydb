@@ -74,7 +74,7 @@ fn insert_entity(
         &[],
         &[],
         FieldList::new(fields),
-        Type::new(&[], &[]),
+        Type::new(&[], &[], &[]),
     )));
     path
 }

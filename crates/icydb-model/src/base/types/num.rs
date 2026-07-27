@@ -14,7 +14,11 @@ use crate::prelude::*;
     source_key = "crates/icydb/src/base/types/num.rs::newtype::1",
     primitive = "Nat16",
     item(prim = "Nat16"),
-    ty(validator(path = "base::validator::num::Range", args(0, 360)))
+    ty(rule(
+        source_key = "icydb.base.rule.num.degrees.range.v1",
+        kind = "numeric_range_inclusive",
+        args(0, 360)
+    ))
 )]
 pub struct Degrees {}
 
@@ -28,7 +32,11 @@ pub struct Degrees {}
     source_key = "crates/icydb/src/base/types/num.rs::newtype::2",
     primitive = "Nat8",
     item(prim = "Nat8"),
-    ty(validator(path = "base::validator::num::Range", args(0, 100)))
+    ty(rule(
+        source_key = "icydb.base.rule.num.percent.range.v1",
+        kind = "numeric_range_inclusive",
+        args(0, 100)
+    ))
 )]
 pub struct Percent {}
 
@@ -40,7 +48,11 @@ pub struct Percent {}
     source_key = "crates/icydb/src/base/types/num.rs::newtype::3",
     primitive = "Nat16",
     item(prim = "Nat16"),
-    ty(validator(path = "base::validator::num::Range", args(0, 10_000)))
+    ty(rule(
+        source_key = "icydb.base.rule.num.percent_modifier.range.v1",
+        kind = "numeric_range_inclusive",
+        args(0, 10_000)
+    ))
 )]
 pub struct PercentModifier {}
 

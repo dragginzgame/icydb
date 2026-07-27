@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Named schema types may now form bounded resolved cycles through stable
-  accepted enum/composite IDs, while qualified enum payloads retain their
-  exact unit or payload contracts and finite values remain resource-bounded.
-
 ## [0.213.x] 🧭 - 2026-07-24 - Schema Authority And Application Separation
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
+
+- `0.213.35` gives built-in durable numeric and length rules one
+  accepted-schema owner per persisted field, removing overlapping Rust
+  enforcement and rejecting unsupported nested placement.
+
+- `0.213.34` admits bounded resolved named-type cycles through stable accepted
+  IDs while preserving exact qualified enum-payload contracts and bounded
+  finite values.
 
 - `0.213.33` completes the model consumer hard cut, moving maintained callers
   to current APIs while deleting retired package and facade owners, and closes

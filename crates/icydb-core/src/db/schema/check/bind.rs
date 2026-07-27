@@ -65,16 +65,16 @@ pub(in crate::db) enum CheckValueExprV1Input {
     Cardinality(String),
 }
 
-#[derive(Clone, Copy)]
-struct ValueBinding<'a> {
-    kind: &'a AcceptedFieldKind,
+#[derive(Clone)]
+struct ValueBinding {
+    kind: AcceptedFieldKind,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
 }
 
-struct BoundValue<'a> {
+struct BoundValue {
     expression: AcceptedCheckValueExprV1,
-    binding: ValueBinding<'a>,
+    binding: ValueBinding,
 }
 
 /// Bind names, admit literals, lower sugar, and return one canonical AST.
@@ -85,7 +85,7 @@ pub(in crate::db) fn bind_check_expr_v1(
     composite_catalog: &AcceptedCompositeCatalog,
 ) -> Result<AcceptedCheckExprV1, AcceptedCheckExprV1Error> {
     let expression = bind_expression(input, snapshot, enum_catalog, composite_catalog)?;
-    expression.validate(snapshot)?;
+    expression.validate(snapshot, composite_catalog)?;
     Ok(expression)
 }
 
@@ -111,9 +111,12 @@ pub(in crate::db::schema) fn bind_source_check_expr(
                     .iter()
                     .find(|field| field.id() == field_id)
                     .ok_or(AcceptedCheckExprV1Error::UnknownField)?;
+                let kind = composite_catalog
+                    .resolve_newtype_value_kind(field.kind())
+                    .ok_or(AcceptedCheckExprV1Error::UnsupportedFieldKind)?;
                 stack.push(SourceCheckNode::Value(SourceCheckValue::Field {
                     name: field.name().to_string(),
-                    kind: field.kind().clone(),
+                    kind,
                 }));
             }
             SourceCheckInstruction::Literal(literal) => stack.push(SourceCheckNode::Value(
@@ -590,10 +593,14 @@ fn bind_expression(
         CheckExprV1Input::Compare { left, op, right } => {
             bind_compare(left, op, right, snapshot, enum_catalog, composite_catalog)
         }
-        CheckExprV1Input::IsNull(value) => bind_non_literal_value(value, snapshot)
-            .map(|value| AcceptedCheckExprV1::IsNull(value.expression)),
-        CheckExprV1Input::IsNotNull(value) => bind_non_literal_value(value, snapshot)
-            .map(|value| AcceptedCheckExprV1::IsNotNull(value.expression)),
+        CheckExprV1Input::IsNull(value) => {
+            bind_non_literal_value(value, snapshot, composite_catalog)
+                .map(|value| AcceptedCheckExprV1::IsNull(value.expression))
+        }
+        CheckExprV1Input::IsNotNull(value) => {
+            bind_non_literal_value(value, snapshot, composite_catalog)
+                .map(|value| AcceptedCheckExprV1::IsNotNull(value.expression))
+        }
         #[cfg(test)]
         CheckExprV1Input::Between {
             value,
@@ -638,7 +645,7 @@ fn bind_compare(
             return Err(AcceptedCheckExprV1Error::LiteralRequiresExpectedKind);
         }
         (CheckValueExprV1Input::Literal(literal), right) => {
-            let right = bind_non_literal_value(right, snapshot)?;
+            let right = bind_non_literal_value(right, snapshot, composite_catalog)?;
             let left = AcceptedCheckValueExprV1::Literal(bind_literal(
                 literal,
                 right.binding,
@@ -648,7 +655,7 @@ fn bind_compare(
             (left, right.expression)
         }
         (left, CheckValueExprV1Input::Literal(literal)) => {
-            let left = bind_non_literal_value(left, snapshot)?;
+            let left = bind_non_literal_value(left, snapshot, composite_catalog)?;
             let right = AcceptedCheckValueExprV1::Literal(bind_literal(
                 literal,
                 left.binding,
@@ -658,8 +665,8 @@ fn bind_compare(
             (left.expression, right)
         }
         (left, right) => {
-            let left = bind_non_literal_value(left, snapshot)?;
-            let right = bind_non_literal_value(right, snapshot)?;
+            let left = bind_non_literal_value(left, snapshot, composite_catalog)?;
+            let right = bind_non_literal_value(right, snapshot, composite_catalog)?;
             if left.binding.kind != right.binding.kind {
                 return Err(AcceptedCheckExprV1Error::OperandKindMismatch);
             }
@@ -673,7 +680,8 @@ fn bind_compare(
 fn bind_non_literal_value(
     input: CheckValueExprV1Input,
     snapshot: &PersistedSchemaSnapshot,
-) -> Result<BoundValue<'_>, AcceptedCheckExprV1Error> {
+    composite_catalog: &AcceptedCompositeCatalog,
+) -> Result<BoundValue, AcceptedCheckExprV1Error> {
     let (field_name, operation) = match input {
         CheckValueExprV1Input::Field(name) => (name, 0_u8),
         CheckValueExprV1Input::CharLength(name) => (name, 1),
@@ -688,32 +696,36 @@ fn bind_non_literal_value(
         .iter()
         .find(|field| field.name() == field_name)
         .ok_or(AcceptedCheckExprV1Error::UnknownField)?;
-    if matches!(
-        field.kind(),
-        AcceptedFieldKind::Relation { .. } | AcceptedFieldKind::Composite { .. }
-    ) {
+    if matches!(field.kind(), AcceptedFieldKind::Relation { .. }) {
         return Err(AcceptedCheckExprV1Error::UnsupportedFieldKind);
     }
+    let resolved_kind = composite_catalog
+        .resolve_newtype_value_kind(field.kind())
+        .ok_or(AcceptedCheckExprV1Error::UnsupportedFieldKind)?;
 
     let (expression, binding) = match operation {
-        0 => (
-            AcceptedCheckValueExprV1::Field(field.id()),
-            ValueBinding {
-                kind: field.kind(),
-                storage_decode: field.storage_decode(),
-                leaf_codec: field.leaf_codec(),
-            },
-        ),
-        1 if matches!(field.kind(), AcceptedFieldKind::Text { .. }) => (
+        0 => {
+            let binding = if matches!(field.kind(), AcceptedFieldKind::Composite { .. }) {
+                value_binding_for_resolved_kind(resolved_kind)
+            } else {
+                ValueBinding {
+                    kind: field.kind().clone(),
+                    storage_decode: field.storage_decode(),
+                    leaf_codec: field.leaf_codec(),
+                }
+            };
+            (AcceptedCheckValueExprV1::Field(field.id()), binding)
+        }
+        1 if matches!(resolved_kind, AcceptedFieldKind::Text { .. }) => (
             AcceptedCheckValueExprV1::CharLength(field.id()),
             computed_length_binding(),
         ),
-        2 if matches!(field.kind(), AcceptedFieldKind::Blob { .. }) => (
+        2 if matches!(resolved_kind, AcceptedFieldKind::Blob { .. }) => (
             AcceptedCheckValueExprV1::OctetLength(field.id()),
             computed_length_binding(),
         ),
         3 if matches!(
-            field.kind(),
+            resolved_kind,
             AcceptedFieldKind::List(_) | AcceptedFieldKind::Set(_) | AcceptedFieldKind::Map { .. }
         ) =>
         {
@@ -731,10 +743,20 @@ fn bind_non_literal_value(
     })
 }
 
-const fn computed_length_binding() -> ValueBinding<'static> {
+const fn value_binding_for_resolved_kind(kind: AcceptedFieldKind) -> ValueBinding {
+    let storage_decode = FieldStorageDecode::ByKind;
+    let leaf_codec = kind.leaf_codec_for_storage(storage_decode);
+    ValueBinding {
+        kind,
+        storage_decode,
+        leaf_codec,
+    }
+}
+
+fn computed_length_binding() -> ValueBinding {
     let (storage_decode, leaf_codec) = nat64_codec();
     ValueBinding {
-        kind: nat64_kind(),
+        kind: nat64_kind().clone(),
         storage_decode,
         leaf_codec,
     }
@@ -742,7 +764,7 @@ const fn computed_length_binding() -> ValueBinding<'static> {
 
 fn bind_literal(
     input: InputValue,
-    expected: ValueBinding<'_>,
+    expected: ValueBinding,
     enum_catalog: &AcceptedEnumCatalog,
     composite_catalog: &AcceptedCompositeCatalog,
 ) -> Result<AcceptedCheckLiteralV1, AcceptedCheckExprV1Error> {
@@ -751,7 +773,7 @@ fn bind_literal(
     }
     let field = AcceptedFieldDecodeContract::new(
         "__icydb_check_literal",
-        expected.kind,
+        &expected.kind,
         false,
         expected.storage_decode,
         expected.leaf_codec,
@@ -767,7 +789,7 @@ fn bind_literal(
     .map_err(|_| AcceptedCheckExprV1Error::LiteralAdmissionRejected)?;
 
     Ok(AcceptedCheckLiteralV1::from_accepted_parts(
-        expected.kind.clone(),
+        expected.kind,
         expected.storage_decode,
         expected.leaf_codec,
         payload,
@@ -798,7 +820,7 @@ fn bind_enum_membership(
     }
     let field_id = field.id();
     let binding = ValueBinding {
-        kind: field.kind(),
+        kind: field.kind().clone(),
         storage_decode: field.storage_decode(),
         leaf_codec: field.leaf_codec(),
     };
@@ -810,7 +832,7 @@ fn bind_enum_membership(
                 op: AcceptedCheckCompareOpV1::Eq,
                 right: AcceptedCheckValueExprV1::Literal(bind_literal(
                     member,
-                    binding,
+                    binding.clone(),
                     enum_catalog,
                     composite_catalog,
                 )?),

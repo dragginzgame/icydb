@@ -70,7 +70,7 @@ mod tests {
                 &[],
                 &[],
                 crate::node::FieldList::new(&[]),
-                Type::new(&[], &[]),
+                Type::new(&[], &[], &[]),
             )));
         }
 
@@ -93,13 +93,13 @@ mod tests {
             Def::new("source_key_test", "Names"),
             "type/shared",
             crate::node::FieldList::new(&[]),
-            Type::new(&[], &[]),
+            Type::new(&[], &[], &[]),
         )));
         schema.insert_node(SchemaNode::Tuple(Tuple::new(
             Def::new("source_key_test", "Pair"),
             "type/shared",
             &[],
-            Type::new(&[], &[]),
+            Type::new(&[], &[], &[]),
         )));
 
         let mut errors = ErrorTree::new();

@@ -14,6 +14,9 @@ pub struct Type {
 
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     validators: &'static [TypeValidator],
+
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    rules: &'static [SourceRule],
 }
 
 impl Type {
@@ -21,10 +24,12 @@ impl Type {
     pub const fn new(
         normalizers: &'static [TypeNormalizer],
         validators: &'static [TypeValidator],
+        rules: &'static [SourceRule],
     ) -> Self {
         Self {
             normalizers,
             validators,
+            rules,
         }
     }
 
@@ -36,6 +41,12 @@ impl Type {
     #[must_use]
     pub const fn validators(&self) -> &'static [TypeValidator] {
         self.validators
+    }
+
+    /// Borrow explicitly declared durable rules.
+    #[must_use]
+    pub const fn rules(&self) -> &'static [SourceRule] {
+        self.rules
     }
 }
 
@@ -49,7 +60,105 @@ impl VisitableNode for Type {
         for node in self.validators() {
             node.accept(v);
         }
+        for node in self.rules() {
+            node.accept(v);
+        }
     }
+}
+
+///
+/// SourceRule
+///
+/// Compiler-authored durable rule template carried by one reusable type.
+/// Fragment lowering instantiates it for each persisted field use; it is not
+/// an application callback or a database runtime evaluator.
+///
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SourceRule {
+    source_key: &'static str,
+    kind: SourceRuleKind,
+    args: Args,
+}
+
+impl SourceRule {
+    /// Construct one explicit reusable rule template.
+    #[must_use]
+    pub const fn new(source_key: &'static str, kind: SourceRuleKind, args: Args) -> Self {
+        Self {
+            source_key,
+            kind,
+            args,
+        }
+    }
+
+    /// Return the immutable base-rule identity.
+    #[must_use]
+    pub const fn source_key(&self) -> &'static str {
+        self.source_key
+    }
+
+    /// Return the frozen rule operation.
+    #[must_use]
+    pub const fn kind(&self) -> SourceRuleKind {
+        self.kind
+    }
+
+    /// Borrow rule operands.
+    #[must_use]
+    pub const fn args(&self) -> &Args {
+        &self.args
+    }
+}
+
+impl ValidateNode for SourceRule {
+    fn validate(&self) -> Result<(), ErrorTree> {
+        let mut errs = ErrorTree::new();
+        validate_source_key(
+            &mut errs,
+            "rule",
+            self.source_key(),
+            icydb_schema::RuleSourceKey::try_new,
+        );
+        let expected_args = match self.kind() {
+            SourceRuleKind::NumericMinimum => 1,
+            SourceRuleKind::LengthRange | SourceRuleKind::NumericRange => 2,
+        };
+        if self.args().0.len() != expected_args
+            || self
+                .args()
+                .0
+                .iter()
+                .any(|arg| !matches!(arg, Arg::Number(_)))
+        {
+            err!(
+                errs,
+                "rule '{}' requires {expected_args} numeric argument(s)",
+                self.source_key(),
+            );
+        }
+        errs.result()
+    }
+}
+
+impl VisitableNode for SourceRule {}
+
+///
+/// SourceRuleKind
+///
+/// Closed durable-rule vocabulary translated into accepted constraints.
+/// This enum describes authoring metadata only; accepted schema owns runtime
+/// evaluation after fragment lowering.
+///
+
+#[derive(Clone, Copy, Debug, Serialize)]
+pub enum SourceRuleKind {
+    /// Inclusive character/octet/collection length range.
+    LengthRange,
+    /// Inclusive numeric minimum.
+    NumericMinimum,
+    /// Inclusive numeric range.
+    NumericRange,
 }
 
 ///
