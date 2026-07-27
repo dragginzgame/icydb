@@ -334,6 +334,7 @@ impl PersistedSchemaSnapshot {
     }
 
     /// Reserve one planner-invisible unique-index owner and its activation.
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn with_added_unique_activation(
         mut self,
         candidate: PersistedIndexSnapshot,
@@ -1696,6 +1697,7 @@ impl PersistedFieldSnapshot {
 
     /// Return a copy of this field with an updated future insertion default.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn clone_with_insert_default(
         &self,
         insert_default: SchemaInsertDefault,

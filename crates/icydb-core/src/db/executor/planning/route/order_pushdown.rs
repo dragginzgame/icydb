@@ -3,6 +3,7 @@
 //! Does not own: access tree shape, logical ORDER BY validation, or executor dispatch.
 //! Boundary: route planning derives these values; explain and trace surfaces project them.
 
+#[cfg(any(test, feature = "sql-explain"))]
 use std::fmt::Write as _;
 
 use crate::db::query::explain::{
@@ -34,6 +35,7 @@ impl PushdownApplicability {
 
     /// Render the route diagnostic value used by explain and trace surfaces.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db::executor) fn diagnostic_label(&self) -> String {
         match self {
             Self::NotApplicable => "not_applicable".to_string(),
@@ -46,6 +48,7 @@ impl PushdownApplicability {
 
     /// Return eligible secondary-index details for descriptor projection.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db::executor) const fn eligible_secondary_index(&self) -> Option<(&str, usize)> {
         match self {
             Self::Eligible { index, prefix_len } => Some((index.as_str(), *prefix_len)),
@@ -142,6 +145,7 @@ impl From<SecondaryOrderPushdownRejection> for ExplainSecondaryOrderPushdownReje
 impl SecondaryOrderPushdownRejection {
     /// Render a stable diagnostic label for this rejection reason.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     fn label(&self) -> String {
         let mut out = String::new();
         self.write_label(&mut out);
@@ -151,6 +155,7 @@ impl SecondaryOrderPushdownRejection {
 
     // Write the stable rejection label without forcing callers to duplicate
     // every rejection-variant match at projection sites.
+    #[cfg(any(test, feature = "sql-explain"))]
     fn write_label(&self, out: &mut String) {
         match self {
             Self::AccessPathIndexRangeUnsupported { index, prefix_len } => {

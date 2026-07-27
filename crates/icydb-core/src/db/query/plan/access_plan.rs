@@ -426,6 +426,7 @@ impl PredicatePushdownDiagnostics {
 
     /// Render the stable verbose EXPLAIN label for this diagnostics contract.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) fn label(self) -> String {
         match self.outcome {
             PredicatePushdownOutcome::None => "none".to_string(),
@@ -445,18 +446,21 @@ impl PredicatePushdownDiagnostics {
 
     /// Return the planner-owned coarse outcome label.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn outcome_label(self) -> &'static str {
         self.outcome.label()
     }
 
     /// Return the planner-owned reason label.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn reason_label(self) -> &'static str {
         self.reason.label()
     }
 
     /// Return whether the selected access path fully proves the predicate.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn access_path_fully_applied(self) -> bool {
         matches!(self.outcome, PredicatePushdownOutcome::Full)
             && matches!(self.reason, PredicatePushdownReason::AccessPathApplied)
@@ -466,6 +470,7 @@ impl PredicatePushdownDiagnostics {
 impl PredicatePushdownOutcome {
     /// Stable verbose EXPLAIN outcome label.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn label(self) -> &'static str {
         match self {
             Self::None => "none",
@@ -479,6 +484,7 @@ impl PredicatePushdownOutcome {
 impl PredicatePushdownReason {
     /// Stable verbose EXPLAIN reason label.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn label(self) -> &'static str {
         match self {
             Self::NoFilter => "no_filter",
@@ -625,6 +631,7 @@ impl ResidualFilterShape {
 
     /// Stable diagnostics label for this residual-filter shape.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn label(self) -> &'static str {
         match self {
             Self::Absent => "none",

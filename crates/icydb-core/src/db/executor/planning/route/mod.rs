@@ -31,6 +31,7 @@ use mode::{derive_aggregate_route_direction, derive_load_route_direction};
 use pushdown::index_range_limit_pushdown_shape_supported_for_order_contract;
 use pushdown::secondary_order_contract_active;
 
+#[cfg(any(test, feature = "sql-explain"))]
 pub(in crate::db::executor) use capability_facts::explain_access_order_satisfied_for_model;
 pub(in crate::db::executor) use capability_facts::{
     branch_set_page_keep_cap_shape_supported, count_pushdown_shape_supported,

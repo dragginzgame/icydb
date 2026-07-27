@@ -2,12 +2,14 @@
 use crate::db::query::plan::CoveringHybridReadExecutionPlan;
 #[cfg(any(test, feature = "sql"))]
 use crate::db::query::plan::covering_hybrid_projection_execution_plan_with_schema_info;
+#[cfg(any(test, feature = "sql-explain"))]
+use crate::db::{executor::planning::route::AggregateRouteShape, query::plan::AggregateKind};
 use crate::{
     db::{
         access::validate_access_runtime_invariants_with_schema,
-        executor::{planning::route::AggregateRouteShape, terminal::RowLayout},
+        executor::terminal::RowLayout,
         query::plan::{
-            AccessPlannedQuery, AggregateKind, CoveringReadExecutionPlan,
+            AccessPlannedQuery, CoveringReadExecutionPlan,
             covering_read_execution_plan_with_schema_info,
         },
         schema::{AcceptedRowDecodeContract, AcceptedSchemaAuthority, SchemaInfo},
@@ -170,6 +172,7 @@ impl EntityAuthority {
     }
 
     /// Resolve one aggregate route shape through authority-owned schema metadata.
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) fn aggregate_route_shape<'a>(
         &self,
         kind: AggregateKind,

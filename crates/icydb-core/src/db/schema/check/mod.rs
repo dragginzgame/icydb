@@ -38,6 +38,7 @@ pub(in crate::db) const MAX_CHECK_EXPR_V1_LITERAL_BYTES: usize = 4 * 1024;
 /// Maximum deterministic canonical-key bytes retained by one expression.
 pub(in crate::db) const MAX_CHECK_EXPR_V1_BYTES: usize = 16 * 1024;
 /// Maximum enum members accepted by frontend `IN` sugar before lowering.
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) const MAX_CHECK_EXPR_V1_MEMBERSHIP_ITEMS: usize = 64;
 
 /// Exact comparison operation admitted by `CheckExprV1`.
@@ -156,8 +157,11 @@ pub(in crate::db) enum AcceptedCheckExprV1Error {
     NullLiteralUnsupported,
     LengthOperationKindMismatch,
     EmptyBoolean,
+    #[cfg(any(test, feature = "sql"))]
     MembershipEmpty,
+    #[cfg(any(test, feature = "sql"))]
     MembershipTooWide,
+    #[cfg(any(test, feature = "sql"))]
     MembershipRequiresEnumField,
     DepthExceeded,
     NodeCountExceeded,

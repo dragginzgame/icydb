@@ -5,6 +5,7 @@
 
 mod plan_summary;
 mod policy;
+#[cfg(any(test, feature = "sql-explain"))]
 mod render;
 
 use crate::db::query::plan::AccessPlannedQuery;
@@ -18,12 +19,17 @@ pub(in crate::db) enum QueryAdmissionLane {
     /// Caller-facing bounded typed/dynamic read path.
     PublicRead,
     /// EXPLAIN-only path that describes planning and admission without row execution.
+    #[cfg_attr(
+        not(any(test, feature = "sql-explain")),
+        expect(dead_code, reason = "the diagnostic lane is owned by SQL EXPLAIN")
+    )]
     DiagnosticExplain,
 }
 
 impl QueryAdmissionLane {
     /// Return a stable lowercase diagnostic label for this lane.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn as_str(self) -> &'static str {
         match self {
             Self::PublicRead => "public_read",
@@ -54,6 +60,7 @@ pub(in crate::db) enum QueryBoundKind {
 impl QueryBoundKind {
     /// Return a stable lowercase diagnostic label for this bound quality.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn as_str(self) -> &'static str {
         match self {
             Self::Exact => "exact",
@@ -85,6 +92,7 @@ pub(in crate::db) enum QueryAdmissionDecision {
 impl QueryAdmissionDecision {
     /// Return a stable lowercase diagnostic label for this decision.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn as_str(self) -> &'static str {
         match self {
             Self::Admitted => "admitted",
@@ -121,6 +129,7 @@ pub(in crate::db) enum QueryAdmissionAccessKind {
 impl QueryAdmissionAccessKind {
     /// Return a stable lowercase diagnostic label for this access class.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn as_str(self) -> &'static str {
         match self {
             Self::ByKey => "by_key",
@@ -166,6 +175,7 @@ pub(in crate::db) enum QueryAdmissionPlanShape {
 impl QueryAdmissionPlanShape {
     /// Return a stable lowercase diagnostic label for this plan shape.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn as_str(self) -> &'static str {
         match self {
             Self::ScalarRead => "scalar_read",
@@ -191,6 +201,7 @@ pub(in crate::db) enum QueryAdmissionResidualFilter {
 impl QueryAdmissionResidualFilter {
     /// Return a stable lowercase diagnostic label for this residual shape.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn as_str(self) -> &'static str {
         match self {
             Self::Absent => "none",
@@ -215,6 +226,7 @@ pub(in crate::db) enum QueryAdmissionOrdering {
 impl QueryAdmissionOrdering {
     /// Return a stable lowercase diagnostic label for this ordering state.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn as_str(self) -> &'static str {
         match self {
             Self::None => "none",
@@ -258,12 +270,14 @@ impl QueryAdmissionGroupedSummary {
 
     /// Return the number of GROUP BY fields.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn group_field_count(self) -> u32 {
         self.group_field_count
     }
 
     /// Return the number of aggregate expressions.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn aggregate_count(self) -> u32 {
         self.aggregate_count
     }
@@ -288,6 +302,7 @@ impl QueryAdmissionGroupedSummary {
 
     /// Return whether the grouped plan has a HAVING residual expression.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn has_having_filter(self) -> bool {
         self.having_filter
     }
@@ -357,6 +372,7 @@ pub(in crate::db) enum QueryAdmissionRejection {
 impl QueryAdmissionRejection {
     /// Return a stable lowercase diagnostic label for this rejection.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn as_str(self) -> &'static str {
         match self {
             Self::PublicQueryRequiresLimit => "public_query_requires_limit",
@@ -440,18 +456,21 @@ impl QueryAdmissionSummary {
 
     /// Return the admission lane.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn lane(&self) -> QueryAdmissionLane {
         self.lane
     }
 
     /// Return the final decision.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn decision(&self) -> QueryAdmissionDecision {
         self.decision
     }
 
     /// Return the scalar/grouped statement shape.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn plan_shape(&self) -> QueryAdmissionPlanShape {
         self.plan_shape
     }
@@ -464,6 +483,7 @@ impl QueryAdmissionSummary {
 
     /// Return the selected index name, if one exists.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) fn selected_index(&self) -> Option<&str> {
         self.selected_index.as_deref()
     }
@@ -476,6 +496,7 @@ impl QueryAdmissionSummary {
 
     /// Return the caller-visible OFFSET, if present.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn offset(&self) -> Option<u32> {
         self.offset
     }
@@ -519,12 +540,14 @@ impl QueryAdmissionSummary {
 
     /// Return runtime residual-filter facts.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn residual_filter(&self) -> QueryAdmissionResidualFilter {
         self.residual_filter
     }
 
     /// Return ORDER BY facts.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) const fn ordering(&self) -> QueryAdmissionOrdering {
         self.ordering
     }
@@ -549,6 +572,7 @@ impl QueryAdmissionSummary {
 
     /// Render this summary as a stable top-level verbose EXPLAIN block.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) fn render_text_block(&self) -> String {
         render::render_text_block(self)
     }

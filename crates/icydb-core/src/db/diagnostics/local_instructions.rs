@@ -22,6 +22,7 @@ pub(in crate::db) const fn read_local_instruction_counter() -> u64 {
 ///
 /// The helper deliberately keeps the result payload generic because each
 /// caller owns its own error/result shape and attribution bucket.
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn measure_local_instruction_delta<T>(run: impl FnOnce() -> T) -> (u64, T) {
     let start = read_local_instruction_counter();
     let result = run();

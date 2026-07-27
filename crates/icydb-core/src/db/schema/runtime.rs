@@ -705,6 +705,7 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
 
     /// Borrow accepted primary-key field names in key order.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn primary_key_names(&self) -> &[&'a str] {
         self.primary_key_names.as_slice()
     }

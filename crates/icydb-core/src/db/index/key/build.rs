@@ -3,6 +3,8 @@
 //! Does not own: raw key byte framing (codec) or index-store writes.
 //! Boundary: planning/mutation paths call into this constructor layer.
 
+#[cfg(any(test, feature = "sql"))]
+use crate::db::schema::SchemaInfo;
 use crate::db::schema::{
     SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
     SchemaExpressionIndexRebuildTarget,
@@ -10,10 +12,9 @@ use crate::db::schema::{
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
-        access::SemanticIndexExpression,
         data::CanonicalSlotReader,
         index::{
-            derive_index_expression_value,
+            SemanticIndexExpression, derive_index_expression_value,
             key::ordered::encode_canonical_index_component,
             key::{IndexId, IndexKey, IndexKeyEncodeError, IndexKeyKind, OrderedValueEncodeError},
         },
@@ -22,7 +23,7 @@ use crate::{
             AcceptedFieldKind, AcceptedValueAdmissionContract, SchemaExpressionIndexInfo,
             SchemaExpressionIndexKeyItemInfo, SchemaFieldPathIndexRebuildKey,
             SchemaFieldPathIndexRebuildTarget, SchemaIndexFieldPathInfo, SchemaIndexInfo,
-            SchemaInfo, ValueAdmissionBudget, encode_unit_enum_equality_key,
+            ValueAdmissionBudget, encode_unit_enum_equality_key,
         },
     },
     error::InternalError,
@@ -148,6 +149,7 @@ impl IndexKey {
 
     /// Build an index key from already-lowered prefix components plus a
     /// semantic primary-key suffix.
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn new_from_existing_prefix_and_suffix_values_with_primary_key_value(
         prefix_start: &Self,
         prefix_len: usize,
@@ -225,6 +227,7 @@ fn encode_accepted_expression_field_path_index_component(
 
 /// Encode one admitted literal against the exact accepted index component
 /// contract that will encode stored rows for the same index position.
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn encode_accepted_index_literal_component(
     schema_info: &SchemaInfo,
     index_name: &str,
@@ -620,6 +623,7 @@ fn build_accepted_field_path_index_key_from_components(
 }
 
 // Push one canonical component after enforcing the shared size contract.
+#[cfg(any(test, feature = "sql"))]
 fn push_index_key_component(
     components: &mut Vec<Vec<u8>>,
     component: Vec<u8>,

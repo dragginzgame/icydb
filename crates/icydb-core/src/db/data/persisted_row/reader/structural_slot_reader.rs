@@ -139,6 +139,7 @@ impl<'a> StructuralSlotReader<'a> {
 
     /// Return the declared structural field count for this reader contract.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn field_count(&self) -> usize {
         self.contract.field_count()
     }
@@ -615,6 +616,7 @@ impl CanonicalSlotReader for StructuralSlotReader<'_> {
         self.contract.field_leaf_codec(slot)
     }
 
+    #[cfg(any(test, feature = "sql"))]
     fn required_bytes(&self, slot: usize) -> Result<&[u8], InternalError> {
         let field_name = self.contract.field_name(slot)?;
 

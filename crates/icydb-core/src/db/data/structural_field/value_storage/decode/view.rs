@@ -5,19 +5,20 @@
 
 use crate::db::data::structural_field::{
     FieldDecodeError,
-    binary::{
-        TAG_BYTES, TAG_FALSE, TAG_INT64, TAG_MAP, TAG_NAT64, TAG_NULL, TAG_TEXT, TAG_TRUE,
-        parse_binary_head,
-    },
-    value_storage::{
-        decode::{
-            ValueStorageSlice,
-            scalar::{
-                decode_binary_blob_scalar, decode_binary_i64_scalar,
-                decode_binary_text_payload_bytes_if_text, decode_binary_text_scalar,
-                decode_binary_u64_scalar,
-            },
+    binary::{TAG_BYTES, TAG_FALSE, TAG_INT64, TAG_NAT64, TAG_NULL, TAG_TEXT, TAG_TRUE},
+    value_storage::decode::{
+        ValueStorageSlice,
+        scalar::{
+            decode_binary_blob_scalar, decode_binary_i64_scalar, decode_binary_text_scalar,
+            decode_binary_u64_scalar,
         },
+    },
+};
+#[cfg(any(test, feature = "sql"))]
+use crate::db::data::structural_field::{
+    binary::{TAG_MAP, parse_binary_head},
+    value_storage::{
+        decode::scalar::decode_binary_text_payload_bytes_if_text,
         skip::skip_value_storage_binary_value,
     },
 };
@@ -45,6 +46,7 @@ impl<'a> ValueStorageView<'a> {
     }
 
     /// Wrap bytes whose exact boundary was already returned by skip traversal.
+    #[cfg(any(test, feature = "sql"))]
     const fn from_skip_bounded_unchecked(bytes: &'a [u8]) -> Self {
         Self { bytes }
     }
@@ -127,6 +129,7 @@ impl<'a> ValueStorageView<'a> {
     }
 
     /// Return the value slice for one text-keyed map entry using byte equality.
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn map_text_key_bytes(
         &self,
         key: &[u8],

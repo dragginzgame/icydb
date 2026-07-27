@@ -15,7 +15,6 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
   generated canister actor glue.
 - `crates/icydb-model-macros`: application-model declarations and explicitly
   opted-in typed adapters.
-- `crates/icydb-utils`: shared internal utility helpers.
 - `canisters/audit/*`: SQL audit harnesses for wasm baselines.
 - `canisters/demo/rpg`: RPG demo canister with character and grid entities.
 - `canisters/test/sql`: lightweight SQL smoke-test harness.

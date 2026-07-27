@@ -48,7 +48,7 @@ pub(super) struct StructuralReadProbe {
     materialized_non_scalar_slots: Cell<u64>,
 }
 
-#[cfg(not(any(test, feature = "diagnostics")))]
+#[cfg(all(feature = "sql", not(any(test, feature = "diagnostics"))))]
 #[derive(Debug)]
 pub(super) struct StructuralReadProbe;
 
@@ -98,7 +98,7 @@ impl StructuralReadProbe {
     }
 }
 
-#[cfg(not(any(test, feature = "diagnostics")))]
+#[cfg(all(feature = "sql", not(any(test, feature = "diagnostics"))))]
 impl StructuralReadProbe {
     // Build one no-op probe when structural read metrics are not compiled in.
     pub(super) const fn begin(_field_count: usize) -> Self {
@@ -125,6 +125,7 @@ impl StructuralReadProbe {
 // aggregator so executor sparse decode paths preserve the same observability
 // contract as reader-backed lazy decode paths.
 #[cfg(any(test, feature = "diagnostics"))]
+#[cfg(any(test, feature = "sql"))]
 pub(super) fn finish_direct_probe(probe: &StructuralReadProbe) {
     if !probe.collect {
         return;
@@ -156,6 +157,7 @@ pub(super) fn finish_direct_probe(probe: &StructuralReadProbe) {
 }
 
 #[cfg(not(any(test, feature = "diagnostics")))]
+#[cfg(any(test, feature = "sql"))]
 pub(super) const fn finish_direct_probe(_probe: &StructuralReadProbe) {}
 
 #[cfg(any(test, feature = "diagnostics"))]

@@ -3,6 +3,7 @@
 //! Does not own: typed/dynamic response decoding or frontend orchestration.
 //! Boundary: consumes accepted prepared plans and returns structural rows.
 
+#[cfg(feature = "sql")]
 mod grouped;
 #[cfg(feature = "sql")]
 mod scalar;
@@ -11,7 +12,7 @@ mod scalar;
 pub(in crate::db) use grouped::execute_shared_grouped_plan_for_canister;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use grouped::execute_shared_grouped_plan_for_canister_with_phase_attribution;
-#[cfg(feature = "diagnostics")]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use grouped::{
     GroupedCountAttribution, GroupedExecutePhaseAttribution, GroupedRuntimeAttribution,
 };

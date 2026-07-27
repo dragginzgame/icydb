@@ -39,6 +39,7 @@ enum NumericRepr {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(any(test, feature = "sql"))]
 pub(crate) enum NumericArithmeticError {
     Overflow,
     NotRepresentable,
@@ -130,6 +131,7 @@ fn cmp_numeric(left: &Value, right: &Value) -> Option<Ordering> {
 
 /// Compare two values after exact decimal numeric coercion.
 #[must_use]
+#[cfg(any(test, feature = "sql"))]
 pub(crate) fn compare_decimal_order(left: &Value, right: &Value) -> Option<Ordering> {
     if !semantics::supports_numeric_coercion(left) || !semantics::supports_numeric_coercion(right) {
         return None;
@@ -142,25 +144,30 @@ pub(crate) fn compare_decimal_order(left: &Value, right: &Value) -> Option<Order
 }
 
 /// Add two numeric values under checked decimal arithmetic semantics.
+#[cfg(any(test, feature = "sql"))]
 pub(crate) fn add(left: &Value, right: &Value) -> Result<Option<Decimal>, NumericArithmeticError> {
     apply_decimal_arithmetic(left, right, Decimal::checked_add, false)
 }
 
 /// Subtract two numeric values under checked decimal arithmetic semantics.
+#[cfg(any(test, feature = "sql"))]
 pub(crate) fn sub(left: &Value, right: &Value) -> Result<Option<Decimal>, NumericArithmeticError> {
     apply_decimal_arithmetic(left, right, Decimal::checked_sub, false)
 }
 
 /// Multiply two numeric values under checked decimal arithmetic semantics.
+#[cfg(any(test, feature = "sql"))]
 pub(crate) fn mul(left: &Value, right: &Value) -> Result<Option<Decimal>, NumericArithmeticError> {
     apply_decimal_arithmetic(left, right, Decimal::checked_mul, false)
 }
 
 /// Divide two numeric values under checked decimal arithmetic semantics.
+#[cfg(any(test, feature = "sql"))]
 pub(crate) fn div(left: &Value, right: &Value) -> Result<Option<Decimal>, NumericArithmeticError> {
     apply_decimal_arithmetic(left, right, Decimal::checked_div, true)
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn apply_decimal_arithmetic(
     left: &Value,
     right: &Value,

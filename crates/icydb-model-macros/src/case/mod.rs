@@ -10,8 +10,6 @@ use std::fmt::{self, Display};
 
 use convert_case as cc;
 
-pub use snake::to_snake_case;
-
 ///
 /// Case
 ///

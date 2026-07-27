@@ -41,6 +41,7 @@ struct IndexPrefixCardinalityKey {
 }
 
 impl IndexPrefixCardinality {
+    #[cfg(any(test, feature = "sql"))]
     const FIRST_COMPONENT_BATCH_INTERSECTION_MIN: usize = 32;
 
     #[must_use]
@@ -76,6 +77,7 @@ impl IndexPrefixCardinality {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(super) fn exact_count(
         &self,
         data_generation: u64,
@@ -91,6 +93,7 @@ impl IndexPrefixCardinality {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(super) fn exact_count_sum<'a>(
         &self,
         data_generation: u64,
@@ -125,6 +128,7 @@ impl IndexPrefixCardinality {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(super) fn exact_child_prefixes_for_parent_set<'a>(
         &self,
         data_generation: u64,
@@ -145,6 +149,7 @@ impl IndexPrefixCardinality {
         )
     }
 
+    #[cfg(any(test, feature = "sql"))]
     fn exact_child_prefixes_for_parent_set_synchronized<'a>(
         &self,
         key_kind: IndexKeyKind,
@@ -195,6 +200,7 @@ impl IndexPrefixCardinality {
         Some(children)
     }
 
+    #[cfg(any(test, feature = "sql"))]
     fn exact_count_synchronized(
         &self,
         key_kind: IndexKeyKind,
@@ -221,6 +227,7 @@ impl IndexPrefixCardinality {
             .unwrap_or(0)
     }
 
+    #[cfg(any(test, feature = "sql"))]
     fn exact_general_count_sum(
         &self,
         key_kind: IndexKeyKind,
@@ -240,6 +247,7 @@ impl IndexPrefixCardinality {
         total
     }
 
+    #[cfg(any(test, feature = "sql"))]
     fn exact_first_component_count_sum(
         &self,
         key_kind: IndexKeyKind,
@@ -271,11 +279,13 @@ impl IndexPrefixCardinality {
         )
     }
 
+    #[cfg(any(test, feature = "sql"))]
     fn should_intersect_first_component_counts(&self, requested_component_count: usize) -> bool {
         requested_component_count >= Self::FIRST_COMPONENT_BATCH_INTERSECTION_MIN
             && requested_component_count >= self.first_component_counts.len().saturating_div(2)
     }
 
+    #[cfg(any(test, feature = "sql"))]
     fn exact_first_component_count_sum_by_lookup(
         &self,
         key_kind: IndexKeyKind,
@@ -301,6 +311,7 @@ impl IndexPrefixCardinality {
         total
     }
 
+    #[cfg(any(test, feature = "sql"))]
     fn exact_first_component_count_sum_by_intersection(
         &self,
         key_kind: IndexKeyKind,
@@ -419,6 +430,7 @@ impl IndexPrefixCardinality {
     }
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn first_components<'a>(component_prefixes: &[&'a [Vec<u8>]]) -> Vec<&'a [u8]> {
     component_prefixes
         .iter()
@@ -454,6 +466,7 @@ fn apply_count_delta<K: Ord>(
 }
 
 impl IndexPrefixCardinalityFirstKey {
+    #[cfg(any(test, feature = "sql"))]
     fn new(key_kind: IndexKeyKind, index_id: IndexId, component: &[u8]) -> Self {
         Self {
             key_kind,
@@ -462,6 +475,7 @@ impl IndexPrefixCardinalityFirstKey {
         }
     }
 
+    #[cfg(any(test, feature = "sql"))]
     const fn range_start(key_kind: IndexKeyKind, index_id: IndexId) -> Self {
         Self {
             key_kind,
@@ -470,6 +484,7 @@ impl IndexPrefixCardinalityFirstKey {
         }
     }
 
+    #[cfg(any(test, feature = "sql"))]
     fn matches_identity(&self, key_kind: IndexKeyKind, index_id: IndexId) -> bool {
         self.key_kind == key_kind && self.index_id == index_id
     }
@@ -489,6 +504,7 @@ impl IndexPrefixCardinalityFirstKey {
 }
 
 impl IndexPrefixCardinalityKey {
+    #[cfg(any(test, feature = "sql"))]
     fn new(key_kind: IndexKeyKind, index_id: IndexId, components: &[Vec<u8>]) -> Self {
         Self {
             key_kind,
@@ -497,6 +513,7 @@ impl IndexPrefixCardinalityKey {
         }
     }
 
+    #[cfg(any(test, feature = "sql"))]
     const fn range_start(key_kind: IndexKeyKind, index_id: IndexId) -> Self {
         Self {
             key_kind,
@@ -517,6 +534,7 @@ impl IndexPrefixCardinalityKey {
         }
     }
 
+    #[cfg(any(test, feature = "sql"))]
     fn matches_identity(&self, key_kind: IndexKeyKind, index_id: IndexId) -> bool {
         self.key_kind == key_kind && self.index_id == index_id
     }

@@ -304,6 +304,7 @@ impl CompiledAcceptedRowConstraints {
     }
 
     /// Compile exactly one pending not-null gate for historical validation.
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn compile_not_null_activation(
         schema: &AcceptedSchemaSnapshot,
         value_catalog: &AcceptedValueCatalogHandle,

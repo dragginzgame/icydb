@@ -6,10 +6,9 @@
 use crate::{
     db::{
         Predicate,
+        index::SemanticIndexExpression,
         predicate::{normalize, parse_sql_predicate},
-        schema::{
-            PersistedIndexExpressionOp, SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo,
-        },
+        schema::{SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo},
     },
     value::Value,
 };
@@ -113,53 +112,6 @@ impl SemanticIndexKeyItem {
         match self {
             Self::Field(field) => SemanticIndexKeyItemRef::Field(field.as_str()),
             Self::Expression(expression) => SemanticIndexKeyItemRef::AcceptedExpression(expression),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct SemanticIndexExpression {
-    op: PersistedIndexExpressionOp,
-    field: String,
-}
-
-impl SemanticIndexExpression {
-    #[must_use]
-    pub(in crate::db) const fn new(op: PersistedIndexExpressionOp, field: String) -> Self {
-        Self { op, field }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn field(&self) -> &str {
-        self.field.as_str()
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn op(&self) -> PersistedIndexExpressionOp {
-        self.op
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn supports_text_casefold_lookup(&self) -> bool {
-        matches!(
-            self.op,
-            PersistedIndexExpressionOp::Lower | PersistedIndexExpressionOp::Upper
-        )
-    }
-
-    #[must_use]
-    pub(in crate::db) fn canonical_order_text(&self) -> String {
-        let field = self.field();
-
-        match self.op {
-            PersistedIndexExpressionOp::Lower => format!("LOWER({field})"),
-            PersistedIndexExpressionOp::Upper => format!("UPPER({field})"),
-            PersistedIndexExpressionOp::Trim => format!("TRIM({field})"),
-            PersistedIndexExpressionOp::LowerTrim => format!("LOWER(TRIM({field}))"),
-            PersistedIndexExpressionOp::Date => format!("DATE({field})"),
-            PersistedIndexExpressionOp::Year => format!("YEAR({field})"),
-            PersistedIndexExpressionOp::Month => format!("MONTH({field})"),
-            PersistedIndexExpressionOp::Day => format!("DAY({field})"),
         }
     }
 }
@@ -326,13 +278,13 @@ fn accepted_expression_key_item(item: &SchemaExpressionIndexKeyItemInfo) -> Sema
             SemanticIndexKeyItem::Field(accepted_field_path_term(field.field_name(), field.path()))
         }
         SchemaExpressionIndexKeyItemInfo::Expression(expression) => {
-            SemanticIndexKeyItem::Expression(SemanticIndexExpression {
-                op: expression.op(),
-                field: accepted_field_path_term(
+            SemanticIndexKeyItem::Expression(SemanticIndexExpression::new(
+                expression.op(),
+                accepted_field_path_term(
                     expression.source().field_name(),
                     expression.source().path(),
                 ),
-            })
+            ))
         }
     }
 }

@@ -23,7 +23,6 @@ ic-memory = { workspace = true }
 icydb-core = { workspace = true }
 icydb-diagnostic-code = { workspace = true }
 icydb-schema = { workspace = true }
-icydb-utils = { workspace = true }
 remain = { workspace = true }
 serde = { workspace = true }
 

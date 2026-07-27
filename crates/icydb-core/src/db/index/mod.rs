@@ -6,8 +6,10 @@
 mod cardinality;
 mod entry;
 pub(in crate::db) mod envelope;
+mod expression_contract;
 mod key;
 mod plan;
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) mod predicate;
 mod range;
 mod readers;
@@ -15,29 +17,39 @@ mod scan;
 mod store;
 
 pub(in crate::db) use crate::db::key_taxonomy::IndexEntryValue;
-pub(in crate::db) use entry::{IndexEntryExistenceWitness, IndexEntryRowWitness, IndexRowIdentity};
+pub(in crate::db) use entry::IndexEntryExistenceWitness;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use entry::IndexEntryRowWitness;
+pub(in crate::db) use entry::IndexRowIdentity;
+pub(in crate::db) use envelope::{envelope_is_empty, key_within_envelope};
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use envelope::{
-    envelope_is_empty, key_within_envelope, resume_bounds_for_continuation,
-    validate_index_scan_continuation_advancement,
+    resume_bounds_for_continuation, validate_index_scan_continuation_advancement,
+};
+pub(in crate::db) use expression_contract::SemanticIndexExpression;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use key::{
+    EncodedValue, IndexExpressionSourceClass, encode_accepted_index_literal_component,
 };
 pub(in crate::db) use key::{
-    EncodedValue, IndexExpressionSourceClass, IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey,
-    derive_index_expression_value, encode_accepted_index_literal_component,
+    IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey, derive_index_expression_value,
 };
 pub(in crate::db) use plan::{
     AcceptedIndexInspectionDomain, AcceptedIndexInspectionPlan, IndexDelta, IndexDeltaGroup,
     IndexMembershipDelta, IndexMutationPlan, IndexPlanReadView,
     plan_index_mutation_for_slot_reader_structural,
 };
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use predicate::{
     IndexCompareOp, IndexCompilePolicy, IndexLiteral, IndexPredicateProgram, compile_index_program,
     compile_index_program_for_targets,
 };
+pub(in crate::db) use range::raw_keys_for_component_prefix_with_kind;
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use range::{
     IndexBoundsSpec, IndexRangeBoundEncodeError, TextPrefixBoundMode,
     build_index_bounds_lowering_for_arity, build_index_component_range_with_encoded_prefix,
-    build_index_prefix_bounds_for_encoded_components, raw_keys_for_component_prefix_with_kind,
-    starts_with_component_bounds,
+    build_index_prefix_bounds_for_encoded_components, starts_with_component_bounds,
 };
 pub(in crate::db) use readers::{
     IndexReadContract, StructuralIndexEntryReader, StructuralPrimaryRowReader,

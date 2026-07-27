@@ -37,6 +37,10 @@ fn accepted_sql_capabilities(
     )
 }
 
+#[cfg_attr(
+    not(any(test, feature = "sql")),
+    expect(dead_code, reason = "field lookup is query-owned")
+)]
 fn schema_field_info<'a>(
     fields: &'a [SchemaFieldEntry],
     name: &str,
@@ -94,6 +98,13 @@ fn accepted_slot_index(slot: SchemaFieldSlot) -> usize {
 ///
 
 #[derive(Clone, Debug)]
+#[cfg_attr(
+    not(any(test, feature = "sql")),
+    expect(
+        dead_code,
+        reason = "field metadata is retained by the shared commit schema view"
+    )
+)]
 struct SchemaFieldInfo {
     slot: usize,
     ty: FieldType,
@@ -124,6 +135,10 @@ pub(in crate::db) struct SchemaIndexInfo {
     name: String,
     store: String,
     unique: bool,
+    #[cfg_attr(
+        not(any(test, feature = "sql")),
+        expect(dead_code, reason = "generated provenance is query-owned")
+    )]
     generated: bool,
     fields: Vec<SchemaIndexFieldPathInfo>,
     predicate_sql: Option<String>,
@@ -163,6 +178,10 @@ impl SchemaIndexInfo {
 
     /// Return whether this index is declared by the generated entity model.
     #[must_use]
+    #[cfg_attr(
+        not(any(test, feature = "sql")),
+        expect(dead_code, reason = "generated provenance is query-owned")
+    )]
     pub(in crate::db) const fn generated(&self) -> bool {
         self.generated
     }
@@ -213,6 +232,10 @@ pub(in crate::db) struct SchemaExpressionIndexInfo {
     name: String,
     store: String,
     unique: bool,
+    #[cfg_attr(
+        not(any(test, feature = "sql")),
+        expect(dead_code, reason = "generated provenance is query-owned")
+    )]
     generated: bool,
     key_items: Vec<SchemaExpressionIndexKeyItemInfo>,
     predicate_sql: Option<String>,
@@ -252,6 +275,10 @@ impl SchemaExpressionIndexInfo {
 
     /// Return whether this expression index came from generated entity metadata.
     #[must_use]
+    #[cfg_attr(
+        not(any(test, feature = "sql")),
+        expect(dead_code, reason = "generated provenance is query-owned")
+    )]
     pub(in crate::db) const fn generated(&self) -> bool {
         self.generated
     }
@@ -393,6 +420,13 @@ impl SchemaIndexFieldPathInfo {
 }
 
 #[derive(Clone, Debug)]
+#[cfg_attr(
+    not(any(test, feature = "sql")),
+    expect(
+        dead_code,
+        reason = "field and identity metadata share the commit schema view with query planning"
+    )
+)]
 pub(crate) struct SchemaInfo {
     fields: Vec<SchemaFieldEntry>,
     indexes: Vec<SchemaIndexInfo>,
@@ -402,6 +436,13 @@ pub(crate) struct SchemaInfo {
     primary_key_names: Vec<String>,
 }
 
+#[cfg_attr(
+    not(any(test, feature = "sql")),
+    expect(
+        dead_code,
+        reason = "query-only accessors share the commit schema view"
+    )
+)]
 impl SchemaInfo {
     /// Return whether this view is pinned to accepted catalog authority.
     #[must_use]

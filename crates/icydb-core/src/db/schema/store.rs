@@ -967,6 +967,7 @@ impl SchemaStore {
     }
 
     /// Return the current accepted revision without decoding its bundle.
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn current_accepted_schema_revision(
         &self,
     ) -> Result<Option<AcceptedSchemaRevision>, InternalError> {

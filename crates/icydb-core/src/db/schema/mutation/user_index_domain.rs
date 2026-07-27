@@ -3,29 +3,37 @@
 //! Does not own: accepted-schema marker persistence or physical index apply.
 //! Boundary: accepted schema + authoritative rows + current index view -> staged raw replacement.
 
+#[cfg(any(test, feature = "sql"))]
+use crate::db::{
+    commit::CommitSchemaFingerprint,
+    index::IndexId,
+    schema::{
+        AcceptedCatalogIdentity, MAX_SCHEMA_PROJECTION_ENTRIES, PersistedSchemaSnapshot,
+        SchemaTransitionSourceBudget, SchemaVersion,
+        accepted_schema_cache_fingerprint_for_persisted_snapshot,
+    },
+};
 use crate::{
     db::{
-        commit::CommitSchemaFingerprint,
         data::{CanonicalSlotReader, StructuralRowContract},
         index::{
-            IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore,
-            IndexStoreVisit, RawIndexStoreKey,
+            IndexEntryValue, IndexKey, IndexKeyKind, IndexState, IndexStore, IndexStoreVisit,
+            RawIndexStoreKey,
         },
         key_taxonomy::PrimaryKeyValue,
         predicate::{PredicateProgram, normalize, parse_sql_predicate},
         schema::{
-            AcceptedCatalogIdentity, MAX_SCHEMA_PROJECTION_ENTRIES,
-            MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES, PersistedSchemaSnapshot,
+            MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES,
             SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildTarget,
-            SchemaTransitionSourceBudget, SchemaVersion,
-            accepted_schema_cache_fingerprint_for_persisted_snapshot,
             mutation::SchemaMutationRequest,
         },
     },
     error::{InternalError, SchemaTransitionBudgetResource},
     types::EntityTag,
 };
-use std::{collections::BTreeSet, mem::size_of};
+#[cfg(any(test, feature = "sql"))]
+use std::collections::BTreeSet;
+use std::mem::size_of;
 
 const MAX_DELETION_KEYS: usize = 65_536;
 
@@ -39,8 +47,20 @@ const MAX_DELETION_KEYS: usize = 65_536;
 #[derive(Clone, Copy)]
 pub(in crate::db) struct SchemaUserIndexDomainRow<'a> {
     primary_key_value: PrimaryKeyValue,
+    #[cfg_attr(
+        not(any(test, feature = "sql")),
+        expect(dead_code, reason = "complete-domain staging is SQL-owned")
+    )]
     accepted_before_slots: &'a dyn CanonicalSlotReader,
+    #[cfg_attr(
+        not(any(test, feature = "sql")),
+        expect(dead_code, reason = "complete-domain staging is SQL-owned")
+    )]
     accepted_after_slots: &'a dyn CanonicalSlotReader,
+    #[cfg_attr(
+        not(any(test, feature = "sql")),
+        expect(dead_code, reason = "complete-domain staging is SQL-owned")
+    )]
     encoded_row_bytes: usize,
 }
 
@@ -77,6 +97,7 @@ pub(in crate::db) struct StagedUserIndexDomainEntry {
 
 impl StagedUserIndexDomainEntry {
     /// Borrow the prevalidated raw store key.
+    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) const fn key(&self) -> &RawIndexStoreKey {
         &self.key
@@ -90,6 +111,7 @@ impl StagedUserIndexDomainEntry {
     }
 
     /// Consume this staged entry into its allocation-complete raw parts.
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn into_parts(self) -> (RawIndexStoreKey, IndexEntryValue) {
         (self.key, self.value)
     }
@@ -149,6 +171,7 @@ impl StagedUserIndexDomainUsage {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) struct StagedUserIndexDomainReplacement {
     store_path: &'static str,
     entity_tag: EntityTag,
@@ -160,6 +183,7 @@ pub(in crate::db) struct StagedUserIndexDomainReplacement {
     usage: StagedUserIndexDomainUsage,
 }
 
+#[cfg(any(test, feature = "sql"))]
 impl StagedUserIndexDomainReplacement {
     /// Borrow the backing store path captured from accepted-before authority.
     #[must_use]
@@ -227,6 +251,7 @@ impl StagedUserIndexDomainReplacement {
 /// aggregate bounds are enforced before projection state is retained.
 ///
 
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) struct StagedUserIndexDomainReplacementBuilder {
     store_path: &'static str,
     entity_tag: EntityTag,
@@ -240,6 +265,7 @@ pub(in crate::db) struct StagedUserIndexDomainReplacementBuilder {
     budget: StagedUserIndexDomainBudget,
 }
 
+#[cfg(any(test, feature = "sql"))]
 impl StagedUserIndexDomainReplacementBuilder {
     /// Begin one stage from accepted schema authority and a Ready physical view.
     pub(in crate::db) fn new(
@@ -370,6 +396,10 @@ impl StagedUserIndexDomainReplacementBuilder {
 /// Schema mutation owns these failures; no variant permits physical mutation.
 ///
 
+#[cfg_attr(
+    not(any(test, feature = "sql")),
+    expect(dead_code, reason = "the complete staging vocabulary is SQL-owned")
+)]
 pub(in crate::db) enum StagedUserIndexDomainError {
     /// The accepted-after entity identity differs from accepted-before.
     AcceptedAfterEntityMismatch,
@@ -612,6 +642,7 @@ impl UniqueConstraintProjection {
 ///
 
 #[derive(Clone, Copy)]
+#[cfg(any(test, feature = "sql"))]
 enum ProjectionAuthority {
     /// Already accepted physical truth; violations indicate corruption.
     AcceptedBefore,
@@ -625,11 +656,13 @@ enum ProjectionAuthority {
 /// Complete accepted index set prepared for one authoritative row traversal.
 ///
 
+#[cfg(any(test, feature = "sql"))]
 struct PreparedUserIndexProjection {
     indexes: Vec<PreparedUserIndex>,
     unique_index_ids: BTreeSet<IndexId>,
 }
 
+#[cfg(any(test, feature = "sql"))]
 impl PreparedUserIndexProjection {
     fn from_snapshot(
         entity_tag: EntityTag,
@@ -682,6 +715,7 @@ impl PreparedUserIndexProjection {
     }
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn validate_stage_authority(
     accepted_before_identity: AcceptedCatalogIdentity,
     accepted_before: &PersistedSchemaSnapshot,
@@ -728,6 +762,7 @@ fn validate_stage_authority(
     Ok(())
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn validate_projection(
     entries: &mut [StagedUserIndexDomainEntry],
     unique_index_ids: &BTreeSet<IndexId>,
@@ -805,6 +840,7 @@ pub(in crate::db::schema) fn prove_empty_user_index_domain(
     }
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn validate_insertion_collisions(
     index_store: &IndexStore,
     deletion_keys: &[RawIndexStoreKey],
@@ -828,6 +864,7 @@ fn validate_insertion_collisions(
 ///
 
 struct StagedUserIndexDomainBudget {
+    #[cfg(any(test, feature = "sql"))]
     source: SchemaTransitionSourceBudget,
     usage: StagedUserIndexDomainUsage,
 }
@@ -835,6 +872,7 @@ struct StagedUserIndexDomainBudget {
 impl StagedUserIndexDomainBudget {
     const fn standard() -> Self {
         Self {
+            #[cfg(any(test, feature = "sql"))]
             source: SchemaTransitionSourceBudget::standard(),
             usage: StagedUserIndexDomainUsage {
                 source_rows: 0,
@@ -849,6 +887,7 @@ impl StagedUserIndexDomainBudget {
         }
     }
 
+    #[cfg(any(test, feature = "sql"))]
     fn consume_source_row(
         &mut self,
         encoded_row_bytes: usize,
@@ -873,6 +912,7 @@ impl StagedUserIndexDomainBudget {
         Ok(())
     }
 
+    #[cfg(any(test, feature = "sql"))]
     fn consume_projection_entry(
         &mut self,
         key_bytes: usize,
@@ -918,6 +958,7 @@ impl StagedUserIndexDomainBudget {
         )
     }
 
+    #[cfg(any(test, feature = "sql"))]
     fn finish_sort_workspace(
         &mut self,
         before_entries: usize,
@@ -957,6 +998,7 @@ impl StagedUserIndexDomainBudget {
         Ok(())
     }
 
+    #[cfg(any(test, feature = "sql"))]
     const fn record_projection_counts(
         &mut self,
         accepted_before_entries: usize,
@@ -966,6 +1008,7 @@ impl StagedUserIndexDomainBudget {
         self.usage.accepted_after_entries = accepted_after_entries;
     }
 
+    #[cfg(any(test, feature = "sql"))]
     const fn usage(&self) -> StagedUserIndexDomainUsage {
         StagedUserIndexDomainUsage {
             source_rows: self.source.source_rows(),

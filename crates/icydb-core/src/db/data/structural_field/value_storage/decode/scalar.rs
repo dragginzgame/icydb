@@ -113,6 +113,7 @@ pub(super) fn decode_binary_blob_scalar(raw_bytes: &[u8]) -> Result<&[u8], Field
 // Borrow the payload bytes for one top-level text scalar without validating
 // UTF-8. This is only for byte-key comparisons where the caller already owns a
 // valid UTF-8 query segment and only needs exact byte equality.
+#[cfg(any(test, feature = "sql"))]
 pub(super) fn decode_binary_text_payload_bytes_if_text(
     raw_bytes: &[u8],
 ) -> Result<Option<&[u8]>, FieldDecodeError> {

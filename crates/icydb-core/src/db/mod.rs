@@ -5,8 +5,10 @@
 //! Does not own: feature semantics delegated to child modules (`query`, `executor`, etc.).
 //! Boundary: top-level db API and internal orchestration entrypoints.
 
+#[cfg(any(test, feature = "sql"))]
 pub(crate) mod access;
 pub(crate) mod catalog;
+#[cfg(any(test, feature = "sql"))]
 pub(crate) mod cursor;
 pub(crate) mod diagnostics;
 mod dynamic_write;
@@ -16,8 +18,10 @@ pub(crate) mod integrity;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) mod physical_access;
 pub(crate) mod predicate;
+#[cfg(any(test, feature = "sql"))]
 pub(crate) mod query;
 pub(crate) mod registry;
+#[cfg(any(test, feature = "sql"))]
 pub(crate) mod response;
 pub(crate) mod scalar_expr;
 pub(crate) mod schema;
@@ -70,9 +74,13 @@ pub use data::{StructuralReadMetrics, with_structural_read_metrics};
 #[expect(unused_imports)]
 pub(crate) use data::{StructuralReadMetrics, with_structural_read_metrics};
 pub use diagnostics::{
-    DataStoreSnapshot, EntitySnapshot, ExecutionAccessPathVariant, ExecutionMetrics,
-    ExecutionOptimization, ExecutionStats, ExecutionTrace, IndexStoreSnapshot, SchemaStoreSnapshot,
-    StorageReport, StoreSnapshotStorageMode,
+    DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, SchemaStoreSnapshot, StorageReport,
+    StoreSnapshotStorageMode,
+};
+#[cfg(any(test, feature = "sql"))]
+pub use diagnostics::{
+    ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionStats,
+    ExecutionTrace,
 };
 #[doc(hidden)]
 pub use dynamic_write::{DynamicMutation, DynamicStructuralPatch, DynamicWriteCell};
@@ -81,14 +89,15 @@ pub use dynamic_write::{
     DynamicTypedFieldBindingRequest, DynamicTypedFieldType,
 };
 pub use entity_registration::EntityRegistration;
+#[cfg(any(test, feature = "sql"))]
 pub use executor::{ExecutionFamily, RouteExecutionMode};
-#[cfg(feature = "diagnostics")]
+#[cfg(all(feature = "diagnostics", any(test, feature = "sql")))]
 #[doc(hidden)]
 pub use executor::{RowCheckMetrics, with_row_check_metrics};
 #[cfg(all(test, not(feature = "diagnostics")))]
 #[expect(unused_imports)]
 pub(crate) use executor::{RowCheckMetrics, with_row_check_metrics};
-#[cfg(feature = "diagnostics")]
+#[cfg(all(feature = "diagnostics", any(test, feature = "sql")))]
 #[doc(hidden)]
 pub use executor::{ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics};
 #[cfg(all(test, not(feature = "diagnostics")))]
@@ -119,12 +128,20 @@ pub use key_taxonomy::{
 pub use predicate::{
     CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
 };
+#[cfg(any(test, feature = "sql"))]
 pub use query::builder::numeric_projection::{
     NumericProjectionExpr, RoundProjectionExpr, add, div, mul, round, round_expr, sub,
 };
+#[cfg(any(test, feature = "sql-explain"))]
+pub use query::explain::{
+    ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
+    ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
+};
+#[cfg(any(test, feature = "sql"))]
 pub use query::plan::validate::PlanError;
 #[cfg(feature = "sql")]
 pub use query::{DynamicQuery, DynamicQueryResult};
+#[cfg(any(test, feature = "sql"))]
 pub use query::{
     builder::{
         AggregateExpr, FieldRef, TextProjectionExpr, ValueProjectionExpr, avg, contains, count,
@@ -134,9 +151,7 @@ pub use query::{
     },
     explain::{
         ExplainAccessCandidate, ExplainAccessDecision, ExplainAccessDecisionKind,
-        ExplainAggregateTerminalPlan, ExplainEligibleAlternative, ExplainExecutionDescriptor,
-        ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-        ExplainExecutionOrderingSource, ExplainPlan, ExplainRejectedIndex, ExplainResidualSummary,
+        ExplainEligibleAlternative, ExplainPlan, ExplainRejectedIndex, ExplainResidualSummary,
         ExplainSelectedAccess,
     },
     expr::{FilterExpr, FilterValue, OrderExpr, OrderTerm, asc, desc, field},
@@ -154,6 +169,7 @@ pub use registry::{
     StoreRelationSourceCapability, StoreRelationTargetCapability, StoreRuntimeStorageCapabilities,
     StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
 };
+#[cfg(any(test, feature = "sql"))]
 pub use response::GroupedRow;
 #[doc(hidden)]
 pub use schema::validate_generated_constraint_name;
@@ -180,7 +196,7 @@ pub use session::{
     TrustedResumableUpdateRestartReason, sql_statement_dispatch, sql_statement_entity_name,
     sql_statement_shell_surface, sql_statement_surface,
 };
-#[cfg(feature = "diagnostics")]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use session::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
     KernelRowAttribution, ScalarAggregateAttribution,

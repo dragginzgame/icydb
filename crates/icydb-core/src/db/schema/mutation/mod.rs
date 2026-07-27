@@ -6,10 +6,11 @@
 use crate::db::schema::PersistedFieldSnapshot;
 
 mod budget;
-pub(in crate::db) use budget::{
-    MAX_SCHEMA_PROJECTION_ENTRIES, MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES,
-    SchemaTransitionSourceBudget,
-};
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use budget::MAX_SCHEMA_PROJECTION_ENTRIES;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use budget::SchemaTransitionSourceBudget;
+pub(in crate::db) use budget::{MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES};
 
 #[cfg(feature = "sql")]
 mod field;
@@ -60,9 +61,11 @@ pub(in crate::db) use ddl_admission::{
     SchemaDdlVersionContractPreflightError, validate_schema_ddl_version_contract_preflight,
 };
 
+#[cfg(any(test, feature = "sql"))]
 mod delta;
 #[cfg(feature = "sql")]
 pub(in crate::db::schema) use delta::required_empty_entity_field_addition_matches;
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db::schema) use delta::schema_mutation_request_for_snapshots;
 
 #[cfg(feature = "sql")]
@@ -99,10 +102,12 @@ pub(in crate::db::schema) use relation_removal::derive_relation_removal_candidat
 
 mod user_index_domain;
 pub(in crate::db::schema) use user_index_domain::prove_empty_user_index_domain;
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use user_index_domain::{
-    SchemaUserIndexDomainRow, StagedUserIndexDomainError, StagedUserIndexDomainReplacement,
-    StagedUserIndexDomainReplacementBuilder, UniqueConstraintProjection,
+    SchemaUserIndexDomainRow, StagedUserIndexDomainReplacement,
+    StagedUserIndexDomainReplacementBuilder,
 };
+pub(in crate::db) use user_index_domain::{StagedUserIndexDomainError, UniqueConstraintProjection};
 
 ///
 /// SchemaMutationRequest
@@ -113,6 +118,13 @@ pub(in crate::db) use user_index_domain::{
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(
+    not(any(test, feature = "sql")),
+    expect(
+        dead_code,
+        reason = "catalog mutation vocabulary is shared with SQL reconciliation"
+    )
+)]
 pub(in crate::db::schema) enum SchemaMutationRequest<'a> {
     ExactMatch,
     AppendOnlyFields(&'a [PersistedFieldSnapshot]),
@@ -149,6 +161,7 @@ pub(in crate::db) enum AcceptedSchemaMutationError {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db::schema) enum MutationPlan {
     MetadataOnly,
     FieldPathIndexRebuild {
@@ -161,11 +174,13 @@ pub(in crate::db::schema) enum MutationPlan {
 
 /// Schema-owned publication boundary for a current mutation plan.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db::schema) enum MutationPublicationPreflight {
     PublishableNow,
     RequiresPhysicalWork,
 }
 
+#[cfg(any(test, feature = "sql"))]
 impl MutationPlan {
     /// Build the no-op plan for equal accepted snapshots.
     pub(in crate::db::schema) const fn exact_match() -> Self {
@@ -217,6 +232,7 @@ impl MutationPlan {
     }
 }
 
+#[cfg(any(test, feature = "sql"))]
 impl From<SchemaMutationRequest<'_>> for MutationPlan {
     fn from(request: SchemaMutationRequest<'_>) -> Self {
         match request {

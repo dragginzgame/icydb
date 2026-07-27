@@ -1,15 +1,17 @@
+#[cfg(any(test, feature = "sql"))]
+use crate::db::{
+    data::{StructuralRowFieldBytes, persisted_row::reader::metrics::StructuralReadProbe},
+    key_taxonomy::PrimaryKeyValue,
+    schema::AcceptedFieldKind,
+};
 use crate::{
     db::{
         data::{
-            StructuralRowContract, StructuralRowFieldBytes,
-            decode_runtime_value_from_accepted_field_contract,
-            persisted_row::{
-                codec::{ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value},
-                reader::metrics::StructuralReadProbe,
-            },
+            StructuralRowContract, decode_runtime_value_from_accepted_field_contract,
+            persisted_row::codec::{ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value},
         },
-        key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
-        schema::{AcceptedFieldDecodeContract, AcceptedFieldKind},
+        key_taxonomy::PrimaryKeyComponent,
+        schema::AcceptedFieldDecodeContract,
     },
     error::InternalError,
     model::field::LeafCodec,
@@ -39,6 +41,7 @@ const fn primary_key_component_from_runtime_value(value: &Value) -> Option<Prima
 
 // Validate the persisted primary-key payload against one authoritative
 // primary-key value directly from structural field bytes.
+#[cfg(any(test, feature = "sql"))]
 pub(super) fn validate_primary_key_value_from_field_bytes(
     contract: &StructuralRowContract,
     field_bytes: &StructuralRowFieldBytes<'_>,
@@ -152,6 +155,7 @@ fn validate_primary_key_value_from_slot_bytes_with_accepted_field(
 // Materialize one accepted-schema primary-key slot from the authoritative row
 // key. This mirrors generated primary-key materialization while keeping
 // relation-key recursion on accepted persisted kind metadata.
+#[cfg(any(test, feature = "sql"))]
 pub(super) fn materialize_primary_key_slot_value_from_expected_component_with_accepted_field(
     field: AcceptedFieldDecodeContract<'_>,
     expected_key: PrimaryKeyComponent,
@@ -169,6 +173,7 @@ pub(super) fn materialize_primary_key_slot_value_from_expected_component_with_ac
 // Rebuild one primary-key runtime value through the accepted persisted kind.
 // Only primary-key-compatible shapes are accepted; relation keys recurse to
 // their declared target-key kind.
+#[cfg(any(test, feature = "sql"))]
 fn materialize_primary_key_value_from_persisted_kind(
     kind: &AcceptedFieldKind,
     component: PrimaryKeyComponent,

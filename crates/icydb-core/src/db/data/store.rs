@@ -412,6 +412,7 @@ impl DataStore {
     }
 
     /// Visit raw row entries in reverse order whose keys belong to the provided storage range.
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn visit_range_rev<E>(
         &self,
         key_range: impl RangeBounds<RawDataStoreKey>,
@@ -461,7 +462,7 @@ impl DataStore {
     }
 
     /// Return the monotonic perf-only count of stable row fetches seen by this process.
-    #[cfg(feature = "diagnostics")]
+    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
     pub(in crate::db) fn current_get_call_count() -> u64 {
         DATA_STORE_GET_CALL_COUNT.with(Cell::get)
     }

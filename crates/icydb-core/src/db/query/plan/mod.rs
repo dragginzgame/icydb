@@ -53,8 +53,11 @@ pub(in crate::db) use covering::covering_hybrid_projection_execution_plan_with_s
 pub(in crate::db) use covering::{
     CoveringExistingRowMode, CoveringHybridReadExecutionPlan, CoveringProjectionOrder,
     CoveringReadExecutionPlan, CoveringReadFieldSource,
-    covering_read_execution_plan_with_schema_info, covering_read_reason_code_for_load_plan,
-    covering_strict_predicate_compatible, index_covering_existing_rows_terminal_eligible,
+    covering_read_execution_plan_with_schema_info, covering_strict_predicate_compatible,
+};
+#[cfg(any(test, feature = "sql-explain"))]
+pub(in crate::db) use covering::{
+    covering_read_reason_code_for_load_plan, index_covering_existing_rows_terminal_eligible,
 };
 pub(in crate::db::query::plan) use group::extend_unique_grouped_aggregate_specs_from_expr;
 pub(in crate::db) use group::{
@@ -116,14 +119,15 @@ pub(in crate::db::query) use projection::{
     lower_data_row_direct_projection_slots_with_schema, lower_direct_projection_slots_with_schema,
     lower_projection_identity, lower_projection_intent_with_schema,
 };
+#[cfg(any(test, feature = "sql-explain"))]
+pub(in crate::db) use semantics::access_plan_label;
 pub(in crate::db) use semantics::canonicalize_grouped_having_numeric_literal_for_slot;
 pub(in crate::db) use semantics::{
     AccessPlanProjection, AggregateIdentity, AggregateSemanticKey, GroupDistinctAdmissibility,
     GroupDistinctPolicyReason, GroupedCursorPolicyViolation, GroupedPlanFallbackReason,
-    GroupedPlanStrategy, access_plan_label, explain_access_strategy_label,
-    grouped_distinct_admissibility, grouped_having_binary_compare_op,
-    grouped_having_compare_op_supported, project_access_plan, project_explain_access_path,
-    resolve_global_distinct_field_aggregate,
+    GroupedPlanStrategy, explain_access_strategy_label, grouped_distinct_admissibility,
+    grouped_having_binary_compare_op, grouped_having_compare_op_supported, project_access_plan,
+    project_explain_access_path, resolve_global_distinct_field_aggregate,
 };
 pub(in crate::db) use semantics::{
     LogicalPushdownEligibility, derive_logical_pushdown_eligibility,

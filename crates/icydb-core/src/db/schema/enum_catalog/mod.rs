@@ -26,14 +26,15 @@ use std::sync::Arc;
 use crate::model::field::{EnumVariantModel, FieldKind};
 
 pub(in crate::db) use crate::value::{EnumTypeId, EnumVariantId};
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db::schema) use admission::normalize_and_admit_nullable_value;
 pub(in crate::db) use admission::normalize_candidate_value;
 pub(in crate::db) use admission::validate_decoded_persisted_field_value_in_catalog;
 pub(in crate::db) use admission::{
     AcceptedValueRef, AdmittedOwnedValue, CanonicalValue, ValueAdmissionBudget, ValueAdmissionError,
 };
 pub(in crate::db::schema) use admission::{
-    admit_canonical_value, normalize_and_admit_nullable_value, validate_nullable_canonical_value,
-    with_normalized_accepted_value,
+    admit_canonical_value, validate_nullable_canonical_value, with_normalized_accepted_value,
 };
 pub(in crate::db::schema) use codec::{decode_accepted_enum_catalog, encode_accepted_enum_catalog};
 pub(in crate::db) use equality_key::encode_unit_enum_equality_key;
@@ -654,6 +655,7 @@ impl AcceptedValueContract {
 
     /// Derive the accepted element contract for a list or set value.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn collection_element_contract(&self) -> Option<Self> {
         match &self.kind {
             AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => Some(Self {

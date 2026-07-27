@@ -535,6 +535,7 @@ impl AcceptedConstraintCatalog {
     }
 
     /// Reserve one not-null activation while the accepted field remains nullable.
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn with_added_not_null_activation(
         self,
         field: &PersistedFieldSnapshot,
@@ -556,6 +557,7 @@ impl AcceptedConstraintCatalog {
     }
 
     /// Reserve one unique-index activation beside its planner-invisible owner.
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn with_added_unique_activation(
         self,
         index: &PersistedIndexSnapshot,

@@ -1,5 +1,7 @@
 //! Structured proposal binding and canonicalization for `CheckExprV1`.
 
+#[cfg(any(test, feature = "sql"))]
+use crate::db::schema::check::MAX_CHECK_EXPR_V1_MEMBERSHIP_ITEMS;
 use crate::{
     db::{
         data::encode_input_value_for_candidate_field_contract,
@@ -8,24 +10,22 @@ use crate::{
             AcceptedCheckValueExprV1, AcceptedCompositeCatalog, AcceptedEnumCatalog,
             AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedSourceBindingCatalog,
             PersistedSchemaSnapshot, ValueAdmissionBudget,
-            check::{
-                AcceptedCheckExprV1Error, MAX_CHECK_EXPR_V1_MEMBERSHIP_ITEMS, nat64_codec,
-                nat64_kind,
-            },
-            input_value_from_strict_sql_literal_for_persisted_kind,
+            check::{AcceptedCheckExprV1Error, nat64_codec, nat64_kind},
         },
     },
     model::field::{FieldStorageDecode, LeafCodec},
     types::EntityTag,
-    value::{InputValue, InputValueEnum, Value},
+    value::{InputValue, InputValueEnum},
 };
 use icydb_schema::{ScalarLiteral, SourceCheckExpr, SourceCheckInstruction};
 
 #[cfg(feature = "sql")]
 use crate::db::{
-    schema::PersistedFieldSnapshot,
+    schema::{PersistedFieldSnapshot, input_value_from_strict_sql_literal_for_persisted_kind},
     sql::parser::{SqlExpr, SqlExprBinaryOp, SqlExprUnaryOp, SqlScalarFunction},
 };
+#[cfg(feature = "sql")]
+use crate::value::Value;
 
 /// Structured frontend-neutral proposal for one row-local check expression.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -48,6 +48,7 @@ pub(in crate::db) enum CheckExprV1Input {
         lower: InputValue,
         upper: InputValue,
     },
+    #[cfg(any(test, feature = "sql"))]
     EnumIn {
         field: String,
         members: Vec<InputValue>,
@@ -617,6 +618,7 @@ fn bind_expression(
             )?;
             AcceptedCheckExprV1::canonicalized_and(vec![lower, upper])
         }
+        #[cfg(any(test, feature = "sql"))]
         CheckExprV1Input::EnumIn { field, members } => {
             bind_enum_membership(field, members, snapshot, enum_catalog, composite_catalog)
         }
@@ -772,6 +774,7 @@ fn bind_literal(
     ))
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn bind_enum_membership(
     field_name: String,
     members: Vec<InputValue>,

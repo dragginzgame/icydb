@@ -31,10 +31,12 @@ const POSITIVE_MARKER: u8 = 0x02;
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(any(test, feature = "sql"))]
 pub(crate) struct EncodedValue {
     encoded: Vec<u8>,
 }
 
+#[cfg(any(test, feature = "sql"))]
 impl EncodedValue {
     /// Wrap bytes produced by another accepted canonical component encoder.
     #[must_use]
@@ -70,6 +72,7 @@ impl EncodedValue {
     }
 }
 
+#[cfg(any(test, feature = "sql"))]
 impl AsRef<[u8]> for EncodedValue {
     fn as_ref(&self) -> &[u8] {
         self.encoded()

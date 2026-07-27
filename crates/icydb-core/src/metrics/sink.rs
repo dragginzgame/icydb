@@ -8,16 +8,19 @@
 mod counters;
 mod dispatch;
 mod events;
+#[cfg(any(test, feature = "sql"))]
 mod instrumentation;
 
 use crate::metrics::state as metrics;
 use dispatch::GLOBAL_METRICS_SINK;
 #[cfg(feature = "sql")]
 pub(crate) use instrumentation::record_sql_compile_reject_for_path;
+#[cfg(any(test, feature = "sql"))]
 pub(crate) use instrumentation::{
     PathSpan, record_cache_entries, record_cache_event_for_path, record_cache_miss_reason_for_path,
     record_prepared_shape_already_finalized_for_path,
 };
+#[cfg(any(test, feature = "sql"))]
 use std::cell::RefCell;
 #[cfg(test)]
 use std::rc::Rc;
@@ -28,6 +31,7 @@ pub use events::{
     SchemaReconcileOutcome, SchemaTransitionOutcome, SqlCompileRejectPhase, SqlWriteKind,
 };
 
+#[cfg(any(test, feature = "sql"))]
 thread_local! {
     static SINK_OVERRIDE: RefCell<Vec<MetricsSinkOverride>> = const { RefCell::new(Vec::new()) };
 }
@@ -41,12 +45,14 @@ pub trait MetricsSink {
 }
 
 #[derive(Clone)]
+#[cfg(any(test, feature = "sql"))]
 enum MetricsSinkOverride {
     Static(&'static dyn MetricsSink),
     #[cfg(test)]
     Shared(Rc<dyn MetricsSink>),
 }
 
+#[cfg(any(test, feature = "sql"))]
 impl MetricsSinkOverride {
     fn record(&self, event: MetricsEvent) {
         match self {
@@ -60,12 +66,15 @@ impl MetricsSinkOverride {
 pub(crate) fn record(event: MetricsEvent) {
     // Clone the scoped override before dispatch so sink implementations can
     // record nested metrics without re-entering this RefCell borrow.
-    let override_sink = SINK_OVERRIDE.with(|stack| stack.borrow().last().cloned());
-    if let Some(sink) = override_sink {
-        sink.record(event);
-    } else {
-        GLOBAL_METRICS_SINK.record(event);
+    #[cfg(any(test, feature = "sql"))]
+    {
+        let override_sink = SINK_OVERRIDE.with(|stack| stack.borrow().last().cloned());
+        if let Some(sink) = override_sink {
+            sink.record(event);
+            return;
+        }
     }
+    GLOBAL_METRICS_SINK.record(event);
 }
 
 /// Snapshot the current metrics state for endpoint/test plumbing.
@@ -92,6 +101,7 @@ pub fn metrics_reset_all() {
 }
 
 /// Run a closure with a temporary metrics sink override.
+#[cfg(any(test, feature = "sql"))]
 pub(crate) fn with_metrics_sink<T>(sink: &'static dyn MetricsSink, f: impl FnOnce() -> T) -> T {
     with_metrics_sink_override(MetricsSinkOverride::Static(sink), f)
 }
@@ -101,6 +111,7 @@ pub(crate) fn with_shared_metrics_sink<T>(sink: Rc<dyn MetricsSink>, f: impl FnO
     with_metrics_sink_override(MetricsSinkOverride::Shared(sink), f)
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn with_metrics_sink_override<T>(sink: MetricsSinkOverride, f: impl FnOnce() -> T) -> T {
     struct Guard {
         depth_before_push: usize,

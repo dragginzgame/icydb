@@ -215,6 +215,7 @@ impl TypedEntityBinding {
         Self { inner }
     }
 
+    #[cfg(feature = "sql")]
     pub(crate) const fn entity(&self) -> &str {
         self.inner.entity()
     }

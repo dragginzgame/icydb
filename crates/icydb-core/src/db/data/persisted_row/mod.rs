@@ -41,13 +41,15 @@ pub(in crate::db) use patch::{
     resolve_insert_structural_patch_with_accepted_contract,
     resolve_update_structural_patch_with_accepted_contract,
 };
+pub(in crate::db) use reader::StructuralSlotReader;
 #[cfg(feature = "diagnostics")]
 pub use reader::{StructuralReadMetrics, with_structural_read_metrics};
 #[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use reader::{StructuralReadMetrics, with_structural_read_metrics};
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use reader::{
-    StructuralSlotReader, decode_dense_raw_row_with_contract,
-    decode_sparse_indexed_raw_row_with_contract, decode_sparse_required_slot_with_contract,
+    decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
+    decode_sparse_required_slot_with_contract,
 };
 pub(in crate::db) use types::SlotReader;
 pub(in crate::db) use types::{AcceptedMutationIntentPatch, CanonicalSlotReader, FieldSlot};

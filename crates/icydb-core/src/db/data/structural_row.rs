@@ -220,6 +220,7 @@ impl StructuralRowContract {
 
     /// Borrow the catalog authority carried by this accepted row contract.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn accepted_value_catalog_handle(
         &self,
     ) -> &crate::db::schema::AcceptedValueCatalogHandle {
@@ -418,6 +419,7 @@ impl<'a> StructuralRowFieldBytes<'a> {
 ///
 
 #[derive(Clone, Debug)]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db::data) struct SparseRequiredRowFieldBytes<'a> {
     layout_version: RowLayoutVersion,
     payload: Cow<'a, [u8]>,
@@ -425,6 +427,7 @@ pub(in crate::db::data) struct SparseRequiredRowFieldBytes<'a> {
     primary_key_span: (usize, usize),
 }
 
+#[cfg(any(test, feature = "sql"))]
 impl<'a> SparseRequiredRowFieldBytes<'a> {
     /// Decode one raw row into the selected and primary-key field spans needed
     /// by sparse direct slot reads.
@@ -520,11 +523,13 @@ fn decode_row_field_spans<'payload>(
     Ok((payload, spans))
 }
 
+#[cfg(any(test, feature = "sql"))]
 type SparseRequiredRowFieldSpans<'a> =
     Result<(Cow<'a, [u8]>, Option<(usize, usize)>, (usize, usize)), InternalError>;
 
 // Decode the canonical slot-container header while retaining only one required
 // slot span plus the primary-key span for sparse direct slot reads.
+#[cfg(any(test, feature = "sql"))]
 fn decode_sparse_required_row_field_spans<'payload>(
     payload: Cow<'payload, [u8]>,
     layout_version: RowLayoutVersion,

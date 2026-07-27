@@ -3,16 +3,17 @@
 //! Does not own: intent/feasibility/execution stage semantics.
 //! Boundary: consumes staged planner contracts and assembles execution route plans.
 
+use crate::db::executor::planning::route::AggregateRouteShape;
+use crate::db::executor::planning::route::planner::derive_aggregate_route_intent_stage;
 use crate::db::executor::planning::route::planner::{
-    build_execution_route_plan_from_stages, derive_aggregate_route_intent_stage,
-    derive_execution_feasibility_stage_for_model, derive_grouped_route_intent_stage,
-    derive_load_route_intent_stage,
+    build_execution_route_plan_from_stages, derive_execution_feasibility_stage_for_model,
+    derive_grouped_route_intent_stage, derive_load_route_intent_stage,
 };
 use crate::db::{
     executor::{
         EntityAuthority, ExecutionPreparation, ExecutionRoutePlan,
         planning::{continuation::ScalarContinuationContext, preparation::slot_map_for_model_plan},
-        route::{AggregateRouteShape, derive_load_terminal_fast_path_contract_for_plan},
+        route::derive_load_terminal_fast_path_contract_for_plan,
     },
     query::plan::{AccessPlannedQuery, CoveringReadExecutionPlan, GroupedPlanStrategy},
 };
@@ -31,6 +32,13 @@ pub(in crate::db::executor) enum RoutePlanRequest<'a> {
         authority: Option<EntityAuthority>,
         load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
     },
+    #[cfg_attr(
+        not(any(test, feature = "sql-explain")),
+        expect(
+            dead_code,
+            reason = "aggregate route construction is consumed by SQL EXPLAIN"
+        )
+    )]
     Aggregate {
         aggregate: AggregateRouteShape<'a>,
         execution_preparation: &'a ExecutionPreparation,

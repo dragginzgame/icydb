@@ -3,25 +3,32 @@
 //! Does not own: candidate construction, schema compatibility, or root codecs.
 //! Boundary: schema reconciliation -> commit marker/journal -> schema live projection.
 
+#[cfg(any(test, feature = "sql"))]
+use crate::db::index::{IndexEntryValue, IndexKey, RawIndexStoreKey};
+#[cfg(feature = "sql")]
+use crate::db::{
+    data::DataStore,
+    index::IndexStore,
+    schema::{
+        StagedUserIndexDomainReplacement, accepted_schema_cache_fingerprint_for_persisted_snapshot,
+    },
+};
 use crate::{
     db::{
         commit::{
             CommitMarker, begin_commit, finish_commit, generate_commit_id, generate_marker_batch_id,
         },
-        data::DataStore,
-        index::{IndexEntryValue, IndexKey, IndexStore, RawIndexStoreKey},
         journal::{JournalBatch, JournalRecord},
         registry::{StoreHandle, StoreRecoveryCapability},
         schema::{
             AcceptedSchemaRevision, CandidateSchemaRevision, ConstraintId, ConstraintValidationJob,
-            SchemaApplicationRecordOp, StagedUserIndexDomainReplacement,
-            accepted_schema_cache_fingerprint_for_persisted_snapshot,
-            apply_schema_application_record_op,
+            SchemaApplicationRecordOp, apply_schema_application_record_op,
         },
     },
     error::InternalError,
     types::EntityTag,
 };
+#[cfg(feature = "sql")]
 use std::collections::BTreeSet;
 
 /// Prepared derived domains that cross the same accepted-schema marker.
@@ -75,6 +82,7 @@ impl<'a> AcceptedSchemaPublication<'a> {
     }
 }
 
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn publish_accepted_schema_candidate(
     store_path: &'static str,
     store: StoreHandle,
@@ -96,6 +104,7 @@ pub(in crate::db) fn publish_accepted_schema_candidate(
 /// heap store has no recovery authority capable of completing an interrupted
 /// database-scoped publication, so mixed or multi-heap input rejects before
 /// mutation.
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn publish_accepted_schema_candidates_atomically(
     publications: Vec<AcceptedSchemaPublication<'_>>,
 ) -> Result<(), InternalError> {
@@ -260,6 +269,7 @@ pub(in crate::db) fn publish_constraint_validation_job(
 
 /// Advance one unique-index validation page and its isolated candidate writes
 /// through the same marker-owned checkpoint boundary.
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn publish_constraint_validation_job_with_candidate_index_entries(
     store_path: &'static str,
     store: StoreHandle,
@@ -482,6 +492,7 @@ fn publish_journaled_constraint_validation_job(
     })
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn publish_journaled_constraint_validation_job_with_candidate_index_entries(
     store_path: &'static str,
     store: StoreHandle,
@@ -510,6 +521,7 @@ fn publish_journaled_constraint_validation_job_with_candidate_index_entries(
     })
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn validate_candidate_index_entries(
     bundle: &crate::db::schema::AcceptedSchemaRevisionBundle,
     job: &ConstraintValidationJob,
@@ -674,6 +686,7 @@ fn validate_user_index_domain_candidates(
     Ok(())
 }
 
+#[cfg(feature = "sql")]
 fn validate_user_index_domain_candidate(
     store_path: &'static str,
     store: StoreHandle,
@@ -722,10 +735,17 @@ fn validate_user_index_domain_candidate(
     Ok(())
 }
 
+#[cfg(not(feature = "sql"))]
+const fn apply_staged_schema_domains(_store: StoreHandle, domains: StagedSchemaDomains) {
+    match domains {
+        StagedSchemaDomains::None => {}
+    }
+}
+
+#[cfg(feature = "sql")]
 fn apply_staged_schema_domains(store: StoreHandle, domains: StagedSchemaDomains) {
     match domains {
         StagedSchemaDomains::None => {}
-        #[cfg(feature = "sql")]
         StagedSchemaDomains::UserIndexes(replacements) => {
             apply_user_index_domain_replacements(store, replacements);
         }
@@ -748,6 +768,7 @@ fn apply_user_index_domain_replacements(
     });
 }
 
+#[cfg(feature = "sql")]
 fn apply_user_index_domain_replacement(
     index_store: &mut IndexStore,
     replacement: StagedUserIndexDomainReplacement,

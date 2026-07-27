@@ -17,6 +17,7 @@ use crate::db::{QueryError, executor::ExecutorPlanError};
 pub(in crate::db) use cache::QueryPlanCacheAttribution;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use cache::QueryPlanCompilePhaseAttribution;
+#[cfg(any(test, feature = "sql-explain"))]
 pub(in crate::db::session) use cache::query_plan_cache_reuse_event;
 #[cfg(feature = "diagnostics")]
 pub use diagnostics::{

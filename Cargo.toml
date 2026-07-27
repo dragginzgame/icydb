@@ -17,7 +17,6 @@ members = [
     "crates/icydb-model",
     "crates/icydb-model-macros",
     "crates/icydb-schema",
-    "crates/icydb-utils",
     "schema/audit/default_empty",
     "schema/audit/one_simple",
     "schema/audit/sql_perf",
@@ -89,7 +88,6 @@ icydb-testing-sqlite-reference = { path = "testing/sqlite-reference" }
 icydb-testing-test-fixtures = { path = "schema/test/fixtures" }
 icydb-testing-test-sql-fixtures = { path = "schema/test/sql" }
 icydb-testing-wasm-helpers = { path = "testing/wasm-helpers" }
-icydb-utils = { path = "crates/icydb-utils", version = "0.213.32" }
 num-bigint = "0.4"
 proc-macro-crate = "3.5.0"
 proc-macro2 = "1.0"
@@ -167,7 +165,6 @@ icydb-model = { path = "crates/icydb-model" }
 icydb-model-macros = { path = "crates/icydb-model-macros" }
 icydb-schema = { path = "crates/icydb-schema" }
 icydb-config = { path = "crates/icydb-config" }
-icydb-utils = { path = "crates/icydb-utils" }
 
 # ---------------------
 #  DEV PROFILE

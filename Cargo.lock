@@ -1269,7 +1269,6 @@ dependencies = [
  "icydb-core",
  "icydb-diagnostic-code",
  "icydb-schema",
- "icydb-utils",
  "remain",
  "serde",
  "trybuild",
@@ -1313,7 +1312,6 @@ dependencies = [
  "icydb-schema",
  "icydb-testing-sql-generator",
  "icydb-testing-sqlite-reference",
- "icydb-utils",
  "num-bigint",
  "proptest",
  "rand_chacha 0.10.0",
@@ -1513,13 +1511,6 @@ dependencies = [
 [[package]]
 name = "icydb-testing-wasm-helpers"
 version = "0.213.32"
-
-[[package]]
-name = "icydb-utils"
-version = "0.213.32"
-dependencies = [
- "convert_case",
-]
 
 [[package]]
 name = "ident_case"

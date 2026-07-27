@@ -23,7 +23,9 @@ use bounds::{
     COMPONENT_COUNT_SIZE, INDEX_ID_SIZE, KEY_KIND_TAG_SIZE, KEY_PREFIX_SIZE, SEGMENT_LEN_SIZE,
 };
 use error::IndexKeyDecodeError;
-use std::{cmp::Ordering, ops::Bound};
+use std::cmp::Ordering;
+#[cfg(any(test, feature = "sql"))]
+use std::ops::Bound;
 use tuple::{compare_component_segments, compare_segment_bytes, push_segment, read_segment};
 
 pub(crate) use crate::db::key_taxonomy::RawIndexStoreKey;
@@ -199,6 +201,7 @@ impl IndexKey {
         Ok((lower, upper))
     }
 
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db::index) fn raw_bounds_for_prefix_component_range_with_kind<
         C: AsRef<[u8]>,
         B: AsRef<[u8]>,
@@ -306,6 +309,7 @@ impl IndexKey {
         Ok(RawIndexStoreKey::from_persisted_bytes(bytes))
     }
 
+    #[cfg(any(test, feature = "sql"))]
     fn raw_component_range_bound_with_kind<C: AsRef<[u8]>, B: AsRef<[u8]>>(
         index_id: &IndexId,
         key_kind: IndexKeyKind,
@@ -450,6 +454,7 @@ impl IndexKey {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn primary_key_bytes(&self) -> &[u8] {
         self.primary_key.as_slice()
     }
@@ -498,11 +503,13 @@ impl PrefixBoundSentinel {
 }
 
 #[derive(Clone, Copy)]
+#[cfg(any(test, feature = "sql"))]
 enum RangeBoundSide {
     Lower,
     Upper,
 }
 
+#[cfg(any(test, feature = "sql"))]
 impl RangeBoundSide {
     const fn unbounded_sentinel(self) -> PrefixBoundSentinel {
         match self {
@@ -526,6 +533,7 @@ impl RangeBoundSide {
     }
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn validate_component_bound<B: AsRef<[u8]>>(bound: &Bound<B>) -> Result<(), IndexKeyEncodeError> {
     match bound {
         Bound::Unbounded => Ok(()),
@@ -543,6 +551,7 @@ fn validate_component_bound<B: AsRef<[u8]>>(bound: &Bound<B>) -> Result<(), Inde
     }
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn component_bound_encoded_len<B: AsRef<[u8]>>(
     bound: &Bound<B>,
     unbounded_sentinel: PrefixBoundSentinel,
@@ -553,6 +562,7 @@ fn component_bound_encoded_len<B: AsRef<[u8]>>(
     }
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn push_component_bound_segment<B: AsRef<[u8]>>(
     bytes: &mut Vec<u8>,
     bound: &Bound<B>,

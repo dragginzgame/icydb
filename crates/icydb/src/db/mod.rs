@@ -5,7 +5,9 @@
 //! Boundary: keeps public facade shape stable for downstream code.
 
 mod bootstrap;
+#[cfg(feature = "sql")]
 pub mod query;
+#[cfg(feature = "sql")]
 pub mod response;
 mod session;
 #[cfg(feature = "sql")]
@@ -19,6 +21,7 @@ pub use icydb_core::db::{
     TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,
     TrustedResumableUpdateRestartReason,
 };
+#[cfg(feature = "sql")]
 pub use response::{ExecutionTrace, GroupedRow, RowProjectionOutput};
 #[cfg(feature = "sql")]
 pub use session::SqlIntegrityError;
@@ -43,21 +46,24 @@ pub use icydb_core::db::{
     DeepIntegrityPageStatus, DynamicMutationResult, EntityCatalogCounts, EntityCatalogDescription,
     EntityConstraintDescription, EntityFieldDescription, EntityIndexDescription,
     EntityRelationCardinality, EntityRelationDescription, EntitySchemaCheckDescription,
-    EntitySchemaDescription, ExplainAggregateTerminalPlan, ExplainExecutionDescriptor,
-    ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-    ExplainExecutionOrderingSource, IndexStoreSnapshot, IntegrityAbortReceipt,
-    IntegrityAbortStatus, IntegrityAuthorityClass, IntegrityAuthorityDiagnostic,
-    IntegrityCheckRequest, IntegrityCheckResult, IntegrityEntityIdentity, IntegrityFinding,
-    IntegrityFindingClass, IntegrityFindingKind, IntegrityJobError, IntegrityJobId,
-    IntegrityJobOwner, IntegrityJobReceipt, IntegrityPendingTerminal, IntegrityPhase,
-    IntegrityResourceDiagnostic, IntegritySeverity, IntegritySubmissionKey,
-    IntegrityTerminalOutcome, IntegrityVerifierFamily, MemoryCatalogDescription, QueryTracePlan,
-    QuickIntegrityResult, QuickIntegrityStatus, ReadIntentKind, SchemaApplicationStore,
+    EntitySchemaDescription, IndexStoreSnapshot, IntegrityAbortReceipt, IntegrityAbortStatus,
+    IntegrityAuthorityClass, IntegrityAuthorityDiagnostic, IntegrityCheckRequest,
+    IntegrityCheckResult, IntegrityEntityIdentity, IntegrityFinding, IntegrityFindingClass,
+    IntegrityFindingKind, IntegrityJobError, IntegrityJobId, IntegrityJobOwner,
+    IntegrityJobReceipt, IntegrityPendingTerminal, IntegrityPhase, IntegrityResourceDiagnostic,
+    IntegritySeverity, IntegritySubmissionKey, IntegrityTerminalOutcome, IntegrityVerifierFamily,
+    MemoryCatalogDescription, QuickIntegrityResult, QuickIntegrityStatus, SchemaApplicationStore,
     SchemaApplicationTarget, SchemaChangeFailure, SchemaChangeJob, SchemaChangeJobId,
     SchemaChangeOutcome, SchemaChangeProgress, SchemaChangeProgressStatus, SchemaChangeReceipt,
     SchemaChangeValidationPhase, SchemaStoreSnapshot, StorageReport, StoreCatalogDescription,
-    TraceExecutionFamily, TraceReuseEvent,
 };
+#[cfg(feature = "sql-explain")]
+pub use icydb_core::db::{
+    ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
+    ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
+};
+#[cfg(feature = "sql")]
+pub use icydb_core::db::{QueryTracePlan, ReadIntentKind, TraceExecutionFamily, TraceReuseEvent};
 pub use icydb_schema::{
     EntitySourceKey, ExpectedAcceptedHead, ExpectedSchemaFingerprint, FieldSourceKey,
     SchemaSubmissionKey, TargetDatabaseIdentity, TargetStoreIdentity,
@@ -74,17 +80,15 @@ pub use session::generated::execute_generated_storage_report;
 
 // Diagnostics payloads stay feature-gated so normal canister builds do not
 // retain observability surfaces they did not request.
-#[cfg(feature = "diagnostics")]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]
 pub use icydb_core::db::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
     ScalarAggregateAttribution,
 };
-#[cfg(feature = "diagnostics")]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]
-pub use icydb_core::db::{
-    RowCheckMetrics, StructuralReadMetrics, with_row_check_metrics, with_structural_read_metrics,
-};
+pub use icydb_core::db::{RowCheckMetrics, with_row_check_metrics};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]
 pub use icydb_core::db::{
@@ -102,3 +106,6 @@ pub use icydb_core::db::{
     SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
     sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
 };
+#[cfg(feature = "diagnostics")]
+#[doc(hidden)]
+pub use icydb_core::db::{StructuralReadMetrics, with_structural_read_metrics};

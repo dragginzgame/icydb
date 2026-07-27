@@ -6,10 +6,9 @@
 #[cfg(test)]
 mod tests;
 
-use crate::{
-    db::{direction::Direction, index::RawIndexStoreKey},
-    error::InternalError,
-};
+use crate::db::index::RawIndexStoreKey;
+#[cfg(any(test, feature = "sql"))]
+use crate::{db::direction::Direction, error::InternalError};
 use std::ops::Bound;
 
 /// key_within_envelope
@@ -28,6 +27,7 @@ pub(in crate::db) fn key_within_envelope<K: Ord + Clone>(
 /// Shared directional strict-advancement comparator for continuation checks.
 /// `candidate` advances only when it is strictly after `anchor` under direction.
 #[must_use]
+#[cfg(any(test, feature = "sql"))]
 fn continuation_advanced<K: Ord>(direction: Direction, candidate: &K, anchor: &K) -> bool {
     match direction {
         Direction::Asc => candidate > anchor,
@@ -37,6 +37,7 @@ fn continuation_advanced<K: Ord>(direction: Direction, candidate: &K, anchor: &K
 
 /// Rewrite continuation bounds while cloning only retained bound edges.
 #[must_use]
+#[cfg(any(test, feature = "sql"))]
 fn resume_bounds_from_refs<K: Clone + Ord>(
     direction: Direction,
     lower: &Bound<K>,
@@ -70,6 +71,7 @@ fn resume_bounds_from_refs<K: Clone + Ord>(
 }
 
 /// Validate continuation anchor containment against the original index-scan envelope.
+#[cfg(any(test, feature = "sql"))]
 fn validate_index_scan_continuation_envelope<K: Ord + Clone>(
     anchor: Option<&K>,
     lower: &Bound<K>,
@@ -85,6 +87,7 @@ fn validate_index_scan_continuation_envelope<K: Ord + Clone>(
 }
 
 /// Validate one optional continuation anchor and derive resumed scan bounds.
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn resume_bounds_for_continuation<K: Clone + Ord>(
     direction: Direction,
     anchor: Option<&K>,
@@ -127,6 +130,7 @@ pub(in crate::db) fn envelope_is_empty(
 }
 
 /// Validate strict directional continuation advancement for one scan candidate.
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn validate_index_scan_continuation_advancement<K: Ord>(
     direction: Direction,
     anchor: Option<&K>,

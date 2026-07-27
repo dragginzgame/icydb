@@ -6,6 +6,10 @@
 //! Boundary: converts accepted/generated schema authority into stable
 //! introspection DTOs at the session facade.
 
+#[cfg(any(test, feature = "sql", feature = "sql-explain"))]
+use crate::db::schema::SchemaInfo;
+#[cfg(feature = "sql")]
+use crate::db::schema::show_indexes_for_schema_info_with_runtime_state;
 #[cfg(any(test, feature = "sql-explain"))]
 use crate::db::{IndexState, QueryError, query::plan::VisibleIndexes};
 use crate::{
@@ -14,9 +18,8 @@ use crate::{
         SchemaApplicationTarget, SchemaChangeJobId, SchemaChangeProgress, SchemaChangeReceipt,
         StorageReport, StoreCatalogDescription,
         schema::{
-            AcceptedFieldKind, ConstraintValidationJob, PersistedFieldSnapshot, SchemaInfo,
+            AcceptedFieldKind, ConstraintValidationJob, PersistedFieldSnapshot,
             describe_accepted_entity_with_persisted_schema,
-            show_indexes_for_schema_info_with_runtime_state,
         },
     },
     error::InternalError,
@@ -80,6 +83,7 @@ impl<C: CanisterKind> DbSession<C> {
     // Return one stable, human-readable index listing for one resolved
     // store/accepted-schema pair, attaching the current runtime lifecycle state
     // when the registry can resolve the backing store handle.
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn show_indexes_for_store_schema_info(
         &self,
         store_path: &str,

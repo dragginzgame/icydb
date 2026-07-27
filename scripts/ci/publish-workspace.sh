@@ -14,7 +14,6 @@ PUBLISH_VALIDATE_ONLY="${PUBLISH_VALIDATE_ONLY:-0}"
 
 PUBLISH_ORDER=(
     icydb-diagnostic-code
-    icydb-utils
     icydb-schema
     icydb-model-macros
     icydb-model

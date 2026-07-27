@@ -4,29 +4,35 @@
 //! Boundary: converts fluent/query intent calls into executor operations and response DTOs.
 
 mod accepted_schema;
+#[cfg(feature = "sql")]
 mod bounded_cache;
 mod catalog;
 mod integrity;
+#[cfg(feature = "sql")]
 mod query;
+#[cfg(feature = "sql")]
 mod response;
 #[cfg(feature = "sql")]
 mod sql;
 mod write;
 
+#[cfg(feature = "sql")]
+use crate::metrics::sink::with_metrics_sink;
 use crate::{
     db::{Db, EntityRegistration, StoreRegistry},
-    metrics::sink::{MetricsSink, with_metrics_sink},
+    metrics::sink::MetricsSink,
     traits::CanisterKind,
     value::Value,
 };
 use std::thread::LocalKey;
 
 pub(in crate::db) use accepted_schema::AcceptedSchemaCatalogContext;
-#[cfg(feature = "diagnostics")]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use query::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
     KernelRowAttribution, ScalarAggregateAttribution,
 };
+#[cfg(feature = "sql")]
 pub(in crate::db) use response::finalize_structural_grouped_projection_result;
 #[cfg(feature = "sql")]
 pub(in crate::db) use response::sql_grouped_cursor_from_bytes;
@@ -100,6 +106,7 @@ impl<C: CanisterKind> DbSession<C> {
         self
     }
 
+    #[cfg(feature = "sql")]
     fn with_metrics<T>(&self, f: impl FnOnce() -> T) -> T {
         if let Some(sink) = self.metrics {
             with_metrics_sink(sink, f)

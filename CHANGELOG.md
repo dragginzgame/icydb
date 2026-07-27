@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Removed the obsolete `icydb-utils` package and gave `icydb-schema` one
+  canonical index-name normalization contract shared by model generation and
+  runtime identity.
+
 ## [0.213.x] 🧭 - 2026-07-24 - Schema Authority And Application Separation
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)

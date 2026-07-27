@@ -347,7 +347,6 @@ usage, IC test prerequisites, and wasm report commands live in
   glue.
 - `crates/icydb-model-macros` - current application-model declaration and
   application helper macros consumed through `icydb-model`.
-- `crates/icydb-utils` - shared internal utility helpers.
 - `crates/icydb-cli` - developer CLI for local SQL, config checks, canister
   lifecycle helpers, and observability reports.
 - `schema/*` - demo, audit, and test schemas.

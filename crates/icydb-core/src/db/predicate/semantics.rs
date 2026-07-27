@@ -135,6 +135,7 @@ pub(in crate::db::predicate) const fn eval_list_membership_compare_result(
 
 /// Canonical total ordering for database predicate semantics.
 #[must_use]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn canonical_cmp(left: &Value, right: &Value) -> Ordering {
     if let Some(ordering) = Value::strict_order_cmp(left, right) {
         return ordering;

@@ -18,14 +18,15 @@ use crate::db::{
         aggregate::{AggregateExecutionPolicyInputs, derive_aggregate_execution_policy},
         route::{
             AggregateRouteShape, LoadOrderRouteDecision, LoadOrderRouteMode, LoadOrderRouteReason,
-            access_order_satisfied_by_route_mode, bounded_probe_hint_is_safe,
-            pk_order_stream_fast_path_shape_supported, secondary_order_contract_active,
+            bounded_probe_hint_is_safe, pk_order_stream_fast_path_shape_supported,
+            secondary_order_contract_active,
         },
     },
-    query::plan::{
-        AccessPlannedQuery, CoveringReadExecutionPlan, GroupedPlanStrategy, OrderDirection,
-        PlannerRouteProfile,
-    },
+    query::plan::{AccessPlannedQuery, GroupedPlanStrategy, OrderDirection, PlannerRouteProfile},
+};
+#[cfg(any(test, feature = "sql-explain"))]
+use crate::db::{
+    executor::route::access_order_satisfied_by_route_mode, query::plan::CoveringReadExecutionPlan,
 };
 
 /// Return whether this access path is a primary-key stream-window shape.
@@ -264,6 +265,7 @@ fn secondary_prefix_streaming_requires_materialized_boundary(
 // still needs to distinguish access-preserved ordering from shapes that rely
 // on the shared materialized boundary even when the generic route mode
 // proves the broader ordered-load capability.
+#[cfg(any(test, feature = "sql-explain"))]
 pub(in crate::db::executor) fn explain_access_order_satisfied_for_model(
     plan: &AccessPlannedQuery,
     load_terminal_fast_path: Option<&CoveringReadExecutionPlan>,

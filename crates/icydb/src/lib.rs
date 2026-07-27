@@ -171,15 +171,16 @@ pub mod __reexports {
 //
 
 pub mod prelude {
+    #[cfg(feature = "sql")]
+    pub use crate::db::{
+        query,
+        query::{
+            FieldRef, FilterExpr, FilterValue, OrderExpr, OrderTerm, asc, count, count_by, desc,
+            exists, field, first, last, max, max_by, min, min_by, sum,
+        },
+    };
     pub use crate::{
         db,
-        db::{
-            query,
-            query::{
-                FieldRef, FilterExpr, FilterValue, OrderExpr, OrderTerm, asc, count, count_by,
-                desc, exists, field, first, last, max, max_by, min, min_by, sum,
-            },
-        },
         traits::{Collection as _, Inner as _, MapCollection as _, Path as _},
         types::*,
         value::{InputValue, OutputValue},

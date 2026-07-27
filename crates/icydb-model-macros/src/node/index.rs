@@ -14,6 +14,7 @@ use crate::{
     prelude::*,
 };
 use darling::ast::NestedMeta;
+use icydb_schema::canonical_index_name_slug;
 
 ///
 /// Index
@@ -258,11 +259,11 @@ impl Index {
     /// validation and codegen.
     pub fn generated_name(&self, entity_name: &str) -> String {
         let prefix = if self.unique { "uniq" } else { "idx" };
-        let entity = index_name_slug(entity_name);
+        let entity = canonical_index_name_slug(entity_name);
         let fields = self
             .generated_name_segments()
             .iter()
-            .map(|field| index_name_slug(field))
+            .map(|field| canonical_index_name_slug(field))
             .collect::<Vec<_>>()
             .join("_");
         format!("{prefix}_{entity}__{fields}")
@@ -449,20 +450,6 @@ fn parse_index_key_items(fields: &[LitStr]) -> Result<Vec<IndexKeyItemSpec>, Dar
         .iter()
         .map(|item| parse_index_key_item(item.value().trim(), item))
         .collect()
-}
-
-fn index_name_slug(value: &str) -> String {
-    let separated = value
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>();
-    crate::case::to_snake_case(separated.as_str())
 }
 
 pub(crate) fn validate_predicate_fields(

@@ -181,12 +181,14 @@ impl AccessPlannedQuery {
     /// Return the planner-owned predicate pushdown label consumed by verbose
     /// execution diagnostics.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) fn predicate_pushdown_label(&self) -> String {
         self.predicate_pushdown_diagnostics().label()
     }
 
     /// Return planner-owned predicate-pushdown diagnostics.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) fn predicate_pushdown_diagnostics(&self) -> PredicatePushdownDiagnostics {
         if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
             return static_contract.predicate_pushdown_diagnostics;
@@ -197,12 +199,14 @@ impl AccessPlannedQuery {
 
     /// Return the planner-owned predicate-pushdown outcome label.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) fn predicate_pushdown_outcome_label(&self) -> &'static str {
         self.predicate_pushdown_diagnostics().outcome_label()
     }
 
     /// Return the planner-owned predicate-pushdown reason label.
     #[must_use]
+    #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db) fn predicate_pushdown_reason_label(&self) -> &'static str {
         self.predicate_pushdown_diagnostics().reason_label()
     }

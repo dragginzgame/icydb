@@ -740,6 +740,7 @@ pub(crate) struct RawDataStoreKey {
 
 impl RawDataStoreKey {
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn from_entity_and_primary_key_bytes(
         entity_tag: EntityTag,
         primary_key: &[u8],

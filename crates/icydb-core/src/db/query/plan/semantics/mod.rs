@@ -12,8 +12,10 @@ mod identity;
 mod logical;
 mod pushdown;
 
+#[cfg(any(test, feature = "sql-explain"))]
+pub(in crate::db) use access_projection::access_plan_label;
 pub(in crate::db) use access_projection::{
-    AccessPlanProjection, access_plan_label, explain_access_strategy_label, project_access_plan,
+    AccessPlanProjection, explain_access_strategy_label, project_access_plan,
     project_explain_access_path,
 };
 pub(in crate::db) use group_distinct::{

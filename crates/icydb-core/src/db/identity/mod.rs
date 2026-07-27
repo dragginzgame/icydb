@@ -16,7 +16,7 @@
 mod tests;
 
 use crate::MAX_INDEX_FIELDS;
-use icydb_utils::to_snake_case;
+use icydb_schema::canonical_index_name_slug;
 use std::{
     cmp::Ordering,
     fmt::{self, Display},
@@ -440,12 +440,7 @@ impl IndexName {
 }
 
 fn index_name_slug(value: &str) -> String {
-    let separated = value
-        .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
-        .collect::<String>();
-
-    to_snake_case(separated.as_str())
+    canonical_index_name_slug(value)
 }
 
 impl Ord for IndexName {

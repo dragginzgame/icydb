@@ -10,10 +10,9 @@ mod tests;
 use std::fmt;
 
 use candid::CandidType;
-use icydb_core::{
-    db::QueryError,
-    error::{ErrorOrigin as CoreErrorOrigin, InternalError},
-};
+#[cfg(feature = "sql")]
+use icydb_core::db::QueryError;
+use icydb_core::error::{ErrorOrigin as CoreErrorOrigin, InternalError};
 use serde::Deserialize;
 
 use crate::db::DatabaseBootstrapError;
@@ -143,6 +142,7 @@ impl From<InternalError> for Error {
     }
 }
 
+#[cfg(feature = "sql")]
 impl From<QueryError> for Error {
     fn from(err: QueryError) -> Self {
         if let QueryError::Execute(execute) = &err {

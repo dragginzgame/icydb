@@ -7,7 +7,9 @@
 use candid::{CandidType, Deserialize};
 #[cfg(feature = "sql")]
 use ic_cdk::query;
+#[cfg(feature = "sql")]
 use ic_cdk::update;
+#[cfg(feature = "sql")]
 use icydb::types::{Blob, Timestamp, Ulid};
 #[cfg(feature = "sql")]
 use icydb::{
@@ -22,6 +24,7 @@ use icydb::{
     prelude::*,
     value::InputValue,
 };
+#[cfg(feature = "sql")]
 use icydb_testing_audit_sql_perf_fixtures::sql_perf::{
     PerfAuditAccount, PerfAuditBlob, PerfAuditHeapUser, PerfAuditJournaledUser,
     PerfAuditRelationSource, PerfAuditRelationTarget, PerfAuditToken, PerfAuditUser,
@@ -160,9 +163,13 @@ struct IntegritySqlPerfResult {
 const STORAGE_WRITE_MATRIX_RUNS: u32 = 10;
 #[cfg(feature = "sql")]
 const SQL_WRITE_MATERIALIZATION_ROWS: i32 = 32;
+#[cfg(feature = "sql")]
 const INTEGRITY_JOURNAL_TAIL_BATCHES: i32 = 6;
+#[cfg(feature = "sql")]
 const JOURNALED_REENTRY_PROBE_ROWS: i32 = 32;
+#[cfg(feature = "sql")]
 const TOKEN_TARGET_COLLECTION: &str = "01KV5N439P0000000000000000";
+#[cfg(feature = "sql")]
 const TOKEN_OTHER_COLLECTION: &str = "01KV5N439P1111111111111111";
 #[cfg(feature = "sql")]
 const SCALE_FIXTURE_PROFILE_VERSION: u32 = 1;
@@ -780,6 +787,7 @@ fn query_entity_with_perf_loop(sql: &str, runs: u32) -> Result<SqlQueryPerfResul
     })
 }
 /// Clear all dedicated perf fixture rows from this canister.
+#[cfg(feature = "sql")]
 #[update(name = "icydb_fixtures_reset")]
 fn __icydb_fixtures_reset() -> Result<(), icydb::Error> {
     let session = db()?;
@@ -800,6 +808,7 @@ fn __icydb_fixtures_reset() -> Result<(), icydb::Error> {
 }
 
 /// Load one deterministic fixture batch tuned for SQL perf audit queries.
+#[cfg(feature = "sql")]
 #[update(name = "icydb_fixtures_load")]
 fn __icydb_fixtures_load() -> Result<(), icydb::Error> {
     __icydb_fixtures_reset()?;
@@ -957,6 +966,7 @@ fn accepted_schema_descriptions() -> Result<Vec<EntitySchemaDescription>, icydb:
 /// Load a small journaled-only fixture for same-WASM upgrade/reentry
 /// instruction probes. The full SQL perf corpus intentionally remains larger
 /// than this audit budget.
+#[cfg(feature = "sql")]
 #[update]
 fn load_journaled_reentry_probe_fixture() -> Result<(), icydb::Error> {
     __icydb_fixtures_reset()?;
@@ -967,6 +977,7 @@ fn load_journaled_reentry_probe_fixture() -> Result<(), icydb::Error> {
 
 /// Load one row per commit so Deep integrity must resume within a live journal
 /// tail rather than merely observe an empty or single-batch tail.
+#[cfg(feature = "sql")]
 #[update]
 fn load_journal_tail_integrity_fixture() -> Result<(), icydb::Error> {
     __icydb_fixtures_reset()?;
@@ -982,6 +993,7 @@ fn load_journal_tail_integrity_fixture() -> Result<(), icydb::Error> {
 }
 
 /// Load the deterministic relation pair used by bounded integrity evidence.
+#[cfg(feature = "sql")]
 #[update]
 fn load_relation_integrity_fixture() -> Result<(), icydb::Error> {
     __icydb_fixtures_reset()?;
@@ -1991,6 +2003,7 @@ fn perf_scale_tokens(row_count: i32) -> Vec<PerfAuditToken> {
 }
 
 /// Build the deterministic user fixture batch used by the perf audit.
+#[cfg(feature = "sql")]
 fn perf_audit_users() -> Vec<PerfAuditUser> {
     vec![
         PerfAuditUser {
@@ -2056,6 +2069,7 @@ fn perf_audit_users() -> Vec<PerfAuditUser> {
     ]
 }
 
+#[cfg(feature = "sql")]
 fn build_perf_audit_heap_user(id: i32, name: &str, age: i32) -> PerfAuditHeapUser {
     PerfAuditHeapUser {
         id,
@@ -2068,12 +2082,14 @@ fn build_perf_audit_heap_user(id: i32, name: &str, age: i32) -> PerfAuditHeapUse
 
 /// Build a larger deterministic heap fixture window used by the bounded-query
 /// instruction regression guard.
+#[cfg(feature = "sql")]
 fn perf_audit_heap_users() -> Vec<PerfAuditHeapUser> {
     (1..=512)
         .map(|id| build_perf_audit_heap_user(id, &format!("heap-user-{id:04}"), 18 + (id % 47)))
         .collect()
 }
 
+#[cfg(feature = "sql")]
 fn build_perf_audit_journaled_user(id: i32, name: &str, age: i32) -> PerfAuditJournaledUser {
     PerfAuditJournaledUser {
         id,
@@ -2086,6 +2102,7 @@ fn build_perf_audit_journaled_user(id: i32, name: &str, age: i32) -> PerfAuditJo
 
 /// Build a larger deterministic journaled fixture window used by the
 /// bounded-query instruction regression guard.
+#[cfg(feature = "sql")]
 fn perf_audit_journaled_users() -> Vec<PerfAuditJournaledUser> {
     (1..=512)
         .map(|id| {
@@ -2094,6 +2111,7 @@ fn perf_audit_journaled_users() -> Vec<PerfAuditJournaledUser> {
         .collect()
 }
 
+#[cfg(feature = "sql")]
 fn perf_audit_journaled_reentry_probe_users() -> Vec<PerfAuditJournaledUser> {
     (1..=JOURNALED_REENTRY_PROBE_ROWS)
         .map(|id| {
@@ -2106,6 +2124,7 @@ fn perf_audit_journaled_reentry_probe_users() -> Vec<PerfAuditJournaledUser> {
         .collect()
 }
 
+#[cfg(feature = "sql")]
 fn perf_audit_relation_targets() -> Vec<PerfAuditRelationTarget> {
     (1..=16)
         .map(|id| PerfAuditRelationTarget {
@@ -2116,6 +2135,7 @@ fn perf_audit_relation_targets() -> Vec<PerfAuditRelationTarget> {
         .collect()
 }
 
+#[cfg(feature = "sql")]
 fn perf_audit_relation_sources() -> Vec<PerfAuditRelationSource> {
     (1..=16)
         .map(|id| PerfAuditRelationSource {
@@ -2128,6 +2148,7 @@ fn perf_audit_relation_sources() -> Vec<PerfAuditRelationSource> {
 }
 
 /// Build one deterministic blob payload for perf fixture rows.
+#[cfg(feature = "sql")]
 fn perf_blob(seed: u8, len: usize) -> Blob {
     Blob::from(
         (0u8..=250)
@@ -2139,6 +2160,7 @@ fn perf_blob(seed: u8, len: usize) -> Blob {
 }
 
 /// Build the deterministic blob fixture batch used by SQL perf audit queries.
+#[cfg(feature = "sql")]
 fn perf_audit_blobs() -> Vec<PerfAuditBlob> {
     vec![
         PerfAuditBlob {
@@ -2199,6 +2221,7 @@ fn perf_audit_blobs() -> Vec<PerfAuditBlob> {
 }
 
 /// Build the deterministic account fixture batch used by the perf audit.
+#[cfg(feature = "sql")]
 fn perf_audit_accounts() -> Vec<PerfAuditAccount> {
     vec![
         PerfAuditAccount {
@@ -2258,6 +2281,7 @@ fn perf_audit_accounts() -> Vec<PerfAuditAccount> {
     ]
 }
 
+#[cfg(feature = "sql")]
 fn perf_audit_token(id: u128, collection_id: &str, stage: &str, title: &str) -> PerfAuditToken {
     PerfAuditToken {
         id: Ulid::from_bytes(id.to_be_bytes()),
@@ -2271,6 +2295,7 @@ fn perf_audit_token(id: u128, collection_id: &str, stage: &str, title: &str) -> 
 
 /// Build the deterministic token fixture batch used by the branch-set perf
 /// audit query.
+#[cfg(feature = "sql")]
 fn perf_audit_tokens() -> Vec<PerfAuditToken> {
     let mut tokens = vec![
         perf_audit_token(9_090, TOKEN_TARGET_COLLECTION, "Draft", "draft-090"),

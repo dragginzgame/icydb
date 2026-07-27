@@ -3,10 +3,14 @@
 //! Does not own: operation-specific derived-state or publication accounting.
 //! Boundary: schema mutation controllers consume canonical limits and resource identities.
 
+#[cfg(any(test, feature = "sql"))]
 use crate::error::SchemaTransitionBudgetResource;
 
+#[cfg(any(test, feature = "sql"))]
 const MAX_SOURCE_ROWS: usize = 65_536;
+#[cfg(any(test, feature = "sql"))]
 const MAX_SOURCE_ROW_BYTES: usize = 256 * 1024 * 1024;
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) const MAX_SCHEMA_PROJECTION_ENTRIES: usize = 131_072;
 pub(in crate::db) const MAX_SCHEMA_PROJECTION_WORK_UNITS: usize = 262_144;
 pub(in crate::db) const MAX_SCHEMA_STAGED_RAW_BYTES: usize = 256 * 1024 * 1024;
@@ -18,11 +22,13 @@ pub(in crate::db) const MAX_SCHEMA_STAGED_RAW_BYTES: usize = 256 * 1024 * 1024;
 /// Schema mutation owns its counters; operation-specific stages only consume it.
 ///
 
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) struct SchemaTransitionSourceBudget {
     source_row_bytes: usize,
     source_rows: usize,
 }
 
+#[cfg(any(test, feature = "sql"))]
 impl SchemaTransitionSourceBudget {
     /// Build the maintained complete-domain source budget.
     #[must_use]
