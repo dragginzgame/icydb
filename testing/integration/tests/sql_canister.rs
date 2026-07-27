@@ -2299,7 +2299,11 @@ fn sql_canister_integrity_endpoint_executes_controller_gated_quick_check() {
     };
 
     assert_eq!(result.status(), &QuickIntegrityStatus::CompleteClean);
-    assert!(result.entity().entity_path().ends_with("SqlTestUser"));
+    assert_eq!(
+        result.entity().entity_path(),
+        "schema/test/sql/src/sql.rs::entity::1",
+        "integrity results should expose the accepted immutable entity path"
+    );
 
     let outsider = Principal::self_authenticating([7_u8; 32]);
     let rejected: Result<IntegrityCheckResult, SqlIntegrityError> = fixture

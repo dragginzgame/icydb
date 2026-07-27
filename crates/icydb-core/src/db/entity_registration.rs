@@ -30,20 +30,14 @@ use std::{collections::BTreeSet, marker::PhantomData};
 
 pub(in crate::db) struct GeneratedEntityRoute<C: CanisterKind> {
     pub(in crate::db) source_key: &'static str,
-    pub(in crate::db) entity_path: &'static str,
     pub(in crate::db) store_path: &'static str,
     _marker: PhantomData<C>,
 }
 
 impl<C: CanisterKind> GeneratedEntityRoute<C> {
-    const fn new(
-        source_key: &'static str,
-        entity_path: &'static str,
-        store_path: &'static str,
-    ) -> Self {
+    const fn new(source_key: &'static str, store_path: &'static str) -> Self {
         Self {
             source_key,
-            entity_path,
             store_path,
             _marker: PhantomData,
         }
@@ -72,7 +66,7 @@ impl<C: CanisterKind> GeneratedEntityRoute<C> {
     ) -> Result<EntityRuntimeRegistration<C>, InternalError> {
         Ok(EntityRuntimeRegistration {
             entity_tag: self.accepted_entity_tag(db)?,
-            entity_path: self.entity_path,
+            entity_path: self.source_key,
             store_path: self.store_path,
             _marker: PhantomData,
         })
@@ -141,13 +135,9 @@ impl<C: CanisterKind> EntityRegistration<C> {
     /// Build one generated source route without accepted identity or
     /// executable application hooks.
     #[must_use]
-    pub const fn new(
-        source_key: &'static str,
-        entity_path: &'static str,
-        store_path: &'static str,
-    ) -> Self {
+    pub const fn new(source_key: &'static str, store_path: &'static str) -> Self {
         Self {
-            runtime: GeneratedEntityRoute::new(source_key, entity_path, store_path),
+            runtime: GeneratedEntityRoute::new(source_key, store_path),
         }
     }
 
@@ -191,7 +181,7 @@ pub(in crate::db) fn resolve_runtime_registration_by_path<C: CanisterKind>(
     let mut matched = None;
     for registration in registrations {
         let runtime = registration.runtime();
-        if runtime.entity_path != entity_path {
+        if runtime.source_key != entity_path {
             continue;
         }
         if matched.is_some() {
@@ -263,17 +253,16 @@ pub(in crate::db) fn validate_delete_relations_with_registrations<C: CanisterKin
     )?;
 
     for registration in registrations {
-        let runtime = registration.runtime();
-        let entity_tag = runtime.accepted_entity_tag(db)?;
+        let runtime = registration.runtime().resolve(db)?;
         let source_store = db.store_handle(runtime.store_path)?;
         if !source_store.with_schema(|schema_store| {
-            schema_store.entity_has_relation_to_target(entity_tag, target_path)
+            schema_store.entity_has_relation_to_target(runtime.entity_tag, target_path)
         })? {
             continue;
         }
         crate::db::relation::validate_delete_relations_for_registered_source(
             db,
-            entity_tag,
+            runtime.entity_tag,
             runtime.entity_path,
             runtime.store_path,
             target_path,

@@ -90,10 +90,10 @@ fn character_patch(character: Character) -> StructuralPatch {
 }
 
 fn mentor_input(mentor: CharacterMentor) -> InputValue {
-    InputValue::List(vec![
-        mentor.name.into(),
-        mentor.level.into(),
-        mentor.pid.into(),
+    InputValue::Map(vec![
+        ("name".into(), mentor.name.into()),
+        ("level".into(), mentor.level.into()),
+        ("pid".into(), mentor.pid.into()),
     ])
 }
 

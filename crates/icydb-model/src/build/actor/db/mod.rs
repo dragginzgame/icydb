@@ -43,7 +43,6 @@ fn entity_registrations(builder: &ActorBuilder) -> TokenStream {
         registration_inits.extend(quote! {
             ::icydb::__macro::EntityRegistration::<__IcydbGeneratedCanister>::new(
                 #entity_source_key,
-                #entity_path,
                 #store_path,
             ),
         });

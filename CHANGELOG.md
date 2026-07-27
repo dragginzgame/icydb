@@ -13,7 +13,8 @@ Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
 - `0.213.33` completes the model consumer hard cut, moving maintained callers
   to current APIs while deleting retired package and facade owners, including
-  `icydb-utils`, without compatibility aliases.
+  `icydb-utils`, and makes generated runtime routing select accepted entities
+  only by immutable source identity.
 
 - `0.213.32` establishes independently publishable model packages with
   schema-only authoring and accepted-schema-bound typed adapters, removing the
