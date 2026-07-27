@@ -38,7 +38,6 @@ struct CanisterMemoryWiring<'a> {
 /// Emit generated stores, entity registrations, and session accessors.
 pub(super) fn generate_store_wiring(
     builder: &ActorBuilder,
-    canister_path: &syn::Path,
     entity_registrations: TokenStream,
 ) -> TokenStream {
     let canister = &builder.canister;
@@ -51,11 +50,12 @@ pub(super) fn generate_store_wiring(
     let commit_stable_key = canister.commit_stable_key();
     let integrity_progress_memory_id = canister.integrity_progress_memory_id();
     let integrity_progress_stable_key = canister.integrity_progress_stable_key();
+    let schema_bootstrap = schema_bootstrap_tokens(builder);
 
     store_wiring_tokens(
-        canister_path,
         store_registry,
         entity_registrations,
+        schema_bootstrap,
         CanisterMemoryWiring {
             memory_min,
             memory_max,
@@ -65,6 +65,43 @@ pub(super) fn generate_store_wiring(
             integrity_progress_stable_key: &integrity_progress_stable_key,
         },
     )
+}
+
+fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
+    let fragment_bytes = &builder.schema_fragment_bytes;
+    let submission_key = &builder.schema_submission_key;
+    let entity_stores = builder
+        .get_entities()
+        .into_iter()
+        .map(|(_, entity)| (entity.source_key().to_owned(), entity.store().to_owned()))
+        .collect::<Vec<_>>();
+    let entity_source_keys = entity_stores.iter().map(|(source, _)| source);
+    let store_paths = entity_stores.iter().map(|(_, store)| store);
+
+    quote! {
+        const ICYDB_SCHEMA_FRAGMENT: &[u8] = &[#(#fragment_bytes),*];
+        const ICYDB_SCHEMA_ENTITY_STORES: &[(&str, &str)] = &[
+            #((#entity_source_keys, #store_paths)),*
+        ];
+
+        fn ensure_schema_application(
+            session: &::icydb::db::DbSession<__IcydbGeneratedCanister>,
+        ) -> ::std::result::Result<(), ::icydb::Error> {
+            static SCHEMA_APPLICATION:
+                ::std::sync::OnceLock<::std::result::Result<(), ::icydb::Error>> =
+                    ::std::sync::OnceLock::new();
+
+            SCHEMA_APPLICATION.get_or_init(|| {
+                session
+                    .apply_generated_schema_fragment(
+                        ICYDB_SCHEMA_FRAGMENT,
+                        #submission_key,
+                        ICYDB_SCHEMA_ENTITY_STORES,
+                    )
+                    .map(|_receipt| ())
+            }).clone()
+        }
+    }
 }
 
 fn store_registry_tokens(
@@ -325,10 +362,14 @@ fn journaled_store_registry_entry_tokens(
 }
 
 /// Assemble the outer canister store wiring around the generated registry.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one generated block keeps the store registry, memory declarations, and startup wiring visibly co-located"
+)]
 fn store_wiring_tokens(
-    canister_path: &syn::Path,
     store_registry: StoreRegistryTokens,
     entity_registrations: TokenStream,
+    schema_bootstrap: TokenStream,
     memory: CanisterMemoryWiring<'_>,
 ) -> TokenStream {
     let StoreRegistryTokens {
@@ -363,6 +404,21 @@ fn store_wiring_tokens(
     };
 
     quote! {
+        #[doc(hidden)]
+        pub struct __IcydbGeneratedCanister;
+
+        impl ::icydb::__macro::Path for __IcydbGeneratedCanister {
+            const PATH: &'static str = "__icydb_generated_canister";
+        }
+
+        impl ::icydb::__macro::CanisterKind for __IcydbGeneratedCanister {
+            const COMMIT_MEMORY_ID: u8 = #commit_memory_id;
+            const COMMIT_STABLE_KEY: &'static str = #commit_stable_key;
+            const INTEGRITY_PROGRESS_MEMORY_ID: u8 = #integrity_progress_memory_id;
+            const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+                #integrity_progress_stable_key;
+        }
+
         ::icydb::__macro::ic_memory_range!(
             authority = #memory_authority,
             start = #memory_min,
@@ -404,6 +460,7 @@ fn store_wiring_tokens(
         #index_defs
         #schema_defs
         #entity_registrations
+        #schema_bootstrap
         thread_local! {
             static STORE_REGISTRY:
                 ::icydb::__macro::StoreRegistry =
@@ -412,22 +469,24 @@ fn store_wiring_tokens(
 
         #[doc(hidden)]
         pub fn core_db() -> ::std::result::Result<
-            ::icydb::__macro::CoreDbSession<#canister_path>,
+            ::icydb::__macro::CoreDbSession<__IcydbGeneratedCanister>,
             ::icydb::db::DatabaseBootstrapError,
         > {
             ensure_memory_bootstrap()?;
 
-            Ok(::icydb::__macro::CoreDbSession::<#canister_path>::new_with_registrations(
+            Ok(::icydb::__macro::CoreDbSession::<__IcydbGeneratedCanister>::new_with_registrations(
                 &STORE_REGISTRY,
                 ENTITY_REGISTRATIONS
             ))
         }
 
         pub fn db() -> ::std::result::Result<
-            ::icydb::db::DbSession<#canister_path>,
-            ::icydb::db::DatabaseBootstrapError,
+            ::icydb::db::DbSession<__IcydbGeneratedCanister>,
+            ::icydb::Error,
         > {
-            Ok(::icydb::db::DbSession::new(core_db()?))
+            let session = ::icydb::db::DbSession::new(core_db()?);
+            ensure_schema_application(&session)?;
+            Ok(session)
         }
     }
 }
@@ -537,7 +596,6 @@ mod tests {
 
     #[test]
     fn store_registry_wiring_is_lint_clean() {
-        let canister_path: syn::Path = syn::parse_quote!(demo::schema::DemoCanister);
         let mut store_inits = quote!();
         store_inits.extend(
             store_registry_entry_tokens(
@@ -558,8 +616,8 @@ mod tests {
         };
 
         let rendered = compact_tokens(store_wiring_tokens(
-            &canister_path,
             registry,
+            quote!(),
             quote!(),
             CanisterMemoryWiring {
                 memory_min: 10,

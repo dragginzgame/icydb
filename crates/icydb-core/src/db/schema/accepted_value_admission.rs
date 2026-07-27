@@ -52,13 +52,6 @@ impl<'a> AcceptedValueAdmissionContract<'a> {
         }
     }
 
-    /// Borrow the immutable catalog authority for this value contract.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn catalogs(&self) -> &'a AcceptedValueCatalogHandle {
-        self.catalogs
-    }
-
     /// Borrow the recursively validated accepted value contract.
     #[must_use]
     pub(in crate::db) fn value_contract(&self) -> &AcceptedValueContract {

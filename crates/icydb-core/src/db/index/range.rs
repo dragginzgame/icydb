@@ -115,10 +115,6 @@ impl IndexBoundsLowering {
         }
     }
 
-    pub(in crate::db) fn into_bounds(self) -> (Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>) {
-        (self.lower, self.upper)
-    }
-
     pub(in crate::db) fn into_bounds_and_prefix_components(
         self,
     ) -> (
@@ -136,23 +132,7 @@ impl IndexBoundsLowering {
     }
 }
 
-impl IndexRangeBoundEncodeError {
-    #[must_use]
-    pub(in crate::db) const fn cursor_anchor_not_indexable_reason(self) -> &'static str {
-        #[cfg(not(test))]
-        {
-            let _ = self;
-            "index-range cursor anchor invariant"
-        }
-        #[cfg(test)]
-        match self {
-            Self::Prefix => "index-range continuation anchor prefix is not indexable",
-            Self::Lower => "index-range cursor lower continuation bound is not indexable",
-            Self::Upper => "index-range cursor upper continuation bound is not indexable",
-            Self::RawKey => "index-range raw key encode invariant",
-        }
-    }
-}
+impl IndexRangeBoundEncodeError {}
 
 ///
 /// build_index_bounds
@@ -161,16 +141,6 @@ impl IndexRangeBoundEncodeError {
 /// This is the only function that should lower semantic prefix/range/prefix-text
 /// requests into executable raw index-key scan bounds.
 ///
-
-/// Build raw index-key bounds from reduced index key arity facts.
-pub(in crate::db) fn build_index_bounds_for_arity(
-    index_id: &IndexId,
-    index_len: usize,
-    spec: IndexBoundsSpec<'_>,
-) -> Result<(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>), IndexRangeBoundEncodeError> {
-    build_index_bounds_lowering_for_arity(index_id, index_len, spec)
-        .map(IndexBoundsLowering::into_bounds)
-}
 
 /// Build raw index-key bounds and return the encoded equality-prefix bytes
 /// produced by the same canonical lowering pass.
@@ -414,33 +384,4 @@ fn next_unicode_scalar(value: char) -> Option<char> {
     }
 
     char::from_u32(next)
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use super::IndexRangeBoundEncodeError;
-
-    #[test]
-    fn index_range_bound_encode_error_owns_cursor_anchor_reason_text() {
-        assert_eq!(
-            IndexRangeBoundEncodeError::Prefix.cursor_anchor_not_indexable_reason(),
-            "index-range continuation anchor prefix is not indexable",
-        );
-        assert_eq!(
-            IndexRangeBoundEncodeError::Lower.cursor_anchor_not_indexable_reason(),
-            "index-range cursor lower continuation bound is not indexable",
-        );
-        assert_eq!(
-            IndexRangeBoundEncodeError::Upper.cursor_anchor_not_indexable_reason(),
-            "index-range cursor upper continuation bound is not indexable",
-        );
-        assert_eq!(
-            IndexRangeBoundEncodeError::RawKey.cursor_anchor_not_indexable_reason(),
-            "index-range raw key encode invariant",
-        );
-    }
 }

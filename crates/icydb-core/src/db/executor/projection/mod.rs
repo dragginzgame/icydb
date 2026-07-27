@@ -11,9 +11,6 @@ mod facade;
 mod grouped;
 mod materialize;
 mod path;
-#[cfg(test)]
-mod tests;
-
 #[cfg(feature = "sql")]
 pub(in crate::db) use covering::CoveringProjectionMetricsRecorder;
 #[cfg(feature = "sql")]
@@ -52,20 +49,9 @@ pub(in crate::db) use materialize::ProjectionMaterializationMetricsRecorder;
 pub(in crate::db) use materialize::project;
 #[cfg(feature = "sql")]
 pub(in crate::db::executor::projection) use materialize::project_distinct;
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db::executor::projection) use materialize::project_rows_from_projection;
 pub(in crate::db) use materialize::{
     PreparedProjectionContract, prepare_projection_contract_from_plan,
 };
 pub(in crate::db::executor) use materialize::{
     ProjectionValidationRow, validate_prepared_projection_row,
 };
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db::executor::projection) use materialize::{
-    count_borrowed_data_row_views_for_test, count_borrowed_identity_data_row_views_for_test,
-    count_borrowed_slot_row_views_for_test,
-};
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db) use tests::projection_eval_data_row_for_materialize_tests;
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db) use tests::projection_eval_row_layout_for_materialize_tests;

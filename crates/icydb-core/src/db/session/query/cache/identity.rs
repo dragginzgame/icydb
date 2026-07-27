@@ -11,9 +11,7 @@ use crate::db::{
     commit::CommitSchemaFingerprint,
     executor::EntityAuthority,
     query::intent::{StructuralQuery, StructuralQueryCacheKey},
-    schema::{
-        AcceptedCatalogIdentity, AcceptedSchemaRevision, AcceptedSchemaSnapshot, SchemaVersion,
-    },
+    schema::{AcceptedSchemaRevision, AcceptedSchemaSnapshot, SchemaVersion},
     session::AcceptedSchemaCatalogContext,
 };
 
@@ -87,15 +85,6 @@ impl SchemaCacheIdentity {
             accepted_schema.persisted_snapshot().version(),
             crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
             fingerprint,
-        )
-    }
-
-    pub(super) const fn from_accepted_catalog_identity(identity: AcceptedCatalogIdentity) -> Self {
-        Self::new(
-            identity.accepted_schema_revision(),
-            identity.accepted_schema_version(),
-            identity.fingerprint_method_version(),
-            identity.accepted_schema_fingerprint(),
         )
     }
 
@@ -178,7 +167,6 @@ pub(in crate::db) struct QueryPlanCacheAttribution {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct QueryPlanCompilePhaseAttribution {
-    pub schema_catalog: u64,
     pub schema_info: u64,
     pub prepare: u64,
     pub cache_key: u64,
@@ -189,7 +177,6 @@ pub(in crate::db) struct QueryPlanCompilePhaseAttribution {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum QueryPlanCompilePhase {
-    SchemaCatalog,
     SchemaInfo,
     Prepare,
     CacheKey,
@@ -227,7 +214,6 @@ impl QueryPlanCompilePhaseAttribution {
 
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     pub(in crate::db) const fn merge(&mut self, other: Self) {
-        self.schema_catalog = self.schema_catalog.saturating_add(other.schema_catalog);
         self.schema_info = self.schema_info.saturating_add(other.schema_info);
         self.prepare = self.prepare.saturating_add(other.prepare);
         self.cache_key = self.cache_key.saturating_add(other.cache_key);
@@ -238,9 +224,6 @@ impl QueryPlanCompilePhaseAttribution {
 
     const fn record(&mut self, phase: QueryPlanCompilePhase, local_instructions: u64) {
         match phase {
-            QueryPlanCompilePhase::SchemaCatalog => {
-                self.schema_catalog = self.schema_catalog.saturating_add(local_instructions);
-            }
             QueryPlanCompilePhase::SchemaInfo => {
                 self.schema_info = self.schema_info.saturating_add(local_instructions);
             }
@@ -339,21 +322,6 @@ impl QueryPlanCacheKey {
             visibility,
             structural_query,
         }
-    }
-
-    #[cfg(test)]
-    pub(super) fn for_authority(
-        authority: EntityAuthority,
-        schema_identity: SchemaCacheIdentity,
-        visibility: QueryPlanVisibility,
-        query: &StructuralQuery,
-    ) -> Self {
-        Self::from_authority_cache_inputs(
-            authority,
-            schema_identity,
-            visibility,
-            query.structural_cache_key(),
-        )
     }
 
     pub(super) fn for_authority_with_normalized_predicate_fingerprint(

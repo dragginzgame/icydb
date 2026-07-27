@@ -10,7 +10,7 @@ use candid::{
     types::{CandidType, Label, Type, TypeInner},
 };
 use ic_memory::RuntimeBootstrapError;
-use icydb_core::db::{IntentError, PlanError, QueryExecutionError, ValidateError};
+use icydb_core::db::{PlanError, QueryExecutionError, ValidateError};
 use icydb_core::error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin};
 use serde::Serialize;
 
@@ -97,18 +97,6 @@ fn query_validate_exposes_compact_diagnostic_bridge() {
 }
 
 #[test]
-fn query_intent_maps_to_intent_kind() {
-    let err = QueryError::Intent(IntentError::ByIdsWithPredicate);
-    let facade = Error::from(err);
-
-    assert_eq!(
-        facade.code(),
-        icydb_diagnostic_code::ErrorCode::QUERY_INTENT
-    );
-    assert_eq!(facade.origin(), ErrorOrigin::Query);
-}
-
-#[test]
 fn plan_errors_map_to_plan_kind() {
     let err = QueryError::Plan(Box::new(PlanError::from(ValidateError::UnknownField {
         field: "field".to_string(),
@@ -117,32 +105,6 @@ fn plan_errors_map_to_plan_kind() {
 
     assert_eq!(facade.code(), icydb_diagnostic_code::ErrorCode::QUERY_PLAN);
     assert_eq!(facade.origin(), ErrorOrigin::Query);
-}
-
-#[test]
-fn response_error_maps_with_response_origin() {
-    let facade = Error::from(ResponseError::NotFound { entity: "Entity" });
-
-    assert_eq!(
-        facade.code(),
-        icydb_diagnostic_code::ErrorCode::QUERY_NOT_FOUND
-    );
-    assert_eq!(facade.origin(), ErrorOrigin::Response);
-}
-
-#[test]
-fn response_error_preserves_origin_in_compact_diagnostic_bridge() {
-    let facade = Error::from(ResponseError::NotFound { entity: "Entity" });
-    let diagnostic = facade.diagnostic();
-
-    assert_eq!(
-        diagnostic.code(),
-        icydb_diagnostic_code::DiagnosticCode::QueryNotFound
-    );
-    assert_eq!(
-        diagnostic.origin(),
-        icydb_diagnostic_code::ErrorOrigin::Response
-    );
 }
 
 #[test]

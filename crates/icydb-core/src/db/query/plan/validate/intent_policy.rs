@@ -6,8 +6,8 @@
 
 use crate::db::query::plan::{
     OrderSpec, QueryMode,
+    validate::PolicyPlanError,
     validate::plan_shape::{has_explicit_order, validate_order_shape},
-    validate::{IntentKeyAccessKind, IntentKeyAccessPolicyViolation, PolicyPlanError},
 };
 
 /// Validate intent-level plan-shape rules derived from query mode + modifiers.
@@ -32,33 +32,6 @@ pub(in crate::db::query) fn validate_intent_plan_shape(
         && !has_explicit_order(order)
     {
         return Err(PolicyPlanError::delete_window_requires_order());
-    }
-
-    Ok(())
-}
-
-/// Validate intent key-access policy before planning.
-pub(in crate::db::query) const fn validate_intent_key_access_policy(
-    key_access_conflict: bool,
-    key_access_kind: Option<IntentKeyAccessKind>,
-    has_predicate: bool,
-) -> Result<(), IntentKeyAccessPolicyViolation> {
-    // Conflicting key selectors stay a hard stop regardless of the chosen
-    // selector kind so the intent surface never carries ambiguous access state.
-    if key_access_conflict {
-        return Err(IntentKeyAccessPolicyViolation::key_access_conflict());
-    }
-
-    // Multi-key and `only` selectors still reject additional predicates at the
-    // intent boundary so planner access routing sees one unambiguous contract.
-    if has_predicate {
-        if matches!(key_access_kind, Some(IntentKeyAccessKind::Many)) {
-            return Err(IntentKeyAccessPolicyViolation::by_ids_with_predicate());
-        }
-
-        if matches!(key_access_kind, Some(IntentKeyAccessKind::Only)) {
-            return Err(IntentKeyAccessPolicyViolation::only_with_predicate());
-        }
     }
 
     Ok(())

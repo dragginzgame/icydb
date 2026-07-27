@@ -67,8 +67,9 @@ pub mod prelude {
 }
 
 pub use icydb_model_macros::{
-    Add, AddAssign, Display, Div, DivAssign, Inner, Mul, MulAssign, Rem, Sub, SubAssign, Sum,
-    canister, entity, enum_, list, map, newtype, normalizer, record, set, store, tuple, validator,
+    Add, AddAssign, Deref, DerefMut, Display, Div, DivAssign, Inner, Mul, MulAssign, Rem, Sub,
+    SubAssign, Sum, canister, entity, enum_, list, map, newtype, normalizer, record, set, store,
+    tuple, validator,
 };
 pub use normalize::normalize;
 pub use validate::validate;
@@ -146,7 +147,6 @@ pub mod __reexports {
     pub use candid;
     #[cfg(not(target_arch = "wasm32"))]
     pub use ctor;
-    pub use derive_more;
     pub use icydb_model_macros;
     pub use remain;
     pub use serde;

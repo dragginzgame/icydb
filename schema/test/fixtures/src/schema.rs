@@ -1,5 +1,5 @@
 pub mod relation {
-    use icydb::design::prelude::*;
+    use icydb_model::prelude::*;
 
     ///
     /// RelationCanister
@@ -32,7 +32,7 @@ pub mod relation {
 }
 
 pub mod test {
-    use icydb::design::prelude::*;
+    use icydb_model::prelude::*;
 
     ///
     /// TestCanister

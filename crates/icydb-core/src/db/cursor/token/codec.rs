@@ -7,10 +7,10 @@
 use crate::{
     db::{
         cursor::{
-            ContinuationSignature, CursorBoundary, CursorBoundarySlot, IndexRangeCursorAnchor,
+            ContinuationSignature,
             token::TokenWireError,
-            token::bytes::{ByteCursor, checked_len_u32, write_len_prefixed_bytes, write_u32},
-            token::value::{read_value, read_value_vec, write_value, write_value_slice},
+            token::bytes::{ByteCursor, write_u32},
+            token::value::{read_value_vec, write_value_slice},
         },
         direction::Direction,
     },
@@ -19,31 +19,12 @@ use crate::{
 
 pub(in crate::db::cursor) const MAX_CURSOR_TOKEN_BYTES: usize = 8 * 1024;
 
-const TOKEN_VARIANT_SCALAR: u8 = 1;
 const TOKEN_VARIANT_GROUPED: u8 = 2;
 const TOKEN_WIRE_MAGIC: &[u8; 4] = b"ICYQ";
 const TOKEN_WIRE_VERSION: u8 = 1;
 
-const SLOT_MISSING: u8 = 0;
-const SLOT_PRESENT: u8 = 1;
-
 const DIRECTION_ASC: u8 = 0;
 const DIRECTION_DESC: u8 = 1;
-
-///
-/// DecodedScalarTokenPayload
-///
-/// DecodedScalarTokenPayload is the decoded wire payload handed from the token
-/// codec back to the scalar continuation token domain type.
-///
-
-pub(in crate::db::cursor::token) struct DecodedScalarTokenPayload {
-    pub(in crate::db::cursor::token) signature: ContinuationSignature,
-    pub(in crate::db::cursor::token) boundary: CursorBoundary,
-    pub(in crate::db::cursor::token) direction: Direction,
-    pub(in crate::db::cursor::token) initial_offset: u32,
-    pub(in crate::db::cursor::token) index_range_anchor: Option<IndexRangeCursorAnchor>,
-}
 
 ///
 /// DecodedGroupedTokenPayload
@@ -62,28 +43,6 @@ pub(in crate::db::cursor::token) struct DecodedGroupedTokenPayload {
 ///
 /// TOKEN ENCODE
 ///
-
-pub(in crate::db::cursor::token) fn encode_scalar_token(
-    signature: ContinuationSignature,
-    boundary: &CursorBoundary,
-    direction: Direction,
-    initial_offset: u32,
-    index_range_anchor: Option<&IndexRangeCursorAnchor>,
-) -> Result<Vec<u8>, TokenWireError> {
-    let mut out = Vec::new();
-
-    // Phase 1: write the scalar token envelope header and fixed fields.
-    write_token_header(&mut out, TOKEN_VARIANT_SCALAR);
-    out.extend_from_slice(&signature.into_bytes());
-    write_direction(&mut out, direction);
-    write_u32(&mut out, initial_offset);
-
-    // Phase 2: encode the scalar boundary slots and optional range anchor.
-    write_cursor_boundary(&mut out, boundary)?;
-    write_optional_anchor(&mut out, index_range_anchor)?;
-
-    finish_token_encode(out)
-}
 
 pub(in crate::db::cursor::token) fn encode_grouped_token(
     signature: ContinuationSignature,
@@ -108,32 +67,6 @@ pub(in crate::db::cursor::token) fn encode_grouped_token(
 ///
 /// TOKEN DECODE
 ///
-
-pub(in crate::db::cursor::token) fn decode_scalar_token(
-    bytes: &[u8],
-) -> Result<DecodedScalarTokenPayload, TokenWireError> {
-    let mut cursor = start_token_decode(bytes)?;
-
-    // Phase 1: validate the scalar token envelope and fixed-width header.
-    expect_token_variant(&mut cursor, TOKEN_VARIANT_SCALAR)?;
-    let signature = ContinuationSignature::from_bytes(cursor.read_array()?);
-    let direction = read_direction(&mut cursor)?;
-    let initial_offset = cursor.read_u32()?;
-
-    // Phase 2: decode the scalar boundary payload and optional range anchor.
-    let boundary = read_cursor_boundary(&mut cursor)?;
-    let index_range_anchor = read_optional_anchor(&mut cursor)?;
-
-    cursor.finish()?;
-
-    Ok(DecodedScalarTokenPayload {
-        signature,
-        boundary,
-        direction,
-        initial_offset,
-        index_range_anchor,
-    })
-}
 
 pub(in crate::db::cursor::token) fn decode_grouped_token(
     bytes: &[u8],
@@ -224,71 +157,4 @@ fn read_direction(cursor: &mut ByteCursor<'_>) -> Result<Direction, TokenWireErr
         DIRECTION_DESC => Ok(Direction::Desc),
         _ => Err(TokenWireError::decode()),
     }
-}
-
-fn write_optional_anchor(
-    out: &mut Vec<u8>,
-    anchor: Option<&IndexRangeCursorAnchor>,
-) -> Result<(), TokenWireError> {
-    match anchor {
-        Some(anchor) => {
-            out.push(1);
-            write_len_prefixed_bytes(out, anchor.last_raw_key())?;
-        }
-        None => out.push(0),
-    }
-
-    Ok(())
-}
-
-fn read_optional_anchor(
-    cursor: &mut ByteCursor<'_>,
-) -> Result<Option<IndexRangeCursorAnchor>, TokenWireError> {
-    match cursor.read_u8()? {
-        0 => Ok(None),
-        1 => Ok(Some(IndexRangeCursorAnchor::new(
-            cursor.read_len_prefixed_bytes()?.to_vec(),
-        ))),
-        _ => Err(TokenWireError::decode()),
-    }
-}
-
-///
-/// CURSOR BOUNDARY HELPERS
-///
-
-fn write_cursor_boundary(
-    out: &mut Vec<u8>,
-    boundary: &CursorBoundary,
-) -> Result<(), TokenWireError> {
-    write_u32(out, checked_len_u32(boundary.slots.len())?);
-
-    for slot in &boundary.slots {
-        match slot {
-            CursorBoundarySlot::Missing => out.push(SLOT_MISSING),
-            CursorBoundarySlot::Present(value) => {
-                out.push(SLOT_PRESENT);
-                write_value(out, value)?;
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn read_cursor_boundary(cursor: &mut ByteCursor<'_>) -> Result<CursorBoundary, TokenWireError> {
-    let slot_count = usize::try_from(cursor.read_u32()?).map_err(|_| TokenWireError::decode())?;
-    let mut slots = Vec::with_capacity(slot_count);
-
-    for _ in 0..slot_count {
-        match cursor.read_u8()? {
-            SLOT_MISSING => slots.push(CursorBoundarySlot::Missing),
-            SLOT_PRESENT => slots.push(CursorBoundarySlot::Present(read_value(cursor)?)),
-            _ => {
-                return Err(TokenWireError::decode());
-            }
-        }
-    }
-
-    Ok(CursorBoundary { slots })
 }

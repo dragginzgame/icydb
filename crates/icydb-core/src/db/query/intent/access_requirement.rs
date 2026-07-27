@@ -1,7 +1,7 @@
 //! Module: query::intent::access_requirement
 //! Responsibility: fail-closed query access assertions evaluated after planning.
 //! Does not own: optimizer ranking or physical access selection.
-//! Boundary: fluent query contracts inspect the selected plan without acting as hints.
+//! Boundary: query contracts inspect the selected plan without acting as hints.
 
 use crate::db::query::{
     explain::{ExplainAccessDecision, ExplainAccessDecisionKind},
@@ -9,7 +9,7 @@ use crate::db::query::{
     plan::AccessPlannedQuery,
 };
 
-/// Required selected access path for fail-closed fluent query contracts.
+/// Required selected access path for fail-closed query contracts.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RequiredAccessPath {
     /// Require primary-key lookup.
@@ -35,22 +35,6 @@ pub enum RequiredAccessPath {
 }
 
 impl RequiredAccessPath {
-    #[cfg(all(test, feature = "sql"))]
-    pub(in crate::db) const fn code(self) -> &'static str {
-        match self {
-            Self::ByKey => "ByKey",
-            Self::ByKeys => "ByKeys",
-            Self::KeyRange => "KeyRange",
-            Self::IndexPrefix => "IndexPrefix",
-            Self::IndexMultiLookup => "IndexMultiLookup",
-            Self::IndexBranchSet => "IndexBranchSet",
-            Self::IndexRange => "IndexRange",
-            Self::FullScan => "FullScan",
-            Self::Union => "Union",
-            Self::Intersection => "Intersection",
-        }
-    }
-
     const fn matches(self, actual: ExplainAccessDecisionKind) -> bool {
         matches!(
             (self, actual),
@@ -90,29 +74,6 @@ impl AccessRequirements {
             access_path: None,
             no_residual_filter: false,
         }
-    }
-
-    pub(in crate::db::query::intent) const fn require_index(&mut self) {
-        self.index_required = true;
-    }
-
-    pub(in crate::db::query::intent) fn require_index_named(
-        &mut self,
-        index_name: impl Into<String>,
-    ) {
-        self.index_required = true;
-        self.named_index = Some(index_name.into());
-    }
-
-    pub(in crate::db::query::intent) const fn require_access_path(
-        &mut self,
-        path: RequiredAccessPath,
-    ) {
-        self.access_path = Some(path);
-    }
-
-    pub(in crate::db::query::intent) const fn require_no_residual_filter(&mut self) {
-        self.no_residual_filter = true;
     }
 
     pub(in crate::db::query::intent) fn validate(

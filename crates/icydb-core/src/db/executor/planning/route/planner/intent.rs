@@ -4,7 +4,6 @@
 //! Boundary: pure intent derivation for staged route planning.
 
 use crate::{
-    db::executor::planning::route::contracts::MUTATION_FAST_PATH_ORDER,
     db::executor::route::{
         AGGREGATE_FAST_PATH_ORDER, AggregateRouteShape, FastPathOrder,
         GROUPED_AGGREGATE_FAST_PATH_ORDER, LOAD_FAST_PATH_ORDER, RouteShapeKind,
@@ -13,9 +12,8 @@ use crate::{
     },
     db::{
         executor::ExecutionPreparation,
-        query::plan::{AccessPlannedQuery, AggregateKind, GroupedPlanStrategy},
+        query::plan::{AggregateKind, GroupedPlanStrategy},
     },
-    error::InternalError,
 };
 
 // Keep route-shape intent mapping in one helper so grouped/count/non-count
@@ -55,10 +53,6 @@ fn route_intent_stage<'a>(
         (kind.is_none()
             && !stage.grouped
             && stage.fast_path_order == LOAD_FAST_PATH_ORDER.as_slice())
-            || (matches!(stage.route_shape_kind, RouteShapeKind::MutationDelete)
-                && kind.is_none()
-                && !stage.grouped
-                && stage.fast_path_order == MUTATION_FAST_PATH_ORDER.as_slice())
             || (kind.is_some()
                 && !stage.grouped
                 && stage.fast_path_order == AGGREGATE_FAST_PATH_ORDER.as_slice())
@@ -71,13 +65,11 @@ fn route_intent_stage<'a>(
         !stage.grouped || stage.aggregate_shape.is_none() && stage.fast_path_order.is_empty(),
         "route invariant: grouped intent must not carry scalar aggregate specs or fast-path routes",
     );
-    if !matches!(stage.route_shape_kind, RouteShapeKind::MutationDelete) {
-        let expected_route_shape_kind = route_shape_kind_for_intent(stage.grouped, stage.kind());
-        debug_assert!(
-            stage.route_shape_kind == expected_route_shape_kind,
-            "route invariant: route intent shape kind must remain aligned with grouped + aggregate intent",
-        );
-    }
+    let expected_route_shape_kind = route_shape_kind_for_intent(stage.grouped, stage.kind());
+    debug_assert!(
+        stage.route_shape_kind == expected_route_shape_kind,
+        "route invariant: route intent shape kind must remain aligned with grouped + aggregate intent",
+    );
     debug_assert!(
         stage.grouped == stage.grouped_plan_strategy.is_some(),
         "route invariant: grouped intents must carry planner grouped strategies, scalar intents must not",
@@ -133,21 +125,4 @@ pub(super) fn derive_grouped_route_intent_stage(
             execution_preparation,
         ),
     )
-}
-
-/// Derive the canonical staged mutation intent after delete-only admission.
-pub(super) fn derive_mutation_route_intent_stage(
-    plan: &AccessPlannedQuery,
-) -> Result<RouteIntentStage<'static>, InternalError> {
-    if !plan.scalar_plan().mode.is_delete() {
-        return Err(InternalError::query_executor_invariant());
-    }
-
-    Ok(route_intent_stage(
-        None,
-        None,
-        RouteShapeKind::MutationDelete,
-        &MUTATION_FAST_PATH_ORDER,
-        false,
-    ))
 }

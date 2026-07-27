@@ -25,14 +25,6 @@ sha2 = { workspace = true }
 workspace = true
 
 [[test]]
-name = "fluent_perf_audit"
-path = "tests/fluent_perf_audit.rs"
-
-[[test]]
-name = "pk_canonicalization_focused_artifact"
-path = "tests/pk_canonicalization_focused_artifact.rs"
-
-[[test]]
 name = "sql_canister"
 path = "tests/sql_canister.rs"
 

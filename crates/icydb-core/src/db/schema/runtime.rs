@@ -5,35 +5,15 @@
 
 use crate::{
     db::schema::{
-        AcceptedCompositeCatalog, AcceptedEnumCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
-        AcceptedSchemaSnapshot, AcceptedValueAdmissionContract, AcceptedValueCatalogHandle,
-        AcceptedValueContract, FieldId, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
-        RowLayoutVersion, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill,
-        SchemaInsertDefault, enum_catalog::EnumCatalogBuildError,
+        AcceptedEnumCatalog, AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
+        AcceptedValueAdmissionContract, AcceptedValueCatalogHandle, AcceptedValueContract, FieldId,
+        PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot, RowLayoutVersion,
+        SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaInsertDefault,
+        enum_catalog::EnumCatalogBuildError,
     },
     error::InternalError,
-    model::{
-        entity::EntityModel,
-        field::{FieldModel, FieldStorageDecode, LeafCodec},
-    },
+    model::field::{FieldStorageDecode, LeafCodec},
 };
-#[cfg(test)]
-use std::cell::Cell;
-
-#[cfg(test)]
-thread_local! {
-    static GENERATED_COMPATIBLE_ROW_LAYOUT_PROOFS: Cell<u64> = const { Cell::new(0) };
-}
-
-#[cfg(test)]
-pub(in crate::db) fn reset_generated_compatible_row_layout_proof_count_for_tests() {
-    GENERATED_COMPATIBLE_ROW_LAYOUT_PROOFS.with(|proofs| proofs.set(0));
-}
-
-#[cfg(test)]
-pub(in crate::db) fn generated_compatible_row_layout_proof_count_for_tests() -> u64 {
-    GENERATED_COMPATIBLE_ROW_LAYOUT_PROOFS.with(Cell::get)
-}
 
 ///
 /// AcceptedInsertOmissionPolicy
@@ -115,20 +95,6 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
     #[must_use]
     pub(in crate::db) const fn kind(&self) -> &'a AcceptedFieldKind {
         self.kind
-    }
-
-    /// Borrow accepted nested leaf metadata rooted at this field.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn nested_leaves(&self) -> &'a [PersistedNestedLeafSnapshot] {
-        self.nested_leaves
-    }
-
-    /// Return whether this field permits explicit persisted `NULL`.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn nullable(&self) -> bool {
-        self.nullable
     }
 
     /// Return the physical layout that first contained this field.
@@ -411,12 +377,6 @@ impl OwnedAcceptedFieldDecodeContract {
     pub(in crate::db) const fn kind(&self) -> &AcceptedFieldKind {
         &self.kind
     }
-
-    /// Return whether this accepted field is generated-schema owned.
-    #[must_use]
-    pub(in crate::db) const fn generated(&self) -> bool {
-        self.generated
-    }
 }
 
 ///
@@ -529,39 +489,6 @@ impl AcceptedRowDecodeContract {
         }
     }
 
-    /// Build an accepted row contract from one generated model proposal for tests.
-    ///
-    /// Production code must source this contract from the accepted schema store.
-    /// This helper exists only so low-level executor tests can keep exercising
-    /// save mechanics without bootstrapping a session/schema store around every
-    /// fixture.
-    #[cfg(test)]
-    pub(in crate::db) fn from_model_proposal_for_test(model: &'static EntityModel) -> Self {
-        let proposal = crate::db::schema::compiled_schema_proposal_for_model(model);
-        let (catalog, composite_catalog) =
-            crate::db::schema::build_initial_accepted_catalogs_for_tests(&[model])
-                .expect("model proposal catalogs should build for tests");
-        let snapshot = proposal
-            .initial_persisted_schema_snapshot_with_catalogs(&catalog, &composite_catalog)
-            .expect("model proposal should resolve through its test catalogs");
-        let accepted = AcceptedSchemaSnapshot::try_new(snapshot)
-            .expect("model proposal should produce an accepted test schema");
-        let (descriptor, _) = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
-            &accepted,
-            model,
-            &catalog,
-            &composite_catalog,
-        )
-        .expect("accepted test schema should match its model proposal");
-        let catalog = AcceptedValueCatalogHandle::new_for_tests(
-            catalog,
-            composite_catalog,
-            AcceptedSchemaRevision::INITIAL,
-        );
-
-        descriptor.row_decode_contract(catalog)
-    }
-
     /// Return the accepted physical slot count required by this row contract.
     #[must_use]
     pub(in crate::db) const fn required_slot_count(&self) -> usize {
@@ -662,37 +589,6 @@ impl AcceptedRowDecodeContract {
 }
 
 ///
-/// AcceptedGeneratedRowCompatibilityProof
-///
-/// AcceptedGeneratedRowCompatibilityProof is the schema-runtime proof that one
-/// accepted row layout can still be decoded by generated field codecs.
-/// Row decode consumes this small proof instead of recombining descriptor
-/// fields after compatibility validation has already succeeded.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct AcceptedGeneratedRowCompatibilityProof {
-    required_slot_count: usize,
-    primary_key_slot_index: usize,
-}
-
-impl AcceptedGeneratedRowCompatibilityProof {
-    /// Return the accepted physical slot count proven generated-compatible.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn required_slot_count(self) -> usize {
-        self.required_slot_count
-    }
-
-    /// Return the accepted primary-key physical slot proven generated-compatible.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn first_primary_key_slot_index(self) -> usize {
-        self.primary_key_slot_index
-    }
-}
-
-///
 /// AcceptedRowLayoutRuntimeContract
 ///
 /// AcceptedRowLayoutRuntimeContract is the schema-owned runtime contract for
@@ -789,32 +685,6 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
         })
     }
 
-    /// Build one descriptor and prove it remains generated-compatible.
-    ///
-    /// This is the schema-runtime owner for the common accepted-schema handoff
-    /// used by write, commit, relation, and row-layout code. Callers receive
-    /// both the accepted contract and the proof object, so they do not repeat
-    /// contract construction or forget the generated-compatible guard.
-    pub(in crate::db) fn from_generated_compatible_schema(
-        accepted: &'a AcceptedSchemaSnapshot,
-        model: &'static EntityModel,
-        enum_catalog: &AcceptedEnumCatalog,
-        composite_catalog: &AcceptedCompositeCatalog,
-    ) -> Result<(Self, AcceptedGeneratedRowCompatibilityProof), InternalError> {
-        #[cfg(test)]
-        GENERATED_COMPATIBLE_ROW_LAYOUT_PROOFS
-            .with(|proofs| proofs.set(proofs.get().saturating_add(1)));
-
-        let descriptor = Self::from_accepted_schema(accepted)?;
-        let row_proof = descriptor.generated_row_compatibility_proof_for_model_with_catalogs(
-            model,
-            enum_catalog,
-            composite_catalog,
-        )?;
-
-        Ok((descriptor, row_proof))
-    }
-
     /// Return the current accepted physical row-layout identity.
     #[must_use]
     pub(in crate::db) const fn current_layout_version(&self) -> RowLayoutVersion {
@@ -874,16 +744,6 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
         self.fields.as_slice()
     }
 
-    /// Borrow one runtime field by accepted physical row slot.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn field_for_slot(
-        &self,
-        slot: SchemaFieldSlot,
-    ) -> Option<&AcceptedRowLayoutRuntimeField<'a>> {
-        self.fields.iter().find(|field| field.slot() == slot)
-    }
-
     /// Borrow one runtime field by accepted physical row slot index.
     #[must_use]
     pub(in crate::db) fn field_for_slot_index(
@@ -893,18 +753,6 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
         self.fields
             .iter()
             .find(|field| usize::from(field.slot().get()) == slot)
-    }
-
-    /// Borrow one runtime field by durable accepted field identity.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn field_for_id(
-        &self,
-        field_id: FieldId,
-    ) -> Option<&AcceptedRowLayoutRuntimeField<'a>> {
-        self.fields
-            .iter()
-            .find(|field| field.field_id() == field_id)
     }
 
     /// Borrow one runtime field by accepted persisted field name.
@@ -931,125 +779,6 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     ) -> AcceptedRowDecodeContract {
         AcceptedRowDecodeContract::from_runtime_contract(self, value_catalog)
     }
-
-    /// Return the proof that this accepted layout can still use generated field codecs.
-    ///
-    /// Accepted-field decoders now own runtime payload interpretation, but
-    /// typed materialization still needs proof that the accepted layout can be
-    /// bridged back to generated field codecs. Keeping this compatibility
-    /// proof in the contract owner makes generated compatibility a
-    /// schema-runtime contract instead of an executor side calculation.
-    #[cfg(test)]
-    pub(in crate::db) fn generated_row_compatibility_proof_for_model(
-        &self,
-        model: &'static EntityModel,
-    ) -> Result<AcceptedGeneratedRowCompatibilityProof, InternalError> {
-        let (enum_catalog, composite_catalog) =
-            crate::db::schema::build_initial_accepted_catalogs_for_tests(&[model])
-                .map_err(|()| InternalError::store_invariant())?;
-        self.generated_row_compatibility_proof_for_model_with_catalogs(
-            model,
-            &enum_catalog,
-            &composite_catalog,
-        )
-    }
-
-    fn generated_row_compatibility_proof_for_model_with_catalogs(
-        &self,
-        model: &'static EntityModel,
-        enum_catalog: &AcceptedEnumCatalog,
-        composite_catalog: &AcceptedCompositeCatalog,
-    ) -> Result<AcceptedGeneratedRowCompatibilityProof, InternalError> {
-        // Phase 1: require primary-key identity and the accepted row layout to
-        // match the generated decoder contract.
-        let generated_primary_key_names = model
-            .primary_key_model()
-            .fields()
-            .iter()
-            .map(FieldModel::name)
-            .collect::<Vec<_>>();
-        if self.primary_key_names() != generated_primary_key_names.as_slice() {
-            return Err(InternalError::store_invariant());
-        }
-
-        // Phase 2: require the accepted row layout to cover every generated
-        // slot. Extra trailing DDL-owned slots may exist after SQL ADD COLUMN;
-        // they remain accepted-runtime fields and are not exposed through the
-        // generated typed materializer. Required insertion policy does not
-        // affect decode compatibility; each write ingress validates omission
-        // against the accepted contract before constructing an after-image.
-        if self.required_slot_count() < model.fields().len() {
-            return Err(InternalError::store_invariant());
-        }
-
-        // Phase 3: compare every generated field against the accepted
-        // contract fact used by runtime decode before executor code can
-        // consume the descriptor.
-        for (generated_slot, field) in model.fields().iter().enumerate() {
-            let Some(accepted_field) = self.field_by_name(field.name()) else {
-                return Err(InternalError::store_invariant());
-            };
-            let accepted_slot = usize::from(accepted_field.slot().get());
-            if accepted_slot != generated_slot {
-                return Err(InternalError::store_invariant());
-            }
-
-            ensure_generated_field_decode_contract_compatible(
-                accepted_field,
-                field,
-                enum_catalog,
-                composite_catalog,
-            )?;
-        }
-
-        for slot in model.fields().len()..self.required_slot_count() {
-            let Some(extra_field) = self.field_for_slot_index(slot) else {
-                continue;
-            };
-            if extra_field.generated() {
-                return Err(InternalError::store_invariant());
-            }
-        }
-
-        Ok(AcceptedGeneratedRowCompatibilityProof {
-            required_slot_count: self.required_slot_count(),
-            primary_key_slot_index: self.first_primary_key_slot_index(),
-        })
-    }
-}
-
-// Prove that one accepted field still has the exact decode contract expected by
-// its generated field codec. This is the field-level bridge that lets typed
-// materialization keep using generated decoders after accepted runtime decode
-// has already proven the persisted field contract.
-fn ensure_generated_field_decode_contract_compatible(
-    accepted_field: &AcceptedRowLayoutRuntimeField<'_>,
-    generated_field: &FieldModel,
-    enum_catalog: &AcceptedEnumCatalog,
-    composite_catalog: &AcceptedCompositeCatalog,
-) -> Result<(), InternalError> {
-    let accepted_contract = accepted_field.decode_contract();
-    if !accepted_contract.kind().matches_generated_storage_shape(
-        generated_field.kind(),
-        enum_catalog,
-        composite_catalog,
-    ) {
-        return Err(InternalError::store_invariant());
-    }
-
-    if accepted_contract.nullable() != generated_field.nullable() {
-        return Err(InternalError::store_invariant());
-    }
-
-    if accepted_contract.storage_decode() != generated_field.storage_decode() {
-        return Err(InternalError::store_invariant());
-    }
-
-    if accepted_contract.leaf_codec() != generated_field.leaf_codec() {
-        return Err(InternalError::store_invariant());
-    }
-
-    Ok(())
 }
 
 // Decide the missing-slot behavior from accepted database metadata only. Rust
@@ -1064,10 +793,3 @@ const fn accepted_insert_omission_policy(
         (_, SchemaInsertDefault::SlotPayload(_)) => AcceptedInsertOmissionPolicy::DefaultIfMissing,
     }
 }
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

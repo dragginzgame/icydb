@@ -1,7 +1,6 @@
 use super::contracts::{
     AcceptedContinuationIdentity, AccessPlannedQuery, CoveringHybridReadExecutionPlan,
-    CoveringReadExecutionPlan, ExecutionOrdering, OrderSpec, PlannedContinuationContract,
-    QueryMode,
+    CoveringReadExecutionPlan, ExecutionOrdering, PlannedContinuationContract,
 };
 use crate::{
     db::{
@@ -10,7 +9,7 @@ use crate::{
             lower_access_with_schema_info,
         },
         commit::CommitSchemaFingerprint,
-        cursor::{ContinuationSignature, CursorPlanError, ValidatedCursor, ValidatedGroupedCursor},
+        cursor::{ContinuationSignature, CursorPlanError, ValidatedGroupedCursor},
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutionRoutePlan, ExecutorPlanError,
             GroupedPaginationWindow, ScalarContinuationContext,
@@ -25,9 +24,7 @@ use crate::{
             planning::route::{RoutePlanRequest, build_execution_route_plan},
             projection::{PreparedProjectionContract, prepare_projection_contract_from_plan},
             terminal::RetainedSlotLayout,
-            traversal::row_read_consistency_for_plan,
         },
-        predicate::MissingRowPolicy,
     },
     error::InternalError,
 };
@@ -217,13 +214,6 @@ impl PreparedScalarPlanCore {
         self.core.plan()
     }
 
-    #[cfg(feature = "sql")]
-    pub(in crate::db::executor) fn continuation_signature_for_runtime(
-        &self,
-    ) -> Result<ContinuationSignature, InternalError> {
-        self.core.continuation_signature_for_runtime()
-    }
-
     pub(in crate::db::executor) fn index_prefix_specs(&self) -> &[LoweredIndexPrefixSpec] {
         self.core.residents.index_prefix_specs.as_ref()
     }
@@ -235,7 +225,7 @@ impl PreparedScalarPlanCore {
     pub(in crate::db::executor) fn get_or_init_initial_scalar_route_plan(
         &self,
         authority: EntityAuthority,
-    ) -> Result<ExecutionRoutePlan, InternalError> {
+    ) -> ExecutionRoutePlan {
         self.core.get_or_init_initial_scalar_route_plan(authority)
     }
 
@@ -284,11 +274,6 @@ impl PreparedExecutionPlanCore {
     #[must_use]
     pub(in crate::db::executor::prepared_execution_plan) fn plan(&self) -> &AccessPlannedQuery {
         &self.residents.plan
-    }
-
-    #[must_use]
-    pub(in crate::db::executor::prepared_execution_plan) fn plan_hash_hex(&self) -> String {
-        self.plan().plan_hash_hex()
     }
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_projection_shape(
@@ -424,45 +409,27 @@ impl PreparedExecutionPlanCore {
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_initial_scalar_route_plan(
         &self,
         authority: EntityAuthority,
-    ) -> Result<ExecutionRoutePlan, InternalError> {
+    ) -> ExecutionRoutePlan {
         if let Some(route_plan) = self.residents.initial_scalar_route_plan.get() {
-            return Ok(route_plan.clone());
+            return route_plan.clone();
         }
 
         let continuation = ScalarContinuationContext::initial();
         let route_plan = build_execution_route_plan(
             &self.residents.plan,
             RoutePlanRequest::Load {
-                continuation: &continuation,
+                continuation,
                 probe_fetch_hint: None,
                 authority: Some(authority),
                 load_terminal_fast_path: None,
             },
-        )?;
+        );
         let _ = self
             .residents
             .initial_scalar_route_plan
             .set(route_plan.clone());
 
-        Ok(route_plan)
-    }
-
-    pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_aggregate_execution_preparation(
-        &self,
-    ) -> ExecutionPreparation {
-        // Aggregate execution still consumes the full preparation contract
-        // because route planning needs the capability snapshot and strict
-        // predicate program. The inputs are deterministic prepared-plan
-        // residents, so cache the bundle beside the scalar/runtime variants.
-        self.residents
-            .aggregate_execution_preparation
-            .get_or_init(|| {
-                ExecutionPreparation::from_plan(
-                    &self.residents.plan,
-                    slot_map_for_model_plan(&self.residents.plan),
-                )
-            })
-            .clone()
+        route_plan
     }
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_scalar_layout(
@@ -503,19 +470,6 @@ impl PreparedExecutionPlanCore {
         Ok(layout)
     }
 
-    #[must_use]
-    pub(in crate::db::executor::prepared_execution_plan) fn mode(&self) -> QueryMode {
-        self.residents.plan.scalar_plan().mode
-    }
-
-    #[must_use]
-    pub(in crate::db::executor::prepared_execution_plan) fn is_grouped(&self) -> bool {
-        match self.residents.continuation {
-            Some(ref contract) => contract.is_grouped(),
-            None => false,
-        }
-    }
-
     pub(in crate::db::executor::prepared_execution_plan) fn execution_ordering(
         &self,
     ) -> Result<ExecutionOrdering, InternalError> {
@@ -535,37 +489,6 @@ impl PreparedExecutionPlanCore {
         })
     }
 
-    #[must_use]
-    pub(in crate::db::executor::prepared_execution_plan) fn consistency(&self) -> MissingRowPolicy {
-        row_read_consistency_for_plan(&self.residents.plan)
-    }
-
-    #[must_use]
-    pub(in crate::db::executor::prepared_execution_plan) fn order_spec(
-        &self,
-    ) -> Option<&OrderSpec> {
-        self.residents.plan.scalar_plan().order.as_ref()
-    }
-
-    #[must_use]
-    pub(in crate::db::executor::prepared_execution_plan) fn has_predicate(&self) -> bool {
-        self.residents.plan.has_any_residual_filter()
-    }
-
-    #[cfg(test)]
-    pub(in crate::db::executor::prepared_execution_plan) fn index_prefix_specs(
-        &self,
-    ) -> &[LoweredIndexPrefixSpec] {
-        self.residents.index_prefix_specs.as_ref()
-    }
-
-    #[cfg(test)]
-    pub(in crate::db::executor::prepared_execution_plan) fn index_range_specs(
-        &self,
-    ) -> &[LoweredIndexRangeSpec] {
-        self.residents.index_range_specs.as_ref()
-    }
-
     // Recover the prepared-plan resident payload by move when this core is
     // uniquely owned, and fall back to cloning only when another wrapper still
     // holds the resident Arc.
@@ -574,52 +497,6 @@ impl PreparedExecutionPlanCore {
         self,
     ) -> PreparedExecutionPlanResidents {
         Rc::try_unwrap(self.residents).unwrap_or_else(|residents| residents.as_ref().clone())
-    }
-
-    pub(in crate::db::executor::prepared_execution_plan) fn prepare_cursor(
-        &self,
-        authority: EntityAuthority,
-        cursor: Option<&[u8]>,
-    ) -> Result<ValidatedCursor, ExecutorPlanError> {
-        let Some(contract) = self.residents.continuation.as_ref() else {
-            return Err(ExecutorPlanError::continuation_cursor_requires_load_plan());
-        };
-
-        authority
-            .prepare_scalar_cursor(contract, cursor)
-            .map_err(ExecutorPlanError::from)
-    }
-
-    pub(in crate::db::executor::prepared_execution_plan) fn revalidate_cursor(
-        &self,
-        authority: EntityAuthority,
-        cursor: ValidatedCursor,
-    ) -> Result<ValidatedCursor, InternalError> {
-        let Some(contract) = self.residents.continuation.as_ref() else {
-            return Err(
-                ExecutorPlanError::continuation_cursor_requires_load_plan().into_internal_error()
-            );
-        };
-
-        authority
-            .revalidate_scalar_cursor(contract, cursor)
-            .map_err(CursorPlanError::into_internal_error)
-    }
-
-    pub(in crate::db::executor::prepared_execution_plan) fn revalidate_grouped_cursor(
-        &self,
-        cursor: ValidatedGroupedCursor,
-    ) -> Result<ValidatedGroupedCursor, InternalError> {
-        let Some(contract) = self.residents.continuation.as_ref() else {
-            return Err(
-                ExecutorPlanError::grouped_cursor_revalidation_requires_grouped_plan()
-                    .into_internal_error(),
-            );
-        };
-
-        contract
-            .revalidate_grouped_cursor(cursor)
-            .map_err(CursorPlanError::into_internal_error)
     }
 
     pub(in crate::db::executor::prepared_execution_plan) fn continuation_signature_for_runtime(
@@ -676,17 +553,6 @@ impl PreparedExecutionPlanCore {
             ExecutorPlanError::continuation_contract_requires_load_plan().into_internal_error()
         })
     }
-}
-
-// Build one canonical test-only lowered prepared execution-plan core from
-// resolved authority plus one generated logical plan.
-#[cfg(test)]
-pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core(
-    authority: EntityAuthority,
-    plan: AccessPlannedQuery,
-) -> PreparedExecutionPlanCore {
-    build_prepared_execution_plan_core_with_schema_fingerprint(authority, plan, None)
-        .expect("test prepared execution plan core should build")
 }
 
 pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_with_schema_fingerprint(

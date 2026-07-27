@@ -329,15 +329,6 @@ impl GroupKeySet {
     pub(in crate::db::executor) fn insert_key(&mut self, key: GroupKey) -> bool {
         self.keys.insert(key)
     }
-
-    /// Canonicalize+insert one raw value and return true when it is new.
-    pub(in crate::db::executor) fn insert_value(
-        &mut self,
-        value: &Value,
-    ) -> Result<bool, KeyCanonicalError> {
-        let key = value.canonical_key()?;
-        Ok(self.insert_key(key))
-    }
 }
 
 impl Default for GroupKeySet {

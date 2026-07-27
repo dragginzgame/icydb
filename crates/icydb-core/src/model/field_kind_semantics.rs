@@ -69,27 +69,6 @@ enum FieldKindCategory {
 
 #[cfg(any(test, feature = "sql"))]
 impl FieldKindCategory {
-    /// Return true when this generated-only category participates in numeric aggregates.
-    #[cfg(any(test, feature = "sql"))]
-    #[must_use]
-    const fn supports_aggregate_numeric(self) -> bool {
-        matches!(
-            self,
-            Self::Scalar(FieldKindScalarClass::Numeric(_))
-                | Self::Relation(FieldKindScalarClass::Numeric(_))
-        )
-    }
-
-    /// Return true when this generated-only category has deterministic ordering.
-    #[cfg(any(test, feature = "sql"))]
-    #[must_use]
-    const fn supports_aggregate_ordering(self) -> bool {
-        match self {
-            Self::Scalar(class) | Self::Relation(class) => scalar_class_supports_ordering(class),
-            Self::Collection | Self::Composite => false,
-        }
-    }
-
     /// Return true when this category participates in predicate numeric widening.
     #[cfg(any(test, feature = "sql"))]
     #[must_use]
@@ -139,44 +118,12 @@ impl FieldKindSemantics {
         self.category
     }
 
-    /// Return true when this generated-only kind participates in numeric aggregates.
-    #[cfg(any(test, feature = "sql"))]
-    #[must_use]
-    pub(crate) const fn supports_aggregate_numeric(self) -> bool {
-        self.category.supports_aggregate_numeric()
-    }
-
-    /// Return true when this generated-only kind has deterministic aggregate ordering.
-    #[cfg(any(test, feature = "sql"))]
-    #[must_use]
-    pub(crate) const fn supports_aggregate_ordering(self) -> bool {
-        self.category.supports_aggregate_ordering()
-    }
-
     /// Return true when this field kind participates in predicate numeric widening.
     #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(crate) const fn supports_predicate_numeric_widen(self) -> bool {
         self.category.supports_predicate_numeric_widen()
     }
-}
-
-/// Return true when one single grouped field kind already arrives in canonical
-/// grouped-equality form.
-#[cfg(test)]
-#[must_use]
-pub(crate) const fn field_kind_has_identity_group_canonical_form(kind: FieldKind) -> bool {
-    !matches!(
-        kind,
-        FieldKind::Decimal { .. }
-            | FieldKind::Enum { .. }
-            | FieldKind::Relation { .. }
-            | FieldKind::List(_)
-            | FieldKind::Set(_)
-            | FieldKind::Map { .. }
-            | FieldKind::Composite { .. }
-            | FieldKind::Unit
-    )
 }
 
 /// Canonicalize one grouped-key compare literal against one grouped field kind
@@ -191,36 +138,6 @@ pub(crate) fn canonicalize_grouped_having_numeric_literal_for_field_kind(
     value: &Value,
 ) -> Option<Value> {
     canonicalize_lossless_field_literal_for_kind(field_kind?, value, false)
-}
-
-/// Convert one parsed strict SQL literal into the exact runtime `Value`
-/// variant required by the field kind when that conversion is lossless and
-/// unambiguous.
-///
-/// This keeps SQL string tokens usable for scalar key types like `Ulid`
-/// without widening text coercion across the general predicate surface.
-#[cfg(any(test, feature = "sql"))]
-#[must_use]
-pub(crate) fn canonicalize_strict_sql_literal_for_kind(
-    kind: &FieldKind,
-    value: &Value,
-) -> Option<Value> {
-    canonicalize_strict_sql_literal_for_kind_impl(*kind, value)
-}
-
-/// Convert one frontend filter literal into the exact runtime `Value` variant
-/// required by the field kind when that conversion is lossless and
-/// unambiguous.
-///
-/// This keeps the public filter wire contract string-backed while the
-/// schema-aware query boundary still rehydrates typed IDs and numerics before
-/// planner validation consumes the predicate.
-#[must_use]
-pub(crate) fn canonicalize_filter_literal_for_kind(
-    kind: &FieldKind,
-    value: &Value,
-) -> Option<Value> {
-    canonicalize_lossless_field_literal_for_kind(*kind, value, true)
 }
 
 /// Classify one runtime `FieldKind` through the runtime model-owned semantic contract.
@@ -302,14 +219,6 @@ const fn classify_relation_scalar_class(kind: &FieldKind) -> FieldKindScalarClas
             FieldKindScalarClass::Opaque
         }
     }
-}
-
-#[cfg(any(test, feature = "sql"))]
-const fn scalar_class_supports_ordering(class: FieldKindScalarClass) -> bool {
-    !matches!(
-        class,
-        FieldKindScalarClass::EqualityOnly | FieldKindScalarClass::Opaque
-    )
 }
 
 // Canonicalize one lossless field-key literal while keeping the grouped-key
@@ -448,70 +357,6 @@ fn canonicalize_nat_literal(value: &Value, max: u64) -> Option<Value> {
     (value <= max).then_some(Value::Nat64(value))
 }
 
-#[cfg(any(test, feature = "sql"))]
-fn canonicalize_int_strict_literal(value: &Value, min: i64, max: i64) -> Option<Value> {
-    let value = match value {
-        Value::Int64(inner) => *inner,
-        Value::Nat64(inner) => i64::try_from(*inner).ok()?,
-        _ => return None,
-    };
-
-    (min..=max).contains(&value).then_some(Value::Int64(value))
-}
-
-#[cfg(any(test, feature = "sql"))]
-fn canonicalize_nat_strict_literal(value: &Value, max: u64) -> Option<Value> {
-    let value = match value {
-        Value::Int64(inner) => u64::try_from(*inner).ok()?,
-        Value::Nat64(inner) => *inner,
-        _ => return None,
-    };
-
-    (value <= max).then_some(Value::Nat64(value))
-}
-
 // Keep strict SQL literal canonicalization on its original narrow contract:
 // it only upgrades parsed numeric tokens onto exact integer field kinds and
 // adds the explicit text-to-ULID escape hatch that SQL literal syntax needs.
-#[cfg(any(test, feature = "sql"))]
-fn canonicalize_strict_sql_literal_for_kind_impl(kind: FieldKind, value: &Value) -> Option<Value> {
-    match kind {
-        FieldKind::Relation { key_kind, .. } => {
-            canonicalize_strict_sql_literal_for_kind_impl(*key_kind, value)
-        }
-        FieldKind::Int64 => canonicalize_int_strict_literal(value, i64::MIN, i64::MAX),
-        FieldKind::Int8 => {
-            canonicalize_int_strict_literal(value, i64::from(i8::MIN), i64::from(i8::MAX))
-        }
-        FieldKind::Int16 => {
-            canonicalize_int_strict_literal(value, i64::from(i16::MIN), i64::from(i16::MAX))
-        }
-        FieldKind::Int32 => {
-            canonicalize_int_strict_literal(value, i64::from(i32::MIN), i64::from(i32::MAX))
-        }
-        FieldKind::Nat64 => canonicalize_nat_strict_literal(value, u64::MAX),
-        FieldKind::Nat8 => canonicalize_nat_strict_literal(value, u64::from(u8::MAX)),
-        FieldKind::Nat16 => canonicalize_nat_strict_literal(value, u64::from(u16::MAX)),
-        FieldKind::Nat32 => canonicalize_nat_strict_literal(value, u64::from(u32::MAX)),
-        FieldKind::Ulid => match value {
-            Value::Text(inner) => inner.parse::<Ulid>().ok().map(Value::Ulid),
-            _ => None,
-        },
-        FieldKind::List(inner) | FieldKind::Set(inner) => match value {
-            Value::List(values) => values
-                .iter()
-                .map(|item| canonicalize_strict_sql_literal_for_kind_impl(*inner, item))
-                .collect::<Option<Vec<_>>>()
-                .map(Value::List),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

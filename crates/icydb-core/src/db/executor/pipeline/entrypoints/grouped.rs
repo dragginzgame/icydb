@@ -17,18 +17,14 @@ use crate::{
     db::{
         cursor::ValidatedGroupedCursor,
         executor::{
-            EntityAuthority, ExecutionPreparation, ExecutionTrace, LoadCursorInput,
-            PreparedGroupedRuntimeResidents, PreparedLoadPlan, RetainedSlotLayout,
+            EntityAuthority, ExecutionPreparation, ExecutionTrace, PreparedGroupedRuntimeResidents,
+            PreparedLoadPlan, RetainedSlotLayout,
             aggregate::runtime::{
                 GroupedOutputRuntimeObserverBindings, build_grouped_stream_with_runtime,
                 execute_group_fold_stage, finalize_grouped_output_with_observer,
             },
-            pipeline::contracts::{
-                ExecutionRuntimeAdapter, GroupedCursorPage, GroupedRouteStage, LoadExecutor,
-            },
-            pipeline::entrypoints::LoadSurfaceMode,
+            pipeline::contracts::{ExecutionRuntimeAdapter, GroupedCursorPage, GroupedRouteStage},
             pipeline::grouped_runtime::resolve_grouped_route_for_plan,
-            pipeline::orchestrator::LoadExecutionSurface,
             pipeline::runtime::{
                 GroupedFoldStage, GroupedStreamStage, StructuralGroupedRowRuntime,
                 compile_grouped_row_slot_layout_from_inputs,
@@ -39,7 +35,6 @@ use crate::{
             with_execution_stats_capture,
         },
     },
-    entity::{EntityKind, EntityValue},
     error::InternalError,
     traits::CanisterKind,
 };
@@ -655,86 +650,4 @@ pub(in crate::db::executor) fn execute_prepared_grouped_route_runtime_with_phase
         .ok_or_else(InternalError::query_executor_invariant)?;
 
     Ok((result.page, result.trace, phase_attribution))
-}
-
-impl<E> LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    /// Prepare the canonical grouped load runtime from a cursor already
-    /// resolved by the parent entrypoint orchestration boundary.
-    pub(super) fn prepare_grouped_route_runtime_from_resolved_cursor(
-        &self,
-        plan: PreparedLoadPlan,
-        cursor: ValidatedGroupedCursor,
-    ) -> Result<PreparedGroupedRouteRuntime, InternalError> {
-        prepare_grouped_route_runtime_for_load_plan(&self.db, self.debug, plan, cursor)
-    }
-
-    fn grouped_path_runtime(
-        &self,
-        authority: EntityAuthority,
-    ) -> Result<GroupedPathRuntimeContext, InternalError> {
-        let store = self.db.recovered_store(authority.store_path())?;
-
-        Ok(GroupedPathRuntimeContext::from_store(store, authority))
-    }
-
-    // Resolve grouped route metadata and structural runtime authority once at
-    // the typed boundary before entering grouped runtime execution.
-    pub(in crate::db::executor) fn prepare_grouped_route_runtime(
-        &self,
-        route: GroupedRouteStage,
-        authority: EntityAuthority,
-        prepared_residents: Option<PreparedGroupedRuntimeResidents>,
-    ) -> Result<PreparedGroupedRouteRuntime, InternalError> {
-        PreparedGroupedRouteRuntime::new(
-            route,
-            self.grouped_path_runtime(authority)?,
-            prepared_residents,
-        )
-    }
-
-    // Execute one traced paged grouped load and materialize grouped output.
-    pub(in crate::db::executor) fn execute_load_grouped_page_with_trace(
-        &self,
-        plan: PreparedLoadPlan,
-        cursor: LoadCursorInput,
-    ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
-        let surface = self.execute_load_surface(plan, cursor, LoadSurfaceMode::GroupedPage)?;
-
-        Self::expect_grouped_traced_surface(surface)
-    }
-
-    // Execute one traced paged grouped load while reporting the grouped runtime
-    // stream/fold/finalize split for perf-only attribution surfaces.
-    #[cfg(feature = "diagnostics")]
-    pub(in crate::db::executor) fn execute_load_grouped_page_with_trace_with_phase_attribution(
-        &self,
-        plan: PreparedLoadPlan,
-        cursor: LoadCursorInput,
-    ) -> Result<
-        (
-            GroupedCursorPage,
-            Option<ExecutionTrace>,
-            GroupedExecutePhaseAttribution,
-        ),
-        InternalError,
-    > {
-        let prepared = self.prepare_grouped_load_route_runtime(plan, cursor)?;
-
-        execute_prepared_grouped_route_runtime_with_phase_attribution(prepared)
-    }
-
-    // Project one traced grouped load surface and classify shape mismatches.
-    fn expect_grouped_traced_surface(
-        surface: LoadExecutionSurface,
-    ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
-        match surface {
-            LoadExecutionSurface::GroupedPageWithTrace(page, trace) => Ok((page, trace)),
-            LoadExecutionSurface::ScalarPageWithTrace(..) => {
-                Err(InternalError::query_executor_invariant())
-            }
-        }
-    }
 }

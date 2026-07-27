@@ -9,19 +9,11 @@ use crate::{
         },
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         schema::{
-            AcceptedCheckExprV1, AcceptedConstraintCatalog, AcceptedConstraintKind,
-            AcceptedFieldKind, AcceptedSchemaFingerprint, AcceptedSchemaMutationError,
-            ConstraintActivationKind, ConstraintIdAllocator, ConstraintOrigin, FieldId,
-            MutationPlan, PersistedFieldOrigin, PersistedFieldSnapshot, PersistedIndexExpressionOp,
+            AcceptedFieldKind, FieldId, PersistedFieldSnapshot, PersistedIndexExpressionOp,
             PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
             PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-            PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId, RowLayoutVersion,
-            SchemaDdlSecondaryIndexFieldPathIntent, SchemaDdlSecondaryIndexKeyCandidateError,
-            SchemaDdlSecondaryIndexKeyIntent, SchemaFieldSlot, SchemaFieldWritePolicy,
-            SchemaHistoricalFill, SchemaIndexId, SchemaInsertDefault, SchemaMutationDelta,
+            PersistedSchemaSnapshot, SchemaFieldSlot, SchemaIndexId, SchemaInsertDefault,
             SchemaMutationRequest, SchemaRowLayout, SchemaVersion,
-            build_sql_ddl_secondary_index_candidate, classify_schema_mutation_delta,
-            schema_mutation_request_for_snapshots,
         },
     },
     error::InternalError,
@@ -36,10 +28,6 @@ struct RebuildSlotReader {
 }
 
 impl SlotReader for RebuildSlotReader {
-    fn has(&self, slot: usize) -> bool {
-        self.values.get(slot).is_some_and(Option::is_some)
-    }
-
     fn get_bytes(&self, _slot: usize) -> Option<&[u8]> {
         panic!("rebuild key test reader should not decode raw bytes")
     }
@@ -93,24 +81,6 @@ fn nullable_text_field(name: &str, id: u32, slot: u16) -> PersistedFieldSnapshot
     )
 }
 
-fn non_unique_name_index() -> PersistedIndexSnapshot {
-    PersistedIndexSnapshot::new(
-        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
-        1,
-        "by_name".to_string(),
-        "test::mutation::by_name".to_string(),
-        false,
-        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-            FieldId::new(2),
-            SchemaFieldSlot::new(1),
-            vec!["name".to_string()],
-            AcceptedFieldKind::Text { max_len: None },
-            false,
-        )]),
-        Some("name IS NOT NULL".to_string()),
-    )
-}
-
 fn name_key_path() -> PersistedIndexFieldPathSnapshot {
     PersistedIndexFieldPathSnapshot::new(
         FieldId::new(2),
@@ -118,26 +88,6 @@ fn name_key_path() -> PersistedIndexFieldPathSnapshot {
         vec!["name".to_string()],
         AcceptedFieldKind::Text { max_len: None },
         false,
-    )
-}
-
-fn expression_name_index() -> PersistedIndexSnapshot {
-    PersistedIndexSnapshot::new(
-        SchemaIndexId::new(2).expect("test index identity should be non-zero"),
-        2,
-        "by_lower_name".to_string(),
-        "test::mutation::by_lower_name".to_string(),
-        false,
-        PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(
-            Box::new(PersistedIndexExpressionSnapshot::new(
-                PersistedIndexExpressionOp::Lower,
-                name_key_path(),
-                AcceptedFieldKind::Text { max_len: None },
-                AcceptedFieldKind::Text { max_len: None },
-                "expr:v1:LOWER(name)".to_string(),
-            )),
-        )]),
-        Some("LOWER(name) IS NOT NULL".to_string()),
     )
 }
 
@@ -246,7 +196,7 @@ fn snapshot_with_indexes(
         SchemaVersion::new(snapshot.version().get() + 1),
         snapshot.entity_path().to_string(),
         snapshot.entity_name().to_string(),
-        snapshot.first_primary_key_field_id(),
+        snapshot.primary_key_field_ids().to_vec(),
         snapshot.row_layout().clone(),
         snapshot.fields().to_vec(),
         indexes,
@@ -255,5 +205,4 @@ fn snapshot_with_indexes(
     .with_relations(snapshot.relations().to_vec())
 }
 
-mod planning;
 mod user_index_domain;

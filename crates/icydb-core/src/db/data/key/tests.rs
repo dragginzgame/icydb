@@ -36,55 +36,6 @@ fn composite_data_key_fixture() -> DecodedDataStoreKey {
     DecodedDataStoreKey::new_primary_key_value(EntityTag::new(11), &PrimaryKeyValue::Composite(key))
 }
 
-fn assert_constructor_equivalence<K>(entity: EntityTag, key: K)
-where
-    K: KeyValueCodec + PrimaryKeyEncode + std::fmt::Debug,
-{
-    let typed =
-        DecodedDataStoreKey::try_from_typed_key(entity, &key).expect("typed key should encode");
-    let structural = DecodedDataStoreKey::try_from_structural_key(entity, &key.to_key_value())
-        .expect("structural key should encode");
-
-    assert_eq!(
-        typed, structural,
-        "typed and structural data-key constructors must stay equivalent for {key:?}",
-    );
-}
-
-fn assert_structural_dedup_matches_typed_dedup<K>(entity: EntityTag, keys: Vec<K>)
-where
-    K: Clone + KeyValueCodec + PrimaryKeyEncode + Ord + std::fmt::Debug,
-{
-    let mut typed_keys = keys.clone();
-    typed_keys.sort();
-    typed_keys.dedup();
-
-    let mut typed_data_keys = typed_keys
-        .iter()
-        .map(|key| {
-            DecodedDataStoreKey::try_from_typed_key(entity, key).expect("typed key should encode")
-        })
-        .collect::<Vec<_>>();
-    typed_data_keys.sort();
-    typed_data_keys.dedup();
-
-    let mut structural_data_keys = keys
-        .iter()
-        .map(KeyValueCodec::to_key_value)
-        .map(|key| {
-            DecodedDataStoreKey::try_from_structural_key(entity, &key)
-                .expect("structural key should encode")
-        })
-        .collect::<Vec<_>>();
-    structural_data_keys.sort();
-    structural_data_keys.dedup();
-
-    assert_eq!(
-        structural_data_keys, typed_data_keys,
-        "structural DecodedDataStoreKey dedup must match typed-key dedup semantics",
-    );
-}
-
 fn assert_primary_key_roundtrip<K>(key: K)
 where
     K: Copy + Eq + std::fmt::Debug + PrimaryKeyEncode + PrimaryKeyDecode,
@@ -246,29 +197,6 @@ fn data_key_primary_key_component_runtime_value_projects_composite_components() 
 }
 
 #[test]
-fn data_key_structural_constructor_matches_typed_constructor() {
-    let entity = EntityTag::new(17);
-
-    assert_constructor_equivalence(entity, -42_i64);
-    assert_constructor_equivalence(entity, i128::MIN);
-    assert_constructor_equivalence(entity, 42_u64);
-    assert_constructor_equivalence(entity, u128::MAX);
-    assert_constructor_equivalence(entity, Principal::from_slice(&[1, 2, 3, 4]));
-    assert_constructor_equivalence(entity, Subaccount::from_array([7; 32]));
-    assert_constructor_equivalence(entity, Timestamp::from_millis(1_710_013_530_123));
-    assert_constructor_equivalence(entity, Ulid::from_u128(42));
-    assert_constructor_equivalence(
-        entity,
-        Account::from_owner_and_subaccount(
-            Principal::from_slice(&[9, 8, 7]),
-            Some(Subaccount::from_array([5; 32])),
-        ),
-    );
-    assert_constructor_equivalence(entity, Unit);
-    assert_constructor_equivalence(entity, ());
-}
-
-#[test]
 fn data_key_structural_constructor_accepts_composite_value_list() {
     let entity = EntityTag::new(19);
     let expected =
@@ -417,23 +345,6 @@ fn data_key_raw_prefix_bounds_cover_supported_structural_key_domain() {
             "supported structural key {value:?} must stay within entity bounds",
         );
     }
-}
-
-#[test]
-fn data_key_structural_dedup_matches_typed_key_dedup() {
-    let entity = EntityTag::new(31);
-
-    assert_structural_dedup_matches_typed_dedup(entity, vec![7_u64, 1, 7, 3, 1, 9]);
-    assert_structural_dedup_matches_typed_dedup(
-        entity,
-        vec![
-            Ulid::from_u128(9),
-            Ulid::from_u128(1),
-            Ulid::from_u128(9),
-            Ulid::from_u128(2),
-            Ulid::from_u128(1),
-        ],
-    );
 }
 
 #[test]

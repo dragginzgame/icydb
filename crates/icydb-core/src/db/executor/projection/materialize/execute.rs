@@ -4,10 +4,6 @@
 //! Boundary: converts retained-slot and data-row inputs into local row views.
 
 use super::contracts::CompiledExpr;
-#[cfg(test)]
-use super::contracts::{ProjectionSpec, compile_scalar_projection_expr_for_model_only};
-#[cfg(test)]
-use crate::db::executor::projection::eval::eval_compiled_expr_with_value_reader;
 use crate::{
     db::{
         data::DataRow,
@@ -32,16 +28,6 @@ use crate::{
     error::InternalError,
     value::Value,
 };
-#[cfg(test)]
-use crate::{
-    entity::{EntityKind, EntityValue},
-    types::Id,
-    value::OutputValue,
-};
-
-#[cfg(test)]
-type ProjectedEntityValues<E> = Vec<(Id<E>, Vec<OutputValue>)>;
-
 pub(super) fn project_slot_row(
     prepared_projection: &PreparedProjectionContract,
     row: RetainedSlotRow,
@@ -151,89 +137,6 @@ pub(super) fn visit_identity_data_row_views(
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-pub(in crate::db::executor::projection) fn count_borrowed_identity_data_row_views_for_test(
-    row_layout: RowLayout,
-    rows: &[DataRow],
-) -> Result<usize, InternalError> {
-    const fn noop() {}
-    const fn noop_slot_access(_projected_slot: bool) {}
-
-    let metrics = ProjectionMaterializationMetricsRecorder::new(
-        noop,
-        noop,
-        noop,
-        noop_slot_access,
-        noop,
-        noop,
-    );
-    let mut borrowed_rows = 0;
-
-    // Phase 1: run the production identity visitor and count only row views
-    // that borrow from the reusable row buffer.
-    visit_identity_data_row_views(row_layout, rows, metrics, |row_view| {
-        if matches!(row_view, RowView::Borrowed(_)) {
-            borrowed_rows += 1;
-        }
-
-        Ok(())
-    })?;
-
-    Ok(borrowed_rows)
-}
-
-#[cfg(test)]
-pub(in crate::db::executor::projection) fn count_borrowed_data_row_views_for_test(
-    row_layout: RowLayout,
-    prepared_projection: &PreparedProjectionContract,
-    rows: &[DataRow],
-) -> Result<usize, InternalError> {
-    const fn noop() {}
-    const fn noop_slot_access(_projected_slot: bool) {}
-
-    let metrics = ProjectionMaterializationMetricsRecorder::new(
-        noop,
-        noop,
-        noop,
-        noop_slot_access,
-        noop,
-        noop,
-    );
-    let mut borrowed_rows = 0;
-
-    // Phase 1: run the production non-identity visitor and count only row views
-    // that borrow from the reusable projection buffer.
-    visit_data_row_views(row_layout, prepared_projection, rows, metrics, |row_view| {
-        if matches!(row_view, RowView::Borrowed(_)) {
-            borrowed_rows += 1;
-        }
-
-        Ok(())
-    })?;
-
-    Ok(borrowed_rows)
-}
-
-#[cfg(test)]
-pub(in crate::db::executor::projection) fn count_borrowed_slot_row_views_for_test(
-    prepared_projection: &PreparedProjectionContract,
-    rows: Vec<RetainedSlotRow>,
-) -> Result<usize, InternalError> {
-    let mut borrowed_rows = 0;
-
-    // Phase 1: run the production retained-slot visitor and count only row
-    // views that borrow from the reusable projection buffer.
-    visit_slot_row_views(prepared_projection, rows, |row_view| {
-        if matches!(row_view, RowView::Borrowed(_)) {
-            borrowed_rows += 1;
-        }
-
-        Ok(())
-    })?;
-
-    Ok(borrowed_rows)
 }
 
 // Visit one retained slot-row page through the prepared compiled structural
@@ -620,50 +523,6 @@ fn project_scalar_data_row_into(
             &mut record_slot,
         )?;
         shaped.push(value.into_owned());
-    }
-
-    Ok(())
-}
-
-#[cfg(test)]
-pub(in crate::db::executor::projection) fn project_rows_from_projection<E>(
-    projection: &ProjectionSpec,
-    rows: &[(Id<E>, E)],
-) -> Result<ProjectedEntityValues<E>, ProjectionEvalError>
-where
-    E: EntityKind + EntityValue,
-{
-    let mut compiled_fields = Vec::with_capacity(projection.len());
-    for field in projection.fields() {
-        let compiled = compile_scalar_projection_expr_for_model_only(E::MODEL, field.expr())
-            .expect(
-                "test projection materialization helpers require scalar-compilable expressions",
-            );
-        compiled_fields.push(CompiledExpr::compile(&compiled));
-    }
-    let mut projected_rows = Vec::with_capacity(rows.len());
-    for (id, entity) in rows {
-        let mut values = Vec::with_capacity(projection.len());
-        let mut read_slot = |slot| entity.get_value_by_index(slot);
-        visit_prepared_projection_values_with_value_reader(
-            &compiled_fields,
-            &mut read_slot,
-            &mut |value| values.push(value),
-        )?;
-        projected_rows.push((*id, values.into_iter().map(OutputValue::from).collect()));
-    }
-
-    Ok(projected_rows)
-}
-
-#[cfg(test)]
-pub(super) fn visit_prepared_projection_values_with_value_reader(
-    compiled_exprs: &[CompiledExpr],
-    read_slot: &mut dyn FnMut(usize) -> Option<Value>,
-    on_value: &mut dyn FnMut(Value),
-) -> Result<(), ProjectionEvalError> {
-    for compiled in compiled_exprs {
-        on_value(eval_compiled_expr_with_value_reader(compiled, read_slot)?);
     }
 
     Ok(())

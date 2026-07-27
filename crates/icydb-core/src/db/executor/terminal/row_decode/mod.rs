@@ -3,25 +3,16 @@
 //! Does not own: typed response reconstruction or access-path iteration policy.
 //! Boundary: scalar runtime row production consumes this structural decode contract.
 
-#[cfg(test)]
-mod tests;
-
 #[cfg(any(test, feature = "sql"))]
 use crate::db::data::SlotReader;
-#[cfg(test)]
-use crate::types::Ulid;
 use crate::{
     db::{
         data::{
-            CanonicalRow, CanonicalSlotReader, DataRow, DecodedDataStoreKey, RawRow,
-            ScalarSlotValueRef, ScalarValueRef, StructuralRowContract, StructuralSlotReader,
-            canonical_row_from_raw_row_with_structural_contract,
-            decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
-            decode_sparse_raw_row_with_contract, decode_sparse_required_slot_with_contract,
+            CanonicalSlotReader, DecodedDataStoreKey, RawRow, ScalarSlotValueRef, ScalarValueRef,
+            StructuralRowContract, StructuralSlotReader, decode_dense_raw_row_with_contract,
+            decode_sparse_indexed_raw_row_with_contract, decode_sparse_required_slot_with_contract,
         },
-        executor::terminal::{
-            RetainedSlotLayout, RetainedSlotRow, RetainedSlotValueMode, page::KernelRow,
-        },
+        executor::terminal::{RetainedSlotLayout, RetainedSlotRow, RetainedSlotValueMode},
         key_taxonomy::PrimaryKeyValue,
         schema::AcceptedRowDecodeContract,
     },
@@ -44,17 +35,6 @@ pub(in crate::db) struct RowLayout {
 }
 
 impl RowLayout {
-    /// Build one accepted structural row layout from a model proposal.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn from_model_proposal_for_test(
-        model: &'static crate::model::entity::EntityModel,
-    ) -> Self {
-        Self {
-            contract: StructuralRowContract::from_model_proposal_for_test(model),
-        }
-    }
-
     /// Build one row layout directly from accepted runtime authority.
     #[must_use]
     pub(in crate::db) fn from_accepted_decode_contract(
@@ -79,14 +59,6 @@ impl RowLayout {
     #[must_use]
     pub(in crate::db) const fn contract(&self) -> &StructuralRowContract {
         &self.contract
-    }
-
-    /// Normalize one persisted raw row through this layout's structural contract.
-    pub(in crate::db) fn canonical_row_from_raw_row(
-        &self,
-        row: &RawRow,
-    ) -> Result<CanonicalRow, InternalError> {
-        canonical_row_from_raw_row_with_structural_contract(row, &self.contract)
     }
 
     /// Open one raw row through the frozen structural decode contract without
@@ -186,53 +158,9 @@ impl RowLayout {
 ///
 
 #[derive(Clone, Copy, Debug)]
-pub(in crate::db::executor) struct RowDecoder {
-    decode: fn(&RowLayout, DataRow) -> Result<KernelRow, InternalError>,
-    #[cfg(test)]
-    decode_slots: RowDecodeSlotsFn,
-}
-
-#[cfg(test)]
-type RowDecodeSlotsFn = fn(
-    &RowLayout,
-    &PrimaryKeyValue,
-    &RawRow,
-    Option<&[usize]>,
-) -> Result<Vec<Option<Value>>, InternalError>;
+pub(in crate::db::executor) struct RowDecoder;
 
 impl RowDecoder {
-    /// Build the canonical structural row decoder used by scalar execution.
-    #[must_use]
-    pub(in crate::db::executor) const fn structural() -> Self {
-        Self {
-            decode: decode_kernel_row_structural,
-            #[cfg(test)]
-            decode_slots: decode_structural_slots,
-        }
-    }
-
-    /// Decode one persisted row into one structural kernel row.
-    pub(in crate::db::executor) fn decode(
-        self,
-        layout: &RowLayout,
-        data_row: DataRow,
-    ) -> Result<KernelRow, InternalError> {
-        (self.decode)(layout, data_row)
-    }
-
-    /// Decode one persisted row into slot-indexed structural values without
-    /// constructing one full kernel-row envelope.
-    #[cfg(test)]
-    pub(in crate::db::executor) fn decode_slots(
-        self,
-        layout: &RowLayout,
-        expected_key: &PrimaryKeyValue,
-        row: &RawRow,
-        required_slots: Option<&[usize]>,
-    ) -> Result<Vec<Option<Value>>, InternalError> {
-        (self.decode_slots)(layout, expected_key, row, required_slots)
-    }
-
     pub(in crate::db::executor) fn decode_retained_slots_from_data_key(
         layout: &RowLayout,
         data_key: &DecodedDataStoreKey,
@@ -388,45 +316,9 @@ fn decode_scalar_octet_length_value(
 
 // Decode one persisted data row into one structural kernel row using the
 // precomputed slot layout and structural field decoders only.
-fn decode_kernel_row_structural(
-    layout: &RowLayout,
-    data_row: DataRow,
-) -> Result<KernelRow, InternalError> {
-    let slots = decode_structural_slots_from_data_key(layout, &data_row.0, &data_row.1, None)?;
-
-    Ok(KernelRow::new(data_row, slots))
-}
-
-fn decode_structural_slots_from_data_key(
-    layout: &RowLayout,
-    data_key: &DecodedDataStoreKey,
-    row: &RawRow,
-    required_slots: Option<&[usize]>,
-) -> Result<Vec<Option<Value>>, InternalError> {
-    decode_structural_slots(layout, &data_key.primary_key_value(), row, required_slots)
-}
 
 // Decode one persisted row directly into slot-indexed structural values while
 // still validating the primary-key slot against storage identity.
-fn decode_structural_slots(
-    layout: &RowLayout,
-    expected_key: &PrimaryKeyValue,
-    row: &RawRow,
-    required_slots: Option<&[usize]>,
-) -> Result<Vec<Option<Value>>, InternalError> {
-    // Phase 1: route dense full-slot callers straight to the dedicated dense
-    // decode path so they do not pay per-row sparse reader construction.
-    if required_slots
-        .is_none_or(|required_slots| required_slots_match_full_layout(layout, required_slots))
-    {
-        return decode_dense_raw_row_with_contract(row, &layout.contract, expected_key);
-    }
-
-    // Phase 2: sparse callers decode only the slots their compiled plan will
-    // actually touch without building the general row-reader cache.
-    let required_slots = required_slots.ok_or_else(InternalError::query_executor_invariant)?;
-    decode_sparse_raw_row_with_contract(row, &layout.contract, expected_key, required_slots)
-}
 
 // Detect the dense retained-slot case up front so full-row and full-slot
 // structural paths can stay on the straight-line dense decode before compact

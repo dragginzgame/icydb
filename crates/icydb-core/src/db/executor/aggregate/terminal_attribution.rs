@@ -25,9 +25,7 @@ pub(in crate::db) enum ScalarAggregateSinkMode {
     None,
     #[cfg(feature = "sql")]
     Buffered,
-    ExistingRows,
     IndexPrefixCardinality,
-    KernelAggregate,
 }
 
 impl ScalarAggregateSinkMode {
@@ -36,9 +34,7 @@ impl ScalarAggregateSinkMode {
             Self::None => None,
             #[cfg(feature = "sql")]
             Self::Buffered => Some("Buffered"),
-            Self::ExistingRows => Some("ExistingRows"),
             Self::IndexPrefixCardinality => Some("IndexPrefixCardinality"),
-            Self::KernelAggregate => Some("KernelAggregate"),
         }
     }
 }
@@ -99,23 +95,6 @@ impl ScalarAggregateTerminalAttribution {
             base_row_local_instructions,
             terminal_count: 1,
             sink_mode: ScalarAggregateSinkMode::IndexPrefixCardinality,
-            ..Self::none()
-        }
-    }
-
-    fn from_existing_rows_terminal(rows_ingested: usize) -> Self {
-        Self {
-            rows_ingested: usize_to_u64(rows_ingested),
-            terminal_count: 1,
-            sink_mode: ScalarAggregateSinkMode::ExistingRows,
-            ..Self::none()
-        }
-    }
-
-    const fn from_kernel_aggregate_terminal() -> Self {
-        Self {
-            terminal_count: 1,
-            sink_mode: ScalarAggregateSinkMode::KernelAggregate,
             ..Self::none()
         }
     }
@@ -209,20 +188,6 @@ pub(in crate::db::executor::aggregate) fn record_index_prefix_cardinality_termin
         ScalarAggregateTerminalAttribution::from_index_prefix_cardinality_terminal(
             base_row_local_instructions,
         ),
-    );
-}
-
-pub(in crate::db::executor::aggregate) fn record_existing_rows_terminal_attribution(
-    rows_ingested: usize,
-) {
-    record_scalar_aggregate_terminal_attribution(
-        ScalarAggregateTerminalAttribution::from_existing_rows_terminal(rows_ingested),
-    );
-}
-
-pub(in crate::db::executor::aggregate) fn record_kernel_aggregate_terminal_attribution() {
-    record_scalar_aggregate_terminal_attribution(
-        ScalarAggregateTerminalAttribution::from_kernel_aggregate_terminal(),
     );
 }
 

@@ -3,21 +3,15 @@
 //! Does not own: planner validation, executor runtime behavior, or SQL surface routing.
 //! Boundary: turns semantic query intent into one explicit derived-hash cache key.
 
-#[cfg(test)]
-use crate::db::predicate::Predicate;
-#[cfg(test)]
-use crate::db::predicate::predicate_fingerprint;
 use crate::{
-    db::KeyValueCodec,
     db::{
-        access::{AccessPath, AccessPathKind, AccessPlan},
         predicate::MissingRowPolicy,
         query::{
             builder::{
                 aggregate::AggregateExpr,
                 scalar_projection::render_scalar_projection_expr_plan_label,
             },
-            intent::{build_access_plan_from_keys, model::QueryModel, state::GroupedIntent},
+            intent::{model::QueryModel, state::GroupedIntent},
             plan::{
                 AggregateIdentity, OrderDirection, OrderSpec, QueryMode,
                 expr::{Expr, Function, ProjectionField, ProjectionSelection},
@@ -31,7 +25,7 @@ use crate::{
 ///
 /// StructuralQueryCacheKey
 ///
-/// Canonical semantic identity for the shared fluent/lower query-plan cache.
+/// Canonical semantic identity for the shared structural query-plan cache.
 /// This key is intentionally explicit: normalization owns semantic equivalence,
 /// while `Hash` ownership stays mechanical at the map boundary.
 ///
@@ -41,7 +35,6 @@ pub(in crate::db) struct StructuralQueryCacheKey {
     mode: QueryModeCacheKey,
     predicate: Option<[u8; 32]>,
     filter_expr: Option<ProjectionExprCacheKey>,
-    key_access: Option<AccessPathCacheKey>,
     order: Option<Vec<OrderFieldCacheKey>>,
     distinct: bool,
     projection: ProjectionCacheKey,
@@ -78,63 +71,6 @@ impl DiagnosticCacheKey {
             origin: diagnostic.origin() as u16,
         }
     }
-}
-
-// Shared lower cache identity still needs one explicit access-path key
-// because fluent key-only routing can materially change planner reuse.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-enum AccessPathCacheKey {
-    ByKey(ValueCacheKey),
-    ByKeys(Vec<ValueCacheKey>),
-    KeyRange {
-        start: ValueCacheKey,
-        end: ValueCacheKey,
-    },
-    IndexPrefix {
-        index: String,
-        values: Vec<ValueCacheKey>,
-    },
-    IndexMultiLookup {
-        index: String,
-        values: Vec<ValueCacheKey>,
-    },
-    IndexBranchSet {
-        index: String,
-        fixed_values: Vec<ValueCacheKey>,
-        branch_values: Vec<ValueCacheKey>,
-    },
-    IndexRange(IndexRangeCacheKey),
-    Union(Vec<Self>),
-    Intersection(Vec<Self>),
-    FullScan,
-}
-
-///
-/// IndexRangeCacheKey
-///
-/// Canonical identity for one normalized index-range access path.
-/// This exists so the shared query cache can distinguish different index slots,
-/// prefix bindings, and resume bounds after fluent key access is lowered.
-///
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct IndexRangeCacheKey {
-    index: String,
-    field_slots: Vec<usize>,
-    prefix_values: Vec<ValueCacheKey>,
-    lower: RangeBoundCacheKey,
-    upper: RangeBoundCacheKey,
-}
-
-///
-/// RangeBoundCacheKey
-///
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-enum RangeBoundCacheKey {
-    Unbounded,
-    Included(ValueCacheKey),
-    Excluded(ValueCacheKey),
 }
 
 ///
@@ -295,33 +231,8 @@ enum ConsistencyCacheKey {
 }
 
 impl StructuralQueryCacheKey {
-    #[cfg(test)]
-    pub(in crate::db::query) fn from_query_model<K: KeyValueCodec>(model: &QueryModel<K>) -> Self {
-        Self::from_query_model_with_predicate(
-            model,
-            model
-                .scalar_intent_for_cache_key()
-                .filter
-                .as_ref()
-                .and_then(|filter| filter.predicate_subset()),
-        )
-    }
-
-    #[cfg(test)]
-    pub(in crate::db::query) fn from_query_model_with_predicate<K: KeyValueCodec>(
-        model: &QueryModel<K>,
-        predicate: Option<&Predicate>,
-    ) -> Self {
-        Self::from_query_model_with_optional_predicate_key(
-            model,
-            predicate.map(predicate_fingerprint),
-        )
-    }
-
-    pub(in crate::db::query) fn from_query_model_with_normalized_predicate_fingerprint<
-        K: KeyValueCodec,
-    >(
-        model: &QueryModel<K>,
+    pub(in crate::db::query) fn from_query_model_with_normalized_predicate_fingerprint(
+        model: &QueryModel,
         predicate_fingerprint: Option<[u8; 32]>,
     ) -> Self {
         Self::from_query_model_with_optional_predicate_key(model, predicate_fingerprint)
@@ -330,8 +241,8 @@ impl StructuralQueryCacheKey {
     // Build the shared structural cache key from one optional predicate-key
     // fragment so callers that already computed canonical predicate identity
     // do not walk the same normalized tree twice.
-    fn from_query_model_with_optional_predicate_key<K: KeyValueCodec>(
-        model: &QueryModel<K>,
+    fn from_query_model_with_optional_predicate_key(
+        model: &QueryModel,
         predicate: Option<[u8; 32]>,
     ) -> Self {
         let scalar = model.scalar_intent_for_cache_key();
@@ -340,11 +251,6 @@ impl StructuralQueryCacheKey {
                 .logical_filter_expr()
                 .map(ProjectionExprCacheKey::from_expr)
         });
-        let key_access = scalar
-            .key_access
-            .as_ref()
-            .map(|state| build_access_plan_from_keys(&state.access));
-
         Self {
             mode: QueryModeCacheKey::from_query_mode(model.mode()),
             // Canonical scalar `filter_expr` owns semantic filter identity when
@@ -356,9 +262,6 @@ impl StructuralQueryCacheKey {
                 predicate
             },
             filter_expr,
-            key_access: key_access
-                .as_ref()
-                .map(AccessPathCacheKey::from_access_plan),
             order: scalar
                 .order
                 .as_ref()
@@ -395,107 +298,6 @@ impl ValueCacheKey {
         match hash_value(value) {
             Ok(digest) => Self::Canonical(digest),
             Err(err) => Self::HashError(DiagnosticCacheKey::from_internal_error(&err)),
-        }
-    }
-}
-
-impl AccessPathCacheKey {
-    fn from_access_plan(path: &AccessPlan<Value>) -> Self {
-        match path {
-            AccessPlan::Path(path) => Self::from_access_path(path.as_ref()),
-            AccessPlan::Union(children) => Self::Union(
-                children
-                    .iter()
-                    .map(Self::from_access_plan)
-                    .collect::<Vec<_>>(),
-            ),
-            AccessPlan::Intersection(children) => Self::Intersection(
-                children
-                    .iter()
-                    .map(Self::from_access_plan)
-                    .collect::<Vec<_>>(),
-            ),
-        }
-    }
-
-    fn from_access_path(path: &AccessPath<Value>) -> Self {
-        let kind = path.kind();
-        match kind {
-            AccessPathKind::ByKey => path.as_by_key().map_or_else(
-                || Self::invalid_access_path_projection(kind),
-                |key| Self::ByKey(ValueCacheKey::from_value(key)),
-            ),
-            AccessPathKind::ByKeys => path.as_by_keys().map_or_else(
-                || Self::invalid_access_path_projection(kind),
-                |keys| Self::ByKeys(Self::value_list_cache_key(keys)),
-            ),
-            AccessPathKind::KeyRange => path.as_key_range().map_or_else(
-                || Self::invalid_access_path_projection(kind),
-                |(start, end)| Self::KeyRange {
-                    start: ValueCacheKey::from_value(start),
-                    end: ValueCacheKey::from_value(end),
-                },
-            ),
-            AccessPathKind::IndexPrefix => path.as_index_prefix_contract().map_or_else(
-                || Self::invalid_access_path_projection(kind),
-                |(index, values)| Self::IndexPrefix {
-                    index: index.name().to_string(),
-                    values: Self::value_list_cache_key(values),
-                },
-            ),
-            AccessPathKind::IndexMultiLookup => path.as_index_multi_lookup_contract().map_or_else(
-                || Self::invalid_access_path_projection(kind),
-                |(index, values)| Self::IndexMultiLookup {
-                    index: index.name().to_string(),
-                    values: Self::value_list_cache_key(values),
-                },
-            ),
-            AccessPathKind::IndexBranchSet => path.as_index_branch_set_spec().map_or_else(
-                || Self::invalid_access_path_projection(kind),
-                |spec| Self::IndexBranchSet {
-                    index: spec.index_ref().name().to_string(),
-                    fixed_values: Self::value_list_cache_key(spec.fixed_values()),
-                    branch_values: Self::value_list_cache_key(spec.branch_values()),
-                },
-            ),
-            AccessPathKind::IndexRange => path.as_index_range().map_or_else(
-                || Self::invalid_access_path_projection(kind),
-                |spec| {
-                    let index = spec.index();
-
-                    Self::IndexRange(IndexRangeCacheKey {
-                        index: index.name().to_string(),
-                        field_slots: spec.field_slots().to_vec(),
-                        prefix_values: Self::value_list_cache_key(spec.prefix_values()),
-                        lower: RangeBoundCacheKey::from_range_bound(spec.lower()),
-                        upper: RangeBoundCacheKey::from_range_bound(spec.upper()),
-                    })
-                },
-            ),
-            AccessPathKind::FullScan => Self::FullScan,
-        }
-    }
-
-    fn value_list_cache_key(values: &[Value]) -> Vec<ValueCacheKey> {
-        values.iter().map(ValueCacheKey::from_value).collect()
-    }
-
-    fn invalid_access_path_projection(kind: AccessPathKind) -> Self {
-        debug_assert!(
-            false,
-            "access path kind/accessor projection mismatch while building cache key: {kind:?}",
-        );
-
-        Self::FullScan
-    }
-}
-
-impl RangeBoundCacheKey {
-    fn from_range_bound(bound: &std::ops::Bound<Value>) -> Self {
-        match bound {
-            std::ops::Bound::Unbounded => Self::Unbounded,
-            std::ops::Bound::Included(value) => Self::Included(ValueCacheKey::from_value(value)),
-            std::ops::Bound::Excluded(value) => Self::Excluded(ValueCacheKey::from_value(value)),
         }
     }
 }
@@ -644,7 +446,7 @@ impl AggregateExprCacheKey {
 }
 
 impl GroupingCacheKey {
-    fn from_grouped_intent<K>(grouped: &GroupedIntent<K>) -> Self {
+    fn from_grouped_intent(grouped: &GroupedIntent) -> Self {
         Self {
             group_fields: grouped
                 .group

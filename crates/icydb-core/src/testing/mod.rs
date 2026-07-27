@@ -4,7 +4,6 @@
 //! Boundary: internal-only support surface for `icydb-core` tests.
 
 mod entity_tags;
-mod fixtures;
 
 use ic_stable_structures::{
     DefaultMemoryImpl,
@@ -12,11 +11,8 @@ use ic_stable_structures::{
 };
 
 pub(crate) use entity_tags::*;
-pub(crate) use fixtures::*;
 
 pub(crate) const RESERVED_INTERNAL_MEMORY_ID: u8 = u8::MAX;
-pub(crate) const TEST_COMMIT_MEMORY_ID: u8 = RESERVED_INTERNAL_MEMORY_ID - 1;
-pub(crate) const TEST_INTEGRITY_PROGRESS_MEMORY_ID: u8 = TEST_COMMIT_MEMORY_ID - 1;
 
 /// Return a validated test memory id.
 ///
@@ -29,18 +25,6 @@ pub(crate) const fn test_memory_id(id: u8) -> u8 {
         "memory id 255 is reserved for stable-structures internals",
     );
     id
-}
-
-/// Return the canonical commit memory id used by tests.
-#[must_use]
-pub(crate) const fn test_commit_memory_id() -> u8 {
-    TEST_COMMIT_MEMORY_ID
-}
-
-/// Return the canonical integrity-progress memory id used by tests.
-#[must_use]
-pub(crate) const fn test_integrity_progress_memory_id() -> u8 {
-    TEST_INTEGRITY_PROGRESS_MEMORY_ID
 }
 
 /// Shared test-only stable memory allocation for in-memory stores.

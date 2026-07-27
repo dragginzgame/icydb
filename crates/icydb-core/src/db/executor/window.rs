@@ -4,78 +4,28 @@
 //! Boundary: shared pagination/cursor window calculations for executor/kernel paths.
 
 use crate::db::{
-    cursor::{
-        CursorBoundary, WindowCursorContract, effective_page_offset_for_window,
-        window_cursor_contract_for_plan,
-    },
+    cursor::{CursorBoundary, effective_page_offset_for_window},
     executor::ExecutionKernel,
-    query::plan::{AccessPlannedQuery, PageSpec},
+    query::plan::AccessPlannedQuery,
 };
-
-///
-/// PageWindow
-///
-/// Canonical pagination window sizing in usize-domain.
-/// `keep_count` is `offset + limit`, and `fetch_count` always includes one
-/// lookahead row for continuation detection.
-///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct PageWindow {
     fetch_count: usize,
-    keep_count: usize,
 }
 
-/// Compute canonical keep-count from logical pagination inputs.
-#[must_use]
-fn compute_page_keep_count(offset: u32, limit: u32) -> usize {
+fn compute_page_window(offset: u32, limit: u32) -> PageWindow {
     let offset = usize::try_from(offset).unwrap_or(usize::MAX);
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-    offset.saturating_add(limit)
-}
-
-/// Compute canonical page window counts from logical pagination inputs.
-#[must_use]
-fn compute_page_window(offset: u32, limit: u32) -> PageWindow {
-    let keep_count = compute_page_keep_count(offset, limit);
-    let fetch_count = keep_count.saturating_add(1);
+    let keep_count = offset.saturating_add(limit);
 
     PageWindow {
-        fetch_count,
-        keep_count,
+        fetch_count: keep_count.saturating_add(1),
     }
-}
-
-/// Project one optional logical page spec into executor-local offset/limit state.
-#[must_use]
-pub(in crate::db::executor) fn page_window_state(
-    page: Option<&PageSpec>,
-) -> (usize, Option<usize>) {
-    let Some(page) = page else {
-        return (0, None);
-    };
-
-    let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
-    let limit = page
-        .limit
-        .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
-
-    (offset, limit)
 }
 
 impl ExecutionKernel {
-    /// Build one kernel-owned window/cursor progression contract for stream reducers.
-    pub(in crate::db::executor) fn window_cursor_contract(
-        plan: &AccessPlannedQuery,
-        cursor_boundary: Option<&CursorBoundary>,
-    ) -> WindowCursorContract {
-        window_cursor_contract_for_plan(plan, cursor_boundary)
-    }
-
     /// Return the effective page offset for this request.
-    ///
-    /// Offset is only consumed on the first page. Any continuation cursor means
-    /// the offset has already been applied and the next request uses offset `0`.
     #[must_use]
     pub(in crate::db::executor) fn effective_page_offset(
         plan: &AccessPlannedQuery,
@@ -84,10 +34,7 @@ impl ExecutionKernel {
         effective_page_offset_for_window(plan, cursor_boundary.is_some())
     }
 
-    // Return the bounded working-set size for ordered loads without a
-    // continuation boundary. This keeps canonical semantics while avoiding a
-    // full sort when only one page window (+1 to detect continuation) is
-    // needed.
+    /// Return the bounded working-set size for ordered initial loads.
     #[must_use]
     pub(in crate::db::executor) fn bounded_order_keep_count(
         plan: &AccessPlannedQuery,
@@ -105,75 +52,5 @@ impl ExecutionKernel {
         }
 
         Some(compute_page_window(page.offset, limit).fetch_count)
-    }
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use super::{PageWindow, compute_page_keep_count, compute_page_window};
-
-    #[test]
-    fn compute_page_window_zero_offset_zero_limit_projects_keep_and_fetch() {
-        let window = compute_page_window(0, 0);
-        assert_eq!(
-            window,
-            PageWindow {
-                fetch_count: 1,
-                keep_count: 0,
-            }
-        );
-    }
-
-    #[test]
-    fn compute_page_window_zero_offset_limit_one_projects_keep_and_fetch() {
-        let window = compute_page_window(0, 1);
-
-        assert_eq!(
-            window,
-            PageWindow {
-                fetch_count: 2,
-                keep_count: 1,
-            }
-        );
-    }
-
-    #[test]
-    fn compute_page_window_offset_n_limit_one() {
-        let window = compute_page_window(37, 1);
-        assert_eq!(
-            window,
-            PageWindow {
-                fetch_count: 39,
-                keep_count: 38,
-            }
-        );
-    }
-
-    #[test]
-    fn compute_page_window_high_bounds_saturates_keep_and_fetch() {
-        let base = usize::try_from(u32::MAX).unwrap_or(usize::MAX);
-        let expected_keep = base.saturating_add(base);
-
-        let window = compute_page_window(u32::MAX, u32::MAX);
-
-        assert_eq!(
-            window,
-            PageWindow {
-                fetch_count: expected_keep.saturating_add(1),
-                keep_count: expected_keep,
-            }
-        );
-    }
-
-    #[test]
-    fn compute_page_keep_and_fetch_counts_matches_window_projections() {
-        let window = compute_page_window(37, 11);
-
-        assert_eq!(window.keep_count, compute_page_keep_count(37, 11));
-        assert_eq!(window.fetch_count, compute_page_window(37, 11).fetch_count);
     }
 }

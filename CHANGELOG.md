@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.33` completes the model consumer hard cut, moving maintained callers
+  to the current typed, dynamic, and structural APIs while deleting the
+  retired package and facade owners without compatibility aliases.
+
 - `0.213.32` establishes independently publishable model packages with
   schema-only authoring and accepted-schema-bound typed adapters, removing the
   obsolete generated create bridge from the final compiler.

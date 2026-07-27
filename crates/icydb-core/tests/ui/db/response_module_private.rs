@@ -1,3 +1,3 @@
-use icydb_core::db::response::Response;
+use icydb_core::db::response::GroupedRow;
 
 fn main() {}

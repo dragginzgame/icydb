@@ -37,11 +37,7 @@ use std::cell::RefCell;
 use std::sync::{Mutex, OnceLock};
 
 #[cfg(test)]
-use crate::db::commit::failpoint::{CommitFailpoint, hit_commit_failpoint};
-#[cfg(test)]
 use crate::db::commit::store::control_slot::encode_commit_control_slot;
-#[cfg(test)]
-use crate::db::commit::store::marker_envelope::encode_commit_marker_bytes;
 use crate::db::database_format::crc32c;
 #[cfg(test)]
 use crate::db::database_format::initialize_current_database_control_for_tests;
@@ -131,23 +127,6 @@ impl CommitStore {
         encode_commit_control_slot(DatabaseIncarnationId::for_tests(0x31), &marker_bytes)
     }
 
-    /// Encode one raw commit-marker envelope for recovery tests.
-    #[cfg(test)]
-    pub(super) fn encode_raw_marker_envelope_for_tests(
-        format_version: u8,
-        marker_payload: Vec<u8>,
-    ) -> Result<Vec<u8>, InternalError> {
-        encode_commit_marker_bytes(format_version, &marker_payload)
-    }
-
-    /// Encode one multi-row commit-control slot payload for regression tests.
-    #[cfg(test)]
-    pub(super) fn encode_raw_direct_control_slot_for_tests(
-        marker: &CommitMarker,
-    ) -> Result<Vec<u8>, InternalError> {
-        encode_commit_control_slot_from_marker(DatabaseIncarnationId::for_tests(0x31), marker)
-    }
-
     /// Open the database control store after format admission.
     fn open(memory: VirtualMemory<DefaultMemoryImpl>) -> Result<Self, InternalError> {
         validate_current_boot_record(&memory)?;
@@ -215,12 +194,8 @@ impl CommitStore {
         let database_incarnation_id = self.require_empty_marker_slot()?;
         let encoded = encode_commit_control_slot_from_marker(database_incarnation_id, marker)?;
 
-        #[cfg(test)]
-        hit_commit_failpoint(CommitFailpoint::BeforeMarkerWrite)?;
         self.write_control_slot(&encoded)?;
         mark_commit_marker_may_be_present();
-        #[cfg(test)]
-        hit_commit_failpoint(CommitFailpoint::AfterMarkerWrite)?;
         Ok(())
     }
 
@@ -228,14 +203,10 @@ impl CommitStore {
     pub(super) fn clear_verified(&self) -> Result<(), InternalError> {
         let control_slot = self.read_control_slot()?;
         let slot = inspect_commit_control_slot(&control_slot)?;
-        #[cfg(test)]
-        hit_commit_failpoint(CommitFailpoint::BeforeMarkerClear)?;
         self.write_control_slot(&encode_empty_commit_control_slot(
             slot.database_incarnation_id,
         ))?;
         mark_commit_marker_verified_absent();
-        #[cfg(test)]
-        hit_commit_failpoint(CommitFailpoint::AfterMarkerClear)?;
 
         Ok(())
     }
@@ -379,30 +350,6 @@ struct CommitStoreEntry {
 
 thread_local! {
     static COMMIT_STORES: RefCell<Vec<CommitStoreEntry>> = const { RefCell::new(Vec::new()) };
-}
-
-#[cfg(test)]
-pub(super) fn commit_marker_present() -> Result<bool, InternalError> {
-    with_commit_store(|store| Ok(store.load()?.is_some()))
-}
-
-/// Return exact current marker-control and embedded journal-batch bytes for tests.
-#[cfg(test)]
-#[cfg(feature = "sql")]
-pub(in crate::db) fn persisted_commit_marker_lengths_for_tests()
--> Result<(usize, usize), InternalError> {
-    with_commit_store(|store| {
-        let control_slot_bytes = store.raw_control_slot_bytes_for_tests().len();
-        let marker = store.load()?.ok_or_else(InternalError::store_invariant)?;
-        let journal_batch_bytes = marker
-            .journal_batches()
-            .iter()
-            .fold(0usize, |bytes, batch| {
-                bytes.saturating_add(crate::db::journal::journal_batch_encoded_len(batch))
-            });
-
-        Ok((control_slot_bytes, journal_batch_bytes))
-    })
 }
 
 /// Lazily initialize and access the commit marker store.

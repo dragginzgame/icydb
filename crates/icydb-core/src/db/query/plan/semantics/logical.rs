@@ -8,7 +8,7 @@ use crate::db::predicate::MissingRowPolicy;
 use crate::{
     db::{
         access::{AccessPlan, ExecutableAccessPlan, SemanticIndexKeyItemsRef},
-        predicate::{IndexCompileTarget, Predicate, PredicateProgram},
+        predicate::{IndexCompileTarget, IndexCompileTargetKind, Predicate, PredicateProgram},
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
             EffectiveRuntimeFilterProgram, ExecutionShapeSignature, FieldSlot, GroupPlan,
@@ -25,18 +25,13 @@ use crate::{
             grouped_aggregate_specs_from_projection_spec, grouped_cursor_policy_violation,
             grouped_plan_strategy, lower_data_row_direct_projection_slots_with_schema,
             lower_direct_projection_slots_with_schema, lower_projection_identity,
-            lower_projection_intent, lower_projection_intent_with_schema,
-            residual_query_predicate_after_access_path_bounds,
+            lower_projection_intent_with_schema, residual_query_predicate_after_access_path_bounds,
             residual_query_predicate_after_filtered_access_contract,
             resolved_grouped_distinct_execution_strategy_with_schema_info,
         },
         schema::SchemaInfo,
     },
     error::InternalError,
-    model::{
-        entity::EntityModel,
-        index::{IndexKeyItem, IndexKeyItemsRef},
-    },
 };
 
 impl QueryMode {
@@ -68,30 +63,6 @@ impl LogicalPlan {
             Self::Grouped(plan) => &plan.scalar,
         }
     }
-
-    /// Borrow scalar semantic fields mutably across logical variants for tests.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn scalar_semantics_mut(&mut self) -> &mut ScalarPlan {
-        match self {
-            Self::Scalar(plan) => plan,
-            Self::Grouped(plan) => &mut plan.scalar,
-        }
-    }
-
-    /// Test-only shorthand for explicit scalar semantic borrowing.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn scalar(&self) -> &ScalarPlan {
-        self.scalar_semantics()
-    }
-
-    /// Test-only shorthand for explicit mutable scalar semantic borrowing.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn scalar_mut(&mut self) -> &mut ScalarPlan {
-        self.scalar_semantics_mut()
-    }
 }
 
 impl AccessPlannedQuery {
@@ -109,27 +80,6 @@ impl AccessPlannedQuery {
         self.scalar_plan().consistency
     }
 
-    /// Borrow scalar semantic fields mutably across logical variants for tests.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn scalar_plan_mut(&mut self) -> &mut ScalarPlan {
-        self.logical.scalar_semantics_mut()
-    }
-
-    /// Test-only shorthand for explicit scalar plan borrowing.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn scalar(&self) -> &ScalarPlan {
-        self.scalar_plan()
-    }
-
-    /// Test-only shorthand for explicit mutable scalar plan borrowing.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn scalar_mut(&mut self) -> &mut ScalarPlan {
-        self.scalar_plan_mut()
-    }
-
     /// Borrow grouped semantic fields when this plan is grouped.
     #[must_use]
     pub(in crate::db) const fn grouped_plan(&self) -> Option<&GroupPlan> {
@@ -137,16 +87,6 @@ impl AccessPlannedQuery {
             LogicalPlan::Scalar(_) => None,
             LogicalPlan::Grouped(plan) => Some(plan),
         }
-    }
-
-    /// Lower this plan into one canonical planner-owned projection semantic spec.
-    #[must_use]
-    pub(in crate::db) fn projection_spec(&self, model: &EntityModel) -> ProjectionSpec {
-        if let Some(static_contract) = &self.static_execution_planning_contract {
-            return static_contract.projection_spec.clone();
-        }
-
-        lower_projection_intent(model, &self.logical, &self.projection_selection)
     }
 
     /// Lower this plan through accepted schema projection authority.
@@ -290,20 +230,6 @@ impl AccessPlannedQuery {
         }
     }
 
-    /// Borrow the planner-compiled effective runtime scalar filter expression.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn effective_runtime_compiled_filter_expr(&self) -> Option<&CompiledExpr> {
-        match self
-            .static_execution_planning_contract()?
-            .residual_filter_contract
-            .effective_runtime_filter_program()
-        {
-            Some(program) => program.expression_filter(),
-            None => None,
-        }
-    }
-
     /// Borrow the planner-frozen effective runtime scalar filter program.
     #[must_use]
     pub(in crate::db) fn effective_runtime_filter_program(
@@ -330,29 +256,12 @@ impl AccessPlannedQuery {
         }
     }
 
-    /// Freeze one planner-owned route profile after model validation completes.
-    #[cfg(test)]
-    pub(in crate::db) fn finalize_planner_route_profile_for_model(&mut self, model: &EntityModel) {
-        self.set_planner_route_profile(project_planner_route_profile_for_model(model, self));
-    }
-
     /// Freeze one planner-owned route profile from accepted schema authority.
     pub(in crate::db) fn finalize_planner_route_profile_for_model_with_schema(
         &mut self,
         schema_info: &SchemaInfo,
     ) {
         self.set_planner_route_profile(project_planner_route_profile_for_schema(schema_info, self));
-    }
-
-    /// Freeze model-only executor metadata after logical/access planning completes.
-    #[cfg(test)]
-    pub(in crate::db) fn finalize_static_execution_planning_contract_for_model_only(
-        &mut self,
-        model: &EntityModel,
-    ) -> Result<(), InternalError> {
-        self.finalize_static_execution_planning_contract_with_schema(
-            SchemaInfo::cached_for_generated_entity_model(model),
-        )
     }
 
     /// Freeze planner-owned executor metadata with explicit schema authority.
@@ -579,25 +488,6 @@ fn derive_continuation_policy_validated(plan: &AccessPlannedQuery) -> Continuati
     )
 }
 
-/// Project one planner-owned route profile from the finalized logical+access plan.
-#[must_use]
-#[cfg(test)]
-pub(in crate::db) fn project_planner_route_profile_for_model(
-    model: &EntityModel,
-    plan: &AccessPlannedQuery,
-) -> PlannerRouteProfile {
-    let primary_key_names = ordered_primary_key_names(model);
-    let secondary_order_contract = plan.scalar_plan().order.as_ref().and_then(|order| {
-        order.deterministic_secondary_order_contract_fields(primary_key_names.as_slice())
-    });
-
-    PlannerRouteProfile::new(
-        derive_continuation_policy_validated(plan),
-        derive_logical_pushdown_eligibility(plan, secondary_order_contract.as_ref()),
-        secondary_order_contract,
-    )
-}
-
 /// Project one planner-owned route profile from accepted schema authority.
 #[must_use]
 pub(in crate::db) fn project_planner_route_profile_for_schema(
@@ -699,11 +589,6 @@ fn project_static_execution_planning_contract_with_schema(
         slot_map,
         index_compile_targets,
     })
-}
-
-#[cfg(test)]
-fn ordered_primary_key_names(model: &EntityModel) -> Vec<&'static str> {
-    model.primary_key_names()
 }
 
 fn primary_key_names_from_schema(schema_info: &SchemaInfo) -> Vec<&str> {
@@ -1077,20 +962,6 @@ fn resolved_index_slots_for_access_path(
                 slots.push(slot);
             }
         }
-        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
-            slots.reserve(fields.len());
-            for &field_name in fields {
-                let slot = schema_info.field_slot_index(field_name)?;
-                slots.push(slot);
-            }
-        }
-        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => {
-            slots.reserve(items.len());
-            for key_item in items {
-                let slot = schema_info.field_slot_index(key_item.field())?;
-                slots.push(slot);
-            }
-        }
     }
 
     Some(slots)
@@ -1106,26 +977,31 @@ fn index_compile_targets_for_schema_plan(
     let mut targets = Vec::new();
 
     match key_items.key_items() {
-        SemanticIndexKeyItemsRef::Fields(_) | SemanticIndexKeyItemsRef::Accepted(_) => {
-            return None;
-        }
-        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
-            for (component_index, &field_name) in fields.iter().enumerate() {
+        SemanticIndexKeyItemsRef::Fields(fields) => {
+            for (component_index, field_name) in fields.iter().enumerate() {
                 let field_slot = schema_info.field_slot_index(field_name)?;
                 targets.push(IndexCompileTarget {
                     component_index,
                     field_slot,
-                    key_item: IndexKeyItem::Field(field_name),
+                    kind: IndexCompileTargetKind::Field,
                 });
             }
         }
-        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => {
-            for (component_index, &key_item) in items.iter().enumerate() {
+        SemanticIndexKeyItemsRef::Accepted(items) => {
+            for (component_index, key_item) in items.iter().enumerate() {
+                let key_item = key_item.as_ref();
                 let field_slot = schema_info.field_slot_index(key_item.field())?;
                 targets.push(IndexCompileTarget {
                     component_index,
                     field_slot,
-                    key_item,
+                    kind: match key_item {
+                        crate::db::access::SemanticIndexKeyItemRef::Field(_) => {
+                            IndexCompileTargetKind::Field
+                        }
+                        crate::db::access::SemanticIndexKeyItemRef::AcceptedExpression(
+                            expression,
+                        ) => IndexCompileTargetKind::Expression(expression.op()),
+                    },
                 });
             }
         }

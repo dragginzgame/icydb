@@ -3,8 +3,6 @@
 //! Does not own: marker storage backend, commit-window lifecycle, or recovery orchestration.
 //! Boundary: commit::{prepare,recovery,store} -> commit::marker (one-way).
 
-#[cfg(test)]
-use crate::db::journal::{JournalRecord, JournalSequence};
 use crate::{
     db::{
         commit::prepared_op::PreparedIndexDeltaKind,
@@ -187,23 +185,6 @@ pub(crate) struct CommitMarker {
 }
 
 impl CommitMarker {
-    /// Construct a new commit marker with a deterministic marker id.
-    #[cfg(test)]
-    pub(crate) fn new(row_ops: Vec<CommitRowOp>) -> Result<Self, InternalError> {
-        let id = generate_commit_id()?;
-        if row_ops.is_empty() {
-            return Self::from_parts(id, Vec::new());
-        }
-
-        let records = row_ops
-            .iter()
-            .map(journal_record_from_row_op_for_test)
-            .collect::<Result<Vec<_>, _>>()?;
-        let batch = JournalBatch::new(id, id, next_test_journal_sequence()?, records)?;
-
-        Self::from_parts(id, vec![batch])
-    }
-
     /// Construct one marker from already-derived durable payload parts.
     ///
     /// Journal batches are embedded in the marker so recovery can repair or
@@ -257,43 +238,6 @@ impl CommitMarker {
     // Build the canonical payload corruption for invalid fixed-size payloads.
     fn payload_invalid_fixed_size(_label: &'static str) -> InternalError {
         InternalError::commit_corruption()
-    }
-}
-
-#[cfg(test)]
-pub(in crate::db) fn reset_test_journal_sequence() {
-    TEST_JOURNAL_SEQUENCE.with(|sequence| sequence.set(1));
-}
-
-#[cfg(test)]
-fn next_test_journal_sequence() -> Result<JournalSequence, InternalError> {
-    TEST_JOURNAL_SEQUENCE.with(|sequence| {
-        let value = sequence.get();
-        let next = value
-            .checked_add(1)
-            .ok_or_else(InternalError::commit_id_generation_failed)?;
-        sequence.set(next);
-
-        Ok(JournalSequence::new(value))
-    })
-}
-
-#[cfg(test)]
-fn journal_record_from_row_op_for_test(
-    row_op: &CommitRowOp,
-) -> Result<JournalRecord, InternalError> {
-    match row_op.after.as_ref() {
-        Some(after) => JournalRecord::row_put(
-            row_op.entity_path.as_ref(),
-            row_op.key.clone(),
-            after.clone(),
-            row_op.schema_fingerprint,
-        ),
-        None => JournalRecord::row_delete(
-            row_op.entity_path.as_ref(),
-            row_op.key.clone(),
-            row_op.schema_fingerprint,
-        ),
     }
 }
 

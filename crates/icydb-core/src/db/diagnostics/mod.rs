@@ -10,9 +10,6 @@ mod model;
 mod storage_report;
 #[cfg(feature = "diagnostics")]
 mod store_counters;
-#[cfg(test)]
-mod tests;
-
 pub use execution_trace::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionStats,
     ExecutionTrace,

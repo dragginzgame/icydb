@@ -278,14 +278,6 @@ impl<S> SqlWritePlanCore<S> {
     pub(in crate::db::session::sql) const fn execution_bounds(&self) -> SqlWriteExecutionBounds {
         self.execution_bounds
     }
-
-    #[cfg(test)]
-    pub(in crate::db) const fn set_execution_bounds_for_tests(
-        &mut self,
-        execution_bounds: SqlWriteExecutionBounds,
-    ) {
-        self.execution_bounds = execution_bounds;
-    }
 }
 
 impl<S: Clone> SqlWritePlanCore<S> {

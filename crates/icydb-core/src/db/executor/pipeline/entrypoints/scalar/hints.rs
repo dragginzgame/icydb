@@ -44,7 +44,7 @@ enum UnpagedLoadHintStrategy {
 
 impl UnpagedLoadHintStrategy {
     const fn resolve(
-        resolved_continuation: &ScalarContinuationContext,
+        resolved_continuation: ScalarContinuationContext,
         unpaged_rows_mode: bool,
         top_n_seek_requires_lookahead: bool,
         route_plan: &ExecutionRoutePlan,
@@ -107,7 +107,7 @@ impl UnpagedLoadHintStrategy {
 // route-eligible top-N seek windows, constrain both access probe and load
 // scan-budget hints to the keep-count window (without continuation +1).
 const fn apply_unpaged_top_n_seek_hints(
-    resolved_continuation: &ScalarContinuationContext,
+    resolved_continuation: ScalarContinuationContext,
     unpaged_rows_mode: bool,
     top_n_seek_requires_lookahead: bool,
     route_plan: &mut ExecutionRoutePlan,
@@ -127,7 +127,7 @@ const fn apply_unpaged_top_n_seek_hints(
 pub(super) fn normalize_scalar_route_for_execution(
     route_plan: &mut ExecutionRoutePlan,
     plan: &AccessPlannedQuery,
-    continuation: &ScalarContinuationContext,
+    continuation: ScalarContinuationContext,
     unpaged_rows_mode: bool,
     suppress_route_scan_hints: bool,
     terminal: ScalarRouteTerminal,
@@ -164,7 +164,7 @@ pub(super) fn normalize_scalar_route_for_execution(
 fn apply_index_set_page_fetch_hint(
     route_plan: &mut ExecutionRoutePlan,
     plan: &AccessPlannedQuery,
-    continuation: &ScalarContinuationContext,
+    continuation: ScalarContinuationContext,
     residual_filter_present: bool,
 ) {
     let access_shape_facts = plan.access_shape_facts();
@@ -177,7 +177,6 @@ fn apply_index_set_page_fetch_hint(
         .is_some_and(index_prefix_set_page_fetch_hint_shape_supported);
     if route_plan.scan_hints.physical_fetch_hint.is_some()
         || residual_filter_present
-        || !cursor_fetch_hint_safe(route_plan, plan, continuation)
         || !index_prefix_set_page
         || !plan.scalar_plan().mode.is_load()
         || plan.scalar_plan().distinct
@@ -205,21 +204,4 @@ fn apply_index_set_page_fetch_hint(
             .saturating_add(1)
     };
     route_plan.scan_hints.physical_fetch_hint = Some(fetch);
-}
-
-fn cursor_fetch_hint_safe(
-    route_plan: &ExecutionRoutePlan,
-    plan: &AccessPlannedQuery,
-    continuation: &ScalarContinuationContext,
-) -> bool {
-    if !continuation.has_cursor_boundary() {
-        return true;
-    }
-
-    let access_continuation = continuation.access_scan_input(route_plan.direction(), plan);
-    access_continuation.primary_key_boundary().is_some()
-        || access_continuation
-            .index_scan_continuation()
-            .anchor()
-            .is_some()
 }

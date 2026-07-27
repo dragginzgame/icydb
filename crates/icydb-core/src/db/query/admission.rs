@@ -10,15 +10,12 @@ mod render;
 use crate::db::query::plan::AccessPlannedQuery;
 use icydb_diagnostic_code::QueryReadAdmissionCode;
 
-pub(in crate::db::query) use policy::DEFAULT_BOUNDED_READ_MAX_ROWS;
-#[cfg(test)]
-pub(in crate::db) use policy::GroupedAdmissionPolicy;
 pub(in crate::db) use policy::QueryAdmissionPolicy;
 
 /// Read-admission evaluation lane selected by the current query surface.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum QueryAdmissionLane {
-    /// Caller-facing bounded typed/fluent read path.
+    /// Caller-facing bounded typed/dynamic read path.
     PublicRead,
     /// EXPLAIN-only path that describes planning and admission without row execution.
     DiagnosticExplain,
@@ -315,19 +312,6 @@ impl QueryMaterializationSummary {
         }
     }
 
-    /// Build a summary for a plan that materializes rows for sorting.
-    #[must_use]
-    pub(in crate::db) const fn sort(
-        materialized_rows: Option<u32>,
-        row_bound_kind: QueryBoundKind,
-    ) -> Self {
-        Self {
-            materialized_sort: true,
-            materialized_rows,
-            row_bound_kind,
-        }
-    }
-
     /// Return whether the plan materializes rows for sorting.
     #[must_use]
     pub(in crate::db) const fn materialized_sort(&self) -> bool {
@@ -557,17 +541,6 @@ impl QueryAdmissionSummary {
         self.materialization
     }
 
-    /// Return a copy of this summary with route-derived materialization facts attached.
-    #[must_use]
-    #[cfg_attr(not(feature = "sql"), allow(dead_code))]
-    pub(in crate::db) const fn with_materialization(
-        mut self,
-        materialization: QueryMaterializationSummary,
-    ) -> Self {
-        self.materialization = materialization;
-        self
-    }
-
     /// Return the rejection reason, when the decision is rejected.
     #[must_use]
     pub(in crate::db) const fn rejection(&self) -> Option<QueryAdmissionRejection> {
@@ -580,6 +553,3 @@ impl QueryAdmissionSummary {
         render::render_text_block(self)
     }
 }
-
-#[cfg(test)]
-mod tests;

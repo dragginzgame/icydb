@@ -3,15 +3,9 @@
 //! Does not own: grouped runtime enforcement or load-stage execution mechanics.
 //! Boundary: provides planner-shared grouped DISTINCT policy reasoning contracts.
 
-use crate::db::query::{
-    builder::{
-        AggregateExpr,
-        aggregate::{avg, count_by, sum},
-    },
-    plan::{
-        AggregateKind, FieldSlot, GlobalDistinctAggregateKind, GroupAggregateSpec, GroupPlan,
-        GroupSpec, GroupedExecutionConfig, expr::Expr, validate::GroupPlanError,
-    },
+use crate::db::query::plan::{
+    AggregateKind, FieldSlot, GlobalDistinctAggregateKind, GroupAggregateSpec, GroupPlan,
+    expr::Expr, validate::GroupPlanError,
 };
 use crate::error::InternalError;
 
@@ -73,20 +67,7 @@ impl<'a> GlobalDistinctFieldAggregate<'a> {
     }
 }
 
-impl GlobalDistinctAggregateKind {
-    /// Build the canonical DISTINCT field-target aggregate expression for this
-    /// supported grouped global-DISTINCT family.
-    #[must_use]
-    fn distinct_expr(self, target_field: &str) -> AggregateExpr {
-        let aggregate = match self {
-            Self::Count => count_by(target_field),
-            Self::Sum => sum(target_field),
-            Self::Avg => avg(target_field),
-        };
-
-        aggregate.distinct()
-    }
-}
+impl GlobalDistinctAggregateKind {}
 
 impl GroupDistinctPolicyReason {
     /// Construct one grouped DISTINCT HAVING-unsupported reason.
@@ -129,17 +110,6 @@ impl GroupDistinctPolicyReason {
     #[must_use]
     pub(in crate::db) const fn global_distinct_unsupported_aggregate_kind() -> Self {
         Self::GlobalDistinctUnsupportedAggregateKind
-    }
-
-    /// Convert this grouped DISTINCT policy reason into the executor-facing
-    /// invariant used by global DISTINCT grouped route preparation.
-    #[must_use]
-    pub(in crate::db) fn into_global_distinct_prepare_internal_error(
-        self,
-        _kind: AggregateKind,
-    ) -> InternalError {
-        let _ = self;
-        InternalError::query_executor_invariant()
     }
 
     /// Convert this grouped DISTINCT policy reason into the planner handoff
@@ -219,20 +189,6 @@ pub(in crate::db) fn is_global_distinct_field_aggregate_candidate(
             .any(|aggregate| aggregate.target_field().is_some())
 }
 
-/// Return grouped DISTINCT admissibility for the global field-target aggregate
-/// shape candidate.
-#[must_use]
-#[cfg(test)]
-pub(in crate::db) fn global_distinct_field_aggregate_admissibility(
-    aggregates: &[GroupAggregateSpec],
-    having_expr: Option<&Expr>,
-) -> GroupDistinctAdmissibility {
-    resolve_global_distinct_supported_aggregate(aggregates, having_expr)
-        .map_or_else(GroupDistinctAdmissibility::Disallowed, |_| {
-            GroupDistinctAdmissibility::Allowed
-        })
-}
-
 /// Resolve one supported global DISTINCT field-target grouped aggregate shape.
 pub(in crate::db) fn resolve_global_distinct_field_aggregate<'a>(
     group_fields: &'a [FieldSlot],
@@ -283,22 +239,6 @@ fn resolve_global_distinct_supported_aggregate<'a>(
     }
 
     Ok(aggregate)
-}
-
-/// Build one global DISTINCT grouped spec from canonical aggregate identity shape.
-pub(in crate::db) fn global_distinct_group_spec_for_aggregate_identity(
-    kind: AggregateKind,
-    target_field: &str,
-    execution: GroupedExecutionConfig,
-) -> Result<GroupSpec, GroupDistinctPolicyReason> {
-    let aggregate = kind
-        .global_distinct_kind()
-        .ok_or_else(GroupDistinctPolicyReason::global_distinct_unsupported_aggregate_kind)?
-        .distinct_expr(target_field);
-
-    Ok(GroupSpec::global_distinct_shape_from_aggregate_expr(
-        &aggregate, execution,
-    ))
 }
 
 impl GroupPlan {

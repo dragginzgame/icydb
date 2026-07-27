@@ -1,5 +1,0 @@
-error: entity name '~UiIndexedEntity' uses reserved '~' namespace
-  --> tests/ui/index_reserved_namespace.rs:19:12
-   |
-19 |     name = "~UiIndexedEntity",
-   |            ^^^^^^^^^^^^^^^^^^

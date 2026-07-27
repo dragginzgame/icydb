@@ -517,8 +517,7 @@ impl<C: CanisterKind> DbSession<C> {
                 .map_err(QueryError::execute)?,
             strategy.aggregate_kind(),
             strategy.projected_field(),
-        )
-        .map_err(QueryError::execute)?;
+        );
         if let Some(filter_expr) = strategy.filter_expr() {
             execution.node_properties.insert(
                 property_keys::FILTER_EXPR,

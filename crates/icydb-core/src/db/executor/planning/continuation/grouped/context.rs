@@ -7,7 +7,7 @@ use crate::{
     db::{
         cursor::{ContinuationSignature, GroupedContinuationToken},
         direction::Direction,
-        executor::{GroupedPaginationWindow, pipeline::contracts::PageCursor},
+        executor::GroupedPaginationWindow,
     },
     error::InternalError,
     value::Value,
@@ -69,18 +69,16 @@ impl GroupedContinuationContext {
     pub(in crate::db::executor) fn grouped_next_cursor(
         &self,
         last_group_key: Vec<Value>,
-    ) -> Result<PageCursor, InternalError> {
+    ) -> Result<GroupedContinuationToken, InternalError> {
         if last_group_key.len() != self.continuation_boundary_arity {
             return Err(InternalError::query_executor_invariant());
         }
 
-        Ok(PageCursor::Grouped(
-            GroupedContinuationToken::new_with_direction(
-                self.continuation_signature,
-                last_group_key,
-                self.direction,
-                self.grouped_pagination_window.resume_initial_offset(),
-            ),
+        Ok(GroupedContinuationToken::new_with_direction(
+            self.continuation_signature,
+            last_group_key,
+            self.direction,
+            self.grouped_pagination_window.resume_initial_offset(),
         ))
     }
 }

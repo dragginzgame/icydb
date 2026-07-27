@@ -7,7 +7,7 @@ use std::mem::size_of;
 use super::*;
 use crate::db::{
     access::AccessPlanError,
-    cursor::{CursorPayloadErrorCode, CursorPlanError, CursorSignaturePrefix},
+    cursor::{CursorPlanError, CursorSignaturePrefix},
     query::plan::{
         PlanError, PolicyPlanError,
         validate::{GroupPlanError, OrderPlanError, PlanPolicyError, PlanUserError},
@@ -69,10 +69,7 @@ fn assert_runtime_corruption(err: &InternalError, origin: ErrorOrigin) {
 }
 
 const fn cursor_payload_error() -> CursorPlanError {
-    CursorPlanError::InvalidContinuationCursorPayload {
-        reason: CursorPayloadErrorCode::UNKNOWN,
-        index: None,
-    }
+    CursorPlanError::grouped_continuation_cursor_direction_mismatch()
 }
 
 const fn cursor_signature_mismatch_error() -> CursorPlanError {
@@ -82,26 +79,11 @@ const fn cursor_signature_mismatch_error() -> CursorPlanError {
     }
 }
 
-const fn cursor_boundary_arity_error() -> CursorPlanError {
-    CursorPlanError::ContinuationCursorBoundaryArityMismatch {
-        expected: 2,
-        found: 1,
-    }
-}
-
 const fn cursor_window_error() -> CursorPlanError {
     CursorPlanError::ContinuationCursorWindowMismatch {
         expected_offset: 4,
         actual_offset: 2,
     }
-}
-
-const fn cursor_boundary_type_error() -> CursorPlanError {
-    CursorPlanError::ContinuationCursorBoundaryTypeMismatch { index: 0 }
-}
-
-const fn cursor_primary_key_type_error() -> CursorPlanError {
-    CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { index: Some(1) }
 }
 
 #[test]
@@ -461,12 +443,7 @@ fn classification_integrity_cursor_conversion_matrix_is_restricted() {
             CursorPlanError::InvalidContinuationCursor { .. }
             | CursorPlanError::InvalidContinuationCursorPayload { .. }
             | CursorPlanError::ContinuationCursorSignatureMismatch { .. }
-            | CursorPlanError::ContinuationCursorBoundaryArityMismatch { .. }
-            | CursorPlanError::ContinuationCursorWindowMismatch { .. }
-            | CursorPlanError::ContinuationCursorBoundaryTypeMismatch { .. }
-            | CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { .. } => {
-                ErrorClass::Unsupported
-            }
+            | CursorPlanError::ContinuationCursorWindowMismatch { .. } => ErrorClass::Unsupported,
             CursorPlanError::ContinuationCursorInvariantViolation => ErrorClass::InvariantViolation,
         }
     }
@@ -475,10 +452,7 @@ fn classification_integrity_cursor_conversion_matrix_is_restricted() {
         cursor_payload_error(),
         CursorPlanError::ContinuationCursorInvariantViolation,
         cursor_signature_mismatch_error(),
-        cursor_boundary_arity_error(),
         cursor_window_error(),
-        cursor_boundary_type_error(),
-        cursor_primary_key_type_error(),
     ];
 
     for cursor_err in cases {
@@ -542,19 +516,6 @@ fn classification_integrity_corruption_constructors_never_downgrade() {
 #[test]
 fn mutation_unknown_field_uses_compact_executor_invariant() {
     let err = InternalError::mutation_structural_field_unknown("tests::User", "missing_name");
-
-    assert_eq!(err.class, ErrorClass::InvariantViolation);
-    assert_eq!(err.origin, ErrorOrigin::Executor);
-    assert_eq!(
-        err.diagnostic_code(),
-        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
-    );
-}
-
-#[test]
-fn mutation_invalid_result_uses_compact_executor_invariant() {
-    let err =
-        InternalError::mutation_structural_after_image_invalid("tests::User", "abc123", "detail");
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Executor);

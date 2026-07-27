@@ -8,9 +8,6 @@ mod fingerprint;
 mod hash_sections;
 mod projection_hash;
 mod shape_signature;
-#[cfg(test)]
-mod tests;
-
 use crate::db::codec::{finalize_hash_sha256, new_hash_sha256_prefixed};
 #[cfg(feature = "sql")]
 use crate::db::query::{

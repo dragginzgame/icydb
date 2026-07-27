@@ -1,6 +1,5 @@
 use crate::{
     db::data::persisted_row::codec::ScalarSlotValueRef,
-    entity::{EntityKind, EntityValue},
     error::InternalError,
     model::field::LeafCodec,
     value::{InputValue, Value},
@@ -34,85 +33,6 @@ impl FieldSlot {
     #[must_use]
     pub(in crate::db) const fn index(self) -> usize {
         self.index
-    }
-}
-
-///
-/// StructuralFieldUpdate
-///
-/// AuthoredStructuralFieldUpdate carries one ordered structural field assignment before
-/// persisted-row slot serialization.
-/// `AuthoredStructuralPatch` applies these entries in order and last write wins for the
-/// same slot, but row-existence semantics remain owned by the mutation mode.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct AuthoredStructuralFieldUpdate {
-    slot: FieldSlot,
-    value: InputValue,
-}
-
-impl AuthoredStructuralFieldUpdate {
-    /// Build one field-level structural update.
-    #[must_use]
-    pub(in crate::db) const fn new(slot: FieldSlot, value: InputValue) -> Self {
-        Self { slot, value }
-    }
-
-    /// Return the stable target slot.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn slot(&self) -> FieldSlot {
-        self.slot
-    }
-
-    /// Return the unresolved authored value payload for this update.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn value(&self) -> &InputValue {
-        &self.value
-    }
-}
-
-///
-/// AuthoredStructuralPatch
-///
-///
-/// AuthoredStructuralPatch is the ordered unresolved field patch applied by
-/// structural write lanes before accepted-schema admission and slot serialization.
-/// It carries caller `InputValue` payloads only; insert, update, and replace
-/// semantics remain owned by `MutationMode`, not by the patch container.
-/// Field-name resolution is owned by session/schema boundaries; this container
-/// only records already validated slot assignments.
-///
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct AuthoredStructuralPatch {
-    entries: Vec<AuthoredStructuralFieldUpdate>,
-}
-
-impl AuthoredStructuralPatch {
-    /// Build one empty patch.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            entries: Vec::new(),
-        }
-    }
-
-    /// Append one structural field update in declaration order.
-    #[must_use]
-    pub(in crate::db) fn set(mut self, slot: FieldSlot, value: impl Into<InputValue>) -> Self {
-        self.entries
-            .push(AuthoredStructuralFieldUpdate::new(slot, value.into()));
-        self
-    }
-
-    /// Borrow the ordered field updates carried by this patch.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn entries(&self) -> &[AuthoredStructuralFieldUpdate] {
-        self.entries.as_slice()
     }
 }
 
@@ -175,32 +95,15 @@ impl AcceptedMutationFieldUpdate {
 
 /// Ordered unresolved field intents consumed by accepted mutation resolution.
 ///
-/// This is private to the database implementation. Public structural callers
-/// can author values only through [`AuthoredStructuralPatch`]; SQL lowering may
-/// additionally construct exact contextual `DEFAULT` requests.
+/// This is private to the database implementation. Dynamic structural callers
+/// and SQL lowering construct exact contextual write intents at the session
+/// boundary.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct AcceptedMutationIntentPatch {
     entries: Vec<AcceptedMutationFieldUpdate>,
 }
 
 impl AcceptedMutationIntentPatch {
-    /// Convert one authored-only public patch without changing authorship.
-    #[must_use]
-    pub(in crate::db) fn from_authored(patch: AuthoredStructuralPatch) -> Self {
-        let entries = patch
-            .entries
-            .into_iter()
-            .map(|entry| {
-                AcceptedMutationFieldUpdate::new(
-                    entry.slot,
-                    AcceptedMutationFieldWriteIntent::Authored(entry.value),
-                )
-            })
-            .collect();
-
-        Self { entries }
-    }
-
     /// Build one empty accepted mutation intent patch.
     #[must_use]
     pub(in crate::db) const fn new() -> Self {
@@ -272,10 +175,7 @@ impl AcceptedMutationIntentPatch {
 /// field value on demand.
 ///
 
-pub trait SlotReader {
-    /// Return whether the given slot is present in the persisted row.
-    fn has(&self, slot: usize) -> bool;
-
+pub(crate) trait SlotReader {
     /// Borrow the raw persisted payload for one slot when present.
     fn get_bytes(&self, slot: usize) -> Option<&[u8]>;
 
@@ -284,12 +184,6 @@ pub trait SlotReader {
 
     /// Decode one slot value on demand through the reader's accepted contract.
     fn get_value(&mut self, slot: usize) -> Result<Option<Value>, InternalError>;
-
-    /// Borrow the accepted catalog context used to decode canonical enum IDs.
-    #[doc(hidden)]
-    fn runtime_enum_context(&self) -> Option<&dyn crate::value::RuntimeEnumContext> {
-        None
-    }
 }
 
 ///
@@ -349,19 +243,4 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
             self.required_value_by_contract(slot)?,
         ))
     }
-}
-
-///
-/// PersistedRow
-///
-/// PersistedRow is the derive-owned bridge between typed entities and
-/// slot-addressable persisted rows.
-/// It combines the model/placement contract with a concrete entity value.
-/// It owns entity-specific materialization/default semantics while runtime
-/// paths stay structural at the row boundary.
-///
-
-pub trait PersistedRow: EntityKind + EntityValue {
-    /// Materialize one typed entity from one slot reader.
-    fn materialize_from_slots(slots: &mut dyn SlotReader) -> Result<Self, InternalError>;
 }

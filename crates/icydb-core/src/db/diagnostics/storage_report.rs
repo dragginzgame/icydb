@@ -303,7 +303,7 @@ pub(in crate::db) fn storage_report<C: CanisterKind>(
     let name_map: BTreeMap<&'static str, &str> = name_to_path.iter().copied().collect();
     let mut tag_name_map = BTreeMap::<EntityTag, &str>::new();
     for entity_registration in db.entity_registrations {
-        let registration = entity_registration.runtime();
+        let registration = entity_registration.runtime().resolve(db)?;
         let store = db.recovered_store(registration.store_path)?;
         let accepted = store
             .with_schema(|schema_store| {

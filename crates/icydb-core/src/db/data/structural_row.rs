@@ -120,7 +120,7 @@ impl AcceptedStructuralRowAuthority {
 /// StructuralRowContract
 ///
 /// StructuralRowContract is the compact accepted row-shape authority used by
-/// structural row readers that do not need the full semantic `EntityModel`.
+/// structural row readers.
 /// It keeps the entity path and accepted row-decode contract required to open
 /// canonical persisted rows through the data-layer decode boundary.
 ///
@@ -134,17 +134,6 @@ pub(in crate::db) struct StructuralRowContract {
 }
 
 impl StructuralRowContract {
-    /// Build an accepted structural row contract from one model proposal for tests.
-    #[cfg(test)]
-    pub(in crate::db) fn from_model_proposal_for_test(
-        model: &'static crate::model::entity::EntityModel,
-    ) -> Self {
-        Self::from_accepted_decode_contract(
-            model.path(),
-            AcceptedRowDecodeContract::from_model_proposal_for_test(model),
-        )
-    }
-
     /// Build one structural row contract from accepted persisted schema only.
     #[must_use]
     pub(in crate::db) fn from_accepted_decode_contract(
@@ -286,17 +275,6 @@ impl StructuralRowContract {
         ))
     }
 
-    /// Resolve an omitted field for a future logical insert after-image.
-    #[cfg(test)]
-    pub(in crate::db) fn insert_omission_value(&self, slot: usize) -> Result<Value, InternalError> {
-        match self.insert_omission_materialization(slot)? {
-            FieldMaterialization::Null => Ok(Value::Null),
-            FieldMaterialization::DefaultPayload(payload) => {
-                decode_runtime_value_from_row_contract(self, slot, payload)
-            }
-        }
-    }
-
     /// Resolve an omitted field into a current canonical insertion payload.
     pub(in crate::db) fn insert_omission_payload(
         &self,
@@ -428,12 +406,6 @@ impl<'a> StructuralRowFieldBytes<'a> {
     pub(in crate::db::data) const fn layout_version(&self) -> RowLayoutVersion {
         self.layout_version
     }
-
-    /// Return the exact physical slot count admitted for the stamped layout.
-    #[must_use]
-    pub(in crate::db::data) fn physical_slot_count(&self) -> usize {
-        self.spans.iter().filter(|span| span.is_some()).count()
-    }
 }
 
 ///
@@ -497,17 +469,6 @@ impl<'a> SparseRequiredRowFieldBytes<'a> {
     pub(in crate::db::data) const fn layout_version(&self) -> RowLayoutVersion {
         self.layout_version
     }
-}
-
-/// Decode one persisted row through the structural row-envelope validation path.
-///
-/// The only supported persisted row shape is the slot-framed payload envelope,
-/// so this helper returns the validated enclosed payload bytes directly.
-#[cfg(test)]
-pub(in crate::db) fn decode_structural_row_payload(
-    raw_row: &RawRow,
-) -> Result<DecodedRowPayload<'_>, InternalError> {
-    decode_structural_row_payload_bytes(raw_row.as_bytes())
 }
 
 // Decode one persisted row envelope into the enclosed slot payload bytes.

@@ -6,10 +6,6 @@
 ///
 /// TESTS
 ///
-
-#[cfg(test)]
-mod tests;
-
 use crate::{
     db::{
         access::ExecutableAccessPlan,

@@ -53,15 +53,6 @@ use crate::db::{
     sql::parser::{SqlDdlStatement, SqlStatement},
 };
 
-#[cfg(test)]
-use crate::db::schema::{
-    SchemaDdlMutationAdmission, admit_sql_ddl_expression_index_candidate,
-    admit_sql_ddl_field_addition_candidate, admit_sql_ddl_field_default_candidate,
-    admit_sql_ddl_field_drop_candidate, admit_sql_ddl_field_nullability_candidate,
-    admit_sql_ddl_field_path_index_candidate, admit_sql_ddl_field_rename_candidate,
-    admit_sql_ddl_secondary_index_drop_candidate,
-};
-
 ///
 /// PreparedSqlDdlCommand
 ///
@@ -174,13 +165,6 @@ impl BoundSqlDdlNoOpRequest {
     #[must_use]
     pub(in crate::db) const fn index_name(&self) -> &str {
         self.index_name.as_str()
-    }
-
-    /// Borrow the accepted entity name that owns this request.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn entity_name(&self) -> &str {
-        self.entity_name.as_str()
     }
 
     /// Borrow the accepted index store path, or `-` when no target exists.
@@ -466,54 +450,6 @@ pub(in crate::db) fn bind_sql_ddl_statement(
         bind_sql_ddl_schema_version_contract(ddl_version_contract(ddl))?;
 
     Ok(bound)
-}
-
-/// Lower one bound SQL DDL request through schema mutation admission.
-#[cfg(test)]
-pub(in crate::db) fn lower_bound_sql_ddl_to_schema_mutation_admission(
-    request: &BoundSqlDdlRequest,
-) -> Result<SchemaDdlMutationAdmission, SqlDdlLoweringError> {
-    match request.statement() {
-        BoundSqlDdlStatement::AddColumn(add) => {
-            Ok(admit_sql_ddl_field_addition_candidate(add.field()))
-        }
-        BoundSqlDdlStatement::AlterColumnDefault(alter) => {
-            Ok(admit_sql_ddl_field_default_candidate(alter.field()))
-        }
-        BoundSqlDdlStatement::AlterColumnNullability(alter) => {
-            Ok(admit_sql_ddl_field_nullability_candidate(alter.field()))
-        }
-        BoundSqlDdlStatement::DropColumn(drop) => {
-            Ok(admit_sql_ddl_field_drop_candidate(drop.field()))
-        }
-        BoundSqlDdlStatement::RenameColumn(rename) => Ok(admit_sql_ddl_field_rename_candidate(
-            rename.field(),
-            rename.new_name(),
-        )),
-        BoundSqlDdlStatement::CreateIndex(create) => {
-            if create.candidate_index().unique() {
-                return Err(SqlDdlLoweringError::UnsupportedStatement);
-            }
-            if create.candidate_index().key().is_field_path_only() {
-                admit_sql_ddl_field_path_index_candidate(create.candidate_index())
-            } else {
-                admit_sql_ddl_expression_index_candidate(create.candidate_index())
-            }
-        }
-        BoundSqlDdlStatement::DropIndex(drop) => {
-            if drop.pending_activation_id().is_some() {
-                return Err(SqlDdlLoweringError::UnsupportedStatement);
-            }
-            Ok(admit_sql_ddl_secondary_index_drop_candidate())
-        }
-        BoundSqlDdlStatement::AddCheckConstraint(_)
-        | BoundSqlDdlStatement::DropConstraint(_)
-        | BoundSqlDdlStatement::ValidateConstraint(_) => {
-            return Err(SqlDdlLoweringError::UnsupportedStatement);
-        }
-        BoundSqlDdlStatement::NoOp(_) => return Err(SqlDdlLoweringError::UnsupportedStatement),
-    }
-    .map_err(SqlDdlLoweringError::MutationAdmission)
 }
 
 /// Derive the accepted-after schema snapshot for one bound SQL DDL request.

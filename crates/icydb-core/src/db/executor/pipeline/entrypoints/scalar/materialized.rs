@@ -75,23 +75,6 @@ pub(super) fn execute_prepared_scalar_path_execution(
 
 // Execute one prepared scalar runtime bundle and finalize the shared
 // structural page boundary in the common non-attributed path.
-pub(super) fn execute_prepared_scalar_structural_page(
-    prepared: PreparedScalarRouteRuntime,
-) -> Result<(StructuralCursorPage, Option<ExecutionTrace>), InternalError> {
-    let entity_path = prepared.entity_path();
-
-    Ok(finalize_scalar_structural_path_execution(
-        entity_path,
-        execute_prepared_scalar_path_execution(prepared)?,
-    ))
-}
-
-/// Execute one prepared scalar runtime bundle and finalize the structural page.
-pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime(
-    prepared: PreparedScalarRouteRuntime,
-) -> Result<(StructuralCursorPage, Option<ExecutionTrace>), InternalError> {
-    execute_prepared_scalar_structural_page(prepared)
-}
 
 /// Execute one prepared scalar plan while retaining its authoritative scan count.
 #[cfg(feature = "sql")]

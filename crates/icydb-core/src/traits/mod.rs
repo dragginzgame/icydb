@@ -8,7 +8,6 @@
 
 use crate::{
     model::field::{FieldKind, FieldModel, FieldStorageDecode},
-    value::{InputValue, Value},
     visitor::Visitable,
 };
 use serde::de::DeserializeOwned;
@@ -153,21 +152,6 @@ where
         value: &V::KIND,
     };
     const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::CatalogValue;
-}
-
-/// ============================================================================
-/// QUERY VALUE BOUNDARIES
-/// ============================================================================
-
-/// Name-based field input projection used before accepted-catalog admission.
-pub trait AuthoredFieldProjection {
-    /// Resolve one authored field value by stable field slot index.
-    fn get_input_value_by_index(&self, index: usize) -> Option<InputValue>;
-}
-
-pub trait FieldProjection {
-    /// Resolve one field value by stable field slot index.
-    fn get_value_by_index(&self, index: usize) -> Option<Value>;
 }
 
 /// ============================================================================

@@ -9,9 +9,7 @@ mod planning;
 mod tests;
 
 #[cfg(test)]
-pub(in crate::db) use model::{
-    DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT, DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES,
-};
+pub(in crate::db) use model::DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT;
 pub(in crate::db) use model::{
     SqlExactUpdatePolicy, SqlExactUpdatePolicyRejection, SqlPublicBoundedUpdatePlan,
     SqlPublicPrimaryKeyUpdatePlan, SqlResumableUpdatePolicyReport, SqlTrustedExactUpdatePlan,

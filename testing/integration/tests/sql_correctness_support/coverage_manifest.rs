@@ -360,14 +360,14 @@ macro_rules! provider {
 const PROVIDERS: &[ProviderSpec] = &[
     provider!(
         "build.sql.trusted_entrypoints",
-        "crates/icydb-build/src/db/sql.rs",
+        "crates/icydb-model/src/build/actor/db/sql.rs",
         "generated_readonly_sql_surface_uses_trusted_query_and_admin_ddl",
         BoundaryAssertion,
         [Boundary]
     ),
     provider!(
         "build.sql.introspection_guard",
-        "crates/icydb-build/src/db/sql.rs",
+        "crates/icydb-model/src/build/actor/db/sql.rs",
         "generated_sql_query_surface_can_reject_introspection",
         BoundaryAssertion,
         [Boundary]
@@ -409,21 +409,21 @@ const PROVIDERS: &[ProviderSpec] = &[
     ),
     provider!(
         "build.sql.update_disabled_by_default",
-        "crates/icydb-build/src/db/sql.rs",
+        "crates/icydb-model/src/build/actor/db/sql.rs",
         "generated_sql_surface_exports_only_query_ddl_and_fixture_endpoints",
         BoundaryAssertion,
         [Boundary]
     ),
     provider!(
         "build.sql.update_primary_key_policy",
-        "crates/icydb-build/src/db/sql.rs",
+        "crates/icydb-model/src/build/actor/db/sql.rs",
         "generated_sql_update_surface_requires_explicit_primary_key_policy",
         BoundaryAssertion,
         [Boundary]
     ),
     provider!(
         "build.sql.update_bounded_policy",
-        "crates/icydb-build/src/db/sql.rs",
+        "crates/icydb-model/src/build/actor/db/sql.rs",
         "generated_sql_update_surface_can_select_bounded_policy_without_broad_update",
         BoundaryAssertion,
         [Boundary]

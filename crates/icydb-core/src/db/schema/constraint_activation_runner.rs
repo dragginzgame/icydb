@@ -21,7 +21,6 @@ use crate::{
             publish_accepted_schema_candidate_with_constraint_validation_job_removal,
             publish_constraint_validation_job,
             publish_constraint_validation_job_with_candidate_index_entries,
-            publish_constraint_validation_job_with_candidate_relation_entries,
         },
         data::{
             AcceptedStructuralRowAuthority, DecodedDataStoreKey, RawDataStoreKey, StoreVisit,
@@ -31,9 +30,6 @@ use crate::{
         index::{IndexKey, RawIndexStoreKey},
         key_taxonomy::RawDataStoreKeyRange,
         registry::{StoreHandle, StoreRecoveryCapability},
-        relation::{
-            RelationConstraintIndexEntry, RelationConstraintProjection, ReverseRelationSourceInfo,
-        },
         schema::{
             AcceptedConstraintCatalog, AcceptedRowConstraintEvaluationError,
             AcceptedSchemaSnapshot, CandidateSchemaRevision, CompiledAcceptedRowConstraints,
@@ -242,77 +238,6 @@ pub(in crate::db) fn advance_unique_constraint_activation<C: CanisterKind>(
             &accepted,
             &selection,
             candidate,
-        ),
-    }
-}
-
-/// Advance one relation activation by at most one bounded page.
-pub(in crate::db) fn advance_relation_constraint_activation<C: CanisterKind>(
-    db: &Db<C>,
-    entity_tag: EntityTag,
-    constraint_id: ConstraintId,
-    acknowledged_receipt: Option<u64>,
-) -> Result<ConstraintValidationProgress, InternalError> {
-    let registration = db.runtime_registration_for_entity_tag(entity_tag)?;
-    let store = db.store_handle(registration.store_path)?;
-    if store.storage_capabilities().recovery()
-        != StoreRecoveryCapability::StableBasePlusJournalReplay
-    {
-        return Err(InternalError::store_unsupported());
-    }
-    let selection = store
-        .with_schema(|schema_store| {
-            schema_store.current_accepted_catalog_selection(
-                entity_tag,
-                registration.entity_path,
-                registration.store_path,
-            )
-        })?
-        .ok_or_else(InternalError::store_corruption)?;
-    let accepted = selection.decode_verified()?;
-    let activation = accepted
-        .persisted_snapshot()
-        .constraint_catalog()
-        .activation(constraint_id)
-        .ok_or_else(InternalError::store_invariant)?;
-    let candidate = relation_candidate_for_activation(&accepted, constraint_id)?;
-    let contract = AcceptedStructuralRowAuthority::from_catalog_selection(
-        registration.entity_path,
-        &selection,
-    )?
-    .into_row_contract();
-    let projection = RelationConstraintProjection::new(
-        db,
-        ReverseRelationSourceInfo::new(registration.entity_path, entity_tag),
-        accepted.persisted_snapshot(),
-        &contract,
-        candidate,
-    )?;
-    if projection.target_store().storage_capabilities().recovery()
-        != StoreRecoveryCapability::StableBasePlusJournalReplay
-    {
-        return Err(InternalError::store_unsupported());
-    }
-
-    match activation.state() {
-        ConstraintActivationState::EnforcingNewWrites => start_journaled_staged_validation(
-            store,
-            registration.store_path,
-            entity_tag,
-            registration.entity_path,
-            constraint_id,
-            candidate.physical_generation(),
-        ),
-        ConstraintActivationState::Validating => resume_journaled_relation_validation(
-            store,
-            registration.store_path,
-            entity_tag,
-            registration.entity_path,
-            constraint_id,
-            acknowledged_receipt,
-            &selection,
-            candidate,
-            projection,
         ),
     }
 }
@@ -731,112 +656,6 @@ fn resume_journaled_unique_validation(
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "relation activation keeps source, target, candidate, and job authority explicit"
-)]
-fn resume_journaled_relation_validation(
-    store: StoreHandle,
-    store_path: &'static str,
-    entity_tag: EntityTag,
-    entity_path: &'static str,
-    constraint_id: ConstraintId,
-    acknowledged_receipt: Option<u64>,
-    selection: &crate::db::schema::AcceptedCatalogSnapshotSelection,
-    candidate: &crate::db::schema::PersistedRelationEdgeSnapshot,
-    projection: RelationConstraintProjection,
-) -> Result<ConstraintValidationProgress, InternalError> {
-    let mut job = store
-        .with_schema(|schema_store| {
-            schema_store.constraint_validation_job(entity_tag, constraint_id)
-        })?
-        .ok_or_else(InternalError::store_corruption)?;
-    if !job.acknowledge_receipt(acknowledged_receipt) {
-        return job
-            .last_receipt()
-            .cloned()
-            .map(|receipt| ConstraintValidationProgress::Findings {
-                receipt,
-                phase: job.phase(),
-                rows_scanned: job.rows_scanned(),
-            })
-            .ok_or_else(InternalError::store_corruption);
-    }
-    if job.staged_generation() != Some(candidate.physical_generation()) {
-        return Err(InternalError::store_corruption());
-    }
-    let contract = AcceptedStructuralRowAuthority::from_catalog_selection(entity_path, selection)?
-        .into_row_contract();
-
-    match job.phase() {
-        ConstraintValidationPhase::Forward => {
-            let scan = scan_relation_validation_page(
-                store,
-                entity_tag,
-                job.checkpoint(),
-                &contract,
-                &projection,
-                candidate.local_field_ids(),
-                RelationValidationMode::Forward,
-            )?;
-            let captured_revisions = scan
-                .exhausted
-                .then(|| current_relation_store_revisions(store, store_path, &projection))
-                .transpose()?;
-            job.record_forward_page(
-                scan.checkpoint,
-                scan.rows_scanned,
-                scan.findings,
-                scan.exhausted,
-                captured_revisions,
-            )?;
-            publish_constraint_validation_job_with_candidate_relation_entries(
-                store_path,
-                store,
-                &job,
-                &projection,
-                scan.staged_entries,
-            )?;
-            Ok(progress_for_job(job))
-        }
-        ConstraintValidationPhase::Verify => {
-            let captured = required_captured_revisions(&job)?;
-            if current_relation_store_revisions(store, store_path, &projection)? != captured {
-                job.restart_forward(0, Vec::new())?;
-                publish_constraint_validation_job(store_path, store, &job)?;
-                return Ok(restarted_progress(&job));
-            }
-            let scan = scan_relation_validation_page(
-                store,
-                entity_tag,
-                job.checkpoint(),
-                &contract,
-                &projection,
-                candidate.local_field_ids(),
-                RelationValidationMode::Verify,
-            )?;
-            if !scan.findings.is_empty() {
-                job.restart_forward(scan.rows_scanned, scan.findings)?;
-                publish_constraint_validation_job(store_path, store, &job)?;
-                return Ok(progress_for_job(job));
-            }
-            job.record_verify_page(scan.checkpoint, scan.rows_scanned)?;
-            if !scan.exhausted {
-                publish_constraint_validation_job(store_path, store, &job)?;
-                return Ok(progress_for_job(job));
-            }
-            if current_relation_store_revisions(store, store_path, &projection)? != captured {
-                job.restart_forward(0, Vec::new())?;
-                publish_constraint_validation_job(store_path, store, &job)?;
-                return Ok(restarted_progress(&job));
-            }
-            let rows_scanned = job.rows_scanned();
-            promote_relation_activation(store, store_path, entity_tag, constraint_id)?;
-            Ok(ConstraintValidationProgress::Promoted { rows_scanned })
-        }
-    }
-}
-
-#[expect(
-    clippy::too_many_arguments,
     reason = "the runner keeps accepted identity, storage, and compiled proof inputs explicit"
 )]
 fn resume_journaled_row_local_validation(
@@ -1043,37 +862,6 @@ fn promote_unique_activation(
         .ok_or_else(InternalError::store_unsupported)?;
     let after = before
         .with_promoted_unique_activation(constraint_id, version)
-        .map_err(|_| InternalError::store_invariant())?;
-    let candidate = candidate_with_snapshot(&current, entity_tag, after)?;
-    publish_accepted_schema_candidate_with_constraint_validation_job_removal(
-        store_path,
-        store,
-        current.revision(),
-        &candidate,
-        entity_tag,
-        constraint_id,
-    )
-}
-
-fn promote_relation_activation(
-    store: StoreHandle,
-    store_path: &'static str,
-    entity_tag: EntityTag,
-    constraint_id: ConstraintId,
-) -> Result<(), InternalError> {
-    let current = current_bundle(store, store_path)?;
-    let before = current
-        .entity_snapshots()
-        .get(&entity_tag)
-        .ok_or_else(InternalError::store_corruption)?;
-    let version = before
-        .version()
-        .get()
-        .checked_add(1)
-        .map(crate::db::schema::SchemaVersion::new)
-        .ok_or_else(InternalError::store_unsupported)?;
-    let after = before
-        .with_promoted_relation_activation(constraint_id, version)
         .map_err(|_| InternalError::store_invariant())?;
     let candidate = candidate_with_snapshot(&current, entity_tag, after)?;
     publish_accepted_schema_candidate_with_constraint_validation_job_removal(
@@ -1349,31 +1137,6 @@ fn required_captured_revision(
     Ok(revision.revision())
 }
 
-fn current_relation_store_revisions(
-    source_store: StoreHandle,
-    source_store_path: &'static str,
-    projection: &RelationConstraintProjection,
-) -> Result<Vec<ConstraintStoreRevision>, InternalError> {
-    let mut revisions = vec![current_store_revision(source_store, source_store_path)?];
-    if projection.target_store_path() != source_store_path {
-        revisions.push(current_store_revision(
-            projection.target_store(),
-            projection.target_store_path(),
-        )?);
-    }
-    revisions.sort_unstable_by(|left, right| left.store_path().cmp(right.store_path()));
-    Ok(revisions)
-}
-
-fn required_captured_revisions(
-    job: &ConstraintValidationJob,
-) -> Result<Vec<ConstraintStoreRevision>, InternalError> {
-    job.captured_store_revisions()
-        .filter(|revisions| !revisions.is_empty())
-        .map(<[ConstraintStoreRevision]>::to_vec)
-        .ok_or_else(InternalError::store_corruption)
-}
-
 fn progress_for_job(job: ConstraintValidationJob) -> ConstraintValidationProgress {
     if let Some(receipt) = job.last_receipt().cloned() {
         return ConstraintValidationProgress::Findings {
@@ -1424,151 +1187,6 @@ fn unique_candidate_for_activation(
         return Err(InternalError::store_corruption());
     }
     Ok(candidate)
-}
-
-fn relation_candidate_for_activation(
-    accepted: &AcceptedSchemaSnapshot,
-    constraint_id: ConstraintId,
-) -> Result<&crate::db::schema::PersistedRelationEdgeSnapshot, InternalError> {
-    let snapshot = accepted.persisted_snapshot();
-    let activation = snapshot
-        .constraint_catalog()
-        .activation(constraint_id)
-        .ok_or_else(InternalError::store_corruption)?;
-    let ConstraintActivationKind::Relation { relation_id } = activation.kind() else {
-        return Err(InternalError::store_unsupported());
-    };
-    let mut matching = snapshot
-        .candidate_relations()
-        .iter()
-        .filter(|relation| relation.id() == *relation_id);
-    let candidate = matching
-        .next()
-        .ok_or_else(InternalError::store_corruption)?;
-    if matching.next().is_some() || candidate.physical_generation() != activation.activation_epoch()
-    {
-        return Err(InternalError::store_corruption());
-    }
-    Ok(candidate)
-}
-
-/// Whether one relation page builds isolated reverse state or proves it read-only.
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RelationValidationMode {
-    Forward,
-    Verify,
-}
-
-/// Bounded result of scanning one relation-activation page.
-
-struct RelationValidationPageScan {
-    checkpoint: Option<RawDataStoreKey>,
-    rows_scanned: usize,
-    findings: Vec<ConstraintValidationFinding>,
-    staged_entries: Vec<RelationConstraintIndexEntry>,
-    exhausted: bool,
-}
-
-fn scan_relation_validation_page(
-    store: StoreHandle,
-    entity_tag: EntityTag,
-    checkpoint: Option<&RawDataStoreKey>,
-    contract: &crate::db::data::StructuralRowContract,
-    projection: &RelationConstraintProjection,
-    dependency_fields: &[crate::db::schema::FieldId],
-    mode: RelationValidationMode,
-) -> Result<RelationValidationPageScan, InternalError> {
-    let range = RawDataStoreKeyRange::entity_prefix(entity_tag);
-    let lower = checkpoint.cloned().map_or_else(
-        || Bound::Included(RawDataStoreKey::store_range_lower_key(&range)),
-        Bound::Excluded,
-    );
-    let upper = range
-        .upper_exclusive()
-        .map(RawDataStoreKey::from_store_range_bound)
-        .map_or(Bound::Unbounded, Bound::Excluded);
-    let mut final_checkpoint = checkpoint.cloned();
-    let mut rows_scanned = 0usize;
-    let mut decoded_bytes = 0usize;
-    let mut staged_bytes = 0usize;
-    let mut findings = Vec::new();
-    let mut staged_entries = Vec::new();
-    let mut has_more = false;
-
-    store.with_data(|data| {
-        data.visit_range((lower, upper), |raw_key, raw_row| {
-            let row_bytes = raw_row.len();
-            if rows_scanned == MAX_VALIDATION_ROWS_PER_PAGE
-                || findings.len() == MAX_VALIDATION_FINDINGS_PER_PAGE
-                || (rows_scanned != 0
-                    && decoded_bytes.saturating_add(row_bytes)
-                        > MAX_VALIDATION_DECODED_BYTES_PER_PAGE)
-            {
-                has_more = true;
-                return Ok(StoreVisit::Stop);
-            }
-            let decoded_key = DecodedDataStoreKey::try_from_raw(raw_key)
-                .map_err(|_| InternalError::identity_corruption())?;
-            if decoded_key.entity_tag() != entity_tag {
-                return Err(InternalError::identity_corruption());
-            }
-            let row = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-                raw_row, contract,
-            )?;
-            row.validate_primary_key(&decoded_key)?;
-            let candidate = projection.project_row(&decoded_key.primary_key_value(), &row, true)?;
-            let next_staged_bytes = candidate
-                .entries()
-                .iter()
-                .fold(staged_bytes, |bytes, entry| {
-                    bytes.saturating_add(entry.key().as_bytes().len())
-                });
-            if next_staged_bytes > MAX_VALIDATION_STAGED_BYTES_PER_PAGE {
-                if rows_scanned == 0 {
-                    return Err(InternalError::store_unsupported());
-                }
-                has_more = true;
-                return Ok(StoreVisit::Stop);
-            }
-            let missing_entry = mode == RelationValidationMode::Verify
-                && candidate.entries().iter().any(|entry| {
-                    entry
-                        .target_store()
-                        .with_index(|index_store| index_store.get(entry.key()).is_none())
-                });
-            if !candidate.missing_targets().is_empty() || missing_entry {
-                let error = match candidate.missing_targets().first() {
-                    Some(target) => projection.missing_target_error(target)?,
-                    None => InternalError::index_violation(contract.entity_path(), &[]),
-                };
-                findings.push(ConstraintValidationFinding::new(
-                    raw_key.clone(),
-                    dependency_fields.to_vec(),
-                    error.diagnostic().error_code().raw(),
-                ));
-            }
-            staged_bytes = next_staged_bytes;
-            if mode == RelationValidationMode::Forward {
-                staged_entries.extend(candidate.into_entries());
-            }
-            decoded_bytes = decoded_bytes.saturating_add(row_bytes);
-            rows_scanned = rows_scanned.saturating_add(1);
-            final_checkpoint = Some(raw_key.clone());
-            Ok(StoreVisit::Continue)
-        })
-    })?;
-    staged_entries.sort_unstable_by(|left, right| {
-        (left.target_store_path(), left.key()).cmp(&(right.target_store_path(), right.key()))
-    });
-
-    Ok(RelationValidationPageScan {
-        checkpoint: final_checkpoint,
-        rows_scanned,
-        findings,
-        staged_entries,
-        exhausted: !has_more,
-    })
 }
 
 /// Whether one unique page builds isolated state or proves it read-only.

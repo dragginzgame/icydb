@@ -1,4 +1,4 @@
-use icydb::design::prelude::*;
+use icydb_model::prelude::*;
 use icydb_testing_wasm_helpers::{
     define_fixture_canister, define_fixture_store, define_simple_audit_entities,
 };
@@ -22,4 +22,7 @@ define_fixture_store!(
     )),
 );
 
-define_simple_audit_entities!("OneSimpleStore"; OneSimpleEntity01);
+define_simple_audit_entities!(
+    "OneSimpleStore";
+    OneSimpleEntity01 => "schema/audit/one_simple/src/one_simple.rs::OneSimpleEntity01"
+);

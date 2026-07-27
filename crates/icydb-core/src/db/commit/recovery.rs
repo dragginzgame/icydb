@@ -44,22 +44,18 @@ use crate::{
             AcceptedCatalogSnapshotSelection, CandidateSchemaRevision, ConstraintId, SchemaStore,
             accepted_commit_schema_fingerprint, apply_schema_application_record_op,
             decode_constraint_validation_job, decode_persisted_schema_snapshot,
-            load_accepted_schema_snapshot, reconcile_runtime_schemas,
-            reconcile_runtime_schemas_before_recovery_rebuild, verify_schema_application_record_op,
+            load_accepted_schema_snapshot, verify_schema_application_record_op,
         },
     },
     error::{ErrorOrigin, InternalError},
     traits::CanisterKind,
     types::EntityTag,
 };
+#[cfg(test)]
+use std::cell::RefCell;
+use std::collections::BTreeSet;
 #[cfg(not(test))]
 use std::sync::{Mutex, OnceLock};
-use std::{cell::RefCell, collections::BTreeSet};
-
-#[cfg(test)]
-use crate::db::commit::failpoint::{CommitFailpoint, hit_commit_failpoint};
-#[cfg(test)]
-use crate::db::database_format::clear_database_format_admission_for_tests;
 
 #[cfg(not(test))]
 static RECOVERED_KEYS: OnceLock<Mutex<Vec<RecoveryDomainKey>>> = OnceLock::new();
@@ -67,8 +63,6 @@ static RECOVERED_KEYS: OnceLock<Mutex<Vec<RecoveryDomainKey>>> = OnceLock::new()
 static RECOVERY_IN_PROGRESS_KEYS: OnceLock<Mutex<Vec<RecoveryDomainKey>>> = OnceLock::new();
 
 thread_local! {
-    static SCHEMA_RECONCILED_KEYS: RefCell<Vec<SchemaReconciliationKey>> =
-        const { RefCell::new(Vec::new()) };
     // Test stores use thread-local stable memory, so their recovered authority
     // must have the same ownership boundary.
     #[cfg(test)]
@@ -80,7 +74,7 @@ thread_local! {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct SchemaReconciliationKey {
+struct RuntimeRegistrationDomainKey {
     store_registry: usize,
     entity_registrations: usize,
 }
@@ -88,7 +82,7 @@ struct SchemaReconciliationKey {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct RecoveryDomainKey {
     commit_allocation: CommitMemoryAllocation,
-    schema: SchemaReconciliationKey,
+    runtime_registration: RuntimeRegistrationDomainKey,
 }
 
 /// Ensure global database invariants are restored before proceeding.
@@ -121,7 +115,7 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
     let recovery_in_progress = recovery_domain_in_progress(recovery_key);
 
     if !commit_marker_may_be_present() && !recovery_in_progress {
-        return ensure_schema_reconciled(db);
+        return Ok(());
     }
 
     if commit_marker_present_fast().map_err(|err| err.with_origin(ErrorOrigin::Recovery))? {
@@ -137,33 +131,6 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
 
     mark_commit_marker_verified_absent();
 
-    ensure_schema_reconciled(db)
-}
-
-#[cfg(test)]
-pub(in crate::db::commit) fn clear_recovery_in_progress_for_tests() {
-    RECOVERY_IN_PROGRESS_KEYS.with(|keys| keys.borrow_mut().clear());
-}
-
-#[cfg(test)]
-pub(in crate::db) fn clear_recovery_runtime_state_for_tests<C: CanisterKind>(
-    db: &Db<C>,
-) -> Result<(), InternalError> {
-    let recovery_key = recovery_domain_key(db)?;
-    RECOVERED_KEYS.with(|keys| {
-        keys.try_borrow_mut()
-            .map_err(|_| InternalError::store_invariant())?
-            .retain(|existing| *existing != recovery_key);
-        Ok::<(), InternalError>(())
-    })?;
-
-    clear_recovery_domain_in_progress(recovery_key);
-    let schema_key = schema_reconciliation_key(db);
-    SCHEMA_RECONCILED_KEYS.with(|keys| {
-        keys.borrow_mut().retain(|existing| *existing != schema_key);
-    });
-    clear_database_format_admission_for_tests();
-
     Ok(())
 }
 
@@ -174,23 +141,11 @@ fn recover_domain<C: CanisterKind>(
     mark_recovery_domain_in_progress(recovery_key);
     let marker = with_commit_store(super::store::CommitStore::load)
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
-    // Ordinary row replay needs the current schema reconciled before it can
-    // decode rows. A schema-publication marker instead owns accepted-after:
-    // replay that candidate first, then reconcile the generated proposal
-    // against the newly authoritative accepted schema.
-    if !marker
-        .as_ref()
-        .is_some_and(marker_authorizes_schema_publication)
-    {
-        ensure_schema_reconciled_before_rebuild(db)?;
-    }
     perform_recovery(db, marker)?;
     mark_recovery_domain_recovered(recovery_key)
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     clear_recovery_domain_in_progress(recovery_key);
-    mark_schema_reconciliation_dirty(db);
-
-    ensure_schema_reconciled(db)
+    Ok(())
 }
 
 fn perform_recovery<C: CanisterKind>(
@@ -251,15 +206,6 @@ fn perform_recovery<C: CanisterKind>(
     Ok(())
 }
 
-fn marker_authorizes_schema_publication(marker: &CommitMarker) -> bool {
-    marker.journal_batches().iter().any(|batch| {
-        batch
-            .records()
-            .iter()
-            .any(|record| matches!(record, JournalRecord::AcceptedSchemaPublish { .. }))
-    })
-}
-
 fn publish_marker_bound_journal_batches<C: CanisterKind>(
     db: &Db<C>,
     marker: &CommitMarker,
@@ -270,11 +216,7 @@ fn publish_marker_bound_journal_batches<C: CanisterKind>(
             .journal_tail_store()
             .ok_or_else(InternalError::store_corruption)?;
         journal_store.with_borrow_mut(|store| {
-            #[cfg(test)]
-            hit_commit_failpoint(CommitFailpoint::BeforeMarkerBoundJournalAppend)?;
             store.append_batch(batch)?;
-            #[cfg(test)]
-            hit_commit_failpoint(CommitFailpoint::AfterMarkerBoundJournalAppend)?;
 
             Ok::<(), InternalError>(())
         })?;
@@ -322,8 +264,6 @@ fn fold_journaled_tails<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError
 
         journal_store.with_borrow(|store| {
             store.visit_batches_after(watermark.highest_folded_journal_sequence(), |batch| {
-                #[cfg(test)]
-                hit_commit_failpoint(CommitFailpoint::BeforeJournalTailFoldBatch)?;
                 fold_journal_batch(db, store_path, handle, batch)?;
                 highest_folded = batch.journal_sequence();
                 Ok(())
@@ -338,8 +278,6 @@ fn fold_journaled_tails<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError
             let next_watermark = FoldWatermark::new(highest_folded, next_epoch);
             journal_store.with_borrow_mut(|store| {
                 store.persist_fold_watermark(next_watermark)?;
-                #[cfg(test)]
-                hit_commit_failpoint(CommitFailpoint::AfterJournalTailFoldWatermarkPersist)?;
                 store.clear_batches_through(highest_folded);
 
                 Ok::<(), InternalError>(())
@@ -361,8 +299,6 @@ fn fold_journaled_index_materialized_views<C: CanisterKind>(
 ) -> Result<(), InternalError> {
     for (_, handle) in sorted_journaled_store_handles(db) {
         handle.with_index_mut(IndexStore::fold_journaled_materialized_view)?;
-        #[cfg(test)]
-        hit_commit_failpoint(CommitFailpoint::AfterJournaledIndexMaterializedViewFold)?;
     }
 
     Ok(())
@@ -1174,55 +1110,8 @@ fn recovery_runtime_registration_for_entity_path<C: CanisterKind>(
         .map_err(|_| InternalError::store_corruption())
 }
 
-// Reconcile generated entity metadata with the schema store once per generated
-// store registry. This keeps the fast recovery path cheap while still allowing
-// independent test registries and canister domains to initialize their own
-// schema metadata.
-fn ensure_schema_reconciled<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
-    ensure_schema_reconciled_for_phase(db, SchemaReconciliationPhase::Ordinary)
-}
-
-fn ensure_schema_reconciled_before_rebuild<C: CanisterKind>(
-    db: &Db<C>,
-) -> Result<(), InternalError> {
-    ensure_schema_reconciled_for_phase(db, SchemaReconciliationPhase::BeforeRecoveryRebuild)
-}
-
-/// Derived-state phase paired with one schema-reconciliation invocation.
-///
-/// Recovery owns this distinction so schema code never infers rebuild
-/// authority from marker presence or index readiness.
-#[derive(Clone, Copy)]
-enum SchemaReconciliationPhase {
-    Ordinary,
-    BeforeRecoveryRebuild,
-}
-
-fn ensure_schema_reconciled_for_phase<C: CanisterKind>(
-    db: &Db<C>,
-    phase: SchemaReconciliationPhase,
-) -> Result<(), InternalError> {
-    let key = schema_reconciliation_key(db);
-    if schema_reconciliation_clean(key) {
-        return Ok(());
-    }
-
-    match phase {
-        SchemaReconciliationPhase::Ordinary => {
-            reconcile_runtime_schemas(db, db.entity_registrations)
-        }
-        SchemaReconciliationPhase::BeforeRecoveryRebuild => {
-            reconcile_runtime_schemas_before_recovery_rebuild(db, db.entity_registrations)
-        }
-    }
-    .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
-    mark_schema_reconciliation_clean(key);
-
-    Ok(())
-}
-
-fn schema_reconciliation_key<C: CanisterKind>(db: &Db<C>) -> SchemaReconciliationKey {
-    SchemaReconciliationKey {
+fn runtime_registration_domain_key<C: CanisterKind>(db: &Db<C>) -> RuntimeRegistrationDomainKey {
+    RuntimeRegistrationDomainKey {
         store_registry: std::ptr::from_ref(db.store).cast::<()>() as usize,
         entity_registrations: db.entity_registrations.as_ptr().cast::<()>() as usize,
     }
@@ -1231,7 +1120,7 @@ fn schema_reconciliation_key<C: CanisterKind>(db: &Db<C>) -> SchemaReconciliatio
 fn recovery_domain_key<C: CanisterKind>(db: &Db<C>) -> Result<RecoveryDomainKey, InternalError> {
     Ok(RecoveryDomainKey {
         commit_allocation: current_commit_memory_allocation()?,
-        schema: schema_reconciliation_key(db),
+        runtime_registration: runtime_registration_domain_key(db),
     })
 }
 
@@ -1336,32 +1225,6 @@ fn clear_recovery_domain_in_progress(key: RecoveryDomainKey) {
     });
 }
 
-fn schema_reconciliation_clean(key: SchemaReconciliationKey) -> bool {
-    SCHEMA_RECONCILED_KEYS.with(|keys| keys.borrow().contains(&key))
-}
-
-fn mark_schema_reconciliation_clean(key: SchemaReconciliationKey) {
-    SCHEMA_RECONCILED_KEYS.with(|keys| {
-        let mut keys = keys.borrow_mut();
-        if !keys.contains(&key) {
-            keys.push(key);
-        }
-    });
-}
-
-#[cfg(test)]
-pub(in crate::db::commit) fn mark_schema_reconciliation_dirty_for_tests<C: CanisterKind>(
-    db: &Db<C>,
-) {
-    mark_schema_reconciliation_dirty(db);
-}
-
-fn mark_schema_reconciliation_dirty<C: CanisterKind>(db: &Db<C>) {
-    let key = schema_reconciliation_key(db);
-    SCHEMA_RECONCILED_KEYS.with(|keys| {
-        keys.borrow_mut().retain(|existing| *existing != key);
-    });
-}
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum RecoveredEffectIdentity {
     Row {

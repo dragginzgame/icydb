@@ -1,8 +1,6 @@
 use icydb::{
-    db::{
-        DbSession, DynamicQuery, StructuralMutation, StructuralPatch, TypedWrite, WriteCell,
-    },
-    traits::{CanisterKind, EntityFor},
+    db::{DbSession, DynamicQuery, StructuralMutation, StructuralPatch, WriteCell},
+    traits::CanisterKind,
     value::InputValue,
 };
 
@@ -23,10 +21,9 @@ where
     let _ = db.execute_trusted_dynamic_query(&request);
 }
 
-fn trusted_sql_mutation_compiles<C, E>(db: &DbSession<C>, sql: &str)
+fn trusted_sql_mutation_compiles<C>(db: &DbSession<C>, sql: &str)
 where
     C: CanisterKind,
-    E: EntityFor<C>,
 {
     let _ = db.execute_trusted_sql_mutation(sql);
 }
@@ -44,24 +41,11 @@ where
         entity: "app::User".to_string(),
         patch,
     });
-    if let Ok(binding) = db.bind_typed_entity(
-        "app:entity:user",
-        ["app:field:user-id", "app:field:user-name"],
-    ) {
-        let _ = TypedWrite::insert(
-            &binding,
-            [(
-                "app:field:user-name",
-                WriteCell::Value(InputValue::Text("Ada".to_string())),
-            )],
-        );
-    }
 }
 
-fn trusted_sql_update_contracts_compile<C, E>(db: &DbSession<C>, sql: &str)
+fn trusted_sql_update_contracts_compile<C>(db: &DbSession<C>, sql: &str)
 where
     C: CanisterKind,
-    E: EntityFor<C>,
 {
     let _ = db.execute_trusted_sql_exact_update(sql, 10);
     let _ = db.execute_trusted_sql_prefix_update(sql);
@@ -74,12 +58,11 @@ where
     }
 }
 
-fn admin_sql_ddl_compiles<C, E>(db: &DbSession<C>, sql: &str)
+fn admin_sql_ddl_compiles<C>(db: &DbSession<C>, sql: &str)
 where
     C: CanisterKind,
-    E: EntityFor<C>,
 {
-    let _ = db.execute_admin_sql_ddl::<E>(sql);
+    let _ = db.execute_admin_sql_ddl(sql);
 }
 
 fn admin_integrity_sql_compiles<C>(db: &DbSession<C>, sql: &str)

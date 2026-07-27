@@ -15,6 +15,7 @@ ignored = ["candid"]
 [dependencies]
 candid = { workspace = true }
 icydb = { workspace = true }
+icydb-model = { workspace = true }
 
 [dev-dependencies]
 icydb-core = { workspace = true }

@@ -1,11 +1,7 @@
 use crate::{
-    db::data::persisted_row::codec::{
-        decode_required_with_strategy, decode_with_strategy, encode_with_strategy,
-        strategy::StorageStrategy,
-    },
     error::InternalError,
     model::field::ScalarCodec,
-    types::{Blob, Date, Duration, Float32, Float64, Principal, Subaccount, Timestamp, Ulid, Unit},
+    types::{Date, Duration, Float32, Float64, Principal, Subaccount, Timestamp, Ulid},
     value::Value,
 };
 use std::str;
@@ -27,7 +23,7 @@ const SCALAR_BOOL_TRUE_TAG: u8 = 1;
 ///
 
 #[derive(Clone, Copy, Debug)]
-pub enum ScalarValueRef<'a> {
+pub(crate) enum ScalarValueRef<'a> {
     Blob(&'a [u8]),
     Bool(bool),
     Date(Date),
@@ -47,7 +43,7 @@ pub enum ScalarValueRef<'a> {
 impl ScalarValueRef<'_> {
     /// Materialize this scalar view into the runtime `Value` enum.
     #[must_use]
-    pub fn into_value(self) -> Value {
+    pub(crate) fn into_value(self) -> Value {
         match self {
             Self::Blob(value) => Value::Blob(value.to_vec()),
             Self::Bool(value) => Value::Bool(value),
@@ -77,125 +73,9 @@ impl ScalarValueRef<'_> {
 ///
 
 #[derive(Clone, Copy, Debug)]
-pub enum ScalarSlotValueRef<'a> {
+pub(crate) enum ScalarSlotValueRef<'a> {
     Null,
     Value(ScalarValueRef<'a>),
-}
-
-///
-/// PersistedScalar
-///
-/// PersistedScalar defines the canonical binary payload codec for one scalar
-/// leaf type.
-/// Derive-generated persisted-row materializers and writers use this trait to
-/// avoid routing scalar fields back through a generic structural envelope.
-///
-
-pub trait PersistedScalar: Sized {
-    /// Canonical scalar codec identifier used by schema/runtime metadata.
-    const CODEC: ScalarCodec;
-
-    /// Encode this scalar value into its codec-specific payload bytes.
-    fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError>;
-
-    /// Decode this scalar value from its codec-specific payload bytes.
-    fn decode_scalar_payload(bytes: &[u8], field_name: &'static str)
-    -> Result<Self, InternalError>;
-}
-
-// Encode a typed scalar through the strategy-owned scalar envelope. Both
-// nullable and required scalar entrypoints share this adapter.
-fn encode_scalar_value<T>(
-    _strategy: StorageStrategy,
-    value: &T,
-    field_name: &'static str,
-) -> Result<Vec<u8>, InternalError>
-where
-    T: PersistedScalar,
-{
-    let payload = value.encode_scalar_payload()?;
-
-    encode_scalar_payload_envelope(payload.as_slice(), field_name)
-}
-
-/// Encode one persisted scalar slot payload using the canonical scalar envelope.
-pub fn encode_persisted_scalar_slot_payload<T>(
-    value: &T,
-    field_name: &'static str,
-) -> Result<Vec<u8>, InternalError>
-where
-    T: PersistedScalar,
-{
-    encode_with_strategy(
-        StorageStrategy::Scalar,
-        Some(value),
-        field_name,
-        encode_scalar_value,
-    )
-}
-
-/// Encode one optional persisted scalar slot payload preserving explicit `NULL`.
-pub fn encode_persisted_option_scalar_slot_payload<T>(
-    value: &Option<T>,
-    field_name: &'static str,
-) -> Result<Vec<u8>, InternalError>
-where
-    T: PersistedScalar,
-{
-    encode_with_strategy(
-        StorageStrategy::Scalar,
-        value.as_ref(),
-        field_name,
-        encode_scalar_value,
-    )
-}
-
-// Decode a typed scalar from the strategy-owned scalar envelope. The shared
-// decode gateway owns required/null policy around this adapter.
-fn decode_scalar_value<T>(
-    _strategy: StorageStrategy,
-    bytes: &[u8],
-    field_name: &'static str,
-) -> Result<Option<T>, InternalError>
-where
-    T: PersistedScalar,
-{
-    decode_scalar_slot_payload_body(bytes, field_name)?
-        .map(|payload| T::decode_scalar_payload(payload, field_name))
-        .transpose()
-}
-
-/// Decode one persisted scalar slot payload using the canonical scalar envelope.
-pub fn decode_persisted_scalar_slot_payload<T>(
-    bytes: &[u8],
-    field_name: &'static str,
-) -> Result<T, InternalError>
-where
-    T: PersistedScalar,
-{
-    decode_required_with_strategy(
-        StorageStrategy::Scalar,
-        bytes,
-        field_name,
-        "unexpected null for non-nullable scalar field",
-        decode_scalar_value,
-    )
-}
-
-/// Decode one optional persisted scalar slot payload preserving explicit `NULL`.
-pub fn decode_persisted_option_scalar_slot_payload<T>(
-    bytes: &[u8],
-    field_name: &'static str,
-) -> Result<Option<T>, InternalError>
-where
-    T: PersistedScalar,
-{
-    decode_with_strategy(
-        StorageStrategy::Scalar,
-        bytes,
-        field_name,
-        decode_scalar_value,
-    )
 }
 
 // Copy a fixed-width scalar payload into an array while preserving the exact
@@ -204,12 +84,6 @@ fn decode_fixed<const N: usize>(bytes: &[u8], field_name: &str) -> Result<[u8; N
     bytes
         .try_into()
         .map_err(|_| InternalError::persisted_row_field_payload_exact_len_required(field_name))
-}
-
-// Encode fixed-width scalar primitives into owned payload bytes. This is only a
-// named version of the repeated `to_le_bytes().to_vec()` shape.
-fn encode_fixed<const N: usize>(bytes: [u8; N]) -> Vec<u8> {
-    bytes.to_vec()
 }
 
 // Decode the one-byte boolean scalar payload shared by raw scalar slots and
@@ -278,25 +152,6 @@ pub(in crate::db::data::persisted_row::codec) fn encode_null_slot_payload() -> V
     write_scalar_envelope_prefix(&mut encoded, true);
 
     encoded
-}
-
-// Wrap one typed scalar payload in the persisted scalar slot envelope. This is
-// shared by generated scalar field writes and manual scalar payload writes.
-fn encode_scalar_payload_envelope(
-    payload: &[u8],
-    field_name: &'static str,
-) -> Result<Vec<u8>, InternalError> {
-    let mut encoded = Vec::with_capacity(payload.len() + 2);
-    write_scalar_envelope_prefix(&mut encoded, false);
-    encoded.extend_from_slice(payload);
-
-    if encoded.len() < 2 {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        ));
-    }
-
-    Ok(encoded)
 }
 
 // Compute the encoded scalar payload size before writing the slot envelope so
@@ -463,280 +318,4 @@ pub(in crate::db::data::persisted_row) fn decode_scalar_slot_value<'a>(
     };
 
     Ok(ScalarSlotValueRef::Value(value))
-}
-
-macro_rules! impl_persisted_scalar_signed {
-    ($($ty:ty),* $(,)?) => {
-        $(
-            impl PersistedScalar for $ty {
-                const CODEC: ScalarCodec = ScalarCodec::Int64;
-
-                fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
-                    Ok(encode_fixed(i64::from(*self).to_le_bytes()))
-                }
-
-                fn decode_scalar_payload(
-                    bytes: &[u8],
-                    field_name: &'static str,
-                ) -> Result<Self, InternalError> {
-                    <$ty>::try_from(decode_i64_payload(bytes, field_name)?).map_err(|_| {
-                        InternalError::persisted_row_field_payload_out_of_range(field_name)
-                    })
-                }
-            }
-        )*
-    };
-}
-
-macro_rules! impl_persisted_scalar_unsigned {
-    ($($ty:ty),* $(,)?) => {
-        $(
-            impl PersistedScalar for $ty {
-                const CODEC: ScalarCodec = ScalarCodec::Nat64;
-
-                fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
-                    Ok(encode_fixed(u64::from(*self).to_le_bytes()))
-                }
-
-                fn decode_scalar_payload(
-                    bytes: &[u8],
-                    field_name: &'static str,
-                ) -> Result<Self, InternalError> {
-                    <$ty>::try_from(decode_u64_payload(bytes, field_name)?).map_err(|_| {
-                        InternalError::persisted_row_field_payload_out_of_range(field_name)
-                    })
-                }
-            }
-        )*
-    };
-}
-
-impl_persisted_scalar_signed!(i8, i16, i32, i64);
-impl_persisted_scalar_unsigned!(u8, u16, u32, u64);
-
-impl PersistedScalar for bool {
-    const CODEC: ScalarCodec = ScalarCodec::Bool;
-
-    fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
-        Ok(vec![u8::from(*self)])
-    }
-
-    fn decode_scalar_payload(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        decode_bool_scalar_payload(bytes, field_name)
-    }
-}
-
-impl PersistedScalar for String {
-    const CODEC: ScalarCodec = ScalarCodec::Text;
-
-    fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
-        Ok(self.as_bytes().to_vec())
-    }
-
-    fn decode_scalar_payload(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        str::from_utf8(bytes)
-            .map(str::to_owned)
-            .map_err(|_| InternalError::persisted_row_field_text_payload_invalid_utf8(field_name))
-    }
-}
-
-impl PersistedScalar for Vec<u8> {
-    const CODEC: ScalarCodec = ScalarCodec::Blob;
-
-    fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
-        Ok(self.clone())
-    }
-
-    fn decode_scalar_payload(
-        bytes: &[u8],
-        _field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        Ok(bytes.to_vec())
-    }
-}
-
-impl PersistedScalar for Blob {
-    const CODEC: ScalarCodec = ScalarCodec::Blob;
-
-    fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
-        Ok(self.to_vec())
-    }
-
-    fn decode_scalar_payload(
-        bytes: &[u8],
-        _field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        Ok(Self::from(bytes))
-    }
-}
-
-impl PersistedScalar for Ulid {
-    const CODEC: ScalarCodec = ScalarCodec::Ulid;
-
-    fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
-        Ok(self.to_bytes().to_vec())
-    }
-
-    fn decode_scalar_payload(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        Self::try_from_bytes(bytes)
-            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
-    }
-}
-
-impl PersistedScalar for Timestamp {
-    const CODEC: ScalarCodec = ScalarCodec::Timestamp;
-
-    fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
-        Ok(encode_fixed(self.as_millis().to_le_bytes()))
-    }
-
-    fn decode_scalar_payload(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        Ok(Self::from_millis(decode_i64_payload(bytes, field_name)?))
-    }
-}
-
-impl PersistedScalar for Date {
-    const CODEC: ScalarCodec = ScalarCodec::Date;
-
-    fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
-        Ok(encode_fixed(self.as_days_since_epoch().to_le_bytes()))
-    }
-
-    fn decode_scalar_payload(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        Ok(Self::from_days_since_epoch(decode_i32_payload(
-            bytes, field_name,
-        )?))
-    }
-}
-
-impl PersistedScalar for Duration {
-    const CODEC: ScalarCodec = ScalarCodec::Duration;
-
-    fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
-        Ok(encode_fixed(self.as_millis().to_le_bytes()))
-    }
-
-    fn decode_scalar_payload(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        Ok(Self::from_millis(decode_u64_payload(bytes, field_name)?))
-    }
-}
-
-impl PersistedScalar for Float32 {
-    const CODEC: ScalarCodec = ScalarCodec::Float32;
-
-    fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
-        Ok(encode_fixed(self.get().to_bits().to_le_bytes()))
-    }
-
-    fn decode_scalar_payload(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        let value = f32::from_bits(decode_u32_payload(bytes, field_name)?);
-
-        Self::try_new(value)
-            .ok_or_else(|| InternalError::persisted_row_field_payload_non_finite(field_name))
-    }
-}
-
-impl PersistedScalar for Float64 {
-    const CODEC: ScalarCodec = ScalarCodec::Float64;
-
-    fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
-        Ok(encode_fixed(self.get().to_bits().to_le_bytes()))
-    }
-
-    fn decode_scalar_payload(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        let value = f64::from_bits(decode_u64_payload(bytes, field_name)?);
-
-        Self::try_new(value)
-            .ok_or_else(|| InternalError::persisted_row_field_payload_non_finite(field_name))
-    }
-}
-
-impl PersistedScalar for Principal {
-    const CODEC: ScalarCodec = ScalarCodec::Principal;
-
-    fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
-        self.to_bytes()
-            .map_err(|_err| InternalError::persisted_row_encode_internal())
-    }
-
-    fn decode_scalar_payload(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        Self::try_from_bytes(bytes)
-            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
-    }
-}
-
-impl PersistedScalar for Subaccount {
-    const CODEC: ScalarCodec = ScalarCodec::Subaccount;
-
-    fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
-        Ok(self.to_bytes().to_vec())
-    }
-
-    fn decode_scalar_payload(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        Ok(Self::from_array(decode_fixed(bytes, field_name)?))
-    }
-}
-
-impl PersistedScalar for () {
-    const CODEC: ScalarCodec = ScalarCodec::Unit;
-
-    fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
-        Ok(Vec::new())
-    }
-
-    fn decode_scalar_payload(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        decode_unit_scalar_payload(bytes, field_name)?;
-
-        Ok(())
-    }
-}
-
-impl PersistedScalar for Unit {
-    const CODEC: ScalarCodec = ScalarCodec::Unit;
-
-    fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
-        Ok(Vec::new())
-    }
-
-    fn decode_scalar_payload(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        decode_unit_scalar_payload(bytes, field_name)?;
-
-        Ok(Self)
-    }
 }

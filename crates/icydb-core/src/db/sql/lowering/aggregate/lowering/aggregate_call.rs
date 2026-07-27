@@ -35,7 +35,7 @@ fn lower_sql_aggregate_shape(
     } = call;
     let filter_expr = filter_expr
         .map(|expr| lower_sql_pre_aggregate_bool_expr(expr.as_ref()))
-        .map(|expr| expr.map(|expr| AnalyzedLoweredExpr::new(expr, None)))
+        .map(|expr| expr.map(AnalyzedLoweredExpr::new))
         .transpose()?;
 
     reject_distinct_filter_pairing(
@@ -64,13 +64,10 @@ fn lower_sql_aggregate_shape(
         }
         Some(input) => Ok(LoweredSqlAggregateShape::ExpressionInput {
             kind,
-            input_expr: AnalyzedLoweredExpr::new(
-                canonicalize_aggregate_input_expr(
-                    kind.aggregate_kind(),
-                    lower_sql_expr(&input, SqlExprPhase::PreAggregate)?,
-                ),
-                None,
-            ),
+            input_expr: AnalyzedLoweredExpr::new(canonicalize_aggregate_input_expr(
+                kind.aggregate_kind(),
+                lower_sql_expr(&input, SqlExprPhase::PreAggregate)?,
+            )),
             filter_expr,
             distinct,
         }),

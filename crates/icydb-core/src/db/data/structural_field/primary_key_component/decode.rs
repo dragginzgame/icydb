@@ -109,19 +109,6 @@ pub(in crate::db) fn decode_primary_key_component_field_binary_bytes(
     }
 }
 
-/// Decode one optional primary-key-component Structural Binary v1 field
-/// payload directly into its canonical `PrimaryKeyComponent` form.
-pub(in crate::db) fn decode_optional_primary_key_component_field_binary_bytes(
-    raw_bytes: &[u8],
-    kind: FieldKind,
-) -> Result<Option<PrimaryKeyComponent>, FieldDecodeError> {
-    if binary_payload_is_null(raw_bytes)? {
-        return Ok(None);
-    }
-
-    decode_primary_key_component_field_binary_bytes(raw_bytes, kind).map(Some)
-}
-
 /// Decode one Structural Binary v1 primary-key-component field payload
 /// directly into its semantic runtime value.
 pub(in crate::db) fn decode_primary_key_component_binary_value_bytes(

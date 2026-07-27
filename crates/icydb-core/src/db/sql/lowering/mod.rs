@@ -1,15 +1,14 @@
 //! Module: db::sql::lowering
 //! Responsibility: reduced SQL statement lowering into canonical query intent.
 //! Does not own: SQL tokenization/parsing, planner validation policy, or executor semantics.
-//! Boundary: frontend-only translation from parsed SQL statement contracts to `Query<E>`.
+//! Boundary: frontend-only translation from parsed SQL statement contracts to
+//! accepted-schema-owned structural query intent.
 
 mod aggregate;
 mod analysis;
 mod ast_depth;
 mod expr;
 mod normalize;
-#[cfg(test)]
-mod order_expr;
 mod predicate;
 mod prepare;
 mod select;
@@ -18,19 +17,11 @@ mod select;
 /// TESTS
 ///
 
-#[cfg(test)]
-mod tests;
-
 #[cfg(feature = "sql-explain")]
 use crate::db::sql::parser::SqlExplainMode;
 use crate::db::{
     query::intent::QueryError,
     sql::parser::{SqlParseError, SqlStatement},
-};
-#[cfg(test)]
-use crate::{
-    db::{predicate::MissingRowPolicy, query::intent::Query},
-    entity::EntityKind,
 };
 use icydb_diagnostic_code::SqlLoweringCode;
 
@@ -55,20 +46,10 @@ pub(in crate::db) use aggregate::compile_sql_global_aggregate_command_from_prepa
 pub(crate) use aggregate::{
     PreparedSqlScalarAggregatePlanFragment, PreparedSqlScalarAggregateStrategy,
 };
-#[cfg(test)]
-pub(crate) use aggregate::{
-    TypedSqlGlobalAggregateCommand, compile_sql_global_aggregate_command_for_model_only,
-};
 pub(in crate::db::sql::lowering) use analysis::{
     AnalyzedLoweredExpr, LoweredExprAnalysis, LoweredExprSourceRef, analyze_lowered_expr,
 };
-#[cfg(test)]
-pub(in crate::db::sql::lowering) use order_expr::{
-    lower_grouped_post_aggregate_order_expr_text, lower_supported_order_expr_text,
-};
 pub(in crate::db) use prepare::bind_sql_select_statement_structural_with_schema;
-#[cfg(test)]
-pub(crate) use prepare::lower_sql_command_from_prepared_statement_for_model_only;
 #[cfg(feature = "sql-explain")]
 pub(crate) use prepare::lower_sql_explain_command_from_prepared_statement_with_schema;
 pub(crate) use prepare::{
@@ -78,13 +59,7 @@ pub(crate) use prepare::{
 };
 pub(crate) use select::LoweredDeleteShape;
 pub(in crate::db::sql::lowering) use select::LoweredSqlFilter;
-#[cfg(test)]
-pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape_for_model_only;
 pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape_with_schema;
-#[cfg(all(test, feature = "sql-explain"))]
-pub(in crate::db) use select::apply_lowered_select_shape_for_model_only;
-#[cfg(test)]
-pub(in crate::db) use select::bind_lowered_sql_query_for_model_only;
 #[cfg(feature = "sql-explain")]
 pub(in crate::db) use select::bind_lowered_sql_query_structural_with_schema;
 pub(in crate::db::sql::lowering) use select::validate_base_query_sql_capabilities;
@@ -101,16 +76,14 @@ pub(in crate::db) use select::{
 ///
 /// Generic-free SQL command shape after reduced SQL parsing and entity-route
 /// normalization.
-/// This keeps statement-shape lowering shared across entities before typed
-/// `Query<E>` binding happens at the execution boundary.
+/// This keeps statement-shape lowering shared across entities before accepted
+/// schema binding happens at the execution boundary.
 ///
 #[derive(Clone, Debug)]
 pub struct LoweredSqlCommand(pub(in crate::db::sql::lowering) LoweredSqlCommandInner);
 
 #[derive(Clone, Debug)]
 pub(in crate::db::sql::lowering) enum LoweredSqlCommandInner {
-    #[cfg(test)]
-    Query(Box<LoweredSqlQuery>),
     #[cfg(feature = "sql-explain")]
     Explain {
         mode: SqlExplainMode,
@@ -123,53 +96,6 @@ pub(in crate::db::sql::lowering) enum LoweredSqlCommandInner {
         verbose: bool,
         command: Box<LoweredSqlGlobalAggregateCommand>,
     },
-    #[cfg(test)]
-    DescribeEntity,
-    #[cfg(test)]
-    ShowConstraintsEntity,
-    #[cfg(test)]
-    ShowIndexesEntity,
-    #[cfg(test)]
-    ShowColumnsEntity,
-    #[cfg(test)]
-    ShowEntities,
-    #[cfg(test)]
-    ShowStores,
-    #[cfg(test)]
-    ShowMemory,
-}
-
-///
-/// SqlCommand
-///
-/// Test-only typed SQL command shell over the shared lowered SQL surface.
-/// Runtime dispatch now consumes `LoweredSqlCommand` directly, but lowering
-/// tests still validate typed binding behavior on this local envelope.
-///
-#[cfg(test)]
-#[derive(Debug)]
-pub(crate) enum SqlCommand<E: EntityKind> {
-    Query(Query<E>),
-    GlobalAggregate(TypedSqlGlobalAggregateCommand<E>),
-    #[cfg(feature = "sql-explain")]
-    Explain {
-        mode: SqlExplainMode,
-        verbose: bool,
-        query: Query<E>,
-    },
-    #[cfg(feature = "sql-explain")]
-    ExplainGlobalAggregate {
-        mode: SqlExplainMode,
-        verbose: bool,
-        command: TypedSqlGlobalAggregateCommand<E>,
-    },
-    DescribeEntity,
-    ShowConstraintsEntity,
-    ShowIndexesEntity,
-    ShowColumnsEntity,
-    ShowEntities,
-    ShowStores,
-    ShowMemory,
 }
 
 impl LoweredSqlCommand {
@@ -183,44 +109,6 @@ impl LoweredSqlCommand {
         )
     }
 
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn query(&self) -> Option<&LoweredSqlQuery> {
-        match &self.0 {
-            LoweredSqlCommandInner::Query(query) => Some(query.as_ref()),
-            #[cfg(feature = "sql-explain")]
-            LoweredSqlCommandInner::Explain { .. } => None,
-            #[cfg(feature = "sql-explain")]
-            LoweredSqlCommandInner::ExplainGlobalAggregate { .. } => None,
-            LoweredSqlCommandInner::DescribeEntity
-            | LoweredSqlCommandInner::ShowConstraintsEntity
-            | LoweredSqlCommandInner::ShowIndexesEntity
-            | LoweredSqlCommandInner::ShowColumnsEntity
-            | LoweredSqlCommandInner::ShowEntities
-            | LoweredSqlCommandInner::ShowStores
-            | LoweredSqlCommandInner::ShowMemory => None,
-        }
-    }
-
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn into_query(self) -> Option<LoweredSqlQuery> {
-        match self.0 {
-            LoweredSqlCommandInner::Query(query) => Some(*query),
-            #[cfg(feature = "sql-explain")]
-            LoweredSqlCommandInner::Explain { .. } => None,
-            #[cfg(feature = "sql-explain")]
-            LoweredSqlCommandInner::ExplainGlobalAggregate { .. } => None,
-            LoweredSqlCommandInner::DescribeEntity
-            | LoweredSqlCommandInner::ShowConstraintsEntity
-            | LoweredSqlCommandInner::ShowIndexesEntity
-            | LoweredSqlCommandInner::ShowColumnsEntity
-            | LoweredSqlCommandInner::ShowEntities
-            | LoweredSqlCommandInner::ShowStores
-            | LoweredSqlCommandInner::ShowMemory => None,
-        }
-    }
-
     #[cfg(feature = "sql-explain")]
     #[must_use]
     pub(in crate::db) fn explain_query(&self) -> Option<(SqlExplainMode, bool, &LoweredSqlQuery)> {
@@ -230,16 +118,6 @@ impl LoweredSqlCommand {
                 verbose,
                 query,
             } => Some((*mode, *verbose, query.as_ref())),
-            #[cfg(test)]
-            LoweredSqlCommandInner::Query(_) => None,
-            #[cfg(test)]
-            LoweredSqlCommandInner::DescribeEntity
-            | LoweredSqlCommandInner::ShowConstraintsEntity
-            | LoweredSqlCommandInner::ShowIndexesEntity
-            | LoweredSqlCommandInner::ShowColumnsEntity
-            | LoweredSqlCommandInner::ShowEntities
-            | LoweredSqlCommandInner::ShowStores
-            | LoweredSqlCommandInner::ShowMemory => None,
             LoweredSqlCommandInner::ExplainGlobalAggregate { .. } => None,
         }
     }
@@ -248,10 +126,10 @@ impl LoweredSqlCommand {
 ///
 /// LoweredSqlQuery
 ///
-/// Generic-free executable SQL query shape prepared before typed query binding.
-/// Select and delete lowering stay shared until the final `Query<E>` build.
+/// Generic-free executable SQL query shape prepared for accepted-schema-owned
+/// explain planning.
 ///
-#[cfg(any(test, feature = "sql-explain"))]
+#[cfg(feature = "sql-explain")]
 #[derive(Clone, Debug)]
 pub(crate) enum LoweredSqlQuery {
     Select(LoweredSelectShape),
@@ -518,64 +396,5 @@ impl PreparedSqlStatement {
     #[must_use]
     pub(in crate::db) fn into_statement(self) -> SqlStatement {
         self.statement
-    }
-}
-
-/// Parse and lower one SQL statement into canonical query intent for `E`.
-#[cfg(test)]
-pub(crate) fn compile_sql_command<E: EntityKind>(
-    sql: &str,
-    consistency: MissingRowPolicy,
-) -> Result<SqlCommand<E>, SqlLoweringError> {
-    let statement = crate::db::sql::parser::parse_sql(sql)?;
-    let prepared = prepare_sql_statement(&statement, E::MODEL.name())?;
-
-    if prepared.statement().is_global_aggregate_lane_shape() {
-        return Ok(SqlCommand::GlobalAggregate(
-            aggregate::compile_sql_global_aggregate_command_from_prepared_for_model_only::<E>(
-                prepared,
-                consistency,
-            )?,
-        ));
-    }
-
-    let lowered = lower_sql_command_from_prepared_statement_for_model_only(prepared, E::MODEL)?;
-
-    // Keep the test-only typed envelope local to the single public test entry
-    // point instead of preserving a private forwarding chain.
-    match lowered.0 {
-        LoweredSqlCommandInner::Query(query) => Ok(SqlCommand::Query(
-            bind_lowered_sql_query_for_model_only::<E>(*query, consistency)?,
-        )),
-        #[cfg(feature = "sql-explain")]
-        LoweredSqlCommandInner::ExplainGlobalAggregate {
-            mode,
-            verbose,
-            command,
-        } => Ok(SqlCommand::ExplainGlobalAggregate {
-            mode,
-            verbose,
-            command: aggregate::bind_lowered_sql_global_aggregate_command_for_model_only::<E>(
-                *command,
-                consistency,
-            )?,
-        }),
-        #[cfg(feature = "sql-explain")]
-        LoweredSqlCommandInner::Explain {
-            mode,
-            verbose,
-            query,
-        } => Ok(SqlCommand::Explain {
-            mode,
-            verbose,
-            query: bind_lowered_sql_query_for_model_only::<E>(*query, consistency)?,
-        }),
-        LoweredSqlCommandInner::DescribeEntity => Ok(SqlCommand::DescribeEntity),
-        LoweredSqlCommandInner::ShowConstraintsEntity => Ok(SqlCommand::ShowConstraintsEntity),
-        LoweredSqlCommandInner::ShowIndexesEntity => Ok(SqlCommand::ShowIndexesEntity),
-        LoweredSqlCommandInner::ShowColumnsEntity => Ok(SqlCommand::ShowColumnsEntity),
-        LoweredSqlCommandInner::ShowEntities => Ok(SqlCommand::ShowEntities),
-        LoweredSqlCommandInner::ShowStores => Ok(SqlCommand::ShowStores),
-        LoweredSqlCommandInner::ShowMemory => Ok(SqlCommand::ShowMemory),
     }
 }

@@ -10,7 +10,6 @@ use crate::{
         data::AcceptedMutationIntentPatch,
         executor::{EntityAuthority, StructuralProjectionScanBudget},
         query::intent::StructuralQuery,
-        response::ResponseError,
         schema::{AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot},
         session::{
             AcceptedSchemaCatalogContext, AcceptedStructuralMutation,
@@ -52,8 +51,6 @@ use candidate::{
 const fn sql_write_error_class(error: &QueryError) -> ErrorClass {
     match error {
         QueryError::Execute(err) => err.as_internal().class(),
-        QueryError::Response(ResponseError::NotFound { .. }) => ErrorClass::NotFound,
-        QueryError::Response(ResponseError::NotUnique { .. }) => ErrorClass::Conflict,
         QueryError::Validate(_)
         | QueryError::Plan(_)
         | QueryError::Intent(_)

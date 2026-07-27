@@ -14,7 +14,7 @@ GUARDED_ROOTS=(
   "crates/icydb-core/src/db/schema/store"
   "crates/icydb-core/src/db/session/sql"
   "crates/icydb/src/db"
-  "crates/icydb-build/src"
+  "crates/icydb-model/src/build/actor"
 )
 
 INTERLEAVING_PATTERN="\\basync\\s+fn\\b|\\basync\\s+move\\b|\\.await\\b|\\bic_cdk::(call|spawn)\\b|\\bcall_raw\\b|\\bnotify_raw\\b|\\bic_cdk_timers\\b|\\bset_timer(_interval)?\\b"
@@ -37,7 +37,7 @@ fi
 RAW_RESUMABLE_CONTINUATION_PATTERN="TrustedResumableUpdateContinuation|prepare_trusted_sql_resumable_update|resume_trusted_sql_resumable_update"
 raw_resumable_generated_surface="$({
   rg -n --no-heading --color=never "$RAW_RESUMABLE_CONTINUATION_PATTERN" \
-    crates/icydb-build/src \
+    crates/icydb-model/src/build/actor \
     "${COMMON_GLOBS[@]}" \
     | strip_comment_only
 } || true)"

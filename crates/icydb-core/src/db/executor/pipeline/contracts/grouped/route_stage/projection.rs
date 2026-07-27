@@ -9,7 +9,7 @@ use crate::{
         direction::Direction,
         executor::{
             ExecutionTrace, GroupedPaginationWindow,
-            pipeline::contracts::{PageCursor, grouped::GroupedRouteStage},
+            pipeline::contracts::grouped::GroupedRouteStage,
             traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,
@@ -161,7 +161,7 @@ impl GroupedRouteStage {
     pub(in crate::db::executor) fn grouped_next_cursor(
         &self,
         last_group_key: Vec<Value>,
-    ) -> Result<PageCursor, InternalError> {
+    ) -> Result<crate::db::cursor::GroupedContinuationToken, InternalError> {
         self.continuation.grouped_next_cursor(last_group_key)
     }
 

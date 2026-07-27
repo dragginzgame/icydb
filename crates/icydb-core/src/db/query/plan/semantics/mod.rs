@@ -16,19 +16,11 @@ pub(in crate::db) use access_projection::{
     AccessPlanProjection, access_plan_label, explain_access_strategy_label, project_access_plan,
     project_explain_access_path,
 };
-pub(in crate::db) use group_distinct::global_distinct_group_spec_for_aggregate_identity;
 pub(in crate::db) use group_distinct::{
     GroupDistinctAdmissibility, GroupDistinctPolicyReason, grouped_distinct_admissibility,
     resolve_global_distinct_field_aggregate,
 };
-#[cfg(test)]
-pub(in crate::db) use group_distinct::{
-    global_distinct_field_aggregate_admissibility, is_global_distinct_field_aggregate_candidate,
-};
-#[cfg(test)]
-pub(in crate::db::query) use group_having::evaluate_grouped_having_compare;
 pub(in crate::db) use group_having::grouped_cursor_policy_violation;
-pub(in crate::db) use group_having::grouped_having_compare_expr;
 pub(in crate::db) use group_having::{
     GroupedCursorPolicyViolation, grouped_having_binary_compare_op,
     grouped_having_compare_op_supported,

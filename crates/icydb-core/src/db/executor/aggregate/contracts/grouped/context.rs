@@ -9,13 +9,6 @@ use crate::db::executor::{
     },
     group::{GroupKey, GroupKeySet},
 };
-#[cfg(test)]
-use crate::db::{
-    direction::Direction,
-    executor::aggregate::contracts::{
-        grouped::engine::GroupedAggregateState, plan::FieldSlot, spec::AggregateKind,
-    },
-};
 use crate::error::InternalError;
 use std::mem::size_of;
 
@@ -356,8 +349,6 @@ pub(in crate::db::executor) struct ExecutionConfig {
 pub(in crate::db::executor) struct ExecutionContext {
     config: ExecutionConfig,
     budget: ExecutionBudget,
-    #[cfg(test)]
-    seen_groups: GroupKeySet,
 }
 impl ExecutionConfig {
     /// Build one grouped hard-limit configuration.
@@ -369,23 +360,6 @@ impl ExecutionConfig {
         let max_distinct_values_per_group = derived_max_distinct_values_per_group(max_group_bytes);
         let max_distinct_values_total = max_distinct_values_per_group.saturating_mul(max_groups);
 
-        Self {
-            max_groups,
-            max_group_bytes,
-            max_distinct_values_per_group,
-            max_distinct_values_total,
-        }
-    }
-
-    /// Build one grouped hard-limit configuration with explicit DISTINCT limits.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db::executor) const fn with_hard_limits_and_distinct(
-        max_groups: u64,
-        max_group_bytes: u64,
-        max_distinct_values_per_group: u64,
-        max_distinct_values_total: u64,
-    ) -> Self {
         Self {
             max_groups,
             max_group_bytes,
@@ -428,20 +402,11 @@ impl ExecutionConfig {
 
 impl ExecutionContext {
     /// Build one execution context from grouped hard-limit policy.
-    #[cfg_attr(
-        not(test),
-        expect(
-            clippy::missing_const_for_fn,
-            reason = "test-only grouped-state fixtures keep execution-context construction non-const across the full target matrix"
-        )
-    )]
     #[must_use]
-    pub(in crate::db::executor) fn new(config: ExecutionConfig) -> Self {
+    pub(in crate::db::executor) const fn new(config: ExecutionConfig) -> Self {
         Self {
             config,
             budget: ExecutionBudget::new(),
-            #[cfg(test)]
-            seen_groups: GroupKeySet::new(),
         }
     }
 
@@ -474,47 +439,6 @@ impl ExecutionContext {
         }
     }
 
-    /// Build one grouped aggregate state through the execution-context boundary.
-    ///
-    /// This keeps grouped state construction policy-owned by executor context
-    /// so grouped operators cannot bypass centralized budget/config plumbing.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db::executor) fn create_grouped_state(
-        &self,
-        kind: AggregateKind,
-        direction: Direction,
-        distinct: bool,
-    ) -> GroupedAggregateState {
-        self.create_grouped_state_with_target(kind, direction, distinct, None)
-            .expect("grouped test helper should only construct admitted grouped state kinds")
-    }
-
-    /// Build one grouped aggregate state with one optional field-target slot.
-    ///
-    /// This keeps grouped field-target widening structural without forcing
-    /// existing grouped callers to thread unused target-slot inputs.
-    #[cfg(test)]
-    pub(in crate::db::executor) fn create_grouped_state_with_target(
-        &self,
-        kind: AggregateKind,
-        direction: Direction,
-        distinct: bool,
-        target_field: Option<FieldSlot>,
-    ) -> Result<GroupedAggregateState, InternalError> {
-        debug_assert!(
-            self.config.max_groups() > 0 || self.config.max_group_bytes() > 0,
-            "grouped execution config must expose at least one positive hard limit"
-        );
-        GroupedAggregateState::new_with_target(
-            kind,
-            direction,
-            distinct,
-            target_field,
-            self.config.max_distinct_values_per_group(),
-        )
-    }
-
     /// Record one new canonical group with one aggregate state slot.
     pub(in crate::db::executor::aggregate) fn record_new_group(
         &mut self,
@@ -524,26 +448,6 @@ impl ExecutionContext {
         self.budget.record_new_group_state(
             &self.config,
             true,
-            group_count_before_insert,
-            group_capacity_before_insert,
-        )
-    }
-
-    // Record one canonical grouped key through the shared grouped budget so
-    // test-only grouped state containers still count `max_groups` once across
-    // multiple grouped terminal states.
-    #[cfg(test)]
-    pub(in crate::db::executor::aggregate) fn record_new_canonical_group(
-        &mut self,
-        key: &GroupKey,
-        group_count_before_insert: usize,
-        group_capacity_before_insert: usize,
-    ) -> Result<(), GroupError> {
-        let new_group_key = self.seen_groups.insert_key(key.clone());
-
-        self.budget.record_new_group_state(
-            &self.config,
-            new_group_key,
             group_count_before_insert,
             group_capacity_before_insert,
         )

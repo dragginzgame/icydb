@@ -18,8 +18,6 @@ mod select_plan;
 mod write;
 mod write_returning;
 
-#[cfg(test)]
-use crate::db::PersistedRow;
 use crate::db::executor::EntityAuthority;
 #[cfg(feature = "diagnostics")]
 use crate::db::session::sql::SqlExecutePhaseAttribution;
@@ -41,8 +39,6 @@ use crate::{
 };
 #[cfg(feature = "diagnostics")]
 use diagnostics::measure_scalar_aggregate_execute_phase_with_physical_access;
-#[cfg(test)]
-use icydb_diagnostic_code::SqlLoweringCode;
 use write::execute_compiled_sql_write_with_default_cache;
 
 impl<C: CanisterKind> DbSession<C> {
@@ -58,20 +54,6 @@ impl<C: CanisterKind> DbSession<C> {
                 .authority(),
         )
         .map_err(QueryError::execute)
-    }
-
-    /// Execute one compiled reduced SQL statement into one unified SQL payload.
-    #[cfg(test)]
-    pub(in crate::db) fn execute_compiled_sql<E>(
-        &self,
-        compiled: &CompiledSqlCommand,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let (result, _) = self.execute_compiled_sql_with_cache_attribution::<E>(compiled)?;
-
-        Ok(result)
     }
 
     // Keep one perf-only execution entrypoint that returns cache attribution
@@ -145,38 +127,6 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    #[cfg(all(test, feature = "sql-explain"))]
-    fn execute_explain_sql_with_cache_attribution<E>(
-        &self,
-        lowered: &LoweredSqlCommand,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let catalog = self
-            .accepted_schema_catalog_context_for_query::<E>()
-            .map_err(QueryError::execute)?;
-        self.execute_explain_sql_with_catalog_cache_attribution::<E>(lowered, &catalog, None)
-    }
-
-    #[cfg(all(test, feature = "sql-explain"))]
-    fn execute_explain_sql_with_catalog_cache_attribution<E>(
-        &self,
-        lowered: &LoweredSqlCommand,
-        catalog: &AcceptedSchemaCatalogContext,
-        accepted_authority: Option<&EntityAuthority>,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        catalog.debug_assert_matches_entity::<E>();
-        self.execute_accepted_explain_sql_with_catalog_cache_attribution(
-            lowered,
-            catalog,
-            accepted_authority,
-        )
-    }
-
     #[cfg(feature = "sql-explain")]
     fn execute_accepted_explain_sql_with_catalog_cache_attribution(
         &self,
@@ -204,49 +154,6 @@ impl<C: CanisterKind> DbSession<C> {
         self.explain_lowered_sql_for_authority(lowered, authority, catalog, &schema_info)
             .map(SqlStatementResult::Explain)
             .map(|result| (result, SqlCacheAttribution::default()))
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn execute_compiled_sql_with_cache_attribution<E>(
-        &self,
-        compiled: &CompiledSqlCommand,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        if let Some(result) = self.execute_metadata_compiled_sql_with_default_cache::<E>(compiled) {
-            return result;
-        }
-        if let Some(result) =
-            execute_compiled_sql_write_with_default_cache::<C>(self, compiled, None, None)
-        {
-            return result;
-        }
-
-        match compiled {
-            CompiledSqlCommand::Select { query, .. } => {
-                self.execute_select_compiled_sql_with_cache_attribution::<E>(query)
-            }
-            CompiledSqlCommand::GlobalAggregate { command, .. } => {
-                self.execute_global_aggregate_statement_ref(command)
-            }
-            #[cfg(feature = "sql-explain")]
-            CompiledSqlCommand::Explain(lowered) => {
-                self.execute_explain_sql_with_cache_attribution::<E>(lowered)
-            }
-            CompiledSqlCommand::Delete { .. }
-            | CompiledSqlCommand::Insert(..)
-            | CompiledSqlCommand::Update(..)
-            | CompiledSqlCommand::DescribeEntity
-            | CompiledSqlCommand::ShowConstraintsEntity
-            | CompiledSqlCommand::ShowIndexesEntity
-            | CompiledSqlCommand::ShowColumnsEntity
-            | CompiledSqlCommand::ShowEntities { .. }
-            | CompiledSqlCommand::ShowStores { .. }
-            | CompiledSqlCommand::ShowMemory => Err(QueryError::execute(
-                InternalError::query_executor_invariant(),
-            )),
-        }
     }
 
     pub(in crate::db) fn execute_compiled_sql_context_with_cache_attribution(
@@ -375,48 +282,5 @@ impl<C: CanisterKind> DbSession<C> {
             self.execute_compiled_sql_query_context_with_cache_attribution(&context)?;
 
         Ok(result)
-    }
-
-    /// Compile and then execute one parsed reduced SQL statement into one
-    /// unified SQL payload for session-owned tests.
-    #[cfg(test)]
-    pub(in crate::db) fn execute_sql_statement_inner(
-        &self,
-        sql: &str,
-    ) -> Result<SqlStatementResult, QueryError> {
-        let statement = crate::db::session::sql::parse_sql_statement(sql)?;
-        let entity_name = crate::db::session::sql::sql_statement_entity_name(sql)?;
-        let (context, _, _) = match statement {
-            crate::db::sql::parser::SqlStatement::Insert(_)
-            | crate::db::sql::parser::SqlStatement::Delete(_) => {
-                self.compile_sql_mutation_with_execution_context(sql)?
-            }
-            crate::db::sql::parser::SqlStatement::Update(_) => {
-                return Err(QueryError::sql_surface_mismatch(
-                    icydb_diagnostic_code::SqlSurfaceMismatchCode::MutationRequiresExplicitUpdateIntent,
-                ));
-            }
-            crate::db::sql::parser::SqlStatement::Select(_)
-            | crate::db::sql::parser::SqlStatement::Describe(_)
-            | crate::db::sql::parser::SqlStatement::ShowConstraints(_)
-            | crate::db::sql::parser::SqlStatement::ShowIndexes(_)
-            | crate::db::sql::parser::SqlStatement::ShowColumns(_)
-            | crate::db::sql::parser::SqlStatement::ShowEntities(_)
-            | crate::db::sql::parser::SqlStatement::ShowStores(_)
-            | crate::db::sql::parser::SqlStatement::ShowMemory(_) => {
-                self.compile_sql_query_with_execution_context(entity_name.as_deref(), sql)?
-            }
-            #[cfg(feature = "sql-explain")]
-            crate::db::sql::parser::SqlStatement::Explain(_) => {
-                self.compile_sql_query_with_execution_context(entity_name.as_deref(), sql)?
-            }
-            crate::db::sql::parser::SqlStatement::Ddl(_) => {
-                return Err(QueryError::sql_lowering(
-                    SqlLoweringCode::SqlDdlExecutionUnsupported,
-                ));
-            }
-        };
-
-        self.execute_compiled_sql_context_owned(context)
     }
 }

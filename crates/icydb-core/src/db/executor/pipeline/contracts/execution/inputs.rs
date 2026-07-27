@@ -127,13 +127,12 @@ impl PreparedExecutionProjection {
 ///
 /// StructuralCursorPage is the shared scalar page payload emitted by the
 /// monomorphic scalar runtime before typed response reconstruction.
-/// It preserves post-access row order and the next-page cursor while keeping
-/// final entity decode at the outer typed boundary only.
+/// It preserves post-access row order while keeping final entity decode at the
+/// outer typed boundary only.
 ///
 
 pub(in crate::db) struct StructuralCursorPage {
     payload: StructuralCursorPagePayload,
-    next_cursor: Option<crate::db::executor::pipeline::contracts::PageCursor>,
 }
 
 ///
@@ -150,28 +149,20 @@ pub(in crate::db::executor) enum StructuralCursorPagePayload {
 }
 
 impl StructuralCursorPage {
-    /// Build one structural scalar page from canonical data rows plus cursor state.
+    /// Build one structural scalar page from canonical data rows.
     #[must_use]
-    pub(in crate::db) const fn new(
-        data_rows: Vec<DataRow>,
-        next_cursor: Option<crate::db::executor::pipeline::contracts::PageCursor>,
-    ) -> Self {
+    pub(in crate::db) const fn new(data_rows: Vec<DataRow>) -> Self {
         Self {
             payload: StructuralCursorPagePayload::DataRows(data_rows),
-            next_cursor,
         }
     }
 
     /// Build one structural scalar page while retaining already-decoded slot
     /// rows for one structural consumer over the executor boundary.
     #[must_use]
-    pub(in crate::db) const fn new_with_slot_rows(
-        slot_rows: Vec<RetainedSlotRow>,
-        next_cursor: Option<crate::db::executor::pipeline::contracts::PageCursor>,
-    ) -> Self {
+    pub(in crate::db) const fn new_with_slot_rows(slot_rows: Vec<RetainedSlotRow>) -> Self {
         Self {
             payload: StructuralCursorPagePayload::SlotRows(slot_rows),
-            next_cursor,
         }
     }
 
@@ -181,16 +172,6 @@ impl StructuralCursorPage {
         match &self.payload {
             StructuralCursorPagePayload::DataRows(data_rows) => data_rows.len(),
             StructuralCursorPagePayload::SlotRows(slot_rows) => slot_rows.len(),
-        }
-    }
-
-    /// Require canonical data rows for a data-row-only structural consumer.
-    pub(in crate::db) fn require_data_rows(&self) -> Result<&[DataRow], InternalError> {
-        match &self.payload {
-            StructuralCursorPagePayload::DataRows(data_rows) => Ok(data_rows.as_slice()),
-            StructuralCursorPagePayload::SlotRows(_) => {
-                Err(InternalError::query_executor_invariant())
-            }
         }
     }
 
@@ -205,25 +186,6 @@ impl StructuralCursorPage {
         match self.payload {
             StructuralCursorPagePayload::DataRows(data_rows) => handle_data_rows(data_rows),
             StructuralCursorPagePayload::SlotRows(slot_rows) => handle_slot_rows(slot_rows),
-        }
-    }
-
-    /// Require and consume canonical data rows plus cursor state for a
-    /// data-row-only structural consumer.
-    pub(in crate::db) fn require_data_rows_and_cursor(
-        self,
-    ) -> Result<
-        (
-            Vec<DataRow>,
-            Option<crate::db::executor::pipeline::contracts::PageCursor>,
-        ),
-        InternalError,
-    > {
-        match self.payload {
-            StructuralCursorPagePayload::DataRows(data_rows) => Ok((data_rows, self.next_cursor)),
-            StructuralCursorPagePayload::SlotRows(_) => {
-                Err(InternalError::query_executor_invariant())
-            }
         }
     }
 }
@@ -301,7 +263,7 @@ pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
     pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
     pub(in crate::db::executor) load_order_route_mode: LoadOrderRouteMode,
-    pub(in crate::db::executor) continuation: &'a ScalarContinuationContext,
+    pub(in crate::db::executor) continuation: ScalarContinuationContext,
     pub(in crate::db::executor) cursor_boundary: Option<&'a CursorBoundary>,
     pub(in crate::db::executor) capabilities: ScalarMaterializationCapabilities<'a>,
     pub(in crate::db::executor) consistency: MissingRowPolicy,

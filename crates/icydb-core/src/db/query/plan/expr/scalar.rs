@@ -4,14 +4,10 @@
 //! Boundary: freezes slot-resolved scalar projection programs before execution.
 
 use crate::db::query::plan::expr::{PathSpec, UnaryOp};
-#[cfg(test)]
-use crate::db::scalar_expr::{compile_scalar_literal_expr_value, scalar_expr_value_into_value};
 use crate::db::{
     query::plan::expr::{BinaryOp, CompiledPath, Expr, FieldPath, ProjectionField, ProjectionSpec},
     schema::SchemaInfo,
 };
-#[cfg(test)]
-use crate::model::entity::EntityModel;
 use crate::value::Value;
 
 ///
@@ -21,7 +17,7 @@ use crate::value::Value;
 /// carried into execution for scalar projection materialization.
 /// Field slots are resolved once and scalar literals are prebuilt into runtime
 /// `Value`s so executor consumers no longer rediscover projection structure or
-/// re-materialize literals per row from `EntityModel`.
+/// re-materialize literals per row from generated declarations.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -154,20 +150,6 @@ impl ScalarProjectionField {
     pub(in crate::db) const fn slot(&self) -> usize {
         self.slot
     }
-}
-
-/// Compile one model-only scalar projection expression into a planner-owned
-/// slot-resolved program when it stays entirely on the scalar seam.
-#[cfg(test)]
-#[must_use]
-pub(in crate::db) fn compile_scalar_projection_expr_for_model_only(
-    model: &EntityModel,
-    expr: &Expr,
-) -> Option<ScalarProjectionExpr> {
-    compile_scalar_projection_expr_with_schema(
-        SchemaInfo::cached_for_generated_entity_model(model),
-        expr,
-    )
 }
 
 /// Compile one scalar projection expression using an explicit schema authority.
@@ -320,22 +302,7 @@ fn compile_scalar_field_reference(
 // Literal lowering stays owner-local here so the expression compiler can keep
 // the recursive shape match focused on planner expression structure.
 fn compile_scalar_literal(value: &Value) -> ScalarProjectionExpr {
-    #[cfg(test)]
-    {
-        if let Some(compiled) = compile_scalar_literal_expr_value(value) {
-            return ScalarProjectionExpr::Literal(scalar_expr_value_into_value(compiled));
-        }
-
-        // Decimal and other non-shared-scalar test literals still remain valid
-        // runtime projection leaves even when the shared scalar test helper does
-        // not model them directly.
-        ScalarProjectionExpr::Literal(value.clone())
-    }
-
-    #[cfg(not(test))]
-    {
-        ScalarProjectionExpr::Literal(value.clone())
-    }
+    ScalarProjectionExpr::Literal(value.clone())
 }
 
 // Projection-plan compilation only admits scalar projection fields at this
@@ -345,117 +312,4 @@ fn compile_scalar_projection_field(
     field: &ProjectionField,
 ) -> Option<ScalarProjectionExpr> {
     compile_scalar_projection_expr_with_schema(schema, field.expr())
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use crate::{
-        db::{
-            query::plan::expr::{
-                Expr, FieldId as ExprFieldId, FieldPath, ScalarProjectionExpr,
-                compile_scalar_projection_expr_with_schema,
-            },
-            schema::{
-                AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
-                PersistedSchemaSnapshot, SchemaFieldSlot, SchemaInfo, SchemaInsertDefault,
-                SchemaRowLayout, SchemaVersion,
-            },
-        },
-        model::{
-            entity::EntityModel,
-            field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
-            index::IndexModel,
-        },
-        testing::entity_model_from_static,
-    };
-
-    static FIELDS: [FieldModel; 2] = [
-        FieldModel::generated("id", FieldKind::Ulid),
-        FieldModel::generated(
-            "profile",
-            FieldKind::empty_test_composite("query::expr::scalar::tests::Profile"),
-        ),
-    ];
-    static INDEXES: [&IndexModel; 0] = [];
-    static MODEL: EntityModel = entity_model_from_static(
-        "query::plan::expr::scalar::tests::Entity",
-        "Entity",
-        &FIELDS[0],
-        0,
-        &FIELDS,
-        &INDEXES,
-    );
-
-    // Build one accepted schema with a deliberately different row-layout slot
-    // for `profile`. The unchecked accepted wrapper is test-only, and lets this
-    // module prove compilation follows `SchemaInfo` rather than generated order.
-    fn accepted_schema_with_profile_slot(slot: SchemaFieldSlot) -> SchemaInfo {
-        let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
-            SchemaVersion::initial(),
-            "query::plan::expr::scalar::tests::Entity".to_string(),
-            "Entity".to_string(),
-            FieldId::new(1),
-            SchemaRowLayout::initial(vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), slot),
-            ]),
-            vec![
-                PersistedFieldSnapshot::new_initial(
-                    FieldId::new(1),
-                    "id".to_string(),
-                    SchemaFieldSlot::new(0),
-                    AcceptedFieldKind::Ulid,
-                    Vec::new(),
-                    false,
-                    SchemaInsertDefault::None,
-                    FieldStorageDecode::ByKind,
-                    LeafCodec::Structural,
-                ),
-                PersistedFieldSnapshot::new_initial(
-                    FieldId::new(2),
-                    "profile".to_string(),
-                    SchemaFieldSlot::new(1),
-                    AcceptedFieldKind::test_composite(),
-                    Vec::new(),
-                    false,
-                    SchemaInsertDefault::None,
-                    FieldStorageDecode::CatalogValue,
-                    LeafCodec::Structural,
-                ),
-            ],
-        ));
-
-        SchemaInfo::from_snapshot_with_generated_model_for_test(&MODEL, &snapshot)
-    }
-
-    #[test]
-    fn scalar_field_compilation_uses_schema_slot_authority() {
-        let schema = accepted_schema_with_profile_slot(SchemaFieldSlot::new(9));
-        let expr = Expr::Field(ExprFieldId::new("profile"));
-        let compiled = compile_scalar_projection_expr_with_schema(&schema, &expr)
-            .expect("accepted schema field slot should compile");
-
-        let ScalarProjectionExpr::Field(field) = compiled else {
-            panic!("field expression should compile as direct field");
-        };
-        assert_eq!(field.slot(), 9);
-    }
-
-    #[test]
-    fn scalar_field_path_compilation_uses_schema_root_slot_authority() {
-        let schema = accepted_schema_with_profile_slot(SchemaFieldSlot::new(7));
-        let expr = Expr::FieldPath(FieldPath::new("profile", vec!["rank".to_string()]));
-        let compiled = compile_scalar_projection_expr_with_schema(&schema, &expr)
-            .expect("accepted schema field-path root slot should compile");
-
-        let ScalarProjectionExpr::FieldPath(path) = compiled else {
-            panic!("field-path expression should compile as field path");
-        };
-        assert_eq!(path.root_slot(), 7);
-        assert_eq!(path.segments(), ["rank".to_string()].as_slice());
-    }
 }

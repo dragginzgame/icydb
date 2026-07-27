@@ -687,7 +687,7 @@ impl GroupedPlanAggregateFamily {
 /// FieldSlot
 ///
 /// Canonical resolved field reference used by logical planning.
-/// `index` is the stable slot in `EntityModel::fields`; `field` is retained
+/// `index` is the stable accepted field slot; `field` is retained
 /// for diagnostics and explain surfaces.
 /// `authority` freezes exactly one planner metadata source so accepted runtime
 /// slots cannot also carry generated fallback metadata.

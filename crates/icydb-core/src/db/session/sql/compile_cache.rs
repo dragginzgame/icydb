@@ -4,8 +4,6 @@
 //! Does not own: parsed-statement semantic compilation or SQL execution.
 //! Boundary: keeps the public query/mutation compile surfaces on one cache shell.
 
-#[cfg(test)]
-use crate::db::PersistedRow;
 use crate::{
     db::{
         DbSession, QueryError,
@@ -29,40 +27,6 @@ use crate::{
 };
 
 impl<C: CanisterKind> DbSession<C> {
-    // Compile one SQL query-surface string for test callers that select the
-    // accepted entity through a generated type. The type supplies only the
-    // entity name; semantic compilation remains accepted-catalog owned.
-    #[cfg(test)]
-    pub(in crate::db) fn compile_sql_query<E>(
-        &self,
-        sql: &str,
-    ) -> Result<CompiledSqlCommand, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.compile_sql_query_with_cache_attribution(Some(E::MODEL.name()), sql)
-            .map(|(compiled, _, _)| compiled)
-    }
-
-    #[cfg(test)]
-    pub(in crate::db::session::sql) fn compile_sql_query_with_cache_attribution(
-        &self,
-        entity_name: Option<&str>,
-        sql: &str,
-    ) -> Result<
-        (
-            CompiledSqlCommand,
-            SqlCacheAttribution,
-            SqlCompilePhaseAttribution,
-        ),
-        QueryError,
-    > {
-        self.compile_sql_query_with_execution_context(entity_name, sql)
-            .map(|(context, cache_attribution, phase_attribution)| {
-                (context.into_command(), cache_attribution, phase_attribution)
-            })
-    }
-
     pub(in crate::db) fn compile_sql_query_with_execution_context(
         &self,
         entity_name: Option<&str>,
@@ -79,17 +43,6 @@ impl<C: CanisterKind> DbSession<C> {
             .accepted_schema_catalog_context_for_entity_name(entity_name)
             .map_err(QueryError::execute)?;
         self.compile_sql_surface_with_catalog(sql, SqlCompiledCommandSurface::Query, catalog)
-    }
-
-    // Compile one SQL mutation-surface string into the session-owned generic-free
-    // semantic command artifact before execution.
-    #[cfg(test)]
-    pub(in crate::db) fn compile_sql_mutation(
-        &self,
-        sql: &str,
-    ) -> Result<CompiledSqlCommand, QueryError> {
-        self.compile_sql_mutation_with_execution_context(sql)
-            .map(|(context, _, _)| context.into_command())
     }
 
     pub(in crate::db) fn compile_sql_mutation_with_execution_context(

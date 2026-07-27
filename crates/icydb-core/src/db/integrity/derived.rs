@@ -49,22 +49,6 @@ impl DerivedInspectionLimits {
         }
     }
 
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn for_tests(
-        entries: usize,
-        atoms: usize,
-        findings: usize,
-        decoded_bytes: usize,
-    ) -> Self {
-        Self {
-            entries,
-            atoms,
-            findings,
-            decoded_bytes,
-        }
-    }
-
     fn validate(self) -> Result<Self, InternalError> {
         if self.entries == 0 || self.atoms == 0 || self.findings == 0 || self.decoded_bytes == 0 {
             return Err(InternalError::store_invariant());
@@ -97,13 +81,6 @@ impl DerivedIntegrityPage {
     #[must_use]
     pub(in crate::db) const fn exhausted(&self) -> bool {
         self.exhausted
-    }
-
-    /// Return physical entries fully classified during this call.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn entries_completed(&self) -> u32 {
-        self.entries_completed
     }
 
     /// Borrow the bounded finding page.

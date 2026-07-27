@@ -7,7 +7,6 @@ pub(in crate::db) mod contracts;
 pub(in crate::db) mod entrypoints;
 pub(super) mod grouped_runtime;
 pub(super) mod operators;
-pub(super) mod orchestrator;
 pub(super) mod runtime;
 pub(super) mod timing;
 #[cfg(feature = "sql")]
@@ -16,8 +15,7 @@ pub(in crate::db::executor) use entrypoints::execute_initial_scalar_retained_slo
 pub(in crate::db) use entrypoints::execute_shared_grouped_plan_for_canister;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use entrypoints::execute_shared_grouped_plan_for_canister_with_phase_attribution;
-#[cfg(feature = "diagnostics")]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use entrypoints::{
     GroupedCountAttribution, GroupedExecutePhaseAttribution, GroupedRuntimeAttribution,
-    ScalarExecutePhaseAttribution,
 };

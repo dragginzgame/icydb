@@ -7,13 +7,13 @@
 mod evaluator;
 mod model;
 
+pub(in crate::db) use self::model::{
+    AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceRejectedIndex,
+    AccessChoiceResidualBurden, AccessChoiceSelectedReason, PrimaryKeyInputResourceSummary,
+};
 ///
 /// TESTS
 ///
-
-#[cfg(test)]
-mod tests;
-
 use crate::{
     db::{
         access::{AccessPlan, SemanticIndexAccessContract},
@@ -31,41 +31,8 @@ use crate::{
         },
         schema::SchemaInfo,
     },
-    model::{entity::EntityModel, index::IndexModel},
     value::Value,
 };
-#[cfg(test)]
-use std::cell::Cell;
-
-#[cfg(test)]
-thread_local! {
-    static SAME_SCORE_COMPETING_CANDIDATE_SCAN_COUNT: Cell<u64> = const { Cell::new(0) };
-}
-
-#[cfg(test)]
-fn reset_same_score_competing_candidate_scan_count_for_tests() {
-    SAME_SCORE_COMPETING_CANDIDATE_SCAN_COUNT.with(|count| count.set(0));
-}
-
-#[cfg(test)]
-fn same_score_competing_candidate_scan_count_for_tests() -> u64 {
-    SAME_SCORE_COMPETING_CANDIDATE_SCAN_COUNT.with(Cell::get)
-}
-
-pub(in crate::db) use self::model::{
-    AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceRejectedIndex,
-    AccessChoiceResidualBurden, AccessChoiceSelectedReason, PrimaryKeyInputResourceSummary,
-};
-
-fn semantic_candidate_indexes_from_generated_model_only(
-    generated_indexes: &[&'static IndexModel],
-) -> Vec<SemanticIndexAccessContract> {
-    generated_indexes
-        .iter()
-        .copied()
-        .map(|index| SemanticIndexAccessContract::model_only_from_generated_index(*index))
-        .collect()
-}
 
 ///
 /// project_access_choice_explain_snapshot_with_indexes
@@ -73,23 +40,6 @@ fn semantic_candidate_indexes_from_generated_model_only(
 /// Project planner-owned access-choice candidate metadata for EXPLAIN using
 /// one explicit planner-visible index set.
 ///
-
-/// Project planner-owned access-choice candidate metadata for EXPLAIN using
-/// explicit schema authority.
-#[must_use]
-pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes_and_schema(
-    _model: &EntityModel,
-    generated_model_only_indexes: &[&'static IndexModel],
-    schema_info: &SchemaInfo,
-    plan: &AccessPlannedQuery,
-) -> AccessChoiceExplainSnapshot {
-    project_access_choice_explain_snapshot_from_authority(
-        semantic_candidate_indexes_from_generated_model_only(generated_model_only_indexes)
-            .as_slice(),
-        schema_info,
-        plan,
-    )
-}
 
 /// Project planner-owned access-choice candidate metadata for EXPLAIN using
 /// already-projected semantic index contracts from the visible-index boundary.
@@ -271,23 +221,6 @@ pub(in crate::db) fn non_index_access_choice_snapshot_for_access_plan<K>(
     AccessChoiceExplainSnapshot::non_index_access()
 }
 
-/// Return one reranked access plan when a same-score competing index route
-/// leaves less residual work than the current chosen route.
-#[must_use]
-pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_indexes(
-    _model: &EntityModel,
-    generated_model_only_indexes: &[&'static IndexModel],
-    schema_info: &SchemaInfo,
-    plan: &AccessPlannedQuery,
-) -> Option<AccessPlan<Value>> {
-    rerank_access_plan_by_residual_burden_from_authority(
-        semantic_candidate_indexes_from_generated_model_only(generated_model_only_indexes)
-            .as_slice(),
-        schema_info,
-        plan,
-    )
-}
-
 /// Return one reranked access plan using already-projected semantic index
 /// contracts from the runtime visible-index boundary.
 #[must_use]
@@ -315,30 +248,6 @@ fn rerank_access_plan_by_residual_burden_from_authority(
     )?;
 
     Some(preferred.access)
-}
-
-// Determine whether the already-selected access route beats one same-score
-// competing candidate on residual burden alone.
-#[cfg(test)]
-fn chosen_access_prefers_lower_residual_burden(
-    visible_indexes: &[SemanticIndexAccessContract],
-    schema_info: &SchemaInfo,
-    plan: &AccessPlannedQuery,
-) -> bool {
-    let chosen_burden = residual_burden_for_plan(plan);
-    let mut found_worse_candidate = false;
-
-    for candidate in same_score_competing_candidate_plans(visible_indexes, schema_info, plan)
-        .into_iter()
-        .flatten()
-    {
-        if candidate.residual_burden < chosen_burden {
-            return false;
-        }
-        found_worse_candidate |= candidate.residual_burden > chosen_burden;
-    }
-
-    found_worse_candidate
 }
 
 ///
@@ -502,11 +411,6 @@ fn same_score_competing_candidate_plans(
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Option<Vec<ResidualComparableCandidate>> {
-    #[cfg(test)]
-    SAME_SCORE_COMPETING_CANDIDATE_SCAN_COUNT.with(|count| {
-        count.set(count.get().saturating_add(1));
-    });
-
     let (family, chosen_index_name, chosen_score_hint) =
         chosen_access_shape_projection(&plan.access);
     if matches!(family, AccessChoiceFamily::NonIndex) {

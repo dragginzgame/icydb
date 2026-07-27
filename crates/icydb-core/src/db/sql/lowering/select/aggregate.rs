@@ -125,7 +125,7 @@ impl LoweredHavingClause {
 fn lower_having_expr(expr: SqlExpr) -> Result<AnalyzedLoweredExpr, SqlLoweringError> {
     let expr = lower_sql_expr(&expr, SqlExprPhase::PostAggregate)?;
 
-    Ok(AnalyzedLoweredExpr::new(expr, None))
+    Ok(AnalyzedLoweredExpr::new(expr))
 }
 
 fn register_having_analysis_aggregates<F>(

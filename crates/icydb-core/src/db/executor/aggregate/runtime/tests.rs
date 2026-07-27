@@ -38,7 +38,7 @@ fn grouped_having_runtime_accepts_post_aggregate_round_compare() {
     let compiled = compile_grouped_projection_expr(&expr, &[], &specs)
         .expect("grouped HAVING ROUND compare should compile");
     let aggregate_values = [Value::Decimal(Decimal::new(10049, 3))];
-    let grouped_row = GroupedRowView::new(&[], &aggregate_values, &[], &[]);
+    let grouped_row = GroupedRowView::new(&[], &aggregate_values);
     let matched = group_matches_having_expr(&compiled, &grouped_row)
         .expect("grouped HAVING ROUND compare should evaluate");
 
@@ -66,7 +66,7 @@ fn grouped_having_runtime_accepts_post_aggregate_arithmetic_compare() {
     let compiled = compile_grouped_projection_expr(&expr, &[], &specs)
         .expect("grouped HAVING arithmetic compare should compile");
     let aggregate_values = [Value::Nat64(5)];
-    let grouped_row = GroupedRowView::new(&[], &aggregate_values, &[], &[]);
+    let grouped_row = GroupedRowView::new(&[], &aggregate_values);
     let matched = group_matches_having_expr(&compiled, &grouped_row)
         .expect("grouped HAVING arithmetic compare should evaluate");
 
@@ -102,7 +102,7 @@ fn grouped_having_runtime_accepts_and_over_group_keys_and_aggregates() {
         .expect("grouped HAVING AND expression should compile");
     let group_key_values = [Value::Text("Mage".to_string())];
     let aggregate_values = [Value::Nat64(11)];
-    let grouped_row = GroupedRowView::new(&group_key_values, &aggregate_values, &group_fields, &[]);
+    let grouped_row = GroupedRowView::new(&group_key_values, &aggregate_values);
     let matched = group_matches_having_expr(&compiled, &grouped_row)
         .expect("grouped HAVING AND expression should evaluate");
 
@@ -135,7 +135,7 @@ fn grouped_having_runtime_accepts_post_aggregate_case_and_not() {
     let compiled = compile_grouped_projection_expr(&expr, &[], &specs)
         .expect("grouped HAVING CASE should compile");
     let aggregate_values = [Value::Nat64(6)];
-    let grouped_row = GroupedRowView::new(&[], &aggregate_values, &[], &[]);
+    let grouped_row = GroupedRowView::new(&[], &aggregate_values);
     let matched = group_matches_having_expr(&compiled, &grouped_row)
         .expect("grouped HAVING CASE should evaluate");
 

@@ -8,8 +8,6 @@ pub(super) mod codec;
 mod equality_key;
 mod output;
 mod publication;
-#[cfg(test)]
-mod tests;
 mod value_wire;
 
 use crate::{
@@ -17,22 +15,21 @@ use crate::{
         AcceptedFieldKind, MAX_ACCEPTED_RECURSIVE_DEPTH,
         composite_catalog::{AcceptedCompositeCatalog, CompositeTypeId},
     },
-    model::{
-        entity::EntityModel,
-        field::{EnumVariantModel, FieldKind, FieldStorageDecode},
-    },
+    model::field::FieldStorageDecode,
     value::{CanonicalEnumBody, CanonicalEnumValue},
     value::{RuntimeEnumContext, RuntimeEnumSelection},
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+#[cfg(test)]
+use crate::model::field::{EnumVariantModel, FieldKind};
+
 pub(in crate::db) use crate::value::{EnumTypeId, EnumVariantId};
 pub(in crate::db) use admission::normalize_candidate_value;
 pub(in crate::db) use admission::validate_decoded_persisted_field_value_in_catalog;
 pub(in crate::db) use admission::{
-    AcceptedValueRef, AdmittedOwnedValue, CanonicalValue, ValueAdmissionBudget,
-    ValueAdmissionError, encode_unit_enum_default_in_catalog,
+    AcceptedValueRef, AdmittedOwnedValue, CanonicalValue, ValueAdmissionBudget, ValueAdmissionError,
 };
 pub(in crate::db::schema) use admission::{
     admit_canonical_value, normalize_and_admit_nullable_value, validate_nullable_canonical_value,
@@ -129,12 +126,6 @@ impl AcceptedSchemaAuthority {
     #[must_use]
     pub(in crate::db) const fn fingerprint(&self) -> AcceptedSchemaFingerprint {
         self.fingerprint
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn matches(&self, other: &Self) -> bool {
-        self.matches_store_root(&other.store_scope, other.revision, other.fingerprint)
     }
 }
 
@@ -398,12 +389,6 @@ impl AcceptedEnumCatalog {
             .all(|type_id| validate_enum_type_graph(self, type_id, &mut visited, &mut active, 0))
     }
 
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn len(&self) -> usize {
-        self.by_id.len()
-    }
-
     #[must_use]
     pub(in crate::db) fn type_id(&self, path: &str) -> Option<EnumTypeId> {
         self.id_by_path.get(path).copied()
@@ -475,6 +460,14 @@ impl AcceptedEnumCatalog {
                 .into_iter()
                 .all(|type_id| composite_catalog.composite_type(type_id).is_some())
     }
+}
+
+/// Build the empty accepted enum catalog used by catalog-native unit tests.
+#[cfg(test)]
+pub(in crate::db) fn build_initial_accepted_enum_catalog(
+    _definitions: &[()],
+) -> Result<AcceptedEnumCatalog, EnumCatalogBuildError> {
+    AcceptedEnumCatalog::from_initial_definitions(BTreeMap::new())
 }
 
 impl RuntimeEnumContext for AcceptedEnumCatalog {
@@ -584,12 +577,6 @@ impl AcceptedEnumType {
     pub(in crate::db) fn variant(&self, id: EnumVariantId) -> Option<&AcceptedEnumVariant> {
         self.variants_by_id.get(&id)
     }
-
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn ordering(&self) -> EnumOrderingPolicy {
-        self.ordering
-    }
 }
 
 /// One accepted enum variant with structurally valid unit/payload state.
@@ -681,70 +668,52 @@ impl AcceptedValueContract {
 /// Typed failure while canonicalizing one generated enum catalog candidate.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum EnumCatalogBuildError {
+    #[cfg(test)]
     EmptyTypePath,
-    EmptyVariantName { path: String },
-    DuplicateVariantName { path: String, name: String },
-    ConflictingDefinition { path: String },
-    RecursiveEnumContract { cycle: Vec<String> },
+    #[cfg(test)]
+    EmptyVariantName {
+        path: String,
+    },
+    #[cfg(test)]
+    DuplicateVariantName {
+        path: String,
+        name: String,
+    },
+    ConflictingDefinition {
+        path: String,
+    },
+    #[cfg(test)]
+    RecursiveEnumContract {
+        cycle: Vec<String>,
+    },
+    #[cfg(test)]
     ContractDepthExceeded,
+    #[cfg(test)]
     EnumTypeIdExhausted,
-    EnumVariantIdExhausted { path: String },
-    ExistingTypeIdentityChanged { path: String },
-    ExistingVariantIdentityChanged { path: String, name: String },
-    ExistingVariantContractChanged { path: String, name: String },
-    UnknownEnumPath { path: String },
-    CompositeCatalogRequired { path: String },
+    #[cfg(test)]
+    EnumVariantIdExhausted {
+        path: String,
+    },
+    #[cfg(test)]
+    UnknownEnumPath {
+        path: String,
+    },
+    #[cfg(test)]
+    CompositeCatalogRequired {
+        path: String,
+    },
     LookupMapInvariant,
 }
 
+#[cfg(test)]
 struct RawEnumVariantProposal {
     payload_kind: Option<FieldKind>,
     payload_storage_decode: FieldStorageDecode,
 }
 
+#[cfg(test)]
 struct RawEnumDefinitionProposal {
     variants: BTreeMap<String, RawEnumVariantProposal>,
-}
-
-/// Build one deterministic initial catalog candidate from all generated models
-/// belonging to the same store.
-#[cfg(test)]
-pub(in crate::db) fn build_initial_accepted_enum_catalog(
-    models: &[&EntityModel],
-) -> Result<AcceptedEnumCatalog, EnumCatalogBuildError> {
-    build_initial_accepted_enum_catalog_with_composite_ids(models, &BTreeMap::new())
-}
-
-pub(in crate::db::schema) fn build_initial_accepted_enum_catalog_with_composite_ids(
-    models: &[&EntityModel],
-    composite_ids: &BTreeMap<String, CompositeTypeId>,
-) -> Result<AcceptedEnumCatalog, EnumCatalogBuildError> {
-    build_catalog_from_definitions(collect_enum_definitions_from_models(models)?, composite_ids)
-}
-
-pub(in crate::db::schema) fn reconcile_accepted_enum_catalog_with_composite_ids(
-    accepted: &AcceptedEnumCatalog,
-    models: &[&EntityModel],
-    composite_ids: &BTreeMap<String, CompositeTypeId>,
-) -> Result<AcceptedEnumCatalog, EnumCatalogBuildError> {
-    reconcile_catalog_from_definitions(
-        accepted,
-        collect_enum_definitions_from_models(models)?,
-        composite_ids,
-    )
-}
-
-fn collect_enum_definitions_from_models(
-    models: &[&EntityModel],
-) -> Result<BTreeMap<String, Vec<RawEnumDefinitionProposal>>, EnumCatalogBuildError> {
-    let mut definitions = BTreeMap::<String, Vec<RawEnumDefinitionProposal>>::new();
-    for model in models {
-        for field in model.fields() {
-            collect_enum_definitions_from_kind(field.kind(), &mut definitions, &mut Vec::new(), 0)?;
-        }
-    }
-
-    Ok(definitions)
 }
 
 #[cfg(test)]
@@ -775,18 +744,6 @@ pub(in crate::db) fn build_initial_accepted_enum_catalog_from_kinds_for_tests(
 }
 
 #[cfg(test)]
-fn reconcile_accepted_enum_catalog_from_kinds(
-    accepted: &AcceptedEnumCatalog,
-    kinds: &[FieldKind],
-) -> Result<AcceptedEnumCatalog, EnumCatalogBuildError> {
-    let mut definitions = BTreeMap::<String, Vec<RawEnumDefinitionProposal>>::new();
-    for kind in kinds {
-        collect_enum_definitions_from_kind(*kind, &mut definitions, &mut Vec::new(), 0)?;
-    }
-
-    reconcile_catalog_from_definitions(accepted, definitions, &BTreeMap::new())
-}
-
 fn collect_enum_definitions_from_kind(
     kind: FieldKind,
     definitions: &mut BTreeMap<String, Vec<RawEnumDefinitionProposal>>,
@@ -884,6 +841,7 @@ fn collect_enum_definitions_from_kind(
     Ok(())
 }
 
+#[cfg(test)]
 fn collect_enum_definition(
     path: &str,
     variants: &[EnumVariantModel],
@@ -950,6 +908,7 @@ fn collect_enum_definition(
     Ok(())
 }
 
+#[cfg(test)]
 fn build_catalog_from_definitions(
     definitions: BTreeMap<String, Vec<RawEnumDefinitionProposal>>,
     composite_ids: &BTreeMap<String, CompositeTypeId>,
@@ -987,21 +946,7 @@ fn build_catalog_from_definitions(
     Ok(catalog)
 }
 
-fn reconcile_catalog_from_definitions(
-    accepted: &AcceptedEnumCatalog,
-    definitions: BTreeMap<String, Vec<RawEnumDefinitionProposal>>,
-    composite_ids: &BTreeMap<String, CompositeTypeId>,
-) -> Result<AcceptedEnumCatalog, EnumCatalogBuildError> {
-    if !accepted.validate() {
-        return Err(EnumCatalogBuildError::LookupMapInvariant);
-    }
-
-    let candidate = build_catalog_from_definitions(definitions, composite_ids)?;
-    validate_surviving_enum_identities(accepted, &candidate)?;
-
-    Ok(candidate)
-}
-
+#[cfg(test)]
 fn allocate_variant_ids(
     path: &str,
     proposals: &[RawEnumDefinitionProposal],
@@ -1025,6 +970,7 @@ fn allocate_variant_ids(
     Ok(ids)
 }
 
+#[cfg(test)]
 fn accepted_enum_type_from_proposals(
     path: &str,
     proposals: Vec<RawEnumDefinitionProposal>,
@@ -1056,47 +1002,7 @@ fn accepted_enum_type_from_proposals(
     })
 }
 
-fn validate_surviving_enum_identities(
-    accepted: &AcceptedEnumCatalog,
-    candidate: &AcceptedEnumCatalog,
-) -> Result<(), EnumCatalogBuildError> {
-    for (path, candidate_type_id) in &candidate.id_by_path {
-        let Some(accepted_type_id) = accepted.id_by_path.get(path) else {
-            continue;
-        };
-        if accepted_type_id != candidate_type_id {
-            return Err(EnumCatalogBuildError::ExistingTypeIdentityChanged { path: path.clone() });
-        }
-        let accepted_definition = accepted
-            .enum_type(*accepted_type_id)
-            .ok_or(EnumCatalogBuildError::LookupMapInvariant)?;
-        let candidate_definition = candidate
-            .enum_type(*candidate_type_id)
-            .ok_or(EnumCatalogBuildError::LookupMapInvariant)?;
-        for (name, candidate_variant_id) in &candidate_definition.variant_id_by_name {
-            let Some(accepted_variant_id) = accepted_definition.variant_id_by_name.get(name) else {
-                continue;
-            };
-            if accepted_variant_id != candidate_variant_id {
-                return Err(EnumCatalogBuildError::ExistingVariantIdentityChanged {
-                    path: path.clone(),
-                    name: name.clone(),
-                });
-            }
-            if accepted_definition.variant(*accepted_variant_id)
-                != candidate_definition.variant(*candidate_variant_id)
-            {
-                return Err(EnumCatalogBuildError::ExistingVariantContractChanged {
-                    path: path.clone(),
-                    name: name.clone(),
-                });
-            }
-        }
-    }
-
-    Ok(())
-}
-
+#[cfg(test)]
 fn accepted_enum_type_from_proposal(
     path: &str,
     proposal: RawEnumDefinitionProposal,
@@ -1140,6 +1046,7 @@ fn accepted_enum_type_from_proposal(
     })
 }
 
+#[cfg(test)]
 fn accepted_field_kind_from_model(
     kind: FieldKind,
     id_by_path: &BTreeMap<String, EnumTypeId>,
@@ -1240,30 +1147,6 @@ fn accepted_field_kind_from_model(
     })
 }
 
-#[cfg(test)]
-pub(in crate::db::schema) fn resolve_model_field_kind(
-    catalog: &AcceptedEnumCatalog,
-    kind: FieldKind,
-) -> Result<AcceptedFieldKind, EnumCatalogBuildError> {
-    accepted_field_kind_from_model(kind, &catalog.id_by_path, &BTreeMap::new(), 0)
-}
-
-pub(in crate::db::schema) fn resolve_model_field_kind_with_composites(
-    catalog: &AcceptedEnumCatalog,
-    composite_id_by_path: &BTreeMap<String, CompositeTypeId>,
-    kind: FieldKind,
-) -> Result<AcceptedFieldKind, EnumCatalogBuildError> {
-    accepted_field_kind_from_model(kind, &catalog.id_by_path, composite_id_by_path, 0)
-}
-
-pub(in crate::db::schema) fn resolve_model_field_kind_with_composite_catalog(
-    catalog: &AcceptedEnumCatalog,
-    composite_catalog: &AcceptedCompositeCatalog,
-    kind: FieldKind,
-) -> Result<AcceptedFieldKind, EnumCatalogBuildError> {
-    accepted_field_kind_from_model(kind, &catalog.id_by_path, composite_catalog.id_by_path(), 0)
-}
-
 fn accepted_kind_matches_catalog(
     catalog: &AcceptedEnumCatalog,
     kind: &AcceptedFieldKind,
@@ -1313,6 +1196,7 @@ fn accepted_kind_matches_catalog(
     }
 }
 
+#[cfg(test)]
 fn next_type_id(last: Option<EnumTypeId>) -> Result<EnumTypeId, EnumCatalogBuildError> {
     let value = match last {
         Some(last) => last
@@ -1324,6 +1208,7 @@ fn next_type_id(last: Option<EnumTypeId>) -> Result<EnumTypeId, EnumCatalogBuild
     EnumTypeId::new(value).ok_or(EnumCatalogBuildError::EnumTypeIdExhausted)
 }
 
+#[cfg(test)]
 fn next_variant_id(
     path: &str,
     last: Option<EnumVariantId>,

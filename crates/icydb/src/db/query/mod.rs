@@ -4,12 +4,14 @@
 //! Does not own: query planning, validation, or execution semantics.
 //! Boundary: exposes stable core query DSL types through the facade crate.
 
-//! Public facade query surface.
-//!
-//! Re-exports the typed query builders, semantic query types, and facade-only
-//! helper modules used by downstream canister code.
-//! Normal endpoint code constructs a fluent query from `DbSession` and executes a semantic terminal;
-//! the raw core query representation stays internal.
+//! Public facade query surface. Generated typed reads are a projection over
+//! the accepted structural lane; the raw planner representation stays internal.
+
+#[cfg(feature = "sql")]
+mod typed;
+
+#[cfg(feature = "sql")]
+pub use typed::{Query, TypedQueryError};
 
 pub use icydb_core::db::{
     AccessRequirementError, AccessRequirementViolation, AggregateExpr, CompareOp,

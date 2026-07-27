@@ -239,42 +239,6 @@ impl InspectionProgressStore {
         }
         Ok(count)
     }
-
-    #[cfg(test)]
-    fn clear_jobs(&mut self) {
-        let keys = self
-            .map
-            .iter()
-            .filter_map(|entry| (*entry.key() != PROGRESS_HEADER_KEY).then_some(*entry.key()))
-            .collect::<Vec<_>>();
-        for key in keys {
-            let _ = self.map.remove(&key);
-        }
-    }
-
-    #[cfg(test)]
-    fn corrupt_job_checksum(&mut self, job_id: IntegrityJobId) -> Result<(), IntegrityJobError> {
-        let key = ProgressRecordKey::from_job_id(job_id);
-        let mut raw = self.map.get(&key).ok_or(IntegrityJobError::JobNotFound)?;
-        let last = raw
-            .0
-            .last_mut()
-            .ok_or(IntegrityJobError::CorruptProgressRecord)?;
-        *last ^= 0xff;
-        self.map.insert(key, raw);
-        Ok(())
-    }
-
-    #[cfg(test)]
-    fn set_job_lease_deadline(
-        &mut self,
-        job_id: IntegrityJobId,
-        lease_deadline_nanos: u64,
-    ) -> Result<(), IntegrityJobError> {
-        let mut job = self.load(job_id)?;
-        job.lease_deadline_nanos = lease_deadline_nanos;
-        self.replace(&job)
-    }
 }
 
 fn encode_progress_header() -> Vec<u8> {
@@ -364,40 +328,6 @@ pub(super) fn with_progress_store<C: CanisterKind, R>(
     let memory = progress_memory::<C>()?;
     let mut store = InspectionProgressStore::open(memory)?;
     f(&mut store)
-}
-
-#[cfg(test)]
-pub(in crate::db) fn clear_progress_store_for_tests<C: CanisterKind>() {
-    with_progress_store::<C, _>(|store| {
-        store.clear_jobs();
-        Ok(())
-    })
-    .expect("test integrity-progress store should clear");
-}
-
-#[cfg(test)]
-pub(in crate::db) fn corrupt_progress_job_for_tests<C: CanisterKind>(
-    job_id: IntegrityJobId,
-) -> Result<(), IntegrityJobError> {
-    with_progress_store::<C, _>(|store| store.corrupt_job_checksum(job_id))
-}
-
-#[cfg(test)]
-pub(in crate::db) fn set_progress_job_lease_deadline_for_tests<C: CanisterKind>(
-    job_id: IntegrityJobId,
-    lease_deadline_nanos: u64,
-) -> Result<(), IntegrityJobError> {
-    with_progress_store::<C, _>(|store| store.set_job_lease_deadline(job_id, lease_deadline_nanos))
-}
-
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db) fn progress_job_encoded_len_for_tests<C: CanisterKind>(
-    job_id: IntegrityJobId,
-) -> Result<usize, IntegrityJobError> {
-    with_progress_store::<C, _>(|store| {
-        let job = store.load(job_id)?;
-        encode_job_record(&job).map(|bytes| bytes.len())
-    })
 }
 
 #[cfg(test)]

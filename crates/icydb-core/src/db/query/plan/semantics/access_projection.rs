@@ -8,7 +8,6 @@ use crate::{
         access::{AccessPath, AccessPlan, SemanticIndexAccessContract},
         query::explain::ExplainAccessPath,
     },
-    model::index::IndexKeyItemsRef,
     value::Value,
 };
 use std::{fmt::Write, ops::Bound};
@@ -150,12 +149,6 @@ fn index_contract_key_fields(index: &SemanticIndexAccessContract) -> Vec<String>
             .iter()
             .map(|item| item.as_ref().field().to_string())
             .collect(),
-        crate::db::access::SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
-            fields.iter().copied().map(str::to_string).collect()
-        }
-        crate::db::access::SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => {
-            items.iter().map(|item| item.field().to_string()).collect()
-        }
     }
 }
 
@@ -332,97 +325,6 @@ pub(in crate::db) fn explain_access_strategy_label(access: &ExplainAccessPath) -
     project_explain_access_path(access, &mut AccessStrategyLabelProjection)
 }
 
-///
-/// ExplainAccessKindProjection
-///
-/// Shared explain-access classifier for consumers that only need one stable
-/// access-kind code from the transport DTO surface.
-///
-
-#[cfg(test)]
-struct ExplainAccessKindProjection;
-
-#[cfg(test)]
-impl AccessPlanProjection<Value> for ExplainAccessKindProjection {
-    type Output = &'static str;
-
-    fn by_key(&mut self, _key: &Value) -> Self::Output {
-        "by_key"
-    }
-
-    fn by_keys(&mut self, keys: &[Value]) -> Self::Output {
-        if keys.is_empty() {
-            "empty_access_contract"
-        } else {
-            "by_keys"
-        }
-    }
-
-    fn key_range(&mut self, _start: &Value, _end: &Value) -> Self::Output {
-        "key_range"
-    }
-
-    fn index_prefix(
-        &mut self,
-        _index_name: &str,
-        _index_fields: &[String],
-        _prefix_len: usize,
-        _values: &[Value],
-    ) -> Self::Output {
-        "index_prefix"
-    }
-
-    fn index_multi_lookup(
-        &mut self,
-        _index_name: &str,
-        _index_fields: &[String],
-        _values: &[Value],
-    ) -> Self::Output {
-        "index_multi_lookup"
-    }
-
-    fn index_branch_set(
-        &mut self,
-        _index_name: &str,
-        _index_fields: &[String],
-        _fixed_values: &[Value],
-        _branch_values: &[Value],
-    ) -> Self::Output {
-        "index_branch_set"
-    }
-
-    fn index_range(
-        &mut self,
-        _index_name: &str,
-        _index_fields: &[String],
-        _prefix_len: usize,
-        _prefix: &[Value],
-        _lower: &Bound<Value>,
-        _upper: &Bound<Value>,
-    ) -> Self::Output {
-        "index_range"
-    }
-
-    fn full_scan(&mut self) -> Self::Output {
-        "full_scan"
-    }
-
-    fn union(&mut self, _children: Vec<Self::Output>) -> Self::Output {
-        "union"
-    }
-
-    fn intersection(&mut self, _children: Vec<Self::Output>) -> Self::Output {
-        "intersection"
-    }
-}
-
-/// Classify one explain access DTO into the stable access-kind code used by
-/// intent/debug labels without rebuilding a local branch ladder elsewhere.
-#[cfg(test)]
-pub(in crate::db) fn explain_access_kind_label(access: &ExplainAccessPath) -> &'static str {
-    project_explain_access_path(access, &mut ExplainAccessKindProjection)
-}
-
 // Recurse over one child collection with the caller-owned projection adapter so
 // access-plan and explain-path walkers share the same union/intersection child
 // traversal contract.
@@ -439,10 +341,3 @@ where
         .map(|child| project_child(child, projection))
         .collect()
 }
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

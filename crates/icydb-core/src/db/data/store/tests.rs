@@ -99,19 +99,6 @@ fn data_store_visit_range_preserves_raw_key_bounds() {
 }
 
 #[test]
-fn data_store_visit_entity_preserves_compact_entity_prefix_bounds() {
-    let store = seed_store(223, &[(2, 1, 21), (1, 2, 12), (2, 3, 23), (1, 1, 11)]);
-
-    let mut visited = Vec::new();
-    let _: Result<(), Infallible> = store.visit_entity(EntityTag::new(2), |key, row| {
-        visited.push((key.clone(), row.as_bytes()[0]));
-        Ok(StoreVisit::Continue)
-    });
-
-    assert_eq!(visited, vec![(raw_key(2, 1), 21), (raw_key(2, 3), 23)]);
-}
-
-#[test]
 fn data_store_entity_cardinality_tracks_heap_writes() {
     let mut store = seed_heap_store(&[(1, 1, 11), (1, 2, 12), (2, 1, 21)]);
 
@@ -269,13 +256,6 @@ fn heap_data_store_preserves_order_bounds_and_early_stop() {
         },
     );
     assert_eq!(ranged, vec![(raw_key(1, 1), 11), (raw_key(1, 2), 12)]);
-
-    let mut entity = Vec::new();
-    let _: Result<(), Infallible> = store.visit_entity(EntityTag::new(2), |key, row| {
-        entity.push((key.clone(), row.as_bytes()[0]));
-        Ok(StoreVisit::Continue)
-    });
-    assert_eq!(entity, vec![(raw_key(2, 1), 21)]);
 
     let mut stopped = Vec::new();
     let _: Result<(), Infallible> = store.visit_entries(|key, _| {

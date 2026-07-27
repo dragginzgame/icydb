@@ -12,8 +12,9 @@ Pin IcyDB by tag in the canister crate:
 icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.207.0" }
 ```
 
-The default crate feature set is typed/fluent-only. Enable SQL explicitly when
-the canister uses session/library SQL APIs or generated SQL endpoints:
+The default crate feature set provides structural writes and accepted-schema
+runtime support. Enable SQL when the canister uses typed queries,
+session/library SQL APIs, or generated SQL endpoints:
 
 ```toml
 [dependencies]
@@ -51,12 +52,11 @@ generated update endpoint must instead admit the bounded deterministic policy.
 
 Readonly SQL is a generated controller-gated admin surface, not a generated
 public read endpoint. Do not expose `icydb_query` or a thin wrapper around it
-to arbitrary callers. Caller-facing reads should use ordinary typed/fluent
+to arbitrary callers. Caller-facing reads should use ordinary typed
 execution so the default bounded read-admission gate applies after the endpoint
 has performed caller authorization. See
 [docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md).
-Hand-written public read endpoint migration recipes and templates for pages,
-complete small sets, and exact aggregates are in
+Hand-written public read endpoint guidance is in
 [docs/guides/read-intent.md](docs/guides/read-intent.md).
 
 Example generated endpoint config:

@@ -6,7 +6,7 @@
 use crate::{
     db::{
         data::DecodedDataStoreKey,
-        executor::group::{CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError},
+        executor::group::{CanonicalKey, GroupKey, KeyCanonicalError},
     },
     error::InternalError,
 };
@@ -52,17 +52,6 @@ impl GroupedDistinctExecutionMode {
 }
 
 // Record one distinct data-key marker for one aggregate state.
-pub(in crate::db::executor::aggregate::contracts::state) fn record_distinct_key(
-    distinct_keys: Option<&mut GroupKeySet>,
-    key: &DecodedDataStoreKey,
-) -> Result<bool, InternalError> {
-    let Some(distinct_keys) = distinct_keys else {
-        return Ok(true);
-    };
-    let canonical_key = canonical_key_from_data_key(key)?;
-
-    Ok(distinct_keys.insert_key(canonical_key))
-}
 
 // Convert one data key into the canonical grouped DISTINCT key surface.
 pub(in crate::db::executor::aggregate::contracts::state) fn canonical_key_from_data_key(

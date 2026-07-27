@@ -1,5 +1,5 @@
 use crate::schema::{relation::RelationDataStore, test::TestStore};
-use icydb::design::prelude::*;
+use icydb_model::prelude::*;
 
 ///
 /// HasRelation

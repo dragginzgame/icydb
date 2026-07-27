@@ -6,8 +6,6 @@
 
 #[cfg(any(test, feature = "diagnostics"))]
 use crate::db::data::persisted_row::reader::metrics;
-#[cfg(test)]
-use crate::model::entity::EntityModel;
 use crate::{
     db::{
         data::{
@@ -70,18 +68,6 @@ pub(in crate::db) struct StructuralSlotReader<'a> {
 }
 
 impl<'a> StructuralSlotReader<'a> {
-    /// Build one accepted slot reader from a model proposal for tests.
-    #[cfg(test)]
-    pub(in crate::db) fn from_raw_row_with_model_proposal_for_test(
-        raw_row: &'a RawRow,
-        model: &'static EntityModel,
-    ) -> Result<Self, InternalError> {
-        let reader = Self::from_raw_row_with_unvalidated_model_proposal_for_test(raw_row, model)?;
-        reader.validate_all_declared_slots()?;
-
-        Ok(reader)
-    }
-
     /// Build one slot reader over one persisted row using one frozen
     /// structural row contract without retaining the full entity model.
     pub(in crate::db) fn from_raw_row_with_contract(
@@ -144,19 +130,6 @@ impl<'a> StructuralSlotReader<'a> {
         Ok(reader)
     }
 
-    // Project one model proposal into accepted row authority before opening the
-    // persisted row.
-    #[cfg(test)]
-    pub(in crate::db) fn from_raw_row_with_unvalidated_model_proposal_for_test(
-        raw_row: &'a RawRow,
-        model: &'static EntityModel,
-    ) -> Result<Self, InternalError> {
-        Self::from_raw_row_with_contract(
-            raw_row,
-            StructuralRowContract::from_model_proposal_for_test(model),
-        )
-    }
-
     fn required_accepted_field_decode_contract(
         &self,
         slot: usize,
@@ -191,41 +164,6 @@ impl<'a> StructuralSlotReader<'a> {
         }
 
         Ok(values)
-    }
-
-    /// Return the accepted row-layout identity stamped in the physical row.
-    ///
-    /// Construction has already admitted this version against the selected
-    /// accepted row contract.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "0.209 exposes this accepted-native fact for the 0.212 integrity consumer"
-        )
-    )]
-    #[must_use]
-    pub(in crate::db) const fn stamped_layout_version(
-        &self,
-    ) -> crate::db::schema::RowLayoutVersion {
-        self.field_bytes.layout_version()
-    }
-
-    /// Return the exact physical slot count admitted for the stamped layout.
-    ///
-    /// This can be smaller than `field_count` only for a valid historical row;
-    /// logical reads still materialize later fields from frozen historical
-    /// fill authority.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "0.209 exposes this accepted-native fact for the 0.212 integrity consumer"
-        )
-    )]
-    #[must_use]
-    pub(in crate::db) fn physical_slot_count(&self) -> usize {
-        self.field_bytes.physical_slot_count()
     }
 
     /// Borrow the structural row contract selected for this reader.
@@ -620,10 +558,6 @@ impl<'a> StructuralSlotReader<'a> {
 }
 
 impl SlotReader for StructuralSlotReader<'_> {
-    fn has(&self, slot: usize) -> bool {
-        self.field_bytes.field(slot).is_some()
-    }
-
     fn get_bytes(&self, slot: usize) -> Option<&[u8]> {
         self.field_bytes.field(slot)
     }
@@ -669,11 +603,6 @@ impl SlotReader for StructuralSlotReader<'_> {
 
     fn get_value(&mut self, slot: usize) -> Result<Option<Value>, InternalError> {
         Ok(Some(self.required_cached_value(slot)?.clone()))
-    }
-
-    fn runtime_enum_context(&self) -> Option<&dyn crate::value::RuntimeEnumContext> {
-        Some(self.contract.accepted_value_catalog_handle().enum_catalog()
-            as &dyn crate::value::RuntimeEnumContext)
     }
 }
 

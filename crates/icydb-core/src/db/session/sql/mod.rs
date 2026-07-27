@@ -26,8 +26,6 @@ use crate::db::executor::{
     current_pure_covering_decode_local_instructions,
     current_pure_covering_row_assembly_local_instructions,
 };
-#[cfg(test)]
-use crate::db::sql::parser::{SqlStatement, parse_sql};
 use crate::{
     db::{DbSession, QueryError},
     traits::CanisterKind,
@@ -61,13 +59,6 @@ pub(in crate::db) use compiled::{
     CompiledSqlCommand, CompiledSqlInsertCommand, SqlCompiledCommandExecutionContext,
     SqlCompiledSchemaFingerprint, SqlGlobalAggregateCountPlanCacheEntry,
 };
-#[cfg(test)]
-pub(in crate::db) use delete_policy::{
-    DEFAULT_PUBLIC_BOUNDED_DELETE_LIMIT, DEFAULT_PUBLIC_DELETE_RETURNING_RESPONSE_BYTES,
-};
-#[cfg(test)]
-pub(in crate::db) const DEFAULT_PUBLIC_INSERT_STAGED_ROWS: u32 =
-    write_policy::DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT;
 pub(in crate::db) use delete_policy::{
     SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,
     SqlPublicPrimaryKeyDeletePlan, SqlValidatedDeletePlan, classify_sql_delete_policy,
@@ -82,11 +73,6 @@ pub use resumable_update::{
 pub use surface::{
     SqlStatementDispatch, SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
     sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
-};
-#[cfg(test)]
-pub(in crate::db) use update_policy::{
-    DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT, DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES,
-    SqlUpdatePolicyContext, classify_sql_update_policy,
 };
 pub(in crate::db) use update_policy::{
     SqlExactUpdatePolicy, SqlExactUpdatePolicyRejection, SqlPublicBoundedUpdatePlan,
@@ -105,13 +91,6 @@ pub(crate) use crate::db::session::sql::projection::with_sql_projection_material
 pub use crate::db::session::sql::projection::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
 };
-
-// Keep parsing as a module-owned helper instead of hanging a pure parser off
-// `DbSession` as a fake session method.
-#[cfg(test)]
-pub(in crate::db) fn parse_sql_statement(sql: &str) -> Result<SqlStatement, QueryError> {
-    parse_sql(sql).map_err(QueryError::from_sql_parse_error)
-}
 
 // Measure one SQL compile stage and immediately surface the stage result. The
 // helper keeps attribution capture uniform while avoiding repeated

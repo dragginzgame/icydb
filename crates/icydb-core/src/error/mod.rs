@@ -272,16 +272,6 @@ impl InternalError {
         Self::index_invariant()
     }
 
-    /// Construct the canonical index-key source-field-missing-on-model invariant.
-    pub(crate) fn index_key_item_field_missing_on_entity_model(_field: &str) -> Self {
-        Self::index_invariant()
-    }
-
-    /// Construct the canonical index-key source-field-missing-on-row invariant.
-    pub(crate) fn index_key_item_field_missing_on_lookup_row(_field: &str) -> Self {
-        Self::index_invariant()
-    }
-
     /// Construct the canonical index-expression source-type mismatch invariant.
     pub(crate) fn index_expression_source_type_mismatch(
         _index_name: &str,
@@ -342,69 +332,6 @@ impl InternalError {
     #[inline(never)]
     pub(crate) fn executor_unsupported() -> Self {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Executor)
-    }
-
-    /// Construct an executor-origin save-preflight primary-key missing invariant.
-    pub(crate) fn mutation_entity_primary_key_missing(
-        _entity_path: &str,
-        _field_name: &str,
-    ) -> Self {
-        Self::executor_invariant()
-    }
-
-    /// Construct an executor-origin save-preflight primary-key invalid-value invariant.
-    pub(crate) fn mutation_entity_primary_key_invalid_value(
-        _entity_path: &str,
-        _field_name: &str,
-        _value: &crate::value::Value,
-    ) -> Self {
-        Self::executor_invariant()
-    }
-
-    /// Construct an executor-origin save-preflight primary-key type mismatch invariant.
-    pub(crate) fn mutation_entity_primary_key_type_mismatch(
-        _entity_path: &str,
-        _field_name: &str,
-        _value: &crate::value::Value,
-    ) -> Self {
-        Self::executor_invariant()
-    }
-
-    /// Construct an executor-origin save-preflight primary-key identity mismatch invariant.
-    pub(crate) fn mutation_entity_primary_key_mismatch(
-        _entity_path: &str,
-        _field_name: &str,
-        _field_value: &crate::value::Value,
-        _identity_key: &crate::value::Value,
-    ) -> Self {
-        Self::executor_invariant()
-    }
-
-    /// Construct an executor-origin save-preflight field-missing invariant.
-    pub(crate) fn mutation_entity_field_missing(
-        _entity_path: &str,
-        _field_name: &str,
-        _indexed: bool,
-    ) -> Self {
-        Self::executor_invariant()
-    }
-
-    /// Construct an executor-origin sparse structural patch required-field rejection.
-    #[cfg(test)]
-    pub(crate) fn mutation_structural_patch_required_field_missing(
-        entity_path: &str,
-        field_name: &str,
-    ) -> Self {
-        Self::mutation_required_field_missing(entity_path, field_name)
-    }
-
-    /// Construct an executor-origin save-preflight field-type mismatch invariant.
-    pub(crate) fn mutation_entity_field_type_mismatch(
-        _entity_path: &str,
-        _field_name: &str,
-        _value: &crate::value::Value,
-    ) -> Self {
-        Self::executor_invariant()
     }
 
     /// Construct an executor-origin database-owned-field authorship rejection.
@@ -484,72 +411,8 @@ impl InternalError {
         }
     }
 
-    /// Construct an executor-origin mutation result invariant.
-    ///
-    /// This constructor lands ahead of the public structural mutation surface,
-    /// so the library target may not route through it until that caller exists.
-    pub(crate) fn mutation_structural_after_image_invalid(
-        _entity_path: &str,
-        _data_key: impl Sized,
-        _detail: impl Sized,
-    ) -> Self {
-        Self::executor_invariant()
-    }
-
     /// Construct an executor-origin mutation unknown-field invariant.
     pub(crate) fn mutation_structural_field_unknown(_entity_path: &str, _field_name: &str) -> Self {
-        Self::executor_invariant()
-    }
-
-    /// Construct an executor-origin save-preflight decimal-scale unsupported error.
-    pub(crate) fn mutation_decimal_scale_mismatch(
-        _entity_path: &str,
-        _field_name: &str,
-        _expected_scale: impl Sized,
-        _actual_scale: impl Sized,
-    ) -> Self {
-        Self::executor_unsupported()
-    }
-
-    /// Construct an executor-origin save-preflight text-length unsupported error.
-    pub(crate) fn mutation_text_max_len_exceeded(
-        _entity_path: &str,
-        _field_name: &str,
-        _max_len: impl Sized,
-        _actual_len: impl Sized,
-    ) -> Self {
-        Self::executor_unsupported()
-    }
-
-    /// Construct an executor-origin save-preflight set-encoding invariant.
-    pub(crate) fn mutation_set_field_list_required(_entity_path: &str, _field_name: &str) -> Self {
-        Self::executor_invariant()
-    }
-
-    /// Construct an executor-origin save-preflight set-canonicality invariant.
-    pub(crate) fn mutation_set_field_not_canonical(_entity_path: &str, _field_name: &str) -> Self {
-        Self::executor_invariant()
-    }
-
-    /// Construct an executor-origin save-preflight map-encoding invariant.
-    pub(crate) fn mutation_map_field_map_required(_entity_path: &str, _field_name: &str) -> Self {
-        Self::executor_invariant()
-    }
-
-    /// Construct an executor-origin save-preflight map-entry invariant.
-    pub(crate) fn mutation_map_field_entries_invalid(
-        _entity_path: &str,
-        _field_name: &str,
-        _detail: impl Sized,
-    ) -> Self {
-        Self::executor_invariant()
-    }
-
-    /// Construct an executor-origin save-preflight map-canonicality invariant.
-    pub(crate) fn mutation_map_field_entries_not_canonical(
-        _entity_path: &str,
-        _field_name: &str,
-    ) -> Self {
         Self::executor_invariant()
     }
 
@@ -565,26 +428,6 @@ impl InternalError {
 
     /// Construct a query-origin scalar page invariant for pagination-before-ordering drift.
     pub(crate) fn scalar_page_pagination_after_ordering_required() -> Self {
-        Self::query_executor_invariant()
-    }
-
-    /// Construct a query-origin load-entrypoint invariant for non-load plans.
-    pub(crate) fn load_executor_load_plan_required() -> Self {
-        Self::query_executor_invariant()
-    }
-
-    /// Construct an executor-origin delete-entrypoint unsupported grouped-mode error.
-    pub(crate) fn delete_executor_grouped_unsupported() -> Self {
-        Self::executor_unsupported()
-    }
-
-    /// Construct a query-origin delete-entrypoint invariant for non-delete plans.
-    pub(crate) fn delete_executor_delete_plan_required() -> Self {
-        Self::query_executor_invariant()
-    }
-
-    /// Construct a query-origin aggregate kernel invariant for fold-mode contract drift.
-    pub(crate) fn aggregate_fold_mode_terminal_contract_required() -> Self {
         Self::query_executor_invariant()
     }
 
@@ -720,11 +563,6 @@ impl InternalError {
         Self::store_internal()
     }
 
-    /// Construct the canonical missing rollback-row invariant for delete execution.
-    pub(crate) fn delete_rollback_row_required() -> Self {
-        Self::store_internal()
-    }
-
     /// Construct the canonical recovered-effect verification failure.
     pub(crate) fn recovery_effect_verification_failed() -> Self {
         Self::store_corruption()
@@ -841,19 +679,9 @@ impl InternalError {
         Self::serialize_internal()
     }
 
-    /// Construct the canonical persisted-row field encode internal error.
-    pub(crate) fn persisted_row_field_encode_failed(field_name: &str, _detail: impl Sized) -> Self {
-        Self::persisted_row_field_encode_internal(field_name)
-    }
-
     /// Construct the compact persisted-row field encode internal error.
     pub(crate) fn persisted_row_field_encode_internal(_field_name: &str) -> Self {
         Self::persisted_row_encode_internal()
-    }
-
-    /// Construct the canonical bytes(field) value encode internal error.
-    pub(crate) fn bytes_field_value_encode_failed(_detail: impl Sized) -> Self {
-        Self::serialize_internal()
     }
 
     /// Construct a store-origin corruption error.
@@ -991,11 +819,6 @@ impl InternalError {
         Self::new(ErrorClass::Corruption, ErrorOrigin::Serialize)
     }
 
-    /// Construct the canonical persisted-row decode corruption error.
-    pub(crate) fn persisted_row_decode_failed(_detail: impl Sized) -> Self {
-        Self::persisted_row_decode_corruption()
-    }
-
     /// Construct the compact persisted-row decode corruption error.
     pub(crate) fn persisted_row_decode_corruption() -> Self {
         Self::serialize_corruption()
@@ -1062,11 +885,6 @@ impl InternalError {
         Self::persisted_row_field_decode_corruption(field_name)
     }
 
-    /// Construct the canonical persisted-row scalar-payload out-of-range corruption error.
-    pub(crate) fn persisted_row_field_payload_out_of_range(field_name: &str) -> Self {
-        Self::persisted_row_field_decode_corruption(field_name)
-    }
-
     /// Construct the canonical persisted-row invalid text payload corruption error.
     pub(crate) fn persisted_row_field_text_payload_invalid_utf8(field_name: &str) -> Self {
         Self::persisted_row_field_decode_corruption(field_name)
@@ -1106,11 +924,6 @@ impl InternalError {
     /// Construct the canonical persisted-row missing declared-field corruption error.
     pub(crate) fn persisted_row_declared_field_missing(field_name: &str) -> Self {
         Self::persisted_row_field_decode_corruption(field_name)
-    }
-
-    /// Construct the canonical data-key entity mismatch corruption error.
-    pub(crate) fn data_key_entity_mismatch() -> Self {
-        Self::store_corruption()
     }
 
     /// Construct the canonical reverse-index ordinal overflow internal error.
@@ -1292,17 +1105,6 @@ impl InternalError {
         }
     }
 
-    /// Construct a schema-transition row-layout identity exhaustion error.
-    pub(crate) fn schema_row_layout_version_exhausted() -> Self {
-        Self {
-            class: ErrorClass::Unsupported,
-            origin: ErrorOrigin::Store,
-            detail: Some(ErrorDetail::Store(
-                StoreError::SchemaRowLayoutVersionExhausted,
-            )),
-        }
-    }
-
     /// Construct the fail-closed journal mutation-revision exhaustion error.
     pub(crate) fn journal_mutation_revision_exhausted() -> Self {
         Self {
@@ -1310,30 +1112,6 @@ impl InternalError {
             origin: ErrorOrigin::Store,
             detail: Some(ErrorDetail::Store(
                 StoreError::JournalMutationRevisionExhausted,
-            )),
-        }
-    }
-
-    /// Construct the hard-cut rejection for a generated field that would
-    /// collide with an already accepted SQL-DDL-owned slot.
-    pub(crate) fn schema_generated_field_after_ddl_field() -> Self {
-        Self {
-            class: ErrorClass::Unsupported,
-            origin: ErrorOrigin::Store,
-            detail: Some(ErrorDetail::Store(
-                StoreError::SchemaGeneratedFieldAfterDdlField,
-            )),
-        }
-    }
-
-    /// Construct the fail-closed conflict for a generated proposal that no
-    /// longer matches its live accepted constraint activation.
-    pub(crate) fn schema_generated_constraint_activation_stale() -> Self {
-        Self {
-            class: ErrorClass::Conflict,
-            origin: ErrorOrigin::Store,
-            detail: Some(ErrorDetail::Store(
-                StoreError::SchemaGeneratedConstraintActivationStale,
             )),
         }
     }
@@ -1438,20 +1216,6 @@ impl InternalError {
             detail: Some(ErrorDetail::Query(
                 QueryErrorDetail::UnknownAggregateTargetField,
             )),
-        }
-    }
-
-    /// Construct a query-origin result-shape mismatch error preserving one
-    /// compact result-shape reason in structured error detail.
-    pub(crate) fn query_result_shape_mismatch(
-        reason: diagnostic_code::QueryResultShapeCode,
-    ) -> Self {
-        Self {
-            class: ErrorClass::Unsupported,
-            origin: ErrorOrigin::Query,
-            detail: Some(ErrorDetail::Query(QueryErrorDetail::ResultShapeMismatch {
-                reason,
-            })),
         }
     }
 

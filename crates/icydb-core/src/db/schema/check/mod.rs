@@ -15,7 +15,6 @@ use crate::{
     model::field::{FieldStorageDecode, LeafCodec},
 };
 
-pub(in crate::db) use bind::bind_generated_check_predicate;
 #[cfg(feature = "sql")]
 pub(in crate::db) use bind::bind_sql_check_expr;
 #[cfg(test)]

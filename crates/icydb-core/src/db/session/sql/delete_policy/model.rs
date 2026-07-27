@@ -166,14 +166,6 @@ impl SqlPublicBoundedDeletePlan {
     pub(in crate::db) const fn execution_bounds(&self) -> SqlWriteExecutionBounds {
         self.core.execution_bounds()
     }
-
-    #[cfg(test)]
-    pub(in crate::db) const fn set_execution_bounds_for_tests(
-        &mut self,
-        execution_bounds: SqlWriteExecutionBounds,
-    ) {
-        self.core.set_execution_bounds_for_tests(execution_bounds);
-    }
 }
 
 /// Stable policy rejection for one classified SQL `DELETE`.

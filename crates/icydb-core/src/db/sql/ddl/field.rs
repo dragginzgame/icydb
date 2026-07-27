@@ -76,13 +76,6 @@ impl BoundSqlAlterColumnDefaultRequest {
         self.field.name()
     }
 
-    /// Borrow the accepted field whose default will change.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn field(&self) -> &PersistedFieldSnapshot {
-        &self.field
-    }
-
     /// Borrow the default contract to publish.
     #[must_use]
     pub(in crate::db) const fn default(&self) -> &SchemaInsertDefault {
@@ -173,13 +166,6 @@ impl BoundSqlDropColumnRequest {
     pub(in crate::db) const fn field_name(&self) -> &str {
         self.field.name()
     }
-
-    /// Borrow the accepted DDL-owned field that will be retired.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn field(&self) -> &PersistedFieldSnapshot {
-        &self.field
-    }
 }
 
 ///
@@ -211,13 +197,6 @@ impl BoundSqlRenameColumnRequest {
     #[must_use]
     pub(in crate::db) const fn new_name(&self) -> &str {
         self.new_name.as_str()
-    }
-
-    /// Borrow the accepted source field.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn field(&self) -> &PersistedFieldSnapshot {
-        &self.field
     }
 }
 

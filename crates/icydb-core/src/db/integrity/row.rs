@@ -105,22 +105,6 @@ impl RowInspectionLimits {
         }
     }
 
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn for_tests(
-        rows: usize,
-        atoms: usize,
-        findings: usize,
-        decoded_bytes: usize,
-    ) -> Self {
-        Self {
-            rows,
-            atoms,
-            findings,
-            decoded_bytes,
-        }
-    }
-
     fn validate(self) -> Result<Self, InternalError> {
         if self.rows == 0 || self.atoms == 0 || self.findings == 0 || self.decoded_bytes == 0 {
             return Err(InternalError::store_invariant());
@@ -155,34 +139,6 @@ impl RowIntegrityPage {
     #[must_use]
     pub(in crate::db) const fn exhausted(&self) -> bool {
         self.exhausted
-    }
-
-    /// Return physical rows opened during this call.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn rows_started(&self) -> u32 {
-        self.rows_started
-    }
-
-    /// Return physical rows fully classified during this call.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn rows_completed(&self) -> u32 {
-        self.rows_completed
-    }
-
-    /// Return verifier atoms classified during this call.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn atoms_classified(&self) -> u32 {
-        self.atoms_classified
-    }
-
-    /// Return raw row bytes loaded during this call.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn decoded_bytes(&self) -> u64 {
-        self.decoded_bytes
     }
 
     /// Borrow the bounded finding page.

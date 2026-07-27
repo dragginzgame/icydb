@@ -62,11 +62,19 @@ fn group_key_set_deduplicates_canonical_equivalents() {
     let second = Value::Decimal(Decimal::new(1, 0));
 
     assert!(
-        set.insert_value(&first).expect("insert"),
+        set.insert_key(
+            first
+                .canonical_key()
+                .expect("first key should canonicalize")
+        ),
         "first insert should be new"
     );
     assert!(
-        !set.insert_value(&second).expect("insert"),
+        !set.insert_key(
+            second
+                .canonical_key()
+                .expect("second key should canonicalize")
+        ),
         "second insert should be deduplicated by canonical key equality"
     );
 }

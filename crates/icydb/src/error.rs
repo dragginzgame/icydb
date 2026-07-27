@@ -11,7 +11,7 @@ use std::fmt;
 
 use candid::CandidType;
 use icydb_core::{
-    db::{QueryError, ResponseError},
+    db::QueryError,
     error::{ErrorOrigin as CoreErrorOrigin, InternalError},
 };
 use serde::Deserialize;
@@ -97,20 +97,6 @@ impl Error {
         facade
     }
 
-    const fn from_response_error(err: ResponseError) -> Self {
-        match err {
-            ResponseError::NotFound { .. } => Self::from_kind(
-                ErrorKind::Query(QueryErrorKind::NotFound),
-                ErrorOrigin::Response,
-            ),
-
-            ResponseError::NotUnique { .. } => Self::from_kind(
-                ErrorKind::Query(QueryErrorKind::NotUnique),
-                ErrorOrigin::Response,
-            ),
-        }
-    }
-
     /// Return the compact diagnostic code.
     #[must_use]
     pub const fn code(&self) -> icydb_diagnostic_code::ErrorCode {
@@ -164,12 +150,6 @@ impl From<QueryError> for Error {
         }
 
         Self::from_diagnostic(err.diagnostic())
-    }
-}
-
-impl From<ResponseError> for Error {
-    fn from(err: ResponseError) -> Self {
-        Self::from_response_error(err)
     }
 }
 

@@ -49,10 +49,6 @@ use crate::{
 };
 use num_bigint::{BigInt, BigUint, Sign as BigIntSign};
 
-// Borrowed map-entry payload slices returned by the direct structural
-// value-storage split helpers.
-type ValueStorageMapEntrySlices<'a> = Vec<(&'a [u8], &'a [u8])>;
-
 /// Decode one `FieldStorageDecode::CatalogValue` payload directly from the externally
 /// tagged `Value` wire shape without routing through serde's recursive enum
 /// visitor graph.
@@ -95,33 +91,6 @@ fn validated_value_storage_root_tag(raw_bytes: &[u8]) -> Result<u8, FieldDecodeE
     }
 
     Ok(tag)
-}
-
-/// Decode one canonical structural value-storage `unit` payload without
-/// materializing a runtime `Value`.
-pub(in crate::db) fn decode_structural_value_storage_unit_bytes(
-    raw_bytes: &[u8],
-) -> Result<(), FieldDecodeError> {
-    let tag = validated_value_storage_root_tag(raw_bytes)?;
-    if tag != TAG_UNIT {
-        return Err(FieldDecodeError::new());
-    }
-
-    Ok(())
-}
-
-/// Decode one canonical structural value-storage boolean payload without
-/// materializing a runtime `Value`.
-pub(in crate::db) fn decode_structural_value_storage_bool_bytes(
-    raw_bytes: &[u8],
-) -> Result<bool, FieldDecodeError> {
-    let tag = validated_value_storage_root_tag(raw_bytes)?;
-
-    match tag {
-        TAG_FALSE => Ok(false),
-        TAG_TRUE => Ok(true),
-        _ => Err(FieldDecodeError::new()),
-    }
 }
 
 /// Decode one canonical structural value-storage unsigned integer payload
@@ -301,65 +270,6 @@ pub(in crate::db) fn decode_structural_value_storage_ulid_bytes(
 ) -> Result<Ulid, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_ULID)?;
     decode_ulid_payload_bytes(decode_binary_required_bytes(payload)?)
-}
-
-/// Split one structural value-storage list payload into borrowed nested item
-/// payload slices without materializing runtime `Value` items.
-pub(in crate::db) fn decode_value_storage_list_item_slices(
-    raw_bytes: &[u8],
-) -> Result<Vec<&[u8]>, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    if tag != TAG_LIST {
-        return Err(FieldDecodeError::new());
-    }
-
-    let mut cursor = payload_start;
-    let mut items = Vec::new();
-    for _ in 0..len {
-        reserve_one_value_storage_item(&mut items)?;
-        let item_start = cursor;
-        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
-        items.push(&raw_bytes[item_start..cursor]);
-    }
-    if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
-
-    Ok(items)
-}
-
-/// Split one structural value-storage map payload into borrowed nested key and
-/// value payload slices without materializing runtime `Value` entries.
-pub(in crate::db) fn decode_value_storage_map_entry_slices(
-    raw_bytes: &[u8],
-) -> Result<ValueStorageMapEntrySlices<'_>, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    if tag != TAG_MAP {
-        return Err(FieldDecodeError::new());
-    }
-
-    let mut cursor = payload_start;
-    let mut entries = Vec::new();
-    for _ in 0..len {
-        reserve_one_value_storage_item(&mut entries)?;
-        let key_start = cursor;
-        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
-        let value_start = cursor;
-        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
-        entries.push((
-            &raw_bytes[key_start..value_start],
-            &raw_bytes[value_start..cursor],
-        ));
-    }
-    if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
-
-    Ok(entries)
 }
 
 /// Decode one `FieldStorageDecode::CatalogValue` payload from the parallel

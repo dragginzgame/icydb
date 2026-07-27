@@ -8,14 +8,12 @@ use crate::{
         access::AccessPlan,
         codec::{finalize_hash_sha256, new_hash_sha256_prefixed},
         commit::CommitSchemaFingerprint,
-        cursor::{ContinuationSignature, CursorPlanError, ValidatedCursor, ValidatedGroupedCursor},
+        cursor::{ContinuationSignature, CursorPlanError, ValidatedGroupedCursor},
         query::plan::{
             AccessPlannedQuery, ExecutionOrderContract, ExecutionShapeSignature,
             GroupedCursorPolicyViolation, grouped_cursor_policy_violation,
         },
-        schema::{
-            AcceptedSchemaAuthority, AcceptedSchemaFingerprint, AcceptedSchemaRevision, SchemaInfo,
-        },
+        schema::{AcceptedSchemaAuthority, AcceptedSchemaFingerprint, AcceptedSchemaRevision},
     },
     value::Value,
 };
@@ -187,22 +185,6 @@ impl GroupedContinuationWindowDraft {
     }
 }
 
-///
-/// GroupedCursorAction
-///
-/// Internal grouped continuation action discriminator.
-/// Keeps grouped-plan requirement gating shared across grouped cursor
-/// preparation, grouped cursor revalidation, and grouped
-/// paging-window projection so those entrypoints do not drift independently.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum GroupedCursorAction {
-    Prepare,
-    Revalidate,
-    PagingWindow,
-}
-
 /// Derive the effective offset under cursor-window semantics.
 ///
 /// Offset applies only for initial requests. Once a continuation cursor is
@@ -334,12 +316,6 @@ impl PlannedContinuationContract {
         self.window_size
     }
 
-    /// Borrow planner-projected access plan used for continuation consistency checks.
-    #[must_use]
-    pub(in crate::db) const fn access_plan(&self) -> &AccessPlan<Value> {
-        &self.access
-    }
-
     /// Borrow grouped cursor-policy violation, if continuation is disallowed for grouped shape.
     #[must_use]
     pub(in crate::db) const fn grouped_cursor_policy_violation(
@@ -378,57 +354,13 @@ impl PlannedContinuationContract {
         effective_offset_for_cursor_window(self.expected_initial_offset(), cursor_present)
     }
 
-    /// Validate scalar cursor bytes against this immutable continuation contract.
-    pub(in crate::db) fn prepare_scalar_cursor(
-        &self,
-        entity_path: &'static str,
-        entity_tag: crate::types::EntityTag,
-        schema_info: &SchemaInfo,
-        bytes: Option<&[u8]>,
-    ) -> Result<ValidatedCursor, CursorPlanError> {
-        if self.is_grouped() {
-            return Err(CursorPlanError::continuation_cursor_invariant());
-        }
-
-        crate::db::cursor::prepare_cursor(
-            self.access_plan().executable_contract().as_path().cloned(),
-            entity_path,
-            entity_tag,
-            schema_info,
-            self.order_contract.order_spec(),
-            self.order_contract.direction(),
-            self.continuation_signature(),
-            self.expected_initial_offset(),
-            bytes,
-        )
-    }
-
-    /// Validate grouped cursor bytes against this immutable continuation contract.
-    #[cfg(test)]
-    pub(in crate::db) fn prepare_grouped_cursor(
-        &self,
-        entity_path: &'static str,
-        bytes: Option<&[u8]>,
-    ) -> Result<ValidatedGroupedCursor, CursorPlanError> {
-        self.validate_grouped_cursor_contract(GroupedCursorAction::Prepare, bytes.is_some())?;
-
-        crate::db::cursor::prepare_grouped_cursor(
-            entity_path,
-            self.order_contract.order_spec(),
-            self.order_contract.direction(),
-            self.continuation_signature(),
-            self.expected_initial_offset(),
-            bytes,
-        )
-    }
-
     /// Validate one already-decoded grouped cursor token against this immutable continuation contract.
     pub(in crate::db) fn prepare_grouped_cursor_token(
         &self,
         entity_path: &'static str,
         cursor: Option<crate::db::cursor::GroupedContinuationToken>,
     ) -> Result<ValidatedGroupedCursor, CursorPlanError> {
-        self.validate_grouped_cursor_contract(GroupedCursorAction::Prepare, cursor.is_some())?;
+        self.validate_grouped_cursor_contract(cursor.is_some())?;
 
         crate::db::cursor::prepare_grouped_cursor_token(
             entity_path,
@@ -440,47 +372,12 @@ impl PlannedContinuationContract {
         )
     }
 
-    /// Revalidate scalar cursor state against this immutable continuation contract.
-    pub(in crate::db) fn revalidate_scalar_cursor(
-        &self,
-        entity_tag: crate::types::EntityTag,
-        schema_info: &SchemaInfo,
-        cursor: ValidatedCursor,
-    ) -> Result<ValidatedCursor, CursorPlanError> {
-        if self.is_grouped() {
-            return Err(CursorPlanError::continuation_cursor_invariant());
-        }
-
-        crate::db::cursor::revalidate_cursor(
-            self.access_plan().executable_contract().as_path().cloned(),
-            entity_tag,
-            schema_info,
-            self.order_contract.order_spec(),
-            self.order_contract.direction(),
-            self.expected_initial_offset(),
-            cursor,
-        )
-    }
-
-    /// Revalidate grouped cursor state against this immutable continuation contract.
-    pub(in crate::db) fn revalidate_grouped_cursor(
-        &self,
-        cursor: ValidatedGroupedCursor,
-    ) -> Result<ValidatedGroupedCursor, CursorPlanError> {
-        self.validate_grouped_cursor_contract(GroupedCursorAction::Revalidate, !cursor.is_empty())?;
-
-        crate::db::cursor::revalidate_grouped_cursor(self.expected_initial_offset(), cursor)
-    }
-
     /// Derive grouped paging contracts from validated grouped cursor state.
     pub(in crate::db) fn project_grouped_paging_window(
         &self,
         cursor: &ValidatedGroupedCursor,
     ) -> Result<GroupedContinuationWindow, CursorPlanError> {
-        self.validate_grouped_cursor_contract(
-            GroupedCursorAction::PagingWindow,
-            !cursor.is_empty(),
-        )?;
+        self.validate_grouped_cursor_contract(!cursor.is_empty())?;
 
         Ok(GroupedContinuationWindowDraft::from_contract_and_cursor(self, cursor).into_window())
     }
@@ -488,7 +385,6 @@ impl PlannedContinuationContract {
     // Enforce grouped continuation ownership once for all grouped cursor entrypoints.
     const fn validate_grouped_cursor_contract(
         &self,
-        _action: GroupedCursorAction,
         cursor_applied: bool,
     ) -> Result<(), CursorPlanError> {
         if !self.is_grouped() {
@@ -531,16 +427,6 @@ impl AccessPlannedQuery {
             effective_offset_for_cursor_window(page_window.offset_u32(), cursor_present);
 
         ScalarAccessWindowPlan::new(effective_offset, page_window.limit_u32())
-    }
-
-    /// Build one immutable continuation contract from planner-owned semantics.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn planned_continuation_contract(
-        &self,
-        entity_path: &'static str,
-    ) -> Option<PlannedContinuationContract> {
-        self.planned_continuation_contract_with_accepted_identity(entity_path, None)
     }
 
     /// Build one immutable continuation contract from planner-owned semantics

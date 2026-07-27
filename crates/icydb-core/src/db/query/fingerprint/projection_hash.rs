@@ -3,12 +3,8 @@
 //! Does not own: planner projection lowering or continuation profile ordering.
 //! Boundary: semantic-only projection hash bytes independent from alias/explain metadata.
 
-#[cfg(all(test, feature = "sql"))]
-use crate::db::codec::new_hash_sha256;
 #[cfg(test)]
 use crate::db::numeric::coerce_numeric_decimal;
-#[cfg(all(test, feature = "sql"))]
-use crate::db::query::fingerprint::finalize_sha256_digest;
 use crate::db::query::fingerprint::hash_sections::write_value;
 use crate::db::query::plan::expr::UnaryOp;
 use crate::db::query::{
@@ -77,17 +73,6 @@ impl<'a> ProjectionHashShape<'a> {
     #[must_use]
     const fn semantic(projection: &'a ProjectionSpec) -> Self {
         Self { projection }
-    }
-}
-
-impl ProjectionSpec {
-    /// Compute one projection structural hash for SQL-facing tests.
-    #[must_use]
-    #[cfg(all(test, feature = "sql"))]
-    pub(in crate::db) fn structural_hash_for_test(&self) -> [u8; 32] {
-        let mut hasher = new_hash_sha256();
-        hash_projection_structural_fingerprint(&mut hasher, self);
-        finalize_sha256_digest(hasher)
     }
 }
 

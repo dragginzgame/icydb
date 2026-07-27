@@ -108,7 +108,10 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<IntegrityEntityIdentity, SqlIntegrityError> {
         let mut matched = None;
         for entity_registration in self.db.entity_registrations {
-            let registration = entity_registration.runtime();
+            let registration = entity_registration
+                .runtime()
+                .resolve(&self.db)
+                .map_err(IntegrityDeepError::from)?;
             let store = self
                 .db
                 .recovered_store(registration.store_path)

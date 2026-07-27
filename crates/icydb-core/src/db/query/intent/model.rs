@@ -5,38 +5,26 @@
 
 #[cfg(any(test, feature = "sql"))]
 use crate::db::predicate::Predicate;
-#[cfg(test)]
-use crate::db::predicate::normalize;
 use crate::db::query::intent::{StructuralQueryCacheKey, state::GroupedIntent};
-use crate::{
-    db::KeyValueCodec,
-    db::{
-        predicate::{CompareOp, MissingRowPolicy},
-        query::{
-            builder::aggregate::AggregateExpr,
-            expr::{FilterExpr, OrderTerm as FluentOrderTerm},
-            intent::{QueryError, QueryIntent},
-            plan::{
-                AccessPlannedQuery, AccessPlanningInputs, GroupAggregateSpec,
-                LogicalPlanningInputs, OrderSpec, PreparedScalarPlanningState, QueryMode,
-                VisibleIndexes, build_query_model_plan_for_model_only,
-                build_query_model_plan_with_indexes_for_model_only,
-                build_query_model_plan_with_indexes_from_scalar_planning_state,
-                canonicalize_grouped_having_numeric_literal_for_slot,
-                expr::{
-                    Expr, FieldId, ProjectionSelection, is_normalized_bool_expr,
-                    normalize_bool_expr,
-                },
-                group_aggregate_spec_expr, grouped_having_compare_expr,
-                prepare_query_model_scalar_planning_state_with_schema_info,
-                resolve_group_field_slot, resolve_group_field_slot_with_schema,
-                try_build_trivial_scalar_load_plan_with_schema_info,
+use crate::db::{
+    predicate::MissingRowPolicy,
+    query::{
+        builder::aggregate::AggregateExpr,
+        expr::{FilterExpr, OrderTerm as FluentOrderTerm},
+        intent::{QueryError, QueryIntent},
+        plan::{
+            AccessPlannedQuery, AccessPlanningInputs, GroupAggregateSpec, LogicalPlanningInputs,
+            OrderSpec, PreparedScalarPlanningState, QueryMode, VisibleIndexes,
+            build_query_model_plan_with_indexes_from_scalar_planning_state,
+            expr::{
+                Expr, FieldId, ProjectionSelection, is_normalized_bool_expr, normalize_bool_expr,
             },
+            prepare_query_model_scalar_planning_state_with_schema_info,
+            resolve_group_field_slot_with_schema,
+            try_build_trivial_scalar_load_plan_with_schema_info,
         },
-        schema::SchemaInfo,
     },
-    model::entity::EntityModel,
-    value::Value,
+    schema::SchemaInfo,
 };
 
 ///
@@ -49,12 +37,12 @@ use crate::{
 ///
 
 #[derive(Clone, Debug)]
-pub(in crate::db::query) struct QueryModel<K> {
-    intent: QueryIntent<K>,
+pub(in crate::db::query) struct QueryModel {
+    intent: QueryIntent,
     consistency: MissingRowPolicy,
 }
 
-impl<K: KeyValueCodec> QueryModel<K> {
+impl QueryModel {
     #[must_use]
     pub(in crate::db::query) const fn new(consistency: MissingRowPolicy) -> Self {
         Self {
@@ -105,7 +93,6 @@ impl<K: KeyValueCodec> QueryModel<K> {
         let access_inputs = self.planning_access_inputs();
         let logical_inputs = self.planning_logical_inputs();
         let scalar_shape_supported = access_inputs.order().is_none()
-            && !access_inputs.has_key_access_override()
             && !logical_inputs.distinct()
             && !logical_inputs.has_group()
             && !logical_inputs.has_having_expr();
@@ -138,8 +125,6 @@ impl<K: KeyValueCodec> QueryModel<K> {
         };
         let scalar = self.intent.scalar();
         if scalar.filter.is_some()
-            || scalar.key_access.is_some()
-            || scalar.key_access_conflict
             || scalar.distinct
             || self.intent.is_grouped()
             || !matches!(scalar.projection_selection, ProjectionSelection::All)
@@ -180,11 +165,6 @@ impl<K: KeyValueCodec> QueryModel<K> {
     }
 
     #[must_use]
-    pub(in crate::db::query::intent) fn has_explicit_order(&self) -> bool {
-        self.intent.has_explicit_order()
-    }
-
-    #[must_use]
     pub(in crate::db::query::intent) const fn has_grouping(&self) -> bool {
         self.intent.is_grouped()
     }
@@ -197,28 +177,20 @@ impl<K: KeyValueCodec> QueryModel<K> {
     #[must_use]
     pub(in crate::db::query::intent) const fn scalar_intent_for_cache_key(
         &self,
-    ) -> &crate::db::query::intent::state::ScalarIntent<K> {
+    ) -> &crate::db::query::intent::state::ScalarIntent {
         self.intent.scalar()
     }
 
     #[must_use]
     pub(in crate::db::query::intent) const fn grouped_intent_for_cache_key(
         &self,
-    ) -> Option<&GroupedIntent<K>> {
+    ) -> Option<&GroupedIntent> {
         self.intent.grouped()
     }
 
     #[must_use]
     pub(in crate::db::query::intent) const fn consistency_for_cache_key(&self) -> MissingRowPolicy {
         self.consistency
-    }
-
-    /// Append one test-owned predicate after normalizing it at the intent boundary.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::query) fn filter_predicate(mut self, predicate: Predicate) -> Self {
-        self.intent.append_predicate(normalize(&predicate));
-        self
     }
 
     /// Append one predicate that has already been normalized by the caller.
@@ -230,15 +202,6 @@ impl<K: KeyValueCodec> QueryModel<K> {
     ) -> Self {
         self.intent.append_predicate(predicate);
         self
-    }
-
-    #[must_use]
-    pub(in crate::db::query) fn filter_for_model(
-        self,
-        model: &EntityModel,
-        expr: impl Into<FilterExpr>,
-    ) -> Self {
-        self.filter_expr(expr.into().lower_bool_expr_for_model(model))
     }
 
     #[must_use]
@@ -326,19 +289,6 @@ impl<K: KeyValueCodec> QueryModel<K> {
         self
     }
 
-    // Resolve one grouped field into one stable field slot and append it to the
-    // grouped spec in declaration order.
-    pub(in crate::db::query::intent) fn push_group_field_for_model(
-        mut self,
-        model: &EntityModel,
-        field: &str,
-    ) -> Result<Self, QueryError> {
-        let field_slot = resolve_group_field_slot(model, field).map_err(QueryError::from)?;
-        self.intent.push_group_field_slot(field_slot);
-
-        Ok(self)
-    }
-
     // Resolve one grouped field through an explicit schema view and append it
     // to the grouped spec in declaration order.
     pub(in crate::db::query::intent) fn push_group_field_with_schema(
@@ -365,101 +315,13 @@ impl<K: KeyValueCodec> QueryModel<K> {
     }
 
     // Override grouped hard limits for this grouped query.
-    pub(in crate::db::query::intent) fn grouped_limits(
-        mut self,
-        max_groups: u64,
-        max_group_bytes: u64,
-    ) -> Self {
-        self.intent.set_grouped_limits(max_groups, max_group_bytes);
-
-        self
-    }
-
-    // Append one grouped HAVING compare over one grouped key field.
-    pub(in crate::db::query::intent) fn push_having_group_clause_for_model(
-        self,
-        model: &EntityModel,
-        field: &str,
-        op: CompareOp,
-        value: Value,
-    ) -> Result<Self, QueryError> {
-        if matches!(self.intent.mode(), QueryMode::Delete(_)) {
-            return self.push_having_expr(Expr::Literal(Value::Bool(true)));
-        }
-
-        let field_slot = resolve_group_field_slot(model, field).map_err(QueryError::from)?;
-        let value = canonicalize_grouped_having_numeric_literal_for_slot(&field_slot, &value)
-            .unwrap_or(value);
-        let expr =
-            grouped_having_compare_expr(Expr::Field(FieldId::new(field_slot.field())), op, value);
-
-        self.push_having_expr(expr)
-    }
 
     // Append one grouped HAVING compare over one grouped key field using an
     // explicit schema view for slot authority.
-    pub(in crate::db::query::intent) fn push_having_group_clause_with_schema(
-        self,
-        field: &str,
-        schema: &SchemaInfo,
-        op: CompareOp,
-        value: Value,
-    ) -> Result<Self, QueryError> {
-        if matches!(self.intent.mode(), QueryMode::Delete(_)) {
-            return self.push_having_expr(Expr::Literal(Value::Bool(true)));
-        }
-
-        let field_slot =
-            resolve_group_field_slot_with_schema(schema, field).map_err(QueryError::from)?;
-        let value = canonicalize_grouped_having_numeric_literal_for_slot(&field_slot, &value)
-            .unwrap_or(value);
-        let expr =
-            grouped_having_compare_expr(Expr::Field(FieldId::new(field_slot.field())), op, value);
-
-        self.push_having_expr(expr)
-    }
 
     // Append one grouped HAVING compare over one grouped aggregate output.
-    pub(in crate::db::query::intent) fn push_having_aggregate_clause(
-        self,
-        aggregate_index: usize,
-        op: CompareOp,
-        value: Value,
-    ) -> Result<Self, QueryError> {
-        if matches!(self.intent.mode(), QueryMode::Delete(_)) {
-            return self.push_having_expr(Expr::Literal(Value::Bool(true)));
-        }
-
-        let Some(grouped) = self.intent.grouped() else {
-            return Err(QueryError::intent(
-                crate::db::query::intent::IntentError::having_requires_group_by(),
-            ));
-        };
-        let Some(aggregate) = grouped.group.aggregates.get(aggregate_index) else {
-            return Err(QueryError::intent(
-                crate::db::query::intent::IntentError::having_references_unknown_aggregate(),
-            ));
-        };
-        let expr = grouped_having_compare_expr(
-            Expr::Aggregate(group_aggregate_spec_expr(aggregate)),
-            op,
-            value,
-        );
-
-        self.push_having_expr(expr)
-    }
 
     // Append one widened grouped HAVING expression after GROUP BY terminal declaration.
-    pub(in crate::db::query::intent) fn push_having_expr(
-        mut self,
-        expr: Expr,
-    ) -> Result<Self, QueryError> {
-        self.intent
-            .push_having_expr(expr)
-            .map_err(QueryError::intent)?;
-
-        Ok(self)
-    }
 
     // Append one widened grouped HAVING expression while preserving the
     // caller-owned grouped semantic shape instead of re-running grouped
@@ -474,27 +336,6 @@ impl<K: KeyValueCodec> QueryModel<K> {
             .map_err(QueryError::intent)?;
 
         Ok(self)
-    }
-
-    /// Set the access path to a single primary key lookup.
-    pub(in crate::db::query) fn by_id(mut self, id: K) -> Self {
-        self.intent.set_by_id(id);
-        self
-    }
-
-    /// Set the access path to a primary key batch lookup.
-    pub(in crate::db::query) fn by_ids<I>(mut self, ids: I) -> Self
-    where
-        I: IntoIterator<Item = K>,
-    {
-        self.intent.set_by_ids(ids);
-        self
-    }
-
-    /// Set the access path to the singleton primary key.
-    pub(in crate::db::query) fn only(mut self, id: K) -> Self {
-        self.intent.set_only(id);
-        self
     }
 
     /// Mark this intent as a delete query.
@@ -531,29 +372,9 @@ impl<K: KeyValueCodec> QueryModel<K> {
         self
     }
 
-    /// Build a standalone model-only logical plan using Value-based access keys.
-    #[inline(never)]
-    pub(in crate::db::query::intent) fn build_plan_model(
-        &self,
-        model: &EntityModel,
-    ) -> Result<AccessPlannedQuery, QueryError> {
-        build_query_model_plan_for_model_only(self, model)
-    }
-
-    /// Build a standalone model-only logical plan using one explicit
-    /// planner-visible secondary-index set.
-    #[inline(never)]
-    pub(in crate::db::query::intent) fn build_plan_model_with_indexes(
-        &self,
-        model: &EntityModel,
-        visible_indexes: &VisibleIndexes<'_>,
-    ) -> Result<AccessPlannedQuery, QueryError> {
-        build_query_model_plan_with_indexes_for_model_only(self, model, visible_indexes)
-    }
-
     pub(in crate::db::query::intent) fn build_plan_model_with_indexes_from_scalar_planning_state(
         &self,
-        visible_indexes: &VisibleIndexes<'_>,
+        visible_indexes: &VisibleIndexes,
         planning_state: PreparedScalarPlanningState<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
         build_query_model_plan_with_indexes_from_scalar_planning_state(

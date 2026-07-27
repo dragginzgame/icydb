@@ -1,5 +1,5 @@
 use crate::schema::DemoRpgStore;
-use icydb::design::prelude::*;
+use icydb_model::prelude::*;
 
 ///
 /// Grid

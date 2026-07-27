@@ -1,7 +1,0 @@
-error[E0277]: the trait bound `icydb::prelude::Principal: std::default::Default` is not satisfied
- --> tests/ui/default_tuple_element_bound.rs:3:1
-  |
-3 | #[tuple(source_key = "testing/macro-tests/tests/ui/default_tuple_element_bound.rs::tuple::1", value(item(prim = "Principal")), traits(add(Default)))]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `std::default::Default` is not implemented for `icydb::prelude::Principal`
-  |
-  = note: this error originates in the attribute macro `tuple` (in Nightly builds, run with -Z macro-backtrace for more info)

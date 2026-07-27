@@ -248,11 +248,6 @@ fn allocation_registry_generation() -> Result<u64, InternalError> {
     Ok(TEST_ALLOCATION_REGISTRY_GENERATION.with(Cell::get))
 }
 
-#[cfg(test)]
-pub(in crate::db) fn set_allocation_registry_generation_for_tests(generation: u64) -> u64 {
-    TEST_ALLOCATION_REGISTRY_GENERATION.with(|current| current.replace(generation))
-}
-
 #[cfg(not(test))]
 fn allocation_registry_generation() -> Result<u64, InternalError> {
     let allocations = ic_memory::committed_allocations()

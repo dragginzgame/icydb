@@ -36,10 +36,6 @@ impl ScalarProjectionPlan {
     pub(in crate::db) const fn new(expr: Expr) -> Self {
         Self { expr }
     }
-
-    pub(in crate::db) fn into_expr(self) -> Expr {
-        self.expr
-    }
 }
 
 ///

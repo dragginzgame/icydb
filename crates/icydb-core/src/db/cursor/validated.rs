@@ -3,74 +3,7 @@
 //! Does not own: cursor validation policy derivation or token wire encoding.
 //! Boundary: carries validated cursor boundary/anchor/offset state into runtime execution.
 
-use crate::db::cursor::{CursorBoundary, ValidatedInEnvelopeIndexRangeCursorAnchor};
 use crate::value::Value;
-
-///
-/// ValidatedCursor
-///
-/// Executor-facing continuation state produced after cursor validation.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct ValidatedCursor {
-    boundary: Option<CursorBoundary>,
-    index_range_anchor: Option<ValidatedInEnvelopeIndexRangeCursorAnchor>,
-    initial_offset: u32,
-}
-
-impl ValidatedCursor {
-    #[must_use]
-    pub(in crate::db) const fn none() -> Self {
-        Self {
-            boundary: None,
-            index_range_anchor: None,
-            initial_offset: 0,
-        }
-    }
-
-    /// Construct executor cursor state whose boundary and anchor have already
-    /// passed the cursor validation spine.
-    ///
-    /// This constructor intentionally does not validate. Callers outside
-    /// cursor validation should prefer `prepare_cursor(...)` or
-    /// `revalidate_cursor(...)` unless they are assembling explicit test
-    /// fixtures.
-    #[must_use]
-    pub(in crate::db) const fn new_validated(
-        boundary: CursorBoundary,
-        index_range_anchor: Option<ValidatedInEnvelopeIndexRangeCursorAnchor>,
-        initial_offset: u32,
-    ) -> Self {
-        Self {
-            boundary: Some(boundary),
-            index_range_anchor,
-            initial_offset,
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn boundary(&self) -> Option<&CursorBoundary> {
-        self.boundary.as_ref()
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn index_range_anchor(
-        &self,
-    ) -> Option<&ValidatedInEnvelopeIndexRangeCursorAnchor> {
-        self.index_range_anchor.as_ref()
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn initial_offset(&self) -> u32 {
-        self.initial_offset
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn is_empty(&self) -> bool {
-        self.boundary.is_none() && self.index_range_anchor.is_none() && self.initial_offset == 0
-    }
-}
 
 ///
 /// ValidatedGroupedCursor
@@ -95,10 +28,8 @@ impl ValidatedGroupedCursor {
 
     /// Construct grouped executor cursor state after grouped cursor validation.
     ///
-    /// This constructor is the grouped counterpart to
-    /// `ValidatedCursor::new_validated(...)`; normal grouped cursor input should
-    /// flow through grouped cursor preparation before this state reaches the
-    /// executor.
+    /// Normal grouped cursor input flows through grouped cursor preparation
+    /// before this state reaches the executor.
     #[must_use]
     pub(in crate::db) const fn new_validated(
         last_group_key: Vec<Value>,

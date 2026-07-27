@@ -46,7 +46,6 @@ fn complete_domain_stage_builds_field_and_expression_projection_without_writes()
     assert_eq!(staged.usage().source_rows(), 2);
     assert_eq!(staged.usage().accepted_before_entries(), 2);
     assert_eq!(staged.usage().accepted_after_entries(), 4);
-    assert!(staged.usage().staged_raw_bytes() > 0);
     assert!(
         staged
             .final_entries()

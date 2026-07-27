@@ -1,5 +1,3 @@
-#[cfg(test)]
-use crate::model::index::IndexModel;
 use crate::{
     db::{
         access::{SemanticIndexAccessContract, SemanticIndexKeyItemRef, SemanticIndexKeyItemsRef},
@@ -16,7 +14,6 @@ use crate::{
         },
         schema::SchemaInfo,
     },
-    model::index::{IndexKeyItem, IndexKeyItemsRef},
     value::Value,
 };
 
@@ -149,27 +146,6 @@ fn evaluate_prefix_len_for_key_items(
         SemanticIndexKeyItemsRef::Accepted(items) => {
             for item in items {
                 match match_eq_constraint_value_for_key_item(item.as_ref(), eq_constraints) {
-                    Ok(Some(_)) => prefix_len = prefix_len.saturating_add(1),
-                    Ok(None) => break,
-                    Err(reason) => return Err(reason),
-                }
-            }
-        }
-        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
-            for &field in fields {
-                match match_eq_constraint_value_for_key_item(
-                    IndexKeyItem::Field(field),
-                    eq_constraints,
-                ) {
-                    Ok(Some(_)) => prefix_len = prefix_len.saturating_add(1),
-                    Ok(None) => break,
-                    Err(reason) => return Err(reason),
-                }
-            }
-        }
-        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => {
-            for &key_item in items {
-                match match_eq_constraint_value_for_key_item(key_item, eq_constraints) {
                     Ok(Some(_)) => prefix_len = prefix_len.saturating_add(1),
                     Ok(None) => break,
                     Err(reason) => return Err(reason),
@@ -330,32 +306,6 @@ pub(super) fn evaluate_branch_set_candidate_from_contract(
         range_bound_count: 0,
         order_compatible: false,
     })
-}
-
-#[cfg(test)]
-pub(in crate::db::query::plan::access_choice) fn evaluate_prefix_compare_candidate(
-    index: &IndexModel,
-    schema: &SchemaInfo,
-    cmp: &ComparePredicate,
-) -> CandidateEvaluation {
-    evaluate_prefix_compare_candidate_from_contract(
-        &SemanticIndexAccessContract::model_only_from_generated_index(*index),
-        schema,
-        cmp,
-    )
-}
-
-#[cfg(test)]
-pub(in crate::db::query::plan::access_choice) fn evaluate_multi_lookup_candidate(
-    index: &IndexModel,
-    schema: &SchemaInfo,
-    predicate: &Predicate,
-) -> CandidateEvaluation {
-    evaluate_multi_lookup_candidate_from_contract(
-        &SemanticIndexAccessContract::model_only_from_generated_index(*index),
-        schema,
-        predicate,
-    )
 }
 
 // Keep single-field lookup families on one shared coercion gate so prefix and

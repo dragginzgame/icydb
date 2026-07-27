@@ -3,7 +3,7 @@
 //! Does not own: global metrics state mutation or report rendering.
 //! Boundary: exposes event enums consumed by metrics sinks and runtime instrumentation.
 
-use crate::error::{ErrorClass, InternalError};
+use crate::error::ErrorClass;
 
 ///
 /// ExecKind
@@ -79,19 +79,6 @@ pub enum CacheMissReason {
 
 impl ExecOutcome {
     // Map the crate's typed runtime error taxonomy into stable metrics buckets.
-    #[remain::check]
-    pub(super) const fn from_error(error: &InternalError) -> Self {
-        #[remain::sorted]
-        match error.class() {
-            ErrorClass::Conflict => Self::ErrorConflict,
-            ErrorClass::Corruption => Self::ErrorCorruption,
-            ErrorClass::IncompatiblePersistedFormat => Self::ErrorIncompatiblePersistedFormat,
-            ErrorClass::Internal => Self::ErrorInternal,
-            ErrorClass::InvariantViolation => Self::ErrorInvariantViolation,
-            ErrorClass::NotFound => Self::ErrorNotFound,
-            ErrorClass::Unsupported => Self::ErrorUnsupported,
-        }
-    }
 }
 
 ///

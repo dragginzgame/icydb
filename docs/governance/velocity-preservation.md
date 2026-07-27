@@ -223,7 +223,7 @@ Forbidden by default:
 
 Primary scope:
 
-- `crates/icydb-build/src/db/`
+- `crates/icydb-model/src/build/actor/db/`
 - `canisters/**`
 - `testing/**`
 

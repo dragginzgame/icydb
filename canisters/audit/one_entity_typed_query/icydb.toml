@@ -1,0 +1,3 @@
+[canisters.one_entity_typed_query.metrics]
+local = "off"
+ic = "off"

@@ -2,15 +2,12 @@
 //! Defines the predicate capability classifiers used to choose scalar,
 //! index-backed, or full-scan evaluation paths.
 
-#[cfg(test)]
-use crate::model::entity::EntityModel;
 use crate::{
     db::{
         index::derive_index_expression_value,
         predicate::{CoercionId, CompareOp, ExecutableComparePredicate, ExecutablePredicate},
-        schema::SchemaInfo,
+        schema::{PersistedIndexExpressionOp, SchemaInfo},
     },
-    model::index::IndexKeyItem,
     value::Value,
 };
 
@@ -57,17 +54,6 @@ pub(in crate::db) struct PredicateCapabilityContext<'a> {
 }
 
 impl<'a> PredicateCapabilityContext<'a> {
-    /// Construct one model-only runtime capability context.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn runtime_for_model_only(model: &'a EntityModel) -> Self {
-        Self {
-            compile_targets: None,
-            schema_info: Some(SchemaInfo::cached_for_generated_entity_model(model)),
-            index_slots: None,
-        }
-    }
-
     /// Construct one runtime capability context from explicit schema authority.
     #[must_use]
     pub(in crate::db) const fn runtime_schema(schema_info: &'a SchemaInfo) -> Self {
@@ -101,7 +87,14 @@ impl<'a> PredicateCapabilityContext<'a> {
 pub(in crate::db) struct IndexCompileTarget {
     pub(in crate::db) component_index: usize,
     pub(in crate::db) field_slot: usize,
-    pub(in crate::db) key_item: IndexKeyItem,
+    pub(in crate::db) kind: IndexCompileTargetKind,
+}
+
+/// Reduced accepted index-key semantics needed by predicate compilation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum IndexCompileTargetKind {
+    Field,
+    Expression(PersistedIndexExpressionOp),
 }
 
 ///
@@ -203,14 +196,19 @@ pub(in crate::db) fn lower_index_compare_literal_for_target(
     value: &Value,
     coercion: CoercionId,
 ) -> Option<Value> {
-    match target.key_item {
-        IndexKeyItem::Field(_) => (coercion == CoercionId::Strict).then(|| value.clone()),
-        IndexKeyItem::Expression(expression) => {
-            if coercion != CoercionId::TextCasefold || !expression.supports_text_casefold_lookup() {
+    match target.kind {
+        IndexCompileTargetKind::Field => (coercion == CoercionId::Strict).then(|| value.clone()),
+        IndexCompileTargetKind::Expression(op) => {
+            if coercion != CoercionId::TextCasefold
+                || !matches!(
+                    op,
+                    PersistedIndexExpressionOp::Lower | PersistedIndexExpressionOp::Upper
+                )
+            {
                 return None;
             }
 
-            derive_index_expression_value(expression, value.clone())
+            derive_index_expression_value(op, value.clone())
                 .ok()
                 .flatten()
         }

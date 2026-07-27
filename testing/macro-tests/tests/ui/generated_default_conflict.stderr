@@ -1,5 +1,0 @@
-error: generated(insert = ...) cannot be combined with default = ...; default is a database/schema default
-  --> tests/ui/generated_default_conflict.rs:24:57
-   |
-24 |         field(source_key = "created_on_insert", ident = "created_on_insert",
-   |                                                         ^^^^^^^^^^^^^^^^^^^

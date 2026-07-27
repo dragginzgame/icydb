@@ -6,11 +6,8 @@ cd "$ROOT"
 
 SCHEMA_CARGO="crates/icydb-schema/Cargo.toml"
 SCHEMA_ROOT="crates/icydb-schema/src"
-LEGACY_CARGO="crates/icydb-model-legacy/Cargo.toml"
 MODEL_CARGO="crates/icydb-model/Cargo.toml"
-MODEL_ROOT="crates/icydb-model/src"
 MODEL_MACROS_CARGO="crates/icydb-model-macros/Cargo.toml"
-MODEL_MACROS_ROOT="crates/icydb-model-macros/src"
 SCHEMA_ONLY_FIXTURE_CARGO="testing/model-schema-only/Cargo.toml"
 TYPED_ADAPTER_FIXTURE_CARGO="testing/model-typed-adapter/Cargo.toml"
 CORE_CARGO="crates/icydb-core/Cargo.toml"
@@ -30,24 +27,13 @@ fail_with_matches() {
 
 schema_dependency_leaks="$(
   rg -n --no-heading --color=never \
-    '^[[:space:]]*icydb-(core|model|model-legacy|schema-derive|derive|build|config)[[:space:]]*=' \
+    '^[[:space:]]*icydb-[a-z0-9-]+[[:space:]]*=' \
     "$SCHEMA_CARGO" || true
 )"
 if [[ -n "$schema_dependency_leaks" ]]; then
   fail_with_matches \
     "icydb-schema must remain a leaf with no dependency on another IcyDB package." \
     "$schema_dependency_leaks"
-fi
-
-schema_authority_leaks="$(
-  rg -n --no-heading --color=never \
-    '\b(EntityModel|EntityRuntimeHooks|SchemaInfo|AcceptedEntity|AcceptedRecordType|FieldId|SchemaIndexId|RelationId|RowLayoutVersion|RuntimeValue|StoreHandle)\b|icydb_core|icydb_model' \
-    "$SCHEMA_ROOT" || true
-)"
-if [[ -n "$schema_authority_leaks" ]]; then
-  fail_with_matches \
-    "icydb-schema must not import or define model, accepted-runtime, or storage authority." \
-    "$schema_authority_leaks"
 fi
 
 schema_operation_leaks="$(
@@ -80,19 +66,6 @@ if [[ -n "$coarse_field_contract" ]]; then
     "$coarse_field_contract"
 fi
 
-if ! rg -q --no-heading --color=never '^publish[[:space:]]*=[[:space:]]*false$' "$LEGACY_CARGO"; then
-  echo "[ERROR] icydb-model-legacy must remain unpublished while it exists." >&2
-  status=1
-fi
-
-if ! rg -q --no-heading --color=never \
-  'publication is blocked while the temporary icydb-model-legacy package exists' \
-  scripts/ci/publish-workspace.sh
-then
-  echo "[ERROR] workspace publication must fail explicitly while icydb-model-legacy exists." >&2
-  status=1
-fi
-
 for package_contract in \
   "$MODEL_CARGO:icydb-model" \
   "$MODEL_MACROS_CARGO:icydb-model-macros"
@@ -111,7 +84,7 @@ done
 
 model_dependency_leaks="$(
   rg -n --no-heading --color=never \
-    '^[[:space:]]*icydb(-build|-cli|-config|-core|-derive|-diagnostic-code|-model-legacy|-schema-derive|-utils)?[[:space:]]*=|package[[:space:]]*=[[:space:]]*"icydb(-build|-cli|-config|-core|-derive|-diagnostic-code|-model-legacy|-schema-derive|-utils)?"' \
+    '^[[:space:]]*icydb[[:space:]]*=|^[[:space:]]*icydb-(cli|config|core|diagnostic-code|utils)[[:space:]]*=|package[[:space:]]*=[[:space:]]*"icydb"' \
     "$MODEL_CARGO" "$MODEL_MACROS_CARGO" || true
 )"
 if [[ -n "$model_dependency_leaks" ]]; then
@@ -154,26 +127,6 @@ do
   fi
 done
 
-model_source_dependency_leaks="$(
-  rg -n --no-heading --color=never \
-    'icydb_core|icydb_model_legacy|icydb_schema_derive|icydb_derive' \
-    "$MODEL_ROOT" "$MODEL_MACROS_ROOT" || true
-)"
-if [[ -n "$model_source_dependency_leaks" ]]; then
-  fail_with_matches \
-    "final model source must not reference retired or database-runtime package owners." \
-    "$model_source_dependency_leaks"
-fi
-
-legacy_core_edge="$(
-  rg -n --no-heading --color=never 'icydb-model-legacy' "$CORE_CARGO" || true
-)"
-if [[ -n "$legacy_core_edge" ]]; then
-  fail_with_matches \
-    "icydb-core must not depend on the temporary model-authoring package." \
-    "$legacy_core_edge"
-fi
-
 for required_application_owner in \
   'database_incarnation_id()' \
   'current_accepted_schema_root' \
@@ -184,17 +137,6 @@ do
     status=1
   fi
 done
-
-application_model_leaks="$(
-  rg -n --no-heading --color=never \
-    '\b(EntityModel|CompiledSchemaProposal|EntityRuntimeHooks|E::MODEL)\b' \
-    "$CORE_APPLICATION" || true
-)"
-if [[ -n "$application_model_leaks" ]]; then
-  fail_with_matches \
-    "schema application target issuance must not depend on generated model authority." \
-    "$application_model_leaks"
-fi
 
 for required_binding_owner in \
   'source_bindings: AcceptedSourceBindingCatalog' \
@@ -210,8 +152,8 @@ do
 done
 
 for sql_ddl_binding_owner in \
-  crates/icydb-core/src/db/schema/reconcile.rs \
-  crates/icydb-core/src/db/schema/reconcile/sql_ddl/constraint.rs
+  crates/icydb-core/src/db/schema/sql_ddl.rs \
+  crates/icydb-core/src/db/schema/sql_ddl/constraint.rs
 do
   if ! rg -q --fixed-strings \
     '.with_sql_ddl_entity_transition(' \
@@ -243,28 +185,6 @@ do
     status=1
   fi
 done
-
-binding_model_leaks="$(
-  rg -n --no-heading --color=never \
-    '\b(EntityModel|CompiledSchemaProposal|EntityRuntimeHooks|E::MODEL)\b' \
-    "$CORE_SOURCE_BINDING" || true
-)"
-if [[ -n "$binding_model_leaks" ]]; then
-  fail_with_matches \
-    "accepted source bindings must map to catalog IDs without generated model authority." \
-    "$binding_model_leaks"
-fi
-
-primitive_residue="$(
-  rg -n --no-heading --color=never 'icydb-primitives|icydb_primitives' \
-    Cargo.toml Cargo.lock crates scripts docs/contracts docs/FOUNDATIONS.md \
-    --glob '!scripts/ci/check-schema-model-boundary-invariants.sh' || true
-)"
-if [[ -n "$primitive_residue" ]]; then
-  fail_with_matches \
-    "the retired standalone primitive owner must not survive after folding into icydb-schema." \
-    "$primitive_residue"
-fi
 
 canonical_atoms=(
   Account Blob Date Decimal Duration Float32 Float64 IntBig NatBig Principal

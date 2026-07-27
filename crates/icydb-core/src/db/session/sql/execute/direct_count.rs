@@ -185,7 +185,7 @@ fn direct_count_cardinality_plan_entry_from_prefix_specs(
 pub(in crate::db::session::sql::execute) fn direct_count_cardinality_prefix_specs_for_accepted_authority(
     authority: &EntityAuthority,
     query: &StructuralQuery,
-    visible_indexes: &VisibleIndexes<'_>,
+    visible_indexes: &VisibleIndexes,
     schema_info: &SchemaInfo,
 ) -> Result<Option<Vec<LoweredIndexPrefixCardinalitySpec>>, QueryError> {
     if let Some(access) = query
@@ -266,10 +266,9 @@ impl<C: CanisterKind> DbSession<C> {
                 )
             })
             .map_err(QueryError::execute)?;
-        let Some(output) = output else {
+        let Some(count) = output else {
             return Ok(None);
         };
-        let count = output.into_count().map_err(QueryError::execute)?;
 
         Ok(Some(Value::Nat64(u64::from(count))))
     }

@@ -450,8 +450,6 @@ impl GroupedExecutionRoute {
 pub(in crate::db) struct GroupedExecutorHandoff<'a> {
     base: &'a AccessPlannedQuery,
     group_fields: &'a [FieldSlot],
-    #[cfg(test)]
-    aggregate_specs: Vec<GroupedAggregateExecutionSpec>,
     grouped_aggregate_execution_specs: Vec<GroupedAggregateExecutionSpec>,
     projection_layout: PlannedProjectionLayout,
     projection_is_identity: bool,
@@ -475,29 +473,6 @@ impl<'a> GroupedExecutorHandoff<'a> {
         self.group_fields
     }
 
-    /// Borrow grouped aggregate specs derived from planner projection semantics.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn aggregate_specs(&self) -> &[GroupedAggregateExecutionSpec] {
-        self.aggregate_specs.as_slice()
-    }
-
-    /// Borrow grouped aggregate execution specs resolved during static planning.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn grouped_aggregate_execution_specs(
-        &self,
-    ) -> &[GroupedAggregateExecutionSpec] {
-        self.grouped_aggregate_execution_specs.as_slice()
-    }
-
-    /// Borrow grouped projection position layout derived by planner.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn projection_layout(&self) -> &PlannedProjectionLayout {
-        &self.projection_layout
-    }
-
     /// Return whether planner already proved the grouped projection is row-identical.
     #[must_use]
     pub(in crate::db) const fn projection_is_identity(&self) -> bool {
@@ -514,15 +489,6 @@ impl<'a> GroupedExecutorHandoff<'a> {
     #[must_use]
     pub(in crate::db) const fn grouped_execution_route(&self) -> GroupedExecutionRoute {
         self.grouped_execution_route
-    }
-
-    /// Borrow grouped DISTINCT execution strategy lowered by planner.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn distinct_execution_strategy(
-        &self,
-    ) -> &GroupedDistinctExecutionStrategy {
-        self.grouped_distinct_policy_contract.execution_strategy()
     }
 
     /// Consume planner-owned grouped residents needed by grouped route-stage execution.
@@ -575,14 +541,12 @@ pub(in crate::db) fn grouped_executor_handoff(
         return Err(InternalError::planner_executor_invariant());
     };
     let projection_spec = plan.frozen_projection_spec()?;
-    let (projection_layout, aggregate_specs, projection_is_identity) =
+    let (projection_layout, _aggregate_specs, projection_is_identity) =
         planned_projection_layout_and_aggregate_specs_from_spec(
             projection_spec,
             grouped.group.group_fields.as_slice(),
             grouped.group.aggregates.as_slice(),
         )?;
-    #[cfg(not(test))]
-    let _ = &aggregate_specs;
     validate_grouped_projection_layout(&projection_layout)?;
     let grouped_plan_strategy =
         grouped_plan_strategy(plan).ok_or_else(InternalError::planner_executor_invariant)?;
@@ -613,8 +577,6 @@ pub(in crate::db) fn grouped_executor_handoff(
     Ok(GroupedExecutorHandoff {
         base: plan,
         group_fields: grouped.group.group_fields.as_slice(),
-        #[cfg(test)]
-        aggregate_specs,
         grouped_aggregate_execution_specs,
         projection_layout,
         projection_is_identity,

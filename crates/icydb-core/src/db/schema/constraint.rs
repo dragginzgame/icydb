@@ -576,24 +576,6 @@ impl AcceptedConstraintCatalog {
         )
     }
 
-    /// Reserve one relation activation beside its delete-invisible owner.
-    pub(in crate::db) fn with_added_relation_activation(
-        self,
-        relation: &PersistedRelationEdgeSnapshot,
-        base_schema_fingerprint: AcceptedSchemaFingerprint,
-        activation_epoch: u64,
-    ) -> Result<Self, AcceptedConstraintCatalogError> {
-        self.with_added_activation(
-            relation.name().to_string(),
-            ConstraintOrigin::Generated,
-            ConstraintActivationKind::Relation {
-                relation_id: relation.id(),
-            },
-            base_schema_fingerprint,
-            activation_epoch,
-        )
-    }
-
     fn with_added_activation(
         mut self,
         name: String,

@@ -66,7 +66,7 @@ impl LoweredSqlGlobalAggregateTerminal {
         let filter_expr = aggregate_expr
             .filter_expr()
             .cloned()
-            .map(|expr| AnalyzedLoweredExpr::new(expr, None));
+            .map(AnalyzedLoweredExpr::new);
 
         Ok(Self {
             semantic_key,
@@ -124,7 +124,6 @@ impl LoweredSqlGlobalAggregateTerminal {
         if let Some(input_expr) = aggregate_expr.input_expr() {
             return Ok(LoweredAggregateInput::Expr(AnalyzedLoweredExpr::new(
                 input_expr.clone(),
-                None,
             )));
         }
 

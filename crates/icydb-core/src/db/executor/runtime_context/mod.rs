@@ -1,115 +1,13 @@
 //! Module: executor::runtime_context
-//! Responsibility: executor-scoped store/index read context and row decoding helpers.
-//! Does not own: routing policy, plan lowering, or mutation commit semantics.
-//! Boundary: read-only data/index access surface consumed by executor submodules.
+//! Responsibility: executor read-path diagnostic counters.
+//! Does not own: store resolution, row decoding, routing, or mutation semantics.
+//! Boundary: maintained structural execution -> optional diagnostics.
 
-mod index_readers;
-#[cfg(test)]
-mod tests;
-
-#[cfg(test)]
-use crate::{db::key_taxonomy::PrimaryKeyValue, types::EntityTag};
-use crate::{
-    db::{
-        Db,
-        data::{DataRow, DataStore, DecodedDataStoreKey, RawRow, StoreVisit},
-        direction::Direction,
-        executor::{ExecutorError, OrderedKeyStream, saturating_row_len},
-        predicate::MissingRowPolicy,
-        registry::StoreHandle,
-    },
-    entity::{EntityKind, EntityValue},
-    error::InternalError,
-    traits::{CanisterKind, Path},
-};
 #[cfg(any(test, feature = "diagnostics"))]
 use std::cell::RefCell;
-use std::convert::Infallible;
-use std::ops::Bound;
 
-// -----------------------------------------------------------------------------
-// Context Subdomains
-// -----------------------------------------------------------------------------
-// 1) Context handle and store access.
-// 2) Row reads and consistency-aware materialization.
-// 3) Key/spec helper utilities and decoding invariants.
-
-///
-/// Context
-///
-
-#[derive(Clone, Copy)]
-pub(in crate::db) struct Context<'a, E: EntityKind + EntityValue> {
-    pub(in crate::db::executor) db: &'a Db<E::Canister>,
-}
-
-impl<E> crate::db::executor::pipeline::contracts::LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    /// Construct one load executor bound to a database handle and debug mode.
-    #[must_use]
-    pub(in crate::db) const fn new(db: Db<E::Canister>, debug: bool) -> Self {
-        Self { db, debug }
-    }
-}
-
-///
-/// StoreLookup
-///
-/// StoreLookup is the object-safe store-registry lookup boundary used when
-/// executor helpers need to resolve an arbitrary named store without carrying
-/// a typed `Context<E>` through the call chain.
-///
-
-pub(in crate::db) trait StoreLookup {
-    fn try_get_store(&self, path: &str) -> Result<StoreHandle, InternalError>;
-}
-
-impl<C> StoreLookup for Db<C>
-where
-    C: CanisterKind,
-{
-    fn try_get_store(&self, path: &str) -> Result<StoreHandle, InternalError> {
-        self.with_store_registry(|registry| registry.try_get_store(path))
-    }
-}
-
-///
-/// StoreResolver
-///
-/// StoreResolver is the non-generic named-store lookup bundle used by
-/// executor helpers that must resolve index-owned stores after the typed
-/// boundary has already chosen the entity model/runtime shell.
-///
-
-#[derive(Clone, Copy)]
-pub(in crate::db) struct StoreResolver<'a> {
-    lookup: &'a dyn StoreLookup,
-}
-
-impl<'a> StoreResolver<'a> {
-    /// Build one named-store resolver from one object-safe lookup boundary.
-    #[must_use]
-    pub(in crate::db) const fn new(lookup: &'a dyn StoreLookup) -> Self {
-        Self { lookup }
-    }
-
-    /// Resolve one named store through the captured store-registry boundary.
-    pub(in crate::db) fn try_get_store(self, path: &str) -> Result<StoreHandle, InternalError> {
-        self.lookup.try_get_store(path)
-    }
-}
-
-///
-/// RowCheckMetrics
-///
-/// RowCheckMetrics aggregates one test-scoped view of the executor-owned
-/// `row_check_required` boundary for secondary covering reads.
-/// It lets perf probes separate secondary scan traversal, row-identity decode,
-/// and authoritative row-presence probes without changing runtime policy.
-///
-
+/// Diagnostic counters for the authoritative row-presence checks performed by
+/// secondary covering reads.
 #[cfg(any(test, feature = "diagnostics"))]
 #[cfg_attr(all(test, not(feature = "diagnostics")), expect(unreachable_pub))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -139,75 +37,8 @@ fn update_row_check_metrics(update: impl FnOnce(&mut RowCheckMetrics)) {
         let Some(metrics) = metrics.as_mut() else {
             return;
         };
-
         update(metrics);
     });
-}
-
-///
-/// FusedSecondaryCoveringAuthority
-///
-///
-/// Executor-owned borrowed data-store authority for stale-fallback secondary
-/// covering reads. It keeps row-visibility policy in the executor while
-/// collapsing candidate admission, authoritative existence probing, and
-/// consistency handling into one explicit boundary.
-///
-
-#[cfg(test)]
-#[derive(Clone, Copy)]
-pub(in crate::db::executor) struct FusedSecondaryCoveringAuthority<'a> {
-    data: &'a DataStore,
-    entity_tag: EntityTag,
-    consistency: MissingRowPolicy,
-}
-
-#[cfg(test)]
-impl<'a> FusedSecondaryCoveringAuthority<'a> {
-    /// Construct one fused stale-row authority over one borrowed data-store
-    /// boundary and one fixed entity identity.
-    #[must_use]
-    pub(in crate::db::executor) const fn new(
-        data: &'a DataStore,
-        entity_tag: EntityTag,
-        consistency: MissingRowPolicy,
-    ) -> Self {
-        Self {
-            data,
-            entity_tag,
-            consistency,
-        }
-    }
-
-    /// Admit or reject one secondary covering candidate under the existing
-    /// fail-closed stale-row contract.
-    pub(in crate::db::executor) fn admits_primary_key_value(
-        self,
-        primary_key_value: &PrimaryKeyValue,
-    ) -> Result<bool, InternalError> {
-        // Phase 1: account for the candidate and encode one authoritative
-        // row-store key directly from the entity tag plus primary key value.
-        record_row_check_covering_candidate_seen();
-        record_row_presence_key_to_raw_encode();
-        let key = DecodedDataStoreKey::new_primary_key_value(self.entity_tag, primary_key_value);
-        let raw_key = key.to_raw()?;
-
-        // Phase 2: probe the borrowed data-store authority and preserve the
-        // current missing-row policy exactly.
-        let row_exists = self.data.contains(&raw_key);
-        record_row_presence_probe_result(row_exists);
-
-        match self.consistency {
-            MissingRowPolicy::Error => {
-                if row_exists {
-                    Ok(true)
-                } else {
-                    Err(ExecutorError::missing_row(&key).into())
-                }
-            }
-            MissingRowPolicy::Ignore => Ok(row_exists),
-        }
-    }
 }
 
 #[cfg(any(test, feature = "diagnostics"))]
@@ -263,19 +94,10 @@ pub(in crate::db::executor) fn record_row_check_row_emitted() {
 pub(in crate::db::executor) const fn record_row_check_row_emitted() {}
 
 #[cfg(any(test, feature = "diagnostics"))]
-fn record_row_presence_key_to_raw_encode() {
+pub(in crate::db::executor) fn record_row_presence_probe(row_exists: bool) {
     update_row_check_metrics(|metrics| {
         metrics.row_presence_key_to_raw_encodes =
             metrics.row_presence_key_to_raw_encodes.saturating_add(1);
-    });
-}
-
-#[cfg(not(any(test, feature = "diagnostics")))]
-const fn record_row_presence_key_to_raw_encode() {}
-
-#[cfg(any(test, feature = "diagnostics"))]
-fn record_row_presence_probe_result(row_exists: bool) {
-    update_row_check_metrics(|metrics| {
         metrics.row_presence_probe_count = metrics.row_presence_probe_count.saturating_add(1);
         if row_exists {
             metrics.row_presence_probe_hits = metrics.row_presence_probe_hits.saturating_add(1);
@@ -286,325 +108,21 @@ fn record_row_presence_probe_result(row_exists: bool) {
 }
 
 #[cfg(not(any(test, feature = "diagnostics")))]
-const fn record_row_presence_probe_result(_row_exists: bool) {}
+pub(in crate::db::executor) const fn record_row_presence_probe(_row_exists: bool) {}
 
-///
-/// with_row_check_metrics
-///
-/// Run one closure while collecting executor-owned `row_check_required`
-/// metrics on the current thread, then return the closure result plus the
-/// aggregated snapshot.
-///
-
+/// Run a closure while collecting row-check diagnostics on the current thread.
 #[cfg(any(test, feature = "diagnostics"))]
 #[cfg_attr(all(test, not(feature = "diagnostics")), expect(unreachable_pub))]
 pub fn with_row_check_metrics<T>(f: impl FnOnce() -> T) -> (T, RowCheckMetrics) {
     ROW_CHECK_METRICS.with(|metrics| {
         debug_assert!(
             metrics.borrow().is_none(),
-            "row_check metrics captures should not nest"
+            "row-check metric captures must not nest"
         );
         *metrics.borrow_mut() = Some(RowCheckMetrics::default());
     });
 
     let result = f();
     let metrics = ROW_CHECK_METRICS.with(|metrics| metrics.borrow_mut().take().unwrap_or_default());
-
     (result, metrics)
-}
-
-impl<'a, E> Context<'a, E>
-where
-    E: EntityKind + EntityValue,
-{
-    // ------------------------------------------------------------------
-    // Context setup
-    // ------------------------------------------------------------------
-
-    /// Construct one executor context bound to a database handle.
-    #[must_use]
-    pub(in crate::db) const fn new(db: &'a Db<E::Canister>) -> Self {
-        Self { db }
-    }
-
-    // ------------------------------------------------------------------
-    // Store access
-    // ------------------------------------------------------------------
-
-    /// Execute one closure against the entity's data store handle.
-    pub(in crate::db) fn with_store<R>(
-        &self,
-        f: impl FnOnce(&DataStore) -> R,
-    ) -> Result<R, InternalError> {
-        self.db.with_store_registry(|reg| {
-            reg.try_get_store(E::Store::PATH)
-                .map(|store| store.with_data(f))
-        })
-    }
-
-    /// Recover the structural store handle once for generic-free executor runtime helpers.
-    pub(in crate::db::executor) fn structural_store(&self) -> Result<StoreHandle, InternalError> {
-        self.db
-            .with_store_registry(|reg| reg.try_get_store(E::Store::PATH))
-    }
-
-    // ------------------------------------------------------------------
-    // Row reads
-    // ------------------------------------------------------------------
-
-    /// Read one raw row by key, returning not-found as an error.
-    pub(in crate::db) fn read(&self, key: &DecodedDataStoreKey) -> Result<RawRow, InternalError> {
-        self.with_store(|s| {
-            let raw = key.to_raw()?;
-            s.get(&raw)
-                .ok_or_else(|| InternalError::store_not_found(key))
-        })?
-    }
-}
-
-// Read one raw row under one consistency contract from structural store authority.
-pub(in crate::db::executor) fn read_row_with_consistency_from_store(
-    store: StoreHandle,
-    key: &DecodedDataStoreKey,
-    consistency: MissingRowPolicy,
-) -> Result<Option<RawRow>, InternalError> {
-    let read_row = |key: &DecodedDataStoreKey| -> Result<Option<RawRow>, InternalError> {
-        let raw = key.to_raw()?;
-
-        Ok(store.with_data(|data| data.get(&raw)))
-    };
-
-    match consistency {
-        MissingRowPolicy::Error => match read_row(key)? {
-            Some(row) => Ok(Some(row)),
-            None => Err(ExecutorError::missing_row(key).into()),
-        },
-        MissingRowPolicy::Ignore => read_row(key),
-    }
-}
-
-// Read only row presence under one consistency contract from one already
-// borrowed data-store boundary. Covering-read decode paths use this helper to
-// batch stale-row filtering under one store borrow instead of re-entering the
-// registry per decoded secondary key.
-pub(in crate::db::executor) fn read_row_presence_with_consistency_from_data_store(
-    data: &DataStore,
-    key: &DecodedDataStoreKey,
-    consistency: MissingRowPolicy,
-) -> Result<bool, InternalError> {
-    read_row_presence_with_consistency(data, key, consistency)
-}
-
-fn read_row_presence_with_consistency(
-    data: &DataStore,
-    key: &DecodedDataStoreKey,
-    consistency: MissingRowPolicy,
-) -> Result<bool, InternalError> {
-    let row_exists = probe_row_presence(data, key)?;
-
-    match consistency {
-        MissingRowPolicy::Error => {
-            if row_exists {
-                Ok(true)
-            } else {
-                Err(ExecutorError::missing_row(key).into())
-            }
-        }
-        MissingRowPolicy::Ignore => Ok(row_exists),
-    }
-}
-
-fn probe_row_presence(data: &DataStore, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
-    record_row_presence_key_to_raw_encode();
-    let raw = key.to_raw()?;
-    let row_exists = data.contains(&raw);
-    record_row_presence_probe_result(row_exists);
-
-    Ok(row_exists)
-}
-
-// Read one persisted row while consuming an already-owned key stream item.
-// Key-stream loops use this path so materialization can preserve the source
-// key without cloning after the raw row read.
-pub(in crate::db::executor) fn read_owned_data_row_with_consistency_from_store(
-    store: StoreHandle,
-    key: DecodedDataStoreKey,
-    consistency: MissingRowPolicy,
-) -> Result<Option<DataRow>, InternalError> {
-    let Some(row) = read_row_with_consistency_from_store(store, &key, consistency)? else {
-        return Ok(None);
-    };
-
-    Ok(Some((key, row)))
-}
-
-/// Fold persisted row payload bytes over one full-scan page window through structural store authority.
-pub(in crate::db::executor) fn sum_row_payload_bytes_full_scan_window_with_store(
-    store: StoreHandle,
-    direction: Direction,
-    offset: usize,
-    limit: Option<usize>,
-) -> u64 {
-    let row_lengths = store.with_data(|store| {
-        let mut row_lengths = Vec::new();
-        let _: Result<(), Infallible> = match direction {
-            Direction::Asc => store.visit_entries(|_raw_key, row| {
-                row_lengths.push(row.len());
-                Ok(StoreVisit::Continue)
-            }),
-            Direction::Desc => store.visit_entries_rev(|_raw_key, row| {
-                row_lengths.push(row.len());
-                Ok(StoreVisit::Continue)
-            }),
-        };
-        row_lengths
-    });
-    sum_payload_bytes_from_row_lengths(row_lengths.into_iter(), offset, limit)
-}
-
-/// Fold persisted row payload bytes over one key-range page window through structural store authority.
-pub(in crate::db::executor) fn sum_row_payload_bytes_key_range_window_with_store(
-    store: StoreHandle,
-    start: &DecodedDataStoreKey,
-    end: &DecodedDataStoreKey,
-    direction: Direction,
-    offset: usize,
-    limit: Option<usize>,
-) -> Result<u64, InternalError> {
-    let start_raw = start.to_raw()?;
-    let end_raw = end.to_raw()?;
-    let row_lengths = store.with_data(|store| {
-        let mut row_lengths = Vec::new();
-        let result = match direction {
-            Direction::Asc => store.visit_range(
-                (
-                    Bound::Included(start_raw.clone()),
-                    Bound::Included(end_raw.clone()),
-                ),
-                |_raw_key, row| {
-                    row_lengths.push(row.len());
-                    Ok::<StoreVisit, InternalError>(StoreVisit::Continue)
-                },
-            ),
-            Direction::Desc => store.visit_range_rev(
-                (
-                    Bound::Included(start_raw.clone()),
-                    Bound::Included(end_raw.clone()),
-                ),
-                |_raw_key, row| {
-                    row_lengths.push(row.len());
-                    Ok::<StoreVisit, InternalError>(StoreVisit::Continue)
-                },
-            ),
-        };
-        result?;
-        Ok::<_, InternalError>(row_lengths)
-    })?;
-
-    Ok(sum_payload_bytes_from_row_lengths(
-        row_lengths.into_iter(),
-        offset,
-        limit,
-    ))
-}
-
-/// Fold persisted row payload bytes over one ordered key stream page window through structural store authority.
-pub(in crate::db::executor) fn sum_row_payload_bytes_from_ordered_key_stream_with_store<S>(
-    store: StoreHandle,
-    key_stream: &mut S,
-    consistency: MissingRowPolicy,
-    offset: usize,
-    limit: Option<usize>,
-) -> Result<u64, InternalError>
-where
-    S: OrderedKeyStream + ?Sized,
-{
-    sum_row_payload_bytes_from_ordered_key_stream_shared(
-        key_stream,
-        &mut |key| read_row_with_consistency_from_store(store, key, consistency),
-        offset,
-        limit,
-    )
-}
-
-const fn payload_window_limit_exhausted(limit_remaining: Option<usize>) -> bool {
-    matches!(limit_remaining, Some(0))
-}
-
-const fn payload_window_accept_row(
-    offset_remaining: &mut usize,
-    limit_remaining: &mut Option<usize>,
-) -> bool {
-    if *offset_remaining > 0 {
-        *offset_remaining = offset_remaining.saturating_sub(1);
-        return false;
-    }
-
-    if let Some(remaining) = limit_remaining.as_mut() {
-        if *remaining == 0 {
-            return false;
-        }
-        *remaining = remaining.saturating_sub(1);
-    }
-
-    true
-}
-
-fn sum_payload_bytes_from_row_lengths(
-    row_lengths: impl Iterator<Item = usize>,
-    offset: usize,
-    limit: Option<usize>,
-) -> u64 {
-    let mut total = 0u64;
-    let mut offset_remaining = offset;
-    let mut limit_remaining = limit;
-
-    for row_len in row_lengths {
-        if payload_window_limit_exhausted(limit_remaining) {
-            break;
-        }
-        if !payload_window_accept_row(&mut offset_remaining, &mut limit_remaining) {
-            continue;
-        }
-
-        total = total.saturating_add(saturating_row_len(row_len));
-    }
-
-    total
-}
-
-// Shared ordered key-stream scan loop used by payload-byte aggregation.
-// Entity wrappers provide consistency-aware row reads via callback injection.
-fn sum_row_payload_bytes_from_ordered_key_stream_shared<S, F>(
-    key_stream: &mut S,
-    read_row: &mut F,
-    offset: usize,
-    limit: Option<usize>,
-) -> Result<u64, InternalError>
-where
-    S: OrderedKeyStream + ?Sized,
-    F: FnMut(&DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError>,
-{
-    let mut total = 0u64;
-    let mut offset_remaining = offset;
-    let mut limit_remaining = limit;
-
-    while let Some(key) = key_stream.next_key()? {
-        if payload_window_limit_exhausted(limit_remaining) {
-            break;
-        }
-
-        // Index-backed and composite stream rows remain row-authoritative:
-        // missing-row ignore skips stale keys, strict mode fails closed.
-        let Some(row) = read_row(&key)? else {
-            continue;
-        };
-        if !payload_window_accept_row(&mut offset_remaining, &mut limit_remaining) {
-            continue;
-        }
-
-        total = total.saturating_add(saturating_row_len(row.len()));
-    }
-
-    Ok(total)
 }

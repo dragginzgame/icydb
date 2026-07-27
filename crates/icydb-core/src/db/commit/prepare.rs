@@ -3,8 +3,6 @@
 //! Does not own: marker persistence, commit-window lifecycle, or recovery orchestration.
 //! Boundary: commit::marker -> commit::prepare -> commit::apply (one-way).
 
-#[cfg(test)]
-use crate::db::schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot};
 use crate::{
     db::{
         Db,
@@ -30,10 +28,9 @@ use crate::{
         },
         schema::{ConstraintActivationKind, ConstraintId, SchemaInfo, UniqueConstraintProjection},
     },
-    entity::{EntityKind, EntityValue},
     error::{ConstraintDiagnostic, ConstraintDiagnosticKind, ErrorClass, InternalError},
     metrics::sink::{MetricsEvent, record},
-    traits::{CanisterKind, Path},
+    traits::CanisterKind,
     types::EntityTag,
 };
 use std::{cell::RefCell, ops::Bound, thread::LocalKey};
@@ -85,22 +82,6 @@ pub(in crate::db) struct CommitPrepareContext {
 }
 
 impl CommitPrepareAuthority {
-    /// Lower one entity type into the resolved authority using a caller-cached schema fingerprint.
-    const fn for_type_with_schema_fingerprint<E>(
-        schema_fingerprint: CommitSchemaFingerprint,
-    ) -> Self
-    where
-        E: EntityKind + Path,
-    {
-        Self {
-            entity_path: E::PATH,
-            entity_tag: E::ENTITY_TAG,
-            schema_fingerprint,
-            data_store_path: E::Store::PATH,
-            relation_source: ReverseRelationSourceInfo::for_type::<E>(),
-        }
-    }
-
     const fn from_runtime_parts(
         entity_path: &'static str,
         entity_tag: EntityTag,
@@ -221,80 +202,6 @@ where
             limit,
         )
     }
-}
-
-/// Prepare a typed row-level commit op against nongeneric structural readers.
-#[cfg(test)]
-pub(in crate::db) fn prepare_row_commit_for_entity_with_structural_readers<
-    E: EntityKind + EntityValue,
->(
-    db: &Db<E::Canister>,
-    op: &CommitRowOp,
-    row_reader: &dyn StructuralPrimaryRowReader,
-    index_reader: &dyn StructuralIndexEntryReader,
-) -> Result<PreparedRowCommitOp, InternalError> {
-    let schema_fingerprint = accepted_commit_schema_fingerprint_for_entity::<E>(db)?;
-
-    prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<E>(
-        db,
-        op,
-        row_reader,
-        index_reader,
-        schema_fingerprint,
-    )
-}
-
-#[cfg(test)]
-fn accepted_commit_schema_fingerprint_for_entity<E>(
-    db: &Db<E::Canister>,
-) -> Result<CommitSchemaFingerprint, InternalError>
-where
-    E: EntityKind,
-{
-    let store = db.with_store_registry(|reg| reg.try_get_store(E::Store::PATH))?;
-    let accepted = store.with_schema_mut(|schema_store| {
-        ensure_accepted_schema_snapshot(
-            schema_store,
-            E::ENTITY_TAG,
-            E::PATH,
-            E::Store::PATH,
-            E::MODEL,
-        )
-    })?;
-
-    accepted_commit_schema_fingerprint(&accepted)
-}
-
-/// Prepare a typed row-level commit op against nongeneric structural readers
-/// while reusing a caller-resolved schema fingerprint.
-pub(in crate::db) fn prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint<
-    E: EntityKind + EntityValue,
->(
-    db: &Db<E::Canister>,
-    op: &CommitRowOp,
-    row_reader: &dyn StructuralPrimaryRowReader,
-    index_reader: &dyn StructuralIndexEntryReader,
-    schema_fingerprint: CommitSchemaFingerprint,
-) -> Result<PreparedRowCommitOp, InternalError> {
-    let context =
-        prepare_commit_context_for_entity_with_schema_fingerprint::<E>(db, schema_fingerprint)?;
-
-    prepare_row_commit_with_context(db, op, &context, row_reader, index_reader)
-}
-
-/// Resolve immutable accepted-schema commit authority once for one typed batch.
-pub(in crate::db) fn prepare_commit_context_for_entity_with_schema_fingerprint<E>(
-    db: &Db<E::Canister>,
-    schema_fingerprint: CommitSchemaFingerprint,
-) -> Result<CommitPrepareContext, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    prepare_commit_context(
-        db,
-        CommitPrepareAuthority::for_type_with_schema_fingerprint::<E>(schema_fingerprint),
-        true,
-    )
 }
 
 /// Resolve immutable accepted-schema commit authority from model-free runtime

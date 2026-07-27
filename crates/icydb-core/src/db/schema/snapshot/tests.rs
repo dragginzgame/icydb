@@ -176,15 +176,6 @@ fn update_managed_unique_field_requires_global_write_validation() {
 }
 
 #[test]
-fn accepted_schema_snapshot_footprint_counts_field_and_nested_leaf_facts() {
-    let snapshot = accepted_schema_fixture();
-    let footprint = snapshot.footprint();
-
-    assert_eq!(footprint.fields(), 2);
-    assert_eq!(footprint.nested_leaf_facts(), 1);
-}
-
-#[test]
 fn accepted_schema_snapshot_try_new_rejects_invalid_metadata() {
     let snapshot = PersistedSchemaSnapshot::new(
         SchemaVersion::initial(),

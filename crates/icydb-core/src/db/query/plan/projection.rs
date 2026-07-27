@@ -3,42 +3,20 @@
 //! Does not own: expression evaluation or executor output materialization.
 //! Boundary: converts logical query intent into `ProjectionSpec`.
 
-use crate::{
-    db::{
-        query::{
-            builder::aggregate::AggregateExpr,
-            plan::{
-                FieldSlot, GroupAggregateSpec, LogicalPlan,
-                expr::{
-                    Expr, FieldId, ProjectionField, ProjectionSelection, ProjectionSpec,
-                    collect_unique_direct_projection_slots_with_schema,
-                },
-                semantics::group_aggregate_spec_expr,
+use crate::db::{
+    query::{
+        builder::aggregate::AggregateExpr,
+        plan::{
+            FieldSlot, GroupAggregateSpec, LogicalPlan,
+            expr::{
+                Expr, FieldId, ProjectionField, ProjectionSelection, ProjectionSpec,
+                collect_unique_direct_projection_slots_with_schema,
             },
+            semantics::group_aggregate_spec_expr,
         },
-        schema::SchemaInfo,
     },
-    model::entity::EntityModel,
+    schema::SchemaInfo,
 };
-
-/// Lower one logical plan into the canonical planner-owned projection semantic shape.
-#[must_use]
-pub(in crate::db::query) fn lower_projection_intent(
-    model: &EntityModel,
-    logical: &LogicalPlan,
-    selection: &ProjectionSelection,
-) -> ProjectionSpec {
-    match logical {
-        LogicalPlan::Scalar(_) => lower_scalar_projection(model, selection),
-        LogicalPlan::Grouped(grouped) => match selection {
-            ProjectionSelection::Exprs(fields) => ProjectionSpec::new(fields.clone()),
-            ProjectionSelection::All | ProjectionSelection::Fields(_) => lower_grouped_projection(
-                grouped.group.group_fields.as_slice(),
-                grouped.group.aggregates.as_slice(),
-            ),
-        },
-    }
-}
 
 /// Lower one accepted-schema logical plan into canonical projection semantics.
 #[must_use]
@@ -82,25 +60,6 @@ pub(in crate::db::query) fn lower_projection_intent_with_schema(
 pub(in crate::db) const fn lower_global_aggregate_projection(
     fields: Vec<ProjectionField>,
 ) -> ProjectionSpec {
-    ProjectionSpec::new(fields)
-}
-
-/// Lower scalar plans to one explicit field projection per declared entity field.
-fn lower_scalar_projection(model: &EntityModel, selection: &ProjectionSelection) -> ProjectionSpec {
-    let fields = match selection {
-        ProjectionSelection::All => model
-            .fields
-            .iter()
-            .map(|field| direct_field_projection(FieldId::new(field.name)))
-            .collect(),
-        ProjectionSelection::Fields(field_ids) => field_ids
-            .iter()
-            .cloned()
-            .map(direct_field_projection)
-            .collect(),
-        ProjectionSelection::Exprs(fields) => fields.clone(),
-    };
-
     ProjectionSpec::new(fields)
 }
 

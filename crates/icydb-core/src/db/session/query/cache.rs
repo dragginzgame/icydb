@@ -7,12 +7,10 @@ mod identity;
 
 #[cfg(any(test, feature = "sql"))]
 use crate::db::commit::CommitSchemaFingerprint;
-#[cfg(test)]
-use crate::db::schema::SchemaVersion;
 use crate::{
     db::{
-        DbSession, Query, QueryError, TraceReuseEvent,
-        executor::{EntityAuthority, PreparedExecutionPlan, SharedPreparedExecutionPlan},
+        DbSession, QueryError, TraceReuseEvent,
+        executor::{EntityAuthority, SharedPreparedExecutionPlan},
         predicate::predicate_fingerprint_normalized,
         query::{intent::StructuralQuery, plan::VisibleIndexes},
         schema::{
@@ -21,15 +19,12 @@ use crate::{
         },
         session::{AcceptedSchemaCatalogContext, bounded_cache::BoundedCache},
     },
-    entity::EntityKind,
     metrics::sink::{
         CacheKind, CacheMissReason, CacheOutcome, record_cache_entries,
         record_cache_event_for_path, record_cache_miss_reason_for_path,
     },
-    traits::{CanisterKind, Path},
+    traits::CanisterKind,
 };
-#[cfg(test)]
-use std::cell::Cell;
 use std::{cell::RefCell, collections::HashMap};
 
 #[cfg(feature = "diagnostics")]
@@ -41,21 +36,6 @@ use identity::{
 pub(in crate::db) use identity::{QueryPlanCacheAttribution, QueryPlanVisibility};
 
 const SHARED_QUERY_PLAN_CACHE_MAX_ENTRIES: usize = 1024;
-
-#[cfg(test)]
-thread_local! {
-    static VISIBLE_INDEX_PROJECTIONS: Cell<u64> = const { Cell::new(0) };
-}
-
-#[cfg(test)]
-pub(in crate::db) fn reset_visible_index_projection_count_for_tests() {
-    VISIBLE_INDEX_PROJECTIONS.with(|projections| projections.set(0));
-}
-
-#[cfg(test)]
-pub(in crate::db) fn visible_index_projection_count_for_tests() -> u64 {
-    VISIBLE_INDEX_PROJECTIONS.with(Cell::get)
-}
 
 pub(in crate::db) type QueryPlanCache =
     BoundedCache<QueryPlanCacheKey, SharedPreparedExecutionPlan>;
@@ -273,11 +253,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session) fn visible_indexes_for_accepted_schema(
         schema_info: &SchemaInfo,
         visibility: QueryPlanVisibility,
-    ) -> VisibleIndexes<'static> {
-        #[cfg(test)]
-        VISIBLE_INDEX_PROJECTIONS
-            .with(|projections| projections.set(projections.get().saturating_add(1)));
-
+    ) -> VisibleIndexes {
         match visibility {
             QueryPlanVisibility::StoreReady => {
                 let visible_indexes = VisibleIndexes::accepted_schema_visible(schema_info);
@@ -297,20 +273,6 @@ impl<C: CanisterKind> DbSession<C> {
             }
             QueryPlanVisibility::StoreNotReady => VisibleIndexes::none(),
         }
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn query_plan_cache_len(&self) -> usize {
-        self.with_query_plan_cache(|cache| cache.len())
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn clear_query_plan_cache_for_tests(&self) {
-        let entries = self.with_query_plan_cache(|cache| {
-            cache.clear();
-            cache.len()
-        });
-        record_cache_entries(CacheKind::SharedQueryPlan, entries);
     }
 
     pub(in crate::db) fn query_plan_visibility_for_store_path(
@@ -601,260 +563,6 @@ impl<C: CanisterKind> DbSession<C> {
                 )
                 .map_err(QueryError::execute)
             },
-        )
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn query_plan_cache_key_for_tests(
-        authority: EntityAuthority,
-        schema_version: SchemaVersion,
-        schema_fingerprint: CommitSchemaFingerprint,
-        visibility: QueryPlanVisibility,
-        query: &StructuralQuery,
-    ) -> QueryPlanCacheKey {
-        let schema_identity = SchemaCacheIdentity::new(
-            crate::db::schema::AcceptedSchemaRevision::NONE,
-            schema_version,
-            crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
-            schema_fingerprint,
-        );
-        QueryPlanCacheKey::for_authority(authority, schema_identity, visibility, query)
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn query_plan_cache_key_for_tests_with_schema_fingerprint_method_version(
-        authority: EntityAuthority,
-        schema_version: SchemaVersion,
-        schema_fingerprint_method_version: u8,
-        schema_fingerprint: CommitSchemaFingerprint,
-        visibility: QueryPlanVisibility,
-        query: &StructuralQuery,
-    ) -> QueryPlanCacheKey {
-        let schema_identity = SchemaCacheIdentity::new(
-            crate::db::schema::AcceptedSchemaRevision::NONE,
-            schema_version,
-            schema_fingerprint_method_version,
-            schema_fingerprint,
-        );
-        QueryPlanCacheKey::for_authority(authority, schema_identity, visibility, query)
-    }
-
-    // Resolve the planner-visible index slice for one typed query exactly once
-    // at the session boundary before handing execution/planning off to query-owned logic.
-    pub(in crate::db::session) fn with_query_visible_indexes<E, T>(
-        &self,
-        query: &Query<E>,
-        op: impl FnOnce(&Query<E>, &VisibleIndexes<'static>) -> Result<T, QueryError>,
-    ) -> Result<T, QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let visibility = self.query_plan_visibility_for_store_path(E::Store::PATH)?;
-        let catalog = self
-            .accepted_schema_catalog_context_for_query::<E>()
-            .map_err(QueryError::execute)?;
-        let schema_info = catalog.accepted_schema_info_for::<E>();
-        let visible_indexes = Self::visible_indexes_for_accepted_schema(&schema_info, visibility);
-
-        op(query, &visible_indexes)
-    }
-
-    pub(in crate::db::session) fn cached_prepared_query_plan_for_entity<E>(
-        &self,
-        query: &Query<E>,
-    ) -> Result<(PreparedExecutionPlan<E>, QueryPlanCacheAttribution), QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let (prepared_plan, attribution) = self.cached_shared_query_plan_for_entity::<E>(query)?;
-
-        Ok((
-            prepared_plan
-                .typed_clone::<E>()
-                .map_err(QueryError::execute)?,
-            attribution,
-        ))
-    }
-
-    #[cfg(feature = "diagnostics")]
-    pub(in crate::db::session) fn cached_prepared_query_plan_for_entity_with_compile_phase_attribution<
-        E,
-    >(
-        &self,
-        query: &Query<E>,
-    ) -> Result<
-        (
-            PreparedExecutionPlan<E>,
-            QueryPlanCacheAttribution,
-            QueryPlanCompilePhaseAttribution,
-        ),
-        QueryError,
-    >
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let (prepared_plan, cache_attribution, compile_attribution) =
-            self.cached_shared_query_plan_for_entity_with_compile_phase_attribution::<E>(query)?;
-
-        Ok((
-            prepared_plan
-                .typed_clone::<E>()
-                .map_err(QueryError::execute)?,
-            cache_attribution,
-            compile_attribution,
-        ))
-    }
-
-    // Resolve one typed query through the shared lower query-plan cache using
-    // the canonical authority and schema-fingerprint pair for that entity.
-    pub(in crate::db::session) fn cached_shared_query_plan_for_entity<E>(
-        &self,
-        query: &Query<E>,
-    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let mut recorder = QueryPlanCompilePhaseRecorder::none();
-
-        self.cached_shared_query_plan_for_entity_recording(query, &mut recorder)
-    }
-
-    #[cfg(feature = "diagnostics")]
-    fn cached_shared_query_plan_for_entity_with_compile_phase_attribution<E>(
-        &self,
-        query: &Query<E>,
-    ) -> Result<
-        (
-            SharedPreparedExecutionPlan,
-            QueryPlanCacheAttribution,
-            QueryPlanCompilePhaseAttribution,
-        ),
-        QueryError,
-    >
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let mut compile_attribution = QueryPlanCompilePhaseAttribution::default();
-        let mut recorder = QueryPlanCompilePhaseRecorder::new(&mut compile_attribution);
-        let (plan, cache_attribution) =
-            self.cached_shared_query_plan_for_entity_recording(query, &mut recorder)?;
-
-        Ok((plan, cache_attribution, compile_attribution))
-    }
-
-    fn cached_shared_query_plan_for_entity_recording<E>(
-        &self,
-        query: &Query<E>,
-        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
-    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        if !query.structural().has_scalar_filter() {
-            let visibility = recorder.measure(QueryPlanCompilePhase::SchemaCatalog, || {
-                self.query_plan_visibility_for_store_path(E::Store::PATH)
-            })?;
-            if let Some(selection) = recorder
-                .measure(QueryPlanCompilePhase::SchemaCatalog, || {
-                    self.accepted_catalog_snapshot_selection_for_query::<E>()
-                })
-                .map_err(QueryError::execute)?
-            {
-                let identity = selection.identity();
-                debug_assert_eq!(identity.entity_tag(), E::ENTITY_TAG);
-                debug_assert_eq!(identity.entity_path(), E::PATH);
-                debug_assert_eq!(identity.store_path(), E::Store::PATH);
-                debug_assert_eq!(
-                    identity.fingerprint_method_version(),
-                    crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
-                );
-                let schema_identity = SchemaCacheIdentity::from_accepted_catalog_identity(identity);
-                if let Some(cached) = self
-                    .try_cached_filterless_query_plan_for_entity_path_recording(
-                        E::PATH,
-                        schema_identity,
-                        visibility,
-                        query.structural(),
-                        recorder,
-                    )
-                {
-                    return Ok(cached);
-                }
-
-                if let Some(catalog) = recorder
-                    .measure(QueryPlanCompilePhase::SchemaCatalog, || {
-                        self.accepted_schema_catalog_context_from_selection::<E>(&selection)
-                    })
-                    .map_err(QueryError::execute)?
-                {
-                    return self
-                        .cached_shared_query_plan_for_entity_with_catalog_and_visibility_recording(
-                            query, &catalog, visibility, recorder,
-                        );
-                }
-            }
-        }
-
-        let catalog = recorder
-            .measure(QueryPlanCompilePhase::SchemaCatalog, || {
-                self.accepted_schema_catalog_context_for_query::<E>()
-            })
-            .map_err(QueryError::execute)?;
-
-        self.cached_shared_query_plan_for_entity_with_catalog_recording(query, &catalog, recorder)
-    }
-
-    fn cached_shared_query_plan_for_entity_with_catalog_recording<E>(
-        &self,
-        query: &Query<E>,
-        catalog: &AcceptedSchemaCatalogContext,
-        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
-    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let visibility = recorder.measure(QueryPlanCompilePhase::SchemaCatalog, || {
-            self.query_plan_visibility_for_store_path(E::Store::PATH)
-        })?;
-
-        self.cached_shared_query_plan_for_entity_with_catalog_and_visibility_recording(
-            query, catalog, visibility, recorder,
-        )
-    }
-
-    fn cached_shared_query_plan_for_entity_with_catalog_and_visibility_recording<E>(
-        &self,
-        query: &Query<E>,
-        catalog: &AcceptedSchemaCatalogContext,
-        visibility: QueryPlanVisibility,
-        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
-    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let schema = QueryPlanAcceptedSchema::from_catalog(catalog);
-        let schema_identity = schema.identity();
-        if let Some(cached) = self.try_cached_filterless_query_plan_for_entity_path_recording(
-            E::PATH,
-            schema_identity,
-            visibility,
-            query.structural(),
-            recorder,
-        ) {
-            return Ok(cached);
-        }
-        let authority = recorder
-            .measure(QueryPlanCompilePhase::SchemaCatalog, || {
-                catalog.accepted_entity_authority_for::<E>()
-            })
-            .map_err(QueryError::execute)?;
-
-        self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility_recording(
-            authority,
-            schema,
-            visibility,
-            query.structural(),
-            recorder,
         )
     }
 }

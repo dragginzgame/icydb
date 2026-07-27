@@ -6,10 +6,6 @@
 ///
 /// TESTS
 ///
-
-#[cfg(test)]
-mod tests;
-
 use crate::db::{
     access::{
         AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemRef, SemanticIndexKeyItemsRef,
@@ -24,7 +20,7 @@ use crate::db::{
     },
     schema::SchemaInfo,
 };
-use crate::{model::field::FieldModel, value::Value};
+use crate::value::Value;
 
 ///
 /// CoveringProjectionOrder
@@ -38,21 +34,6 @@ use crate::{model::field::FieldModel, value::Value};
 pub(in crate::db) enum CoveringProjectionOrder {
     IndexOrder(Direction),
     PrimaryKeyOrder(Direction),
-}
-
-///
-/// CoveringProjectionFacts
-///
-/// Planner-owned covering projection facts.
-/// Captures projection component position, bound-prefix arity, and output-order
-/// interpretation for one index-backed access shape.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct CoveringProjectionFacts {
-    pub(in crate::db) component_index: usize,
-    pub(in crate::db) prefix_len: usize,
-    pub(in crate::db) order_contract: CoveringProjectionOrder,
 }
 
 ///
@@ -225,44 +206,6 @@ pub(in crate::db) fn index_covering_existing_rows_terminal_eligible(
     strict_predicate_compatible
 }
 
-/// Derive one planner-owned scalar covering-read plan from generated field-table
-/// authority plus the frozen projection contract on the plan.
-#[must_use]
-#[cfg(test)]
-pub(in crate::db) fn covering_read_plan_from_fields(
-    fields: &[FieldModel],
-    plan: &AccessPlannedQuery,
-    primary_key_name: &'static str,
-    strict_predicate_compatible: bool,
-) -> Option<CoveringReadPlan> {
-    let primary_key_names = [primary_key_name];
-    covering_read_plan_from_fields_with_primary_key_names(
-        fields,
-        plan,
-        &primary_key_names,
-        strict_predicate_compatible,
-    )
-}
-
-/// Derive one planner-owned covering-read plan from generated field-table
-/// authority plus an ordered primary-key field contract.
-#[must_use]
-pub(in crate::db) fn covering_read_plan_from_fields_with_primary_key_names(
-    fields: &[FieldModel],
-    plan: &AccessPlannedQuery,
-    primary_key_names: &[&str],
-    strict_predicate_compatible: bool,
-) -> Option<CoveringReadPlan> {
-    covering_index_projection_plan_from_fields(
-        fields,
-        plan,
-        primary_key_names,
-        strict_predicate_compatible,
-        CoveringProjectionFieldSourcePolicy::StrictCovering,
-        false,
-    )
-}
-
 /// Derive one planner-owned scalar covering-read plan from accepted schema
 /// authority plus the frozen projection contract on the plan.
 #[must_use]
@@ -279,39 +222,6 @@ pub(in crate::db) fn covering_read_plan_with_schema_info(
         strict_predicate_compatible,
         CoveringProjectionFieldSourcePolicy::StrictCovering,
         false,
-    )
-}
-
-/// Derive one planner-owned hybrid direct-field projection plan for projection
-/// consumers that can mix covering fields with sparse row-backed fields over
-/// the same index-backed access path.
-///
-/// This helper stays intentionally narrower than the executor covering-read
-/// fast path:
-/// - direct-field projections only
-/// - index-backed access only
-/// - no grouped plans
-/// - no residual predicate unless the predicate is fully indexable by the
-///   selected access route
-/// - at least one row-backed projected field
-/// - projected fields may still be primary-key, constant, or index-backed
-///   alongside those row-backed fields
-#[must_use]
-#[cfg(test)]
-pub(in crate::db) fn covering_hybrid_projection_plan_from_fields(
-    fields: &[FieldModel],
-    plan: &AccessPlannedQuery,
-    primary_key_name: &'static str,
-    strict_predicate_compatible: bool,
-) -> Option<CoveringReadPlan> {
-    let primary_key_names = [primary_key_name];
-    covering_index_projection_plan_from_fields(
-        fields,
-        plan,
-        &primary_key_names,
-        strict_predicate_compatible,
-        CoveringProjectionFieldSourcePolicy::HybridRowFallback,
-        true,
     )
 }
 
@@ -357,68 +267,6 @@ pub(in crate::db) fn covering_hybrid_projection_execution_plan_with_schema_info(
     ))
 }
 
-/// Derive one execution-grade scalar covering-read plan from generated field-table
-/// authority plus the planner-owned projection contract.
-#[must_use]
-#[cfg(test)]
-pub(in crate::db) fn covering_read_execution_plan_from_fields(
-    fields: &[FieldModel],
-    plan: &AccessPlannedQuery,
-    primary_key_name: &'static str,
-    strict_predicate_compatible: bool,
-) -> Option<CoveringReadExecutionPlan> {
-    let primary_key_names = [primary_key_name];
-    covering_read_execution_plan_from_fields_with_primary_key_names(
-        fields,
-        plan,
-        &primary_key_names,
-        strict_predicate_compatible,
-    )
-}
-
-/// Derive one execution-grade covering-read plan from generated field-table
-/// authority plus an ordered primary-key field contract.
-#[must_use]
-pub(in crate::db) fn covering_read_execution_plan_from_fields_with_primary_key_names(
-    fields: &[FieldModel],
-    plan: &AccessPlannedQuery,
-    primary_key_names: &[&str],
-    strict_predicate_compatible: bool,
-) -> Option<CoveringReadExecutionPlan> {
-    // Phase 1: secondary covering routes now inherit planner-owned authority
-    // directly. Once a secondary index-backed covering shape is admitted at
-    // planning time, execution may trust that visible index path without a
-    // separate executor-side authority resolver.
-    if let Some(covering) = covering_read_plan_from_fields_with_primary_key_names(
-        fields,
-        plan,
-        primary_key_names,
-        strict_predicate_compatible,
-    ) {
-        return Some(covering_read_execution_plan(
-            covering,
-            CoveringExistingRowMode::ProvenByPlanner,
-            strict_predicate_compatible,
-        ));
-    }
-
-    // Phase 2: admit only authoritative primary-store traversal shapes as the
-    // first planner-proven existing-row cohort. These keys come from the row
-    // store itself, so they do not inherit secondary-index stale-entry risk.
-    let (covering, existing_row_mode) =
-        primary_store_covering_plan_from_fields_with_primary_key_names(
-            fields,
-            plan,
-            primary_key_names,
-        )?;
-
-    Some(covering_read_execution_plan(
-        covering,
-        existing_row_mode,
-        strict_predicate_compatible,
-    ))
-}
-
 /// Derive one execution-grade scalar covering-read plan from accepted schema
 /// authority plus the planner-owned projection contract.
 #[must_use]
@@ -444,86 +292,6 @@ pub(in crate::db) fn covering_read_execution_plan_with_schema_info(
         existing_row_mode,
         strict_predicate_compatible,
     ))
-}
-
-/// Derive one covering projection fact bundle from one access shape + scalar order
-/// contract and target field.
-#[must_use]
-#[cfg(test)]
-pub(in crate::db) fn covering_index_projection_facts<K>(
-    access: &AccessPlan<K>,
-    order: Option<&OrderSpec>,
-    target_field: &str,
-    primary_key_name: &'static str,
-) -> Option<CoveringProjectionFacts> {
-    let primary_key_names = [primary_key_name];
-
-    covering_index_projection_facts_with_primary_key_names(
-        access,
-        order,
-        target_field,
-        &primary_key_names,
-    )
-}
-
-/// Derive one covering projection fact bundle from one access shape + scalar order
-/// contract, target field, and ordered primary-key field list.
-#[must_use]
-pub(in crate::db) fn covering_index_projection_facts_with_primary_key_names<K>(
-    access: &AccessPlan<K>,
-    order: Option<&OrderSpec>,
-    target_field: &str,
-    primary_key_names: &[&str],
-) -> Option<CoveringProjectionFacts> {
-    let index_facts = index_covering_access_facts(access)?;
-    let order_terms = index_facts.order_terms();
-    let component_index = index_facts
-        .coverable_component_fields
-        .iter()
-        .position(|field| field.as_deref().is_some_and(|field| field == target_field))?;
-    let order_contract = covering_projection_order_contract(
-        order,
-        order_terms.as_slice(),
-        index_facts.prefix_len,
-        index_facts.variable_prefix,
-        primary_key_names,
-        index_facts.path_kind_is_range,
-    )?;
-
-    Some(CoveringProjectionFacts {
-        component_index,
-        prefix_len: index_facts.prefix_len,
-        order_contract,
-    })
-}
-
-/// Resolve one constant projection value when access shape binds the target
-/// field through index-prefix equality components.
-#[must_use]
-pub(in crate::db) fn constant_covering_projection_value_from_access<K>(
-    access: &AccessPlan<K>,
-    target_field: &str,
-) -> Option<Value> {
-    let index_facts = index_covering_access_facts(access)?;
-
-    constant_covering_projection_value_from_prefix(
-        index_facts.coverable_component_fields.as_slice(),
-        index_facts.prefix_values,
-        target_field,
-    )
-}
-
-/// Return whether adjacent dedupe is safe for one covering projection fact bundle.
-///
-/// Safety contract:
-/// - output order remains index traversal order (no primary-key reorder),
-/// - target field is the first unbound index component.
-#[must_use]
-pub(in crate::db) const fn covering_index_adjacent_distinct_eligible(
-    facts: CoveringProjectionFacts,
-) -> bool {
-    matches!(facts.order_contract, CoveringProjectionOrder::IndexOrder(_))
-        && facts.component_index == facts.prefix_len
 }
 
 // Resolve one covering projection order contract from scalar ORDER BY shape.
@@ -665,18 +433,6 @@ fn primary_store_covering_plan(
         },
         access_facts.existing_row_mode,
     ))
-}
-
-fn primary_store_covering_plan_from_fields_with_primary_key_names(
-    fields: &[FieldModel],
-    plan: &AccessPlannedQuery,
-    primary_key_names: &[&str],
-) -> Option<(CoveringReadPlan, CoveringExistingRowMode)> {
-    primary_store_covering_plan(
-        |field_name| resolve_covering_field_slot(fields, field_name),
-        plan,
-        primary_key_names,
-    )
 }
 
 fn primary_store_covering_plan_with_schema_info(
@@ -880,24 +636,6 @@ fn covering_index_projection_plan(
     })
 }
 
-fn covering_index_projection_plan_from_fields(
-    fields: &[FieldModel],
-    plan: &AccessPlannedQuery,
-    primary_key_names: &[&str],
-    residual_filter_predicate_supported: bool,
-    source_policy: CoveringProjectionFieldSourcePolicy,
-    require_row_field: bool,
-) -> Option<CoveringReadPlan> {
-    covering_index_projection_plan(
-        |field_name| resolve_covering_field_slot(fields, field_name),
-        plan,
-        primary_key_names,
-        residual_filter_predicate_supported,
-        source_policy,
-        require_row_field,
-    )
-}
-
 ///
 /// PrimaryStoreCoveringAccessFacts
 ///
@@ -1040,18 +778,6 @@ fn expression_projection_field_slot(
 
 // Resolve one covering field against generated field-table authority without
 // reopening the wider semantic entity model.
-fn resolve_covering_field_slot(fields: &[FieldModel], field_name: &str) -> Option<FieldSlot> {
-    let (index, field) = fields
-        .iter()
-        .enumerate()
-        .find(|(_, field)| field.name() == field_name)?;
-
-    Some(FieldSlot::from_model_kind(
-        index,
-        field.name(),
-        field.kind(),
-    ))
-}
 
 // Resolve one covering field against accepted schema authority without
 // reopening the wider semantic entity model.
@@ -1137,26 +863,9 @@ fn coverable_component_fields_for_contract(
             .iter()
             .map(|item| match item.as_ref() {
                 SemanticIndexKeyItemRef::Field(field) => Some(field.to_string()),
-                SemanticIndexKeyItemRef::Expression(_)
-                | SemanticIndexKeyItemRef::AcceptedExpression(_) => None,
+                SemanticIndexKeyItemRef::AcceptedExpression(_) => None,
             })
             .collect(),
-        SemanticIndexKeyItemsRef::Static(crate::model::index::IndexKeyItemsRef::Fields(fields)) => {
-            fields
-                .iter()
-                .map(|field| Some((*field).to_string()))
-                .collect()
-        }
-        SemanticIndexKeyItemsRef::Static(crate::model::index::IndexKeyItemsRef::Items(items)) => {
-            items
-                .iter()
-                .map(|item| match SemanticIndexKeyItemRef::from(*item) {
-                    SemanticIndexKeyItemRef::Field(field) => Some(field.to_string()),
-                    SemanticIndexKeyItemRef::Expression(_)
-                    | SemanticIndexKeyItemRef::AcceptedExpression(_) => None,
-                })
-                .collect()
-        }
     }
 }
 
@@ -1172,51 +881,11 @@ fn coverable_component_exprs_for_contract(
             .iter()
             .map(|item| match item.as_ref() {
                 SemanticIndexKeyItemRef::Field(_) => None,
-                SemanticIndexKeyItemRef::Expression(expression) => {
-                    expression_projection_expr_for_static_index_expression(expression)
-                }
                 SemanticIndexKeyItemRef::AcceptedExpression(expression) => {
                     expression_projection_expr_for_accepted_index_expression(expression)
                 }
             })
             .collect(),
-        SemanticIndexKeyItemsRef::Static(crate::model::index::IndexKeyItemsRef::Fields(fields)) => {
-            fields.iter().map(|_| None).collect()
-        }
-        SemanticIndexKeyItemsRef::Static(crate::model::index::IndexKeyItemsRef::Items(items)) => {
-            items
-                .iter()
-                .map(|item| match SemanticIndexKeyItemRef::from(*item) {
-                    SemanticIndexKeyItemRef::Field(_) => None,
-                    SemanticIndexKeyItemRef::Expression(expression) => {
-                        expression_projection_expr_for_static_index_expression(expression)
-                    }
-                    SemanticIndexKeyItemRef::AcceptedExpression(expression) => {
-                        expression_projection_expr_for_accepted_index_expression(expression)
-                    }
-                })
-                .collect()
-        }
-    }
-}
-
-fn expression_projection_expr_for_static_index_expression(
-    expression: crate::model::index::IndexExpression,
-) -> Option<Expr> {
-    use crate::model::index::IndexExpression;
-
-    match expression {
-        IndexExpression::Lower(field) => Some(unary_field_function_expr(Function::Lower, field)),
-        IndexExpression::Upper(field) => Some(unary_field_function_expr(Function::Upper, field)),
-        IndexExpression::Trim(field) => Some(unary_field_function_expr(Function::Trim, field)),
-        IndexExpression::LowerTrim(field) => Some(Expr::FunctionCall {
-            function: Function::Lower,
-            args: vec![unary_field_function_expr(Function::Trim, field)],
-        }),
-        IndexExpression::Date(_)
-        | IndexExpression::Year(_)
-        | IndexExpression::Month(_)
-        | IndexExpression::Day(_) => None,
     }
 }
 

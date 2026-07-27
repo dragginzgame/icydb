@@ -18,10 +18,7 @@ PUBLISH_ORDER=(
     icydb-schema
     icydb-model-macros
     icydb-model
-    icydb-build
-    icydb-derive
     icydb-core
-    icydb-schema-derive
     icydb-config
     icydb
     icydb-cli
@@ -136,11 +133,6 @@ validate_publish_order
 if [ "$PUBLISH_VALIDATE_ONLY" = "1" ]; then
     echo "Publish order validated for IcyDB workspace version $version"
     exit 0
-fi
-
-if [[ -d "crates/icydb-model-legacy" ]]; then
-    echo "workspace publication is blocked while the temporary icydb-model-legacy package exists" >&2
-    exit 1
 fi
 
 started=0

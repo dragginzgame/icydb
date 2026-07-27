@@ -30,19 +30,7 @@ use crate::{
         Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
         Timestamp, Ulid,
     },
-    value::Value,
 };
-
-/// Encode one persisted `FieldStorageDecode::CatalogValue` payload through the
-/// owner-local structural value-storage contract.
-pub(in crate::db) fn encode_structural_value_storage_bytes(
-    value: &Value,
-) -> Result<Vec<u8>, InternalError> {
-    let mut encoded = Vec::new();
-    encode_value_storage_binary_into(&mut encoded, value)?;
-
-    Ok(encoded)
-}
 
 /// Encode one canonical structural value-storage `NULL` payload without
 /// constructing a runtime `Value` at the call site.
@@ -231,18 +219,6 @@ pub(in crate::db) fn encode_structural_value_storage_ulid_bytes(value: Ulid) -> 
     encoded
 }
 
-/// Encode one canonical structural value-storage list payload from already
-/// encoded nested value payload slices.
-pub(in crate::db) fn encode_value_storage_list_item_slices(items: &[&[u8]]) -> Vec<u8> {
-    let mut encoded = Vec::new();
-    push_binary_list_len(&mut encoded, items.len());
-    for item in items {
-        encoded.extend_from_slice(item);
-    }
-
-    encoded
-}
-
 /// Encode one canonical structural value-storage list payload from owned nested
 /// value payload buffers without staging a second borrowed-slice vector.
 pub(in crate::db) fn encode_value_storage_owned_list_items(items: &[Vec<u8>]) -> Vec<u8> {
@@ -250,19 +226,6 @@ pub(in crate::db) fn encode_value_storage_owned_list_items(items: &[Vec<u8>]) ->
     push_binary_list_len(&mut encoded, items.len());
     for item in items {
         encoded.extend_from_slice(item);
-    }
-
-    encoded
-}
-
-/// Encode one canonical structural value-storage map payload from already
-/// encoded nested key/value payload slices.
-pub(in crate::db) fn encode_value_storage_map_entry_slices(entries: &[(&[u8], &[u8])]) -> Vec<u8> {
-    let mut encoded = Vec::new();
-    push_binary_map_len(&mut encoded, entries.len());
-    for (key_bytes, value_bytes) in entries {
-        encoded.extend_from_slice(key_bytes);
-        encoded.extend_from_slice(value_bytes);
     }
 
     encoded
@@ -284,64 +247,12 @@ pub(in crate::db) fn encode_value_storage_owned_map_entries(
 }
 
 // Encode one runtime `Value` into the parallel Structural Binary v1 envelope.
-fn encode_value_storage_binary_into(out: &mut Vec<u8>, value: &Value) -> Result<(), InternalError> {
-    match value {
-        Value::Null => push_binary_null(out),
-        Value::Unit => push_binary_unit(out),
-        Value::Blob(value) => push_binary_bytes(out, value.as_slice()),
-        Value::Bool(value) => push_binary_bool(out, *value),
-        Value::Int64(value) => push_binary_int64(out, *value),
-        Value::Nat64(value) => push_binary_nat64(out, *value),
-        Value::Text(value) => push_binary_text(out, value),
-        Value::List(items) => push_value_binary_list_payload(out, items.as_slice())?,
-        Value::Map(entries) => push_value_binary_map_payload(out, entries.as_slice())?,
-        Value::Account(value) => push_account_payload(out, *value)?,
-        Value::Date(value) => push_date_payload(out, *value),
-        Value::Decimal(value) => push_decimal_payload(out, *value),
-        Value::Duration(value) => push_duration_payload(out, *value),
-        Value::Enum(_) => {
-            return Err(InternalError::serialize_unsupported());
-        }
-        Value::Float32(value) => push_float32_payload(out, *value),
-        Value::Float64(value) => push_float64_payload(out, *value),
-        Value::Int128(value) => push_int128_payload(out, *value),
-        Value::IntBig(value) => push_int_big_payload(out, value),
-        Value::Principal(value) => push_principal_payload(out, *value)?,
-        Value::Subaccount(value) => push_subaccount_payload(out, *value),
-        Value::Timestamp(value) => push_timestamp_payload(out, *value),
-        Value::Nat128(value) => push_nat128_payload(out, *value),
-        Value::NatBig(value) => push_nat_big_payload(out, value),
-        Value::Ulid(value) => push_ulid_payload(out, *value),
-    }
-
-    Ok(())
-}
 
 // Encode one binary `Value::List` payload as a list of recursively encoded
 // nested `Value` items.
-fn push_value_binary_list_payload(out: &mut Vec<u8>, items: &[Value]) -> Result<(), InternalError> {
-    push_binary_list_len(out, items.len());
-    for item in items {
-        encode_value_storage_binary_into(out, item)?;
-    }
-
-    Ok(())
-}
 
 // Encode one binary `Value::Map` payload as a canonical map of recursively
 // encoded key/value pairs.
-fn push_value_binary_map_payload(
-    out: &mut Vec<u8>,
-    entries: &[(Value, Value)],
-) -> Result<(), InternalError> {
-    push_binary_map_len(out, entries.len());
-    for (key, value) in entries {
-        encode_value_storage_binary_into(out, key)?;
-        encode_value_storage_binary_into(out, value)?;
-    }
-
-    Ok(())
-}
 
 // Encode one binary `Value::Account` payload through Account's fixed-size byte
 // contract instead of routing through the general `Value` lane.

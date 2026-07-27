@@ -5,15 +5,11 @@
 //! Boundary: keeps public session write semantics above the executor save surface.
 
 use super::AcceptedSchemaCatalogContext;
-#[cfg(test)]
-use super::accepted_schema::accepted_save_contract_for_catalog_context;
-#[cfg(test)]
-use crate::db::{data::AuthoredStructuralPatch, schema::accepted_insert_field_is_omittable};
 use crate::{
     db::{
         DbSession, DynamicMutation, DynamicMutationResult, DynamicStructuralPatch,
         DynamicTypedBindingError, DynamicTypedEntityBinding, DynamicTypedFieldBindingRequest,
-        DynamicTypedFieldType, DynamicWriteCell, PersistedRow, WriteBatchResponse,
+        DynamicTypedFieldType, DynamicWriteCell,
         commit::{CommitRowOp, database_incarnation_id},
         data::{
             AcceptedMutationIntentPatch, DecodedDataStoreKey, FieldSlot, RawRow,
@@ -35,7 +31,6 @@ use crate::{
         },
         write_context::{AcceptedWriteContext, MutationMode},
     },
-    entity::EntityCreateInput,
     error::InternalError,
     metrics::sink::{MetricsEvent, SaveMutationKind, record},
     traits::CanisterKind,
@@ -88,105 +83,6 @@ impl AcceptedStructuralMutationRow {
     pub(in crate::db::session) const fn logical_changed(&self) -> bool {
         self.logical_changed
     }
-}
-
-// Append one session-resolved structural field update. The caller passes the
-// accepted runtime contract that already crossed schema reconciliation, so
-// field-name lookup follows persisted row-layout metadata rather than generated
-// declaration order.
-#[cfg(test)]
-fn append_accepted_structural_patch_field(
-    entity_path: &'static str,
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    patch: AuthoredStructuralPatch,
-    field_name: &str,
-    value: InputValue,
-) -> Result<AuthoredStructuralPatch, InternalError> {
-    let slot = descriptor
-        .field_slot_index_by_name(field_name)
-        .ok_or_else(|| InternalError::mutation_structural_field_unknown(entity_path, field_name))?;
-
-    Ok(patch.set(FieldSlot::from_validated_index(slot), value))
-}
-
-// Enforce public structural patch policy before the executor materializes an
-// entity through generated derive code. This keeps database write ownership and
-// absence/default policy owned by accepted schema metadata instead of
-// accidentally relying on executor-local generated field metadata, Rust
-// `Default`, or derive-local missing slot behavior.
-#[cfg(test)]
-fn validate_structural_patch_schema_policy<E>(
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    patch: &AuthoredStructuralPatch,
-    mode: MutationMode,
-) -> Result<(), InternalError>
-where
-    E: PersistedRow,
-{
-    reject_explicit_database_owned_fields_from_accepted_patch::<E>(descriptor, patch)?;
-
-    if matches!(mode, MutationMode::Update) {
-        return Ok(());
-    }
-
-    let mut provided_slots = vec![false; descriptor.required_slot_count()];
-    for entry in patch.entries() {
-        let slot = entry.slot().index();
-        if slot < provided_slots.len() {
-            provided_slots[slot] = true;
-        }
-    }
-
-    // Every omitted field must be allowed by the accepted insert contract.
-    // This check must not inspect Rust `Default` impls or derive-local
-    // construction values.
-    for field in descriptor.fields() {
-        let slot = usize::from(field.slot().get());
-        if provided_slots.get(slot).copied().unwrap_or(false) {
-            continue;
-        }
-
-        if !accepted_insert_field_is_omittable(field.insert_omission_policy(), field.write_policy())
-        {
-            return Err(
-                InternalError::mutation_structural_patch_required_field_missing(
-                    E::PATH,
-                    field.name(),
-                ),
-            );
-        }
-    }
-
-    Ok(())
-}
-
-// Preserve database-owned-field diagnostics ahead of sparse-patch
-// required-field diagnostics. Public structural writes must not author fields
-// whose values are owned by accepted schema write policy.
-#[cfg(test)]
-fn reject_explicit_database_owned_fields_from_accepted_patch<E>(
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    patch: &AuthoredStructuralPatch,
-) -> Result<(), InternalError>
-where
-    E: PersistedRow,
-{
-    for entry in patch.entries() {
-        let slot = entry.slot().index();
-        let Some(accepted_field) = descriptor.field_for_slot_index(slot) else {
-            continue;
-        };
-        let write_policy = accepted_field.write_policy();
-
-        if write_policy.insert_generation().is_some() || write_policy.write_management().is_some() {
-            return Err(InternalError::mutation_database_owned_field_explicit(
-                E::PATH,
-                accepted_field.name(),
-            ));
-        }
-    }
-
-    Ok(())
 }
 
 const fn dynamic_mutation_mode(request: &DynamicMutation) -> Option<MutationMode> {
@@ -985,271 +881,81 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
-    /// Insert one entity row.
-    pub fn insert<E>(&self, entity: E) -> Result<E, InternalError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.execute_save_entity(|save| save.insert(entity))
-    }
-
-    /// Insert one authored typed input.
-    pub fn create<I>(&self, input: I) -> Result<I::Entity, InternalError>
-    where
-        I: EntityCreateInput,
-        I::Entity: PersistedRow<Canister = C>,
-    {
-        self.execute_save_entity(|save| save.create(input))
-    }
-
-    /// Insert a single-entity-type batch atomically in one commit window.
+    /// Execute one trusted atomic insert batch from entity-name-driven patches.
     ///
-    /// If any item fails pre-commit validation, no row in the batch is persisted.
-    /// Prefer this helper when the caller needs all-or-nothing behavior for a
-    /// same-entity batch.
-    ///
-    /// This API is not a multi-entity transaction surface.
-    pub fn insert_many_atomic<E>(
+    /// Every patch is lowered against the same accepted snapshot and shares
+    /// one operation timestamp before the canonical structural batch owner
+    /// stages any durable effect.
+    pub fn execute_trusted_dynamic_insert_batch(
         &self,
-        entities: impl IntoIterator<Item = E>,
-    ) -> Result<WriteBatchResponse<E>, InternalError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.execute_save_batch(|save| save.insert_many_atomic(entities))
-    }
-
-    /// Insert a batch with explicitly non-atomic semantics.
-    ///
-    /// WARNING: fail-fast and non-atomic. Earlier inserts may commit before an
-    /// error, and returning that error from the surrounding canister update does
-    /// not roll back the committed prefix. Use [`Self::insert_many_atomic`] when
-    /// partial batch persistence is not acceptable.
-    pub fn insert_many_non_atomic<E>(
-        &self,
-        entities: impl IntoIterator<Item = E>,
-    ) -> Result<WriteBatchResponse<E>, InternalError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.execute_save_batch(|save| save.insert_many_non_atomic(entities))
-    }
-
-    /// Replace one existing entity row.
-    pub fn replace<E>(&self, entity: E) -> Result<E, InternalError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.execute_save_entity(|save| save.replace(entity))
-    }
-
-    /// Apply one structural mutation under one explicit write-mode contract.
-    ///
-    /// This is the public core session boundary for structural writes:
-    /// callers provide the key, field patch, and intended mutation mode, and
-    /// the session routes that through the shared structural mutation pipeline.
-    #[cfg(test)]
-    pub(in crate::db) fn mutate_structural<E>(
-        &self,
-        key: E::Key,
-        patch: AuthoredStructuralPatch,
-        mode: MutationMode,
-    ) -> Result<E, InternalError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let context = self.accepted_schema_catalog_context_for_query::<E>()?;
-        let (descriptor, _) = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
-            context.snapshot(),
-            E::MODEL,
-            context.enum_catalog(),
-            context.composite_catalog(),
-        )?;
-        validate_structural_patch_schema_policy::<E>(&descriptor, &patch, mode)?;
-        let (
-            row_decode_contract,
-            mutation_row_decode_contract,
-            accepted_schema_info,
-            accepted_schema_fingerprint,
-            accepted_row_constraints,
-        ) = accepted_save_contract_for_catalog_context::<E>(&context, &descriptor);
-
-        self.execute_save_with_checked_accepted_row_contract(
-            row_decode_contract,
-            accepted_schema_info,
-            accepted_schema_fingerprint,
-            accepted_row_constraints,
-            |save| save.apply_structural_mutation(mode, key, patch, mutation_row_decode_contract),
-            std::convert::identity,
-        )
-    }
-
-    /// Build one structural patch through the accepted schema row layout.
-    ///
-    /// This is the session-owned patch construction boundary for callers that
-    /// can provide all dynamic field updates at once. It resolves field names
-    /// through the accepted row-layout descriptor before the patch reaches the
-    /// generated-compatible write codec bridge.
-    #[cfg(test)]
-    pub(in crate::db) fn structural_patch<E, I, S, V>(
-        &self,
-        fields: I,
-    ) -> Result<AuthoredStructuralPatch, InternalError>
-    where
-        E: PersistedRow<Canister = C>,
-        I: IntoIterator<Item = (S, V)>,
-        S: AsRef<str>,
-        V: Into<InputValue>,
-    {
-        let context = self.accepted_schema_catalog_context_for_query::<E>()?;
-        let (descriptor, _) = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
-            context.snapshot(),
-            E::MODEL,
-            context.enum_catalog(),
-            context.composite_catalog(),
-        )?;
-        let mut patch = AuthoredStructuralPatch::new();
-
-        // Phase 1: resolve every caller-provided field name against the
-        // accepted descriptor so public structural patch construction no
-        // longer has to choose slots from generated model field order.
-        for (field_name, value) in fields {
-            let field_name = field_name.as_ref();
-            patch = append_accepted_structural_patch_field(
-                E::PATH,
-                &descriptor,
-                patch,
-                field_name,
-                value.into(),
-            )?;
+        entity: &str,
+        patches: Vec<DynamicStructuralPatch>,
+    ) -> Result<DynamicMutationResult, InternalError> {
+        if entity.is_empty() || patches.is_empty() {
+            return Err(InternalError::executor_unsupported());
         }
 
-        Ok(patch)
-    }
+        let catalog = self.accepted_schema_catalog_context_for_entity_name(Some(entity))?;
+        let identity = catalog.identity();
+        let entity_path = identity.entity_path();
+        let descriptor =
+            AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
+        let mutations = patches
+            .iter()
+            .map(|patch| {
+                lower_dynamic_patch(entity_path, &descriptor, patch, MutationMode::Insert).map(
+                    |patch| {
+                        AcceptedStructuralMutation::new(
+                            AcceptedStructuralMutationTarget::ResolveFromAfterImage,
+                            patch,
+                        )
+                    },
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let results = self.execute_accepted_structural_save_batch(
+            &catalog,
+            &descriptor,
+            MutationMode::Insert,
+            mutations,
+            Timestamp::now(),
+        )?;
+        let affected_rows = results.iter().try_fold(0_u32, |total, result| {
+            total
+                .checked_add(u32::from(result.logical_changed()))
+                .ok_or_else(InternalError::executor_invariant)
+        })?;
+        record(MetricsEvent::SaveMutation {
+            entity_path,
+            kind: SaveMutationKind::Insert,
+            rows_touched: u64::from(affected_rows),
+        });
 
-    /// Apply one structural replacement, inserting if missing.
-    ///
-    /// Replace semantics still do not inherit omitted fields from the old row.
-    /// Missing fields must materialize through explicit defaults or managed
-    /// field preflight, or the write fails closed.
-    #[cfg(test)]
-    pub(in crate::db) fn replace_structural<E>(
-        &self,
-        key: E::Key,
-        patch: AuthoredStructuralPatch,
-    ) -> Result<E, InternalError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.mutate_structural(key, patch, MutationMode::Replace)
-    }
+        let columns = descriptor
+            .fields()
+            .iter()
+            .map(|field| field.name().to_string())
+            .collect();
+        let rows = results
+            .into_iter()
+            .map(|result| {
+                result
+                    .values
+                    .iter()
+                    .map(|value| {
+                        output_value_from_runtime(catalog.enum_catalog(), value)
+                            .map_err(|_| InternalError::store_invariant())
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
-    /// Replace a single-entity-type batch atomically in one commit window.
-    ///
-    /// If any item fails pre-commit validation, no row in the batch is persisted.
-    /// Prefer this helper when the caller needs all-or-nothing behavior for a
-    /// same-entity batch.
-    ///
-    /// This API is not a multi-entity transaction surface.
-    pub fn replace_many_atomic<E>(
-        &self,
-        entities: impl IntoIterator<Item = E>,
-    ) -> Result<WriteBatchResponse<E>, InternalError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.execute_save_batch(|save| save.replace_many_atomic(entities))
-    }
-
-    /// Replace a batch with explicitly non-atomic semantics.
-    ///
-    /// WARNING: fail-fast and non-atomic. Earlier replaces may commit before an
-    /// error, and returning that error from the surrounding canister update does
-    /// not roll back the committed prefix. Use [`Self::replace_many_atomic`] when
-    /// partial batch persistence is not acceptable.
-    pub fn replace_many_non_atomic<E>(
-        &self,
-        entities: impl IntoIterator<Item = E>,
-    ) -> Result<WriteBatchResponse<E>, InternalError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.execute_save_batch(|save| save.replace_many_non_atomic(entities))
-    }
-
-    /// Update one existing entity row.
-    pub fn update<E>(&self, entity: E) -> Result<E, InternalError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.execute_save_entity(|save| save.update(entity))
-    }
-
-    /// Apply one structural insert from a patch-defined after-image.
-    ///
-    /// Insert semantics no longer require a pre-built full row image.
-    /// Missing fields still fail closed unless derive-owned materialization can
-    /// supply them through explicit defaults or managed-field preflight.
-    #[cfg(test)]
-    pub(in crate::db) fn insert_structural<E>(
-        &self,
-        key: E::Key,
-        patch: AuthoredStructuralPatch,
-    ) -> Result<E, InternalError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.mutate_structural(key, patch, MutationMode::Insert)
-    }
-
-    /// Apply one structural field patch to an existing entity row.
-    ///
-    /// This session-owned boundary keeps structural mutation out of the raw
-    /// executor surface while still routing through the same typed save
-    /// preflight before commit staging.
-    #[cfg(test)]
-    pub(in crate::db) fn update_structural<E>(
-        &self,
-        key: E::Key,
-        patch: AuthoredStructuralPatch,
-    ) -> Result<E, InternalError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.mutate_structural(key, patch, MutationMode::Update)
-    }
-
-    /// Update a single-entity-type batch atomically in one commit window.
-    ///
-    /// If any item fails pre-commit validation, no row in the batch is persisted.
-    /// Prefer this helper when the caller needs all-or-nothing behavior for a
-    /// same-entity batch.
-    ///
-    /// This API is not a multi-entity transaction surface.
-    pub fn update_many_atomic<E>(
-        &self,
-        entities: impl IntoIterator<Item = E>,
-    ) -> Result<WriteBatchResponse<E>, InternalError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.execute_save_batch(|save| save.update_many_atomic(entities))
-    }
-
-    /// Update a batch with explicitly non-atomic semantics.
-    ///
-    /// WARNING: fail-fast and non-atomic. Earlier updates may commit before an
-    /// error, and returning that error from the surrounding canister update does
-    /// not roll back the committed prefix. Use [`Self::update_many_atomic`] when
-    /// partial batch persistence is not acceptable.
-    pub fn update_many_non_atomic<E>(
-        &self,
-        entities: impl IntoIterator<Item = E>,
-    ) -> Result<WriteBatchResponse<E>, InternalError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        self.execute_save_batch(|save| save.update_many_non_atomic(entities))
+        Ok(DynamicMutationResult {
+            entity: entity.to_string(),
+            columns,
+            rows,
+            affected_rows,
+        })
     }
 }
 

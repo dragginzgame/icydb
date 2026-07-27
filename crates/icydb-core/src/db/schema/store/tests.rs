@@ -369,29 +369,6 @@ fn schema_store_loads_latest_snapshot_for_entity() {
 }
 
 #[test]
-fn schema_store_entity_footprint_counts_raw_snapshots_without_decoding() {
-    let mut store = SchemaStore::init_journaled(test_memory(242));
-    store.insert_raw_snapshot(
-        RawSchemaKey::from_entity_version(EntityTag::new(71), SchemaVersion::initial()),
-        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![1, 2, 3]),
-    );
-    store.insert_raw_snapshot(
-        RawSchemaKey::from_entity_version(EntityTag::new(72), SchemaVersion::new(3)),
-        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![5, 8]),
-    );
-    store.insert_raw_snapshot(
-        RawSchemaKey::from_entity_version(EntityTag::new(71), SchemaVersion::new(2)),
-        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![13, 21, 34, 55]),
-    );
-
-    let footprint = store.entity_footprint(EntityTag::new(71));
-
-    assert_eq!(footprint.snapshots(), 2);
-    assert_eq!(footprint.encoded_bytes(), 7);
-    assert_eq!(footprint.latest_snapshot_bytes(), 4);
-}
-
-#[test]
 fn schema_store_visit_raw_snapshots_preserves_key_order() {
     let mut store = SchemaStore::init_journaled(test_memory(235));
     store.insert_raw_snapshot(
@@ -1052,7 +1029,7 @@ fn schema_store_rejects_typed_snapshot_with_divergent_field_slots() {
         base.version(),
         base.entity_path().to_string(),
         base.entity_name().to_string(),
-        base.first_primary_key_field_id(),
+        base.primary_key_field_ids().to_vec(),
         SchemaRowLayout::initial(vec![
             (FieldId::new(1), SchemaFieldSlot::new(0)),
             (FieldId::new(2), SchemaFieldSlot::new(3)),
@@ -1079,7 +1056,7 @@ fn schema_store_rejects_typed_snapshot_with_duplicate_row_layout_slot() {
         base.version(),
         base.entity_path().to_string(),
         base.entity_name().to_string(),
-        base.first_primary_key_field_id(),
+        base.primary_key_field_ids().to_vec(),
         SchemaRowLayout::initial(vec![
             (FieldId::new(1), SchemaFieldSlot::new(0)),
             (FieldId::new(2), SchemaFieldSlot::new(0)),
@@ -1155,7 +1132,7 @@ fn schema_store_rejects_raw_snapshot_with_divergent_field_slots() {
         base.version(),
         base.entity_path().to_string(),
         base.entity_name().to_string(),
-        base.first_primary_key_field_id(),
+        base.primary_key_field_ids().to_vec(),
         SchemaRowLayout::initial(vec![
             (FieldId::new(1), SchemaFieldSlot::new(0)),
             (FieldId::new(2), SchemaFieldSlot::new(3)),
@@ -1235,7 +1212,7 @@ fn schema_store_rejects_raw_snapshot_with_duplicate_field_name() {
         base.version(),
         base.entity_path().to_string(),
         base.entity_name().to_string(),
-        base.first_primary_key_field_id(),
+        base.primary_key_field_ids().to_vec(),
         base.row_layout().clone(),
         fields,
     );
@@ -1284,7 +1261,7 @@ fn schema_store_rejects_typed_snapshot_with_empty_nested_leaf_path() {
         base.version(),
         base.entity_path().to_string(),
         base.entity_name().to_string(),
-        base.first_primary_key_field_id(),
+        base.primary_key_field_ids().to_vec(),
         base.row_layout().clone(),
         fields,
     );
@@ -1333,7 +1310,7 @@ fn schema_store_rejects_raw_snapshot_with_duplicate_nested_leaf_path() {
         base.version(),
         base.entity_path().to_string(),
         base.entity_name().to_string(),
-        base.first_primary_key_field_id(),
+        base.primary_key_field_ids().to_vec(),
         base.row_layout().clone(),
         fields,
     );

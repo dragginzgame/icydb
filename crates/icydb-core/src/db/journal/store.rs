@@ -627,12 +627,6 @@ impl JournalTailStore {
         self.len() == 0
     }
 
-    /// Clear all journal-tail batches from this test store.
-    #[cfg(test)]
-    pub(in crate::db) fn clear(&mut self) {
-        self.map.clear_new();
-    }
-
     /// Insert raw journal-tail bytes for persisted-corruption tests.
     #[cfg(test)]
     pub(in crate::db) fn insert_raw_batch_for_tests(
@@ -641,49 +635,6 @@ impl JournalTailStore {
         bytes: Vec<u8>,
     ) -> Result<(), InternalError> {
         self.append_raw_batch(sequence, bytes.as_slice())
-    }
-
-    /// Corrupt the first envelope byte without changing proof-vector counters.
-    #[cfg(test)]
-    pub(in crate::db) fn corrupt_batch_envelope_for_tests(
-        &mut self,
-        sequence: JournalSequence,
-    ) -> Result<(), InternalError> {
-        let key = JournalTailKey::new(sequence, 0);
-        let Some(raw) = self.map.get(&key) else {
-            return Err(journal_tail_corruption());
-        };
-        let mut bytes = raw.into_bytes();
-        let Some(first) = bytes.first_mut() else {
-            return Err(journal_tail_corruption());
-        };
-        *first ^= u8::MAX;
-        self.map.insert(key, RawJournalChunk::from_bytes(bytes));
-        Ok(())
-    }
-
-    /// Corrupt the bounded fold-control envelope for Quick classification tests.
-    #[cfg(test)]
-    pub(in crate::db) fn corrupt_fold_watermark_for_tests(&mut self) -> Result<(), InternalError> {
-        let key = JournalTailKey::fold_watermark();
-        let mut raw = self.map.get(&key).unwrap_or_else(|| {
-            RawJournalChunk::from_bytes(encode_fold_watermark(FoldWatermark::initial()))
-        });
-        let Some(first) = raw.0.first_mut() else {
-            return Err(journal_tail_corruption());
-        };
-        *first ^= u8::MAX;
-        self.map.insert(key, raw);
-        Ok(())
-    }
-
-    /// Persist a valid but tail-inconsistent row revision for Quick tests.
-    #[cfg(test)]
-    pub(in crate::db) fn diverge_data_mutation_revision_for_tests(
-        &mut self,
-        sequence: JournalSequence,
-    ) -> Result<(), InternalError> {
-        self.persist_data_mutation_revision(sequence)
     }
 
     fn append_raw_batch(

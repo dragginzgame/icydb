@@ -89,16 +89,6 @@ where
 
         Some(total)
     }
-
-    #[cfg(test)]
-    fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
-        let mut total = 0usize;
-        for stream in &self.streams {
-            total = total.checked_add(stream.exact_diagnostic_access_candidate_count()?)?;
-        }
-
-        Some(total)
-    }
 }
 
 ///

@@ -95,7 +95,7 @@ pub(super) struct ScalarPageKernelRequest<'a, 'r> {
     pub(super) load_order_route_mode: LoadOrderRouteMode,
     pub(super) consistency: MissingRowPolicy,
     pub(super) scan_strategy: KernelRowScanStrategy<'a>,
-    pub(super) continuation: &'a ScalarContinuationContext,
+    pub(super) continuation: ScalarContinuationContext,
     pub(super) row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
 }
 

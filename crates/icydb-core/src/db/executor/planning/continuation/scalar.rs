@@ -5,17 +5,14 @@
 
 use crate::{
     db::{
-        access::LoweredKey,
         cursor::{
-            ContinuationSignature, CursorBoundary, ValidatedCursor,
-            decode_pk_cursor_boundary_primary_key_value_for_names,
-            effective_keep_count_for_limit as continuation_keep_count_for_limit,
+            CursorBoundary, effective_keep_count_for_limit as continuation_keep_count_for_limit,
             effective_page_offset_for_window as continuation_page_offset_for_window,
         },
         direction::Direction,
         executor::{
             AccessScanContinuationInput, ContinuationMode, RouteContinuationPlan,
-            planning::{continuation::range_token::IndexRangeScanToken, route::LoadOrderRouteMode},
+            planning::route::LoadOrderRouteMode,
         },
         query::plan::{AccessPlannedQuery, ContinuationPolicy},
     },
@@ -30,100 +27,39 @@ use crate::{
 /// bindings so load/route code does not decode cursor internals directly.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) struct ScalarContinuationContext {
-    cursor_boundary: Option<CursorBoundary>,
-    index_range_token: Option<IndexRangeScanToken>,
-    continuation_signature: Option<ContinuationSignature>,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum ScalarContinuationContext {
+    Initial,
 }
 
 impl ScalarContinuationContext {
     /// Construct one empty scalar continuation runtime for initial executions.
     #[must_use]
     pub(in crate::db::executor) const fn initial() -> Self {
-        Self {
-            cursor_boundary: None,
-            index_range_token: None,
-            continuation_signature: None,
-        }
-    }
-
-    /// Build one scalar runtime cursor binding bundle from one validated cursor.
-    #[must_use]
-    pub(in crate::db::executor) fn new(cursor: ValidatedCursor) -> Self {
-        let cursor_boundary = cursor.boundary().cloned();
-        let index_range_token = cursor
-            .index_range_anchor()
-            .map(IndexRangeScanToken::from_anchor);
-
-        Self {
-            cursor_boundary,
-            index_range_token,
-            continuation_signature: None,
-        }
-    }
-
-    /// Build one runtime-ready scalar continuation context from validated
-    /// cursor state plus the immutable continuation signature.
-    #[must_use]
-    pub(in crate::db::executor) fn for_runtime(
-        cursor: ValidatedCursor,
-        continuation_signature: ContinuationSignature,
-    ) -> Self {
-        let mut continuation = Self::new(cursor);
-        continuation.continuation_signature = Some(continuation_signature);
-
-        continuation
+        Self::Initial
     }
 
     /// Borrow optional scalar cursor boundary.
     #[must_use]
-    pub(in crate::db::executor) const fn cursor_boundary(&self) -> Option<&CursorBoundary> {
-        self.cursor_boundary.as_ref()
+    pub(in crate::db::executor) const fn cursor_boundary(self) -> Option<&'static CursorBoundary> {
+        match self {
+            Self::Initial => None,
+        }
     }
 
     /// Return whether this scalar continuation context has one cursor boundary.
     #[must_use]
-    pub(in crate::db::executor) const fn has_cursor_boundary(&self) -> bool {
-        self.cursor_boundary.is_some()
-    }
-
-    /// Validate scalar cursor-boundary decode for PK fast-path eligibility gates.
-    ///
-    /// This preserves PK fast-path cursor error classification while keeping
-    /// boundary decode authority in continuation runtime.
-    pub(in crate::db::executor) fn validate_pk_fast_path_boundary(
-        &self,
-        primary_key_names: &[&str],
-    ) -> Result<(), InternalError> {
-        let _ = decode_pk_cursor_boundary_primary_key_value_for_names(
-            self.cursor_boundary(),
-            primary_key_names,
-        )
-        .map_err(crate::db::cursor::CursorPlanError::into_internal_error)?;
-
-        Ok(())
-    }
-
-    /// Borrow optional index-range continuation anchor token.
-    #[must_use]
-    const fn index_range_token(&self) -> Option<&IndexRangeScanToken> {
-        self.index_range_token.as_ref()
-    }
-
-    /// Return whether this scalar continuation context has one index-range anchor.
-    #[must_use]
-    pub(in crate::db::executor) const fn has_index_range_anchor(&self) -> bool {
-        self.index_range_token.is_some()
+    pub(in crate::db::executor) const fn has_cursor_boundary(self) -> bool {
+        match self {
+            Self::Initial => false,
+        }
     }
 
     /// Derive route continuation mode from scalar continuation context shape.
     #[must_use]
-    pub(in crate::db::executor) const fn route_continuation_mode(&self) -> ContinuationMode {
-        match (self.has_cursor_boundary(), self.has_index_range_anchor()) {
-            (_, true) => ContinuationMode::IndexRangeAnchor,
-            (true, false) => ContinuationMode::CursorBoundary,
-            (false, false) => ContinuationMode::Initial,
+    pub(in crate::db::executor) const fn route_continuation_mode(self) -> ContinuationMode {
+        match self {
+            Self::Initial => ContinuationMode::Initial,
         }
     }
 
@@ -133,7 +69,7 @@ impl ScalarContinuationContext {
     /// route planning consumes one pre-derived continuation contract.
     #[must_use]
     pub(in crate::db::executor) fn route_continuation_plan(
-        &self,
+        self,
         plan: &AccessPlannedQuery,
         continuation_policy: ContinuationPolicy,
     ) -> RouteContinuationPlan {
@@ -146,30 +82,15 @@ impl ScalarContinuationContext {
 
     /// Build access-stream continuation input for routed stream resolution.
     #[must_use]
-    pub(in crate::db::executor) fn access_scan_input(
-        &self,
+    pub(in crate::db::executor) const fn access_scan_input(
+        self,
         direction: Direction,
-        plan: &AccessPlannedQuery,
-    ) -> AccessScanContinuationInput<'_> {
-        let primary_key_ordered = plan
-            .primary_key_names()
-            .ok()
-            .is_some_and(|primary_key_names| {
-                plan.scalar_plan().order.as_ref().is_some_and(|order| {
-                    order
-                        .primary_key_only_direction_fields(primary_key_names.as_slice())
-                        .is_some()
-                })
-            });
-        let primary_key_boundary = primary_key_ordered
-            .then_some(self.cursor_boundary())
-            .flatten();
-
-        AccessScanContinuationInput::with_primary_key_boundary(
-            self.previous_index_range_anchor(),
-            direction,
-            primary_key_boundary,
-        )
+    ) -> AccessScanContinuationInput<'static> {
+        match self {
+            Self::Initial => {
+                AccessScanContinuationInput::with_primary_key_boundary(None, direction, None)
+            }
+        }
     }
 
     /// Assert scalar route-continuation invariants against this runtime context.
@@ -177,7 +98,7 @@ impl ScalarContinuationContext {
     /// Keeps scalar continuation protocol sanity checks centralized in
     /// continuation runtime so load entrypoints consume one invariant boundary.
     pub(in crate::db::executor) fn debug_assert_route_continuation_invariants(
-        &self,
+        self,
         plan: &AccessPlannedQuery,
         route_continuation: RouteContinuationPlan,
     ) {
@@ -195,26 +116,11 @@ impl ScalarContinuationContext {
     /// Derive effective keep count (`offset + limit`) under this continuation context.
     #[must_use]
     pub(in crate::db::executor) fn keep_count_for_limit_window(
-        &self,
+        self,
         plan: &AccessPlannedQuery,
         limit: u32,
     ) -> usize {
         continuation_keep_count_for_limit(plan, self.has_cursor_boundary(), limit)
-    }
-
-    /// Borrow optional previous index-range anchor.
-    #[must_use]
-    pub(in crate::db::executor) fn previous_index_range_anchor(&self) -> Option<&LoweredKey> {
-        self.index_range_token()
-            .map(IndexRangeScanToken::anchor_key)
-    }
-
-    /// Borrow continuation signature for this runtime continuation context.
-    pub(in crate::db::executor) fn continuation_signature(
-        &self,
-    ) -> Result<ContinuationSignature, InternalError> {
-        self.continuation_signature
-            .ok_or_else(InternalError::query_executor_invariant)
     }
 
     /// Validate load scan-budget hint preconditions under this continuation context.
@@ -222,17 +128,15 @@ impl ScalarContinuationContext {
     /// Bounded load scan hints are only valid for non-continuation executions on
     /// streaming-safe access shapes where access order is already final.
     pub(in crate::db::executor) fn validate_load_scan_budget_hint(
-        &self,
+        self,
         scan_budget_hint: Option<usize>,
         load_order_route_mode: LoadOrderRouteMode,
     ) -> Result<(), InternalError> {
-        if scan_budget_hint.is_some() {
-            if self.has_cursor_boundary() {
-                return Err(InternalError::query_executor_invariant());
-            }
-            if !load_order_route_mode.allows_streaming_load() {
-                return Err(InternalError::query_executor_invariant());
-            }
+        match self {
+            Self::Initial => {}
+        }
+        if scan_budget_hint.is_some() && !load_order_route_mode.allows_streaming_load() {
+            return Err(InternalError::query_executor_invariant());
         }
 
         Ok(())

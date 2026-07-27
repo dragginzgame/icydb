@@ -203,22 +203,6 @@ pub(in crate::db::executor) struct ExecutableAccess<'a, K> {
 }
 
 impl<'a, K> ExecutableAccess<'a, K> {
-    /// Build one canonical runtime request from one executable access plan.
-    #[must_use]
-    pub(in crate::db::executor) const fn from_executable_plan(
-        plan: ExecutableAccessPlan<'a, K>,
-        bindings: AccessStreamBindings<'a>,
-        physical_fetch_hint: Option<usize>,
-        index_predicate_execution: Option<IndexPredicateExecution<'a>>,
-    ) -> Self {
-        Self::from_executable_plan_with_policy(
-            plan,
-            bindings,
-            AccessStreamExecutionPolicy::canonical_key_order(physical_fetch_hint),
-            index_predicate_execution,
-        )
-    }
-
     /// Build one runtime request from one executable access plan and explicit
     /// stream execution policy.
     #[must_use]

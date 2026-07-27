@@ -9,5 +9,3 @@ pub(in crate::db::executor::projection) use crate::db::query::plan::PageSpec;
 pub(in crate::db::executor::projection) use crate::db::query::plan::expr::CompiledExpr;
 #[cfg(feature = "sql")]
 pub(in crate::db::executor::projection) use crate::db::query::plan::expr::ProjectionSpec;
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db::executor::projection) use crate::db::query::plan::expr::compile_scalar_projection_expr_for_model_only;

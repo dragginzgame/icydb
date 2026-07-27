@@ -186,25 +186,6 @@ impl TruthAdmission {
     }
 }
 
-/// Resolve one planner truth-condition compare operator onto the binary
-/// expression family used by normalized expression trees.
-#[must_use]
-pub(in crate::db) const fn truth_condition_compare_binary_op(op: CompareOp) -> Option<BinaryOp> {
-    match op {
-        CompareOp::Eq => Some(BinaryOp::Eq),
-        CompareOp::Ne => Some(BinaryOp::Ne),
-        CompareOp::Lt => Some(BinaryOp::Lt),
-        CompareOp::Lte => Some(BinaryOp::Lte),
-        CompareOp::Gt => Some(BinaryOp::Gt),
-        CompareOp::Gte => Some(BinaryOp::Gte),
-        CompareOp::In
-        | CompareOp::NotIn
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => None,
-    }
-}
-
 /// Resolve one planner binary compare operator back onto the admitted
 /// truth-condition compare family.
 #[must_use]

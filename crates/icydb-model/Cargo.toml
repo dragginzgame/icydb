@@ -11,7 +11,6 @@ authors = { workspace = true }
 [dependencies]
 candid = { workspace = true }
 convert_case = { workspace = true }
-derive_more = { workspace = true }
 icydb-model-macros = { workspace = true }
 icydb-schema = { workspace = true }
 remain = { workspace = true }

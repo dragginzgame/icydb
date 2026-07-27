@@ -37,15 +37,15 @@ pub fn emit_config_for_build_script() -> Result<GeneratedIcydbConfig, ConfigErro
 
 /// Emit generated actor glue for one canister using the effective config.
 ///
-/// The low-level build options remain owned by `icydb-build`; downstream build
+/// Model-graph actor generation is owned by `icydb-model`; downstream build
 /// scripts should call `icydb::build::build_configured_canister!()` instead of
-/// constructing them.
+/// constructing its options.
 pub fn emit_configured_canister_for_build_script(
     canister_path: &str,
     canister_name: &str,
 ) -> Result<(), ConfigError> {
     let config = emit_config_for_build_script()?;
-    let options = icydb_build::BuildOptions::default()
+    let options = icydb_model::build::BuildOptions::default()
         .with_sql_readonly_enabled(config.canister_sql_readonly_enabled(canister_name))
         .with_sql_ddl_enabled(config.canister_sql_ddl_enabled(canister_name))
         .with_sql_fixtures_enabled(config.canister_sql_fixtures_enabled(canister_name))
@@ -53,10 +53,10 @@ pub fn emit_configured_canister_for_build_script(
         .with_sql_introspection_enabled(config.canister_sql_introspection_enabled(canister_name))
         .with_sql_update_policy(match config.canister_sql_update_policy(canister_name) {
             Some(crate::GeneratedSqlUpdatePolicy::PublicPrimaryKeyOnly) => {
-                Some(icydb_build::BuildSqlUpdatePolicy::PublicPrimaryKeyOnly)
+                Some(icydb_model::build::BuildSqlUpdatePolicy::PublicPrimaryKeyOnly)
             }
             Some(crate::GeneratedSqlUpdatePolicy::PublicBoundedDeterministic) => {
-                Some(icydb_build::BuildSqlUpdatePolicy::PublicBoundedDeterministic)
+                Some(icydb_model::build::BuildSqlUpdatePolicy::PublicBoundedDeterministic)
             }
             None => None,
         })
@@ -74,7 +74,7 @@ pub fn emit_configured_canister_for_build_script(
 
     let out_dir = env::var(OUT_DIR_ENV).map_err(|source| ConfigError::OutDir { source })?;
     let actor_file = PathBuf::from(out_dir).join("actor.rs");
-    let output = icydb_build::generate_with_options(canister_path, options);
+    let output = icydb_model::build::generate_with_options(canister_path, options);
     fs::write(actor_file.as_path(), output).map_err(|source| ConfigError::WriteGeneratedActor {
         path: actor_file,
         source,

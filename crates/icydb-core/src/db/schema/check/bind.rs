@@ -2,7 +2,6 @@
 
 use crate::{
     db::{
-        CompareOp, Predicate,
         data::encode_input_value_for_candidate_field_contract,
         schema::{
             AcceptedCheckCompareOpV1, AcceptedCheckExprV1, AcceptedCheckLiteralV1,
@@ -87,17 +86,6 @@ pub(in crate::db) fn bind_check_expr_v1(
     let expression = bind_expression(input, snapshot, enum_catalog, composite_catalog)?;
     expression.validate(snapshot)?;
     Ok(expression)
-}
-
-/// Bind one structured generated predicate to accepted check semantics.
-pub(in crate::db) fn bind_generated_check_predicate(
-    predicate: &Predicate,
-    snapshot: &PersistedSchemaSnapshot,
-    enum_catalog: &AcceptedEnumCatalog,
-    composite_catalog: &AcceptedCompositeCatalog,
-) -> Result<AcceptedCheckExprV1, AcceptedCheckExprV1Error> {
-    let input = generated_predicate_input(predicate, snapshot)?;
-    bind_check_expr_v1(input, snapshot, enum_catalog, composite_catalog)
 }
 
 /// Bind one immutable-source-key expression through the same accepted
@@ -570,145 +558,6 @@ const fn sql_check_compare_op(
         | SqlExprBinaryOp::Sub
         | SqlExprBinaryOp::Mul
         | SqlExprBinaryOp::Div => Err(AcceptedCheckExprV1Error::UnsupportedOperator),
-    }
-}
-
-fn generated_predicate_input(
-    predicate: &Predicate,
-    snapshot: &PersistedSchemaSnapshot,
-) -> Result<CheckExprV1Input, AcceptedCheckExprV1Error> {
-    match predicate {
-        Predicate::True => Ok(CheckExprV1Input::True),
-        Predicate::False => Ok(CheckExprV1Input::False),
-        Predicate::And(children) => children
-            .iter()
-            .map(|child| generated_predicate_input(child, snapshot))
-            .collect::<Result<Vec<_>, _>>()
-            .map(CheckExprV1Input::And),
-        Predicate::Or(children) => children
-            .iter()
-            .map(|child| generated_predicate_input(child, snapshot))
-            .collect::<Result<Vec<_>, _>>()
-            .map(CheckExprV1Input::Or),
-        Predicate::Not(inner) => generated_predicate_input(inner, snapshot)
-            .map(Box::new)
-            .map(CheckExprV1Input::Not),
-        Predicate::Compare(compare) => {
-            generated_compare_input(compare.field(), compare.op(), compare.value(), snapshot)
-        }
-        Predicate::CompareFields(compare) => Ok(CheckExprV1Input::Compare {
-            left: CheckValueExprV1Input::Field(compare.left_field().to_string()),
-            op: accepted_compare_op(compare.op())?,
-            right: CheckValueExprV1Input::Field(compare.right_field().to_string()),
-        }),
-        Predicate::IsNull { field } => Ok(CheckExprV1Input::IsNull(CheckValueExprV1Input::Field(
-            field.clone(),
-        ))),
-        Predicate::IsNotNull { field } => Ok(CheckExprV1Input::IsNotNull(
-            CheckValueExprV1Input::Field(field.clone()),
-        )),
-        Predicate::IsEmpty { field } => generated_empty_compare(field, false, snapshot),
-        Predicate::IsNotEmpty { field } => generated_empty_compare(field, true, snapshot),
-        Predicate::IsMissing { .. }
-        | Predicate::TextContains { .. }
-        | Predicate::TextContainsCi { .. } => Err(AcceptedCheckExprV1Error::UnsupportedOperator),
-    }
-}
-
-fn generated_compare_input(
-    field_name: &str,
-    op: CompareOp,
-    value: &Value,
-    snapshot: &PersistedSchemaSnapshot,
-) -> Result<CheckExprV1Input, AcceptedCheckExprV1Error> {
-    if matches!(op, CompareOp::In | CompareOp::NotIn) {
-        let Value::List(members) = value else {
-            return Err(AcceptedCheckExprV1Error::LiteralAdmissionRejected);
-        };
-        let members = members
-            .iter()
-            .map(|member| generated_literal_input(field_name, member, snapshot))
-            .collect::<Result<Vec<_>, _>>()?;
-        let membership = CheckExprV1Input::EnumIn {
-            field: field_name.to_string(),
-            members,
-        };
-        return Ok(if matches!(op, CompareOp::NotIn) {
-            CheckExprV1Input::Not(Box::new(membership))
-        } else {
-            membership
-        });
-    }
-
-    Ok(CheckExprV1Input::Compare {
-        left: CheckValueExprV1Input::Field(field_name.to_string()),
-        op: accepted_compare_op(op)?,
-        right: CheckValueExprV1Input::Literal(generated_literal_input(
-            field_name, value, snapshot,
-        )?),
-    })
-}
-
-fn generated_literal_input(
-    field_name: &str,
-    value: &Value,
-    snapshot: &PersistedSchemaSnapshot,
-) -> Result<InputValue, AcceptedCheckExprV1Error> {
-    let field = snapshot
-        .fields()
-        .iter()
-        .find(|field| field.name() == field_name)
-        .ok_or(AcceptedCheckExprV1Error::UnknownField)?;
-    input_value_from_strict_sql_literal_for_persisted_kind(field.kind(), value)
-        .ok_or(AcceptedCheckExprV1Error::LiteralAdmissionRejected)
-}
-
-fn generated_empty_compare(
-    field_name: &str,
-    negated: bool,
-    snapshot: &PersistedSchemaSnapshot,
-) -> Result<CheckExprV1Input, AcceptedCheckExprV1Error> {
-    let field = snapshot
-        .fields()
-        .iter()
-        .find(|field| field.name() == field_name)
-        .ok_or(AcceptedCheckExprV1Error::UnknownField)?;
-    let left = match field.kind() {
-        AcceptedFieldKind::Text { .. } => CheckValueExprV1Input::CharLength(field_name.to_string()),
-        AcceptedFieldKind::Blob { .. } => {
-            CheckValueExprV1Input::OctetLength(field_name.to_string())
-        }
-        AcceptedFieldKind::List(_) | AcceptedFieldKind::Set(_) | AcceptedFieldKind::Map { .. } => {
-            CheckValueExprV1Input::Cardinality(field_name.to_string())
-        }
-        _ => return Err(AcceptedCheckExprV1Error::LengthOperationKindMismatch),
-    };
-    Ok(CheckExprV1Input::Compare {
-        left,
-        op: if negated {
-            AcceptedCheckCompareOpV1::Ne
-        } else {
-            AcceptedCheckCompareOpV1::Eq
-        },
-        right: CheckValueExprV1Input::Literal(InputValue::Nat64(0)),
-    })
-}
-
-const fn accepted_compare_op(
-    op: CompareOp,
-) -> Result<AcceptedCheckCompareOpV1, AcceptedCheckExprV1Error> {
-    match op {
-        CompareOp::Eq => Ok(AcceptedCheckCompareOpV1::Eq),
-        CompareOp::Ne => Ok(AcceptedCheckCompareOpV1::Ne),
-        CompareOp::Lt => Ok(AcceptedCheckCompareOpV1::Lt),
-        CompareOp::Lte => Ok(AcceptedCheckCompareOpV1::Lte),
-        CompareOp::Gt => Ok(AcceptedCheckCompareOpV1::Gt),
-        CompareOp::Gte => Ok(AcceptedCheckCompareOpV1::Gte),
-        CompareOp::In
-        | CompareOp::NotIn
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => Err(AcceptedCheckExprV1Error::UnsupportedOperator),
     }
 }
 

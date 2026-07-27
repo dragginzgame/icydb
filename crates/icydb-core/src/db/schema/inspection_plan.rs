@@ -15,9 +15,8 @@ use crate::{
         index::AcceptedIndexInspectionPlan,
         relation::{RelationConstraintProjection, ReverseRelationSourceInfo},
         schema::{
-            AcceptedCatalogIdentity, AcceptedRowLayoutRuntimeContract, AcceptedSchemaAuthority,
-            AcceptedSchemaFingerprint, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
-            CompiledAcceptedRowConstraints,
+            AcceptedCatalogIdentity, AcceptedRowLayoutRuntimeContract, AcceptedSchemaFingerprint,
+            AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, CompiledAcceptedRowConstraints,
         },
     },
     error::InternalError,
@@ -156,19 +155,6 @@ impl AcceptedInspectionPlan {
     #[must_use]
     pub(in crate::db) const fn identity(&self) -> AcceptedCatalogIdentity {
         self.identity
-    }
-
-    /// Return whether this plan still matches one selected accepted authority.
-    #[must_use]
-    pub(in crate::db) fn matches_selection(
-        &self,
-        identity: AcceptedCatalogIdentity,
-        authority: &AcceptedSchemaAuthority,
-    ) -> bool {
-        self.identity == identity
-            && self.value_catalog.authority() == authority
-            && self.fingerprint
-                == accepted_inspection_plan_fingerprint(identity, authority.fingerprint())
     }
 
     /// Borrow the selected accepted entity snapshot.

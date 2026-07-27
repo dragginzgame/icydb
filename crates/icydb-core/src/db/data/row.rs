@@ -3,11 +3,6 @@
 //! Does not own: row-key encoding, commit-window ordering, or index updates.
 //! Boundary: data::store persists RawRow values produced by higher layers.
 
-#[cfg(test)]
-use crate::db::data::{
-    PersistedRow, StructuralSlotReader,
-    persisted_row::canonical_row_from_entity_for_model_proposal_for_test,
-};
 use crate::{
     db::{codec::MAX_ROW_BYTES, data::DecodedDataStoreKey},
     error::InternalError,
@@ -46,17 +41,6 @@ impl CanonicalRow {
     #[must_use]
     pub(in crate::db) const fn as_raw_row(&self) -> &RawRow {
         &self.0
-    }
-
-    /// Encode one full typed entity into canonical persisted row bytes.
-    #[cfg(test)]
-    pub(in crate::db) fn from_entity_with_model_proposal_for_test<E>(
-        entity: &E,
-    ) -> Result<Self, InternalError>
-    where
-        E: PersistedRow,
-    {
-        canonical_row_from_entity_for_model_proposal_for_test(entity)
     }
 }
 
@@ -119,16 +103,6 @@ impl RawRow {
     #[must_use]
     pub(in crate::db) const fn len(&self) -> usize {
         self.0.len()
-    }
-
-    /// Decode into an entity.
-    #[cfg(test)]
-    pub(in crate::db) fn try_decode_with_model_proposal_for_test<E: PersistedRow>(
-        &self,
-    ) -> Result<E, InternalError> {
-        let mut slots =
-            StructuralSlotReader::from_raw_row_with_model_proposal_for_test(self, E::MODEL)?;
-        E::materialize_from_slots(&mut slots)
     }
 }
 

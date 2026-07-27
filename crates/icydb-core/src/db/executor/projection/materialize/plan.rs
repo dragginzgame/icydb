@@ -165,30 +165,6 @@ impl PreparedProjectionContract {
     pub(in crate::db) const fn projected_slot_mask(&self) -> &[bool] {
         self.projected_slot_mask.as_slice()
     }
-
-    /// Build one projection contract directly from test-owned prepared inputs.
-    #[cfg(all(test, feature = "sql"))]
-    #[must_use]
-    pub(in crate::db) fn from_test_inputs(
-        projection: ProjectionSpec,
-        compiled_exprs: Vec<CompiledExpr>,
-        projection_is_model_identity: bool,
-        retained_slot_direct_projection_slots: Option<Vec<usize>>,
-        data_row_direct_projection_slots: Option<Vec<usize>>,
-        projected_slot_mask: Vec<bool>,
-    ) -> Self {
-        Self {
-            projection,
-            compiled_exprs,
-            projection_is_model_identity,
-            retained_slot_direct_projection_slots: retained_slot_direct_projection_slots
-                .map(PreparedDirectProjectionSlots::from_slots),
-            retained_slot_direct_octet_length_projection_slots: Vec::new(),
-            data_row_direct_projection_slots: data_row_direct_projection_slots
-                .map(PreparedDirectProjectionSlots::from_slots),
-            projected_slot_mask,
-        }
-    }
 }
 
 ///

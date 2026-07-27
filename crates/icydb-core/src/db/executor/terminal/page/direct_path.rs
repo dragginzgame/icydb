@@ -40,7 +40,7 @@ pub(super) fn execute_direct_data_row_path(
     scan_budget_hint: Option<usize>,
     load_order_route_mode: LoadOrderRouteMode,
     consistency: MissingRowPolicy,
-    continuation: &ScalarContinuationContext,
+    continuation: ScalarContinuationContext,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     direct_data_row_path: DirectDataRowPath<'_>,
 ) -> Result<(StructuralCursorPage, usize, usize), InternalError> {
@@ -197,7 +197,7 @@ pub(super) fn execute_direct_data_row_path(
     record_direct_data_row_page_window_local_instructions(page_window_local_instructions);
 
     Ok((
-        StructuralCursorPage::new(data_rows, None),
+        StructuralCursorPage::new(data_rows),
         rows_scanned,
         post_access_rows,
     ))

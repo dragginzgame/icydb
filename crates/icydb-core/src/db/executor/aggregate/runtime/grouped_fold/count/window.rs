@@ -6,6 +6,7 @@ use std::{cmp::Ordering, collections::BinaryHeap};
 
 use crate::{
     db::{
+        cursor::GroupedContinuationToken,
         direction::Direction,
         executor::{
             RuntimeGroupedRow,
@@ -22,7 +23,7 @@ use crate::{
                 value_reducer::finalize_count,
             },
             group::GroupKey,
-            pipeline::contracts::{GroupedRouteStage, PageCursor},
+            pipeline::contracts::GroupedRouteStage,
             projection::{GroupedRowView, ProjectionEvalError, compile_grouped_projection_expr},
         },
     },
@@ -226,8 +227,6 @@ impl<'a> GroupedCountWindowSelection<'a> {
         let grouped_row = GroupedRowView::new(
             group_key_values.as_slice(),
             std::slice::from_ref(&aggregate_value),
-            self.route.group_fields(),
-            &[],
         );
         if let Some(compiled_having_expr) = self.compiled_having_expr.as_ref()
             && !group_matches_having_expr(compiled_having_expr, &grouped_row)?
@@ -355,7 +354,7 @@ impl GroupedCountPageRows {
         self,
         route: &GroupedRouteStage,
         grouped_projection_spec: &ProjectionSpec,
-    ) -> Result<(Vec<RuntimeGroupedRow>, Option<PageCursor>), InternalError> {
+    ) -> Result<(Vec<RuntimeGroupedRow>, Option<GroupedContinuationToken>), InternalError> {
         metrics::record_projection_rows_input(self.rows.len());
         let next_cursor_boundary = self
             .has_more

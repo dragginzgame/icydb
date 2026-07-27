@@ -5,9 +5,6 @@
 //! Boundary: shared query-shape hashing surface used by execution identity and
 //! cursor token checks.
 
-#[cfg(test)]
-mod tests;
-
 use crate::db::{
     cursor::ContinuationSignature,
     query::plan::AccessPlannedQuery,

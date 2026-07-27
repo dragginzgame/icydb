@@ -7,14 +7,13 @@
 
 use crate::{
     db::{
-        PrimaryKeyDecode, PrimaryKeyEncode, PrimaryKeyEncodeError,
+        PrimaryKeyEncodeError,
         key_taxonomy::{
             COMPOSITE_PRIMARY_KEY_MAX_SIZE, CompositePrimaryKeyValue,
             CompositePrimaryKeyValueError, DataStoreKey, EncodedPrimaryKey, MAX_PRIMARY_KEY_FIELDS,
             PrimaryKeyComponent, PrimaryKeyValue, RawDataStoreKey, RawDataStoreKeyRange,
         },
     },
-    entity::EntityKind,
     error::InternalError,
     types::EntityTag,
     value::Value,
@@ -26,7 +25,6 @@ use std::{
     fmt::{self, Display},
     hash::{Hash, Hasher},
     mem::size_of,
-    ops::Bound as RangeBound,
 };
 
 ///
@@ -93,32 +91,6 @@ impl DecodedDataStoreKey {
         }
     }
 
-    /// Construct using compile-time entity metadata.
-    ///
-    /// This requires that the entity key is persistable.
-    pub(in crate::db) fn try_new<E>(key: E::Key) -> Result<Self, InternalError>
-    where
-        E: EntityKind,
-    {
-        Self::try_from_typed_key(E::ENTITY_TAG, &key)
-    }
-
-    /// Construct from one entity tag plus one typed field-value key.
-    ///
-    /// This keeps key encoding shared across entity-bound callers without
-    /// forcing the data-key boundary itself to be generic over `E`.
-    pub(in crate::db) fn try_from_typed_key<K>(
-        entity: EntityTag,
-        key: &K,
-    ) -> Result<Self, InternalError>
-    where
-        K: PrimaryKeyEncode,
-    {
-        let key = key.to_primary_key_value()?;
-
-        Ok(Self::new_primary_key_value(entity, &key))
-    }
-
     /// Construct from one entity tag plus one structural planner key literal.
     ///
     /// This is the structural key-codec boundary used by execution paths that
@@ -130,22 +102,6 @@ impl DecodedDataStoreKey {
         let key = primary_key_value_from_structural_value(key)?;
 
         Ok(Self::new_primary_key_value(entity, &key))
-    }
-
-    /// Decode a raw entity key from this data key.
-    ///
-    /// This is a fallible boundary that validates entity identity and
-    /// key compatibility against the target entity type.
-    pub(in crate::db) fn try_key<E>(&self) -> Result<E::Key, InternalError>
-    where
-        E: EntityKind,
-    {
-        let expected = E::ENTITY_TAG;
-        if self.entity != expected {
-            return Err(InternalError::data_key_entity_mismatch());
-        }
-
-        <E::Key as PrimaryKeyDecode>::from_primary_key_value(&self.key)
     }
 
     // ------------------------------------------------------------------
@@ -365,20 +321,6 @@ impl RawDataStoreKey {
     #[must_use]
     pub(in crate::db) fn from_store_range_bound(bytes: &[u8]) -> Self {
         Self::from_persisted_bytes(bytes.to_vec())
-    }
-
-    #[must_use]
-    pub(in crate::db) fn store_range_bounds(
-        range: &RawDataStoreKeyRange,
-    ) -> (RangeBound<Self>, RangeBound<Self>) {
-        let lower = RangeBound::Included(Self::from_store_range_bound(range.lower_inclusive()));
-        let upper = range
-            .upper_exclusive()
-            .map_or(RangeBound::Unbounded, |upper| {
-                RangeBound::Excluded(Self::from_store_range_bound(upper))
-            });
-
-        (lower, upper)
     }
 
     #[must_use]

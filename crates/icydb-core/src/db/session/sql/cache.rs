@@ -3,8 +3,6 @@
 //! Does not own: SQL parsing, lowering, execution, or result shaping.
 //! Boundary: keeps syntax-bound SQL cache state separate from shared query-plan cache state.
 
-#[cfg(test)]
-use crate::db::PersistedRow;
 use crate::{
     db::{
         DbSession, QueryError,
@@ -19,14 +17,6 @@ use crate::{
     traits::CanisterKind,
 };
 use std::{cell::RefCell, collections::HashMap};
-
-#[cfg(test)]
-use crate::db::schema::{
-    AcceptedSchemaSnapshot, accepted_schema_cache_fingerprint,
-    accepted_schema_cache_fingerprint_method_version, compiled_schema_proposal_for_model,
-};
-#[cfg(test)]
-use crate::metrics::sink::{CacheKind, record_cache_entries};
 
 // This cache deliberately stays on syntax-bound SQL statement identity for the
 // front-end prepared/template lane. Grouped semantic canonicalization and
@@ -277,116 +267,6 @@ impl SqlCompiledCommandCacheKey {
     }
 }
 
-#[cfg(test)]
-impl SqlCompiledCommandCacheKey {
-    pub(in crate::db) fn query_for_entity<E>(sql: &str) -> Self
-    where
-        E: PersistedRow,
-    {
-        Self::for_entity::<E>(SqlCompiledCommandSurface::Query, sql)
-    }
-
-    pub(in crate::db) fn query_for_entity_with_schema_fingerprint_method_version<E>(
-        sql: &str,
-        schema_fingerprint_method_version: u8,
-    ) -> Self
-    where
-        E: PersistedRow,
-    {
-        Self::for_entity_with_schema_fingerprint_method_version::<E>(
-            SqlCompiledCommandSurface::Query,
-            sql,
-            AcceptedSchemaRevision::INITIAL,
-            None,
-            schema_fingerprint_method_version,
-        )
-    }
-
-    pub(in crate::db) fn query_for_entity_with_schema_version<E>(
-        sql: &str,
-        schema_version: SchemaVersion,
-    ) -> Self
-    where
-        E: PersistedRow,
-    {
-        Self::for_entity_with_schema_fingerprint_method_version::<E>(
-            SqlCompiledCommandSurface::Query,
-            sql,
-            AcceptedSchemaRevision::INITIAL,
-            Some(schema_version),
-            accepted_schema_cache_fingerprint_method_version(),
-        )
-    }
-
-    pub(in crate::db) fn query_for_entity_with_schema_revision<E>(
-        sql: &str,
-        accepted_schema_revision: AcceptedSchemaRevision,
-    ) -> Self
-    where
-        E: PersistedRow,
-    {
-        Self::for_entity_with_schema_fingerprint_method_version::<E>(
-            SqlCompiledCommandSurface::Query,
-            sql,
-            accepted_schema_revision,
-            None,
-            accepted_schema_cache_fingerprint_method_version(),
-        )
-    }
-
-    pub(in crate::db) fn mutation_for_entity<E>(sql: &str) -> Self
-    where
-        E: PersistedRow,
-    {
-        Self::for_entity::<E>(SqlCompiledCommandSurface::Mutation, sql)
-    }
-
-    fn for_entity<E>(surface: SqlCompiledCommandSurface, sql: &str) -> Self
-    where
-        E: PersistedRow,
-    {
-        Self::for_entity_with_schema_fingerprint_method_version::<E>(
-            surface,
-            sql,
-            AcceptedSchemaRevision::INITIAL,
-            None,
-            accepted_schema_cache_fingerprint_method_version(),
-        )
-    }
-
-    fn for_entity_with_schema_fingerprint_method_version<E>(
-        surface: SqlCompiledCommandSurface,
-        sql: &str,
-        accepted_schema_revision: AcceptedSchemaRevision,
-        schema_version: Option<SchemaVersion>,
-        schema_fingerprint_method_version: u8,
-    ) -> Self
-    where
-        E: PersistedRow,
-    {
-        let proposal = compiled_schema_proposal_for_model(E::MODEL);
-        let accepted =
-            AcceptedSchemaSnapshot::try_new(proposal.initial_persisted_schema_snapshot())
-                .expect("SQL cache test schema snapshot should be accepted");
-        let schema_fingerprint = accepted_schema_cache_fingerprint(&accepted)
-            .expect("SQL cache test schema fingerprint should derive");
-        let schema_version =
-            schema_version.unwrap_or_else(|| accepted.persisted_snapshot().version());
-
-        Self {
-            surface,
-            entity_path: E::PATH,
-            accepted_schema_revision,
-            schema_version,
-            schema_fingerprint: SqlCompiledSchemaFingerprint::new(
-                schema_fingerprint_method_version,
-                schema_fingerprint,
-            ),
-            sql: sql.to_string(),
-        }
-    }
-}
-
 impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session::sql) fn with_sql_compiled_command_cache<R>(
         &self,
@@ -402,19 +282,5 @@ impl<C: CanisterKind> DbSession<C> {
 
             f(cache)
         })
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn sql_compiled_command_cache_len(&self) -> usize {
-        self.with_sql_compiled_command_cache(|cache| cache.len())
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn clear_sql_caches_for_tests(&self) {
-        let entries = self.with_sql_compiled_command_cache(|cache| {
-            cache.clear();
-            cache.len()
-        });
-        record_cache_entries(CacheKind::SqlCompiledCommand, entries);
     }
 }

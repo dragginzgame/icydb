@@ -78,7 +78,7 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
     execute: impl FnOnce(
         &ExecutionInputs<'_>,
         &ExecutionRoutePlan,
-        &ScalarContinuationContext,
+        ScalarContinuationContext,
     ) -> Result<T, InternalError>,
 ) -> Result<PreparedScalarKernelExecution<T>, InternalError> {
     let PreparedScalarRouteRuntime {
@@ -108,7 +108,7 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
     normalize_scalar_route_for_execution(
         &mut route_plan,
         plan,
-        &continuation,
+        continuation,
         unpaged_rows_mode,
         suppress_route_scan_hints,
         terminal,
@@ -139,7 +139,7 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         stream_bindings: AccessStreamBindings::new(
             index_prefix_specs,
             index_range_specs,
-            continuation.access_scan_input(direction, plan),
+            continuation.access_scan_input(direction),
         )
         .with_index_prefix_child_expansion(route_plan.scan_hints.index_prefix_child_expansion),
         execution_preparation: &prep,
@@ -150,7 +150,7 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
     });
     record_plan_metrics(entity_path, plan);
     let (attempt, execution_stats) = with_execution_stats_capture(debug, || {
-        execute(&execution_inputs, &route_plan, &continuation)
+        execute(&execution_inputs, &route_plan, continuation)
     });
     let attempt = attempt?;
     let execution_time_micros = elapsed_execution_micros(execution_started_at);

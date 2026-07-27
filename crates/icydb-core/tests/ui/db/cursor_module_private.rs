@@ -1,3 +1,3 @@
-use icydb_core::db::cursor::ContinuationToken;
+use icydb_core::db::cursor::ContinuationKeyRef;
 
 fn main() {}

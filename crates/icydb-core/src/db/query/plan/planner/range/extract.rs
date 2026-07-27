@@ -21,7 +21,6 @@ use crate::{
         },
         schema::{SchemaInfo, literal_matches_type},
     },
-    model::index::IndexKeyItemsRef,
     value::Value,
 };
 use std::cmp::Ordering;
@@ -203,22 +202,6 @@ fn index_range_candidate_for_index(
             items.iter().map(|item| item.as_ref()),
             compares,
         ),
-        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
-            index_range_candidate_for_key_items(
-                index_contract,
-                schema,
-                fields.iter().copied().map(SemanticIndexKeyItemRef::Field),
-                compares,
-            )
-        }
-        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => {
-            index_range_candidate_for_key_items(
-                index_contract,
-                schema,
-                items.iter().copied().map(Into::into),
-                compares,
-            )
-        }
     }
 }
 
@@ -362,8 +345,7 @@ fn key_item_constraint_for_index_slot(
                     &prefix,
                     match key_item {
                         SemanticIndexKeyItemRef::Field(_) => TextPrefixBoundMode::Strict,
-                        SemanticIndexKeyItemRef::Expression(_)
-                        | SemanticIndexKeyItemRef::AcceptedExpression(_) => {
+                        SemanticIndexKeyItemRef::AcceptedExpression(_) => {
                             TextPrefixBoundMode::LowerOnly
                         }
                     },
@@ -412,7 +394,7 @@ fn merge_ordered_compare_constraint_for_key_item(
                 return Some(());
             }
         }
-        SemanticIndexKeyItemRef::Expression(_) | SemanticIndexKeyItemRef::AcceptedExpression(_) => {
+        SemanticIndexKeyItemRef::AcceptedExpression(_) => {
             if cmp.coercion.id != CoercionId::TextCasefold {
                 return Some(());
             }

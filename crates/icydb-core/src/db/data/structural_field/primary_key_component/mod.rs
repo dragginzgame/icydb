@@ -12,7 +12,6 @@ mod tests;
 use crate::{
     db::key_taxonomy::PrimaryKeyComponent,
     db::{data::structural_field::FieldDecodeError, schema::AcceptedFieldKind},
-    error::InternalError,
     model::field::FieldKind,
 };
 
@@ -55,20 +54,6 @@ pub(in crate::db) const fn supports_primary_key_component_binary_kind(kind: Fiel
     }
 }
 
-/// Decode one relation field payload directly into target primary-key components.
-///
-/// This keeps delete validation and reverse-index maintenance on structural
-/// key forms without first rebuilding a runtime `Value` or `Value::List`.
-#[cfg(test)]
-pub(in crate::db) fn decode_relation_target_primary_key_components_bytes(
-    raw_bytes: &[u8],
-    kind: FieldKind,
-) -> Result<Vec<PrimaryKeyComponent>, FieldDecodeError> {
-    crate::db::data::structural_field::primary_key_component::decode::decode_relation_target_primary_key_components_binary_bytes(
-        raw_bytes, kind,
-    )
-}
-
 /// Decode one accepted relation field payload directly into target
 /// primary-key components.
 pub(in crate::db) fn decode_accepted_relation_target_primary_key_components_bytes(
@@ -77,28 +62,5 @@ pub(in crate::db) fn decode_accepted_relation_target_primary_key_components_byte
 ) -> Result<Vec<PrimaryKeyComponent>, FieldDecodeError> {
     crate::db::data::structural_field::primary_key_component::decode::decode_accepted_relation_target_primary_key_components_binary_bytes(
         raw_bytes, kind,
-    )
-}
-
-/// Decode one optional primary-key-component field payload directly into its
-/// canonical `PrimaryKeyComponent` form.
-pub(in crate::db) fn decode_optional_primary_key_component_field_bytes(
-    raw_bytes: &[u8],
-    kind: FieldKind,
-) -> Result<Option<PrimaryKeyComponent>, FieldDecodeError> {
-    crate::db::data::structural_field::primary_key_component::decode::decode_optional_primary_key_component_field_binary_bytes(
-        raw_bytes, kind,
-    )
-}
-
-/// Encode one primary-key-component field payload directly into its
-/// canonical Structural Binary v1 bytes.
-pub(in crate::db) fn encode_primary_key_component_field_bytes(
-    key: PrimaryKeyComponent,
-    kind: FieldKind,
-    field_name: &str,
-) -> Result<Vec<u8>, InternalError> {
-    crate::db::data::structural_field::primary_key_component::encode::encode_primary_key_component_field_binary_bytes(
-        key, kind, field_name,
     )
 }

@@ -1,11 +1,11 @@
 use crate::schema::test::TestStore;
-use icydb::design::prelude::*;
+use icydb_model::prelude::*;
 
 ///
 /// ProjectionOrderEntity
 ///
 /// Representative entity used to lock field-order alignment between
-/// `EntityModel::fields()` and `FieldProjection::get_value_by_index` output.
+/// generated field declaration and typed-projection output.
 ///
 
 #[entity(source_key = "schema/test/fixtures/src/macro_test/field_projection_order.rs::entity::1",

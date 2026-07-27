@@ -5,14 +5,9 @@
 
 mod compare;
 
-#[cfg(test)]
-mod tests;
-
 use crate::db::predicate::runtime::compare::{
     eval_compare_scalar_slot, eval_compare_values, is_empty_value, text_contains_scalar,
 };
-#[cfg(test)]
-use crate::model::entity::EntityModel;
 use crate::{
     db::{
         data::{CanonicalSlotReader, ScalarSlotValueRef, ScalarValueRef, StructuralRowContract},
@@ -58,19 +53,6 @@ enum PredicateExecutionMode {
 }
 
 impl PredicateProgram {
-    /// Compile a predicate into a model-only slot-based executable form.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn compile_for_model_only(
-        model: &EntityModel,
-        predicate: &Predicate,
-    ) -> Self {
-        Self::compile_with_schema_info(
-            SchemaInfo::cached_for_generated_entity_model(model),
-            predicate,
-        )
-    }
-
     /// Compile a predicate through explicit schema field-slot and scalar-leaf authority.
     #[must_use]
     pub(in crate::db) fn compile_with_schema_info(
@@ -148,12 +130,6 @@ impl PredicateProgram {
     /// Mark every structural slot referenced by this executable predicate.
     pub(in crate::db) fn mark_referenced_slots(&self, required_slots: &mut [bool]) {
         mark_executable_predicate_referenced_slots(&self.executable, required_slots);
-    }
-
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn uses_scalar_program(&self) -> bool {
-        matches!(self.compiled, PredicateExecutionMode::Scalar)
     }
 }
 

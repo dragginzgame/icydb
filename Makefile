@@ -148,7 +148,7 @@ help:
 	@echo "  make test        # Run tests"
 	@echo "  make build       # Build project"
 	@echo "  make wasm-size-report SIZE_REPORT_ARGS=\"--sql-variants both\""
-	@echo "  make wasm-size-report SIZE_REPORT_ARGS=\"--canister ten_entity_fluent_rows\""
+	@echo "  make wasm-size-report SIZE_REPORT_ARGS=\"--canister ten_entity_typed_query\""
 
 #
 # Installing

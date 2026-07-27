@@ -141,11 +141,6 @@ pub(in crate::db) mod property_keys {
     pub(in crate::db) const ROUTE_OUTCOME: &str = "route_outcome";
     pub(in crate::db) const ROUTE_REASON: &str = "route_reason";
     pub(in crate::db) const SCAN_DIRECTION: &str = "scan_dir";
-    pub(in crate::db) const TERMINAL: &str = "terminal";
-    pub(in crate::db) const TERMINAL_FIELD: &str = "terminal_field";
-    pub(in crate::db) const TERMINAL_INDEX_ONLY: &str = "terminal_index_only";
-    pub(in crate::db) const TERMINAL_OUTPUT: &str = "terminal_output";
-    pub(in crate::db) const TERMINAL_PROJECTION_MODE: &str = "terminal_projection_mode";
 }
 
 /// Stable EXPLAIN scalar label vocabulary shared only where the same semantic
@@ -337,12 +332,6 @@ impl ExplainAggregateTerminalPlan {
             execution,
             read_intent: ReadIntentKind::Unspecified,
         }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn with_read_intent(mut self, read_intent: ReadIntentKind) -> Self {
-        self.read_intent = read_intent;
-        self
     }
 }
 

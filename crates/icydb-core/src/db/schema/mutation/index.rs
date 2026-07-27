@@ -53,27 +53,6 @@ impl SchemaFieldPathIndexRebuildTarget {
     }
 
     #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn store(&self) -> &str {
-        self.store.as_str()
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn unique(&self) -> bool {
-        self.unique
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn predicate_sql(&self) -> Option<&str> {
-        match &self.predicate_sql {
-            Some(predicate_sql) => Some(predicate_sql.as_str()),
-            None => None,
-        }
-    }
-
-    #[must_use]
     pub(in crate::db) const fn key_paths(&self) -> &[SchemaFieldPathIndexRebuildKey] {
         self.key_paths.as_slice()
     }
@@ -97,12 +76,6 @@ pub(in crate::db) struct SchemaFieldPathIndexRebuildKey {
 
 impl SchemaFieldPathIndexRebuildKey {
     #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn field_id(&self) -> FieldId {
-        self.field_id
-    }
-
-    #[must_use]
     pub(in crate::db) const fn slot(&self) -> SchemaFieldSlot {
         self.slot
     }
@@ -116,18 +89,6 @@ impl SchemaFieldPathIndexRebuildKey {
     pub(in crate::db) fn field_name(&self) -> &str {
         self.path.first().map_or("", String::as_str)
     }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn kind(&self) -> &AcceptedFieldKind {
-        &self.kind
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn nullable(&self) -> bool {
-        self.nullable
-    }
 }
 
 ///
@@ -135,7 +96,7 @@ impl SchemaFieldPathIndexRebuildKey {
 ///
 /// Accepted schema-owned rebuild target for a deterministic expression index.
 /// It preserves accepted key order across field-path and expression components
-/// so the physical runner does not need generated `IndexModel` metadata to
+/// so the physical runner does not need generated index metadata to
 /// derive key shape.
 ///
 
@@ -167,21 +128,6 @@ impl SchemaExpressionIndexRebuildTarget {
     #[must_use]
     pub(in crate::db) const fn name(&self) -> &str {
         self.name.as_str()
-    }
-
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn store(&self) -> &str {
-        self.store.as_str()
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn predicate_sql(&self) -> Option<&str> {
-        match &self.predicate_sql {
-            Some(predicate_sql) => Some(predicate_sql.as_str()),
-            None => None,
-        }
     }
 
     /// Borrow the accepted ordered key-item contract.
@@ -230,24 +176,6 @@ impl SchemaExpressionIndexRebuildExpression {
     #[must_use]
     pub(in crate::db) const fn source(&self) -> &SchemaFieldPathIndexRebuildKey {
         &self.source
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn input_kind(&self) -> &AcceptedFieldKind {
-        &self.input_kind
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn output_kind(&self) -> &AcceptedFieldKind {
-        &self.output_kind
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn canonical_text(&self) -> &str {
-        self.canonical_text.as_str()
     }
 }
 
@@ -332,23 +260,6 @@ impl SchemaMutationRequest<'_> {
             },
         })
     }
-}
-
-/// Admit one SQL DDL field-path index candidate through the schema-owned
-/// mutation request and supported-runner path.
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db) fn admit_sql_ddl_field_path_index_candidate(
-    index: &PersistedIndexSnapshot,
-) -> Result<SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError> {
-    let request = SchemaMutationRequest::from_accepted_field_path_index(index)
-        .map_err(SchemaDdlMutationAdmissionError::AcceptedIndex)?;
-    let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
-        return Err(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath);
-    };
-
-    Ok(SchemaDdlMutationAdmission {
-        target: SchemaDdlMutationTarget::FieldPathAddition(target),
-    })
 }
 
 /// Admit one SQL DDL expression index candidate through the schema-owned

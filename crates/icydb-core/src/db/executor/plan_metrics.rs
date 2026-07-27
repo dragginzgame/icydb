@@ -7,10 +7,7 @@ use crate::{
     db::access::{AccessPathKind, AccessPlan},
     db::executor::planning::route::GroupedExecutionMode,
     db::query::plan::{AccessChoiceSelectedReason, AccessPlannedQuery},
-    entity::EntityKind,
-    metrics::sink::{
-        GroupedPlanExecutionMode, MetricsEvent, PlanChoiceReason, PlanKind, Span, record,
-    },
+    metrics::sink::{GroupedPlanExecutionMode, MetricsEvent, PlanChoiceReason, PlanKind, record},
 };
 
 /// Records metrics for the chosen execution plan.
@@ -126,11 +123,6 @@ const fn plan_choice_reason(reason: AccessChoiceSelectedReason) -> Option<PlanCh
         | AccessChoiceSelectedReason::SelectedIndexNotProjected
         | AccessChoiceSelectedReason::SingleCandidate => None,
     }
-}
-
-/// Convenience: set span rows from a usize length.
-pub(super) const fn set_rows_from_len<E: EntityKind>(span: &mut Span<E>, len: usize) {
-    span.set_rows(len as u64);
 }
 
 /// Record per-request rows scanned metrics for one structural entity path.

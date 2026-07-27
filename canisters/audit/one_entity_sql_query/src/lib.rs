@@ -4,9 +4,6 @@
 
 #[cfg(feature = "sql")]
 use icydb::db::sql::SqlQueryResult;
-#[cfg(feature = "sql")]
-use icydb_testing_audit_one_simple_fixtures::one_simple::OneSimpleEntity01;
-
 icydb::start!();
 
 #[cfg(feature = "sql")]

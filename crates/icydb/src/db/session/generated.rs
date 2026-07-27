@@ -1,6 +1,6 @@
 //! Module: db::session::generated
 //!
-//! Responsibility: public session and fluent query facade.
+//! Responsibility: generated endpoint adapters over the public session facade.
 //! Does not own: core execution, storage engines, or planner semantics.
 //! Boundary: wraps core sessions with stable generated-code and application APIs.
 

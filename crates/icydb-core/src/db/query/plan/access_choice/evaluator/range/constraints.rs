@@ -81,8 +81,7 @@ pub(super) fn classify_range_constraints_for_key_item(
                             return Err(AccessChoiceRejectedReason::OperatorNotSupported);
                         }
                     }
-                    SemanticIndexKeyItemRef::Expression(_)
-                    | SemanticIndexKeyItemRef::AcceptedExpression(_) => {
+                    SemanticIndexKeyItemRef::AcceptedExpression(_) => {
                         if cmp.coercion.id != CoercionId::TextCasefold {
                             continue;
                         }

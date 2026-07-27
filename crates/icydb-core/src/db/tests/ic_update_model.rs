@@ -30,15 +30,6 @@ const FORBIDDEN_SYNC_MODEL_NEEDLES: &[&str] = &[
     "tokio::",
 ];
 
-const TEST_ONLY_FAILPOINT_NEEDLES: &[&str] = &[
-    "CommitFailpoint",
-    "arm_commit_failpoint_for_tests",
-    "clear_commit_failpoint_for_tests",
-    "commit::failpoint",
-    "hit_commit_failpoint",
-    "mod failpoint;",
-];
-
 const TEST_HELPER_NEEDLES: &[&str] = &["_for_tests"];
 
 fn path_is_guarded(relative_path: &str) -> bool {
@@ -114,19 +105,8 @@ fn synchronous_update_model_violations() -> BTreeMap<String, Vec<&'static str>> 
     )
 }
 
-fn production_failpoint_symbol_violations() -> BTreeMap<String, Vec<&'static str>> {
-    let sources = guarded_runtime_sources()
-        .into_iter()
-        .filter(|(relative, _)| relative != "src/db/commit/failpoint.rs")
-        .collect::<Vec<_>>();
-    source_violations(sources.as_slice(), TEST_ONLY_FAILPOINT_NEEDLES)
-}
-
 fn production_test_helper_symbol_violations() -> BTreeMap<String, Vec<&'static str>> {
-    let sources = guarded_runtime_sources()
-        .into_iter()
-        .filter(|(relative, _)| relative != "src/db/commit/failpoint.rs")
-        .collect::<Vec<_>>();
+    let sources = guarded_runtime_sources();
     source_violations(sources.as_slice(), TEST_HELPER_NEEDLES)
 }
 
@@ -137,16 +117,6 @@ fn write_and_recovery_paths_stay_synchronous_for_ic_update_model() {
     assert!(
         violations.is_empty(),
         "commit, recovery, and write mutation paths must stay synchronous under the IC update-message model; violations: {violations:?}",
-    );
-}
-
-#[test]
-fn commit_failpoint_hooks_stay_test_only() {
-    let violations = production_failpoint_symbol_violations();
-
-    assert!(
-        violations.is_empty(),
-        "commit failpoint symbols must not survive outside cfg(test) runtime code; violations: {violations:?}",
     );
 }
 

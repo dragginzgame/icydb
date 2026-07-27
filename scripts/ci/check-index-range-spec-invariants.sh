@@ -23,7 +23,6 @@ INDEX_EXECUTOR_FILES=(
   "crates/icydb-core/src/db/executor/pipeline/runtime/mod.rs"
   "crates/icydb-core/src/db/executor/pipeline/runtime/fast_path/mod.rs"
   "crates/icydb-core/src/db/executor/pipeline/runtime/fast_path/strategy.rs"
-  "crates/icydb-core/src/db/executor/delete/mod.rs"
 )
 
 # Branch-set execution must consume already-lowered branch prefix specs. Planner
@@ -65,8 +64,6 @@ REQUIRED_MATCHES=(
   "crates/icydb-core/src/db/access/path.rs:::IndexBranchSet \\{ spec: IndexBranchSetSpec \\}:::branch-set access path must carry the branch-set spec"
   "crates/icydb-core/src/db/access/lowering.rs:::spec\\.branch_prefix_values\\(branch_value\\):::branch-set lowering must consume spec-owned branch prefix construction"
   "crates/icydb-core/src/db/access/path.rs:::pub\\(crate\\) const fn from_primary_key_asc_contract\\(:::branch-set construction must retain its sole primary-key-ascending contract"
-  "crates/icydb-core/src/db/query/intent/cache_key.rs:::fixed_values: Self::value_list_cache_key\\(spec\\.fixed_values\\(\\)\\):::branch-set cache identity must include fixed prefix values"
-  "crates/icydb-core/src/db/query/intent/cache_key.rs:::branch_values: Self::value_list_cache_key\\(spec\\.branch_values\\(\\)\\):::branch-set cache identity must include branch values"
   "crates/icydb-core/src/db/query/fingerprint/hash_sections/access.rs:::write_values\\(self\\.hasher, fixed_values\\):::branch-set fingerprint identity must include fixed prefix values"
   "crates/icydb-core/src/db/query/fingerprint/hash_sections/access.rs:::write_values\\(self\\.hasher, branch_values\\):::branch-set fingerprint identity must include branch values"
   "crates/icydb-core/src/db/executor/stream/access/bindings.rs:::prefix_offset < self.prefixes.len\\(\\):::missing invariant check for unused IndexPrefixSpec entries"

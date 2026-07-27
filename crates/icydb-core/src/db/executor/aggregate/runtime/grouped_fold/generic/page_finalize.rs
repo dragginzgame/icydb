@@ -6,12 +6,13 @@
 use crate::{
     db::executor::projection::ProjectionEvalError,
     db::{
+        cursor::GroupedContinuationToken,
         direction::Direction,
         executor::projection::GroupedRowView,
         executor::{
             GroupedPaginationWindow, RuntimeGroupedRow,
             aggregate::{
-                CompiledExpr, FieldSlot, OrderDirection, ProjectionSpec,
+                CompiledExpr, OrderDirection, ProjectionSpec,
                 runtime::{
                     group_matches_having_expr,
                     grouped_fold::{
@@ -25,7 +26,7 @@ use crate::{
                 },
             },
             group::GroupKey,
-            pipeline::contracts::{GroupedRouteStage, PageCursor},
+            pipeline::contracts::GroupedRouteStage,
             projection::{
                 CompiledGroupedProjectionPlan, compile_grouped_projection_expr,
                 compile_grouped_projection_plan_if_needed,
@@ -167,7 +168,7 @@ impl<'a> OrderedGroupedPageSelection<'a> {
     pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn finish(
         self,
         route: &GroupedRouteStage,
-    ) -> Result<(Vec<RuntimeGroupedRow>, Option<PageCursor>), InternalError> {
+    ) -> Result<(Vec<RuntimeGroupedRow>, Option<GroupedContinuationToken>), InternalError> {
         let next_cursor = if self.has_more {
             self.page_rows
                 .last()
@@ -275,18 +276,12 @@ impl GroupedPageCandidate {
     fn matches_window(
         &self,
         compiled_having_expr: Option<&CompiledExpr>,
-        group_fields: &[FieldSlot],
         resume_boundary: Option<&Value>,
     ) -> Result<bool, InternalError> {
         if let Some(compiled_having_expr) = compiled_having_expr
             && !group_matches_having_expr(
                 compiled_having_expr,
-                &GroupedRowView::new(
-                    self.group_key_values()?,
-                    self.aggregate_values.as_slice(),
-                    group_fields,
-                    &[],
-                ),
+                &GroupedRowView::new(self.group_key_values()?, self.aggregate_values.as_slice()),
             )?
         {
             return Ok(false);
@@ -337,7 +332,7 @@ pub(super) fn finalize_grouped_page(
     grouped_projection_spec: &ProjectionSpec,
     grouped_bundle: GroupedAggregateBundle,
     pagination_window: &GroupedPaginationWindow,
-) -> Result<(Vec<RuntimeGroupedRow>, Option<PageCursor>), InternalError> {
+) -> Result<(Vec<RuntimeGroupedRow>, Option<GroupedContinuationToken>), InternalError> {
     let compiled_projection = compile_grouped_projection_plan_if_needed(
         grouped_projection_spec,
         route.projection_is_identity(),
@@ -387,7 +382,6 @@ fn for_each_grouped_page_candidate(
     sorted: bool,
     direction: Direction,
     compiled_top_k_order: Option<&CompiledGroupedTopKOrder>,
-    group_fields: &[FieldSlot],
     mut visit_candidate: impl FnMut(GroupedPageCandidate) -> Result<(), InternalError>,
 ) -> Result<(), InternalError> {
     let aggregate_count = grouped_bundle.aggregate_count();
@@ -400,11 +394,8 @@ fn for_each_grouped_page_candidate(
         )?;
 
         if let Some(compiled_order) = compiled_top_k_order {
-            candidate.ranking = compile_grouped_page_candidate_top_k_ranking(
-                &candidate,
-                compiled_order,
-                group_fields,
-            )?;
+            candidate.ranking =
+                compile_grouped_page_candidate_top_k_ranking(&candidate, compiled_order)?;
         }
 
         visit_candidate(candidate)?;
@@ -420,7 +411,6 @@ fn collect_grouped_page_candidates(
     sorted: bool,
     direction: Direction,
     compiled_top_k_order: Option<&CompiledGroupedTopKOrder>,
-    group_fields: &[FieldSlot],
 ) -> Result<Vec<GroupedPageCandidate>, InternalError> {
     let mut candidates = Vec::new();
 
@@ -429,7 +419,6 @@ fn collect_grouped_page_candidates(
         sorted,
         direction,
         compiled_top_k_order,
-        group_fields,
         |candidate| {
             candidates.push(candidate);
             Ok(())
@@ -498,7 +487,6 @@ fn compile_grouped_top_k_order(
 fn compile_grouped_page_candidate_top_k_ranking(
     candidate: &GroupedPageCandidate,
     compiled_order: &CompiledGroupedTopKOrder,
-    group_fields: &[FieldSlot],
 ) -> Result<GroupedPageCandidateRanking, InternalError> {
     let Value::List(group_key_values) = candidate.group_key.canonical_value() else {
         return Err(GroupedRouteStage::canonical_group_key_must_be_list(
@@ -508,8 +496,6 @@ fn compile_grouped_page_candidate_top_k_ranking(
     let grouped_row = GroupedRowView::new(
         group_key_values.as_slice(),
         candidate.aggregate_values.as_slice(),
-        group_fields,
-        &[],
     );
     let mut terms = Vec::with_capacity(compiled_order.terms.len());
 
@@ -541,7 +527,6 @@ struct GroupedPageFinalizeSelection<'a> {
     direction: Direction,
     compiled_having_expr: Option<CompiledExpr>,
     compiled_top_k_order: Option<CompiledGroupedTopKOrder>,
-    group_fields: &'a [FieldSlot],
     pagination_window: &'a GroupedPaginationWindow,
     resume_boundary: Option<&'a Value>,
     compiled_projection: Option<CompiledGroupedProjectionPlan<'a>>,
@@ -560,7 +545,6 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
             direction: route.direction(),
             compiled_having_expr,
             compiled_top_k_order: compile_grouped_top_k_order(route)?,
-            group_fields: route.group_fields(),
             pagination_window,
             resume_boundary: route.grouped_resume_boundary(),
             compiled_projection,
@@ -592,7 +576,6 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
                 true,
                 self.direction,
                 self.compiled_top_k_order.as_ref(),
-                self.group_fields,
             )?
             .into_iter(),
             |candidate| self.matches_window(candidate),
@@ -602,11 +585,7 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
     // Return true when one finalized grouped candidate survives grouped
     // HAVING and continuation resume-boundary filtering.
     fn matches_window(&self, candidate: &GroupedPageCandidate) -> Result<bool, InternalError> {
-        candidate.matches_window(
-            self.compiled_having_expr.as_ref(),
-            self.group_fields,
-            self.resume_boundary,
-        )
+        candidate.matches_window(self.compiled_having_expr.as_ref(), self.resume_boundary)
     }
 
     // Shape one selected candidate through the canonical grouped projection boundary.
@@ -641,7 +620,6 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
             false,
             self.direction,
             self.compiled_top_k_order.as_ref(),
-            self.group_fields,
             |candidate| {
                 if !self.matches_window(&candidate)? {
                     return Ok(());
@@ -874,8 +852,6 @@ mod tests {
         let grouped_projection = CompiledGroupedProjectionPlan::from_test_inputs(
             compiled_projection,
             &projection_layout,
-            group_fields.as_slice(),
-            aggregate_execution_specs.as_slice(),
         );
         let candidates = vec![GroupedPageCandidate {
             group_key: GroupKey::from_group_values(vec![Value::Nat64(21)])

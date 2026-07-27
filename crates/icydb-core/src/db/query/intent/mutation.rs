@@ -9,16 +9,16 @@ use crate::db::predicate::Predicate;
 use crate::db::query::plan::expr::ProjectionSelection;
 use crate::db::query::{
     intent::{
-        IntentError, KeyAccess, KeyAccessKind, KeyAccessState,
+        IntentError,
         state::{GroupedIntent, NormalizedFilter, QueryIntent},
     },
     plan::{
-        FieldSlot, GroupAggregateSpec, GroupedExecutionConfig, OrderSpec, OrderTerm,
+        FieldSlot, GroupAggregateSpec, OrderSpec, OrderTerm,
         expr::{BinaryOp, Expr, canonicalize_grouped_having_bool_expr, normalize_bool_expr},
     },
 };
 
-impl<K> QueryIntent<K> {
+impl QueryIntent {
     /// Append one normalized scalar filter expression to intent state,
     /// implicitly AND-ing multiple scalar filter clauses.
     pub(in crate::db::query::intent) fn append_filter_expr(&mut self, expr: Expr) {
@@ -87,27 +87,6 @@ impl<K> QueryIntent<K> {
         self.scalar_mut().projection_selection = projection_selection;
     }
 
-    /// Set key access to one single-key lookup.
-    pub(in crate::db::query::intent) fn set_by_id(&mut self, id: K) {
-        self.set_key_access(KeyAccessKind::Single, KeyAccess::Single(id));
-    }
-
-    /// Set key access to one many-key lookup set.
-    pub(in crate::db::query::intent) fn set_by_ids<I>(&mut self, ids: I)
-    where
-        I: IntoIterator<Item = K>,
-    {
-        self.set_key_access(
-            KeyAccessKind::Many,
-            KeyAccess::Many(ids.into_iter().collect()),
-        );
-    }
-
-    /// Set key access to the singleton key path.
-    pub(in crate::db::query::intent) fn set_only(&mut self, id: K) {
-        self.set_key_access(KeyAccessKind::Only, KeyAccess::Single(id));
-    }
-
     /// Record one grouped key slot while preserving grouped-delete policy semantics.
     pub(in crate::db::query::intent) fn push_group_field_slot(&mut self, field_slot: FieldSlot) {
         let Some(grouped) = self.grouped_mutation_target() else {
@@ -134,28 +113,6 @@ impl<K> QueryIntent<K> {
         };
 
         grouped.group.aggregates.push(aggregate);
-    }
-
-    /// Override grouped hard limits while preserving delete-grouping policy flags.
-    pub(in crate::db::query::intent) fn set_grouped_limits(
-        &mut self,
-        max_groups: u64,
-        max_group_bytes: u64,
-    ) {
-        let Some(grouped) = self.grouped_mutation_target() else {
-            return;
-        };
-
-        grouped.group.execution =
-            GroupedExecutionConfig::with_hard_limits(max_groups, max_group_bytes);
-    }
-
-    /// Record one widened grouped HAVING expression when grouped shape is present.
-    pub(in crate::db::query::intent) fn push_having_expr(
-        &mut self,
-        expr: Expr,
-    ) -> Result<(), IntentError> {
-        self.push_having_expr_with_policy(expr, true)
     }
 
     /// Record one grouped HAVING expression while preserving the caller-owned
@@ -215,20 +172,10 @@ impl<K> QueryIntent<K> {
     }
 
     // Record key-access origin and detect conflicting key-only builder usage.
-    fn set_key_access(&mut self, kind: KeyAccessKind, access: KeyAccess<K>) {
-        let scalar = self.scalar_mut();
-        if let Some(existing) = &scalar.key_access
-            && existing.kind != kind
-        {
-            scalar.key_access_conflict = true;
-        }
-
-        scalar.key_access = Some(KeyAccessState { kind, access });
-    }
 
     // Route grouped declaration mutations onto one materialized grouped shape,
     // or preserve delete-mode grouping policy when grouped state is forbidden.
-    fn grouped_mutation_target(&mut self) -> Option<&mut GroupedIntent<K>> {
+    fn grouped_mutation_target(&mut self) -> Option<&mut GroupedIntent> {
         if matches!(self, Self::Delete(_)) {
             self.mark_delete_grouping_requested();
             return None;

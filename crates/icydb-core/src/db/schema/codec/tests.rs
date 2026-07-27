@@ -440,7 +440,7 @@ fn temporal_schema_snapshot() -> PersistedSchemaSnapshot {
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
-            PersistedFieldSnapshot::new_with_write_policy(
+            PersistedFieldSnapshot::new_with_write_policy_and_origin(
                 FieldId::new(2),
                 "score".to_string(),
                 SchemaFieldSlot::new(1),
@@ -451,6 +451,7 @@ fn temporal_schema_snapshot() -> PersistedSchemaSnapshot {
                 SchemaInsertDefault::SlotPayload(vec![0x30]),
                 SchemaHistoricalFill::SlotPayload(historical_payload),
                 SchemaFieldWritePolicy::none(),
+                PersistedFieldOrigin::Generated,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Nat64),
             ),
@@ -881,11 +882,6 @@ fn persisted_schema_snapshot_round_trips_ordered_primary_key_field_ids() {
         decoded.primary_key_field_ids(),
         &[FieldId::new(1), FieldId::new(3)],
         "accepted schema codec must preserve composite primary-key arity and order",
-    );
-    assert_eq!(
-        decoded.first_primary_key_field_id(),
-        FieldId::new(1),
-        "first-primary-key-field helper remains explicitly first-component only",
     );
 }
 

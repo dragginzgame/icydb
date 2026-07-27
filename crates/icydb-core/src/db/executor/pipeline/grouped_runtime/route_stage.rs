@@ -49,7 +49,7 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
         RoutePlanRequest::Grouped {
             grouped_plan_strategy,
         },
-    )?;
+    );
 
     // The route plan remains the single owner of grouped execution mode.
     grouped_route_plan

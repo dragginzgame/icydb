@@ -3,8 +3,6 @@
 //! Does not own: path validation or canonicalization policy.
 //! Boundary: used by access-plan construction and executor interpretation.
 
-#[cfg(test)]
-use crate::model::index::IndexModel;
 use crate::{
     db::{
         Predicate,
@@ -13,7 +11,6 @@ use crate::{
             PersistedIndexExpressionOp, SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo,
         },
     },
-    model::index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef},
     value::Value,
 };
 use std::ops::Bound;
@@ -68,20 +65,17 @@ pub(in crate::db::access) struct SemanticIndexAccessContractInner {
 pub(in crate::db::access) enum SemanticIndexKeyItems {
     Fields(Vec<String>),
     Accepted(Vec<SemanticIndexKeyItem>),
-    Static(IndexKeyItemsRef),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SemanticIndexKeyItemsRef<'a> {
     Fields(&'a [String]),
     Accepted(&'a [SemanticIndexKeyItem]),
-    Static(IndexKeyItemsRef),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SemanticIndexKeyItemRef<'a> {
     Field(&'a str),
-    Expression(IndexExpression),
     AcceptedExpression(&'a SemanticIndexExpression),
 }
 
@@ -90,7 +84,6 @@ impl<'a> SemanticIndexKeyItemRef<'a> {
     pub(crate) const fn field(self) -> &'a str {
         match self {
             Self::Field(field) => field,
-            Self::Expression(expression) => expression.field(),
             Self::AcceptedExpression(expression) => expression.field(),
         }
     }
@@ -99,14 +92,13 @@ impl<'a> SemanticIndexKeyItemRef<'a> {
     pub(crate) fn canonical_text(self) -> String {
         match self {
             Self::Field(field) => field.to_string(),
-            Self::Expression(expression) => expression.to_string(),
             Self::AcceptedExpression(expression) => expression.canonical_order_text(),
         }
     }
 
     #[must_use]
     pub(crate) const fn is_expression(self) -> bool {
-        matches!(self, Self::Expression(_) | Self::AcceptedExpression(_))
+        matches!(self, Self::AcceptedExpression(_))
     }
 }
 
@@ -267,7 +259,6 @@ impl SemanticIndexAccessContract {
         match &self.inner.key_items {
             SemanticIndexKeyItems::Fields(fields) => SemanticIndexKeyItemsRef::Fields(fields),
             SemanticIndexKeyItems::Accepted(items) => SemanticIndexKeyItemsRef::Accepted(items),
-            SemanticIndexKeyItems::Static(items) => SemanticIndexKeyItemsRef::Static(*items),
         }
     }
 
@@ -276,10 +267,6 @@ impl SemanticIndexAccessContract {
         match &self.inner.key_items {
             SemanticIndexKeyItems::Fields(fields) => fields.len(),
             SemanticIndexKeyItems::Accepted(items) => items.len(),
-            SemanticIndexKeyItems::Static(items) => match items {
-                IndexKeyItemsRef::Fields(fields) => fields.len(),
-                IndexKeyItemsRef::Items(items) => items.len(),
-            },
         }
     }
 
@@ -296,27 +283,6 @@ impl SemanticIndexAccessContract {
             SemanticIndexKeyItems::Accepted(items) => {
                 items.get(slot).map(SemanticIndexKeyItem::as_ref)
             }
-            SemanticIndexKeyItems::Static(items) => match items {
-                IndexKeyItemsRef::Fields(fields) => {
-                    if slot < fields.len() {
-                        Some(SemanticIndexKeyItemRef::Field(fields[slot]))
-                    } else {
-                        None
-                    }
-                }
-                IndexKeyItemsRef::Items(items) => {
-                    if slot < items.len() {
-                        Some(match items[slot] {
-                            IndexKeyItem::Field(field) => SemanticIndexKeyItemRef::Field(field),
-                            IndexKeyItem::Expression(expression) => {
-                                SemanticIndexKeyItemRef::Expression(expression)
-                            }
-                        })
-                    } else {
-                        None
-                    }
-                }
-            },
         }
     }
 
@@ -324,26 +290,7 @@ impl SemanticIndexAccessContract {
     pub(in crate::db) fn key_field_at(&self, slot: usize) -> Option<&str> {
         match self.key_item_at(slot)? {
             SemanticIndexKeyItemRef::Field(field) => Some(field),
-            SemanticIndexKeyItemRef::Expression(_)
-            | SemanticIndexKeyItemRef::AcceptedExpression(_) => None,
-        }
-    }
-
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn fields(&self) -> Vec<String> {
-        match self.key_items() {
-            SemanticIndexKeyItemsRef::Fields(fields) => fields.to_vec(),
-            SemanticIndexKeyItemsRef::Accepted(items) => items
-                .iter()
-                .map(|item| item.as_ref().field().to_string())
-                .collect(),
-            SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
-                fields.iter().copied().map(str::to_string).collect()
-            }
-            SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => {
-                items.iter().map(|item| item.field().to_string()).collect()
-            }
+            SemanticIndexKeyItemRef::AcceptedExpression(_) => None,
         }
     }
 
@@ -360,22 +307,10 @@ impl SemanticIndexAccessContract {
     #[must_use]
     pub(in crate::db) fn has_expression_key_items(&self) -> bool {
         match &self.inner.key_items {
-            SemanticIndexKeyItems::Fields(_)
-            | SemanticIndexKeyItems::Static(IndexKeyItemsRef::Fields(_)) => false,
+            SemanticIndexKeyItems::Fields(_) => false,
             SemanticIndexKeyItems::Accepted(items) => items
                 .iter()
                 .any(|item| matches!(item, SemanticIndexKeyItem::Expression(_))),
-            SemanticIndexKeyItems::Static(IndexKeyItemsRef::Items(items)) => {
-                let mut index = 0usize;
-                while index < items.len() {
-                    if matches!(items[index], IndexKeyItem::Expression(_)) {
-                        return true;
-                    }
-                    index = index.saturating_add(1);
-                }
-
-                false
-            }
         }
     }
 
@@ -443,38 +378,6 @@ pub(crate) struct SemanticIndexRangeSpec {
 
 impl SemanticIndexRangeSpec {
     #[must_use]
-    #[cfg(test)]
-    pub(crate) fn new(
-        index: IndexModel,
-        field_slots: Vec<usize>,
-        prefix_values: Vec<Value>,
-        lower: Bound<Value>,
-        upper: Bound<Value>,
-    ) -> Self {
-        debug_assert!(
-            !field_slots.is_empty(),
-            "semantic index-range field slots must include the range slot",
-        );
-        debug_assert_eq!(
-            field_slots.len(),
-            prefix_values.len().saturating_add(1),
-            "semantic index-range slots must include one slot per prefix field plus range slot",
-        );
-        debug_assert!(
-            prefix_values.len() < index.fields().len(),
-            "semantic index-range prefix must be shorter than index arity",
-        );
-
-        Self {
-            index: SemanticIndexAccessContract::model_only_from_generated_index(index),
-            field_slots,
-            prefix_values,
-            lower,
-            upper,
-        }
-    }
-
-    #[must_use]
     pub(crate) fn from_access_contract(
         index: SemanticIndexAccessContract,
         field_slots: Vec<usize>,
@@ -503,20 +406,6 @@ impl SemanticIndexRangeSpec {
             lower,
             upper,
         }
-    }
-
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn from_prefix_and_bounds(
-        index: IndexModel,
-        prefix_values: Vec<Value>,
-        lower: Bound<Value>,
-        upper: Bound<Value>,
-    ) -> Self {
-        let slot_count = prefix_values.len().saturating_add(1);
-        let field_slots = (0..slot_count).collect();
-
-        Self::new(index, field_slots, prefix_values, lower, upper)
     }
 
     #[must_use]
@@ -631,12 +520,6 @@ impl IndexBranchSetSpec {
         self.index.key_item_at(self.branch_slot())
     }
 
-    /// Borrow the branch index field, if the selected index has one.
-    #[must_use]
-    pub(in crate::db) fn branch_field(&self) -> Option<&str> {
-        self.branch_key_item().map(SemanticIndexKeyItemRef::field)
-    }
-
     /// Build the concrete prefix values for one branch scan.
     #[must_use]
     pub(in crate::db) fn branch_prefix_values(&self, branch_value: &Value) -> Vec<Value> {
@@ -726,25 +609,6 @@ impl<K> AccessPath<K> {
             Self::IndexBranchSet { .. } => AccessPathKind::IndexBranchSet,
             Self::IndexRange { .. } => AccessPathKind::IndexRange,
             Self::FullScan => AccessPathKind::FullScan,
-        }
-    }
-
-    /// Construct one semantic index-range path from semantic bounds.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn index_range(
-        index: IndexModel,
-        prefix_values: Vec<Value>,
-        lower: Bound<Value>,
-        upper: Bound<Value>,
-    ) -> Self {
-        Self::IndexRange {
-            spec: SemanticIndexRangeSpec::from_prefix_and_bounds(
-                index,
-                prefix_values,
-                lower,
-                upper,
-            ),
         }
     }
 

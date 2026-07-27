@@ -154,10 +154,3 @@ fn infer_expr_type_impl(expr: &Expr, schema: &SchemaInfo) -> Result<ExprType, Pl
         }
     }
 }
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

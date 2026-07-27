@@ -142,12 +142,6 @@ pub(crate) enum SqlExpectedToken {
     PredicateArgumentComma,
     #[cfg(feature = "sql")]
     ScalarFunctionArgumentComma,
-    #[cfg(test)]
-    Then,
-    #[cfg(test)]
-    End,
-    #[cfg(test)]
-    Where,
     EndOfInput,
     #[cfg(feature = "sql")]
     StatementStart,

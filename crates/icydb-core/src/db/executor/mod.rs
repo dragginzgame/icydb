@@ -6,7 +6,6 @@
 mod aggregate;
 mod authority;
 mod covering;
-mod delete;
 mod diagnostics;
 pub(in crate::db) mod explain;
 mod group;
@@ -25,8 +24,6 @@ mod runtime_context;
 mod scan;
 mod stream;
 pub(in crate::db) mod terminal;
-#[cfg(test)]
-mod tests;
 mod traversal;
 mod util;
 mod window;
@@ -47,10 +44,6 @@ pub(in crate::db::executor) use aggregate::runtime::{
 pub(in crate::db) use aggregate::{
     ScalarAggregateTerminalAttribution, with_scalar_aggregate_terminal_attribution,
 };
-pub(in crate::db) use aggregate::{
-    ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryOutput,
-    ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest,
-};
 #[cfg(feature = "sql")]
 pub(in crate::db) use aggregate::{
     StructuralAggregateRequest, StructuralAggregateTerminal, StructuralAggregateTerminalKind,
@@ -64,54 +57,43 @@ pub(in crate::db) use authority::EntityAuthority;
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use covering::resolve_covering_projection_components_from_lowered_specs;
 pub(in crate::db::executor) use covering::{
-    CoveringComponentValues, CoveringProjectionComponentRows, CoveringProjectionComponentWindow,
-    covering_projection_scan_direction, covering_requires_row_presence_check,
-    decode_single_covering_projection_pairs, decode_single_covering_projection_value,
-    fold_covering_projection_component_rows_in_window, reorder_covering_projection_pairs,
-    resolve_single_covering_projection_component_from_lowered_specs,
+    CoveringProjectionComponentRows, covering_projection_scan_direction,
+    decode_single_covering_projection_pairs, reorder_covering_projection_pairs,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use covering::{
     decode_covering_projection_component, decode_covering_projection_pairs,
     map_covering_projection_pairs,
 };
-pub(super) use delete::DeleteExecutor;
 pub(in crate::db) use diagnostics::ExecutionOptimization;
 pub(in crate::db::executor) use diagnostics::ExecutionTrace;
-#[cfg(all(test, feature = "sql-explain"))]
-pub(in crate::db) use explain::assemble_load_execution_node_descriptor;
 #[cfg(feature = "sql-explain")]
 pub(in crate::db) use explain::{
     assemble_load_execution_node_descriptor_from_route_facts,
     freeze_load_execution_route_facts_for_authority,
 };
+pub(in crate::db) use index_prefix_cardinality::exact_count_cardinality_prefixes_for_plan;
 #[cfg(feature = "sql")]
 pub(in crate::db) use index_prefix_cardinality::lowered_index_prefix_cardinality_specs_from_plan;
-pub(in crate::db) use index_prefix_cardinality::{
-    LoweredIndexPrefixCardinalityPlan, exact_count_cardinality_prefixes_for_plan,
-};
 pub(in crate::db::executor) use index_prefix_cardinality::{
     expand_index_prefix_family_with_exact_child_prefixes, lowered_index_prefix_liveness,
     lowered_index_prefix_liveness_at_generation,
 };
 pub(in crate::db::executor) use kernel::ExecutionKernel;
-pub(super) use mutation::save::SaveExecutor;
 pub(in crate::db) use mutation::{
     commit_delete_row_ops_with_window_for_path,
     commit_structural_save_row_ops_with_window_for_path, validate_structural_accepted_after_image,
 };
 pub(in crate::db::executor) use order::{
-    BoundedOrderWindow, OrderReadableRow, PendingOrderRows, apply_structural_order_window,
+    BoundedOrderWindow, OrderReadableRow, PendingOrderRows,
     apply_structural_order_window_to_data_rows, compare_orderable_row_with_boundary,
 };
-pub(super) use pipeline::contracts::LoadExecutor;
 #[cfg(feature = "sql")]
 pub(in crate::db) use pipeline::contracts::StructuralCursorPage;
 pub(in crate::db) use pipeline::contracts::StructuralGroupedProjectionResult;
 pub(in crate::db::executor) use pipeline::contracts::{
     AccessScanContinuationInput, AccessStreamBindings,
 };
-pub(in crate::db) use pipeline::contracts::{CursorPage, PageCursor};
 #[cfg(feature = "sql")]
 pub(in crate::db) use pipeline::execute_shared_grouped_plan_for_canister;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
@@ -119,26 +101,21 @@ pub(in crate::db) use pipeline::execute_shared_grouped_plan_for_canister_with_ph
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use pipeline::{
     GroupedCountAttribution, GroupedExecutePhaseAttribution, GroupedRuntimeAttribution,
-    ScalarExecutePhaseAttribution,
 };
 pub(in crate::db::executor) use planning::continuation::{
     AccessWindow, ContinuationMode, GroupedContinuationContext, GroupedPaginationWindow,
-    LoadCursorInput, LoadCursorResolver, PreparedLoadCursor, RouteContinuationPlan,
-    ScalarContinuationContext,
+    RouteContinuationPlan, ScalarContinuationContext,
 };
 pub(in crate::db::executor) use planning::preparation::ExecutionPreparation;
 pub(in crate::db::executor) use planning::route::ExecutionRoutePlan;
 pub use planning::route::RouteExecutionMode;
-pub(in crate::db::executor) use prepared_execution_plan::BytesByProjectionMode;
 pub use prepared_execution_plan::ExecutionFamily;
-pub(in crate::db) use prepared_execution_plan::PreparedExecutionPlan;
 pub(in crate::db) use prepared_execution_plan::SharedPreparedExecutionPlan;
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use prepared_execution_plan::SharedPreparedProjectionRuntimeHandoff;
 pub(in crate::db::executor) use prepared_execution_plan::{
-    PreparedAggregatePlan, PreparedAggregateStreamingPlanHandoff, PreparedGroupedRuntimeResidents,
-    PreparedLoadPlan, PreparedScalarPlanCore, PreparedScalarRuntimeHandoff,
-    classify_bytes_by_projection_mode,
+    PreparedGroupedRuntimeResidents, PreparedLoadPlan, PreparedScalarPlanCore,
+    PreparedScalarRuntimeHandoff,
 };
 pub(in crate::db::executor) use profiling::{
     ExecutionProfileStats, measure_execution_stats_phase, record_aggregation,
@@ -149,10 +126,6 @@ pub(in crate::db::executor) use profiling::{
 pub(in crate::db) use projection::CoveringProjectionMetricsRecorder;
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::ProjectionMaterializationMetricsRecorder;
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db) use projection::projection_eval_data_row_for_materialize_tests;
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db) use projection::projection_eval_row_layout_for_materialize_tests;
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::{
     StructuralProjectionRequest, StructuralProjectionScanBudget,
@@ -163,19 +136,14 @@ pub(in crate::db) use projection::{
     current_pure_covering_decode_local_instructions,
     current_pure_covering_row_assembly_local_instructions,
 };
-pub(in crate::db) use runtime_context::{Context, StoreResolver};
 #[cfg(feature = "diagnostics")]
 pub use runtime_context::{RowCheckMetrics, with_row_check_metrics};
 #[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use runtime_context::{RowCheckMetrics, with_row_check_metrics};
 pub(in crate::db::executor) use runtime_context::{
-    read_owned_data_row_with_consistency_from_store,
-    read_row_presence_with_consistency_from_data_store, record_row_check_covering_candidate_seen,
-    record_row_check_index_entry_scanned, record_row_check_index_key_owned_entry,
-    record_row_check_index_row_identity_decoded, record_row_check_row_emitted,
-    sum_row_payload_bytes_from_ordered_key_stream_with_store,
-    sum_row_payload_bytes_full_scan_window_with_store,
-    sum_row_payload_bytes_key_range_window_with_store,
+    record_row_check_covering_candidate_seen, record_row_check_index_entry_scanned,
+    record_row_check_index_key_owned_entry, record_row_check_index_row_identity_decoded,
+    record_row_check_row_emitted, record_row_presence_probe,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use stream::access::PrimaryRangeKeyStream;
@@ -187,9 +155,8 @@ pub(in crate::db::executor) use stream::access::{
     index_stream_output_limit_for_chunk,
 };
 pub(in crate::db::executor) use stream::key::{
-    KeyOrderComparator, KeyStreamLoopControl, OrderedKeyStream, OrderedKeyStreamBox,
-    exact_output_key_count_hint, key_stream_budget_is_redundant,
-    ordered_key_stream_from_materialized_keys,
+    KeyOrderComparator, OrderedKeyStream, OrderedKeyStreamBox, exact_output_key_count_hint,
+    key_stream_budget_is_redundant, ordered_key_stream_from_materialized_keys,
 };
 pub(in crate::db::executor) use stream::{
     FlatMergeOrderedChild, FlatMergeSiblingSet, FlatMergeStream, PrefixSetExecutionShape,
@@ -209,45 +176,8 @@ pub(in crate::db) use terminal::{
     with_direct_data_row_phase_attribution, with_kernel_row_phase_attribution,
 };
 pub(in crate::db::executor) use util::{
-    apply_data_key_ordered_dedup_window, apply_offset_limit_window, saturating_row_len,
-    saturating_u32_len,
+    apply_data_key_ordered_dedup_window, apply_offset_limit_window, saturating_u32_len,
 };
-pub(in crate::db::executor) use window::page_window_state;
-
-/// Return whether initial scalar load execution would need post-access ORDER BY materialization.
-pub(in crate::db) fn initial_read_plan_requires_materialized_sort(
-    prepared_plan: &SharedPreparedExecutionPlan,
-) -> Result<bool, InternalError> {
-    if prepared_plan.logical_plan().grouped_plan().is_some() || !prepared_plan.mode().is_load() {
-        return Ok(false);
-    }
-
-    let has_order = prepared_plan
-        .logical_plan()
-        .scalar_plan()
-        .order
-        .as_ref()
-        .is_some_and(|order| !order.fields.is_empty());
-    if !has_order {
-        return Ok(false);
-    }
-
-    let continuation = ScalarContinuationContext::initial();
-    let route_plan = planning::route::build_execution_route_plan(
-        prepared_plan.logical_plan(),
-        planning::route::RoutePlanRequest::Load {
-            continuation: &continuation,
-            probe_fetch_hint: None,
-            authority: Some(prepared_plan.authority()),
-            load_terminal_fast_path: None,
-        },
-    )?;
-
-    Ok(matches!(
-        route_plan.load_order_route_reason(),
-        planning::route::LoadOrderRouteReason::RequiresMaterializedSort
-    ))
-}
 
 /// Validate plans at executor boundaries using structural entity authority.
 pub(in crate::db::executor) fn validate_executor_plan_for_authority(
@@ -266,8 +196,6 @@ pub(in crate::db::executor) fn validate_executor_plan_for_authority(
 // - Corruption indicates invalid persisted bytes or store mismatches; invariant violations
 //   indicate executor/planner contract breaches.
 
-#[cfg(test)]
-use crate::entity::EntityKind;
 use crate::{
     db::{cursor::CursorPlanError, data::DecodedDataStoreKey, query::plan::AccessPlannedQuery},
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -291,20 +219,9 @@ impl ExecutorPlanError {
         Self::from(CursorPlanError::continuation_cursor_invariant())
     }
 
-    /// Construct one executor plan error for load-only continuation cursors.
-    pub(in crate::db::executor) fn continuation_cursor_requires_load_plan() -> Self {
-        Self::continuation_cursor_invariant()
-    }
-
     /// Construct one executor plan error for grouped cursor preparation
     /// attempted against non-grouped logical plans.
     pub(in crate::db::executor) fn grouped_cursor_preparation_requires_grouped_plan() -> Self {
-        Self::continuation_cursor_invariant()
-    }
-
-    /// Construct one executor plan error for grouped cursor revalidation
-    /// attempted against non-grouped logical plans.
-    pub(in crate::db::executor) fn grouped_cursor_revalidation_requires_grouped_plan() -> Self {
         Self::continuation_cursor_invariant()
     }
 
@@ -316,13 +233,6 @@ impl ExecutorPlanError {
 
     /// Construct one executor plan error for load-only continuation contracts.
     pub(in crate::db::executor) fn continuation_contract_requires_load_plan() -> Self {
-        Self::continuation_cursor_invariant()
-    }
-
-    /// Construct one executor plan error for load execution descriptor access
-    /// attempted against non-load prepared execution plans.
-    #[cfg(test)]
-    pub(in crate::db::executor) fn load_execution_descriptor_requires_load_plan() -> Self {
         Self::continuation_cursor_invariant()
     }
 
@@ -385,11 +295,6 @@ impl ExecutorError {
     }
 
     // Construct the canonical persisted-row invariant-violation corruption error.
-    pub(in crate::db::executor) const fn persisted_row_invariant_violation(
-        _data_key: &DecodedDataStoreKey,
-    ) -> Self {
-        Self::store_corruption()
-    }
 }
 
 /// Construct the canonical executor conflict for an occupied mutation key.
@@ -400,15 +305,5 @@ pub(in crate::db) fn mutation_key_exists_error() -> InternalError {
 impl From<ExecutorError> for InternalError {
     fn from(err: ExecutorError) -> Self {
         Self::classified(err.class(), err.origin())
-    }
-}
-
-#[cfg(test)]
-impl<E> From<AccessPlannedQuery> for PreparedExecutionPlan<E>
-where
-    E: EntityKind,
-{
-    fn from(value: AccessPlannedQuery) -> Self {
-        Self::new(value)
     }
 }

@@ -42,7 +42,6 @@ xxhash-rust = { workspace = true }
 getrandom = { workspace = true }
 
 [dev-dependencies]
-icydb-derive = { workspace = true }
 icydb-testing-sql-generator = { workspace = true }
 icydb-testing-sqlite-reference = { workspace = true }
 proptest = { workspace = true }

@@ -11,17 +11,17 @@ fi
 
 violations="$(
   rg -n --no-heading --color=never \
-    'icydb::build_with_options!|icydb_build::(BuildOptions|BuildSqlUpdatePolicy|generate_with_options|build_with_options!)|icydb_config::build_configured_canister!' \
+    'icydb::build_with_options!|icydb_build::|icydb_config::build_configured_canister!' \
     crates canisters testing schema scripts \
     --glob '*.rs' \
-    --glob '!crates/icydb-build/src/**' \
+    --glob '!crates/icydb-model/src/build/**' \
     --glob '!crates/icydb-config/src/**' \
     || true
 )"
 
 if [[ -n "$violations" ]]; then
   echo "[ERROR] Generated canister build scripts must use icydb::build::build_configured_canister!()." >&2
-  echo "[ERROR] Direct icydb-build/icydb-config usage is restricted to owner crates behind the icydb::build facade." >&2
+  echo "[ERROR] Direct legacy build or icydb-config usage is restricted to owner crates behind the icydb::build facade." >&2
   echo "$violations" >&2
   exit 1
 fi

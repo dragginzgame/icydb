@@ -1,4 +1,4 @@
-use icydb::design::prelude::*;
+use icydb_model::prelude::*;
 
 ///
 /// VisitorLowerText
@@ -78,7 +78,7 @@ pub struct VisitorOuter {}
 #[normalizer]
 pub struct Reject;
 
-impl Normalizer<String> for Reject {
+impl icydb_model::visitor::Normalizer<String> for Reject {
     fn normalize(&self, _value: &mut String) -> Result<(), String> {
         Err("rejected".to_string())
     }

@@ -208,31 +208,6 @@ impl PolicyPlanError {
 }
 
 ///
-/// CursorPagingPolicyError
-///
-/// Cursor pagination readiness errors shared by intent/fluent entry surfaces.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CursorPagingPolicyError {
-    CursorRequiresOrder,
-
-    CursorRequiresLimit,
-}
-
-impl CursorPagingPolicyError {
-    /// Construct one cursor-requires-order policy error.
-    pub(in crate::db::query) const fn cursor_requires_order() -> Self {
-        Self::CursorRequiresOrder
-    }
-
-    /// Construct one cursor-requires-limit policy error.
-    pub(in crate::db::query) const fn cursor_requires_limit() -> Self {
-        Self::CursorRequiresLimit
-    }
-}
-
-///
 /// GroupPlanError
 ///
 /// GROUP BY wrapper validation failures owned by query planning.
@@ -867,91 +842,6 @@ impl CursorOrderPlanShapeError {
 
 ///
 /// IntentKeyAccessKind
-///
-/// Key-access shape used by intent policy validation.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::query) enum IntentKeyAccessKind {
-    Single,
-    Many,
-    Only,
-}
-
-///
-/// IntentKeyAccessPolicyViolation
-///
-/// Logical key-access policy violations at query-intent boundaries.
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::query) enum IntentKeyAccessPolicyViolation {
-    KeyAccessConflict,
-    ByIdsWithPredicate,
-    OnlyWithPredicate,
-}
-
-impl IntentKeyAccessPolicyViolation {
-    /// Construct one conflicting-key-access policy violation.
-    pub(in crate::db::query) const fn key_access_conflict() -> Self {
-        Self::KeyAccessConflict
-    }
-
-    /// Construct one by-ids-with-predicate policy violation.
-    pub(in crate::db::query) const fn by_ids_with_predicate() -> Self {
-        Self::ByIdsWithPredicate
-    }
-
-    /// Construct one only-with-predicate policy violation.
-    pub(in crate::db::query) const fn only_with_predicate() -> Self {
-        Self::OnlyWithPredicate
-    }
-}
-
-///
-/// FluentLoadPolicyViolation
-///
-/// Fluent load-entry policy violations.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::query) enum FluentLoadPolicyViolation {
-    CursorRequiresPagedExecution,
-    GroupedRequiresDirectExecute,
-    CursorRequiresOrder,
-    CursorRequiresLimit,
-}
-
-impl FluentLoadPolicyViolation {
-    /// Construct one cursor-requires-paged-execution fluent policy violation.
-    pub(in crate::db::query) const fn cursor_requires_paged_execution() -> Self {
-        Self::CursorRequiresPagedExecution
-    }
-
-    /// Construct one grouped-requires-direct-execute fluent policy violation.
-    pub(in crate::db::query) const fn grouped_requires_direct_execute() -> Self {
-        Self::GroupedRequiresDirectExecute
-    }
-
-    /// Construct one cursor-requires-order fluent policy violation.
-    pub(in crate::db::query) const fn cursor_requires_order() -> Self {
-        Self::CursorRequiresOrder
-    }
-
-    /// Construct one cursor-requires-limit fluent policy violation.
-    pub(in crate::db::query) const fn cursor_requires_limit() -> Self {
-        Self::CursorRequiresLimit
-    }
-}
-
-impl From<CursorPagingPolicyError> for FluentLoadPolicyViolation {
-    fn from(err: CursorPagingPolicyError) -> Self {
-        match err {
-            CursorPagingPolicyError::CursorRequiresOrder => Self::cursor_requires_order(),
-            CursorPagingPolicyError::CursorRequiresLimit => Self::cursor_requires_limit(),
-        }
-    }
-}
-
 impl From<ValidateError> for PlanError {
     fn from(err: ValidateError) -> Self {
         Self::from(PlanUserError::from(err))

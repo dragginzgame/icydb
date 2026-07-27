@@ -1,4 +1,4 @@
-use icydb::design::prelude::*;
+use icydb_model::prelude::*;
 use icydb_testing_wasm_helpers::{
     define_fixture_canister, define_fixture_store, define_simple_audit_entities,
 };
@@ -24,14 +24,14 @@ define_fixture_store!(
 
 define_simple_audit_entities!(
     "TenSimpleStore";
-    TenSimpleEntity01,
-    TenSimpleEntity02,
-    TenSimpleEntity03,
-    TenSimpleEntity04,
-    TenSimpleEntity05,
-    TenSimpleEntity06,
-    TenSimpleEntity07,
-    TenSimpleEntity08,
-    TenSimpleEntity09,
-    TenSimpleEntity10,
+    TenSimpleEntity01 => "schema/audit/ten_simple/src/ten_simple.rs::TenSimpleEntity01",
+    TenSimpleEntity02 => "schema/audit/ten_simple/src/ten_simple.rs::TenSimpleEntity02",
+    TenSimpleEntity03 => "schema/audit/ten_simple/src/ten_simple.rs::TenSimpleEntity03",
+    TenSimpleEntity04 => "schema/audit/ten_simple/src/ten_simple.rs::TenSimpleEntity04",
+    TenSimpleEntity05 => "schema/audit/ten_simple/src/ten_simple.rs::TenSimpleEntity05",
+    TenSimpleEntity06 => "schema/audit/ten_simple/src/ten_simple.rs::TenSimpleEntity06",
+    TenSimpleEntity07 => "schema/audit/ten_simple/src/ten_simple.rs::TenSimpleEntity07",
+    TenSimpleEntity08 => "schema/audit/ten_simple/src/ten_simple.rs::TenSimpleEntity08",
+    TenSimpleEntity09 => "schema/audit/ten_simple/src/ten_simple.rs::TenSimpleEntity09",
+    TenSimpleEntity10 => "schema/audit/ten_simple/src/ten_simple.rs::TenSimpleEntity10",
 );

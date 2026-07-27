@@ -2,7 +2,7 @@
 //!
 //! Responsibility: public facade crate surface and generated-code wiring.
 //! Does not own: core execution, storage internals, or schema mutation semantics.
-//! Boundary: re-exports stable runtime, design-time, and macro-facing surfaces.
+//! Boundary: re-exports stable runtime and generated actor-wiring surfaces.
 
 //! # icydb
 //!
@@ -11,57 +11,31 @@
 //!
 //! This crate exposes:
 //! - the stable runtime surface used inside canister actor code,
-//! - schema and design-time helpers for macros and validation,
-//! - and a small set of macros and entry points that wire generated code.
+//! - accepted-schema-bound database request and response types,
+//! - and a small set of entry points that wire generated actor code.
 //!
 //! Low-level execution, storage, and engine internals live in
 //! `icydb-core` and are re-exposed selectively through stable facade modules.
 //!
 //! ## Crate layout
 //!
-//! - `base`
-//!   Design-time helpers, normalizers, and validators used by schemas and macros.
-//!
 //! - `build` *(host builds)*
 //!   Host-side build-script facade for generated actor glue. Downstream
 //!   canister `build.rs` files should use this module rather than depending on
 //!   lower-level implementation crates directly.
 //!
-//! - `traits` / `types` / `value` / `visitor`
-//!   Stable runtime and schema-facing building blocks used by generated code.
+//! - `traits` / `types` / `value`
+//!   Stable runtime building blocks used by generated code.
 //!
-//! - `model` / `metrics` *(internal)*
-//!   Runtime model and metrics internals. Exposed for advanced tooling only;
-//!   not part of the supported semver surface.
+//! - `metrics` *(internal)*
+//!   Runtime metrics internals exposed for generated administration endpoints.
 //!
 //! - `Error` / `ErrorKind` / `ErrorOrigin`
 //!   Shared error types for generated code and runtime boundaries.
 //!
-//! - `macros`
-//!   Derive macros for entities, canisters, and schema helpers.
-//!
-//! - `schema`
-//!   Schema AST, builders, and validation utilities.
-//!
 //! - `db`
-//!   The public database façade: session handles, query builders,
-//!   and typed responses.
-//!
-//! ## Read execution defaults
-//!
-//! Ordinary typed/fluent reads through fluent `execute`, `execute_rows`,
-//! cursor-paged execution, and terminal helpers use the default bounded
-//! read-admission gate. Caller-facing endpoints still own caller authorization
-//! before entering IcyDB. Trusted read helpers are for controller/admin or
-//! maintenance code with a separate resource policy.
-//!
-//! Prefer semantic read intents for caller-facing APIs:
-//! - exact rows use primary-key access plus `try_one()`;
-//! - public lists use `page(limit)` / `next_page(limit, cursor)` cursor pagination;
-//! - complete small sets use `collect_complete()`;
-//! - exact aggregates use semantic helpers such as `count_exact()`,
-//!   `sum_exact(field)`, `min_exact_by(field)`, or `avg_exact(field)`;
-//! - trusted maintenance batches use `trusted_read_unchecked().admin_batch(...)`.
+//!   The public database façade: sessions, SQL/dynamic reads, structural
+//!   mutations, and accepted-schema-bound typed adapters.
 //!
 //! Generated SQL endpoints are controller-gated admin surfaces. They are not
 //! generated public read endpoint templates.
@@ -76,21 +50,13 @@
 //!   Opinionated runtime prelude for canister actor code.
 //!   Intended to be glob-imported in `lib.rs` to keep endpoints concise.
 //!
-//! - `design::prelude`
-//!   Prelude for schema and design-time code (macros, validators,
-//!   and base helpers).
-//!
 //! ## Internal boundaries
 //!
-//! Generated code targets explicit facade surfaces (`traits`, `model`,
-//! and `__macro`) instead of a broad internal-export module.
+//! Generated code targets explicit facade surfaces (`traits`, `db`, and
+//! `__macro`) instead of a broad internal-export module.
 
-// export so things just work in base/
+// Generated actor glue resolves this package through its canonical crate name.
 extern crate self as icydb;
-
-pub use icydb_core::{normalize::normalize, validate::validate};
-pub use icydb_model_legacy as schema;
-pub use icydb_schema_derive as macros;
 
 // core modules
 #[doc(hidden)]
@@ -104,34 +70,6 @@ pub mod value {
 }
 
 #[doc(hidden)]
-pub mod model {
-    pub mod entity {
-        pub use icydb_core::model::{
-            CheckConstraintModel, EntityModel, PrimaryKeyModel, PrimaryKeyModelFieldIter,
-            PrimaryKeyModelFields, RelationEdgeModel,
-        };
-    }
-
-    pub mod field {
-        pub use icydb_core::model::{
-            CompositeCodec, CompositeElementModel, CompositeFieldModel, CompositeShapeModel,
-            DEFAULT_BIG_INT_MAX_BYTES, EnumVariantModel, FieldDatabaseDefault,
-            FieldInsertGeneration, FieldKind, FieldModel, FieldStorageDecode, FieldWriteManagement,
-        };
-    }
-
-    pub mod index {
-        pub use icydb_core::model::{
-            IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel, IndexPredicateMetadata,
-        };
-    }
-
-    pub use entity::{EntityModel, PrimaryKeyModel};
-    pub use field::{FieldDatabaseDefault, FieldModel};
-    pub use index::{IndexExpression, IndexModel};
-}
-
-#[doc(hidden)]
 pub mod metrics {
     pub use icydb_core::metrics::{
         CompactEntityMetrics, CompactEventCounters, CompactMetric, CompactMetricsReport,
@@ -140,20 +78,7 @@ pub mod metrics {
     };
 }
 
-pub mod visitor {
-    pub use icydb_core::visitor::{
-        Issue, Normalize, NormalizeAuto, NormalizeCustom, NormalizeFieldDescriptor, Normalizer,
-        PathSegment, ScopedContext, Validate, ValidateAuto, ValidateCustom,
-        ValidateFieldDescriptor, Validator, Visitable, VisitableFieldDescriptor, VisitorContext,
-        VisitorCore, VisitorError, VisitorIssues, VisitorMutCore, drive_normalize_fields,
-        drive_validate_fields, drive_visitable_fields, drive_visitable_fields_mut, perform_visit,
-        perform_visit_mut,
-    };
-    pub use icydb_core::{normalize::normalize, validate::validate};
-}
-
 // facade modules
-pub mod base;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod build {
     //! Host-side build-script facade for generated actor glue.
@@ -162,12 +87,10 @@ pub mod build {
     //! to `[build-dependencies]`, then call
     //! `icydb::build::build_configured_canister!()` from `build.rs`.
     //!
-    //! `icydb-build` and `icydb-config` remain implementation crates behind
-    //! this facade. The module is host-only and is not part of wasm runtime
-    //! builds.
+    //! `icydb-config` remains the configuration implementation behind this
+    //! facade. Model-graph code generation is owned by `icydb-model`.
+    //! This module is host-only and is not part of Wasm runtime builds.
 
-    pub use icydb_build::build_with_options;
-    pub use icydb_build::{BuildOptions, BuildSqlUpdatePolicy, generate_with_options};
     pub use icydb_config::{
         ConfigError, GeneratedBuildTarget, GeneratedCanisterConfig, GeneratedIcydbConfig,
         GeneratedMetricsMode, GeneratedMetricsPolicy, GeneratedSqlIntrospectionPolicy,
@@ -195,86 +118,42 @@ pub use error::{
 };
 pub use icydb_diagnostic_code::ErrorCode;
 
-/// Generic create-input alias for one entity type.
-pub type Create<E> = <E as icydb_core::entity::EntityCreateType>::Create;
-
 // Macro/runtime wiring surface used by generated code.
 // This is intentionally narrow and not semver-stable.
 #[doc(hidden)]
 pub mod __macro {
     pub use crate::db::execute_generated_storage_report;
     pub use crate::db::{
-        TypedFieldBindingRequest, TypedFieldType, TypedInputValue, TypedNamedType, TypedOutputValue,
+        TypedEntityAdapter, TypedFieldBindingRequest, TypedFieldType, TypedInputValue,
+        TypedNamedType, TypedOutputValue, TypedRowAdapter,
     };
-    pub use icydb_core::__macro::decode_generated_runtime_field_value;
-    pub use icydb_core::__macro::{
-        Add, AddAssign, AuthoredFieldProjection, CanisterKind, Clone, Copy, Debug, Default, Deref,
-        DerefMut, Deserialize, Display, Div, DivAssign, EntityKey, Eq, FieldProjection,
-        FieldTypeMeta, From, Hash, Inner, Mul, MulAssign, NumericValue, Ord, PartialEq, PartialOrd,
-        Path, PersistedScalar, Rem, ScalarSlotValueRef, ScalarValueRef, StoreKind, Sub, SubAssign,
-        Sum,
-    };
-    pub use icydb_core::__macro::{
-        GeneratedStructuralMapPayloadSlices, PersistedByKindCodec, PersistedStructuralValueCodec,
-        decode_generated_structural_list_payload_bytes,
-        decode_generated_structural_map_payload_bytes,
-        decode_generated_structural_text_payload_bytes,
-        decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload_by_kind,
-        decode_persisted_scalar_slot_payload, decode_persisted_slot_payload_by_kind,
-        decode_persisted_structured_many_slot_payload, decode_persisted_structured_slot_payload,
-        encode_generated_structural_list_payload_bytes,
-        encode_generated_structural_map_payload_bytes,
-        encode_generated_structural_text_payload_bytes,
-        encode_persisted_option_scalar_slot_payload, encode_persisted_scalar_slot_payload,
-        encode_persisted_slot_payload_by_kind, encode_persisted_structured_many_slot_payload,
-        encode_persisted_structured_slot_payload,
-        generated_persisted_structured_payload_decode_failed,
-    };
-    pub use icydb_core::__macro::{
+    pub use ic_memory::{
         bootstrap_default_memory_manager, ic_memory_declaration, ic_memory_key, ic_memory_range,
     };
     pub use icydb_core::db::{
         CompositePrimaryKeyValue, CompositePrimaryKeyValueError, DataStore,
         DbSession as CoreDbSession, EntityKeyBytes, EntityKeyBytesError, EntityRegistration,
-        IndexStore, JournalTailStore, KeyValueCodec, PersistedRow, PrimaryKeyComponent,
-        PrimaryKeyDecode, PrimaryKeyEncode, PrimaryKeyEncodeError, PrimaryKeyValue,
-        ScalarRelationTargetKey, ScalarRelationTargetKeyMatchesDeclaredPrimitive, SchemaStore,
-        SlotReader, StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
-        StoreRuntimeStorageCapabilities, validate_entity_key_bytes_buffer,
+        IndexStore, JournalTailStore, KeyValueCodec, PrimaryKeyDecode, PrimaryKeyEncode,
+        PrimaryKeyEncodeError, PrimaryKeyValue, SchemaStore, StoreAllocationIdentities,
+        StoreAllocationIdentity, StoreRegistry, StoreRuntimeStorageCapabilities,
+        validate_entity_key_bytes_buffer,
     };
     #[cfg(feature = "sql")]
     pub use icydb_core::db::{
         LoweredSqlCommand, identifiers_tail_match, sql_statement_dispatch,
         sql_statement_entity_name,
     };
-    pub use icydb_core::entity::{
-        EntityCreateFieldInput, EntityCreateInput, EntityCreateType, EntityDeclaration, EntityKind,
-        EntityPlacement, EntityValue,
-    };
     pub use icydb_core::error::{ErrorClass, ErrorOrigin, InternalError};
-    pub use icydb_core::value::{InputValue, InputValueEnum, Value, ValueEnum};
-    pub use icydb_core::value::{
-        RuntimeEnumContext, RuntimeEnumSelection, RuntimeValueDecode, RuntimeValueEncode,
-        RuntimeValueKind, RuntimeValueMeta, runtime_value_btree_map_from_value,
-        runtime_value_btree_set_from_value, runtime_value_collection_to_value,
-        runtime_value_from_value, runtime_value_from_value_with_enum_context,
-        runtime_value_from_value_with_optional_enum_context, runtime_value_from_vec_into,
-        runtime_value_from_vec_into_btree_map, runtime_value_from_vec_into_btree_set,
-        runtime_value_into, runtime_value_map_collection_to_value, runtime_value_to_value,
-        runtime_value_vec_from_value,
-    };
+    pub use icydb_core::traits::{CanisterKind, Path};
+    pub use icydb_core::value::Value;
     pub use icydb_schema::{
         DEFAULT_BIG_INT_MAX_BYTES, Decimal as SchemaDecimal, FieldSourceKey, ScalarLiteral,
         ScalarType, SchemaContractError, SourceCheckExpr, SourceCheckInstruction,
     };
 }
 
-// re-exports
-//
-// macros can use these, stops the user having to specify all the dependencies
-// in the Cargo.toml file manually
-//
-// these have to be in icydb_core because of the base library not being able to import icydb
+// Dependencies used by generated actor glue. Application-model macro
+// dependencies are owned separately by `icydb-model`.
 #[doc(hidden)]
 pub mod __reexports {
     pub use candid;
@@ -282,7 +161,6 @@ pub mod __reexports {
     pub use derive_more;
     pub use ic_cdk;
     pub use ic_memory;
-    pub use icydb_derive;
     pub use remain;
     pub use serde;
 }
@@ -302,44 +180,12 @@ pub mod prelude {
                 desc, exists, field, first, last, max, max_by, min, min_by, sum,
             },
         },
-        traits::{
-            Collection as _, Entity as _, EntityKind as _, Inner as _, MapCollection as _,
-            Path as _,
-        },
+        traits::{Collection as _, Inner as _, MapCollection as _, Path as _},
         types::*,
         value::{InputValue, OutputValue},
     };
     pub use candid::CandidType;
     pub use serde::{Deserialize, Serialize};
-}
-
-//
-// Design Prelude
-// For schema/design code (macros, traits, base helpers).
-//
-
-pub mod design {
-    pub mod prelude {
-        pub use ::candid::CandidType;
-        pub use ::derive_more;
-
-        pub use crate::{
-            base, db,
-            db::query::{
-                FieldRef, count, count_by, exists, first, last, max, max_by, min, min_by, sum,
-            },
-            macros::*,
-            traits::{
-                Collection as _, Entity as _, EntityKind, Inner as _, MapCollection as _,
-                Normalize as _, Normalizer, Path as _, Validate as _, ValidateCustom, Validator,
-                Visitable as _,
-            },
-            types::*,
-            value::{InputValue, OutputValue},
-            visitor::{Issue, VisitorContext},
-        };
-        pub use ::serde::Serialize as _;
-    }
 }
 
 //
@@ -384,15 +230,7 @@ mod tests {
     use crate::build;
 
     #[test]
-    fn build_facade_exports_configured_and_manual_entrypoints() {
-        let options = build::BuildOptions::default()
-            .with_metrics_enabled(true)
-            .with_sql_update_policy(Some(build::BuildSqlUpdatePolicy::PublicPrimaryKeyOnly));
-        assert!(options.metrics_enabled());
-        assert_eq!(
-            options.sql_update_policy(),
-            Some(build::BuildSqlUpdatePolicy::PublicPrimaryKeyOnly)
-        );
+    fn build_facade_exports_configured_entrypoint_metadata() {
         assert_eq!(
             build::GeneratedBuildTarget::default(),
             build::GeneratedBuildTarget::Unknown
@@ -402,7 +240,6 @@ mod tests {
     #[allow(dead_code)]
     fn build_facade_macros_resolve() -> Result<(), Box<dyn std::error::Error>> {
         build::build_configured_canister!((), "crate::Canister", "canister");
-        build::build_with_options!("crate::Canister", build::BuildOptions::default());
 
         Ok(())
     }

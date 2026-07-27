@@ -9,8 +9,6 @@ mod encode;
 mod primitives;
 mod skip;
 mod tags;
-#[cfg(test)]
-mod tests;
 mod walk;
 
 use crate::{db::data::structural_field::FieldDecodeError, value::Value};
@@ -33,30 +31,19 @@ pub(in crate::db) use canonical::{
     decode_canonical_value_storage_bytes, encode_canonical_value_storage_bytes,
 };
 pub(in crate::db) use decode::{
-    ValueStorageView, decode_account, decode_decimal, decode_int, decode_int128, decode_nat,
-    decode_nat128, decode_structural_value_storage_blob_bytes,
-    decode_structural_value_storage_bool_bytes, decode_structural_value_storage_bytes,
-    decode_structural_value_storage_date_bytes, decode_structural_value_storage_duration_bytes,
-    decode_structural_value_storage_float32_bytes, decode_structural_value_storage_float64_bytes,
-    decode_structural_value_storage_i64_bytes, decode_structural_value_storage_principal_bytes,
-    decode_structural_value_storage_subaccount_bytes,
-    decode_structural_value_storage_timestamp_bytes, decode_structural_value_storage_u64_bytes,
-    decode_structural_value_storage_ulid_bytes, decode_structural_value_storage_unit_bytes,
-    decode_value_storage_list_item_slices, decode_value_storage_map_entry_slices,
-    decode_value_storage_text, validate_structural_value_storage_bytes,
-    value_storage_bytes_are_null,
+    ValueStorageView, decode_structural_value_storage_bytes,
+    validate_structural_value_storage_bytes, value_storage_bytes_are_null,
 };
 pub(in crate::db) use encode::{
     encode_account, encode_decimal, encode_int, encode_int128, encode_nat, encode_nat128,
     encode_structural_value_storage_blob_bytes, encode_structural_value_storage_bool_bytes,
-    encode_structural_value_storage_bytes, encode_structural_value_storage_date_bytes,
-    encode_structural_value_storage_duration_bytes, encode_structural_value_storage_float32_bytes,
-    encode_structural_value_storage_float64_bytes, encode_structural_value_storage_i64_bytes,
-    encode_structural_value_storage_null_bytes, encode_structural_value_storage_principal_bytes,
+    encode_structural_value_storage_date_bytes, encode_structural_value_storage_duration_bytes,
+    encode_structural_value_storage_float32_bytes, encode_structural_value_storage_float64_bytes,
+    encode_structural_value_storage_i64_bytes, encode_structural_value_storage_null_bytes,
+    encode_structural_value_storage_principal_bytes,
     encode_structural_value_storage_subaccount_bytes,
     encode_structural_value_storage_timestamp_bytes, encode_structural_value_storage_u64_bytes,
     encode_structural_value_storage_ulid_bytes, encode_structural_value_storage_unit_bytes,
-    encode_value_storage_list_item_slices, encode_value_storage_map_entry_slices,
     encode_value_storage_owned_list_items, encode_value_storage_owned_map_entries,
     encode_value_storage_text,
 };

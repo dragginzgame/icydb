@@ -6,11 +6,7 @@
 #[cfg(feature = "sql")]
 use crate::db::schema::SchemaInfo;
 use crate::{
-    db::query::plan::{
-        canonicalize_filter_literal_for_kind,
-        expr::{BinaryOp, Expr, FieldId, Function, UnaryOp},
-    },
-    model::EntityModel,
+    db::query::plan::expr::{BinaryOp, Expr, FieldId, Function, UnaryOp},
     value::{InputValue, Value},
 };
 use candid::CandidType;
@@ -200,12 +196,6 @@ pub enum FilterExpr {
 }
 
 impl FilterExpr {
-    /// Lower this typed filter expression into the shared planner-owned boolean expression model.
-    #[must_use]
-    pub(in crate::db::query) fn lower_bool_expr_for_model(&self, model: &EntityModel) -> Expr {
-        self.lower_bool_expr_with(&ModelFilterLiteralResolver(model))
-    }
-
     /// Lower this dynamic filter expression against accepted schema authority.
     #[must_use]
     #[cfg(feature = "sql")]
@@ -603,18 +593,6 @@ trait FilterLiteralResolver {
     }
 }
 
-struct ModelFilterLiteralResolver<'a>(&'a EntityModel);
-
-impl FilterLiteralResolver for ModelFilterLiteralResolver<'_> {
-    fn lower_compare(&self, field: &str, value: &FilterValue) -> Value {
-        lower_model_filter_value_for_field_kind(self.0, field, value, false)
-    }
-
-    fn lower_contains(&self, field: &str, value: &FilterValue) -> Value {
-        lower_model_filter_value_for_field_kind(self.0, field, value, true)
-    }
-}
-
 #[cfg(feature = "sql")]
 struct SchemaFilterLiteralResolver<'a>(&'a SchemaInfo);
 
@@ -649,29 +627,6 @@ fn fold_filter_bool_chain(
         left: Box::new(left),
         right: Box::new(expr.lower_bool_expr_with(resolver)),
     })
-}
-
-fn lower_model_filter_value_for_field_kind(
-    model: &EntityModel,
-    field: &str,
-    value: &FilterValue,
-    collection_element: bool,
-) -> Value {
-    let raw = value.lower_value();
-    let Some(field_slot) = model.resolve_field_slot(field) else {
-        return raw;
-    };
-
-    let mut kind = model.fields()[field_slot].kind();
-    if collection_element {
-        kind = match kind {
-            crate::model::field::FieldKind::List(inner)
-            | crate::model::field::FieldKind::Set(inner) => *inner,
-            _ => kind,
-        };
-    }
-
-    canonicalize_filter_literal_for_kind(&kind, &raw).unwrap_or(raw)
 }
 
 fn field_compare_expr(op: BinaryOp, field: &str, value: Value) -> Expr {
@@ -740,10 +695,3 @@ fn casefold_field_expr(field: &str) -> Expr {
         args: vec![Expr::Field(FieldId::new(field.to_string()))],
     }
 }
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

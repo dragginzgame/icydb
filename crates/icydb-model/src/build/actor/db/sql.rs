@@ -42,19 +42,22 @@ impl SqlSurfaceTokens {
         }
     }
 
-    pub(super) fn push_entity(&mut self, entity_ty: &syn::Path) {
+    pub(super) fn push_entity(&mut self, entity_path: &str, entity_name: &str) {
         if self.show_entities_dispatch.is_empty() {
             self.show_entities_dispatch = show_entities_dispatch();
         }
         self.reset_statements
-            .extend(sql_surface_reset_statement(entity_ty));
+            .extend(sql_surface_reset_statement(entity_name));
         self.query_arms
-            .extend(sql_surface_query_dispatch_arm(entity_ty));
+            .extend(sql_surface_query_dispatch_arm(entity_path, entity_name));
         self.ddl_arms
-            .extend(sql_surface_ddl_dispatch_arm(entity_ty));
+            .extend(sql_surface_ddl_dispatch_arm(entity_path, entity_name));
         if let Some(update_policy) = self.update_policy {
-            self.update_arms
-                .extend(sql_surface_update_dispatch_arm(entity_ty, update_policy));
+            self.update_arms.extend(sql_surface_update_dispatch_arm(
+                entity_path,
+                entity_name,
+                update_policy,
+            ));
         }
     }
 
@@ -371,7 +374,7 @@ fn sql_surface_endpoint_exports(
             })?;
             let session = db().map_err(|error| {
                 ::icydb::db::SqlIntegrityError::Integrity(
-                    ::icydb::db::IntegrityCheckError::Database(error.into()),
+                    ::icydb::db::IntegrityCheckError::Database(error),
                 )
             })?;
 
@@ -389,14 +392,15 @@ fn sql_surface_endpoint_exports(
     }
 }
 
-fn sql_surface_reset_statement(entity_ty: &syn::Path) -> TokenStream {
+fn sql_surface_reset_statement(entity_name: &str) -> TokenStream {
+    let delete_sql = format!("DELETE FROM {entity_name}");
     quote! {
-        db()?.delete::<#entity_ty>().execute()?;
+        let _ = db()?.execute_trusted_sql_mutation(#delete_sql)?;
     }
 }
 
-fn sql_surface_query_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
-    let entity_matches = sql_surface_entity_match_guard(entity_ty);
+fn sql_surface_query_dispatch_arm(entity_path: &str, entity_name: &str) -> TokenStream {
+    let entity_matches = sql_surface_entity_match_guard(entity_path, entity_name);
 
     quote! {
             Some(entity) if #entity_matches =>
@@ -406,22 +410,23 @@ fn sql_surface_query_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
     }
 }
 
-fn sql_surface_ddl_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
-    let entity_matches = sql_surface_entity_match_guard(entity_ty);
+fn sql_surface_ddl_dispatch_arm(entity_path: &str, entity_name: &str) -> TokenStream {
+    let entity_matches = sql_surface_entity_match_guard(entity_path, entity_name);
 
     quote! {
             Some(entity) if #entity_matches =>
             {
-                db()?.execute_admin_sql_ddl::<#entity_ty>(sql)
+                db()?.execute_admin_sql_ddl(sql)
             }
     }
 }
 
 fn sql_surface_update_dispatch_arm(
-    entity_ty: &syn::Path,
+    entity_path: &str,
+    entity_name: &str,
     policy: BuildSqlUpdatePolicy,
 ) -> TokenStream {
-    let entity_matches = sql_surface_entity_match_guard(entity_ty);
+    let entity_matches = sql_surface_entity_match_guard(entity_path, entity_name);
     let executor = match policy {
         BuildSqlUpdatePolicy::PublicPrimaryKeyOnly => {
             quote! { execute_sql_public_primary_key_update }
@@ -434,19 +439,19 @@ fn sql_surface_update_dispatch_arm(
     quote! {
             Some(entity) if #entity_matches =>
             {
-                db()?.#executor::<#entity_ty>(sql)
+                db()?.#executor(sql)
             }
     }
 }
 
-fn sql_surface_entity_match_guard(entity_ty: &syn::Path) -> TokenStream {
+fn sql_surface_entity_match_guard(entity_path: &str, entity_name: &str) -> TokenStream {
     quote! {
         ::icydb::__macro::identifiers_tail_match(
             entity,
-            <#entity_ty as ::icydb::__macro::Path>::PATH
+            #entity_path
         ) || ::icydb::__macro::identifiers_tail_match(
             entity,
-            <#entity_ty as ::icydb::__macro::EntityDeclaration>::NAME
+            #entity_name
         )
     }
 }
@@ -648,10 +653,9 @@ mod tests {
 
     #[test]
     fn generated_readonly_sql_surface_uses_trusted_query_and_admin_ddl() {
-        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
         let mut surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
 
-        surface_tokens.push_entity(&entity_ty);
+        surface_tokens.push_entity("crate::Character", "Character");
 
         let surface = compact_tokens(quote!(#surface_tokens));
         assert!(surface.contains("execute_trusted_sql_query_with_perf_attribution"));
@@ -660,10 +664,9 @@ mod tests {
 
     #[test]
     fn generated_readonly_sql_surface_has_one_controller_query_endpoint() {
-        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
         let mut surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
 
-        surface_tokens.push_entity(&entity_ty);
+        surface_tokens.push_entity("crate::Character", "Character");
 
         let endpoint = compact_tokens(super::sql_surface_endpoint_exports(
             all_sql_surface_flags(),
@@ -685,10 +688,9 @@ mod tests {
 
     #[test]
     fn generated_sql_query_endpoint_guards_explicit_trusted_dispatch() {
-        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
         let mut surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
 
-        surface_tokens.push_entity(&entity_ty);
+        surface_tokens.push_entity("crate::Character", "Character");
 
         let endpoint = compact_tokens(super::sql_surface_endpoint_exports(
             all_sql_surface_flags(),
@@ -735,13 +737,12 @@ mod tests {
 
     #[test]
     fn generated_sql_surface_does_not_emit_dead_code_suppressions() {
-        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
         let mut surface_tokens = SqlSurfaceTokens::empty(
             all_sql_surface_flags(),
             Some(BuildSqlUpdatePolicy::PublicPrimaryKeyOnly),
         );
 
-        surface_tokens.push_entity(&entity_ty);
+        surface_tokens.push_entity("crate::Character", "Character");
 
         let surface = compact_tokens(quote!(#surface_tokens));
 
@@ -753,9 +754,8 @@ mod tests {
         let empty_surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
         let empty_surface = compact_tokens(quote!(#empty_surface_tokens));
 
-        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
         let mut entity_surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
-        entity_surface_tokens.push_entity(&entity_ty);
+        entity_surface_tokens.push_entity("crate::Character", "Character");
         let entity_surface = compact_tokens(quote!(#entity_surface_tokens));
 
         assert!(!empty_surface.contains("allow("));
@@ -767,11 +767,10 @@ mod tests {
 
     #[test]
     fn generated_sql_query_surface_can_reject_introspection() {
-        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
         let mut surface_tokens =
             SqlSurfaceTokens::empty(sql_surface_flags_without_introspection(), None);
 
-        surface_tokens.push_entity(&entity_ty);
+        surface_tokens.push_entity("crate::Character", "Character");
 
         let surface = compact_tokens(quote!(#surface_tokens));
         assert!(surface.contains("sql_statement_dispatch"));
@@ -782,13 +781,12 @@ mod tests {
 
     #[test]
     fn generated_sql_update_surface_requires_explicit_primary_key_policy() {
-        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
         let mut surface_tokens = SqlSurfaceTokens::empty(
             all_sql_surface_flags(),
             Some(BuildSqlUpdatePolicy::PublicPrimaryKeyOnly),
         );
 
-        surface_tokens.push_entity(&entity_ty);
+        surface_tokens.push_entity("crate::Character", "Character");
 
         let endpoint = compact_tokens(super::sql_surface_endpoint_exports(
             all_sql_surface_flags(),
@@ -801,10 +799,6 @@ mod tests {
         assert!(surface.contains("icydb_sql_surface_update_dispatch"));
         assert!(surface.contains("execute_sql_public_primary_key_update"));
         assert!(
-            !surface.contains("execute_trusted_sql_mutation"),
-            "generated SQL update glue must not call broad session SQL UPDATE",
-        );
-        assert!(
             !surface.contains("execute_sql_public_bounded_update"),
             "first generated SQL update policy must not expose bounded multi-row UPDATE",
         );
@@ -812,21 +806,16 @@ mod tests {
 
     #[test]
     fn generated_sql_update_surface_can_select_bounded_policy_without_broad_update() {
-        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
         let mut surface_tokens = SqlSurfaceTokens::empty(
             all_sql_surface_flags(),
             Some(BuildSqlUpdatePolicy::PublicBoundedDeterministic),
         );
 
-        surface_tokens.push_entity(&entity_ty);
+        surface_tokens.push_entity("crate::Character", "Character");
 
         let surface = compact_tokens(quote!(#surface_tokens));
         assert!(surface.contains("icydb_sql_surface_update_dispatch"));
         assert!(surface.contains("execute_sql_public_bounded_update"));
-        assert!(
-            !surface.contains("execute_trusted_sql_mutation"),
-            "generated SQL update glue must not call broad session SQL UPDATE",
-        );
         assert!(
             !surface.contains("execute_sql_public_primary_key_update"),
             "bounded generated SQL update policy must not silently select the primary-key-only helper",

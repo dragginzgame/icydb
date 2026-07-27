@@ -48,50 +48,6 @@ pub(in crate::db) struct IntegrityRetentionPage {
     corrupt_jobs: Vec<IntegrityJobId>,
 }
 
-impl IntegrityRetentionPage {
-    /// Return the next private retention scan checkpoint.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn next_checkpoint(&self) -> Option<IntegrityJobId> {
-        self.next_checkpoint
-    }
-
-    /// Return whether the progress-record keyspace was exhausted.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn exhausted(&self) -> bool {
-        self.exhausted
-    }
-
-    /// Return progress records visited by this bounded pass.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn jobs_scanned(&self) -> u32 {
-        self.jobs_scanned
-    }
-
-    /// Return jobs frozen as expiry-pending by this pass.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn jobs_expired(&self) -> u32 {
-        self.jobs_expired
-    }
-
-    /// Return acknowledged terminal jobs removed by this pass.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn jobs_deleted(&self) -> u32 {
-        self.jobs_deleted
-    }
-
-    /// Borrow corrupt progress-record identities skipped by this pass.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn corrupt_jobs(&self) -> &[IntegrityJobId] {
-        self.corrupt_jobs.as_slice()
-    }
-}
-
 /// Heap-only fair-scan position for one stable progress allocation.
 ///
 /// This is advisory scheduling state, not durable integrity authority. Losing
@@ -336,26 +292,6 @@ fn run_integrity_retention_page_at<C: CanisterKind>(
         jobs_deleted,
         corrupt_jobs,
     })
-}
-
-#[cfg(test)]
-pub(in crate::db) fn run_integrity_retention_page_for_tests<C: CanisterKind>(
-    checkpoint: Option<IntegrityJobId>,
-    now: u64,
-) -> Result<IntegrityRetentionPage, IntegrityDeepError> {
-    run_integrity_retention_page_at::<C>(checkpoint, now)
-}
-
-#[cfg(test)]
-pub(in crate::db) fn run_next_integrity_retention_page_for_tests<C: CanisterKind>(
-    now: u64,
-) -> Result<IntegrityRetentionPage, IntegrityDeepError> {
-    run_next_integrity_retention_page_at::<C>(now)
-}
-
-#[cfg(test)]
-pub(in crate::db) fn reset_integrity_retention_cursor_for_tests<C: CanisterKind>() {
-    set_integrity_retention_checkpoint::<C>(None);
 }
 
 fn integrity_retention_checkpoint<C: CanisterKind>() -> Option<IntegrityJobId> {

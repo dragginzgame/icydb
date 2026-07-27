@@ -1,13 +1,9 @@
 use super::contracts::AccessPlannedQuery;
 #[cfg(feature = "sql")]
 use crate::db::executor::prepared_execution_plan::build_prepared_execution_plan_core_with_lowered_access;
-use crate::db::{
-    executor::{
-        EntityAuthority, ExecutionPreparation, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-        PreparedScalarPlanCore, projection::PreparedProjectionContract,
-        terminal::RetainedSlotLayout,
-    },
-    query::plan::AcceptedContinuationIdentity,
+use crate::db::executor::{
+    EntityAuthority, ExecutionPreparation, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+    PreparedScalarPlanCore, projection::PreparedProjectionContract, terminal::RetainedSlotLayout,
 };
 use std::{rc::Rc, sync::Arc};
 
@@ -75,24 +71,7 @@ impl PreparedScalarRuntimeHandoff {
 ///
 
 pub(in crate::db::executor) struct PreparedAccessPlanHandoff {
-    pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) plan: Arc<AccessPlannedQuery>,
-    pub(in crate::db::executor) index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
-    pub(in crate::db::executor) index_range_specs: Arc<[LoweredIndexRangeSpec]>,
-}
-
-///
-/// PreparedAggregateStreamingPlanHandoff
-///
-/// Prepared aggregate access residents moved together when aggregate execution
-/// leaves the generic prepared-plan shell. Keeping these fields bundled avoids
-/// tuple-shaped handoffs and makes the shared `Arc` ownership boundary explicit.
-///
-
-pub(in crate::db::executor) struct PreparedAggregateStreamingPlanHandoff {
-    pub(in crate::db::executor) authority: EntityAuthority,
-    pub(in crate::db::executor) logical_plan: Arc<AccessPlannedQuery>,
-    pub(in crate::db::executor) continuation_identity: Option<AcceptedContinuationIdentity>,
     pub(in crate::db::executor) index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
     pub(in crate::db::executor) index_range_specs: Arc<[LoweredIndexRangeSpec]>,
 }

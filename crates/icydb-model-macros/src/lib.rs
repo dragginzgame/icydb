@@ -10,6 +10,7 @@ mod case;
 mod crate_path;
 mod r#gen;
 mod helper;
+mod helper_deref;
 mod helper_display;
 mod helper_inner;
 mod helper_newtype;
@@ -28,6 +29,18 @@ use crate::{
 use darling::{Error as DarlingError, FromMeta, ast::NestedMeta};
 use quote::quote;
 use syn::{ItemStruct, Visibility, parse_macro_input};
+
+/// Derive `Deref` for a one-field application wrapper.
+#[proc_macro_derive(Deref)]
+pub fn derive_deref(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    helper_deref::derive_deref(input.into()).into()
+}
+
+/// Derive `DerefMut` for a one-field application wrapper.
+#[proc_macro_derive(DerefMut)]
+pub fn derive_deref_mut(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    helper_deref::derive_deref_mut(input.into()).into()
+}
 
 ///
 /// Prelude

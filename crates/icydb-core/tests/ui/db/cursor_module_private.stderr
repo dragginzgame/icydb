@@ -1,7 +1,7 @@
 error[E0603]: module `cursor` is private
  --> tests/ui/db/cursor_module_private.rs:1:21
   |
-1 | use icydb_core::db::cursor::ContinuationToken;
+1 | use icydb_core::db::cursor::ContinuationKeyRef;
   |                     ^^^^^^ private module
   |
 note: the module `cursor` is defined here

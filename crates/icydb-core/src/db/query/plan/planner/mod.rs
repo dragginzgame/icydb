@@ -14,9 +14,6 @@ mod predicate;
 mod prefix;
 mod range;
 mod ranking;
-#[cfg(test)]
-mod tests;
-
 use crate::{
     db::{
         access::{AccessPlan, SemanticIndexAccessContract, normalize_access_plan_value},
@@ -27,14 +24,12 @@ use crate::{
         schema::SchemaInfo,
     },
     error::InternalError,
-    model::{entity::EntityModel, index::IndexModel},
     value::Value,
 };
 
 pub(in crate::db::query::plan) use crate::db::access::MAX_INDEX_BRANCH_SET_VALUES;
 pub(in crate::db::query) use index_select::{
     eligible_sorted_index_contracts, index_field_literal_matcher, index_literal_matches_schema,
-    sorted_index_contracts,
 };
 pub(in crate::db) use index_select::{
     residual_query_predicate_after_access_path_bounds,
@@ -111,71 +106,6 @@ impl From<InternalError> for PlannerError {
     }
 }
 
-/// Planner entrypoint that operates on a prebuilt schema surface.
-///
-/// CONTRACT: the caller is responsible for predicate validation and
-/// predicate canonicalization before planner entry.
-#[cfg(test)]
-pub(in crate::db) fn plan_access(
-    model: &EntityModel,
-    generated_model_only_indexes: &[&'static IndexModel],
-    schema: &SchemaInfo,
-    predicate: Option<&Predicate>,
-) -> Result<AccessPlan<Value>, PlannerError> {
-    plan_access_with_order(
-        model,
-        generated_model_only_indexes,
-        schema,
-        predicate,
-        None,
-        false,
-    )
-}
-
-/// Planner entrypoint that also considers a pre-canonicalized ORDER BY
-/// fallback when predicate planning alone would full-scan.
-#[cfg(test)]
-pub(in crate::db::query) fn plan_access_with_order(
-    model: &EntityModel,
-    generated_model_only_indexes: &[&'static IndexModel],
-    schema: &SchemaInfo,
-    predicate: Option<&Predicate>,
-    order: Option<&OrderSpec>,
-    grouped: bool,
-) -> Result<AccessPlan<Value>, PlannerError> {
-    Ok(plan_access_selection_with_order(
-        model,
-        generated_model_only_indexes,
-        schema,
-        predicate,
-        order,
-        grouped,
-    )?
-    .into_access())
-}
-
-// Planner entrypoint that preserves planner-owned non-index winner reasons for
-// higher layers that need to freeze explain metadata from the selected route.
-pub(in crate::db::query) fn plan_access_selection_with_order(
-    model: &EntityModel,
-    generated_model_only_indexes: &[&'static IndexModel],
-    schema: &SchemaInfo,
-    predicate: Option<&Predicate>,
-    order: Option<&OrderSpec>,
-    grouped: bool,
-) -> Result<PlannedAccessSelection, PlannerError> {
-    let candidate_indexes =
-        semantic_candidate_indexes_from_generated_model_only(generated_model_only_indexes);
-    plan_access_selection_with_order_from_authority(
-        candidate_indexes.as_slice(),
-        schema,
-        predicate,
-        order,
-        grouped,
-        OrderFallbackIndexAuthority::GeneratedModelOnly(model),
-    )
-}
-
 // Runtime planner entrypoint for callers that already hold the reduced
 // accepted semantic candidate contracts projected by `VisibleIndexes`.
 pub(in crate::db::query) fn plan_access_selection_with_order_and_accepted_semantic_indexes(
@@ -197,7 +127,7 @@ pub(in crate::db::query) fn plan_access_selection_with_order_and_accepted_semant
 }
 
 // Access-choice projection/reranking already works with reduced semantic
-// candidates; keep its single-candidate rebuild path from reopening IndexModel.
+// candidates; keep its single-candidate rebuild path from reopening generated declarations.
 pub(in crate::db::query) fn plan_access_selection_with_order_and_semantic_indexes(
     semantic_candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
@@ -217,36 +147,8 @@ pub(in crate::db::query) fn plan_access_selection_with_order_and_semantic_indexe
 
 #[derive(Clone, Copy)]
 enum OrderFallbackIndexAuthority<'a> {
-    GeneratedModelOnly(&'a EntityModel),
     AcceptedFieldPathIndexes(&'a [AcceptedPlannerFieldPathIndex]),
     AcceptedSemanticIndexes,
-}
-
-fn semantic_candidate_indexes_from_generated_model_only(
-    generated_indexes: &[&'static IndexModel],
-) -> Vec<SemanticIndexAccessContract> {
-    generated_indexes
-        .iter()
-        .copied()
-        .map(|index| SemanticIndexAccessContract::model_only_from_generated_index(*index))
-        .collect()
-}
-
-impl OrderFallbackIndexAuthority<'_> {
-    const fn candidate_order(self) -> CandidateIndexOrder {
-        match self {
-            Self::GeneratedModelOnly(_) => CandidateIndexOrder::NeedsSort,
-            Self::AcceptedFieldPathIndexes(_) | Self::AcceptedSemanticIndexes => {
-                CandidateIndexOrder::AlreadySorted
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-enum CandidateIndexOrder {
-    NeedsSort,
-    AlreadySorted,
 }
 
 fn plan_access_selection_with_order_from_authority(
@@ -257,11 +159,9 @@ fn plan_access_selection_with_order_from_authority(
     grouped: bool,
     order_fallback_authority: OrderFallbackIndexAuthority<'_>,
 ) -> Result<PlannedAccessSelection, PlannerError> {
-    let candidate_order = order_fallback_authority.candidate_order();
     let Some(predicate) = predicate else {
         let true_predicate = Predicate::True;
-        let eligible_indexes =
-            eligible_index_contracts(visible_indexes, &true_predicate, candidate_order);
+        let eligible_indexes = eligible_sorted_index_contracts(visible_indexes, &true_predicate);
 
         return Ok(order_fallback_selection(
             eligible_indexes.as_slice(),
@@ -272,17 +172,17 @@ fn plan_access_selection_with_order_from_authority(
         ));
     };
 
-    let eligible_indexes = eligible_index_contracts(visible_indexes, predicate, candidate_order);
+    let eligible_indexes = eligible_sorted_index_contracts(visible_indexes, predicate);
 
     // Planner determinism guarantee:
-    // Given a validated EntityModel and canonical predicate, planning is pure and deterministic.
+    // Given accepted schema and a canonical predicate, planning is pure and deterministic.
     //
     // Planner determinism rules:
     // - Predicate canonicalization is owned by `db::predicate`.
-    // - Index candidates are considered in lexicographic IndexModel.name order.
+    // - Index candidates are considered in lexicographic accepted-name order.
     // - Competing index candidates are ranked by one canonical planner score:
     //   prefix match, family-specific exact-match preference, then secondary-order compatibility.
-    // - Structural ties still break on lexicographic IndexModel.name order.
+    // - Structural ties still break on lexicographic accepted-name order.
     // - Access paths are ranked: primary key lookups, exact index matches, prefix matches, full scans.
     // - Order specs preserve user order after validation (planner does not reorder).
     // - Field resolution uses SchemaInfo's name map (sorted by field name).
@@ -315,19 +215,6 @@ fn plan_access_selection_with_order_from_authority(
         },
         |access| PlannedAccessSelection::new(access, None),
     ))
-}
-
-fn eligible_index_contracts(
-    visible_indexes: &[SemanticIndexAccessContract],
-    predicate: &Predicate,
-    candidate_order: CandidateIndexOrder,
-) -> Vec<SemanticIndexAccessContract> {
-    match candidate_order {
-        CandidateIndexOrder::NeedsSort => sorted_index_contracts(visible_indexes, predicate),
-        CandidateIndexOrder::AlreadySorted => {
-            eligible_sorted_index_contracts(visible_indexes, predicate)
-        }
-    }
 }
 
 // Order-only planning is the final planner-owned fallback once predicate
@@ -365,14 +252,6 @@ fn index_range_from_order_with_authority(
     order_fallback_authority: OrderFallbackIndexAuthority<'_>,
 ) -> Option<AccessPlan<Value>> {
     match order_fallback_authority {
-        OrderFallbackIndexAuthority::GeneratedModelOnly(model) => {
-            order_select::index_range_from_order_for_generated_model_only(
-                model,
-                eligible_indexes,
-                order,
-                grouped,
-            )
-        }
         OrderFallbackIndexAuthority::AcceptedFieldPathIndexes(accepted_field_path_indexes) => {
             order_select::index_range_from_order_with_accepted_indexes(
                 schema,

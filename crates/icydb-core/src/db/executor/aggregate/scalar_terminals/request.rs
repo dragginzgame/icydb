@@ -6,7 +6,7 @@ use crate::{
     db::{
         executor::{
             aggregate::{
-                CompiledExpr, Expr, GroupedAggregateExecutionSpec, ProjectionField, ProjectionSpec,
+                CompiledExpr, Expr, ProjectionField, ProjectionSpec,
                 scalar_terminals::terminal::{
                     StructuralAggregateTerminal, resolve_structural_aggregate_terminal,
                 },
@@ -69,7 +69,6 @@ impl StructuralAggregateRequest {
 ///
 
 pub(super) struct CompiledStructuralAggregateRequest {
-    aggregate_execution_specs: Vec<GroupedAggregateExecutionSpec>,
     projection: Vec<CompiledExpr>,
     having: Option<CompiledExpr>,
 }
@@ -100,15 +99,7 @@ impl CompiledStructuralAggregateRequest {
             })
             .transpose()?;
 
-        Ok(Self {
-            aggregate_execution_specs,
-            projection,
-            having,
-        })
-    }
-
-    pub(super) const fn aggregate_execution_specs(&self) -> &[GroupedAggregateExecutionSpec] {
-        self.aggregate_execution_specs.as_slice()
+        Ok(Self { projection, having })
     }
 
     pub(super) const fn projection(&self) -> &[CompiledExpr] {

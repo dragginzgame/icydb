@@ -13,18 +13,6 @@ use crate::{
 };
 use std::{cmp::Ordering, ops::Bound};
 
-pub(in crate::db::query) fn sorted_index_contracts(
-    indexes: &[SemanticIndexAccessContract],
-    query_predicate: &Predicate,
-) -> Vec<SemanticIndexAccessContract> {
-    let mut indexes = indexes.to_vec();
-    indexes.sort_unstable_by(|left, right| left.name().cmp(right.name()));
-    indexes
-        .into_iter()
-        .filter(|index| index_contract_predicate_implied_by_query(index, query_predicate))
-        .collect()
-}
-
 pub(in crate::db::query) fn eligible_sorted_index_contracts(
     indexes: &[SemanticIndexAccessContract],
     query_predicate: &Predicate,

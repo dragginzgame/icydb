@@ -192,39 +192,6 @@ pub(in crate::db) fn decode_dense_raw_row_with_contract(
     Ok(values)
 }
 
-/// Decode one sparse slot subset directly from persisted field bytes without
-/// constructing the per-slot lazy cache used by general `StructuralSlotReader`
-/// callers.
-///
-/// Executor sparse row paths usually touch each requested slot exactly once,
-/// so they can skip the reader-owned cache initialization loop and decode the
-/// selected slots directly after the shared row-envelope and primary-key
-/// validation steps.
-pub(in crate::db) fn decode_sparse_raw_row_with_contract(
-    raw_row: &RawRow,
-    contract: &StructuralRowContract,
-    expected_key: &PrimaryKeyValue,
-    required_slots: &[usize],
-) -> Result<Vec<Option<Value>>, InternalError> {
-    // Phase 1: open and key-validate the row once through the direct reader
-    // boundary shared by dense and sparse decode helpers.
-    let fields = DirectStructuralRowFields::open(raw_row, contract, expected_key)?;
-
-    // Phase 2: decode only the requested slots without building the general
-    // lazy cache shape that sparse executor reads never reuse.
-    let field_count = fields.field_count();
-    let mut values = vec![None; field_count];
-    let probe = StructuralReadProbe::begin(field_count);
-
-    for &slot in required_slots {
-        values[slot] = Some(fields.decode_slot(slot, &probe)?);
-    }
-
-    finish_direct_probe(&probe);
-
-    Ok(values)
-}
-
 /// Decode one compact sparse slot buffer directly from persisted field bytes
 /// without constructing the surrounding `StructuralSlotReader`.
 pub(in crate::db) fn decode_sparse_indexed_raw_row_with_contract(

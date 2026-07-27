@@ -57,7 +57,7 @@ impl GroupedAdmissionPolicy {
         }
     }
 
-    /// Build the default grouped budget used by ordinary typed/fluent reads.
+    /// Build the default grouped budget used by ordinary public reads.
     ///
     /// Grouped query execution still needs matching query-owned hard limits
     /// via `grouped_limits(...)`; this policy defines the maximum values those
@@ -87,13 +87,6 @@ impl GroupedAdmissionPolicy {
     #[must_use]
     pub(in crate::db) const fn max_distinct_entries(&self) -> Option<NonZeroU32> {
         self.distinct_entries
-    }
-
-    /// Return whether grouped execution has the minimum hard budgets admission needs.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn has_hard_limits(&self) -> bool {
-        self.groups.is_some() && self.group_bytes.is_some()
     }
 }
 
@@ -156,11 +149,11 @@ impl QueryAdmissionPolicy {
         }
     }
 
-    /// Build the default bounded policy used by ordinary typed/fluent reads.
+    /// Build the default bounded policy used by ordinary typed/dynamic reads.
     ///
     /// The policy rejects unindexed full scans, materialized sorts, and queries
-    /// without a proven row bound. Public continuation remains cursor-based at
-    /// the fluent API boundary; trusted SQL owns its separate `OFFSET` semantics.
+    /// without a proven row bound. Scalar public continuation is not exposed;
+    /// trusted SQL owns its separate `OFFSET` semantics.
     #[must_use]
     pub(in crate::db) const fn default_bounded_read() -> Self {
         Self::public_read(non_zero_default(DEFAULT_BOUNDED_READ_MAX_ROWS))
@@ -208,13 +201,6 @@ impl QueryAdmissionPolicy {
         matches!(self.limit_requirement, LimitRequirement::Required)
     }
 
-    /// Return the maximum rows that may be returned.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn max_returned_rows(&self) -> Option<NonZeroU32> {
-        self.max_returned_rows
-    }
-
     /// Return whether the selected plan must use an index-backed path.
     #[must_use]
     pub(in crate::db) const fn require_index(&self) -> bool {
@@ -231,26 +217,6 @@ impl QueryAdmissionPolicy {
     #[must_use]
     pub(in crate::db) const fn allow_materialized_sort(&self) -> bool {
         matches!(self.materialized_sort_policy, MaterializedSortPolicy::Allow)
-    }
-
-    /// Return grouped/aggregate budgets.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn grouped(&self) -> GroupedAdmissionPolicy {
-        self.grouped
-    }
-
-    /// Return this policy with explicit primary-key input work caps.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn with_primary_key_input_caps(
-        mut self,
-        max_terms: NonZeroU32,
-        max_bytes: NonZeroU32,
-    ) -> Self {
-        self.max_primary_key_input_terms = Some(max_terms);
-        self.max_primary_key_input_bytes = Some(max_bytes);
-        self
     }
 
     /// Apply this policy to one already-summarized plan.

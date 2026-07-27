@@ -12,7 +12,6 @@ use crate::{
         AcceptedFieldKind, AcceptedFieldKindCategory, AcceptedScalarClass,
         classify_accepted_field_kind,
     },
-    model::field::FieldKind,
     value::RuntimeValueKind,
     value::{CoercionFamily, Value},
 };
@@ -253,44 +252,6 @@ pub(crate) fn literal_matches_type(literal: &Value, field_type: &FieldType) -> b
             // NOTE: exact composite field types never match predicate literals.
             false
         }
-    }
-}
-
-pub(crate) fn field_type_from_model_kind(kind: &FieldKind) -> FieldType {
-    match kind {
-        FieldKind::Account => FieldType::Scalar(ScalarType::Account),
-        FieldKind::Blob { .. } => FieldType::Scalar(ScalarType::Blob),
-        FieldKind::Bool => FieldType::Scalar(ScalarType::Bool),
-        FieldKind::Date => FieldType::Scalar(ScalarType::Date),
-        FieldKind::Decimal { .. } => FieldType::Scalar(ScalarType::Decimal),
-        FieldKind::Duration => FieldType::Scalar(ScalarType::Duration),
-        FieldKind::Enum { .. } => FieldType::Scalar(ScalarType::Enum),
-        FieldKind::Float32 => FieldType::Scalar(ScalarType::Float32),
-        FieldKind::Float64 => FieldType::Scalar(ScalarType::Float64),
-        FieldKind::Int8 | FieldKind::Int16 | FieldKind::Int32 | FieldKind::Int64 => {
-            FieldType::Scalar(ScalarType::SignedNumeric)
-        }
-        FieldKind::Int128 => FieldType::Scalar(ScalarType::Int128),
-        FieldKind::IntBig { .. } => FieldType::Scalar(ScalarType::IntBig),
-        FieldKind::Principal => FieldType::Scalar(ScalarType::Principal),
-        FieldKind::Subaccount => FieldType::Scalar(ScalarType::Subaccount),
-        FieldKind::Text { .. } => FieldType::Scalar(ScalarType::Text),
-        FieldKind::Timestamp => FieldType::Scalar(ScalarType::Timestamp),
-        FieldKind::Nat8 | FieldKind::Nat16 | FieldKind::Nat32 | FieldKind::Nat64 => {
-            FieldType::Scalar(ScalarType::UnsignedNumeric)
-        }
-        FieldKind::Nat128 => FieldType::Scalar(ScalarType::Nat128),
-        FieldKind::NatBig { .. } => FieldType::Scalar(ScalarType::NatBig),
-        FieldKind::Ulid => FieldType::Scalar(ScalarType::Ulid),
-        FieldKind::Unit => FieldType::Scalar(ScalarType::Unit),
-        FieldKind::Relation { key_kind, .. } => field_type_from_model_kind(key_kind),
-        FieldKind::List(inner) => FieldType::List(Box::new(field_type_from_model_kind(inner))),
-        FieldKind::Set(inner) => FieldType::Set(Box::new(field_type_from_model_kind(inner))),
-        FieldKind::Map { key, value } => FieldType::Map {
-            key: Box::new(field_type_from_model_kind(key)),
-            value: Box::new(field_type_from_model_kind(value)),
-        },
-        FieldKind::Composite { .. } => FieldType::Composite,
     }
 }
 

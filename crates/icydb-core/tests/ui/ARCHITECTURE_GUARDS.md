@@ -12,16 +12,13 @@ This file maps each UI test to exactly one architecture rule.
 | `db/cursor_module_private.rs` | `db::cursor` continuation/token internals are not public API. |
 | `db/canonical_row_not_public.rs` | `CanonicalRow` stays internal so arbitrary callers cannot acquire row-write capability. |
 | `db/diagnostics_module_private.rs` | `db::diagnostics` module internals are not imported directly; use root re-exports. |
-| `db/executor/aggregate_terminals_module_private.rs` | Executor aggregate terminal internals are not public API. |
 | `db/executor/grouped_budget_observability_module_private.rs` | Grouped budget observability internals are not publicly importable. |
 | `db/executor/cannot_import_query_plan_planner.rs` | Executor boundary must not import planner internals (`db::query::plan::planner`). |
-| `db/executor/cannot_import_query_intent.rs` | Executor boundary must not import query intent internals (`db::query::intent`). |
 | `db/executor/kernel_module_private.rs` | `db::executor::kernel` internals are not public API. |
 | `db/executor/load_module_private.rs` | `db::executor::load` internals are not public API. |
 | `db/index_module_private.rs` | `db::index` internals are not imported directly. |
 | `db/logical_plan_not_reexported.rs` | Internal planner symbol `LogicalPlan` must not be re-exported at `db` root. |
 | `db/registry_module_private.rs` | `db::registry` internals are not imported directly. |
-| `db/response/cardinality_methods_require_extension_trait.rs` | Cardinality helpers require explicit `ResponseCardinalityExt` import. |
 | `db/response_module_private.rs` | `db::response` module stays private; callers use root response types. |
 | `db/session_module_private.rs` | `db::session` module internals are private; callers use `db::DbSession`. |
 | `db/store_module_private.rs` | `db::data` store internals are not public API. |
@@ -35,6 +32,5 @@ This file maps each UI test to exactly one architecture rule.
 
 | Test | Allowed Path Contract |
 | --- | --- |
-| `db/entity_response_root_import.rs` | `EntityResponse` is available via `db` root public API. |
 | `db/execution_trace_root_import.rs` | `ExecutionTrace` diagnostics surface is available via `db` root re-exports. |
 | `db/session_root_import.rs` | `DbSession` is available via `db` root public API. |

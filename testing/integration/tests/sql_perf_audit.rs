@@ -4,8 +4,8 @@ use icydb::{
     Error,
     db::{
         DeepIntegrityPageStatus, IntegrityCheckResult, IntegrityJobReceipt, IntegrityPhase,
-        IntegrityTerminalOutcome, QueryExecutionAttribution, SqlIntegrityError,
-        SqlQueryExecutionAttribution, sql::SqlQueryResult,
+        IntegrityTerminalOutcome, SqlIntegrityError, SqlQueryExecutionAttribution,
+        sql::SqlQueryResult,
     },
 };
 use icydb_testing_integration::{
@@ -28,22 +28,9 @@ struct SqlTotalOnlyPerfResult {
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-struct FluentTotalOnlyPerfResult {
+struct ReadTotalOnlyPerfResult {
     row_count: u32,
     instructions: u64,
-}
-
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-struct FluentQueryPerfOutcome {
-    result_kind: String,
-    entity: String,
-    row_count: u32,
-}
-
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-struct FluentQueryPerfResult {
-    outcome: FluentQueryPerfOutcome,
-    attribution: QueryExecutionAttribution,
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -770,11 +757,6 @@ FROM PerfAuditToken \
 WHERE collection_id IN ('01KV5N439P0000000000000000', 'missing-collection-000', 'missing-collection-001', 'missing-collection-002', 'missing-collection-003', 'missing-collection-004', 'missing-collection-005', 'missing-collection-006', 'missing-collection-007', 'missing-collection-008', 'missing-collection-009', 'missing-collection-010', 'missing-collection-011', 'missing-collection-012', 'missing-collection-013', 'missing-collection-014', 'missing-collection-015', 'missing-collection-016', 'missing-collection-017', 'missing-collection-018', 'missing-collection-019', 'missing-collection-020', 'missing-collection-021', 'missing-collection-022', 'missing-collection-023', 'missing-collection-024', 'missing-collection-025', 'missing-collection-026', 'missing-collection-027', 'missing-collection-028', 'missing-collection-029', 'missing-collection-030') \
 ORDER BY id ASC \
 LIMIT 50";
-const TOKEN_COLLECTION_FULL_ENTITY_FLUENT_SCENARIO: &str =
-    "token.collection_id.full_entity.limit300";
-const TOKEN_COLLECTION_FULL_ENTITY_ROWS: u32 = 256;
-const TOKEN_COLLECTION_REPEAT_LOAD_RUNS: u32 = 50;
-
 fn token_branch_set_scenarios() -> Vec<SqlPerfScenario> {
     vec![
         scenario(
@@ -1233,56 +1215,6 @@ fn print_cached_journaled_sql_limit_one_attribution(perf: &SqlQueryPerfResult) {
     );
 }
 
-fn print_fluent_limit_one_attribution(label: &str, perf: &FluentQueryPerfResult) {
-    let attribution = &perf.attribution;
-
-    println!(
-        "{label} fluent attributed limit1: compile={} compile_schema={} compile_info={} compile_prepare={} compile_key={} compile_lookup={} compile_plan={} compile_insert={} plan_lookup={} executor_invocation={} load_plan={} row_layout={} continuation={} handoff={} route_plan={} runtime_prepare={} runtime={} finalize={} response_finalize={} response_decode={} execute={} total={} shared_hits={} shared_misses={} direct={:?}",
-        attribution.compile_local_instructions,
-        attribution.compile_schema_catalog_local_instructions,
-        attribution.compile_schema_info_local_instructions,
-        attribution.compile_prepare_local_instructions,
-        attribution.compile_cache_key_local_instructions,
-        attribution.compile_cache_lookup_local_instructions,
-        attribution.compile_plan_build_local_instructions,
-        attribution.compile_cache_insert_local_instructions,
-        attribution.plan_lookup_local_instructions,
-        attribution.executor_invocation_local_instructions,
-        attribution.load_plan_local_instructions,
-        attribution.row_layout_local_instructions,
-        attribution.continuation_signature_local_instructions,
-        attribution.scalar_runtime_handoff_local_instructions,
-        attribution.route_plan_local_instructions,
-        attribution.runtime_prepare_local_instructions,
-        attribution.runtime_local_instructions,
-        attribution.finalize_local_instructions,
-        attribution.response_finalization_local_instructions,
-        attribution.response_decode_local_instructions,
-        attribution.execute_local_instructions,
-        attribution.total_local_instructions,
-        attribution.shared_query_plan_cache_hits,
-        attribution.shared_query_plan_cache_misses,
-        attribution.direct_data_row,
-    );
-}
-
-fn print_fluent_repeat_load_attribution(label: &str, perf: &FluentQueryPerfResult) {
-    let attribution = &perf.attribution;
-
-    println!(
-        "{label} fluent repeat load: rows={} avg_compile={} avg_execute={} avg_total={} avg_data_gets={} avg_index_ranges={} avg_index_entries={} shared_hits={} shared_misses={}",
-        perf.outcome.row_count,
-        attribution.compile_local_instructions,
-        attribution.execute_local_instructions,
-        attribution.total_local_instructions,
-        attribution.store_get_calls,
-        attribution.index_store_range_scan_calls,
-        attribution.index_store_entry_reads,
-        attribution.shared_query_plan_cache_hits,
-        attribution.shared_query_plan_cache_misses,
-    );
-}
-
 fn assert_storage_primary_limit_one_stays_bounded(label: &str, perf: &SqlQueryPerfResult) {
     let outcome = summarize_perf_outcome(&perf.result);
 
@@ -1437,91 +1369,14 @@ fn assert_heap_total_only_limit_one_variants_stay_bounded(fixture: &StandaloneCa
     }
 }
 
-fn query_journaled_fluent_total_only_limit_one_perf(
-    fixture: &StandaloneCanisterFixture,
-) -> FluentTotalOnlyPerfResult {
-    let result: Result<FluentTotalOnlyPerfResult, Error> = fixture
-        .query_call("query_journaled_user_fluent_total_only_perf", ())
-        .expect("journaled fluent total-only LIMIT 1 perf query should decode");
-
-    result.expect("journaled fluent total-only LIMIT 1 perf query should succeed")
-}
-
 fn measure_journaled_guarded_reentry_total_only_perf(
     fixture: &StandaloneCanisterFixture,
-) -> FluentTotalOnlyPerfResult {
-    let result: Result<FluentTotalOnlyPerfResult, Error> = fixture
+) -> ReadTotalOnlyPerfResult {
+    let result: Result<ReadTotalOnlyPerfResult, Error> = fixture
         .update_call("measure_journaled_reentry_perf", ())
         .expect("journaled guarded reentry perf update should decode");
 
     result.expect("journaled guarded reentry perf update should succeed")
-}
-
-fn query_heap_fluent_total_only_limit_one_perf(
-    fixture: &StandaloneCanisterFixture,
-) -> FluentTotalOnlyPerfResult {
-    let result: Result<FluentTotalOnlyPerfResult, Error> = fixture
-        .query_call("query_heap_user_fluent_total_only_perf", ())
-        .expect("heap fluent total-only LIMIT 1 perf query should decode");
-
-    result.expect("heap fluent total-only LIMIT 1 perf query should succeed")
-}
-
-fn query_journaled_fluent_attributed_limit_one_perf(
-    fixture: &StandaloneCanisterFixture,
-) -> FluentQueryPerfResult {
-    let result: Result<FluentQueryPerfResult, Error> = fixture
-        .query_call("query_journaled_user_fluent_with_perf", ())
-        .expect("journaled fluent attributed LIMIT 1 perf query should decode");
-
-    result.expect("journaled fluent attributed LIMIT 1 perf query should succeed")
-}
-
-fn query_heap_fluent_attributed_limit_one_perf(
-    fixture: &StandaloneCanisterFixture,
-) -> FluentQueryPerfResult {
-    let result: Result<FluentQueryPerfResult, Error> = fixture
-        .query_call("query_heap_user_fluent_with_perf", ())
-        .expect("heap fluent attributed LIMIT 1 perf query should decode");
-
-    result.expect("heap fluent attributed LIMIT 1 perf query should succeed")
-}
-
-fn query_token_fluent_loop_with_perf(
-    fixture: &StandaloneCanisterFixture,
-    scenario: &str,
-    query_loop_count: u32,
-) -> FluentQueryPerfResult {
-    let result: Result<FluentQueryPerfResult, Error> = fixture
-        .query_call(
-            "query_token_fluent_loop_with_perf",
-            (scenario.to_string(), query_loop_count),
-        )
-        .expect("token fluent loop perf query should decode");
-
-    result.expect("token fluent loop perf query should succeed")
-}
-
-fn assert_journaled_fluent_limit_one_reports(fixture: &StandaloneCanisterFixture) {
-    let fluent_total = query_journaled_fluent_total_only_limit_one_perf(fixture);
-    println!(
-        "journaled fluent total-only limit1 attribution: total={}",
-        fluent_total.instructions,
-    );
-
-    let fluent_attributed = query_journaled_fluent_attributed_limit_one_perf(fixture);
-    print_fluent_limit_one_attribution("journaled", &fluent_attributed);
-}
-
-fn assert_heap_fluent_limit_one_reports(fixture: &StandaloneCanisterFixture) {
-    let fluent_total = query_heap_fluent_total_only_limit_one_perf(fixture);
-    println!(
-        "heap fluent total-only limit1 attribution: total={}",
-        fluent_total.instructions,
-    );
-
-    let fluent_attributed = query_heap_fluent_attributed_limit_one_perf(fixture);
-    print_fluent_limit_one_attribution("heap", &fluent_attributed);
 }
 
 fn measure_storage_write_matrix(
@@ -1801,16 +1656,14 @@ fn assert_journaled_cached_limit_one_reports(
     print_sql_limit_one_attribution("journaled loop limit1 attribution", &looped);
 }
 
-fn assert_storage_total_and_fluent_limit_one_reports(fixture: &StandaloneCanisterFixture) {
+fn assert_storage_total_limit_one_reports(fixture: &StandaloneCanisterFixture) {
     assert_heap_total_only_limit_one_variants_stay_bounded(fixture);
     assert_journaled_total_only_limit_one_variants_stay_bounded(fixture);
-    assert_heap_fluent_limit_one_reports(fixture);
-    assert_journaled_fluent_limit_one_reports(fixture);
 }
 
 fn assert_journaled_guarded_reentry_perf_stays_bounded(
     label: &str,
-    perf: &FluentTotalOnlyPerfResult,
+    perf: &ReadTotalOnlyPerfResult,
     expected_rows: u32,
     instruction_budget: u64,
 ) {
@@ -1884,7 +1737,7 @@ fn sql_perf_journaled_primary_limit_one_stays_bounded() {
     let read_samples = assert_storage_cold_limit_one_reports(&fixture);
     assert_heap_cached_limit_one_reports(&fixture, &read_samples.heap);
     assert_journaled_cached_limit_one_reports(&fixture, &read_samples.journaled);
-    assert_storage_total_and_fluent_limit_one_reports(&fixture);
+    assert_storage_total_limit_one_reports(&fixture);
     assert_storage_write_matrix_reports(&fixture);
     assert_sql_write_materialization_matrix_reports(&fixture);
 }
@@ -2240,56 +2093,6 @@ fn sql_perf_repeated_query_contracts_keep_compiled_and_shared_cache_path() {
         reset_sql_perf_fixtures(&fixture);
         assert_repeat_scenario_keeps_compiled_and_shared_cache_path(&fixture, scenario);
     }
-}
-
-#[test]
-fn sql_perf_repeated_same_indexed_load_reports_full_reload_pressure() {
-    let fixture = install_sql_perf_canister_fixture();
-    reset_sql_perf_fixtures(&fixture);
-
-    let repeat = query_token_fluent_loop_with_perf(
-        &fixture,
-        TOKEN_COLLECTION_FULL_ENTITY_FLUENT_SCENARIO,
-        TOKEN_COLLECTION_REPEAT_LOAD_RUNS,
-    );
-    print_fluent_repeat_load_attribution("token.collection_id full entity", &repeat);
-    let attribution = &repeat.attribution;
-    let repeated_hits = u64::from(TOKEN_COLLECTION_REPEAT_LOAD_RUNS.saturating_sub(1));
-
-    assert_eq!(
-        repeat.outcome.result_kind, "rows",
-        "repeated collection load should return full entity rows",
-    );
-    assert_eq!(
-        repeat.outcome.entity, "PerfAuditToken",
-        "repeated collection load should target the token fixture",
-    );
-    assert_eq!(
-        repeat.outcome.row_count, TOKEN_COLLECTION_FULL_ENTITY_ROWS,
-        "repeated collection load should cover the Toko-sized target collection",
-    );
-    assert_eq!(
-        attribution.shared_query_plan_cache_hits, repeated_hits,
-        "same-call repeated collection load should reuse the prepared plan after the first pass",
-    );
-    assert_eq!(
-        attribution.shared_query_plan_cache_misses, 1,
-        "same-call repeated collection load should cold-fill the prepared plan once",
-    );
-    assert_eq!(
-        attribution.index_store_range_scan_calls, 1,
-        "each averaged repeated collection load should still perform one indexed range traversal",
-    );
-    assert!(
-        attribution.index_store_entry_reads >= u64::from(TOKEN_COLLECTION_FULL_ENTITY_ROWS),
-        "each averaged repeated collection load should still walk the full target collection index, got {} entries",
-        attribution.index_store_entry_reads,
-    );
-    assert!(
-        attribution.store_get_calls >= u64::from(TOKEN_COLLECTION_FULL_ENTITY_ROWS),
-        "each averaged repeated collection load should still hydrate the full target collection, got {} row reads",
-        attribution.store_get_calls,
-    );
 }
 
 #[test]

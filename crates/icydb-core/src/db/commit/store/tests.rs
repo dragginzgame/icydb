@@ -8,6 +8,7 @@ use crate::{
         data::{DecodedDataStoreKey, RawDataStoreKey},
         integrity::DatabaseIncarnationId,
         journal::{JournalBatch, JournalRecord, JournalSequence},
+        key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
     },
     error::{ErrorClass, ErrorOrigin},
     testing::test_memory,
@@ -26,10 +27,12 @@ fn encode_test_marker_payload(marker: &CommitMarker) -> Vec<u8> {
 
 // Materialize one canonical raw data-store key for marker tests.
 fn raw_data_store_key(fill: u8) -> RawDataStoreKey {
-    DecodedDataStoreKey::try_from_typed_key(EntityTag::new(1), &u64::from(fill))
-        .expect("test key should encode")
-        .to_raw()
-        .expect("test key should materialize")
+    DecodedDataStoreKey::new_primary_key_value(
+        EntityTag::new(1),
+        &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(u64::from(fill))),
+    )
+    .to_raw()
+    .expect("test key should materialize")
 }
 
 #[test]

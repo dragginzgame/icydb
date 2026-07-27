@@ -64,7 +64,7 @@ fn lower_order_term(term: SqlOrderTerm) -> Result<LoweredSqlOrderTerm, SqlLoweri
         SqlExprPhase::Scalar
     };
     let expr = lower_sql_expr(&term.field, phase)?;
-    let analysis = analyze_lowered_expr(&expr, None);
+    let analysis = analyze_lowered_expr(&expr);
 
     Ok(LoweredSqlOrderTerm {
         analysis,

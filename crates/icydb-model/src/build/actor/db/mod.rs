@@ -13,25 +13,16 @@ use sql::SqlSurfaceTokens;
 
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::parse_str;
-
 /// Render the generated store/session wiring for one canister actor.
-///
-/// # Panics
-///
-/// Panics if validated schema paths cannot be parsed back into Rust paths.
 #[must_use]
 pub fn generate(builder: &ActorBuilder) -> TokenStream {
-    let canister_path_source = builder.canister_path();
-    let canister_path: syn::Path = parse_str(&canister_path_source)
-        .unwrap_or_else(|_| panic!("invalid canister path: {canister_path_source}"));
-    let entity_registrations = entity_registrations(builder, &canister_path);
+    let entity_registrations = entity_registrations(builder);
 
-    store::generate_store_wiring(builder, &canister_path, entity_registrations)
+    store::generate_store_wiring(builder, entity_registrations)
 }
 
 /// Emit proposal/runtime registration pairs for entities bound to this canister.
-fn entity_registrations(builder: &ActorBuilder, canister_path: &syn::Path) -> TokenStream {
+fn entity_registrations(builder: &ActorBuilder) -> TokenStream {
     let mut registration_inits = quote!();
     let mut sql_surface = builder.options.sql_enabled().then(|| {
         SqlSurfaceTokens::empty(
@@ -45,17 +36,22 @@ fn entity_registrations(builder: &ActorBuilder, canister_path: &syn::Path) -> To
         .then(SchemaSurfaceTokens::empty);
     let entities = builder.get_entities();
 
-    for (entity_path, _) in entities {
-        let entity_ty: syn::Path = parse_str(&entity_path)
-            .unwrap_or_else(|_| panic!("invalid entity path: {entity_path}"));
+    for (entity_path, entity) in entities {
+        let entity_source_key = entity.source_key();
+        let store_path = entity.store();
+        let entity_name = entity.resolved_name();
         registration_inits.extend(quote! {
-            ::icydb::__macro::EntityRegistration::<#canister_path>::for_entity::<#entity_ty>(),
+            ::icydb::__macro::EntityRegistration::<__IcydbGeneratedCanister>::new(
+                #entity_source_key,
+                #entity_path,
+                #store_path,
+            ),
         });
         if let Some(sql_surface) = sql_surface.as_mut() {
-            sql_surface.push_entity(&entity_ty);
+            sql_surface.push_entity(entity_path.as_str(), entity_name);
         }
         if let Some(schema_surface) = schema_surface.as_mut() {
-            schema_surface.push_entity(&entity_ty);
+            schema_surface.push_entity(entity_path.as_str(), entity_name);
         }
     }
     let sql_surface = sql_surface.map_or_else(TokenStream::new, |sql_surface| quote!(#sql_surface));
@@ -64,7 +60,7 @@ fn entity_registrations(builder: &ActorBuilder, canister_path: &syn::Path) -> To
 
     quote! {
         static ENTITY_REGISTRATIONS: &[
-            ::icydb::__macro::EntityRegistration<#canister_path>
+            ::icydb::__macro::EntityRegistration<__IcydbGeneratedCanister>
         ] = &[
             #registration_inits
         ];

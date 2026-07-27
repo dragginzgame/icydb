@@ -4,9 +4,7 @@ use crate::{
     db::{
         codec::{ROW_FORMAT_VERSION_CURRENT, decode_row_payload_bytes},
         commit::{COMMIT_MARKER_FORMAT_VERSION_CURRENT, validate_commit_marker_envelope_for_tests},
-        cursor::{
-            ContinuationSignature, ContinuationToken, CursorBoundary, GroupedContinuationToken,
-        },
+        cursor::{ContinuationSignature, GroupedContinuationToken},
         data::{
             decode_canonical_value_storage_bytes, decode_structural_field_by_kind_bytes,
             decode_structural_value_storage_bytes, validate_structural_field_by_kind_bytes,
@@ -381,14 +379,6 @@ fn commit_marker_envelope_malformed_corpus_fails_closed() {
 
 #[test]
 fn continuation_token_malformed_corpus_fails_closed() {
-    let scalar = ContinuationToken::new_with_direction(
-        ContinuationSignature::from_bytes([0x33; 32]),
-        CursorBoundary { slots: Vec::new() },
-        Direction::Asc,
-        0,
-    )
-    .encode()
-    .expect("current scalar token should encode");
     let grouped = GroupedContinuationToken::new_with_direction(
         ContinuationSignature::from_bytes([0x44; 32]),
         Vec::new(),
@@ -397,25 +387,6 @@ fn continuation_token_malformed_corpus_fails_closed() {
     )
     .encode()
     .expect("current grouped token should encode");
-
-    let mut future_scalar = scalar.clone();
-    future_scalar[4] = scalar[4].saturating_add(1);
-    let mut corrupt_scalar_magic = scalar.clone();
-    corrupt_scalar_magic[0] = b'X';
-    let mut truncated_scalar = scalar;
-    truncated_scalar.pop();
-    assert_err(
-        "corrupt scalar token magic",
-        ContinuationToken::decode(&corrupt_scalar_magic),
-    );
-    assert_err(
-        "future scalar token",
-        ContinuationToken::decode(&future_scalar),
-    );
-    assert_err(
-        "truncated scalar token",
-        ContinuationToken::decode(&truncated_scalar),
-    );
 
     let mut future_grouped = grouped.clone();
     future_grouped[4] = grouped[4].saturating_add(1);

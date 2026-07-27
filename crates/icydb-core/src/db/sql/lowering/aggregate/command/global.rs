@@ -37,8 +37,6 @@ pub(in crate::db::sql::lowering) struct LoweredSqlGlobalAggregateCommand {
         Vec<LoweredSqlGlobalAggregateTerminal>,
     pub(in crate::db::sql::lowering::aggregate::command) projection: ProjectionSpec,
     pub(in crate::db::sql::lowering::aggregate::command) having: Option<Expr>,
-    #[cfg(test)]
-    pub(in crate::db::sql::lowering::aggregate::command) output_remap: Vec<usize>,
 }
 
 impl LoweredSqlGlobalAggregateCommand {
@@ -92,8 +90,6 @@ impl LoweredSqlGlobalAggregateCommand {
             terminals: lowered_terminal_parts.terminals,
             projection: lowered_terminal_parts.projection,
             having,
-            #[cfg(test)]
-            output_remap: lowered_terminal_parts.output_remap,
         })
     }
 
@@ -117,8 +113,6 @@ impl LoweredSqlGlobalAggregateCommand {
                 alias,
             }]),
             having: None,
-            #[cfg(test)]
-            output_remap: vec![0],
         })
     }
 }

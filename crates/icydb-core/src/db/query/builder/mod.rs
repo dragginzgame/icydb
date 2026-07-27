@@ -9,14 +9,6 @@ pub(in crate::db) mod numeric_projection;
 pub(in crate::db) mod scalar_projection;
 pub(in crate::db) mod text_projection;
 
-pub(in crate::db) use aggregate::{
-    AggregateExplain, AvgBySlotTerminal, AvgDistinctBySlotTerminal, CountDistinctBySlotTerminal,
-    CountRowsTerminal, DistinctValuesBySlotTerminal, ExistsRowsTerminal, FirstIdTerminal,
-    FirstValueBySlotTerminal, LastIdTerminal, LastValueBySlotTerminal, MaxIdBySlotTerminal,
-    MaxIdTerminal, MedianIdBySlotTerminal, MinIdBySlotTerminal, MinIdTerminal,
-    MinMaxIdBySlotTerminal, NthIdBySlotTerminal, ProjectionExplain, SumBySlotTerminal,
-    SumDistinctBySlotTerminal, ValuesBySlotTerminal, ValuesBySlotWithIdsTerminal,
-};
 pub use aggregate::{
     AggregateExpr, avg, count, count_by, exists, first, last, max, max_by, min, min_by, sum,
 };

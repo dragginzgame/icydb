@@ -5,8 +5,6 @@
 
 mod clauses;
 mod model;
-#[cfg(test)]
-mod order_expr;
 mod projection;
 mod statement;
 
@@ -45,11 +43,6 @@ pub(crate) use model::{
 };
 #[cfg(feature = "sql-explain")]
 pub(crate) use model::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget};
-#[cfg(test)]
-pub(in crate::db::sql) use order_expr::{
-    parse_grouped_post_aggregate_order_expr_ast, parse_supported_order_expr_ast,
-};
-
 ///
 /// SqlParsePhaseAttribution
 ///

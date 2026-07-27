@@ -7,7 +7,6 @@ mod cardinality;
 mod entry;
 pub(in crate::db) mod envelope;
 mod key;
-mod pk_equivalence;
 mod plan;
 pub(in crate::db) mod predicate;
 mod range;
@@ -18,17 +17,12 @@ mod store;
 pub(in crate::db) use crate::db::key_taxonomy::IndexEntryValue;
 pub(in crate::db) use entry::{IndexEntryExistenceWitness, IndexEntryRowWitness, IndexRowIdentity};
 pub(in crate::db) use envelope::{
-    KeyEnvelope, envelope_is_empty, key_within_envelope, resume_bounds_for_continuation,
+    envelope_is_empty, key_within_envelope, resume_bounds_for_continuation,
     validate_index_scan_continuation_advancement,
 };
 pub(in crate::db) use key::{
     EncodedValue, IndexExpressionSourceClass, IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey,
     derive_index_expression_value, encode_accepted_index_literal_component,
-};
-#[cfg(test)]
-pub(in crate::db) use pk_equivalence::primary_key_matches_value;
-pub(in crate::db) use pk_equivalence::{
-    PrimaryKeyEquivalenceError, primary_key_matches_primary_key_value,
 };
 pub(in crate::db) use plan::{
     AcceptedIndexInspectionDomain, AcceptedIndexInspectionPlan, IndexDelta, IndexDeltaGroup,
@@ -40,7 +34,7 @@ pub(in crate::db) use predicate::{
     compile_index_program_for_targets,
 };
 pub(in crate::db) use range::{
-    IndexBoundsSpec, IndexRangeBoundEncodeError, TextPrefixBoundMode, build_index_bounds_for_arity,
+    IndexBoundsSpec, IndexRangeBoundEncodeError, TextPrefixBoundMode,
     build_index_bounds_lowering_for_arity, build_index_component_range_with_encoded_prefix,
     build_index_prefix_bounds_for_encoded_components, raw_keys_for_component_prefix_with_kind,
     starts_with_component_bounds,

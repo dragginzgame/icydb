@@ -41,7 +41,7 @@ use crate::db::{
 /// Derive the complete feasibility stage for one validated model plan.
 pub(super) fn derive_execution_feasibility_stage_for_model(
     plan: &AccessPlannedQuery,
-    continuation: &ScalarContinuationContext,
+    continuation: ScalarContinuationContext,
     probe_fetch_hint: Option<usize>,
     planner_route_profile: &PlannerRouteProfile,
     intent_stage: &RouteIntentStage<'_>,

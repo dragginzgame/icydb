@@ -12,11 +12,9 @@ use crate::{
         index::{IndexEntryValue, IndexKey, IndexStore, RawIndexStoreKey},
         journal::{JournalBatch, JournalRecord},
         registry::{StoreHandle, StoreRecoveryCapability},
-        relation::{RelationConstraintIndexEntry, RelationConstraintProjection},
         schema::{
             AcceptedSchemaRevision, CandidateSchemaRevision, ConstraintId, ConstraintValidationJob,
-            SchemaApplicationRecordOp, StagedDerivedDomainReplacement,
-            StagedUserIndexDomainReplacement,
+            SchemaApplicationRecordOp, StagedUserIndexDomainReplacement,
             accepted_schema_cache_fingerprint_for_persisted_snapshot,
             apply_schema_application_record_op,
         },
@@ -32,7 +30,6 @@ enum StagedSchemaDomains {
     None,
     #[cfg(feature = "sql")]
     UserIndexes(Vec<StagedUserIndexDomainReplacement>),
-    Derived(Vec<StagedDerivedDomainReplacement>),
 }
 
 /// Exact validation-job mutation paired with one accepted-schema publication.
@@ -294,47 +291,6 @@ pub(in crate::db) fn publish_constraint_validation_job_with_candidate_index_entr
     )
 }
 
-/// Advance one relation validation page and its isolated reverse writes through
-/// the same marker-owned checkpoint boundary.
-pub(in crate::db) fn publish_constraint_validation_job_with_candidate_relation_entries(
-    store_path: &'static str,
-    store: StoreHandle,
-    job: &ConstraintValidationJob,
-    projection: &RelationConstraintProjection,
-    entries: Vec<RelationConstraintIndexEntry>,
-) -> Result<(), InternalError> {
-    let bundle = store
-        .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
-        .ok_or_else(InternalError::store_corruption)?;
-    if bundle.store_path() != store_path {
-        return Err(InternalError::store_corruption());
-    }
-    store.with_schema(|schema_store| {
-        schema_store.validate_constraint_validation_job_closure_with_change(
-            &bundle,
-            Some(job),
-            None,
-        )
-    })?;
-    if job.staged_generation() != Some(projection.physical_generation())
-        || entries.windows(2).any(|pair| {
-            (pair[0].target_store_path(), pair[0].key())
-                >= (pair[1].target_store_path(), pair[1].key())
-        })
-        || entries
-            .iter()
-            .any(|entry| !projection.validates_entry(entry))
-        || store.storage_capabilities().recovery()
-            != StoreRecoveryCapability::StableBasePlusJournalReplay
-    {
-        return Err(InternalError::store_corruption());
-    }
-
-    publish_journaled_constraint_validation_job_with_candidate_relation_entries(
-        store_path, store, job, entries,
-    )
-}
-
 /// Publish one accepted-schema candidate and its prevalidated per-entity
 /// user-index domains through the same marker window.
 #[cfg(feature = "sql")]
@@ -358,32 +314,6 @@ pub(in crate::db) fn publish_accepted_schema_candidate_with_user_index_domains(
         expected_revision,
         candidate,
         StagedSchemaDomains::UserIndexes(replacements),
-        ConstraintValidationJobChange::None,
-    )
-}
-
-/// Publish one accepted-schema candidate with complete user-index domains and
-/// candidate-logical reverse-relation effects through the same marker window.
-pub(in crate::db) fn publish_accepted_schema_candidate_with_derived_domains(
-    store_path: &'static str,
-    store: StoreHandle,
-    expected_revision: AcceptedSchemaRevision,
-    candidate: &CandidateSchemaRevision,
-    domains: Vec<StagedDerivedDomainReplacement>,
-) -> Result<(), InternalError> {
-    validate_derived_domain_candidates(
-        store_path,
-        store,
-        expected_revision,
-        candidate,
-        domains.as_slice(),
-    )?;
-    publish_accepted_schema_candidate_with_prepared_domains(
-        store_path,
-        store,
-        expected_revision,
-        candidate,
-        StagedSchemaDomains::Derived(domains),
         ConstraintValidationJobChange::None,
     )
 }
@@ -580,34 +510,6 @@ fn publish_journaled_constraint_validation_job_with_candidate_index_entries(
     })
 }
 
-fn publish_journaled_constraint_validation_job_with_candidate_relation_entries(
-    store_path: &'static str,
-    store: StoreHandle,
-    job: &ConstraintValidationJob,
-    entries: Vec<RelationConstraintIndexEntry>,
-) -> Result<(), InternalError> {
-    let journal_store = store
-        .journal_tail_store()
-        .ok_or_else(InternalError::store_invariant)?;
-    let marker_id = generate_commit_id()?;
-    let sequence = journal_store
-        .with_borrow(crate::db::journal::JournalTailStore::next_mutation_append_sequence)?;
-    let record = JournalRecord::constraint_validation_job_put(store_path, job)?;
-    let batch = JournalBatch::new(marker_id, marker_id, sequence, vec![record])?;
-    let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])?;
-    let commit = begin_commit(marker)?;
-
-    finish_commit(commit, |_guard| {
-        journal_store.with_borrow_mut(|journal| journal.append_batch(&batch))?;
-        for entry in entries {
-            entry.target_store().with_index_mut(|index_store| {
-                index_store.insert(entry.key().clone(), IndexEntryValue::presence());
-            });
-        }
-        store.with_schema_mut(|schema_store| schema_store.apply_constraint_validation_job(job))
-    })
-}
-
 fn validate_candidate_index_entries(
     bundle: &crate::db::schema::AcceptedSchemaRevisionBundle,
     job: &ConstraintValidationJob,
@@ -772,34 +674,6 @@ fn validate_user_index_domain_candidates(
     Ok(())
 }
 
-fn validate_derived_domain_candidates(
-    store_path: &'static str,
-    store: StoreHandle,
-    expected_revision: AcceptedSchemaRevision,
-    candidate: &CandidateSchemaRevision,
-    domains: &[StagedDerivedDomainReplacement],
-) -> Result<(), InternalError> {
-    if domains.is_empty() || candidate.store_path() != store_path {
-        return Err(InternalError::store_invariant());
-    }
-    let mut entities = BTreeSet::new();
-    for domain in domains {
-        validate_user_index_domain_candidate(
-            store_path,
-            store,
-            expected_revision,
-            candidate,
-            domain.user_indexes(),
-            &mut entities,
-        )?;
-    }
-    if store.index_state() != crate::db::index::IndexState::Ready {
-        return Err(InternalError::store_unsupported());
-    }
-
-    Ok(())
-}
-
 fn validate_user_index_domain_candidate(
     store_path: &'static str,
     store: StoreHandle,
@@ -855,9 +729,6 @@ fn apply_staged_schema_domains(store: StoreHandle, domains: StagedSchemaDomains)
         StagedSchemaDomains::UserIndexes(replacements) => {
             apply_user_index_domain_replacements(store, replacements);
         }
-        StagedSchemaDomains::Derived(domains) => {
-            apply_derived_domain_replacements(store, domains);
-        }
     }
 }
 
@@ -875,27 +746,6 @@ fn apply_user_index_domain_replacements(
         index_store.mark_prefix_cardinality_data_generation(data_generation);
         index_store.mark_ready();
     });
-}
-
-fn apply_derived_domain_replacements(
-    store: StoreHandle,
-    domains: Vec<StagedDerivedDomainReplacement>,
-) {
-    let data_generation = store.with_data(DataStore::generation);
-    let mut reverse_relation_effects = Vec::new();
-    store.with_index_mut(|index_store| {
-        index_store.mark_building();
-        for domain in domains {
-            let (user_indexes, mut relation_effects) = domain.into_apply_parts();
-            apply_user_index_domain_replacement(index_store, user_indexes);
-            reverse_relation_effects.append(&mut relation_effects);
-        }
-        index_store.mark_prefix_cardinality_data_generation(data_generation);
-        index_store.mark_ready();
-    });
-    for effect in reverse_relation_effects {
-        effect.apply();
-    }
 }
 
 fn apply_user_index_domain_replacement(

@@ -36,7 +36,7 @@ impl ExecutionKernel {
     pub(in crate::db::executor) fn materialize_with_optional_residual_retry(
         inputs: &ExecutionInputs<'_>,
         route_plan: &ExecutionRoutePlan,
-        continuation: &ScalarContinuationContext,
+        continuation: ScalarContinuationContext,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
         let route_attempt_materializer =
@@ -53,7 +53,7 @@ impl ExecutionKernel {
     pub(in crate::db::executor) fn materialize_kernel_rows_with_optional_residual_retry(
         inputs: &ExecutionInputs<'_>,
         route_plan: &ExecutionRoutePlan,
-        continuation: &ScalarContinuationContext,
+        continuation: ScalarContinuationContext,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {
         let route_attempt_materializer =
@@ -75,14 +75,14 @@ impl ExecutionKernel {
 /// widen, and when the route must fall back to one final unbounded attempt.
 ///
 
-struct ResidualRetrySession<'a, 'b, 'c> {
-    route_attempt_materializer: &'c RouteAttemptMaterializer<'a, 'b>,
+struct ResidualRetrySession<'a, 'b> {
+    route_attempt_materializer: &'b RouteAttemptMaterializer<'a>,
 }
 
-impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
+impl<'a, 'b> ResidualRetrySession<'a, 'b> {
     // Build one retry-session controller around the shared route-attempt
     // materializer for a single kernel attempt.
-    const fn new(route_attempt_materializer: &'c RouteAttemptMaterializer<'a, 'b>) -> Self {
+    const fn new(route_attempt_materializer: &'b RouteAttemptMaterializer<'a>) -> Self {
         Self {
             route_attempt_materializer,
         }
@@ -342,18 +342,18 @@ impl ResidualRetryAttempt for MaterializedExecutionAttempt {
 /// without re-threading the same boundary data through every call.
 ///
 
-struct RouteAttemptMaterializer<'a, 'b> {
+struct RouteAttemptMaterializer<'a> {
     inputs: &'a ExecutionInputs<'a>,
-    continuation: &'b ScalarContinuationContext,
+    continuation: ScalarContinuationContext,
     predicate_compile_mode: IndexCompilePolicy,
 }
 
-impl<'a, 'b> RouteAttemptMaterializer<'a, 'b> {
+impl<'a> RouteAttemptMaterializer<'a> {
     // Build one owner-local route-attempt materializer for a single kernel
     // execution attempt.
     const fn new(
         inputs: &'a ExecutionInputs<'a>,
-        continuation: &'b ScalarContinuationContext,
+        continuation: ScalarContinuationContext,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Self {
         Self {

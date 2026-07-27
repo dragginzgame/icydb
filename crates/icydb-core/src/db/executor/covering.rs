@@ -9,17 +9,16 @@ use crate::{
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract, LoweredKey,
         },
         cursor::IndexScanContinuationInput,
-        data::DecodedDataStoreKey,
+        data::{DataStore, DecodedDataStoreKey},
         direction::Direction,
         executor::{
-            FlatMergeOrderedChild, FlatMergeSiblingSet, FlatMergeStream, IndexScan,
+            ExecutorError, FlatMergeOrderedChild, FlatMergeSiblingSet, FlatMergeStream, IndexScan,
             KeyOrderComparator, PrefixSetExecutionShape, PrefixSetMergeSafety,
             active_lowered_index_prefix_specs, apply_data_key_ordered_dedup_window,
             apply_index_scan_chunk_progress, branch_stream_chunk_entries,
             index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
-            index_stream_output_limit_for_chunk,
-            read_row_presence_with_consistency_from_data_store,
-            record_row_check_covering_candidate_seen, record_row_check_row_emitted,
+            index_stream_output_limit_for_chunk, record_row_check_covering_candidate_seen,
+            record_row_check_row_emitted, record_row_presence_probe,
         },
         index::{IndexEntryExistenceWitness, RawIndexStoreKey, predicate::IndexPredicateExecution},
         predicate::MissingRowPolicy,
@@ -40,6 +39,22 @@ const COVERING_TEXT_ESCAPE_PREFIX: u8 = 0x00;
 const COVERING_TEXT_TERMINATOR: u8 = 0x00;
 const COVERING_TEXT_ESCAPED_ZERO: u8 = 0xFF;
 const COVERING_I64_SIGN_BIT_BIAS: u64 = 1u64 << 63;
+
+fn read_row_presence_with_consistency_from_data_store(
+    data: &DataStore,
+    key: &DecodedDataStoreKey,
+    consistency: MissingRowPolicy,
+) -> Result<bool, InternalError> {
+    let raw = key.to_raw()?;
+    let row_exists = data.contains(&raw);
+    record_row_presence_probe(row_exists);
+
+    match consistency {
+        MissingRowPolicy::Error if !row_exists => Err(ExecutorError::missing_row(key).into()),
+        MissingRowPolicy::Error | MissingRowPolicy::Ignore => Ok(row_exists),
+    }
+}
+
 pub(in crate::db::executor) type CoveringComponentValues = Arc<[Vec<u8>]>;
 
 pub(in crate::db::executor) type CoveringProjectionComponentRows = Vec<(
@@ -56,10 +71,6 @@ type CoveringProjectionComponentRow = (
 
 // Build the canonical executor-owned covering mode for fast paths that still
 // must verify row presence before trusting secondary/index-backed payloads.
-pub(in crate::db::executor) const fn covering_requires_row_presence_check()
--> CoveringExistingRowMode {
-    CoveringExistingRowMode::RequiresRowPresenceCheck
-}
 
 // Resolve one canonical scan direction for covering projections. Any contract
 // that still owes primary-key reordering must consume the underlying index in
@@ -146,30 +157,6 @@ where
     }
 
     Err(InternalError::query_executor_invariant())
-}
-
-pub(in crate::db::executor) fn resolve_single_covering_projection_component_from_lowered_specs<F>(
-    entity_tag: EntityTag,
-    index_prefix_specs: &[LoweredIndexPrefixSpec],
-    index_range_specs: &[LoweredIndexRangeSpec],
-    direction: Direction,
-    component_index: usize,
-    resolve_store_for_index: F,
-) -> Result<CoveringProjectionComponentRows, InternalError>
-where
-    F: FnMut(&str) -> Result<StoreHandle, InternalError>,
-{
-    resolve_covering_projection_components_from_lowered_specs(
-        entity_tag,
-        index_prefix_specs,
-        index_range_specs,
-        direction,
-        usize::MAX,
-        &[component_index],
-        None,
-        PrefixSetMergeSafety::RequiresMaterialization,
-        resolve_store_for_index,
-    )
 }
 
 struct CoveringPrefixSetScan<'a> {

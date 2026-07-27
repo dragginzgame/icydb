@@ -19,14 +19,13 @@ pub use icydb_core::db::{
     TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,
     TrustedResumableUpdateRestartReason,
 };
-pub use response::{ExecutionTrace, GroupedRow, PagedResponse, Response, RowProjectionOutput};
+pub use response::{ExecutionTrace, GroupedRow, RowProjectionOutput};
 #[cfg(feature = "sql")]
 pub use session::SqlIntegrityError;
 pub use session::{
-    DbSession, FluentLoadQuery, IntegrityCheckError, OutputRow, PartialWindowLoadQuery,
-    SessionDeleteQuery, StructuralMutation, StructuralPatch, TypedAdapterError, TypedBindingError,
-    TypedEntityBinding, TypedRowAdapter, TypedRowError, TypedWrite, TypedWriteAdapter,
-    TypedWriteError, WriteCell,
+    DbSession, IntegrityCheckError, OutputRow, StructuralMutation, StructuralPatch,
+    TypedAdapterError, TypedBindingError, TypedEntityAdapter, TypedEntityBinding, TypedRowAdapter,
+    TypedRowError, TypedWrite, TypedWriteAdapter, TypedWriteError, WriteCell,
 };
 #[cfg(feature = "sql")]
 #[doc(hidden)]
@@ -40,25 +39,24 @@ pub use session::{
 
 // Public core DTOs intentionally carried through the facade database surface.
 pub use icydb_core::db::{
-    AdminBatchRequest, ConstraintValidationProgressDescription, DataStoreSnapshot,
-    DeepIntegrityPage, DeepIntegrityPageStatus, DynamicMutationResult, EntityCatalogCounts,
-    EntityCatalogDescription, EntityConstraintDescription, EntityFieldDescription,
-    EntityIndexDescription, EntityRelationCardinality, EntityRelationDescription,
-    EntitySchemaCheckDescription, EntitySchemaDescription, ExplainAggregateTerminalPlan,
-    ExplainExecutionDescriptor, ExplainExecutionMode, ExplainExecutionNodeDescriptor,
-    ExplainExecutionNodeType, ExplainExecutionOrderingSource, IndexStoreSnapshot,
-    IntegrityAbortReceipt, IntegrityAbortStatus, IntegrityAuthorityClass,
-    IntegrityAuthorityDiagnostic, IntegrityCheckRequest, IntegrityCheckResult,
-    IntegrityEntityIdentity, IntegrityFinding, IntegrityFindingClass, IntegrityFindingKind,
-    IntegrityJobError, IntegrityJobId, IntegrityJobOwner, IntegrityJobReceipt,
-    IntegrityPendingTerminal, IntegrityPhase, IntegrityResourceDiagnostic, IntegritySeverity,
-    IntegritySubmissionKey, IntegrityTerminalOutcome, IntegrityVerifierFamily,
-    MemoryCatalogDescription, QueryTracePlan, QuickIntegrityResult, QuickIntegrityStatus,
-    ReadIntentKind, Row, SchemaApplicationStore, SchemaApplicationTarget, SchemaChangeFailure,
-    SchemaChangeJob, SchemaChangeJobId, SchemaChangeOutcome, SchemaChangeProgress,
-    SchemaChangeProgressStatus, SchemaChangeReceipt, SchemaChangeValidationPhase,
-    SchemaStoreSnapshot, StorageReport, StoreCatalogDescription, TraceExecutionFamily,
-    TraceReuseEvent,
+    ConstraintValidationProgressDescription, DataStoreSnapshot, DeepIntegrityPage,
+    DeepIntegrityPageStatus, DynamicMutationResult, EntityCatalogCounts, EntityCatalogDescription,
+    EntityConstraintDescription, EntityFieldDescription, EntityIndexDescription,
+    EntityRelationCardinality, EntityRelationDescription, EntitySchemaCheckDescription,
+    EntitySchemaDescription, ExplainAggregateTerminalPlan, ExplainExecutionDescriptor,
+    ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
+    ExplainExecutionOrderingSource, IndexStoreSnapshot, IntegrityAbortReceipt,
+    IntegrityAbortStatus, IntegrityAuthorityClass, IntegrityAuthorityDiagnostic,
+    IntegrityCheckRequest, IntegrityCheckResult, IntegrityEntityIdentity, IntegrityFinding,
+    IntegrityFindingClass, IntegrityFindingKind, IntegrityJobError, IntegrityJobId,
+    IntegrityJobOwner, IntegrityJobReceipt, IntegrityPendingTerminal, IntegrityPhase,
+    IntegrityResourceDiagnostic, IntegritySeverity, IntegritySubmissionKey,
+    IntegrityTerminalOutcome, IntegrityVerifierFamily, MemoryCatalogDescription, QueryTracePlan,
+    QuickIntegrityResult, QuickIntegrityStatus, ReadIntentKind, SchemaApplicationStore,
+    SchemaApplicationTarget, SchemaChangeFailure, SchemaChangeJob, SchemaChangeJobId,
+    SchemaChangeOutcome, SchemaChangeProgress, SchemaChangeProgressStatus, SchemaChangeReceipt,
+    SchemaChangeValidationPhase, SchemaStoreSnapshot, StorageReport, StoreCatalogDescription,
+    TraceExecutionFamily, TraceReuseEvent,
 };
 pub use icydb_schema::{
     EntitySourceKey, ExpectedAcceptedHead, ExpectedSchemaFingerprint, FieldSourceKey,
@@ -79,8 +77,8 @@ pub use session::generated::execute_generated_storage_report;
 #[cfg(feature = "diagnostics")]
 #[doc(hidden)]
 pub use icydb_core::db::{
-    DirectDataRowAttribution, FluentTerminalExecutionAttribution, GroupedCountAttribution,
-    GroupedExecutionAttribution, QueryExecutionAttribution, ScalarAggregateAttribution,
+    DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
+    ScalarAggregateAttribution,
 };
 #[cfg(feature = "diagnostics")]
 #[doc(hidden)]

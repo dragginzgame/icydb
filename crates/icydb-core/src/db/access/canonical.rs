@@ -16,7 +16,6 @@ use crate::{
         AccessPath, AccessPlan, IndexBranchSetSpec, SemanticIndexAccessContract,
         SemanticIndexKeyItemsRef, SemanticIndexRangeSpec,
     },
-    model::index::IndexKeyItemsRef,
     value::{Value, canonicalize_value_set},
 };
 use std::cmp::Ordering;
@@ -486,13 +485,6 @@ fn canonical_index_key_items(key_items: SemanticIndexKeyItemsRef<'_>) -> Vec<Str
             .iter()
             .map(|item| item.as_ref().canonical_text())
             .collect(),
-        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
-            fields.iter().map(|field| (*field).to_string()).collect()
-        }
-        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => items
-            .iter()
-            .map(crate::model::index::IndexKeyItem::canonical_text)
-            .collect(),
     }
 }
 
@@ -530,174 +522,5 @@ fn canonical_cmp_value_bound(left: &Bound<Value>, right: &Bound<Value>) -> Order
                 cmp
             }
         }
-    }
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{model::index::IndexModel, types::Ulid};
-
-    const TEST_INDEX_FIELDS: [&str; 2] = ["group", "rank"];
-    const TEST_INDEX: IndexModel = IndexModel::generated(
-        "canonical::group_rank",
-        "canonical::store",
-        &TEST_INDEX_FIELDS,
-        false,
-    );
-
-    fn index_range_path(lower: Bound<Value>, upper: Bound<Value>) -> AccessPath<Value> {
-        AccessPath::index_range(TEST_INDEX, vec![Value::Nat64(7)], lower, upper)
-    }
-
-    #[test]
-    fn canonical_bound_ordering_is_unbounded_then_included_then_excluded() {
-        let value = Value::Nat64(100);
-
-        assert_eq!(
-            canonical_cmp_value_bound(&Bound::Unbounded, &Bound::Included(value.clone())),
-            Ordering::Less
-        );
-        assert_eq!(
-            canonical_cmp_value_bound(&Bound::Included(value.clone()), &Bound::Unbounded),
-            Ordering::Greater
-        );
-        assert_eq!(
-            canonical_cmp_value_bound(
-                &Bound::Included(value.clone()),
-                &Bound::Excluded(value.clone()),
-            ),
-            Ordering::Less
-        );
-        assert_eq!(
-            canonical_cmp_value_bound(&Bound::Excluded(value.clone()), &Bound::Included(value)),
-            Ordering::Greater
-        );
-    }
-
-    #[test]
-    fn canonical_index_range_cmp_distinguishes_bound_discriminants() {
-        let included = index_range_path(
-            Bound::Included(Value::Nat64(100)),
-            Bound::Excluded(Value::Nat64(200)),
-        );
-        let excluded = index_range_path(
-            Bound::Excluded(Value::Nat64(100)),
-            Bound::Excluded(Value::Nat64(200)),
-        );
-
-        assert_eq!(included.canonical_cmp(&excluded), Ordering::Less);
-        assert_eq!(excluded.canonical_cmp(&included), Ordering::Greater);
-    }
-
-    #[test]
-    fn normalize_by_keys_singleton_collapses_to_by_key() {
-        let key = Value::Ulid(Ulid::from_u128(7));
-        let normalized =
-            normalize_access_plan_value(AccessPlan::path(AccessPath::ByKeys(vec![key.clone()])));
-
-        assert_eq!(normalized, AccessPlan::path(AccessPath::ByKey(key)));
-    }
-
-    #[test]
-    fn normalize_index_multi_lookup_singleton_collapses_to_index_prefix() {
-        let normalized =
-            normalize_access_plan_value(AccessPlan::path(AccessPath::IndexMultiLookup {
-                index:
-                    crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
-                        TEST_INDEX,
-                    ),
-                values: vec![Value::Nat64(7)],
-            }));
-
-        assert_eq!(
-            normalized,
-            AccessPlan::path(AccessPath::IndexPrefix {
-                index:
-                    crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
-                        TEST_INDEX
-                    ),
-                values: vec![Value::Nat64(7)],
-            }),
-        );
-    }
-
-    #[test]
-    fn normalize_index_multi_lookup_canonicalizes_value_set() {
-        let normalized =
-            normalize_access_plan_value(AccessPlan::path(AccessPath::IndexMultiLookup {
-                index:
-                    crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
-                        TEST_INDEX,
-                    ),
-                values: vec![Value::Nat64(9), Value::Nat64(7), Value::Nat64(9)],
-            }));
-
-        assert_eq!(
-            normalized,
-            AccessPlan::path(AccessPath::IndexMultiLookup {
-                index:
-                    crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
-                        TEST_INDEX
-                    ),
-                values: vec![Value::Nat64(7), Value::Nat64(9)],
-            }),
-        );
-    }
-
-    #[test]
-    fn normalize_access_plan_value_is_idempotent() {
-        let k1 = Value::Ulid(Ulid::from_u128(1));
-        let k2 = Value::Ulid(Ulid::from_u128(2));
-        let raw = AccessPlan::intersection(vec![
-            AccessPlan::union(vec![
-                AccessPlan::path(AccessPath::ByKeys(vec![k2, k1.clone(), k1.clone()])),
-                AccessPlan::path(AccessPath::ByKeys(vec![k1])),
-            ]),
-            AccessPlan::full_scan(),
-        ]);
-
-        let once = normalize_access_plan_value(raw);
-        let twice = normalize_access_plan_value(once.clone());
-
-        assert_eq!(once, twice, "access canonicalization must be idempotent");
-    }
-
-    #[test]
-    fn normalize_intersection_with_explicit_empty_collapses_to_empty() {
-        let normalized = normalize_access_plan_value(AccessPlan::intersection(vec![
-            AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(7)))),
-            AccessPlan::path(AccessPath::ByKeys(Vec::new())),
-            AccessPlan::full_scan(),
-        ]));
-
-        assert_eq!(normalized, AccessPlan::path(AccessPath::ByKeys(Vec::new())));
-    }
-
-    #[test]
-    fn normalize_union_with_explicit_empty_collapses_to_non_empty_branch() {
-        let normalized = normalize_access_plan_value(AccessPlan::union(vec![
-            AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(7)))),
-            AccessPlan::path(AccessPath::ByKeys(Vec::new())),
-        ]));
-
-        assert_eq!(
-            normalized,
-            AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(7))))
-        );
-    }
-
-    #[test]
-    fn normalize_union_only_explicit_empty_children_stays_empty() {
-        let normalized = normalize_access_plan_value(AccessPlan::union(vec![
-            AccessPlan::path(AccessPath::ByKeys(Vec::new())),
-            AccessPlan::path(AccessPath::ByKeys(Vec::new())),
-        ]));
-
-        assert_eq!(normalized, AccessPlan::path(AccessPath::ByKeys(Vec::new())));
     }
 }

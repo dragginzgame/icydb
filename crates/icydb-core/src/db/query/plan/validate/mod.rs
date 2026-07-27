@@ -14,45 +14,26 @@
 
 mod cursor_policy;
 mod errors;
-mod fluent_policy;
 pub(in crate::db::query) mod grouped;
 mod intent_policy;
 mod order;
 mod plan_shape;
 mod semantic_gates;
 mod symbols;
-#[cfg(test)]
-mod tests;
-
 pub(in crate::db) use cursor_policy::validate_cursor_order_plan_shape;
-#[cfg(test)]
-pub(in crate::db::query) use cursor_policy::validate_cursor_paging_requirements;
 pub(in crate::db) use errors::CursorOrderPlanShapeError;
 pub use errors::PlanError;
 pub(crate) use errors::{
-    CursorPagingPolicyError, ExprPlanError, ExprPlanTypeClass, GroupPlanError, OrderPlanError,
-    PolicyPlanError,
-};
-#[cfg(test)]
-pub(crate) use errors::{ExprPlanBinaryOpCode, ExprPlanFunctionCode, ExprPlanUnaryOpCode};
-pub(in crate::db::query) use errors::{
-    FluentLoadPolicyViolation, IntentKeyAccessKind, IntentKeyAccessPolicyViolation,
+    ExprPlanError, ExprPlanTypeClass, GroupPlanError, OrderPlanError, PolicyPlanError,
 };
 #[cfg(test)]
 pub(crate) use errors::{PlanPolicyError, PlanUserError};
-pub(in crate::db::query) use fluent_policy::{
-    validate_fluent_non_paged_mode, validate_fluent_paged_mode,
-};
-pub(in crate::db::query) use intent_policy::{
-    validate_intent_key_access_policy, validate_intent_plan_shape,
-};
-pub(in crate::db::query) use plan_shape::{has_explicit_order, validate_plan_shape};
+pub(in crate::db::query) use intent_policy::validate_intent_plan_shape;
+pub(in crate::db::query) use plan_shape::validate_plan_shape;
 pub(in crate::db::query) use semantic_gates::{
-    validate_group_query_semantics, validate_group_query_semantics_with_schema,
-    validate_query_semantics, validate_query_semantics_with_schema,
+    validate_group_query_semantics_with_schema, validate_query_semantics_with_schema,
 };
 pub(in crate::db::query::plan::validate) use symbols::resolve_group_aggregate_target_field_type;
 pub(in crate::db) use symbols::{
-    resolve_aggregate_target_field_slot_with_schema, resolve_group_field_slot,
-    resolve_group_field_slot_with_schema,
+    resolve_aggregate_target_field_slot_with_schema, resolve_group_field_slot_with_schema,
 };

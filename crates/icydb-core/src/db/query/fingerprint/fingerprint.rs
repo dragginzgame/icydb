@@ -34,28 +34,7 @@ impl std::fmt::Display for PlanFingerprint {
     }
 }
 
-impl AccessPlannedQuery {
-    /// Compute a stable fingerprint for this logical plan.
-    #[must_use]
-    pub(in crate::db) fn fingerprint(&self) -> PlanFingerprint {
-        let projection = self.projection_spec_for_identity();
-        let mut hasher = new_plan_fingerprint_hasher();
-        hash_sections::hash_planned_query_profile_with_projection(
-            &mut hasher,
-            self,
-            hash_sections::ExplainHashProfile::Fingerprint,
-            &projection,
-        );
-
-        PlanFingerprint(finalize_sha256_digest(hasher))
-    }
-
-    /// Render the stable logical-plan fingerprint as lowercase hexadecimal.
-    #[must_use]
-    pub(in crate::db) fn plan_hash_hex(&self) -> String {
-        self.fingerprint().to_string()
-    }
-}
+impl AccessPlannedQuery {}
 
 impl ExplainPlan {
     /// Compute a stable fingerprint for this explain plan.

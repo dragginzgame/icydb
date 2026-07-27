@@ -1,5 +1,0 @@
-error: generated(insert = ...) currently supports only Ulid::generate or Timestamp::now
-  --> tests/ui/generated_unsupported_path.rs:24:45
-   |
-24 |         field(source_key = "token", ident = "token",
-   |                                             ^^^^^^^

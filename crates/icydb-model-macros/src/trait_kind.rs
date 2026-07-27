@@ -152,8 +152,12 @@ impl TraitKind {
             Self::Copy => Some(quote!(Copy)),
             Self::Debug => Some(quote!(Debug)),
             Self::Default => Some(quote!(Default)),
-            Self::Deref => Some(quote!(::icydb_model::__reexports::derive_more::Deref)),
-            Self::DerefMut => Some(quote!(::icydb_model::__reexports::derive_more::DerefMut)),
+            Self::Deref => Some(quote!(
+                ::icydb_model::__reexports::icydb_model_macros::Deref
+            )),
+            Self::DerefMut => Some(quote!(
+                ::icydb_model::__reexports::icydb_model_macros::DerefMut
+            )),
             Self::Deserialize => Some(quote!(::icydb_model::__reexports::serde::Deserialize)),
             Self::Display => Some(quote!(
                 ::icydb_model::__reexports::icydb_model_macros::Display

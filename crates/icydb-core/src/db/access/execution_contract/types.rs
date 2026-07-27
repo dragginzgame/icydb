@@ -108,28 +108,6 @@ impl<'a, K> ExecutionPathPayload<'a, K> {
         }
     }
 
-    /// Borrow semantic index-range bounds required for cursor envelope validation.
-    #[must_use]
-    pub(in crate::db) const fn index_range_semantic_bounds(
-        &self,
-    ) -> Option<(&'a [Value], &'a Bound<Value>, &'a Bound<Value>)> {
-        match self {
-            Self::IndexRange {
-                prefix_values,
-                lower,
-                upper,
-                ..
-            } => Some((prefix_values, lower, upper)),
-            Self::ByKey(_)
-            | Self::ByKeys(_)
-            | Self::KeyRange { .. }
-            | Self::IndexPrefix { .. }
-            | Self::IndexMultiLookup { .. }
-            | Self::IndexBranchSet { .. }
-            | Self::FullScan => None,
-        }
-    }
-
     /// Borrow index-prefix details when this path is index-prefix.
     #[must_use]
     pub(in crate::db) fn index_prefix_details(&self) -> Option<IndexShapeDetails> {

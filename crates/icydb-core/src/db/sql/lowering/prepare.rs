@@ -1,7 +1,5 @@
 use super::ast_depth::validate_sql_statement_ast_depth;
-#[cfg(test)]
-use crate::db::sql::lowering::select::lower_select_shape_for_model_only;
-#[cfg(any(test, feature = "sql-explain"))]
+#[cfg(feature = "sql-explain")]
 use crate::db::sql::lowering::{
     LoweredSqlCommand, LoweredSqlCommandInner, LoweredSqlQuery, select::lower_delete_shape,
 };
@@ -32,8 +30,6 @@ use crate::db::{
         },
     },
 };
-#[cfg(test)]
-use crate::model::entity::EntityModel;
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
 
 /// Prepare one parsed SQL statement for one expected entity route.
@@ -192,16 +188,6 @@ fn first_expr_parameter_index(expr: &SqlExpr) -> Option<usize> {
     });
 
     parameter
-}
-
-/// Lower one prepared SQL statement into one shared generic-free command shape.
-#[inline(never)]
-#[cfg(test)]
-pub(crate) fn lower_sql_command_from_prepared_statement_for_model_only(
-    prepared: PreparedSqlStatement,
-    model: &'static EntityModel,
-) -> Result<LoweredSqlCommand, SqlLoweringError> {
-    lower_prepared_statement_for_model_only(prepared.statement, model)
 }
 
 /// Lower one prepared SQL EXPLAIN statement through an explicit schema projection.
@@ -435,69 +421,6 @@ fn prepare_insert_select_source(
     Ok(statement)
 }
 
-#[inline(never)]
-#[cfg(test)]
-fn lower_prepared_statement_for_model_only(
-    statement: SqlStatement,
-    model: &'static EntityModel,
-) -> Result<LoweredSqlCommand, SqlLoweringError> {
-    match statement {
-        SqlStatement::Select(statement) => {
-            Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(Box::new(
-                LoweredSqlQuery::Select(lower_select_shape_for_model_only(statement, model)?),
-            ))))
-        }
-        SqlStatement::Delete(statement) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(
-            Box::new(LoweredSqlQuery::Delete(lower_delete_shape(statement)?)),
-        ))),
-        SqlStatement::Insert(_) | SqlStatement::Update(_) => {
-            Err(SqlLoweringError::unexpected_query_lane_statement())
-        }
-        SqlStatement::Ddl(_) => Err(SqlLoweringError::unsupported_sql_ddl()),
-        #[cfg(feature = "sql-explain")]
-        SqlStatement::Explain(statement) => lower_explain_prepared_for_model_only(statement, model),
-        SqlStatement::Describe(_) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::DescribeEntity)),
-        SqlStatement::ShowConstraints(_) => Ok(LoweredSqlCommand(
-            LoweredSqlCommandInner::ShowConstraintsEntity,
-        )),
-        SqlStatement::ShowIndexes(_) => {
-            Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowIndexesEntity))
-        }
-        SqlStatement::ShowColumns(_) => {
-            Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowColumnsEntity))
-        }
-        SqlStatement::ShowEntities(_) => {
-            Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowEntities))
-        }
-        SqlStatement::ShowStores(_) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowStores)),
-        SqlStatement::ShowMemory(_) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowMemory)),
-    }
-}
-
-#[cfg(all(test, feature = "sql-explain"))]
-fn lower_explain_prepared_for_model_only(
-    statement: SqlExplainStatement,
-    model: &'static EntityModel,
-) -> Result<LoweredSqlCommand, SqlLoweringError> {
-    let mode = statement.mode;
-    let verbose = statement.verbose;
-
-    match statement.statement {
-        SqlExplainTarget::Select(select_statement) => {
-            lower_explain_select_prepared_for_model_only(select_statement, mode, verbose, model)
-        }
-        SqlExplainTarget::Delete(delete_statement) => {
-            Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
-                mode,
-                verbose,
-                query: Box::new(LoweredSqlQuery::Delete(lower_delete_shape(
-                    delete_statement,
-                )?)),
-            }))
-        }
-    }
-}
-
 #[cfg(feature = "sql-explain")]
 fn lower_explain_prepared_with_schema(
     statement: SqlExplainStatement,
@@ -519,46 +442,6 @@ fn lower_explain_prepared_with_schema(
                 )?)),
             }))
         }
-    }
-}
-
-#[cfg(all(test, feature = "sql-explain"))]
-fn lower_explain_select_prepared_for_model_only(
-    statement: SqlSelectStatement,
-    mode: SqlExplainMode,
-    verbose: bool,
-    model: &'static EntityModel,
-) -> Result<LoweredSqlCommand, SqlLoweringError> {
-    if SqlStatement::Select(statement.clone()).is_global_aggregate_lane_shape() {
-        let command = lower_global_aggregate_select_shape(statement)?;
-
-        return Ok(LoweredSqlCommand(
-            LoweredSqlCommandInner::ExplainGlobalAggregate {
-                mode,
-                verbose,
-                command: Box::new(command),
-            },
-        ));
-    }
-
-    match lower_select_shape_for_model_only(statement.clone(), model) {
-        Ok(query) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
-            mode,
-            verbose,
-            query: Box::new(LoweredSqlQuery::Select(query)),
-        })),
-        Err(SqlLoweringError::UnsupportedSelectProjection) => {
-            let command = lower_global_aggregate_select_shape(statement)?;
-
-            Ok(LoweredSqlCommand(
-                LoweredSqlCommandInner::ExplainGlobalAggregate {
-                    mode,
-                    verbose,
-                    command: Box::new(command),
-                },
-            ))
-        }
-        Err(err) => Err(err),
     }
 }
 

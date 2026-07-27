@@ -7,8 +7,6 @@
 //! performs SQL response-payload shaping above that boundary.
 
 mod materialize;
-#[cfg(all(feature = "sql", test))]
-mod tests;
 
 #[cfg(any(test, feature = "diagnostics"))]
 use crate::db::executor::{

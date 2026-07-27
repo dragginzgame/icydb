@@ -15,8 +15,6 @@ use crate::db::query::plan::{ContinuationPolicy, ScalarAccessWindowPlan};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum ContinuationMode {
     Initial,
-    CursorBoundary,
-    IndexRangeAnchor,
 }
 
 ///
@@ -56,8 +54,7 @@ impl RouteContinuationPlan {
             strict_advance_required_when_applied: !applied
                 || continuation_policy.requires_strict_advance(),
             grouped_safe_when_applied: !applied || continuation_policy.is_grouped_safe(),
-            index_range_limit_pushdown_allowed: !continuation_policy.requires_anchor()
-                || !matches!(mode, ContinuationMode::CursorBoundary),
+            index_range_limit_pushdown_allowed: !continuation_policy.requires_anchor() || !applied,
             access_window_keep,
             access_window_fetch,
         }
@@ -87,6 +84,7 @@ impl RouteContinuationPlan {
 
     /// Construct one canonical initial continuation plan for mutation-style routes.
     #[must_use]
+    #[cfg(test)]
     const fn initial_with_policy(continuation_policy: ContinuationPolicy) -> Self {
         Self::new(
             ContinuationMode::Initial,
@@ -96,9 +94,10 @@ impl RouteContinuationPlan {
         )
     }
 
-    /// Construct one canonical initial continuation plan for mutation routes.
+    /// Construct one canonical initial continuation plan for test route fixtures.
     #[must_use]
-    pub(in crate::db::executor) const fn initial_for_mutation() -> Self {
+    #[cfg(test)]
+    pub(in crate::db::executor) const fn initial_for_test() -> Self {
         Self::initial_with_policy(ContinuationPolicy::new(true, true, true))
     }
 
@@ -294,35 +293,6 @@ mod tests {
         assert!(!continuation.applied());
         assert!(continuation.strict_advance_required_when_applied());
         assert!(continuation.grouped_safe_when_applied());
-        assert!(continuation.index_range_limit_pushdown_allowed());
-    }
-
-    #[test]
-    fn route_continuation_cursor_boundary_disables_index_range_pushdown_when_anchor_required() {
-        let continuation = RouteContinuationPlan::new(
-            ContinuationMode::CursorBoundary,
-            ContinuationPolicy::new(true, true, true),
-            AccessWindow::new(0, None, None),
-            AccessWindow::new(0, None, None),
-        );
-
-        assert!(continuation.applied());
-        assert!(continuation.strict_advance_required_when_applied());
-        assert!(continuation.grouped_safe_when_applied());
-        assert!(!continuation.index_range_limit_pushdown_allowed());
-    }
-
-    #[test]
-    fn route_continuation_anchor_mode_keeps_index_range_pushdown_enabled() {
-        let continuation = RouteContinuationPlan::new(
-            ContinuationMode::IndexRangeAnchor,
-            ContinuationPolicy::new(true, true, true),
-            AccessWindow::new(0, None, None),
-            AccessWindow::new(0, None, None),
-        );
-
-        assert_eq!(continuation.mode(), ContinuationMode::IndexRangeAnchor);
-        assert!(continuation.applied());
         assert!(continuation.index_range_limit_pushdown_allowed());
     }
 }

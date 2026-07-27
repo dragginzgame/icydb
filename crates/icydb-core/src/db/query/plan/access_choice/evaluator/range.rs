@@ -1,5 +1,3 @@
-#[cfg(test)]
-use crate::model::index::IndexModel;
 mod constraints;
 
 use crate::db::{
@@ -33,19 +31,6 @@ pub(super) fn evaluate_range_candidate_from_contract(
             AccessChoiceRejectedReason::PredicateShapeNotRangeEligible,
         ),
     }
-}
-
-#[cfg(test)]
-pub(in crate::db::query::plan::access_choice) fn evaluate_range_candidate(
-    index: &IndexModel,
-    schema: &SchemaInfo,
-    predicate: &Predicate,
-) -> CandidateEvaluation {
-    evaluate_range_candidate_from_contract(
-        &SemanticIndexAccessContract::model_only_from_generated_index(*index),
-        schema,
-        predicate,
-    )
 }
 
 fn evaluate_range_compare_candidate(
@@ -290,7 +275,7 @@ fn evaluate_ordered_range_compare_candidate(
                 return Err(AccessChoiceRejectedReason::OperatorNotSupported);
             }
         }
-        SemanticIndexKeyItemRef::Expression(_) | SemanticIndexKeyItemRef::AcceptedExpression(_) => {
+        SemanticIndexKeyItemRef::AcceptedExpression(_) => {
             if cmp.coercion.id != CoercionId::TextCasefold {
                 return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
             }

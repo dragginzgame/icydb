@@ -12,15 +12,17 @@ use crate::{
     traits::CanisterKind,
 };
 
+#[derive(Clone, Copy)]
+enum DynamicReadLane {
+    Public,
+    Trusted,
+}
+
 impl<C: CanisterKind> DbSession<C> {
-    /// Execute one trusted entity-name-driven dynamic read.
-    ///
-    /// This uses accepted schema, planner, executor, and projection authority
-    /// only. Like trusted SQL reads, callers own authorization and resource
-    /// policy.
-    pub fn execute_trusted_dynamic_query(
+    fn execute_dynamic_query(
         &self,
         request: &DynamicQuery,
+        lane: DynamicReadLane,
     ) -> Result<DynamicQueryResult, QueryError> {
         if request.entity().is_empty() {
             return Err(QueryError::execute(
@@ -49,12 +51,19 @@ impl<C: CanisterKind> DbSession<C> {
         let authority = catalog
             .accepted_entity_authority()
             .map_err(QueryError::execute)?;
-        let (payload, _) = self
-            .execute_sql_projection_from_structural_query_without_sql_compiled_cache(
+        let (payload, _) = match lane {
+            DynamicReadLane::Public => self.execute_public_projection_from_structural_query(
                 query,
                 authority,
                 catalog.snapshot(),
-            )?;
+            )?,
+            DynamicReadLane::Trusted => self
+                .execute_sql_projection_from_structural_query_without_sql_compiled_cache(
+                    query,
+                    authority,
+                    catalog.snapshot(),
+                )?,
+        };
         let result = payload.into_statement_result()?;
         let SqlStatementResult::Projection {
             columns,
@@ -72,5 +81,28 @@ impl<C: CanisterKind> DbSession<C> {
             rows,
             row_count,
         })
+    }
+
+    /// Execute one ordinary entity-name-driven dynamic read.
+    ///
+    /// The selected accepted plan must satisfy the built-in bounded public-read
+    /// policy before any row is executed.
+    pub fn execute_public_dynamic_query(
+        &self,
+        request: &DynamicQuery,
+    ) -> Result<DynamicQueryResult, QueryError> {
+        self.execute_dynamic_query(request, DynamicReadLane::Public)
+    }
+
+    /// Execute one trusted entity-name-driven dynamic read.
+    ///
+    /// This uses accepted schema, planner, executor, and projection authority
+    /// only. Like trusted SQL reads, callers own authorization and resource
+    /// policy.
+    pub fn execute_trusted_dynamic_query(
+        &self,
+        request: &DynamicQuery,
+    ) -> Result<DynamicQueryResult, QueryError> {
+        self.execute_dynamic_query(request, DynamicReadLane::Trusted)
     }
 }

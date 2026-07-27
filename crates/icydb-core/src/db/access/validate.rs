@@ -6,13 +6,12 @@
 use crate::{
     db::{
         access::{
-            AccessPath, AccessPlan, IndexBranchSetSpec, MAX_INDEX_BRANCH_SET_VALUES,
-            SemanticIndexAccessContract, SemanticIndexKeyItemRef, SemanticIndexRangeSpec,
+            AccessPath, AccessPlan, MAX_INDEX_BRANCH_SET_VALUES, SemanticIndexAccessContract,
+            SemanticIndexRangeSpec,
         },
         schema::{SchemaInfo, literal_matches_type},
     },
     error::InternalError,
-    model::entity::EntityModel,
     value::Value,
 };
 use std::ops::Bound;
@@ -64,15 +63,6 @@ impl AccessPlanError {
     }
 }
 
-/// Validate model-level access paths that carry `Value` keys.
-pub(in crate::db) fn validate_access_structure_model(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    access: &AccessPlan<Value>,
-) -> Result<(), AccessPlanError> {
-    access.validate(schema, model)
-}
-
 /// Validate executor-owned access invariants against schema-index facts without
 /// reopening generated entity model authority.
 pub(in crate::db) fn validate_access_runtime_invariants_with_schema(
@@ -80,22 +70,6 @@ pub(in crate::db) fn validate_access_runtime_invariants_with_schema(
     access: &AccessPlan<Value>,
 ) -> Result<(), AccessPlanError> {
     access.validate_runtime_invariants(schema)
-}
-
-// Validate that a primary-key literal matches the entity primary-key schema.
-fn validate_pk_literal(schema: &SchemaInfo, key: &Value) -> Result<(), AccessPlanError> {
-    let primary_key_names = schema.primary_key_names();
-    if primary_key_names.len() > 1 {
-        return validate_composite_pk_literal(schema, primary_key_names, key);
-    }
-
-    let Some(field) = primary_key_names.first().map(String::as_str) else {
-        return Err(AccessPlanError::PrimaryKeyNotKeyable {
-            field: "<missing>".to_string(),
-        });
-    };
-
-    validate_pk_literal_component(schema, field, key, key)
 }
 
 fn validate_composite_pk_literal(
@@ -171,304 +145,13 @@ fn composite_primary_key_field_label(primary_key_names: &[String]) -> String {
     primary_key_names.join(", ")
 }
 
-/// Validate that an index prefix is valid for execution.
-fn validate_index_prefix(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    index: SemanticIndexAccessContract,
-    values: &[Value],
-) -> Result<(), AccessPlanError> {
-    if !model_or_schema_has_index_contract(schema, model, index.name()) {
-        return Err(AccessPlanError::IndexNotFound {
-            index: index.name().to_string(),
-        });
-    }
-
-    if values.is_empty() {
-        return Err(AccessPlanError::IndexPrefixEmpty);
-    }
-
-    if values.len() > index.key_arity() {
-        return Err(AccessPlanError::IndexPrefixTooLong {
-            prefix_len: values.len(),
-            field_len: index.key_arity(),
-        });
-    }
-
-    for (slot, value) in values.iter().enumerate() {
-        validate_index_prefix_literal_at_slot(schema, &index, slot, values.len(), value)?;
-    }
-
-    Ok(())
-}
-
-/// Validate that an index multi-lookup path is valid for execution.
-fn validate_index_multi_lookup(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    index: SemanticIndexAccessContract,
-    values: &[Value],
-) -> Result<(), AccessPlanError> {
-    if !model_or_schema_has_index_contract(schema, model, index.name()) {
-        return Err(AccessPlanError::IndexNotFound {
-            index: index.name().to_string(),
-        });
-    }
-
-    if values.is_empty() {
-        return Err(AccessPlanError::IndexPrefixEmpty);
-    }
-
-    let Some(field) = index.key_item_at(0).map(SemanticIndexKeyItemRef::field) else {
-        return Err(AccessPlanError::IndexPrefixTooLong {
-            prefix_len: 1,
-            field_len: 0,
-        });
-    };
-    let field_type =
-        schema
-            .field(field)
-            .ok_or_else(|| AccessPlanError::IndexPrefixValueMismatch {
-                field: field.to_string(),
-            })?;
-
-    for value in values {
-        if !literal_matches_type(value, field_type) {
-            return Err(AccessPlanError::IndexPrefixValueMismatch {
-                field: field.to_string(),
-            });
-        }
-    }
-
-    Ok(())
-}
-
-/// Validate that an index branch-set path is valid for execution.
-fn validate_index_branch_set(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    spec: &IndexBranchSetSpec,
-) -> Result<(), AccessPlanError> {
-    if spec.is_empty() {
-        return Err(AccessPlanError::IndexPrefixEmpty);
-    }
-    if spec.branch_count() > MAX_INDEX_BRANCH_SET_VALUES {
-        return Err(AccessPlanError::IndexBranchSetTooLarge {
-            branch_count: spec.branch_count(),
-            max: MAX_INDEX_BRANCH_SET_VALUES,
-        });
-    }
-    if !values_are_canonical_set(spec.branch_values()) {
-        return Err(AccessPlanError::IndexBranchSetNotCanonical);
-    }
-    let prefix_len = spec.branch_prefix_len();
-    let index = spec.index();
-    validate_index_prefix_shape(&index, prefix_len)?;
-
-    let Some(branch_field) = spec.branch_field() else {
-        return Err(AccessPlanError::IndexPrefixTooLong {
-            prefix_len,
-            field_len: index.key_arity(),
-        });
-    };
-
-    for branch_value in spec.branch_values() {
-        let prefix_values = spec.branch_prefix_values(branch_value);
-        validate_index_prefix(schema, model, index.clone(), prefix_values.as_slice())?;
-    }
-
-    if schema.field(branch_field).is_none() {
-        return Err(AccessPlanError::IndexPrefixValueMismatch {
-            field: branch_field.to_string(),
-        });
-    }
-
-    Ok(())
-}
-
 fn values_are_canonical_set(values: &[Value]) -> bool {
     values
         .windows(2)
         .all(|pair| Value::canonical_cmp(&pair[0], &pair[1]).is_lt())
 }
 
-/// Validate that an index range path is valid for execution.
-fn validate_index_range(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    spec: &SemanticIndexRangeSpec,
-) -> Result<(), AccessPlanError> {
-    let index = spec.index();
-    let prefix = spec.prefix_values();
-    let lower = spec.lower();
-    let upper = spec.upper();
-
-    if !model_or_schema_has_index_contract(schema, model, index.name()) {
-        return Err(AccessPlanError::IndexNotFound {
-            index: index.name().to_string(),
-        });
-    }
-
-    if prefix.len() >= index.key_arity() {
-        return Err(AccessPlanError::IndexPrefixTooLong {
-            prefix_len: prefix.len(),
-            field_len: index.key_arity().saturating_sub(1),
-        });
-    }
-
-    let range_slot = prefix.len();
-    if spec.field_slots().len() != prefix.len().saturating_add(1) {
-        return Err(AccessPlanError::InvalidKeyRange);
-    }
-    for (expected_slot, actual_slot) in (0..=range_slot).zip(spec.field_slots().iter().copied()) {
-        if actual_slot != expected_slot {
-            return Err(AccessPlanError::InvalidKeyRange);
-        }
-    }
-
-    for (slot, value) in prefix.iter().enumerate() {
-        validate_index_prefix_literal_at_slot(schema, &index, slot, prefix.len(), value)?;
-    }
-
-    let Some(range_field) = index
-        .key_item_at(range_slot)
-        .map(SemanticIndexKeyItemRef::field)
-    else {
-        return Err(AccessPlanError::IndexPrefixTooLong {
-            prefix_len: prefix.len(),
-            field_len: index.key_arity(),
-        });
-    };
-    validate_index_range_bound_value(schema, range_field, lower)?;
-    validate_index_range_bound_value(schema, range_field, upper)?;
-
-    let (
-        Bound::Included(lower_value) | Bound::Excluded(lower_value),
-        Bound::Included(upper_value) | Bound::Excluded(upper_value),
-    ) = (lower, upper)
-    else {
-        return Ok(());
-    };
-
-    if Value::canonical_cmp(lower_value, upper_value) == std::cmp::Ordering::Greater {
-        return Err(AccessPlanError::InvalidKeyRange);
-    }
-
-    Ok(())
-}
-
-fn model_or_schema_has_index_contract(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    index_name: &str,
-) -> bool {
-    model
-        .indexes
-        .iter()
-        .any(|candidate| candidate.name() == index_name)
-        || schema
-            .field_path_indexes()
-            .iter()
-            .any(|candidate| candidate.name() == index_name)
-        || schema
-            .expression_indexes()
-            .iter()
-            .any(|candidate| candidate.name() == index_name)
-}
-
-fn validate_index_prefix_literal_at_slot(
-    schema: &SchemaInfo,
-    index: &SemanticIndexAccessContract,
-    slot: usize,
-    prefix_len: usize,
-    value: &Value,
-) -> Result<(), AccessPlanError> {
-    let Some(field) = index.key_item_at(slot).map(SemanticIndexKeyItemRef::field) else {
-        return Err(AccessPlanError::IndexPrefixTooLong {
-            prefix_len,
-            field_len: index.key_arity(),
-        });
-    };
-    let field_type =
-        schema
-            .field(field)
-            .ok_or_else(|| AccessPlanError::IndexPrefixValueMismatch {
-                field: field.to_string(),
-            })?;
-
-    if !literal_matches_type(value, field_type) {
-        return Err(AccessPlanError::IndexPrefixValueMismatch {
-            field: field.to_string(),
-        });
-    }
-
-    Ok(())
-}
-
-fn validate_index_range_bound_value(
-    schema: &SchemaInfo,
-    field: &str,
-    bound: &Bound<Value>,
-) -> Result<(), AccessPlanError> {
-    let value = match bound {
-        Bound::Included(value) | Bound::Excluded(value) => value,
-        Bound::Unbounded => return Ok(()),
-    };
-
-    let field_type =
-        schema
-            .field(field)
-            .ok_or_else(|| AccessPlanError::IndexPrefixValueMismatch {
-                field: field.to_string(),
-            })?;
-
-    if literal_matches_type(value, field_type) {
-        return Ok(());
-    }
-
-    Err(AccessPlanError::IndexPrefixValueMismatch {
-        field: field.to_string(),
-    })
-}
-
-// Validate that primary-key range endpoints match schema and preserve canonical order.
-fn validate_pk_range(
-    schema: &SchemaInfo,
-    start: &Value,
-    end: &Value,
-) -> Result<(), AccessPlanError> {
-    let primary_key_names = schema.primary_key_names();
-    if primary_key_names.len() > 1 {
-        return Err(AccessPlanError::CompositePrimaryKeyRangeUnsupported {
-            fields: composite_primary_key_field_label(primary_key_names),
-        });
-    }
-
-    validate_pk_literal(schema, start)?;
-    validate_pk_literal(schema, end)?;
-    let ordering = Value::canonical_cmp(start, end);
-    if ordering == std::cmp::Ordering::Greater {
-        return Err(AccessPlanError::InvalidKeyRange);
-    }
-
-    Ok(())
-}
-
 impl AccessPlan<Value> {
-    // Validate this access plan with model-level `Value` key semantics.
-    fn validate(&self, schema: &SchemaInfo, model: &EntityModel) -> Result<(), AccessPlanError> {
-        match self {
-            Self::Path(path) => path.validate(schema, model),
-            Self::Union(children) | Self::Intersection(children) => {
-                for child in children {
-                    child.validate(schema, model)?;
-                }
-
-                Ok(())
-            }
-        }
-    }
-
     // Validate executor-runtime access invariants through accepted schema facts.
     fn validate_runtime_invariants(&self, schema: &SchemaInfo) -> Result<(), AccessPlanError> {
         match self {
@@ -485,34 +168,6 @@ impl AccessPlan<Value> {
 }
 
 impl AccessPath<Value> {
-    // Validate this concrete value-keyed access path.
-    fn validate(&self, schema: &SchemaInfo, model: &EntityModel) -> Result<(), AccessPlanError> {
-        match self {
-            Self::ByKey(key) => validate_pk_literal(schema, key),
-            Self::ByKeys(keys) => {
-                // Empty key lists are a valid no-op.
-                if keys.is_empty() {
-                    return Ok(());
-                }
-                for key in keys {
-                    validate_pk_literal(schema, key)?;
-                }
-
-                Ok(())
-            }
-            Self::KeyRange { start, end } => validate_pk_range(schema, start, end),
-            Self::IndexPrefix { index, values } => {
-                validate_index_prefix(schema, model, index.clone(), values)
-            }
-            Self::IndexMultiLookup { index, values } => {
-                validate_index_multi_lookup(schema, model, index.clone(), values)
-            }
-            Self::IndexBranchSet { spec } => validate_index_branch_set(schema, model, spec),
-            Self::IndexRange { spec } => validate_index_range(schema, model, spec),
-            Self::FullScan => Ok(()),
-        }
-    }
-
     // Validate concrete path invariants through accepted schema facts.
     fn validate_runtime_invariants(&self, schema: &SchemaInfo) -> Result<(), AccessPlanError> {
         match self {
@@ -658,6 +313,3 @@ fn validate_index_range_runtime(
 
     Ok(())
 }
-
-#[cfg(test)]
-mod tests;

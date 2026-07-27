@@ -67,12 +67,7 @@ where
         return Err(InternalError::query_executor_invariant());
     }
 
-    let grouped_row = GroupedRowView::new(
-        &[],
-        ordered_values.as_slice(),
-        &[],
-        compiled.aggregate_execution_specs(),
-    );
+    let grouped_row = GroupedRowView::new(&[], ordered_values.as_slice());
     if let Some(expr) = compiled.having()
         && !evaluate_grouped_having_expr(expr, &grouped_row)
             .map_err(|_err| InternalError::query_executor_invariant())?

@@ -6,7 +6,6 @@
 #[cfg(test)]
 mod tests;
 
-mod anchor;
 mod boundary;
 mod continuation;
 mod error;
@@ -18,40 +17,23 @@ mod validated;
 
 mod token;
 
-use crate::{
-    db::KeyValueCodec,
-    db::{
-        access::ExecutionPathPayload,
-        direction::Direction,
-        query::plan::{
-            OrderSpec, validate::CursorOrderPlanShapeError, validate_cursor_order_plan_shape,
-        },
-        schema::SchemaInfo,
+use crate::db::{
+    direction::Direction,
+    query::plan::{
+        OrderSpec, validate::CursorOrderPlanShapeError, validate_cursor_order_plan_shape,
     },
-    types::EntityTag,
 };
 
-pub(in crate::db) use anchor::{
-    ValidatedInEnvelopeIndexRangeCursorAnchor, cursor_anchor_from_raw_index_store_key,
-};
+pub(in crate::db) use boundary::apply_order_direction;
+pub(in crate::db::cursor) use boundary::validate_cursor_window_offset;
 pub(in crate::db) use boundary::{CursorBoundary, CursorBoundarySlot};
-pub(in crate::db) use boundary::{
-    apply_order_direction, decode_pk_cursor_boundary_primary_key_value_for_names,
-};
-pub(in crate::db::cursor) use boundary::{
-    validate_cursor_boundary_for_order, validate_cursor_direction, validate_cursor_window_offset,
-};
 pub(in crate::db) use continuation::{
-    IndexScanContinuationInput, MaterializedCursorRow, effective_keep_count_for_limit,
-    effective_page_offset_for_window, next_cursor_for_materialized_rows,
+    IndexScanContinuationInput, effective_keep_count_for_limit, effective_page_offset_for_window,
 };
 pub(crate) use error::CursorPlanError;
 #[cfg(test)]
-pub(crate) use error::{CursorPayloadErrorCode, CursorSignaturePrefix};
-pub(in crate::db) use runtime::window_cursor_contract_for_plan;
-pub(in crate::db) use runtime::{
-    ContinuationKeyRef, ContinuationRuntime, LoopAction, WindowCursorContract,
-};
+pub(crate) use error::CursorSignaturePrefix;
+pub(in crate::db) use runtime::{ContinuationKeyRef, ContinuationRuntime};
 #[expect(unreachable_pub)]
 pub use signature::ContinuationSignature;
 pub(crate) use string::CursorDecodeError;
@@ -60,9 +42,8 @@ use string::decode_cursor;
 pub(in crate::db) use string::encode_cursor;
 #[cfg(test)]
 pub(in crate::db) use string::encode_grouped_cursor_token;
-pub(in crate::db) use token::{ContinuationToken, TokenWireError};
-pub(in crate::db) use token::{GroupedContinuationToken, IndexRangeCursorAnchor};
-pub(in crate::db) use validated::{ValidatedCursor, ValidatedGroupedCursor};
+pub(in crate::db) use token::{GroupedContinuationToken, TokenWireError};
+pub(in crate::db) use validated::ValidatedGroupedCursor;
 
 /// Decode one optional external continuation token through cursor-runtime authority.
 pub(in crate::db) fn decode_optional_cursor_token(
@@ -85,61 +66,6 @@ pub(in crate::db) fn decode_optional_grouped_cursor_token(
                 .map_err(CursorPlanError::from_token_wire_error)
         })
         .transpose()
-}
-
-/// Validate and decode a continuation cursor into executor-ready cursor state.
-#[expect(clippy::too_many_arguments)]
-pub(in crate::db) fn prepare_cursor<K: KeyValueCodec>(
-    access: Option<ExecutionPathPayload<'_, K>>,
-    entity_path: &'static str,
-    entity_tag: EntityTag,
-    schema: &SchemaInfo,
-    order: Option<&OrderSpec>,
-    direction: Direction,
-    continuation_signature: ContinuationSignature,
-    initial_offset: u32,
-    cursor: Option<&[u8]>,
-) -> Result<ValidatedCursor, CursorPlanError> {
-    let order = validated_cursor_order(order)?;
-
-    spine::validate_cursor_token(
-        cursor,
-        access,
-        entity_path,
-        entity_tag,
-        schema,
-        order,
-        continuation_signature,
-        direction,
-        initial_offset,
-    )
-}
-
-/// Revalidate executor-provided cursor state through the canonical cursor spine.
-pub(in crate::db) fn revalidate_cursor<K: KeyValueCodec>(
-    access: Option<ExecutionPathPayload<'_, K>>,
-    entity_tag: EntityTag,
-    schema: &SchemaInfo,
-    order: Option<&OrderSpec>,
-    direction: Direction,
-    initial_offset: u32,
-    cursor: ValidatedCursor,
-) -> Result<ValidatedCursor, CursorPlanError> {
-    if cursor.is_empty() {
-        return Ok(ValidatedCursor::none());
-    }
-
-    let order = validated_cursor_order(order)?;
-
-    spine::validate_cursor_state(
-        cursor,
-        access,
-        entity_tag,
-        schema,
-        order,
-        direction,
-        initial_offset,
-    )
 }
 
 /// Validate and decode a grouped continuation cursor into grouped cursor state.
@@ -182,23 +108,6 @@ pub(in crate::db) fn prepare_grouped_cursor_token(
         direction,
         initial_offset,
     )
-}
-
-/// Revalidate grouped cursor state through grouped cursor invariants.
-pub(in crate::db) fn revalidate_grouped_cursor(
-    initial_offset: u32,
-    cursor: ValidatedGroupedCursor,
-) -> Result<ValidatedGroupedCursor, CursorPlanError> {
-    spine::validate_grouped_cursor_state(initial_offset, cursor)
-}
-
-// Resolve cursor ordering for plan-surface decoding and executor revalidation.
-fn validated_cursor_order(order: Option<&OrderSpec>) -> Result<&OrderSpec, CursorPlanError> {
-    let Some(order) = validated_cursor_order_internal(order, true)? else {
-        return Err(CursorPlanError::cursor_requires_order());
-    };
-
-    Ok(order)
 }
 
 /// Validate grouped cursor ordering plan shape.

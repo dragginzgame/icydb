@@ -3,76 +3,32 @@
 //! Does not own: executor defensive runtime checks or cursor token protocol concerns.
 //! Boundary: coordinates planner validation gates into typed plan errors.
 
-use crate::{
-    db::{
-        access::validate_access_runtime_invariants_with_schema,
-        access::validate_access_structure_model as validate_access_structure_model_shared,
-        query::plan::{
-            AccessPlannedQuery, LogicalPlan, OrderSpec, ScalarPlan,
-            validate::{
-                GroupPlanError, PlanError,
-                grouped::{
-                    validate_group_cursor_constraints, validate_group_policy,
-                    validate_group_structure, validate_projection_expr_types,
-                },
-                order::{
-                    validate_no_duplicate_non_pk_order_fields, validate_order,
-                    validate_primary_key_tie_break,
-                },
-                validate_plan_shape,
+use crate::db::{
+    access::validate_access_runtime_invariants_with_schema,
+    query::plan::{
+        AccessPlannedQuery, LogicalPlan, OrderSpec, ScalarPlan,
+        validate::{
+            GroupPlanError, PlanError,
+            grouped::{
+                validate_group_cursor_constraints, validate_group_policy, validate_group_structure,
+                validate_projection_expr_types,
             },
+            order::{
+                validate_no_duplicate_non_pk_order_fields, validate_order,
+                validate_primary_key_tie_break,
+            },
+            validate_plan_shape,
         },
-        query::predicate::validate_predicate,
-        schema::SchemaInfo,
     },
-    model::entity::EntityModel,
+    query::predicate::validate_predicate,
+    schema::SchemaInfo,
 };
-
-// Lift the shared access-structure validation bridge into one named helper so
-// scalar and grouped semantic entry points do not each restate the same
-// planner-to-access validation mapping closure.
-fn validate_access_structure_for_plan(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    plan: &AccessPlannedQuery,
-) -> Result<(), PlanError> {
-    validate_access_structure_model_shared(schema, model, &plan.access).map_err(PlanError::from)
-}
 
 fn validate_accepted_access_structure_for_plan(
     schema: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Result<(), PlanError> {
     validate_access_runtime_invariants_with_schema(schema, &plan.access).map_err(PlanError::from)
-}
-
-/// Validate a logical plan with model-level key values.
-///
-/// Ownership:
-/// - semantic owner for user-facing query validity at planning boundaries
-/// - failures here are user-visible planning failures (`PlanError`)
-///
-/// New user-facing validation rules must be introduced here first, then mirrored
-/// defensively in downstream layers without changing semantics.
-pub(in crate::db::query) fn validate_query_semantics(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    plan: &AccessPlannedQuery,
-) -> Result<(), PlanError> {
-    let logical = plan.scalar_plan();
-    let projection = plan.projection_spec(model);
-
-    validate_scalar_plan_semantic_gates(
-        schema,
-        logical,
-        plan,
-        validate_order,
-        |schema, plan| validate_access_structure_for_plan(schema, model, plan),
-        true,
-    )?;
-    validate_projection_expr_types(schema, &projection)?;
-
-    Ok(())
 }
 
 /// Validate one scalar query entirely from accepted schema authority.
@@ -91,46 +47,6 @@ pub(in crate::db::query) fn validate_query_semantics_with_schema(
         validate_accepted_access_structure_for_plan,
         true,
     )?;
-    validate_projection_expr_types(schema, &projection)?;
-
-    Ok(())
-}
-
-/// Validate grouped query semantics for one grouped plan wrapper.
-///
-/// Ownership:
-/// - semantic owner for GROUP BY wrapper validation
-/// - failures here are user-visible planning failures (`PlanError`)
-pub(in crate::db::query) fn validate_group_query_semantics(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    plan: &AccessPlannedQuery,
-) -> Result<(), PlanError> {
-    let (logical, group, having_expr) = match &plan.logical {
-        LogicalPlan::Grouped(grouped) => (
-            &grouped.scalar,
-            &grouped.group,
-            grouped.having_expr.as_ref(),
-        ),
-        LogicalPlan::Scalar(_) => {
-            return Err(PlanError::from(
-                GroupPlanError::grouped_logical_plan_required(),
-            ));
-        }
-    };
-    let projection = plan.projection_spec(model);
-
-    validate_scalar_plan_semantic_gates(
-        schema,
-        logical,
-        plan,
-        validate_order,
-        |schema, plan| validate_access_structure_for_plan(schema, model, plan),
-        false,
-    )?;
-    validate_group_structure(schema, group, &projection, having_expr)?;
-    validate_group_policy(schema, logical, group, having_expr)?;
-    validate_group_cursor_constraints(logical, group)?;
     validate_projection_expr_types(schema, &projection)?;
 
     Ok(())

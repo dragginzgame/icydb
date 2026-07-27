@@ -55,15 +55,10 @@ fn retained_slot_row_sparse_constructor_preserves_dense_overwrite_semantics() {
         ],
     );
 
-    assert_eq!(
-        row.into_dense_slots(),
-        vec![
-            None,
-            Some(Value::Text("last".to_string())),
-            None,
-            Some(Value::Bool(false)),
-        ]
-    );
+    assert_eq!(row.slot_ref(1), Some(&Value::Text("last".to_string())),);
+    assert_eq!(row.slot_ref(3), Some(&Value::Bool(false)));
+    assert_eq!(row.slot_ref(0), None);
+    assert_eq!(row.slot_ref(7), None);
 }
 
 #[test]
@@ -82,7 +77,7 @@ fn retained_slot_row_indexed_layout_uses_shared_slot_lookup() {
     assert_eq!(row.take_slot(1), Some(Value::Text("alpha".to_string())));
     assert_eq!(row.slot_ref(1), None);
     assert_eq!(row.slot_ref(3), Some(&Value::Bool(true)));
-    assert_eq!(row.into_dense_slots()[5], Some(Value::Nat64(7)));
+    assert_eq!(row.take_slot(5), Some(Value::Nat64(7)));
 }
 
 #[test]

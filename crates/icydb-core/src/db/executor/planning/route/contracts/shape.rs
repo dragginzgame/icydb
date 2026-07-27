@@ -7,9 +7,6 @@ use crate::db::{
     executor::aggregate::capability::accepted_field_kind_supports_aggregate_ordering,
     query::plan::AggregateKind, schema::SchemaInfo,
 };
-#[cfg(test)]
-use crate::{db::schema::AcceptedFieldKind, model::field::FieldModel};
-
 ///
 /// FastPathOrder
 ///
@@ -50,7 +47,6 @@ pub(in crate::db::executor) const GROUPED_AGGREGATE_FAST_PATH_ORDER: [FastPathOr
 
 // Contract: mutation routes are materialized-only and do not participate in
 // load/aggregate fast-path precedence.
-pub(in crate::db::executor) const MUTATION_FAST_PATH_ORDER: [FastPathOrder; 0] = [];
 
 ///
 /// AggregateRouteShape
@@ -89,42 +85,6 @@ impl<'a> AggregateRouteShape<'a> {
             target_field_orderable,
             target_field_is_primary_key,
         }
-    }
-
-    /// Construct one route-owned aggregate shape from field-table semantics.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn new_from_fields(
-        kind: AggregateKind,
-        target_field: Option<&'a str>,
-        fields: &[FieldModel],
-        primary_key_names: &[&str],
-    ) -> Self {
-        let target_field_known = target_field.is_none_or(|target_field| {
-            fields
-                .iter()
-                .any(|field_model| field_model.name() == target_field)
-        });
-        let target_field_orderable = target_field.is_some_and(|target_field| {
-            fields
-                .iter()
-                .find(|field_model| field_model.name() == target_field)
-                .is_some_and(|field_model| {
-                    accepted_field_kind_supports_aggregate_ordering(
-                        &AcceptedFieldKind::from_model_kind(field_model.kind()),
-                    )
-                })
-        });
-        let target_field_is_primary_key =
-            target_field.is_some_and(|target_field| primary_key_names == [target_field]);
-
-        Self::new_resolved(
-            kind,
-            target_field,
-            target_field_known,
-            target_field_orderable,
-            target_field_is_primary_key,
-        )
     }
 
     /// Construct one route-owned aggregate shape from schema-info authority.
@@ -202,5 +162,4 @@ pub(in crate::db::executor) enum RouteShapeKind {
     AggregateCount,
     AggregateNonCount,
     AggregateGrouped,
-    MutationDelete,
 }

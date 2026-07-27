@@ -1,5 +1,5 @@
 use crate::schema::test::TestStore;
-use icydb::{base, design::prelude::*};
+use icydb_model::{base, prelude::*};
 
 ///
 /// SimpleEntity
@@ -262,7 +262,7 @@ impl Index {
     #[must_use]
     pub fn new(x: i32, y: i32) -> Self {
         Self {
-            id: Ulid::generate(),
+            id: Ulid::nil(),
             x,
             y,
             created_at: Timestamp::default(),

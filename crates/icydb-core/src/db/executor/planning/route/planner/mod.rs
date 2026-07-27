@@ -13,7 +13,7 @@ pub(in crate::db::executor) use entrypoints::{RoutePlanRequest, build_execution_
 use feasibility::derive_execution_feasibility_stage_for_model;
 use intent::{
     derive_aggregate_route_intent_stage, derive_grouped_route_intent_stage,
-    derive_load_route_intent_stage, derive_mutation_route_intent_stage,
+    derive_load_route_intent_stage,
 };
 use stages::{
     RouteDerivationContext, RouteExecutionStage, RouteFeasibilityStage, RouteIntentStage,

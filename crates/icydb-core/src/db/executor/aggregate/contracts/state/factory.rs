@@ -8,11 +8,10 @@ use crate::db::{
     executor::{
         aggregate::contracts::{
             plan::CompiledExpr,
-            spec::{AggregateKind, ScalarTerminalKind},
+            spec::AggregateKind,
             state::{
                 GroupedAggregateReducerState, GroupedDistinctExecutionMode,
-                GroupedTerminalAggregateState, ScalarAggregateReducerState,
-                ScalarTerminalAggregateState,
+                GroupedTerminalAggregateState,
             },
         },
         aggregate::field::FieldSlot as AggregateFieldSlot,
@@ -31,27 +30,6 @@ use crate::db::{
 pub(in crate::db::executor) struct AggregateStateFactory;
 
 impl AggregateStateFactory {
-    /// Build one scalar terminal aggregate state machine for kernel reducers.
-    #[must_use]
-    pub(in crate::db::executor) fn create_scalar_terminal(
-        kind: ScalarTerminalKind,
-        direction: Direction,
-        distinct: bool,
-    ) -> ScalarTerminalAggregateState {
-        ScalarTerminalAggregateState {
-            kind,
-            direction,
-            distinct,
-            distinct_keys: if distinct {
-                Some(GroupKeySet::new())
-            } else {
-                None
-            },
-            requires_primary_key_value: kind.aggregate_kind().requires_decoded_id(),
-            reducer: ScalarAggregateReducerState::for_terminal_kind(kind),
-        }
-    }
-
     /// Build one grouped terminal aggregate state machine for grouped reducers.
     #[must_use]
     pub(in crate::db::executor) fn create_grouped_terminal(

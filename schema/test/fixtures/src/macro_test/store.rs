@@ -1,5 +1,5 @@
 use crate::schema::test::TestStore;
-use icydb::design::prelude::*;
+use icydb_model::prelude::*;
 
 ///
 /// StoreTestEntity

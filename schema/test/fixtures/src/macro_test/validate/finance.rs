@@ -1,4 +1,4 @@
-use icydb::design::prelude::*;
+use icydb_model::prelude::*;
 
 ///
 /// Usd

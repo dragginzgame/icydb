@@ -238,27 +238,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "canister_audit_one_entity_fluent_execute"
-version = "0.213.32"
-dependencies = [
- "candid",
- "ic-cdk",
- "icydb",
- "icydb-testing-audit-one-simple-fixtures",
-]
-
-[[package]]
-name = "canister_audit_one_entity_fluent_rows"
-version = "0.213.32"
-dependencies = [
- "candid",
- "ic-cdk",
- "icydb",
- "icydb-testing-audit-one-simple-fixtures",
- "icydb-testing-wasm-helpers",
-]
-
-[[package]]
 name = "canister_audit_one_entity_sql_query"
 version = "0.213.32"
 dependencies = [
@@ -266,6 +245,17 @@ dependencies = [
  "ic-cdk",
  "icydb",
  "icydb-testing-audit-one-simple-fixtures",
+]
+
+[[package]]
+name = "canister_audit_one_entity_typed_query"
+version = "0.213.32"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "icydb",
+ "icydb-testing-audit-one-simple-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -281,7 +271,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "canister_audit_ten_entity_fluent_rows"
+name = "canister_audit_ten_entity_typed_query"
 version = "0.213.32"
 dependencies = [
  "candid",
@@ -1275,28 +1265,14 @@ dependencies = [
  "derive_more",
  "ic-cdk",
  "ic-memory",
- "icydb-build",
  "icydb-config",
  "icydb-core",
- "icydb-derive",
  "icydb-diagnostic-code",
- "icydb-model-legacy",
  "icydb-schema",
- "icydb-schema-derive",
  "icydb-utils",
  "remain",
  "serde",
  "trybuild",
-]
-
-[[package]]
-name = "icydb-build"
-version = "0.213.32"
-dependencies = [
- "icydb-model-legacy",
- "proc-macro2",
- "quote",
- "syn 3.0.3",
 ]
 
 [[package]]
@@ -1316,7 +1292,7 @@ dependencies = [
 name = "icydb-config"
 version = "0.213.32"
 dependencies = [
- "icydb-build",
+ "icydb-model",
  "serde",
  "thiserror 2.0.19",
  "toml",
@@ -1333,7 +1309,6 @@ dependencies = [
  "ic-memory",
  "ic-stable-structures",
  "icrc-ledger-types",
- "icydb-derive",
  "icydb-diagnostic-code",
  "icydb-schema",
  "icydb-testing-sql-generator",
@@ -1355,15 +1330,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "icydb-derive"
-version = "0.213.32"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.3",
-]
-
-[[package]]
 name = "icydb-diagnostic-code"
 version = "0.213.32"
 dependencies = [
@@ -1377,7 +1343,6 @@ dependencies = [
  "candid",
  "convert_case",
  "ctor",
- "derive_more",
  "icydb-model-macros",
  "icydb-schema",
  "proc-macro-crate",
@@ -1388,22 +1353,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "syn 3.0.3",
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "icydb-model-legacy"
-version = "0.213.32"
-dependencies = [
- "candid",
- "darling",
- "icydb-schema",
- "proc-macro2",
- "quote",
- "remain",
- "serde",
- "serde_json",
- "sha2",
  "thiserror 2.0.19",
 ]
 
@@ -1444,39 +1393,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "icydb-schema-derive"
-version = "0.213.32"
-dependencies = [
- "candid",
- "darling",
- "derive_more",
- "icydb-core",
- "icydb-model-legacy",
- "icydb-utils",
- "proc-macro2",
- "quote",
- "remain",
- "serde",
- "syn 2.0.119",
- "trybuild",
-]
-
-[[package]]
-name = "icydb-schema-tests"
-version = "0.213.32"
-dependencies = [
- "icydb",
- "icydb-core",
- "icydb-testing-test-fixtures",
- "trybuild",
-]
-
-[[package]]
 name = "icydb-testing-audit-default-empty-fixtures"
 version = "0.213.32"
 dependencies = [
  "candid",
  "icydb",
+ "icydb-model",
  "icydb-testing-wasm-helpers",
 ]
 
@@ -1486,6 +1408,7 @@ version = "0.213.32"
 dependencies = [
  "candid",
  "icydb",
+ "icydb-model",
  "icydb-testing-wasm-helpers",
 ]
 
@@ -1495,6 +1418,7 @@ version = "0.213.32"
 dependencies = [
  "candid",
  "icydb",
+ "icydb-model",
  "icydb-testing-wasm-helpers",
 ]
 
@@ -1504,6 +1428,7 @@ version = "0.213.32"
 dependencies = [
  "candid",
  "icydb",
+ "icydb-model",
  "icydb-testing-wasm-helpers",
 ]
 
@@ -1513,6 +1438,7 @@ version = "0.213.32"
 dependencies = [
  "candid",
  "icydb",
+ "icydb-model",
  "icydb-testing-wasm-helpers",
 ]
 
@@ -1571,6 +1497,7 @@ dependencies = [
  "candid",
  "icydb",
  "icydb-core",
+ "icydb-model",
 ]
 
 [[package]]
@@ -1579,6 +1506,7 @@ version = "0.213.32"
 dependencies = [
  "candid",
  "icydb",
+ "icydb-model",
  "icydb-testing-wasm-helpers",
 ]
 

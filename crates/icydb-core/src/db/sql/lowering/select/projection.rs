@@ -1,19 +1,16 @@
-use crate::{
-    db::{
-        query::plan::expr::{Alias, Expr, FieldId, ProjectionField, ProjectionSelection},
-        schema::SchemaInfo,
-        sql::{
-            identifier::split_qualified_identifier,
-            lowering::{
-                AnalyzedLoweredExpr, LoweredExprAnalysis, SqlLoweringError,
-                aggregate::SqlAggregateCallInterner,
-                expr::{SqlExprPhase, lower_sql_expr},
-                select::order::LoweredSqlOrderTerm,
-            },
-            parser::{SqlAggregateCall, SqlProjection, SqlSelectItem},
+use crate::db::{
+    query::plan::expr::{Alias, Expr, FieldId, ProjectionField, ProjectionSelection},
+    schema::SchemaInfo,
+    sql::{
+        identifier::split_qualified_identifier,
+        lowering::{
+            AnalyzedLoweredExpr, LoweredExprAnalysis, SqlLoweringError,
+            aggregate::SqlAggregateCallInterner,
+            expr::{SqlExprPhase, lower_sql_expr},
+            select::order::LoweredSqlOrderTerm,
         },
+        parser::{SqlAggregateCall, SqlProjection, SqlSelectItem},
     },
-    model::entity::EntityModel,
 };
 
 ///
@@ -132,7 +129,7 @@ pub(super) fn lower_scalar_projection_selection(
     let mut fields = Vec::with_capacity(items.len());
     let mut projection_facts = Vec::with_capacity(items.len());
     for (index, item) in items.into_iter().enumerate() {
-        let analyzed = lower_analyzed_select_item_expr(&item, SqlExprPhase::Scalar, None)?;
+        let analyzed = lower_analyzed_select_item_expr(&item, SqlExprPhase::Scalar)?;
         let (expr, expr_facts) = analyzed.into_parts();
         fields.push(ProjectionField::Scalar {
             expr,
@@ -172,7 +169,7 @@ pub(super) fn lower_grouped_projection(
     let mut aggregate_call_interner = SqlAggregateCallInterner::new();
 
     for (index, item) in items.into_iter().enumerate() {
-        let analyzed = lower_analyzed_select_item_expr(&item, SqlExprPhase::PostAggregate, None)?;
+        let analyzed = lower_analyzed_select_item_expr(&item, SqlExprPhase::PostAggregate)?;
         let expr_facts = analyzed.analysis();
         let contains_aggregate = expr_facts.contains_aggregate();
         if seen_aggregate && !contains_aggregate {
@@ -363,10 +360,8 @@ pub(in crate::db::sql::lowering) fn lower_select_item_expr(
 pub(in crate::db::sql::lowering) fn lower_analyzed_select_item_expr(
     item: &SqlSelectItem,
     phase: SqlExprPhase,
-    model: Option<&EntityModel>,
 ) -> Result<AnalyzedLoweredExpr, SqlLoweringError> {
-    Ok(AnalyzedLoweredExpr::new(
-        lower_select_item_expr(item, phase)?,
-        model,
-    ))
+    Ok(AnalyzedLoweredExpr::new(lower_select_item_expr(
+        item, phase,
+    )?))
 }

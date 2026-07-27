@@ -100,31 +100,6 @@ impl CachedOrderValues {
             Self::Heap(values) => values.push(value),
         }
     }
-
-    fn into_boundary_slots(self) -> Vec<CursorBoundarySlot> {
-        match self {
-            Self::Inline { len, values } => {
-                let mut slots = Vec::with_capacity(len);
-                for value in values.into_iter().take(len) {
-                    slots.push(match value {
-                        Some(value) => CursorBoundarySlot::Present(value),
-                        None => CursorBoundarySlot::Missing,
-                    });
-                }
-                slots
-            }
-            Self::Heap(values) => {
-                let mut slots = Vec::with_capacity(values.len());
-                for value in values {
-                    slots.push(match value {
-                        Some(value) => CursorBoundarySlot::Present(value),
-                        None => CursorBoundarySlot::Missing,
-                    });
-                }
-                slots
-            }
-        }
-    }
 }
 
 /// Apply canonical in-memory ordering with an optional bounded top-k window.
@@ -650,22 +625,6 @@ fn compare_structural_order_slots_fallible(
     Ok(Ordering::Equal)
 }
 
-/// Materialize one cursor boundary directly from one already-decoded row under
-/// the planner-frozen resolved order contract.
-#[must_use]
-pub(in crate::db::executor) fn cursor_boundary_from_orderable_row<R>(
-    row: &R,
-    resolved_order: &ResolvedOrder,
-) -> CursorBoundary
-where
-    R: OrderReadableRow,
-{
-    let cached_values = cache_order_values_from_row(row, resolved_order);
-    CursorBoundary {
-        slots: cached_values.into_boundary_slots(),
-    }
-}
-
 // Compare two cached structural ordering tuples according to the resolved
 // canonical order without re-reading row slots inside the comparator.
 fn compare_cached_orderable_rows(
@@ -971,10 +930,3 @@ fn compare_order_value_with_boundary(
         }
     }
 }
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

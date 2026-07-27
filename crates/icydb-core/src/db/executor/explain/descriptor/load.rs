@@ -26,14 +26,12 @@ use crate::{
                 AccessChoiceRejectedIndex, AccessChoiceResidualBurden, AccessPlannedQuery,
                 CoveringExistingRowMode, CoveringHybridReadExecutionPlan, CoveringProjectionOrder,
                 CoveringReadExecutionPlan, CoveringReadFieldSource, access_plan_label,
-                covering_read_execution_plan_from_fields_with_primary_key_names,
                 covering_read_reason_code_for_load_plan, covering_strict_predicate_compatible,
                 grouped_executor_handoff,
             },
         },
     },
     error::InternalError,
-    model::field::FieldModel,
     value::Value,
 };
 
@@ -156,7 +154,7 @@ fn freeze_grouped_load_execution_route_facts(
             RoutePlanRequest::Grouped {
                 grouped_plan_strategy: grouped_handoff.grouped_plan_strategy(),
             },
-        )?,
+        ),
         explain_preparation,
         hybrid_covering_read_plan: None,
     })
@@ -167,20 +165,20 @@ fn freeze_scalar_load_execution_route_facts(
     explain_preparation: LoadExplainPreparation,
     load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
     hybrid_covering_read_plan: Option<CoveringHybridReadExecutionPlan>,
-) -> Result<LoadExecutionRouteFacts, InternalError> {
-    Ok(LoadExecutionRouteFacts {
+) -> LoadExecutionRouteFacts {
+    LoadExecutionRouteFacts {
         route_plan: build_execution_route_plan(
             plan,
             RoutePlanRequest::Load {
-                continuation: &crate::db::executor::ScalarContinuationContext::initial(),
+                continuation: crate::db::executor::ScalarContinuationContext::initial(),
                 probe_fetch_hint: None,
                 authority: None,
                 load_terminal_fast_path,
             },
-        )?,
+        ),
         explain_preparation,
         hybrid_covering_read_plan,
-    })
+    }
 }
 
 ///
@@ -208,32 +206,8 @@ struct GroupedExecutionProjection {
     execution_mode: &'static str,
 }
 
-// Assemble one canonical scalar load execution descriptor tree through the
-// standalone model-only explain boundary.
-#[inline(never)]
-#[cfg(all(test, feature = "sql-explain"))]
-pub(in crate::db) fn assemble_load_execution_node_descriptor(
-    fields: &'static [FieldModel],
-    primary_key_name: &'static str,
-    plan: &AccessPlannedQuery,
-) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
-    let primary_key_names = [primary_key_name];
-    let route_facts =
-        freeze_load_execution_route_facts_for_model_only(fields, &primary_key_names, plan)?;
-
-    assemble_load_execution_node_descriptor_from_route_facts(plan, &route_facts)
-}
-
 // Assemble one canonical scalar load execution descriptor tree through
 // accepted executor authority.
-pub(in crate::db) fn assemble_load_execution_node_descriptor_for_authority(
-    authority: &EntityAuthority,
-    plan: &AccessPlannedQuery,
-) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
-    let route_facts = freeze_load_execution_route_facts_for_authority(authority, plan)?;
-
-    assemble_load_execution_node_descriptor_from_route_facts(plan, &route_facts)
-}
 
 /// Assemble one canonical scalar load execution descriptor tree from frozen
 /// route facts.
@@ -608,41 +582,6 @@ fn candidate_residual_burden_label(candidate: &AccessChoiceCandidateExplainSumma
     candidate.residual_burden.label().to_string()
 }
 
-/// Freeze load execution route facts for standalone model-only explain
-/// consumers that do not have accepted executor authority.
-pub(in crate::db) fn freeze_load_execution_route_facts_for_model_only(
-    fields: &'static [FieldModel],
-    primary_key_names: &[&str],
-    plan: &AccessPlannedQuery,
-) -> Result<LoadExecutionRouteFacts, InternalError> {
-    let explain_preparation = LoadExplainPreparation::from_plan(plan);
-
-    // Grouped explain must stay on the planner-provided grouped handoff.
-    if plan.grouped_plan().is_some() {
-        return freeze_grouped_load_execution_route_facts(plan, explain_preparation);
-    }
-
-    // Scalar explain derives covering-read eligibility from the same field
-    // table and PK identity that planner/runtime authority paths use.
-    let load_terminal_fast_path = if plan.scalar_plan().mode.is_load() {
-        covering_read_execution_plan_from_fields_with_primary_key_names(
-            fields,
-            plan,
-            primary_key_names,
-            explain_preparation.strict_predicate_compatible,
-        )
-    } else {
-        None
-    };
-
-    freeze_scalar_load_execution_route_facts(
-        plan,
-        explain_preparation,
-        load_terminal_fast_path,
-        None,
-    )
-}
-
 /// Freeze load execution route facts using accepted executor authority.
 pub(in crate::db) fn freeze_load_execution_route_facts_for_authority(
     authority: &EntityAuthority,
@@ -677,12 +616,12 @@ pub(in crate::db) fn freeze_load_execution_route_facts_for_authority(
             None
         };
 
-    freeze_scalar_load_execution_route_facts(
+    Ok(freeze_scalar_load_execution_route_facts(
         plan,
         explain_preparation,
         load_terminal_fast_path,
         hybrid_covering_read_plan,
-    )
+    ))
 }
 
 // Project grouped execution truth directly onto the access root.

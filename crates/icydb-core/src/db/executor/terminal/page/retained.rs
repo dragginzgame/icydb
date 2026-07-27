@@ -132,12 +132,6 @@ impl RetainedSlotLayout {
         self.data.slot_to_value_index.get(slot).copied().flatten()
     }
 
-    /// Return the full slot span covered by this retained-slot layout.
-    #[must_use]
-    pub(in crate::db::executor) fn slot_count(&self) -> usize {
-        self.data.slot_to_value_index.len()
-    }
-
     /// Return the number of retained values each indexed retained row stores.
     #[must_use]
     pub(in crate::db::executor) fn retained_value_count(&self) -> usize {
@@ -167,6 +161,7 @@ pub(in crate::db) struct RetainedSlotRow {
 /// lookups without rebuilding a dense per-row slot image.
 ///
 
+#[cfg(test)]
 struct RetainedSlotEntry {
     slot: usize,
     value: Option<Value>,
@@ -180,10 +175,8 @@ enum RetainedSlotRowStorage {
         layout: RetainedSlotLayout,
         values: Vec<Option<Value>>,
     },
-    Sparse {
-        slot_count: usize,
-        entries: Vec<RetainedSlotEntry>,
-    },
+    #[cfg(test)]
+    Sparse { entries: Vec<RetainedSlotEntry> },
 }
 
 impl RetainedSlotRow {
@@ -213,33 +206,7 @@ impl RetainedSlotRow {
 
         Self {
             storage: RetainedSlotRowStorage::Sparse {
-                slot_count,
                 entries: deduped_entries,
-            },
-        }
-    }
-
-    /// Build one retained slot row from one already-materialized dense slot image.
-    #[must_use]
-    pub(in crate::db::executor) fn from_dense_slots(slots: Vec<Option<Value>>) -> Self {
-        let slot_count = slots.len();
-        let mut entries = Vec::new();
-
-        for (slot, value) in slots.into_iter().enumerate() {
-            let Some(value) = value else {
-                continue;
-            };
-
-            entries.push(RetainedSlotEntry {
-                slot,
-                value: Some(value),
-            });
-        }
-
-        Self {
-            storage: RetainedSlotRowStorage::Sparse {
-                slot_count,
-                entries,
             },
         }
     }
@@ -270,6 +237,7 @@ impl RetainedSlotRow {
 
                 values.get(index).and_then(Option::as_ref)
             }
+            #[cfg(test)]
             RetainedSlotRowStorage::Sparse { entries, .. } => {
                 Self::find_sparse_entry(entries.as_slice(), slot)
                     .and_then(|entry| entry.value.as_ref())
@@ -286,6 +254,7 @@ impl RetainedSlotRow {
 
                 values.get_mut(index)?.take()
             }
+            #[cfg(test)]
             RetainedSlotRowStorage::Sparse { entries, .. } => {
                 let index = Self::find_sparse_entry_index(entries.as_slice(), slot)?;
 
@@ -294,38 +263,8 @@ impl RetainedSlotRow {
         }
     }
 
-    /// Expand this retained row back into one dense slot vector for callers
-    /// that still require slot-indexed access across the full row width.
-    #[must_use]
-    pub(in crate::db::executor) fn into_dense_slots(self) -> Vec<Option<Value>> {
-        match self.storage {
-            RetainedSlotRowStorage::Indexed { layout, values } => {
-                let mut slots = vec![None; layout.slot_count()];
-
-                for (&slot, value) in layout.required_slots().iter().zip(values) {
-                    slots[slot] = value;
-                }
-
-                slots
-            }
-            RetainedSlotRowStorage::Sparse {
-                slot_count,
-                entries,
-            } => {
-                let mut slots = vec![None; slot_count];
-
-                for entry in entries {
-                    if let Some(value) = entry.value {
-                        slots[entry.slot] = Some(value);
-                    }
-                }
-
-                slots
-            }
-        }
-    }
-
     // Resolve one retained sparse entry by slot index inside the slot-sorted compact row.
+    #[cfg(test)]
     fn find_sparse_entry(entries: &[RetainedSlotEntry], slot: usize) -> Option<&RetainedSlotEntry> {
         let index = Self::find_sparse_entry_index(entries, slot)?;
 
@@ -333,6 +272,7 @@ impl RetainedSlotRow {
     }
 
     // Binary-search one compact sparse retained-slot entry list by stable slot index.
+    #[cfg(test)]
     fn find_sparse_entry_index(entries: &[RetainedSlotEntry], slot: usize) -> Option<usize> {
         entries.binary_search_by_key(&slot, |entry| entry.slot).ok()
     }

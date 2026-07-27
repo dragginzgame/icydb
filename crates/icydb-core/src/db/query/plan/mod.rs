@@ -24,24 +24,14 @@ mod primary_key_access_proof;
 mod primary_key_input_resource;
 mod projection;
 mod semantics;
-#[cfg(test)]
-mod tests;
 pub(crate) mod validate;
 
-use crate::{
-    db::{Predicate, access::SemanticIndexAccessContract, schema::SchemaInfo},
-    model::index::IndexModel,
-};
-use std::borrow::Cow;
+use crate::db::{Predicate, access::SemanticIndexAccessContract, schema::SchemaInfo};
 
-pub(in crate::db) use crate::model::canonicalize_filter_literal_for_kind;
+pub(in crate::db::query) use access_choice::rerank_access_plan_by_residual_burden_with_semantic_indexes;
 pub(in crate::db) use access_choice::{
     AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceRejectedIndex,
     AccessChoiceResidualBurden, AccessChoiceSelectedReason, PrimaryKeyInputResourceSummary,
-};
-pub(in crate::db::query) use access_choice::{
-    rerank_access_plan_by_residual_burden_with_indexes,
-    rerank_access_plan_by_residual_burden_with_semantic_indexes,
 };
 pub(in crate::db) use access_plan::AccessPlannedQuery;
 pub(in crate::db) use access_plan::{
@@ -50,8 +40,7 @@ pub(in crate::db) use access_plan::{
     ResolvedOrderValueSource, StaticExecutionPlanningContract,
 };
 pub(in crate::db::query) use access_planner::{
-    AccessPlanningInputs, normalize_query_predicate, plan_query_access,
-    plan_query_access_with_accepted_schema,
+    AccessPlanningInputs, normalize_query_predicate, plan_query_access_with_accepted_schema,
 };
 pub(in crate::db) use continuation::{
     AcceptedContinuationIdentity, PlannedContinuationContract, ScalarAccessWindowPlan,
@@ -61,14 +50,9 @@ pub(in crate::db) use continuation::{
 pub(in crate::db) use covering::CoveringReadField;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use covering::covering_hybrid_projection_execution_plan_with_schema_info;
-#[cfg(test)]
-pub(in crate::db) use covering::covering_read_execution_plan_from_fields;
 pub(in crate::db) use covering::{
-    CoveringExistingRowMode, CoveringHybridReadExecutionPlan, CoveringProjectionFacts,
-    CoveringProjectionOrder, CoveringReadExecutionPlan, CoveringReadFieldSource,
-    constant_covering_projection_value_from_access, covering_index_adjacent_distinct_eligible,
-    covering_index_projection_facts_with_primary_key_names,
-    covering_read_execution_plan_from_fields_with_primary_key_names,
+    CoveringExistingRowMode, CoveringHybridReadExecutionPlan, CoveringProjectionOrder,
+    CoveringReadExecutionPlan, CoveringReadFieldSource,
     covering_read_execution_plan_with_schema_info, covering_read_reason_code_for_load_plan,
     covering_strict_predicate_compatible, index_covering_existing_rows_terminal_eligible,
 };
@@ -104,35 +88,20 @@ pub(in crate::db) use order_contract::{
     deterministic_secondary_index_key_items_order_compatibility,
     deterministic_secondary_index_order_terms_satisfied, grouped_index_order_terms_satisfied,
 };
-#[cfg(test)]
-pub(in crate::db) use order_contract::{
-    GroupedIndexOrderMatch, deterministic_secondary_index_order_compatibility,
-    deterministic_secondary_index_order_satisfied, grouped_index_order_match,
-};
 pub(in crate::db) use order_term::index_key_item_order_terms;
-#[cfg(test)]
-pub(in crate::db) use order_term::index_order_terms;
 pub(in crate::db) use pipeline::PreparedScalarPlanningState;
-#[cfg(test)]
-pub(in crate::db::query) use pipeline::prepare_query_model_scalar_planning_state_for_model_only;
 #[cfg(feature = "sql")]
 pub(in crate::db::query) use pipeline::try_build_count_cardinality_prefix_access_from_query_model;
-#[cfg(test)]
-pub(in crate::db::query) use pipeline::try_build_trivial_scalar_load_plan_for_model_only;
 #[cfg(feature = "sql")]
 pub(in crate::db) use pipeline::{CountCardinalityPrefixAccess, CountCardinalityPrefixValues};
 pub(in crate::db::query) use pipeline::{
-    build_query_model_plan_for_model_only, build_query_model_plan_with_indexes_for_model_only,
     build_query_model_plan_with_indexes_from_scalar_planning_state,
     prepare_query_model_scalar_planning_state_with_schema_info,
     try_build_trivial_scalar_load_plan_with_schema_info,
 };
 pub(in crate::db::query) use planner::PlannerError;
-#[cfg(test)]
-pub(in crate::db) use planner::plan_access;
 pub(in crate::db::query) use planner::{
-    PlannedAccessSelection, plan_access_selection_with_order,
-    plan_access_selection_with_order_and_accepted_semantic_indexes,
+    PlannedAccessSelection, plan_access_selection_with_order_and_accepted_semantic_indexes,
     plan_access_selection_with_order_and_semantic_indexes,
 };
 pub(in crate::db) use planner::{
@@ -145,11 +114,9 @@ pub(in crate::db::query) use primary_key_input_resource::primary_key_input_resou
 pub(in crate::db) use projection::lower_global_aggregate_projection;
 pub(in crate::db::query) use projection::{
     lower_data_row_direct_projection_slots_with_schema, lower_direct_projection_slots_with_schema,
-    lower_projection_identity, lower_projection_intent, lower_projection_intent_with_schema,
+    lower_projection_identity, lower_projection_intent_with_schema,
 };
 pub(in crate::db) use semantics::canonicalize_grouped_having_numeric_literal_for_slot;
-pub(in crate::db) use semantics::global_distinct_group_spec_for_aggregate_identity;
-pub(in crate::db) use semantics::group_aggregate_spec_expr;
 pub(in crate::db) use semantics::{
     AccessPlanProjection, AggregateIdentity, AggregateSemanticKey, GroupDistinctAdmissibility,
     GroupDistinctPolicyReason, GroupedCursorPolicyViolation, GroupedPlanFallbackReason,
@@ -160,26 +127,17 @@ pub(in crate::db) use semantics::{
 };
 pub(in crate::db) use semantics::{
     LogicalPushdownEligibility, derive_logical_pushdown_eligibility,
-    grouped_cursor_policy_violation, grouped_having_compare_expr, grouped_plan_strategy,
+    grouped_cursor_policy_violation, grouped_plan_strategy,
 };
-#[cfg(test)]
-pub(in crate::db) use semantics::{
-    global_distinct_field_aggregate_admissibility, is_global_distinct_field_aggregate_candidate,
-};
-#[cfg(test)]
-pub(crate) use validate::GroupPlanError;
 pub(crate) use validate::PlanError;
 pub(crate) use validate::PolicyPlanError;
-pub(in crate::db::query) use validate::{
-    CursorPagingPolicyError, FluentLoadPolicyViolation, IntentKeyAccessKind,
-    IntentKeyAccessPolicyViolation, has_explicit_order, validate_fluent_non_paged_mode,
-    validate_fluent_paged_mode, validate_group_query_semantics,
-    validate_group_query_semantics_with_schema, validate_intent_key_access_policy,
-    validate_intent_plan_shape, validate_query_semantics, validate_query_semantics_with_schema,
-};
 pub(in crate::db) use validate::{
-    resolve_aggregate_target_field_slot_with_schema, resolve_group_field_slot,
-    resolve_group_field_slot_with_schema, validate_cursor_order_plan_shape,
+    resolve_aggregate_target_field_slot_with_schema, resolve_group_field_slot_with_schema,
+    validate_cursor_order_plan_shape,
+};
+pub(in crate::db::query) use validate::{
+    validate_group_query_semantics_with_schema, validate_intent_plan_shape,
+    validate_query_semantics_with_schema,
 };
 
 /// Return true when a query mode declares an explicit load `LIMIT 0` window.
@@ -211,8 +169,6 @@ pub(in crate::db::query) const fn predicate_is_constant_false(
 ) -> bool {
     matches!(predicate, Some(Predicate::False))
 }
-#[cfg(test)]
-pub(crate) use validate::{PlanPolicyError, PlanUserError};
 
 ///
 /// VisibleIndexes
@@ -225,7 +181,6 @@ pub(crate) use validate::{PlanPolicyError, PlanUserError};
 #[derive(Clone, Copy, Debug)]
 enum VisibleIndexAuthority {
     StoreNotReady,
-    GeneratedModelOnly,
     AcceptedSchema {
         field_path_indexes: usize,
         expression_indexes: usize,
@@ -233,11 +188,7 @@ enum VisibleIndexAuthority {
 }
 
 #[derive(Clone, Debug)]
-pub(in crate::db) struct VisibleIndexes<'a> {
-    // Generated model-only index sets are used by standalone query/explain
-    // surfaces that intentionally do not have accepted runtime schema
-    // authority.
-    generated_model_only_indexes: Cow<'a, [&'static IndexModel]>,
+pub(in crate::db) struct VisibleIndexes {
     accepted_field_path_indexes: Vec<AcceptedPlannerFieldPathIndex>,
     accepted_expression_indexes: Vec<AcceptedPlannerExpressionIndex>,
     accepted_semantic_index_contracts: Vec<SemanticIndexAccessContract>,
@@ -250,7 +201,7 @@ pub(in crate::db) struct VisibleIndexes<'a> {
 ///
 /// Planner-facing accepted expression index contract. This owns the accepted
 /// expression key contract needed to migrate expression-index planning away
-/// from generated `IndexModel` values.
+/// from generated index declarations.
 ///
 #[derive(Clone, Debug)]
 pub(in crate::db) struct AcceptedPlannerExpressionIndex {
@@ -315,7 +266,7 @@ impl AcceptedPlannerExpressionIndex {
 /// Planner-facing accepted field-path index contract.
 /// This owns the accepted schema metadata needed by field-path planner
 /// decisions plus a reduced semantic access contract for selected-path
-/// construction without retaining the full generated `IndexModel`.
+/// construction without retaining a generated index declaration.
 ///
 #[derive(Clone, Debug)]
 pub(in crate::db) struct AcceptedPlannerFieldPathIndex {
@@ -459,43 +410,15 @@ impl AcceptedPlannerFieldPathIndexField {
     }
 }
 
-impl<'a> VisibleIndexes<'a> {
+impl VisibleIndexes {
     #[must_use]
     pub(in crate::db) const fn none() -> Self {
         Self {
-            generated_model_only_indexes: Cow::Borrowed(&[]),
             accepted_field_path_indexes: Vec::new(),
             accepted_expression_indexes: Vec::new(),
             accepted_semantic_index_contracts: Vec::new(),
             accepted_schema_info: None,
             authority: VisibleIndexAuthority::StoreNotReady,
-        }
-    }
-
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn generated_model_only_for_test(
-        indexes: &'a [&'static IndexModel],
-    ) -> Self {
-        Self {
-            generated_model_only_indexes: Cow::Borrowed(indexes),
-            accepted_field_path_indexes: Vec::new(),
-            accepted_expression_indexes: Vec::new(),
-            accepted_semantic_index_contracts: Vec::new(),
-            accepted_schema_info: None,
-            authority: VisibleIndexAuthority::GeneratedModelOnly,
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn generated_model_only(indexes: &'a [&'static IndexModel]) -> Self {
-        Self {
-            generated_model_only_indexes: Cow::Borrowed(indexes),
-            accepted_field_path_indexes: Vec::new(),
-            accepted_expression_indexes: Vec::new(),
-            accepted_semantic_index_contracts: Vec::new(),
-            accepted_schema_info: None,
-            authority: VisibleIndexAuthority::GeneratedModelOnly,
         }
     }
 
@@ -519,7 +442,6 @@ impl<'a> VisibleIndexes<'a> {
         let accepted_expression_index_count = accepted_expression_indexes.len();
 
         Self {
-            generated_model_only_indexes: Cow::Borrowed(&[]),
             accepted_field_path_indexes,
             accepted_expression_indexes,
             accepted_semantic_index_contracts,
@@ -539,7 +461,6 @@ impl<'a> VisibleIndexes<'a> {
     #[cfg(feature = "sql")]
     pub(in crate::db) fn accepted_schema_primary_only(schema_info: &SchemaInfo) -> Self {
         Self {
-            generated_model_only_indexes: Cow::Borrowed(&[]),
             accepted_field_path_indexes: Vec::new(),
             accepted_expression_indexes: Vec::new(),
             accepted_semantic_index_contracts: Vec::new(),
@@ -549,11 +470,6 @@ impl<'a> VisibleIndexes<'a> {
                 expression_indexes: 0,
             },
         }
-    }
-
-    #[must_use]
-    pub(in crate::db) fn generated_model_only_indexes(&self) -> &[&'static IndexModel] {
-        self.generated_model_only_indexes.as_ref()
     }
 
     /// Borrow accepted planner-facing field-path index contracts.
@@ -625,9 +541,7 @@ impl<'a> VisibleIndexes<'a> {
             VisibleIndexAuthority::AcceptedSchema {
                 field_path_indexes, ..
             } => Some(field_path_indexes),
-            VisibleIndexAuthority::GeneratedModelOnly | VisibleIndexAuthority::StoreNotReady => {
-                None
-            }
+            VisibleIndexAuthority::StoreNotReady => None,
         }
     }
 
@@ -637,9 +551,7 @@ impl<'a> VisibleIndexes<'a> {
             VisibleIndexAuthority::AcceptedSchema {
                 expression_indexes, ..
             } => Some(expression_indexes),
-            VisibleIndexAuthority::GeneratedModelOnly | VisibleIndexAuthority::StoreNotReady => {
-                None
-            }
+            VisibleIndexAuthority::StoreNotReady => None,
         }
     }
 }

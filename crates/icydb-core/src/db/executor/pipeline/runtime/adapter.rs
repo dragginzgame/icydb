@@ -88,8 +88,7 @@ impl<'a> ExecutionMaterializationContract<'a> {
         runtime: &'a ExecutionRuntimeAdapter,
         emit_cursor: bool,
         consistency: MissingRowPolicy,
-        continuation: &'a ScalarContinuationContext,
-        direction: Direction,
+        continuation: ScalarContinuationContext,
         key_stream: &'a mut OrderedKeyStreamBox,
     ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
         runtime.materialize_resolved_execution_stream(
@@ -97,7 +96,6 @@ impl<'a> ExecutionMaterializationContract<'a> {
             emit_cursor,
             consistency,
             continuation,
-            direction,
             key_stream,
         )
     }
@@ -109,15 +107,13 @@ impl<'a> ExecutionMaterializationContract<'a> {
         &self,
         runtime: &'a ExecutionRuntimeAdapter,
         consistency: MissingRowPolicy,
-        continuation: &'a ScalarContinuationContext,
-        direction: Direction,
+        continuation: ScalarContinuationContext,
         key_stream: &'a mut OrderedKeyStreamBox,
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {
         runtime.materialize_resolved_execution_stream_to_kernel_rows(
             self,
             consistency,
             continuation,
-            direction,
             key_stream,
         )
     }
@@ -126,7 +122,7 @@ impl<'a> ExecutionMaterializationContract<'a> {
     // already-aligned scalar materialization contract.
     const fn row_collector_request(
         &self,
-        continuation: &'a ScalarContinuationContext,
+        continuation: ScalarContinuationContext,
         consistency: MissingRowPolicy,
         key_stream: &'a mut OrderedKeyStreamBox,
     ) -> RowCollectorMaterializationRequest<'a> {
@@ -153,7 +149,6 @@ impl<'a> ExecutionMaterializationContract<'a> {
 
 pub(in crate::db::executor) struct ExecutionRuntimeAdapter {
     runtime: TraversalRuntime,
-    authority: Option<EntityAuthority>,
     scalar_row_runtime: Option<ScalarRowRuntimeState>,
 }
 
@@ -168,7 +163,6 @@ impl ExecutionRuntimeAdapter {
 
         Ok(Self {
             runtime,
-            authority: Some(authority),
             scalar_row_runtime: Some(ScalarRowRuntimeState::new(store, row_layout)),
         })
     }
@@ -178,7 +172,6 @@ impl ExecutionRuntimeAdapter {
     pub(in crate::db::executor) const fn from_stream_runtime(runtime: TraversalRuntime) -> Self {
         Self {
             runtime,
-            authority: None,
             scalar_row_runtime: None,
         }
     }
@@ -188,14 +181,6 @@ impl ExecutionRuntimeAdapter {
     fn scalar_row_runtime(&self) -> Result<&ScalarRowRuntimeState, InternalError> {
         self.scalar_row_runtime
             .as_ref()
-            .ok_or_else(InternalError::query_executor_invariant)
-    }
-
-    // Require structural entity authority only for runtime paths that still
-    // materialize rows or covering projections through shared scalar kernels.
-    fn authority(&self) -> Result<EntityAuthority, InternalError> {
-        self.authority
-            .clone()
             .ok_or_else(InternalError::query_executor_invariant)
     }
 
@@ -219,8 +204,7 @@ impl ExecutionRuntimeAdapter {
         contract: &ExecutionMaterializationContract<'a>,
         emit_cursor: bool,
         consistency: MissingRowPolicy,
-        continuation: &'a ScalarContinuationContext,
-        direction: Direction,
+        continuation: ScalarContinuationContext,
         key_stream: &'a mut OrderedKeyStreamBox,
     ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
         if !emit_cursor
@@ -236,7 +220,6 @@ impl ExecutionRuntimeAdapter {
             emit_cursor,
             consistency,
             continuation,
-            direction,
             key_stream,
         )
     }
@@ -248,15 +231,13 @@ impl ExecutionRuntimeAdapter {
         &'a self,
         contract: &ExecutionMaterializationContract<'a>,
         consistency: MissingRowPolicy,
-        continuation: &'a ScalarContinuationContext,
-        direction: Direction,
+        continuation: ScalarContinuationContext,
         key_stream: &'a mut OrderedKeyStreamBox,
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {
         self.materialize_key_stream_into_kernel_rows(
             contract,
             consistency,
             continuation,
-            direction,
             key_stream,
         )
     }
@@ -361,11 +342,9 @@ impl ExecutionRuntimeAdapter {
         contract: &ExecutionMaterializationContract<'a>,
         emit_cursor: bool,
         consistency: MissingRowPolicy,
-        continuation: &'a ScalarContinuationContext,
-        direction: Direction,
+        continuation: ScalarContinuationContext,
         key_stream: &'a mut OrderedKeyStreamBox,
     ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
-        let authority = self.authority()?;
         let cursor_emission = if emit_cursor {
             CursorEmissionMode::Emit
         } else {
@@ -375,7 +354,6 @@ impl ExecutionRuntimeAdapter {
         self.with_scalar_row_runtime_handle(|row_runtime| {
             materialize_key_stream_into_execution_payload(
                 KernelPageMaterializationRequest {
-                    authority,
                     plan: contract.plan,
                     key_stream,
                     scan_budget_hint: contract.scan_budget_hint,
@@ -383,7 +361,6 @@ impl ExecutionRuntimeAdapter {
                     capabilities: contract.capabilities(cursor_emission),
                     consistency,
                     continuation,
-                    direction,
                 },
                 row_runtime,
             )
@@ -396,16 +373,12 @@ impl ExecutionRuntimeAdapter {
         &'a self,
         contract: &ExecutionMaterializationContract<'a>,
         consistency: MissingRowPolicy,
-        continuation: &'a ScalarContinuationContext,
-        direction: Direction,
+        continuation: ScalarContinuationContext,
         key_stream: &'a mut OrderedKeyStreamBox,
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {
-        let authority = self.authority()?;
-
         self.with_scalar_row_runtime_handle(|row_runtime| {
             materialize_key_stream_into_kernel_rows(
                 KernelPageMaterializationRequest {
-                    authority,
                     plan: contract.plan,
                     key_stream,
                     scan_budget_hint: contract.scan_budget_hint,
@@ -413,7 +386,6 @@ impl ExecutionRuntimeAdapter {
                     capabilities: contract.capabilities(CursorEmissionMode::Suppress),
                     consistency,
                     continuation,
-                    direction,
                 },
                 row_runtime,
             )

@@ -1,5 +1,0 @@
-error: store(...) accepts only one storage(...) argument
-  --> tests/ui/store_duplicate_storage.rs:16:5
-   |
-16 |     storage(journaled(
-   |     ^^^^^^^

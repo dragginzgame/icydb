@@ -5,14 +5,12 @@
 
 use crate::db::{
     access::{AccessPath, AccessPlan, AccessShapeFacts, SemanticIndexAccessContract},
-    direction::Direction,
     predicate::{CoercionId, CompareOp, IndexCompileTarget, Predicate, PredicateProgram},
     query::plan::{
-        AccessChoiceExplainSnapshot, GroupPlan, GroupSpec, GroupedAggregateExecutionSpec,
+        AccessChoiceExplainSnapshot, GroupedAggregateExecutionSpec,
         GroupedDistinctExecutionStrategy, LogicalPlan, PlannerRouteProfile,
         access_choice::{
             non_index_access_choice_snapshot_for_access_plan,
-            project_access_choice_explain_snapshot_with_indexes_and_schema,
             project_access_choice_explain_snapshot_with_semantic_indexes_and_schema,
         },
         expr::{CompiledExpr, Expr, ProjectionSelection, ProjectionSpec},
@@ -20,12 +18,7 @@ use crate::db::{
     },
     schema::SchemaInfo,
 };
-use crate::{
-    db::KeyValueCodec,
-    error::InternalError,
-    model::{entity::EntityModel, index::IndexModel},
-    value::Value,
-};
+use crate::{db::KeyValueCodec, error::InternalError, value::Value};
 
 #[cfg(test)]
 use crate::db::{
@@ -181,7 +174,7 @@ impl ResolvedOrder {
 /// StaticExecutionPlanningContract
 ///
 /// StaticExecutionPlanningContract freezes planner-derived executor metadata that must not
-/// be rediscovered from `EntityModel` once execution begins.
+/// be rediscovered from generated declarations once execution begins.
 /// This keeps projection/order slot reachability and index compile targeting
 /// under planner ownership instead of executor-local model scans.
 ///
@@ -838,44 +831,6 @@ impl AccessPlannedQuery {
         )
     }
 
-    /// Convert this plan into grouped logical form with one explicit group spec.
-    #[must_use]
-    pub(in crate::db) fn into_grouped(self, group: GroupSpec) -> Self {
-        self.into_grouped_with_having_expr(group, None)
-    }
-
-    /// Convert this plan into grouped logical form with explicit grouped HAVING expression.
-    #[must_use]
-    pub(in crate::db) fn into_grouped_with_having_expr(
-        self,
-        group: GroupSpec,
-        having_expr: Option<crate::db::query::plan::expr::Expr>,
-    ) -> Self {
-        let Self {
-            logical,
-            access,
-            projection_selection,
-            access_choice,
-            planner_route_profile: _planner_route_profile,
-            static_execution_planning_contract: _static_execution_planning_contract,
-        } = self;
-        let scalar = match logical {
-            LogicalPlan::Scalar(plan) => plan,
-            LogicalPlan::Grouped(plan) => plan.scalar,
-        };
-
-        Self::seeded_unfinalized(
-            LogicalPlan::Grouped(GroupPlan {
-                scalar,
-                group,
-                having_expr,
-            }),
-            access,
-            projection_selection,
-            access_choice,
-        )
-    }
-
     /// Project route-facing access-shape facts directly from the chosen access plan.
     #[must_use]
     pub(in crate::db) fn access_shape_facts(&self) -> AccessShapeFacts {
@@ -886,41 +841,6 @@ impl AccessPlannedQuery {
     #[must_use]
     pub(in crate::db) const fn access_choice(&self) -> &AccessChoiceExplainSnapshot {
         &self.access_choice
-    }
-
-    /// Freeze one standalone model-only explain access-choice snapshot for the
-    /// caller-visible index slice after normal planning has already selected
-    /// the winner.
-    pub(in crate::db) fn finalize_access_choice_for_model_only_with_indexes(
-        &mut self,
-        model: &EntityModel,
-        generated_model_only_indexes: &[&'static IndexModel],
-    ) {
-        self.finalize_access_choice_for_model_with_indexes_and_schema(
-            model,
-            generated_model_only_indexes,
-            SchemaInfo::cached_for_generated_entity_model(model),
-        );
-    }
-
-    /// Freeze one explain-only access-choice snapshot with explicit schema
-    /// authority.
-    pub(in crate::db) fn finalize_access_choice_for_model_with_indexes_and_schema(
-        &mut self,
-        model: &EntityModel,
-        generated_model_only_indexes: &[&'static IndexModel],
-        schema_info: &SchemaInfo,
-    ) {
-        if !self.access.has_selected_index_access_path() {
-            return;
-        }
-
-        self.access_choice = project_access_choice_explain_snapshot_with_indexes_and_schema(
-            model,
-            generated_model_only_indexes,
-            schema_info,
-            self,
-        );
     }
 
     /// Freeze one explain-only access-choice snapshot using already-projected
@@ -975,22 +895,6 @@ impl AccessPlannedQuery {
         }
 
         plan
-    }
-
-    /// Return the canonical scan direction for unordered plans or primary-key-only ordering.
-    #[must_use]
-    pub(in crate::db) fn unordered_or_primary_key_order_direction(&self) -> Option<Direction> {
-        let Some(order) = self.scalar_plan().order.as_ref() else {
-            return Some(Direction::Asc);
-        };
-
-        let primary_key_names = self.primary_key_names().ok()?;
-        order
-            .primary_key_only_direction_fields(primary_key_names.as_slice())
-            .map(|direction| match direction {
-                OrderDirection::Asc => Direction::Asc,
-                OrderDirection::Desc => Direction::Desc,
-            })
     }
 
     /// Return the maximum number of direct data rows worth staging before the

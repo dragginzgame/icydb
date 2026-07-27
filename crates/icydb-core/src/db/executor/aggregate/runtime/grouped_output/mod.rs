@@ -322,12 +322,7 @@ pub(in crate::db::executor) fn project_grouped_values_from_compiled_projection(
     group_key_values: &[Value],
     aggregate_values: &[Value],
 ) -> Result<RuntimeGroupedRow, InternalError> {
-    let grouped_row = GroupedRowView::new(
-        group_key_values,
-        aggregate_values,
-        compiled_projection.group_fields(),
-        compiled_projection.aggregate_execution_specs(),
-    );
+    let grouped_row = GroupedRowView::new(group_key_values, aggregate_values);
     let mut projected_group_key = Vec::with_capacity(
         compiled_projection
             .projection_layout()

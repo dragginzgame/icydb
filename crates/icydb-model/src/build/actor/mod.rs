@@ -12,8 +12,10 @@ use crate::{
     build::get_schema,
     node::{Canister, Entity, Schema, Store},
 };
+use icydb_schema::encode_schema_fragment;
 use proc_macro2::TokenStream;
 use quote::quote;
+use sha2::{Digest, Sha256};
 
 /// Generate canister actor code for the given schema path and build options.
 ///
@@ -29,12 +31,17 @@ pub fn generate_with_options(canister_path: &str, options: BuildOptions) -> Stri
     let canister = schema
         .cast_node::<Canister>(canister_path)
         .expect("canister path must resolve to a canister node");
-    schema
+    let fragment = schema
         .schema_fragment_for_canister(canister_path)
         .expect("sealed canister database closure must lower into a schema fragment");
 
     // Render the canister actor glue from the schema-owned metadata.
-    let code = ActorBuilder::new(Arc::new(schema.clone()), canister.clone(), options);
+    let code = ActorBuilder::new(
+        Arc::new(schema.clone()),
+        canister.clone(),
+        options,
+        fragment,
+    );
     drop(schema);
     let tokens = crate_path::rewrite_icydb_path(code.generate(), options.icydb_crate_path());
 
@@ -383,16 +390,30 @@ pub(crate) struct ActorBuilder {
     pub(crate) schema: Arc<Schema>,
     pub(crate) canister: Canister,
     pub(crate) options: BuildOptions,
+    pub(crate) schema_fragment_bytes: Vec<u8>,
+    pub(crate) schema_submission_key: String,
 }
 
 impl ActorBuilder {
     /// Create an actor builder for a specific canister.
     #[must_use]
-    pub const fn new(schema: Arc<Schema>, canister: Canister, options: BuildOptions) -> Self {
+    pub fn new(
+        schema: Arc<Schema>,
+        canister: Canister,
+        options: BuildOptions,
+        fragment: icydb_schema::SchemaFragment,
+    ) -> Self {
+        let schema_fragment_bytes =
+            encode_schema_fragment(&fragment).expect("sealed schema fragment must encode");
+        let digest = Sha256::digest(schema_fragment_bytes.as_slice());
+        let schema_submission_key = format!("generated/{}", hex_bytes(digest.as_slice()));
+
         Self {
             schema,
             canister,
             options,
+            schema_fragment_bytes,
+            schema_submission_key,
         }
     }
 
@@ -443,6 +464,16 @@ impl ActorBuilder {
     fn canister_path(&self) -> String {
         self.canister.def().path()
     }
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
 }
 
 /// Render the storage snapshot endpoint for a canister actor.
@@ -521,6 +552,8 @@ mod tests {
             Arc::new(Schema::new()),
             Canister::new(Def::new("test", "Canister"), "test", 0, 1, 2, 3),
             options,
+            icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new())
+                .expect("empty test fragment should admit"),
         )
     }
 

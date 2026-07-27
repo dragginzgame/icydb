@@ -297,7 +297,7 @@ impl EnumPayloadKindModel {
 ///
 /// FieldModel
 ///
-/// Runtime field metadata surfaced by macro-generated `EntityModel` values.
+/// Runtime field metadata admitted into accepted schema field contracts.
 ///
 /// This is the smallest unit consumed by predicate validation, planning,
 /// and executor-side plan checks.
@@ -844,23 +844,6 @@ impl FieldKind {
             }
 
             _ => true,
-        }
-    }
-
-    /// Return true when this planner-frozen grouped field kind can stay on the
-    /// borrowed grouped-key probe path without owned canonical materialization.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn supports_group_probe(&self) -> bool {
-        match self {
-            Self::Enum { variants, .. } => variants.iter().all(|variant| {
-                variant
-                    .payload_kind()
-                    .is_none_or(|kind| Self::supports_group_probe(&kind))
-            }),
-            Self::Relation { key_kind, .. } => key_kind.supports_group_probe(),
-            Self::Decimal { .. } => true,
-            _ => super::field_kind_semantics::field_kind_has_identity_group_canonical_form(*self),
         }
     }
 

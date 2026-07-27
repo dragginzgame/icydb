@@ -18,13 +18,6 @@ mod structural;
 
 #[cfg(feature = "sql")]
 pub(in crate::db::executor::projection) use distinct::ProjectionDistinctWindow;
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db::executor::projection) use execute::project_rows_from_projection;
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db::executor::projection) use execute::{
-    count_borrowed_data_row_views_for_test, count_borrowed_identity_data_row_views_for_test,
-    count_borrowed_slot_row_views_for_test,
-};
 #[cfg(feature = "sql")]
 pub(in crate::db) use metrics::ProjectionMaterializationMetricsRecorder;
 pub(in crate::db) use plan::{PreparedProjectionContract, prepare_projection_contract_from_plan};

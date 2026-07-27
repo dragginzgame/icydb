@@ -4,8 +4,7 @@ use crate::{
         executor::{
             ExecutionKernel, OrderedKeyStreamBox, ScalarContinuationContext,
             pipeline::contracts::{
-                CursorEmissionMode, PageCursor, ScalarMaterializationCapabilities,
-                StructuralCursorPage,
+                CursorEmissionMode, ScalarMaterializationCapabilities, StructuralCursorPage,
             },
             projection::PreparedProjectionContract,
             route::{
@@ -40,7 +39,6 @@ pub(super) struct ScalarMaterializationPlan<'a> {
     kernel_row_scan_strategy: KernelRowScanStrategy<'a>,
     defer_retained_slot_distinct_window: bool,
     post_scan_tail: StructuralPostScanTailStrategy<'a>,
-    cursor_emission: CursorEmissionMode,
 }
 
 impl<'a> ScalarMaterializationPlan<'a> {
@@ -64,7 +62,7 @@ impl<'a> ScalarMaterializationPlan<'a> {
         scan_budget_hint: Option<usize>,
         load_order_route_mode: LoadOrderRouteMode,
         consistency: MissingRowPolicy,
-        continuation: &'a ScalarContinuationContext,
+        continuation: ScalarContinuationContext,
         row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
     ) -> Result<ScalarPageKernelRequest<'a, 'r>, InternalError> {
         Ok(ScalarPageKernelRequest {
@@ -92,7 +90,7 @@ impl<'a> ScalarMaterializationPlan<'a> {
     fn branch_set_page_scan_keep_cap(
         &self,
         plan: &AccessPlannedQuery,
-        continuation: &ScalarContinuationContext,
+        continuation: ScalarContinuationContext,
     ) -> Option<usize> {
         let logical = plan.scalar_plan();
         let branch_set_page = plan
@@ -133,7 +131,7 @@ impl<'a> ScalarMaterializationPlan<'a> {
     fn bounded_materialized_order_scan_window(
         &self,
         plan: &'a AccessPlannedQuery,
-        continuation: &ScalarContinuationContext,
+        continuation: ScalarContinuationContext,
     ) -> Result<Option<KernelRowOrderWindow<'a>>, InternalError> {
         let logical = plan.scalar_plan();
         if !logical.mode.is_load()
@@ -164,11 +162,6 @@ impl<'a> ScalarMaterializationPlan<'a> {
         )
     }
 
-    // Return the outward cursor-emission mode already frozen into this plan.
-    pub(super) const fn cursor_emission(&self) -> CursorEmissionMode {
-        self.cursor_emission
-    }
-
     // Apply the remaining shared post-scan tail before cursor derivation and
     // final payload shaping.
     pub(super) fn apply_post_scan_tail(&self, rows: &[KernelRow]) -> Result<(), InternalError> {
@@ -180,9 +173,8 @@ impl<'a> ScalarMaterializationPlan<'a> {
     pub(super) fn finalize_payload(
         &self,
         rows: Vec<KernelRow>,
-        next_cursor: Option<PageCursor>,
     ) -> Result<StructuralCursorPage, InternalError> {
-        self.post_scan_tail.finalize_payload(rows, next_cursor)
+        self.post_scan_tail.finalize_payload(rows)
     }
 }
 
@@ -234,7 +226,7 @@ impl<'a> CursorlessShortPathPlan<'a> {
         self.post_scan_tail.apply(rows.as_slice())?;
 
         let post_access_rows = rows.len();
-        let payload = self.post_scan_tail.finalize_payload(rows, None)?;
+        let payload = self.post_scan_tail.finalize_payload(rows)?;
 
         Ok((payload, post_access_rows))
     }
@@ -301,7 +293,6 @@ pub(super) fn resolve_scalar_materialization_plan<'a>(
         kernel_row_scan_strategy: structural_policy.kernel_row_scan_strategy(),
         defer_retained_slot_distinct_window,
         post_scan_tail: structural_policy.post_scan_tail(),
-        cursor_emission: capabilities.cursor_emission,
     })
 }
 

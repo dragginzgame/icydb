@@ -45,7 +45,7 @@ It is also not Postgres-style transaction SQL: it does not provide implicit
 transaction blocks, rollback-on-returned-error semantics, isolation levels, or
 cross-entity/cross-canister transaction coordination.
 
-Typed and fluent APIs are the canonical public surfaces.
+Typed and dynamic APIs are the canonical caller-facing read surfaces.
 The remaining public SQL surfaces are:
 
 <!-- icydb-sql-feature id="surface.trusted_entrypoints" kind="policy" status="accepted" -->
@@ -55,7 +55,7 @@ The remaining public SQL surfaces are:
 - `execute_trusted_sql_prefix_update(...)`
 - `prepare_trusted_sql_resumable_update(operation_id, ...)`
 - `resume_trusted_sql_resumable_update(...)`
-- `execute_admin_sql_ddl::<E>(...)`
+- `execute_admin_sql_ddl(...)`
 - `execute_admin_integrity_sql(...)`
 
 Query and row-mutation entry points resolve the entity named by the statement
@@ -70,7 +70,7 @@ Read-admission lanes, generated endpoint lane ownership, and the current
 read-surface inventory are documented in `docs/contracts/READ_ADMISSION.md`.
 In particular, generated `icydb_query` is controller-gated admin SQL, not a
 generated `PublicRead` endpoint. IcyDB does not generate non-controller public
-SQL read endpoints; caller-facing reads should use typed/fluent APIs so the
+SQL read endpoints; caller-facing reads should use typed/dynamic APIs so the
 default bounded read-admission gate applies.
 
 ## Cursor Pagination
@@ -80,7 +80,7 @@ Cursor-based pagination is not part of the scalar SQL surface.
 
 <!-- icydb-sql-feature id="pagination.scalar_limit_offset" kind="semantic" status="accepted" -->
 - SQL uses `LIMIT` / `OFFSET` for scalar windowing.
-- Cursor pagination is available through typed and fluent APIs.
+- Scalar cursor pagination is not exposed by the maintained typed/dynamic API.
 - This is intentional: cursor semantics are transport-level, not query
   semantics.
 
@@ -112,7 +112,7 @@ The following are intentionally not part of query SQL:
 <!-- icydb-sql-feature id="operational.byte_metrics" kind="syntax" status="rejected" -->
 - byte-metric diagnostics such as `bytes()` and `bytes_by(...)`
 
-These are available only through typed and fluent APIs.
+These are not part of the maintained scalar query surface.
 
 `CHECK INTEGRITY` is the explicit operational exception. It carries only an
 opaque engine-issued job identity and acknowledgement sequence; callers never
@@ -480,16 +480,12 @@ request-specific diagnostics. Update omission preserves the current value;
 `SET field = DEFAULT` applies the current accepted ordinary default or nullable
 `NULL`, and rejects required, generated, or managed fields.
 
-Mutation ownership still primarily lives on typed and fluent APIs:
+Mutation ownership lives on one accepted structural write lane:
 
-- `create(...)`
-- `insert(...)`
-- `update(...)`
-- `replace(...)`
-- `delete::<E>()`
-- the corresponding typed/fluent `...returning...` helpers
-- `execute_trusted_structural_mutation(...)` for accepted-schema-driven
-  field-name writes
+- `execute_trusted_structural_mutation(...)` for entity/field-name writes;
+- `execute_trusted_typed_write(...)` for explicitly generated typed adapters;
+- `execute_trusted_structural_insert_batch(...)` for atomic same-entity
+  inserts.
 
 Every SQL row after-image is decoded against accepted field contracts and then
 enters the same structural write-admission pipeline used by non-SQL structural
@@ -508,7 +504,7 @@ Public SQL ownership is split deliberately:
 - `prepare_trusted_sql_resumable_update(...)` and
   `resume_trusted_sql_resumable_update(...)` own trusted, journaled,
   bounded convergence over multiple calls
-- `execute_admin_sql_ddl::<E>(...)` owns accepted-catalog schema DDL SQL
+- `execute_admin_sql_ddl(...)` owns accepted-catalog schema DDL SQL
 
 ### SQL `UPDATE` Availability By Surface
 

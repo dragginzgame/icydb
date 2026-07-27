@@ -28,11 +28,6 @@ pub(in crate::db::executor) use contracts::{
 pub(in crate::db::executor) struct GroupedRowView<'a> {
     pub(in crate::db::executor::projection) key_values: &'a [Value],
     pub(in crate::db::executor::projection) aggregate_values: &'a [Value],
-    #[cfg(test)]
-    group_fields: &'a [FieldSlot],
-    #[cfg(test)]
-    pub(in crate::db::executor::projection) aggregate_execution_specs:
-        &'a [GroupedAggregateExecutionSpec],
 }
 
 impl<'a> GroupedRowView<'a> {
@@ -41,19 +36,10 @@ impl<'a> GroupedRowView<'a> {
     pub(in crate::db::executor) const fn new(
         key_values: &'a [Value],
         aggregate_values: &'a [Value],
-        group_fields: &'a [FieldSlot],
-        aggregate_execution_specs: &'a [GroupedAggregateExecutionSpec],
     ) -> Self {
-        #[cfg(not(test))]
-        let _ = (group_fields, aggregate_execution_specs);
-
         Self {
             key_values,
             aggregate_values,
-            #[cfg(test)]
-            group_fields,
-            #[cfg(test)]
-            aggregate_execution_specs,
         }
     }
 
@@ -67,13 +53,6 @@ impl<'a> GroupedRowView<'a> {
     #[must_use]
     pub(in crate::db::executor) const fn aggregate_values(&self) -> &'a [Value] {
         self.aggregate_values
-    }
-
-    /// Borrow grouped field slots used to interpret grouped key offsets.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db::executor) const fn group_fields(&self) -> &'a [FieldSlot] {
-        self.group_fields
     }
 }
 
@@ -104,8 +83,6 @@ impl CompiledExprValueReader for GroupedRowView<'_> {
 pub(in crate::db::executor) struct CompiledGroupedProjectionPlan<'a> {
     compiled_projection: Vec<CompiledExpr>,
     projection_layout: &'a PlannedProjectionLayout,
-    group_fields: &'a [FieldSlot],
-    aggregate_execution_specs: &'a [GroupedAggregateExecutionSpec],
 }
 
 impl<'a> CompiledGroupedProjectionPlan<'a> {
@@ -115,14 +92,10 @@ impl<'a> CompiledGroupedProjectionPlan<'a> {
     pub(in crate::db::executor) const fn from_test_inputs(
         compiled_projection: Vec<CompiledExpr>,
         projection_layout: &'a PlannedProjectionLayout,
-        group_fields: &'a [FieldSlot],
-        aggregate_execution_specs: &'a [GroupedAggregateExecutionSpec],
     ) -> Self {
         Self {
             compiled_projection,
             projection_layout,
-            group_fields,
-            aggregate_execution_specs,
         }
     }
 
@@ -136,20 +109,6 @@ impl<'a> CompiledGroupedProjectionPlan<'a> {
     #[must_use]
     pub(in crate::db::executor) const fn projection_layout(&self) -> &'a PlannedProjectionLayout {
         self.projection_layout
-    }
-
-    /// Borrow grouped key field slots used by grouped projection evaluation.
-    #[must_use]
-    pub(in crate::db::executor) const fn group_fields(&self) -> &'a [FieldSlot] {
-        self.group_fields
-    }
-
-    /// Borrow grouped aggregate execution specs used by grouped projection evaluation.
-    #[must_use]
-    pub(in crate::db::executor) const fn aggregate_execution_specs(
-        &self,
-    ) -> &'a [GroupedAggregateExecutionSpec] {
-        self.aggregate_execution_specs
     }
 }
 
@@ -173,22 +132,5 @@ pub(in crate::db::executor) fn compile_grouped_projection_plan_if_needed<'a>(
     Ok(Some(CompiledGroupedProjectionPlan {
         compiled_projection,
         projection_layout,
-        group_fields,
-        aggregate_execution_specs,
     }))
-}
-
-/// Evaluate one compiled grouped projection plan into ordered projected values.
-#[cfg(test)]
-pub(in crate::db::executor) fn evaluate_grouped_projection_values(
-    compiled_projection: &[CompiledExpr],
-    grouped_row: &GroupedRowView<'_>,
-) -> Result<Vec<Value>, ProjectionEvalError> {
-    let mut projected_values = Vec::with_capacity(compiled_projection.len());
-
-    for expr in compiled_projection {
-        projected_values.push(expr.evaluate(grouped_row)?.into_owned());
-    }
-
-    Ok(projected_values)
 }

@@ -13,7 +13,7 @@ use crate::{
     },
     model::field::FieldStorageDecode,
     types::Decimal,
-    value::{CanonicalEnumBody, CanonicalEnumValue, InputValue, InputValueEnum, Value, ValueEnum},
+    value::{CanonicalEnumBody, InputValue, InputValueEnum, Value, ValueEnum},
 };
 use std::cmp::Ordering;
 
@@ -77,15 +77,6 @@ impl ValueAdmissionBudget {
         }
     }
 
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn with_limits(max_depth: u16, max_bytes: u32) -> Self {
-        Self {
-            max_depth,
-            remaining_bytes: max_bytes,
-        }
-    }
-
     const fn enter(self, depth: u16) -> Result<(), ValueAdmissionError> {
         if depth >= self.max_depth {
             return Err(ValueAdmissionError::DepthExceeded);
@@ -112,18 +103,6 @@ pub(in crate::db) struct AdmittedOwnedValue {
 
 impl AdmittedOwnedValue {
     #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn revision(&self) -> AcceptedSchemaRevision {
-        self.authority.revision()
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn authority(&self) -> &AcceptedSchemaAuthority {
-        &self.authority
-    }
-
-    #[must_use]
     pub(in crate::db) const fn value(&self) -> &CanonicalValue {
         &self.value
     }
@@ -137,18 +116,6 @@ pub(in crate::db) struct AcceptedValueRef<'a> {
 }
 
 impl<'a> AcceptedValueRef<'a> {
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn revision(&self) -> AcceptedSchemaRevision {
-        self.catalog.revision()
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn authority(&self) -> &'a AcceptedSchemaAuthority {
-        self.catalog.authority()
-    }
-
     #[must_use]
     pub(in crate::db) fn catalog(&self) -> &'a AcceptedEnumCatalog {
         self.catalog.enum_catalog()
@@ -265,35 +232,6 @@ fn normalize_nullable_value(
     )
 }
 
-/// Resolve and encode one generated unit-enum default through the candidate catalog.
-pub(in crate::db) fn encode_unit_enum_default_in_catalog(
-    catalog: &AcceptedEnumCatalog,
-    enum_path: &str,
-    variant_name: &str,
-) -> Result<Vec<u8>, ValueAdmissionError> {
-    let type_id = catalog
-        .type_id(enum_path)
-        .ok_or(ValueAdmissionError::UnknownEnumType)?;
-    let definition = catalog
-        .enum_type(type_id)
-        .ok_or(ValueAdmissionError::UnknownEnumType)?;
-    let variant_id = definition
-        .variant_id(variant_name)
-        .ok_or(ValueAdmissionError::UnknownEnumVariant)?;
-    let variant = definition
-        .variant(variant_id)
-        .ok_or(ValueAdmissionError::UnknownEnumVariant)?;
-    if !matches!(variant.body(), AcceptedEnumVariantBody::Unit) {
-        return Err(ValueAdmissionError::EnumBodyMismatch);
-    }
-
-    let value = CanonicalEnumValue::<()>::new(type_id, variant_id, CanonicalEnumBody::Unit);
-    super::encode_canonical_enum_value(&value, |(), _| {
-        Err(super::CanonicalEnumWireError::PayloadCodec)
-    })
-    .map_err(|_| ValueAdmissionError::InvalidAcceptedContract)
-}
-
 pub(in crate::db::schema) fn admit_canonical_value(
     catalog: &AcceptedValueCatalogHandle,
     contract: &AcceptedValueContract,
@@ -363,16 +301,6 @@ fn validate_persisted_field_value_in_catalog(
         0,
         budget,
     )
-}
-
-#[cfg(test)]
-pub(in crate::db) fn validate_canonical_value<'a>(
-    catalog: &'a AcceptedValueCatalogHandle,
-    contract: &'a AcceptedValueContract,
-    value: &'a CanonicalValue,
-    budget: &mut ValueAdmissionBudget,
-) -> Result<AcceptedValueRef<'a>, ValueAdmissionError> {
-    validate_nullable_canonical_value(catalog, contract, false, value, budget)
 }
 
 /// Strictly validate one canonical value with its accepted nullability rule.

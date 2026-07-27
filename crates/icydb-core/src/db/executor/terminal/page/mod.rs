@@ -3,7 +3,6 @@
 //! Does not own: access-path selection, route precedence, or query planning.
 //! Boundary: shared row materialization helper used by scalar execution paths.
 
-mod cursor;
 mod direct_path;
 mod metrics;
 mod plan;
@@ -38,7 +37,6 @@ use crate::{
 };
 use std::borrow::Cow;
 
-use cursor::build_scalar_page_cursor;
 use direct_path::execute_direct_data_row_path;
 use plan::resolve_scalar_materialization_plan;
 use post_access::apply_post_access_to_kernel_rows_dyn;
@@ -79,21 +77,10 @@ pub(in crate::db) struct KernelRow {
 
 enum KernelRowSlots {
     NotMaterialized,
-    Dense(Vec<Option<Value>>),
     Retained(RetainedSlotRow),
 }
 
 impl KernelRow {
-    /// Build one structural kernel row from canonical data-row storage plus
-    /// slot-indexed runtime values.
-    #[must_use]
-    pub(in crate::db) const fn new(data_row: DataRow, slots: Vec<Option<Value>>) -> Self {
-        Self {
-            data_row: Some(data_row),
-            slots: KernelRowSlots::Dense(slots),
-        }
-    }
-
     /// Build one structural kernel row that keeps only the canonical data row.
     #[must_use]
     pub(in crate::db::executor) const fn new_data_row_only(data_row: DataRow) -> Self {
@@ -131,7 +118,6 @@ impl KernelRow {
     pub(in crate::db) fn slot_ref(&self, slot: usize) -> Option<&Value> {
         match &self.slots {
             KernelRowSlots::NotMaterialized => None,
-            KernelRowSlots::Dense(slots) => slots.get(slot).and_then(Option::as_ref),
             KernelRowSlots::Retained(slots) => slots.slot_ref(slot),
         }
     }
@@ -158,25 +144,8 @@ impl KernelRow {
     ) -> Result<RetainedSlotRow, InternalError> {
         match self.slots {
             KernelRowSlots::NotMaterialized => Err(InternalError::query_executor_invariant()),
-            KernelRowSlots::Dense(slots) => Ok(RetainedSlotRow::from_dense_slots(slots)),
             KernelRowSlots::Retained(slots) => Ok(slots),
         }
-    }
-    pub(in crate::db) fn into_data_row_and_slots(
-        self,
-    ) -> Result<(DataRow, Vec<Option<Value>>), InternalError> {
-        let Self { data_row, slots } = self;
-        let data_row = data_row.ok_or_else(InternalError::query_executor_invariant)?;
-
-        let slots = match slots {
-            KernelRowSlots::NotMaterialized => {
-                return Err(InternalError::query_executor_invariant());
-            }
-            KernelRowSlots::Dense(slots) => slots,
-            KernelRowSlots::Retained(slots) => slots.into_dense_slots(),
-        };
-
-        Ok((data_row, slots))
     }
 }
 
@@ -206,14 +175,13 @@ struct WindowedKernelRowsRequest<'a, 'r> {
     scan_budget_hint: Option<usize>,
     load_order_route_mode: LoadOrderRouteMode,
     consistency: MissingRowPolicy,
-    continuation: &'a ScalarContinuationContext,
+    continuation: ScalarContinuationContext,
     row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
 }
 
 struct WindowedKernelRows {
     rows: Vec<KernelRow>,
     rows_scanned: usize,
-    rows_after_cursor: usize,
     post_access_rows: usize,
 }
 
@@ -241,7 +209,7 @@ fn scan_key_stream_into_windowed_kernel_rows<'a>(
             continuation,
             row_runtime,
         )?)?;
-    let (rows, rows_after_cursor) = apply_post_access_to_kernel_rows_dyn(
+    let (rows, _rows_after_cursor) = apply_post_access_to_kernel_rows_dyn(
         plan,
         scan_rows,
         continuation.cursor_boundary(),
@@ -253,7 +221,6 @@ fn scan_key_stream_into_windowed_kernel_rows<'a>(
     Ok(WindowedKernelRows {
         rows,
         rows_scanned,
-        rows_after_cursor,
         post_access_rows,
     })
 }
@@ -264,7 +231,6 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
     row_runtime: &mut ScalarRowRuntimeHandle<'a>,
 ) -> Result<(StructuralCursorPage, usize, usize), InternalError> {
     let KernelPageMaterializationRequest {
-        authority,
         plan,
         key_stream,
         scan_budget_hint,
@@ -272,7 +238,6 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
         capabilities,
         consistency,
         continuation,
-        direction,
     } = request;
     let scalar_materialization_plan = resolve_scalar_materialization_plan(plan, capabilities)?;
     if let Some(direct_data_row_path) = scalar_materialization_plan.direct_data_row_path() {
@@ -292,7 +257,6 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
     let WindowedKernelRows {
         rows,
         rows_scanned,
-        rows_after_cursor,
         post_access_rows,
     } = scan_key_stream_into_windowed_kernel_rows(
         &scalar_materialization_plan,
@@ -307,22 +271,10 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
         },
     )?;
 
-    // Phase 2: assemble the structural cursor boundary before typed page emission.
-    let next_cursor = build_scalar_page_cursor(
-        authority,
-        plan,
-        rows.as_slice(),
-        scalar_materialization_plan.cursor_emission(),
-        rows_after_cursor,
-        continuation,
-        direction,
-    )?;
-
-    // Phase 3: select the final payload shape once, then build it in one
+    // Phase 2: select the final payload shape once, then build it in one
     // explicit kernel-row shaping pass.
-    let (payload, projection_micros) = measure_execution_stats_phase(|| {
-        scalar_materialization_plan.finalize_payload(rows, next_cursor)
-    });
+    let (payload, projection_micros) =
+        measure_execution_stats_phase(|| scalar_materialization_plan.finalize_payload(rows));
     let payload = payload?;
     record_projection(payload.row_count(), projection_micros);
 
@@ -337,7 +289,6 @@ pub(in crate::db::executor) fn materialize_key_stream_into_kernel_rows<'a>(
     row_runtime: &mut ScalarRowRuntimeHandle<'a>,
 ) -> Result<KernelRowsExecutionAttempt, InternalError> {
     let KernelPageMaterializationRequest {
-        authority: _,
         plan,
         key_stream,
         scan_budget_hint,
@@ -345,7 +296,6 @@ pub(in crate::db::executor) fn materialize_key_stream_into_kernel_rows<'a>(
         capabilities,
         consistency,
         continuation,
-        direction: _,
     } = request;
     let scalar_materialization_plan = resolve_scalar_materialization_plan(plan, capabilities)?;
     if scalar_materialization_plan.direct_data_row_path().is_some() {
@@ -359,7 +309,6 @@ pub(in crate::db::executor) fn materialize_key_stream_into_kernel_rows<'a>(
         rows,
         rows_scanned,
         post_access_rows,
-        rows_after_cursor: _,
     } = scan_key_stream_into_windowed_kernel_rows(
         &scalar_materialization_plan,
         WindowedKernelRowsRequest {

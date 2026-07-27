@@ -2,10 +2,9 @@ wasm_report_default_canisters() {
     printf '%s\n' \
         default_empty \
         default_empty_metrics \
-        one_entity_fluent_rows \
-        one_entity_fluent_execute \
+        one_entity_typed_query \
         one_entity_sql_query \
-        ten_entity_fluent_rows
+        ten_entity_typed_query
 }
 
 wasm_report_sql_variants() {

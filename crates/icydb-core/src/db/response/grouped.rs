@@ -3,10 +3,7 @@
 //! Does not own: grouped execution evaluation, route policy, or cursor token protocol.
 //! Boundary: grouped DTOs returned by session/query execution APIs.
 
-use crate::{
-    db::diagnostics::{ExecutionMetrics, ExecutionTrace},
-    value::OutputValue,
-};
+use crate::value::OutputValue;
 
 ///
 /// GroupedRow
@@ -48,107 +45,5 @@ impl GroupedRow {
     #[must_use]
     pub const fn aggregate_values(&self) -> &[OutputValue] {
         self.aggregate_values.as_slice()
-    }
-}
-
-///
-/// PagedGroupedExecution
-///
-/// Cursor-paged grouped execution payload with optional continuation cursor bytes.
-///
-
-#[derive(Clone, Debug)]
-pub struct PagedGroupedExecution {
-    rows: Vec<GroupedRow>,
-    continuation_cursor: Option<Vec<u8>>,
-}
-
-impl PagedGroupedExecution {
-    /// Borrow grouped rows.
-    #[must_use]
-    pub const fn rows(&self) -> &[GroupedRow] {
-        self.rows.as_slice()
-    }
-
-    /// Borrow optional continuation cursor bytes.
-    #[must_use]
-    pub fn continuation_cursor(&self) -> Option<&[u8]> {
-        self.continuation_cursor.as_deref()
-    }
-
-    /// Consume into grouped rows and continuation cursor bytes.
-    #[must_use]
-    pub fn into_rows_and_cursor(self) -> (Vec<GroupedRow>, Option<Vec<u8>>) {
-        (self.rows, self.continuation_cursor)
-    }
-}
-
-///
-/// PagedGroupedExecutionWithTrace
-///
-/// Cursor-paged grouped execution payload plus optional route/execution trace.
-///
-
-#[derive(Clone, Debug)]
-pub struct PagedGroupedExecutionWithTrace {
-    rows: Vec<GroupedRow>,
-    continuation_cursor: Option<Vec<u8>>,
-    execution_trace: Option<ExecutionTrace>,
-}
-
-impl PagedGroupedExecutionWithTrace {
-    /// Construct one traced grouped paged execution payload.
-    #[must_use]
-    pub(in crate::db) const fn new(
-        rows: Vec<GroupedRow>,
-        continuation_cursor: Option<Vec<u8>>,
-        execution_trace: Option<ExecutionTrace>,
-    ) -> Self {
-        Self {
-            rows,
-            continuation_cursor,
-            execution_trace,
-        }
-    }
-
-    /// Borrow grouped rows.
-    #[must_use]
-    pub const fn rows(&self) -> &[GroupedRow] {
-        self.rows.as_slice()
-    }
-
-    /// Borrow optional continuation cursor bytes.
-    #[must_use]
-    pub fn continuation_cursor(&self) -> Option<&[u8]> {
-        self.continuation_cursor.as_deref()
-    }
-
-    /// Borrow optional execution trace details.
-    #[must_use]
-    pub const fn execution_trace(&self) -> Option<&ExecutionTrace> {
-        self.execution_trace.as_ref()
-    }
-
-    /// Borrow compact execution metrics derived from the optional execution trace.
-    #[must_use]
-    pub fn execution_metrics(&self) -> Option<ExecutionMetrics> {
-        self.execution_trace.as_ref().map(ExecutionTrace::metrics)
-    }
-
-    /// Consume payload and drop trace details.
-    #[must_use]
-    pub fn into_execution(self) -> PagedGroupedExecution {
-        PagedGroupedExecution {
-            rows: self.rows,
-            continuation_cursor: self.continuation_cursor,
-        }
-    }
-
-    /// Consume into grouped rows, continuation cursor bytes, and optional trace.
-    #[must_use]
-    pub fn into_rows_cursor_and_trace(
-        self,
-    ) -> (Vec<GroupedRow>, Option<Vec<u8>>, Option<ExecutionTrace>) {
-        (self.rows, self.continuation_cursor, self.execution_trace)
     }
 }

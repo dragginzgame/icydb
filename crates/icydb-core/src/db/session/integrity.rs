@@ -3,15 +3,6 @@
 //! Does not own: inspection semantics, accepted schema construction, or recovery.
 //! Boundary: authorized entity path -> model-free registration -> accepted inspection plan.
 
-#[cfg(test)]
-use crate::{
-    db::integrity::{
-        DerivedInspectionLimits, DerivedIntegrityPage, IntegrityProofVector,
-        PhysicalUnitCheckpoint, RowInspectionLimits, RowIntegrityPage,
-        execute_index_integrity_page, execute_reverse_integrity_page, execute_row_integrity_page,
-    },
-    error::InternalError,
-};
 use crate::{
     db::{
         DbSession, QuickIntegrityResult,
@@ -135,80 +126,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(())
     }
 
-    /// Execute one bounded internal row-inspection page.
-    ///
-    /// The checkpoint and limits remain inside the database boundary. Patch 5
-    /// binds this exact core to authorized durable Deep jobs; no application
-    /// caller can author or resume physical progress directly.
-    #[cfg(test)]
-    pub(in crate::db) fn execute_integrity_row_page_for_entity(
-        &self,
-        entity_path: &str,
-        checkpoint: PhysicalUnitCheckpoint,
-        limits: RowInspectionLimits,
-    ) -> Result<RowIntegrityPage, InternalError> {
-        let registration = self.db.runtime_registration_for_entity_path(entity_path)?;
-        let store = self.db.recovered_store(registration.store_path)?;
-        let plan = self
-            .accepted_inspection_plan_for_runtime_registration(registration, store)
-            .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
-        execute_row_integrity_page(&self.db, &plan, checkpoint, limits)
-    }
-
-    /// Execute one bounded internal active forward-index page.
-    ///
-    /// The index ordinal is accepted-plan order, not public or physical
-    /// identity. Patch 5 owns phase sequencing through authorized jobs.
-    #[cfg(test)]
-    pub(in crate::db) fn execute_integrity_index_page_for_entity(
-        &self,
-        entity_path: &str,
-        index_ordinal: usize,
-        checkpoint: PhysicalUnitCheckpoint,
-        limits: DerivedInspectionLimits,
-    ) -> Result<DerivedIntegrityPage, InternalError> {
-        let registration = self.db.runtime_registration_for_entity_path(entity_path)?;
-        let store = self.db.recovered_store(registration.store_path)?;
-        let plan = self
-            .accepted_inspection_plan_for_runtime_registration(registration, store)
-            .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
-        execute_index_integrity_page(&self.db, &plan, index_ordinal, checkpoint, limits)
-    }
-
-    /// Execute one bounded internal active source-owned reverse-relation page.
-    ///
-    /// The relation ordinal is accepted-plan order. Pending and retired
-    /// generations remain outside this traversal by construction.
-    #[cfg(test)]
-    pub(in crate::db) fn execute_integrity_reverse_page_for_entity(
-        &self,
-        entity_path: &str,
-        relation_ordinal: usize,
-        checkpoint: PhysicalUnitCheckpoint,
-        limits: DerivedInspectionLimits,
-    ) -> Result<DerivedIntegrityPage, InternalError> {
-        let registration = self.db.runtime_registration_for_entity_path(entity_path)?;
-        let store = self.db.recovered_store(registration.store_path)?;
-        let plan = self
-            .accepted_inspection_plan_for_runtime_registration(registration, store)
-            .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
-        execute_reverse_integrity_page(&self.db, &plan, relation_ordinal, checkpoint, limits)
-    }
-
-    /// Capture the complete pre/post advancement proof for one entity.
-    #[cfg(test)]
-    pub(in crate::db) fn capture_integrity_proof_for_entity(
-        &self,
-        entity_path: &str,
-    ) -> Result<IntegrityProofVector, InternalError> {
-        let registration = self.db.runtime_registration_for_entity_path(entity_path)?;
-        let store = self.db.recovered_store(registration.store_path)?;
-        let plan = self
-            .accepted_inspection_plan_for_runtime_registration(registration, store)
-            .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
-        capture_integrity_proof_vector(&self.db, &plan)
-    }
-
     /// Start one authorized Deep job with an A/B proof handshake.
     fn start_deep_integrity_for_identity(
         &self,
@@ -307,88 +224,5 @@ impl<C: CanisterKind> DbSession<C> {
         owner: &IntegrityJobOwner,
     ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
         abort_deep_integrity_job::<C>(job_id, owner)
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn start_deep_integrity_for_entity(
-        &self,
-        entity_path: &str,
-        owner: IntegrityJobOwner,
-        submission_key: IntegritySubmissionKey,
-    ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
-        let registration = self.db.runtime_registration_for_entity_path(entity_path)?;
-        let store = self.db.recovered_store(registration.store_path)?;
-        let plan = self
-            .accepted_inspection_plan_for_runtime_registration(registration, store)
-            .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
-        let entity = IntegrityEntityIdentity::from_accepted_identity(plan.identity());
-
-        self.start_deep_integrity_for_identity(&entity, owner, submission_key)
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn continue_deep_integrity_for_tests(
-        &self,
-        job_id: IntegrityJobId,
-        owner: &IntegrityJobOwner,
-        acknowledged_sequence: u64,
-    ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
-        self.continue_deep_integrity(job_id, owner, acknowledged_sequence)
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn start_deep_integrity_with_plan_load_failure_for_tests(
-        &self,
-        entity_path: &str,
-        owner: IntegrityJobOwner,
-        submission_key: IntegritySubmissionKey,
-    ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
-        let registration = self.db.runtime_registration_for_entity_path(entity_path)?;
-        let store = self.db.recovered_store(registration.store_path)?;
-        let plan = self
-            .accepted_inspection_plan_for_runtime_registration(registration, store)
-            .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
-        let entity = IntegrityEntityIdentity::from_accepted_identity(plan.identity());
-
-        self.start_deep_integrity_for_identity_with_plan_loader(
-            &entity,
-            owner,
-            submission_key,
-            |_, _| {
-                Err(AcceptedInspectionPlanLoadError::Unselected(
-                    InternalError::store_corruption(),
-                ))
-            },
-        )
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn start_deep_integrity_with_proofs_for_tests(
-        &self,
-        entity_path: &str,
-        owner: IntegrityJobOwner,
-        submission_key: IntegritySubmissionKey,
-        proof_a: IntegrityProofVector,
-        proof_b: IntegrityProofVector,
-    ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
-        let registration = self.db.runtime_registration_for_entity_path(entity_path)?;
-        let store = self.db.recovered_store(registration.store_path)?;
-        let plan = self
-            .accepted_inspection_plan_for_runtime_registration(registration, store)
-            .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
-
-        start_deep_integrity_job(&self.db, &plan, owner, submission_key, proof_a, proof_b)
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn continue_deep_integrity_with_plan_load_failure_for_tests(
-        &self,
-        job_id: IntegrityJobId,
-        owner: &IntegrityJobOwner,
-        acknowledged_sequence: u64,
-    ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
-        continue_deep_integrity_job(&self.db, job_id, owner, acknowledged_sequence, |_| {
-            Err(InternalError::store_corruption())
-        })
     }
 }

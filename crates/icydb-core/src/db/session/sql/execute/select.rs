@@ -16,7 +16,10 @@ use crate::{
             EntityAuthority, SharedPreparedExecutionPlan, StructuralGroupedProjectionResult,
             StructuralProjectionScanBudget,
         },
-        query::intent::StructuralQuery,
+        query::{
+            admission::{QueryAdmissionPolicy, QueryAdmissionSummary},
+            intent::StructuralQuery,
+        },
         schema::AcceptedSchemaSnapshot,
         session::{
             finalize_structural_grouped_projection_result,
@@ -49,8 +52,8 @@ impl<C: CanisterKind> DbSession<C> {
         result: StructuralGroupedProjectionResult,
     ) -> Result<SqlStatementResult, QueryError> {
         let row_count = result.row_count();
-        let grouped = finalize_structural_grouped_projection_result(result, None)?;
-        let (rows, continuation_cursor, _) = grouped.into_rows_cursor_and_trace();
+        let (rows, continuation_cursor, _) =
+            finalize_structural_grouped_projection_result(result, None)?;
         let next_cursor = sql_grouped_cursor_from_bytes(continuation_cursor);
 
         Ok(SqlStatementResult::Grouped {
@@ -94,32 +97,6 @@ impl<C: CanisterKind> DbSession<C> {
             SqlProjectionPayload::new(columns, fixed_scales, rows, row_count, enum_catalog),
             cache_attribution,
         ))
-    }
-
-    #[cfg(test)]
-    pub(super) fn execute_select_compiled_sql_with_cache_attribution<E>(
-        &self,
-        query: &StructuralQuery,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
-    where
-        E: crate::db::PersistedRow<Canister = C>,
-    {
-        let catalog = self
-            .accepted_schema_catalog_context_for_query::<E>()
-            .map_err(QueryError::execute)?;
-        let authority = catalog
-            .accepted_entity_authority_for::<E>()
-            .map_err(QueryError::execute)?;
-        let resolved = self
-            .resolve_select_prepared_plan_for_authority_with_catalog(query, authority, &catalog)?;
-        let (prepared_plan, projection, cache_attribution) = resolved.into_parts();
-
-        self.execute_select_compiled_sql_from_prepared_plan(
-            query,
-            prepared_plan,
-            projection,
-            cache_attribution,
-        )
     }
 
     // Execute one SQL projection and immediately shape it into the public
@@ -223,8 +200,43 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
+        self.execute_projection_from_structural_query(query, authority, accepted_schema, None)
+    }
+
+    /// Execute one structural projection after applying ordinary public-read
+    /// admission to the selected accepted plan.
+    pub(in crate::db::session) fn execute_public_projection_from_structural_query(
+        &self,
+        query: StructuralQuery,
+        authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
+    ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
+        self.execute_projection_from_structural_query(
+            query,
+            authority,
+            accepted_schema,
+            Some(&QueryAdmissionPolicy::default_bounded_read()),
+        )
+    }
+
+    fn execute_projection_from_structural_query(
+        &self,
+        query: StructuralQuery,
+        authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
+        admission: Option<&QueryAdmissionPolicy>,
+    ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
         let (prepared_plan, projection, cache_attribution) = self
             .sql_select_prepared_plan_for_accepted_authority(&query, authority, accepted_schema)?;
+        if let Some(policy) = admission {
+            let summary = policy.evaluate(QueryAdmissionSummary::from_plan(
+                policy.lane(),
+                prepared_plan.logical_plan(),
+            ));
+            if let Some(rejection) = summary.rejection() {
+                return Err(QueryError::from(rejection.code()));
+            }
+        }
 
         self.execute_sql_projection_from_structural_prepared_plan(
             prepared_plan,

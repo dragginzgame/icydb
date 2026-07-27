@@ -43,27 +43,6 @@ pub(in crate::db::executor) trait OrderedKeyStream {
     fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
         self.exact_key_count_hint()
     }
-
-    // Return an exact diagnostic candidate count only for callers that
-    // explicitly opt into potentially expensive observability work.
-    #[cfg(test)]
-    fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
-        self.cheap_access_candidate_count_hint()
-    }
-}
-
-///
-/// KeyStreamLoopControl
-///
-/// Shared key-stream control-flow contract used by executor runners that
-/// coordinate stream prefetch and per-key handling phases.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum KeyStreamLoopControl {
-    Skip,
-    Emit,
-    Stop,
 }
 
 ///
@@ -106,13 +85,6 @@ impl OrderedKeyStreamBox {
     #[must_use]
     pub(in crate::db::executor) fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
         OrderedKeyStream::cheap_access_candidate_count_hint(self)
-    }
-
-    /// Return exact diagnostic access-candidate count when explicitly requested.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::executor) fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
-        OrderedKeyStream::exact_diagnostic_access_candidate_count(self)
     }
 
     /// Construct one owned empty ordered key stream.
@@ -287,23 +259,6 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::Intersect(stream) => stream.cheap_access_candidate_count_hint(),
         }
     }
-
-    #[cfg(test)]
-    fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
-        match self {
-            Self::Empty(stream) => stream.exact_diagnostic_access_candidate_count(),
-            Self::Single(stream) => stream.exact_diagnostic_access_candidate_count(),
-            Self::Materialized(stream) => stream.exact_diagnostic_access_candidate_count(),
-            Self::PrimaryRange(stream) => stream.exact_diagnostic_access_candidate_count(),
-            Self::IndexRange(stream) => stream.exact_diagnostic_access_candidate_count(),
-            Self::Budgeted(stream) => stream.exact_diagnostic_access_candidate_count(),
-            Self::Distinct(stream) => stream.exact_diagnostic_access_candidate_count(),
-            Self::Concat(stream) => stream.exact_diagnostic_access_candidate_count(),
-            Self::Merge(stream) => stream.exact_diagnostic_access_candidate_count(),
-            Self::FlatMerge(stream) => stream.exact_diagnostic_access_candidate_count(),
-            Self::Intersect(stream) => stream.exact_diagnostic_access_candidate_count(),
-        }
-    }
 }
 
 /// Return one canonical ordered key stream for already-materialized keys.
@@ -366,11 +321,6 @@ where
     fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
         self.as_ref().cheap_access_candidate_count_hint()
     }
-
-    #[cfg(test)]
-    fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
-        self.as_ref().exact_diagnostic_access_candidate_count()
-    }
 }
 
 impl<T> OrderedKeyStream for &mut T
@@ -387,11 +337,6 @@ where
 
     fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
         (**self).cheap_access_candidate_count_hint()
-    }
-
-    #[cfg(test)]
-    fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
-        (**self).exact_diagnostic_access_candidate_count()
     }
 }
 

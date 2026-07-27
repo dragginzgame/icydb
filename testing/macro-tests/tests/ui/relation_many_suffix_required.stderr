@@ -1,5 +1,0 @@
-error: relation field ident 'users' must end with '_ids'
-  --> tests/ui/relation_many_suffix_required.rs:32:45
-   |
-32 |         field(source_key = "users", ident = "users", value(many, item(rel = "User", prim = "Ulid")))
-   |                                             ^^^^^^^

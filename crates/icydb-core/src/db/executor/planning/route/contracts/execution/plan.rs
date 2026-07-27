@@ -62,7 +62,7 @@ impl ExecutionRoutePlan {
         Self {
             direction,
             route_shape_kind: RouteShapeKind::AggregateGrouped,
-            continuation: RouteContinuationPlan::initial_for_mutation(),
+            continuation: RouteContinuationPlan::initial_for_test(),
             execution_mode: RouteExecutionMode::Materialized,
             desc_physical_reverse_supported: false,
             secondary_pushdown_applicability: PushdownApplicability::NotApplicable,
@@ -204,11 +204,6 @@ impl ExecutionRoutePlan {
     /// Return whether index-range limit pushdown is enabled for this route.
     pub(in crate::db::executor) const fn index_range_limit_fast_path_enabled(&self) -> bool {
         self.index_range_limit_spec.is_some()
-    }
-
-    /// Return whether composite aggregate fast-path execution is shape-safe.
-    pub(in crate::db::executor) const fn composite_aggregate_fast_path_eligible(&self) -> bool {
-        self.capability_facts.composite_aggregate_fast_path_eligible
     }
 
     /// Return whether route permits a future `min(field)` fast path.

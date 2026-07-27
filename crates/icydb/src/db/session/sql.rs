@@ -113,19 +113,10 @@ impl<C: CanisterKind> DbSession<C> {
         crate::db::sql::sql_query_result_from_statement(statement, entity)
     }
 
-    fn sql_query_result_from_statement_for_entity<E>(
-        statement: core::db::SqlStatementResult,
-    ) -> SqlQueryResult
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Self::sql_query_result_from_statement(statement, E::MODEL.name().to_string())
-    }
-
     /// Execute one trusted/admin reduced SQL query against accepted catalog authority.
     ///
     /// This helper does not make caller-controlled SQL public-safe. Public
-    /// endpoints should prefer ordinary typed/fluent reads, or use an
+    /// endpoints should prefer ordinary typed/dynamic reads, or use an
     /// application-owned SQL allowlist before entering this trusted lane.
     pub fn execute_trusted_sql_query(&self, sql: &str) -> Result<SqlQueryResult, Error> {
         let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
@@ -312,16 +303,16 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    /// Execute one administrative SQL DDL statement against one concrete entity type.
+    /// Execute one administrative SQL DDL statement against accepted catalog
+    /// authority selected by the statement's entity name.
     ///
     /// The caller must enforce controller or equivalent administrative
     /// authorization before accepting caller-controlled SQL.
-    pub fn execute_admin_sql_ddl<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(Self::sql_query_result_from_statement_for_entity::<E>(
-            self.inner.execute_admin_sql_ddl::<E>(sql)?,
+    pub fn execute_admin_sql_ddl(&self, sql: &str) -> Result<SqlQueryResult, Error> {
+        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
+        Ok(Self::sql_query_result_from_statement(
+            self.inner.execute_admin_sql_ddl(sql)?,
+            entity,
         ))
     }
 }

@@ -3,9 +3,6 @@
 //! Does not own: commit-marker, schema, row, or journal payload decoding.
 //! Boundary: database control memory + registered durable allocations -> recovery gate.
 
-#[cfg(test)]
-mod tests;
-
 use crate::{
     db::{
         commit::{CommitMemoryAllocation, commit_memory_handle, current_commit_memory_allocation},
@@ -199,17 +196,6 @@ fn admit_or_initialize_database_format<M: Memory>(
             required: DATABASE_FORMAT_VERSION_CURRENT,
         }
         .into()),
-    }
-}
-
-#[cfg(test)]
-pub(in crate::db) fn clear_database_format_admission_for_tests() {
-    if let Ok(allocation) = current_commit_memory_allocation() {
-        TEST_ADMITTED_DATABASE_FORMATS.with(|allocations| {
-            allocations
-                .borrow_mut()
-                .retain(|existing| *existing != allocation);
-        });
     }
 }
 

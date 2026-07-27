@@ -3,6 +3,7 @@
 //! Boundary: adapts count state rows into selected projected grouped rows.
 
 use crate::{
+    db::cursor::GroupedContinuationToken,
     db::executor::{
         RuntimeGroupedRow,
         aggregate::{
@@ -10,7 +11,7 @@ use crate::{
             runtime::grouped_fold::{count::window::GroupedCountWindowSelection, metrics},
         },
         group::GroupKey,
-        pipeline::contracts::{GroupedRouteStage, PageCursor},
+        pipeline::contracts::GroupedRouteStage,
     },
     error::InternalError,
 };
@@ -22,7 +23,7 @@ pub(super) fn finalize_grouped_count_page(
     route: &GroupedRouteStage,
     grouped_projection_spec: &ProjectionSpec,
     grouped_counts: Vec<(GroupKey, u32)>,
-) -> Result<(Vec<RuntimeGroupedRow>, Option<PageCursor>), InternalError> {
+) -> Result<(Vec<RuntimeGroupedRow>, Option<GroupedContinuationToken>), InternalError> {
     metrics::record_finalize_stage(grouped_counts.len());
     let selection = GroupedCountWindowSelection::new(route)?;
     selection

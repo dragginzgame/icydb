@@ -19,12 +19,6 @@ use crate::db::{
     schema::SchemaInfo,
 };
 
-#[cfg(test)]
-pub(in crate::db::query::plan::access_choice) use prefix::{
-    evaluate_multi_lookup_candidate, evaluate_prefix_compare_candidate,
-};
-#[cfg(test)]
-pub(in crate::db::query::plan::access_choice) use range::evaluate_range_candidate;
 pub(in crate::db::query::plan::access_choice) use ranking::{
     chosen_access_shape_projection, chosen_selection_reason, ranked_rejection_reason,
 };

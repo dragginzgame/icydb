@@ -13,10 +13,11 @@ use crate::{
         direction::Direction,
         ordered_overlay::{OrderedOverlayEntry, OrderedOverlayVisit, visit_ordered_overlay},
         schema::{
-            AcceptedFieldKind, AcceptedSchemaSnapshot, ConstraintActivationKind,
-            ConstraintActivationState, ConstraintId, ConstraintOrigin, ConstraintValidationJob,
-            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedSchemaSnapshot,
-            SchemaVersion, accepted_constraint_field_paths, accepted_schema_cache_fingerprint,
+            AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
+            ConstraintActivationKind, ConstraintActivationState, ConstraintId, ConstraintOrigin,
+            ConstraintValidationJob, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
+            PersistedSchemaSnapshot, SchemaVersion, accepted_constraint_field_paths,
+            accepted_schema_cache_fingerprint,
             accepted_schema_cache_fingerprint_for_persisted_snapshot,
             accepted_schema_cache_fingerprint_method_version, decode_constraint_validation_job,
             decode_persisted_schema_snapshot, encode_constraint_validation_job,
@@ -44,6 +45,7 @@ use std::borrow::Cow;
 use std::cell::Cell;
 use std::cell::{OnceCell, Ref, RefCell};
 use std::collections::{BTreeMap as StdBTreeMap, BTreeSet};
+#[cfg(test)]
 use std::convert::Infallible;
 use std::ops::Bound as RangeBound;
 use std::rc::Rc;
@@ -69,20 +71,35 @@ const RAW_SCHEMA_SNAPSHOT_MAGIC: &[u8; 8] = b"ICYDBCAT";
 const RAW_SCHEMA_SNAPSHOT_VALUE_VERSION: u8 = 1;
 const RAW_SCHEMA_SNAPSHOT_HEADER_BYTES: usize = 25;
 
+/// Load one accepted entity snapshot through the current immutable bundle.
+///
+/// The persisted root and row-layout contract are both validated before the
+/// snapshot can become runtime authority.
+pub(in crate::db) fn load_accepted_schema_snapshot(
+    schema_store: &SchemaStore,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+) -> Result<AcceptedSchemaSnapshot, InternalError> {
+    let bundle = schema_store
+        .current_accepted_schema_bundle()?
+        .ok_or_else(InternalError::store_corruption)?;
+    let snapshot = bundle
+        .entity_snapshots()
+        .get(&entity_tag)
+        .cloned()
+        .ok_or_else(InternalError::store_corruption)?;
+    if snapshot.entity_path() != entity_path {
+        return Err(InternalError::store_corruption());
+    }
+    let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
+    let _runtime_contract = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)?;
+
+    Ok(accepted)
+}
+
 #[cfg(test)]
 thread_local! {
-    static LATEST_RAW_SNAPSHOTS_BY_ENTITY_CALLS: Cell<u64> = const { Cell::new(0) };
     static ACCEPTED_SCHEMA_BUNDLE_CACHE_MISSES: Cell<u64> = const { Cell::new(0) };
-}
-
-#[cfg(test)]
-pub(in crate::db) fn reset_latest_raw_snapshots_by_entity_call_count_for_tests() {
-    LATEST_RAW_SNAPSHOTS_BY_ENTITY_CALLS.with(|calls| calls.set(0));
-}
-
-#[cfg(test)]
-pub(in crate::db) fn latest_raw_snapshots_by_entity_call_count_for_tests() -> u64 {
-    LATEST_RAW_SNAPSHOTS_BY_ENTITY_CALLS.with(Cell::get)
 }
 
 #[cfg(test)]
@@ -162,22 +179,23 @@ impl RawSchemaKey {
         u32::from_be_bytes(bytes)
     }
 
-    fn entity_range_bounds(entity: EntityTag) -> (RangeBound<Self>, RangeBound<Self>) {
-        (
-            RangeBound::Included(Self::from_entity_version(entity, SchemaVersion::new(0))),
-            RangeBound::Included(Self::from_entity_version(
-                entity,
-                SchemaVersion::new(u32::MAX),
-            )),
-        )
-    }
-
     const fn all_entity_range_bounds() -> (RangeBound<Self>, RangeBound<Self>) {
         let mut end = [u8::MAX; SCHEMA_KEY_BYTES_USIZE];
         end[0] = SCHEMA_KEY_NAMESPACE_ENTITY_SNAPSHOT;
         (
             RangeBound::Included(Self([0; SCHEMA_KEY_BYTES_USIZE])),
             RangeBound::Included(Self(end)),
+        )
+    }
+
+    #[cfg(test)]
+    fn entity_range_bounds(entity: EntityTag) -> (RangeBound<Self>, RangeBound<Self>) {
+        (
+            RangeBound::Included(Self::from_entity_version(entity, SchemaVersion::initial())),
+            RangeBound::Included(Self::from_entity_version(
+                entity,
+                SchemaVersion::new(u32::MAX),
+            )),
         )
     }
 
@@ -429,25 +447,6 @@ impl AcceptedCatalogSnapshotSelection {
         &self.value_catalog
     }
 
-    /// Re-encode a cached accepted snapshot under its verified catalog identity.
-    pub(in crate::db) fn from_accepted_snapshot(
-        identity: AcceptedCatalogIdentity,
-        value_catalog: AcceptedValueCatalogHandle,
-        snapshot: &AcceptedSchemaSnapshot,
-    ) -> Result<Self, InternalError> {
-        let raw_snapshot =
-            RawSchemaSnapshot::from_persisted_snapshot(snapshot.persisted_snapshot())?;
-        if raw_snapshot.accepted_schema_fingerprint()? != identity.accepted_schema_fingerprint() {
-            return Err(InternalError::store_invariant());
-        }
-
-        Ok(Self::new(
-            identity,
-            value_catalog,
-            Rc::from(raw_snapshot.into_bytes()),
-        ))
-    }
-
     /// Select one entity snapshot and catalog directly from a verified schema
     /// candidate while recovery is still applying its accepted root.
     pub(in crate::db) fn from_candidate(
@@ -588,21 +587,6 @@ fn validate_typed_schema_snapshot_for_store(
 }
 
 ///
-/// SchemaStoreFootprint
-///
-/// Current raw schema metadata footprint for one entity. Reconciliation uses
-/// this value to report stable-memory pressure without decoding schema payloads
-/// or exposing field-level metadata through metrics.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct SchemaStoreFootprint {
-    snapshots: u64,
-    encoded_bytes: u64,
-    latest_snapshot_bytes: u64,
-}
-
-///
 /// SchemaStoreCatalogMetadata
 ///
 /// Accepted schema-store catalog metadata derived from latest persisted
@@ -711,36 +695,6 @@ impl SchemaStoreAllocationMetadata {
     }
 }
 
-impl SchemaStoreFootprint {
-    /// Build one schema-store footprint from already-counted raw payload facts.
-    #[must_use]
-    const fn new(snapshots: u64, encoded_bytes: u64, latest_snapshot_bytes: u64) -> Self {
-        Self {
-            snapshots,
-            encoded_bytes,
-            latest_snapshot_bytes,
-        }
-    }
-
-    /// Return the number of raw schema snapshots stored for the entity.
-    #[must_use]
-    pub(in crate::db) const fn snapshots(self) -> u64 {
-        self.snapshots
-    }
-
-    /// Return the total encoded payload bytes stored for the entity.
-    #[must_use]
-    pub(in crate::db) const fn encoded_bytes(self) -> u64 {
-        self.encoded_bytes
-    }
-
-    /// Return the encoded payload bytes for the highest-version snapshot.
-    #[must_use]
-    pub(in crate::db) const fn latest_snapshot_bytes(self) -> u64 {
-        self.latest_snapshot_bytes
-    }
-}
-
 ///
 /// PendingRelationActivationDeleteBarrier
 ///
@@ -816,12 +770,17 @@ enum SchemaStoreBackend {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SchemaStoreVisit {
     Continue,
+    #[cfg(test)]
     Stop,
 }
 
 impl SchemaStoreVisit {
     const fn should_stop(self) -> bool {
-        matches!(self, Self::Stop)
+        match self {
+            Self::Continue => false,
+            #[cfg(test)]
+            Self::Stop => true,
+        }
     }
 }
 
@@ -1535,16 +1494,14 @@ impl SchemaStore {
             .transpose()
     }
 
-    /// Load and decode the highest staged schema snapshot for one entity.
-    ///
-    /// Candidate construction and publication gates use this view. Runtime
-    /// execution must use `current_accepted_persisted_snapshot` instead.
-    pub(in crate::db) fn latest_staged_persisted_snapshot(
+    #[cfg(test)]
+    fn latest_staged_persisted_snapshot(
         &self,
         entity: EntityTag,
     ) -> Result<Option<PersistedSchemaSnapshot>, InternalError> {
-        self.latest_raw_snapshot(entity)
-            .map(|snapshot| snapshot.decode_persisted_snapshot())
+        self.latest_raw_snapshots_by_entity()
+            .remove(&entity)
+            .map(|(_, snapshot)| snapshot.decode_persisted_snapshot())
             .transpose()
     }
 
@@ -1680,39 +1637,6 @@ impl SchemaStore {
             ),
             Rc::from(raw_snapshot.into_bytes()),
         )))
-    }
-
-    /// Return raw schema-store footprint facts for one entity.
-    #[must_use]
-    pub(in crate::db) fn entity_footprint(&self, entity: EntityTag) -> SchemaStoreFootprint {
-        let mut snapshots = 0u64;
-        let mut encoded_bytes = 0u64;
-        let mut latest = None::<(SchemaVersion, u64)>;
-
-        let _: Result<(), std::convert::Infallible> = self.visit_raw_snapshots(|key, snapshot| {
-            if key.entity_tag() != entity {
-                return Ok(SchemaStoreVisit::Continue);
-            }
-
-            let snapshot_bytes = u64::try_from(snapshot.as_bytes().len()).unwrap_or(u64::MAX);
-            snapshots = snapshots.saturating_add(1);
-            encoded_bytes = encoded_bytes.saturating_add(snapshot_bytes);
-
-            let version = SchemaVersion::new(key.version());
-            if latest
-                .as_ref()
-                .is_none_or(|(latest_version, _)| version > *latest_version)
-            {
-                latest = Some((version, snapshot_bytes));
-            }
-            Ok(SchemaStoreVisit::Continue)
-        });
-
-        SchemaStoreFootprint::new(
-            snapshots,
-            encoded_bytes,
-            latest.map_or(0, |(_, snapshot_bytes)| snapshot_bytes),
-        )
     }
 
     /// Derive accepted catalog metadata from latest persisted schema snapshots.
@@ -2166,9 +2090,6 @@ impl SchemaStore {
     fn latest_raw_snapshots_by_entity(
         &self,
     ) -> StdBTreeMap<EntityTag, (SchemaVersion, RawSchemaSnapshot)> {
-        #[cfg(test)]
-        LATEST_RAW_SNAPSHOTS_BY_ENTITY_CALLS.with(|calls| calls.set(calls.get().saturating_add(1)));
-
         let mut latest_by_entity =
             StdBTreeMap::<EntityTag, (SchemaVersion, RawSchemaSnapshot)>::new();
 
@@ -2276,43 +2197,6 @@ impl SchemaStore {
             return None;
         }
         live.get(key).cloned().or_else(|| canonical.get(key))
-    }
-
-    fn latest_raw_snapshot(&self, entity: EntityTag) -> Option<RawSchemaSnapshot> {
-        self.latest_raw_snapshot_entry(entity)
-            .map(|(_, snapshot)| snapshot)
-    }
-
-    fn latest_raw_snapshot_entry(
-        &self,
-        entity: EntityTag,
-    ) -> Option<(SchemaVersion, RawSchemaSnapshot)> {
-        let bounds = RawSchemaKey::entity_range_bounds(entity);
-        match &self.backend {
-            SchemaStoreBackend::Heap(map) => map
-                .range((bounds.0, bounds.1))
-                .next_back()
-                .map(|(key, snapshot)| (SchemaVersion::new(key.version()), snapshot.clone())),
-            SchemaStoreBackend::Journaled {
-                canonical,
-                live,
-                tombstones,
-            } => {
-                let mut latest = None;
-                let _: Result<(), Infallible> = Self::visit_journaled_raw_snapshot_range(
-                    canonical,
-                    live,
-                    tombstones,
-                    bounds,
-                    Direction::Desc,
-                    |key, snapshot| {
-                        latest = Some((SchemaVersion::new(key.version()), snapshot.clone()));
-                        Ok(SchemaStoreVisit::Stop)
-                    },
-                );
-                latest
-            }
-        }
     }
 
     fn visit_journaled_raw_snapshot_range<E>(

@@ -19,9 +19,8 @@ use crate::{
         },
         schema::AcceptedInspectionPlan,
     },
-    entity::EntityKind,
     error::{ErrorClass, ErrorOrigin, InternalError},
-    traits::{CanisterKind, Path},
+    traits::CanisterKind,
 };
 use candid::CandidType;
 use serde::Deserialize;
@@ -30,18 +29,10 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db) use deep::run_integrity_retention_page_for_tests;
 pub(in crate::db) use deep::{
     abort_deep_integrity_job, continue_deep_integrity_job, run_next_integrity_retention_page,
     start_deep_integrity_job,
 };
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db) use deep::{
-    reset_integrity_retention_cursor_for_tests, run_next_integrity_retention_page_for_tests,
-};
-#[cfg(test)]
-pub(in crate::db) use derived::DerivedIntegrityPage;
 pub(in crate::db) use derived::{
     DerivedInspectionLimits, execute_index_integrity_page, execute_reverse_integrity_page,
 };
@@ -54,16 +45,7 @@ pub(in crate::db) use job::{
     IntegrityCheckpoint, IntegrityJob, IntegrityJobState, IntegrityReceiptEnvelope,
     IntegrityReceiptReplayKey, MAX_INTEGRITY_IN_PROGRESS_PAGES,
 };
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db) use progress_store::{
-    clear_progress_store_for_tests, corrupt_progress_job_for_tests,
-    progress_job_encoded_len_for_tests, set_progress_job_lease_deadline_for_tests,
-};
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db) use proof::set_allocation_registry_generation_for_tests;
 pub(in crate::db) use proof::{IntegrityProofVector, capture_integrity_proof_vector};
-#[cfg(test)]
-pub(in crate::db) use row::RowIntegrityPage;
 pub(in crate::db) use row::{
     PhysicalUnitCheckpoint, RowInspectionLimits, execute_row_integrity_page,
 };
@@ -106,23 +88,6 @@ pub enum IntegrityCheckRequest {
 }
 
 impl IntegrityCheckRequest {
-    /// Build a Quick request for one generated entity selector.
-    #[must_use]
-    pub fn quick<E: EntityKind>() -> Self {
-        Self::Quick {
-            entity: IntegrityEntityIdentity::for_entity::<E>(),
-        }
-    }
-
-    /// Build an idempotent Deep-start request for one generated entity selector.
-    #[must_use]
-    pub fn deep_start<E: EntityKind>(submission_key: IntegritySubmissionKey) -> Self {
-        Self::DeepStart {
-            entity: IntegrityEntityIdentity::for_entity::<E>(),
-            submission_key,
-        }
-    }
-
     /// Build one Deep continuation or exact replay request.
     #[must_use]
     pub const fn deep_continue(job_id: IntegrityJobId, acknowledged_sequence: u64) -> Self {
@@ -378,20 +343,6 @@ impl IntegrityEntityIdentity {
             entity_tag,
             entity_path: entity_path.to_string(),
             store_path: store_path.to_string(),
-        }
-    }
-
-    /// Build a selector for one generated IcyDB entity.
-    ///
-    /// The selector is not runtime authority. Integrity execution resolves the
-    /// current accepted entity and requires all three identity components to
-    /// match before inspection.
-    #[must_use]
-    pub fn for_entity<E: EntityKind>() -> Self {
-        Self {
-            entity_tag: E::ENTITY_TAG.value(),
-            entity_path: <E as Path>::PATH.to_string(),
-            store_path: <E::Store as Path>::PATH.to_string(),
         }
     }
 

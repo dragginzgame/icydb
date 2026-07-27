@@ -11,18 +11,11 @@ mod scan;
 
 #[cfg(feature = "sql")]
 use crate::db::executor::saturating_u32_len;
-use crate::{
-    db::{
-        Db,
-        cursor::{ContinuationToken, GroupedContinuationToken},
-        direction::Direction,
-        executor::{
-            ExecutionOptimization, KeyOrderComparator, OrderedKeyStreamBox, RuntimeGroupedRow,
-        },
-        response::EntityResponse,
-        schema::AcceptedValueCatalogHandle,
-    },
-    entity::EntityKind,
+use crate::db::{
+    cursor::GroupedContinuationToken,
+    direction::Direction,
+    executor::{ExecutionOptimization, KeyOrderComparator, OrderedKeyStreamBox, RuntimeGroupedRow},
+    schema::AcceptedValueCatalogHandle,
 };
 
 #[cfg(feature = "sql")]
@@ -43,72 +36,6 @@ pub(in crate::db::executor) use materialization::{
 pub(in crate::db::executor) use scan::{AccessScanContinuationInput, AccessStreamBindings};
 
 ///
-/// PageCursor
-///
-/// Internal continuation cursor enum for scalar and grouped pagination.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) enum PageCursor {
-    Scalar(ContinuationToken),
-    Grouped(GroupedContinuationToken),
-}
-
-impl PageCursor {
-    /// Borrow scalar continuation token when this cursor is scalar-shaped.
-    #[must_use]
-    pub(in crate::db) const fn as_scalar(&self) -> Option<&ContinuationToken> {
-        match self {
-            Self::Scalar(token) => Some(token),
-            Self::Grouped(_) => None,
-        }
-    }
-
-    /// Borrow grouped continuation token when this cursor is grouped-shaped.
-    #[must_use]
-    pub(in crate::db) const fn as_grouped(&self) -> Option<&GroupedContinuationToken> {
-        match self {
-            Self::Scalar(_) => None,
-            Self::Grouped(token) => Some(token),
-        }
-    }
-
-    /// Encode one cursor into its canonical token bytes.
-    #[cfg(test)]
-    pub(in crate::db) fn encode(&self) -> Result<Vec<u8>, crate::db::cursor::TokenWireError> {
-        match self {
-            Self::Scalar(token) => token.encode(),
-            Self::Grouped(token) => token.encode(),
-        }
-    }
-}
-
-impl From<ContinuationToken> for PageCursor {
-    fn from(value: ContinuationToken) -> Self {
-        Self::Scalar(value)
-    }
-}
-
-impl From<GroupedContinuationToken> for PageCursor {
-    fn from(value: GroupedContinuationToken) -> Self {
-        Self::Grouped(value)
-    }
-}
-
-///
-/// CursorPage
-///
-/// Internal load page result with continuation cursor payload.
-/// Returned by paged executor entrypoints.
-///
-
-#[derive(Debug)]
-pub(in crate::db) struct CursorPage<E: EntityKind> {
-    pub(in crate::db) items: EntityResponse<E>,
-    pub(in crate::db) next_cursor: Option<PageCursor>,
-}
-
-///
 /// GroupedCursorPage
 ///
 /// Internal grouped page result with grouped rows and continuation cursor payload.
@@ -117,7 +44,7 @@ pub(in crate::db) struct CursorPage<E: EntityKind> {
 #[derive(Debug)]
 pub(in crate::db::executor) struct GroupedCursorPage {
     pub(in crate::db::executor) rows: Vec<RuntimeGroupedRow>,
-    pub(in crate::db::executor) next_cursor: Option<PageCursor>,
+    pub(in crate::db::executor) next_cursor: Option<GroupedContinuationToken>,
 }
 
 ///
@@ -161,7 +88,7 @@ impl StructuralGroupedProjectionResult {
         self,
     ) -> (
         Vec<RuntimeGroupedRow>,
-        Option<PageCursor>,
+        Option<GroupedContinuationToken>,
         AcceptedValueCatalogHandle,
     ) {
         let Self {
@@ -191,17 +118,4 @@ pub(in crate::db::executor) struct FastPathKeyResult {
     pub(in crate::db::executor) ordered_key_stream: OrderedKeyStreamBox,
     pub(in crate::db::executor) rows_scanned: Option<usize>,
     pub(in crate::db::executor) optimization: ExecutionOptimization,
-}
-
-///
-/// LoadExecutor
-///
-/// Load-plan executor with canonical post-access semantics.
-/// Coordinates fast paths, trace hooks, and pagination cursors.
-///
-
-#[derive(Clone)]
-pub(in crate::db) struct LoadExecutor<E: EntityKind> {
-    pub(in crate::db::executor) db: Db<E::Canister>,
-    pub(in crate::db::executor) debug: bool,
 }

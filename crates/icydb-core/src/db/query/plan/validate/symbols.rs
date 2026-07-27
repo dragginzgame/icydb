@@ -13,17 +13,7 @@ use crate::{
         },
     },
     db::schema::{FieldType, SchemaInfo},
-    model::entity::EntityModel,
 };
-
-/// Resolve one grouped field into a stable field slot.
-pub(in crate::db) fn resolve_group_field_slot(
-    model: &EntityModel,
-    field: &str,
-) -> Result<FieldSlot, PlanError> {
-    FieldSlot::resolve(model, field)
-        .ok_or_else(|| PlanError::from(GroupPlanError::unknown_group_field(field)))
-}
 
 /// Resolve one grouped field through schema slot authority.
 pub(in crate::db) fn resolve_group_field_slot_with_schema(

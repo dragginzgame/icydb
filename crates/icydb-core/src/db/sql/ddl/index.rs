@@ -39,27 +39,6 @@ pub(in crate::db) struct BoundSqlCreateIndexRequest {
 }
 
 impl BoundSqlCreateIndexRequest {
-    /// Borrow the requested index name.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn index_name(&self) -> &str {
-        self.index_name.as_str()
-    }
-
-    /// Borrow the accepted entity name that owns this request.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn entity_name(&self) -> &str {
-        self.entity_name.as_str()
-    }
-
-    /// Borrow the accepted field-path targets.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn field_paths(&self) -> &[BoundSqlDdlFieldPath] {
-        self.field_paths.as_slice()
-    }
-
     /// Borrow the accepted key targets in DDL key order.
     #[must_use]
     pub(in crate::db) const fn key_items(&self) -> &[BoundSqlDdlCreateIndexKey] {

@@ -1,5 +1,4 @@
-use icydb::design::prelude::{Decimal, Float64, Principal, Timestamp, Ulid};
-use icydb::types::GenerateKey;
+use icydb_model::prelude::{Decimal, Float64, Principal, Timestamp, Ulid};
 
 use crate::schema::{Character, CharacterMentor, Grid};
 
@@ -180,7 +179,7 @@ pub fn characters() -> Vec<Character> {
             let gold_pieces = gold_pieces_for(background.as_str(), level, renown, seed);
 
             Character {
-                id: Ulid::generate(),
+                id: Ulid::from_u128(u128::from(seed).saturating_add(1)),
                 name: name.to_string(),
                 description: description_for(
                     name,

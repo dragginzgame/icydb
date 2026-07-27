@@ -9,10 +9,8 @@
 #[cfg(feature = "sql")]
 use crate::db::DynamicQueryResult;
 use crate::{
-    ErrorCode,
-    db::{DynamicMutationResult, response::RowProjectionOutput, session::DbSession},
-    diagnostic::RuntimeBoundaryCode,
-    error::{Error, ErrorOrigin},
+    db::{DynamicMutationResult, session::DbSession},
+    error::Error,
     traits::CanisterKind,
     types::{
         Account, Blob, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal,
@@ -217,6 +215,10 @@ impl TypedEntityBinding {
         Self { inner }
     }
 
+    pub(crate) const fn entity(&self) -> &str {
+        self.inner.entity()
+    }
+
     /// Borrow one bound row value by immutable field source key.
     pub fn row_value<'a>(
         &self,
@@ -328,6 +330,14 @@ pub trait TypedRowAdapter {
         binding: &TypedEntityBinding,
         row: OutputRow,
     ) -> Result<Self::Row, TypedAdapterError>;
+}
+
+/// IcyDB-owned binding adapter implemented only by opted-in generated entities.
+pub trait TypedEntityAdapter: TypedRowAdapter {
+    /// Bind generated source identities to current accepted schema authority.
+    fn typed_binding<C>(session: &DbSession<C>) -> Result<TypedEntityBinding, TypedBindingError>
+    where
+        C: CanisterKind;
 }
 
 /// IcyDB-owned write adapter implemented only by opted-in generated inputs.
@@ -855,290 +865,6 @@ impl StructuralMutation {
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    fn projection_selection<E>(
-        selected_fields: Option<&[String]>,
-    ) -> Result<(Vec<String>, Vec<usize>), Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        match selected_fields {
-            None => Ok((
-                E::MODEL
-                    .fields()
-                    .iter()
-                    .map(|field| field.name().to_string())
-                    .collect(),
-                (0..E::MODEL.fields().len()).collect(),
-            )),
-            Some(fields) => {
-                let mut indices = Vec::with_capacity(fields.len());
-
-                for field in fields {
-                    let index = E::MODEL
-                        .fields()
-                        .iter()
-                        .position(|candidate| candidate.name() == field.as_str())
-                        .ok_or_else(|| {
-                            Error::from_runtime_boundary(
-                                RuntimeBoundaryCode::RowProjectionFieldNotConfigured,
-                                ErrorOrigin::Query,
-                            )
-                        })?;
-                    indices.push(index);
-                }
-
-                Ok((fields.to_vec(), indices))
-            }
-        }
-    }
-
-    pub(crate) fn row_projection_output_from_entities<E>(
-        entity_name: String,
-        entities: Vec<E>,
-        selected_fields: Option<&[String]>,
-        mut project: impl FnMut(&E, &[usize]) -> Result<Vec<OutputValue>, Error>,
-    ) -> Result<RowProjectionOutput, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        // Phase 1: resolve the explicit outward projection contract before
-        // rendering any row data so every row-producing typed write helper
-        // shares one field-selection rule.
-        let (columns, indices) = Self::projection_selection::<E>(selected_fields)?;
-        let mut rows = Vec::with_capacity(entities.len());
-
-        // Phase 2: move selected entity slots into the typed output payload so
-        // row-producing write surfaces do not pre-render blob fields as text.
-        for entity in entities {
-            rows.push(project(&entity, indices.as_slice())?);
-        }
-
-        let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
-
-        Ok(RowProjectionOutput {
-            entity: entity_name,
-            columns,
-            rows,
-            row_count,
-        })
-    }
-
-    fn returning_fields<I, S>(fields: I) -> Vec<String>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        fields
-            .into_iter()
-            .map(|field| field.as_ref().to_string())
-            .collect()
-    }
-
-    fn row_projection_output_from_entity<E>(
-        &self,
-        entity: E,
-        selected_fields: Option<&[String]>,
-    ) -> Result<RowProjectionOutput, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Self::row_projection_output_from_entities::<E>(
-            E::PATH.to_string(),
-            vec![entity],
-            selected_fields,
-            |entity, slots| {
-                self.inner
-                    .project_entity_output_values(entity, slots)
-                    .map_err(|_| {
-                        Error::from_error_code(ErrorCode::RUNTIME_INTERNAL, ErrorOrigin::Query)
-                    })
-            },
-        )
-    }
-
-    // ------------------------------------------------------------------
-    // High-level write helpers (semantic)
-    // ------------------------------------------------------------------
-
-    pub fn insert<E>(&self, entity: E) -> Result<E, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(self.inner.insert(entity)?)
-    }
-
-    /// Insert one full entity and return every persisted field.
-    pub fn insert_returning_all<E>(&self, entity: E) -> Result<RowProjectionOutput, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        let entity = self.inner.insert(entity)?;
-
-        self.row_projection_output_from_entity::<E>(entity, None)
-    }
-
-    /// Insert one full entity and return one explicit field list.
-    pub fn insert_returning<E, I, S>(
-        &self,
-        entity: E,
-        fields: I,
-    ) -> Result<RowProjectionOutput, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        let entity = self.inner.insert(entity)?;
-        let fields = Self::returning_fields(fields);
-
-        self.row_projection_output_from_entity::<E>(entity, Some(fields.as_slice()))
-    }
-
-    /// Create one authored typed input.
-    pub fn create<I>(&self, input: I) -> Result<I::Entity, Error>
-    where
-        I: crate::traits::CreateInputFor<C>,
-        I::Entity: crate::traits::EntityFor<C>,
-    {
-        Ok(self.inner.create(input)?)
-    }
-
-    /// Create one authored typed input and return every persisted field.
-    pub fn create_returning_all<I>(&self, input: I) -> Result<RowProjectionOutput, Error>
-    where
-        I: crate::traits::CreateInputFor<C>,
-        I::Entity: crate::traits::EntityFor<C>,
-    {
-        let entity = self.inner.create(input)?;
-
-        self.row_projection_output_from_entity::<I::Entity>(entity, None)
-    }
-
-    /// Create one authored typed input and return one explicit field list.
-    pub fn create_returning<I, F, S>(
-        &self,
-        input: I,
-        fields: F,
-    ) -> Result<RowProjectionOutput, Error>
-    where
-        I: crate::traits::CreateInputFor<C>,
-        I::Entity: crate::traits::EntityFor<C>,
-        F: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        let entity = self.inner.create(input)?;
-        let fields = Self::returning_fields(fields);
-
-        self.row_projection_output_from_entity::<I::Entity>(entity, Some(fields.as_slice()))
-    }
-
-    /// Insert a single-entity-type batch atomically in one commit window.
-    ///
-    /// If any item fails pre-commit validation, no row in the batch is persisted.
-    /// Prefer this helper when the caller needs all-or-nothing behavior for a
-    /// same-entity batch.
-    ///
-    /// This API is not a multi-entity transaction surface.
-    pub fn insert_many_atomic<E>(
-        &self,
-        entities: impl IntoIterator<Item = E>,
-    ) -> Result<Vec<E>, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(self.inner.insert_many_atomic(entities)?.entities())
-    }
-
-    /// Insert a batch with explicitly non-atomic semantics.
-    ///
-    /// WARNING: fail-fast and non-atomic. Earlier inserts may commit before an
-    /// error, and returning that error from the surrounding canister update does
-    /// not roll back the committed prefix. Use [`Self::insert_many_atomic`] when
-    /// partial batch persistence is not acceptable.
-    pub fn insert_many_non_atomic<E>(
-        &self,
-        entities: impl IntoIterator<Item = E>,
-    ) -> Result<Vec<E>, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(self.inner.insert_many_non_atomic(entities)?.entities())
-    }
-
-    pub fn replace<E>(&self, entity: E) -> Result<E, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(self.inner.replace(entity)?)
-    }
-
-    /// Replace a single-entity-type batch atomically in one commit window.
-    ///
-    /// If any item fails pre-commit validation, no row in the batch is persisted.
-    /// Prefer this helper when the caller needs all-or-nothing behavior for a
-    /// same-entity batch.
-    ///
-    /// This API is not a multi-entity transaction surface.
-    pub fn replace_many_atomic<E>(
-        &self,
-        entities: impl IntoIterator<Item = E>,
-    ) -> Result<Vec<E>, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(self.inner.replace_many_atomic(entities)?.entities())
-    }
-
-    /// Replace a batch with explicitly non-atomic semantics.
-    ///
-    /// WARNING: fail-fast and non-atomic. Earlier replaces may commit before an
-    /// error, and returning that error from the surrounding canister update does
-    /// not roll back the committed prefix. Use [`Self::replace_many_atomic`] when
-    /// partial batch persistence is not acceptable.
-    pub fn replace_many_non_atomic<E>(
-        &self,
-        entities: impl IntoIterator<Item = E>,
-    ) -> Result<Vec<E>, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(self.inner.replace_many_non_atomic(entities)?.entities())
-    }
-
-    pub fn update<E>(&self, entity: E) -> Result<E, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(self.inner.update(entity)?)
-    }
-
-    /// Update one full entity and return every persisted field.
-    pub fn update_returning_all<E>(&self, entity: E) -> Result<RowProjectionOutput, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        let entity = self.inner.update(entity)?;
-
-        self.row_projection_output_from_entity::<E>(entity, None)
-    }
-
-    /// Update one full entity and return one explicit field list.
-    pub fn update_returning<E, I, S>(
-        &self,
-        entity: E,
-        fields: I,
-    ) -> Result<RowProjectionOutput, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        let entity = self.inner.update(entity)?;
-        let fields = Self::returning_fields(fields);
-
-        self.row_projection_output_from_entity::<E>(entity, Some(fields.as_slice()))
-    }
-
     /// Execute one trusted structural mutation through accepted schema only.
     ///
     /// This dynamic lane never materializes a generated entity and never runs
@@ -1151,6 +877,25 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self
             .inner
             .execute_trusted_dynamic_mutation(&request.into_core())?)
+    }
+
+    /// Execute one same-entity structural insert batch atomically.
+    ///
+    /// All patches bind to one accepted snapshot and share one database-owned
+    /// operation timestamp. The batch either commits completely or returns a
+    /// typed error without publishing a partial prefix.
+    pub fn execute_trusted_structural_insert_batch(
+        &self,
+        entity: &str,
+        patches: Vec<StructuralPatch>,
+    ) -> Result<DynamicMutationResult, Error> {
+        let patches = patches
+            .into_iter()
+            .map(StructuralPatch::into_core)
+            .collect();
+        Ok(self
+            .inner
+            .execute_trusted_dynamic_insert_batch(entity, patches)?)
     }
 
     fn typed_output_row(
@@ -1270,38 +1015,5 @@ impl<C: CanisterKind> DbSession<C> {
                 .map(|(name, value)| (name.into(), value))
                 .collect(),
         }
-    }
-
-    /// Update a single-entity-type batch atomically in one commit window.
-    ///
-    /// If any item fails pre-commit validation, no row in the batch is persisted.
-    /// Prefer this helper when the caller needs all-or-nothing behavior for a
-    /// same-entity batch.
-    ///
-    /// This API is not a multi-entity transaction surface.
-    pub fn update_many_atomic<E>(
-        &self,
-        entities: impl IntoIterator<Item = E>,
-    ) -> Result<Vec<E>, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(self.inner.update_many_atomic(entities)?.entities())
-    }
-
-    /// Update a batch with explicitly non-atomic semantics.
-    ///
-    /// WARNING: fail-fast and non-atomic. Earlier updates may commit before an
-    /// error, and returning that error from the surrounding canister update does
-    /// not roll back the committed prefix. Use [`Self::update_many_atomic`] when
-    /// partial batch persistence is not acceptable.
-    pub fn update_many_non_atomic<E>(
-        &self,
-        entities: impl IntoIterator<Item = E>,
-    ) -> Result<Vec<E>, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(self.inner.update_many_non_atomic(entities)?.entities())
     }
 }

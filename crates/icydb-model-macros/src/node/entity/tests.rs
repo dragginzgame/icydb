@@ -185,6 +185,7 @@ fn typed_adapter_generation_separates_row_and_operation_shapes() {
         "pub struct TestEntityInsert",
         "pub struct TestEntityPatch",
         "pub struct TestEntityReplace",
+        "impl :: icydb :: db :: TypedEntityAdapter for TestEntity",
         "impl :: icydb :: db :: TypedRowAdapter for TestEntity",
         "impl :: icydb :: db :: TypedWriteAdapter for TestEntityInsert",
         "impl :: icydb :: db :: TypedWriteAdapter for TestEntityPatch",

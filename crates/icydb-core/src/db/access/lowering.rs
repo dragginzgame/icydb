@@ -19,31 +19,9 @@ use crate::{
     types::EntityTag,
     value::Value,
 };
-#[cfg(test)]
-use std::cell::Cell;
 use std::{ops::Bound, sync::Arc, sync::OnceLock};
 
-#[cfg(test)]
-thread_local! {
-    static DEFERRED_INDEX_PREFIX_RAW_BOUND_MATERIALIZATION_COUNT: Cell<u64> =
-        const { Cell::new(0) };
-}
-
-#[cfg(test)]
-fn record_deferred_index_prefix_raw_bound_materialization() {
-    DEFERRED_INDEX_PREFIX_RAW_BOUND_MATERIALIZATION_COUNT.with(|count| {
-        count.set(count.get().saturating_add(1));
-    });
-}
-
-#[cfg(not(test))]
 const fn record_deferred_index_prefix_raw_bound_materialization() {}
-
-#[cfg(test)]
-pub(in crate::db) fn current_deferred_index_prefix_raw_bound_materialization_count_for_tests() -> u64
-{
-    DEFERRED_INDEX_PREFIX_RAW_BOUND_MATERIALIZATION_COUNT.with(Cell::get)
-}
 
 pub(in crate::db) type LoweredKey = RawIndexStoreKey;
 
@@ -66,18 +44,6 @@ pub(in crate::db) struct LoweredAccess<'a, K> {
 }
 
 impl<'a, K> LoweredAccess<'a, K> {
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn index_prefix_specs(&self) -> &[LoweredIndexPrefixSpec] {
-        self.index_prefix_specs.as_slice()
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn index_range_specs(&self) -> &[LoweredIndexRangeSpec] {
-        self.index_range_specs.as_slice()
-    }
-
     #[must_use]
     pub(in crate::db) fn into_executable_and_index_specs(
         self,
@@ -116,15 +82,6 @@ impl LoweredAccessError {
             Self::IndexPrefix | Self::IndexRange => InternalError::index_invariant(),
         }
     }
-}
-
-/// Lower one structural access plan into executable and raw index-bound specs.
-#[cfg(test)]
-pub(in crate::db) fn lower_access<K>(
-    entity_tag: EntityTag,
-    access: &AccessPlan<K>,
-) -> Result<LoweredAccess<'_, K>, LoweredAccessError> {
-    lower_access_with_optional_schema_info(entity_tag, access, None)
 }
 
 /// Lower an access plan using accepted index contracts for enum equality
@@ -424,11 +381,6 @@ impl LoweredIndexPrefixSpec {
         self.raw_bounds().map(|bounds| bounds.0)
     }
 
-    #[cfg(test)]
-    pub(in crate::db) fn upper(&self) -> Result<&Bound<LoweredKey>, InternalError> {
-        self.raw_bounds().map(|bounds| bounds.1)
-    }
-
     #[must_use]
     pub(in crate::db) const fn prefix_components(&self) -> &[Vec<u8>] {
         self.prefix_components.as_slice()
@@ -441,26 +393,6 @@ impl LoweredIndexPrefixSpec {
         match self.raw_bounds.deferred_source() {
             Some(source) => Some((source.index_id, source.key_kind)),
             None => None,
-        }
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn has_deferred_raw_bounds_for_tests(&self) -> bool {
-        matches!(
-            &self.raw_bounds,
-            LoweredIndexPrefixRawBounds::DeferredComponentPrefix { .. }
-        )
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn deferred_raw_bounds_materialized_for_tests(&self) -> bool {
-        match &self.raw_bounds {
-            LoweredIndexPrefixRawBounds::Materialized { .. } => true,
-            LoweredIndexPrefixRawBounds::DeferredComponentPrefix { raw_bounds, .. } => {
-                raw_bounds.get().is_some()
-            }
         }
     }
 }
@@ -923,149 +855,4 @@ fn encode_index_component(
     };
 
     Ok(EncodedValue::from_canonical_bytes(bytes))
-}
-
-#[cfg(test)]
-mod accepted_enum_tests {
-    use super::*;
-    use crate::{
-        db::{
-            access::{AccessPlan, SemanticIndexAccessContract},
-            schema::{
-                AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
-                AcceptedValueCatalogHandle, FieldId, PersistedFieldSnapshot,
-                PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-                PersistedSchemaSnapshot, SchemaFieldSlot, SchemaIndexId, SchemaInsertDefault,
-                SchemaRowLayout, SchemaVersion,
-                build_initial_accepted_enum_catalog_from_kinds_for_tests,
-            },
-        },
-        error::ErrorOrigin,
-        model::{
-            entity::EntityModel,
-            field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
-            index::IndexModel,
-        },
-        testing::entity_model_from_static,
-        value::{ValueEnum, ValueTag},
-    };
-
-    static STATUS_VARIANTS: [EnumVariantModel; 1] = [EnumVariantModel::new(
-        "Ready",
-        None,
-        FieldStorageDecode::ByKind,
-    )];
-    static STATUS_KIND: FieldKind = FieldKind::Enum {
-        path: "access::Status",
-        variants: &STATUS_VARIANTS,
-    };
-    static FIELDS: [FieldModel; 2] = [
-        FieldModel::generated("id", FieldKind::Ulid),
-        FieldModel::generated("status", STATUS_KIND),
-    ];
-    static INDEX_FIELDS: [&str; 1] = ["status"];
-    static STATUS_INDEX: IndexModel = IndexModel::generated_with_ordinal(
-        1,
-        "idx_item__status",
-        "access::Item::status",
-        &INDEX_FIELDS,
-        false,
-    );
-    static INDEXES: [&IndexModel; 1] = [&STATUS_INDEX];
-    static MODEL: EntityModel =
-        entity_model_from_static("access::Item", "Item", &FIELDS[0], 0, &FIELDS, &INDEXES);
-
-    #[test]
-    fn lowering_failures_map_to_index_owned_runtime_errors() {
-        for error in [
-            LoweredAccessError::IndexPrefix,
-            LoweredAccessError::IndexRange,
-        ] {
-            assert_eq!(error.into_internal_error().origin(), ErrorOrigin::Index);
-        }
-    }
-
-    #[test]
-    fn accepted_enum_prefix_lowering_matches_stored_unit_key_bytes() {
-        let persisted_kind = AcceptedFieldKind::from_model_kind(STATUS_KIND);
-        let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new_with_indexes(
-            SchemaVersion::initial(),
-            "access::Item".to_string(),
-            "Item".to_string(),
-            FieldId::new(1),
-            SchemaRowLayout::initial(vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ]),
-            vec![
-                PersistedFieldSnapshot::new_initial(
-                    FieldId::new(1),
-                    "id".to_string(),
-                    SchemaFieldSlot::new(0),
-                    AcceptedFieldKind::Ulid,
-                    Vec::new(),
-                    false,
-                    SchemaInsertDefault::None,
-                    FieldStorageDecode::ByKind,
-                    LeafCodec::Structural,
-                ),
-                PersistedFieldSnapshot::new_initial(
-                    FieldId::new(2),
-                    "status".to_string(),
-                    SchemaFieldSlot::new(1),
-                    persisted_kind.clone(),
-                    Vec::new(),
-                    false,
-                    SchemaInsertDefault::None,
-                    FieldStorageDecode::ByKind,
-                    LeafCodec::Structural,
-                ),
-            ],
-            vec![PersistedIndexSnapshot::new(
-                SchemaIndexId::new(1).expect("test index identity should be non-zero"),
-                1,
-                "idx_item__status".to_string(),
-                "access::Item::status".to_string(),
-                false,
-                PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                    FieldId::new(2),
-                    SchemaFieldSlot::new(1),
-                    vec!["status".to_string()],
-                    persisted_kind,
-                    false,
-                )]),
-                None,
-            )],
-        ));
-        let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[STATUS_KIND])
-            .expect("status catalog should build");
-        let schema_info = SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
-            &MODEL,
-            &snapshot,
-            AcceptedValueCatalogHandle::new_for_tests(
-                catalog,
-                crate::db::schema::AcceptedCompositeCatalog::empty(),
-                AcceptedSchemaRevision::INITIAL,
-            ),
-            false,
-        );
-        let index = SemanticIndexAccessContract::from_accepted_field_path_index(
-            &schema_info.field_path_indexes()[0],
-        );
-        let plan = AccessPlan::<()>::index_prefix_from_contract(
-            index,
-            vec![Value::Enum(ValueEnum::test_unit(1, 1))],
-        );
-
-        assert!(matches!(
-            lower_access(EntityTag::new(7), &plan),
-            Err(LoweredAccessError::IndexPrefix),
-        ));
-        let lowered = lower_access_with_schema_info(EntityTag::new(7), &plan, &schema_info)
-            .expect("accepted enum equality prefix should lower");
-        assert_eq!(
-            lowered.index_prefix_specs()[0].prefix_components(),
-            &[vec![ValueTag::Enum.to_u8(), 1, 0, 0, 0, 1, 0, 0, 0, 1, 0,]],
-        );
-    }
 }

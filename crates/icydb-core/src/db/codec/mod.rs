@@ -46,13 +46,6 @@ impl<'a> DecodedRowPayload<'a> {
     pub(in crate::db) fn into_payload(self) -> Cow<'a, [u8]> {
         self.payload
     }
-
-    /// Borrow the canonical slot container.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn payload(&self) -> &[u8] {
-        self.payload.as_ref()
-    }
 }
 
 /// Wrap an already-serialized entity payload in the canonical persisted row envelope.

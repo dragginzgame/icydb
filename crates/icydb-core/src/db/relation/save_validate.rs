@@ -1,8 +1,7 @@
 //! Module: relation::save_validate
-//! Responsibility: validate save-time relation targets against target
-//! store existence before commit planning proceeds.
-//! Does not own: reverse-index mutation planning or delete-time relation blocking.
-//! Boundary: executor save preflight delegates relation target validation to this module.
+//! Responsibility: accepted structural relation-target validation.
+//! Does not own: generated entity validation or reverse-index planning.
+//! Boundary: validates one resolved structural after-image before commit.
 
 use crate::{
     db::{
@@ -20,16 +19,10 @@ use crate::{
             OwnedAcceptedRelationEdgeContract,
         },
     },
-    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::Path,
     value::Value,
 };
 
-// Save-time relation metadata projected from the accepted row contract.
-// This is intentionally narrower than generated relation metadata: save
-// validation only needs the source slot, source field name, and sealed target
-// identity before it checks target-store membership.
 struct AcceptedSaveRelationInfo {
     relation_name: String,
     local_components: Vec<AcceptedSaveRelationLocalComponent>,
@@ -70,28 +63,6 @@ impl AcceptedSaveRelationLocalComponent {
     fn from_field(index: usize, field: &OwnedAcceptedFieldDecodeContract) -> Self {
         Self::new(index, field.kind().clone())
     }
-}
-
-/// Validate relation references through accepted schema metadata.
-pub(in crate::db) fn validate_save_relations_with_accepted_contract<E>(
-    db: &Db<E::Canister>,
-    entity: &E,
-    accepted_row_decode_contract: &AcceptedRowDecodeContract,
-) -> Result<(), InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    validate_save_relations_from_relation_edges(
-        db,
-        E::PATH,
-        E::Store::PATH,
-        accepted_row_decode_contract,
-        |index| {
-            entity
-                .get_value_by_index(index)
-                .ok_or_else(InternalError::executor_invariant)
-        },
-    )
 }
 
 /// Validate relation references from one accepted structural after-image.
@@ -149,7 +120,6 @@ where
 {
     let target_store = target_store_for_relation(db, entity_path, relation)?;
     validate_relation_storage_capabilities(db, entity_path, store_path, relation, target_store)?;
-
     validate_save_relation_targets(entity_path, relation, target_store, value_at)
 }
 

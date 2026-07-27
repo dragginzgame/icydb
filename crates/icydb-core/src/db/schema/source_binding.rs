@@ -570,27 +570,11 @@ impl AcceptedSourceBindingCatalog {
     }
 
     #[cfg(test)]
-    pub(in crate::db) fn field_source_key_for_tests(
-        &self,
-        entity: EntityTag,
-        field_id: FieldId,
-    ) -> Option<&str> {
-        self.fields.iter().find_map(|((bound_entity, source), id)| {
-            (*bound_entity == entity && *id == field_id).then(|| source.as_str())
-        })
-    }
-
-    #[cfg(test)]
     pub(in crate::db) fn field_binding_count_for_tests(&self, entity: EntityTag) -> usize {
         self.fields
             .keys()
             .filter(|(bound_entity, _)| *bound_entity == entity)
             .count()
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn entity_binding_count_for_tests(&self) -> usize {
-        self.entities.len()
     }
 
     #[cfg(test)]
@@ -617,14 +601,6 @@ impl AcceptedSourceBindingCatalog {
     #[cfg(test)]
     pub(in crate::db) fn constraint_binding_count_for_tests(&self, entity: EntityTag) -> usize {
         self.constraints
-            .keys()
-            .filter(|(bound_entity, _)| *bound_entity == entity)
-            .count()
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn relation_binding_count_for_tests(&self, entity: EntityTag) -> usize {
-        self.relations
             .keys()
             .filter(|(bound_entity, _)| *bound_entity == entity)
             .count()

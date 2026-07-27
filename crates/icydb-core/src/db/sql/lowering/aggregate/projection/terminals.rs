@@ -28,15 +28,11 @@ pub(in crate::db::sql::lowering::aggregate) struct LoweredSqlGlobalAggregateTerm
     terminal_interner: GlobalAggregateTerminalInterner,
     pub(in crate::db::sql::lowering::aggregate) projection: ProjectionSpec,
     output_order_targets: Vec<SqlExpr>,
-    #[cfg(test)]
-    pub(in crate::db::sql::lowering::aggregate) output_remap: Vec<usize>,
 }
 
 pub(in crate::db::sql::lowering::aggregate) struct LoweredSqlGlobalAggregateTerminalParts {
     pub(in crate::db::sql::lowering::aggregate) terminals: Vec<LoweredSqlGlobalAggregateTerminal>,
     pub(in crate::db::sql::lowering::aggregate) projection: ProjectionSpec,
-    #[cfg(test)]
-    pub(in crate::db::sql::lowering::aggregate) output_remap: Vec<usize>,
 }
 
 impl LoweredSqlGlobalAggregateTerminals {
@@ -55,15 +51,10 @@ impl LoweredSqlGlobalAggregateTerminals {
 
         let mut terminal_interner = GlobalAggregateTerminalInterner::with_capacity(items.len());
         let mut output_order_targets = Vec::<SqlExpr>::with_capacity(items.len());
-        #[cfg(test)]
-        let mut output_remap = Vec::<usize>::with_capacity(items.len());
         let mut fields = Vec::<ProjectionField>::with_capacity(items.len());
-        #[cfg(test)]
-        let mut saw_wrapped_projection = false;
 
         for (index, item) in items.into_iter().enumerate() {
-            let analyzed =
-                lower_analyzed_select_item_expr(&item, SqlExprPhase::PostAggregate, None)?;
+            let analyzed = lower_analyzed_select_item_expr(&item, SqlExprPhase::PostAggregate)?;
             let analysis = analyzed.analysis();
             if !analysis.contains_aggregate() || analysis.references_direct_fields() {
                 return Err(SqlLoweringError::unsupported_global_aggregate_projection());
@@ -73,19 +64,10 @@ impl LoweredSqlGlobalAggregateTerminals {
                 output_order_targets.push(SqlExpr::Field(Alias::new(alias).as_str().to_string()));
             }
 
-            let direct_terminal_index = terminal_interner.collect_from_analysis(
+            terminal_interner.collect_from_analysis(
                 analysis.aggregate_refs(),
                 matches!(analyzed.expr(), Expr::Aggregate(_)),
             )?;
-            #[cfg(test)]
-            match direct_terminal_index {
-                Some(unique_index) => output_remap.push(unique_index),
-                None => {
-                    saw_wrapped_projection = true;
-                }
-            }
-            #[cfg(not(test))]
-            let _ = direct_terminal_index;
 
             fields.push(ProjectionField::Scalar {
                 expr: analyzed.into_expr(),
@@ -100,12 +82,6 @@ impl LoweredSqlGlobalAggregateTerminals {
             terminal_interner,
             projection: lower_global_aggregate_projection(fields),
             output_order_targets,
-            #[cfg(test)]
-            output_remap: if saw_wrapped_projection {
-                Vec::new()
-            } else {
-                output_remap
-            },
         })
     }
 
@@ -126,8 +102,6 @@ impl LoweredSqlGlobalAggregateTerminals {
         LoweredSqlGlobalAggregateTerminalParts {
             terminals: self.terminal_interner.into_terminals(),
             projection: self.projection,
-            #[cfg(test)]
-            output_remap: self.output_remap,
         }
     }
 }

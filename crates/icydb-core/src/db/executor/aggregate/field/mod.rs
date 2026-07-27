@@ -4,20 +4,16 @@
 //! Boundary: field-target aggregate helper surface used by aggregate executors.
 
 use super::contracts::{AggregateKind, FieldSlot as PlannedFieldSlot};
-#[cfg(test)]
-use crate::model::field::{FieldKind, FieldModel};
 use crate::{
     db::{
-        direction::Direction,
         executor::aggregate::capability::{
             accepted_field_kind_supports_aggregate_ordering,
             accepted_field_kind_supports_numeric_aggregation,
         },
-        numeric::{coerce_numeric_decimal, compare_numeric_or_strict_order},
+        numeric::compare_numeric_or_strict_order,
         schema::AcceptedFieldKind,
     },
     error::InternalError,
-    types::Decimal,
     value::Value,
 };
 use std::cmp::Ordering;
@@ -332,18 +328,6 @@ impl AggregateFieldValueError {
     }
 }
 
-// Resolve one field model entry by name and return its stable slot index.
-#[cfg(test)]
-fn field_model_with_index<'a>(
-    fields: &'a [FieldModel],
-    field: &str,
-) -> Option<(usize, &'a FieldModel)> {
-    fields
-        .iter()
-        .enumerate()
-        .find(|(_, candidate)| candidate.name() == field)
-}
-
 ///
 /// FieldSlot
 ///
@@ -353,21 +337,6 @@ fn field_model_with_index<'a>(
 pub(in crate::db::executor) struct FieldSlot {
     pub(in crate::db::executor) index: usize,
     contract: AggregateFieldValueContract,
-}
-
-#[cfg(test)]
-impl FieldSlot {
-    pub(in crate::db::executor) fn from_test_model_kind(index: usize, kind: FieldKind) -> Self {
-        let accepted = AcceptedFieldKind::from_model_kind(kind);
-        Self {
-            index,
-            contract: AggregateFieldValueContract::from_accepted_field_kind(&accepted),
-        }
-    }
-
-    const fn diagnostic_kind(self) -> AggregateFieldKindCode {
-        self.contract.diagnostic_kind
-    }
 }
 
 // Build the canonical unknown-field error for aggregate field-slot resolution.
@@ -413,35 +382,6 @@ fn resolve_aggregate_target_slot(
 
 // Coerce one already-validated aggregate field payload into Decimal while
 // preserving the canonical type-mismatch error shape for numeric terminals.
-fn coerce_numeric_field_decimal_owned(
-    field_slot: FieldSlot,
-    value: Value,
-) -> Result<Decimal, AggregateFieldValueError> {
-    let Some(decimal) = coerce_numeric_decimal(&value) else {
-        return Err(AggregateFieldValueError::field_value_type_mismatch(
-            field_slot, &value,
-        ));
-    };
-
-    Ok(decimal)
-}
-
-/// Resolve one orderable aggregate target field into a stable projection slot using structural model data.
-#[cfg(test)]
-pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_from_fields(
-    fields: &[FieldModel],
-    target_field: &str,
-) -> Result<FieldSlot, AggregateFieldValueError> {
-    let Some((index, field)) = field_model_with_index(fields, target_field) else {
-        return Err(unknown_aggregate_target_field());
-    };
-
-    resolve_aggregate_target_slot(
-        index,
-        &AcceptedFieldKind::from_model_kind(field.kind()),
-        Some(accepted_field_kind_supports_aggregate_ordering),
-    )
-}
 
 /// Resolve one planner field slot into one orderable aggregate projection slot using planner-frozen field metadata.
 pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_from_planner_slot(
@@ -456,23 +396,6 @@ pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_from_plan
     )
 }
 
-/// Resolve one aggregate target field into a stable projection slot using structural model data.
-#[cfg(test)]
-pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_from_fields(
-    fields: &[FieldModel],
-    target_field: &str,
-) -> Result<FieldSlot, AggregateFieldValueError> {
-    let Some((index, field)) = field_model_with_index(fields, target_field) else {
-        return Err(unknown_aggregate_target_field());
-    };
-
-    resolve_aggregate_target_slot(
-        index,
-        &AcceptedFieldKind::from_model_kind(field.kind()),
-        None,
-    )
-}
-
 /// Resolve one planner field slot into one aggregate projection slot using planner-frozen field metadata.
 pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_from_planner_slot(
     field_slot: &PlannedFieldSlot,
@@ -480,23 +403,6 @@ pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_from_planner_sl
     let accepted_kind = accepted_kind_from_planner_slot(field_slot)?;
 
     resolve_aggregate_target_slot(field_slot.index(), accepted_kind, None)
-}
-
-/// Resolve one numeric aggregate target field into a stable projection slot using structural model data.
-#[cfg(test)]
-pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_from_fields(
-    fields: &[FieldModel],
-    target_field: &str,
-) -> Result<FieldSlot, AggregateFieldValueError> {
-    let Some((index, field)) = field_model_with_index(fields, target_field) else {
-        return Err(unknown_aggregate_target_field());
-    };
-
-    resolve_aggregate_target_slot(
-        index,
-        &AcceptedFieldKind::from_model_kind(field.kind()),
-        Some(accepted_field_kind_supports_numeric_aggregation),
-    )
 }
 
 /// Resolve one planner field slot into one numeric aggregate projection slot using planner-frozen field metadata.
@@ -551,71 +457,13 @@ pub(in crate::db::executor) fn extract_orderable_field_value_with_slot_reader(
     Ok(value)
 }
 
-/// Extract one borrowed field value from a slot reader and enforce the
-/// declared runtime field kind without cloning the underlying slot payload.
-pub(in crate::db::executor) fn extract_orderable_field_value_with_slot_ref_reader<'a>(
-    field_slot: FieldSlot,
-    read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
-) -> Result<&'a Value, AggregateFieldValueError> {
-    let Some(value) = read_slot(field_slot.index) else {
-        return Err(AggregateFieldValueError::MissingFieldValue {
-            slot_index: field_slot.index,
-        });
-    };
-    if !field_slot.contract.accepts_value(value) {
-        return Err(AggregateFieldValueError::field_value_type_mismatch(
-            field_slot, value,
-        ));
-    }
-
-    Ok(value)
-}
-
 // Extract one field value from one already-decoded retained slot and enforce
 // the declared runtime field kind without rebuilding a slot-reader closure at
 // each retained-slot callsite.
-pub(in crate::db::executor) fn extract_orderable_field_value_from_decoded_slot(
-    field_slot: FieldSlot,
-    decoded_value: Option<Value>,
-) -> Result<Value, AggregateFieldValueError> {
-    let mut decoded_value = decoded_value;
-
-    extract_orderable_field_value_with_slot_reader(field_slot, &mut |_| decoded_value.take())
-}
-
-/// Extract one numeric field value as `Decimal` from a slot reader for aggregate arithmetic.
-#[cfg(test)]
-pub(in crate::db::executor) fn extract_numeric_field_decimal_with_slot_reader(
-    field_slot: FieldSlot,
-    read_slot: &mut dyn FnMut(usize) -> Option<Value>,
-) -> Result<Decimal, AggregateFieldValueError> {
-    let value = extract_orderable_field_value_with_slot_reader(field_slot, read_slot)?;
-
-    coerce_numeric_field_decimal_owned(field_slot, value)
-}
-
-/// Extract one numeric field value as `Decimal` from a borrowed slot reader
-/// so aggregate streaming paths avoid cloning validated slot payloads.
-pub(in crate::db::executor) fn extract_numeric_field_decimal_with_slot_ref_reader<'a>(
-    field_slot: FieldSlot,
-    read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
-) -> Result<Decimal, AggregateFieldValueError> {
-    let value = extract_orderable_field_value_with_slot_ref_reader(field_slot, read_slot)?;
-
-    coerce_numeric_field_decimal_owned(field_slot, value.clone())
-}
 
 // Extract one numeric field value as `Decimal` from one already-decoded
 // retained slot without rebuilding a one-shot slot-reader closure at each
 // retained-slot numeric callsite.
-pub(in crate::db::executor) fn extract_numeric_field_decimal_from_decoded_slot(
-    field_slot: FieldSlot,
-    decoded_value: Option<Value>,
-) -> Result<Decimal, AggregateFieldValueError> {
-    let value = extract_orderable_field_value_from_decoded_slot(field_slot, decoded_value)?;
-
-    coerce_numeric_field_decimal_owned(field_slot, value)
-}
 
 /// Compare two extracted field values using shared numeric ordering semantics
 /// first, then strict same-variant ordering fallback.
@@ -650,22 +498,3 @@ pub(in crate::db::executor) fn compare_orderable_field_values_with_slot(
 
     compare_orderable_field_values(left, right)
 }
-
-/// Apply aggregate direction to one base ordering result.
-#[must_use]
-pub(in crate::db::executor) const fn apply_aggregate_direction(
-    ordering: Ordering,
-    direction: Direction,
-) -> Ordering {
-    match direction {
-        Direction::Asc => ordering,
-        Direction::Desc => ordering.reverse(),
-    }
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

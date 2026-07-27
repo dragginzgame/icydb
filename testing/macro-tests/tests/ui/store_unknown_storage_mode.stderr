@@ -1,5 +1,0 @@
-error: unknown store storage mode; expected storage(heap()) or storage(journaled(...))
-  --> tests/ui/store_unknown_storage_mode.rs:10:13
-   |
-10 |     storage(memory())
-   |             ^^^^^^

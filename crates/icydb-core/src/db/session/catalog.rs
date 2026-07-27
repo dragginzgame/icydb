@@ -10,22 +10,17 @@
 use crate::db::{IndexState, QueryError, query::plan::VisibleIndexes};
 use crate::{
     db::{
-        DbSession, EntityCatalogCounts, EntityCatalogDescription, EntityConstraintDescription,
-        EntityFieldDescription, EntitySchemaDescription, SchemaApplicationTarget,
-        SchemaChangeJobId, SchemaChangeProgress, SchemaChangeReceipt, StorageReport,
-        StoreCatalogDescription,
+        DbSession, EntityCatalogCounts, EntityCatalogDescription, EntitySchemaDescription,
+        SchemaApplicationTarget, SchemaChangeJobId, SchemaChangeProgress, SchemaChangeReceipt,
+        StorageReport, StoreCatalogDescription,
         schema::{
             AcceptedFieldKind, ConstraintValidationJob, PersistedFieldSnapshot, SchemaInfo,
-            describe_entity_fields, describe_entity_fields_with_persisted_schema,
-            describe_entity_model, describe_entity_model_with_persisted_schema,
-            show_indexes_for_model, show_indexes_for_model_with_runtime_state,
+            describe_accepted_entity_with_persisted_schema,
             show_indexes_for_schema_info_with_runtime_state,
         },
     },
-    entity::EntityKind,
     error::InternalError,
-    model::entity::EntityModel,
-    traits::{CanisterKind, Path},
+    traits::CanisterKind,
 };
 use icydb_schema::{SchemaProposal, SchemaSubmissionKey, TargetDatabaseIdentity};
 
@@ -82,67 +77,6 @@ impl<C: CanisterKind> DbSession<C> {
         crate::db::schema::continue_schema_application(&self.db, job_id, acknowledged_receipt)
     }
 
-    /// Return one stable, human-readable index listing for the entity schema.
-    ///
-    /// Output format mirrors SQL-style introspection:
-    /// - `PRIMARY KEY (field) [state=ready] [origin=generated]`
-    /// - `INDEX name (field_a, field_b) [state=ready] [origin=generated]`
-    /// - `UNIQUE INDEX name (field_a, field_b) [state=ready] [origin=generated]`
-    #[must_use]
-    pub fn show_indexes<E>(&self) -> Vec<String>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        self.show_indexes_for_store_model(E::Store::PATH, E::MODEL)
-    }
-
-    /// Return one stable, human-readable index listing for one schema model.
-    ///
-    /// This model-only helper is schema-owned and intentionally does not
-    /// attach runtime lifecycle state because it does not carry store
-    /// placement context.
-    #[must_use]
-    pub fn show_indexes_for_model(&self, model: &'static EntityModel) -> Vec<String> {
-        show_indexes_for_model(model)
-    }
-
-    /// Return one stable, human-readable index listing for the accepted schema.
-    ///
-    /// Unlike `show_indexes`, this fallible live-schema helper reflects
-    /// accepted DDL-created indexes as well as compiled schema indexes.
-    pub fn try_show_indexes<E>(&self) -> Result<Vec<String>, InternalError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let schema = self.accepted_schema_info_for_entity::<E>()?;
-
-        Ok(self.show_indexes_for_store_schema_info(E::Store::PATH, &schema))
-    }
-
-    /// Return accepted structural constraints ordered by stable identity.
-    pub fn try_show_constraints<E>(&self) -> Result<Vec<EntityConstraintDescription>, InternalError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        Ok(self.try_describe_entity::<E>()?.constraints().to_vec())
-    }
-
-    // Return one stable, human-readable index listing for one resolved
-    // store/model pair, attaching the current runtime lifecycle state when the
-    // registry can resolve the backing store handle.
-    pub(in crate::db) fn show_indexes_for_store_model(
-        &self,
-        store_path: &str,
-        model: &'static EntityModel,
-    ) -> Vec<String> {
-        let runtime_state = self
-            .db
-            .with_store_registry(|registry| registry.try_get_store(store_path).ok())
-            .map(|store| store.index_state());
-
-        show_indexes_for_model_with_runtime_state(model, runtime_state)
-    }
-
     // Return one stable, human-readable index listing for one resolved
     // store/accepted-schema pair, attaching the current runtime lifecycle state
     // when the registry can resolve the backing store handle.
@@ -157,45 +91,6 @@ impl<C: CanisterKind> DbSession<C> {
             .map(|store| store.index_state());
 
         show_indexes_for_schema_info_with_runtime_state(schema, runtime_state)
-    }
-
-    /// Return one stable generated-model list of field descriptors.
-    ///
-    /// This infallible Rust metadata helper intentionally reports the compiled
-    /// schema model. Use `try_show_columns` for the accepted persisted-schema
-    /// view used by SQL and diagnostics surfaces.
-    #[must_use]
-    pub fn show_columns<E>(&self) -> Vec<EntityFieldDescription>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        self.show_columns_for_model(E::MODEL)
-    }
-
-    /// Return one stable generated-model list of field descriptors.
-    #[must_use]
-    pub fn show_columns_for_model(
-        &self,
-        model: &'static EntityModel,
-    ) -> Vec<EntityFieldDescription> {
-        describe_entity_fields(model)
-    }
-
-    /// Return field descriptors using the accepted persisted schema snapshot.
-    ///
-    /// This fallible variant is intended for SQL and diagnostics surfaces that
-    /// can report schema reconciliation failures. The infallible
-    /// `show_columns` helper remains generated-model based.
-    pub fn try_show_columns<E>(&self) -> Result<Vec<EntityFieldDescription>, InternalError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let catalog = self.accepted_schema_catalog_context_for_query::<E>()?;
-
-        describe_entity_fields_with_persisted_schema(
-            catalog.snapshot(),
-            catalog.value_catalog_handle(),
-        )
     }
 
     /// Return one stable list of runtime-registered entity catalog entries.
@@ -214,7 +109,7 @@ impl<C: CanisterKind> DbSession<C> {
         let mut entities = Vec::with_capacity(self.db.entity_registrations.len());
 
         for entity_registration in self.db.entity_registrations {
-            let registration = entity_registration.runtime();
+            let registration = entity_registration.runtime().resolve(&self.db)?;
             let store = self.db.recovered_store(registration.store_path)?;
             let storage = store
                 .storage_capabilities()
@@ -261,7 +156,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         store_path: &str,
         schema_info: &SchemaInfo,
-    ) -> Result<VisibleIndexes<'static>, QueryError> {
+    ) -> Result<VisibleIndexes, QueryError> {
         // Phase 1: resolve the recovered store state once at the session
         // boundary so query/executor planning does not reopen lifecycle checks.
         let store = self
@@ -287,54 +182,20 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(visible_indexes)
     }
 
-    /// Return one generated-model schema description for the entity.
-    ///
-    /// This is a typed `DESCRIBE`-style introspection surface consumed by
-    /// developer tooling and pre-EXPLAIN debugging when a non-failing compiled
-    /// schema view is required.
-    #[must_use]
-    pub fn describe_entity<E>(&self) -> EntitySchemaDescription
-    where
-        E: EntityKind<Canister = C>,
-    {
-        self.describe_entity_model(E::MODEL)
-    }
+    /// Return one schema description from current accepted authority selected
+    /// by authored entity path or accepted entity name.
+    pub fn try_describe_entity_by_name(
+        &self,
+        entity: &str,
+    ) -> Result<EntitySchemaDescription, InternalError> {
+        let catalog = self.accepted_schema_catalog_context_for_entity_name(Some(entity))?;
+        let validation_jobs = self.constraint_validation_jobs_for_accepted_catalog(&catalog)?;
 
-    /// Return one generated-model schema description for one schema model.
-    #[must_use]
-    pub fn describe_entity_model(&self, model: &'static EntityModel) -> EntitySchemaDescription {
-        describe_entity_model(model)
-    }
-
-    /// Return a schema description using the accepted persisted schema snapshot.
-    ///
-    /// This is the live-schema counterpart to `describe_entity`. It is fallible
-    /// because loading accepted schema authority can fail if startup
-    /// reconciliation rejects the stored metadata.
-    pub fn try_describe_entity<E>(&self) -> Result<EntitySchemaDescription, InternalError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let catalog = self.accepted_schema_catalog_context_for_query::<E>()?;
-        let validation_jobs = self.constraint_validation_jobs_for_catalog::<E>(&catalog)?;
-
-        describe_entity_model_with_persisted_schema(
-            E::MODEL,
+        describe_accepted_entity_with_persisted_schema(
             catalog.snapshot(),
             catalog.value_catalog_handle(),
             validation_jobs.as_slice(),
         )
-    }
-
-    pub(in crate::db::session) fn constraint_validation_jobs_for_catalog<E>(
-        &self,
-        catalog: &crate::db::session::AcceptedSchemaCatalogContext,
-    ) -> Result<Vec<ConstraintValidationJob>, InternalError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        catalog.debug_assert_matches_entity::<E>();
-        self.constraint_validation_jobs_for_accepted_catalog(catalog)
     }
 
     pub(in crate::db::session) fn constraint_validation_jobs_for_accepted_catalog(

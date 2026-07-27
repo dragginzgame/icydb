@@ -5,10 +5,7 @@
 
 use crate::{
     db::{
-        cursor::{
-            ContinuationKeyRef, ContinuationRuntime, IndexScanContinuationInput, LoopAction,
-            WindowCursorContract,
-        },
+        cursor::{ContinuationKeyRef, ContinuationRuntime, IndexScanContinuationInput},
         data::{DataStore, DecodedDataStoreKey, RawDataStoreKey},
         direction::Direction,
         executor::{
@@ -302,8 +299,7 @@ impl IndexScan {
             return Ok(Vec::new());
         }
 
-        let continuation =
-            ContinuationRuntime::new(continuation, WindowCursorContract::unbounded());
+        let continuation = ContinuationRuntime::new(continuation);
         let bounds = continuation.scan_bounds((lower, upper))?;
         let mut out = Vec::with_capacity(limit.min(Self::LIMITED_SCAN_PREALLOC_CAP));
 
@@ -312,11 +308,7 @@ impl IndexScan {
                 (&bounds.0, &bounds.1),
                 continuation.direction(),
                 |raw_key, value| {
-                    match Self::accept_scan_key(&continuation, raw_key)? {
-                        LoopAction::Skip => return Ok(false),
-                        LoopAction::Emit => {}
-                        LoopAction::Stop => return Ok(true),
-                    }
+                    Self::accept_scan_key(&continuation, raw_key)?;
 
                     Self::decode_index_entry_and_push_with_components(
                         entity_tag,
@@ -424,8 +416,7 @@ impl IndexScan {
             return Ok(Vec::new());
         }
 
-        let continuation =
-            ContinuationRuntime::new(continuation, WindowCursorContract::unbounded());
+        let continuation = ContinuationRuntime::new(continuation);
         let bounds = continuation.scan_bounds((lower, upper))?;
         let mut keys = Vec::with_capacity(limit.min(Self::LIMITED_SCAN_PREALLOC_CAP));
 
@@ -434,11 +425,7 @@ impl IndexScan {
                 (&bounds.0, &bounds.1),
                 continuation.direction(),
                 |raw_key, value| {
-                    match Self::accept_scan_key(&continuation, raw_key)? {
-                        LoopAction::Skip => return Ok(false),
-                        LoopAction::Emit => {}
-                        LoopAction::Stop => return Ok(true),
-                    }
+                    Self::accept_scan_key(&continuation, raw_key)?;
 
                     Self::decode_index_entry_and_push(
                         entity_tag,
@@ -470,8 +457,7 @@ impl IndexScan {
             return Ok(IndexDecodedKeyScanChunk::new(Vec::new(), None));
         }
 
-        let continuation =
-            ContinuationRuntime::new(continuation, WindowCursorContract::unbounded());
+        let continuation = ContinuationRuntime::new(continuation);
         let bounds = continuation.scan_bounds((lower, upper))?;
         let mut keys = Vec::with_capacity(max_entries.min(Self::LIMITED_SCAN_PREALLOC_CAP));
         let mut last_raw_key = None;
@@ -482,11 +468,7 @@ impl IndexScan {
                 (&bounds.0, &bounds.1),
                 continuation.direction(),
                 |raw_key, value| {
-                    match Self::accept_scan_key(&continuation, raw_key)? {
-                        LoopAction::Skip => return Ok(false),
-                        LoopAction::Emit => {}
-                        LoopAction::Stop => return Ok(true),
-                    }
+                    Self::accept_scan_key(&continuation, raw_key)?;
                     last_raw_key = Some(raw_key.clone());
                     scanned_entries = scanned_entries.saturating_add(1);
 
@@ -530,8 +512,7 @@ impl IndexScan {
             return Ok(IndexComponentScanChunk::new(Vec::new(), None));
         }
 
-        let continuation =
-            ContinuationRuntime::new(continuation, WindowCursorContract::unbounded());
+        let continuation = ContinuationRuntime::new(continuation);
         let bounds = continuation.scan_bounds((lower, upper))?;
         let mut rows = Vec::with_capacity(max_entries.min(Self::LIMITED_SCAN_PREALLOC_CAP));
         let mut last_raw_key = None;
@@ -542,11 +523,7 @@ impl IndexScan {
                 (&bounds.0, &bounds.1),
                 continuation.direction(),
                 |raw_key, value| {
-                    match Self::accept_scan_key(&continuation, raw_key)? {
-                        LoopAction::Skip => return Ok(false),
-                        LoopAction::Emit => {}
-                        LoopAction::Stop => return Ok(true),
-                    }
+                    Self::accept_scan_key(&continuation, raw_key)?;
                     last_raw_key = Some(raw_key.clone());
                     scanned_entries = scanned_entries.saturating_add(1);
 
@@ -576,7 +553,7 @@ impl IndexScan {
     fn accept_scan_key(
         continuation: &ContinuationRuntime<'_>,
         raw_key: &RawIndexStoreKey,
-    ) -> Result<LoopAction, InternalError> {
+    ) -> Result<(), InternalError> {
         continuation.accept_key(ContinuationKeyRef::scan(raw_key))
     }
 

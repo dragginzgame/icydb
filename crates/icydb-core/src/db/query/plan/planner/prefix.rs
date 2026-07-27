@@ -21,7 +21,6 @@ use crate::{
         },
         schema::SchemaInfo,
     },
-    model::index::IndexKeyItemsRef,
     value::{Value, canonicalize_value_set},
 };
 
@@ -501,15 +500,6 @@ fn build_index_eq_prefix(
         ),
         SemanticIndexKeyItemsRef::Accepted(items) => {
             build_index_eq_prefix_for_items(items.iter().map(|item| item.as_ref()), field_values)
-        }
-        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
-            build_index_eq_prefix_for_items(
-                fields.iter().copied().map(SemanticIndexKeyItemRef::Field),
-                field_values,
-            )
-        }
-        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => {
-            build_index_eq_prefix_for_items(items.iter().copied().map(Into::into), field_values)
         }
     }
 }

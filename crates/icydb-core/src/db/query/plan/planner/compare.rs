@@ -319,8 +319,7 @@ fn plan_ordered_compare(
                     continue;
                 }
             }
-            SemanticIndexKeyItemRef::Expression(_)
-            | SemanticIndexKeyItemRef::AcceptedExpression(_) => {
+            SemanticIndexKeyItemRef::AcceptedExpression(_) => {
                 if cmp.coercion.id != CoercionId::TextCasefold {
                     continue;
                 }

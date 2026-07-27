@@ -9,21 +9,8 @@ use crate::db::{
     predicate::CompareOp,
     query::plan::{
         GroupPlan,
-        expr::{
-            BinaryOp, Expr, Function, truth_condition_binary_compare_op,
-            truth_condition_compare_binary_op,
-        },
+        expr::{BinaryOp, Expr, truth_condition_binary_compare_op},
     },
-};
-#[cfg(not(test))]
-use crate::value::Value;
-#[cfg(test)]
-use crate::{
-    db::{
-        CoercionId,
-        predicate::{CoercionSpec, compare_eq, compare_order},
-    },
-    value::Value,
 };
 
 ///
@@ -60,96 +47,6 @@ pub(in crate::db) const fn grouped_having_compare_op_supported(op: CompareOp) ->
 #[must_use]
 pub(in crate::db) const fn grouped_having_binary_compare_op(op: BinaryOp) -> Option<CompareOp> {
     truth_condition_binary_compare_op(op)
-}
-
-/// Lower one grouped HAVING compare onto the shared grouped truth-condition expression surface.
-#[must_use]
-pub(in crate::db) fn grouped_having_compare_expr(left: Expr, op: CompareOp, value: Value) -> Expr {
-    if matches!(value, Value::Null) {
-        let function = match op {
-            CompareOp::Eq => Some(Function::IsNull),
-            CompareOp::Ne => Some(Function::IsNotNull),
-            CompareOp::Lt
-            | CompareOp::Lte
-            | CompareOp::Gt
-            | CompareOp::Gte
-            | CompareOp::In
-            | CompareOp::NotIn
-            | CompareOp::Contains
-            | CompareOp::StartsWith
-            | CompareOp::EndsWith => None,
-        };
-
-        if let Some(function) = function {
-            return Expr::FunctionCall {
-                function,
-                args: vec![left],
-            };
-        }
-    }
-
-    let Some(op) = truth_condition_compare_binary_op(op) else {
-        debug_assert!(
-            truth_condition_compare_binary_op(op).is_some(),
-            "grouped HAVING compare expression requires a truth-condition compare operator",
-        );
-        return Expr::Literal(Value::Bool(false));
-    };
-
-    Expr::Binary {
-        op,
-        left: Box::new(left),
-        right: Box::new(Expr::Literal(value)),
-    }
-}
-
-/// Evaluate one grouped HAVING comparison under the canonical grouped planner semantics.
-#[must_use]
-#[cfg(test)]
-pub(in crate::db::query) fn evaluate_grouped_having_compare(
-    actual: &Value,
-    op: CompareOp,
-    expected: &Value,
-) -> Option<bool> {
-    let kind = grouped_having_compare_kind(op)?;
-
-    if matches!(expected, Value::Null) {
-        return Some(match kind {
-            GroupedHavingCompareKind::Eq => matches!(actual, Value::Null),
-            GroupedHavingCompareKind::Ne => !matches!(actual, Value::Null),
-            GroupedHavingCompareKind::Lt
-            | GroupedHavingCompareKind::Lte
-            | GroupedHavingCompareKind::Gt
-            | GroupedHavingCompareKind::Gte => false,
-        });
-    }
-
-    let numeric = CoercionSpec::new(CoercionId::NumericWiden);
-    let strict = CoercionSpec::default();
-    let coercion = if actual.supports_numeric_coercion() || expected.supports_numeric_coercion() {
-        &numeric
-    } else {
-        &strict
-    };
-
-    Some(match kind {
-        GroupedHavingCompareKind::Eq => compare_eq(actual, expected, coercion).unwrap_or(false),
-        GroupedHavingCompareKind::Ne => {
-            compare_eq(actual, expected, coercion).is_some_and(|equal| !equal)
-        }
-        GroupedHavingCompareKind::Lt => {
-            compare_order(actual, expected, coercion).is_some_and(std::cmp::Ordering::is_lt)
-        }
-        GroupedHavingCompareKind::Lte => {
-            compare_order(actual, expected, coercion).is_some_and(std::cmp::Ordering::is_le)
-        }
-        GroupedHavingCompareKind::Gt => {
-            compare_order(actual, expected, coercion).is_some_and(std::cmp::Ordering::is_gt)
-        }
-        GroupedHavingCompareKind::Gte => {
-            compare_order(actual, expected, coercion).is_some_and(std::cmp::Ordering::is_ge)
-        }
-    })
 }
 
 /// Return grouped cursor-policy violations for one grouped plan shape.

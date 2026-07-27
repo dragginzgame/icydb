@@ -7,7 +7,7 @@
 
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryError,
+        DbSession, QueryError,
         registry::StoreHandle,
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, ConstraintValidationProgress,
@@ -41,7 +41,7 @@ use crate::{
         },
     },
     error::{ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError},
-    traits::{CanisterKind, Path},
+    traits::CanisterKind,
 };
 
 fn constraint_validation_report(
@@ -181,33 +181,29 @@ impl<C: CanisterKind> DbSession<C> {
     /// derive an accepted-after snapshot, and pass schema mutation admission,
     /// then returns a prepared-only report without mutating schema or index
     /// storage.
-    pub fn prepare_sql_ddl<E>(&self, sql: &str) -> Result<SqlDdlPreparationReport, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let (_, prepared) = self.prepare_sql_ddl_command::<E>(sql)?;
+    pub fn prepare_sql_ddl(&self, sql: &str) -> Result<SqlDdlPreparationReport, QueryError> {
+        let (_, prepared) = self.prepare_sql_ddl_command(sql)?;
 
         Ok(prepared.report().clone())
     }
 
-    fn prepare_sql_ddl_command<E>(
+    fn prepare_sql_ddl_command(
         &self,
         sql: &str,
-    ) -> Result<(AcceptedSchemaCatalogContext, PreparedSqlDdlCommand), QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<(AcceptedSchemaCatalogContext, PreparedSqlDdlCommand), QueryError> {
         let (statement, _) =
             parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
+        let entity_name = crate::db::session::sql::sql_statement_entity_name(sql)?
+            .ok_or_else(QueryError::unsupported_query)?;
         let catalog = self
-            .accepted_schema_catalog_context_for_query::<E>()
+            .accepted_schema_catalog_context_for_entity_name(Some(entity_name.as_str()))
             .map_err(QueryError::execute)?;
-        let schema_info = catalog.accepted_schema_info_for::<E>();
+        let schema_info = catalog.accepted_schema_info();
         let prepared = match prepare_sql_ddl_statement(
             &statement,
             catalog.snapshot(),
             &schema_info,
-            E::Store::PATH,
+            catalog.identity().store_path(),
         ) {
             Ok(prepared) => prepared,
             Err(err) => return Err(QueryError::from_sql_ddl_prepare_error(err)),
@@ -221,11 +217,8 @@ impl<C: CanisterKind> DbSession<C> {
     /// Supported DDL routes through schema-owned physical work and
     /// accepted-snapshot publication. The caller must own administrative
     /// authorization before accepting caller-controlled SQL.
-    pub fn execute_admin_sql_ddl<E>(&self, sql: &str) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let (accepted_before, prepared) = self.prepare_sql_ddl_command::<E>(sql)?;
+    pub fn execute_admin_sql_ddl(&self, sql: &str) -> Result<SqlStatementResult, QueryError> {
+        let (accepted_before, prepared) = self.prepare_sql_ddl_command(sql)?;
         if !prepared.mutates_schema() {
             return Ok(SqlStatementResult::Ddl(
                 prepared
@@ -237,11 +230,11 @@ impl<C: CanisterKind> DbSession<C> {
 
         let store = self
             .db
-            .recovered_store(E::Store::PATH)
+            .recovered_store(accepted_before.identity().store_path())
             .map_err(QueryError::execute)?;
 
         if let Some(result) =
-            self.execute_prepared_constraint_ddl::<E>(store, &accepted_before, &prepared)
+            self.execute_prepared_constraint_ddl(store, &accepted_before, &prepared)
         {
             return result;
         }
@@ -250,14 +243,14 @@ impl<C: CanisterKind> DbSession<C> {
             return Err(QueryError::unsupported_query());
         };
 
-        let (rows_scanned, index_keys_written) = Self::execute_prepared_sql_ddl_mutation::<E>(
+        let (rows_scanned, index_keys_written) = Self::execute_prepared_sql_ddl_mutation(
             store,
             accepted_before.snapshot(),
             accepted_before.identity(),
             derivation,
             &prepared,
         )?;
-        self.invalidate_accepted_schema_query_cache_for_entity::<E>();
+        self.invalidate_accepted_schema_query_cache(accepted_before.identity().entity_path());
 
         Ok(SqlStatementResult::Ddl(
             prepared
@@ -268,35 +261,27 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    fn execute_prepared_constraint_ddl<E>(
+    fn execute_prepared_constraint_ddl(
         &self,
         store: StoreHandle,
         accepted_before: &AcceptedSchemaCatalogContext,
         prepared: &PreparedSqlDdlCommand,
-    ) -> Option<Result<SqlStatementResult, QueryError>>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Option<Result<SqlStatementResult, QueryError>> {
         match prepared.bound().statement() {
             BoundSqlDdlStatement::AddCheckConstraint(add) => {
-                Some(self.execute_prepared_add_check::<E>(store, accepted_before, prepared, add))
+                Some(self.execute_prepared_add_check(store, accepted_before, prepared, add))
             }
             BoundSqlDdlStatement::DropConstraint(drop) => {
-                Some(self.execute_prepared_drop_check::<E>(store, accepted_before, prepared, drop))
+                Some(self.execute_prepared_drop_check(store, accepted_before, prepared, drop))
             }
-            BoundSqlDdlStatement::ValidateConstraint(validate) => Some(
-                self.execute_prepared_validate_constraint::<E>(accepted_before, prepared, validate),
+            BoundSqlDdlStatement::ValidateConstraint(validate) => {
+                Some(self.execute_prepared_validate_constraint(accepted_before, prepared, validate))
+            }
+            BoundSqlDdlStatement::AlterColumnNullability(alter) => Some(
+                self.execute_prepared_field_nullability(store, accepted_before, prepared, alter),
             ),
-            BoundSqlDdlStatement::AlterColumnNullability(alter) => {
-                Some(self.execute_prepared_field_nullability::<E>(
-                    store,
-                    accepted_before,
-                    prepared,
-                    alter,
-                ))
-            }
             BoundSqlDdlStatement::CreateIndex(create) if create.candidate_index().unique() => {
-                Some(self.execute_prepared_unique_index_activation::<E>(
+                Some(self.execute_prepared_unique_index_activation(
                     store,
                     accepted_before,
                     prepared,
@@ -304,7 +289,7 @@ impl<C: CanisterKind> DbSession<C> {
                 ))
             }
             BoundSqlDdlStatement::DropIndex(drop) if drop.pending_activation_id().is_some() => {
-                Some(self.execute_prepared_unique_index_activation_abort::<E>(
+                Some(self.execute_prepared_unique_index_activation_abort(
                     store,
                     accepted_before,
                     prepared,
@@ -321,16 +306,13 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    fn execute_prepared_add_check<E>(
+    fn execute_prepared_add_check(
         &self,
         store: StoreHandle,
         accepted_before: &AcceptedSchemaCatalogContext,
         prepared: &PreparedSqlDdlCommand,
         add: &crate::db::sql::ddl::BoundSqlAddCheckConstraintRequest,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<SqlStatementResult, QueryError> {
         let next_schema_version = prepared
             .bound()
             .schema_version_contract()
@@ -338,15 +320,15 @@ impl<C: CanisterKind> DbSession<C> {
             .ok_or_else(QueryError::unsupported_query)?;
         let (rows_scanned, _constraint_id) = execute_admin_sql_ddl_check_addition(
             store,
-            E::ENTITY_TAG,
-            E::PATH,
+            accepted_before.identity().entity_tag(),
+            accepted_before.identity().entity_path(),
             accepted_before.snapshot(),
             accepted_before.identity(),
             add,
             next_schema_version,
         )
         .map_err(QueryError::from_sql_ddl_execution_error)?;
-        self.invalidate_accepted_schema_query_cache_for_entity::<E>();
+        self.invalidate_accepted_schema_query_cache(accepted_before.identity().entity_path());
         Ok(SqlStatementResult::Ddl(
             prepared
                 .report()
@@ -360,16 +342,13 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    fn execute_prepared_unique_index_activation<E>(
+    fn execute_prepared_unique_index_activation(
         &self,
         store: StoreHandle,
         accepted_before: &AcceptedSchemaCatalogContext,
         prepared: &PreparedSqlDdlCommand,
         create: &BoundSqlCreateIndexRequest,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<SqlStatementResult, QueryError> {
         let next_schema_version = prepared
             .bound()
             .schema_version_contract()
@@ -377,15 +356,15 @@ impl<C: CanisterKind> DbSession<C> {
             .ok_or_else(QueryError::unsupported_query)?;
         execute_admin_sql_ddl_unique_index_activation(
             store,
-            E::ENTITY_TAG,
-            E::PATH,
+            accepted_before.identity().entity_tag(),
+            accepted_before.identity().entity_path(),
             accepted_before.snapshot(),
             accepted_before.identity(),
             create,
             next_schema_version,
         )
         .map_err(QueryError::from_sql_ddl_execution_error)?;
-        self.invalidate_accepted_schema_query_cache_for_entity::<E>();
+        self.invalidate_accepted_schema_query_cache(accepted_before.identity().entity_path());
         Ok(SqlStatementResult::Ddl(
             prepared
                 .report()
@@ -394,16 +373,13 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    fn execute_prepared_unique_index_activation_abort<E>(
+    fn execute_prepared_unique_index_activation_abort(
         &self,
         store: StoreHandle,
         accepted_before: &AcceptedSchemaCatalogContext,
         prepared: &PreparedSqlDdlCommand,
         drop: &crate::db::sql::ddl::BoundSqlDropIndexRequest,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<SqlStatementResult, QueryError> {
         let next_schema_version = prepared
             .bound()
             .schema_version_contract()
@@ -411,15 +387,15 @@ impl<C: CanisterKind> DbSession<C> {
             .ok_or_else(QueryError::unsupported_query)?;
         execute_admin_sql_ddl_unique_index_activation_abort(
             store,
-            E::ENTITY_TAG,
-            E::PATH,
+            accepted_before.identity().entity_tag(),
+            accepted_before.identity().entity_path(),
             accepted_before.snapshot(),
             accepted_before.identity(),
             drop,
             next_schema_version,
         )
         .map_err(QueryError::from_sql_ddl_execution_error)?;
-        self.invalidate_accepted_schema_query_cache_for_entity::<E>();
+        self.invalidate_accepted_schema_query_cache(accepted_before.identity().entity_path());
         Ok(SqlStatementResult::Ddl(
             prepared
                 .report()
@@ -428,16 +404,13 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    fn execute_prepared_drop_check<E>(
+    fn execute_prepared_drop_check(
         &self,
         store: StoreHandle,
         accepted_before: &AcceptedSchemaCatalogContext,
         prepared: &PreparedSqlDdlCommand,
         drop: &crate::db::sql::ddl::BoundSqlDropConstraintRequest,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<SqlStatementResult, QueryError> {
         let next_schema_version = prepared
             .bound()
             .schema_version_contract()
@@ -445,15 +418,15 @@ impl<C: CanisterKind> DbSession<C> {
             .ok_or_else(QueryError::unsupported_query)?;
         execute_admin_sql_ddl_check_drop(
             store,
-            E::ENTITY_TAG,
-            E::PATH,
+            accepted_before.identity().entity_tag(),
+            accepted_before.identity().entity_path(),
             accepted_before.snapshot(),
             accepted_before.identity(),
             drop,
             next_schema_version,
         )
         .map_err(QueryError::from_sql_ddl_execution_error)?;
-        self.invalidate_accepted_schema_query_cache_for_entity::<E>();
+        self.invalidate_accepted_schema_query_cache(accepted_before.identity().entity_path());
         Ok(SqlStatementResult::Ddl(
             prepared
                 .report()
@@ -462,15 +435,12 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    fn execute_prepared_validate_constraint<E>(
+    fn execute_prepared_validate_constraint(
         &self,
         accepted_before: &AcceptedSchemaCatalogContext,
         prepared: &PreparedSqlDdlCommand,
         validate: &crate::db::sql::ddl::BoundSqlValidateConstraintRequest,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<SqlStatementResult, QueryError> {
         let (status, validation_page) = if validate.already_validated() {
             (
                 SqlDdlExecutionStatus::Validated,
@@ -485,20 +455,20 @@ impl<C: CanisterKind> DbSession<C> {
                     BoundSqlValidationConstraintKind::NotNull => ConstraintDiagnosticKind::NotNull,
                     BoundSqlValidationConstraintKind::Unique => ConstraintDiagnosticKind::Unique,
                 },
-                E::PATH,
+                accepted_before.identity().entity_path(),
                 accepted_before.snapshot(),
                 validate.activation_epoch(),
                 match validate.kind() {
                     BoundSqlValidationConstraintKind::Check => advance_check_constraint_activation(
                         &self.db,
-                        E::ENTITY_TAG,
+                        accepted_before.identity().entity_tag(),
                         validate.constraint_id(),
                         validate.after_page_sequence(),
                     ),
                     BoundSqlValidationConstraintKind::NotNull => {
                         advance_not_null_constraint_activation(
                             &self.db,
-                            E::ENTITY_TAG,
+                            accepted_before.identity().entity_tag(),
                             validate.constraint_id(),
                             validate.after_page_sequence(),
                         )
@@ -506,7 +476,7 @@ impl<C: CanisterKind> DbSession<C> {
                     BoundSqlValidationConstraintKind::Unique => {
                         advance_unique_constraint_activation(
                             &self.db,
-                            E::ENTITY_TAG,
+                            accepted_before.identity().entity_tag(),
                             validate.constraint_id(),
                             validate.after_page_sequence(),
                         )
@@ -516,7 +486,7 @@ impl<C: CanisterKind> DbSession<C> {
             )?
         };
         let rows_scanned = usize::try_from(validation_page.rows_scanned()).unwrap_or(usize::MAX);
-        self.invalidate_accepted_schema_query_cache_for_entity::<E>();
+        self.invalidate_accepted_schema_query_cache(accepted_before.identity().entity_path());
         Ok(SqlStatementResult::Ddl(
             prepared
                 .report()
@@ -527,16 +497,13 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    fn execute_prepared_field_nullability<E>(
+    fn execute_prepared_field_nullability(
         &self,
         store: StoreHandle,
         accepted_before: &AcceptedSchemaCatalogContext,
         prepared: &PreparedSqlDdlCommand,
         alter: &crate::db::sql::ddl::BoundSqlAlterColumnNullabilityRequest,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<SqlStatementResult, QueryError> {
         let status = if let Some(constraint_id) = alter.pending_activation_id() {
             let next_schema_version = prepared
                 .bound()
@@ -545,8 +512,8 @@ impl<C: CanisterKind> DbSession<C> {
                 .ok_or_else(QueryError::unsupported_query)?;
             execute_admin_sql_ddl_not_null_activation_abort(
                 store,
-                E::ENTITY_TAG,
-                E::PATH,
+                accepted_before.identity().entity_tag(),
+                accepted_before.identity().entity_path(),
                 accepted_before.snapshot(),
                 accepted_before.identity(),
                 next_schema_version,
@@ -561,8 +528,8 @@ impl<C: CanisterKind> DbSession<C> {
                 .ok_or_else(QueryError::unsupported_query)?;
             match execute_admin_sql_ddl_field_nullability_change(
                 store,
-                E::ENTITY_TAG,
-                E::PATH,
+                accepted_before.identity().entity_tag(),
+                accepted_before.identity().entity_path(),
                 accepted_before.snapshot(),
                 accepted_before.identity(),
                 derivation,
@@ -575,28 +542,25 @@ impl<C: CanisterKind> DbSession<C> {
                 }
             }
         };
-        self.invalidate_accepted_schema_query_cache_for_entity::<E>();
+        self.invalidate_accepted_schema_query_cache(accepted_before.identity().entity_path());
         Ok(SqlStatementResult::Ddl(
             prepared.report().clone().with_execution_status(status),
         ))
     }
 
-    fn execute_prepared_sql_ddl_mutation<E>(
+    fn execute_prepared_sql_ddl_mutation(
         store: StoreHandle,
         accepted_before: &AcceptedSchemaSnapshot,
         accepted_before_identity: AcceptedCatalogIdentity,
         derivation: &SchemaDdlAcceptedSnapshotDerivation,
         prepared: &PreparedSqlDdlCommand,
-    ) -> Result<(usize, usize), QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<(usize, usize), QueryError> {
         let metrics = match prepared.bound().statement() {
             BoundSqlDdlStatement::AddColumn(_) => {
                 execute_admin_sql_ddl_field_addition(
                     store,
-                    E::ENTITY_TAG,
-                    E::PATH,
+                    accepted_before_identity.entity_tag(),
+                    accepted_before_identity.entity_path(),
                     accepted_before,
                     accepted_before_identity,
                     derivation,
@@ -608,8 +572,8 @@ impl<C: CanisterKind> DbSession<C> {
             BoundSqlDdlStatement::AlterColumnDefault(_) => {
                 execute_admin_sql_ddl_field_default_change(
                     store,
-                    E::ENTITY_TAG,
-                    E::PATH,
+                    accepted_before_identity.entity_tag(),
+                    accepted_before_identity.entity_path(),
                     accepted_before,
                     accepted_before_identity,
                     derivation,
@@ -621,8 +585,8 @@ impl<C: CanisterKind> DbSession<C> {
             BoundSqlDdlStatement::DropColumn(_) => {
                 let rows_scanned = execute_admin_sql_ddl_field_drop(
                     store,
-                    E::ENTITY_TAG,
-                    E::PATH,
+                    accepted_before_identity.entity_tag(),
+                    accepted_before_identity.entity_path(),
                     accepted_before,
                     accepted_before_identity,
                     derivation,
@@ -634,8 +598,8 @@ impl<C: CanisterKind> DbSession<C> {
             BoundSqlDdlStatement::RenameColumn(_) => {
                 execute_admin_sql_ddl_field_rename(
                     store,
-                    E::ENTITY_TAG,
-                    E::PATH,
+                    accepted_before_identity.entity_tag(),
+                    accepted_before_identity.entity_path(),
                     accepted_before,
                     accepted_before_identity,
                     derivation,
@@ -644,7 +608,7 @@ impl<C: CanisterKind> DbSession<C> {
 
                 (0, 0)
             }
-            BoundSqlDdlStatement::CreateIndex(create) => Self::execute_prepared_create_index::<E>(
+            BoundSqlDdlStatement::CreateIndex(create) => Self::execute_prepared_create_index(
                 store,
                 accepted_before,
                 accepted_before_identity,
@@ -657,8 +621,8 @@ impl<C: CanisterKind> DbSession<C> {
                 }
                 execute_admin_sql_ddl_secondary_index_drop(
                     store,
-                    E::ENTITY_TAG,
-                    E::PATH,
+                    accepted_before_identity.entity_tag(),
+                    accepted_before_identity.entity_path(),
                     accepted_before,
                     accepted_before_identity,
                     derivation,
@@ -679,16 +643,13 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(metrics)
     }
 
-    fn execute_prepared_create_index<E>(
+    fn execute_prepared_create_index(
         store: StoreHandle,
         accepted_before: &AcceptedSchemaSnapshot,
         accepted_before_identity: AcceptedCatalogIdentity,
         derivation: &SchemaDdlAcceptedSnapshotDerivation,
         create: &BoundSqlCreateIndexRequest,
-    ) -> Result<(usize, usize), QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
+    ) -> Result<(usize, usize), QueryError> {
         if create.candidate_index().unique() {
             return Err(QueryError::unsupported_query());
         }
@@ -700,8 +661,8 @@ impl<C: CanisterKind> DbSession<C> {
 
         execute(
             store,
-            E::ENTITY_TAG,
-            E::PATH,
+            accepted_before_identity.entity_tag(),
+            accepted_before_identity.entity_path(),
             accepted_before,
             accepted_before_identity,
             derivation,

@@ -69,7 +69,7 @@ impl<'a> ExecutionAttemptKernel<'a> {
     pub(in crate::db::executor) fn materialize_resolved_execution_stream<'req>(
         &'req self,
         route_plan: &ExecutionRoutePlan,
-        continuation: &'req ScalarContinuationContext,
+        continuation: ScalarContinuationContext,
         key_stream: &'req mut OrderedKeyStreamBox,
     ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
         self.materialization_contract(route_plan)
@@ -78,7 +78,6 @@ impl<'a> ExecutionAttemptKernel<'a> {
                 self.inputs.emit_cursor(),
                 self.inputs.consistency(),
                 continuation,
-                route_plan.direction(),
                 key_stream,
             )
     }
@@ -105,7 +104,7 @@ impl<'a> ExecutionAttemptKernel<'a> {
     pub(in crate::db::executor) fn materialize_route_attempt(
         &self,
         route_plan: &ExecutionRoutePlan,
-        continuation: &ScalarContinuationContext,
+        continuation: ScalarContinuationContext,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
         let mut resolved = self.resolve_execution_key_stream(route_plan, predicate_compile_mode)?;
@@ -136,7 +135,7 @@ impl<'a> ExecutionAttemptKernel<'a> {
     pub(in crate::db::executor) fn materialize_route_attempt_kernel_rows(
         &self,
         route_plan: &ExecutionRoutePlan,
-        continuation: &ScalarContinuationContext,
+        continuation: ScalarContinuationContext,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {
         let mut resolved = self.resolve_execution_key_stream(route_plan, predicate_compile_mode)?;
@@ -147,7 +146,6 @@ impl<'a> ExecutionAttemptKernel<'a> {
                 self.inputs.runtime(),
                 self.inputs.consistency(),
                 continuation,
-                route_plan.direction(),
                 resolved.key_stream_mut(),
             )?;
         attempt.metrics.rows_scanned = resolved

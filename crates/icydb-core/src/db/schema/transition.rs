@@ -32,9 +32,6 @@ use compatibility::{
     generated_index_names_only_changed,
 };
 
-#[cfg(test)]
-use admission::classify_schema_admission_rejection;
-
 macro_rules! transition_detail {
     ($code:expr, $rich:expr) => {{
         #[cfg(test)]
@@ -196,14 +193,12 @@ pub(in crate::db::schema) enum SchemaTransitionRejectionDetailCode {
 #[derive(Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaTransitionRejectionDetail {
     code: SchemaTransitionRejectionDetailCode,
-    #[cfg(test)]
-    rich: String,
 }
 
 impl SchemaTransitionRejectionDetail {
     #[cfg(test)]
-    const fn new(code: SchemaTransitionRejectionDetailCode, rich: String) -> Self {
-        Self { code, rich }
+    fn new(code: SchemaTransitionRejectionDetailCode, _rich: String) -> Self {
+        Self { code }
     }
 
     #[cfg(not(test))]
@@ -211,15 +206,7 @@ impl SchemaTransitionRejectionDetail {
         Self { code }
     }
 
-    #[cfg(test)]
-    const fn as_str(&self) -> &str {
-        self.rich.as_str()
-    }
-
     // Return the compact first-difference code used by runtime error mapping.
-    pub(in crate::db::schema) const fn code(&self) -> SchemaTransitionRejectionDetailCode {
-        self.code
-    }
 }
 
 ///
@@ -253,20 +240,8 @@ impl SchemaTransitionRejection {
     }
 
     // Return the stable rejection bucket for metrics and audit readouts.
-    pub(in crate::db::schema) const fn kind(&self) -> SchemaTransitionRejectionKind {
-        self.kind
-    }
 
     // Return the compact first-difference code for typed runtime mapping.
-    pub(in crate::db::schema) const fn detail_code(&self) -> SchemaTransitionRejectionDetailCode {
-        self.detail.code()
-    }
-
-    // Borrow the first rejected transition detail for final error formatting.
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn detail(&self) -> &str {
-        self.detail.as_str()
-    }
 
     // Return the structured schema-version admission decision when this
     // rejection came from the version/method/fingerprint gate.
@@ -975,10 +950,3 @@ fn field_snapshot_storage_mismatch_detail(
 
     None
 }
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

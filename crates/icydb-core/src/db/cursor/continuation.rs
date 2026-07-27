@@ -1,23 +1,16 @@
 //! Module: cursor::continuation
-//! Responsibility: derive next continuation token state from materialized/scanned rows.
+//! Responsibility: derive bounded continuation scan and window contracts.
 //! Does not own: planner continuation policy derivation or token wire schema definitions.
 //! Boundary: computes runtime continuation progression under access/order/page contracts.
 
 use crate::{
     db::{
-        access::{AccessPlan, LoweredKey},
-        cursor::{
-            ContinuationSignature, ContinuationToken, CursorBoundary,
-            cursor_anchor_from_raw_index_store_key,
-        },
         direction::Direction,
         index::{
             RawIndexStoreKey, resume_bounds_for_continuation,
             validate_index_scan_continuation_advancement,
         },
-        query::plan::{
-            AccessPlannedQuery, OrderSpec, PageSpec, effective_offset_for_cursor_window,
-        },
+        query::plan::{AccessPlannedQuery, effective_offset_for_cursor_window},
     },
     error::InternalError,
 };
@@ -76,84 +69,6 @@ impl<'a> IndexScanContinuationInput<'a> {
     }
 }
 
-///
-/// MaterializedCursorRow
-///
-/// Structural continuation-row envelope produced after post-access ordering and
-/// cursor filtering. Carries the exact boundary payload and optional index-range
-/// anchor key needed to mint the next continuation token without typed entities.
-///
-#[derive(Clone, Debug)]
-pub(in crate::db) struct MaterializedCursorRow {
-    boundary: CursorBoundary,
-    index_anchor: Option<RawIndexStoreKey>,
-}
-
-impl MaterializedCursorRow {
-    /// Build one structural continuation row from resolved boundary data.
-    #[must_use]
-    pub(in crate::db) const fn new(
-        boundary: CursorBoundary,
-        index_anchor: Option<RawIndexStoreKey>,
-    ) -> Self {
-        Self {
-            boundary,
-            index_anchor,
-        }
-    }
-}
-
-/// Derive the next continuation token from one post-access materialized page.
-#[expect(clippy::too_many_arguments)]
-pub(in crate::db) fn next_cursor_for_materialized_rows<K>(
-    access: &AccessPlan<K>,
-    order: Option<&OrderSpec>,
-    page: Option<&PageSpec>,
-    rows_len: usize,
-    last_row: Option<MaterializedCursorRow>,
-    rows_after_cursor: usize,
-    cursor_boundary: Option<&CursorBoundary>,
-    previous_index_range_anchor: Option<&LoweredKey>,
-    direction: Direction,
-    signature: ContinuationSignature,
-) -> Result<Option<ContinuationToken>, InternalError> {
-    let Some(page) = page else {
-        return Ok(None);
-    };
-    let Some(limit) = page.limit else {
-        return Ok(None);
-    };
-    if rows_len == 0 {
-        return Ok(None);
-    }
-
-    // Continuation eligibility is computed from the post-cursor cardinality
-    // against the effective page window for this request.
-    let page_end =
-        effective_keep_count_for_page_limit(page.offset, cursor_boundary.is_some(), limit);
-    if rows_after_cursor <= page_end {
-        return Ok(None);
-    }
-
-    let Some(last_row) = last_row else {
-        return Ok(None);
-    };
-
-    let Some(_order) = order else {
-        return Err(InternalError::cursor_executor_invariant());
-    };
-
-    next_cursor_for_row(
-        access,
-        page.offset,
-        last_row,
-        direction,
-        signature,
-        previous_index_range_anchor,
-    )
-    .map(Some)
-}
-
 /// Derive the effective pagination offset for one plan under cursor-window semantics.
 #[must_use]
 pub(in crate::db) fn effective_page_offset_for_window(
@@ -177,82 +92,6 @@ pub(in crate::db) fn effective_keep_count_for_limit(
     limit: u32,
 ) -> usize {
     let effective_offset = effective_page_offset_for_window(plan, cursor_boundary_present);
-
-    usize::try_from(effective_offset)
-        .unwrap_or(usize::MAX)
-        .saturating_add(usize::try_from(limit).unwrap_or(usize::MAX))
-}
-
-fn next_cursor_for_row<K>(
-    access: &AccessPlan<K>,
-    initial_offset: u32,
-    row: MaterializedCursorRow,
-    direction: Direction,
-    signature: ContinuationSignature,
-    previous_index_range_anchor: Option<&LoweredKey>,
-) -> Result<ContinuationToken, InternalError> {
-    let MaterializedCursorRow {
-        boundary,
-        index_anchor,
-    } = row;
-
-    let token = if access
-        .shape_facts()
-        .has_single_path_index_range_access_path()
-    {
-        let Some(last_emitted_raw_key) = index_anchor.as_ref() else {
-            return Err(InternalError::cursor_executor_invariant());
-        };
-        validate_next_index_range_anchor_progression(
-            direction,
-            previous_index_range_anchor,
-            last_emitted_raw_key,
-        )?;
-
-        ContinuationToken::new_index_range_with_direction(
-            signature,
-            boundary,
-            cursor_anchor_from_raw_index_store_key(last_emitted_raw_key),
-            direction,
-            initial_offset,
-        )
-    } else {
-        ContinuationToken::new_with_direction(signature, boundary, direction, initial_offset)
-    };
-
-    Ok(token)
-}
-
-fn validate_next_index_range_anchor_progression(
-    direction: Direction,
-    previous_anchor: Option<&LoweredKey>,
-    last_emitted_raw_key: &RawIndexStoreKey,
-) -> Result<(), InternalError> {
-    validate_index_scan_continuation_advancement(direction, previous_anchor, last_emitted_raw_key)
-        .map_err(|_| InternalError::cursor_executor_invariant())?;
-
-    debug_assert!(
-        previous_anchor.is_none_or(
-            |previous_anchor| validate_index_scan_continuation_advancement(
-                direction,
-                Some(previous_anchor),
-                last_emitted_raw_key,
-            )
-            .is_ok()
-        ),
-        "index-range continuation anchor must advance strictly against previous anchor",
-    );
-
-    Ok(())
-}
-
-// Derive the effective keep-count (`offset + limit`) under cursor-window semantics.
-fn effective_keep_count_for_page_limit(
-    page_offset: u32,
-    cursor_boundary_present: bool,
-    limit: u32,
-) -> usize {
-    let effective_offset = effective_offset_for_cursor_window(page_offset, cursor_boundary_present);
 
     usize::try_from(effective_offset)
         .unwrap_or(usize::MAX)

@@ -53,12 +53,6 @@ impl SqlCompiledCommandExecutionContext {
     }
 
     #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn into_command(self) -> CompiledSqlCommand {
-        self.command
-    }
-
-    #[must_use]
     pub(in crate::db::session::sql) const fn surface(&self) -> SqlCompiledCommandSurface {
         self.surface
     }

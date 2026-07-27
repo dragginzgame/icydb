@@ -5,46 +5,35 @@
 
 #[cfg(feature = "sql")]
 use crate::db::query::plan::expr::ProjectionSelection;
+use crate::db::{
+    predicate::MissingRowPolicy,
+    query::{
+        builder::AggregateExpr,
+        expr::FilterExpr,
+        expr::OrderTerm as FluentOrderTerm,
+        intent::{AccessRequirements, QueryError, QueryModel},
+        plan::{AccessPlannedQuery, PreparedScalarPlanningState, VisibleIndexes},
+    },
+    schema::SchemaInfo,
+};
 #[cfg(any(test, feature = "sql"))]
 use crate::db::{
     predicate::Predicate,
     query::plan::{OrderSpec, expr::Expr},
 };
-use crate::{
-    db::{
-        KeyValueCodec,
-        predicate::{CompareOp, MissingRowPolicy},
-        query::{
-            builder::AggregateExpr,
-            explain::ExplainPlan,
-            expr::FilterExpr,
-            expr::OrderTerm as FluentOrderTerm,
-            intent::{AccessRequirements, QueryError, QueryModel, RequiredAccessPath},
-            plan::{
-                AccessPlannedQuery, LoadSpec, PreparedScalarPlanningState, QueryMode,
-                VisibleIndexes,
-            },
-        },
-        schema::{SchemaInfo, SchemaLiteralValidationReason, ValidateError},
-    },
-    entity::{EntityKind, SingletonEntity},
-    value::{InputValue, Value},
-};
 use std::sync::OnceLock;
-
-use core::marker::PhantomData;
 
 ///
 /// StructuralQuery
 ///
 /// Generic-free query-intent core shared by typed `Query<E>` wrappers.
-/// Stores model-level key access as `Value` so only typed key-entry helpers
-/// remain entity-specific at the outer API boundary.
+/// Stores the generic-free query semantics consumed by the accepted-schema
+/// planner.
 ///
 
 #[derive(Clone, Debug)]
 pub(in crate::db) struct StructuralQuery {
-    intent: QueryModel<Value>,
+    intent: QueryModel,
     access_requirements: AccessRequirements,
     structural_cache_key: OnceLock<crate::db::query::intent::StructuralQueryCacheKey>,
 }
@@ -63,7 +52,7 @@ impl StructuralQuery {
     // query shell so local transformation helpers do not rebuild `Self`
     // ad hoc at each boundary method.
     const fn from_intent_and_access_requirements(
-        intent: QueryModel<Value>,
+        intent: QueryModel,
         access_requirements: AccessRequirements,
     ) -> Self {
         Self {
@@ -75,7 +64,7 @@ impl StructuralQuery {
 
     // Apply one infallible intent transformation while preserving the
     // structural query shell at this boundary.
-    fn map_intent(self, map: impl FnOnce(QueryModel<Value>) -> QueryModel<Value>) -> Self {
+    fn map_intent(self, map: impl FnOnce(QueryModel) -> QueryModel) -> Self {
         let Self {
             intent,
             access_requirements,
@@ -89,7 +78,7 @@ impl StructuralQuery {
     // local to the structural query boundary.
     fn try_map_intent(
         self,
-        map: impl FnOnce(QueryModel<Value>) -> Result<QueryModel<Value>, QueryError>,
+        map: impl FnOnce(QueryModel) -> Result<QueryModel, QueryError>,
     ) -> Result<Self, QueryError> {
         let Self {
             intent,
@@ -99,16 +88,6 @@ impl StructuralQuery {
 
         map(intent)
             .map(|intent| Self::from_intent_and_access_requirements(intent, access_requirements))
-    }
-
-    #[must_use]
-    const fn mode(&self) -> QueryMode {
-        self.intent.mode()
-    }
-
-    #[must_use]
-    fn has_explicit_order(&self) -> bool {
-        self.intent.has_explicit_order()
     }
 
     #[must_use]
@@ -132,16 +111,6 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn scalar_filter_predicate_for_test(&self) -> Option<&Predicate> {
-        self.intent
-            .scalar_intent_for_cache_key()
-            .filter
-            .as_ref()
-            .and_then(|filter| filter.predicate_subset())
-    }
-
-    #[must_use]
     #[cfg(feature = "sql")]
     pub(in crate::db) fn direct_count_cardinality_prefix_candidate(&self) -> bool {
         matches!(
@@ -150,37 +119,11 @@ impl StructuralQuery {
         )
     }
 
-    #[must_use]
-    const fn load_spec(&self) -> Option<LoadSpec> {
-        match self.intent.mode() {
-            QueryMode::Load(spec) => Some(spec),
-            QueryMode::Delete(_) => None,
-        }
-    }
-
-    /// Append one test-owned predicate after normalizing it at the intent boundary.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn filter_predicate(mut self, predicate: Predicate) -> Self {
-        self.intent = self.intent.filter_predicate(predicate);
-        self
-    }
-
     /// Append one predicate that has already been normalized by the caller.
     #[must_use]
     #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn filter_normalized_predicate(mut self, predicate: Predicate) -> Self {
         self.intent = self.intent.filter_normalized_predicate(predicate);
-        self
-    }
-
-    #[must_use]
-    fn filter_for_model(
-        mut self,
-        model: &'static crate::model::entity::EntityModel,
-        expr: impl Into<FilterExpr>,
-    ) -> Self {
-        self.intent = self.intent.filter_for_model(model, expr.into());
         self
     }
 
@@ -253,14 +196,6 @@ impl StructuralQuery {
         self
     }
 
-    pub(in crate::db::query) fn group_by_for_model(
-        self,
-        model: &'static crate::model::entity::EntityModel,
-        field: impl AsRef<str>,
-    ) -> Result<Self, QueryError> {
-        self.try_map_intent(|intent| intent.push_group_field_for_model(model, field.as_ref()))
-    }
-
     pub(in crate::db) fn group_by_with_schema(
         self,
         field: impl AsRef<str>,
@@ -275,78 +210,12 @@ impl StructuralQuery {
         self
     }
 
-    #[must_use]
-    fn grouped_limits(mut self, max_groups: u64, max_group_bytes: u64) -> Self {
-        self.intent = self.intent.grouped_limits(max_groups, max_group_bytes);
-        self
-    }
-
-    pub(in crate::db::query) fn having_group_for_model(
-        self,
-        model: &'static crate::model::entity::EntityModel,
-        field: impl AsRef<str>,
-        op: CompareOp,
-        value: Value,
-    ) -> Result<Self, QueryError> {
-        let field = field.as_ref().to_owned();
-        self.try_map_intent(|intent| {
-            intent.push_having_group_clause_for_model(model, &field, op, value)
-        })
-    }
-
-    pub(in crate::db) fn having_group_with_schema(
-        self,
-        field: impl AsRef<str>,
-        schema: &SchemaInfo,
-        op: CompareOp,
-        value: Value,
-    ) -> Result<Self, QueryError> {
-        let field = field.as_ref().to_owned();
-        self.try_map_intent(|intent| {
-            intent.push_having_group_clause_with_schema(&field, schema, op, value)
-        })
-    }
-
-    pub(in crate::db) fn having_aggregate(
-        self,
-        aggregate_index: usize,
-        op: CompareOp,
-        value: Value,
-    ) -> Result<Self, QueryError> {
-        self.try_map_intent(|intent| {
-            intent.push_having_aggregate_clause(aggregate_index, op, value)
-        })
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn having_expr(self, expr: Expr) -> Result<Self, QueryError> {
-        self.try_map_intent(|intent| intent.push_having_expr(expr))
-    }
-
     #[cfg(feature = "sql")]
     pub(in crate::db) fn having_expr_preserving_shape(
         self,
         expr: Expr,
     ) -> Result<Self, QueryError> {
         self.try_map_intent(|intent| intent.push_having_expr_preserving_shape(expr))
-    }
-
-    #[must_use]
-    fn by_id(self, id: Value) -> Self {
-        self.map_intent(|intent| intent.by_id(id))
-    }
-
-    #[must_use]
-    fn by_ids<I>(self, ids: I) -> Self
-    where
-        I: IntoIterator<Item = Value>,
-    {
-        self.map_intent(|intent| intent.by_ids(ids))
-    }
-
-    #[must_use]
-    fn only(self, id: Value) -> Self {
-        self.map_intent(|intent| intent.only(id))
     }
 
     #[must_use]
@@ -374,33 +243,6 @@ impl StructuralQuery {
         self
     }
 
-    pub(in crate::db) fn build_plan_for_model(
-        &self,
-        model: &'static crate::model::entity::EntityModel,
-    ) -> Result<AccessPlannedQuery, QueryError> {
-        let mut plan = self.intent.build_plan_model(model)?;
-        self.validate_access_requirements_for_visibility(&mut plan, None, Some(model))?;
-
-        Ok(plan)
-    }
-
-    pub(in crate::db) fn build_plan_with_visible_indexes_for_model(
-        &self,
-        model: &'static crate::model::entity::EntityModel,
-        visible_indexes: &VisibleIndexes<'_>,
-    ) -> Result<AccessPlannedQuery, QueryError> {
-        let mut plan = self
-            .intent
-            .build_plan_model_with_indexes(model, visible_indexes)?;
-        self.validate_access_requirements_for_visibility(
-            &mut plan,
-            Some(visible_indexes),
-            Some(model),
-        )?;
-
-        Ok(plan)
-    }
-
     pub(in crate::db) fn prepare_scalar_planning_state_with_schema_info(
         &self,
         schema_info: SchemaInfo,
@@ -411,7 +253,7 @@ impl StructuralQuery {
 
     pub(in crate::db) fn build_plan_with_visible_indexes_from_scalar_planning_state(
         &self,
-        visible_indexes: &VisibleIndexes<'_>,
+        visible_indexes: &VisibleIndexes,
         planning_state: PreparedScalarPlanningState<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
         let mut plan = self
@@ -420,7 +262,7 @@ impl StructuralQuery {
                 visible_indexes,
                 planning_state,
             )?;
-        self.validate_access_requirements_for_visibility(&mut plan, Some(visible_indexes), None)?;
+        self.validate_access_requirements_for_visibility(&mut plan, Some(visible_indexes))?;
 
         Ok(plan)
     }
@@ -428,7 +270,7 @@ impl StructuralQuery {
     #[cfg(feature = "sql")]
     pub(in crate::db) fn try_build_count_cardinality_prefix_access_with_schema_info(
         &self,
-        visible_indexes: &VisibleIndexes<'_>,
+        visible_indexes: &VisibleIndexes,
         schema_info: &SchemaInfo,
     ) -> Result<Option<crate::db::query::plan::CountCardinalityPrefixAccess<'_>>, QueryError> {
         crate::db::query::plan::try_build_count_cardinality_prefix_access_from_query_model(
@@ -446,7 +288,7 @@ impl StructuralQuery {
             .intent
             .try_build_trivial_scalar_load_plan_with_schema_info(schema_info)?;
         if let Some(plan) = &mut plan {
-            self.validate_access_requirements_for_visibility(plan, None, None)?;
+            self.validate_access_requirements_for_visibility(plan, None)?;
         }
 
         Ok(plan)
@@ -459,14 +301,6 @@ impl StructuralQuery {
     ) -> bool {
         self.intent
             .trivial_scalar_load_fast_path_eligible_with_schema(schema_info)
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn structural_cache_key(
-        &self,
-    ) -> crate::db::query::intent::StructuralQueryCacheKey {
-        crate::db::query::intent::StructuralQueryCacheKey::from_query_model(&self.intent)
     }
 
     #[must_use]
@@ -488,483 +322,31 @@ impl StructuralQuery {
             .structural_cache_key_with_normalized_predicate_fingerprint(predicate_fingerprint)
     }
 
-    // Build one access plan using either schema-owned indexes or the session
-    // visibility slice already resolved at the caller boundary.
-    fn build_plan_for_visibility(
-        &self,
-        model: &'static crate::model::entity::EntityModel,
-        visible_indexes: Option<&VisibleIndexes<'_>>,
-    ) -> Result<AccessPlannedQuery, QueryError> {
-        match visible_indexes {
-            Some(visible_indexes) => {
-                self.build_plan_with_visible_indexes_for_model(model, visible_indexes)
-            }
-            None => self.build_plan_for_model(model),
-        }
-    }
-
     fn finalize_access_choice_for_visibility(
         plan: &mut AccessPlannedQuery,
-        visible_indexes: Option<&VisibleIndexes<'_>>,
-        model_only: Option<&'static crate::model::entity::EntityModel>,
+        visible_indexes: Option<&VisibleIndexes>,
     ) {
-        match visible_indexes {
-            Some(visible_indexes) => {
-                if let Some(schema_info) = visible_indexes.accepted_schema_info() {
-                    plan.finalize_access_choice_with_semantic_indexes_and_schema(
-                        visible_indexes.accepted_semantic_index_contracts(),
-                        schema_info,
-                    );
-                } else {
-                    let Some(model) = model_only else {
-                        return;
-                    };
-                    plan.finalize_access_choice_for_model_only_with_indexes(
-                        model,
-                        visible_indexes.generated_model_only_indexes(),
-                    );
-                }
-            }
-            None => {
-                if let Some(model) = model_only {
-                    plan.finalize_access_choice_for_model_only_with_indexes(model, model.indexes());
-                }
-            }
+        let Some(visible_indexes) = visible_indexes else {
+            return;
+        };
+        if let Some(schema_info) = visible_indexes.accepted_schema_info() {
+            plan.finalize_access_choice_with_semantic_indexes_and_schema(
+                visible_indexes.accepted_semantic_index_contracts(),
+                schema_info,
+            );
         }
     }
 
     fn validate_access_requirements_for_visibility(
         &self,
         plan: &mut AccessPlannedQuery,
-        visible_indexes: Option<&VisibleIndexes<'_>>,
-        model_only: Option<&'static crate::model::entity::EntityModel>,
+        visible_indexes: Option<&VisibleIndexes>,
     ) -> Result<(), QueryError> {
         if self.access_requirements.is_empty() {
             return Ok(());
         }
 
-        Self::finalize_access_choice_for_visibility(plan, visible_indexes, model_only);
+        Self::finalize_access_choice_for_visibility(plan, visible_indexes);
         self.access_requirements.validate(plan)
-    }
-
-    const fn require_index(mut self) -> Self {
-        self.access_requirements.require_index();
-        self
-    }
-
-    fn require_index_named(mut self, index_name: impl Into<String>) -> Self {
-        self.access_requirements.require_index_named(index_name);
-        self
-    }
-
-    const fn require_access_path(mut self, path: RequiredAccessPath) -> Self {
-        self.access_requirements.require_access_path(path);
-        self
-    }
-
-    const fn require_no_residual_filter(mut self) -> Self {
-        self.access_requirements.require_no_residual_filter();
-        self
-    }
-}
-
-///
-/// Query
-///
-/// Typed, declarative query intent for a specific entity type.
-///
-/// This intent is:
-/// - schema-agnostic at construction
-/// - normalized and validated only during planning
-/// - free of access-path decisions
-///
-
-#[derive(Debug)]
-pub struct Query<E: EntityKind> {
-    inner: StructuralQuery,
-    _marker: PhantomData<E>,
-}
-
-impl<E: EntityKind> Query<E> {
-    // Rebind one structural query core to the typed `Query<E>` surface.
-    pub(in crate::db) const fn from_inner(inner: StructuralQuery) -> Self {
-        Self {
-            inner,
-            _marker: PhantomData,
-        }
-    }
-
-    /// Create a new intent with an explicit missing-row policy.
-    /// Ignore favors idempotency and may mask index/data divergence on deletes.
-    /// Use Error to surface missing rows during scan/delete execution.
-    #[must_use]
-    pub const fn new(consistency: MissingRowPolicy) -> Self {
-        Self::from_inner(StructuralQuery::new(consistency))
-    }
-
-    /// Return the intent mode (load vs delete).
-    #[must_use]
-    pub const fn mode(&self) -> QueryMode {
-        self.inner.mode()
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn explain_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-    ) -> Result<ExplainPlan, QueryError> {
-        let mut plan = self.build_plan_for_visibility(Some(visible_indexes))?;
-        StructuralQuery::finalize_access_choice_for_visibility(
-            &mut plan,
-            Some(visible_indexes),
-            Some(E::MODEL),
-        );
-
-        Ok(plan.explain())
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn plan_hash_hex_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-    ) -> Result<String, QueryError> {
-        let plan = self.build_plan_for_visibility(Some(visible_indexes))?;
-
-        Ok(plan.plan_hash_hex())
-    }
-
-    // Build one typed access plan using either schema-owned indexes or the
-    // visibility slice already resolved at the session boundary.
-    fn build_plan_for_visibility(
-        &self,
-        visible_indexes: Option<&VisibleIndexes<'_>>,
-    ) -> Result<AccessPlannedQuery, QueryError> {
-        self.inner
-            .build_plan_for_visibility(E::MODEL, visible_indexes)
-    }
-
-    #[must_use]
-    pub(in crate::db::query) fn has_explicit_order(&self) -> bool {
-        self.inner.has_explicit_order()
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn structural(&self) -> &StructuralQuery {
-        &self.inner
-    }
-
-    #[must_use]
-    pub const fn has_grouping(&self) -> bool {
-        self.inner.has_grouping()
-    }
-
-    #[must_use]
-    pub(in crate::db::query) const fn load_spec(&self) -> Option<LoadSpec> {
-        self.inner.load_spec()
-    }
-
-    #[must_use]
-    pub(in crate::db) fn with_load_limit(&self, limit: u32) -> Self {
-        Self::from_inner(self.inner.clone().limit(limit))
-    }
-
-    /// Add one typed filter expression, implicitly AND-ing with any existing filter.
-    #[must_use]
-    pub fn filter(mut self, expr: impl Into<FilterExpr>) -> Self {
-        self.inner = self.inner.filter_for_model(E::MODEL, expr);
-        self
-    }
-
-    // Keep the internal fluent parity hook available for tests that need one
-    // exact expression-owned scalar filter shape instead of the public typed
-    // `FilterExpr` lowering path.
-    #[cfg(all(test, feature = "sql"))]
-    #[must_use]
-    pub(in crate::db) fn filter_expr(mut self, expr: Expr) -> Self {
-        self.inner = self.inner.filter_expr(expr);
-        self
-    }
-
-    // Keep the internal predicate-owned filter hook available for convergence
-    // tests without retaining the typed adapter in normal builds after SQL
-    // UPDATE moved to structural lowering.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn filter_predicate(mut self, predicate: Predicate) -> Self {
-        self.inner = self.inner.filter_predicate(predicate);
-        self
-    }
-
-    /// Append one typed ORDER BY term.
-    #[must_use]
-    pub fn order_term(mut self, term: FluentOrderTerm) -> Self {
-        self.inner = self.inner.order_term(term);
-        self
-    }
-
-    /// Append multiple typed ORDER BY terms in declaration order.
-    #[must_use]
-    pub fn order_terms<I>(mut self, terms: I) -> Self
-    where
-        I: IntoIterator<Item = FluentOrderTerm>,
-    {
-        for term in terms {
-            self.inner = self.inner.order_term(term);
-        }
-
-        self
-    }
-
-    /// Enable DISTINCT semantics for this query.
-    #[must_use]
-    pub fn distinct(mut self) -> Self {
-        self.inner = self.inner.distinct();
-        self
-    }
-
-    // Keep the internal fluent SQL parity hook available for lowering tests
-    // without making generated SQL binding depend on the typed query shell.
-    #[cfg(all(test, feature = "sql"))]
-    #[must_use]
-    pub(in crate::db) fn select_fields<I, S>(mut self, fields: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        self.inner = self.inner.select_fields(fields);
-        self
-    }
-
-    /// Add one GROUP BY field.
-    pub fn group_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
-        let Self { inner, .. } = self;
-        let inner = inner.group_by_for_model(E::MODEL, field)?;
-
-        Ok(Self::from_inner(inner))
-    }
-
-    pub(in crate::db) fn group_by_with_schema(
-        self,
-        field: impl AsRef<str>,
-        schema: &SchemaInfo,
-    ) -> Result<Self, QueryError> {
-        let Self { inner, .. } = self;
-        let inner = inner.group_by_with_schema(field, schema)?;
-
-        Ok(Self::from_inner(inner))
-    }
-
-    /// Add one aggregate terminal via composable aggregate expression.
-    #[must_use]
-    pub fn aggregate(mut self, aggregate: AggregateExpr) -> Self {
-        self.inner = self.inner.aggregate(aggregate);
-        self
-    }
-
-    /// Override grouped hard limits for grouped execution budget enforcement.
-    #[must_use]
-    pub fn grouped_limits(mut self, max_groups: u64, max_group_bytes: u64) -> Self {
-        self.inner = self.inner.grouped_limits(max_groups, max_group_bytes);
-        self
-    }
-
-    /// Add one grouped HAVING compare clause over one grouped key field.
-    pub fn having_group(
-        self,
-        field: impl AsRef<str>,
-        op: CompareOp,
-        value: InputValue,
-    ) -> Result<Self, QueryError> {
-        let field = field.as_ref().to_string();
-        let value = value.try_into_runtime_non_enum().ok_or_else(|| {
-            QueryError::validate(ValidateError::invalid_literal(
-                field.as_str(),
-                SchemaLiteralValidationReason::LiteralTypeMismatch,
-            ))
-        })?;
-        let Self { inner, .. } = self;
-        let inner = inner.having_group_for_model(E::MODEL, field, op, value)?;
-
-        Ok(Self::from_inner(inner))
-    }
-
-    pub(in crate::db) fn having_group_with_schema(
-        self,
-        field: impl AsRef<str>,
-        schema: &SchemaInfo,
-        op: CompareOp,
-        value: InputValue,
-    ) -> Result<Self, QueryError> {
-        let field = field.as_ref().to_string();
-        let value = value.try_into_runtime_non_enum().ok_or_else(|| {
-            QueryError::validate(ValidateError::invalid_literal(
-                field.as_str(),
-                SchemaLiteralValidationReason::LiteralTypeMismatch,
-            ))
-        })?;
-        let Self { inner, .. } = self;
-        let inner = inner.having_group_with_schema(field, schema, op, value)?;
-
-        Ok(Self::from_inner(inner))
-    }
-
-    /// Add one grouped HAVING compare clause over one grouped aggregate output.
-    pub fn having_aggregate(
-        self,
-        aggregate_index: usize,
-        op: CompareOp,
-        value: InputValue,
-    ) -> Result<Self, QueryError> {
-        let value = value.try_into_runtime_non_enum().ok_or_else(|| {
-            QueryError::validate(ValidateError::invalid_literal(
-                "aggregate",
-                SchemaLiteralValidationReason::LiteralTypeMismatch,
-            ))
-        })?;
-        let Self { inner, .. } = self;
-        let inner = inner.having_aggregate(aggregate_index, op, value)?;
-
-        Ok(Self::from_inner(inner))
-    }
-
-    // Keep the internal fluent parity hook available for tests that need one
-    // exact grouped HAVING expression shape instead of the public grouped
-    // clause builders.
-    #[cfg(test)]
-    pub(in crate::db) fn having_expr(self, expr: Expr) -> Result<Self, QueryError> {
-        let Self { inner, .. } = self;
-        let inner = inner.having_expr(expr)?;
-
-        Ok(Self::from_inner(inner))
-    }
-
-    /// Set the access path to a single primary key lookup.
-    pub(in crate::db) fn by_id(self, id: E::Key) -> Self {
-        let Self { inner, .. } = self;
-
-        Self::from_inner(inner.by_id(id.to_key_value()))
-    }
-
-    /// Set the access path to a primary key batch lookup.
-    pub(in crate::db) fn by_ids<I>(self, ids: I) -> Self
-    where
-        I: IntoIterator<Item = E::Key>,
-    {
-        let Self { inner, .. } = self;
-
-        Self::from_inner(inner.by_ids(ids.into_iter().map(|id| id.to_key_value())))
-    }
-
-    /// Mark this intent as a delete query.
-    #[must_use]
-    pub fn delete(mut self) -> Self {
-        self.inner = self.inner.delete();
-        self
-    }
-
-    /// Apply a limit to the current mode.
-    ///
-    /// Load limits bound result size; delete limits bound mutation size.
-    /// For scalar load queries, any use of `limit` or `offset` requires an
-    /// explicit `order_term(...)` so pagination is deterministic.
-    /// GROUP BY queries use canonical grouped-key order by default.
-    #[must_use]
-    pub fn limit(mut self, limit: u32) -> Self {
-        self.inner = self.inner.limit(limit);
-        self
-    }
-
-    /// Apply an offset to the current mode.
-    ///
-    /// Scalar load pagination requires an explicit `order_term(...)`.
-    /// GROUP BY queries use canonical grouped-key order by default.
-    /// Delete mode applies this after ordering and predicate filtering.
-    #[must_use]
-    pub fn offset(mut self, offset: u32) -> Self {
-        self.inner = self.inner.offset(offset);
-        self
-    }
-
-    /// Require the planner-selected access path to use a secondary index.
-    ///
-    /// This is a fail-closed assertion evaluated after planning. It does not
-    /// hint, rank, or force index selection.
-    #[must_use]
-    pub fn require_index(mut self) -> Self {
-        self.inner = self.inner.require_index();
-        self
-    }
-
-    /// Require the planner-selected access path to use one semantic index name.
-    ///
-    /// This is intended for hot-path regression checks. It validates the
-    /// selected runtime index contract after planning and never changes ranking.
-    #[must_use]
-    pub fn require_index_named(mut self, index_name: impl Into<String>) -> Self {
-        self.inner = self.inner.require_index_named(index_name);
-        self
-    }
-
-    /// Require one selected access path kind after planning.
-    ///
-    /// This assertion does not act as an optimizer hint.
-    #[must_use]
-    pub fn require_access_path(mut self, path: RequiredAccessPath) -> Self {
-        self.inner = self.inner.require_access_path(path);
-        self
-    }
-
-    /// Require the selected plan to leave no residual filter work.
-    ///
-    /// Access-bound predicates are allowed. Remaining scalar or predicate
-    /// filters after access selection fail this requirement.
-    #[must_use]
-    pub fn require_no_residual_filter(mut self) -> Self {
-        self.inner = self.inner.require_no_residual_filter();
-        self
-    }
-
-    /// Explain this intent without executing it.
-    pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
-        let mut plan = self.build_plan_for_visibility(None)?;
-        StructuralQuery::finalize_access_choice_for_visibility(&mut plan, None, Some(E::MODEL));
-
-        Ok(plan.explain())
-    }
-
-    /// Return a stable plan hash for this intent.
-    ///
-    /// The hash is derived from canonical planner contracts and is suitable
-    /// for diagnostics, explain diffing, and cache key construction.
-    pub fn plan_hash_hex(&self) -> Result<String, QueryError> {
-        let plan = self.inner.build_plan_for_model(E::MODEL)?;
-
-        Ok(plan.plan_hash_hex())
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn access_plan_for_test(&self) -> Result<AccessPlannedQuery, QueryError> {
-        self.build_plan_for_visibility(None)
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn access_plan_for_test_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-    ) -> Result<AccessPlannedQuery, QueryError> {
-        self.build_plan_for_visibility(Some(visible_indexes))
-    }
-}
-
-impl<E> Query<E>
-where
-    E: EntityKind + SingletonEntity,
-    E::Key: Default,
-{
-    /// Set the access path to the singleton primary key.
-    pub(in crate::db) fn singleton(self) -> Self {
-        let Self { inner, .. } = self;
-
-        Self::from_inner(inner.only(E::Key::default().to_key_value()))
     }
 }

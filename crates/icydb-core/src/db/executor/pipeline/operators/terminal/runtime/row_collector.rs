@@ -1,9 +1,7 @@
-//! Module: db::executor::pipeline::operators::terminal::runtime
-//! Responsibility: cursorless row-collector materialization over structural
-//! row and retained-slot-row payloads.
-//! Does not own: planner route selection or outer-session projection shaping.
-//! Boundary: exposes the shared row-collector short path while keeping payload
-//! assembly inside executor-owned structural contracts.
+//! Module: executor::pipeline::operators::terminal::runtime::row_collector
+//! Responsibility: cursorless row-collector execution.
+//! Does not own: planner route selection or outer response shaping.
+//! Boundary: consumes a prepared materialization request.
 
 use crate::{
     db::executor::{
@@ -17,15 +15,10 @@ use crate::{
 };
 
 impl ExecutionKernel {
-    // Materialize one cursorless short-path load through the structural row
-    // runtime under the same continuation and bounded-scan contract as the
-    // canonical scalar page kernel.
     pub(in crate::db::executor) fn try_materialize_load_via_row_collector<'a>(
         request: RowCollectorMaterializationRequest<'a>,
         row_runtime: &mut ScalarRowRuntimeHandle<'a>,
     ) -> Result<Option<(StructuralCursorPage, usize, usize)>, InternalError> {
-        // Phase 1: destructure the request once so the short path cannot drift
-        // from the kernel-owned scan contract.
         let RowCollectorMaterializationRequest {
             plan,
             scan_budget_hint,
@@ -43,13 +36,8 @@ impl ExecutionKernel {
             return Ok(None);
         };
 
-        // Phase 2: validate the shared continuation/budget contract once
-        // before the short path builds its canonical scan request.
         continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_mode)?;
 
-        // Phase 3: let the resolved short-path plan build the exact kernel
-        // request from the canonical consistency contract carried by the
-        // execution boundary.
         let (rows, rows_scanned) = execute_kernel_row_scan(short_path_plan.scan_request(
             key_stream,
             scan_budget_hint,
@@ -57,10 +45,8 @@ impl ExecutionKernel {
             row_runtime,
         ))?;
         let rows = rows.into_plain_rows()?;
-
-        // Phase 4: the short-path plan owns post-access shaping and final
-        // payload selection from here onward.
         let (payload, post_access_rows) = short_path_plan.materialize_rows(rows)?;
+
         Ok(Some((payload, rows_scanned, post_access_rows)))
     }
 }

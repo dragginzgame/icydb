@@ -1,6 +1,6 @@
 //! Module: executor::pipeline::operators::terminal
-//! Responsibility: terminal load row-collector materialization seam.
-//! Does not own: aggregate fold reducers or access-path planning/routing policy.
-//! Boundary: owns cursorless load row-collector short-path execution mechanics.
+//! Responsibility: structural row-collector materialization.
+//! Does not own: aggregate reducers or route planning.
+//! Boundary: owns the cursorless row-collector short path.
 
 mod runtime;

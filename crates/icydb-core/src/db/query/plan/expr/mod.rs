@@ -92,17 +92,11 @@ pub(in crate::db) use ast::collect_scalar_expr_field_roots;
 pub(in crate::db) use ast::{
     BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function, PathSpec, UnaryOp,
 };
-#[cfg(test)]
-pub(in crate::db) use ast::{
-    render_supported_order_expr, supported_order_expr_field, supported_order_expr_is_plain_field,
-};
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use canonicalize::canonicalize_scalar_where_bool_expr;
-#[cfg(test)]
-pub(in crate::db) use canonicalize::normalize_bool_expr_artifact;
 pub(in crate::db) use canonicalize::{
     CanonicalExpr, canonicalize_grouped_having_bool_expr, is_normalized_bool_expr,
-    normalize_bool_expr, truth_condition_binary_compare_op, truth_condition_compare_binary_op,
+    normalize_bool_expr, truth_condition_binary_compare_op,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use canonicalize::{
@@ -120,19 +114,11 @@ pub(in crate::db::query::plan::expr) use function_semantics::{
 };
 pub(in crate::db) use function_semantics::{NumericSubtype, TextPredicateFunctionKind};
 pub(in crate::db) use path::CompiledPath;
+#[cfg(test)]
+pub(in crate::db) use predicate::compile_normalized_bool_expr_to_predicate;
 pub(in crate::db) use predicate::derive_normalized_bool_expr_predicate_subset;
-#[cfg(test)]
-pub(in crate::db) use predicate::{
-    canonicalize_runtime_predicate_via_bool_expr, predicate_to_runtime_bool_expr_for_test,
-};
-#[cfg(test)]
-pub(in crate::db) use predicate::{
-    compile_canonical_bool_expr_to_predicate, compile_normalized_bool_expr_to_predicate,
-};
 #[cfg(feature = "sql")]
 pub(in crate::db) use preview::eval_literal_only_expr_value;
-#[cfg(test)]
-pub(in crate::db) use projection::GroupedOrderExprClass;
 pub(in crate::db::query) use projection::collect_unique_direct_projection_slots_with_schema;
 pub(in crate::db) use projection::{
     GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility, ProjectionField,
@@ -145,8 +131,6 @@ pub(in crate::db) use projection_eval::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use rewrite::rewrite_affine_numeric_compare_expr;
-#[cfg(test)]
-pub(in crate::db) use scalar::compile_scalar_projection_expr_for_model_only;
 #[cfg(feature = "sql")]
 pub(in crate::db) use scalar::compile_scalar_projection_expr_from_schema;
 pub(in crate::db) use scalar::{

@@ -3,7 +3,6 @@
 //! Does not own: query planning, executor routing, or storage codec policy.
 //! Boundary: executor/commit paths delegate relation semantics to this module.
 
-mod metadata;
 mod reverse_index;
 mod save_validate;
 mod validate;
@@ -22,19 +21,13 @@ use crate::{
 };
 use std::fmt::{Debug, Display};
 
-pub(in crate::db) use metadata::{
-    RelationFieldCardinality, RelationFieldMetadata, relation_field_metadata_for_model_iter,
-};
 pub(in crate::db) use reverse_index::{
-    RelationConstraintIndexEntry, RelationConstraintProjection, prove_empty_reverse_relation_domain,
+    RelationConstraintProjection, prove_empty_reverse_relation_domain,
 };
 pub(crate) use reverse_index::{
-    ReverseRelationSourceInfo, StagedReverseRelationDomainEffectsBuilder,
-    prepare_reverse_relation_index_mutations_for_source_slot_readers,
+    ReverseRelationSourceInfo, prepare_reverse_relation_index_mutations_for_source_slot_readers,
 };
-pub(in crate::db) use save_validate::{
-    validate_save_relations_for_structural_row, validate_save_relations_with_accepted_contract,
-};
+pub(in crate::db) use save_validate::validate_save_relations_for_structural_row;
 pub(in crate::db) use validate::{
     validate_candidate_relation_target_delete_barrier,
     validate_delete_relations_for_registered_source,

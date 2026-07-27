@@ -298,35 +298,6 @@ impl Field {
         format_ident!("{constant}")
     }
 
-    pub fn insert_generation_expr(&self) -> TokenStream {
-        match self.generated.as_ref().and_then(|generated| {
-            let FieldGeneration::Insert(generator) = generated;
-            generated_insert_contract(generator)
-        }) {
-            Some(GeneratedInsertContract::Ulid) => {
-                quote!(Some(::icydb::model::field::FieldInsertGeneration::Ulid))
-            }
-            Some(GeneratedInsertContract::Timestamp) => {
-                quote!(Some(
-                    ::icydb::model::field::FieldInsertGeneration::Timestamp
-                ))
-            }
-            None => quote!(None),
-        }
-    }
-
-    pub fn write_management_expr(&self) -> TokenStream {
-        match self.write_management {
-            Some(FieldWriteManagement::CreatedAt) => {
-                quote!(Some(::icydb::model::field::FieldWriteManagement::CreatedAt))
-            }
-            Some(FieldWriteManagement::UpdatedAt) => {
-                quote!(Some(::icydb::model::field::FieldWriteManagement::UpdatedAt))
-            }
-            None => quote!(None),
-        }
-    }
-
     pub(crate) fn managed_timestamp(
         source_key: LitStr,
         ident: Ident,

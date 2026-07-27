@@ -11,16 +11,12 @@ use crate::{
             builder::AggregateExpr,
             plan::{
                 AggregateIdentity, AggregateKind, AggregateSemanticKey, FieldSlot,
-                FieldSlotAuthority, GroupAggregateSpec, GroupPlan, GroupSpec,
-                GroupedExecutionConfig, expr::Expr,
+                FieldSlotAuthority, GroupAggregateSpec, GroupPlan, GroupSpec, expr::Expr,
             },
         },
         schema::{AcceptedFieldKind, SchemaInfo},
     },
-    model::{
-        canonicalize_grouped_having_numeric_literal_for_field_kind, entity::EntityModel,
-        field::FieldKind,
-    },
+    model::{canonicalize_grouped_having_numeric_literal_for_field_kind, field::FieldKind},
     value::Value,
 };
 
@@ -201,20 +197,7 @@ impl GroupAggregateSpec {
     }
 }
 
-impl GroupSpec {
-    /// Build one global DISTINCT grouped shape from one aggregate expression.
-    #[must_use]
-    pub(in crate::db) fn global_distinct_shape_from_aggregate_expr(
-        aggregate: &AggregateExpr,
-        execution: GroupedExecutionConfig,
-    ) -> Self {
-        Self {
-            group_fields: Vec::new(),
-            aggregates: vec![GroupAggregateSpec::from_aggregate_expr(aggregate)],
-            execution,
-        }
-    }
-}
+impl GroupSpec {}
 
 impl GroupPlan {
     /// Borrow the effective grouped HAVING expression for this grouped plan.
@@ -277,22 +260,6 @@ impl FieldSlot {
         }
     }
 
-    /// Resolve one field name into its canonical model slot.
-    #[must_use]
-    pub(in crate::db) fn resolve(model: &EntityModel, field: &str) -> Option<Self> {
-        let index = model.resolve_field_slot(field)?;
-        let canonical = model
-            .fields
-            .get(index)
-            .map_or(field, |model_field| model_field.name);
-
-        Some(Self::from_model_kind(
-            index,
-            canonical,
-            model.fields.get(index)?.kind,
-        ))
-    }
-
     /// Resolve one field through exactly one schema authority lane.
     #[must_use]
     pub(in crate::db) fn resolve_with_schema(schema: &SchemaInfo, field: &str) -> Option<Self> {
@@ -309,7 +276,7 @@ impl FieldSlot {
         ))
     }
 
-    /// Return the stable slot index in `EntityModel::fields`.
+    /// Return the stable accepted field slot.
     #[must_use]
     pub(in crate::db) const fn index(&self) -> usize {
         self.index

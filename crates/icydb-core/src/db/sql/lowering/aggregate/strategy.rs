@@ -137,24 +137,10 @@ impl PreparedSqlScalarAggregateStrategy {
         self.semantics.target_slot()
     }
 
-    /// Borrow the aggregate input expression when this prepared SQL scalar strategy is expression-backed.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn input_expr(&self) -> Option<&Expr> {
-        self.semantics.input_expr()
-    }
-
     /// Borrow the aggregate filter expression when this prepared SQL scalar strategy is filtered.
     #[must_use]
     pub(in crate::db) const fn filter_expr(&self) -> Option<&Expr> {
         self.filter_expr.as_ref()
-    }
-
-    /// Return whether this prepared SQL scalar aggregate deduplicates field inputs.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) const fn is_distinct(&self) -> bool {
-        self.semantics.distinct_input()
     }
 
     /// Return the stable query-facing plan fragment for this prepared SQL

@@ -2,7 +2,7 @@ use crate::{
     db::{
         data::DataRow,
         executor::{
-            pipeline::contracts::{PageCursor, StructuralCursorPage},
+            pipeline::contracts::StructuralCursorPage,
             projection::{PreparedProjectionContract, validate_prepared_projection_row},
             terminal::page::{KernelRow, RetainedSlotRow},
         },
@@ -49,11 +49,10 @@ impl<'a> StructuralPostScanTailStrategy<'a> {
     pub(super) fn finalize_payload(
         &self,
         rows: Vec<KernelRow>,
-        next_cursor: Option<PageCursor>,
     ) -> Result<StructuralCursorPage, InternalError> {
         finalize_structural_cursor_payload(
             rows,
-            select_structural_cursor_payload_strategy(self.retain_slot_rows, next_cursor),
+            select_structural_cursor_payload_strategy(self.retain_slot_rows),
         )
     }
 }
@@ -63,24 +62,23 @@ impl<'a> StructuralPostScanTailStrategy<'a> {
 // The executor resolves that family once before the final row-shaping pass.
 #[derive(Clone)]
 pub(in crate::db::executor) enum StructuralCursorPayloadStrategy {
-    DataRows { next_cursor: Option<PageCursor> },
-    SlotRows { next_cursor: Option<PageCursor> },
+    DataRows,
+    SlotRows,
 }
 
 // Select one final structural payload family before converting kernel rows
 // into their outward cursor page boundary.
 pub(in crate::db::executor) const fn select_structural_cursor_payload_strategy(
     retain_slot_rows: bool,
-    next_cursor: Option<PageCursor>,
 ) -> StructuralCursorPayloadStrategy {
     if retain_slot_rows {
-        return StructuralCursorPayloadStrategy::SlotRows { next_cursor };
+        return StructuralCursorPayloadStrategy::SlotRows;
     }
 
     #[cfg(not(feature = "sql"))]
     let _ = retain_slot_rows;
 
-    StructuralCursorPayloadStrategy::DataRows { next_cursor }
+    StructuralCursorPayloadStrategy::DataRows
 }
 
 // Require the prepared projection-validation bundle whenever a retained-slot
@@ -98,16 +96,12 @@ pub(in crate::db::executor) fn finalize_structural_cursor_payload(
     finalize_mode: StructuralCursorPayloadStrategy,
 ) -> Result<StructuralCursorPage, InternalError> {
     match finalize_mode {
-        StructuralCursorPayloadStrategy::DataRows { next_cursor } => Ok(StructuralCursorPage::new(
+        StructuralCursorPayloadStrategy::DataRows => Ok(StructuralCursorPage::new(
             collect_structural_data_rows(rows)?,
-            next_cursor,
         )),
-        StructuralCursorPayloadStrategy::SlotRows { next_cursor } => {
-            Ok(StructuralCursorPage::new_with_slot_rows(
-                collect_structural_slot_rows(rows)?,
-                next_cursor,
-            ))
-        }
+        StructuralCursorPayloadStrategy::SlotRows => Ok(StructuralCursorPage::new_with_slot_rows(
+            collect_structural_slot_rows(rows)?,
+        )),
     }
 }
 

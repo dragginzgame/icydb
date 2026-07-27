@@ -9,7 +9,7 @@
 
 IcyDB is a schema-first persistence and query runtime for Internet Computer
 canisters. It gives Rust canisters typed entities, stable-memory storage,
-accepted schema catalogs, indexes, fluent queries, a reduced single-entity SQL
+accepted schema catalogs, indexes, typed queries, a reduced single-entity SQL
 surface, pagination, grouped aggregates, DDL-backed catalog mutation, and
 generated observability endpoints.
 
@@ -50,8 +50,9 @@ Pin IcyDB by tag in downstream canisters:
 icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.32" }
 ```
 
-The default crate feature set is typed/fluent-only. Enable SQL explicitly when
-the canister uses session/library SQL APIs or generated SQL endpoints:
+The default crate feature set provides structural writes and accepted-schema
+runtime support. Enable SQL when the canister uses typed queries,
+session/library SQL APIs, or generated SQL endpoints:
 
 ```toml
 [dependencies]
@@ -73,7 +74,7 @@ icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.32" }
 Schema definitions normally live in a small schema crate used by the canister:
 
 ```rust
-use icydb::design::prelude::*;
+use icydb_model::prelude::*;
 
 #[canister(
     memory_namespace = "app",
@@ -100,6 +101,7 @@ pub struct AppStore {}
     source_key = "app.user",
     store = "AppStore",
     version = 1,
+    typed_adapters,
     pk(field = "id"),
     audit_timestamps(
         created_at(
@@ -180,49 +182,61 @@ durability boundary is documented in
 
 ## Query From Rust
 
-Use the runtime prelude from canister code:
+Opted-in generated adapters provide typed reads over accepted schema. Planning,
+admission, and execution do not consume generated model metadata:
 
 ```rust
 use icydb::prelude::*;
 
-pub fn top_users_page() -> Result<icydb::db::PagedResponse<User>, icydb::Error> {
-    db!()?
-        .load::<User>()
-        .filter_eq("active", true)
-        .order_desc("score")
-        .order_term(asc("id"))
-        .page(10)
+pub fn top_users() -> Result<Vec<User>, Box<dyn std::error::Error>> {
+    let session = db!()?;
+    let rows = session
+        .query::<User>()?
+        .filter(FieldRef::new("active").eq(true))
+        .order_by(desc("score"))
+        .order_by(asc("id"))
+        .limit(10)
+        .execute_rows()?;
+
+    Ok(rows)
 }
 
-pub fn rename_user(id: Ulid, name: String) -> Result<User, icydb::Error> {
-    let patch = db!()?.structural_patch::<User, _, _>([(
+pub fn rename_user(id: Ulid, name: String) -> Result<u32, icydb::Error> {
+    let session = db!()?;
+    let patch = session.structural_patch([(
         "name",
-        InputValue::Text(name),
-    )])?;
+        icydb::db::WriteCell::Value(InputValue::Text(name)),
+    )]);
+    let result = session.execute_trusted_structural_mutation(
+        icydb::db::StructuralMutation::Update {
+            entity: "User".to_string(),
+            key: InputValue::Ulid(id),
+            patch,
+        },
+    )?;
 
-    db!()?.mutate_structural::<User>(id, patch, icydb::db::MutationMode::Update)
+    Ok(result.affected_rows)
 }
 ```
 
-Ordinary typed/fluent reads are bounded by default. Caller-facing endpoints
+Ordinary typed reads are bounded by default. Caller-facing endpoints
 still enforce caller authorization first and then receive typed errors for
 unsafe read shapes. Broad maintenance scans belong on explicit trusted/admin
 paths after controller authorization. See the
 [public facade API reference](docs/guides/public-facade-api.md) for the current
-command vocabulary and [READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md)
+surface and [READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md)
 for the full admission contract.
 
-Use atomic batch helpers when a same-entity batch must be all-or-nothing:
+Use the structural insert-batch helper when a same-entity batch must be
+all-or-nothing:
 
 ```rust
-pub fn import_users(users: Vec<User>) -> Result<Vec<User>, icydb::Error> {
-    db!()?.insert_many_atomic(users)
+pub fn import_users(
+    patches: Vec<icydb::db::StructuralPatch>,
+) -> Result<icydb::db::DynamicMutationResult, icydb::Error> {
+    db!()?.execute_trusted_structural_insert_batch("User", patches)
 }
 ```
-
-The `*_many_non_atomic` helpers are explicit prefix-commit APIs. They stop at
-the first error and may leave earlier rows committed, so they are appropriate
-only when partial progress is intended and safe for the caller to observe.
 
 With the `sql` feature enabled, the same entity can be queried or mutated
 through session/library reduced single-entity SQL:
@@ -242,14 +256,14 @@ let updated = db!()?.execute_trusted_sql_exact_update(
 // Large fixed convergence work uses the separate trusted resumable
 // prepare/resume contract with application-owned durable continuation custody.
 
-let ddl = db!()?.execute_admin_sql_ddl::<User>(
+let ddl = db!()?.execute_admin_sql_ddl(
     "CREATE INDEX IF NOT EXISTS user_score_idx ON User (score)",
 )?;
 ```
 
 `execute_trusted_sql_query` is an explicit trusted/admin SQL bypass. It is not
 public-safe for caller-controlled SQL by itself; public reads should prefer
-typed/fluent APIs or an application-owned SQL allowlist after caller
+typed APIs or an application-owned SQL allowlist after caller
 authorization.
 
 ## SQL Scope
@@ -285,11 +299,10 @@ or recovery-time policy.
 IcyDB SQL is not Postgres-style transaction SQL. Mutation statements are
 single-entity IcyDB operations, and returning `Err` from a canister update
 method does not roll back earlier state changes made by that method. Use the
-typed `*_many_atomic` helpers when one same-entity batch must be all-or-nothing;
-the `*_many_non_atomic` helpers are explicitly fail-fast and may leave a
-committed prefix before returning an error. On the Internet Computer, update
-calls for one canister execute one at a time; two concurrent client requests
-observe serialized canister state rather than a shared database transaction.
+structural insert-batch helper when one same-entity insert batch must be
+all-or-nothing. On the Internet Computer, update calls for one canister execute
+one at a time; two concurrent client requests observe serialized canister state
+rather than a shared database transaction.
 
 Generated canister SQL endpoints are deliberately narrower than the
 session/library SQL APIs. The exported methods are `icydb_query`, `icydb_ddl`,
@@ -302,7 +315,7 @@ local builds default on, IC builds default off. The default generated canister
 surface does not expose SQL `UPDATE`.
 Generated SQL endpoints are controller-gated admin surfaces, not public read
 endpoint templates. Caller-facing list/count/complete reads should be
-hand-written typed/fluent endpoints using the read-intent migration recipes and
+hand-written typed endpoints using the read-intent guidance and
 endpoint templates in
 [docs/guides/read-intent.md](docs/guides/read-intent.md).
 
@@ -323,22 +336,17 @@ usage, IC test prerequisites, and wasm report commands live in
 - `crates/icydb` - public API crate and facade.
 - `crates/icydb-core` - runtime, planner, executor, persisted rows, stores,
   SQL, schema catalog, and metrics internals.
-- `crates/icydb-build` - generated canister actor glue implementation behind
-  the public `icydb::build` facade.
 - `crates/icydb-config` - host-side `icydb.toml` parsing behind
   `icydb::build` and CLI checks.
-- `crates/icydb-derive` - public derive helpers.
 - `crates/icydb-diagnostic-code` - compact diagnostic code registry and
   public diagnostic metadata.
 - `crates/icydb-schema` - bounded public schema-proposal contract and canonical
   scalar atoms shared by standalone IcyDB and model tooling.
 - `crates/icydb-model` - application-model declarations, host graph, reusable
-  model types and behavior, fragment lowering, and actor traversal.
-- `crates/icydb-model-macros` - procedural compiler and application helper
-  derives consumed through `icydb-model`.
-- `crates/icydb-model-legacy` and `crates/icydb-schema-derive` - temporary
-  unpublished model AST plus the embedded macro compiler during the 0.213
-  consumer cutover; Patch 8 deletes both.
+  model types and behavior, fragment lowering, and generated canister actor
+  glue.
+- `crates/icydb-model-macros` - current application-model declaration and
+  application helper macros consumed through `icydb-model`.
 - `crates/icydb-utils` - shared internal utility helpers.
 - `crates/icydb-cli` - developer CLI for local SQL, config checks, canister
   lifecycle helpers, and observability reports.

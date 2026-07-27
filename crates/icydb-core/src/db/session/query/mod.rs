@@ -9,35 +9,27 @@ mod cache;
 mod diagnostics;
 #[cfg(feature = "sql")]
 mod dynamic;
-mod execution;
-mod explain;
-mod fluent;
-mod paging;
+#[cfg(feature = "sql")]
+mod grouped;
+
+use crate::db::{QueryError, executor::ExecutorPlanError};
 
 pub(in crate::db) use cache::QueryPlanCacheAttribution;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use cache::QueryPlanCompilePhaseAttribution;
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db) use cache::QueryPlanVisibility;
 pub(in crate::db::session) use cache::query_plan_cache_reuse_event;
-#[cfg(test)]
-pub(in crate::db) use cache::{
-    reset_visible_index_projection_count_for_tests, visible_index_projection_count_for_tests,
-};
-#[cfg(feature = "diagnostics")]
-pub(in crate::db::session::query) use diagnostics::QueryAttributionCommon;
 #[cfg(feature = "diagnostics")]
 pub use diagnostics::{
-    DirectDataRowAttribution, FluentTerminalExecutionAttribution, GroupedCountAttribution,
-    GroupedExecutionAttribution, KernelRowAttribution, QueryExecutionAttribution,
-    ScalarAggregateAttribution,
+    DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
+    KernelRowAttribution, ScalarAggregateAttribution,
 };
-pub(in crate::db::session) use execution::query_error_from_executor_plan_error;
-pub(in crate::db) use execution::{
-    AcceptedExecutionOutput, AcceptedIdValuesOutput, AcceptedOptionalValueOutput,
-    AcceptedValuesOutput,
-};
-#[cfg(feature = "diagnostics")]
-pub(in crate::db::session::query) use execution::{
-    PreparedQueryExecutionOutcome, PreparedQueryExecutionOutput,
-};
+
+// Convert executor plan-surface failures at the session boundary so query
+// errors do not import executor-owned error enums.
+pub(in crate::db::session) fn query_error_from_executor_plan_error(
+    err: ExecutorPlanError,
+) -> QueryError {
+    match err {
+        ExecutorPlanError::Cursor(err) => QueryError::from_cursor_plan_error(*err),
+    }
+}

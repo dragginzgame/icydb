@@ -459,13 +459,3 @@ pub(super) fn hash_consistency(hasher: &mut Sha256, consistency: MissingRowPolic
         MissingRowPolicy::Error => write_tag(hasher, CONSISTENCY_ERROR_TAG),
     }
 }
-
-#[cfg(test)]
-pub(in crate::db::query::fingerprint) fn hash_explain_plan_profile_internal(
-    hasher: &mut Sha256,
-    plan: &crate::db::query::explain::ExplainPlan,
-    profile: ExplainHashProfile<'_>,
-    projection: Option<&crate::db::query::plan::expr::ProjectionSpec>,
-) {
-    profile::hash_explain_plan_profile_internal(hasher, plan, profile, projection);
-}

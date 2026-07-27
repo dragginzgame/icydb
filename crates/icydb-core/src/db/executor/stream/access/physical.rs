@@ -948,28 +948,6 @@ impl OrderedKeyStream for PrimaryRangeKeyStream {
 
         None
     }
-
-    #[cfg(test)]
-    fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
-        if self.remaining.is_some() {
-            return None;
-        }
-
-        Some(self.store.with_data(|store| {
-            let mut count = 0usize;
-            let _: Result<(), InternalError> = store.visit_range(
-                (
-                    Bound::Included(self.lower_raw.clone()),
-                    self.upper_bound.clone(),
-                ),
-                |_raw_key, _row| {
-                    count = count.saturating_add(1);
-                    Ok(StoreVisit::Continue)
-                },
-            );
-            count
-        }))
-    }
 }
 
 ///

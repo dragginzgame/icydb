@@ -527,7 +527,7 @@ fn snapshot_delta_classifier_rejects_non_prefix_field_changes() {
         stored.version(),
         stored.entity_path().to_string(),
         stored.entity_name().to_string(),
-        stored.first_primary_key_field_id(),
+        stored.primary_key_field_ids().to_vec(),
         stored.row_layout().clone(),
         generated_fields,
     );

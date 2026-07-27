@@ -53,15 +53,6 @@ pub(in crate::db::executor) fn saturating_u32_len(row_len: usize) -> u32 {
     u32::try_from(row_len).unwrap_or(u32::MAX)
 }
 
-/// Convert one byte-length value into `u64` using saturating semantics.
-///
-/// This helper exists to keep numeric-clamp behavior consistent between runtime
-/// terminal folds and executor-owned expected-value helpers in tests.
-#[must_use]
-pub(in crate::db::executor) fn saturating_row_len(row_len: usize) -> u64 {
-    u64::try_from(row_len).unwrap_or(u64::MAX)
-}
-
 ///
 /// TESTS
 ///
@@ -80,19 +71,6 @@ mod tests {
         .expect("test key encoding should succeed");
 
         DecodedDataStoreKey::try_from_raw(&raw).expect("test key decode should succeed")
-    }
-
-    #[test]
-    fn saturating_row_len_returns_exact_value_within_u64_range() {
-        assert_eq!(saturating_row_len(42), 42);
-    }
-
-    #[test]
-    fn saturating_row_len_saturates_at_u64_max() {
-        assert_eq!(
-            saturating_row_len(usize::MAX),
-            u64::try_from(usize::MAX).unwrap_or(u64::MAX)
-        );
     }
 
     #[test]

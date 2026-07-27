@@ -8,8 +8,6 @@ use crate::db::{
     direction::Direction,
     query::plan::{OrderDirection, OrderSpec, order_term::index_key_item_order_terms},
 };
-#[cfg(test)]
-use crate::{db::query::plan::order_term::index_order_terms, model::index::IndexModel};
 
 ///
 /// DeterministicSecondaryOrderContract
@@ -134,17 +132,6 @@ pub(in crate::db) struct DeterministicSecondaryOrderContract {
 }
 
 impl DeterministicSecondaryOrderContract {
-    /// Build one normalized deterministic `..., primary_key_fields` order
-    /// contract from one executor-facing ORDER BY spec.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn from_order_spec(
-        order: &OrderSpec,
-        primary_key_name: &str,
-    ) -> Option<Self> {
-        Self::from_order_spec_fields(order, &[primary_key_name])
-    }
-
     /// Build one normalized deterministic order contract with an ordered
     /// primary-key field suffix.
     #[must_use]
@@ -188,13 +175,6 @@ impl DeterministicSecondaryOrderContract {
     #[must_use]
     pub(in crate::db) const fn non_primary_key_terms(&self) -> &[String] {
         self.non_primary_key_terms.as_slice()
-    }
-
-    /// Borrow the normalized primary-key ORDER BY suffix terms.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn primary_key_terms(&self) -> &[String] {
-        self.primary_key_terms.as_slice()
     }
 
     /// Return true when the normalized non-primary-key terms match one expected
@@ -286,21 +266,6 @@ impl DeterministicSecondaryOrderContract {
     }
 }
 
-/// Return the shared scalar secondary-index order compatibility fact.
-#[must_use]
-#[cfg(test)]
-pub(in crate::db) fn deterministic_secondary_index_order_compatibility(
-    order_contract: &DeterministicSecondaryOrderContract,
-    index: &IndexModel,
-    prefix_len: usize,
-) -> DeterministicSecondaryIndexOrderCompatibility {
-    deterministic_secondary_index_key_items_order_compatibility(
-        order_contract,
-        SemanticIndexKeyItemsRef::Static(index.key_items()),
-        prefix_len,
-    )
-}
-
 /// Return the shared scalar secondary-index order compatibility fact from
 /// reduced key-item facts.
 #[must_use]
@@ -310,19 +275,6 @@ pub(in crate::db) fn deterministic_secondary_index_key_items_order_compatibility
     prefix_len: usize,
 ) -> DeterministicSecondaryIndexOrderCompatibility {
     DeterministicSecondaryIndexOrderCompatibility::new(order_contract, key_items, prefix_len)
-}
-
-/// Return whether one deterministic scalar ORDER BY contract is satisfied by
-/// one secondary-index traversal after the equality-bound prefix.
-#[must_use]
-#[cfg(test)]
-pub(in crate::db) fn deterministic_secondary_index_order_satisfied(
-    order_contract: &DeterministicSecondaryOrderContract,
-    index: &IndexModel,
-    prefix_len: usize,
-) -> bool {
-    deterministic_secondary_index_order_compatibility(order_contract, index, prefix_len)
-        .is_satisfied()
 }
 
 /// Return whether accepted field-path index order terms satisfy one
@@ -502,19 +454,6 @@ impl GroupedIndexOrderContract {
     }
 }
 
-/// Return the shared grouped secondary-index order match classification.
-#[must_use]
-#[cfg(test)]
-pub(in crate::db) fn grouped_index_order_match(
-    order_contract: &GroupedIndexOrderContract,
-    index: &IndexModel,
-    prefix_len: usize,
-) -> GroupedIndexOrderMatch {
-    let index_terms = index_order_terms(index);
-
-    order_contract.classify_index_match(&index_terms, prefix_len)
-}
-
 /// Return whether accepted field-path index order terms satisfy one grouped
 /// ORDER BY contract after the equality-bound prefix.
 #[must_use]
@@ -549,17 +488,6 @@ impl OrderSpec {
                 term.direct_field() == Some(*primary_key_name) && term.direction() == direction
             })
             .then_some(direction)
-    }
-
-    /// Return the normalized deterministic `..., primary_key` order contract,
-    /// if one exists for this ORDER BY shape.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn deterministic_secondary_order_contract(
-        &self,
-        primary_key_name: &str,
-    ) -> Option<DeterministicSecondaryOrderContract> {
-        DeterministicSecondaryOrderContract::from_order_spec(self, primary_key_name)
     }
 
     /// Return the normalized deterministic `..., primary_key_fields` order

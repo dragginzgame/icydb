@@ -23,13 +23,7 @@ compensates for it.
 
 Covered by this document:
 
-* Single-entity batch save helpers:
-  * `insert_many_atomic`
-  * `update_many_atomic`
-  * `replace_many_atomic`
-  * `insert_many_non_atomic`
-  * `update_many_non_atomic`
-  * `replace_many_non_atomic`
+* `execute_trusted_structural_insert_batch`
 * Failure behavior
 * Recovery behavior
 
@@ -43,25 +37,18 @@ Out of scope:
 
 ## API Lanes
 
-IcyDB now has two explicit lanes for batch writes.
+IcyDB exposes one maintained batch-write lane:
+`execute_trusted_structural_insert_batch`.
 
-### Atomic lane (`*_many_atomic`)
+* Scope: one accepted entity per call.
+* Input: field-name-driven structural insert patches.
+* Contract: all-or-nothing for that batch.
+* If any item fails before commit, no row from the batch is persisted.
+* The operation uses commit-marker-bound journal batches and recovery folding
+  for durable correctness.
+* It is not a multi-entity transaction.
 
-* Scope: one entity type per call
-* Contract: all-or-nothing for that batch
-* If any item fails before commit, no row from that batch is persisted
-* Uses commit-marker-bound journal batches and recovery folding for durable
-  correctness
-* Not a multi-entity transaction
-
-### Non-atomic lane (`*_many_non_atomic`)
-
-* Scope: one entity type per call
-* Contract: fail-fast convenience helper
-* Every attempted item receives the full write-admission checks
-* Earlier items may commit before a later item fails
-* No transactional rollback across batch items
-* Not a multi-entity transaction
+No alternate generated-entity batch lane is maintained.
 
 ### SQL exact and prefix update
 

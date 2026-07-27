@@ -3,10 +3,7 @@
 //! Does not own: predicate AST or planning policy logic.
 //! Boundary: error surface for schema construction and predicate-schema validation.
 
-use crate::{
-    db::predicate::{CoercionId, CompareOp},
-    model::index::{IndexExpression, IndexModel},
-};
+use crate::db::predicate::{CoercionId, CompareOp};
 use std::fmt;
 
 /// Compact predicate operator identity for schema validation diagnostics.
@@ -101,53 +98,8 @@ pub enum ValidateError {
     #[error("primary key '{field}' has a non-keyable type")]
     InvalidPrimaryKeyType { field: String },
 
-    #[error("index '{index}' references unknown field '{field}'")]
-    IndexFieldUnknown {
-        index: Box<IndexModel>,
-        field: String,
-    },
-
-    #[error("index '{index}' references non-queryable field '{field}'")]
-    IndexFieldNotQueryable {
-        index: Box<IndexModel>,
-        field: String,
-    },
-
-    #[error(
-        "index '{index}' references map field '{field}'; map fields are not queryable in icydb 0.7"
-    )]
-    IndexFieldMapNotQueryable {
-        index: Box<IndexModel>,
-        field: String,
-    },
-
-    #[error("index '{index}' repeats field '{field}'")]
-    IndexFieldDuplicate {
-        index: Box<IndexModel>,
-        field: String,
-    },
-
-    #[error("index '{index}' expression key item '{expression}' requires {expected}")]
-    IndexExpressionFieldTypeInvalid {
-        index: &'static str,
-        expression: IndexExpression,
-        expected: &'static str,
-    },
-
     #[error("duplicate index name '{name}'")]
     DuplicateIndexName { name: String },
-
-    #[error("index '{index}' predicate '{predicate}' has invalid SQL syntax")]
-    InvalidIndexPredicateSyntax {
-        index: Box<IndexModel>,
-        predicate: &'static str,
-    },
-
-    #[error("index '{index}' predicate '{predicate}' is invalid for schema")]
-    InvalidIndexPredicateSchema {
-        index: Box<IndexModel>,
-        predicate: &'static str,
-    },
 
     #[error("operator {operator} is not valid for field '{field}'")]
     InvalidOperator {

@@ -6,30 +6,21 @@
 use crate::{
     db::{
         data::decode_admitted_value_from_accepted_field_contract,
-        relation::{
-            RelationFieldCardinality, RelationFieldMetadata, relation_field_metadata_for_model_iter,
-        },
         schema::{
             AcceptedConstraintKind, AcceptedFieldKind, AcceptedFieldPersistenceContract,
             AcceptedInsertOmissionPolicy, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
             AcceptedValueCatalogHandle, ConstraintActivationKind, ConstraintActivationSnapshot,
             ConstraintActivationState, ConstraintOrigin, ConstraintValidationJob, FieldId,
             PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedNestedLeafSnapshot,
-            PersistedSchemaSnapshot, RelationId, SchemaHistoricalFill,
+            PersistedSchemaSnapshot, SchemaHistoricalFill,
             composite_catalog::{AcceptedCompositeElement, AcceptedCompositeShape},
-            field_type_from_persisted_kind, not_null_constraint_name, output_value_from_runtime,
-            primary_key_constraint_name, render_accepted_check_expr_sql,
+            field_type_from_persisted_kind, output_value_from_runtime,
+            render_accepted_check_expr_sql,
             runtime::AcceptedRowLayoutRuntimeField,
         },
     },
     error::InternalError,
-    model::{
-        entity::EntityModel,
-        field::{
-            CompositeCodec, CompositeElementModel, CompositeShapeModel, FieldDatabaseDefault,
-            FieldKind, FieldModel,
-        },
-    },
+    model::field::CompositeCodec,
     value::{OutputValue, render_output_value_text},
 };
 use std::fmt::Write;
@@ -409,34 +400,6 @@ impl EntityFieldTemporalFacts {
             historical_fill_hash: None,
         }
     }
-
-    fn generated(field: &FieldModel) -> Self {
-        let insert_omission = if field.insert_generation().is_some() {
-            "generated"
-        } else if field.write_management().is_some() {
-            "managed"
-        } else {
-            match field.database_default() {
-                FieldDatabaseDefault::EncodedSlotPayload(_)
-                | FieldDatabaseDefault::AuthoredEnumUnit { .. } => "default",
-                FieldDatabaseDefault::None if field.nullable() => "null",
-                FieldDatabaseDefault::None => "required",
-            }
-        };
-        let (insert_default, insert_default_bytes, insert_default_hash) =
-            generated_insert_default_facts(field.database_default());
-
-        Self {
-            insert_omission: Some(insert_omission.to_string()),
-            insert_default,
-            insert_default_bytes,
-            insert_default_hash,
-            introduced_in_layout: Some(1),
-            historical_fill: Some("reject".to_string()),
-            historical_fill_bytes: None,
-            historical_fill_hash: None,
-        }
-    }
 }
 
 impl EntityFieldDescription {
@@ -730,79 +693,30 @@ pub enum EntityRelationCardinality {
     Set,
 }
 
-#[cfg_attr(
-    doc,
-    doc = "Build one stable entity-schema description from one runtime `EntityModel`."
-)]
-#[must_use]
-pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaDescription {
-    let fields = describe_entity_fields(model);
-    let primary_key_fields = primary_key_field_names_from_model(model);
-    let primary_key = render_primary_key_fields(primary_key_fields.as_slice());
-
-    describe_entity_model_from_description_rows(
-        model.path,
-        model.entity_name,
-        primary_key.as_str(),
-        primary_key_fields,
-        fields,
-        describe_entity_indexes_from_model(model),
-        describe_entity_relations_from_model(model),
-        describe_entity_constraints_from_model(model),
-        1,
-        1,
-    )
-}
-
-#[cfg_attr(
-    doc,
-    doc = "Build one entity-schema description using accepted persisted schema slot metadata."
-)]
-pub(in crate::db) fn describe_entity_model_with_persisted_schema(
-    model: &EntityModel,
-    schema: &AcceptedSchemaSnapshot,
-    value_catalog: &AcceptedValueCatalogHandle,
-    validation_jobs: &[ConstraintValidationJob],
-) -> Result<EntitySchemaDescription, InternalError> {
-    describe_entity_with_persisted_schema(
-        schema,
-        value_catalog,
-        validation_jobs,
-        Some(model.primary_key.name),
-    )
-}
-
 /// Build one entity-schema description solely from accepted persisted authority.
-#[cfg(feature = "sql")]
 pub(in crate::db) fn describe_accepted_entity_with_persisted_schema(
     schema: &AcceptedSchemaSnapshot,
     value_catalog: &AcceptedValueCatalogHandle,
     validation_jobs: &[ConstraintValidationJob],
 ) -> Result<EntitySchemaDescription, InternalError> {
-    describe_entity_with_persisted_schema(schema, value_catalog, validation_jobs, None)
+    describe_entity_with_persisted_schema(schema, value_catalog, validation_jobs)
 }
 
 fn describe_entity_with_persisted_schema(
     schema: &AcceptedSchemaSnapshot,
     value_catalog: &AcceptedValueCatalogHandle,
     validation_jobs: &[ConstraintValidationJob],
-    model_primary_key_fallback: Option<&str>,
 ) -> Result<EntitySchemaDescription, InternalError> {
     let row_layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(schema)?;
     let fields = describe_entity_fields_with_runtime_contract(schema, &row_layout, value_catalog)?;
     let primary_key_fields = schema.primary_key_field_names();
-    let primary_key_fields = if primary_key_fields.is_empty() {
-        vec![
-            model_primary_key_fallback
-                .ok_or_else(InternalError::store_invariant)?
-                .to_string(),
-        ]
-    } else {
-        primary_key_fields
-            .into_iter()
-            .map(str::to_string)
-            .collect::<Vec<_>>()
-    };
+    if primary_key_fields.is_empty() {
+        return Err(InternalError::store_invariant());
+    }
+    let primary_key_fields = primary_key_fields
+        .into_iter()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
     let primary_key = render_primary_key_fields(primary_key_fields.as_slice());
 
     Ok(describe_entity_model_from_description_rows(
@@ -851,128 +765,6 @@ fn describe_entity_model_from_description_rows(
         row_layout_current,
         row_layout_history_floor,
     )
-}
-
-fn describe_entity_constraints_from_model(model: &EntityModel) -> Vec<EntityConstraintDescription> {
-    let mut next_id = 1u32;
-    let mut constraints = vec![model_primary_key_constraint(model, next_id)];
-
-    for (slot, field) in model
-        .fields()
-        .iter()
-        .enumerate()
-        .filter(|(_, field)| !field.nullable())
-    {
-        next_id = next_id
-            .checked_add(1)
-            .expect("generated constraint count should fit current model bounds");
-        let field_id = FieldId::from_initial_slot(slot);
-        constraints.push(model_not_null_constraint(next_id, field_id, field.name()));
-    }
-
-    for index in model.indexes().iter().filter(|index| index.is_unique()) {
-        next_id = next_id
-            .checked_add(1)
-            .expect("generated constraint count should fit current model bounds");
-        constraints.push(model_unique_constraint(
-            next_id,
-            u32::from(index.ordinal()),
-            index.name(),
-            index
-                .fields()
-                .iter()
-                .map(|field| (*field).to_string())
-                .collect(),
-        ));
-    }
-
-    for (position, relation) in model.relations().iter().enumerate() {
-        next_id = next_id
-            .checked_add(1)
-            .expect("generated constraint count should fit current model bounds");
-        let relation_id = u32::try_from(position)
-            .ok()
-            .and_then(|position| position.checked_add(1))
-            .and_then(RelationId::new)
-            .expect("generated relation count should fit current model bounds");
-        constraints.push(model_relation_constraint(
-            next_id,
-            relation_id,
-            relation.name(),
-            relation
-                .local_fields()
-                .iter()
-                .map(|field| field.name().to_string())
-                .collect(),
-            relation.target_path(),
-        ));
-    }
-
-    constraints
-}
-
-fn model_primary_key_constraint(model: &EntityModel, id: u32) -> EntityConstraintDescription {
-    let mut description = accepted_constraint_description(
-        id,
-        primary_key_constraint_name(),
-        ConstraintOrigin::Generated,
-    );
-    description.kind = "primary_key".to_string();
-    description.fields = primary_key_field_names_from_model(model);
-    description.semantics = "primary_key_v1".to_string();
-    description
-}
-
-fn model_not_null_constraint(
-    id: u32,
-    field_id: FieldId,
-    field_name: &str,
-) -> EntityConstraintDescription {
-    let mut description = accepted_constraint_description(
-        id,
-        not_null_constraint_name(field_id).as_str(),
-        ConstraintOrigin::Generated,
-    );
-    description.kind = "not_null".to_string();
-    description.field_id = Some(field_id.get());
-    description.fields = vec![field_name.to_string()];
-    description.semantics = "not_null_v1".to_string();
-    description
-}
-
-fn model_unique_constraint(
-    id: u32,
-    index_id: u32,
-    index_name: &str,
-    fields: Vec<String>,
-) -> EntityConstraintDescription {
-    let mut description =
-        accepted_constraint_description(id, index_name, ConstraintOrigin::Generated);
-    description.kind = "unique".to_string();
-    description.index_id = Some(index_id);
-    description.fields = fields;
-    description.index = Some(index_name.to_string());
-    description.semantics = "unique_index_v1".to_string();
-    description
-}
-
-fn model_relation_constraint(
-    id: u32,
-    relation_id: RelationId,
-    relation_name: &str,
-    fields: Vec<String>,
-    target_path: &str,
-) -> EntityConstraintDescription {
-    let mut description =
-        accepted_constraint_description(id, relation_name, ConstraintOrigin::Generated);
-    description.kind = "relation".to_string();
-    description.relation_id = Some(relation_id.get());
-    description.fields = fields;
-    description.relation = Some(relation_name.to_string());
-    description.target_entity = Some(target_path.to_string());
-    description.action = Some("restrict".to_string());
-    description.semantics = "relation_pk_restrict_v1".to_string();
-    description
 }
 
 fn describe_entity_constraints_with_persisted_schema(
@@ -1209,41 +1001,8 @@ fn accepted_field_name(
         .ok_or_else(InternalError::store_invariant)
 }
 
-fn describe_entity_relations_from_model(model: &EntityModel) -> Vec<EntityRelationDescription> {
-    relation_field_metadata_for_model_iter(model)
-        .map(relation_description_from_metadata)
-        .collect()
-}
-
-fn primary_key_field_names_from_model(model: &EntityModel) -> Vec<String> {
-    model
-        .primary_key_model()
-        .fields()
-        .iter()
-        .map(|field| field.name.to_string())
-        .collect()
-}
-
 fn render_primary_key_fields(fields: &[String]) -> String {
     fields.join(", ")
-}
-
-fn describe_entity_indexes_from_model(model: &EntityModel) -> Vec<EntityIndexDescription> {
-    let mut indexes = Vec::with_capacity(model.indexes.len());
-    for index in model.indexes {
-        indexes.push(EntityIndexDescription::new(
-            index.name().to_string(),
-            index.is_unique(),
-            index
-                .fields()
-                .iter()
-                .map(|field| (*field).to_string())
-                .collect(),
-            "generated".to_string(),
-        ));
-    }
-
-    indexes
 }
 
 fn describe_entity_indexes_with_persisted_schema(
@@ -1284,16 +1043,6 @@ fn describe_persisted_index_fields(key: &PersistedIndexKeySnapshot) -> Vec<Strin
             })
             .collect(),
     }
-}
-
-// Build the stable field-description subset once from one runtime model so
-// metadata surfaces that only need columns do not rebuild indexes and
-// relations through the heavier DESCRIBE payload path.
-#[must_use]
-pub(in crate::db) fn describe_entity_fields(model: &EntityModel) -> Vec<EntityFieldDescription> {
-    describe_entity_fields_with_slot_lookup(model, |slot, _field| {
-        Some(u16::try_from(slot).expect("generated field slot should fit in u16"))
-    })
 }
 
 #[cfg_attr(
@@ -1360,33 +1109,6 @@ fn describe_entity_fields_with_runtime_contract(
     Ok(fields)
 }
 
-// Build model-only field descriptors with an injected top-level slot lookup.
-// Accepted-schema introspection has a separate catalog-backed entrypoint above.
-fn describe_entity_fields_with_slot_lookup(
-    model: &EntityModel,
-    mut slot_for_field: impl FnMut(usize, &FieldModel) -> Option<u16>,
-) -> Vec<EntityFieldDescription> {
-    let mut fields = Vec::with_capacity(model.fields.len());
-    let primary_key_fields = primary_key_field_names_from_model(model);
-
-    for (slot, field) in model.fields.iter().enumerate() {
-        let primary_key = primary_key_fields
-            .iter()
-            .any(|primary_key_field| primary_key_field == field.name);
-        describe_field_recursive(
-            &mut fields,
-            field.name,
-            slot_for_field(slot, field),
-            field,
-            primary_key,
-            None,
-            None,
-        );
-    }
-
-    fields
-}
-
 ///
 /// DescribeFieldMetadata
 ///
@@ -1410,43 +1132,6 @@ impl DescribeFieldMetadata {
             origin,
         }
     }
-}
-
-// Add one generated field and any generated composite-record leaves so
-// DESCRIBE/SHOW COLUMNS expose the same nested rows SQL can project and filter.
-fn describe_field_recursive(
-    fields: &mut Vec<EntityFieldDescription>,
-    name: &str,
-    slot: Option<u16>,
-    field: &FieldModel,
-    primary_key: bool,
-    tree_prefix: Option<&'static str>,
-    metadata_override: Option<DescribeFieldMetadata>,
-) {
-    let temporal = if slot.is_some() {
-        EntityFieldTemporalFacts::generated(field)
-    } else {
-        EntityFieldTemporalFacts::nested()
-    };
-    let metadata = metadata_override.unwrap_or_else(|| {
-        DescribeFieldMetadata::new(
-            summarize_field_kind(&field.kind),
-            field.nullable(),
-            field.kind.value_kind().is_queryable(),
-            "generated".to_string(),
-        )
-    });
-
-    push_described_field_row(
-        fields,
-        name,
-        slot,
-        primary_key,
-        tree_prefix,
-        metadata,
-        temporal,
-    );
-    describe_generated_nested_fields(fields, field.nested_fields());
 }
 
 // Add one already-resolved field row to the stable describe DTO list. The
@@ -1475,30 +1160,6 @@ fn push_described_field_row(
         metadata,
         temporal,
     ));
-}
-
-// Render generated nested field metadata recursively for model-only
-// introspection. Accepted introspection consumes persisted catalog-owned leaves.
-fn describe_generated_nested_fields(
-    fields: &mut Vec<EntityFieldDescription>,
-    nested_fields: &[FieldModel],
-) {
-    for (index, nested) in nested_fields.iter().enumerate() {
-        let prefix = if index + 1 == nested_fields.len() {
-            "└─ "
-        } else {
-            "├─ "
-        };
-        describe_field_recursive(
-            fields,
-            nested.name(),
-            None,
-            nested,
-            false,
-            Some(prefix),
-            None,
-        );
-    }
 }
 
 // Render accepted nested leaf descriptors. Nested leaves do not own physical
@@ -1616,167 +1277,6 @@ fn persisted_relation_description_metadata(
     }
 }
 
-// Project relation-owned metadata into the stable describe DTO surface.
-fn relation_description_from_metadata(
-    metadata: RelationFieldMetadata,
-) -> EntityRelationDescription {
-    let cardinality = match metadata.cardinality() {
-        RelationFieldCardinality::Single => EntityRelationCardinality::Single,
-        RelationFieldCardinality::List => EntityRelationCardinality::List,
-        RelationFieldCardinality::Set => EntityRelationCardinality::Set,
-    };
-
-    EntityRelationDescription::new(
-        metadata.field_name().to_string(),
-        metadata.target_path().to_string(),
-        metadata.target_entity_name().to_string(),
-        metadata.target_store_path().to_string(),
-        cardinality,
-    )
-}
-
-#[cfg_attr(doc, doc = "Render one stable field-kind label for describe output.")]
-fn summarize_field_kind(kind: &FieldKind) -> String {
-    let mut out = String::new();
-    write_field_kind_summary(&mut out, kind);
-
-    out
-}
-
-// Stream one stable field-kind label directly into the output buffer so
-// describe/sql surfaces do not retain a large recursive `format!` family.
-fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
-    if let Some(name) = kind.describe_kind_name() {
-        out.push_str(name);
-        return;
-    }
-
-    match kind {
-        FieldKind::Blob { max_len } => {
-            write_length_bounded_field_kind_summary(out, "blob", *max_len);
-        }
-        FieldKind::Decimal { scale } => {
-            let _ = write!(out, "decimal(scale={scale})");
-        }
-        FieldKind::IntBig { max_bytes } => {
-            write_byte_bounded_field_kind_summary(out, "int_big", *max_bytes);
-        }
-        FieldKind::Enum { path, .. } => {
-            out.push_str("enum(");
-            out.push_str(path);
-            out.push(')');
-        }
-        FieldKind::Text { max_len } => {
-            write_length_bounded_field_kind_summary(out, "text", *max_len);
-        }
-        FieldKind::Relation {
-            target_entity_name,
-            key_kind,
-            ..
-        } => {
-            out.push_str("relation(target=");
-            out.push_str(target_entity_name);
-            out.push_str(", key=");
-            write_field_kind_summary(out, key_kind);
-            out.push(')');
-        }
-        FieldKind::List(inner) => {
-            out.push_str("list<");
-            write_field_kind_summary(out, inner);
-            out.push('>');
-        }
-        FieldKind::Set(inner) => {
-            out.push_str("set<");
-            write_field_kind_summary(out, inner);
-            out.push('>');
-        }
-        FieldKind::Map { key, value } => {
-            out.push_str("map<");
-            write_field_kind_summary(out, key);
-            out.push_str(", ");
-            write_field_kind_summary(out, value);
-            out.push('>');
-        }
-        FieldKind::Composite { path, codec, shape } => {
-            out.push_str("composite(path=");
-            out.push_str(path);
-            out.push_str(", codec=");
-            write_composite_codec_summary(out, *codec);
-            out.push_str(", shape=");
-            write_generated_composite_shape_summary(out, shape);
-            out.push(')');
-        }
-        FieldKind::Account
-        | FieldKind::Bool
-        | FieldKind::Date
-        | FieldKind::Duration
-        | FieldKind::Float32
-        | FieldKind::Float64
-        | FieldKind::Int8
-        | FieldKind::Int16
-        | FieldKind::Int32
-        | FieldKind::Int64
-        | FieldKind::Int128
-        | FieldKind::Principal
-        | FieldKind::Subaccount
-        | FieldKind::Timestamp
-        | FieldKind::Nat8
-        | FieldKind::Nat16
-        | FieldKind::Nat32
-        | FieldKind::Nat64
-        | FieldKind::Nat128
-        | FieldKind::Ulid
-        | FieldKind::Unit => unreachable!("schema describe invariant"),
-        FieldKind::NatBig { max_bytes } => {
-            write_byte_bounded_field_kind_summary(out, "nat_big", *max_bytes);
-        }
-    }
-}
-
-fn write_composite_codec_summary(out: &mut String, codec: CompositeCodec) {
-    match codec {
-        CompositeCodec::StructuralV1 => out.push_str("structural_v1"),
-    }
-}
-
-fn write_generated_composite_shape_summary(out: &mut String, shape: &CompositeShapeModel) {
-    match shape {
-        CompositeShapeModel::Record(fields) => {
-            out.push_str("record{");
-            for (index, field) in fields.iter().enumerate() {
-                if index > 0 {
-                    out.push_str(", ");
-                }
-                out.push_str(field.name());
-                out.push(':');
-                write_field_kind_summary(out, &field.kind());
-                write_composite_nullability_summary(out, field.nullable());
-            }
-            out.push('}');
-        }
-        CompositeShapeModel::Tuple(elements) => {
-            out.push_str("tuple<");
-            for (index, element) in elements.iter().enumerate() {
-                if index > 0 {
-                    out.push_str(", ");
-                }
-                write_generated_composite_element_summary(out, element);
-            }
-            out.push('>');
-        }
-        CompositeShapeModel::Newtype(inner) => {
-            out.push_str("newtype<");
-            write_generated_composite_element_summary(out, inner);
-            out.push('>');
-        }
-    }
-}
-
-fn write_generated_composite_element_summary(out: &mut String, element: &CompositeElementModel) {
-    write_field_kind_summary(out, &element.kind());
-    write_composite_nullability_summary(out, element.nullable());
-}
-
 fn write_accepted_composite_shape_summary(
     out: &mut String,
     shape: &AcceptedCompositeShape,
@@ -1825,6 +1325,12 @@ fn write_accepted_composite_element_summary(
     Ok(())
 }
 
+fn write_composite_codec_summary(out: &mut String, codec: CompositeCodec) {
+    match codec {
+        CompositeCodec::StructuralV1 => out.push_str("structural_v1"),
+    }
+}
+
 fn write_composite_nullability_summary(out: &mut String, nullable: bool) {
     if nullable {
         out.push('?');
@@ -1833,45 +1339,6 @@ fn write_composite_nullability_summary(out: &mut String, nullable: bool) {
 
 trait DescribeKindName {
     fn describe_kind_name(&self) -> Option<&'static str>;
-}
-
-impl DescribeKindName for FieldKind {
-    fn describe_kind_name(&self) -> Option<&'static str> {
-        Some(match self {
-            Self::Account => "account",
-            Self::Bool => "bool",
-            Self::Date => "date",
-            Self::Duration => "duration",
-            Self::Float32 => "float32",
-            Self::Float64 => "float64",
-            Self::Int8 => "int8",
-            Self::Int16 => "int16",
-            Self::Int32 => "int32",
-            Self::Int64 => "int64",
-            Self::Int128 => "int128",
-            Self::Principal => "principal",
-            Self::Subaccount => "subaccount",
-            Self::Timestamp => "timestamp",
-            Self::Nat8 => "nat8",
-            Self::Nat16 => "nat16",
-            Self::Nat32 => "nat32",
-            Self::Nat64 => "nat64",
-            Self::Nat128 => "nat128",
-            Self::Ulid => "ulid",
-            Self::Unit => "unit",
-            Self::Blob { .. }
-            | Self::Decimal { .. }
-            | Self::Enum { .. }
-            | Self::IntBig { .. }
-            | Self::NatBig { .. }
-            | Self::Text { .. }
-            | Self::Relation { .. }
-            | Self::List(_)
-            | Self::Set(_)
-            | Self::Map { .. }
-            | Self::Composite { .. } => return None,
-        })
-    }
 }
 
 // Write the common text/blob describe label. Both generated and accepted schema
@@ -1897,32 +1364,6 @@ fn write_byte_bounded_field_kind_summary(out: &mut String, kind_name: &str, max_
     out.push_str("(max_bytes=");
     out.push_str(&max_bytes.to_string());
     out.push(')');
-}
-
-// Project generated proposal metadata without pretending that generated code
-// owns accepted runtime semantics. Encoded generated defaults can expose their
-// exact byte identity; accepted introspection below additionally decodes them.
-fn generated_insert_default_facts(
-    default: FieldDatabaseDefault,
-) -> (Option<String>, Option<u32>, Option<String>) {
-    match default {
-        FieldDatabaseDefault::None => (None, None, None),
-        FieldDatabaseDefault::EncodedSlotPayload(payload) => {
-            let bytes = u32::try_from(payload.len()).ok();
-            let hash = short_default_payload_fingerprint(payload);
-            (
-                Some(format!(
-                    "slot_payload(bytes={}, sha256={hash})",
-                    payload.len()
-                )),
-                bytes,
-                Some(hash),
-            )
-        }
-        FieldDatabaseDefault::AuthoredEnumUnit { enum_path, variant } => {
-            (Some(format!("{enum_path}::{variant}")), None, None)
-        }
-    }
 }
 
 ///
@@ -2226,6 +1667,3 @@ impl DescribeKindName for AcceptedFieldKind {
 //
 // TESTS
 //
-
-#[cfg(test)]
-mod tests;

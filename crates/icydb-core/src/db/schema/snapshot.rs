@@ -34,43 +34,6 @@ pub(in crate::db) struct AcceptedSchemaSnapshot {
     snapshot: PersistedSchemaSnapshot,
 }
 
-///
-/// AcceptedSchemaFootprint
-///
-/// Low-cardinality footprint summary for one accepted schema snapshot. Metrics
-/// use this shape to report live schema-authority size without exposing field
-/// names, nested paths, or persisted type details.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct AcceptedSchemaFootprint {
-    fields: u64,
-    nested_leaf_facts: u64,
-}
-
-impl AcceptedSchemaFootprint {
-    /// Build one accepted schema footprint from counted snapshot facts.
-    #[must_use]
-    const fn new(fields: u64, nested_leaf_facts: u64) -> Self {
-        Self {
-            fields,
-            nested_leaf_facts,
-        }
-    }
-
-    /// Return the number of top-level persisted field facts.
-    #[must_use]
-    pub(in crate::db) const fn fields(self) -> u64 {
-        self.fields
-    }
-
-    /// Return the number of accepted nested leaf metadata facts.
-    #[must_use]
-    pub(in crate::db) const fn nested_leaf_facts(self) -> u64 {
-        self.nested_leaf_facts
-    }
-}
-
 impl AcceptedSchemaSnapshot {
     /// Wrap one persisted snapshot after reconciliation accepts it.
     ///
@@ -164,20 +127,6 @@ impl AcceptedSchemaSnapshot {
     pub(in crate::db) fn field_kind_by_name(&self, name: &str) -> Option<&AcceptedFieldKind> {
         self.field_by_name(name).map(PersistedFieldSnapshot::kind)
     }
-
-    /// Return a low-cardinality footprint of accepted schema field facts.
-    #[must_use]
-    pub(in crate::db) fn footprint(&self) -> AcceptedSchemaFootprint {
-        let fields = u64::try_from(self.snapshot.fields().len()).unwrap_or(u64::MAX);
-        let nested_leaf_facts = self
-            .snapshot
-            .fields()
-            .iter()
-            .map(|field| u64::try_from(field.nested_leaves().len()).unwrap_or(u64::MAX))
-            .fold(0u64, u64::saturating_add);
-
-        AcceptedSchemaFootprint::new(fields, nested_leaf_facts)
-    }
 }
 
 ///
@@ -185,7 +134,7 @@ impl AcceptedSchemaSnapshot {
 ///
 /// Owned schema snapshot for one live entity schema.
 /// This is the accepted schema store payload. It is separate from generated
-/// `EntityModel` so startup reconciliation can compare stored authority with
+/// an accepted entity contract so startup reconciliation can compare stored authority with
 /// the compiled proposal.
 ///
 
@@ -396,28 +345,6 @@ impl PersistedSchemaSnapshot {
             .clone()
             .with_added_unique_activation(&candidate, base_schema_fingerprint, activation_epoch)?;
         self.candidate_indexes.push(candidate);
-        if !self.has_valid_integrity() {
-            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
-        }
-        Ok(self)
-    }
-
-    /// Reserve one delete-invisible relation owner and its activation.
-    pub(in crate::db) fn with_added_relation_activation(
-        mut self,
-        candidate: PersistedRelationEdgeSnapshot,
-        base_schema_fingerprint: crate::db::schema::AcceptedSchemaFingerprint,
-        activation_epoch: u64,
-    ) -> Result<Self, AcceptedConstraintCatalogError> {
-        self.constraint_catalog = self
-            .constraint_catalog
-            .clone()
-            .with_added_relation_activation(
-                &candidate,
-                base_schema_fingerprint,
-                activation_epoch,
-            )?;
-        self.candidate_relations.push(candidate);
         if !self.has_valid_integrity() {
             return Err(AcceptedConstraintCatalogError::OwnerMismatch);
         }
@@ -736,16 +663,6 @@ impl PersistedSchemaSnapshot {
             field.write_policy().write_management() == Some(FieldWriteManagement::UpdatedAt)
                 && self.field_requires_global_write_validation(field.id(), field.name())
         })
-    }
-
-    /// Return the first stored primary-key field identity.
-    ///
-    /// This accessor exists for scalar-only execution paths that have not yet
-    /// admitted composite row identity. Composite-aware code must use
-    /// `primary_key_field_ids`.
-    #[must_use]
-    pub(in crate::db) fn first_primary_key_field_id(&self) -> FieldId {
-        self.primary_key_field_ids[0]
     }
 
     /// Borrow ordered stored primary-key field identities.
@@ -1595,7 +1512,7 @@ impl PersistedFieldSnapshot {
         storage_decode: FieldStorageDecode,
         leaf_codec: LeafCodec,
     ) -> Self {
-        Self::new_with_write_policy(
+        Self::new_with_write_policy_and_origin(
             id,
             name,
             slot,
@@ -1606,6 +1523,7 @@ impl PersistedFieldSnapshot {
             insert_default,
             SchemaHistoricalFill::Reject,
             SchemaFieldWritePolicy::none(),
+            PersistedFieldOrigin::Generated,
             storage_decode,
             leaf_codec,
         )
@@ -1630,7 +1548,7 @@ impl PersistedFieldSnapshot {
         storage_decode: FieldStorageDecode,
         leaf_codec: LeafCodec,
     ) -> Self {
-        Self::new_with_write_policy(
+        Self::new_with_write_policy_and_origin(
             id,
             name,
             slot,
@@ -1641,6 +1559,7 @@ impl PersistedFieldSnapshot {
             insert_default,
             SchemaHistoricalFill::Reject,
             write_policy,
+            PersistedFieldOrigin::Generated,
             storage_decode,
             leaf_codec,
         )
@@ -1678,43 +1597,6 @@ impl PersistedFieldSnapshot {
             SchemaHistoricalFill::Reject,
             write_policy,
             origin,
-            storage_decode,
-            leaf_codec,
-        )
-    }
-
-    /// Build one persisted field snapshot with explicit database write policy.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "schema snapshot construction keeps every persisted field contract explicit"
-    )]
-    #[must_use]
-    pub(in crate::db) const fn new_with_write_policy(
-        id: FieldId,
-        name: String,
-        slot: SchemaFieldSlot,
-        kind: AcceptedFieldKind,
-        nested_leaves: Vec<PersistedNestedLeafSnapshot>,
-        nullable: bool,
-        introduced_in_layout: RowLayoutVersion,
-        insert_default: SchemaInsertDefault,
-        historical_fill: SchemaHistoricalFill,
-        write_policy: SchemaFieldWritePolicy,
-        storage_decode: FieldStorageDecode,
-        leaf_codec: LeafCodec,
-    ) -> Self {
-        Self::new_with_write_policy_and_origin(
-            id,
-            name,
-            slot,
-            kind,
-            nested_leaves,
-            nullable,
-            introduced_in_layout,
-            insert_default,
-            historical_fill,
-            write_policy,
-            PersistedFieldOrigin::Generated,
             storage_decode,
             leaf_codec,
         )

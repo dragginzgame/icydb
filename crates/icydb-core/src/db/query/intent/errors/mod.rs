@@ -3,13 +3,6 @@
 //! Does not own: planner rule evaluation or runtime execution policy decisions.
 //! Boundary: unifies intent/planner/cursor/resource errors into query API error classes.
 
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;
-
 use super::AccessRequirementError;
 #[cfg(feature = "sql")]
 use crate::db::query::plan::validate::ExprPlanError;
@@ -21,11 +14,7 @@ use crate::{
     db::{
         cursor::CursorPlanError,
         numeric::NumericEvalError,
-        query::plan::{
-            CursorPagingPolicyError, FluentLoadPolicyViolation, IntentKeyAccessPolicyViolation,
-            PlanError, PlannerError, PolicyPlanError,
-        },
-        response::ResponseError,
+        query::plan::{PlanError, PlannerError, PolicyPlanError},
         schema::ValidateError,
     },
     error::{COMPACT_QUERY_DIAGNOSTIC_MESSAGE, ErrorClass, InternalError},
@@ -46,8 +35,6 @@ pub enum QueryError {
     Intent(IntentError),
 
     AccessRequirement(Box<AccessRequirementError>),
-
-    Response(ResponseError),
 
     Execute(QueryExecutionError),
 }
@@ -91,19 +78,12 @@ impl QueryError {
             Self::Plan(_) => diagnostic_code::DiagnosticCode::QueryPlan,
             Self::Intent(_) => diagnostic_code::DiagnosticCode::QueryIntent,
             Self::AccessRequirement(_) => diagnostic_code::DiagnosticCode::QueryAccessRequirement,
-            Self::Response(ResponseError::NotFound { .. }) => {
-                diagnostic_code::DiagnosticCode::QueryNotFound
-            }
-            Self::Response(ResponseError::NotUnique { .. }) => {
-                diagnostic_code::DiagnosticCode::QueryNotUnique
-            }
             Self::Execute(error) => error.diagnostic_code(),
         }
     }
 
     fn diagnostic_origin(&self) -> diagnostic_code::ErrorOrigin {
         match self {
-            Self::Response(_) => diagnostic_code::ErrorOrigin::Response,
             Self::Execute(error) => error.as_internal().origin().diagnostic_origin(),
             Self::Plan(error) if error.is_invalid_continuation_cursor() => {
                 diagnostic_code::ErrorOrigin::Cursor
@@ -126,12 +106,6 @@ impl QueryError {
             Self::Plan(_) => diagnostic_code::QueryErrorKind::Plan,
             Self::Intent(_) => diagnostic_code::QueryErrorKind::Intent,
             Self::AccessRequirement(_) => diagnostic_code::QueryErrorKind::AccessRequirement,
-            Self::Response(ResponseError::NotFound { .. }) => {
-                diagnostic_code::QueryErrorKind::NotFound
-            }
-            Self::Response(ResponseError::NotUnique { .. }) => {
-                diagnostic_code::QueryErrorKind::NotUnique
-            }
             Self::Execute(_) => return None,
         };
 
@@ -217,13 +191,6 @@ impl QueryError {
         reason: diagnostic_code::QueryProjectionCode,
     ) -> Self {
         Self::execute(InternalError::query_unsupported_projection(reason))
-    }
-
-    /// Construct one query-origin result-shape mismatch error.
-    pub(in crate::db) fn result_shape_mismatch(
-        reason: diagnostic_code::QueryResultShapeCode,
-    ) -> Self {
-        Self::execute(InternalError::query_result_shape_mismatch(reason))
     }
 
     /// Construct one query-origin unsupported SQL endpoint surface mismatch.
@@ -313,22 +280,6 @@ impl QueryError {
     /// Construct one unsupported aggregate target-field query error.
     pub(in crate::db) fn unknown_aggregate_target_field(_field: &str) -> Self {
         Self::execute(InternalError::query_unknown_aggregate_target_field())
-    }
-
-    /// Construct one invariant violation for scalar pagination emitting the wrong cursor kind.
-    pub(in crate::db) fn scalar_paged_emitted_grouped_continuation() -> Self {
-        Self::invariant()
-    }
-
-    /// Construct one invariant violation for grouped pagination emitting the wrong cursor kind.
-    pub(in crate::db) fn grouped_paged_emitted_scalar_continuation() -> Self {
-        Self::invariant()
-    }
-}
-
-impl From<ResponseError> for QueryError {
-    fn from(err: ResponseError) -> Self {
-        Self::Response(err)
     }
 }
 
@@ -464,25 +415,7 @@ impl From<PlanError> for QueryError {
 pub enum IntentError {
     PlanShape(PolicyPlanError),
 
-    ByIdsWithPredicate,
-
-    OnlyWithPredicate,
-
-    KeyAccessConflict,
-
-    InvalidPagingShape(PagingIntentError),
-
-    GroupedRequiresDirectExecute,
-
-    CursorBeforePageTerminal,
-
-    AdminBatchRequiresTrustedRead,
-
-    CompleteReadTooManyRows,
-
     HavingRequiresGroupBy,
-
-    HavingReferencesUnknownAggregate,
 }
 
 impl From<PolicyPlanError> for IntentError {
@@ -491,152 +424,9 @@ impl From<PolicyPlanError> for IntentError {
     }
 }
 
-impl From<PagingIntentError> for IntentError {
-    fn from(err: PagingIntentError) -> Self {
-        Self::InvalidPagingShape(err)
-    }
-}
-
 impl IntentError {
-    /// Construct one by-ids-with-predicate intent error.
-    pub(in crate::db::query) const fn by_ids_with_predicate() -> Self {
-        Self::ByIdsWithPredicate
-    }
-
-    /// Construct one only-with-predicate intent error.
-    pub(in crate::db::query) const fn only_with_predicate() -> Self {
-        Self::OnlyWithPredicate
-    }
-
-    /// Construct one key-access-conflict intent error.
-    pub(in crate::db::query) const fn key_access_conflict() -> Self {
-        Self::KeyAccessConflict
-    }
-
-    /// Construct one invalid-paging-shape intent error.
-    pub(in crate::db::query) const fn invalid_paging_shape(err: PagingIntentError) -> Self {
-        Self::InvalidPagingShape(err)
-    }
-
-    /// Construct one cursor-requires-order intent error.
-    pub(in crate::db::query) const fn cursor_requires_order() -> Self {
-        Self::invalid_paging_shape(PagingIntentError::cursor_requires_order())
-    }
-
-    /// Construct one cursor-requires-limit intent error.
-    pub(in crate::db::query) const fn cursor_requires_limit() -> Self {
-        Self::invalid_paging_shape(PagingIntentError::cursor_requires_limit())
-    }
-
-    /// Construct one cursor-requires-paged-execution intent error.
-    pub(in crate::db::query) const fn cursor_requires_paged_execution() -> Self {
-        Self::invalid_paging_shape(PagingIntentError::cursor_requires_paged_execution())
-    }
-
-    /// Construct one grouped-requires-direct-execute intent error.
-    pub(in crate::db::query) const fn grouped_requires_direct_execute() -> Self {
-        Self::GroupedRequiresDirectExecute
-    }
-
-    /// Construct one cursor-before-page-terminal intent error.
-    pub(in crate::db::query) const fn cursor_before_page_terminal() -> Self {
-        Self::CursorBeforePageTerminal
-    }
-
-    /// Construct one admin-batch-requires-trusted-read intent error.
-    pub(in crate::db::query) const fn admin_batch_requires_trusted_read() -> Self {
-        Self::AdminBatchRequiresTrustedRead
-    }
-
-    /// Construct one complete-read-over-cap intent error.
-    pub(in crate::db::query) const fn complete_read_too_many_rows() -> Self {
-        Self::CompleteReadTooManyRows
-    }
-
     /// Construct one HAVING-requires-GROUP-BY intent error.
     pub(in crate::db::query) const fn having_requires_group_by() -> Self {
         Self::HavingRequiresGroupBy
-    }
-
-    /// Construct one unknown-grouped-aggregate HAVING intent error.
-    pub(in crate::db::query) const fn having_references_unknown_aggregate() -> Self {
-        Self::HavingReferencesUnknownAggregate
-    }
-}
-
-///
-/// PagingIntentError
-///
-/// Canonical intent-level paging contract failures shared by planner and
-/// fluent/execution boundary gates.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[expect(clippy::enum_variant_names)]
-pub enum PagingIntentError {
-    CursorRequiresOrder,
-
-    CursorRequiresLimit,
-
-    CursorRequiresPagedExecution,
-}
-
-impl PagingIntentError {
-    /// Construct one cursor-requires-order paging intent error.
-    const fn cursor_requires_order() -> Self {
-        Self::CursorRequiresOrder
-    }
-
-    /// Construct one cursor-requires-limit paging intent error.
-    const fn cursor_requires_limit() -> Self {
-        Self::CursorRequiresLimit
-    }
-
-    /// Construct one cursor-requires-paged-execution paging intent error.
-    const fn cursor_requires_paged_execution() -> Self {
-        Self::CursorRequiresPagedExecution
-    }
-}
-
-impl From<CursorPagingPolicyError> for PagingIntentError {
-    fn from(err: CursorPagingPolicyError) -> Self {
-        match err {
-            CursorPagingPolicyError::CursorRequiresOrder => Self::cursor_requires_order(),
-            CursorPagingPolicyError::CursorRequiresLimit => Self::cursor_requires_limit(),
-        }
-    }
-}
-
-impl From<CursorPagingPolicyError> for IntentError {
-    fn from(err: CursorPagingPolicyError) -> Self {
-        match err {
-            CursorPagingPolicyError::CursorRequiresOrder => Self::cursor_requires_order(),
-            CursorPagingPolicyError::CursorRequiresLimit => Self::cursor_requires_limit(),
-        }
-    }
-}
-
-impl From<IntentKeyAccessPolicyViolation> for IntentError {
-    fn from(err: IntentKeyAccessPolicyViolation) -> Self {
-        match err {
-            IntentKeyAccessPolicyViolation::KeyAccessConflict => Self::key_access_conflict(),
-            IntentKeyAccessPolicyViolation::ByIdsWithPredicate => Self::by_ids_with_predicate(),
-            IntentKeyAccessPolicyViolation::OnlyWithPredicate => Self::only_with_predicate(),
-        }
-    }
-}
-
-impl From<FluentLoadPolicyViolation> for IntentError {
-    fn from(err: FluentLoadPolicyViolation) -> Self {
-        match err {
-            FluentLoadPolicyViolation::CursorRequiresPagedExecution => {
-                Self::cursor_requires_paged_execution()
-            }
-            FluentLoadPolicyViolation::GroupedRequiresDirectExecute => {
-                Self::grouped_requires_direct_execute()
-            }
-            FluentLoadPolicyViolation::CursorRequiresOrder => Self::cursor_requires_order(),
-            FluentLoadPolicyViolation::CursorRequiresLimit => Self::cursor_requires_limit(),
-        }
     }
 }

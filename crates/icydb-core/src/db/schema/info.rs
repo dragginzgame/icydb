@@ -4,10 +4,7 @@
 //! Boundary: validates entity/index model consistency for predicate schema metadata.
 
 #[cfg(feature = "sql")]
-use crate::db::schema::{
-    SqlCapabilities, sql_capabilities, sql_capabilities_for_model_kind,
-    sql_capabilities_with_enum_catalog,
-};
+use crate::db::schema::{SqlCapabilities, sql_capabilities, sql_capabilities_with_enum_catalog};
 use crate::{
     db::schema::{
         AcceptedEnumCatalog, AcceptedFieldKind, AcceptedSchemaSnapshot,
@@ -15,14 +12,9 @@ use crate::{
         PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexFieldPathSnapshot,
         PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
         PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
-        enum_catalog::AcceptedValueContract, field_type_from_model_kind,
-        field_type_from_persisted_kind,
+        enum_catalog::AcceptedValueContract, field_type_from_persisted_kind,
     },
-    model::{
-        entity::EntityModel,
-        field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
-        index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
-    },
+    model::field::{FieldKind, FieldStorageDecode, LeafCodec},
 };
 #[cfg(feature = "sql")]
 use crate::{
@@ -30,16 +22,9 @@ use crate::{
         canonicalize_filter_literal_for_persisted_kind,
         canonicalize_strict_sql_literal_for_persisted_kind, enum_catalog::ValueAdmissionBudget,
     },
-    model::{canonicalize_filter_literal_for_kind, canonicalize_strict_sql_literal_for_kind},
     value::Value,
 };
-#[cfg(test)]
-use std::cell::Cell;
-use std::sync::{Mutex, OnceLock};
-
 type SchemaFieldEntry = (String, SchemaFieldInfo);
-type CachedSchemaEntries = Vec<(&'static str, &'static SchemaInfo)>;
-const EMPTY_GENERATED_NESTED_FIELDS: &[FieldModel] = &[];
 
 #[cfg(feature = "sql")]
 fn accepted_sql_capabilities(
@@ -52,21 +37,6 @@ fn accepted_sql_capabilities(
     )
 }
 
-#[cfg(test)]
-thread_local! {
-    static ACCEPTED_SCHEMA_INFO_PROJECTIONS: Cell<u64> = const { Cell::new(0) };
-}
-
-#[cfg(test)]
-pub(in crate::db) fn reset_accepted_schema_info_projection_count_for_tests() {
-    ACCEPTED_SCHEMA_INFO_PROJECTIONS.with(|projections| projections.set(0));
-}
-
-#[cfg(test)]
-pub(in crate::db) fn accepted_schema_info_projection_count_for_tests() -> u64 {
-    ACCEPTED_SCHEMA_INFO_PROJECTIONS.with(Cell::get)
-}
-
 fn schema_field_info<'a>(
     fields: &'a [SchemaFieldEntry],
     name: &str,
@@ -77,28 +47,9 @@ fn schema_field_info<'a>(
         .map(|index| &fields[index].1)
 }
 
-fn generated_field_by_name<'a>(
-    model: &'a EntityModel,
-    field_name: &str,
-) -> Option<(usize, &'a FieldModel)> {
-    model
-        .fields()
-        .iter()
-        .enumerate()
-        .find(|(_, field)| field.name() == field_name)
-}
-
-// Attach generated index-membership facts to generated `SchemaInfo` views.
-fn generated_field_is_indexed(model: &EntityModel, field_name: &str) -> bool {
-    model
-        .indexes()
-        .iter()
-        .any(|index| index.fields().contains(&field_name))
-}
-
 // Resolve top-level index membership from accepted persisted index contracts
 // once per schema view. Runtime accepted schema views must not reopen generated
-// `EntityModel` indexes after schema acceptance.
+// generated index declarations after schema acceptance.
 fn accepted_indexed_field_ids(snapshot: &PersistedSchemaSnapshot) -> Vec<FieldId> {
     let mut field_ids = Vec::new();
 
@@ -156,7 +107,6 @@ struct SchemaFieldInfo {
     accepted_value_contract: Option<AcceptedValueContract>,
     indexed: bool,
     nested_leaves: Option<Vec<PersistedNestedLeafSnapshot>>,
-    nested_fields: &'static [FieldModel],
 }
 
 ///
@@ -254,7 +204,7 @@ impl SchemaIndexInfo {
 ///
 /// Compact accepted expression-index contract exposed by `SchemaInfo`.
 /// Accepted schema views source this from persisted index snapshots so
-/// expression-index runtime routing can stop reopening generated `IndexModel`.
+/// expression-index runtime routing does not reopen generated index declarations.
 ///
 #[derive(Clone, Debug)]
 pub(in crate::db) struct SchemaExpressionIndexInfo {
@@ -352,18 +302,6 @@ pub(in crate::db) enum SchemaExpressionIndexKeyItemInfo {
     Expression(Box<SchemaIndexExpressionInfo>),
 }
 
-impl SchemaExpressionIndexKeyItemInfo {
-    /// Borrow this key item as an expression component, when applicable.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn expression(&self) -> Option<&SchemaIndexExpressionInfo> {
-        match self {
-            Self::FieldPath(_) => None,
-            Self::Expression(expression) => Some(expression.as_ref()),
-        }
-    }
-}
-
 ///
 /// SchemaIndexExpressionInfo
 ///
@@ -373,10 +311,6 @@ impl SchemaExpressionIndexKeyItemInfo {
 pub(in crate::db) struct SchemaIndexExpressionInfo {
     op: PersistedIndexExpressionOp,
     source: SchemaIndexFieldPathInfo,
-    #[cfg(test)]
-    input_kind: AcceptedFieldKind,
-    #[cfg(test)]
-    output_kind: AcceptedFieldKind,
     canonical_text: String,
 }
 
@@ -391,20 +325,6 @@ impl SchemaIndexExpressionInfo {
     #[must_use]
     pub(in crate::db) const fn source(&self) -> &SchemaIndexFieldPathInfo {
         &self.source
-    }
-
-    /// Borrow the accepted expression input kind.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn input_kind(&self) -> &AcceptedFieldKind {
-        &self.input_kind
-    }
-
-    /// Borrow the accepted expression output kind.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn output_kind(&self) -> &AcceptedFieldKind {
-        &self.output_kind
     }
 
     /// Borrow the accepted canonical expression text.
@@ -423,27 +343,15 @@ impl SchemaIndexExpressionInfo {
 ///
 #[derive(Clone, Debug)]
 pub(in crate::db) struct SchemaIndexFieldPathInfo {
-    #[cfg(test)]
-    field_id: Option<FieldId>,
     field_name: String,
     slot: usize,
     path: Vec<String>,
-    #[cfg(test)]
-    ty: FieldType,
     persisted_kind: Option<AcceptedFieldKind>,
     accepted_value_contract: Option<Box<AcceptedValueContract>>,
     nullable: bool,
 }
 
 impl SchemaIndexFieldPathInfo {
-    /// Return the accepted durable top-level field ID, when this came from a
-    /// persisted schema snapshot.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn field_id(&self) -> Option<FieldId> {
-        self.field_id
-    }
-
     /// Borrow the top-level field name for this key item.
     #[must_use]
     pub(in crate::db) const fn field_name(&self) -> &str {
@@ -460,13 +368,6 @@ impl SchemaIndexFieldPathInfo {
     #[must_use]
     pub(in crate::db) const fn path(&self) -> &[String] {
         self.path.as_slice()
-    }
-
-    /// Borrow reduced predicate/query type metadata for this key item.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn ty(&self) -> &FieldType {
-        &self.ty
     }
 
     /// Borrow the persisted field kind, when this key item came from accepted
@@ -489,13 +390,6 @@ impl SchemaIndexFieldPathInfo {
             self.nullable,
         ))
     }
-
-    /// Return whether this key item permits explicit persisted `NULL`.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn nullable(&self) -> bool {
-        self.nullable
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -504,10 +398,8 @@ pub(crate) struct SchemaInfo {
     indexes: Vec<SchemaIndexInfo>,
     expression_indexes: Vec<SchemaExpressionIndexInfo>,
     value_catalog: Option<AcceptedValueCatalogHandle>,
-    entity_path: Option<String>,
     entity_name: Option<String>,
     primary_key_names: Vec<String>,
-    has_any_relations: bool,
 }
 
 impl SchemaInfo {
@@ -515,73 +407,6 @@ impl SchemaInfo {
     #[must_use]
     pub(in crate::db) const fn has_accepted_authority(&self) -> bool {
         self.value_catalog.is_some()
-    }
-
-    // Build one compact field table from trusted generated field metadata.
-    fn from_trusted_field_models(fields: &[FieldModel]) -> Self {
-        let mut fields = fields
-            .iter()
-            .enumerate()
-            .map(|(slot, field)| {
-                (
-                    field.name().to_string(),
-                    SchemaFieldInfo {
-                        slot,
-                        ty: field_type_from_model_kind(&field.kind()),
-                        kind: Some(field.kind()),
-                        nullable: field.nullable(),
-                        leaf_codec: field.leaf_codec(),
-                        #[cfg(feature = "sql")]
-                        sql_capabilities: sql_capabilities_for_model_kind(&field.kind()),
-                        #[cfg(feature = "sql")]
-                        persisted_kind: None,
-                        accepted_value_contract: None,
-                        indexed: false,
-                        nested_leaves: None,
-                        nested_fields: field.nested_fields(),
-                    },
-                )
-            })
-            .collect::<Vec<_>>();
-
-        fields.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
-
-        Self {
-            fields,
-            indexes: Vec::new(),
-            expression_indexes: Vec::new(),
-            value_catalog: None,
-            entity_path: None,
-            entity_name: None,
-            primary_key_names: Vec::new(),
-            has_any_relations: false,
-        }
-    }
-
-    // Build one compact field table from trusted generated entity metadata.
-    fn from_trusted_entity_model(model: &EntityModel) -> Self {
-        let mut schema = Self::from_trusted_field_models(model.fields());
-        schema.entity_path = Some(model.path().to_string());
-        schema.entity_name = Some(model.name().to_string());
-        schema.primary_key_names = model
-            .primary_key_model()
-            .fields()
-            .iter()
-            .map(|field| field.name().to_string())
-            .collect();
-        schema.has_any_relations = model.has_any_relations();
-
-        for (field_name, field) in &mut schema.fields {
-            field.indexed = generated_field_is_indexed(model, field_name.as_str());
-        }
-        schema.indexes = model
-            .indexes()
-            .iter()
-            .filter_map(|index| schema_index_info_from_generated_index(index, &schema.fields))
-            .collect();
-        schema.expression_indexes = Vec::new();
-
-        schema
     }
 
     #[must_use]
@@ -616,7 +441,7 @@ impl SchemaInfo {
     /// Accepted schema views source this from `SchemaRowLayout`; generated
     /// schema views keep using generated field-table position. The method gives
     /// planning validation one schema-owned slot surface instead of requiring
-    /// direct `EntityModel` field-table checks.
+    /// direct generated field-table checks.
     #[must_use]
     pub(in crate::db) fn field_slot_index(&self, name: &str) -> Option<usize> {
         schema_field_info(self.fields.as_slice(), name).map(|field| field.slot)
@@ -675,16 +500,6 @@ impl SchemaInfo {
     #[must_use]
     pub(in crate::db) const fn primary_key_names(&self) -> &[String] {
         self.primary_key_names.as_slice()
-    }
-
-    /// Return whether this entity has any relation checks.
-    ///
-    /// Accepted schema views source this from persisted relation field
-    /// contracts. Generated schema views source it from generated model
-    /// metadata only for proposal/model-only callers.
-    #[must_use]
-    pub(in crate::db) const fn has_any_relations(&self) -> bool {
-        self.has_any_relations
     }
 
     /// Return whether one top-level field participates in any index.
@@ -771,8 +586,7 @@ impl SchemaInfo {
                 .map(|leaf| accepted_sql_capabilities(leaf.kind(), self.value_catalog.as_ref()));
         }
 
-        resolve_nested_field_path_kind(field.nested_fields, segments)
-            .map(|kind| sql_capabilities_for_model_kind(&kind))
+        None
     }
 
     /// Return the type for one nested field path rooted at a top-level field.
@@ -791,19 +605,15 @@ impl SchemaInfo {
                 .map(|leaf| field_type_from_persisted_kind(leaf.kind()));
         }
 
-        resolve_nested_field_path_kind(field.nested_fields, segments)
-            .map(|kind| field_type_from_model_kind(&kind))
+        None
     }
 
     /// Return whether one top-level field exposes any nested path metadata.
     #[must_use]
     pub(crate) fn field_has_nested_paths(&self, name: &str) -> bool {
-        schema_field_info(self.fields.as_slice(), name).is_some_and(|field| {
-            field.nested_leaves.as_ref().map_or_else(
-                || !field.nested_fields.is_empty(),
-                |leaves| !leaves.is_empty(),
-            )
-        })
+        schema_field_info(self.fields.as_slice(), name)
+            .and_then(|field| field.nested_leaves.as_ref())
+            .is_some_and(|leaves| !leaves.is_empty())
     }
 
     /// Canonicalize one strict SQL literal against this schema's field authority.
@@ -838,10 +648,7 @@ impl SchemaInfo {
             return canonicalize_strict_sql_literal_for_persisted_kind(kind, value);
         }
 
-        field
-            .kind
-            .as_ref()
-            .and_then(|kind| canonicalize_strict_sql_literal_for_kind(kind, value))
+        None
     }
 
     /// Canonicalize one string-backed public filter literal against this
@@ -871,29 +678,7 @@ impl SchemaInfo {
             return canonicalize_filter_literal_for_persisted_kind(kind, value);
         }
 
-        field
-            .kind
-            .as_ref()
-            .and_then(|kind| canonicalize_filter_literal_for_kind(kind, value))
-    }
-
-    /// Build one owned schema view from trusted generated field metadata.
-    #[must_use]
-    pub(crate) fn from_field_models(fields: &[FieldModel]) -> Self {
-        Self::from_trusted_field_models(fields)
-    }
-
-    /// Build one snapshot-shaped model bridge for focused tests.
-    ///
-    /// This intentionally lacks accepted catalog authority. Production runtime
-    /// paths must use `from_accepted_snapshot_and_catalog`.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn from_snapshot_with_generated_model_for_test(
-        model: &EntityModel,
-        schema: &AcceptedSchemaSnapshot,
-    ) -> Self {
-        Self::from_snapshot_for_model(Some(model), schema, None, false)
+        None
     }
 
     /// Build one accepted-only schema view retaining its immutable value catalog.
@@ -906,60 +691,24 @@ impl SchemaInfo {
         value_catalog: AcceptedValueCatalogHandle,
         include_expression_indexes: bool,
     ) -> Self {
-        Self::from_snapshot_for_model(
-            None,
-            schema,
-            Some(value_catalog),
-            include_expression_indexes,
-        )
+        Self::from_snapshot(schema, Some(value_catalog), include_expression_indexes)
     }
 
-    /// Build one generated-compatible accepted schema view for focused tests.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn from_accepted_snapshot_and_catalog_for_model(
-        model: &EntityModel,
-        schema: &AcceptedSchemaSnapshot,
-        value_catalog: AcceptedValueCatalogHandle,
-        include_expression_indexes: bool,
-    ) -> Self {
-        Self::from_snapshot_for_model(
-            Some(model),
-            schema,
-            Some(value_catalog),
-            include_expression_indexes,
-        )
-    }
-
-    fn from_snapshot_for_model(
-        model: Option<&EntityModel>,
+    fn from_snapshot(
         schema: &AcceptedSchemaSnapshot,
         value_catalog: Option<AcceptedValueCatalogHandle>,
         include_expression_indexes: bool,
     ) -> Self {
-        #[cfg(test)]
-        ACCEPTED_SCHEMA_INFO_PROJECTIONS
-            .with(|projections| projections.set(projections.get().saturating_add(1)));
-
         let snapshot = schema.persisted_snapshot();
         let indexed_field_ids = accepted_indexed_field_ids(snapshot);
         let mut fields = snapshot
             .fields()
             .iter()
             .map(|field| {
-                let generated_field = value_catalog
-                    .is_none()
-                    .then(|| model.and_then(|model| generated_field_by_name(model, field.name())))
-                    .flatten();
                 let slot = snapshot
                     .row_layout()
                     .slot_for_field(field.id())
                     .map_or_else(|| usize::from(field.slot().get()), accepted_slot_index);
-                let generated_kind = generated_field.map(|(_, field)| field.kind());
-                let generated_nested_fields = generated_field
-                    .map_or(EMPTY_GENERATED_NESTED_FIELDS, |(_, field)| {
-                        field.nested_fields()
-                    });
                 let accepted_value_contract = value_catalog.as_ref().and_then(|catalog| {
                     AcceptedValueContract::from_accepted_field(
                         catalog,
@@ -975,7 +724,7 @@ impl SchemaInfo {
                     SchemaFieldInfo {
                         slot,
                         ty: field_type_from_persisted_kind(field.kind()),
-                        kind: generated_kind,
+                        kind: None,
                         nullable: field.nullable(),
                         leaf_codec: field.leaf_codec(),
                         #[cfg(feature = "sql")]
@@ -988,7 +737,6 @@ impl SchemaInfo {
                         accepted_value_contract,
                         indexed: indexed_field_ids.contains(&field.id()),
                         nested_leaves: Some(field.nested_leaves().to_vec()),
-                        nested_fields: generated_nested_fields,
                     },
                 )
             })
@@ -1033,97 +781,9 @@ impl SchemaInfo {
                 })
                 .collect(),
             value_catalog,
-            entity_path: Some(schema.entity_path().to_string()),
             entity_name: Some(schema.entity_name().to_string()),
             primary_key_names,
-            has_any_relations: !snapshot.relations().is_empty()
-                || snapshot
-                    .fields()
-                    .iter()
-                    .any(|field| field.kind().contains_relation()),
         }
-    }
-
-    /// Build one accepted schema view with expression-index metadata projected.
-    ///
-    /// This constructor exists for expression-index routing and
-    /// tests that need to inspect accepted expression contracts without adding
-    /// allocation work to every existing accepted schema view.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn from_snapshot_with_generated_model_and_expression_indexes_for_test(
-        model: &EntityModel,
-        schema: &AcceptedSchemaSnapshot,
-    ) -> Self {
-        Self::from_snapshot_for_model(Some(model), schema, None, true)
-    }
-
-    /// Return one cached schema view for a trusted generated entity model.
-    pub(crate) fn cached_for_generated_entity_model(model: &EntityModel) -> &'static Self {
-        static CACHE: OnceLock<Mutex<CachedSchemaEntries>> = OnceLock::new();
-
-        let cache = CACHE.get_or_init(|| Mutex::new(CachedSchemaEntries::new()));
-        let mut guard = cache.lock().expect("schema info cache mutex poisoned");
-        if let Some(cached) = guard
-            .iter()
-            .find(|(entity_path, _)| *entity_path == model.path())
-            .map(|(_, schema)| *schema)
-        {
-            return cached;
-        }
-
-        let schema = Box::leak(Box::new(Self::from_trusted_entity_model(model)));
-        guard.push((model.path(), schema));
-        schema
-    }
-}
-
-fn schema_index_info_from_generated_index(
-    index: &IndexModel,
-    fields: &[SchemaFieldEntry],
-) -> Option<SchemaIndexInfo> {
-    let key_fields = generated_index_field_names(index)?
-        .into_iter()
-        .map(|field_name| {
-            let field = schema_field_info(fields, field_name)?;
-            Some(SchemaIndexFieldPathInfo {
-                #[cfg(test)]
-                field_id: None,
-                field_name: field_name.to_string(),
-                slot: field.slot,
-                path: vec![field_name.to_string()],
-                #[cfg(test)]
-                ty: field.ty.clone(),
-                persisted_kind: None,
-                accepted_value_contract: None,
-                nullable: field.nullable,
-            })
-        })
-        .collect::<Option<Vec<_>>>()?;
-
-    Some(SchemaIndexInfo {
-        ordinal: index.ordinal(),
-        physical_generation: 0,
-        name: index.name().to_string(),
-        store: index.store().to_string(),
-        unique: index.is_unique(),
-        generated: true,
-        fields: key_fields,
-        predicate_sql: index.predicate().map(str::to_string),
-        value_catalog: None,
-    })
-}
-
-fn generated_index_field_names(index: &IndexModel) -> Option<Vec<&'static str>> {
-    match index.key_items() {
-        IndexKeyItemsRef::Fields(fields) => Some(fields.to_vec()),
-        IndexKeyItemsRef::Items(items) => items
-            .iter()
-            .map(|item| match item {
-                IndexKeyItem::Field(field) => Some(*field),
-                IndexKeyItem::Expression(_) => None,
-            })
-            .collect(),
     }
 }
 
@@ -1207,10 +867,6 @@ fn schema_expression_index_key_item_info(
                     snapshot,
                     value_catalog,
                 ),
-                #[cfg(test)]
-                input_kind: expression.input_kind().clone(),
-                #[cfg(test)]
-                output_kind: expression.output_kind().clone(),
                 canonical_text: expression.canonical_text().to_string(),
             }))
         }
@@ -1237,37 +893,11 @@ fn schema_index_field_path_info_from_accepted(
         .then(|| path.kind().clone());
 
     SchemaIndexFieldPathInfo {
-        #[cfg(test)]
-        field_id: Some(path.field_id()),
         field_name,
         slot: accepted_slot_index(path.slot()),
         path: path.path().to_vec(),
-        #[cfg(test)]
-        ty: field_type_from_persisted_kind(path.kind()),
         persisted_kind,
         accepted_value_contract,
         nullable: path.nullable(),
     }
 }
-
-// Resolve generated nested metadata for compile-time-only schema views.
-// Accepted schema views use persisted nested leaf descriptors instead.
-fn resolve_nested_field_path_kind(fields: &[FieldModel], segments: &[String]) -> Option<FieldKind> {
-    let (segment, rest) = segments.split_first()?;
-    let field = fields
-        .iter()
-        .find(|field| field.name() == segment.as_str())?;
-
-    if rest.is_empty() {
-        return Some(field.kind());
-    }
-
-    resolve_nested_field_path_kind(field.nested_fields(), rest)
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

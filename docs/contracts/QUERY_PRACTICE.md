@@ -57,7 +57,7 @@ Same logical intent, same coercion behavior across API surfaces:
 // Builder API (FieldRef): ordering uses NumericWiden.
 // Runtime field value: Value::Int64(10), predicate: age > Value::Nat64(5)
 // returns true after numeric widen.
-let pred = field("age").gt(5u64);
+let pred = FieldRef::new("age").gt(5u64);
 ```
 
 ```rust
@@ -311,37 +311,18 @@ Evaluation must never panic.
 
 Bounded row windows without `order_term(...)` are rejected by design.
 Use order terms that produce a total order for stable pagination.
-For caller-facing read APIs, prefer the semantic read-intent terminals in
-[`docs/guides/read-intent.md`](../guides/read-intent.md): `page(limit)` /
-`next_page(limit, cursor)` for public pages, `collect_complete()` for complete
-small sets, and exact aggregate helpers for exact answers. Public facade load
-queries use `partial_window(...)` only for deliberately partial row windows.
-SQL `LIMIT` / `OFFSET` remains an internal lowered query fact rather than a
-fluent builder surface.
+For caller-facing read APIs, use the maintained bounded typed/dynamic surface
+described in [`docs/guides/read-intent.md`](../guides/read-intent.md).
+`Query::limit(...)` supplies the returned-row bound, while accepted planning
+must still prove bounded/index-backed access. Trusted SQL retains its explicit
+`LIMIT` / `OFFSET` semantics.
 
 Rationale:
 * Unordered pagination is non-deterministic.
 * Physical/index/storage iteration order is not a query semantic.
 
-Rejected:
-
-```rust
-let rows = db()?
-    .load::<User>()
-    .partial_window(10)
-    .execute_rows();
-```
-
-Accepted:
-
-```rust
-let rows = db()?
-    .load::<User>()
-    .order_term(asc("created_at"))
-    .order_term(asc("id"))
-    .partial_window(10)
-    .execute_rows()?;
-```
+The scalar typed/dynamic API does not expose cursor or offset continuation.
+Callers must not reconstruct continuation from physical iteration order.
 
 ### Semantic Contract (Non-Negotiable)
 

@@ -1,67 +1,96 @@
 //! Module: db::entity_registration
-//! Responsibility: generated proposal registration and model-free runtime
-//! entity routing.
-//! Does not own: accepted schema authority, commit semantics, or relation
-//! validation.
-//! Boundary: generated wiring registers one proposal/runtime pair; runtime
-//! consumers receive only the model-free routing half and must load accepted
-//! catalog authority before use.
+//! Responsibility: generated model-free runtime entity routing.
+//! Does not own: accepted schema authority, schema proposals, commit semantics,
+//! or relation validation.
+//! Boundary: generated wiring names immutable entity/store routes; consumers
+//! resolve accepted identity from persisted source bindings before use.
 
 use crate::{
     db::{
         Db,
         commit::{
-            CommitPrepareContext, CommitRowOp, CommitSchemaFingerprint, PreparedRowCommitOp,
-            prepare_commit_context_for_runtime_registration, prepare_row_commit_with_context,
+            CommitRowOp, PreparedRowCommitOp, prepare_commit_context_for_runtime_registration,
+            prepare_row_commit_with_context,
         },
         data::RawDataStoreKey,
     },
-    entity::EntityKind,
     error::InternalError,
-    model::entity::EntityModel,
-    traits::{CanisterKind, Path},
+    traits::CanisterKind,
     types::EntityTag,
 };
 use std::{collections::BTreeSet, marker::PhantomData};
 
 ///
-/// EntitySchemaProposal
+/// GeneratedEntityRoute
 ///
-/// Proposal-only generated entity metadata consumed by schema reconciliation.
-/// Accepted runtime code cannot construct or receive this type.
+/// Model-free source and routing facts supplied by generated canister wiring.
+/// These facts select a store-local accepted source-binding catalog; they are
+/// never accepted identity or semantic authority by themselves.
 ///
 
-pub(in crate::db) struct EntitySchemaProposal<C: CanisterKind> {
-    pub(in crate::db) entity_tag: EntityTag,
-    pub(in crate::db) model: &'static EntityModel,
+pub(in crate::db) struct GeneratedEntityRoute<C: CanisterKind> {
+    pub(in crate::db) source_key: &'static str,
     pub(in crate::db) entity_path: &'static str,
     pub(in crate::db) store_path: &'static str,
     _marker: PhantomData<C>,
 }
 
-impl<C: CanisterKind> EntitySchemaProposal<C> {
+impl<C: CanisterKind> GeneratedEntityRoute<C> {
     const fn new(
-        entity_tag: EntityTag,
-        model: &'static EntityModel,
+        source_key: &'static str,
         entity_path: &'static str,
         store_path: &'static str,
     ) -> Self {
         Self {
-            entity_tag,
-            model,
+            source_key,
             entity_path,
             store_path,
             _marker: PhantomData,
         }
     }
+
+    /// Resolve the accepted entity identity from this store's source-binding
+    /// authority.
+    pub(in crate::db) fn accepted_entity_tag(self, db: &Db<C>) -> Result<EntityTag, InternalError> {
+        let source = icydb_schema::EntitySourceKey::try_new(self.source_key)
+            .map_err(|_| InternalError::store_invariant())?;
+        let store = db.store_handle(self.store_path)?;
+        let bundle = store
+            .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
+            .ok_or_else(InternalError::store_corruption)?;
+
+        bundle
+            .source_bindings()
+            .entity(&source)
+            .ok_or_else(InternalError::store_corruption)
+    }
+
+    /// Resolve this authored route into current accepted runtime identity.
+    pub(in crate::db) fn resolve(
+        self,
+        db: &Db<C>,
+    ) -> Result<EntityRuntimeRegistration<C>, InternalError> {
+        Ok(EntityRuntimeRegistration {
+            entity_tag: self.accepted_entity_tag(db)?,
+            entity_path: self.entity_path,
+            store_path: self.store_path,
+            _marker: PhantomData,
+        })
+    }
 }
+
+impl<C: CanisterKind> Clone for GeneratedEntityRoute<C> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<C: CanisterKind> Copy for GeneratedEntityRoute<C> {}
 
 ///
 /// EntityRuntimeRegistration
 ///
-/// Model-free entity routing facts supplied by generated canister wiring.
-/// These facts select a store-local accepted catalog; they are never semantic
-/// authority by themselves.
+/// One generated source route joined to current persisted accepted identity.
 ///
 
 pub(in crate::db) struct EntityRuntimeRegistration<C: CanisterKind> {
@@ -71,27 +100,22 @@ pub(in crate::db) struct EntityRuntimeRegistration<C: CanisterKind> {
     _marker: PhantomData<C>,
 }
 
-impl<C: CanisterKind> EntityRuntimeRegistration<C> {
-    const fn new(
-        entity_tag: EntityTag,
-        entity_path: &'static str,
-        store_path: &'static str,
-    ) -> Self {
-        Self {
-            entity_tag,
-            entity_path,
-            store_path,
-            _marker: PhantomData,
-        }
+impl<C: CanisterKind> Clone for EntityRuntimeRegistration<C> {
+    fn clone(&self) -> Self {
+        *self
     }
+}
 
-    /// Resolve accepted commit authority for this registered entity.
+impl<C: CanisterKind> Copy for EntityRuntimeRegistration<C> {}
+
+impl<C: CanisterKind> EntityRuntimeRegistration<C> {
+    /// Resolve accepted commit authority for this already-bound entity route.
     pub(in crate::db) fn prepare_commit_context(
         self,
         db: &Db<C>,
-        schema_fingerprint: CommitSchemaFingerprint,
+        schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
         include_candidate_relation_effects: bool,
-    ) -> Result<CommitPrepareContext, InternalError> {
+    ) -> Result<crate::db::commit::CommitPrepareContext, InternalError> {
         prepare_commit_context_for_runtime_registration(
             db,
             self.entity_path,
@@ -103,103 +127,48 @@ impl<C: CanisterKind> EntityRuntimeRegistration<C> {
     }
 }
 
-impl<C: CanisterKind> Clone for EntityRuntimeRegistration<C> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<C: CanisterKind> Copy for EntityRuntimeRegistration<C> {}
-
 ///
 /// EntityRegistration
 ///
-/// Generated canister wiring pair. Schema reconciliation consumes only the
-/// proposal half; accepted runtime routing consumes only the model-free half.
+/// Generated canister wiring for one immutable authored source route.
 ///
 
 pub struct EntityRegistration<C: CanisterKind> {
-    proposal: EntitySchemaProposal<C>,
-    runtime: EntityRuntimeRegistration<C>,
+    runtime: GeneratedEntityRoute<C>,
 }
 
 impl<C: CanisterKind> EntityRegistration<C> {
-    /// Build one generated registration without executable application hooks.
+    /// Build one generated source route without accepted identity or
+    /// executable application hooks.
     #[must_use]
-    pub(in crate::db) const fn new(
-        entity_tag: EntityTag,
-        model: &'static EntityModel,
+    pub const fn new(
+        source_key: &'static str,
         entity_path: &'static str,
         store_path: &'static str,
     ) -> Self {
         Self {
-            proposal: EntitySchemaProposal::new(entity_tag, model, entity_path, store_path),
-            runtime: EntityRuntimeRegistration::new(entity_tag, entity_path, store_path),
+            runtime: GeneratedEntityRoute::new(source_key, entity_path, store_path),
         }
-    }
-
-    /// Build proposal and runtime registration from one generated entity type.
-    #[must_use]
-    pub const fn for_entity<E>() -> Self
-    where
-        E: EntityKind<Canister = C>,
-    {
-        Self::new(E::ENTITY_TAG, E::MODEL, E::PATH, E::Store::PATH)
-    }
-
-    /// Borrow proposal-only metadata for schema reconciliation.
-    #[must_use]
-    pub(in crate::db) const fn proposal(&self) -> &EntitySchemaProposal<C> {
-        &self.proposal
     }
 
     /// Copy model-free runtime routing facts.
     #[must_use]
-    pub(in crate::db) const fn runtime(&self) -> EntityRuntimeRegistration<C> {
+    pub(in crate::db) const fn runtime(&self) -> GeneratedEntityRoute<C> {
         self.runtime
     }
 }
 
-/// Validate that each registration owns one unique entity tag.
-///
-/// This runs only in debug builds at table construction time so duplicate
-/// generated wiring fails before runtime dispatch begins.
-///
-/// # Panics
-///
-/// Panics when two registrations declare the same entity tag.
-#[must_use]
-#[cfg(debug_assertions)]
-pub(in crate::db) const fn debug_assert_unique_entity_registrations<C: CanisterKind>(
-    registrations: &[EntityRegistration<C>],
-) -> bool {
-    let mut i = 0usize;
-    while i < registrations.len() {
-        let mut j = i + 1;
-        while j < registrations.len() {
-            let left = registrations[i].runtime();
-            let right = registrations[j].runtime();
-            assert!(
-                left.entity_tag.value() != right.entity_tag.value(),
-                "entity registration invariant"
-            );
-            j += 1;
-        }
-        i += 1;
-    }
-
-    true
-}
-
 /// Resolve exactly one model-free runtime registration by entity tag.
 pub(in crate::db) fn resolve_runtime_registration_by_tag<C: CanisterKind>(
+    db: &Db<C>,
     registrations: &[EntityRegistration<C>],
     entity_tag: EntityTag,
 ) -> Result<EntityRuntimeRegistration<C>, InternalError> {
     let mut matched = None;
     for registration in registrations {
         let runtime = registration.runtime();
-        if runtime.entity_tag != entity_tag {
+        let resolved = runtime.resolve(db)?;
+        if resolved.entity_tag != entity_tag {
             continue;
         }
         if matched.is_some() {
@@ -207,7 +176,7 @@ pub(in crate::db) fn resolve_runtime_registration_by_tag<C: CanisterKind>(
                 entity_tag,
             ));
         }
-        matched = Some(runtime);
+        matched = Some(resolved);
     }
 
     matched.ok_or_else(|| InternalError::unsupported_entity_tag_in_data_store(entity_tag))
@@ -215,6 +184,7 @@ pub(in crate::db) fn resolve_runtime_registration_by_tag<C: CanisterKind>(
 
 /// Resolve exactly one model-free runtime registration by entity path.
 pub(in crate::db) fn resolve_runtime_registration_by_path<C: CanisterKind>(
+    db: &Db<C>,
     registrations: &[EntityRegistration<C>],
     entity_path: &str,
 ) -> Result<EntityRuntimeRegistration<C>, InternalError> {
@@ -229,7 +199,7 @@ pub(in crate::db) fn resolve_runtime_registration_by_path<C: CanisterKind>(
                 entity_path,
             ));
         }
-        matched = Some(runtime);
+        matched = Some(runtime.resolve(db)?);
     }
 
     matched.ok_or_else(|| InternalError::unsupported_entity_path(entity_path))
@@ -241,9 +211,16 @@ pub(in crate::db) fn prepare_row_commit_with_registration<C: CanisterKind>(
     registrations: &[EntityRegistration<C>],
     op: &CommitRowOp,
 ) -> Result<PreparedRowCommitOp, InternalError> {
-    let runtime = resolve_runtime_registration_by_path(registrations, op.entity_path.as_ref())?;
+    let runtime = resolve_runtime_registration_by_path(db, registrations, op.entity_path.as_ref())?;
     let store = db.store_handle(runtime.store_path)?;
-    let context = runtime.prepare_commit_context(db, op.schema_fingerprint, true)?;
+    let context = prepare_commit_context_for_runtime_registration(
+        db,
+        runtime.entity_path,
+        runtime.entity_tag,
+        runtime.store_path,
+        op.schema_fingerprint,
+        true,
+    )?;
 
     prepare_row_commit_with_context(db, op, &context, &store, &store)
 }
@@ -254,9 +231,16 @@ pub(in crate::db) fn prepare_row_commit_with_registration_for_rebuild<C: Caniste
     registrations: &[EntityRegistration<C>],
     op: &CommitRowOp,
 ) -> Result<PreparedRowCommitOp, InternalError> {
-    let runtime = resolve_runtime_registration_by_path(registrations, op.entity_path.as_ref())?;
+    let runtime = resolve_runtime_registration_by_path(db, registrations, op.entity_path.as_ref())?;
     let store = db.store_handle(runtime.store_path)?;
-    let context = runtime.prepare_commit_context(db, op.schema_fingerprint, false)?;
+    let context = prepare_commit_context_for_runtime_registration(
+        db,
+        runtime.entity_path,
+        runtime.entity_tag,
+        runtime.store_path,
+        op.schema_fingerprint,
+        false,
+    )?;
 
     prepare_row_commit_with_context(db, op, &context, &store, &store)
 }
@@ -280,15 +264,16 @@ pub(in crate::db) fn validate_delete_relations_with_registrations<C: CanisterKin
 
     for registration in registrations {
         let runtime = registration.runtime();
+        let entity_tag = runtime.accepted_entity_tag(db)?;
         let source_store = db.store_handle(runtime.store_path)?;
         if !source_store.with_schema(|schema_store| {
-            schema_store.entity_has_relation_to_target(runtime.entity_tag, target_path)
+            schema_store.entity_has_relation_to_target(entity_tag, target_path)
         })? {
             continue;
         }
         crate::db::relation::validate_delete_relations_for_registered_source(
             db,
-            runtime.entity_tag,
+            entity_tag,
             runtime.entity_path,
             runtime.store_path,
             target_path,

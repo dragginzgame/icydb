@@ -334,7 +334,7 @@ const fn query_read_admission_reason_text(reason: QueryReadAdmissionCode) -> &'s
 const fn query_read_admission_fix_text(reason: QueryReadAdmissionCode) -> &'static str {
     match reason {
         QueryReadAdmissionCode::PublicQueryRequiresLimit => {
-            "use page(...), next_page(...), collect_complete(), an exact aggregate, exact primary-key access, grouped_limits(...), or partial_window(...) for deliberate partial rows"
+            "add a positive limit within policy or use exact selected primary-key access"
         }
         QueryReadAdmissionCode::PublicQueryRequiresIndex
         | QueryReadAdmissionCode::UnboundedFullScanRejected => {
@@ -1077,7 +1077,7 @@ mod tests {
 
         assert_eq!(
             render_error(&err),
-            "E_QUERY_READ_ADMISSION: query read admission rejected: public read queries require a bounded read intent; fix: use page(...), next_page(...), collect_complete(), an exact aggregate, exact primary-key access, grouped_limits(...), or partial_window(...) for deliberate partial rows",
+            "E_QUERY_READ_ADMISSION: query read admission rejected: public read queries require a bounded read intent; fix: add a positive limit within policy or use exact selected primary-key access",
         );
     }
 

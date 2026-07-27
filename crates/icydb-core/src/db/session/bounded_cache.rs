@@ -48,12 +48,6 @@ where
         self.entries.insert(key, value)
     }
 
-    #[cfg(test)]
-    pub(in crate::db::session) fn clear(&mut self) {
-        self.entries.clear();
-        self.insertion_order.clear();
-    }
-
     pub(in crate::db::session) fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }

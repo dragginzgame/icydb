@@ -8,7 +8,7 @@ use crate::{
         ScalarExprValue, derive_non_null_scalar_expression_value, scalar_expr_value_into_value,
         scalar_index_expression_op,
     },
-    model::index::IndexExpression,
+    db::schema::PersistedIndexExpressionOp,
     value::Value,
 };
 
@@ -19,7 +19,7 @@ pub(in crate::db) enum IndexExpressionSourceClass {
 }
 
 fn derive_text_expression_value(
-    expression: IndexExpression,
+    expression: PersistedIndexExpressionOp,
     source: Value,
 ) -> Result<Option<Value>, IndexExpressionSourceClass> {
     let op = scalar_index_expression_op(expression);
@@ -36,7 +36,7 @@ fn derive_text_expression_value(
 }
 
 fn derive_temporal_expression_value(
-    expression: IndexExpression,
+    expression: PersistedIndexExpressionOp,
     source: Value,
 ) -> Result<Option<Value>, IndexExpressionSourceClass> {
     let op = scalar_index_expression_op(expression);
@@ -60,55 +60,17 @@ fn derive_temporal_expression_value(
 /// - `Ok(None)` for `NULL` source values (non-indexable)
 /// - `Err(expected_source_class)` for type-mismatched sources
 pub(in crate::db) fn derive_index_expression_value(
-    expression: IndexExpression,
+    expression: PersistedIndexExpressionOp,
     source: Value,
 ) -> Result<Option<Value>, IndexExpressionSourceClass> {
     match expression {
-        IndexExpression::Lower(_)
-        | IndexExpression::Upper(_)
-        | IndexExpression::Trim(_)
-        | IndexExpression::LowerTrim(_) => derive_text_expression_value(expression, source),
-        IndexExpression::Date(_)
-        | IndexExpression::Year(_)
-        | IndexExpression::Month(_)
-        | IndexExpression::Day(_) => derive_temporal_expression_value(expression, source),
-    }
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use crate::{
-        db::index::derive_index_expression_value, model::index::IndexExpression, types::Timestamp,
-        value::Value,
-    };
-
-    #[test]
-    fn derive_lower_expression_value_casefolds_text() {
-        let value = derive_index_expression_value(
-            IndexExpression::Lower("email"),
-            Value::Text("ALICE@Example.Com".to_string()),
-        )
-        .expect("lower(text) should derive one value");
-
-        assert_eq!(value, Some(Value::Text("alice@example.com".to_string())));
-    }
-
-    #[test]
-    fn derive_date_expression_value_buckets_timestamp() {
-        let ts = Timestamp::from_millis(86_400_000 * 3 + 12_345);
-        let value = derive_index_expression_value(
-            IndexExpression::Date("created_at"),
-            Value::Timestamp(ts),
-        )
-        .expect("date(timestamp) should derive one value");
-        let Value::Date(date) = value.expect("date(timestamp) should be indexable") else {
-            panic!("expected date bucket");
-        };
-
-        assert_eq!(date.as_days_since_epoch(), 3);
+        PersistedIndexExpressionOp::Lower
+        | PersistedIndexExpressionOp::Upper
+        | PersistedIndexExpressionOp::Trim
+        | PersistedIndexExpressionOp::LowerTrim => derive_text_expression_value(expression, source),
+        PersistedIndexExpressionOp::Date
+        | PersistedIndexExpressionOp::Year
+        | PersistedIndexExpressionOp::Month
+        | PersistedIndexExpressionOp::Day => derive_temporal_expression_value(expression, source),
     }
 }

@@ -71,12 +71,6 @@ pub(super) fn derive_route_execution_stage(
 
     match route_shape_kind {
         RouteShapeKind::LoadScalar => build_execution_stage_for_load(feasibility_stage),
-        RouteShapeKind::MutationDelete => RouteExecutionStage {
-            route_shape_kind,
-            execution_mode: RouteExecutionMode::Materialized,
-            aggregate_fold_mode: crate::db::executor::aggregate::AggregateFoldMode::ExistingRows,
-            index_range_limit_spec: None,
-        },
         RouteShapeKind::AggregateCount => build_execution_stage_for_aggregate_count(
             feasibility_stage,
             aggregate_force_materialized_due_to_predicate_uncertainty,

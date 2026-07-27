@@ -6,12 +6,9 @@
 pub(crate) mod canonical;
 pub(in crate::db) mod execution_contract;
 pub(crate) mod lowering;
-mod model_only;
 pub(crate) mod path;
 pub(crate) mod plan;
 pub(in crate::db) mod shape_facts;
-#[cfg(test)]
-mod tests;
 pub(crate) mod validate;
 
 // Canonical planner access surface.
@@ -24,7 +21,6 @@ pub(in crate::db) use path::{
 pub(in crate::db) use plan::AccessPlan;
 pub(crate) use validate::AccessPlanError;
 pub(in crate::db) use validate::validate_access_runtime_invariants_with_schema;
-pub(in crate::db) use validate::validate_access_structure_model;
 
 // Boundary-local access-shape fact helpers.
 pub(in crate::db) use path::AccessPathKind;
@@ -35,12 +31,7 @@ pub(in crate::db) use shape_facts::{
 // Executor-facing access contract and lowering surface.
 pub(in crate::db) use execution_contract::{
     ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload,
-    summarize_executable_access_plan,
 };
-#[cfg(test)]
-pub(in crate::db) use lowering::current_deferred_index_prefix_raw_bound_materialization_count_for_tests;
-#[cfg(test)]
-pub(in crate::db) use lowering::lower_access;
 pub(in crate::db) use lowering::{
     LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract,
     LoweredKey, lower_access_with_schema_info,

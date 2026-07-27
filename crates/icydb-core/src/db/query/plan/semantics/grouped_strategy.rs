@@ -93,13 +93,6 @@ impl GroupedPlanStrategy {
         }
     }
 
-    /// Construct one hash-group planner strategy artifact with one planner-authored fallback reason.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn hash_group(reason: GroupedPlanFallbackReason) -> Self {
-        Self::hash_group_with_aggregate_family(reason, GroupedPlanAggregateFamily::CountRowsOnly)
-    }
-
     /// Construct one hash-group planner strategy artifact with one explicit grouped aggregate-family profile.
     #[must_use]
     pub(in crate::db) const fn hash_group_with_aggregate_family(
@@ -111,13 +104,6 @@ impl GroupedPlanStrategy {
             aggregate_family,
             fallback_reason: Some(reason),
         }
-    }
-
-    /// Construct one ordered-group planner strategy artifact.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn ordered_group() -> Self {
-        Self::ordered_group_with_aggregate_family(GroupedPlanAggregateFamily::CountRowsOnly)
     }
 
     /// Construct one ordered-group planner strategy artifact with one explicit grouped aggregate-family profile.

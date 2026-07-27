@@ -170,30 +170,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((result, cache_attribution, phase_attribution))
     }
 
-    #[cfg(test)]
-    pub(in crate::db::session::sql::execute) fn execute_global_aggregate_statement_ref(
-        &self,
-        command: &SqlGlobalAggregateCommand,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
-        let catalog = self
-            .accepted_schema_catalog_context_for_entity_name(None)
-            .map_err(QueryError::execute)?;
-        let direct_count_target = self.build_direct_count_cardinality_target(command, &catalog)?;
-
-        self.execute_global_aggregate_after_direct_count_target(
-            command,
-            &catalog,
-            direct_count_target,
-            |fallback_authority| {
-                let authority =
-                    Self::global_aggregate_prepared_plan_authority(&catalog, fallback_authority)?;
-                self.resolve_global_aggregate_prepared_plan_for_authority(
-                    command, &catalog, authority,
-                )
-            },
-        )
-    }
-
     // Execute one borrowed compiled global aggregate while reusing its
     // compiled-command resident shared plan when the schema fingerprint still
     // matches the accepted snapshot carried by this execution context.

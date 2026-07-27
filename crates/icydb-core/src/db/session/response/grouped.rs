@@ -6,22 +6,24 @@
 #[cfg(feature = "sql")]
 use crate::db::cursor::encode_cursor;
 use crate::db::{
-    GroupedRow, PagedGroupedExecutionWithTrace, QueryError,
+    GroupedRow, QueryError,
+    cursor::GroupedContinuationToken,
     diagnostics::ExecutionTrace,
-    executor::{PageCursor, RuntimeGroupedRow, StructuralGroupedProjectionResult},
+    executor::{RuntimeGroupedRow, StructuralGroupedProjectionResult},
     schema::{AcceptedEnumCatalog, output_value_from_runtime},
 };
+
+/// Grouped rows, optional encoded continuation, and optional execution trace.
+type FinalizedGroupedProjection = (Vec<GroupedRow>, Option<Vec<u8>>, Option<ExecutionTrace>);
 
 // Encode one grouped executor cursor into the raw cursor bytes stored by core
 // paged grouped response DTOs. The response layer receives opaque bytes only;
 // external string formatting is left to the SQL/facade surfaces.
-fn encode_grouped_page_cursor(cursor: Option<PageCursor>) -> Result<Option<Vec<u8>>, QueryError> {
+fn encode_grouped_page_cursor(
+    cursor: Option<GroupedContinuationToken>,
+) -> Result<Option<Vec<u8>>, QueryError> {
     cursor
         .map(|token| {
-            let Some(token) = token.as_grouped() else {
-                return Err(QueryError::grouped_paged_emitted_scalar_continuation());
-            };
-
             token
                 .encode()
                 .map_err(|_err| QueryError::serialize_internal())
@@ -69,16 +71,12 @@ fn grouped_rows_from_runtime_rows(
 pub(in crate::db) fn finalize_structural_grouped_projection_result(
     result: StructuralGroupedProjectionResult,
     trace: Option<ExecutionTrace>,
-) -> Result<PagedGroupedExecutionWithTrace, QueryError> {
+) -> Result<FinalizedGroupedProjection, QueryError> {
     let (rows, next_cursor, value_catalog) = result.into_rows_and_cursor();
     let next_cursor = encode_grouped_page_cursor(next_cursor)?;
     let rows = grouped_rows_from_runtime_rows(value_catalog.enum_catalog(), rows)?;
 
-    Ok(PagedGroupedExecutionWithTrace::new(
-        rows,
-        next_cursor,
-        trace,
-    ))
+    Ok((rows, next_cursor, trace))
 }
 
 // Convert core grouped cursor bytes into the SQL statement surface's external

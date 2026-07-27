@@ -25,7 +25,7 @@ struct FixtureCanister {
     local_wasm_bytes: OnceLock<Vec<u8>>,
 }
 
-static FIXTURE_CANISTERS: [FixtureCanister; 10] = [
+static FIXTURE_CANISTERS: [FixtureCanister; 9] = [
     FixtureCanister {
         name: "demo_rpg",
         package: "canister_demo_rpg",
@@ -52,13 +52,8 @@ static FIXTURE_CANISTERS: [FixtureCanister; 10] = [
         local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {
-        name: "one_entity_fluent_rows",
-        package: "canister_audit_one_entity_fluent_rows",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "one_entity_fluent_execute",
-        package: "canister_audit_one_entity_fluent_execute",
+        name: "one_entity_typed_query",
+        package: "canister_audit_one_entity_typed_query",
         local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {
@@ -72,8 +67,8 @@ static FIXTURE_CANISTERS: [FixtureCanister; 10] = [
         local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {
-        name: "ten_entity_fluent_rows",
-        package: "canister_audit_ten_entity_fluent_rows",
+        name: "ten_entity_typed_query",
+        package: "canister_audit_ten_entity_typed_query",
         local_wasm_bytes: OnceLock::new(),
     },
 ];

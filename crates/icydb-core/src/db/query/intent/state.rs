@@ -5,16 +5,12 @@
 
 use crate::db::{
     predicate::Predicate,
-    query::{
-        intent::{KeyAccessState, project_key_access_for_planning},
-        plan::{
-            AccessPlanningInputs, DeleteSpec, GroupSpec, GroupedExecutionConfig, LoadSpec,
-            LogicalPlanningInputs, OrderSpec, QueryMode,
-            expr::{
-                BinaryOp, Expr, ProjectionSelection, derive_normalized_bool_expr_predicate_subset,
-                is_normalized_bool_expr, normalize_bool_expr,
-            },
-            has_explicit_order,
+    query::plan::{
+        AccessPlanningInputs, DeleteSpec, GroupSpec, GroupedExecutionConfig, LoadSpec,
+        LogicalPlanningInputs, OrderSpec, QueryMode,
+        expr::{
+            BinaryOp, Expr, ProjectionSelection, derive_normalized_bool_expr_predicate_subset,
+            is_normalized_bool_expr, normalize_bool_expr,
         },
     },
 };
@@ -233,22 +229,18 @@ fn combine_predicate_subset(
 ///
 
 #[derive(Clone, Debug)]
-pub(in crate::db::query::intent) struct ScalarIntent<K> {
+pub(in crate::db::query::intent) struct ScalarIntent {
     pub(in crate::db::query::intent) filter: Option<NormalizedFilter>,
-    pub(in crate::db::query::intent) key_access: Option<KeyAccessState<K>>,
-    pub(in crate::db::query::intent) key_access_conflict: bool,
     pub(in crate::db::query::intent) order: Option<OrderSpec>,
     pub(in crate::db::query::intent) distinct: bool,
     pub(in crate::db::query::intent) projection_selection: ProjectionSelection,
 }
 
-impl<K> ScalarIntent<K> {
+impl ScalarIntent {
     #[must_use]
     pub(in crate::db::query::intent) const fn new() -> Self {
         Self {
             filter: None,
-            key_access: None,
-            key_access_conflict: false,
             order: None,
             distinct: false,
             projection_selection: ProjectionSelection::All,
@@ -264,15 +256,15 @@ impl<K> ScalarIntent<K> {
 ///
 
 #[derive(Clone, Debug)]
-pub(in crate::db::query::intent) struct GroupedIntent<K> {
-    pub(in crate::db::query::intent) scalar: ScalarIntent<K>,
+pub(in crate::db::query::intent) struct GroupedIntent {
+    pub(in crate::db::query::intent) scalar: ScalarIntent,
     pub(in crate::db::query::intent) group: GroupSpec,
     pub(in crate::db::query::intent) having_expr: Option<Expr>,
 }
 
-impl<K> GroupedIntent<K> {
+impl GroupedIntent {
     #[must_use]
-    pub(in crate::db::query::intent) const fn from_scalar(scalar: ScalarIntent<K>) -> Self {
+    pub(in crate::db::query::intent) const fn from_scalar(scalar: ScalarIntent) -> Self {
         Self {
             scalar,
             group: GroupSpec {
@@ -294,9 +286,9 @@ impl<K> GroupedIntent<K> {
 // Query intent keeps scalar and grouped state inline so mode transitions can move the
 // full owned shape without introducing extra heap indirection across the intent builder.
 #[derive(Clone, Debug)]
-enum QueryShape<K> {
-    Scalar(ScalarIntent<K>),
-    Grouped(GroupedIntent<K>),
+enum QueryShape {
+    Scalar(ScalarIntent),
+    Grouped(GroupedIntent),
 }
 
 ///
@@ -307,13 +299,13 @@ enum QueryShape<K> {
 ///
 
 #[derive(Clone, Debug)]
-pub(in crate::db::query::intent) struct LoadIntentState<K> {
+pub(in crate::db::query::intent) struct LoadIntentState {
     spec: LoadSpec,
     offset_requested: bool,
-    shape: QueryShape<K>,
+    shape: QueryShape,
 }
 
-impl<K> LoadIntentState<K> {
+impl LoadIntentState {
     #[must_use]
     const fn new() -> Self {
         Self {
@@ -333,15 +325,15 @@ impl<K> LoadIntentState<K> {
 ///
 
 #[derive(Clone, Debug)]
-pub(in crate::db::query::intent) struct DeleteIntentState<K> {
+pub(in crate::db::query::intent) struct DeleteIntentState {
     spec: DeleteSpec,
-    scalar: ScalarIntent<K>,
+    scalar: ScalarIntent,
     grouping_requested: bool,
 }
 
-impl<K> DeleteIntentState<K> {
+impl DeleteIntentState {
     #[must_use]
-    const fn new(scalar: ScalarIntent<K>, grouping_requested: bool) -> Self {
+    const fn new(scalar: ScalarIntent, grouping_requested: bool) -> Self {
         Self {
             spec: DeleteSpec::new(),
             scalar,
@@ -360,12 +352,12 @@ impl<K> DeleteIntentState<K> {
 // Query intent keeps load/delete state inline because mode switches reuse the full owned
 // state and the builder is not a hot path where boxing would pay for the extra indirection.
 #[derive(Clone, Debug)]
-pub(in crate::db::query::intent) enum QueryIntent<K> {
-    Load(LoadIntentState<K>),
-    Delete(DeleteIntentState<K>),
+pub(in crate::db::query::intent) enum QueryIntent {
+    Load(LoadIntentState),
+    Delete(DeleteIntentState),
 }
 
-impl<K> QueryIntent<K> {
+impl QueryIntent {
     #[must_use]
     pub(in crate::db::query::intent) const fn new() -> Self {
         Self::Load(LoadIntentState::new())
@@ -385,11 +377,6 @@ impl<K> QueryIntent<K> {
             Self::Load(load) => matches!(load.shape, QueryShape::Grouped(_)),
             Self::Delete(delete) => delete.grouping_requested,
         }
-    }
-
-    #[must_use]
-    pub(in crate::db::query::intent) fn has_explicit_order(&self) -> bool {
-        has_explicit_order(self.scalar().order.as_ref())
     }
 
     #[must_use]
@@ -455,7 +442,7 @@ impl<K> QueryIntent<K> {
     }
 
     #[must_use]
-    pub(in crate::db::query::intent) const fn scalar(&self) -> &ScalarIntent<K> {
+    pub(in crate::db::query::intent) const fn scalar(&self) -> &ScalarIntent {
         match self {
             Self::Load(load) => match &load.shape {
                 QueryShape::Scalar(scalar) => scalar,
@@ -466,7 +453,7 @@ impl<K> QueryIntent<K> {
     }
 
     #[must_use]
-    pub(in crate::db::query::intent) const fn scalar_mut(&mut self) -> &mut ScalarIntent<K> {
+    pub(in crate::db::query::intent) const fn scalar_mut(&mut self) -> &mut ScalarIntent {
         match self {
             Self::Load(load) => match &mut load.shape {
                 QueryShape::Scalar(scalar) => scalar,
@@ -477,7 +464,7 @@ impl<K> QueryIntent<K> {
     }
 
     #[must_use]
-    pub(in crate::db::query::intent) const fn grouped(&self) -> Option<&GroupedIntent<K>> {
+    pub(in crate::db::query::intent) const fn grouped(&self) -> Option<&GroupedIntent> {
         match self {
             Self::Load(load) => match &load.shape {
                 QueryShape::Grouped(grouped) => Some(grouped),
@@ -488,9 +475,7 @@ impl<K> QueryIntent<K> {
     }
 
     #[must_use]
-    pub(in crate::db::query::intent) const fn grouped_mut(
-        &mut self,
-    ) -> Option<&mut GroupedIntent<K>> {
+    pub(in crate::db::query::intent) const fn grouped_mut(&mut self) -> Option<&mut GroupedIntent> {
         match self {
             Self::Load(load) => match &mut load.shape {
                 QueryShape::Grouped(grouped) => Some(grouped),
@@ -502,7 +487,7 @@ impl<K> QueryIntent<K> {
 
     pub(in crate::db::query::intent) fn ensure_grouped_mut(
         &mut self,
-    ) -> Option<&mut GroupedIntent<K>> {
+    ) -> Option<&mut GroupedIntent> {
         let Self::Load(load) = self else {
             return None;
         };
@@ -559,30 +544,17 @@ impl<K> QueryIntent<K> {
     }
 }
 
-impl<K: crate::db::KeyValueCodec> QueryIntent<K> {
+impl QueryIntent {
     /// Project access-planning inputs from intent-owned scalar state.
     #[must_use]
     pub(in crate::db::query::intent) fn planning_access_inputs(&self) -> AccessPlanningInputs<'_> {
         let scalar = self.scalar();
-        let key_access_projection = scalar
-            .key_access
-            .as_ref()
-            .map(|state| project_key_access_for_planning(&state.access));
-        let (key_access_override, key_access_input_resource) =
-            key_access_projection.map_or((None, None), |projection| {
-                let (access_plan, input_resource) = projection.into_parts();
-
-                (Some(access_plan), input_resource)
-            });
-
         AccessPlanningInputs::new(
             scalar
                 .filter
                 .as_ref()
                 .and_then(NormalizedFilter::predicate_subset),
             scalar.order.as_ref(),
-            key_access_override,
-            key_access_input_resource,
         )
     }
 }

@@ -60,20 +60,3 @@ pub(in crate::db::executor) fn decorate_resolved_execution_key_stream(
         wrap_distinct_ordered_key_stream(key_stream, strategy, key_comparator, dedup_counter)
     })
 }
-
-/// Decorate one ordered key stream with DISTINCT behavior using planner strategy.
-pub(in crate::db::executor) fn decorate_key_stream_for_plan(
-    ordered_key_stream: OrderedKeyStreamBox,
-    plan: &AccessPlannedQuery,
-    direction: Direction,
-) -> OrderedKeyStreamBox {
-    let key_comparator = key_stream_comparator_from_direction(direction);
-
-    wrap_distinct_ordered_key_stream(
-        ordered_key_stream,
-        plan.distinct_execution_strategy(),
-        key_comparator,
-        None,
-    )
-    .0
-}

@@ -26,15 +26,6 @@ impl PreparedAggregateTarget {
         }
     }
 
-    // Borrow the scalar input expression when this target is expression-backed.
-    #[cfg(test)]
-    pub(in crate::db::sql::lowering::aggregate) const fn input_expr(&self) -> Option<&Expr> {
-        match self {
-            Self::Expr(input_expr) => Some(input_expr),
-            Self::Rows | Self::Field(_) => None,
-        }
-    }
-
     // Convert the sealed target into the current executor terminal tuple. This
     // is the only expansion point from the semantic target into executor shape.
     pub(in crate::db::sql::lowering::aggregate) fn into_terminal_inputs(
@@ -140,12 +131,6 @@ impl PreparedAggregateSemantics {
     #[cfg(any(test, feature = "sql-explain"))]
     pub(in crate::db::sql::lowering::aggregate) const fn target_slot(&self) -> Option<&FieldSlot> {
         self.target().field_slot()
-    }
-
-    // Borrow the expression input when this semantic terminal is expression-backed.
-    #[cfg(test)]
-    pub(in crate::db::sql::lowering::aggregate) const fn input_expr(&self) -> Option<&Expr> {
-        self.target().input_expr()
     }
 
     // Move this prepared semantic terminal into executor inputs.

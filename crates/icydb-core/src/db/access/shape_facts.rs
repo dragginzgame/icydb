@@ -46,11 +46,6 @@ impl SinglePathAccessShapeFacts {
     }
 
     #[must_use]
-    pub(in crate::db) const fn is_by_keys_empty(&self) -> bool {
-        self.is_by_keys_empty
-    }
-
-    #[must_use]
     pub(in crate::db) fn index_prefix_details(&self) -> Option<IndexShapeDetails> {
         self.index_prefix_details.clone()
     }

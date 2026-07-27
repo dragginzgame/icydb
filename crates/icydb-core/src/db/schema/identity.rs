@@ -166,21 +166,6 @@ impl FieldId {
     pub(in crate::db) const fn get(self) -> u32 {
         self.0
     }
-
-    /// Assign the initial schema ID for a generated field slot.
-    ///
-    /// The first generated snapshot has no prior durable identity source, so it
-    /// derives IDs deterministically from generated slot order. Reconciliation
-    /// preserves stored IDs instead of recalculating them.
-    #[must_use]
-    pub(in crate::db) fn from_initial_slot(slot: usize) -> Self {
-        let next = u32::try_from(slot)
-            .expect("schema identity invariant")
-            .checked_add(1)
-            .expect("schema identity invariant");
-
-        Self(next)
-    }
 }
 
 #[cfg(test)]

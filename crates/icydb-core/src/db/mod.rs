@@ -48,10 +48,8 @@ use crate::{
     db::{
         commit::{CommitRowOp, PreparedRowCommitOp, ensure_recovered},
         data::RawDataStoreKey,
-        executor::Context,
         registry::StoreHandle,
     },
-    entity::{EntityKind, EntityValue},
     error::InternalError,
     traits::CanisterKind,
     types::EntityTag,
@@ -64,27 +62,7 @@ pub use catalog::{
 };
 #[doc(hidden)]
 pub use codec::hex::encode_hex_lower;
-pub use entity_registration::EntityRegistration;
-pub use schema::{
-    SchemaApplicationStore, SchemaApplicationTarget, SchemaChangeFailure, SchemaChangeJob,
-    SchemaChangeJobId, SchemaChangeOutcome, SchemaChangeProgress, SchemaChangeProgressStatus,
-    SchemaChangeReceipt, SchemaChangeValidationPhase,
-};
-pub use write_context::MutationMode;
-// These hidden helper re-exports remain public so the crate-root `__macro`
-// boundary can route generated code through one stable path without widening
-// the normal `db` facade contract.
-pub use data::{AuthoredStructuralPatch, DataStore, PersistedRow, SlotReader};
-#[doc(hidden)]
-pub use data::{
-    PersistedByKindCodec, PersistedScalar, PersistedStructuralValueCodec, ScalarSlotValueRef,
-    ScalarValueRef, decode_persisted_option_scalar_slot_payload,
-    decode_persisted_option_slot_payload_by_kind, decode_persisted_scalar_slot_payload,
-    decode_persisted_slot_payload_by_kind, decode_persisted_structured_many_slot_payload,
-    decode_persisted_structured_slot_payload, encode_persisted_option_scalar_slot_payload,
-    encode_persisted_scalar_slot_payload, encode_persisted_slot_payload_by_kind,
-    encode_persisted_structured_many_slot_payload, encode_persisted_structured_slot_payload,
-};
+pub use data::DataStore;
 #[cfg(feature = "diagnostics")]
 #[doc(hidden)]
 pub use data::{StructuralReadMetrics, with_structural_read_metrics};
@@ -102,6 +80,7 @@ pub use dynamic_write::{
     DynamicMutationResult, DynamicTypedBindingError, DynamicTypedEntityBinding,
     DynamicTypedFieldBindingRequest, DynamicTypedFieldType,
 };
+pub use entity_registration::EntityRegistration;
 pub use executor::{ExecutionFamily, RouteExecutionMode};
 #[cfg(feature = "diagnostics")]
 #[doc(hidden)]
@@ -140,20 +119,13 @@ pub use key_taxonomy::{
 pub use predicate::{
     CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
 };
-#[doc(hidden)]
-pub use predicate::{
-    parse_generated_index_predicate_sql, validate_generated_check_predicate_fields,
-    validate_generated_index_predicate_fields,
-};
 pub use query::builder::numeric_projection::{
     NumericProjectionExpr, RoundProjectionExpr, add, div, mul, round, round_expr, sub,
 };
-pub(in crate::db) use query::intent::Query;
 pub use query::plan::validate::PlanError;
 #[cfg(feature = "sql")]
 pub use query::{DynamicQuery, DynamicQueryResult};
 pub use query::{
-    api::ResponseCardinalityExt,
     builder::{
         AggregateExpr, FieldRef, TextProjectionExpr, ValueProjectionExpr, avg, contains, count,
         count_by, ends_with, exists, first, last, left, length, lower, ltrim, max, max_by, min,
@@ -168,16 +140,12 @@ pub use query::{
         ExplainSelectedAccess,
     },
     expr::{FilterExpr, FilterValue, OrderExpr, OrderTerm, asc, desc, field},
-    fluent::{
-        delete::FluentDeleteQuery,
-        load::{FluentLoadQuery, LoadQueryResult, PartialWindowLoadQuery},
-    },
     intent::{
         AccessRequirementError, AccessRequirementViolation, IntentError, QueryError,
         QueryExecutionError, RequiredAccessPath,
     },
     plan::{DeleteSpec, LoadSpec, OrderDirection, QueryMode},
-    read_intent::{AdminBatchRequest, ReadIntentKind},
+    read_intent::ReadIntentKind,
     trace::{QueryTracePlan, TraceExecutionFamily, TraceReuseEvent},
 };
 pub use registry::{
@@ -186,11 +154,7 @@ pub use registry::{
     StoreRelationSourceCapability, StoreRelationTargetCapability, StoreRuntimeStorageCapabilities,
     StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
 };
-pub use response::{
-    EntityResponse, GroupedRow, PagedGroupedExecution, PagedGroupedExecutionWithTrace,
-    PagedLoadExecution, PagedLoadExecutionWithTrace, Response as RowResponse, ResponseError,
-    ResponseRow, Row, WriteBatchResponse,
-};
+pub use response::GroupedRow;
 #[doc(hidden)]
 pub use schema::validate_generated_constraint_name;
 pub use schema::{
@@ -198,6 +162,11 @@ pub use schema::{
     EntityIndexDescription, EntityRelationCardinality, EntityRelationDescription,
     EntitySchemaCheckDescription, EntitySchemaDescription, SchemaLiteralValidationReason,
     SchemaStore, SchemaValidationOperator, ValidateError,
+};
+pub use schema::{
+    SchemaApplicationStore, SchemaApplicationTarget, SchemaChangeFailure, SchemaChangeJob,
+    SchemaChangeJobId, SchemaChangeOutcome, SchemaChangeProgress, SchemaChangeProgressStatus,
+    SchemaChangeReceipt, SchemaChangeValidationPhase,
 };
 #[cfg(not(feature = "sql"))]
 pub use session::DbSession;
@@ -213,22 +182,14 @@ pub use session::{
 };
 #[cfg(feature = "diagnostics")]
 pub use session::{
-    DirectDataRowAttribution, FluentTerminalExecutionAttribution, GroupedCountAttribution,
-    GroupedExecutionAttribution, KernelRowAttribution, QueryExecutionAttribution,
-    ScalarAggregateAttribution,
+    DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
+    KernelRowAttribution, ScalarAggregateAttribution,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use session::{
     SqlCompileAttribution, SqlExecutionAttribution, SqlHybridCoveringAttribution,
     SqlOutputBlobAttribution, SqlPureCoveringAttribution, SqlQueryCacheAttribution,
     SqlQueryExecutionAttribution,
-};
-#[cfg(all(feature = "sql", test))]
-pub(in crate::db) use session::{
-    SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,
-    SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyDeletePlan, SqlPublicPrimaryKeyUpdatePlan,
-    SqlUpdateExposurePolicy, SqlUpdatePolicyContext, SqlValidatedDeletePlan,
-    SqlValidatedUpdatePlan, classify_sql_delete_policy, classify_sql_update_policy,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]
@@ -242,80 +203,7 @@ pub use sql::identifier::{
 };
 #[cfg(feature = "sql")]
 pub use sql::lowering::LoweredSqlCommand;
-
-/// Hidden generated-code alias for borrowed structural map entry payload slices.
-#[doc(hidden)]
-pub type GeneratedStructuralMapPayloadSlices<'a> = Vec<(&'a [u8], &'a [u8])>;
-
-/// Hidden generated-code helper for canonical structural text payload framing.
-#[doc(hidden)]
-#[must_use]
-pub(crate) fn encode_generated_structural_text_payload_bytes(value: &str) -> Vec<u8> {
-    data::encode_value_storage_text(value)
-}
-
-/// Hidden generated-code helper for canonical structural list payload framing.
-#[doc(hidden)]
-#[must_use]
-pub(crate) fn encode_generated_structural_list_payload_bytes(items: &[&[u8]]) -> Vec<u8> {
-    data::encode_value_storage_list_item_slices(items)
-}
-
-/// Hidden generated-code helper for canonical structural map payload framing.
-#[doc(hidden)]
-#[must_use]
-pub(crate) fn encode_generated_structural_map_payload_bytes(entries: &[(&[u8], &[u8])]) -> Vec<u8> {
-    data::encode_value_storage_map_entry_slices(entries)
-}
-
-/// Hidden generated-code helper for structural text payload decoding.
-#[doc(hidden)]
-pub(crate) fn decode_generated_structural_text_payload_bytes(
-    raw_bytes: &[u8],
-) -> Result<String, InternalError> {
-    data::decode_value_storage_text(raw_bytes).map_err(InternalError::persisted_row_decode_failed)
-}
-
-/// Hidden generated-code helper for structural list payload decoding.
-#[doc(hidden)]
-pub(crate) fn decode_generated_structural_list_payload_bytes(
-    raw_bytes: &[u8],
-) -> Result<Vec<&[u8]>, InternalError> {
-    data::decode_value_storage_list_item_slices(raw_bytes)
-        .map_err(InternalError::persisted_row_decode_failed)
-}
-
-/// Hidden generated-code helper for structural map payload decoding.
-#[doc(hidden)]
-pub(crate) fn decode_generated_structural_map_payload_bytes(
-    raw_bytes: &[u8],
-) -> Result<GeneratedStructuralMapPayloadSlices<'_>, InternalError> {
-    data::decode_value_storage_map_entry_slices(raw_bytes)
-        .map_err(InternalError::persisted_row_decode_failed)
-}
-
-/// Hidden generated-code helper for persisted structured payload decode errors.
-#[doc(hidden)]
-pub(crate) fn generated_persisted_structured_payload_decode_failed(
-    detail: impl Sized,
-) -> InternalError {
-    InternalError::persisted_row_decode_failed(detail)
-}
-
-/// Encode one explicitly non-enum protocol value through Structural Binary.
-pub(crate) fn encode_non_enum_protocol_value_bytes(
-    value: &crate::value::Value,
-) -> Result<Vec<u8>, InternalError> {
-    data::encode_structural_value_storage_bytes(value)
-}
-
-/// Decode one explicitly non-enum protocol value through Structural Binary.
-pub(crate) fn decode_non_enum_protocol_value_bytes(
-    raw_bytes: &[u8],
-) -> Result<crate::value::Value, InternalError> {
-    data::decode_structural_value_storage_bytes(raw_bytes)
-        .map_err(InternalError::persisted_row_decode_failed)
-}
+pub use write_context::MutationMode;
 
 ///
 /// Db
@@ -335,26 +223,11 @@ impl<C: CanisterKind> Db<C> {
         store: &'static LocalKey<StoreRegistry>,
         entity_registrations: &'static [EntityRegistration<C>],
     ) -> Self {
-        #[cfg(debug_assertions)]
-        {
-            let _ = crate::db::entity_registration::debug_assert_unique_entity_registrations(
-                entity_registrations,
-            );
-        }
-
         Self {
             store,
             entity_registrations,
             _marker: PhantomData,
         }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn context<E>(&self) -> Context<'_, E>
-    where
-        E: EntityKind<Canister = C> + EntityValue,
-    {
-        Context::new(self)
     }
 
     /// Resolve one named store after enforcing startup recovery.
@@ -392,12 +265,6 @@ impl<C: CanisterKind> Db<C> {
     #[must_use]
     pub(in crate::db) fn cache_scope_id(&self) -> usize {
         std::ptr::from_ref::<LocalKey<StoreRegistry>>(self.store) as usize
-    }
-
-    /// Build one named-store resolver for executor/runtime helpers.
-    #[must_use]
-    pub(in crate::db) fn store_resolver(&self) -> executor::StoreResolver<'_> {
-        executor::StoreResolver::new(self)
     }
 
     /// Mark every registered index store as fully rebuilt and query-visible.
@@ -527,6 +394,7 @@ impl<C: CanisterKind> Db<C> {
         entity_tag: EntityTag,
     ) -> Result<entity_registration::EntityRuntimeRegistration<C>, InternalError> {
         entity_registration::resolve_runtime_registration_by_tag(
+            self,
             self.entity_registrations,
             entity_tag,
         )
@@ -538,6 +406,7 @@ impl<C: CanisterKind> Db<C> {
         entity_path: &str,
     ) -> Result<entity_registration::EntityRuntimeRegistration<C>, InternalError> {
         entity_registration::resolve_runtime_registration_by_path(
+            self,
             self.entity_registrations,
             entity_path,
         )

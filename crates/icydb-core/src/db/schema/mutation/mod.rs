@@ -26,13 +26,6 @@ pub(in crate::db) use field::{
     resolve_sql_ddl_field_nullability_candidate, resolve_sql_ddl_field_rename_candidate,
     resolve_sql_ddl_field_set_default_candidate, validate_sql_ddl_field_default_change_candidate,
 };
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db) use field::{
-    admit_sql_ddl_field_addition_candidate, admit_sql_ddl_field_default_candidate,
-    admit_sql_ddl_field_drop_candidate, admit_sql_ddl_field_nullability_candidate,
-    admit_sql_ddl_field_rename_candidate,
-};
-
 #[cfg(feature = "sql")]
 mod field_allocation;
 #[cfg(feature = "sql")]
@@ -61,32 +54,16 @@ pub(in crate::db) use field_type::{
 #[cfg(feature = "sql")]
 mod ddl_admission;
 #[cfg(feature = "sql")]
-#[cfg_attr(
-    not(test),
-    expect(
-        unused_imports,
-        reason = "schema root re-exports DDL schema-version admission diagnostics"
-    )
-)]
 pub(in crate::db) use ddl_admission::{
     SchemaDdlAcceptedSnapshotDerivation, SchemaDdlIndexDropCandidateError,
     SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError, SchemaDdlMutationTarget,
-    SchemaDdlSchemaVersionAdmissionError, SchemaDdlVersionContractPreflightError,
-    validate_schema_ddl_version_contract_preflight,
+    SchemaDdlVersionContractPreflightError, validate_schema_ddl_version_contract_preflight,
 };
 
 mod delta;
 #[cfg(feature = "sql")]
 pub(in crate::db::schema) use delta::required_empty_entity_field_addition_matches;
 pub(in crate::db::schema) use delta::schema_mutation_request_for_snapshots;
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db::schema) use delta::{SchemaMutationDelta, classify_schema_mutation_delta};
-
-mod generated_candidate;
-pub(in crate::db::schema) use generated_candidate::{
-    GeneratedAcceptedCandidateError, GeneratedConstraintActivationContext,
-    derive_generated_accepted_candidate,
-};
 
 #[cfg(feature = "sql")]
 mod index_candidate;
@@ -106,11 +83,6 @@ pub(in crate::db) use index::{
 pub(in crate::db) use index::{
     SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildKey,
     SchemaFieldPathIndexRebuildTarget,
-};
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db) use index::{
-    admit_sql_ddl_expression_index_candidate, admit_sql_ddl_field_path_index_candidate,
-    admit_sql_ddl_secondary_index_drop_candidate,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use index::{

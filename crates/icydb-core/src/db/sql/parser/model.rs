@@ -778,16 +778,6 @@ pub(crate) enum SqlScalarFunction {
     EndsWith,
     Exp,
     Floor,
-    #[cfg(test)]
-    IsEmpty,
-    #[cfg(test)]
-    IsMissing,
-    #[cfg(test)]
-    IsNotEmpty,
-    #[cfg(test)]
-    IsNotNull,
-    #[cfg(test)]
-    IsNull,
     Left,
     Length,
     Ln,
@@ -858,16 +848,6 @@ impl SqlScalarFunction {
             Self::EndsWith => Function::EndsWith,
             Self::Exp => Function::Exp,
             Self::Floor => Function::Floor,
-            #[cfg(test)]
-            Self::IsEmpty => Function::IsEmpty,
-            #[cfg(test)]
-            Self::IsMissing => Function::IsMissing,
-            #[cfg(test)]
-            Self::IsNotEmpty => Function::IsNotEmpty,
-            #[cfg(test)]
-            Self::IsNotNull => Function::IsNotNull,
-            #[cfg(test)]
-            Self::IsNull => Function::IsNull,
             Self::Left => Function::Left,
             Self::Length => Function::Length,
             Self::Ln => Function::Ln,
@@ -921,10 +901,6 @@ impl SqlScalarFunction {
             | Self::Upper
             | Self::Length
             | Self::OctetLength => SqlScalarFunctionCallShape::UnaryExpr,
-            #[cfg(test)]
-            Self::IsEmpty | Self::IsMissing | Self::IsNotEmpty | Self::IsNotNull | Self::IsNull => {
-                SqlScalarFunctionCallShape::UnaryExpr
-            }
             Self::Left | Self::Right | Self::StartsWith | Self::EndsWith | Self::Contains => {
                 SqlScalarFunctionCallShape::FieldPlusLiteral
             }

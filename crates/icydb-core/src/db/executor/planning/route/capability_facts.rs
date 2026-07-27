@@ -28,22 +28,6 @@ use crate::db::{
     },
 };
 
-/// Return whether this access path can produce an ordered key-stream window directly.
-#[must_use]
-pub(in crate::db::executor) const fn ordered_key_stream_window_shape_supported(
-    shape_facts: &SinglePathAccessShapeFacts,
-) -> bool {
-    matches!(
-        shape_facts.kind(),
-        AccessPathKind::ByKey
-            | AccessPathKind::ByKeys
-            | AccessPathKind::IndexPrefix
-            | AccessPathKind::IndexMultiLookup
-            | AccessPathKind::IndexBranchSet
-            | AccessPathKind::IndexRange
-    )
-}
-
 /// Return whether this access path is a primary-key stream-window shape.
 #[must_use]
 pub(in crate::db::executor) const fn primary_key_stream_window_shape_supported(
@@ -52,17 +36,6 @@ pub(in crate::db::executor) const fn primary_key_stream_window_shape_supported(
     matches!(
         shape_facts.kind(),
         AccessPathKind::KeyRange | AccessPathKind::FullScan
-    )
-}
-
-/// Return whether this access path directly addresses primary-key values.
-#[must_use]
-pub(in crate::db::executor) const fn direct_primary_key_lookup_shape_supported(
-    shape_facts: &SinglePathAccessShapeFacts,
-) -> bool {
-    matches!(
-        shape_facts.kind(),
-        AccessPathKind::ByKey | AccessPathKind::ByKeys
     )
 }
 
@@ -86,15 +59,6 @@ pub(in crate::db::executor) const fn index_prefix_set_page_fetch_hint_shape_supp
         shape_facts.kind(),
         AccessPathKind::IndexMultiLookup | AccessPathKind::IndexBranchSet
     )
-}
-
-/// Return whether EXISTS can use index-prefix-cardinality preflight for this path.
-#[must_use]
-pub(in crate::db::executor) const fn index_multi_lookup_prefix_cardinality_preflight_shape_supported(
-    shape_facts: &SinglePathAccessShapeFacts,
-) -> bool {
-    matches!(shape_facts.kind(), AccessPathKind::IndexMultiLookup)
-        && shape_facts.index_prefix_spec_count() > 1
 }
 
 /// Return whether this path can use branch-set page keep caps.
@@ -122,37 +86,6 @@ pub(in crate::db::executor) const fn count_pushdown_shape_supported(
     shape_facts: &SinglePathAccessShapeFacts,
 ) -> bool {
     primary_key_stream_window_shape_supported(shape_facts)
-}
-
-/// Return whether numeric field aggregates can use one direct key-stream fold.
-#[must_use]
-pub(in crate::db::executor) const fn streaming_numeric_fold_shape_supported(
-    shape_facts: &SinglePathAccessShapeFacts,
-) -> bool {
-    matches!(
-        shape_facts.kind(),
-        AccessPathKind::ByKey
-            | AccessPathKind::ByKeys
-            | AccessPathKind::FullScan
-            | AccessPathKind::KeyRange
-            | AccessPathKind::IndexPrefix
-            | AccessPathKind::IndexBranchSet
-            | AccessPathKind::IndexRange
-    )
-}
-
-/// Return whether numeric field aggregates can fold paged primary-key windows.
-#[must_use]
-pub(in crate::db::executor) const fn paged_primary_key_numeric_fold_shape_supported(
-    shape_facts: &SinglePathAccessShapeFacts,
-) -> bool {
-    matches!(
-        shape_facts.kind(),
-        AccessPathKind::ByKey
-            | AccessPathKind::ByKeys
-            | AccessPathKind::FullScan
-            | AccessPathKind::KeyRange
-    )
 }
 
 ///

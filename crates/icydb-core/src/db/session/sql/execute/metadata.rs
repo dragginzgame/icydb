@@ -116,34 +116,6 @@ impl<C: CanisterKind> DbSession<C> {
         SqlStatementResult::ShowMemory(self.show_memory())
     }
 
-    #[cfg(test)]
-    pub(super) fn execute_metadata_compiled_sql_with_default_cache<E>(
-        &self,
-        compiled: &CompiledSqlCommand,
-    ) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>>
-    where
-        E: crate::db::PersistedRow<Canister = C>,
-    {
-        if matches!(
-            compiled,
-            CompiledSqlCommand::DescribeEntity
-                | CompiledSqlCommand::ShowConstraintsEntity
-                | CompiledSqlCommand::ShowIndexesEntity
-                | CompiledSqlCommand::ShowColumnsEntity
-        ) {
-            let result = self
-                .accepted_schema_catalog_context_for_query::<E>()
-                .map_err(QueryError::execute)
-                .and_then(|catalog| {
-                    self.execute_metadata_compiled_sql_with_cache(compiled, Some(&catalog))
-                        .ok_or_else(QueryError::invariant)?
-                });
-            return Some(result);
-        }
-
-        self.execute_metadata_compiled_sql_with_cache(compiled, None)
-    }
-
     pub(super) fn execute_accepted_metadata_compiled_sql_with_catalog_cache(
         &self,
         compiled: &CompiledSqlCommand,

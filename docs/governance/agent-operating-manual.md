@@ -11,9 +11,10 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - `crates/icydb-diagnostic-code`: compact diagnostic code registry.
 - `crates/icydb-schema`: bounded public proposal contract and canonical scalar
   atoms.
-- `crates/icydb-model-legacy`: temporary unpublished pre-0.213 model AST.
-- `crates/icydb-schema-derive`: derive and codegen macros.
-- `crates/icydb-build`: build/codegen helpers and canister glue.
+- `crates/icydb-model`: application-model authoring graph, host lowering, and
+  generated canister actor glue.
+- `crates/icydb-model-macros`: application-model declarations and explicitly
+  opted-in typed adapters.
 - `crates/icydb-utils`: shared internal utility helpers.
 - `canisters/audit/*`: SQL audit harnesses for wasm baselines.
 - `canisters/demo/rpg`: RPG demo canister with character and grid entities.
@@ -22,7 +23,7 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - `schema/demo/rpg`: demo schema fixtures and seed data.
 - `schema/audit/*`: audit schema fixtures.
 - `schema/test/*`: shared macro/e2e and SQL fixtures.
-- `testing/macro-tests`: macro and schema contract tests.
+- `testing/model-*`: packaged model, macro, and typed-adapter contract tests.
 - `testing/integration`: canister integration tests.
 - `assets/`: images and docs assets.
 - `scripts/`: release/version helpers.

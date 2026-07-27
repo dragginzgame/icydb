@@ -9,13 +9,12 @@ use crate::{
         access::AccessPlan,
         predicate::{Predicate, normalize, normalize_enum_literals},
         query::plan::{
-            OrderSpec, PlannedAccessSelection, PlannerError, PrimaryKeyInputResourceSummary,
-            VisibleIndexes, canonicalize_order_spec_for_grouping, plan_access_selection_with_order,
+            OrderSpec, PlannedAccessSelection, PlannerError, VisibleIndexes,
+            canonicalize_order_spec_for_grouping,
             plan_access_selection_with_order_and_accepted_semantic_indexes,
         },
         schema::{SchemaInfo, ValidateError},
     },
-    model::entity::EntityModel,
     value::Value,
 };
 
@@ -23,7 +22,7 @@ use crate::{
 /// AccessPlanningInputs
 ///
 /// Access-planning input contract projected from query intent.
-/// Carries optional predicate, raw order shape, and explicit key-access override hints.
+/// Carries the optional predicate and raw order shape.
 /// Access planning consumes this contract before logical plan assembly and
 /// normalizes order independently of the later logical-plan pass.
 ///
@@ -32,8 +31,6 @@ use crate::{
 pub(in crate::db::query) struct AccessPlanningInputs<'a> {
     predicate: Option<&'a Predicate>,
     order: Option<&'a OrderSpec>,
-    key_access_override: Option<AccessPlan<Value>>,
-    key_access_input_resource: Option<PrimaryKeyInputResourceSummary>,
 }
 
 impl<'a> AccessPlanningInputs<'a> {
@@ -42,15 +39,8 @@ impl<'a> AccessPlanningInputs<'a> {
     pub(in crate::db::query) const fn new(
         predicate: Option<&'a Predicate>,
         order: Option<&'a OrderSpec>,
-        key_access_override: Option<AccessPlan<Value>>,
-        key_access_input_resource: Option<PrimaryKeyInputResourceSummary>,
     ) -> Self {
-        Self {
-            predicate,
-            order,
-            key_access_override,
-            key_access_input_resource,
-        }
+        Self { predicate, order }
     }
 
     /// Borrow predicate input for normalization and planner analysis.
@@ -63,27 +53,6 @@ impl<'a> AccessPlanningInputs<'a> {
     #[must_use]
     pub(in crate::db::query) const fn order(&self) -> Option<&'a OrderSpec> {
         self.order
-    }
-
-    /// Return raw key-list resource facts for explicit key-access overrides.
-    #[must_use]
-    pub(in crate::db::query) const fn key_access_input_resource(
-        &self,
-    ) -> Option<PrimaryKeyInputResourceSummary> {
-        self.key_access_input_resource
-    }
-
-    /// Return whether explicit key access was projected from query intent.
-    #[must_use]
-    #[cfg(feature = "sql")]
-    pub(in crate::db::query) const fn has_key_access_override(&self) -> bool {
-        self.key_access_override.is_some()
-    }
-
-    /// Consume and return explicit key-access override if present.
-    #[must_use]
-    pub(in crate::db::query) fn into_key_access_override(self) -> Option<AccessPlan<Value>> {
-        self.key_access_override
     }
 }
 
@@ -101,54 +70,12 @@ pub(in crate::db::query) fn normalize_query_predicate(
         .transpose()
 }
 
-// Select one access plan for a normalized query, honoring explicit key-access
-// overrides before falling back to predicate-derived access planning.
-pub(in crate::db::query) fn plan_query_access(
-    model: &EntityModel,
-    visible_indexes: &VisibleIndexes<'_>,
-    schema_info: &SchemaInfo,
-    normalized_predicate: Option<&Predicate>,
-    order: Option<&OrderSpec>,
-    grouped: bool,
-    key_access_override: Option<AccessPlan<Value>>,
-) -> Result<PlannedAccessSelection, PlannerError> {
-    if let Some(plan) = key_access_override {
-        Ok(PlannedAccessSelection::new(
-            plan,
-            Some(crate::db::query::plan::PlannedNonIndexAccessReason::IntentKeyAccessOverride),
-        ))
-    } else {
-        let canonical_order =
-            canonicalize_order_spec_for_grouping(schema_info, order.cloned(), grouped);
-
-        if visible_indexes.accepted_field_path_index_count().is_some() {
-            plan_access_selection_with_order_and_accepted_semantic_indexes(
-                visible_indexes.accepted_semantic_index_contracts(),
-                visible_indexes.accepted_field_path_indexes(),
-                schema_info,
-                normalized_predicate,
-                canonical_order.as_ref(),
-                grouped,
-            )
-        } else {
-            plan_access_selection_with_order(
-                model,
-                visible_indexes.generated_model_only_indexes(),
-                schema_info,
-                normalized_predicate,
-                canonical_order.as_ref(),
-                grouped,
-            )
-        }
-    }
-}
-
 /// Select one access plan from accepted schema and accepted semantic indexes.
 ///
 /// Standalone SQL and dynamic reads enter here after accepted catalog
 /// selection; generated model metadata is neither required nor consulted.
 pub(in crate::db::query) fn plan_query_access_with_accepted_schema(
-    visible_indexes: &VisibleIndexes<'_>,
+    visible_indexes: &VisibleIndexes,
     schema_info: &SchemaInfo,
     normalized_predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,

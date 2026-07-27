@@ -1,7 +1,8 @@
 //! Module: db::schema
 //! Responsibility: generated accepted-schema report endpoint tokens.
 //! Does not own: schema validation, entity description semantics, or controller policy.
-//! Boundary: emits controller-gated schema report helpers for concrete canister entities.
+//! Boundary: emits controller-gated accepted-schema reports for authored
+//! entity routes.
 
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -11,28 +12,28 @@ use quote::quote;
 ///
 /// Generated token bundle for the opted-in accepted-schema report endpoint.
 /// The endpoint remains generated because only codegen knows the concrete
-/// entity types bound to one canister.
+/// entity paths bound to one canister.
 ///
 
 pub(super) struct SchemaSurfaceTokens {
-    entity_tys: Vec<syn::Path>,
+    entity_paths: Vec<String>,
 }
 
 impl SchemaSurfaceTokens {
     pub(super) const fn empty() -> Self {
         Self {
-            entity_tys: Vec::new(),
+            entity_paths: Vec::new(),
         }
     }
 
-    pub(super) fn push_entity(&mut self, entity_ty: &syn::Path) {
-        self.entity_tys.push(entity_ty.clone());
+    pub(super) fn push_entity(&mut self, entity_path: &str, _entity_name: &str) {
+        self.entity_paths.push(entity_path.to_owned());
     }
 }
 
 impl quote::ToTokens for SchemaSurfaceTokens {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let entity_tys = &self.entity_tys;
+        let entity_paths = &self.entity_paths;
 
         tokens.extend(quote! {
             fn icydb_schema_surface_require_controller() -> Result<(), ::icydb::Error> {
@@ -52,19 +53,7 @@ impl quote::ToTokens for SchemaSurfaceTokens {
                 icydb_schema_surface_require_controller()?;
 
                 Ok(vec![
-                    #(db()?.try_describe_entity::<#entity_tys>()?),*
-                ])
-            }
-
-            #[::icydb::__reexports::ic_cdk::query(name = "icydb_schema_check")]
-            fn __icydb_schema_check() -> Result<Vec<::icydb::db::EntitySchemaCheckDescription>, ::icydb::Error> {
-                icydb_schema_surface_require_controller()?;
-
-                Ok(vec![
-                    #(::icydb::db::EntitySchemaCheckDescription::new(
-                        db()?.describe_entity::<#entity_tys>(),
-                        db()?.try_describe_entity::<#entity_tys>()?,
-                    )),*
+                    #(db()?.try_describe_entity_by_name(#entity_paths)?),*
                 ])
             }
         });
@@ -87,15 +76,14 @@ mod tests {
 
     #[test]
     fn generated_schema_surface_uses_public_icydb_endpoint_names() {
-        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
         let mut surface_tokens = SchemaSurfaceTokens::empty();
-        surface_tokens.push_entity(&entity_ty);
+        surface_tokens.push_entity("crate::Character", "Character");
 
         let surface = compact_tokens(quote!(#surface_tokens));
 
         assert!(surface.contains("name=\"icydb_schema\""));
-        assert!(surface.contains("name=\"icydb_schema_check\""));
         assert!(surface.contains("fn__icydb_schema("));
-        assert!(surface.contains("fn__icydb_schema_check("));
+        assert!(!surface.contains("icydb_schema_check"));
+        assert!(surface.contains("try_describe_entity_by_name(\"crate::Character\")"));
     }
 }

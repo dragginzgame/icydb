@@ -3,9 +3,6 @@
 //! Does not own: schema-store physical keys, journal commits, or runtime plan guards.
 //! Boundary: canonical catalog/snapshots <-> bounded bundle and checksummed root bytes.
 
-#[cfg(test)]
-mod tests;
-
 use super::{
     AcceptedEnumCatalog, AcceptedEnumVariantBody, decode_accepted_enum_catalog,
     encode_accepted_enum_catalog,

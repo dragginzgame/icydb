@@ -1186,9 +1186,8 @@ fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
         #patch_struct
         #replace_struct
 
-        impl #ident {
-            /// Bind this generated adapter to current accepted schema authority.
-            pub fn typed_binding<C>(
+        impl ::icydb::db::TypedEntityAdapter for #ident {
+            fn typed_binding<C>(
                 session: &::icydb::db::DbSession<C>,
             ) -> Result<::icydb::db::TypedEntityBinding, ::icydb::db::TypedBindingError>
             where
@@ -1198,6 +1197,18 @@ fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
                     #entity_source_key,
                     [#(#field_requests),*],
                 )
+            }
+        }
+
+        impl #ident {
+            /// Bind this generated adapter to current accepted schema authority.
+            pub fn typed_binding<C>(
+                session: &::icydb::db::DbSession<C>,
+            ) -> Result<::icydb::db::TypedEntityBinding, ::icydb::db::TypedBindingError>
+            where
+                C: ::icydb::traits::CanisterKind,
+            {
+                <Self as ::icydb::db::TypedEntityAdapter>::typed_binding(session)
             }
         }
 

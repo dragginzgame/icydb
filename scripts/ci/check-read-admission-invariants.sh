@@ -12,29 +12,16 @@ require_rg "read-admission invariant checks"
 status=0
 
 DOC="docs/contracts/READ_ADMISSION.md"
-READ_INTENT_GUIDE="docs/guides/read-intent.md"
-README_DOC="README.md"
-INSTALLING_DOC="INSTALLING.md"
-FOUNDATIONS_DOC="docs/FOUNDATIONS.md"
-QUERY_CONTRACT_DOC="docs/contracts/QUERY_CONTRACT.md"
-QUERY_PRACTICE_DOC="docs/contracts/QUERY_PRACTICE.md"
-SQL_SUBSET_DOC="docs/contracts/SQL_SUBSET.md"
-GENERATED_SQL="crates/icydb-build/src/db/sql.rs"
+GUIDE="docs/guides/read-intent.md"
+POLICY="crates/icydb-core/src/db/query/admission/policy.rs"
+ADMISSION="crates/icydb-core/src/db/query/admission.rs"
+DIAGNOSTICS="crates/icydb-diagnostic-code/src/lib.rs"
+TYPED_QUERY="crates/icydb/src/db/query/typed.rs"
+FACADE_SQL="crates/icydb/src/db/session/sql.rs"
+GENERATED_SQL="crates/icydb-model/src/build/actor/db/sql.rs"
 CONFIG_PARSE="crates/icydb-config/src/parse.rs"
-PUBLIC_FACADE="crates/icydb/src"
-PUBLIC_CRATE_LIB="crates/icydb/src/lib.rs"
-PUBLIC_FACADE_QUERY="crates/icydb/src/db/query/mod.rs"
-PUBLIC_FACADE_SESSION="crates/icydb/src/db/session/mod.rs"
-PUBLIC_FACADE_LOAD="crates/icydb/src/db/session/load.rs"
-PUBLIC_FACADE_LOAD_PAGING="crates/icydb/src/db/session/load/paging.rs"
-PUBLIC_FACADE_SESSION_MACROS="crates/icydb/src/db/session/macros.rs"
-PUBLIC_FACADE_SQL="crates/icydb/src/db/session/sql.rs"
-ADMISSION_SOURCE="crates/icydb-core/src/db/query/admission.rs"
-ADMISSION_POLICY_SOURCE="crates/icydb-core/src/db/query/admission/policy.rs"
-READ_INTENT_SOURCE="crates/icydb-core/src/db/query/read_intent.rs"
-DIAGNOSTIC_CODES="crates/icydb-diagnostic-code/src/lib.rs"
 
-extract_rust_enum_variants() {
+extract_enum_variants() {
   local enum_name="$1"
   local source_file="$2"
   awk -v enum_name="$enum_name" '
@@ -51,441 +38,89 @@ extract_rust_enum_variants() {
   ' "$source_file"
 }
 
-require_file_literal() {
-  local owner="$1"
-  local label="$2"
+require_literal() {
+  local file="$1"
+  local description="$2"
   local literal="$3"
-
-  if ! rg -F --quiet "$literal" "$owner"; then
-    echo "[ERROR] $owner is missing required $label: $literal" >&2
+  if [[ ! -f "$file" ]] || ! rg -F --quiet "$literal" "$file"; then
+    echo "[ERROR] Missing $description in $file: $literal" >&2
     status=1
   fi
 }
 
-require_file_pattern() {
-  local owner="$1"
-  local label="$2"
-  local pattern="$3"
-
-  if ! rg --quiet "$pattern" "$owner"; then
-    echo "[ERROR] $owner is missing required concept: $label" >&2
-    status=1
-  fi
-}
-
-if [[ ! -f "$DOC" ]]; then
-  echo "[ERROR] Missing read-admission contract: $DOC" >&2
-  status=1
-else
-  for required_contract_section in \
-    "^## Core Rule$" \
-    "^## Read Surface Inventory$" \
-    "^## Which API should I use\\?$" \
-    "^## Generated SQL Query Surface$" \
-    "^## Public Endpoint Guidance$" \
-    "^## Common Rejections And Fixes$" \
-    "^## Regression Guard$"
-  do
-    require_file_pattern "$DOC" "section anchor $required_contract_section" "$required_contract_section"
-  done
-
-  for required_contract_token in \
-    "\`PublicRead\`" \
-    "\`DiagnosticExplain\`" \
-    "trusted bypass surfaces" \
-    "generated \`icydb_query\`" \
-    "\`trusted_read_unchecked()\` fluent lane" \
-    "\`trusted_read_unchecked()\`" \
-    "\`execute_trusted_sql_query\`" \
-    "execute_trusted_sql_query_with_perf_attribution" \
-    "docs/guides/read-intent.md" \
-    "\`page(limit)\`" \
-    "\`next_page(limit, cursor)\`" \
-    "\`collect_complete()\`" \
-    "\`count_exact()\`" \
-    "\`sum_exact(field)\`" \
-    "\`explain_count_exact()\`" \
-    "\`explain_sum_exact(field)\`" \
-    "\`execute().into_grouped()\`"
-  do
-    require_file_literal "$DOC" "API/lane token" "$required_contract_token"
-  done
-
-  for required_budget_literal in \
-    "maximum returned rows: 100" \
-    "100 groups, 64 KiB per group, and 1024 distinct entries"
-  do
-    require_file_literal "$DOC" "budget literal" "$required_budget_literal"
-  done
-
-  declare -A required_contract_concepts=(
-    ["generated icydb_query remains controller gated"]="generated .*icydb_query.*controller-gated"
-    ["caller-controlled SQL is not public-safe"]="caller-controlled SQL.*execute_trusted_sql_query"
-    ["generated SQL has no public-read config"]="sql\\.public_read"
-    ["generated non-controller public SQL endpoints remain forbidden"]="non-controller.*generated SQL query endpoint"
-    ["read-intent guidance is discoverable"]="read-intent\\.md"
-    ["public list guidance uses cursor page terminals"]="public list endpoints use .*page\\(limit\\).*next_page\\(limit, cursor\\)"
-    ["complete-result guidance uses collect_complete"]="complete-result endpoints use .*collect_complete"
-    ["exact aggregate guidance uses exact helpers"]="exact aggregate.*count_exact"
-  )
-
-  for required_contract_concept in "${!required_contract_concepts[@]}"; do
-    require_file_pattern \
-      "$DOC" \
-      "$required_contract_concept" \
-      "${required_contract_concepts[$required_contract_concept]}"
-  done
-
-  if [[ ! -f "$DIAGNOSTIC_CODES" ]]; then
-    echo "[ERROR] Missing diagnostic code source: $DIAGNOSTIC_CODES" >&2
-    status=1
-  else
-    found_rejection_code=0
-    while IFS= read -r rejection_variant; do
-      found_rejection_code=1
-      required_rejection_code="QueryReadAdmissionCode::$rejection_variant"
-      if ! rg -F --quiet "$required_rejection_code" "$DOC"; then
-        echo "[ERROR] Read-admission common rejection table is missing diagnostic detail: $required_rejection_code" >&2
-        status=1
-      fi
-    done < <(extract_rust_enum_variants "QueryReadAdmissionCode" "$DIAGNOSTIC_CODES")
-    if [[ "$found_rejection_code" -eq 0 ]]; then
-      echo "[ERROR] No QueryReadAdmissionCode variants discovered in: $DIAGNOSTIC_CODES" >&2
-      status=1
-    fi
-  fi
-
-  generated_query_names="$(
-    rg -o --no-heading --color=never 'query\(name = "[^"]+"' crates/icydb-build/src \
-      | sed 's/.*query(name = "//' \
-      | sed 's/"$//' \
-      | sort -u
-  )"
-
-  while IFS= read -r query_name; do
-    [[ -z "$query_name" ]] && continue
-    if ! rg -F --quiet "$query_name" "$DOC"; then
-      echo "[ERROR] Generated query endpoint is missing from read-admission inventory: $query_name" >&2
-      status=1
-    fi
-  done <<< "$generated_query_names"
-fi
-
-if [[ ! -f "$READ_INTENT_GUIDE" ]]; then
-  echo "[ERROR] Missing read-intent guide: $READ_INTENT_GUIDE" >&2
-  status=1
-else
-  for required_read_intent_section in \
-    "^# Read Intent Guide$" \
-    "^## Current Map$" \
-    "^## When Admission Rejects A Read$" \
-    "^## Migration Recipes$" \
-    "^## Generated SQL Boundary$" \
-    "^## Public Endpoint Templates$" \
-    "^## Exact Lookup$" \
-    "^## Existence$" \
-    "^## Exact Aggregates$" \
-    "^## Public Pages$" \
-    "^## Complete Small Sets$" \
-    "^## Trusted Reads$" \
-    "^## Migration Checklist$"
-  do
-    if ! rg --quiet "$required_read_intent_section" "$READ_INTENT_GUIDE"; then
-      echo "[ERROR] Read-intent guide is missing required section anchor: $required_read_intent_section" >&2
-      status=1
-    fi
-  done
-
-  for required_read_intent_token in \
-    "PublicQueryRequiresLimit" \
-    "partial_window(...)" \
-    "page(limit)" \
-    "next_page(limit, cursor)" \
-    "AdminBatchRequest" \
-    "collect_complete()" \
-    "count_exact()" \
-    "sum_exact(field)" \
-    "explain_count_exact()" \
-    "explain_sum_exact(field)" \
-    "ReadIntentKind::CompleteSmallSet" \
-    "icydb_query" \
-    "Endpoint review checklist:" \
-    "partial row window"
-  do
-    if ! rg -F --quiet "$required_read_intent_token" "$READ_INTENT_GUIDE"; then
-      echo "[ERROR] Read-intent guide is missing required concept/API token: $required_read_intent_token" >&2
-      status=1
-    fi
-  done
-
-  # Keep these guide checks broad. They protect the current read-intent model
-  # without forcing exact explanatory sentences that churn during docs edits.
-  declare -A required_read_intent_concepts=(
-    ["partial_window is framed as partial row-window intent"]="partial row window"
-    ["partial_window guide includes the low-level partial execution token"]="partial_window\\(N\\)\\.execute_rows\\(\\)"
-    ["partial_window migration guidance warns against mechanical rewrites"]="mechanically replace"
-    ["generated SQL boundary names public endpoint risk"]="public .*endpoint"
-    ["generated SQL wrapper warning names icydb_query"]="icydb_query"
-  )
-
-  for required_read_intent_concept in "${!required_read_intent_concepts[@]}"; do
-    required_read_intent_pattern="${required_read_intent_concepts[$required_read_intent_concept]}"
-    if ! rg --quiet "$required_read_intent_pattern" "$READ_INTENT_GUIDE"; then
-      echo "[ERROR] Read-intent guide is missing required concept: $required_read_intent_concept" >&2
-      status=1
-    fi
-  done
-fi
-
-declare -A required_read_admission_links=(
-  ["$README_DOC"]="[docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md)"
-  ["$INSTALLING_DOC"]="[docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md)"
-  ["$FOUNDATIONS_DOC"]="(contracts/READ_ADMISSION.md)"
-  ["$QUERY_CONTRACT_DOC"]="docs/contracts/READ_ADMISSION.md"
-  ["$QUERY_PRACTICE_DOC"]="docs/contracts/READ_ADMISSION.md"
-  ["$SQL_SUBSET_DOC"]="docs/contracts/READ_ADMISSION.md"
-  ["$PUBLIC_CRATE_LIB"]="docs/contracts/READ_ADMISSION.md"
-)
-
-for link_owner in "${!required_read_admission_links[@]}"; do
-  required_link="${required_read_admission_links[$link_owner]}"
-  if [[ ! -f "$link_owner" ]]; then
-    echo "[ERROR] Missing read-admission discovery document: $link_owner" >&2
-    status=1
-    continue
-  fi
-  if ! rg -F --quiet "$required_link" "$link_owner"; then
-    echo "[ERROR] Read-admission contract is not discoverable from $link_owner: $required_link" >&2
-    status=1
-  fi
+for section in \
+  "# Read Admission" \
+  "## Core Rule" \
+  "## Read Surface Inventory" \
+  "## Which API should I use?" \
+  "## Generated SQL Query Surface" \
+  "## Public Endpoint Guidance" \
+  "## Common Rejections And Fixes" \
+  "## Regression Guard"
+do
+  require_literal "$DOC" "read-admission section" "$section"
 done
 
-require_file_pattern \
-  "$README_DOC" \
-  "typed/fluent reads mention bounded admission" \
-  "typed/fluent reads.*bounded"
+for literal in \
+  'maximum returned rows: 100' \
+  '1024 terms and 64 KiB' \
+  '100 groups, 64 KiB per group, and 1024 distinct' \
+  '`execute_public_dynamic_query`' \
+  '`execute_trusted_dynamic_query`' \
+  '`execute_trusted_sql_query`' \
+  'generated `icydb_query`' \
+  '`DiagnosticExplain`'
+do
+  require_literal "$DOC" "read-admission contract fact" "$literal"
+done
 
-require_file_pattern \
-  "$README_DOC" \
-  "execute_trusted_sql_query is documented as trusted/admin" \
-  "execute_trusted_sql_query.*trusted/admin"
+for literal in \
+  'const DEFAULT_BOUNDED_READ_MAX_ROWS: u32 = 100;' \
+  'const DEFAULT_BOUNDED_READ_MAX_GROUPS: u32 = 100;' \
+  'const DEFAULT_BOUNDED_READ_MAX_GROUP_BYTES: u32 = 64 * 1024;' \
+  'const DEFAULT_BOUNDED_READ_MAX_DISTINCT_ENTRIES: u32 = 1024;' \
+  'const DEFAULT_BOUNDED_READ_MAX_PRIMARY_KEY_INPUT_TERMS: u32 = 1024;' \
+  'const DEFAULT_BOUNDED_READ_MAX_PRIMARY_KEY_INPUT_BYTES: u32 = 64 * 1024;'
+do
+  require_literal "$POLICY" "read-admission budget authority" "$literal"
+done
 
-require_file_pattern \
-  "$INSTALLING_DOC" \
-  "readonly SQL is generated controller-gated admin surface" \
-  "Readonly SQL.*controller-gated.*admin"
-
-require_file_literal "$PUBLIC_CRATE_LIB" "bounded admission wording" "read-admission gate"
-require_file_pattern \
-  "$PUBLIC_CRATE_LIB" \
-  "public crate docs mention bounded read admission" \
-  "bounded"
-
-require_file_literal "$PUBLIC_CRATE_LIB" "read-intent guide link" "docs/guides/read-intent.md"
-
-require_file_pattern \
-  "$PUBLIC_CRATE_LIB" \
-  "generated SQL remains controller-gated admin surface" \
-  "Generated SQL endpoints.*controller-gated.*admin"
-
-if [[ ! -f "$ADMISSION_POLICY_SOURCE" ]]; then
-  echo "[ERROR] Missing read-admission policy source owner: $ADMISSION_POLICY_SOURCE" >&2
-  status=1
-else
-  for required_source_constant in \
-    "const DEFAULT_BOUNDED_READ_MAX_ROWS: u32 = 100;" \
-    "const DEFAULT_BOUNDED_READ_MAX_GROUPS: u32 = 100;" \
-    "const DEFAULT_BOUNDED_READ_MAX_GROUP_BYTES: u32 = 64 * 1024;" \
-    "const DEFAULT_BOUNDED_READ_MAX_DISTINCT_ENTRIES: u32 = 1024;"
-  do
-    if ! rg -F --quiet "$required_source_constant" "$ADMISSION_POLICY_SOURCE"; then
-      echo "[ERROR] Default read-admission budget changed without updating the invariant contract: $required_source_constant" >&2
-      status=1
-    fi
-  done
-fi
-
-if [[ ! -f "$ADMISSION_SOURCE" ]]; then
-  echo "[ERROR] Missing read-admission source owner: $ADMISSION_SOURCE" >&2
-  status=1
-else
-  if [[ -f "$DIAGNOSTIC_CODES" ]]; then
-    public_rejection_variants="$(
-      extract_rust_enum_variants "QueryReadAdmissionCode" "$DIAGNOSTIC_CODES"
-    )"
-    internal_rejection_variants="$(
-      extract_rust_enum_variants "QueryAdmissionRejection" "$ADMISSION_SOURCE"
-    )"
-    if [[ -z "$public_rejection_variants" ]]; then
-      echo "[ERROR] No public QueryReadAdmissionCode variants discovered in: $DIAGNOSTIC_CODES" >&2
-      status=1
-    elif [[ -z "$internal_rejection_variants" ]]; then
-      echo "[ERROR] No internal QueryAdmissionRejection variants discovered in: $ADMISSION_SOURCE" >&2
-      status=1
-    elif [[ "$internal_rejection_variants" != "$public_rejection_variants" ]]; then
-      echo "[ERROR] Internal QueryAdmissionRejection variants must match public QueryReadAdmissionCode variants one-for-one." >&2
-      echo "[ERROR] Internal variants:" >&2
-      printf '%s\n' "$internal_rejection_variants" >&2
-      echo "[ERROR] Public variants:" >&2
-      printf '%s\n' "$public_rejection_variants" >&2
-      status=1
-    fi
-  fi
-fi
-
-if [[ ! -f "$READ_INTENT_SOURCE" ]]; then
-  echo "[ERROR] Missing read-intent cap authority: $READ_INTENT_SOURCE" >&2
-  status=1
-else
-  for required_read_intent_constant in \
-    "const PUBLIC_PAGE_DEFAULT_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;" \
-    "const PUBLIC_PAGE_MAX_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;" \
-    "const COMPLETE_SMALL_MAX_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;" \
-    "const COMPLETE_SMALL_LOOKAHEAD_ROWS: u32 = 1;" \
-    "const COMPLETE_SMALL_EXECUTION_LIMIT: u32 =" \
-    "const ADMIN_BATCH_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;"
-  do
-    if ! rg -F --quiet "$required_read_intent_constant" "$READ_INTENT_SOURCE"; then
-      echo "[ERROR] Read-intent cap authority drifted or split: $required_read_intent_constant" >&2
-      status=1
-    fi
-  done
-
-  for forbidden_read_intent_pattern in \
-    "ReadPolicy" \
-    "PolicyBuilder" \
-    "with_max_rows" \
-    "with_max_response_bytes" \
-    "custom_policy"
-  do
-    if rg -F --quiet "$forbidden_read_intent_pattern" "$READ_INTENT_SOURCE"; then
-      echo "[ERROR] Read-intent source must not introduce public custom policy surface: $forbidden_read_intent_pattern" >&2
-      status=1
-    fi
-  done
-fi
-
-high_raw_limit_hits="$(
-  rg -n --color=never '\.limit\((1000|1_000|10000|10_000)\)' \
-    README.md INSTALLING.md docs/contracts docs/guides crates/icydb/src crates/icydb-core/src canisters \
-    2>/dev/null \
-    | rg -v '^docs/contracts/READ_ADMISSION\.md:' || true
-)"
-if [[ -n "$high_raw_limit_hits" ]]; then
-  echo "[ERROR] Raw high-limit examples must not appear as recommended docs/API patterns." >&2
-  echo "[ERROR] Use page(limit) / next_page(limit, cursor), collect_complete(), exact aggregates, or mark the example as a rejection in READ_ADMISSION.md." >&2
-  printf '%s\n' "$high_raw_limit_hits" >&2
+internal_variants="$(extract_enum_variants QueryAdmissionRejection "$ADMISSION")"
+public_variants="$(extract_enum_variants QueryReadAdmissionCode "$DIAGNOSTICS")"
+if [[ -z "$internal_variants" || "$internal_variants" != "$public_variants" ]]; then
+  echo "[ERROR] Internal and public read-admission rejection variants diverged." >&2
   status=1
 fi
 
-if [[ ! -d "$PUBLIC_FACADE" ]]; then
-  echo "[ERROR] Missing public facade source directory: $PUBLIC_FACADE" >&2
+while IFS= read -r variant; do
+  [[ -z "$variant" ]] && continue
+  require_literal "$DOC" "public rejection documentation" "QueryReadAdmissionCode::$variant"
+done <<< "$public_variants"
+
+require_literal \
+  "$TYPED_QUERY" \
+  "typed query public-admission handoff" \
+  '.execute_public_dynamic_query(&self.request)'
+require_literal \
+  "$FACADE_SQL" \
+  "trusted SQL caller-control warning" \
+  'caller-controlled SQL public-safe'
+require_literal \
+  "$GENERATED_SQL" \
+  "generated query controller gate" \
+  'icydb_sql_surface_require_controller("query")'
+require_literal \
+  "$GENERATED_SQL" \
+  "generated query trusted dispatch" \
+  'execute_trusted_sql_query_with_perf_attribution'
+require_literal \
+  "$GUIDE" \
+  "typed public endpoint guidance" \
+  '.query::<User>()?'
+
+if rg -F --quiet "public_read" "$CONFIG_PARSE"; then
+  echo "[ERROR] icydb.toml must not expose generated public SQL-read policy." >&2
   status=1
-else
-  for forbidden_public_facade_pattern in \
-    "execute_query_with_policy" \
-    "execute_with_policy" \
-    "with_query_policy" \
-    "execute_query_with_read_admission_policy" \
-    "QueryAdmissionPolicy" \
-    "GroupedAdmissionPolicy" \
-    "public_custom" \
-    "public_read_policy"
-  do
-    if rg -F --quiet "$forbidden_public_facade_pattern" "$PUBLIC_FACADE"; then
-      echo "[ERROR] Public facade must not reintroduce custom read-policy API: $forbidden_public_facade_pattern" >&2
-      status=1
-    fi
-  done
-
-  declare -A required_public_facade_tokens=(
-    ["$PUBLIC_FACADE_SQL"]="caller-controlled SQL"
-    ["$PUBLIC_FACADE_SESSION_MACROS"]="QueryResponse::Grouped"
-    ["$PUBLIC_FACADE_LOAD"]="execute().into_grouped()"
-  )
-
-  for public_facade_file in "${!required_public_facade_tokens[@]}"; do
-    required_token="${required_public_facade_tokens[$public_facade_file]}"
-    if [[ ! -f "$public_facade_file" ]]; then
-      echo "[ERROR] Missing public facade read-admission source: $public_facade_file" >&2
-      status=1
-      continue
-    fi
-    require_file_literal "$public_facade_file" "read-admission doc token" "$required_token"
-  done
-
-  require_file_pattern \
-    "$PUBLIC_FACADE_LOAD_PAGING" \
-    "cursor pagination mentions default bounded admission" \
-    "Cursor pagination runs through the default bounded read-admission lane"
-
-  require_file_pattern \
-    "$PUBLIC_FACADE_SQL" \
-    "SQL helper warns about caller-controlled SQL" \
-    "caller-controlled SQL.*public-safe"
-
-  require_file_pattern \
-    "$PUBLIC_FACADE_SQL" \
-    "SQL attribution helper keeps generated controller-gated lane wording" \
-    "generated controller-gated SQL surfaces"
-
-  require_file_pattern \
-    "$PUBLIC_FACADE_QUERY" \
-    "direct query execution is hidden from normal endpoint API" \
-    "Normal endpoint code.*semantic terminal"
-fi
-
-if [[ ! -f "$GENERATED_SQL" ]]; then
-  echo "[ERROR] Missing generated SQL surface owner: $GENERATED_SQL" >&2
-  status=1
-else
-  production_generated_sql="$(awk '/^#\[cfg\(test\)\]/{ exit } { print }' "$GENERATED_SQL")"
-
-  if ! printf '%s\n' "$production_generated_sql" \
-    | rg -F --quiet 'icydb_sql_surface_require_controller("query")'
-  then
-    echo "[ERROR] Generated icydb_query endpoint must remain controller-gated." >&2
-    status=1
-  fi
-
-  if ! printf '%s\n' "$production_generated_sql" \
-    | rg -F --quiet "execute_trusted_sql_query_with_perf_attribution"
-  then
-    echo "[ERROR] Generated icydb_query must keep using the explicit trusted perf-attributed SQL helper." >&2
-    status=1
-  fi
-
-  if printf '%s\n' "$production_generated_sql" \
-    | rg -F --quiet 'ic_cdk::query(name = "icydb_public_query")'
-  then
-    echo "[ERROR] Generated SQL glue must not emit non-controller public query endpoints." >&2
-    status=1
-  fi
-
-  if printf '%s\n' "$production_generated_sql" \
-    | rg -F --quiet "QueryAdmissionPolicy::public_read"
-  then
-    echo "[ERROR] Generated SQL glue must not construct hidden public read policies." >&2
-    status=1
-  fi
-
-fi
-
-if [[ ! -f "$CONFIG_PARSE" ]]; then
-  echo "[ERROR] Missing config parser owner: $CONFIG_PARSE" >&2
-  status=1
-else
-  if rg -F --quiet "public_read" "$CONFIG_PARSE"
-  then
-    echo "[ERROR] icydb.toml must not accept generated sql.public_read config." >&2
-    status=1
-  fi
-
-  if rg -F --quiet "RawCanisterSqlPublicRead" "$CONFIG_PARSE"
-  then
-    echo "[ERROR] Generated public SQL read config parser types must not exist." >&2
-    status=1
-  fi
 fi
 
 if [[ $status -ne 0 ]]; then

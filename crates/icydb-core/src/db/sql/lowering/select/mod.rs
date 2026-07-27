@@ -29,10 +29,6 @@ use crate::db::{
         SqlSelectStatement, SqlUpdateStatement,
     },
 };
-#[cfg(test)]
-use crate::model::entity::EntityModel;
-#[cfg(test)]
-use crate::{db::query::intent::Query, entity::EntityKind};
 use icydb_diagnostic_code::{SqlFeatureCode, SqlWriteBoundaryCode};
 
 use crate::db::sql::lowering::select::{
@@ -190,28 +186,6 @@ pub(crate) struct LoweredSelectShape {
     offset: Option<u32>,
 }
 
-#[cfg(test)]
-impl LoweredSelectShape {
-    /// Borrow grouped key fields in declaration order for lowering tests.
-    #[must_use]
-    pub(crate) fn group_by_fields_for_test(&self) -> &[String] {
-        self.group_by_fields.as_slice()
-    }
-
-    /// Render normalized ORDER BY terms back into stable plan labels for tests.
-    #[must_use]
-    pub(crate) fn order_labels_for_test(&self) -> Vec<String> {
-        self.order_by
-            .iter()
-            .map(|term| {
-                crate::db::query::builder::scalar_projection::render_scalar_projection_expr_plan_label(
-                    &term.expr,
-                )
-            })
-            .collect()
-    }
-}
-
 ///
 /// LoweredBaseQueryShape
 ///
@@ -255,18 +229,6 @@ impl LoweredDeleteShape {
     pub(in crate::db) const fn returning(&self) -> Option<&SqlReturningProjection> {
         self.returning.as_ref()
     }
-}
-
-#[inline(never)]
-#[cfg(test)]
-pub(in crate::db::sql::lowering) fn lower_select_shape_for_model_only(
-    statement: SqlSelectStatement,
-    model: &'static EntityModel,
-) -> Result<LoweredSelectShape, SqlLoweringError> {
-    lower_select_shape_with_schema(
-        statement,
-        SchemaInfo::cached_for_generated_entity_model(model),
-    )
 }
 
 #[inline(never)]
@@ -357,18 +319,6 @@ pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(
         limit,
         offset,
     })
-}
-
-#[inline(never)]
-#[cfg(all(test, feature = "sql-explain"))]
-pub(in crate::db) fn apply_lowered_select_shape_for_model_only(
-    model: &'static crate::model::entity::EntityModel,
-    query: StructuralQuery,
-    lowered: LoweredSelectShape,
-) -> Result<StructuralQuery, SqlLoweringError> {
-    let schema = SchemaInfo::cached_for_generated_entity_model(model);
-
-    apply_lowered_select_shape_with_schema(query, lowered, schema)
 }
 
 fn apply_lowered_select_shape_with_schema(
@@ -599,17 +549,6 @@ pub(in crate::db::sql::lowering) fn validate_base_query_sql_capabilities(
     validate_order_sql_capabilities(schema, lowered.order_by.as_slice())
 }
 
-#[cfg(test)]
-pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape_for_model_only(
-    model: &'static crate::model::entity::EntityModel,
-    query: StructuralQuery,
-    lowered: LoweredBaseQueryShape,
-) -> StructuralQuery {
-    let schema = SchemaInfo::cached_for_generated_entity_model(model);
-
-    apply_lowered_base_query_shape_with_schema(query, lowered, schema)
-}
-
 /// Apply one lowered base-query tail through an explicit schema projection.
 ///
 /// SQL aggregate/session paths use this hook when they already hold the
@@ -631,19 +570,6 @@ pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape_with_schema(
     }
 
     query
-}
-
-#[cfg(test)]
-pub(in crate::db) fn bind_lowered_sql_query_structural_for_model_only(
-    model: &'static EntityModel,
-    lowered: crate::db::sql::lowering::LoweredSqlQuery,
-    consistency: MissingRowPolicy,
-) -> Result<StructuralQuery, SqlLoweringError> {
-    bind_lowered_sql_query_structural_with_schema(
-        lowered,
-        consistency,
-        SchemaInfo::cached_for_generated_entity_model(model),
-    )
 }
 
 /// Bind one lowered SQL query with an explicit schema projection.
@@ -734,19 +660,6 @@ pub(in crate::db) fn bind_sql_update_selector_query_structural_with_schema(
     let base_query = lower_update_selector_shape(statement, schema.primary_key_names())?;
 
     bind_lowered_sql_base_query_structural_with_schema(base_query, consistency, schema)
-}
-
-// Test-only typed SQL lowering still uses this adapter to compare the
-// generic-free structural SQL lane with public typed query behavior.
-#[cfg(test)]
-pub(in crate::db) fn bind_lowered_sql_query_for_model_only<E: EntityKind>(
-    lowered: crate::db::sql::lowering::LoweredSqlQuery,
-    consistency: MissingRowPolicy,
-) -> Result<Query<E>, SqlLoweringError> {
-    let structural =
-        bind_lowered_sql_query_structural_for_model_only(E::MODEL, lowered, consistency)?;
-
-    Ok(Query::from_inner(structural))
 }
 
 pub(in crate::db::sql::lowering) fn lower_delete_shape(

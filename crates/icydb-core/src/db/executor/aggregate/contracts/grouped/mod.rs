@@ -4,11 +4,6 @@
 //! Boundary: grouped runtime substrate layered over spec + state contracts.
 
 mod context;
-mod engine;
-#[cfg(test)]
-mod tests;
-
 #[cfg(feature = "diagnostics")]
 pub(in crate::db::executor) use context::GroupedRuntimeStats;
 pub(in crate::db::executor) use context::{ExecutionConfig, ExecutionContext};
-pub(in crate::db::executor) use engine::{ScalarAggregateEngine, execute_scalar_aggregate};

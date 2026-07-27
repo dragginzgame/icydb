@@ -77,14 +77,15 @@ macro_rules! define_fixture_store {
 ///
 #[macro_export]
 macro_rules! define_simple_audit_entities {
-    ($store:literal; $($entity:ident),+ $(,)?) => {
+    ($store:literal; $($entity:ident => $source_key:literal),+ $(,)?) => {
         $(
             #[doc = ""]
             #[doc = stringify!($entity)]
             #[doc = ""]
             #[doc = "Repeated simple audit entity used to measure base per-entity wasm cost."]
             #[doc = ""]
-            #[entity(source_key = "testing/wasm-helpers/src/lib.rs::entity::nested::1",
+            #[entity(source_key = $source_key,
+                typed_adapters,
     audit_timestamps(
         created_at(source_key = "created_at", ident = "created_at"),
         updated_at(source_key = "updated_at", ident = "updated_at")

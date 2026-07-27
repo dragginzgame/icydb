@@ -1,37 +1,32 @@
 //! Module: db::session
 //!
-//! Responsibility: public session and fluent query facade.
+//! Responsibility: public session, typed-query, SQL, and structural-write facade.
 //! Does not own: core execution, storage engines, or planner semantics.
 //! Boundary: wraps core sessions with stable generated-code and application APIs.
 
 mod catalog;
-pub mod delete;
 pub(crate) mod generated;
 mod integrity;
-pub mod load;
-mod macros;
 #[cfg(feature = "sql")]
 mod sql;
 mod write;
 
-use crate::{db::query::MissingRowPolicy, metrics::MetricsSink, traits::CanisterKind};
+use crate::{metrics::MetricsSink, traits::CanisterKind};
 
 use icydb_core as core;
 
 // re-exports
-pub use delete::SessionDeleteQuery;
 pub use integrity::IntegrityCheckError;
 #[cfg(feature = "sql")]
 pub use integrity::SqlIntegrityError;
-pub use load::{FluentLoadQuery, PartialWindowLoadQuery};
 #[cfg(feature = "sql")]
 pub use sql::{
     SqlExecutionPerfAttribution, SqlPureCoveringPerfAttribution, SqlQueryPerfAttribution,
 };
 pub use write::{
     OutputRow, StructuralMutation, StructuralPatch, TypedAdapterError, TypedBindingError,
-    TypedEntityBinding, TypedRowAdapter, TypedRowError, TypedWrite, TypedWriteAdapter,
-    TypedWriteError, WriteCell,
+    TypedEntityAdapter, TypedEntityBinding, TypedRowAdapter, TypedRowError, TypedWrite,
+    TypedWriteAdapter, TypedWriteError, WriteCell,
 };
 #[doc(hidden)]
 pub use write::{
@@ -73,56 +68,6 @@ impl<C: CanisterKind> DbSession<C> {
         self
     }
 
-    // ------------------------------------------------------------------
-    // Query entry points
-    // ------------------------------------------------------------------
-
-    #[must_use]
-    pub const fn load<E>(&self) -> FluentLoadQuery<'_, E>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        FluentLoadQuery {
-            inner: self.inner.load::<E>(),
-        }
-    }
-
-    #[must_use]
-    pub const fn load_with_consistency<E>(
-        &self,
-        consistency: MissingRowPolicy,
-    ) -> FluentLoadQuery<'_, E>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        FluentLoadQuery {
-            inner: self.inner.load_with_consistency::<E>(consistency),
-        }
-    }
-
-    #[must_use]
-    pub fn delete<E>(&self) -> SessionDeleteQuery<'_, E>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        SessionDeleteQuery {
-            inner: self.inner.delete::<E>(),
-        }
-    }
-
-    #[must_use]
-    pub fn delete_with_consistency<E>(
-        &self,
-        consistency: MissingRowPolicy,
-    ) -> SessionDeleteQuery<'_, E>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        SessionDeleteQuery {
-            inner: self.inner.delete_with_consistency::<E>(consistency),
-        }
-    }
-
     /// Execute one trusted entity-name-driven dynamic read.
     #[cfg(feature = "sql")]
     pub fn execute_trusted_dynamic_query(
@@ -131,6 +76,17 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<crate::db::DynamicQueryResult, crate::Error> {
         self.inner
             .execute_trusted_dynamic_query(request)
+            .map_err(Into::into)
+    }
+
+    /// Execute one ordinary entity-name-driven bounded read.
+    #[cfg(feature = "sql")]
+    pub fn execute_public_dynamic_query(
+        &self,
+        request: &crate::db::DynamicQuery,
+    ) -> Result<crate::db::DynamicQueryResult, crate::Error> {
+        self.inner
+            .execute_public_dynamic_query(request)
             .map_err(Into::into)
     }
 }

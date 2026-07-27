@@ -302,16 +302,6 @@ const fn sql_scalar_function_tag(function: crate::db::sql::parser::SqlScalarFunc
         SqlScalarFunction::EndsWith => 5,
         SqlScalarFunction::Exp => 6,
         SqlScalarFunction::Floor => 7,
-        #[cfg(test)]
-        SqlScalarFunction::IsEmpty => 8,
-        #[cfg(test)]
-        SqlScalarFunction::IsMissing => 9,
-        #[cfg(test)]
-        SqlScalarFunction::IsNotEmpty => 10,
-        #[cfg(test)]
-        SqlScalarFunction::IsNotNull => 11,
-        #[cfg(test)]
-        SqlScalarFunction::IsNull => 12,
         SqlScalarFunction::Left => 13,
         SqlScalarFunction::Length => 14,
         SqlScalarFunction::Ln => 15,

@@ -13,58 +13,9 @@ use crate::{
         },
         schema::SchemaInfo,
     },
-    model::entity::EntityModel,
     value::Value,
 };
 use std::ops::Bound;
-
-/// Select one whole-index range scan for generated/model-only planning.
-/// Runtime accepted planning must use `index_range_from_order_with_accepted_indexes`.
-#[must_use]
-pub(in crate::db::query::plan::planner) fn index_range_from_order_for_generated_model_only(
-    model: &EntityModel,
-    candidate_indexes: &[SemanticIndexAccessContract],
-    order: Option<&OrderSpec>,
-    grouped: bool,
-) -> Option<AccessPlan<Value>> {
-    let grouped_order_contract = grouped
-        .then_some(order)
-        .flatten()
-        .and_then(OrderSpec::grouped_index_order_contract);
-    let scalar_order_contract = (!grouped).then_some(order).flatten().and_then(|order| {
-        let primary_key_names = ordered_primary_key_names(model);
-        order.deterministic_secondary_order_contract_fields(primary_key_names.as_slice())
-    });
-
-    for index_contract in candidate_indexes {
-        let index_order_terms = index_key_item_order_terms(index_contract.key_items());
-        if grouped {
-            let Some(order_contract) = grouped_order_contract.as_ref() else {
-                continue;
-            };
-            if !grouped_index_order_terms_satisfied(order_contract, &index_order_terms, 0) {
-                continue;
-            }
-        } else {
-            let Some(order_contract) = scalar_order_contract.as_ref() else {
-                continue;
-            };
-            if !deterministic_secondary_index_order_terms_satisfied(
-                order_contract,
-                &index_order_terms,
-                0,
-            ) {
-                continue;
-            }
-        }
-
-        return Some(whole_index_ordered_range_scan_from_contract(
-            index_contract.clone(),
-        ));
-    }
-
-    None
-}
 
 /// Select one whole-index range scan from accepted runtime index contracts.
 #[must_use]
@@ -188,15 +139,6 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_with_accepted_
     }
 
     None
-}
-
-fn ordered_primary_key_names(model: &EntityModel) -> Vec<&str> {
-    model
-        .primary_key_model()
-        .fields()
-        .iter()
-        .map(crate::model::field::FieldModel::name)
-        .collect()
 }
 
 fn ordered_primary_key_names_from_schema(schema: &SchemaInfo) -> Vec<&str> {

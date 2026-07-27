@@ -12,6 +12,7 @@ use super::{
 use crate::{
     db::{
         data::{DecodedDataStoreKey, RawDataStoreKey},
+        key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         schema::{
             AcceptedCheckExprV1, AcceptedSchemaFingerprint, AcceptedSchemaRevision,
             ConstraintActivationKind, ConstraintActivationSnapshot, ConstraintActivationState,
@@ -32,10 +33,12 @@ use std::borrow::Cow;
 const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 1 + 128;
 
 fn raw_data_store_key(fill: u64) -> RawDataStoreKey {
-    DecodedDataStoreKey::try_from_typed_key(EntityTag::new(1), &fill)
-        .expect("test key should encode")
-        .to_raw()
-        .expect("test key should materialize")
+    DecodedDataStoreKey::new_primary_key_value(
+        EntityTag::new(1),
+        &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(fill)),
+    )
+    .to_raw()
+    .expect("test key should materialize")
 }
 
 fn row_put_record(fill: u64) -> JournalRecord {

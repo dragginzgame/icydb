@@ -473,12 +473,6 @@ impl IndexStore {
         INDEX_STORE_ENTRY_READ_COUNT.with(Cell::get)
     }
 
-    /// Return the monotonic perf-only count of exact prefix-cardinality probes.
-    #[cfg(test)]
-    pub(in crate::db) fn current_prefix_cardinality_lookup_count() -> u64 {
-        INDEX_STORE_PREFIX_CARDINALITY_LOOKUP_COUNT.with(Cell::get)
-    }
-
     #[cfg(any(test, feature = "diagnostics"))]
     pub(in crate::db::index) fn record_range_scan_call() {
         record_index_store_range_scan_call();
@@ -507,15 +501,6 @@ impl IndexStore {
             IndexStoreBackend::Journaled { .. } => {
                 Self::journaled_entries_snapshot_for_fold(backend)
             }
-        }
-    }
-
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn canonical_len_for_tests(&self) -> u64 {
-        match &self.backend {
-            IndexStoreBackend::Journaled { canonical: map, .. } => map.len(),
-            IndexStoreBackend::Heap(_) => 0,
         }
     }
 

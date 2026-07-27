@@ -135,12 +135,6 @@ impl StagedUserIndexDomainUsage {
     pub(in crate::db) const fn accepted_after_entries(self) -> usize {
         self.accepted_after_entries
     }
-
-    /// Return the peak raw payload and deterministic-sort workspace charge.
-    #[must_use]
-    pub(in crate::db) const fn staged_raw_bytes(self) -> usize {
-        self.staged_raw_bytes
-    }
 }
 
 ///

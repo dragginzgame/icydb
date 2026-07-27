@@ -7,7 +7,6 @@ use crate::{
     db::{
         data::{CanonicalRow, RawDataStoreKey, RawRow},
         direction::Direction,
-        key_taxonomy::RawDataStoreKeyRange,
         ordered_overlay::{OrderedOverlayEntry, OrderedOverlayVisit, visit_ordered_overlay},
     },
     types::EntityTag,
@@ -331,25 +330,6 @@ impl DataStore {
         }
     }
 
-    /// Clear all stored rows from the data store.
-    #[cfg(test)]
-    pub(in crate::db) fn clear(&mut self) {
-        match &mut self.backend {
-            DataStoreBackend::Heap(map) => map.clear(),
-            DataStoreBackend::Journaled {
-                canonical,
-                live,
-                tombstones,
-            } => {
-                canonical.clear_new();
-                live.clear();
-                tombstones.clear();
-            }
-        }
-        self.entity_cardinality.clear();
-        self.bump_generation();
-    }
-
     /// Return the number of stored rows without exposing the backing map.
     #[must_use]
     pub(in crate::db) fn len(&self) -> u64 {
@@ -378,23 +358,6 @@ impl DataStore {
         self.entity_cardinality.exact_count(entity)
     }
 
-    /// Return whether the data store currently contains no rows.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn is_empty(&self) -> bool {
-        match &self.backend {
-            DataStoreBackend::Heap(map) => map.is_empty(),
-            DataStoreBackend::Journaled { .. } => {
-                let mut empty = true;
-                let _: Result<(), Infallible> = self.visit_entries(|_key, _row| {
-                    empty = false;
-                    Ok(StoreVisit::Stop)
-                });
-                empty
-            }
-        }
-    }
-
     /// Visit raw row entries in canonical storage order.
     pub(in crate::db) fn visit_entries<E>(
         &self,
@@ -416,34 +379,6 @@ impl DataStore {
                 &self.backend,
                 (Bound::Unbounded, Bound::Unbounded),
                 false,
-                visitor,
-            )?,
-        }
-
-        Ok(())
-    }
-
-    /// Visit raw row entries in reverse canonical storage order.
-    pub(in crate::db) fn visit_entries_rev<E>(
-        &self,
-        mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
-    ) -> Result<(), E> {
-        match &self.backend {
-            DataStoreBackend::Heap(map) => {
-                for (key, row) in map.iter().rev() {
-                    if visitor(key, row)?.should_stop() {
-                        break;
-                    }
-                }
-            }
-            DataStoreBackend::Journaled {
-                canonical: _,
-                live: _,
-                tombstones: _,
-            } => Self::visit_journaled_entries_in_bounds(
-                &self.backend,
-                (Bound::Unbounded, Bound::Unbounded),
-                true,
                 visitor,
             )?,
         }
@@ -501,16 +436,6 @@ impl DataStore {
         Ok(())
     }
 
-    /// Visit raw row entries for one entity using compact prefix bounds.
-    pub(in crate::db) fn visit_entity<E>(
-        &self,
-        entity: EntityTag,
-        visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
-    ) -> Result<(), E> {
-        let range = RawDataStoreKeyRange::entity_prefix(entity);
-        self.visit_range(RawDataStoreKey::store_range_bounds(&range), visitor)
-    }
-
     /// Sum of bytes used by all stored rows.
     pub(in crate::db) fn memory_bytes(&self) -> u64 {
         // Report map footprint as key bytes + row bytes per entry.
@@ -539,15 +464,6 @@ impl DataStore {
     #[cfg(feature = "diagnostics")]
     pub(in crate::db) fn current_get_call_count() -> u64 {
         DATA_STORE_GET_CALL_COUNT.with(Cell::get)
-    }
-
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn canonical_len_for_tests(&self) -> u64 {
-        match &self.backend {
-            DataStoreBackend::Journaled { canonical: map, .. } => map.len(),
-            DataStoreBackend::Heap(_) => 0,
-        }
     }
 
     fn journaled_get_raw(backend: &DataStoreBackend, key: &RawDataStoreKey) -> Option<RawRow> {
@@ -700,12 +616,6 @@ impl EntityCardinality {
     fn exact_count(&self, entity: EntityTag) -> Option<u64> {
         self.decodable
             .then(|| self.counts.get(&entity).copied().unwrap_or(0))
-    }
-
-    #[cfg(test)]
-    fn clear(&mut self) {
-        self.counts.clear();
-        self.decodable = true;
     }
 
     fn apply_insert(&mut self, key: &RawDataStoreKey, previous: Option<&RawRow>) {

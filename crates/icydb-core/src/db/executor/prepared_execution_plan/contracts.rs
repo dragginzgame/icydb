@@ -5,7 +5,5 @@
 
 pub(in crate::db::executor) use crate::db::query::plan::{
     AcceptedContinuationIdentity, AccessPlannedQuery, CoveringHybridReadExecutionPlan,
-    CoveringReadExecutionPlan, ExecutionOrdering, GroupSpec, OrderSpec,
-    PlannedContinuationContract, QueryMode, constant_covering_projection_value_from_access,
-    covering_index_projection_facts_with_primary_key_names as covering_index_projection_facts,
+    CoveringReadExecutionPlan, ExecutionOrdering, PlannedContinuationContract,
 };

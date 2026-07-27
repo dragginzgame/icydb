@@ -18,28 +18,11 @@ use crate::{
     model::field::{FieldStorageDecode, LeafCodec},
     value::Value,
 };
-#[cfg(test)]
-use crate::{model::entity::EntityModel, value::InputValue};
 use std::borrow::Cow;
 
 use crate::db::data::persisted_row::codec::{ScalarSlotValueRef, decode_scalar_slot_value};
 
 pub(in crate::db::data::persisted_row) const RETIRED_SLOT_PLACEHOLDER_PAYLOAD: &[u8] = &[0];
-
-/// Decode one structural slot payload into a runtime boundary `Value`.
-///
-/// Test models are first projected into accepted row authority, matching the
-/// production decode path.
-#[cfg(test)]
-pub(in crate::db) fn decode_slot_into_runtime_value(
-    model: &'static EntityModel,
-    slot: usize,
-    raw_value: &[u8],
-) -> Result<Value, InternalError> {
-    let contract = StructuralRowContract::from_model_proposal_for_test(model);
-
-    decode_runtime_value_from_row_contract(&contract, slot, raw_value)
-}
 
 /// Decode one slot payload through an accepted-schema field contract.
 ///
@@ -96,24 +79,6 @@ pub(in crate::db) fn decode_scalar_slot_value_from_row_contract<'raw>(
     };
 
     decode_scalar_slot_value(raw_value, codec, accepted_field.field_name())
-}
-
-/// Normalize and encode one test value through accepted model-proposal authority.
-///
-/// This fixture adapter converts the runtime value back into authored input;
-/// production persistence consumes admitted or strictly validated values.
-#[cfg(test)]
-pub(in crate::db) fn encode_value_with_model_proposal_for_test(
-    model: &'static EntityModel,
-    slot: usize,
-    value: &Value,
-) -> Result<Vec<u8>, InternalError> {
-    let contract = StructuralRowContract::from_model_proposal_for_test(model);
-    let encoding = contract.required_accepted_field_persistence_contract(slot)?;
-    let input = InputValue::try_from_runtime_non_enum(value)
-        .ok_or_else(InternalError::persisted_row_encode_internal)?;
-    let mut budget = crate::db::schema::enum_catalog::ValueAdmissionBudget::standard();
-    super::canonical::encode_input_value_for_accepted_field_contract(encoding, input, &mut budget)
 }
 
 // Build one dense slot image by running one caller-supplied encode step per
