@@ -949,6 +949,9 @@ fn compile_operation(
     operation: &AcceptedRuleOperation,
     value_catalog: &AcceptedValueCatalogHandle,
 ) -> Result<CompiledAcceptedRuleOperation, AcceptedTargetedRuleEvaluationError> {
+    if !operation.has_valid_local_shape() {
+        return Err(AcceptedTargetedRuleEvaluationError::InvalidTarget);
+    }
     let target_kind = match target_type {
         AcceptedNamedTypeIdentity::Enum(type_id) => AcceptedFieldKind::Enum { type_id },
         AcceptedNamedTypeIdentity::Composite(type_id) => AcceptedFieldKind::Composite { type_id },
@@ -967,9 +970,6 @@ fn compile_operation(
                 | AcceptedFieldKind::Map { .. } => AcceptedValueLengthKind::Cardinality,
                 _ => return Err(AcceptedTargetedRuleEvaluationError::InvalidTarget),
             };
-            if min > max {
-                return Err(AcceptedTargetedRuleEvaluationError::InvalidTarget);
-            }
             Ok(CompiledAcceptedRuleOperation::LengthRange {
                 length_kind,
                 min: *min,

@@ -117,6 +117,23 @@ pub(in crate::db) enum AcceptedRuleOperation {
     },
 }
 
+impl AcceptedRuleOperation {
+    /// Return whether the persisted operation is structurally valid without
+    /// consulting its target type or accepted value catalogs.
+    #[must_use]
+    pub(in crate::db::schema) fn has_valid_local_shape(&self) -> bool {
+        match self {
+            Self::LengthRangeInclusive { min, max } => min <= max,
+            Self::NumericMinimumInclusive { value } => {
+                accepted_rule_numeric_kind_is_supported(value.kind())
+            }
+            Self::NumericRangeInclusive { min, max } => {
+                min.kind() == max.kind() && accepted_rule_numeric_kind_is_supported(min.kind())
+            }
+        }
+    }
+}
+
 pub(in crate::db::schema) fn accepted_rule_target_is_reachable(
     root: &AcceptedFieldKind,
     target: AcceptedNamedTypeIdentity,
@@ -229,6 +246,9 @@ pub(in crate::db::schema) fn validate_accepted_targeted_rules(
             Some((*target, operation.as_ref()))
         });
     accepted.chain(activating).all(|(target, operation)| {
+        if !operation.has_valid_local_shape() {
+            return false;
+        }
         let Some(root) = snapshot
             .fields()
             .iter()

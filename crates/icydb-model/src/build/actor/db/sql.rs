@@ -707,11 +707,11 @@ mod tests {
     #[test]
     fn generated_sql_fixture_reset_surface_does_not_emit_lint_suppressions() {
         let empty_surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
-        let empty_surface = compact_tokens(quote!(#empty_surface_tokens));
+        let empty_surface = compact_tokens(empty_surface_tokens.reset_helper_tokens());
 
         let mut entity_surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
         entity_surface_tokens.push_entity("Character");
-        let entity_surface = compact_tokens(quote!(#entity_surface_tokens));
+        let entity_surface = compact_tokens(entity_surface_tokens.reset_helper_tokens());
 
         assert!(!empty_surface.contains("allow("));
         assert!(!entity_surface.contains("allow("));
