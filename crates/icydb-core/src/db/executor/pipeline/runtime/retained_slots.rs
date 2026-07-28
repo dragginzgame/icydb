@@ -4,6 +4,7 @@
 //! Boundary: compiles runtime slot requirements into terminal-owned retained layouts.
 
 use crate::{
+    db::schema::{LeafCodec, ScalarCodec},
     db::{
         executor::{
             EntityAuthority,
@@ -15,7 +16,6 @@ use crate::{
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
-    model::field::{LeafCodec, ScalarCodec},
 };
 
 /// Compile the canonical retained-slot layout for one explicit scalar

@@ -78,7 +78,7 @@ impl<C: CanisterKind> DbSession<C> {
         let enum_catalog = prepared_plan
             .authority_ref()
             .accepted_schema_info()
-            .and_then(|schema| schema.value_catalog_handle())
+            .map(crate::db::schema::SchemaInfo::value_catalog_handle)
             .cloned()
             .ok_or_else(QueryError::invariant)?;
         let (columns, fixed_scales) = projection.into_components();
@@ -335,7 +335,7 @@ impl<C: CanisterKind> DbSession<C> {
         let enum_catalog = prepared_plan
             .authority_ref()
             .accepted_schema_info()
-            .and_then(|schema| schema.value_catalog_handle())
+            .map(crate::db::schema::SchemaInfo::value_catalog_handle)
             .cloned()
             .ok_or_else(QueryError::invariant)?;
         let ((execute_local_instructions, store_local_instructions), payload) =

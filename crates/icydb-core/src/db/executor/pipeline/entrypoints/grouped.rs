@@ -53,7 +53,7 @@ where
     let value_catalog = plan
         .authority_ref()
         .accepted_schema_info()
-        .and_then(crate::db::schema::SchemaInfo::value_catalog_handle)
+        .map(crate::db::schema::SchemaInfo::value_catalog_handle)
         .cloned()
         .ok_or_else(InternalError::query_executor_invariant)?;
     let prepared = prepare_grouped_route_runtime_for_load_plan(
@@ -91,7 +91,7 @@ where
     let value_catalog = plan
         .authority_ref()
         .accepted_schema_info()
-        .and_then(crate::db::schema::SchemaInfo::value_catalog_handle)
+        .map(crate::db::schema::SchemaInfo::value_catalog_handle)
         .cloned()
         .ok_or_else(InternalError::query_executor_invariant)?;
     let prepared = prepare_grouped_route_runtime_for_load_plan(

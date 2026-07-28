@@ -5,8 +5,8 @@ use crate::{
             codec::ScalarSlotValueRef, contract::decode_scalar_slot_value_from_row_contract,
         },
     },
+    db::schema::LeafCodec,
     error::InternalError,
-    model::field::LeafCodec,
     value::Value,
 };
 use std::cell::OnceCell;
@@ -62,19 +62,18 @@ pub(in crate::db::data::persisted_row) enum CachedSlotValue {
 // Build the initial per-slot cache shape from the static field contract only.
 // This avoids a row-open decode loop while still letting access-time readers
 // branch cheaply by leaf codec.
-pub(super) fn build_initial_slot_cache(contract: &StructuralRowContract) -> Vec<CachedSlotValue> {
+pub(super) fn build_initial_slot_cache(
+    contract: &StructuralRowContract,
+) -> Result<Vec<CachedSlotValue>, InternalError> {
     (0..contract.field_count())
         .map(|slot| {
             if !contract.has_active_field_slot(slot) {
-                return CachedSlotValue::Deferred {
+                return Ok(CachedSlotValue::Deferred {
                     materialized: OnceCell::new(),
-                };
+                });
             }
 
-            match contract
-                .field_leaf_codec(slot)
-                .expect("persisted row cache invariant")
-            {
+            Ok(match contract.field_leaf_codec(slot)? {
                 LeafCodec::Scalar(_) => CachedSlotValue::Scalar {
                     validated: OnceCell::new(),
                     materialized: OnceCell::new(),
@@ -82,7 +81,7 @@ pub(super) fn build_initial_slot_cache(contract: &StructuralRowContract) -> Vec<
                 LeafCodec::Structural => CachedSlotValue::Deferred {
                     materialized: OnceCell::new(),
                 },
-            }
+            })
         })
         .collect()
 }

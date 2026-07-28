@@ -2,9 +2,8 @@
 
 pub use icydb_schema::Blob;
 
-use crate::{
-    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
+use crate::value::{
+    RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value,
 };
 
 impl RuntimeValueMeta for Blob {
@@ -27,13 +26,3 @@ impl RuntimeValueDecode for Blob {
         }
     }
 }
-
-impl NormalizeAuto for Blob {}
-
-impl NormalizeCustom for Blob {}
-
-impl ValidateAuto for Blob {}
-
-impl ValidateCustom for Blob {}
-
-impl Visitable for Blob {}

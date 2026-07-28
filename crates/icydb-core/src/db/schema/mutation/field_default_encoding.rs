@@ -1,5 +1,6 @@
 //! Schema-owned field default encoding helpers for DDL-authored candidates.
 
+use crate::db::schema::{FieldStorageDecode, LeafCodec};
 use crate::db::{
     data::encode_input_value_for_accepted_field_contract,
     schema::{
@@ -8,7 +9,6 @@ use crate::db::{
         enum_catalog::ValueAdmissionBudget, input_value_from_strict_sql_literal_for_persisted_kind,
     },
 };
-use crate::model::field::{FieldStorageDecode, LeafCodec};
 use crate::value::Value;
 
 /// Default payload encoding failures for SQL DDL-authored schema mutations.
@@ -100,21 +100,17 @@ mod tests {
     use crate::db::{
         data::validate_default_payload_for_accepted_field_contract,
         schema::{
-            AcceptedSchemaRevision, FieldId, SchemaFieldSlot,
-            enum_catalog::build_initial_accepted_enum_catalog_from_kinds_for_tests,
+            AcceptedSchemaRevision, FieldId, SchemaFieldSlot, TestEnumDefinition, TestEnumVariant,
+            build_accepted_enum_catalog_for_tests,
         },
     };
-    use crate::model::field::{EnumVariantModel, FieldKind};
 
-    static STATUS_VARIANTS: [EnumVariantModel; 1] = [EnumVariantModel::new(
-        "Active",
-        None,
-        FieldStorageDecode::ByKind,
-    )];
-    static STATUS_KIND: FieldKind = FieldKind::Enum {
-        path: "tests::DefaultStatus",
-        variants: &STATUS_VARIANTS,
-    };
+    fn status_definition() -> TestEnumDefinition {
+        TestEnumDefinition::new(
+            "tests::DefaultStatus",
+            vec![TestEnumVariant::unit("Active")],
+        )
+    }
 
     fn enum_field(kind: AcceptedFieldKind) -> PersistedFieldSnapshot {
         PersistedFieldSnapshot::new_initial(
@@ -132,14 +128,17 @@ mod tests {
 
     #[test]
     fn sql_ddl_enum_default_is_catalog_admitted_and_id_backed() {
-        let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[STATUS_KIND])
+        let catalog = build_accepted_enum_catalog_for_tests(&[status_definition()])
             .expect("enum catalog should build");
+        let type_id = catalog
+            .type_id("tests::DefaultStatus")
+            .expect("status type should exist");
         let catalog = AcceptedValueCatalogHandle::new_for_tests(
             catalog,
             crate::db::schema::AcceptedCompositeCatalog::empty(),
             AcceptedSchemaRevision::INITIAL,
         );
-        let field = enum_field(AcceptedFieldKind::from_model_kind(STATUS_KIND));
+        let field = enum_field(AcceptedFieldKind::Enum { type_id });
 
         let default = encode_sql_ddl_alter_column_default(
             &field,
@@ -170,14 +169,17 @@ mod tests {
 
     #[test]
     fn sql_ddl_enum_default_requires_catalog_and_rejects_unknown_variant() {
-        let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[STATUS_KIND])
+        let catalog = build_accepted_enum_catalog_for_tests(&[status_definition()])
             .expect("enum catalog should build");
+        let type_id = catalog
+            .type_id("tests::DefaultStatus")
+            .expect("status type should exist");
         let catalog = AcceptedValueCatalogHandle::new_for_tests(
             catalog,
             crate::db::schema::AcceptedCompositeCatalog::empty(),
             AcceptedSchemaRevision::INITIAL,
         );
-        let field = enum_field(AcceptedFieldKind::from_model_kind(STATUS_KIND));
+        let field = enum_field(AcceptedFieldKind::Enum { type_id });
 
         assert_eq!(
             encode_sql_ddl_alter_column_default(&field, &Value::Text("Active".to_string()), None,),

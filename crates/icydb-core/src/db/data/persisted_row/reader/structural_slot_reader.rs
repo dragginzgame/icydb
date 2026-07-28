@@ -7,6 +7,7 @@
 #[cfg(any(test, feature = "diagnostics"))]
 use crate::db::data::persisted_row::reader::metrics;
 use crate::{
+    db::schema::{FieldStorageDecode, LeafCodec},
     db::{
         data::{
             DecodedDataStoreKey, RawRow, StructuralRowContract, StructuralRowFieldBytes,
@@ -33,7 +34,6 @@ use crate::{
         schema::{AcceptedFieldDecodeContract, AcceptedFieldKind},
     },
     error::InternalError,
-    model::field::{FieldStorageDecode, LeafCodec},
     value::Value,
 };
 use std::{borrow::Cow, cell::OnceCell};
@@ -92,7 +92,7 @@ impl<'a> StructuralSlotReader<'a> {
     ) -> Result<Self, InternalError> {
         let field_bytes =
             StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract.as_ref())?;
-        let cached_values = build_initial_slot_cache(contract.as_ref());
+        let cached_values = build_initial_slot_cache(contract.as_ref())?;
         #[cfg(any(test, feature = "diagnostics"))]
         let metrics = metrics::StructuralReadProbe::begin(contract.field_count());
         let reader = Self {

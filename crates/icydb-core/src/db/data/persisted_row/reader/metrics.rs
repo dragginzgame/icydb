@@ -201,7 +201,14 @@ impl Drop for StructuralSlotReader<'_> {
 ///
 
 #[cfg(any(test, feature = "diagnostics"))]
-#[cfg_attr(all(test, not(feature = "diagnostics")), expect(unreachable_pub))]
+#[cfg_attr(
+    all(test, not(feature = "diagnostics")),
+    expect(
+        dead_code,
+        unreachable_pub,
+        reason = "capture helper is consumed only by diagnostics-shaped tests"
+    )
+)]
 pub fn with_structural_read_metrics<T>(f: impl FnOnce() -> T) -> (T, StructuralReadMetrics) {
     STRUCTURAL_READ_METRICS.with(|metrics| {
         debug_assert!(

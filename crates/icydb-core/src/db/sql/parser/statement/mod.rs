@@ -245,10 +245,7 @@ impl Parser {
             return self.expect_identifier().map(Some);
         }
 
-        if matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
-            let Some(TokenKind::Identifier(value)) = self.peek_kind() else {
-                unreachable!();
-            };
+        if let Some(TokenKind::Identifier(value)) = self.peek_kind() {
             if matches!(
                 value.as_str().to_ascii_uppercase().as_str(),
                 "SET" | "VALUES"

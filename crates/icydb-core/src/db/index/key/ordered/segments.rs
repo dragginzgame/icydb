@@ -26,7 +26,7 @@ pub(super) fn push_account_payload(
     }
 
     let mut ordering_tag =
-        u8::try_from(owner_len).expect("account owner length should fit in one byte");
+        u8::try_from(owner_len).map_err(|_| OrderedValueEncodeError::AccountOwnerTooLarge)?;
     if account.subaccount().is_some() {
         ordering_tag |= ACCOUNT_SUBACCOUNT_TAG;
     }

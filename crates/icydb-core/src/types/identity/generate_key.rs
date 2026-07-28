@@ -12,5 +12,10 @@
 
 pub trait GenerateKey: Sized {
     /// Generate a new key value for the implementing primary-key type.
-    fn generate() -> Self;
+    ///
+    /// # Errors
+    ///
+    /// Returns an internal generation error when the runtime cannot obtain
+    /// entropy or exhausts the generator's monotonic sequence.
+    fn generate() -> Result<Self, crate::error::InternalError>;
 }

@@ -195,7 +195,7 @@ pub(crate) enum SqlLoweringError {
 
     UnsupportedSqlDdl,
 
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     UnexpectedQueryLaneStatement,
 }
 
@@ -213,7 +213,7 @@ impl SqlLoweringError {
         Self::UnsupportedSelectProjection
     }
 
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     /// Construct one query-lane lowering misuse error.
     pub(crate) const fn unexpected_query_lane_statement() -> Self {
         Self::UnexpectedQueryLaneStatement
@@ -353,7 +353,7 @@ impl SqlLoweringError {
             }
             Self::UnsupportedSqlDdl => Some(SqlLoweringCode::SqlDdlExecutionUnsupported),
             Self::Parse(_) | Self::Query(_) | Self::UnknownField { .. } => None,
-            #[cfg(any(test, feature = "sql-explain"))]
+            #[cfg(feature = "sql-explain")]
             Self::UnexpectedQueryLaneStatement => None,
         }
     }

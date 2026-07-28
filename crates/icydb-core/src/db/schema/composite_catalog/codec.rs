@@ -11,12 +11,12 @@ use super::{
     AcceptedCompositeShape, AcceptedCompositeType, CompositeFieldId, CompositeTypeId,
 };
 use crate::{
+    db::schema::CompositeCodec,
     db::schema::enum_catalog::{
         AcceptedEnumCatalog,
         codec::{CatalogReader, CatalogWriter, decode_value_kind, encode_value_kind},
     },
     error::InternalError,
-    model::field::CompositeCodec,
 };
 use std::collections::BTreeMap;
 

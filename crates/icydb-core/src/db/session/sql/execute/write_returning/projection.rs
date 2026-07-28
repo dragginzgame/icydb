@@ -71,9 +71,7 @@ impl SqlReturningFieldProjection {
 /// Derive canonical SQL `RETURNING *` labels from the accepted row descriptor.
 ///
 /// The accepted descriptor is the statement-result shape authority for SQL
-/// write paths. Generated model fields are still used by typed codecs after the
-/// descriptor has been proven generated-compatible, but they do not choose the
-/// outward all-column contract here.
+/// write paths and chooses the outward all-column contract.
 pub(in crate::db::session::sql::execute) fn projection_labels_from_accepted_write_descriptor(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
 ) -> Vec<String> {

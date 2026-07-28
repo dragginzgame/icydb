@@ -36,6 +36,10 @@ type SqlProjectionRowsWithDirectAttribution = (
 );
 
 #[cfg(all(test, not(feature = "diagnostics")))]
+#[expect(
+    unused_imports,
+    reason = "test instrumentation is consumed only by diagnostics-shaped tests"
+)]
 pub(crate) use crate::db::session::sql::projection::runtime::materialize::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
 };

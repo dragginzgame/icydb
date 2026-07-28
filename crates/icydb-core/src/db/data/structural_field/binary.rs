@@ -27,6 +27,8 @@ pub(super) const TAG_MAP: u8 = 0x21;
 
 const WORD32_LEN: usize = 4;
 const WORD64_LEN: usize = 8;
+const WORD32_LEN_U32: u32 = 4;
+const WORD64_LEN_U32: u32 = 8;
 const MAX_STRUCTURAL_BINARY_SKIP_DEPTH: usize = 64;
 
 /// Append one tag-only Structural Binary v1 value.
@@ -76,43 +78,38 @@ pub(super) fn push_binary_float64(out: &mut Vec<u8>, value: f64) {
 /// Append one length-prefixed UTF-8 string Structural Binary v1 value.
 pub(super) fn push_binary_text(out: &mut Vec<u8>, value: &str) {
     out.push(TAG_TEXT);
-    out.extend_from_slice(
-        &u32::try_from(value.len())
-            .expect("structural binary invariant")
-            .to_be_bytes(),
-    );
+    let len = structural_binary_len(value.len());
+    out.extend_from_slice(&len.to_be_bytes());
     out.extend_from_slice(value.as_bytes());
 }
 
 /// Append one length-prefixed raw-byte Structural Binary v1 value.
 pub(super) fn push_binary_bytes(out: &mut Vec<u8>, value: &[u8]) {
     out.push(TAG_BYTES);
-    out.extend_from_slice(
-        &u32::try_from(value.len())
-            .expect("structural binary invariant")
-            .to_be_bytes(),
-    );
+    let len = structural_binary_len(value.len());
+    out.extend_from_slice(&len.to_be_bytes());
     out.extend_from_slice(value);
 }
 
 /// Append one list header with the given item count.
 pub(super) fn push_binary_list_len(out: &mut Vec<u8>, len: usize) {
     out.push(TAG_LIST);
-    out.extend_from_slice(
-        &u32::try_from(len)
-            .expect("structural binary invariant")
-            .to_be_bytes(),
-    );
+    let len = structural_binary_len(len);
+    out.extend_from_slice(&len.to_be_bytes());
 }
 
 /// Append one map header with the given entry count.
 pub(super) fn push_binary_map_len(out: &mut Vec<u8>, len: usize) {
     out.push(TAG_MAP);
-    out.extend_from_slice(
-        &u32::try_from(len)
-            .expect("structural binary invariant")
-            .to_be_bytes(),
-    );
+    let len = structural_binary_len(len);
+    out.extend_from_slice(&len.to_be_bytes());
+}
+
+// Structural values are admitted under smaller runtime bounds before reaching
+// this framing layer. Saturating the host-only impossible overflow keeps this
+// mechanical encoder non-panicking without inventing a second admission rule.
+fn structural_binary_len(len: usize) -> u32 {
+    u32::try_from(len).unwrap_or(u32::MAX)
 }
 
 type ListItemVisitor<'a> = dyn FnMut(&[u8]) -> Result<(), FieldDecodeError> + 'a;
@@ -146,10 +143,8 @@ pub(super) fn parse_binary_head(
 
     let len = match tag {
         TAG_NULL | TAG_UNIT | TAG_FALSE | TAG_TRUE => 0,
-        TAG_NAT64 | TAG_INT64 | TAG_FLOAT64 => {
-            u32::try_from(WORD64_LEN).expect("structural binary invariant")
-        }
-        TAG_FLOAT32 => u32::try_from(WORD32_LEN).expect("structural binary invariant"),
+        TAG_NAT64 | TAG_INT64 | TAG_FLOAT64 => WORD64_LEN_U32,
+        TAG_FLOAT32 => WORD32_LEN_U32,
         TAG_TEXT | TAG_BYTES | TAG_LIST | TAG_MAP => decode_u32(bytes, payload_offset)?,
         _ => {
             return Err(FieldDecodeError::new());
@@ -162,7 +157,7 @@ pub(super) fn parse_binary_head(
         TAG_TEXT | TAG_BYTES | TAG_LIST | TAG_MAP => payload_offset
             .checked_add(WORD32_LEN)
             .ok_or_else(FieldDecodeError::new)?,
-        _ => unreachable!("unknown tags are rejected above"),
+        _ => return Err(FieldDecodeError::new()),
     };
 
     Ok(Some((tag, len, payload_offset)))
@@ -204,7 +199,7 @@ fn skip_binary_value_at_depth(
         ),
         TAG_LIST => skip_list_payload(bytes, head, depth),
         TAG_MAP => skip_map_payload(bytes, head, depth),
-        _ => unreachable!("unknown tags are rejected above"),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 

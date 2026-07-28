@@ -20,14 +20,10 @@ pub(crate) mod scalar_registry;
 pub mod db;
 pub mod error;
 pub mod metrics;
-pub mod model;
-pub mod normalize;
 pub(crate) mod runtime;
 pub mod traits;
 pub mod types;
-pub mod validate;
 pub mod value;
-pub mod visitor;
 
 #[cfg(test)]
 pub(crate) mod testing;

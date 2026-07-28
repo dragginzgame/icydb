@@ -5,10 +5,10 @@
 
 mod codec;
 use crate::{
+    db::schema::CompositeCodec,
     db::schema::{
         AcceptedFieldKind, MAX_ACCEPTED_RECURSIVE_DEPTH, enum_catalog::AcceptedEnumCatalog,
     },
-    model::field::CompositeCodec,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},

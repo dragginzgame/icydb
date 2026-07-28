@@ -131,21 +131,18 @@ impl SqlCapabilities {
 
 /// Return the SQL capability projection for one persisted schema field kind.
 #[must_use]
-pub(in crate::db) fn sql_capabilities(kind: &AcceptedFieldKind) -> SqlCapabilities {
+pub(in crate::db) const fn sql_capabilities(kind: &AcceptedFieldKind) -> SqlCapabilities {
     let semantics = classify_accepted_field_kind(kind);
     match semantics.category() {
         AcceptedFieldKindCategory::Scalar(_) | AcceptedFieldKindCategory::Relation(Some(_)) => {
             sql_capabilities_for_scalar_semantics(semantics)
         }
-        AcceptedFieldKindCategory::Relation(None) => {
-            unreachable!("schema capability invariant")
-        }
-        AcceptedFieldKindCategory::Collection | AcceptedFieldKindCategory::Composite => {
-            SqlCapabilities::new(
-                SQL_CAPABILITY_SELECTABLE,
-                SqlAggregateInputCapabilities::new(false, false, false),
-            )
-        }
+        AcceptedFieldKindCategory::Relation(None)
+        | AcceptedFieldKindCategory::Collection
+        | AcceptedFieldKindCategory::Composite => SqlCapabilities::new(
+            SQL_CAPABILITY_SELECTABLE,
+            SqlAggregateInputCapabilities::new(false, false, false),
+        ),
     }
 }
 
@@ -269,5 +266,15 @@ mod tests {
         assert!(relation.selectable());
         assert!(relation.orderable());
         assert!(relation.aggregate_input().numeric());
+    }
+
+    #[test]
+    fn sql_capabilities_fail_closed_for_non_scalar_relation_keys() {
+        let relation = sql_capabilities(&relation_to_key(AcceptedFieldKind::test_composite()));
+
+        assert!(relation.selectable());
+        assert!(!relation.orderable());
+        assert!(!relation.groupable());
+        assert!(!relation.aggregate_input().count());
     }
 }

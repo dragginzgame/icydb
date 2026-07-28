@@ -235,7 +235,7 @@ pub(super) fn bind_alter_table_add_column_statement(
         statement.default.as_ref(),
         &contract,
         statement.nullable,
-        schema.value_catalog_handle(),
+        Some(schema.value_catalog_handle()),
     )?;
     let (kind, storage_decode, leaf_codec) = contract.into_parts();
     let field = build_sql_ddl_field_addition_candidate(
@@ -349,7 +349,7 @@ fn bind_alter_column_set_default(
         entity_name,
         &field,
         authored_default,
-        schema.value_catalog_handle(),
+        Some(schema.value_catalog_handle()),
     )?;
     validate_sql_ddl_field_default_change_candidate(accepted_before, &field, &default)
         .map_err(|error| sql_field_default_candidate_error(entity_name, column_name, error))?;

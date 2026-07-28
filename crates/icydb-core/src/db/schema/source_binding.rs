@@ -1184,32 +1184,32 @@ mod tests {
         db::schema::{
             AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
             AcceptedSchemaRevisionBundle, CandidateSchemaRevision, ConstraintId, FieldId,
-            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaInsertDefault,
-            SchemaRowLayout, SchemaVersion,
-            build_initial_accepted_enum_catalog_from_kinds_for_tests,
+            FieldStorageDecode, LeafCodec, PersistedFieldSnapshot, PersistedSchemaSnapshot,
+            ScalarCodec, SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+            TestEnumDefinition, TestEnumVariant, build_accepted_enum_catalog_for_tests,
             composite_catalog::{
                 AcceptedCompositeElement, AcceptedCompositeField, AcceptedCompositeShape,
                 CompositeFieldId, CompositeTypeId,
             },
+            empty_accepted_enum_catalog_for_tests,
         },
-        model::field::{EnumVariantModel, FieldKind, FieldStorageDecode, LeafCodec, ScalarCodec},
         types::EntityTag,
     };
     use icydb_schema::{ConstraintSourceKey, FieldSourceKey};
 
-    static STATUS_VARIANTS: [EnumVariantModel; 2] = [
-        EnumVariantModel::new("Active", None, FieldStorageDecode::ByKind),
-        EnumVariantModel::new("Disabled", None, FieldStorageDecode::ByKind),
-    ];
-    const STATUS_KIND: FieldKind = FieldKind::Enum {
-        path: "test::Status",
-        variants: &STATUS_VARIANTS,
-    };
+    fn status_enum_definition() -> TestEnumDefinition {
+        TestEnumDefinition::new(
+            "test::Status",
+            vec![
+                TestEnumVariant::unit("Active"),
+                TestEnumVariant::unit("Disabled"),
+            ],
+        )
+    }
 
     #[test]
     fn empty_source_binding_catalog_has_one_canonical_current_form() {
-        let enums = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[])
-            .expect("empty enum catalog should build");
+        let enums = empty_accepted_enum_catalog_for_tests();
         let composites = AcceptedCompositeCatalog::empty();
         let entities = BTreeMap::new();
         let catalog = AcceptedSourceBindingCatalog::default();
@@ -1294,8 +1294,7 @@ mod tests {
 
     #[test]
     fn source_binding_catalog_rejects_missing_structural_owner() {
-        let enums = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[])
-            .expect("empty enum catalog should build");
+        let enums = empty_accepted_enum_catalog_for_tests();
         let composites = AcceptedCompositeCatalog::empty();
         let entities = BTreeMap::new();
         let mut catalog = AcceptedSourceBindingCatalog::default();
@@ -1310,8 +1309,7 @@ mod tests {
 
     #[test]
     fn source_binding_catalog_round_trips_existing_accepted_identities() {
-        let enums = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[])
-            .expect("empty enum catalog should build");
+        let enums = empty_accepted_enum_catalog_for_tests();
         let composites = AcceptedCompositeCatalog::empty();
         let entity = EntityTag::new(7);
         let field = FieldId::new(1);
@@ -1359,7 +1357,7 @@ mod tests {
 
     #[test]
     fn source_binding_catalog_closes_enum_variant_source_identities() {
-        let enums = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[STATUS_KIND])
+        let enums = build_accepted_enum_catalog_for_tests(&[status_enum_definition()])
             .expect("enum catalog should build");
         let composites = AcceptedCompositeCatalog::empty();
         let entities = BTreeMap::new();
@@ -1439,8 +1437,7 @@ mod tests {
 
     #[test]
     fn source_binding_catalog_closes_record_member_source_identities() {
-        let enums = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[])
-            .expect("empty enum catalog should build");
+        let enums = empty_accepted_enum_catalog_for_tests();
         let composite_type = CompositeTypeId::new(1).expect("one is non-zero");
         let alpha = CompositeFieldId::new(1).expect("one is non-zero");
         let zeta = CompositeFieldId::new(2).expect("two is non-zero");
@@ -1531,8 +1528,7 @@ mod tests {
 
     #[test]
     fn accepted_schema_fingerprint_covers_source_bindings() {
-        let enums = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[])
-            .expect("empty enum catalog should build");
+        let enums = empty_accepted_enum_catalog_for_tests();
         let composites = AcceptedCompositeCatalog::empty();
         let entity = EntityTag::new(7);
         let field = FieldId::new(1);

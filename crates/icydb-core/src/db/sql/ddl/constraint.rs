@@ -161,9 +161,7 @@ pub(super) fn bind_alter_table_add_check_constraint_statement(
             constraint_name: statement.constraint_name.clone(),
         });
     }
-    let value_catalog = schema
-        .value_catalog_handle()
-        .ok_or(SqlDdlBindError::AcceptedValueCatalogRequired)?;
+    let value_catalog = schema.value_catalog_handle();
     let expression = bind_sql_check_expr(
         &statement.expression,
         accepted_before.persisted_snapshot(),

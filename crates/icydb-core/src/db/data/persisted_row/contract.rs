@@ -3,6 +3,7 @@
 //! Production writes and test fixtures enter through accepted field contracts.
 
 use crate::{
+    db::schema::{FieldStorageDecode, LeafCodec},
     db::{
         codec::serialize_row_payload,
         data::{
@@ -15,7 +16,6 @@ use crate::{
         schema::AcceptedFieldDecodeContract,
     },
     error::InternalError,
-    model::field::{FieldStorageDecode, LeafCodec},
     value::Value,
 };
 use std::borrow::Cow;

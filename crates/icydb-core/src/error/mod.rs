@@ -510,6 +510,11 @@ impl InternalError {
         Self::store_internal()
     }
 
+    /// Construct the canonical initialized commit-store lookup invariant.
+    pub(crate) fn commit_store_uninitialized() -> Self {
+        Self::store_invariant()
+    }
+
     /// Construct the canonical commit-memory id mismatch internal error.
     pub(crate) fn commit_memory_id_mismatch(_cached_id: u8, _configured_id: u8) -> Self {
         Self::store_internal()

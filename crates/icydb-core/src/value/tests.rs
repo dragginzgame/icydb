@@ -710,7 +710,7 @@ fn ci_membership_with_empty_lists() {
 
 #[test]
 fn ci_equality_parses_identifier_text() {
-    let ulid = Ulid::generate();
+    let ulid = Ulid::generate().expect("seeded ULID generation should succeed");
     let ulid_text = Value::Text(ulid.to_string());
 
     assert!(Value::Ulid(ulid).contains_ci(&ulid_text).unwrap());
@@ -723,7 +723,7 @@ fn ci_equality_parses_identifier_text() {
 
 #[test]
 fn ci_membership_handles_ulid_strings() {
-    let target = Ulid::generate();
+    let target = Ulid::generate().expect("seeded ULID generation should succeed");
     let actual = Value::from_slice(&[Value::Ulid(target)]);
     let needles = Value::from_slice(&[Value::Text(target.to_string())]);
 

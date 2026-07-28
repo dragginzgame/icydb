@@ -10,7 +10,7 @@ use super::contracts::{
 #[cfg(any(test, feature = "sql"))]
 use crate::{
     db::data::{ScalarSlotValueRef, ScalarValueRef},
-    model::field::{LeafCodec, ScalarCodec},
+    db::schema::{LeafCodec, ScalarCodec},
 };
 use crate::{
     db::{

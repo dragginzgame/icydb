@@ -97,10 +97,8 @@ impl SchemaFieldSlot {
 
     /// Build one schema field slot from a generated field index.
     #[must_use]
-    pub(in crate::db) fn from_generated_index(index: usize) -> Self {
-        let slot = u16::try_from(index).expect("schema layout invariant");
-
-        Self(slot)
+    pub(in crate::db) fn from_generated_index(index: usize) -> Option<Self> {
+        u16::try_from(index).ok().map(Self)
     }
 
     /// Return the raw slot value used by the persisted row layout.
@@ -177,7 +175,7 @@ impl SchemaRowLayout {
     /// Return the next dense physical slot index for additive field DDL.
     #[must_use]
     #[cfg(any(test, feature = "sql"))]
-    pub(in crate::db) fn next_unallocated_slot(&self) -> SchemaFieldSlot {
+    pub(in crate::db) fn next_unallocated_slot(&self) -> Option<SchemaFieldSlot> {
         SchemaFieldSlot::from_generated_index(self.field_to_slot.len())
     }
 

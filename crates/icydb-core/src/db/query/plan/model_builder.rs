@@ -1,7 +1,7 @@
 //! Module: query::plan::model_builder
 //! Responsibility: pure logical plan-model constructors/builders.
 //! Does not own: access-plan coupling or semantic interpretation.
-//! Boundary: model-only helpers that remain independent of access planning.
+//! Boundary: logical plan builders that remain independent of access planning.
 
 use crate::db::query::plan::{DeleteSpec, FieldSlot, GroupedExecutionConfig, LoadSpec};
 

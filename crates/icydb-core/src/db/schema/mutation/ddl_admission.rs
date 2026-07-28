@@ -231,10 +231,12 @@ impl SchemaDdlAcceptedSnapshotDerivation {
         )
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
         if let Some(rejection) = schema_admission_rejection(comparison) {
+            let admission = rejection
+                .admission()
+                .ok_or(SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
             return Err(SchemaDdlMutationAdmissionError::SchemaVersionAdmission(
-                SchemaDdlSchemaVersionAdmissionError::from_schema_admission(
-                    rejection.admission().expect("ddl admission invariant"),
-                ),
+                SchemaDdlSchemaVersionAdmissionError::from_schema_admission(admission)
+                    .ok_or(SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?,
             ));
         }
 
@@ -328,8 +330,8 @@ impl SchemaDdlSchemaVersionAdmissionError {
 
     pub(super) const fn from_schema_admission(
         classification: SchemaAdmissionRejectionClassification,
-    ) -> Self {
-        match classification.reason() {
+    ) -> Option<Self> {
+        Some(match classification.reason() {
             SchemaAdmissionRejectionReason::FingerprintMethodMismatch => {
                 Self::FingerprintMethodMismatch
             }
@@ -338,12 +340,13 @@ impl SchemaDdlSchemaVersionAdmissionError {
             }
             SchemaAdmissionRejectionReason::EmptyVersionBump => Self::EmptyVersionBump,
             SchemaAdmissionRejectionReason::VersionGap => Self::VersionGap {
-                expected_next: classification
-                    .expected_next()
-                    .expect("ddl admission invariant"),
+                expected_next: match classification.expected_next() {
+                    Some(expected_next) => expected_next,
+                    None => return None,
+                },
             },
             SchemaAdmissionRejectionReason::VersionRollback => Self::VersionRollback,
-        }
+        })
     }
 }
 

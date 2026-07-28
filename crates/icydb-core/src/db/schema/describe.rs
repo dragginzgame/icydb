@@ -4,6 +4,7 @@
 //! Boundary: projects generated or accepted schema metadata into stable describe surfaces.
 
 use crate::{
+    db::schema::CompositeCodec,
     db::{
         data::decode_admitted_value_from_accepted_field_contract,
         schema::{
@@ -20,7 +21,6 @@ use crate::{
         },
     },
     error::InternalError,
-    model::field::CompositeCodec,
     value::{OutputValue, render_output_value_text},
 };
 use std::fmt::Write;
@@ -1521,9 +1521,8 @@ fn summarize_persisted_field_kind(
     Ok(out)
 }
 
-// Stream the accepted persisted field-kind label in the same public format as
-// generated `FieldKind` summaries. Top-level live-schema metadata can then
-// drive DESCRIBE output without converting back into generated static types.
+// Stream the accepted persisted field-kind label in the stable public
+// `DESCRIBE` format directly from live schema metadata.
 fn write_persisted_field_kind_summary(
     out: &mut String,
     kind: &AcceptedFieldKind,
@@ -1617,7 +1616,7 @@ fn write_persisted_field_kind_summary(
         | AcceptedFieldKind::Nat64
         | AcceptedFieldKind::Nat128
         | AcceptedFieldKind::Ulid
-        | AcceptedFieldKind::Unit => unreachable!("schema describe invariant"),
+        | AcceptedFieldKind::Unit => return Err(InternalError::store_invariant()),
         AcceptedFieldKind::NatBig { max_bytes } => {
             write_byte_bounded_field_kind_summary(out, "nat_big", *max_bytes);
         }

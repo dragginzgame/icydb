@@ -6,8 +6,9 @@ use crate::{
         commit::{COMMIT_MARKER_FORMAT_VERSION_CURRENT, validate_commit_marker_envelope_for_tests},
         cursor::{ContinuationSignature, GroupedContinuationToken},
         data::{
-            decode_canonical_value_storage_bytes, decode_structural_field_by_kind_bytes,
-            decode_structural_value_storage_bytes, validate_structural_field_by_kind_bytes,
+            decode_canonical_value_storage_bytes, decode_structural_field_by_accepted_kind_bytes,
+            decode_structural_value_storage_bytes,
+            validate_structural_field_by_accepted_kind_bytes,
             validate_structural_value_storage_bytes,
         },
         database_format::{DATABASE_BOOT_RECORD_BYTES, crc32c, validate_current_boot_record},
@@ -16,14 +17,13 @@ use crate::{
         journal::{JournalBatch, JournalSequence, decode_journal_batch, encode_journal_batch},
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         schema::{
-            AcceptedSchemaRevision, CandidateSchemaRevision, decode_persisted_schema_snapshot,
-            empty_accepted_schema_candidate_for_tests,
+            AcceptedFieldKind, AcceptedSchemaRevision, CandidateSchemaRevision,
+            decode_persisted_schema_snapshot, empty_accepted_schema_candidate_for_tests,
             validate_accepted_enum_catalog_format_for_tests,
             validate_accepted_schema_bundle_format_for_tests,
             validate_raw_schema_snapshot_format_for_tests,
         },
     },
-    model::field::FieldKind,
     types::EntityTag,
 };
 use ic_stable_structures::{Memory, Storable, VectorMemory};
@@ -32,9 +32,6 @@ use std::borrow::Cow;
 const VALUE_TAG_TEXT: u8 = 0x12;
 const VALUE_TAG_LIST: u8 = 0x20;
 const CANONICAL_ENUM_TAG: u8 = 0x84;
-static TEXT_FIELD_KIND: FieldKind = FieldKind::Text { max_len: None };
-static TEXT_LIST_FIELD_KIND: FieldKind = FieldKind::List(&TEXT_FIELD_KIND);
-
 fn assert_err<T, E>(label: &str, result: Result<T, E>) {
     assert!(result.is_err(), "{label} should fail closed");
 }
@@ -525,23 +522,29 @@ fn canonical_enum_value_malformed_corpus_fails_closed() {
 }
 
 #[test]
-fn structural_field_by_kind_malformed_corpus_fails_closed() {
+fn structural_field_by_accepted_kind_malformed_corpus_fails_closed() {
     let cases = [
         (
             "truncated by-kind text",
-            FieldKind::Text { max_len: None },
+            AcceptedFieldKind::Text { max_len: None },
             value_storage_len_prefixed(VALUE_TAG_TEXT, 4, b"a"),
         ),
-        ("empty by-kind nat64", FieldKind::Nat64, Vec::new()),
+        ("empty by-kind nat64", AcceptedFieldKind::Nat64, Vec::new()),
         (
             "huge declared by-kind text list without items",
-            TEXT_LIST_FIELD_KIND,
+            AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Text { max_len: None })),
             value_storage_len_prefixed(VALUE_TAG_LIST, u32::MAX, &[]),
         ),
     ];
 
     for (label, kind, bytes) in cases {
-        assert_err(label, validate_structural_field_by_kind_bytes(&bytes, kind));
-        assert_err(label, decode_structural_field_by_kind_bytes(&bytes, kind));
+        assert_err(
+            label,
+            validate_structural_field_by_accepted_kind_bytes(&bytes, &kind),
+        );
+        assert_err(
+            label,
+            decode_structural_field_by_accepted_kind_bytes(&bytes, &kind),
+        );
     }
 }

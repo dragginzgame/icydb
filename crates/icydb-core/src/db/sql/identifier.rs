@@ -4,8 +4,6 @@
 //! Boundary: shared identifier matching/qualifier-reduction semantics used by
 //! SQL lowering and external SQL dispatch boundaries.
 
-pub(in crate::db::sql) use crate::db::predicate::rewrite_field_identifiers;
-
 ///
 /// Normalize one possibly-qualified identifier against one SQL entity scope.
 ///
@@ -67,13 +65,7 @@ pub(in crate::db) fn identifiers_tail_match(left: &str, right: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        db::{
-            predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
-            sql::identifier::{identifiers_tail_match, normalize_identifier_to_scope},
-        },
-        value::Value,
-    };
+    use crate::db::sql::identifier::{identifiers_tail_match, normalize_identifier_to_scope};
 
     #[test]
     fn identifiers_tail_match_accepts_schema_qualified_forms() {
@@ -102,69 +94,5 @@ mod tests {
             normalize_identifier_to_scope("FixtureOrder.email".to_string(), scope.as_slice()),
             "FixtureOrder.email".to_string()
         );
-    }
-
-    #[test]
-    fn rewrite_field_identifiers_updates_nested_predicate_fields() {
-        let predicate = Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::eq(
-                "users.age".to_string(),
-                Value::Int64(21),
-            )),
-            Predicate::Or(vec![
-                Predicate::IsNull {
-                    field: "users.deleted_at".to_string(),
-                },
-                Predicate::Not(Box::new(Predicate::TextContainsCi {
-                    field: "users.email".to_string(),
-                    value: Value::Text("EXAMPLE".to_string()),
-                })),
-            ]),
-        ]);
-
-        let rewritten = super::rewrite_field_identifiers(predicate, strip_users_prefix);
-
-        let expected = Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::eq("age".to_string(), Value::Int64(21))),
-            Predicate::Or(vec![
-                Predicate::IsNull {
-                    field: "deleted_at".to_string(),
-                },
-                Predicate::Not(Box::new(Predicate::TextContainsCi {
-                    field: "email".to_string(),
-                    value: Value::Text("EXAMPLE".to_string()),
-                })),
-            ]),
-        ]);
-
-        assert_eq!(rewritten, expected);
-    }
-
-    #[test]
-    fn rewrite_field_identifiers_preserves_compare_semantics() {
-        let predicate = Predicate::Compare(ComparePredicate::with_coercion(
-            "users.email",
-            CompareOp::StartsWith,
-            Value::Text("Ada".to_string()),
-            CoercionId::TextCasefold,
-        ));
-
-        let rewritten = super::rewrite_field_identifiers(predicate, strip_users_prefix);
-        let Predicate::Compare(compare) = rewritten else {
-            panic!("rewritten predicate should remain compare");
-        };
-
-        assert_eq!(compare.field, "email".to_string());
-        assert_eq!(compare.op, CompareOp::StartsWith);
-        assert_eq!(compare.value, Value::Text("Ada".to_string()));
-        assert_eq!(compare.coercion.id, CoercionId::TextCasefold);
-    }
-
-    fn strip_users_prefix(identifier: String) -> String {
-        if let Some(field) = identifier.strip_prefix("users.") {
-            return field.to_string();
-        }
-
-        identifier
     }
 }

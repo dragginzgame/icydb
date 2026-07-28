@@ -703,7 +703,7 @@ fn preflight_initial_application(
         let authority = authorities
             .iter()
             .find(|authority| authority.path == candidate.store_path())
-            .ok_or_else(InternalError::store_unsupported)?;
+            .ok_or_else(InternalError::store_invariant)?;
         if authority.handle.with_data(DataStore::len) != 0
             || authority.handle.index_state() != IndexState::Ready
             || !authority.handle.with_index(IndexStore::is_empty)
@@ -825,7 +825,7 @@ fn require_empty_record_member_renames(
             .iter()
             .enumerate()
             .find(|(_, authority)| authority.path == candidate.store_path())
-            .ok_or_else(InternalError::store_unsupported)?;
+            .ok_or_else(InternalError::store_invariant)?;
         let current = current_bundles
             .get(position)
             .and_then(Option::as_ref)
@@ -834,7 +834,7 @@ fn require_empty_record_member_renames(
             let before = current
                 .entity_snapshots()
                 .get(entity_tag)
-                .ok_or_else(InternalError::store_unsupported)?;
+                .ok_or_else(InternalError::store_invariant)?;
             let member_names_changed = before.fields().iter().any(|before_field| {
                 after
                     .fields()
@@ -847,13 +847,7 @@ fn require_empty_record_member_renames(
             if !member_names_changed {
                 continue;
             }
-            if authority
-                .handle
-                .with_data(|store| store.exact_entity_count(*entity_tag))
-                != Some(0)
-            {
-                return Err(InternalError::store_unsupported());
-            }
+            require_exact_empty_entity(authority.handle, *entity_tag)?;
             authority
                 .handle
                 .with_index(|store| prove_empty_user_index_domain(store, *entity_tag))
@@ -890,7 +884,7 @@ fn require_empty_physical_entity_removal(
             .iter()
             .enumerate()
             .find(|(_, authority)| authority.path == candidate.store_path())
-            .ok_or_else(InternalError::store_unsupported)?;
+            .ok_or_else(InternalError::store_invariant)?;
         let current = current_bundles
             .get(position)
             .and_then(Option::as_ref)
@@ -920,13 +914,10 @@ fn require_empty_physical_entity_removal(
                     .entity_snapshots()
                     .len()
                     .saturating_add(1)
-            || source_authority
-                .handle
-                .with_data(|store| store.exact_entity_count(entity_tag))
-                != Some(0)
         {
             return Err(InternalError::store_unsupported());
         }
+        require_exact_empty_entity(source_authority.handle, entity_tag)?;
         source_authority
             .handle
             .with_index(|store| prove_empty_user_index_domain(store, entity_tag))
@@ -980,7 +971,7 @@ fn require_empty_physical_relation_removals(
             .iter()
             .enumerate()
             .find(|(_, authority)| authority.path == candidate.store_path())
-            .ok_or_else(InternalError::store_unsupported)?;
+            .ok_or_else(InternalError::store_invariant)?;
         let current = current_bundles
             .get(position)
             .and_then(Option::as_ref)
@@ -989,7 +980,7 @@ fn require_empty_physical_relation_removals(
             let before = current
                 .entity_snapshots()
                 .get(entity_tag)
-                .ok_or_else(InternalError::store_unsupported)?;
+                .ok_or_else(InternalError::store_invariant)?;
             let removed = before
                 .relations()
                 .iter()
@@ -1012,15 +1003,10 @@ fn require_empty_physical_relation_removals(
             let [removed] = removed.as_slice() else {
                 return Err(InternalError::store_unsupported());
             };
-            if added
-                || before.relations().len() != after.relations().len().saturating_add(1)
-                || source_authority
-                    .handle
-                    .with_data(|store| store.exact_entity_count(*entity_tag))
-                    != Some(0)
-            {
+            if added || before.relations().len() != after.relations().len().saturating_add(1) {
                 return Err(InternalError::store_unsupported());
             }
+            require_exact_empty_entity(source_authority.handle, *entity_tag)?;
             let target_store = accepted_entity_store_for_path(
                 authorities,
                 current_bundles,
@@ -1072,7 +1058,7 @@ fn require_empty_physical_index_removals(
             .iter()
             .enumerate()
             .find(|(_, authority)| authority.path == candidate.store_path())
-            .ok_or_else(InternalError::store_unsupported)?;
+            .ok_or_else(InternalError::store_invariant)?;
         let current = current_bundles
             .get(position)
             .and_then(Option::as_ref)
@@ -1081,18 +1067,14 @@ fn require_empty_physical_index_removals(
             let before = current
                 .entity_snapshots()
                 .get(entity_tag)
-                .ok_or_else(InternalError::store_unsupported)?;
+                .ok_or_else(InternalError::store_invariant)?;
             if before.indexes().len() == after.indexes().len() {
                 continue;
             }
-            if before.indexes().len() != after.indexes().len().saturating_add(1)
-                || authority
-                    .handle
-                    .with_data(|store| store.exact_entity_count(*entity_tag))
-                    != Some(0)
-            {
+            if before.indexes().len() != after.indexes().len().saturating_add(1) {
                 return Err(InternalError::store_unsupported());
             }
+            require_exact_empty_entity(authority.handle, *entity_tag)?;
             authority
                 .handle
                 .with_index(|store| prove_empty_user_index_domain(store, *entity_tag))
@@ -1114,7 +1096,7 @@ fn require_empty_physical_field_removals(
             .iter()
             .enumerate()
             .find(|(_, authority)| authority.path == candidate.store_path())
-            .ok_or_else(InternalError::store_unsupported)?;
+            .ok_or_else(InternalError::store_invariant)?;
         let current = current_bundles
             .get(position)
             .and_then(Option::as_ref)
@@ -1123,20 +1105,35 @@ fn require_empty_physical_field_removals(
             let before = current
                 .entity_snapshots()
                 .get(entity_tag)
-                .ok_or_else(InternalError::store_unsupported)?;
+                .ok_or_else(InternalError::store_invariant)?;
             if before.row_layout() == after.row_layout() {
                 continue;
             }
-            if before.fields().len() != after.fields().len().saturating_add(1)
-                || authority
-                    .handle
-                    .with_data(|store| store.exact_entity_count(*entity_tag))
-                    != Some(0)
-            {
+            if before.fields().len() != after.fields().len().saturating_add(1) {
                 return Err(InternalError::store_unsupported());
             }
+            require_exact_empty_entity(authority.handle, *entity_tag)?;
         }
     }
+    Ok(())
+}
+
+// Prove exact logical emptiness from the maintained cardinality authority.
+// Missing cardinality is corrupt state, not an empty domain or an unsupported
+// user transition.
+fn require_exact_empty_entity(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+) -> Result<(), InternalError> {
+    require_exact_empty_entity_count(store.with_data(|data| data.exact_entity_count(entity_tag)))
+}
+
+fn require_exact_empty_entity_count(count: Option<u64>) -> Result<(), InternalError> {
+    let count = count.ok_or_else(InternalError::store_corruption)?;
+    if count != 0 {
+        return Err(InternalError::store_unsupported());
+    }
+
     Ok(())
 }
 
@@ -1151,7 +1148,7 @@ fn generated_check_proofs(
             .iter()
             .enumerate()
             .find(|(_, authority)| authority.path == candidate.store_path())
-            .ok_or_else(InternalError::store_unsupported)?;
+            .ok_or_else(InternalError::store_invariant)?;
         let current = current_bundles
             .get(position)
             .and_then(Option::as_ref)
@@ -1160,7 +1157,7 @@ fn generated_check_proofs(
             let before = current
                 .entity_snapshots()
                 .get(entity_tag)
-                .ok_or_else(InternalError::store_unsupported)?;
+                .ok_or_else(InternalError::store_invariant)?;
             for constraint_id in added_generated_check_activations(before, after) {
                 let historical_rows = authority
                     .handle
@@ -1345,7 +1342,7 @@ fn application_publications<'a>(
                 .iter()
                 .enumerate()
                 .find(|(_, authority)| authority.path == candidate.store_path())
-                .ok_or_else(InternalError::store_unsupported)?;
+                .ok_or_else(InternalError::store_invariant)?;
             let expected_revision = current_bundles[position].as_ref().map_or(
                 AcceptedSchemaRevision::NONE,
                 crate::db::schema::AcceptedSchemaRevisionBundle::revision,
@@ -1546,7 +1543,8 @@ mod tests {
         aborted_generated_check_candidate, apply_schema, continue_schema_application,
         derive_accepted_head, derive_schema_change_job_id, ensure_recovered,
         lower_existing_schema_proposal, lower_initial_schema_proposal,
-        publish_accepted_schema_candidates_with_application_record, schema_application_target,
+        publish_accepted_schema_candidates_with_application_record,
+        require_exact_empty_entity_count, schema_application_target,
     };
     use crate::{
         db::{
@@ -1565,6 +1563,7 @@ mod tests {
                 SchemaChangeJob, SchemaChangeOutcome, SchemaChangeProgressStatus, SchemaStore,
             },
         },
+        error::ErrorClass,
         testing::test_memory,
         traits::{CanisterKind, Path},
     };
@@ -1578,6 +1577,18 @@ mod tests {
     use std::cell::RefCell;
 
     const ABORT_STORE_PATH: &str = "schema_application_tests::AbortStore";
+
+    #[test]
+    fn exact_empty_entity_proof_distinguishes_corruption_from_non_empty_input() {
+        let corrupt = require_exact_empty_entity_count(None)
+            .expect_err("uninspectable cardinality must fail closed");
+        assert_eq!(corrupt.class(), ErrorClass::Corruption);
+
+        let non_empty = require_exact_empty_entity_count(Some(1))
+            .expect_err("non-empty cardinality must reject removal");
+        assert_eq!(non_empty.class(), ErrorClass::Unsupported);
+        assert!(require_exact_empty_entity_count(Some(0)).is_ok());
+    }
 
     thread_local! {
         static ABORT_DATA: RefCell<DataStore> =

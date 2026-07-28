@@ -2,7 +2,7 @@
 use crate::db::query::plan::CoveringHybridReadExecutionPlan;
 #[cfg(any(test, feature = "sql"))]
 use crate::db::query::plan::covering_hybrid_projection_execution_plan_with_schema_info;
-#[cfg(any(test, feature = "sql-explain"))]
+#[cfg(feature = "sql-explain")]
 use crate::db::{executor::planning::route::AggregateRouteShape, query::plan::AggregateKind};
 use crate::{
     db::{
@@ -172,7 +172,7 @@ impl EntityAuthority {
     }
 
     /// Resolve one aggregate route shape through authority-owned schema metadata.
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db) fn aggregate_route_shape<'a>(
         &self,
         kind: AggregateKind,

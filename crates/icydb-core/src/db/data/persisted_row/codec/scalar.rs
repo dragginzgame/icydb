@@ -1,6 +1,6 @@
 use crate::{
+    db::schema::ScalarCodec,
     error::InternalError,
-    model::field::ScalarCodec,
     types::{Date, Duration, Float32, Float64, Principal, Subaccount, Timestamp, Ulid},
     value::Value,
 };

@@ -1,6 +1,5 @@
 use crate::{
     db::data::structural_field::primary_key_component::{
-        decode::decode_relation_target_primary_key_components_binary_bytes,
         decode::{
             decode_accepted_relation_target_primary_key_components_binary_bytes,
             decode_primary_key_component_binary_value_bytes,
@@ -15,36 +14,29 @@ use crate::{
     },
     db::key_taxonomy::PrimaryKeyComponent,
     db::schema::AcceptedFieldKind,
-    model::field::FieldKind,
     types::{Account, EntityTag, Principal, Subaccount, Timestamp, Ulid},
     value::Value,
 };
+use std::sync::LazyLock;
 
-static RELATION_ULID_KEY_KIND: FieldKind = FieldKind::Ulid;
-static RELATION_INT128_KEY_KIND: FieldKind = FieldKind::Int128;
-static RELATION_NAT128_KEY_KIND: FieldKind = FieldKind::Nat128;
-static RELATION_KIND: FieldKind = FieldKind::Relation {
-    target_path: "RelationTargetEntity",
-    target_entity_name: "RelationTargetEntity",
-    target_entity_tag: EntityTag::new(7),
-    target_store_path: "RelationTargetStore",
-    key_kind: &RELATION_ULID_KEY_KIND,
-};
-static RELATION_LIST_KIND: FieldKind = FieldKind::List(&RELATION_KIND);
-static INT128_RELATION_KIND: FieldKind = FieldKind::Relation {
-    target_path: "RelationTargetEntity",
-    target_entity_name: "RelationTargetEntity",
-    target_entity_tag: EntityTag::new(7),
-    target_store_path: "RelationTargetStore",
-    key_kind: &RELATION_INT128_KEY_KIND,
-};
-static NAT128_RELATION_KIND: FieldKind = FieldKind::Relation {
-    target_path: "RelationTargetEntity",
-    target_entity_name: "RelationTargetEntity",
-    target_entity_tag: EntityTag::new(7),
-    target_store_path: "RelationTargetStore",
-    key_kind: &RELATION_NAT128_KEY_KIND,
-};
+static RELATION_KIND: LazyLock<AcceptedFieldKind> =
+    LazyLock::new(|| relation_kind(AcceptedFieldKind::Ulid));
+static RELATION_LIST_KIND: LazyLock<AcceptedFieldKind> =
+    LazyLock::new(|| AcceptedFieldKind::List(Box::new(relation_kind(AcceptedFieldKind::Ulid))));
+static INT128_RELATION_KIND: LazyLock<AcceptedFieldKind> =
+    LazyLock::new(|| relation_kind(AcceptedFieldKind::Int128));
+static NAT128_RELATION_KIND: LazyLock<AcceptedFieldKind> =
+    LazyLock::new(|| relation_kind(AcceptedFieldKind::Nat128));
+
+fn relation_kind(key_kind: AcceptedFieldKind) -> AcceptedFieldKind {
+    AcceptedFieldKind::Relation {
+        target_path: "RelationTargetEntity".to_string(),
+        target_entity_name: "RelationTargetEntity".to_string(),
+        target_entity_tag: EntityTag::new(7),
+        target_store_path: "RelationTargetStore".to_string(),
+        key_kind: Box::new(key_kind),
+    }
+}
 
 const TAG_UNIT: u8 = 0x01;
 const TAG_NAT64: u8 = 0x10;
@@ -114,65 +106,70 @@ fn primary_key_component_binary_roundtrips_all_supported_scalar_kinds() {
     let ulid = Ulid::from_u128(77);
     let cases = vec![
         (
-            FieldKind::Account,
+            AcceptedFieldKind::Account,
             PrimaryKeyComponent::Account(account),
             Value::Account(account),
         ),
         (
-            FieldKind::Int64,
+            AcceptedFieldKind::Int64,
             PrimaryKeyComponent::Int64(-9),
             Value::Int64(-9),
         ),
         (
-            FieldKind::Int128,
+            AcceptedFieldKind::Int128,
             PrimaryKeyComponent::Int128(i128::MIN + 7),
             Value::Int128(i128::MIN + 7),
         ),
         (
-            FieldKind::Principal,
+            AcceptedFieldKind::Principal,
             PrimaryKeyComponent::Principal(Principal::from_slice(&[5])),
             Value::Principal(Principal::from_slice(&[5])),
         ),
         (
-            FieldKind::Subaccount,
+            AcceptedFieldKind::Subaccount,
             PrimaryKeyComponent::Subaccount(Subaccount::from_array([8_u8; 32])),
             Value::Subaccount(Subaccount::from_array([8_u8; 32])),
         ),
         (
-            FieldKind::Timestamp,
+            AcceptedFieldKind::Timestamp,
             PrimaryKeyComponent::Timestamp(timestamp),
             Value::Timestamp(timestamp),
         ),
         (
-            FieldKind::Nat64,
+            AcceptedFieldKind::Nat64,
             PrimaryKeyComponent::Nat64(42),
             Value::Nat64(42),
         ),
         (
-            FieldKind::Nat128,
+            AcceptedFieldKind::Nat128,
             PrimaryKeyComponent::Nat128(u128::MAX - 7),
             Value::Nat128(u128::MAX - 7),
         ),
         (
-            FieldKind::Ulid,
+            AcceptedFieldKind::Ulid,
             PrimaryKeyComponent::Ulid(ulid),
             Value::Ulid(ulid),
         ),
-        (FieldKind::Unit, PrimaryKeyComponent::Unit, Value::Unit),
+        (
+            AcceptedFieldKind::Unit,
+            PrimaryKeyComponent::Unit,
+            Value::Unit,
+        ),
     ];
 
     for (kind, key, value) in cases {
-        let encoded = encode_primary_key_component_field_binary_bytes(key, kind, "field")
+        let encoded = encode_primary_key_component_field_binary_bytes(key, &kind, "field")
             .expect("primary-key component payload should encode");
-        let decoded_key = decode_primary_key_component_field_binary_bytes(encoded.as_slice(), kind)
-            .expect("primary-key component payload should decode");
+        let decoded_key =
+            decode_primary_key_component_field_binary_bytes(encoded.as_slice(), &kind)
+                .expect("primary-key component payload should decode");
         let decoded_value =
-            decode_primary_key_component_binary_value_bytes(encoded.as_slice(), kind)
+            decode_primary_key_component_binary_value_bytes(encoded.as_slice(), &kind)
                 .expect("primary-key component value decode should succeed")
                 .expect("supported kind should stay on the primary-key-component lane");
 
         assert!(
-            validate_primary_key_component_binary_value_bytes(encoded.as_slice(), kind)
+            validate_primary_key_component_binary_value_bytes(encoded.as_slice(), &kind)
                 .expect("primary-key component payload should validate"),
             "supported primary-key component kind should validate as component-owned"
         );
@@ -187,14 +184,14 @@ fn primary_key_component_binary_roundtrips_128_bit_relation_payloads() {
     let nat_key = u128::MAX - 123;
 
     let encoded_int = encode_primary_key_component_binary_value_bytes(
-        INT128_RELATION_KIND,
+        &INT128_RELATION_KIND,
         &Value::Int128(int_key),
         "int_relation",
     )
     .expect("int128 relation should encode")
     .expect("int128 relation kind should stay on primary-key component lane");
     let encoded_nat = encode_primary_key_component_binary_value_bytes(
-        NAT128_RELATION_KIND,
+        &NAT128_RELATION_KIND,
         &Value::Nat128(nat_key),
         "nat_relation",
     )
@@ -202,51 +199,19 @@ fn primary_key_component_binary_roundtrips_128_bit_relation_payloads() {
     .expect("nat128 relation kind should stay on primary-key component lane");
 
     assert_eq!(
-        decode_relation_target_primary_key_components_binary_bytes(
+        decode_accepted_relation_target_primary_key_components_binary_bytes(
             encoded_int.as_slice(),
-            INT128_RELATION_KIND
+            &INT128_RELATION_KIND
         )
         .expect("int128 relation target key should decode"),
         vec![PrimaryKeyComponent::Int128(int_key)],
     );
     assert_eq!(
-        decode_relation_target_primary_key_components_binary_bytes(
+        decode_accepted_relation_target_primary_key_components_binary_bytes(
             encoded_nat.as_slice(),
-            NAT128_RELATION_KIND
+            &NAT128_RELATION_KIND
         )
         .expect("nat128 relation target key should decode"),
-        vec![PrimaryKeyComponent::Nat128(nat_key)],
-    );
-
-    let accepted_int_kind = AcceptedFieldKind::Relation {
-        target_path: "RelationTargetEntity".to_string(),
-        target_entity_name: "RelationTargetEntity".to_string(),
-        target_entity_tag: EntityTag::new(7),
-        target_store_path: "RelationTargetStore".to_string(),
-        key_kind: Box::new(AcceptedFieldKind::Int128),
-    };
-    let accepted_nat_kind = AcceptedFieldKind::Relation {
-        target_path: "RelationTargetEntity".to_string(),
-        target_entity_name: "RelationTargetEntity".to_string(),
-        target_entity_tag: EntityTag::new(7),
-        target_store_path: "RelationTargetStore".to_string(),
-        key_kind: Box::new(AcceptedFieldKind::Nat128),
-    };
-
-    assert_eq!(
-        decode_accepted_relation_target_primary_key_components_binary_bytes(
-            encoded_int.as_slice(),
-            &accepted_int_kind,
-        )
-        .expect("accepted int128 relation target key should decode"),
-        vec![PrimaryKeyComponent::Int128(int_key)],
-    );
-    assert_eq!(
-        decode_accepted_relation_target_primary_key_components_binary_bytes(
-            encoded_nat.as_slice(),
-            &accepted_nat_kind,
-        )
-        .expect("accepted nat128 relation target key should decode"),
         vec![PrimaryKeyComponent::Nat128(nat_key)],
     );
 }
@@ -256,14 +221,14 @@ fn primary_key_component_binary_roundtrips_relation_payloads() {
     let left = Ulid::from_u128(100);
     let right = Ulid::from_u128(200);
     let single = encode_primary_key_component_binary_value_bytes(
-        RELATION_KIND,
+        &RELATION_KIND,
         &Value::Ulid(left),
         "relation",
     )
     .expect("single relation should encode")
     .expect("relation kind should stay on primary-key-component lane");
     let many = encode_primary_key_component_binary_value_bytes(
-        RELATION_LIST_KIND,
+        &RELATION_LIST_KIND,
         &Value::List(vec![Value::Ulid(left), Value::Null, Value::Ulid(right)]),
         "relations",
     )
@@ -271,29 +236,29 @@ fn primary_key_component_binary_roundtrips_relation_payloads() {
     .expect("relation list kind should stay on primary-key-component lane");
 
     assert_eq!(
-        decode_primary_key_component_binary_value_bytes(single.as_slice(), RELATION_KIND)
+        decode_primary_key_component_binary_value_bytes(single.as_slice(), &RELATION_KIND)
             .expect("single relation should decode")
             .expect("single relation should be primary-key-component-owned"),
         Value::Ulid(left),
     );
     assert_eq!(
-        decode_relation_target_primary_key_components_binary_bytes(
+        decode_accepted_relation_target_primary_key_components_binary_bytes(
             single.as_slice(),
-            RELATION_KIND
+            &RELATION_KIND
         )
         .expect("single relation target keys should decode"),
         vec![PrimaryKeyComponent::Ulid(left)],
     );
     assert_eq!(
-        decode_primary_key_component_binary_value_bytes(many.as_slice(), RELATION_LIST_KIND)
+        decode_primary_key_component_binary_value_bytes(many.as_slice(), &RELATION_LIST_KIND)
             .expect("many relation should decode")
             .expect("relation list should be primary-key-component-owned"),
         Value::List(vec![Value::Ulid(left), Value::Ulid(right)]),
     );
     assert_eq!(
-        decode_relation_target_primary_key_components_binary_bytes(
+        decode_accepted_relation_target_primary_key_components_binary_bytes(
             many.as_slice(),
-            RELATION_LIST_KIND
+            &RELATION_LIST_KIND
         )
         .expect("many relation target keys should decode"),
         vec![
@@ -307,10 +272,14 @@ fn primary_key_component_binary_roundtrips_relation_payloads() {
 fn primary_key_component_binary_rejects_malformed_account_payload() {
     let bytes = encode_list(&[encode_bytes(Principal::from_slice(&[1]).as_slice())]);
 
-    let decode =
-        decode_primary_key_component_field_binary_bytes(bytes.as_slice(), FieldKind::Account);
-    let validate =
-        validate_primary_key_component_binary_value_bytes(bytes.as_slice(), FieldKind::Account);
+    let decode = decode_primary_key_component_field_binary_bytes(
+        bytes.as_slice(),
+        &AcceptedFieldKind::Account,
+    );
+    let validate = validate_primary_key_component_binary_value_bytes(
+        bytes.as_slice(),
+        &AcceptedFieldKind::Account,
+    );
 
     assert!(
         decode.is_err(),
@@ -326,10 +295,14 @@ fn primary_key_component_binary_rejects_malformed_account_payload() {
 fn primary_key_component_binary_rejects_wrong_tag_for_principal_payload() {
     let bytes = encode_text("aaaaa-aa");
 
-    let decode =
-        decode_primary_key_component_field_binary_bytes(bytes.as_slice(), FieldKind::Principal);
-    let validate =
-        validate_primary_key_component_binary_value_bytes(bytes.as_slice(), FieldKind::Principal);
+    let decode = decode_primary_key_component_field_binary_bytes(
+        bytes.as_slice(),
+        &AcceptedFieldKind::Principal,
+    );
+    let validate = validate_primary_key_component_binary_value_bytes(
+        bytes.as_slice(),
+        &AcceptedFieldKind::Principal,
+    );
 
     assert!(decode.is_err(), "principal text payload must fail decode");
     assert!(
@@ -342,10 +315,14 @@ fn primary_key_component_binary_rejects_wrong_tag_for_principal_payload() {
 fn primary_key_component_binary_rejects_wrong_size_subaccount_payload() {
     let bytes = encode_bytes(&[9_u8; 31]);
 
-    let decode =
-        decode_primary_key_component_field_binary_bytes(bytes.as_slice(), FieldKind::Subaccount);
-    let validate =
-        validate_primary_key_component_binary_value_bytes(bytes.as_slice(), FieldKind::Subaccount);
+    let decode = decode_primary_key_component_field_binary_bytes(
+        bytes.as_slice(),
+        &AcceptedFieldKind::Subaccount,
+    );
+    let validate = validate_primary_key_component_binary_value_bytes(
+        bytes.as_slice(),
+        &AcceptedFieldKind::Subaccount,
+    );
 
     assert!(decode.is_err(), "short subaccount payload must fail decode");
     assert!(
@@ -362,7 +339,7 @@ fn primary_key_component_binary_rejects_invalid_timestamp_and_ulid_payload() {
     assert!(
         decode_primary_key_component_field_binary_bytes(
             bad_timestamp.as_slice(),
-            FieldKind::Timestamp
+            &AcceptedFieldKind::Timestamp
         )
         .is_err(),
         "invalid timestamp payload must fail decode"
@@ -370,19 +347,25 @@ fn primary_key_component_binary_rejects_invalid_timestamp_and_ulid_payload() {
     assert!(
         validate_primary_key_component_binary_value_bytes(
             bad_timestamp.as_slice(),
-            FieldKind::Timestamp
+            &AcceptedFieldKind::Timestamp
         )
         .is_err(),
         "invalid timestamp payload must fail validate"
     );
     assert!(
-        decode_primary_key_component_field_binary_bytes(bad_ulid.as_slice(), FieldKind::Ulid)
-            .is_err(),
+        decode_primary_key_component_field_binary_bytes(
+            bad_ulid.as_slice(),
+            &AcceptedFieldKind::Ulid
+        )
+        .is_err(),
         "invalid ulid payload must fail decode"
     );
     assert!(
-        validate_primary_key_component_binary_value_bytes(bad_ulid.as_slice(), FieldKind::Ulid)
-            .is_err(),
+        validate_primary_key_component_binary_value_bytes(
+            bad_ulid.as_slice(),
+            &AcceptedFieldKind::Ulid
+        )
+        .is_err(),
         "invalid ulid payload must fail validate"
     );
 }
@@ -390,9 +373,12 @@ fn primary_key_component_binary_rejects_invalid_timestamp_and_ulid_payload() {
 #[test]
 fn primary_key_component_binary_rejects_non_unit_unit_payload() {
     let bytes = encode_text("unit");
-    let decode = decode_primary_key_component_field_binary_bytes(bytes.as_slice(), FieldKind::Unit);
-    let validate =
-        validate_primary_key_component_binary_value_bytes(bytes.as_slice(), FieldKind::Unit);
+    let decode =
+        decode_primary_key_component_field_binary_bytes(bytes.as_slice(), &AcceptedFieldKind::Unit);
+    let validate = validate_primary_key_component_binary_value_bytes(
+        bytes.as_slice(),
+        &AcceptedFieldKind::Unit,
+    );
 
     assert!(decode.is_err(), "text unit payload must fail decode");
     assert!(validate.is_err(), "text unit payload must fail validate");
@@ -402,20 +388,24 @@ fn primary_key_component_binary_rejects_non_unit_unit_payload() {
 fn primary_key_component_relation_decode_preserves_scalar_null_semantics() {
     let target = Ulid::from_u128(7);
     let target_bytes =
-        encode_primary_key_component_binary_value_bytes(RELATION_KIND, &Value::Ulid(target), "id")
+        encode_primary_key_component_binary_value_bytes(&RELATION_KIND, &Value::Ulid(target), "id")
             .expect("relation primary-key component bytes should encode")
             .expect("relation kind should use primary-key component binary lane");
     let null_bytes =
-        encode_primary_key_component_binary_value_bytes(RELATION_KIND, &Value::Null, "id")
+        encode_primary_key_component_binary_value_bytes(&RELATION_KIND, &Value::Null, "id")
             .expect("null relation bytes should encode")
             .expect("relation kind should use primary-key component binary lane");
 
-    let decoded =
-        decode_relation_target_primary_key_components_binary_bytes(&target_bytes, RELATION_KIND)
-            .expect("single relation should decode");
-    let decoded_null =
-        decode_relation_target_primary_key_components_binary_bytes(&null_bytes, RELATION_KIND)
-            .expect("null relation should decode");
+    let decoded = decode_accepted_relation_target_primary_key_components_binary_bytes(
+        &target_bytes,
+        &RELATION_KIND,
+    )
+    .expect("single relation should decode");
+    let decoded_null = decode_accepted_relation_target_primary_key_components_binary_bytes(
+        &null_bytes,
+        &RELATION_KIND,
+    )
+    .expect("null relation should decode");
 
     assert_eq!(decoded, vec![PrimaryKeyComponent::Ulid(target)]);
     assert!(
@@ -429,16 +419,18 @@ fn primary_key_component_relation_list_decode_skips_null_items() {
     let left = Ulid::from_u128(8);
     let right = Ulid::from_u128(9);
     let bytes = encode_primary_key_component_binary_value_bytes(
-        RELATION_LIST_KIND,
+        &RELATION_LIST_KIND,
         &Value::List(vec![Value::Ulid(left), Value::Null, Value::Ulid(right)]),
         "ids",
     )
     .expect("relation list bytes should encode")
     .expect("relation list should use primary-key component binary lane");
 
-    let decoded =
-        decode_relation_target_primary_key_components_binary_bytes(&bytes, RELATION_LIST_KIND)
-            .expect("relation list should decode");
+    let decoded = decode_accepted_relation_target_primary_key_components_binary_bytes(
+        &bytes,
+        &RELATION_LIST_KIND,
+    )
+    .expect("relation list should decode");
 
     assert_eq!(
         decoded,
@@ -452,19 +444,25 @@ fn primary_key_component_relation_list_decode_skips_null_items() {
 #[test]
 fn primary_key_component_scalar_decoders_accept_supported_binary_shapes() {
     assert_eq!(
-        decode_primary_key_component_field_binary_bytes(&encode_int64(-5), FieldKind::Int64)
-            .expect("int payload should decode"),
+        decode_primary_key_component_field_binary_bytes(
+            &encode_int64(-5),
+            &AcceptedFieldKind::Int64
+        )
+        .expect("int payload should decode"),
         PrimaryKeyComponent::Int64(-5),
     );
     assert_eq!(
-        decode_primary_key_component_field_binary_bytes(&encode_nat64(7), FieldKind::Nat64)
-            .expect("nat payload should decode"),
+        decode_primary_key_component_field_binary_bytes(
+            &encode_nat64(7),
+            &AcceptedFieldKind::Nat64
+        )
+        .expect("nat payload should decode"),
         PrimaryKeyComponent::Nat64(7),
     );
     assert_eq!(
         decode_primary_key_component_field_binary_bytes(
             &encode_bytes(Principal::from_slice(&[11]).as_slice()),
-            FieldKind::Principal,
+            &AcceptedFieldKind::Principal,
         )
         .expect("principal payload should decode"),
         PrimaryKeyComponent::Principal(Principal::from_slice(&[11])),
@@ -472,7 +470,7 @@ fn primary_key_component_scalar_decoders_accept_supported_binary_shapes() {
     assert_eq!(
         decode_primary_key_component_field_binary_bytes(
             &encode_bytes(&Subaccount::from_array([4_u8; 32]).to_array()),
-            FieldKind::Subaccount,
+            &AcceptedFieldKind::Subaccount,
         )
         .expect("subaccount payload should decode"),
         PrimaryKeyComponent::Subaccount(Subaccount::from_array([4_u8; 32])),
@@ -480,7 +478,7 @@ fn primary_key_component_scalar_decoders_accept_supported_binary_shapes() {
     assert_eq!(
         decode_primary_key_component_field_binary_bytes(
             &encode_int64(1_710_013_530_123),
-            FieldKind::Timestamp,
+            &AcceptedFieldKind::Timestamp,
         )
         .expect("timestamp payload should decode"),
         PrimaryKeyComponent::Timestamp(Timestamp::from_millis(1_710_013_530_123)),
@@ -488,13 +486,13 @@ fn primary_key_component_scalar_decoders_accept_supported_binary_shapes() {
     assert_eq!(
         decode_primary_key_component_field_binary_bytes(
             &encode_bytes(Ulid::from_u128(77).to_bytes().as_slice()),
-            FieldKind::Ulid,
+            &AcceptedFieldKind::Ulid,
         )
         .expect("ulid payload should decode"),
         PrimaryKeyComponent::Ulid(Ulid::from_u128(77)),
     );
     assert_eq!(
-        decode_primary_key_component_field_binary_bytes(&encode_unit(), FieldKind::Unit)
+        decode_primary_key_component_field_binary_bytes(&encode_unit(), &AcceptedFieldKind::Unit)
             .expect("unit payload should decode"),
         PrimaryKeyComponent::Unit,
     );
@@ -506,14 +504,16 @@ fn primary_key_component_relation_encode_binary_bytes_preserves_list_shape() {
     let right = PrimaryKeyComponent::Ulid(Ulid::from_u128(2));
     let encoded = encode_relation_target_primary_key_components_binary_bytes(
         &[left, right],
-        RELATION_LIST_KIND,
+        &RELATION_LIST_KIND,
         "relations",
     )
     .expect("relation list keys should encode");
 
-    let decoded =
-        decode_relation_target_primary_key_components_binary_bytes(&encoded, RELATION_LIST_KIND)
-            .expect("relation list keys should decode");
+    let decoded = decode_accepted_relation_target_primary_key_components_binary_bytes(
+        &encoded,
+        &RELATION_LIST_KIND,
+    )
+    .expect("relation list keys should decode");
 
     assert_eq!(decoded, vec![left, right]);
 }
@@ -521,31 +521,31 @@ fn primary_key_component_relation_encode_binary_bytes_preserves_list_shape() {
 #[test]
 fn primary_key_component_scalar_encode_roundtrips_supported_kinds() {
     let cases = vec![
-        (FieldKind::Int64, PrimaryKeyComponent::Int64(-9)),
-        (FieldKind::Nat64, PrimaryKeyComponent::Nat64(42)),
+        (AcceptedFieldKind::Int64, PrimaryKeyComponent::Int64(-9)),
+        (AcceptedFieldKind::Nat64, PrimaryKeyComponent::Nat64(42)),
         (
-            FieldKind::Principal,
+            AcceptedFieldKind::Principal,
             PrimaryKeyComponent::Principal(Principal::from_slice(&[5])),
         ),
         (
-            FieldKind::Subaccount,
+            AcceptedFieldKind::Subaccount,
             PrimaryKeyComponent::Subaccount(Subaccount::from_array([8_u8; 32])),
         ),
         (
-            FieldKind::Timestamp,
+            AcceptedFieldKind::Timestamp,
             PrimaryKeyComponent::Timestamp(Timestamp::from_millis(1_710_013_530_123)),
         ),
         (
-            FieldKind::Ulid,
+            AcceptedFieldKind::Ulid,
             PrimaryKeyComponent::Ulid(Ulid::from_u128(77)),
         ),
-        (FieldKind::Unit, PrimaryKeyComponent::Unit),
+        (AcceptedFieldKind::Unit, PrimaryKeyComponent::Unit),
     ];
 
     for (kind, key) in cases {
-        let encoded = encode_primary_key_component_field_binary_bytes(key, kind, "field")
+        let encoded = encode_primary_key_component_field_binary_bytes(key, &kind, "field")
             .expect("scalar key should encode");
-        let decoded = decode_primary_key_component_field_binary_bytes(&encoded, kind)
+        let decoded = decode_primary_key_component_field_binary_bytes(&encoded, &kind)
             .expect("scalar key should decode");
 
         assert_eq!(decoded, key, "decoded key mismatch for {kind:?}");

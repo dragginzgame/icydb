@@ -176,11 +176,10 @@ impl AcceptedSchemaCatalogContext {
                     self.inspection_plan.value_catalog().clone(),
                     true,
                 );
-                debug_assert!(
-                    schema_info
-                        .enum_catalog()
-                        .is_some_and(|catalog| std::ptr::eq(catalog, self.enum_catalog()))
-                );
+                debug_assert!(std::ptr::eq(
+                    schema_info.enum_catalog(),
+                    self.enum_catalog()
+                ));
                 schema_info
             })
             .clone()

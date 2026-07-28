@@ -6,11 +6,11 @@
 //! Boundary: converts accepted/generated schema authority into stable
 //! introspection DTOs at the session facade.
 
-#[cfg(any(test, feature = "sql", feature = "sql-explain"))]
+#[cfg(feature = "sql")]
 use crate::db::schema::SchemaInfo;
 #[cfg(feature = "sql")]
 use crate::db::schema::show_indexes_for_schema_info_with_runtime_state;
-#[cfg(any(test, feature = "sql-explain"))]
+#[cfg(feature = "sql-explain")]
 use crate::db::{IndexState, QueryError, query::plan::VisibleIndexes};
 use crate::{
     db::{
@@ -108,18 +108,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Return one stable list of runtime-registered entity catalog entries.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the runtime session cannot read its registered entity catalog.
-    /// Use `try_show_entities` when the caller can report the internal error.
-    #[must_use]
-    pub fn show_entities(&self) -> Vec<crate::db::EntityCatalogDescription> {
-        self.try_show_entities().expect("session invariant")
-    }
-
-    /// Return one stable list of runtime-registered entity catalog entries.
-    pub fn try_show_entities(&self) -> Result<Vec<EntityCatalogDescription>, InternalError> {
+    pub fn show_entities(&self) -> Result<Vec<EntityCatalogDescription>, InternalError> {
         let mut entities = Vec::with_capacity(self.db.entity_registrations.len());
 
         for entity_registration in self.db.entity_registrations {
@@ -165,7 +154,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Resolve the exact secondary-index set that is visible to planner-owned
     // query planning for one recovered store and accepted schema pair.
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db::session) fn visible_indexes_for_store_accepted_schema(
         &self,
         store_path: &str,

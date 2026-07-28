@@ -7,6 +7,7 @@ use super::{
     validate_scalar_relation_target_primary_key_kind,
 };
 use crate::db::relation::AcceptedRelationCardinality;
+use crate::db::schema::{FieldStorageDecode, LeafCodec, ScalarCodec};
 use crate::db::{
     Db,
     data::StructuralRowContract,
@@ -21,10 +22,9 @@ use crate::db::{
         AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, FieldId,
         PersistedFieldSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId,
         SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
-        enum_catalog::build_initial_accepted_enum_catalog,
+        empty_accepted_enum_catalog_for_tests,
     },
 };
-use crate::model::field::{FieldStorageDecode, LeafCodec, ScalarCodec};
 use crate::traits::{CanisterKind, Path};
 use crate::types::EntityTag;
 
@@ -70,7 +70,8 @@ fn relation(field_index: usize, key_kind: AcceptedFieldKind) -> AcceptedRelation
         local_components: AcceptedRelationLocalComponents::scalar(
             field_index,
             test_field_contract("target_id", &field_kind, LeafCodec::Structural),
-        ),
+        )
+        .expect("test scalar relation component should build"),
         target: AcceptedRelationTargetIdentity::try_new(
             "Source",
             "target_id",
@@ -213,8 +214,7 @@ fn accepted_relations_require_registered_target_authority() {
     let accepted = AcceptedSchemaSnapshot::new(snapshot);
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted relation runtime contract should build");
-    let catalog =
-        build_initial_accepted_enum_catalog(&[]).expect("empty accepted enum catalog should build");
+    let catalog = empty_accepted_enum_catalog_for_tests();
     let catalog = AcceptedValueCatalogHandle::new_for_tests(
         catalog,
         crate::db::schema::AcceptedCompositeCatalog::empty(),
@@ -288,7 +288,8 @@ fn relation_validation_rejects_local_target_component_arity_mismatch() {
         local_components: AcceptedRelationLocalComponents::scalar(
             3,
             test_field_contract("target_id", &field_kind, LeafCodec::Structural),
-        ),
+        )
+        .expect("test scalar relation component should build"),
         target: AcceptedRelationTargetIdentity::try_new(
             "Source",
             "target_id",

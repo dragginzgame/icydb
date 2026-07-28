@@ -329,8 +329,6 @@ pub(in crate::db) enum SqlDdlBindError {
         constraint_name: String,
     },
 
-    AcceptedValueCatalogRequired,
-
     InvalidCheckExpression(AcceptedCheckExprV1Error),
 }
 

@@ -35,10 +35,6 @@ fn record_physical_access_local_instructions(delta: u64) {
 /// Run one query/session phase while collecting nested physical store/index
 /// access instructions separately from the surrounding phase total.
 ///
-/// # Panics
-///
-/// Panics if physical-access attribution stack state is corrupted while the
-/// scoped measurement is active.
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) fn with_physical_access_attribution<T>(run: impl FnOnce() -> T) -> (u64, T) {
     PHYSICAL_ACCESS_ATTRIBUTION_STACK.with(|stack| {
@@ -46,12 +42,8 @@ pub(in crate::db) fn with_physical_access_attribution<T>(run: impl FnOnce() -> T
     });
 
     let result = run();
-    let total = PHYSICAL_ACCESS_ATTRIBUTION_STACK.with(|stack| {
-        stack
-            .borrow_mut()
-            .pop()
-            .unwrap_or_else(|| unreachable!("physical access invariant"))
-    });
+    let total = PHYSICAL_ACCESS_ATTRIBUTION_STACK
+        .with(|stack| stack.borrow_mut().pop().unwrap_or_default());
 
     PHYSICAL_ACCESS_ATTRIBUTION_STACK.with(|stack| {
         let mut stack = stack.borrow_mut();

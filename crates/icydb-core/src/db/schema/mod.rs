@@ -36,6 +36,7 @@ mod snapshot;
 mod source_binding;
 #[cfg(feature = "sql")]
 mod sql_ddl;
+mod storage;
 mod store;
 #[cfg(any(test, feature = "sql"))]
 mod transition;
@@ -82,8 +83,6 @@ pub(in crate::db) use application_store::{
     preflight_schema_application_record_op, verify_schema_application_record_op,
     with_schema_application_store,
 };
-#[cfg(feature = "sql")]
-pub(in crate::db) use capabilities::sql_capabilities;
 #[cfg(feature = "sql")]
 pub(in crate::db) use capabilities::{SqlCapabilities, sql_capabilities_with_enum_catalog};
 pub(in crate::db) use check::{
@@ -146,13 +145,15 @@ pub(in crate::db) use enum_catalog::{
 };
 #[cfg(test)]
 pub(in crate::db) use enum_catalog::{
-    build_initial_accepted_enum_catalog_from_kinds_for_tests,
-    empty_accepted_schema_candidate_for_tests,
+    TestEnumDefinition, TestEnumVariant, build_accepted_enum_catalog_for_tests,
+    empty_accepted_enum_catalog_for_tests, empty_accepted_schema_candidate_for_tests,
 };
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use field_kind_semantics::AcceptedFieldKindSemantics;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use field_kind_semantics::AcceptedScalarClass;
 pub(in crate::db) use field_kind_semantics::{
-    AcceptedFieldKindCategory, AcceptedScalarClass, classify_accepted_field_kind,
+    AcceptedFieldKindCategory, classify_accepted_field_kind,
 };
 pub(in crate::db) use fingerprint::{
     accepted_commit_schema_fingerprint, accepted_schema_cache_fingerprint,
@@ -266,6 +267,10 @@ pub(in crate::db) use sql_ddl::{
     execute_admin_sql_ddl_unique_index_activation,
     execute_admin_sql_ddl_unique_index_activation_abort,
 };
+pub(in crate::db) use storage::{
+    CompositeCodec, FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec,
+    ScalarCodec,
+};
 pub use store::SchemaStore;
 pub(in crate::db) use store::{
     AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, SchemaStoreAllocationMetadata,
@@ -297,13 +302,12 @@ pub(in crate::db::schema) use transition::{
     SchemaTransitionDecision, SchemaTransitionPlanKind, decide_schema_transition,
 };
 pub(crate) use types::FieldType;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use types::canonicalize_filter_literal_for_persisted_kind;
+#[cfg(feature = "sql")]
+pub(in crate::db) use types::canonicalize_strict_sql_literal_for_persisted_kind;
 pub(in crate::db) use types::field_type_from_persisted_kind;
 #[cfg(feature = "sql")]
 pub(in crate::db) use types::input_value_from_strict_sql_literal_for_persisted_kind;
 #[cfg(any(test, feature = "sql"))]
 pub(crate) use types::{ScalarType, literal_matches_type};
-#[cfg(feature = "sql")]
-pub(in crate::db) use types::{
-    canonicalize_filter_literal_for_persisted_kind,
-    canonicalize_strict_sql_literal_for_persisted_kind,
-};

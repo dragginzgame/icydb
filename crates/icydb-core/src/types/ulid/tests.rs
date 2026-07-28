@@ -25,7 +25,7 @@ fn increment_preserves_none_on_randomness_overflow() {
 
 #[test]
 fn test_ulid_string_roundtrip() {
-    let u1 = Ulid::generate();
+    let u1 = Ulid::generate().expect("seeded ULID generation should succeed");
     let u2 = u1.to_string().parse::<Ulid>().unwrap();
 
     assert_eq!(u1, u2);
@@ -42,7 +42,7 @@ fn invalid_ulid_string_returns_parse_error() {
 
 #[test]
 fn ulid_bytes_roundtrip() {
-    let ulid = Ulid::generate();
+    let ulid = Ulid::generate().expect("seeded ULID generation should succeed");
     let bytes = ulid.to_bytes();
     let decoded = Ulid::from_bytes(bytes);
     assert_eq!(ulid, decoded);

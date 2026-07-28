@@ -460,13 +460,11 @@ fn set_commit_marker_presence_hint(may_be_present: bool) {
     });
 }
 
-/// Access the commit store without fallible initialization.
-///
-/// Invariant: caller must ensure `with_commit_store(...)` was called first
-/// on the current thread.
-pub(super) fn with_commit_store_infallible<R>(f: impl FnOnce(&CommitStore) -> R) -> R {
-    let allocation =
-        current_commit_memory_allocation().expect("commit memory allocation not configured");
+/// Access an already initialized commit store without reopening stable memory.
+pub(super) fn with_initialized_commit_store<R>(
+    f: impl FnOnce(&CommitStore) -> R,
+) -> Result<R, InternalError> {
+    let allocation = current_commit_memory_allocation()?;
 
     COMMIT_STORES.with(|cell| {
         let stores = cell.borrow();
@@ -474,7 +472,7 @@ pub(super) fn with_commit_store_infallible<R>(f: impl FnOnce(&CommitStore) -> R)
             .iter()
             .find(|entry| entry.allocation == allocation)
             .map(|entry| &entry.store)
-            .expect("commit store not initialized");
-        f(store)
+            .ok_or_else(InternalError::commit_store_uninitialized)?;
+        Ok(f(store))
     })
 }

@@ -88,7 +88,8 @@ pub(in crate::db::schema) fn derive_dense_field_removal_candidate(
             Ok((
                 field.id(),
                 FieldId::new(ordinal),
-                SchemaFieldSlot::from_generated_index(index),
+                SchemaFieldSlot::from_generated_index(index)
+                    .ok_or(DenseFieldRemovalError::Unsupported)?,
             ))
         })
         .collect::<Result<Vec<_>, _>>()?;

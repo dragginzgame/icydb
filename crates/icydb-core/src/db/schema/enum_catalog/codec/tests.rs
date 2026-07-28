@@ -1,27 +1,28 @@
 use super::*;
 use crate::{
-    db::schema::enum_catalog::build_initial_accepted_enum_catalog_from_kinds,
+    db::schema::{
+        AcceptedFieldKind, FieldStorageDecode, TestEnumDefinition, TestEnumVariant,
+        build_accepted_enum_catalog_for_tests, empty_accepted_enum_catalog_for_tests,
+    },
     error::{ErrorClass, ErrorOrigin},
-    model::field::{EnumVariantModel, FieldKind},
 };
 
-static PAYLOAD_KIND: FieldKind = FieldKind::Nat64;
-static ALPHA_VARIANTS: [EnumVariantModel; 2] = [
-    EnumVariantModel::new("Zulu", None, FieldStorageDecode::ByKind),
-    EnumVariantModel::new("Alpha", Some(&PAYLOAD_KIND), FieldStorageDecode::ByKind),
-];
-static ALPHA_KIND: FieldKind = FieldKind::Enum {
-    path: "codec::Alpha",
-    variants: &ALPHA_VARIANTS,
-};
-static ALPHA_REORDERED_VARIANTS: [EnumVariantModel; 2] = [
-    EnumVariantModel::new("Alpha", Some(&PAYLOAD_KIND), FieldStorageDecode::ByKind),
-    EnumVariantModel::new("Zulu", None, FieldStorageDecode::ByKind),
-];
-static ALPHA_REORDERED_KIND: FieldKind = FieldKind::Enum {
-    path: "codec::Alpha",
-    variants: &ALPHA_REORDERED_VARIANTS,
-};
+fn alpha_definition(reordered: bool) -> TestEnumDefinition {
+    let alpha = TestEnumVariant::payload(
+        "Alpha",
+        AcceptedFieldKind::Nat64,
+        FieldStorageDecode::ByKind,
+    );
+    let zulu = TestEnumVariant::unit("Zulu");
+    TestEnumDefinition::new(
+        "codec::Alpha",
+        if reordered {
+            vec![alpha, zulu]
+        } else {
+            vec![zulu, alpha]
+        },
+    )
+}
 struct TestType<'a> {
     id: u32,
     path: &'a str,
@@ -119,8 +120,7 @@ fn encode_test_kind(writer: &mut CatalogWriter, kind: &TestKind) {
 
 #[test]
 fn accepted_enum_catalog_empty_wire_vector_is_frozen() {
-    let catalog =
-        build_initial_accepted_enum_catalog_from_kinds(&[]).expect("empty catalog should build");
+    let catalog = empty_accepted_enum_catalog_for_tests();
 
     assert_eq!(
         encode_accepted_enum_catalog(&catalog).expect("empty catalog should encode"),
@@ -132,7 +132,7 @@ fn accepted_enum_catalog_empty_wire_vector_is_frozen() {
 
 #[test]
 fn accepted_enum_catalog_codec_round_trips_canonical_catalog() {
-    let catalog = build_initial_accepted_enum_catalog_from_kinds(&[ALPHA_KIND])
+    let catalog = build_accepted_enum_catalog_for_tests(&[alpha_definition(false)])
         .expect("catalog should build");
     let encoded = encode_accepted_enum_catalog(&catalog).expect("catalog should encode");
     let decoded = decode_accepted_enum_catalog(&encoded).expect("catalog should decode");
@@ -142,10 +142,10 @@ fn accepted_enum_catalog_codec_round_trips_canonical_catalog() {
 
 #[test]
 fn accepted_enum_catalog_encoding_erases_proposal_and_declaration_order() {
-    let first = build_initial_accepted_enum_catalog_from_kinds(&[ALPHA_KIND])
+    let first = build_accepted_enum_catalog_for_tests(&[alpha_definition(false)])
         .expect("first catalog should build");
     let second =
-        build_initial_accepted_enum_catalog_from_kinds(&[ALPHA_REORDERED_KIND, ALPHA_KIND])
+        build_accepted_enum_catalog_for_tests(&[alpha_definition(true), alpha_definition(false)])
             .expect("reordered catalog should build");
 
     assert_eq!(
@@ -156,8 +156,7 @@ fn accepted_enum_catalog_encoding_erases_proposal_and_declaration_order() {
 
 #[test]
 fn accepted_enum_catalog_codec_round_trips_empty_catalog() {
-    let catalog =
-        build_initial_accepted_enum_catalog_from_kinds(&[]).expect("empty catalog should build");
+    let catalog = empty_accepted_enum_catalog_for_tests();
     let encoded = encode_accepted_enum_catalog(&catalog).expect("empty catalog should encode");
 
     assert_eq!(

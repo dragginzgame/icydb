@@ -2,9 +2,8 @@
 
 pub use icydb_schema::{Decimal, DecimalParts, ParseDecimalError, ParseDecimalErrorReason};
 
-use crate::{
-    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
+use crate::value::{
+    RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value,
 };
 
 impl RuntimeValueMeta for Decimal {
@@ -27,13 +26,3 @@ impl RuntimeValueDecode for Decimal {
         }
     }
 }
-
-impl NormalizeAuto for Decimal {}
-
-impl NormalizeCustom for Decimal {}
-
-impl ValidateAuto for Decimal {}
-
-impl ValidateCustom for Decimal {}
-
-impl Visitable for Decimal {}

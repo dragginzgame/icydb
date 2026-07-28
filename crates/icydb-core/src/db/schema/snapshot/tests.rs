@@ -1,5 +1,5 @@
 use super::*;
-use crate::model::field::ScalarCodec;
+use crate::db::schema::ScalarCodec;
 
 // Build a small accepted schema snapshot with deliberately non-generated
 // slot values so accessor tests prove they read persisted schema facts.

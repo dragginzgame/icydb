@@ -85,8 +85,16 @@ impl NumericProjectionExpr {
         literal: impl Into<Value> + NumericValue,
     ) -> Self {
         let literal = literal.into();
+        let field = field.into();
 
-        Self::arithmetic_value(field, op, literal).expect("numeric projection invariant")
+        Self {
+            expr: Expr::Binary {
+                op,
+                left: Box::new(Expr::Field(FieldId::new(field.clone()))),
+                right: Box::new(Expr::Literal(literal)),
+            },
+            field,
+        }
     }
 
     // Build one field-plus-literal numeric projection.
@@ -169,15 +177,8 @@ impl NumericProjectionExpr {
 
     // Build one rounded projection over either a plain field or one existing
     // bounded numeric expression rooted in the same source field.
-    pub(in crate::db) fn round_with_scale(
-        &self,
-        scale: u32,
-    ) -> Result<RoundProjectionExpr, QueryError> {
-        RoundProjectionExpr::new(
-            self.field.clone(),
-            self.expr.clone(),
-            Value::Nat64(u64::from(scale)),
-        )
+    pub(in crate::db) fn round_with_scale(&self, scale: u32) -> RoundProjectionExpr {
+        RoundProjectionExpr::with_valid_scale(self.field.clone(), self.expr.clone(), scale)
     }
 }
 
@@ -219,6 +220,7 @@ pub struct RoundProjectionExpr {
 impl RoundProjectionExpr {
     // Build one bounded `ROUND(expr, scale)` projection after validating that
     // `scale` stays on the admitted non-negative integer seam.
+    #[cfg(test)]
     pub(in crate::db) fn new(
         field: impl Into<String>,
         inner: Expr,
@@ -247,15 +249,22 @@ impl RoundProjectionExpr {
         })
     }
 
-    // Build one rounded field projection.
-    pub(in crate::db) fn field(field: impl Into<String>, scale: u32) -> Result<Self, QueryError> {
+    // Build one rounded field projection from the intrinsically valid `u32`
+    // public scale domain.
+    pub(in crate::db) fn field(field: impl Into<String>, scale: u32) -> Self {
         let field = field.into();
 
-        Self::new(
-            field.clone(),
-            Expr::Field(FieldId::new(field)),
-            Value::Nat64(u64::from(scale)),
-        )
+        Self::with_valid_scale(field.clone(), Expr::Field(FieldId::new(field)), scale)
+    }
+
+    fn with_valid_scale(field: String, inner: Expr, scale: u32) -> Self {
+        Self {
+            field,
+            expr: Expr::FunctionCall {
+                function: Function::Round,
+                args: vec![inner, Expr::Literal(Value::Nat64(u64::from(scale)))],
+            },
+        }
     }
 
     /// Borrow the canonical planner expression carried by this helper.
@@ -323,24 +332,15 @@ pub fn div(
 
 /// Build `ROUND(field, scale)`.
 ///
-/// # Panics
-///
-/// Panics when `scale` exceeds the supported numeric projection scale.
 pub fn round(field: impl AsRef<str>, scale: u32) -> RoundProjectionExpr {
     RoundProjectionExpr::field(field.as_ref().to_string(), scale)
-        .expect("numeric projection invariant")
 }
 
 /// Build `ROUND(expr, scale)` for one existing bounded numeric projection.
 ///
-/// # Panics
-///
-/// Panics when `scale` exceeds the supported numeric projection scale.
 #[must_use]
 pub fn round_expr(projection: &NumericProjectionExpr, scale: u32) -> RoundProjectionExpr {
-    projection
-        .round_with_scale(scale)
-        .expect("numeric projection invariant")
+    projection.round_with_scale(scale)
 }
 
 #[cfg(test)]

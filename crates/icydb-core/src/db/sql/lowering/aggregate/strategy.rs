@@ -131,7 +131,7 @@ impl PreparedSqlScalarAggregateStrategy {
     }
 
     /// Borrow the resolved target slot when this prepared SQL scalar strategy is field-targeted.
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     #[must_use]
     pub(crate) const fn target_slot(&self) -> Option<&FieldSlot> {
         self.semantics.target_slot()
@@ -151,7 +151,7 @@ impl PreparedSqlScalarAggregateStrategy {
     }
 
     /// Return the canonical aggregate kind for this prepared SQL scalar strategy.
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     #[must_use]
     pub(crate) const fn aggregate_kind(&self) -> AggregateKind {
         self.semantics.aggregate_kind()

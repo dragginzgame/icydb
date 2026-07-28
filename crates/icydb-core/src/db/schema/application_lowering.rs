@@ -21,6 +21,7 @@ use crate::{
             AcceptedSchemaFingerprint, AcceptedSchemaRevision, AcceptedSchemaRevisionBundle,
             AcceptedSourceBindingCatalog, AcceptedStoreCatalogScope, AcceptedValueCatalogHandle,
             CandidateSchemaRevision, ConstraintId, ConstraintOrigin, FieldId,
+            FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec,
             MAX_ACCEPTED_RECURSIVE_DEPTH, PersistedFieldOrigin, PersistedFieldSnapshot,
             PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
@@ -39,7 +40,6 @@ use crate::{
         },
     },
     error::InternalError,
-    model::field::{FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec},
     types::EntityTag,
     value::{EnumTypeId, EnumVariantId},
 };

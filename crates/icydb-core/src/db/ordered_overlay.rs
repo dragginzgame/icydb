@@ -75,9 +75,9 @@ where
 
         match step {
             MergeStep::Canonical => {
-                let entry = canonical_iter
-                    .next()
-                    .expect("peeked canonical overlay entry should exist");
+                let Some(entry) = canonical_iter.next() else {
+                    return Ok(());
+                };
                 if canonical_is_visible(&entry)
                     && visit(OrderedOverlayEntry::Canonical(entry))?.should_stop()
                 {
@@ -85,21 +85,20 @@ where
                 }
             }
             MergeStep::Live => {
-                let entry = live_iter
-                    .next()
-                    .expect("peeked live overlay entry should exist");
+                let Some(entry) = live_iter.next() else {
+                    return Ok(());
+                };
                 if live_is_visible(&entry) && visit(OrderedOverlayEntry::Live(entry))?.should_stop()
                 {
                     return Ok(());
                 }
             }
             MergeStep::Both => {
-                let _canonical_entry = canonical_iter
-                    .next()
-                    .expect("peeked canonical overlay entry should exist");
-                let live_entry = live_iter
-                    .next()
-                    .expect("peeked live overlay entry should exist");
+                let (Some(_canonical_entry), Some(live_entry)) =
+                    (canonical_iter.next(), live_iter.next())
+                else {
+                    return Ok(());
+                };
                 if live_is_visible(&live_entry)
                     && visit(OrderedOverlayEntry::Live(live_entry))?.should_stop()
                 {

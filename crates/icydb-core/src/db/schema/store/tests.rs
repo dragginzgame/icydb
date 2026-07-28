@@ -6,6 +6,7 @@ use super::{
     reset_accepted_schema_bundle_cache_miss_count_for_tests,
 };
 use crate::{
+    db::schema::{FieldStorageDecode, LeafCodec, ScalarCodec},
     db::{
         codec::{finalize_hash_sha256, new_hash_sha256},
         direction::Direction,
@@ -23,7 +24,6 @@ use crate::{
             enum_catalog::{AcceptedSchemaFingerprint, AcceptedSchemaRevisionBundle},
         },
     },
-    model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
     testing::test_memory,
     types::EntityTag,
 };

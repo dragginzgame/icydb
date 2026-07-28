@@ -114,7 +114,8 @@ fn validate_sql_ddl_field_drop_metadata_change(
             Ok::<_, InternalError>((
                 field.id(),
                 id,
-                crate::db::schema::SchemaFieldSlot::from_generated_index(offset),
+                crate::db::schema::SchemaFieldSlot::from_generated_index(offset)
+                    .ok_or_else(InternalError::store_unsupported)?,
             ))
         })
         .collect::<Result<Vec<_>, _>>()?;

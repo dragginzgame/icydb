@@ -251,7 +251,7 @@ impl<K> AccessPlan<K> {
             return Self::full_scan();
         }
         if children.len() == 1 {
-            return children.pop().expect("single composite child");
+            return children.pop().unwrap_or_else(Self::full_scan);
         }
 
         if is_union {

@@ -94,8 +94,8 @@ impl GroupedAdmissionPolicy {
 enum LimitRequirement {
     Required,
     #[cfg_attr(
-        not(any(test, feature = "sql-explain")),
-        expect(dead_code, reason = "optional limits are owned by SQL EXPLAIN")
+        not(feature = "sql-explain"),
+        allow(dead_code, reason = "optional limits are owned by SQL EXPLAIN")
     )]
     Optional,
 }
@@ -104,8 +104,8 @@ enum LimitRequirement {
 enum IndexRequirement {
     Required,
     #[cfg_attr(
-        not(any(test, feature = "sql-explain")),
-        expect(dead_code, reason = "optional index policy is owned by SQL EXPLAIN")
+        not(feature = "sql-explain"),
+        allow(dead_code, reason = "optional index policy is owned by SQL EXPLAIN")
     )]
     Optional,
 }
@@ -113,8 +113,8 @@ enum IndexRequirement {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum FullScanPolicy {
     #[cfg_attr(
-        not(any(test, feature = "sql-explain")),
-        expect(dead_code, reason = "full-scan admission is owned by SQL EXPLAIN")
+        not(feature = "sql-explain"),
+        allow(dead_code, reason = "full-scan admission is owned by SQL EXPLAIN")
     )]
     Allow,
     Reject,
@@ -123,8 +123,8 @@ enum FullScanPolicy {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum MaterializedSortPolicy {
     #[cfg_attr(
-        not(any(test, feature = "sql-explain")),
-        expect(
+        not(feature = "sql-explain"),
+        allow(
             dead_code,
             reason = "materialized-sort admission is owned by SQL EXPLAIN"
         )
@@ -194,7 +194,7 @@ impl QueryAdmissionPolicy {
 
     /// Build an EXPLAIN-only policy that cannot execute rows.
     #[must_use]
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db) const fn diagnostic_explain() -> Self {
         Self {
             lane: QueryAdmissionLane::DiagnosticExplain,

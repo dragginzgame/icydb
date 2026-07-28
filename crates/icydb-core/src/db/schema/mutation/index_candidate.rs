@@ -236,11 +236,14 @@ fn sql_ddl_secondary_index_key_snapshot(
     {
         return key_items
             .iter()
-            .map(|key_item| {
+            .filter_map(|key_item| {
                 let SchemaDdlSecondaryIndexKeyIntent::FieldPath(field_path) = key_item else {
-                    unreachable!("schema mutation invariant");
+                    return None;
                 };
-                sql_ddl_index_field_path_snapshot(accepted_before, field_path)
+                Some(sql_ddl_index_field_path_snapshot(
+                    accepted_before,
+                    field_path,
+                ))
             })
             .collect::<Result<Vec<_>, _>>()
             .map(PersistedIndexKeySnapshot::FieldPath);

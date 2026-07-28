@@ -8,13 +8,13 @@ use super::{
     AcceptedFieldKind, AcceptedValueContract, EnumOrderingPolicy, EnumTypeId, EnumVariantId,
 };
 use crate::{
+    db::schema::FieldStorageDecode,
     db::schema::{
         MAX_ACCEPTED_RECURSIVE_DEPTH,
         composite_catalog::CompositeTypeId,
         wire::{SchemaWireReader, SchemaWireWriter},
     },
     error::InternalError,
-    model::field::FieldStorageDecode,
     types::EntityTag,
 };
 use std::collections::BTreeMap;

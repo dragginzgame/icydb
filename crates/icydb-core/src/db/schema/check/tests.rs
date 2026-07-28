@@ -1,6 +1,7 @@
 use super::*;
 
 use crate::{
+    db::schema::{FieldStorageDecode, LeafCodec, ScalarCodec},
     db::write_context::MutationMode,
     db::{
         commit::CommitSchemaFingerprint,
@@ -15,10 +16,9 @@ use crate::{
             composite_catalog::{
                 AcceptedCompositeElement, AcceptedCompositeShape, CompositeTypeId,
             },
-            enum_catalog::build_initial_accepted_enum_catalog,
+            empty_accepted_enum_catalog_for_tests,
         },
     },
-    model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
     value::{InputValue, Value},
 };
 use icydb_schema::Decimal;
@@ -110,8 +110,7 @@ fn snapshot() -> PersistedSchemaSnapshot {
 }
 
 fn value_catalog() -> AcceptedValueCatalogHandle {
-    let enum_catalog =
-        build_initial_accepted_enum_catalog(&[]).expect("empty enum catalog should build");
+    let enum_catalog = empty_accepted_enum_catalog_for_tests();
     AcceptedValueCatalogHandle::new_for_tests(
         enum_catalog,
         AcceptedCompositeCatalog::empty(),
@@ -650,8 +649,7 @@ fn local_validation_defers_composite_meaning_but_exact_validation_rejects_non_ne
             .validate_snapshot_local(fields.as_slice())
             .is_ok()
     );
-    let enum_catalog =
-        build_initial_accepted_enum_catalog(&[]).expect("empty enum catalog should build");
+    let enum_catalog = empty_accepted_enum_catalog_for_tests();
     let composite_catalog = AcceptedCompositeCatalog::from_initial_definitions(
         BTreeMap::from([(
             type_id,
@@ -695,8 +693,7 @@ fn accepted_checks_resolve_nominal_newtype_values_through_catalog_authority() {
     let label_type_id = CompositeTypeId::new(2).expect("test composite type ID should be non-zero");
     let amount_type_id =
         CompositeTypeId::new(3).expect("test composite type ID should be non-zero");
-    let enum_catalog =
-        build_initial_accepted_enum_catalog(&[]).expect("empty enum catalog should build");
+    let enum_catalog = empty_accepted_enum_catalog_for_tests();
     let composite_catalog = AcceptedCompositeCatalog::from_initial_definitions(
         BTreeMap::from([
             (

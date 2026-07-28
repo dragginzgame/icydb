@@ -352,14 +352,11 @@ fn accepted_relation_target_metadata_from_kind(
         AcceptedFieldKind::Relation { .. } => {
             relation_target(kind, AcceptedRelationCardinality::Single)
         }
-        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
-            let cardinality = match kind {
-                AcceptedFieldKind::List(_) => AcceptedRelationCardinality::List,
-                AcceptedFieldKind::Set(_) => AcceptedRelationCardinality::Set,
-                _ => unreachable!("relation invariant"),
-            };
-
-            relation_target(inner.as_ref(), cardinality)
+        AcceptedFieldKind::List(inner) => {
+            relation_target(inner.as_ref(), AcceptedRelationCardinality::List)
+        }
+        AcceptedFieldKind::Set(inner) => {
+            relation_target(inner.as_ref(), AcceptedRelationCardinality::Set)
         }
         _ => None,
     }

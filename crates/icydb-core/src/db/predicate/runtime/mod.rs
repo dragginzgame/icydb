@@ -16,6 +16,7 @@ use crate::db::{
     schema::SchemaInfo,
 };
 use crate::{
+    db::schema::LeafCodec,
     db::{
         data::{CanonicalSlotReader, ScalarSlotValueRef, ScalarValueRef, StructuralRowContract},
         predicate::{
@@ -23,7 +24,6 @@ use crate::{
             ExecutableComparePredicate, ExecutablePredicate, Predicate,
         },
     },
-    model::field::LeafCodec,
     value::{TextMode, Value},
 };
 use std::borrow::Cow;

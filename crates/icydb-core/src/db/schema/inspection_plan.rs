@@ -221,16 +221,16 @@ fn accepted_inspection_plan_fingerprint(
 mod tests {
     use super::*;
     use crate::{
+        db::schema::{FieldStorageDecode, LeafCodec, ScalarCodec},
         db::{
             commit::CommitSchemaFingerprint,
             schema::{
                 AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedSchemaRevision, FieldId,
                 PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
                 SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
-                enum_catalog::build_initial_accepted_enum_catalog,
+                empty_accepted_enum_catalog_for_tests,
             },
         },
-        model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
         types::EntityTag,
     };
 
@@ -250,8 +250,7 @@ mod tests {
 
     fn value_catalog(revision: AcceptedSchemaRevision) -> AcceptedValueCatalogHandle {
         AcceptedValueCatalogHandle::new_for_tests(
-            build_initial_accepted_enum_catalog(&[])
-                .expect("empty accepted enum catalog should build"),
+            empty_accepted_enum_catalog_for_tests(),
             AcceptedCompositeCatalog::empty(),
             revision,
         )

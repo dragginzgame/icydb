@@ -5,6 +5,7 @@ use crate::db::{
     schema::AcceptedFieldKind,
 };
 use crate::{
+    db::schema::LeafCodec,
     db::{
         data::{
             StructuralRowContract, decode_runtime_value_from_accepted_field_contract,
@@ -14,7 +15,6 @@ use crate::{
         schema::AcceptedFieldDecodeContract,
     },
     error::InternalError,
-    model::field::LeafCodec,
     value::Value,
 };
 

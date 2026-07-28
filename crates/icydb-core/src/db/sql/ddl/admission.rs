@@ -170,7 +170,6 @@ impl SqlDdlBindError {
             | Self::InvalidConstraintName { .. }
             | Self::DuplicateConstraintName { .. }
             | Self::UnknownConstraint { .. }
-            | Self::AcceptedValueCatalogRequired
             | Self::InvalidCheckExpression(_)
             | Self::DuplicateIndexName { .. }
             | Self::DuplicateFieldPathIndex { .. }

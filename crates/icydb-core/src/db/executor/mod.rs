@@ -11,7 +11,7 @@ mod authority;
 mod covering;
 #[cfg(any(test, feature = "sql"))]
 mod diagnostics;
-#[cfg(any(test, feature = "sql-explain"))]
+#[cfg(feature = "sql-explain")]
 pub(in crate::db) mod explain;
 #[cfg(any(test, feature = "sql"))]
 mod group;

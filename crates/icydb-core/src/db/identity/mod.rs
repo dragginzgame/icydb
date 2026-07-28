@@ -177,15 +177,9 @@ impl EntityName {
 
     /// Borrow the entity name as UTF-8 text.
     ///
-    /// # Panics
-    ///
-    /// Panics if the stored entity-name bytes violate the ASCII-only identity
-    /// invariant. Construction and decoding are expected to prevent this.
     #[must_use]
     pub fn as_str(&self) -> &str {
-        // Invariant: construction and decoding enforce ASCII-only storage,
-        // so UTF-8 decoding cannot fail.
-        std::str::from_utf8(self.as_bytes()).expect("EntityName invariant: ASCII-only storage")
+        std::str::from_utf8(self.as_bytes()).unwrap_or_default()
     }
 
     /// Encode this identity into its fixed-size persisted representation.
@@ -378,15 +372,9 @@ impl IndexName {
 
     /// Borrow the index identity as UTF-8 text.
     ///
-    /// # Panics
-    ///
-    /// Panics if the stored index-name bytes violate the ASCII-only identity
-    /// invariant. Construction and decoding are expected to prevent this.
     #[must_use]
     pub fn as_str(&self) -> &str {
-        // Invariant: construction and decoding enforce ASCII-only storage,
-        // so UTF-8 decoding cannot fail.
-        std::str::from_utf8(self.as_bytes()).expect("IndexName invariant: ASCII-only storage")
+        std::str::from_utf8(self.as_bytes()).unwrap_or_default()
     }
 
     /// Encode this identity into its fixed-size persisted representation.

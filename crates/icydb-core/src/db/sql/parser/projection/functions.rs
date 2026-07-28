@@ -73,7 +73,9 @@ impl Parser {
             }
             SqlScalarFunctionCallShape::SharedScalarCall
             | SqlScalarFunctionCallShape::WherePredicateExprPair => {
-                unreachable!("sql parser invariant")
+                return Err(SqlParseError::unsupported_feature(
+                    icydb_diagnostic_code::SqlFeatureCode::Other,
+                ));
             }
         };
 
@@ -276,9 +278,9 @@ impl Parser {
             | SqlScalarFunctionCallShape::FieldPlusLiteral
             | SqlScalarFunctionCallShape::Position
             | SqlScalarFunctionCallShape::Replace
-            | SqlScalarFunctionCallShape::Substring => {
-                unreachable!("sql parser invariant")
-            }
+            | SqlScalarFunctionCallShape::Substring => Err(SqlParseError::unsupported_feature(
+                icydb_diagnostic_code::SqlFeatureCode::Other,
+            )),
         }
     }
 

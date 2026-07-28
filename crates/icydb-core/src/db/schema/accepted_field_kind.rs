@@ -3,11 +3,9 @@
 //! Does not own: generated enum/composite proposals or catalog definition storage.
 //! Boundary: accepted snapshots and runtime contracts persist store-local catalog IDs only.
 
-#[cfg(test)]
-use crate::model::field::FieldKind;
 use crate::{
     db::schema::composite_catalog::CompositeTypeId,
-    model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
+    db::schema::{FieldStorageDecode, LeafCodec, ScalarCodec},
     types::EntityTag,
     value::EnumTypeId,
 };
@@ -127,63 +125,6 @@ impl AcceptedFieldKind {
     pub(in crate::db) const fn test_composite() -> Self {
         Self::Composite {
             type_id: CompositeTypeId::new(1).expect("test composite type ID is non-zero"),
-        }
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn from_model_kind(kind: FieldKind) -> Self {
-        match kind {
-            FieldKind::Account => Self::Account,
-            FieldKind::Blob { max_len } => Self::Blob { max_len },
-            FieldKind::Bool => Self::Bool,
-            FieldKind::Date => Self::Date,
-            FieldKind::Decimal { scale } => Self::Decimal { scale },
-            FieldKind::Duration => Self::Duration,
-            FieldKind::Enum { .. } => Self::Enum {
-                type_id: EnumTypeId::new(1).expect("test enum type ID is non-zero"),
-            },
-            FieldKind::Float32 => Self::Float32,
-            FieldKind::Float64 => Self::Float64,
-            FieldKind::Int8 => Self::Int8,
-            FieldKind::Int16 => Self::Int16,
-            FieldKind::Int32 => Self::Int32,
-            FieldKind::Int64 => Self::Int64,
-            FieldKind::Int128 => Self::Int128,
-            FieldKind::IntBig { max_bytes } => Self::IntBig { max_bytes },
-            FieldKind::Principal => Self::Principal,
-            FieldKind::Subaccount => Self::Subaccount,
-            FieldKind::Text { max_len } => Self::Text { max_len },
-            FieldKind::Timestamp => Self::Timestamp,
-            FieldKind::Nat8 => Self::Nat8,
-            FieldKind::Nat16 => Self::Nat16,
-            FieldKind::Nat32 => Self::Nat32,
-            FieldKind::Nat64 => Self::Nat64,
-            FieldKind::Nat128 => Self::Nat128,
-            FieldKind::NatBig { max_bytes } => Self::NatBig { max_bytes },
-            FieldKind::Ulid => Self::Ulid,
-            FieldKind::Unit => Self::Unit,
-            FieldKind::Relation {
-                target_path,
-                target_entity_name,
-                target_entity_tag,
-                target_store_path,
-                key_kind,
-            } => Self::Relation {
-                target_path: target_path.to_string(),
-                target_entity_name: target_entity_name.to_string(),
-                target_entity_tag,
-                target_store_path: target_store_path.to_string(),
-                key_kind: Box::new(Self::from_model_kind(*key_kind)),
-            },
-            FieldKind::List(inner) => Self::List(Box::new(Self::from_model_kind(*inner))),
-            FieldKind::Set(inner) => Self::Set(Box::new(Self::from_model_kind(*inner))),
-            FieldKind::Map { key, value } => Self::Map {
-                key: Box::new(Self::from_model_kind(*key)),
-                value: Box::new(Self::from_model_kind(*value)),
-            },
-            FieldKind::Composite { .. } => Self::Composite {
-                type_id: CompositeTypeId::new(1).expect("test composite type ID is non-zero"),
-            },
         }
     }
 

@@ -8,7 +8,7 @@ use crate::{
         commit::{
             PreparedRowCommitOp,
             marker::CommitMarker,
-            store::{with_commit_store, with_commit_store_infallible},
+            store::{with_commit_store, with_initialized_commit_store},
         },
         schema::preflight_schema_application_record_op,
     },
@@ -142,7 +142,7 @@ impl CommitGuard {
 
     /// Clear the commit marker after successful apply.
     fn clear() -> Result<(), InternalError> {
-        with_commit_store_infallible(super::store::CommitStore::clear_verified)
+        with_initialized_commit_store(super::store::CommitStore::clear_verified)?
     }
 }
 
@@ -170,10 +170,6 @@ pub(crate) fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, Internal
 /// - `Ok(())` => marker is cleared.
 /// - `Err(_)` => marker remains persisted for recovery replay.
 ///
-/// # Panics
-///
-/// Panics if successful commit completion does not clear the persisted marker,
-/// or if failed commit completion does not preserve the persisted marker.
 pub(crate) fn finish_commit(
     mut guard: CommitGuard,
     apply: impl FnOnce(&mut CommitGuard) -> Result<(), InternalError>,
@@ -188,13 +184,13 @@ pub(crate) fn finish_commit(
         // Phase 1: successful apply must clear marker authority immediately.
         CommitGuard::clear()?;
         // Internal invariant: successful commit windows must clear the marker.
-        if !with_commit_store_infallible(super::store::CommitStore::is_empty) {
+        if !with_initialized_commit_store(super::store::CommitStore::is_empty)? {
             return Err(InternalError::commit_corruption());
         }
     } else {
         // Phase 1 (error path): failed apply must preserve marker authority.
         // Internal invariant: failed commit windows must preserve marker authority.
-        if with_commit_store_infallible(super::store::CommitStore::is_empty) {
+        if with_initialized_commit_store(super::store::CommitStore::is_empty)? {
             return Err(InternalError::commit_corruption());
         }
     }

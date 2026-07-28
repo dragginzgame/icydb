@@ -2,9 +2,8 @@
 
 pub use icydb_schema::NatBig;
 
-use crate::{
-    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
+use crate::value::{
+    RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value,
 };
 
 impl RuntimeValueMeta for NatBig {
@@ -27,13 +26,3 @@ impl RuntimeValueDecode for NatBig {
         }
     }
 }
-
-impl NormalizeAuto for NatBig {}
-
-impl NormalizeCustom for NatBig {}
-
-impl ValidateAuto for NatBig {}
-
-impl ValidateCustom for NatBig {}
-
-impl Visitable for NatBig {}

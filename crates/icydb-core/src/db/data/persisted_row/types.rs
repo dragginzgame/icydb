@@ -1,7 +1,7 @@
 use crate::{
     db::data::persisted_row::codec::ScalarSlotValueRef,
+    db::schema::LeafCodec,
     error::InternalError,
-    model::field::LeafCodec,
     value::{InputValue, Value},
 };
 

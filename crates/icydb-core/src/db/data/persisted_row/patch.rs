@@ -7,6 +7,7 @@ use crate::db::data::CanonicalSlotReader;
 #[cfg(feature = "sql")]
 use crate::db::data::persisted_row::types::FieldSlot;
 use crate::{
+    db::schema::{FieldInsertGeneration, FieldWriteManagement},
     db::{
         data::{
             CanonicalRow, RawRow, StructuralRowContract,
@@ -33,7 +34,6 @@ use crate::{
         write_context::AcceptedWriteContext,
     },
     error::InternalError,
-    model::field::{FieldInsertGeneration, FieldWriteManagement},
     types::{GenerateKey, Ulid},
     value::{InputValue, Value},
 };
@@ -356,7 +356,7 @@ fn resolve_insert_active_slot(
     };
 
     if let Some(generation) = write_policy.insert_generation() {
-        let value = accepted_insert_generated_value(generation, write_context);
+        let value = accepted_insert_generated_value(generation, write_context)?;
         let encoding = contract.required_accepted_field_persistence_contract(slot)?;
         let payload = encode_canonical_value_for_accepted_field_contract(encoding, &value)?;
 
@@ -812,11 +812,11 @@ fn resolve_explicit_update_default(
 fn accepted_insert_generated_value(
     generation: FieldInsertGeneration,
     write_context: AcceptedWriteContext,
-) -> Value {
-    match generation {
-        FieldInsertGeneration::Ulid => Value::Ulid(Ulid::generate()),
+) -> Result<Value, InternalError> {
+    Ok(match generation {
+        FieldInsertGeneration::Ulid => Value::Ulid(Ulid::generate()?),
         FieldInsertGeneration::Timestamp => Value::Timestamp(write_context.operation_timestamp()),
-    }
+    })
 }
 
 const fn accepted_insert_managed_value(

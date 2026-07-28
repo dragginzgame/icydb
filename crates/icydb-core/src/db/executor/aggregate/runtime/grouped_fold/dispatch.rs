@@ -92,10 +92,7 @@ pub(super) fn group_fields_support_borrowed_group_probe(group_fields: &[FieldSlo
 #[cfg(test)]
 mod tests {
     use super::group_fields_support_borrowed_group_probe;
-    use crate::{
-        db::{query::plan::FieldSlot, schema::AcceptedFieldKind},
-        model::field::FieldKind,
-    };
+    use crate::db::{query::plan::FieldSlot, schema::AcceptedFieldKind};
 
     #[test]
     fn borrowed_group_probe_requires_accepted_scalar_authority() {
@@ -104,7 +101,7 @@ mod tests {
             "status",
             AcceptedFieldKind::Text { max_len: None },
         );
-        let model_only = FieldSlot::from_model_kind(0, "status", FieldKind::Text { max_len: None });
+        let unresolved = FieldSlot::unresolved(0, "status");
         let accepted_enum = FieldSlot::from_test_accepted_kind(
             0,
             "status",
@@ -114,7 +111,7 @@ mod tests {
         );
 
         assert!(group_fields_support_borrowed_group_probe(&[accepted]));
-        assert!(!group_fields_support_borrowed_group_probe(&[model_only]));
+        assert!(!group_fields_support_borrowed_group_probe(&[unresolved]));
         assert!(!group_fields_support_borrowed_group_probe(&[accepted_enum]));
     }
 }

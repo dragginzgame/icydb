@@ -2,9 +2,8 @@
 
 pub use icydb_schema::Date;
 
-use crate::{
-    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
+use crate::value::{
+    RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value,
 };
 
 impl RuntimeValueMeta for Date {
@@ -27,13 +26,3 @@ impl RuntimeValueDecode for Date {
         }
     }
 }
-
-impl NormalizeAuto for Date {}
-
-impl NormalizeCustom for Date {}
-
-impl ValidateAuto for Date {}
-
-impl ValidateCustom for Date {}
-
-impl Visitable for Date {}

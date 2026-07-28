@@ -29,8 +29,7 @@ struct TestElement {
 }
 
 fn empty_enum_catalog() -> AcceptedEnumCatalog {
-    crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog_from_kinds_for_tests(&[])
-        .expect("empty enum catalog should build")
+    crate::db::schema::empty_accepted_enum_catalog_for_tests()
 }
 
 fn scalar_element() -> TestElement {

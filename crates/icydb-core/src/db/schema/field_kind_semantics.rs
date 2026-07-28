@@ -61,12 +61,14 @@ impl AcceptedScalarClass {
 
     /// Return true when this is a signed numeric class.
     #[must_use]
+    #[cfg(test)]
     const fn is_signed_numeric(self) -> bool {
         matches!(self, Self::Signed64 | Self::Signed128 | Self::SignedBig)
     }
 
     /// Return true when this is an unsigned numeric class.
     #[must_use]
+    #[cfg(test)]
     const fn is_unsigned_numeric(self) -> bool {
         matches!(
             self,
@@ -209,6 +211,7 @@ impl AcceptedFieldKindSemantics {
 
     /// Return true when the field kind or relation key is signed numeric.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn is_signed_numeric(self) -> bool {
         match self.category.scalar_class() {
             Some(class) => class.is_signed_numeric(),
@@ -218,6 +221,7 @@ impl AcceptedFieldKindSemantics {
 
     /// Return true when the field kind or relation key is unsigned numeric.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn is_unsigned_numeric(self) -> bool {
         match self.category.scalar_class() {
             Some(class) => class.is_unsigned_numeric(),

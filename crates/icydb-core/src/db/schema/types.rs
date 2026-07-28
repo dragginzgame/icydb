@@ -3,10 +3,12 @@
 //! Does not own: planner route selection or runtime predicate execution behavior.
 //! Boundary: defines scalar/field type compatibility surfaces used by predicate validation.
 
+use crate::db::schema::AcceptedFieldKind;
+#[cfg(any(test, feature = "sql"))]
 use crate::db::schema::{
-    AcceptedFieldKind, AcceptedFieldKindCategory, AcceptedScalarClass, classify_accepted_field_kind,
+    AcceptedFieldKindCategory, AcceptedScalarClass, classify_accepted_field_kind,
 };
-#[cfg(feature = "sql")]
+#[cfg(any(test, feature = "sql"))]
 use crate::types::{Account, Decimal, Float32, Float64, Principal};
 #[cfg(any(test, feature = "sql"))]
 use crate::types::{IntBig, NatBig, Ulid};
@@ -16,7 +18,7 @@ use crate::value::{CoercionFamily, Value};
 #[cfg(any(test, feature = "sql"))]
 use crate::value::{InputValue, InputValueEnum};
 use std::fmt;
-#[cfg(feature = "sql")]
+#[cfg(any(test, feature = "sql"))]
 use std::str::FromStr;
 
 ///
@@ -282,7 +284,7 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
     match semantics.category() {
         AcceptedFieldKindCategory::Relation(_) => {
             let AcceptedFieldKind::Relation { key_kind, .. } = kind else {
-                unreachable!("persisted kind invariant")
+                return None;
             };
 
             canonicalize_strict_sql_literal_for_persisted_kind(key_kind, value)
@@ -296,8 +298,7 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
                     .map(Value::List),
                 _ => None,
             },
-            AcceptedFieldKind::Map { .. } => None,
-            _ => unreachable!("persisted kind invariant"),
+            _ => None,
         },
         AcceptedFieldKindCategory::Composite
         | AcceptedFieldKindCategory::Scalar(
@@ -327,7 +328,7 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
         }
         AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::SignedBig) => {
             let AcceptedFieldKind::IntBig { max_bytes } = kind else {
-                unreachable!("persisted kind invariant")
+                return None;
             };
 
             canonicalize_int_big_persisted_literal(value, *max_bytes)
@@ -337,7 +338,7 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
         }
         AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::UnsignedBig) => {
             let AcceptedFieldKind::NatBig { max_bytes } = kind else {
-                unreachable!("persisted kind invariant")
+                return None;
             };
 
             canonicalize_nat_big_persisted_literal(value, *max_bytes)
@@ -355,7 +356,7 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
 /// Unlike strict SQL literals, public filter numerics arrive as text so their
 /// Candid shape stays stable across narrow and wide numeric field kinds.
 #[must_use]
-#[cfg(feature = "sql")]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn canonicalize_filter_literal_for_persisted_kind(
     kind: &AcceptedFieldKind,
     value: &Value,
@@ -377,7 +378,7 @@ pub(in crate::db) fn canonicalize_filter_literal_for_persisted_kind(
     }
 }
 
-#[cfg(feature = "sql")]
+#[cfg(any(test, feature = "sql"))]
 fn canonicalize_filter_scalar_literal(kind: &AcceptedFieldKind, value: &Value) -> Option<Value> {
     match kind {
         AcceptedFieldKind::Account => canonicalize_text_or_exact(
@@ -472,7 +473,7 @@ fn canonicalize_filter_scalar_literal(kind: &AcceptedFieldKind, value: &Value) -
     }
 }
 
-#[cfg(feature = "sql")]
+#[cfg(any(test, feature = "sql"))]
 fn canonicalize_filter_numeric_literal(kind: &AcceptedFieldKind, value: &Value) -> Option<Value> {
     match kind {
         AcceptedFieldKind::Int8 => {
@@ -546,7 +547,7 @@ fn canonicalize_filter_numeric_literal(kind: &AcceptedFieldKind, value: &Value) 
     }
 }
 
-#[cfg(feature = "sql")]
+#[cfg(any(test, feature = "sql"))]
 fn canonicalize_text_or_exact<T, E>(
     value: &Value,
     exact: impl FnOnce(&Value) -> Option<T>,
@@ -562,7 +563,7 @@ fn canonicalize_text_or_exact<T, E>(
     }
 }
 
-#[cfg(feature = "sql")]
+#[cfg(any(test, feature = "sql"))]
 fn canonicalize_filter_int(value: &Value, min: i64, max: i64) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => *inner,
@@ -574,7 +575,7 @@ fn canonicalize_filter_int(value: &Value, min: i64, max: i64) -> Option<Value> {
     (min..=max).contains(&value).then_some(Value::Int64(value))
 }
 
-#[cfg(feature = "sql")]
+#[cfg(any(test, feature = "sql"))]
 fn canonicalize_filter_nat(value: &Value, max: u64) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => u64::try_from(*inner).ok()?,
@@ -628,7 +629,7 @@ fn canonicalize_signed64_persisted_literal(
         AcceptedFieldKind::Int32 => {
             canonicalize_int_persisted_literal(value, i64::from(i32::MIN), i64::from(i32::MAX))
         }
-        _ => unreachable!("persisted kind invariant"),
+        _ => None,
     }
 }
 
@@ -642,47 +643,13 @@ fn canonicalize_unsigned64_persisted_literal(
         AcceptedFieldKind::Nat8 => canonicalize_nat_persisted_literal(value, u64::from(u8::MAX)),
         AcceptedFieldKind::Nat16 => canonicalize_nat_persisted_literal(value, u64::from(u16::MAX)),
         AcceptedFieldKind::Nat32 => canonicalize_nat_persisted_literal(value, u64::from(u32::MAX)),
-        _ => unreachable!("persisted kind invariant"),
+        _ => None,
     }
 }
 
 pub(in crate::db) fn field_type_from_persisted_kind(kind: &AcceptedFieldKind) -> FieldType {
-    let semantics = classify_accepted_field_kind(kind);
-    match semantics.category() {
-        AcceptedFieldKindCategory::Scalar(class) => {
-            debug_assert!(semantics.is_scalar());
-            debug_assert_eq!(semantics.is_signed_numeric(), scalar_class_is_signed(class));
-            debug_assert_eq!(
-                semantics.is_unsigned_numeric(),
-                scalar_class_is_unsigned(class)
-            );
-            return FieldType::Scalar(scalar_type_from_persisted_class(class));
-        }
-        AcceptedFieldKindCategory::Relation(Some(class)) => {
-            debug_assert!(!semantics.is_scalar());
-            debug_assert_eq!(semantics.is_signed_numeric(), scalar_class_is_signed(class));
-            debug_assert_eq!(
-                semantics.is_unsigned_numeric(),
-                scalar_class_is_unsigned(class)
-            );
-            return FieldType::Scalar(scalar_type_from_persisted_class(class));
-        }
-        AcceptedFieldKindCategory::Relation(None) => {
-            let AcceptedFieldKind::Relation { key_kind, .. } = kind else {
-                unreachable!("persisted kind invariant")
-            };
-
-            return field_type_from_persisted_kind(key_kind);
-        }
-        AcceptedFieldKindCategory::Collection => {
-            debug_assert!(semantics.is_collection());
-        }
-        AcceptedFieldKindCategory::Composite => {
-            debug_assert!(semantics.is_composite());
-        }
-    }
-
     match kind {
+        AcceptedFieldKind::Relation { key_kind, .. } => field_type_from_persisted_kind(key_kind),
         AcceptedFieldKind::List(inner) => {
             FieldType::List(Box::new(field_type_from_persisted_kind(inner)))
         }
@@ -694,80 +661,33 @@ pub(in crate::db) fn field_type_from_persisted_kind(kind: &AcceptedFieldKind) ->
             value: Box::new(field_type_from_persisted_kind(value)),
         },
         AcceptedFieldKind::Composite { .. } => FieldType::Composite,
-        AcceptedFieldKind::Account
-        | AcceptedFieldKind::Blob { .. }
-        | AcceptedFieldKind::Bool
-        | AcceptedFieldKind::Date
-        | AcceptedFieldKind::Decimal { .. }
-        | AcceptedFieldKind::Duration
-        | AcceptedFieldKind::Enum { .. }
-        | AcceptedFieldKind::Float32
-        | AcceptedFieldKind::Float64
-        | AcceptedFieldKind::Int8
+        AcceptedFieldKind::Account => FieldType::Scalar(ScalarType::Account),
+        AcceptedFieldKind::Blob { .. } => FieldType::Scalar(ScalarType::Blob),
+        AcceptedFieldKind::Bool => FieldType::Scalar(ScalarType::Bool),
+        AcceptedFieldKind::Date => FieldType::Scalar(ScalarType::Date),
+        AcceptedFieldKind::Decimal { .. } => FieldType::Scalar(ScalarType::Decimal),
+        AcceptedFieldKind::Duration => FieldType::Scalar(ScalarType::Duration),
+        AcceptedFieldKind::Enum { .. } => FieldType::Scalar(ScalarType::Enum),
+        AcceptedFieldKind::Float32 => FieldType::Scalar(ScalarType::Float32),
+        AcceptedFieldKind::Float64 => FieldType::Scalar(ScalarType::Float64),
+        AcceptedFieldKind::Int8
         | AcceptedFieldKind::Int16
         | AcceptedFieldKind::Int32
-        | AcceptedFieldKind::Int64
-        | AcceptedFieldKind::Int128
-        | AcceptedFieldKind::IntBig { .. }
-        | AcceptedFieldKind::Principal
-        | AcceptedFieldKind::Subaccount
-        | AcceptedFieldKind::Text { .. }
-        | AcceptedFieldKind::Timestamp
-        | AcceptedFieldKind::Nat8
+        | AcceptedFieldKind::Int64 => FieldType::Scalar(ScalarType::SignedNumeric),
+        AcceptedFieldKind::Int128 => FieldType::Scalar(ScalarType::Int128),
+        AcceptedFieldKind::IntBig { .. } => FieldType::Scalar(ScalarType::IntBig),
+        AcceptedFieldKind::Principal => FieldType::Scalar(ScalarType::Principal),
+        AcceptedFieldKind::Subaccount => FieldType::Scalar(ScalarType::Subaccount),
+        AcceptedFieldKind::Text { .. } => FieldType::Scalar(ScalarType::Text),
+        AcceptedFieldKind::Timestamp => FieldType::Scalar(ScalarType::Timestamp),
+        AcceptedFieldKind::Nat8
         | AcceptedFieldKind::Nat16
         | AcceptedFieldKind::Nat32
-        | AcceptedFieldKind::Nat64
-        | AcceptedFieldKind::Nat128
-        | AcceptedFieldKind::NatBig { .. }
-        | AcceptedFieldKind::Ulid
-        | AcceptedFieldKind::Unit
-        | AcceptedFieldKind::Relation { .. } => {
-            unreachable!("persisted kind invariant")
-        }
-    }
-}
-
-const fn scalar_class_is_signed(class: AcceptedScalarClass) -> bool {
-    matches!(
-        class,
-        AcceptedScalarClass::Signed64
-            | AcceptedScalarClass::Signed128
-            | AcceptedScalarClass::SignedBig
-    )
-}
-
-const fn scalar_class_is_unsigned(class: AcceptedScalarClass) -> bool {
-    matches!(
-        class,
-        AcceptedScalarClass::Unsigned64
-            | AcceptedScalarClass::Unsigned128
-            | AcceptedScalarClass::UnsignedBig
-    )
-}
-
-const fn scalar_type_from_persisted_class(class: AcceptedScalarClass) -> ScalarType {
-    match class {
-        AcceptedScalarClass::Account => ScalarType::Account,
-        AcceptedScalarClass::Blob => ScalarType::Blob,
-        AcceptedScalarClass::Bool => ScalarType::Bool,
-        AcceptedScalarClass::Date => ScalarType::Date,
-        AcceptedScalarClass::Decimal => ScalarType::Decimal,
-        AcceptedScalarClass::Duration => ScalarType::Duration,
-        AcceptedScalarClass::Enum => ScalarType::Enum,
-        AcceptedScalarClass::Float32 => ScalarType::Float32,
-        AcceptedScalarClass::Float64 => ScalarType::Float64,
-        AcceptedScalarClass::Signed64 => ScalarType::SignedNumeric,
-        AcceptedScalarClass::Signed128 => ScalarType::Int128,
-        AcceptedScalarClass::SignedBig => ScalarType::IntBig,
-        AcceptedScalarClass::Principal => ScalarType::Principal,
-        AcceptedScalarClass::Subaccount => ScalarType::Subaccount,
-        AcceptedScalarClass::Text => ScalarType::Text,
-        AcceptedScalarClass::Timestamp => ScalarType::Timestamp,
-        AcceptedScalarClass::Unsigned64 => ScalarType::UnsignedNumeric,
-        AcceptedScalarClass::Unsigned128 => ScalarType::Nat128,
-        AcceptedScalarClass::UnsignedBig => ScalarType::NatBig,
-        AcceptedScalarClass::Ulid => ScalarType::Ulid,
-        AcceptedScalarClass::Unit => ScalarType::Unit,
+        | AcceptedFieldKind::Nat64 => FieldType::Scalar(ScalarType::UnsignedNumeric),
+        AcceptedFieldKind::Nat128 => FieldType::Scalar(ScalarType::Nat128),
+        AcceptedFieldKind::NatBig { .. } => FieldType::Scalar(ScalarType::NatBig),
+        AcceptedFieldKind::Ulid => FieldType::Scalar(ScalarType::Ulid),
+        AcceptedFieldKind::Unit => FieldType::Scalar(ScalarType::Unit),
     }
 }
 
@@ -871,6 +791,22 @@ mod tests {
         AcceptedFieldKind::Enum {
             type_id: crate::value::EnumTypeId::new(1).expect("test enum type ID should be valid"),
         }
+    }
+
+    #[test]
+    fn persisted_field_type_projection_is_total_for_non_scalar_relation_keys() {
+        let relation = AcceptedFieldKind::Relation {
+            target_path: "test::Target".into(),
+            target_entity_name: "Target".into(),
+            target_entity_tag: crate::types::EntityTag::new(1),
+            target_store_path: "test::Store".into(),
+            key_kind: Box::new(AcceptedFieldKind::test_composite()),
+        };
+
+        assert_eq!(
+            field_type_from_persisted_kind(&relation),
+            FieldType::Composite,
+        );
     }
 
     #[test]

@@ -316,7 +316,7 @@ impl<K> AccessPlanProjection<K> for AccessStrategyLabelProjection {
 }
 
 /// Render one stable planner-owned access label without routing through explain transport.
-#[cfg(any(test, feature = "sql-explain"))]
+#[cfg(feature = "sql-explain")]
 pub(in crate::db) fn access_plan_label<K>(plan: &AccessPlan<K>) -> String {
     project_access_plan(plan, &mut AccessStrategyLabelProjection)
 }

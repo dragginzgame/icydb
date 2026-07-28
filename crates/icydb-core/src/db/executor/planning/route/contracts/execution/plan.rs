@@ -3,7 +3,7 @@
 //! Does not own: route feasibility derivation or runtime execution.
 //! Boundary: exposes route-derived execution facts consumed by preparation and explain surfaces.
 
-#[cfg(any(test, feature = "sql-explain"))]
+#[cfg(feature = "sql-explain")]
 use crate::db::executor::route::{IndexPrefixChildExpansionHint, LoadOrderRouteReason};
 use crate::db::{
     direction::Direction,
@@ -38,7 +38,7 @@ use crate::db::{
 pub(in crate::db::executor) struct ExecutionRoutePlan {
     pub(in crate::db::executor) direction: Direction,
     #[cfg_attr(
-        not(any(test, feature = "sql-explain")),
+        not(feature = "sql-explain"),
         expect(dead_code, reason = "retained for SQL EXPLAIN route diagnostics")
     )]
     pub(in crate::db::executor) route_shape_kind: RouteShapeKind,
@@ -51,24 +51,24 @@ pub(in crate::db::executor) struct ExecutionRoutePlan {
     pub(in crate::db::executor) fast_path_order: &'static [FastPathOrder],
     pub(in crate::db::executor) top_n_seek_spec: Option<TopNSeekSpec>,
     #[cfg_attr(
-        not(any(test, feature = "sql-explain")),
+        not(feature = "sql-explain"),
         expect(dead_code, reason = "retained for SQL EXPLAIN route diagnostics")
     )]
     pub(in crate::db::executor) aggregate_seek_spec: Option<AggregateSeekSpec>,
     pub(in crate::db::executor) scan_hints: ScanHintPlan,
     #[cfg_attr(
-        not(any(test, feature = "sql-explain")),
+        not(feature = "sql-explain"),
         expect(dead_code, reason = "retained for SQL EXPLAIN route diagnostics")
     )]
     pub(in crate::db::executor) aggregate_fold_mode: AggregateFoldMode,
     #[cfg_attr(
-        not(any(test, feature = "sql-explain")),
+        not(feature = "sql-explain"),
         expect(dead_code, reason = "retained for SQL EXPLAIN route diagnostics")
     )]
     pub(in crate::db::executor) grouped_plan_strategy: Option<GroupedPlanStrategy>,
     pub(in crate::db::executor) grouped_execution_mode: Option<GroupedExecutionMode>,
     #[cfg_attr(
-        not(any(test, feature = "sql-explain")),
+        not(feature = "sql-explain"),
         expect(dead_code, reason = "retained for SQL EXPLAIN route diagnostics")
     )]
     pub(in crate::db::executor) load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
@@ -91,7 +91,7 @@ impl ExecutionRoutePlan {
             capability_facts: RouteCapabilityFacts {
                 load_order_route_decision:
                     crate::db::executor::route::LoadOrderRouteDecision::materialized_fallback(
-                        LoadOrderRouteReason::None,
+                        crate::db::executor::route::LoadOrderRouteReason::None,
                     ),
                 ordered_index_leaf_stream_eligible: false,
                 pk_order_fast_path_eligible: false,
@@ -130,7 +130,7 @@ impl ExecutionRoutePlan {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db::executor) const fn load_terminal_fast_path(
         &self,
     ) -> Option<&CoveringReadExecutionPlan> {
@@ -138,7 +138,7 @@ impl ExecutionRoutePlan {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db::executor) const fn index_prefix_child_expansion(
         &self,
     ) -> Option<IndexPrefixChildExpansionHint> {
@@ -146,7 +146,7 @@ impl ExecutionRoutePlan {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db::executor) const fn route_shape_kind(&self) -> RouteShapeKind {
         self.route_shape_kind
     }
@@ -161,7 +161,7 @@ impl ExecutionRoutePlan {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db::executor) const fn is_materialized(&self) -> bool {
         matches!(self.execution_mode, RouteExecutionMode::Materialized)
     }
@@ -176,7 +176,7 @@ impl ExecutionRoutePlan {
 
     /// Return the planner-owned reason for selecting hash-group execution.
     #[must_use]
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db::executor) const fn grouped_plan_fallback_reason(
         &self,
     ) -> Option<crate::db::query::plan::GroupedPlanFallbackReason> {
@@ -223,7 +223,7 @@ impl ExecutionRoutePlan {
     }
 
     /// Return why one ordered load shape stayed direct or materialized.
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db::executor) const fn load_order_route_reason(&self) -> LoadOrderRouteReason {
         self.capability_facts.load_order_route_reason()
     }
@@ -274,14 +274,14 @@ impl ExecutionRoutePlan {
     ///
     /// This prevents executor-local hint math from drifting outside routing.
     #[must_use]
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db::executor) const fn aggregate_seek_spec(&self) -> Option<AggregateSeekSpec> {
         self.aggregate_seek_spec
     }
 
     /// Return route-owned bounded fetch hint derived from aggregate seek contract.
     #[must_use]
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db::executor) fn aggregate_seek_fetch_hint(&self) -> Option<usize> {
         self.aggregate_seek_spec().map(AggregateSeekSpec::fetch)
     }

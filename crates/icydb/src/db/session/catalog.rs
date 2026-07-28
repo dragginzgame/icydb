@@ -17,7 +17,6 @@ use crate::{
     traits::CanisterKind,
 };
 
-use icydb_core as core;
 use icydb_schema::{
     EntitySourceKey, EntityStoreAssignment, FieldInsertPolicy, SchemaCapability, SchemaFragment,
     SchemaProposal, SchemaSubmissionKey, TargetDatabaseIdentity, decode_schema_fragment,
@@ -109,16 +108,8 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Return one stable list of runtime-registered entity catalog entries.
-    #[must_use]
-    pub fn show_entities(&self) -> Vec<EntityCatalogDescription> {
-        self.inner.show_entities()
-    }
-
-    /// Return one stable list of runtime-registered entity catalog entries.
-    pub fn try_show_entities(
-        &self,
-    ) -> Result<Vec<EntityCatalogDescription>, core::error::InternalError> {
-        self.inner.try_show_entities()
+    pub fn show_entities(&self) -> Result<Vec<EntityCatalogDescription>, Error> {
+        Ok(self.inner.show_entities()?)
     }
 
     /// Return one stable list of runtime-registered store catalog entries.

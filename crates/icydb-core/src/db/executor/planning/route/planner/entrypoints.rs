@@ -33,8 +33,8 @@ pub(in crate::db::executor) enum RoutePlanRequest<'a> {
         load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
     },
     #[cfg_attr(
-        not(any(test, feature = "sql-explain")),
-        expect(
+        not(feature = "sql-explain"),
+        allow(
             dead_code,
             reason = "aggregate route construction is consumed by SQL EXPLAIN"
         )

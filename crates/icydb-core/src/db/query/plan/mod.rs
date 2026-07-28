@@ -48,22 +48,26 @@ pub(in crate::db) use continuation::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use covering::CoveringReadField;
+#[cfg(feature = "sql")]
+pub(in crate::db) use covering::CoveringReadFieldSource;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use covering::covering_hybrid_projection_execution_plan_with_schema_info;
 pub(in crate::db) use covering::{
     CoveringExistingRowMode, CoveringHybridReadExecutionPlan, CoveringProjectionOrder,
-    CoveringReadExecutionPlan, CoveringReadFieldSource,
-    covering_read_execution_plan_with_schema_info, covering_strict_predicate_compatible,
+    CoveringReadExecutionPlan, covering_read_execution_plan_with_schema_info,
+    covering_strict_predicate_compatible,
 };
-#[cfg(any(test, feature = "sql-explain"))]
+#[cfg(feature = "sql-explain")]
 pub(in crate::db) use covering::{
     covering_read_reason_code_for_load_plan, index_covering_existing_rows_terminal_eligible,
 };
 pub(in crate::db::query::plan) use group::extend_unique_grouped_aggregate_specs_from_expr;
+#[cfg(feature = "sql")]
+pub(in crate::db) use group::grouped_executor_handoff;
 pub(in crate::db) use group::{
     GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedExecutionRoute,
     PlannedProjectionLayout, grouped_aggregate_execution_specs,
-    grouped_aggregate_specs_from_projection_spec, grouped_executor_handoff,
+    grouped_aggregate_specs_from_projection_spec,
     resolved_grouped_distinct_execution_strategy_with_schema_info,
 };
 pub(in crate::db) use grouped_layout::validate_grouped_projection_layout;
@@ -119,7 +123,7 @@ pub(in crate::db::query) use projection::{
     lower_data_row_direct_projection_slots_with_schema, lower_direct_projection_slots_with_schema,
     lower_projection_identity, lower_projection_intent_with_schema,
 };
-#[cfg(any(test, feature = "sql-explain"))]
+#[cfg(feature = "sql-explain")]
 pub(in crate::db) use semantics::access_plan_label;
 #[cfg(feature = "sql")]
 pub(in crate::db) use semantics::canonicalize_grouped_having_numeric_literal_for_slot;

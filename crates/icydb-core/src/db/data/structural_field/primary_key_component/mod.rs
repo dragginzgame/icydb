@@ -9,46 +9,45 @@ mod scalar;
 #[cfg(test)]
 mod tests;
 
-use crate::{
-    db::key_taxonomy::PrimaryKeyComponent,
-    db::{data::structural_field::FieldDecodeError, schema::AcceptedFieldKind},
-    model::field::FieldKind,
+use crate::db::{
+    data::structural_field::FieldDecodeError, key_taxonomy::PrimaryKeyComponent,
+    schema::AcceptedFieldKind,
 };
 
+#[cfg(test)]
+pub(in crate::db) use crate::db::data::structural_field::primary_key_component::decode::validate_primary_key_component_binary_value_bytes;
 pub(in crate::db) use crate::db::data::structural_field::primary_key_component::{
-    decode::{
-        decode_primary_key_component_binary_value_bytes,
-        validate_primary_key_component_binary_value_bytes,
-    },
+    decode::decode_primary_key_component_binary_value_bytes,
     encode::encode_primary_key_component_binary_value_bytes,
 };
 
 /// Return whether this field kind is owned by the Structural Binary v1
 /// primary-key-component lane.
-pub(in crate::db) const fn supports_primary_key_component_binary_kind(kind: FieldKind) -> bool {
+pub(in crate::db) fn supports_primary_key_component_binary_kind(kind: &AcceptedFieldKind) -> bool {
     match kind {
-        FieldKind::Account
-        | FieldKind::Int8
-        | FieldKind::Int16
-        | FieldKind::Int32
-        | FieldKind::Int64
-        | FieldKind::Int128
-        | FieldKind::Principal
-        | FieldKind::Subaccount
-        | FieldKind::Timestamp
-        | FieldKind::Nat8
-        | FieldKind::Nat16
-        | FieldKind::Nat32
-        | FieldKind::Nat64
-        | FieldKind::Nat128
-        | FieldKind::Ulid
-        | FieldKind::Unit => true,
-        FieldKind::Relation { key_kind, .. } => {
-            supports_primary_key_component_binary_kind(*key_kind)
+        AcceptedFieldKind::Account
+        | AcceptedFieldKind::Int8
+        | AcceptedFieldKind::Int16
+        | AcceptedFieldKind::Int32
+        | AcceptedFieldKind::Int64
+        | AcceptedFieldKind::Int128
+        | AcceptedFieldKind::Principal
+        | AcceptedFieldKind::Subaccount
+        | AcceptedFieldKind::Timestamp
+        | AcceptedFieldKind::Nat8
+        | AcceptedFieldKind::Nat16
+        | AcceptedFieldKind::Nat32
+        | AcceptedFieldKind::Nat64
+        | AcceptedFieldKind::Nat128
+        | AcceptedFieldKind::Ulid
+        | AcceptedFieldKind::Unit => true,
+        AcceptedFieldKind::Relation { key_kind, .. } => {
+            supports_primary_key_component_binary_kind(key_kind)
         }
-        FieldKind::List(FieldKind::Relation { key_kind, .. })
-        | FieldKind::Set(FieldKind::Relation { key_kind, .. }) => {
-            supports_primary_key_component_binary_kind(**key_kind)
+        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner)
+            if matches!(inner.as_ref(), AcceptedFieldKind::Relation { .. }) =>
+        {
+            supports_primary_key_component_binary_kind(inner)
         }
         _ => false,
     }

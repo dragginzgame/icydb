@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.37` completes the architectural closeout by removing duplicate
+  application/model/codec authority and making runtime feature and failure
+  boundaries deterministic, fallible, and accepted-schema-driven.
+
 - `0.213.36` closes the first four repository-wide authority corrections,
   making schema identity, live recovery, recursive-type removal, and bounded
   application lifecycle consistently catalog-native. This pre-1.0 hard cut

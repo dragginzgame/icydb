@@ -5,7 +5,6 @@ pub use icydb_schema::Subaccount;
 use crate::{
     db::{EntityKeyBytes, EntityKeyBytesError, validate_entity_key_bytes_buffer},
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 
 impl EntityKeyBytes for Subaccount {
@@ -38,13 +37,3 @@ impl RuntimeValueDecode for Subaccount {
         }
     }
 }
-
-impl NormalizeAuto for Subaccount {}
-
-impl NormalizeCustom for Subaccount {}
-
-impl ValidateAuto for Subaccount {}
-
-impl ValidateCustom for Subaccount {}
-
-impl Visitable for Subaccount {}

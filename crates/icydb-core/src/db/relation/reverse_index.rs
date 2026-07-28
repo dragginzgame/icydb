@@ -6,6 +6,7 @@
 mod target_keys;
 
 use crate::{
+    db::schema::{FieldStorageDecode, LeafCodec},
     db::{
         Db,
         commit::PreparedIndexMutation,
@@ -37,7 +38,6 @@ use crate::{
         },
     },
     error::{InternalError, SchemaTransitionBudgetResource},
-    model::field::{FieldStorageDecode, LeafCodec},
     traits::CanisterKind,
     types::EntityTag,
 };
@@ -492,12 +492,14 @@ struct AcceptedRelationLocalComponents {
 }
 
 impl AcceptedRelationLocalComponents {
-    fn scalar(field_index: usize, field: AcceptedFieldDecodeContract<'_>) -> Self {
+    fn scalar(
+        field_index: usize,
+        field: AcceptedFieldDecodeContract<'_>,
+    ) -> Result<Self, InternalError> {
         Self::try_from_component_specs(&[AcceptedRelationLocalComponentSpec {
             index: field_index,
             field,
         }])
-        .expect("relation invariant")
     }
 
     fn try_from_component_specs(
@@ -788,7 +790,7 @@ where
             field.field_name(),
             edge.local_field_slots()[0],
             edge.physical_generation(),
-            AcceptedRelationLocalComponents::scalar(edge.local_field_slots()[0], *field),
+            AcceptedRelationLocalComponents::scalar(edge.local_field_slots()[0], *field)?,
             descriptor.into_target_contract(),
             cardinality,
         )?));
@@ -866,7 +868,7 @@ where
             edge.name(),
             *slot,
             edge.physical_generation(),
-            AcceptedRelationLocalComponents::scalar(*slot, *field),
+            AcceptedRelationLocalComponents::scalar(*slot, *field)?,
             descriptor.into_target_contract(),
             cardinality,
         );

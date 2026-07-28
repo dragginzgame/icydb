@@ -3,12 +3,10 @@ use crate::{
         CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate, normalize,
         normalize::{
             normalize_accepted_compare_fields_coercion, normalize_compare_value_for_accepted_kind,
-            normalize_compare_value_for_kind, normalize_value_for_accepted_kind,
-            normalize_value_for_kind,
+            normalize_value_for_accepted_kind,
         },
     },
     db::schema::AcceptedFieldKind,
-    model::field::FieldKind,
     value::Value,
 };
 
@@ -369,78 +367,7 @@ fn normalize_or_list_equality_literals_do_not_collapse_to_in() {
 }
 
 #[test]
-fn normalize_value_for_set_kind_canonicalizes_members() {
-    let normalized = normalize_value_for_kind(
-        "tags",
-        &Value::List(vec![
-            Value::Text("beta".to_string()),
-            Value::Text("alpha".to_string()),
-            Value::Text("beta".to_string()),
-        ]),
-        &FieldKind::Set(&FieldKind::Text { max_len: None }),
-        &CoercionSpec::new(CoercionId::Strict),
-        CompareOp::Eq,
-    )
-    .expect("set literal normalization should succeed");
-
-    assert_eq!(
-        normalized,
-        Value::List(vec![
-            Value::Text("alpha".to_string()),
-            Value::Text("beta".to_string()),
-        ]),
-        "set literal normalization should sort and deduplicate members",
-    );
-}
-
-#[test]
-fn normalize_compare_value_for_in_kind_canonicalizes_members() {
-    let normalized = normalize_compare_value_for_kind(
-        "rank",
-        CompareOp::In,
-        &Value::List(vec![
-            Value::Nat64(3),
-            Value::Nat64(1),
-            Value::Nat64(3),
-            Value::Nat64(2),
-        ]),
-        &FieldKind::Nat64,
-        &CoercionSpec::new(CoercionId::Strict),
-    )
-    .expect("IN literal normalization should succeed");
-
-    assert_eq!(
-        normalized,
-        Value::List(vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)]),
-        "IN literal normalization should sort and deduplicate members",
-    );
-}
-
-#[test]
-fn normalize_compare_value_for_not_in_kind_canonicalizes_members() {
-    let normalized = normalize_compare_value_for_kind(
-        "rank",
-        CompareOp::NotIn,
-        &Value::List(vec![
-            Value::Nat64(3),
-            Value::Nat64(1),
-            Value::Nat64(3),
-            Value::Nat64(2),
-        ]),
-        &FieldKind::Nat64,
-        &CoercionSpec::new(CoercionId::Strict),
-    )
-    .expect("NOT IN literal normalization should succeed");
-
-    assert_eq!(
-        normalized,
-        Value::List(vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)]),
-        "NOT IN literal normalization should sort and deduplicate members",
-    );
-}
-
-#[test]
-fn accepted_numeric_membership_normalization_matches_model_only_shape() {
+fn accepted_numeric_membership_normalization_is_canonical() {
     let value = Value::List(vec![
         Value::Int64(3),
         Value::Nat64(1),
@@ -449,7 +376,7 @@ fn accepted_numeric_membership_normalization_matches_model_only_shape() {
     ]);
     let coercion = CoercionSpec::new(CoercionId::Strict);
 
-    let accepted = normalize_compare_value_for_accepted_kind(
+    let normalized = normalize_compare_value_for_accepted_kind(
         "rank",
         CompareOp::In,
         &value,
@@ -457,18 +384,9 @@ fn accepted_numeric_membership_normalization_matches_model_only_shape() {
         &coercion,
     )
     .expect("accepted membership normalization should succeed");
-    let model = normalize_compare_value_for_kind(
-        "rank",
-        CompareOp::In,
-        &value,
-        &FieldKind::Nat64,
-        &coercion,
-    )
-    .expect("model-only membership normalization should succeed");
 
-    assert_eq!(accepted, model);
     assert_eq!(
-        accepted,
+        normalized,
         Value::List(vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)]),
     );
 }

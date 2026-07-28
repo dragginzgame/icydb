@@ -243,15 +243,13 @@ const fn phase_allows_aggregate(phase: SqlExprPhase) -> bool {
     matches!(phase, SqlExprPhase::PostAggregate)
 }
 
-fn phase_aggregate_error(phase: SqlExprPhase) -> SqlLoweringError {
+const fn phase_aggregate_error(phase: SqlExprPhase) -> SqlLoweringError {
     match phase {
         SqlExprPhase::Scalar => SqlLoweringError::unsupported_select_projection(),
         SqlExprPhase::Where | SqlExprPhase::PreAggregate => {
             SqlLoweringError::unsupported_aggregate_input_expressions()
         }
-        SqlExprPhase::PostAggregate => {
-            unreachable!("sql lowering invariant")
-        }
+        SqlExprPhase::PostAggregate => SqlLoweringError::unsupported_aggregate_input_expressions(),
     }
 }
 

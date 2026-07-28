@@ -664,42 +664,40 @@ mod accepted_enum_tests {
     use crate::{
         db::schema::{
             AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract, AcceptedSchemaRevision,
-            AcceptedValueCatalogHandle, build_initial_accepted_enum_catalog_from_kinds_for_tests,
+            AcceptedValueCatalogHandle, FieldStorageDecode, LeafCodec, TestEnumDefinition,
+            TestEnumVariant, build_accepted_enum_catalog_for_tests,
         },
-        model::field::{EnumVariantModel, FieldKind, FieldStorageDecode, LeafCodec},
         value::{ValueEnum, ValueTag},
     };
 
-    static UNIT_VARIANTS: [EnumVariantModel; 1] = [EnumVariantModel::new(
-        "Ready",
-        None,
-        FieldStorageDecode::ByKind,
-    )];
-    static UNIT_KIND: FieldKind = FieldKind::Enum {
-        path: "index::Status",
-        variants: &UNIT_VARIANTS,
-    };
-    static PAYLOAD_KIND: FieldKind = FieldKind::Nat64;
-    static PAYLOAD_VARIANTS: [EnumVariantModel; 1] = [EnumVariantModel::new(
-        "Value",
-        Some(&PAYLOAD_KIND),
-        FieldStorageDecode::ByKind,
-    )];
-    static PAYLOAD_ENUM_KIND: FieldKind = FieldKind::Enum {
-        path: "index::Payload",
-        variants: &PAYLOAD_VARIANTS,
-    };
+    fn unit_definition() -> TestEnumDefinition {
+        TestEnumDefinition::new("index::Status", vec![TestEnumVariant::unit("Ready")])
+    }
+
+    fn payload_definition() -> TestEnumDefinition {
+        TestEnumDefinition::new(
+            "index::Payload",
+            vec![TestEnumVariant::payload(
+                "Value",
+                AcceptedFieldKind::Nat64,
+                FieldStorageDecode::ByKind,
+            )],
+        )
+    }
 
     #[test]
     fn accepted_index_leaf_uses_catalog_ids_for_unit_enum_key() {
-        let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[UNIT_KIND])
+        let catalog = build_accepted_enum_catalog_for_tests(&[unit_definition()])
             .expect("unit enum catalog should build");
+        let type_id = catalog
+            .type_id("index::Status")
+            .expect("status type should exist");
         let handle = AcceptedValueCatalogHandle::new_for_tests(
             catalog,
             crate::db::schema::AcceptedCompositeCatalog::empty(),
             AcceptedSchemaRevision::INITIAL,
         );
-        let kind = AcceptedFieldKind::from_model_kind(UNIT_KIND);
+        let kind = AcceptedFieldKind::Enum { type_id };
         let field = AcceptedFieldDecodeContract::new(
             "status",
             &kind,
@@ -720,15 +718,17 @@ mod accepted_enum_tests {
 
     #[test]
     fn accepted_index_leaf_rejects_payload_enum_without_stable_key_capability() {
-        let catalog =
-            build_initial_accepted_enum_catalog_from_kinds_for_tests(&[PAYLOAD_ENUM_KIND])
-                .expect("payload enum catalog should build");
+        let catalog = build_accepted_enum_catalog_for_tests(&[payload_definition()])
+            .expect("payload enum catalog should build");
+        let type_id = catalog
+            .type_id("index::Payload")
+            .expect("payload type should exist");
         let handle = AcceptedValueCatalogHandle::new_for_tests(
             catalog,
             crate::db::schema::AcceptedCompositeCatalog::empty(),
             AcceptedSchemaRevision::INITIAL,
         );
-        let kind = AcceptedFieldKind::from_model_kind(PAYLOAD_ENUM_KIND);
+        let kind = AcceptedFieldKind::Enum { type_id };
         let field = AcceptedFieldDecodeContract::new(
             "payload",
             &kind,

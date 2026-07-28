@@ -3,6 +3,7 @@
 #[cfg(any(test, feature = "sql"))]
 use crate::db::schema::check::MAX_CHECK_EXPR_V1_MEMBERSHIP_ITEMS;
 use crate::{
+    db::schema::{FieldStorageDecode, LeafCodec},
     db::{
         data::encode_input_value_for_candidate_field_contract,
         schema::{
@@ -13,7 +14,6 @@ use crate::{
             check::{AcceptedCheckExprV1Error, nat64_codec, nat64_kind},
         },
     },
-    model::field::{FieldStorageDecode, LeafCodec},
     types::EntityTag,
     value::{InputValue, InputValueEnum},
 };

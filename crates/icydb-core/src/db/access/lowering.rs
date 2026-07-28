@@ -85,7 +85,7 @@ impl LoweredAccessError {
 }
 
 /// Lower an access plan using accepted index contracts for enum equality
-/// components while preserving the context-free model-only test lane.
+/// components.
 pub(in crate::db) fn lower_access_with_schema_info<'a, K>(
     entity_tag: EntityTag,
     access: &'a AccessPlan<K>,

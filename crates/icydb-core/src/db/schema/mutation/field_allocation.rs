@@ -5,7 +5,7 @@ use crate::db::schema::{
     PersistedFieldSnapshot, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill,
     SchemaInsertDefault,
 };
-use crate::model::field::{FieldStorageDecode, LeafCodec};
+use crate::db::schema::{FieldStorageDecode, LeafCodec};
 
 /// Field addition candidate resolution failures for SQL DDL-authored schema
 /// mutations.
@@ -62,9 +62,9 @@ pub(in crate::db) fn build_sql_ddl_field_addition_candidate(
     };
 
     Ok(PersistedFieldSnapshot::new_with_write_policy_and_origin(
-        next_sql_ddl_field_id(accepted_before),
+        next_sql_ddl_field_id(accepted_before)?,
         name,
-        next_sql_ddl_field_slot(accepted_before),
+        next_sql_ddl_field_slot(accepted_before)?,
         kind,
         Vec::new(),
         nullable,
@@ -78,18 +78,23 @@ pub(in crate::db) fn build_sql_ddl_field_addition_candidate(
     ))
 }
 
-fn next_sql_ddl_field_id(accepted_before: &AcceptedSchemaSnapshot) -> FieldId {
+fn next_sql_ddl_field_id(
+    accepted_before: &AcceptedSchemaSnapshot,
+) -> Result<FieldId, SchemaDdlFieldAdditionCandidateError> {
     let next = u32::try_from(accepted_before.persisted_snapshot().fields().len())
         .ok()
         .and_then(|count| count.checked_add(1))
-        .expect("accepted field IDs should not be exhausted");
+        .ok_or(SchemaDdlFieldAdditionCandidateError::RowLayoutVersionExhausted)?;
 
-    FieldId::new(next)
+    Ok(FieldId::new(next))
 }
 
-fn next_sql_ddl_field_slot(accepted_before: &AcceptedSchemaSnapshot) -> SchemaFieldSlot {
+fn next_sql_ddl_field_slot(
+    accepted_before: &AcceptedSchemaSnapshot,
+) -> Result<SchemaFieldSlot, SchemaDdlFieldAdditionCandidateError> {
     accepted_before
         .persisted_snapshot()
         .row_layout()
         .next_unallocated_slot()
+        .ok_or(SchemaDdlFieldAdditionCandidateError::RowLayoutVersionExhausted)
 }

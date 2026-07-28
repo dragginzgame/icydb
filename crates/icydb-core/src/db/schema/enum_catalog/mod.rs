@@ -11,21 +11,16 @@ mod publication;
 mod value_wire;
 
 use crate::{
+    db::schema::FieldStorageDecode,
     db::schema::{
         AcceptedFieldKind, MAX_ACCEPTED_RECURSIVE_DEPTH,
         composite_catalog::AcceptedCompositeCatalog,
     },
-    model::field::FieldStorageDecode,
     value::{CanonicalEnumBody, CanonicalEnumValue},
     value::{RuntimeEnumContext, RuntimeEnumSelection},
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-
-#[cfg(test)]
-use crate::db::schema::composite_catalog::CompositeTypeId;
-#[cfg(test)]
-use crate::model::field::{EnumVariantModel, FieldKind};
 
 pub(in crate::db) use crate::value::{EnumTypeId, EnumVariantId};
 #[cfg(any(test, feature = "sql"))]
@@ -452,14 +447,6 @@ impl AcceptedEnumCatalog {
     }
 }
 
-/// Build the empty accepted enum catalog used by catalog-native unit tests.
-#[cfg(test)]
-pub(in crate::db) fn build_initial_accepted_enum_catalog(
-    _definitions: &[()],
-) -> Result<AcceptedEnumCatalog, EnumCatalogBuildError> {
-    AcceptedEnumCatalog::from_initial_definitions(BTreeMap::new())
-}
-
 impl RuntimeEnumContext for AcceptedEnumCatalog {
     fn resolve_enum<'a>(
         &'a self,
@@ -674,8 +661,6 @@ pub(in crate::db) enum EnumCatalogBuildError {
         path: String,
     },
     #[cfg(test)]
-    ContractDepthExceeded,
-    #[cfg(test)]
     EnumTypeIdExhausted,
     #[cfg(test)]
     EnumVariantIdExhausted {
@@ -685,16 +670,12 @@ pub(in crate::db) enum EnumCatalogBuildError {
     UnknownEnumPath {
         path: String,
     },
-    #[cfg(test)]
-    CompositeCatalogRequired {
-        path: String,
-    },
     LookupMapInvariant,
 }
 
 #[cfg(test)]
 struct RawEnumVariantProposal {
-    payload_kind: Option<FieldKind>,
+    payload_kind: Option<AcceptedFieldKind>,
     payload_storage_decode: FieldStorageDecode,
 }
 
@@ -703,200 +684,102 @@ struct RawEnumDefinitionProposal {
     variants: BTreeMap<String, RawEnumVariantProposal>,
 }
 
+/// Accepted-native enum definition fixture for catalog codec and boundary tests.
 #[cfg(test)]
-fn build_initial_accepted_enum_catalog_from_kinds(
-    kinds: &[FieldKind],
+pub(in crate::db) struct TestEnumDefinition {
+    path: &'static str,
+    variants: Vec<TestEnumVariant>,
+}
+
+#[cfg(test)]
+impl TestEnumDefinition {
+    pub(in crate::db) fn new(path: &'static str, variants: Vec<TestEnumVariant>) -> Self {
+        Self { path, variants }
+    }
+}
+
+/// Accepted-native enum variant fixture.
+#[cfg(test)]
+pub(in crate::db) struct TestEnumVariant {
+    name: &'static str,
+    payload: Option<(AcceptedFieldKind, FieldStorageDecode)>,
+}
+
+#[cfg(test)]
+impl TestEnumVariant {
+    pub(in crate::db) const fn unit(name: &'static str) -> Self {
+        Self {
+            name,
+            payload: None,
+        }
+    }
+
+    pub(in crate::db) const fn payload(
+        name: &'static str,
+        kind: AcceptedFieldKind,
+        storage_decode: FieldStorageDecode,
+    ) -> Self {
+        Self {
+            name,
+            payload: Some((kind, storage_decode)),
+        }
+    }
+}
+
+#[cfg(test)]
+pub(in crate::db) fn empty_accepted_enum_catalog_for_tests() -> AcceptedEnumCatalog {
+    AcceptedEnumCatalog::from_initial_definitions(BTreeMap::new())
+        .expect("empty accepted enum catalog is valid")
+}
+
+#[cfg(test)]
+pub(in crate::db) fn build_accepted_enum_catalog_for_tests(
+    definitions: &[TestEnumDefinition],
 ) -> Result<AcceptedEnumCatalog, EnumCatalogBuildError> {
-    build_initial_accepted_enum_catalog_from_kinds_with_composite_ids(kinds, &BTreeMap::new())
-}
-
-#[cfg(test)]
-pub(in crate::db::schema) fn build_initial_accepted_enum_catalog_from_kinds_with_composite_ids(
-    kinds: &[FieldKind],
-    composite_ids: &BTreeMap<String, CompositeTypeId>,
-) -> Result<AcceptedEnumCatalog, EnumCatalogBuildError> {
-    let mut definitions = BTreeMap::<String, Vec<RawEnumDefinitionProposal>>::new();
-    for kind in kinds {
-        collect_enum_definitions_from_kind(*kind, &mut definitions, &mut Vec::new(), 0)?;
-    }
-
-    build_catalog_from_definitions(definitions, composite_ids)
-}
-
-#[cfg(test)]
-pub(in crate::db) fn build_initial_accepted_enum_catalog_from_kinds_for_tests(
-    kinds: &[FieldKind],
-) -> Result<AcceptedEnumCatalog, ()> {
-    build_initial_accepted_enum_catalog_from_kinds(kinds).map_err(|_| ())
-}
-
-#[cfg(test)]
-fn collect_enum_definitions_from_kind(
-    kind: FieldKind,
-    definitions: &mut BTreeMap<String, Vec<RawEnumDefinitionProposal>>,
-    active_paths: &mut Vec<String>,
-    depth: usize,
-) -> Result<(), EnumCatalogBuildError> {
-    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
-        return Err(EnumCatalogBuildError::ContractDepthExceeded);
-    }
-
-    match kind {
-        FieldKind::Enum { path, variants } => {
-            collect_enum_definition(path, variants, definitions, active_paths, depth)?;
+    let mut proposals = BTreeMap::<String, Vec<RawEnumDefinitionProposal>>::new();
+    for definition in definitions {
+        if definition.path.is_empty() {
+            return Err(EnumCatalogBuildError::EmptyTypePath);
         }
-        FieldKind::Relation { key_kind, .. }
-        | FieldKind::List(key_kind)
-        | FieldKind::Set(key_kind) => collect_enum_definitions_from_kind(
-            *key_kind,
-            definitions,
-            active_paths,
-            depth.saturating_add(1),
-        )?,
-        FieldKind::Map { key, value } => {
-            collect_enum_definitions_from_kind(
-                *key,
-                definitions,
-                active_paths,
-                depth.saturating_add(1),
-            )?;
-            collect_enum_definitions_from_kind(
-                *value,
-                definitions,
-                active_paths,
-                depth.saturating_add(1),
-            )?;
-        }
-        FieldKind::Composite { shape, .. } => match shape {
-            crate::model::field::CompositeShapeModel::Record(fields) => {
-                for field in *fields {
-                    collect_enum_definitions_from_kind(
-                        field.kind(),
-                        definitions,
-                        active_paths,
-                        depth.saturating_add(1),
-                    )?;
-                }
+        let mut variants = BTreeMap::new();
+        for variant in &definition.variants {
+            if variant.name.is_empty() {
+                return Err(EnumCatalogBuildError::EmptyVariantName {
+                    path: definition.path.to_string(),
+                });
             }
-            crate::model::field::CompositeShapeModel::Tuple(elements) => {
-                for element in *elements {
-                    collect_enum_definitions_from_kind(
-                        element.kind(),
-                        definitions,
-                        active_paths,
-                        depth.saturating_add(1),
-                    )?;
-                }
-            }
-            crate::model::field::CompositeShapeModel::Newtype(inner) => {
-                collect_enum_definitions_from_kind(
-                    inner.kind(),
-                    definitions,
-                    active_paths,
-                    depth.saturating_add(1),
-                )?;
-            }
-        },
-        FieldKind::Account
-        | FieldKind::Blob { .. }
-        | FieldKind::Bool
-        | FieldKind::Date
-        | FieldKind::Decimal { .. }
-        | FieldKind::Duration
-        | FieldKind::Float32
-        | FieldKind::Float64
-        | FieldKind::Int8
-        | FieldKind::Int16
-        | FieldKind::Int32
-        | FieldKind::Int64
-        | FieldKind::Int128
-        | FieldKind::IntBig { .. }
-        | FieldKind::Principal
-        | FieldKind::Subaccount
-        | FieldKind::Text { .. }
-        | FieldKind::Timestamp
-        | FieldKind::Nat8
-        | FieldKind::Nat16
-        | FieldKind::Nat32
-        | FieldKind::Nat64
-        | FieldKind::Nat128
-        | FieldKind::NatBig { .. }
-        | FieldKind::Ulid
-        | FieldKind::Unit => {}
-    }
-
-    Ok(())
-}
-
-#[cfg(test)]
-fn collect_enum_definition(
-    path: &str,
-    variants: &[EnumVariantModel],
-    definitions: &mut BTreeMap<String, Vec<RawEnumDefinitionProposal>>,
-    active_paths: &mut Vec<String>,
-    depth: usize,
-) -> Result<(), EnumCatalogBuildError> {
-    if path.is_empty() {
-        return Err(EnumCatalogBuildError::EmptyTypePath);
-    }
-    if active_paths.iter().any(|active| active == path) {
-        return Ok(());
-    }
-
-    let mut variant_names = BTreeSet::new();
-    for variant in variants {
-        if variant.ident().is_empty() {
-            return Err(EnumCatalogBuildError::EmptyVariantName {
-                path: path.to_string(),
-            });
-        }
-        if !variant_names.insert(variant.ident()) {
-            return Err(EnumCatalogBuildError::DuplicateVariantName {
-                path: path.to_string(),
-                name: variant.ident().to_string(),
-            });
-        }
-    }
-
-    active_paths.push(path.to_string());
-    for variant in variants {
-        if let Some(payload_kind) = variant.payload_kind() {
-            collect_enum_definitions_from_kind(
-                payload_kind,
-                definitions,
-                active_paths,
-                depth.saturating_add(1),
-            )?;
-        }
-    }
-    active_paths.pop();
-
-    let proposal_variants = variants
-        .iter()
-        .map(|variant| {
-            (
-                variant.ident().to_string(),
-                RawEnumVariantProposal {
-                    payload_kind: variant.payload_kind(),
-                    payload_storage_decode: variant.payload_storage_decode(),
+            let proposal = match &variant.payload {
+                Some((kind, storage_decode)) => RawEnumVariantProposal {
+                    payload_kind: Some(kind.clone()),
+                    payload_storage_decode: *storage_decode,
                 },
-            )
-        })
-        .collect();
-    definitions
-        .entry(path.to_string())
-        .or_default()
-        .push(RawEnumDefinitionProposal {
-            variants: proposal_variants,
-        });
+                None => RawEnumVariantProposal {
+                    payload_kind: None,
+                    payload_storage_decode: FieldStorageDecode::ByKind,
+                },
+            };
+            if variants
+                .insert(variant.name.to_string(), proposal)
+                .is_some()
+            {
+                return Err(EnumCatalogBuildError::DuplicateVariantName {
+                    path: definition.path.to_string(),
+                    name: variant.name.to_string(),
+                });
+            }
+        }
+        proposals
+            .entry(definition.path.to_string())
+            .or_default()
+            .push(RawEnumDefinitionProposal { variants });
+    }
 
-    Ok(())
+    build_catalog_from_definitions(proposals)
 }
 
 #[cfg(test)]
 fn build_catalog_from_definitions(
     definitions: BTreeMap<String, Vec<RawEnumDefinitionProposal>>,
-    composite_ids: &BTreeMap<String, CompositeTypeId>,
 ) -> Result<AcceptedEnumCatalog, EnumCatalogBuildError> {
     let mut id_by_path = BTreeMap::new();
     let mut last_type_id = None;
@@ -913,13 +796,8 @@ fn build_catalog_from_definitions(
             .copied()
             .ok_or_else(|| EnumCatalogBuildError::UnknownEnumPath { path: path.clone() })?;
         let variant_ids = allocate_variant_ids(&path, &proposals)?;
-        let accepted_definition = accepted_enum_type_from_proposals(
-            &path,
-            proposals,
-            &id_by_path,
-            composite_ids,
-            &variant_ids,
-        )?;
+        let accepted_definition =
+            accepted_enum_type_from_proposals(&path, proposals, &variant_ids)?;
         by_id.insert(type_id, accepted_definition);
     }
 
@@ -959,19 +837,11 @@ fn allocate_variant_ids(
 fn accepted_enum_type_from_proposals(
     path: &str,
     proposals: Vec<RawEnumDefinitionProposal>,
-    id_by_path: &BTreeMap<String, EnumTypeId>,
-    composite_ids: &BTreeMap<String, CompositeTypeId>,
     variant_id_by_name: &BTreeMap<String, EnumVariantId>,
 ) -> Result<AcceptedEnumType, EnumCatalogBuildError> {
     let mut accepted_definition = None;
     for proposal in proposals {
-        let candidate = accepted_enum_type_from_proposal(
-            path,
-            proposal,
-            id_by_path,
-            composite_ids,
-            variant_id_by_name,
-        )?;
+        let candidate = accepted_enum_type_from_proposal(path, proposal, variant_id_by_name)?;
         if let Some(accepted) = accepted_definition.as_ref()
             && accepted != &candidate
         {
@@ -991,8 +861,6 @@ fn accepted_enum_type_from_proposals(
 fn accepted_enum_type_from_proposal(
     path: &str,
     proposal: RawEnumDefinitionProposal,
-    id_by_path: &BTreeMap<String, EnumTypeId>,
-    composite_ids: &BTreeMap<String, CompositeTypeId>,
     variant_id_by_name: &BTreeMap<String, EnumVariantId>,
 ) -> Result<AcceptedEnumType, EnumCatalogBuildError> {
     let mut variants_by_id = BTreeMap::new();
@@ -1007,7 +875,7 @@ fn accepted_enum_type_from_proposal(
         let body = match proposal.payload_kind {
             Some(kind) => AcceptedEnumVariantBody::Payload {
                 contract: AcceptedValueContract {
-                    kind: accepted_field_kind_from_model(kind, id_by_path, composite_ids, 0)?,
+                    kind,
                     storage_decode: proposal.payload_storage_decode,
                 },
             },
@@ -1028,107 +896,6 @@ fn accepted_enum_type_from_proposal(
         variants_by_id,
         variant_id_by_name: candidate_variant_id_by_name,
         ordering: EnumOrderingPolicy::EqualityOnly,
-    })
-}
-
-#[cfg(test)]
-fn accepted_field_kind_from_model(
-    kind: FieldKind,
-    id_by_path: &BTreeMap<String, EnumTypeId>,
-    composite_id_by_path: &BTreeMap<String, CompositeTypeId>,
-    depth: usize,
-) -> Result<AcceptedFieldKind, EnumCatalogBuildError> {
-    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
-        return Err(EnumCatalogBuildError::ContractDepthExceeded);
-    }
-
-    Ok(match kind {
-        FieldKind::Account => AcceptedFieldKind::Account,
-        FieldKind::Blob { max_len } => AcceptedFieldKind::Blob { max_len },
-        FieldKind::Bool => AcceptedFieldKind::Bool,
-        FieldKind::Date => AcceptedFieldKind::Date,
-        FieldKind::Decimal { scale } => AcceptedFieldKind::Decimal { scale },
-        FieldKind::Duration => AcceptedFieldKind::Duration,
-        FieldKind::Enum { path, .. } => AcceptedFieldKind::Enum {
-            type_id: id_by_path.get(path).copied().ok_or_else(|| {
-                EnumCatalogBuildError::UnknownEnumPath {
-                    path: path.to_string(),
-                }
-            })?,
-        },
-        FieldKind::Float32 => AcceptedFieldKind::Float32,
-        FieldKind::Float64 => AcceptedFieldKind::Float64,
-        FieldKind::Int8 => AcceptedFieldKind::Int8,
-        FieldKind::Int16 => AcceptedFieldKind::Int16,
-        FieldKind::Int32 => AcceptedFieldKind::Int32,
-        FieldKind::Int64 => AcceptedFieldKind::Int64,
-        FieldKind::Int128 => AcceptedFieldKind::Int128,
-        FieldKind::IntBig { max_bytes } => AcceptedFieldKind::IntBig { max_bytes },
-        FieldKind::Principal => AcceptedFieldKind::Principal,
-        FieldKind::Subaccount => AcceptedFieldKind::Subaccount,
-        FieldKind::Text { max_len } => AcceptedFieldKind::Text { max_len },
-        FieldKind::Timestamp => AcceptedFieldKind::Timestamp,
-        FieldKind::Nat8 => AcceptedFieldKind::Nat8,
-        FieldKind::Nat16 => AcceptedFieldKind::Nat16,
-        FieldKind::Nat32 => AcceptedFieldKind::Nat32,
-        FieldKind::Nat64 => AcceptedFieldKind::Nat64,
-        FieldKind::Nat128 => AcceptedFieldKind::Nat128,
-        FieldKind::NatBig { max_bytes } => AcceptedFieldKind::NatBig { max_bytes },
-        FieldKind::Ulid => AcceptedFieldKind::Ulid,
-        FieldKind::Unit => AcceptedFieldKind::Unit,
-        FieldKind::Relation {
-            target_path,
-            target_entity_name,
-            target_entity_tag,
-            target_store_path,
-            key_kind,
-        } => AcceptedFieldKind::Relation {
-            target_path: target_path.to_string(),
-            target_entity_name: target_entity_name.to_string(),
-            target_entity_tag,
-            target_store_path: target_store_path.to_string(),
-            key_kind: Box::new(accepted_field_kind_from_model(
-                *key_kind,
-                id_by_path,
-                composite_id_by_path,
-                depth.saturating_add(1),
-            )?),
-        },
-        FieldKind::List(inner) => {
-            AcceptedFieldKind::List(Box::new(accepted_field_kind_from_model(
-                *inner,
-                id_by_path,
-                composite_id_by_path,
-                depth.saturating_add(1),
-            )?))
-        }
-        FieldKind::Set(inner) => AcceptedFieldKind::Set(Box::new(accepted_field_kind_from_model(
-            *inner,
-            id_by_path,
-            composite_id_by_path,
-            depth.saturating_add(1),
-        )?)),
-        FieldKind::Map { key, value } => AcceptedFieldKind::Map {
-            key: Box::new(accepted_field_kind_from_model(
-                *key,
-                id_by_path,
-                composite_id_by_path,
-                depth.saturating_add(1),
-            )?),
-            value: Box::new(accepted_field_kind_from_model(
-                *value,
-                id_by_path,
-                composite_id_by_path,
-                depth.saturating_add(1),
-            )?),
-        },
-        FieldKind::Composite { path, .. } => AcceptedFieldKind::Composite {
-            type_id: composite_id_by_path.get(path).copied().ok_or_else(|| {
-                EnumCatalogBuildError::CompositeCatalogRequired {
-                    path: path.to_string(),
-                }
-            })?,
-        },
     })
 }
 

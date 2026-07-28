@@ -2,9 +2,8 @@
 
 pub use icydb_schema::{Float32, Float32DecodeError};
 
-use crate::{
-    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
+use crate::value::{
+    RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value,
 };
 
 impl RuntimeValueMeta for Float32 {
@@ -27,13 +26,3 @@ impl RuntimeValueDecode for Float32 {
         }
     }
 }
-
-impl NormalizeAuto for Float32 {}
-
-impl NormalizeCustom for Float32 {}
-
-impl ValidateAuto for Float32 {}
-
-impl ValidateCustom for Float32 {}
-
-impl Visitable for Float32 {}

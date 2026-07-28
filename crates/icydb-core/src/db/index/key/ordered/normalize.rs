@@ -61,8 +61,7 @@ fn write_u128_decimal_digits(mut value: u128, out: &mut [u8; DECIMAL_DIGIT_BUFFE
         write_idx = write_idx.saturating_sub(1);
         let remainder = value % 10;
         debug_assert!(remainder <= 9, "decimal digit remainder must be in 0..=9");
-        out[write_idx] =
-            digit_to_ascii(u32::try_from(remainder).expect("decimal remainder should fit u32"));
+        out[write_idx] = digit_to_ascii(u32::try_from(remainder).unwrap_or_default());
         value /= 10;
 
         if value == 0 {
@@ -151,11 +150,11 @@ fn u32_limbs_to_decimal_digits(mut quotient: Vec<u32>) -> Vec<u8> {
         for limb in quotient.iter_mut().rev() {
             let value = (remainder << 32) | u64::from(*limb);
             let quotient_limb = value / BIGINT_DECIMAL_CHUNK_BASE;
-            *limb = u32::try_from(quotient_limb).expect("quotient limb always fits in u32");
+            *limb = u32::try_from(quotient_limb).unwrap_or_default();
             remainder = value % BIGINT_DECIMAL_CHUNK_BASE;
         }
 
-        chunks.push(u32::try_from(remainder).expect("remainder always fits in u32"));
+        chunks.push(u32::try_from(remainder).unwrap_or_default());
         trim_zero_limbs(&mut quotient);
     }
 
@@ -214,7 +213,7 @@ fn digit_to_ascii(value: u32) -> u8 {
     const DECIMAL_DIGITS: [u8; 10] = *b"0123456789";
 
     debug_assert!(value <= 9, "decimal digit must be in 0..=9");
-    let index = usize::try_from(value).expect("decimal digit should fit usize");
+    let index = usize::try_from(value).unwrap_or_default();
 
     DECIMAL_DIGITS.get(index).copied().unwrap_or(b'0')
 }

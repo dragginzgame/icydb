@@ -465,12 +465,20 @@ impl IndexStore {
 
     /// Return the monotonic perf-only count of index range traversal probes seen by this process.
     #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+    #[cfg_attr(
+        all(test, not(feature = "diagnostics")),
+        expect(dead_code, reason = "counter is consumed by diagnostics-shaped tests")
+    )]
     pub(in crate::db) fn current_range_scan_call_count() -> u64 {
         INDEX_STORE_RANGE_SCAN_CALL_COUNT.with(Cell::get)
     }
 
     /// Return the monotonic perf-only count of index entries yielded by traversal.
     #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+    #[cfg_attr(
+        all(test, not(feature = "diagnostics")),
+        expect(dead_code, reason = "counter is consumed by diagnostics-shaped tests")
+    )]
     pub(in crate::db) fn current_entry_read_count() -> u64 {
         INDEX_STORE_ENTRY_READ_COUNT.with(Cell::get)
     }

@@ -5,7 +5,7 @@
 
 mod identity;
 
-#[cfg(any(test, feature = "sql-explain"))]
+#[cfg(feature = "sql-explain")]
 use crate::db::TraceReuseEvent;
 #[cfg(any(test, feature = "sql"))]
 use crate::db::commit::CommitSchemaFingerprint;
@@ -135,7 +135,7 @@ fn accepted_schema_has_expression_indexes(accepted_schema: &AcceptedSchemaSnapsh
 
 // Map one shared query-plan cache attribution outcome onto the explicit reuse
 // event owned by the current cache contract.
-#[cfg(any(test, feature = "sql-explain"))]
+#[cfg(feature = "sql-explain")]
 pub(in crate::db::session) const fn query_plan_cache_reuse_event(
     attribution: QueryPlanCacheAttribution,
 ) -> TraceReuseEvent {

@@ -5,7 +5,7 @@
 
 #[cfg(test)]
 mod counters;
-#[cfg(test)]
+#[cfg(all(test, feature = "sql-explain"))]
 mod node;
 
 use crate::db::{

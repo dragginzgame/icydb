@@ -6,7 +6,6 @@ use crate::{
     db::{EntityKey, EntityKeyBytes, EntityKeyBytesError, KeyValueCodec},
     types::{GenerateKey, Subaccount},
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 use candid::CandidType;
 use serde::{Deserialize, de::Deserializer};
@@ -148,9 +147,13 @@ where
     /// key type supports local generation.
     ///
     /// This method does not imply persistence or existence.
-    #[must_use]
-    pub fn generate() -> Self {
-        Self::from_key(E::Key::generate())
+    ///
+    /// # Errors
+    ///
+    /// Returns an internal generation error when the key generator cannot
+    /// obtain entropy or exhausts its monotonic sequence.
+    pub fn generate() -> Result<Self, crate::error::InternalError> {
+        E::Key::generate().map(Self::from_key)
     }
 }
 
@@ -320,12 +323,6 @@ where
         Ok(Self::from_key(key))
     }
 }
-
-impl<E> NormalizeAuto for Id<E> where E: EntityKey {}
-impl<E> NormalizeCustom for Id<E> where E: EntityKey {}
-impl<E> ValidateAuto for Id<E> where E: EntityKey {}
-impl<E> ValidateCustom for Id<E> where E: EntityKey {}
-impl<E> Visitable for Id<E> where E: EntityKey {}
 
 // ----------------------------------------------------------------------
 // Tests

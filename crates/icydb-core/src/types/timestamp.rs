@@ -7,7 +7,6 @@ use crate::{
     runtime::now_millis,
     traits::Repr,
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 
 /// Runtime clock access for the engine-neutral timestamp atom.
@@ -65,16 +64,6 @@ impl RuntimeValueDecode for Timestamp {
         }
     }
 }
-
-impl NormalizeAuto for Timestamp {}
-
-impl NormalizeCustom for Timestamp {}
-
-impl ValidateAuto for Timestamp {}
-
-impl ValidateCustom for Timestamp {}
-
-impl Visitable for Timestamp {}
 
 #[cfg(test)]
 mod tests;

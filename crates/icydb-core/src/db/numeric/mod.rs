@@ -145,7 +145,7 @@ pub(in crate::db) fn decimal_sign(decimal: Decimal) -> Decimal {
         Ordering::Greater => 1,
     };
 
-    Decimal::from_i64(sign).expect("small sign values must fit decimal")
+    Decimal::from_i64(sign).unwrap_or(Decimal::ZERO)
 }
 
 /// Compute decimal square root under checked SQL numeric evaluation semantics.
@@ -243,7 +243,7 @@ pub(in crate::db) fn decimal_log_base_checked(
     base: Decimal,
     value: Decimal,
 ) -> Result<Decimal, NumericEvalError> {
-    if base <= Decimal::ZERO || base == Decimal::from_i64(1).expect("one fits decimal") {
+    if base <= Decimal::ZERO || base == Decimal::from_i64(1).unwrap_or(Decimal::ZERO) {
         return Err(NumericEvalError::NotRepresentable);
     }
     if value <= Decimal::ZERO {

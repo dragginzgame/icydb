@@ -7,7 +7,7 @@ mod capability_facts;
 mod execution;
 mod shape;
 
-#[cfg(any(test, feature = "sql-explain"))]
+#[cfg(feature = "sql-explain")]
 pub(in crate::db::executor) use crate::db::executor::ContinuationMode;
 pub(in crate::db::executor) use crate::db::executor::{AccessWindow, RouteContinuationPlan};
 pub(in crate::db::executor) use capability_facts::RouteCapabilityFacts;

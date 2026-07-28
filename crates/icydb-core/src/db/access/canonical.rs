@@ -157,13 +157,13 @@ impl AccessPlan<Value> {
             return Self::full_scan();
         }
         if out.len() == 1 {
-            return out.pop().expect("single composite child");
+            return out.pop().unwrap_or_else(Self::full_scan);
         }
 
         canonicalize_access_plans_value(&mut out);
         dedup_sorted_access_plans(&mut out);
         if out.len() == 1 {
-            return out.pop().expect("single composite child");
+            return out.pop().unwrap_or_else(Self::full_scan);
         }
 
         if is_union {

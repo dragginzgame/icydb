@@ -9,8 +9,8 @@ use crate::{
         primary_key_component::supports_primary_key_component_binary_kind,
     },
     db::key_taxonomy::PrimaryKeyComponent,
+    db::schema::AcceptedFieldKind,
     error::InternalError,
-    model::field::FieldKind,
     value::Value,
 };
 
@@ -18,7 +18,7 @@ use crate::{
 /// v1 primary-key-component lane.
 pub(in crate::db) fn encode_relation_target_primary_key_components_binary_bytes(
     keys: &[PrimaryKeyComponent],
-    kind: FieldKind,
+    kind: &AcceptedFieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     let mut encoded = Vec::new();
@@ -36,7 +36,7 @@ pub(in crate::db) fn encode_relation_target_primary_key_components_binary_bytes(
 /// primary-key-component lane.
 pub(in crate::db) fn encode_primary_key_component_field_binary_bytes(
     key: PrimaryKeyComponent,
-    kind: FieldKind,
+    kind: &AcceptedFieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     let mut encoded = Vec::new();
@@ -48,7 +48,7 @@ pub(in crate::db) fn encode_primary_key_component_field_binary_bytes(
 /// Encode one primary-key-component runtime value through the owner-local
 /// Structural Binary v1 lane.
 pub(in crate::db) fn encode_primary_key_component_binary_value_bytes(
-    kind: FieldKind,
+    kind: &AcceptedFieldKind,
     value: &Value,
     field_name: &str,
 ) -> Result<Option<Vec<u8>>, InternalError> {
@@ -57,15 +57,16 @@ pub(in crate::db) fn encode_primary_key_component_binary_value_bytes(
     }
 
     let encoded = match kind {
-        FieldKind::Relation { .. } => {
+        AcceptedFieldKind::Relation { .. } => {
             let keys = match value {
                 Value::Null => Vec::new(),
                 value => vec![primary_key_component_from_runtime_value(value, field_name)?],
             };
             encode_relation_target_primary_key_components_binary_bytes(&keys, kind, field_name)?
         }
-        FieldKind::List(FieldKind::Relation { .. })
-        | FieldKind::Set(FieldKind::Relation { .. }) => {
+        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner)
+            if matches!(inner.as_ref(), AcceptedFieldKind::Relation { .. }) =>
+        {
             let Value::List(items) = value else {
                 return Err(InternalError::persisted_row_field_encode_internal(
                     field_name,
@@ -100,31 +101,37 @@ pub(in crate::db) fn encode_primary_key_component_binary_value_bytes(
 fn encode_relation_target_primary_key_components_binary_into(
     out: &mut Vec<u8>,
     keys: &[PrimaryKeyComponent],
-    kind: FieldKind,
+    kind: &AcceptedFieldKind,
     field_name: &str,
 ) -> Result<(), InternalError> {
     match kind {
-        FieldKind::Relation { key_kind, .. } => match keys {
+        AcceptedFieldKind::Relation { key_kind, .. } => match keys {
             [] => {
                 push_binary_null(out);
                 Ok(())
             }
             [key] => {
-                encode_primary_key_component_field_binary_into(out, *key, *key_kind, field_name)
+                encode_primary_key_component_field_binary_into(out, *key, key_kind, field_name)
             }
             _ => Err(InternalError::persisted_row_field_encode_internal(
                 field_name,
             )),
         },
-        FieldKind::List(FieldKind::Relation { key_kind, .. })
-        | FieldKind::Set(FieldKind::Relation { key_kind, .. }) => {
-            push_binary_list_len(out, keys.len());
-            for key in keys {
-                encode_primary_key_component_field_binary_into(out, *key, **key_kind, field_name)?;
-            }
+        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => match inner.as_ref() {
+            AcceptedFieldKind::Relation { key_kind, .. } => {
+                push_binary_list_len(out, keys.len());
+                for key in keys {
+                    encode_primary_key_component_field_binary_into(
+                        out, *key, key_kind, field_name,
+                    )?;
+                }
 
-            Ok(())
-        }
+                Ok(())
+            }
+            _ => Err(InternalError::persisted_row_field_encode_internal(
+                field_name,
+            )),
+        },
         _ => Err(InternalError::persisted_row_field_encode_internal(
             field_name,
         )),
@@ -136,12 +143,12 @@ fn encode_relation_target_primary_key_components_binary_into(
 fn encode_primary_key_component_field_binary_into(
     out: &mut Vec<u8>,
     key: PrimaryKeyComponent,
-    kind: FieldKind,
+    kind: &AcceptedFieldKind,
     field_name: &str,
 ) -> Result<(), InternalError> {
     match (kind, key) {
-        (FieldKind::Relation { key_kind, .. }, key) => {
-            encode_primary_key_component_field_binary_into(out, key, *key_kind, field_name)
+        (AcceptedFieldKind::Relation { key_kind, .. }, key) => {
+            encode_primary_key_component_field_binary_into(out, key, key_kind, field_name)
         }
         _ => crate::db::data::structural_field::primary_key_component::scalar::encode_scalar_primary_key_component_field_binary_into(
             out, key, kind, field_name,

@@ -96,7 +96,7 @@ impl<C: CanisterKind> DbSession<C> {
         entity: Option<&str>,
         verbose: bool,
     ) -> Result<SqlStatementResult, QueryError> {
-        self.try_show_entities()
+        self.show_entities()
             .map(|entities| match entity {
                 Some(entity) => filter_show_entity_catalog(entities, entity),
                 None => entities,

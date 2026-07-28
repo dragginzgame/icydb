@@ -40,20 +40,14 @@ The crate root establishes stable top-level namespaces such as:
 pub mod db;
 pub mod error;
 pub mod metrics;
-pub mod model;
-pub mod sanitize;
 pub mod traits;
 pub mod types;
-pub mod validate;
 pub mod value;
-pub mod visitor;
 ```
 
 These `pub mod` declarations provide stable paths for:
 
 - downstream imports
-- macro expansion targets
-- derive-generated code
 - explicit subsystem ownership
 
 This does **not** mean every descendant of those namespaces is public API.

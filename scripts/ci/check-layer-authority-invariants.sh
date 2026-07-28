@@ -34,13 +34,13 @@ status=0
 # Strict semantic authority checks (fail on violation).
 # -----------------------------------------------------------------------------
 
-APPLICATION_BEHAVIOR_PATTERN="crate::(normalize|validate)::|visitor::(NormalizeAuto|NormalizeCustom|ValidateAuto|ValidateCustom|Normalizer|Validator)"
+APPLICATION_BEHAVIOR_PATTERN="crate::(normalize|validate)::|pub mod (normalize|validate|visitor)|icydb_core::visitor|visitor::(NormalizeAuto|NormalizeCustom|ValidateAuto|ValidateCustom|Normalizer|Validator|Visitable)"
 application_behavior_leaks="$(
-  run_rg "$APPLICATION_BEHAVIOR_PATTERN" "$DB_ROOT" --glob '!**/tests/**' \
+  run_rg "$APPLICATION_BEHAVIOR_PATTERN" "$CORE_ROOT" "crates/icydb/src" --glob '!**/tests/**' \
     | strip_comment_only
 )"
 if [[ -n "$application_behavior_leaks" ]]; then
-  echo "[ERROR] Database runtime must not execute application normalizers or validators." >&2
+  echo "[ERROR] Runtime and facade crates must not own application visitor, normalizer, or validator APIs." >&2
   echo "$application_behavior_leaks" >&2
   status=1
 fi

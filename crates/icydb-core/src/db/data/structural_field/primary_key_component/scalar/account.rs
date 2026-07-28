@@ -41,7 +41,7 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_accou
     let PrimaryKeyComponent::Principal(owner) =
         decode_principal_primary_key_component_binary_bytes(&raw_bytes[owner_start..owner_end])?
     else {
-        unreachable!("principal key decode must return a principal");
+        return Err(FieldDecodeError::new());
     };
     let subaccount = if let Some((tag, _len, _payload_start)) =
         parse_structural_binary_head(&raw_bytes[sub_start..sub_end], 0)?
@@ -53,7 +53,7 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_accou
                 &raw_bytes[sub_start..sub_end],
             )? {
                 PrimaryKeyComponent::Subaccount(value) => Some(value),
-                _ => unreachable!("account key invariant"),
+                _ => return Err(FieldDecodeError::new()),
             }
         }
     } else {

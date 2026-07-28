@@ -2,19 +2,17 @@ use crate::{
     db::schema::{
         AcceptedCheckExprV1, AcceptedConstraintCatalog, AcceptedConstraintKind,
         AcceptedConstraintSnapshot, AcceptedFieldKind, AcceptedSchemaFingerprint,
-        ConstraintIdAllocator, ConstraintOrigin, FieldId, MAX_SCHEMA_SNAPSHOT_BYTES,
+        ConstraintIdAllocator, ConstraintOrigin, FieldId, FieldInsertGeneration,
+        FieldStorageDecode, FieldWriteManagement, LeafCodec, MAX_SCHEMA_SNAPSHOT_BYTES,
         PersistedFieldOrigin, PersistedFieldSnapshot, PersistedIndexExpressionOp,
         PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
         PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
         PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId, RowLayoutVersion,
-        SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaIndexId,
+        ScalarCodec, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaIndexId,
         SchemaInsertDefault, SchemaRowLayout, SchemaVersion, decode_persisted_schema_snapshot,
         encode_persisted_schema_snapshot,
     },
     error::{ErrorClass, ErrorOrigin},
-    model::field::{
-        FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec, ScalarCodec,
-    },
     types::EntityTag,
 };
 

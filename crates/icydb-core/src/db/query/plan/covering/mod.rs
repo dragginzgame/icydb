@@ -160,7 +160,7 @@ pub(in crate::db) fn covering_strict_predicate_compatible(
 /// Return one stable explain reason code for the current scalar load
 /// covering-read admission outcome.
 #[must_use]
-#[cfg(any(test, feature = "sql-explain"))]
+#[cfg(feature = "sql-explain")]
 pub(in crate::db) fn covering_read_reason_code_for_load_plan(
     plan: &AccessPlannedQuery,
     strict_predicate_compatible: bool,
@@ -189,7 +189,7 @@ pub(in crate::db) fn covering_read_reason_code_for_load_plan(
 /// existing-row semantics under the current planner + predicate-compile
 /// contracts.
 #[must_use]
-#[cfg(any(test, feature = "sql-explain"))]
+#[cfg(feature = "sql-explain")]
 pub(in crate::db) fn index_covering_existing_rows_terminal_eligible(
     plan: &AccessPlannedQuery,
     strict_predicate_compatible: bool,
@@ -466,7 +466,7 @@ fn constant_covering_projection_value_from_prefix(
         })
 }
 
-#[cfg(any(test, feature = "sql-explain"))]
+#[cfg(feature = "sql-explain")]
 fn index_backed_covering_shape_supported<K>(access: &AccessPlan<K>) -> bool {
     access.has_selected_index_access_path()
 }

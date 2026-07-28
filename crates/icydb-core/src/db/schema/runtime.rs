@@ -11,8 +11,8 @@ use crate::{
         SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaInsertDefault,
         enum_catalog::EnumCatalogBuildError,
     },
+    db::schema::{FieldStorageDecode, LeafCodec},
     error::InternalError,
-    model::field::{FieldStorageDecode, LeafCodec},
 };
 
 ///
@@ -149,10 +149,9 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
 ///
 /// AcceptedFieldDecodeContract
 ///
-/// AcceptedFieldDecodeContract is the field-level decode shape accepted schema
-/// exposes to generated-compatible row-layout checks. It exists so the bridge
-/// compares one named contract instead of reopening individual field facts in
-/// executor or data decode code.
+/// AcceptedFieldDecodeContract is the field-level decode shape projected from
+/// accepted schema. It keeps executor and data decoding consumers from
+/// reopening individual accepted field facts.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -448,7 +447,7 @@ impl OwnedAcceptedRelationEdgeContract {
 /// projected from accepted schema metadata.
 /// It is the handoff object consumed by `RowLayout`: schema owns construction,
 /// while data/executor code can read accepted slot contracts without reopening
-/// generated `FieldModel` metadata.
+/// the accepted catalog.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]

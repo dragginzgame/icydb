@@ -181,14 +181,14 @@ impl AccessPlannedQuery {
     /// Return the planner-owned predicate pushdown label consumed by verbose
     /// execution diagnostics.
     #[must_use]
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db) fn predicate_pushdown_label(&self) -> String {
         self.predicate_pushdown_diagnostics().label()
     }
 
     /// Return planner-owned predicate-pushdown diagnostics.
     #[must_use]
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db) fn predicate_pushdown_diagnostics(&self) -> PredicatePushdownDiagnostics {
         if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
             return static_contract.predicate_pushdown_diagnostics;
@@ -199,14 +199,14 @@ impl AccessPlannedQuery {
 
     /// Return the planner-owned predicate-pushdown outcome label.
     #[must_use]
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db) fn predicate_pushdown_outcome_label(&self) -> &'static str {
         self.predicate_pushdown_diagnostics().outcome_label()
     }
 
     /// Return the planner-owned predicate-pushdown reason label.
     #[must_use]
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db) fn predicate_pushdown_reason_label(&self) -> &'static str {
         self.predicate_pushdown_diagnostics().reason_label()
     }
@@ -281,16 +281,12 @@ impl AccessPlannedQuery {
         Ok(())
     }
 
-    // Replace authoring-time model-only group slots with the accepted slots
-    // used by the executable plan. Scalar plans and explicit model-only schema
-    // views require no authority transition.
+    // Resolve authoring-time group field names onto accepted slots before the
+    // plan becomes executable.
     fn bind_group_field_slots_to_schema(
         &mut self,
         schema_info: &SchemaInfo,
     ) -> Result<(), InternalError> {
-        if !schema_info.has_accepted_authority() {
-            return Ok(());
-        }
         let LogicalPlan::Grouped(grouped) = &mut self.logical else {
             return Ok(());
         };

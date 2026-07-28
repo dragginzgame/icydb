@@ -5,7 +5,6 @@ pub use icydb_schema::{Principal, PrincipalDecodeError, PrincipalEncodeError, Pr
 use crate::{
     db::{EntityKeyBytes, EntityKeyBytesError, validate_entity_key_bytes_buffer},
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 
 impl EntityKeyBytes for Principal {
@@ -61,13 +60,3 @@ impl RuntimeValueDecode for Principal {
         }
     }
 }
-
-impl NormalizeAuto for Principal {}
-
-impl NormalizeCustom for Principal {}
-
-impl ValidateAuto for Principal {}
-
-impl ValidateCustom for Principal {}
-
-impl Visitable for Principal {}

@@ -27,30 +27,8 @@ use crate::{
     },
     db::key_taxonomy::PrimaryKeyComponent,
     db::schema::AcceptedFieldKind,
-    model::field::FieldKind,
     value::Value,
 };
-
-/// Decode one relation field payload from Structural Binary v1 directly
-/// into target primary-key components.
-#[cfg(test)]
-pub(in crate::db) fn decode_relation_target_primary_key_components_binary_bytes(
-    raw_bytes: &[u8],
-    kind: FieldKind,
-) -> Result<Vec<PrimaryKeyComponent>, FieldDecodeError> {
-    match kind {
-        FieldKind::Relation { key_kind, .. } => Ok(
-            decode_optional_relation_primary_key_component_binary_bytes(raw_bytes, *key_kind)?
-                .into_iter()
-                .collect(),
-        ),
-        FieldKind::List(FieldKind::Relation { key_kind, .. })
-        | FieldKind::Set(FieldKind::Relation { key_kind, .. }) => {
-            decode_relation_primary_key_component_binary_list_bytes(raw_bytes, **key_kind)
-        }
-        _ => Err(FieldDecodeError::new()),
-    }
-}
 
 /// Decode one accepted relation field payload from Structural Binary v1
 /// directly into target primary-key components.
@@ -60,19 +38,16 @@ pub(in crate::db) fn decode_accepted_relation_target_primary_key_components_bina
 ) -> Result<Vec<PrimaryKeyComponent>, FieldDecodeError> {
     match kind {
         AcceptedFieldKind::Relation { key_kind, .. } => Ok(
-            decode_optional_accepted_primary_key_component_field_binary_bytes(raw_bytes, key_kind)?
+            decode_optional_primary_key_component_field_binary_bytes(raw_bytes, key_kind)?
                 .into_iter()
                 .collect(),
         ),
-        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner)
-            if matches!(inner.as_ref(), AcceptedFieldKind::Relation { .. }) =>
-        {
-            let AcceptedFieldKind::Relation { key_kind, .. } = inner.as_ref() else {
-                unreachable!("relation shape checked above");
-            };
-
-            decode_accepted_relation_primary_key_component_binary_list_bytes(raw_bytes, key_kind)
-        }
+        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => match inner.as_ref() {
+            AcceptedFieldKind::Relation { key_kind, .. } => {
+                decode_relation_primary_key_component_binary_list_bytes(raw_bytes, key_kind)
+            }
+            _ => Err(FieldDecodeError::new()),
+        },
         _ => Err(FieldDecodeError::new()),
     }
 }
@@ -81,30 +56,30 @@ pub(in crate::db) fn decode_accepted_relation_target_primary_key_components_bina
 /// directly into its canonical `PrimaryKeyComponent` form.
 pub(in crate::db) fn decode_primary_key_component_field_binary_bytes(
     raw_bytes: &[u8],
-    kind: FieldKind,
+    kind: &AcceptedFieldKind,
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     match kind {
-        FieldKind::Account => decode_account_primary_key_component_binary_bytes(raw_bytes),
-        FieldKind::Int8 | FieldKind::Int16 | FieldKind::Int32 | FieldKind::Int64 => {
+        AcceptedFieldKind::Account => decode_account_primary_key_component_binary_bytes(raw_bytes),
+        AcceptedFieldKind::Int8 | AcceptedFieldKind::Int16 | AcceptedFieldKind::Int32 | AcceptedFieldKind::Int64 => {
             decode_int_primary_key_component_binary_bytes(raw_bytes)
         }
-        FieldKind::Int128 => {
+        AcceptedFieldKind::Int128 => {
             crate::db::data::structural_field::primary_key_component::scalar::decode_int128_primary_key_component_binary_bytes(raw_bytes)
         }
-        FieldKind::Principal => decode_principal_primary_key_component_binary_bytes(raw_bytes),
-        FieldKind::Relation { key_kind, .. } => {
-            decode_primary_key_component_field_binary_bytes(raw_bytes, *key_kind)
+        AcceptedFieldKind::Principal => decode_principal_primary_key_component_binary_bytes(raw_bytes),
+        AcceptedFieldKind::Relation { key_kind, .. } => {
+            decode_primary_key_component_field_binary_bytes(raw_bytes, key_kind)
         }
-        FieldKind::Subaccount => decode_subaccount_primary_key_component_binary_bytes(raw_bytes),
-        FieldKind::Timestamp => decode_timestamp_primary_key_component_binary_bytes(raw_bytes),
-        FieldKind::Nat8 | FieldKind::Nat16 | FieldKind::Nat32 | FieldKind::Nat64 => {
+        AcceptedFieldKind::Subaccount => decode_subaccount_primary_key_component_binary_bytes(raw_bytes),
+        AcceptedFieldKind::Timestamp => decode_timestamp_primary_key_component_binary_bytes(raw_bytes),
+        AcceptedFieldKind::Nat8 | AcceptedFieldKind::Nat16 | AcceptedFieldKind::Nat32 | AcceptedFieldKind::Nat64 => {
             decode_nat_primary_key_component_binary_bytes(raw_bytes)
         }
-        FieldKind::Nat128 => {
+        AcceptedFieldKind::Nat128 => {
             crate::db::data::structural_field::primary_key_component::scalar::decode_nat128_primary_key_component_binary_bytes(raw_bytes)
         }
-        FieldKind::Ulid => decode_ulid_primary_key_component_binary_bytes(raw_bytes),
-        FieldKind::Unit => decode_unit_primary_key_component_binary_bytes(raw_bytes),
+        AcceptedFieldKind::Ulid => decode_ulid_primary_key_component_binary_bytes(raw_bytes),
+        AcceptedFieldKind::Unit => decode_unit_primary_key_component_binary_bytes(raw_bytes),
         _ => Err(FieldDecodeError::new()),
     }
 }
@@ -113,24 +88,26 @@ pub(in crate::db) fn decode_primary_key_component_field_binary_bytes(
 /// directly into its semantic runtime value.
 pub(in crate::db) fn decode_primary_key_component_binary_value_bytes(
     raw_bytes: &[u8],
-    kind: FieldKind,
+    kind: &AcceptedFieldKind,
 ) -> Result<Option<Value>, FieldDecodeError> {
     if !supports_primary_key_component_binary_kind(kind) {
         return Ok(None);
     }
 
     let value = match kind {
-        FieldKind::Relation { key_kind, .. } => {
-            decode_optional_relation_primary_key_component_binary_bytes(raw_bytes, *key_kind)?
+        AcceptedFieldKind::Relation { key_kind, .. } => {
+            decode_optional_primary_key_component_field_binary_bytes(raw_bytes, key_kind)?
                 .map_or(Value::Null, PrimaryKeyComponent::as_runtime_value)
         }
-        FieldKind::List(FieldKind::Relation { key_kind, .. })
-        | FieldKind::Set(FieldKind::Relation { key_kind, .. }) => Value::List(
-            decode_relation_primary_key_component_binary_list_bytes(raw_bytes, **key_kind)?
-                .into_iter()
-                .map(PrimaryKeyComponent::as_runtime_value)
-                .collect(),
-        ),
+        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => match inner.as_ref() {
+            AcceptedFieldKind::Relation { key_kind, .. } => Value::List(
+                decode_relation_primary_key_component_binary_list_bytes(raw_bytes, key_kind)?
+                    .into_iter()
+                    .map(PrimaryKeyComponent::as_runtime_value)
+                    .collect(),
+            ),
+            _ => return Err(FieldDecodeError::new()),
+        },
         _ if binary_payload_is_null(raw_bytes)? => Value::Null,
         _ => decode_primary_key_component_field_binary_bytes(raw_bytes, kind)?.as_runtime_value(),
     };
@@ -140,9 +117,10 @@ pub(in crate::db) fn decode_primary_key_component_binary_value_bytes(
 
 /// Validate one Structural Binary v1 primary-key-component field payload
 /// without routing through the generic structural value lane.
+#[cfg(test)]
 pub(in crate::db) fn validate_primary_key_component_binary_value_bytes(
     raw_bytes: &[u8],
-    kind: FieldKind,
+    kind: &AcceptedFieldKind,
 ) -> Result<bool, FieldDecodeError> {
     if !supports_primary_key_component_binary_kind(kind) {
         return Ok(false);
@@ -166,29 +144,8 @@ fn binary_payload_is_null(raw_bytes: &[u8]) -> Result<bool, FieldDecodeError> {
     Ok(tag == TAG_NULL)
 }
 
-// Decode one singular relation payload from Structural Binary v1, treating
-// explicit null as "no target".
-fn decode_optional_relation_primary_key_component_binary_bytes(
-    raw_bytes: &[u8],
-    key_kind: FieldKind,
-) -> Result<Option<PrimaryKeyComponent>, FieldDecodeError> {
-    let Some((tag, _len, _payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let end = skip_structural_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
-    if tag == TAG_NULL {
-        return Ok(None);
-    }
-
-    decode_relation_primary_key_component_binary_scalar_bytes(raw_bytes, key_kind).map(Some)
-}
-
-// Decode one accepted singular relation payload from Structural Binary v1,
-// treating explicit null as "no target".
-pub(in crate::db) fn decode_optional_accepted_primary_key_component_field_binary_bytes(
+// Decode one singular component payload, treating explicit null as "no target".
+pub(in crate::db) fn decode_optional_primary_key_component_field_binary_bytes(
     raw_bytes: &[u8],
     key_kind: &AcceptedFieldKind,
 ) -> Result<Option<PrimaryKeyComponent>, FieldDecodeError> {
@@ -203,43 +160,13 @@ pub(in crate::db) fn decode_optional_accepted_primary_key_component_field_binary
         return Ok(None);
     }
 
-    decode_accepted_primary_key_component_field_binary_bytes(raw_bytes, key_kind).map(Some)
+    decode_primary_key_component_field_binary_bytes(raw_bytes, key_kind).map(Some)
 }
 
 // Decode one list/set relation payload from Structural Binary v1 into
 // canonical primary-key components while preserving current null-item semantics.
 fn decode_relation_primary_key_component_binary_list_bytes(
     raw_bytes: &[u8],
-    key_kind: FieldKind,
-) -> Result<Vec<PrimaryKeyComponent>, FieldDecodeError> {
-    let Some((tag, _len, _payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    if tag == TAG_NULL {
-        return Ok(Vec::new());
-    }
-    if tag != TAG_LIST {
-        return Err(FieldDecodeError::new());
-    }
-
-    let mut components = Vec::new();
-    walk_structural_binary_list_items(raw_bytes, &mut |item_bytes| {
-        if let Some(value) =
-            decode_optional_relation_primary_key_component_binary_bytes(item_bytes, key_kind)?
-        {
-            components.push(value);
-        }
-
-        Ok(())
-    })?;
-
-    Ok(components)
-}
-
-// Decode one accepted list/set relation payload from Structural Binary v1 into
-// canonical primary-key components while preserving current null-item semantics.
-fn decode_accepted_relation_primary_key_component_binary_list_bytes(
-    raw_bytes: &[u8],
     key_kind: &AcceptedFieldKind,
 ) -> Result<Vec<PrimaryKeyComponent>, FieldDecodeError> {
     let Some((tag, _len, _payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
@@ -255,7 +182,7 @@ fn decode_accepted_relation_primary_key_component_binary_list_bytes(
     let mut components = Vec::new();
     walk_structural_binary_list_items(raw_bytes, &mut |item_bytes| {
         if let Some(value) =
-            decode_optional_accepted_primary_key_component_field_binary_bytes(item_bytes, key_kind)?
+            decode_optional_primary_key_component_field_binary_bytes(item_bytes, key_kind)?
         {
             components.push(value);
         }
@@ -264,53 +191,4 @@ fn decode_accepted_relation_primary_key_component_binary_list_bytes(
     })?;
 
     Ok(components)
-}
-
-// Decode one relation-compatible scalar field payload from Structural Binary
-// v1 into its primary-key-component form.
-fn decode_relation_primary_key_component_binary_scalar_bytes(
-    raw_bytes: &[u8],
-    key_kind: FieldKind,
-) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    decode_primary_key_component_field_binary_bytes(raw_bytes, key_kind)
-}
-
-// Decode one accepted relation-compatible scalar field payload from Structural
-// Binary v1 into its primary-key-component form.
-fn decode_accepted_primary_key_component_field_binary_bytes(
-    raw_bytes: &[u8],
-    kind: &AcceptedFieldKind,
-) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    match kind {
-        AcceptedFieldKind::Account => decode_account_primary_key_component_binary_bytes(raw_bytes),
-        AcceptedFieldKind::Int8
-        | AcceptedFieldKind::Int16
-        | AcceptedFieldKind::Int32
-        | AcceptedFieldKind::Int64 => decode_int_primary_key_component_binary_bytes(raw_bytes),
-        AcceptedFieldKind::Int128 => {
-            crate::db::data::structural_field::primary_key_component::scalar::decode_int128_primary_key_component_binary_bytes(raw_bytes)
-        }
-        AcceptedFieldKind::Principal => {
-            decode_principal_primary_key_component_binary_bytes(raw_bytes)
-        }
-        AcceptedFieldKind::Relation { key_kind, .. } => {
-            decode_accepted_primary_key_component_field_binary_bytes(raw_bytes, key_kind)
-        }
-        AcceptedFieldKind::Subaccount => {
-            decode_subaccount_primary_key_component_binary_bytes(raw_bytes)
-        }
-        AcceptedFieldKind::Timestamp => {
-            decode_timestamp_primary_key_component_binary_bytes(raw_bytes)
-        }
-        AcceptedFieldKind::Nat8
-        | AcceptedFieldKind::Nat16
-        | AcceptedFieldKind::Nat32
-        | AcceptedFieldKind::Nat64 => decode_nat_primary_key_component_binary_bytes(raw_bytes),
-        AcceptedFieldKind::Nat128 => {
-            crate::db::data::structural_field::primary_key_component::scalar::decode_nat128_primary_key_component_binary_bytes(raw_bytes)
-        }
-        AcceptedFieldKind::Ulid => decode_ulid_primary_key_component_binary_bytes(raw_bytes),
-        AcceptedFieldKind::Unit => decode_unit_primary_key_component_binary_bytes(raw_bytes),
-        _ => Err(FieldDecodeError::new()),
-    }
 }

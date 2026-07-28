@@ -3,22 +3,19 @@
 //! Does not own: constructors, plan assembly, or semantic interpretation.
 //! Boundary: data-only types shared by plan builder/semantics/validation layers.
 
-use crate::{
-    db::{
-        cursor::ContinuationSignature,
-        direction::Direction,
-        predicate::{MissingRowPolicy, Predicate},
-        query::{
-            builder::scalar_projection::render_scalar_projection_expr_plan_label,
-            plan::{
-                expr::{Expr, FieldId, normalize_bool_expr},
-                order_contract::DeterministicSecondaryOrderContract,
-                semantics::LogicalPushdownEligibility,
-            },
+use crate::db::{
+    cursor::ContinuationSignature,
+    direction::Direction,
+    predicate::{MissingRowPolicy, Predicate},
+    query::{
+        builder::scalar_projection::render_scalar_projection_expr_plan_label,
+        plan::{
+            expr::{Expr, FieldId, normalize_bool_expr},
+            order_contract::DeterministicSecondaryOrderContract,
+            semantics::LogicalPushdownEligibility,
         },
-        schema::AcceptedFieldKind,
     },
-    model::field::FieldKind,
+    schema::AcceptedFieldKind,
 };
 
 ///
@@ -611,7 +608,7 @@ impl AggregateKind {
 
     /// Return the explain projection mode label for this kind and projection surface.
     #[must_use]
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db) const fn explain_projection_mode_label(
         self,
         has_projected_field: bool,
@@ -632,7 +629,7 @@ impl AggregateKind {
 
     /// Return whether this terminal kind can remain covering on existing-row plans.
     #[must_use]
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db) const fn supports_covering_existing_rows_terminal(self) -> bool {
         matches!(self, Self::Count | Self::Exists)
     }
@@ -698,7 +695,6 @@ impl GroupedPlanAggregateFamily {
 #[derive(Clone, Debug)]
 pub(in crate::db::query::plan) enum FieldSlotAuthority {
     Unresolved,
-    ModelOnly(FieldKind),
     Accepted(AcceptedFieldKind),
 }
 

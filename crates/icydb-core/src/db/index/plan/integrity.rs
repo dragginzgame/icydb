@@ -138,12 +138,9 @@ impl AcceptedIndexInspectionPlan {
             let predicate = compile_predicate(accepted.predicate_sql(), row_contract)?;
             let entry = match accepted.key() {
                 PersistedIndexKeySnapshot::FieldPath(_) => {
-                    let info = schema_index_info_from_accepted_index(
-                        accepted,
-                        snapshot,
-                        Some(&value_catalog),
-                    )
-                    .ok_or_else(InternalError::store_corruption)?;
+                    let info =
+                        schema_index_info_from_accepted_index(accepted, snapshot, &value_catalog)
+                            .ok_or_else(InternalError::store_corruption)?;
                     validate_projection_identity(
                         info.ordinal(),
                         info.physical_generation(),
@@ -162,7 +159,7 @@ impl AcceptedIndexInspectionPlan {
                     let info = schema_expression_index_info_from_accepted_index(
                         accepted,
                         snapshot,
-                        Some(&value_catalog),
+                        &value_catalog,
                     )
                     .ok_or_else(InternalError::store_corruption)?;
                     validate_projection_identity(

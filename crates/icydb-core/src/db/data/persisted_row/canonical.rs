@@ -4,6 +4,7 @@
 //! It does not reconstruct generated models or lower through runtime `Value`.
 
 use crate::{
+    db::schema::{FieldStorageDecode, LeafCodec, ScalarCodec},
     db::{
         data::{
             accepted_kind_supports_primary_key_component_binary,
@@ -28,7 +29,6 @@ use crate::{
         },
     },
     error::InternalError,
-    model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
     value::{InputValue, Value},
 };
 

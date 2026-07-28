@@ -1,6 +1,7 @@
 use super::*;
 
 use crate::{
+    db::schema::{FieldStorageDecode, LeafCodec, ScalarCodec},
     db::{
         data::{CanonicalSlotReader, ScalarSlotValueRef, SlotReader, StructuralRowContract},
         index::{
@@ -17,7 +18,6 @@ use crate::{
         },
     },
     error::InternalError,
-    model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
     types::EntityTag,
     value::Value,
 };

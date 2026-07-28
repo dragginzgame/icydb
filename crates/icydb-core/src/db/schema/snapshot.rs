@@ -9,14 +9,13 @@ use crate::{
     db::schema::{
         AcceptedConstraintCatalog, AcceptedConstraintSnapshot, AcceptedFieldKind,
         ConstraintActivationKind, ConstraintActivationSnapshot, ConstraintActivationState,
-        ConstraintId, ConstraintIdAllocator, FieldId, RelationId, RowLayoutVersion,
-        SchemaFieldSlot, SchemaIndexId, SchemaRowLayout, SchemaVersion,
-        constraint::AcceptedConstraintCatalogError, schema_snapshot_constraint_integrity_detail,
-        schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
-        schema_snapshot_relation_integrity_detail,
+        ConstraintId, ConstraintIdAllocator, FieldId, FieldInsertGeneration, FieldStorageDecode,
+        FieldWriteManagement, LeafCodec, RelationId, RowLayoutVersion, SchemaFieldSlot,
+        SchemaIndexId, SchemaRowLayout, SchemaVersion, constraint::AcceptedConstraintCatalogError,
+        schema_snapshot_constraint_integrity_detail, schema_snapshot_index_integrity_detail,
+        schema_snapshot_integrity_detail, schema_snapshot_relation_integrity_detail,
     },
     error::InternalError,
-    model::field::{FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec},
 };
 #[cfg(feature = "sql")]
 use std::collections::BTreeSet;

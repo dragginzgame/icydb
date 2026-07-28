@@ -4,8 +4,8 @@
 //! core-owned identity types.
 //! Does not own: canonical scalar representation, dynamic `Value` semantics,
 //! or schema planning policy.
-//! Boundary: exact scalar re-exports plus storage, generation, visitor, and
-//! runtime behavior retained by the engine.
+//! Boundary: exact scalar re-exports plus storage, generation, and runtime
+//! behavior retained by the engine.
 
 mod account;
 mod blob;

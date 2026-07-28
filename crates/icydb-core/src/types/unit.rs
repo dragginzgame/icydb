@@ -8,7 +8,6 @@ use crate::{
         PrimaryKeyEncode, PrimaryKeyEncodeError, PrimaryKeyValue, validate_entity_key_bytes_buffer,
     },
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 
 impl EntityKeyBytes for Unit {
@@ -69,13 +68,3 @@ impl PrimaryKeyDecode for Unit {
         }
     }
 }
-
-impl NormalizeAuto for Unit {}
-
-impl NormalizeCustom for Unit {}
-
-impl ValidateAuto for Unit {}
-
-impl ValidateCustom for Unit {}
-
-impl Visitable for Unit {}

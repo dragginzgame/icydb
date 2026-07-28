@@ -1,7 +1,7 @@
 //! Schema-owned SQL DDL field type contract selection.
 
-use crate::db::schema::AcceptedFieldKind;
-use crate::model::field::{DEFAULT_BIG_INT_MAX_BYTES, FieldStorageDecode, LeafCodec, ScalarCodec};
+use crate::db::schema::{AcceptedFieldKind, FieldStorageDecode, LeafCodec, ScalarCodec};
+use icydb_schema::DEFAULT_BIG_INT_MAX_BYTES;
 
 /// Persisted field contract selected for one SQL DDL column type.
 #[derive(Clone, Debug, Eq, PartialEq)]

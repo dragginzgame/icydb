@@ -1,21 +1,24 @@
-use crate::db::{
-    query::{
-        builder::AggregateExpr,
-        plan::{
-            canonicalize_grouped_having_numeric_literal_for_slot,
-            expr::{BinaryOp, Expr, canonicalize_grouped_having_bool_expr},
-            resolve_group_field_slot_with_schema,
+use crate::{
+    db::{
+        query::{
+            builder::AggregateExpr,
+            plan::{
+                canonicalize_grouped_having_numeric_literal_for_slot,
+                expr::{BinaryOp, Expr, canonicalize_grouped_having_bool_expr},
+                resolve_group_field_slot_with_schema,
+            },
+        },
+        schema::SchemaInfo,
+        sql::{
+            lowering::{
+                AnalyzedLoweredExpr, LoweredExprAnalysis, SqlLoweringError,
+                aggregate::resolve_having_aggregate_expr_index,
+                expr::{SqlExprPhase, lower_sql_expr},
+            },
+            parser::{SqlExpr, SqlProjection},
         },
     },
-    schema::SchemaInfo,
-    sql::{
-        lowering::{
-            AnalyzedLoweredExpr, LoweredExprAnalysis, SqlLoweringError,
-            aggregate::resolve_having_aggregate_expr_index,
-            expr::{SqlExprPhase, lower_sql_expr},
-        },
-        parser::{SqlExpr, SqlProjection},
-    },
+    value::Value,
 };
 
 /// Lower grouped SQL `HAVING` expressions onto planner-owned expressions.
@@ -141,14 +144,9 @@ where
         .try_for_each(|aggregate| resolve_aggregate_index(aggregate).map(|_| ()))
 }
 
-fn combine_having_clauses(mut clauses: Vec<Expr>) -> Expr {
-    if clauses.len() == 1 {
-        return clauses
-            .pop()
-            .expect("single HAVING clause should remain present");
-    }
-
-    let mut expr = clauses.remove(0);
+fn combine_having_clauses(clauses: Vec<Expr>) -> Expr {
+    let mut clauses = clauses.into_iter();
+    let mut expr = clauses.next().unwrap_or(Expr::Literal(Value::Bool(true)));
     for clause in clauses {
         expr = Expr::Binary {
             op: BinaryOp::And,

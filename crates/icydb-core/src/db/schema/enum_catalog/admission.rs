@@ -4,6 +4,7 @@ use super::{
     AcceptedValueCatalogHandle, AcceptedValueContract, EnumTypeId, EnumValueResolutionError,
 };
 use crate::{
+    db::schema::FieldStorageDecode,
     db::schema::{
         AcceptedFieldKind, MAX_ACCEPTED_RECURSIVE_DEPTH_U16,
         composite_catalog::{
@@ -11,7 +12,6 @@ use crate::{
             CompositeTypeId,
         },
     },
-    model::field::FieldStorageDecode,
     types::Decimal,
     value::{CanonicalEnumBody, InputValue, InputValueEnum, Value, ValueEnum},
 };

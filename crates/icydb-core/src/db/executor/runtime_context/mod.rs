@@ -112,7 +112,14 @@ pub(in crate::db::executor) const fn record_row_presence_probe(_row_exists: bool
 
 /// Run a closure while collecting row-check diagnostics on the current thread.
 #[cfg(any(test, feature = "diagnostics"))]
-#[cfg_attr(all(test, not(feature = "diagnostics")), expect(unreachable_pub))]
+#[cfg_attr(
+    all(test, not(feature = "diagnostics")),
+    expect(
+        dead_code,
+        unreachable_pub,
+        reason = "capture helper is consumed only by diagnostics-shaped tests"
+    )
+)]
 pub fn with_row_check_metrics<T>(f: impl FnOnce() -> T) -> (T, RowCheckMetrics) {
     ROW_CHECK_METRICS.with(|metrics| {
         debug_assert!(

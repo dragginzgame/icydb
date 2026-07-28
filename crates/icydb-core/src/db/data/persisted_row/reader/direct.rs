@@ -1,4 +1,5 @@
 use crate::{
+    db::schema::LeafCodec,
     db::{
         data::{
             RawRow, SparseRequiredRowFieldBytes, StructuralRowContract, StructuralRowFieldBytes,
@@ -22,7 +23,6 @@ use crate::{
         schema::AcceptedFieldDecodeContract,
     },
     error::InternalError,
-    model::field::LeafCodec,
     value::Value,
 };
 
@@ -247,7 +247,7 @@ fn decode_sparse_required_slot(
     }
 
     let PrimaryKeyValue::Scalar(expected_key) = *expected_key else {
-        unreachable!("persisted row invariant");
+        return Err(InternalError::store_invariant());
     };
 
     // Phase 1: scan and key-validate the row through the compact two-span

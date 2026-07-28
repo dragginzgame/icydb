@@ -6,13 +6,6 @@
 //! visitor traversal, executor policy, or public facade DTO behavior.
 //! Boundary: remaining reusable contracts consumed throughout `icydb-core`.
 
-use crate::{
-    model::field::{FieldKind, FieldModel, FieldStorageDecode},
-    visitor::Visitable,
-};
-use serde::de::DeserializeOwned;
-use std::collections::{BTreeMap, BTreeSet};
-
 // ============================================================================
 // FOUNDATIONAL KINDS
 // ============================================================================
@@ -64,94 +57,6 @@ pub trait CanisterKind: Kind {
 
 pub trait StoreKind: Kind {
     type Canister: CanisterKind;
-}
-
-// ============================================================================
-// TYPE SYSTEM CONTRACTS
-// ============================================================================
-//
-// These traits define behavioral expectations for schema-defined types.
-//
-
-///
-/// TypeKind
-///
-/// Any schema-defined data type.
-///
-/// This is a *strong* contract and should only be required
-/// where full lifecycle semantics are needed.
-///
-
-pub trait TypeKind: Kind + Clone + DeserializeOwned + Visitable + PartialEq {}
-
-impl<T> TypeKind for T where T: Kind + Clone + DeserializeOwned + PartialEq + Visitable {}
-
-///
-/// FieldTypeMeta
-///
-/// Static runtime field metadata for one schema-facing value type.
-/// This is the single authority for generated field kind and storage-decode
-/// metadata, so callers do not need per-type inherent constants.
-///
-
-pub trait FieldTypeMeta {
-    /// Semantic field kind used for runtime planning and validation.
-    const KIND: FieldKind;
-
-    /// Persisted decode contract used by row and payload decoding.
-    const STORAGE_DECODE: FieldStorageDecode;
-
-    /// Known nested fields for generated structured records.
-    const NESTED_FIELDS: &'static [FieldModel] = &[];
-}
-
-impl<T> FieldTypeMeta for Option<T>
-where
-    T: FieldTypeMeta,
-{
-    const KIND: FieldKind = T::KIND;
-    const STORAGE_DECODE: FieldStorageDecode = T::STORAGE_DECODE;
-    const NESTED_FIELDS: &'static [FieldModel] = T::NESTED_FIELDS;
-}
-
-impl<T> FieldTypeMeta for Box<T>
-where
-    T: FieldTypeMeta,
-{
-    const KIND: FieldKind = T::KIND;
-    const STORAGE_DECODE: FieldStorageDecode = T::STORAGE_DECODE;
-    const NESTED_FIELDS: &'static [FieldModel] = T::NESTED_FIELDS;
-}
-
-// Standard containers mirror the generated collection-wrapper contract: their
-// exact recursive kind remains semantic authority while persisted decode uses
-// the shared catalog-value storage seam instead of leaf-by-leaf scalar decode.
-impl<T> FieldTypeMeta for Vec<T>
-where
-    T: FieldTypeMeta,
-{
-    const KIND: FieldKind = FieldKind::List(&T::KIND);
-    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::CatalogValue;
-}
-
-impl<T> FieldTypeMeta for BTreeSet<T>
-where
-    T: FieldTypeMeta,
-{
-    const KIND: FieldKind = FieldKind::Set(&T::KIND);
-    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::CatalogValue;
-}
-
-impl<K, V> FieldTypeMeta for BTreeMap<K, V>
-where
-    K: FieldTypeMeta,
-    V: FieldTypeMeta,
-{
-    const KIND: FieldKind = FieldKind::Map {
-        key: &K::KIND,
-        value: &V::KIND,
-    };
-    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::CatalogValue;
 }
 
 /// ============================================================================

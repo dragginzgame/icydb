@@ -15,7 +15,7 @@ use crate::{
         AcceptedCompositeCatalog, AcceptedFieldKind, FieldId, PersistedSchemaSnapshot,
         SchemaFieldSlot,
     },
-    model::field::{FieldStorageDecode, LeafCodec},
+    db::schema::{FieldStorageDecode, LeafCodec},
 };
 
 #[cfg(feature = "sql")]
@@ -582,7 +582,7 @@ pub(super) const fn nat64_kind() -> &'static AcceptedFieldKind {
 pub(super) const fn nat64_codec() -> (FieldStorageDecode, LeafCodec) {
     (
         FieldStorageDecode::ByKind,
-        LeafCodec::Scalar(crate::model::field::ScalarCodec::Nat64),
+        LeafCodec::Scalar(crate::db::schema::ScalarCodec::Nat64),
     )
 }
 
@@ -703,8 +703,8 @@ fn write_leaf_codec_key(bytes: &mut Vec<u8>, codec: LeafCodec) {
     }
 }
 
-const fn scalar_codec_tag(codec: crate::model::field::ScalarCodec) -> u8 {
-    use crate::model::field::ScalarCodec as C;
+const fn scalar_codec_tag(codec: crate::db::schema::ScalarCodec) -> u8 {
+    use crate::db::schema::ScalarCodec as C;
     match codec {
         C::Blob => 0,
         C::Bool => 1,

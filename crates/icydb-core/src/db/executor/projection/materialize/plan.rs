@@ -6,7 +6,7 @@
 #[cfg(feature = "sql")]
 use crate::db::executor::projection::materialize::contracts::ProjectionSpec;
 #[cfg(feature = "sql")]
-use crate::model::field::{LeafCodec, ScalarCodec};
+use crate::db::schema::{LeafCodec, ScalarCodec};
 use crate::{
     db::{
         executor::projection::eval::{

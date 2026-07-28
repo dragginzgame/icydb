@@ -4,6 +4,7 @@
 //! Boundary: runtime paths use this module when they need persisted-row structure without `E`.
 
 use crate::{
+    db::schema::LeafCodec,
     db::{
         codec::{DecodedRowPayload, decode_row_payload_bytes},
         data::{
@@ -19,7 +20,6 @@ use crate::{
         },
     },
     error::InternalError,
-    model::field::LeafCodec,
     value::Value,
 };
 use std::{borrow::Cow, rc::Rc};

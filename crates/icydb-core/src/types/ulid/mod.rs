@@ -10,9 +10,6 @@ use crate::{
     db::{EntityKeyBytes, EntityKeyBytesError, validate_entity_key_bytes_buffer},
     types::GenerateKey,
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-    visitor::{
-        NormalizeAuto, NormalizeCustom, ValidateAuto, ValidateCustom, Visitable, VisitorContext,
-    },
 };
 
 impl EntityKeyBytes for Ulid {
@@ -47,25 +44,7 @@ impl RuntimeValueDecode for Ulid {
 }
 
 impl GenerateKey for Ulid {
-    fn generate() -> Self {
-        generator::generate().expect(
-            "ULID generation requires initialized randomness and non-overflowing monotonic state",
-        )
+    fn generate() -> Result<Self, crate::error::InternalError> {
+        generator::generate().map_err(|_| crate::error::InternalError::executor_internal())
     }
 }
-
-impl NormalizeAuto for Ulid {}
-
-impl NormalizeCustom for Ulid {}
-
-impl ValidateAuto for Ulid {
-    fn validate_self(&self, context: &mut dyn VisitorContext) {
-        if *self == Self::nil() {
-            context.issue("ulid must not be nil");
-        }
-    }
-}
-
-impl ValidateCustom for Ulid {}
-
-impl Visitable for Ulid {}

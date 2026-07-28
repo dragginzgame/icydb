@@ -86,6 +86,10 @@ pub(in crate::db::session::sql) use write_policy::combined_optional_row_bound;
 pub(in crate::db) use write_policy::{SqlWriteExecutionBounds, SqlWriteReturningBounds};
 
 #[cfg(all(test, not(feature = "diagnostics")))]
+#[expect(
+    unused_imports,
+    reason = "test instrumentation is consumed only by diagnostics-shaped tests"
+)]
 pub(crate) use crate::db::session::sql::projection::with_sql_projection_materialization_metrics;
 #[cfg(feature = "diagnostics")]
 pub use crate::db::session::sql::projection::{

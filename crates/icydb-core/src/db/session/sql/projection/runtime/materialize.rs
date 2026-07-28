@@ -145,7 +145,14 @@ pub(super) fn record_sql_projection_distinct_bounded_stop() {
 ///
 
 #[cfg(any(test, feature = "diagnostics"))]
-#[cfg_attr(all(test, not(feature = "diagnostics")), expect(unreachable_pub))]
+#[cfg_attr(
+    all(test, not(feature = "diagnostics")),
+    expect(
+        dead_code,
+        unreachable_pub,
+        reason = "capture helper is consumed only by diagnostics-shaped tests"
+    )
+)]
 pub fn with_sql_projection_materialization_metrics<T>(
     f: impl FnOnce() -> T,
 ) -> (T, SqlProjectionMaterializationMetrics) {

@@ -1,16 +1,9 @@
-use crate::db::{
-    predicate::Predicate,
-    sql::{
-        identifier::{
-            identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
-            rewrite_field_identifiers,
-        },
-        lowering::SqlLoweringError,
-        parser::{
-            SqlAggregateCall, SqlAssignment, SqlDeleteStatement, SqlExpr, SqlOrderTerm,
-            SqlProjection, SqlReturningProjection, SqlSelectItem, SqlSelectStatement,
-            SqlUpdateStatement,
-        },
+use crate::db::sql::{
+    identifier::{identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope},
+    lowering::SqlLoweringError,
+    parser::{
+        SqlAggregateCall, SqlAssignment, SqlDeleteStatement, SqlExpr, SqlOrderTerm, SqlProjection,
+        SqlReturningProjection, SqlSelectItem, SqlSelectStatement, SqlUpdateStatement,
     },
 };
 
@@ -118,28 +111,12 @@ pub(in crate::db::sql::lowering) fn adapt_sql_predicate_identifiers_to_scope(
     if let SqlExpr::NullTest { expr, negated } = &predicate
         && let SqlExpr::Field(field) = expr.as_ref()
     {
-        let rewritten = rewrite_field_identifiers(
-            if *negated {
-                Predicate::IsNotNull {
-                    field: field.clone(),
-                }
-            } else {
-                Predicate::IsNull {
-                    field: field.clone(),
-                }
-            },
-            |field| normalize_identifier(field, entity_scope),
-        );
-        predicate = match rewritten {
-            Predicate::IsNull { field } => SqlExpr::NullTest {
-                expr: Box::new(SqlExpr::Field(field)),
-                negated: false,
-            },
-            Predicate::IsNotNull { field } => SqlExpr::NullTest {
-                expr: Box::new(SqlExpr::Field(field)),
-                negated: true,
-            },
-            _ => unreachable!("sql lowering invariant"),
+        predicate = SqlExpr::NullTest {
+            expr: Box::new(SqlExpr::Field(normalize_identifier(
+                field.clone(),
+                entity_scope,
+            ))),
+            negated: *negated,
         };
     }
 
@@ -738,7 +715,7 @@ fn sql_field_expr_from_segments(path_segments: &[String]) -> SqlExpr {
             root: root.clone(),
             segments: segments.to_vec(),
         },
-        [] => unreachable!("sql lowering invariant"),
+        [] => SqlExpr::Field(String::new()),
     }
 }
 

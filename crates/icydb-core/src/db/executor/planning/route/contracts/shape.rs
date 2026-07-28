@@ -4,7 +4,7 @@
 //! Boundary: exports immutable route shape facts produced by executor planning.
 
 use crate::db::query::plan::AggregateKind;
-#[cfg(any(test, feature = "sql-explain"))]
+#[cfg(feature = "sql-explain")]
 use crate::db::{
     executor::aggregate::capability::accepted_field_kind_supports_aggregate_ordering,
     schema::SchemaInfo,
@@ -73,7 +73,7 @@ impl<'a> AggregateRouteShape<'a> {
     /// Construct one route-owned aggregate shape from already-resolved
     /// planner/prepared metadata.
     #[must_use]
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db) const fn new_resolved(
         kind: AggregateKind,
         target_field: Option<&'a str>,
@@ -92,7 +92,7 @@ impl<'a> AggregateRouteShape<'a> {
 
     /// Construct one route-owned aggregate shape from schema-info authority.
     #[must_use]
-    #[cfg(any(test, feature = "sql-explain"))]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db) fn new_from_schema_info(
         kind: AggregateKind,
         target_field: Option<&'a str>,

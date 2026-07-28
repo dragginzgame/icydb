@@ -3,8 +3,6 @@
 //! Does not own: runtime evaluation or schema field-slot resolution.
 //! Boundary: normalize before validation/planning/fingerprinting.
 
-#[cfg(any(test, feature = "sql"))]
-use crate::model::{classify_field_kind, field::FieldKind};
 use crate::{
     db::predicate::{
         CoercionId, CompareOp, MembershipCompareLeaf, Predicate,
@@ -205,25 +203,6 @@ fn normalize_compare_with_schema(
         });
     }
 
-    #[cfg(any(test, feature = "sql"))]
-    if !schema.has_accepted_authority()
-        && let Some(field_kind) = schema.field_kind(&cmp.field)
-    {
-        let value = normalize_compare_value_for_kind(
-            &cmp.field,
-            cmp.op,
-            &cmp.value,
-            field_kind,
-            cmp.coercion(),
-        )?;
-        return Ok(ComparePredicate {
-            field: cmp.field.clone(),
-            op: cmp.op,
-            value,
-            coercion: cmp.coercion.clone(),
-        });
-    }
-
     Ok(cmp.clone())
 }
 
@@ -339,21 +318,6 @@ fn normalize_compare_fields_with_schema(
         );
     }
 
-    #[cfg(any(test, feature = "sql"))]
-    if !schema.has_accepted_authority()
-        && let (Some(left_kind), Some(right_kind)) = (
-            schema.field_kind(&cmp.left_field),
-            schema.field_kind(&cmp.right_field),
-        )
-    {
-        return crate::db::predicate::CompareFieldsPredicate::with_coercion(
-            cmp.left_field.clone(),
-            cmp.op,
-            cmp.right_field.clone(),
-            normalize_compare_fields_coercion(cmp.op, left_kind, right_kind, cmp.coercion.id),
-        );
-    }
-
     cmp.clone()
 }
 
@@ -386,34 +350,6 @@ const fn normalize_accepted_compare_fields_coercion(
 }
 
 #[cfg(any(test, feature = "sql"))]
-const fn normalize_compare_fields_coercion(
-    op: CompareOp,
-    left_kind: &FieldKind,
-    right_kind: &FieldKind,
-    current: CoercionId,
-) -> CoercionId {
-    if op.is_equality_family() {
-        if classify_field_kind(left_kind).supports_predicate_numeric_widen()
-            && classify_field_kind(right_kind).supports_predicate_numeric_widen()
-        {
-            CoercionId::NumericWiden
-        } else {
-            current
-        }
-    } else if op.is_ordering_family() {
-        if matches!(left_kind, FieldKind::Text { .. })
-            && matches!(right_kind, FieldKind::Text { .. })
-        {
-            CoercionId::Strict
-        } else {
-            current
-        }
-    } else {
-        current
-    }
-}
-
-#[cfg(any(test, feature = "sql"))]
 fn normalize_compare_value_for_accepted_kind(
     field: &str,
     op: CompareOp,
@@ -426,16 +362,13 @@ fn normalize_compare_value_for_accepted_kind(
             let Value::List(values) = value else {
                 return Ok(value.clone());
             };
-            let Value::List(normalized) = normalize_accepted_list_value_for_kind(
+            let normalized = normalize_accepted_list_value_for_kind(
                 field,
                 values.as_slice(),
                 field_kind,
                 coercion,
                 op,
-            )?
-            else {
-                unreachable!("accepted predicate normalize invariant");
-            };
+            )?;
             Ok(canonical_membership_value_list(normalized))
         }
         CompareOp::Contains => {
@@ -466,21 +399,19 @@ fn normalize_value_for_accepted_kind(
                 return Ok(value.clone());
             };
             normalize_accepted_list_value_for_kind(field, values.as_slice(), inner, coercion, op)
+                .map(Value::List)
         }
         AcceptedFieldKind::Set(inner) => {
             let Value::List(values) = value else {
                 return Ok(value.clone());
             };
-            let Value::List(mut normalized) = normalize_accepted_list_value_for_kind(
+            let mut normalized = normalize_accepted_list_value_for_kind(
                 field,
                 values.as_slice(),
                 inner,
                 coercion,
                 op,
-            )?
-            else {
-                unreachable!("accepted predicate normalize invariant");
-            };
+            )?;
             canonicalize_value_set(&mut normalized);
             Ok(Value::List(normalized))
         }
@@ -543,7 +474,7 @@ fn normalize_accepted_list_value_for_kind(
     expected_kind: &AcceptedFieldKind,
     coercion: &CoercionSpec,
     op: CompareOp,
-) -> Result<Value, ValidateError> {
+) -> Result<Vec<Value>, ValidateError> {
     let mut normalized = Vec::with_capacity(values.len());
     for item in values {
         normalized.push(normalize_value_for_accepted_kind(
@@ -554,161 +485,13 @@ fn normalize_accepted_list_value_for_kind(
             op,
         )?);
     }
-    Ok(Value::List(normalized))
-}
-
-#[cfg(any(test, feature = "sql"))]
-#[cfg(any(test, feature = "sql"))]
-fn normalize_compare_value_for_kind(
-    field: &str,
-    op: CompareOp,
-    value: &Value,
-    field_kind: &FieldKind,
-    coercion: &CoercionSpec,
-) -> Result<Value, ValidateError> {
-    match op {
-        CompareOp::In | CompareOp::NotIn => {
-            let Value::List(values) = value else {
-                return Ok(value.clone());
-            };
-
-            let Value::List(normalized) =
-                normalize_list_value_for_kind(field, values.as_slice(), field_kind, coercion, op)?
-            else {
-                unreachable!("predicate normalize invariant");
-            };
-
-            // Membership predicates are set-shaped: duplicates and input order
-            // must not survive normalization because planner/cache identity and
-            // runtime semantics both treat these lists as canonical value sets.
-            Ok(canonical_membership_value_list(normalized))
-        }
-        CompareOp::Contains => {
-            let element_kind = match field_kind {
-                FieldKind::List(inner) | FieldKind::Set(inner) => *inner,
-                _ => return Ok(value.clone()),
-            };
-
-            normalize_value_for_kind(field, value, element_kind, coercion, op)
-        }
-        _ => normalize_value_for_kind(field, value, field_kind, coercion, op),
-    }
-}
-
-#[cfg(any(test, feature = "sql"))]
-#[cfg(any(test, feature = "sql"))]
-fn normalize_value_for_kind(
-    field: &str,
-    value: &Value,
-    expected_kind: &FieldKind,
-    coercion: &CoercionSpec,
-    op: CompareOp,
-) -> Result<Value, ValidateError> {
-    match expected_kind {
-        FieldKind::Relation { key_kind, .. } => {
-            normalize_value_for_kind(field, value, key_kind, coercion, op)
-        }
-        FieldKind::List(inner) => {
-            let Value::List(values) = value else {
-                return Ok(value.clone());
-            };
-
-            normalize_list_value_for_kind(field, values.as_slice(), inner, coercion, op)
-        }
-        FieldKind::Set(inner) => {
-            let Value::List(values) = value else {
-                return Ok(value.clone());
-            };
-
-            let Value::List(mut normalized) =
-                normalize_list_value_for_kind(field, values.as_slice(), inner, coercion, op)?
-            else {
-                unreachable!("predicate normalize invariant");
-            };
-
-            // Canonical set literal normalization must match the same
-            // deterministic sort + dedup rule used by access planning.
-            canonicalize_value_set(&mut normalized);
-
-            Ok(Value::List(normalized))
-        }
-        FieldKind::Map {
-            key,
-            value: map_value,
-        } => {
-            let Value::Map(entries) = value else {
-                return Ok(value.clone());
-            };
-
-            let mut normalized = Vec::with_capacity(entries.len());
-            for (entry_key, entry_value) in entries {
-                let key = normalize_value_for_kind(field, entry_key, key, coercion, op)?;
-                let value = normalize_value_for_kind(field, entry_value, map_value, coercion, op)?;
-                normalized.push((key, value));
-            }
-
-            Ok(Value::Map(normalized))
-        }
-        FieldKind::Enum { .. }
-        | FieldKind::Account
-        | FieldKind::Blob { .. }
-        | FieldKind::Bool
-        | FieldKind::Date
-        | FieldKind::Decimal { .. }
-        | FieldKind::Duration
-        | FieldKind::Float32
-        | FieldKind::Float64
-        | FieldKind::Principal
-        | FieldKind::Subaccount
-        | FieldKind::Text { .. }
-        | FieldKind::Timestamp
-        | FieldKind::Ulid
-        | FieldKind::Unit
-        | FieldKind::Composite { .. } => Ok(value.clone()),
-        FieldKind::Int8
-        | FieldKind::Int16
-        | FieldKind::Int32
-        | FieldKind::Int64
-        | FieldKind::Int128
-        | FieldKind::IntBig { .. }
-        | FieldKind::Nat8
-        | FieldKind::Nat16
-        | FieldKind::Nat32
-        | FieldKind::Nat64
-        | FieldKind::Nat128
-        | FieldKind::NatBig { .. } => Ok(normalize_numeric_value_for_kind(
-            value,
-            expected_kind,
-            coercion,
-            op,
-        )),
-    }
+    Ok(normalized)
 }
 
 // Canonicalize equality-like numeric literals onto the runtime field kind so
 // planner identity does not depend on parser-chosen integer wrappers. Ordered
 // NumericWiden comparisons keep their original transport shape because their
 // literal wrapper is still part of the current planner contract.
-#[cfg(any(test, feature = "sql"))]
-#[cfg(any(test, feature = "sql"))]
-fn normalize_numeric_value_for_kind(
-    value: &Value,
-    expected_kind: &FieldKind,
-    coercion: &CoercionSpec,
-    op: CompareOp,
-) -> Value {
-    let target = match expected_kind {
-        FieldKind::Int64 => Some(PredicateNumericTarget::Int64),
-        FieldKind::Int128 => Some(PredicateNumericTarget::Int128),
-        FieldKind::IntBig { .. } => Some(PredicateNumericTarget::IntBig),
-        FieldKind::Nat64 => Some(PredicateNumericTarget::Nat64),
-        FieldKind::Nat128 => Some(PredicateNumericTarget::Nat128),
-        FieldKind::NatBig { .. } => Some(PredicateNumericTarget::NatBig),
-        _ => None,
-    };
-    normalize_numeric_value_for_target(value, target, coercion, op)
-}
-
 #[cfg(any(test, feature = "sql"))]
 fn normalize_numeric_value_for_accepted_kind(
     value: &Value,
@@ -788,31 +571,6 @@ fn normalize_numeric_value_for_target(
     };
 
     normalized.unwrap_or_else(|| value.clone())
-}
-
-// Normalize one list-shaped literal by recursively rewriting each item against
-// the expected element kind while preserving list cardinality and order.
-#[cfg(any(test, feature = "sql"))]
-#[cfg(any(test, feature = "sql"))]
-fn normalize_list_value_for_kind(
-    field: &str,
-    values: &[Value],
-    expected_kind: &FieldKind,
-    coercion: &CoercionSpec,
-    op: CompareOp,
-) -> Result<Value, ValidateError> {
-    let mut normalized = Vec::with_capacity(values.len());
-    for item in values {
-        normalized.push(normalize_value_for_kind(
-            field,
-            item,
-            expected_kind,
-            coercion,
-            op,
-        )?);
-    }
-
-    Ok(Value::List(normalized))
 }
 
 ///

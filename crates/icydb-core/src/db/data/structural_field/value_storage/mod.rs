@@ -11,7 +11,7 @@ mod skip;
 mod tags;
 mod walk;
 
-use crate::{db::data::structural_field::FieldDecodeError, value::Value};
+use crate::db::data::structural_field::FieldDecodeError;
 
 const MAX_VALUE_STORAGE_DECODE_DEPTH: usize = 64;
 
@@ -47,24 +47,3 @@ pub(in crate::db) use encode::{
     encode_value_storage_owned_list_items, encode_value_storage_owned_map_entries,
     encode_value_storage_text,
 };
-
-// Normalize decoded map entries in place when they satisfy the runtime map
-// invariants, but preserve the original decoded order when validation rejects
-// the shape. This keeps current semantics without cloning the whole entry list.
-pub(super) fn normalize_map_entries_or_preserve(mut entries: Vec<(Value, Value)>) -> Value {
-    if Value::validate_map_entries(&entries).is_err() {
-        return Value::Map(entries);
-    }
-
-    Value::sort_map_entries_in_place(entries.as_mut_slice());
-
-    for i in 1..entries.len() {
-        let (left_key, _) = &entries[i - 1];
-        let (right_key, _) = &entries[i];
-        if Value::canonical_cmp_key(left_key, right_key) == std::cmp::Ordering::Equal {
-            return Value::Map(entries);
-        }
-    }
-
-    Value::Map(entries)
-}
