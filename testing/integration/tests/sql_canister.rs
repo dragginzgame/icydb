@@ -107,13 +107,12 @@ fn update_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQuery
         .expect("sql update canister call should decode")
 }
 
-fn integrity_sql(
-    fixture: &StandaloneCanisterFixture,
-    sql: &str,
-) -> Result<IntegrityCheckResult, SqlIntegrityError> {
-    fixture
+fn expect_integrity_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> IntegrityCheckResult {
+    let result: Result<IntegrityCheckResult, SqlIntegrityError> = fixture
         .update_call("icydb_integrity", (sql.to_string(),))
-        .expect("integrity canister call should decode")
+        .expect("integrity canister call should decode");
+
+    result.expect("integrity canister call should succeed")
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2292,8 +2291,7 @@ fn sql_canister_ddl_endpoint_publishes_rename_column_for_ddl_owned_field() {
 fn sql_canister_integrity_endpoint_executes_controller_gated_quick_check() {
     let fixture = install_sql_canister_fixture();
 
-    let result = integrity_sql(&fixture, "CHECK INTEGRITY SqlTestUser QUICK")
-        .expect("configured generated integrity endpoint should execute Quick");
+    let result = expect_integrity_sql(&fixture, "CHECK INTEGRITY SqlTestUser QUICK");
     let IntegrityCheckResult::Quick(result) = result else {
         panic!("Quick integrity SQL should return the canonical Quick payload");
     };

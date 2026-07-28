@@ -19,10 +19,13 @@ that after-image against the current accepted schema before publishing its
 commit marker.
 
 The accepted constraint catalog is the sole runtime identity and lifecycle
-authority for primary-key, not-null, unique, relation, and check constraints.
-Validated row-local checks and pending new-write gates evaluate the complete
-final after-image in stable constraint-ID order. Generated declarations and SQL
-text do not remain as parallel enforcement authority.
+authority for primary-key, not-null, unique, relation, check, and targeted
+durable-rule constraints. Validated row-local checks, targeted rules, and
+pending new-write gates evaluate the complete final after-image in stable
+constraint-ID order. A targeted rule selects one persisted root field and
+nominal accepted type, visits every finite direct or nested occurrence, and
+reports the first bounded typed path. Generated declarations and SQL text do
+not remain as parallel enforcement authority.
 
 IcyDB has no non-strict entity or table mode. There is no trusted row-write
 bypass that disables accepted-schema validation.
@@ -81,8 +84,8 @@ complete all fallible work required by that mutation, including:
 - primary-key shape, type, and row-identity validation;
 - field-kind, nullability, scalar-bound, decimal, text, enum, exact-composite,
   collection, and deterministic-encoding validation;
-- validated accepted checks and pending row-local activation gates over the
-  complete final after-image;
+- validated accepted checks, targeted durable rules, and pending row-local
+  activation gates over the complete final after-image;
 - pending unique and relation activation write barriers where the authored
   change intersects an incompletely validated candidate;
 - relation target-existence or delete-safety validation;

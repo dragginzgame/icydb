@@ -262,10 +262,12 @@ key, not-null, unique, relation, and check constraints. Generated declarations
 and SQL DDL are proposal frontends; neither remains a runtime fallback.
 
 Validated checks execute from a bounded field-ID-bound accepted expression.
-When historical work is required, an accepted activation gates new writes
-first, then a durable bounded Forward/Verify job proves existing rows before
-one atomic promotion. Pending historical violations are migration findings,
-not accepted-state corruption.
+Targeted durable rules bind a persisted root field and nominal accepted type,
+then visit every finite direct or nested occurrence through the same
+final-after-image authority. When historical work is required, an accepted
+activation gates new writes first, then a durable bounded Forward/Verify job
+proves existing rows before one atomic promotion. Pending historical
+violations are migration findings, not accepted-state corruption.
 
 Candidate unique-index and relation generations remain invisible to ordinary
 planning and delete-safety decisions until that promotion. Application

@@ -1534,6 +1534,9 @@ fn measure_journaled_user_resumable_update_perf() -> Result<ResumableUpdatePerfR
 /// Measure one canonical administrative integrity SQL operation.
 #[cfg(feature = "sql")]
 #[update]
+// This audit endpoint deliberately exposes the canonical typed integrity
+// error. Boxing it would change the generated Candid response contract.
+#[allow(clippy::result_large_err)]
 fn measure_integrity_sql_perf(sql: String) -> Result<IntegritySqlPerfResult, SqlIntegrityError> {
     let session = db().map_err(SqlIntegrityError::Sql)?;
     let owner = IntegrityJobOwner::new("audit::sql-perf")

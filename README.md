@@ -300,6 +300,12 @@ publish an explicit new-write gate when historical proof is required;
 `VALIDATE CONSTRAINT` advances the bounded durable proof before atomic
 promotion. `SHOW CONSTRAINTS` exposes the same accepted identity and activation
 state without performing a table scan.
+
+Reusable durable numeric and length rules also become accepted constraints.
+One rule is bound by persisted root field and nominal type, then enforced over
+every finite direct or nested occurrence—including recursive named values—by
+the same mutation, activation, integrity, and recovery authority.
+
 Application validators and normalizers are explicit typed authoring behavior.
 Database writes never invoke them, and they do not become database constraints
 or recovery-time policy.

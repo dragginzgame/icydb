@@ -11,6 +11,17 @@ Schema-only consumers depend on this package without depending on the IcyDB
 database runtime. Generated typed adapters are explicit opt-in output for
 consumers that also depend directly on `icydb`.
 
+The three behavior families are intentionally separate:
+
+- durable rules are bounded proposal metadata that become accepted
+  root-field-plus-nominal-type constraints and are enforced by IcyDB across
+  direct, nested, repeated, and finite recursive occurrences;
+- validators are explicitly invoked Rust application checks; and
+- normalizers are explicitly invoked Rust application transformations.
+
+Generated adapters never execute validators or normalizers implicitly, and
+the database runtime never loads the authored model as enforcement authority.
+
 References:
 
 - Workspace overview: `../../README.md`

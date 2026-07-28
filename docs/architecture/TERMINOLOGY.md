@@ -38,6 +38,12 @@ Keep these concepts distinct:
   ingress but is not persisted database semantics.
 - **Accepted constraint**: validated catalog entry with stable ID, name,
   origin, and one structural or canonical check owner.
+- **Durable rule**: bounded authored metadata that becomes one accepted
+  root-field-plus-nominal-type constraint. It is proposal input, not a Rust
+  runtime validator.
+- **Targeted rule**: the accepted durable-rule representation and evaluator
+  that visits every finite occurrence of its nominal type below one persisted
+  root, including nested and recursive values.
 - **Constraint activation**: accepted migration state whose new-write gate is
   authoritative while bounded historical proof is incomplete.
 - **Validation job**: durable progress and finding evidence for an activation;
@@ -45,8 +51,8 @@ Keep these concepts distinct:
 - **Candidate generation**: planner-invisible unique-index or reverse-relation
   state built for one activation and made authoritative only by promotion.
 
-Do not use `validator`, `constraint`, `activation`, and `validation job` as
-interchangeable terms.
+Do not use `durable rule`, `validator`, `constraint`, `activation`, and
+`validation job` as interchangeable terms.
 
 ## Runtime Value Vocabulary
 
