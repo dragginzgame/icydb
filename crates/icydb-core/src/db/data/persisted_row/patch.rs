@@ -971,16 +971,15 @@ mod tests {
             crate::db::data::FieldSlot::from_validated_index(0),
             InputValue::Null,
         );
-        let error = match resolve_insert_structural_patch_with_accepted_contract(
+        let Err(error) = resolve_insert_structural_patch_with_accepted_contract(
             accepted.entity_path(),
             row_layout.row_decode_contract(value_catalog),
             fingerprint,
             &constraints,
             &patch,
             AcceptedWriteContext::new(crate::types::Timestamp::from_millis(1)),
-        ) {
-            Ok(_) => panic!("explicit null should violate accepted not-null"),
-            Err(error) => error,
+        ) else {
+            panic!("explicit null should violate accepted not-null");
         };
         let diagnostic = error
             .constraint_diagnostic()

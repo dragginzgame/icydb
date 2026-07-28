@@ -1259,6 +1259,9 @@ mod typed_adapter_tests {
         ));
     }
 
+    // Keep the full rename, stale-binding, and old-name-reuse lifecycle in one
+    // regression so each issued binding is checked against the next revision.
+    #[expect(clippy::too_many_lines)]
     #[test]
     fn typed_binding_uses_accepted_ids_and_slots_across_renames_and_name_reuse() {
         let entity_tag = EntityTag::new(91);

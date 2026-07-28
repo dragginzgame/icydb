@@ -852,93 +852,6 @@ fn prepare_single_row_apply(prepared_row_op: &PreparedRowCommitOp) -> SingleRowA
     SingleRowApplyPrep { guards, delta }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        db::{
-            data::DecodedDataStoreKey,
-            key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
-            registry::StoreRegistry,
-        },
-        traits::Path,
-        types::EntityTag,
-    };
-
-    struct SchedulerOverlayTestCanister;
-
-    impl Path for SchedulerOverlayTestCanister {
-        const PATH: &'static str = "executor::mutation::tests::SchedulerOverlayTestCanister";
-    }
-
-    impl CanisterKind for SchedulerOverlayTestCanister {
-        const COMMIT_MEMORY_ID: u8 = 1;
-        const COMMIT_STABLE_KEY: &'static str = "icydb.scheduler_overlay.commit.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 2;
-        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
-            "icydb.scheduler_overlay.integrity.progress.v1";
-    }
-
-    thread_local! {
-        static TEST_REGISTRY: StoreRegistry = StoreRegistry::new();
-    }
-
-    fn test_key(value: u64) -> DecodedDataStoreKey {
-        DecodedDataStoreKey::new(
-            EntityTag::new(41),
-            &PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(value)),
-        )
-    }
-
-    fn test_row_op(key: &DecodedDataStoreKey, after: Option<Vec<u8>>) -> CommitRowOp {
-        CommitRowOp::new(
-            "tests::SelfRelation",
-            key.to_raw().expect("test key should encode"),
-            None,
-            after,
-            [7; 16],
-        )
-    }
-
-    #[test]
-    fn scheduler_overlay_seeds_later_final_after_images_before_preflight() {
-        let db: Db<SchedulerOverlayTestCanister> = Db::new(&TEST_REGISTRY);
-        let first = test_key(1);
-        let later = test_key(2);
-        let row_ops = vec![
-            test_row_op(&first, Some(vec![1])),
-            test_row_op(&later, Some(vec![2])),
-        ];
-
-        let overlay = PreflightStoreOverlay::from_row_ops(&db, row_ops.as_slice())
-            .expect("complete batch overlay should build");
-        let visible = overlay
-            .read_primary_row(&later)
-            .expect("later batch target lookup should succeed")
-            .expect("later batch target must be visible before row-order preflight");
-
-        assert_eq!(visible.as_bytes(), &[2]);
-    }
-
-    #[test]
-    fn scheduler_overlay_seeds_delete_absence_before_preflight() {
-        let db: Db<SchedulerOverlayTestCanister> = Db::new(&TEST_REGISTRY);
-        let deleted = test_key(3);
-        let row_ops = vec![test_row_op(&deleted, None)];
-
-        let overlay = PreflightStoreOverlay::from_row_ops(&db, row_ops.as_slice())
-            .expect("delete overlay should build");
-
-        assert!(
-            overlay
-                .read_primary_row(&deleted)
-                .expect("delete target lookup should succeed")
-                .is_none(),
-            "the complete batch must mask deleted rows before storage-backed proofs",
-        );
-    }
-}
-
 /// Resolve the exact registered store pairs that one prepared-op batch
 /// synchronized through authoritative row + paired index mutation.
 #[must_use]
@@ -1174,4 +1087,91 @@ fn key_within_bounds(
     bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
 ) -> bool {
     key_within_envelope(key, bounds.0, bounds.1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        db::{
+            data::DecodedDataStoreKey,
+            key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
+            registry::StoreRegistry,
+        },
+        traits::Path,
+        types::EntityTag,
+    };
+
+    struct SchedulerOverlayTestCanister;
+
+    impl Path for SchedulerOverlayTestCanister {
+        const PATH: &'static str = "executor::mutation::tests::SchedulerOverlayTestCanister";
+    }
+
+    impl CanisterKind for SchedulerOverlayTestCanister {
+        const COMMIT_MEMORY_ID: u8 = 1;
+        const COMMIT_STABLE_KEY: &'static str = "icydb.scheduler_overlay.commit.v1";
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 2;
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+            "icydb.scheduler_overlay.integrity.progress.v1";
+    }
+
+    thread_local! {
+        static TEST_REGISTRY: StoreRegistry = StoreRegistry::new();
+    }
+
+    fn test_key(value: u64) -> DecodedDataStoreKey {
+        DecodedDataStoreKey::new(
+            EntityTag::new(41),
+            &PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(value)),
+        )
+    }
+
+    fn test_row_op(key: &DecodedDataStoreKey, after: Option<Vec<u8>>) -> CommitRowOp {
+        CommitRowOp::new(
+            "tests::SelfRelation",
+            key.to_raw().expect("test key should encode"),
+            None,
+            after,
+            [7; 16],
+        )
+    }
+
+    #[test]
+    fn scheduler_overlay_seeds_later_final_after_images_before_preflight() {
+        let db: Db<SchedulerOverlayTestCanister> = Db::new(&TEST_REGISTRY);
+        let first = test_key(1);
+        let later = test_key(2);
+        let row_ops = vec![
+            test_row_op(&first, Some(vec![1])),
+            test_row_op(&later, Some(vec![2])),
+        ];
+
+        let overlay = PreflightStoreOverlay::from_row_ops(&db, row_ops.as_slice())
+            .expect("complete batch overlay should build");
+        let visible = overlay
+            .read_primary_row(&later)
+            .expect("later batch target lookup should succeed")
+            .expect("later batch target must be visible before row-order preflight");
+
+        assert_eq!(visible.as_bytes(), &[2]);
+    }
+
+    #[test]
+    fn scheduler_overlay_seeds_delete_absence_before_preflight() {
+        let db: Db<SchedulerOverlayTestCanister> = Db::new(&TEST_REGISTRY);
+        let deleted = test_key(3);
+        let row_ops = vec![test_row_op(&deleted, None)];
+
+        let overlay = PreflightStoreOverlay::from_row_ops(&db, row_ops.as_slice())
+            .expect("delete overlay should build");
+
+        assert!(
+            overlay
+                .read_primary_row(&deleted)
+                .expect("delete target lookup should succeed")
+                .is_none(),
+            "the complete batch must mask deleted rows before storage-backed proofs",
+        );
+    }
 }
