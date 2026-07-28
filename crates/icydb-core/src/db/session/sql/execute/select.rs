@@ -64,7 +64,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     // Execute one SQL projection from one shared lower prepared plan plus
-    // one thin SQL projection contract so cached and explicit-bypass paths
+    // one shared structural projection contract so cached and explicit-bypass paths
     // share the same final row-materialization shell.
     fn execute_sql_projection_from_structural_prepared_plan(
         &self,
@@ -121,7 +121,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     // Execute one grouped SQL statement from one shared lowered prepared plan
-    // plus one thin SQL projection contract. Normal and diagnostics surfaces
+    // plus one shared structural projection contract. Normal and diagnostics surfaces
     // share this plan-to-statement shell; diagnostics only swaps response
     // finalization through the optional collector.
     fn execute_grouped_sql_core<T>(

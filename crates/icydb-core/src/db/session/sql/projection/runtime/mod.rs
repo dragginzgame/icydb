@@ -1,10 +1,10 @@
 //! Module: db::session::sql::projection::runtime
-//! Responsibility: session-owned SQL projection payload handoff over
+//! Responsibility: session-owned SQL projection execution handoff over
 //! executor-owned structural projection rows.
 //! Does not own: shared projection validation, projection execution, or scalar
 //! execution mechanics.
 //! Boundary: consumes structural projection results from the executor and
-//! performs SQL response-payload shaping above that boundary.
+//! returns runtime value rows for the shared structural payload.
 
 mod materialize;
 

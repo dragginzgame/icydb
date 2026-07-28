@@ -29,6 +29,10 @@ name = "sql_canister"
 path = "tests/sql_canister.rs"
 
 [[test]]
+name = "query_canister"
+path = "tests/query_canister.rs"
+
+[[test]]
 name = "sql_correctness"
 path = "tests/sql_correctness.rs"
 
