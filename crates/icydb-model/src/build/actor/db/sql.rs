@@ -353,6 +353,7 @@ fn sql_surface_endpoint_exports(
     let integrity_endpoint = surfaces.integrity_enabled().then(|| {
         quote! {
         #[cfg(feature = "sql")]
+        #[expect(clippy::result_large_err)]
         #[::icydb::__reexports::ic_cdk::update(name = "icydb_integrity")]
         fn __icydb_integrity(
             sql: String,
@@ -673,6 +674,7 @@ mod tests {
         ));
 
         assert!(endpoint.contains("name=\"icydb_integrity\""));
+        assert!(endpoint.contains("result_large_err"));
         let controller_guard = endpoint
             .find("icydb_sql_surface_require_controller(\"integrity\")")
             .expect("generated integrity endpoint should require its controller guard");
