@@ -893,7 +893,7 @@ impl AccessPlannedQuery {
     /// candidate stream, then applies the original page window after projected
     /// row deduplication.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn clone_without_scalar_page(&self) -> Self {
         let mut plan = self.clone();
         match &mut plan.logical {

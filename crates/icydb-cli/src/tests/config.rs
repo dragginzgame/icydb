@@ -16,9 +16,9 @@ use crate::{
     cli::{CliArgs, CliCommand, ConfigCommand},
     config::{
         ConfigSurface, FIXTURES_LOAD_ENDPOINT, METRICS_ENDPOINT, METRICS_EXTENDED_ENDPOINT,
-        METRICS_RESET_ENDPOINT, SCHEMA_CHECK_ENDPOINT, SCHEMA_ENDPOINT, SNAPSHOT_ENDPOINT,
-        SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, SQL_UPDATE_ENDPOINT,
-        init_config_with_existing_config_for_test, init_config_without_existing_config,
+        METRICS_RESET_ENDPOINT, SCHEMA_ENDPOINT, SNAPSHOT_ENDPOINT, SQL_DDL_ENDPOINT,
+        SQL_QUERY_ENDPOINT, SQL_UPDATE_ENDPOINT, init_config_with_existing_config_for_test,
+        init_config_without_existing_config,
         test_support::{
             config_surface_enabled_for_resolved, config_sync_issues,
             configured_endpoint_enabled_for_resolved,
@@ -699,7 +699,6 @@ fn disabled_config_surface_message_names_surface_key_and_rebuild_step() {
 fn configured_endpoint_methods_match_generated_endpoint_names() {
     assert_eq!(SNAPSHOT_ENDPOINT.method(), "icydb_snapshot");
     assert_eq!(SCHEMA_ENDPOINT.method(), "icydb_schema");
-    assert_eq!(SCHEMA_CHECK_ENDPOINT.method(), "icydb_schema_check");
     assert_eq!(METRICS_ENDPOINT.method(), "icydb_metrics");
     assert_eq!(METRICS_EXTENDED_ENDPOINT.method(), "icydb_metrics_extended");
     assert_eq!(METRICS_RESET_ENDPOINT.method(), "icydb_metrics_reset");

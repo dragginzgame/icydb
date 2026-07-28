@@ -406,13 +406,13 @@ impl LoweredIndexPrefixSpec {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db) struct LoweredIndexPrefixCardinalitySpec {
     index_id: IndexId,
     prefix_components: Vec<Vec<u8>>,
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 impl LoweredIndexPrefixCardinalitySpec {
     #[must_use]
     pub(in crate::db) const fn new(index_id: IndexId, prefix_components: Vec<Vec<u8>>) -> Self {
@@ -649,7 +649,7 @@ fn lower_index_specs_for_path<K>(
     Ok(())
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db) fn lower_exact_index_prefix_cardinality_specs_for_prefix_access(
     entity_tag: EntityTag,
     access: &crate::db::query::plan::CountCardinalityPrefixAccess<'_>,
@@ -682,7 +682,7 @@ pub(in crate::db) fn lower_exact_index_prefix_cardinality_specs_for_prefix_acces
     }
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 fn lower_single_component_index_prefix_cardinality_specs(
     entity_tag: EntityTag,
     index: crate::db::access::SemanticIndexAccessContract,

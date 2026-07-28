@@ -51,13 +51,16 @@ icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.37" }
 ```
 
 The default crate feature set provides structural writes and accepted-schema
-runtime support. Enable SQL when the canister uses typed queries,
-session/library SQL APIs, or generated SQL endpoints:
+runtime support. Enable `query` for typed or dynamic reads without the SQL
+frontend:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.37", features = ["sql"] }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.37", features = ["query"] }
 ```
+
+Enable `sql` instead when the canister uses session/library SQL APIs or
+generated SQL endpoints; `sql` includes `query`.
 
 Application schema crates depend separately on `icydb-model`; the runtime
 `icydb` facade does not re-export model declaration macros. Low-level tools
@@ -384,7 +387,7 @@ usage, IC test prerequisites, and wasm report commands live in
 - [docs/contracts/TRANSACTION_SEMANTICS.md](docs/contracts/TRANSACTION_SEMANTICS.md)
 - [docs/1.0-FEATURES.md](docs/1.0-FEATURES.md)
 - [docs/1.0-TODO.md](docs/1.0-TODO.md)
-- [docs/ROADMAP.md](docs/ROADMAP.md)
+- [docs/FOUNDATIONS.md](docs/FOUNDATIONS.md)
 
 ## License
 

@@ -2,7 +2,7 @@
 //! Responsibility: diagnostics-only scalar aggregate terminal attribution.
 //! Boundary: keeps counters and instruction measurement out of reducer logic.
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use crate::db::diagnostics::measure_local_instruction_delta as measure_scalar_aggregate_terminal_phase;
 use std::cell::Cell;
 
@@ -23,7 +23,7 @@ std::thread_local! {
 pub(in crate::db) enum ScalarAggregateSinkMode {
     #[default]
     None,
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     Buffered,
     IndexPrefixCardinality,
 }
@@ -32,7 +32,7 @@ impl ScalarAggregateSinkMode {
     pub(in crate::db) const fn label(self) -> Option<&'static str> {
         match self {
             Self::None => None,
-            #[cfg(feature = "sql")]
+            #[cfg(feature = "query")]
             Self::Buffered => Some("Buffered"),
             Self::IndexPrefixCardinality => Some("IndexPrefixCardinality"),
         }
@@ -75,7 +75,7 @@ impl ScalarAggregateTerminalAttribution {
         }
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db::executor::aggregate) fn from_terminal_counts(
         terminal_count: usize,
         input_expr_count: usize,
@@ -111,7 +111,7 @@ impl ScalarAggregateTerminalAttribution {
             || self.sink_mode.label().is_some()
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db::executor::aggregate) const fn merge_runtime(&mut self, runtime: Self) {
         self.reducer_fold_local_instructions = self
             .reducer_fold_local_instructions
@@ -191,7 +191,7 @@ pub(in crate::db::executor::aggregate) fn record_index_prefix_cardinality_termin
     );
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db::executor::aggregate) fn measure_phase<T>(run: impl FnOnce() -> T) -> (u64, T) {
     measure_scalar_aggregate_terminal_phase(run)
 }

@@ -10,7 +10,7 @@ use crate::db::diagnostics::measure_local_instruction_delta as measure_grouped_e
 use crate::db::executor::{
     GroupedCountFoldMetrics, aggregate::GroupedRuntimeStats, with_grouped_count_fold_metrics,
 };
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use crate::db::executor::{SharedPreparedExecutionPlan, StructuralGroupedProjectionResult};
 use crate::db::registry::StoreHandle;
 use crate::{
@@ -40,7 +40,7 @@ use crate::{
 };
 
 /// Execute one generic-free shared grouped plan through the canonical runtime.
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db) fn execute_shared_grouped_plan_for_canister<C>(
     db: &crate::db::Db<C>,
     debug: bool,
@@ -71,7 +71,7 @@ where
 }
 
 /// Execute one generic-free shared grouped plan with runtime phase attribution.
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(all(feature = "query", feature = "diagnostics"))]
 pub(in crate::db) fn execute_shared_grouped_plan_for_canister_with_phase_attribution<C>(
     db: &crate::db::Db<C>,
     debug: bool,
@@ -114,10 +114,9 @@ where
 /// GroupedPathRuntimeContext
 ///
 /// GroupedPathRuntimeContext is the owner-local runtime context needed by the
-/// grouped execution spine after the typed boundary resolves model/store
-/// authority.
+/// grouped execution spine after the frontend resolves store authority.
 /// Shared grouped entrypoint orchestration stays monomorphic by driving this
-/// structural context instead of `LoadExecutor<E>` directly.
+/// structural context directly.
 ///
 
 struct GroupedPathRuntimeContext {
@@ -131,10 +130,9 @@ struct GroupedPathRuntimeContext {
 /// PreparedGroupedRouteRuntime
 ///
 /// PreparedGroupedRouteRuntime is the generic-free grouped execution bundle
-/// emitted once the typed boundary has resolved route metadata and structural
+/// emitted once the frontend has resolved route metadata and structural
 /// runtime authority.
-/// Grouped runtime execution consumes this bundle directly so grouped lanes no
-/// longer depend on `LoadExecutor<E>` after preparation.
+/// Grouped runtime execution consumes this bundle directly.
 ///
 
 pub(in crate::db::executor) struct PreparedGroupedRouteRuntime {
@@ -197,7 +195,7 @@ pub(in crate::db) struct GroupedCountAttribution {
 
 #[cfg(feature = "diagnostics")]
 impl GroupedCountAttribution {
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     #[must_use]
     pub(in crate::db) const fn none() -> Self {
         Self {
@@ -266,7 +264,7 @@ impl GroupedRuntimeAttribution {
     }
 
     /// Build the empty runtime attribution used by non-grouped SQL phases.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     #[must_use]
     pub(in crate::db) const fn none() -> Self {
         Self {
@@ -440,9 +438,9 @@ pub(in crate::db) struct GroupedExecutePhaseAttribution {
 impl GroupedPathRuntimeContext {
     // Build the grouped runtime spine once from one recovered store handle and
     // its resolved structural entity authority.
-    const fn from_store(store: StoreHandle, authority: EntityAuthority) -> Self {
+    fn from_store(store: StoreHandle, authority: EntityAuthority) -> Self {
         let entity_tag = authority.entity_tag();
-        let entity_path = authority.entity_path();
+        let entity_path = authority.entity_path_handle();
 
         Self {
             traversal_runtime: TraversalRuntime::new(store, entity_tag),

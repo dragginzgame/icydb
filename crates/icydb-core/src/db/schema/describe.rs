@@ -1,7 +1,7 @@
 //! Module: db::schema::describe
 //! Responsibility: deterministic entity-schema introspection DTOs for runtime consumers.
 //! Does not own: query planning, execution routing, or relation enforcement semantics.
-//! Boundary: projects generated or accepted schema metadata into stable describe surfaces.
+//! Boundary: projects accepted schema metadata into stable describe surfaces.
 
 use crate::{
     db::schema::CompositeCodec,
@@ -48,42 +48,6 @@ pub struct EntitySchemaDescription {
     pub(crate) constraints: Vec<EntityConstraintDescription>,
     pub(crate) row_layout_current: u32,
     pub(crate) row_layout_history_floor: u32,
-}
-
-#[cfg_attr(
-    doc,
-    doc = "EntitySchemaCheckDescription\n\nGenerated-vs-accepted schema description payload for one entity."
-)]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-pub struct EntitySchemaCheckDescription {
-    pub(crate) generated: EntitySchemaDescription,
-    pub(crate) accepted: EntitySchemaDescription,
-}
-
-impl EntitySchemaCheckDescription {
-    /// Construct one generated-vs-accepted schema check payload.
-    #[must_use]
-    pub const fn new(
-        generated: EntitySchemaDescription,
-        accepted: EntitySchemaDescription,
-    ) -> Self {
-        Self {
-            generated,
-            accepted,
-        }
-    }
-
-    /// Borrow the generated schema proposal description.
-    #[must_use]
-    pub const fn generated(&self) -> &EntitySchemaDescription {
-        &self.generated
-    }
-
-    /// Borrow the accepted live-schema description.
-    #[must_use]
-    pub const fn accepted(&self) -> &EntitySchemaDescription {
-        &self.accepted
-    }
 }
 
 impl EntitySchemaDescription {
@@ -1049,7 +1013,7 @@ fn describe_persisted_index_fields(key: &PersistedIndexKeySnapshot) -> Vec<Strin
     doc,
     doc = "Build field descriptors using accepted persisted schema slot metadata."
 )]
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
     schema: &AcceptedSchemaSnapshot,
     value_catalog: &AcceptedValueCatalogHandle,

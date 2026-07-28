@@ -23,6 +23,12 @@ pub(in crate::db) struct ProjectionMaterializationMetricsRecorder {
 }
 
 #[cfg(any(test, feature = "diagnostics"))]
+const fn ignore_projection_event() {}
+
+#[cfg(any(test, feature = "diagnostics"))]
+const fn ignore_projection_slot_event(_projected_slot: bool) {}
+
+#[cfg(any(test, feature = "diagnostics"))]
 impl ProjectionMaterializationMetricsRecorder {
     /// Construct one observer from adapter-owned materialization counters.
     pub(in crate::db) const fn new(
@@ -41,6 +47,18 @@ impl ProjectionMaterializationMetricsRecorder {
             distinct_candidate_row,
             distinct_bounded_stop,
         }
+    }
+
+    /// Construct one observer that intentionally records no adapter metrics.
+    pub(in crate::db) const fn none() -> Self {
+        Self::new(
+            ignore_projection_event,
+            ignore_projection_event,
+            ignore_projection_event,
+            ignore_projection_slot_event,
+            ignore_projection_event,
+            ignore_projection_event,
+        )
     }
 
     pub(super) fn record_slot_rows_path_hit(self) {
@@ -84,6 +102,10 @@ impl ProjectionMaterializationMetricsRecorder {
     /// Construct one no-op structural projection materialization observer.
     pub(in crate::db) const fn new() -> Self {
         Self
+    }
+
+    pub(in crate::db) const fn none() -> Self {
+        Self::new()
     }
 
     pub(super) const fn record_slot_rows_path_hit(self) {

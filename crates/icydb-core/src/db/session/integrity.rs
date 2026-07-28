@@ -1,13 +1,12 @@
 //! Module: db::session::integrity
 //! Responsibility: session routing into accepted-native integrity inspection.
 //! Does not own: inspection semantics, accepted schema construction, or recovery.
-//! Boundary: authorized entity path -> model-free registration -> accepted inspection plan.
+//! Boundary: authorized entity path -> accepted runtime entity -> accepted inspection plan.
 
 use crate::{
     db::{
         DbSession, QuickIntegrityResult,
         commit::database_incarnation_id,
-        entity_registration::EntityRuntimeRegistration,
         integrity::{
             IntegrityAuthorityDiagnostic, IntegrityCheckRequest, IntegrityCheckResult,
             IntegrityDeepError, IntegrityEntityIdentity, IntegrityJobError, IntegrityJobId,
@@ -16,6 +15,7 @@ use crate::{
             execute_quick_integrity, run_next_integrity_retention_page, start_deep_integrity_job,
             uninspectable_quick_integrity,
         },
+        runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::AcceptedInspectionPlan,
         session::accepted_schema::AcceptedInspectionPlanLoadError,
     },
@@ -72,15 +72,15 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         entity: &IntegrityEntityIdentity,
     ) -> Result<QuickIntegrityResult, IntegrityDeepError> {
-        let (registration, store) = self.integrity_target(entity)?;
+        let (runtime_entity, store) = self.integrity_target(entity)?;
         let incarnation = database_incarnation_id()?;
-        match self.accepted_inspection_plan_for_runtime_registration(registration, store) {
+        match self.accepted_inspection_plan_for_runtime_entity(runtime_entity, store) {
             Ok(plan) => {
                 Self::validate_integrity_plan_identity(entity, &plan)?;
                 execute_quick_integrity(&self.db, &plan).map_err(IntegrityDeepError::from)
             }
             Err(AcceptedInspectionPlanLoadError::Selected { identity, error }) => {
-                let accepted = IntegrityEntityIdentity::from_accepted_identity(identity);
+                let accepted = IntegrityEntityIdentity::from_accepted_identity(&identity);
                 if entity != &accepted {
                     return Err(IntegrityJobError::EntityIdentityMismatch.into());
                 }
@@ -95,32 +95,26 @@ impl<C: CanisterKind> DbSession<C> {
     fn integrity_target(
         &self,
         entity: &IntegrityEntityIdentity,
-    ) -> Result<
-        (
-            EntityRuntimeRegistration<C>,
-            crate::db::registry::StoreHandle,
-        ),
-        IntegrityDeepError,
-    > {
+    ) -> Result<(AcceptedRuntimeEntity, crate::db::registry::StoreHandle), IntegrityDeepError> {
         entity.validate()?;
-        let registration = self
+        let runtime_entity = self
             .db
-            .runtime_registration_for_entity_path(entity.entity_path())?;
-        if registration.entity_tag.value() != entity.entity_tag()
-            || registration.store_path != entity.store_path()
+            .accepted_runtime_entity_for_path(entity.entity_path())?;
+        if runtime_entity.entity_tag().value() != entity.entity_tag()
+            || runtime_entity.store_path() != entity.store_path()
         {
             return Err(IntegrityJobError::EntityIdentityMismatch.into());
         }
-        let store = self.db.recovered_store(registration.store_path)?;
+        let store = self.db.recovered_store(runtime_entity.store_path())?;
 
-        Ok((registration, store))
+        Ok((runtime_entity, store))
     }
 
     fn validate_integrity_plan_identity(
         entity: &IntegrityEntityIdentity,
         plan: &AcceptedInspectionPlan,
     ) -> Result<(), IntegrityDeepError> {
-        if entity != &IntegrityEntityIdentity::from_accepted_identity(plan.identity()) {
+        if *entity != IntegrityEntityIdentity::from_accepted_identity(plan.identity_ref()) {
             return Err(IntegrityJobError::EntityIdentityMismatch.into());
         }
         Ok(())
@@ -137,8 +131,8 @@ impl<C: CanisterKind> DbSession<C> {
             entity,
             owner,
             submission_key,
-            |registration, store| {
-                self.accepted_inspection_plan_for_runtime_registration(registration, store)
+            |runtime_entity, store| {
+                self.accepted_inspection_plan_for_runtime_entity(runtime_entity, store)
             },
         )
     }
@@ -149,20 +143,20 @@ impl<C: CanisterKind> DbSession<C> {
         owner: IntegrityJobOwner,
         submission_key: IntegritySubmissionKey,
         mut load_plan: impl FnMut(
-            EntityRuntimeRegistration<C>,
+            AcceptedRuntimeEntity,
             crate::db::registry::StoreHandle,
         )
             -> Result<AcceptedInspectionPlan, AcceptedInspectionPlanLoadError>,
     ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
         submission_key.validate()?;
-        let (registration, store) = self.integrity_target(entity)?;
-        let first_plan = load_plan(registration, store)
+        let (runtime_entity, store) = self.integrity_target(entity)?;
+        let first_plan = load_plan(runtime_entity.clone(), store)
             .map_err(|error| Self::deep_start_plan_load_error(entity, error))?;
         Self::validate_integrity_plan_identity(entity, &first_plan)?;
         let proof_a = capture_integrity_proof_vector(&self.db, &first_plan)?;
 
-        let store = self.db.recovered_store(registration.store_path)?;
-        let second_plan = load_plan(registration, store)
+        let store = self.db.recovered_store(runtime_entity.store_path())?;
+        let second_plan = load_plan(runtime_entity, store)
             .map_err(|error| Self::deep_start_plan_load_error(entity, error))?;
         Self::validate_integrity_plan_identity(entity, &second_plan)?;
         let proof_b = capture_integrity_proof_vector(&self.db, &second_plan)?;
@@ -182,7 +176,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> IntegrityDeepError {
         match error {
             AcceptedInspectionPlanLoadError::Selected { identity, error } => {
-                if entity != &IntegrityEntityIdentity::from_accepted_identity(identity) {
+                if entity != &IntegrityEntityIdentity::from_accepted_identity(&identity) {
                     return IntegrityJobError::EntityIdentityMismatch.into();
                 }
                 IntegrityDeepError::Uninspectable(IntegrityAuthorityDiagnostic::from_internal(
@@ -210,9 +204,9 @@ impl<C: CanisterKind> DbSession<C> {
             owner,
             acknowledged_sequence,
             |entity_path| {
-                let registration = self.db.runtime_registration_for_entity_path(entity_path)?;
-                let store = self.db.recovered_store(registration.store_path)?;
-                self.accepted_inspection_plan_for_runtime_registration(registration, store)
+                let runtime_entity = self.db.accepted_runtime_entity_for_path(entity_path)?;
+                let store = self.db.recovered_store(runtime_entity.store_path())?;
+                self.accepted_inspection_plan_for_runtime_entity(runtime_entity, store)
                     .map_err(AcceptedInspectionPlanLoadError::into_internal)
             },
         )

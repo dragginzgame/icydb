@@ -105,6 +105,8 @@ See [the read-intent guide](../guides/read-intent.md) for maintained examples.
 
 - internal and public rejection enums remain one-to-one;
 - default budgets remain synchronized with this contract;
-- typed execution enters `execute_public_dynamic_query`;
+- typed execution enters the identity-bound
+  `execute_public_typed_dynamic_query`;
 - trusted SQL documentation and generated-controller ownership remain intact;
-- public reads enter through the maintained typed or SQL admission boundaries.
+- public reads enter through the maintained typed or dynamic admission
+  boundaries.

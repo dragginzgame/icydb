@@ -1,9 +1,7 @@
 //! Module: Observability payload and rendering tests.
-//! Responsibility: exercise metrics, schema, schema-check, and snapshot decoding/rendering.
+//! Responsibility: exercise metrics, schema, and snapshot decoding/rendering.
 //! Does not own: ICP process commands or SQL shell routing.
 //! Boundary: test-only assertions over generated canister response shapes and reports.
-
-mod schema_check;
 
 use candid::Encode;
 use icydb::db::{
@@ -99,13 +97,13 @@ fn observability_render_helpers_format_common_values() {
 fn observability_call_errors_include_call_target_context() {
     assert_eq!(
         method_error(
-            "schema check",
+            "schema",
             "demo",
             "demo_rpg",
-            "icydb_schema_check",
-            "schema drift",
+            "icydb_schema",
+            "schema unavailable",
         ),
-        "IcyDB schema check method 'icydb_schema_check' failed on canister 'demo_rpg' in environment 'demo': schema drift",
+        "IcyDB schema method 'icydb_schema' failed on canister 'demo_rpg' in environment 'demo': schema unavailable",
     );
 }
 

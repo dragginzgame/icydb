@@ -1,5 +1,5 @@
 use crate::db::{
-    access::{SemanticIndexAccessContract, SemanticIndexKeyItemRef, SemanticIndexKeyItemsRef},
+    access::{SemanticIndexAccessContract, SemanticIndexKeyItemRef},
     predicate::CompareOp,
 };
 
@@ -28,12 +28,8 @@ pub(in crate::db::query::plan) fn field_key_contract_supports_operator(
 }
 
 fn contract_contains_field_key(index_contract: &SemanticIndexAccessContract, field: &str) -> bool {
-    match index_contract.key_items() {
-        SemanticIndexKeyItemsRef::Fields(fields) => {
-            fields.iter().any(|key_field| key_field == field)
-        }
-        SemanticIndexKeyItemsRef::Accepted(items) => items
-            .iter()
-            .any(|item| matches!(item.as_ref(), SemanticIndexKeyItemRef::Field(key_field) if key_field == field)),
-    }
+    index_contract
+        .key_items()
+        .iter()
+        .any(|item| matches!(item.as_ref(), SemanticIndexKeyItemRef::Field(key_field) if key_field == field))
 }

@@ -18,10 +18,11 @@ use crate::{
         },
         index::{
             IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexRowIdentity, IndexState,
-            IndexStore, IndexStoreVisit, RawIndexStoreKey, raw_keys_for_component_prefix_with_kind,
+            IndexStore, IndexStoreVisit, RawIndexStoreKey, StructuralPrimaryRowReader,
+            raw_keys_for_component_prefix_with_kind,
         },
         key_taxonomy::{EncodedPrimaryKey, PrimaryKeyComponent, PrimaryKeyValue},
-        registry::StoreHandle,
+        registry::{StoreHandle, StoreRelationSourceCapability, StoreRelationTargetCapability},
         relation::{
             AcceptedRelationCardinality, AcceptedRelationTargetAuthority,
             AcceptedRelationTargetContract, AcceptedRelationTupleEdgeLocalComponent,
@@ -32,16 +33,19 @@ use crate::{
         },
         schema::AcceptedFieldKind,
         schema::{
-            AcceptedFieldDecodeContract, MAX_SCHEMA_PROJECTION_WORK_UNITS,
-            OwnedAcceptedRelationEdgeContract, PersistedRelationEdgeSnapshot,
-            PersistedSchemaSnapshot,
+            AcceptedConstraintIdentity, AcceptedFieldDecodeContract,
+            MAX_SCHEMA_PROJECTION_WORK_UNITS, OwnedAcceptedRelationEdgeContract,
+            PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
         },
     },
-    error::{InternalError, SchemaTransitionBudgetResource},
+    error::{
+        ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError,
+        SchemaTransitionBudgetResource,
+    },
     traits::CanisterKind,
     types::EntityTag,
 };
-use std::{cell::RefCell, ops::Bound, thread::LocalKey};
+use std::{cell::RefCell, ops::Bound, rc::Rc, thread::LocalKey};
 
 use target_keys::RelationTargetKeys;
 
@@ -53,57 +57,37 @@ use target_keys::RelationTargetKeys;
 /// reverse-index identity, so the heavy mutation loop does not need `S`.
 ///
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct ReverseRelationSourceInfo {
-    path: &'static str,
+    path: Rc<str>,
     entity_tag: EntityTag,
 }
 
 impl ReverseRelationSourceInfo {
     /// Build structural source authority from an accepted runtime entity identity.
-    pub(in crate::db) const fn new(path: &'static str, entity_tag: EntityTag) -> Self {
-        Self { path, entity_tag }
+    pub(in crate::db) fn new(path: impl Into<Rc<str>>, entity_tag: EntityTag) -> Self {
+        Self {
+            path: path.into(),
+            entity_tag,
+        }
+    }
+
+    /// Borrow the accepted source path used for diagnostics.
+    #[must_use]
+    pub(in crate::db::relation) fn path(&self) -> &str {
+        &self.path
     }
 
     /// Return the structural source entity tag used for reverse-index identity.
     #[must_use]
-    pub(in crate::db::relation) const fn entity_tag(self) -> EntityTag {
+    pub(in crate::db::relation) const fn entity_tag(&self) -> EntityTag {
         self.entity_tag
     }
 }
 
-///
-/// ReverseRelationMutationTarget
-///
-/// Shared reverse-index mutation context for one touched target key.
-/// This keeps the structural mutation helper narrow without dragging the
-/// whole typed source shell through the per-target update path.
-///
-
-#[derive(Clone)]
-struct ReverseRelationMutationTarget {
-    target_store: &'static LocalKey<RefCell<IndexStore>>,
-    reverse_key: RawIndexStoreKey,
-    old_contains: bool,
-    new_contains: bool,
-}
-
-///
-/// ReverseRelationSourceTransition
-///
-/// Shared old/new source-row views used during reverse-index preparation.
-/// Commit preflight supplies already-decoded structural slot readers; an
-/// absent old or new side represents an insert or delete respectively.
-///
-
-struct ReverseRelationSourceTransition<'row, 'slots> {
-    source_row_contract: StructuralRowContract,
-    old_row_fields: Option<&'slots StructuralSlotReader<'row>>,
-    new_row_fields: Option<&'slots StructuralSlotReader<'row>>,
-}
-
 #[derive(Clone, Debug)]
 pub(in crate::db::relation) struct AcceptedRelationInfo {
+    constraint: AcceptedConstraintIdentity,
     relation_name: String,
     relation_ordinal: usize,
     physical_generation: u64,
@@ -141,6 +125,7 @@ pub(in crate::db) struct RelationConstraintRowProjection {
 
 impl AcceptedRelationInfo {
     fn new(
+        constraint: AcceptedConstraintIdentity,
         relation_name: impl Into<String>,
         relation_ordinal: usize,
         physical_generation: u64,
@@ -149,6 +134,7 @@ impl AcceptedRelationInfo {
         cardinality: AcceptedRelationCardinality,
     ) -> Result<Self, InternalError> {
         Ok(Self {
+            constraint,
             relation_name: relation_name.into(),
             relation_ordinal,
             physical_generation,
@@ -196,6 +182,25 @@ impl AcceptedRelationInfo {
     fn scalar_local_component(&self) -> Option<&AcceptedRelationLocalComponent> {
         self.local_components.scalar_component()
     }
+
+    pub(in crate::db::relation) fn write_violation(
+        &self,
+        entity_path: &str,
+        primary_key: Option<Vec<u8>>,
+    ) -> InternalError {
+        InternalError::mutation_constraint_violation(ConstraintDiagnostic::write_violation(
+            self.constraint.id().get(),
+            self.constraint.name().to_string(),
+            ConstraintDiagnosticKind::Relation,
+            entity_path.to_string(),
+            primary_key,
+            self.local_components
+                .components()
+                .iter()
+                .map(|component| component.field_name().to_string())
+                .collect(),
+        ))
+    }
 }
 
 impl RelationConstraintProjection {
@@ -236,9 +241,9 @@ impl RelationConstraintProjection {
         edge: &crate::db::schema::PersistedRelationEdgeSnapshot,
     ) -> Result<Self, InternalError> {
         let relation =
-            relation_info_from_snapshot_edge(db, source.path, snapshot, row_contract, edge)?;
+            relation_info_from_snapshot_edge(db, source.path(), snapshot, row_contract, edge)?;
         let (target_store_path, target_store) =
-            relation_target_store_binding(db, source, &relation)?;
+            relation_target_store_binding(db, &source, &relation)?;
         Ok(Self {
             source,
             relation_id: edge.id(),
@@ -276,7 +281,7 @@ impl RelationConstraintProjection {
     pub(in crate::db) fn raw_bounds(
         &self,
     ) -> Result<(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>), InternalError> {
-        let index_id = reverse_index_id_for_relation(self.source, &self.relation)?;
+        let index_id = reverse_index_id_for_relation(&self.source, &self.relation)?;
         let (lower, upper) = raw_keys_for_component_prefix_with_kind::<Vec<u8>>(
             &index_id,
             IndexKeyKind::System,
@@ -291,7 +296,7 @@ impl RelationConstraintProjection {
     /// Prove that one decoded key names this exact active reverse generation.
     #[must_use]
     pub(in crate::db) fn contains_decoded_key(&self, key: &IndexKey) -> bool {
-        let Ok(expected) = reverse_index_id_for_relation(self.source, &self.relation) else {
+        let Ok(expected) = reverse_index_id_for_relation(&self.source, &self.relation) else {
             return false;
         };
         key.key_kind() == IndexKeyKind::System && key.index_id() == &expected
@@ -304,29 +309,63 @@ impl RelationConstraintProjection {
         row: &StructuralSlotReader<'_>,
         validate_targets: bool,
     ) -> Result<RelationConstraintRowProjection, InternalError> {
+        self.project_row_with_target_lookup(
+            source_primary_key,
+            row,
+            validate_targets,
+            |target, raw_target| {
+                Ok(self
+                    .target_store
+                    .with_data(|data_store| data_store.get(raw_target).is_some())
+                    && target.entity_tag() == self.relation.target().entity_tag())
+            },
+        )
+    }
+
+    fn project_row_with_target_reader(
+        &self,
+        source_primary_key: &PrimaryKeyValue,
+        row: &StructuralSlotReader<'_>,
+        validate_targets: bool,
+        target_reader: &dyn StructuralPrimaryRowReader,
+    ) -> Result<RelationConstraintRowProjection, InternalError> {
+        self.project_row_with_target_lookup(
+            source_primary_key,
+            row,
+            validate_targets,
+            |target, _| Ok(target_reader.read_primary_row(target)?.is_some()),
+        )
+    }
+
+    fn project_row_with_target_lookup(
+        &self,
+        source_primary_key: &PrimaryKeyValue,
+        row: &StructuralSlotReader<'_>,
+        validate_targets: bool,
+        mut target_exists: impl FnMut(
+            &DecodedDataStoreKey,
+            &RawDataStoreKey,
+        ) -> Result<bool, InternalError>,
+    ) -> Result<RelationConstraintRowProjection, InternalError> {
         let target_keys =
-            relation_target_raw_keys_for_source_slots(row, self.source, &self.relation)?;
+            relation_target_raw_keys_for_source_slots(row, &self.source, &self.relation)?;
         let mut entries = Vec::with_capacity(target_keys.len());
         let mut missing_targets = Vec::new();
         for target_key in target_keys {
-            if validate_targets
-                && !self
-                    .target_store
-                    .with_data(|data_store| data_store.get(&target_key).is_some())
-            {
-                missing_targets.push(target_key);
-                continue;
-            }
             let target = decode_relation_target_data_key(
-                self.source,
+                &self.source,
                 &self.relation,
                 &target_key,
                 RelationTargetDecodeContext::ReverseIndexPrepare,
                 RelationTargetMismatchPolicy::Reject,
             )?
             .ok_or_else(InternalError::store_invariant)?;
+            if validate_targets && !target_exists(&target, &target_key)? {
+                missing_targets.push(target_key);
+                continue;
+            }
             let Some(key) = reverse_index_key_for_target_and_source_primary_key_value(
-                self.source,
+                &self.source,
                 &self.relation,
                 &target.primary_key_value(),
                 source_primary_key,
@@ -350,43 +389,59 @@ impl RelationConstraintProjection {
     pub(in crate::db) fn missing_target_error(
         &self,
         target_key: &RawDataStoreKey,
+        source_primary_key: Option<Vec<u8>>,
     ) -> Result<InternalError, InternalError> {
-        let target = DecodedDataStoreKey::try_from_raw(target_key)
+        let _target = DecodedDataStoreKey::try_from_raw(target_key)
             .map_err(|_| InternalError::store_corruption())?;
-        Ok(InternalError::relation_target_missing(
-            self.source.path,
-            self.relation.field_name(),
-            self.relation.target().path(),
-            &target.primary_key_value().as_runtime_value(),
-        ))
+        Ok(self
+            .relation
+            .write_violation(self.source.path(), source_primary_key))
     }
 
-    /// Prepare candidate reverse deltas for one live source-row transition.
+    /// Prepare reverse deltas for one live source-row transition against the
+    /// mutation scheduler's authoritative target-row view.
     pub(in crate::db) fn prepare_source_transition(
         &self,
+        target_reader: &dyn StructuralPrimaryRowReader,
+        validate_targets: bool,
         source_primary_key: &PrimaryKeyValue,
         old_row: Option<&StructuralSlotReader<'_>>,
         new_row: Option<&StructuralSlotReader<'_>>,
     ) -> Result<Vec<PreparedIndexMutation>, InternalError> {
         let old_entries = old_row
-            .map(|row| self.project_row(source_primary_key, row, false))
+            .map(|row| {
+                self.project_row_with_target_reader(source_primary_key, row, false, target_reader)
+            })
             .transpose()?
             .map(RelationConstraintRowProjection::into_entries)
             .unwrap_or_default();
         let new_projection = new_row
-            .map(|row| self.project_row(source_primary_key, row, true))
+            .map(|row| {
+                self.project_row_with_target_reader(
+                    source_primary_key,
+                    row,
+                    validate_targets,
+                    target_reader,
+                )
+            })
             .transpose()?;
         if let Some(missing) = new_projection
             .as_ref()
             .and_then(|projection| projection.missing_targets().first())
         {
-            return Err(self.missing_target_error(missing)?);
+            let source_key =
+                DecodedDataStoreKey::new(self.source.entity_tag(), source_primary_key).to_raw()?;
+            let source_primary_key = source_key
+                .encoded_primary_key_bytes()
+                .ok_or_else(InternalError::store_invariant)?
+                .to_vec();
+            return Err(self.missing_target_error(missing, Some(source_primary_key))?);
         }
         let new_entries = new_projection
             .map(RelationConstraintRowProjection::into_entries)
             .unwrap_or_default();
 
-        Ok(merge_candidate_relation_entries(old_entries, new_entries))
+        Ok(merge_relation_entries(old_entries, new_entries))
     }
 }
 
@@ -410,7 +465,7 @@ impl RelationConstraintIndexEntry {
     }
 }
 
-fn merge_candidate_relation_entries(
+fn merge_relation_entries(
     old_entries: Vec<RelationConstraintIndexEntry>,
     new_entries: Vec<RelationConstraintIndexEntry>,
 ) -> Vec<PreparedIndexMutation> {
@@ -420,23 +475,23 @@ fn merge_candidate_relation_entries(
     while old_index < old_entries.len() || new_index < new_entries.len() {
         let (entry, old_contains, new_contains) =
             match (old_entries.get(old_index), new_entries.get(new_index)) {
-                (Some(old), Some(new)) => match candidate_relation_entry_identity(old)
-                    .cmp(&candidate_relation_entry_identity(new))
-                {
-                    std::cmp::Ordering::Less => {
-                        old_index = old_index.saturating_add(1);
-                        (old, true, false)
+                (Some(old), Some(new)) => {
+                    match relation_entry_identity(old).cmp(&relation_entry_identity(new)) {
+                        std::cmp::Ordering::Less => {
+                            old_index = old_index.saturating_add(1);
+                            (old, true, false)
+                        }
+                        std::cmp::Ordering::Greater => {
+                            new_index = new_index.saturating_add(1);
+                            (new, false, true)
+                        }
+                        std::cmp::Ordering::Equal => {
+                            old_index = old_index.saturating_add(1);
+                            new_index = new_index.saturating_add(1);
+                            (old, true, true)
+                        }
                     }
-                    std::cmp::Ordering::Greater => {
-                        new_index = new_index.saturating_add(1);
-                        (new, false, true)
-                    }
-                    std::cmp::Ordering::Equal => {
-                        old_index = old_index.saturating_add(1);
-                        new_index = new_index.saturating_add(1);
-                        (old, true, true)
-                    }
-                },
+                }
                 (Some(old), None) => {
                     old_index = old_index.saturating_add(1);
                     (old, true, false)
@@ -461,14 +516,14 @@ fn merge_candidate_relation_entries(
     effects
 }
 
-const fn candidate_relation_entry_identity(
+const fn relation_entry_identity(
     entry: &RelationConstraintIndexEntry,
 ) -> (&'static str, &RawIndexStoreKey) {
     (entry.target_store_path, &entry.key)
 }
 
 impl RelationConstraintRowProjection {
-    /// Borrow canonical candidate reverse entries for this source row.
+    /// Borrow canonical reverse entries for this source row.
     #[must_use]
     pub(in crate::db) const fn entries(&self) -> &[RelationConstraintIndexEntry] {
         self.entries.as_slice()
@@ -787,6 +842,7 @@ where
     {
         let cardinality = descriptor.cardinality();
         return Ok(Some(AcceptedRelationInfo::new(
+            edge.constraint().clone(),
             field.field_name(),
             edge.local_field_slots()[0],
             edge.physical_generation(),
@@ -818,6 +874,7 @@ where
         .collect::<Vec<_>>();
 
     Ok(Some(AcceptedRelationInfo::new(
+        edge.constraint().clone(),
         edge.name(),
         edge.local_field_slots()[0],
         edge.physical_generation(),
@@ -837,6 +894,9 @@ fn relation_info_from_snapshot_edge<C>(
 where
     C: CanisterKind,
 {
+    let constraint = snapshot
+        .relation_enforcement_identity(edge.id())
+        .ok_or_else(InternalError::store_corruption)?;
     let local_fields = edge
         .local_field_ids()
         .iter()
@@ -865,6 +925,7 @@ where
     {
         let cardinality = descriptor.cardinality();
         return AcceptedRelationInfo::new(
+            constraint,
             edge.name(),
             *slot,
             edge.physical_generation(),
@@ -900,6 +961,7 @@ where
         .map(|(slot, _)| *slot)
         .ok_or_else(InternalError::store_corruption)?;
     AcceptedRelationInfo::new(
+        constraint,
         edge.name(),
         relation_ordinal,
         edge.physical_generation(),
@@ -911,12 +973,12 @@ where
 
 /// Build the canonical reverse-index id for a `(source entity, relation field)` pair.
 fn reverse_index_id_for_relation(
-    source: ReverseRelationSourceInfo,
+    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
 ) -> Result<IndexId, InternalError> {
     let ordinal = u16::try_from(relation.field_index()).map_err(|err| {
         InternalError::reverse_index_ordinal_overflow(
-            source.path,
+            source.path(),
             relation.field_name(),
             relation.target().path(),
             err,
@@ -981,7 +1043,7 @@ pub(in crate::db) fn prove_empty_reverse_relation_domain(
 
 /// Build reverse-index prefix bounds for one complete target primary key.
 pub(super) fn reverse_index_key_bounds_for_target_primary_key_value(
-    source: ReverseRelationSourceInfo,
+    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
     target_key_value: &PrimaryKeyValue,
 ) -> Result<Option<(RawIndexStoreKey, RawIndexStoreKey)>, InternalError> {
@@ -1002,7 +1064,7 @@ pub(super) fn reverse_index_key_bounds_for_target_primary_key_value(
 
 /// Build the concrete reverse-index key for one target/source relation edge.
 fn reverse_index_key_for_target_and_source_primary_key_value(
-    source: ReverseRelationSourceInfo,
+    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
     target_key_value: &PrimaryKeyValue,
     source_key_value: &PrimaryKeyValue,
@@ -1025,7 +1087,7 @@ fn reverse_index_key_for_target_and_source_primary_key_value(
 // component. This keeps scalar and composite targets on one key-owned path and
 // prevents first-component projection from entering reverse-index storage.
 fn encode_reverse_relation_target_identity_component(
-    source: ReverseRelationSourceInfo,
+    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
     target_key_value: &PrimaryKeyValue,
 ) -> Result<Vec<u8>, InternalError> {
@@ -1033,7 +1095,7 @@ fn encode_reverse_relation_target_identity_component(
         .map(|encoded| encoded.as_bytes().to_vec())
         .map_err(|err| {
             InternalError::relation_source_row_decode_failed(
-                source.path,
+                source.path(),
                 relation.field_name(),
                 relation.target().path(),
                 err,
@@ -1046,7 +1108,7 @@ fn encode_reverse_relation_target_identity_component(
 // validated for forward-index planning.
 fn relation_target_raw_keys_for_source_slots(
     row_fields: &StructuralSlotReader<'_>,
-    source_info: ReverseRelationSourceInfo,
+    source_info: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
 ) -> Result<Vec<RawDataStoreKey>, InternalError> {
     let keys = relation_target_keys_for_source_slots(row_fields, source_info, relation)?;
@@ -1066,14 +1128,14 @@ pub(in crate::db::relation) fn source_row_references_relation_target_primary_key
     let row_fields =
         StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, source_row_contract)?;
 
-    source_slots_reference_relation_target(&row_fields, source_info, relation, target_key)
+    source_slots_reference_relation_target(&row_fields, &source_info, relation, target_key)
 }
 
 // Check one already-decoded structural source row for membership of one target
 // key without rebuilding the full canonical target-key vector.
 fn source_slots_reference_relation_target(
     row_fields: &StructuralSlotReader<'_>,
-    source_info: ReverseRelationSourceInfo,
+    source_info: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
     target_key: &PrimaryKeyValue,
 ) -> Result<bool, InternalError> {
@@ -1090,14 +1152,14 @@ fn canonicalize_relation_target_keys(keys: &mut Vec<RawDataStoreKey>) {
 
 /// Decode a reverse-index entry into source-key membership for validation.
 pub(super) fn decode_reverse_entry(
-    source: ReverseRelationSourceInfo,
+    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
     index_key: &RawIndexStoreKey,
     raw_entry: &IndexEntryValue,
 ) -> Result<IndexRowIdentity, InternalError> {
     raw_entry.decode_row_identity(index_key).map_err(|err| {
         InternalError::reverse_index_entry_corrupted(
-            source.path,
+            source.path(),
             relation.field_name(),
             relation.target().path(),
             index_key,
@@ -1109,7 +1171,7 @@ pub(super) fn decode_reverse_entry(
 /// Resolve target store handle for one relation edge.
 pub(super) fn relation_target_store<C>(
     db: &Db<C>,
-    source: ReverseRelationSourceInfo,
+    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
 ) -> Result<&'static LocalKey<RefCell<IndexStore>>, InternalError>
 where
@@ -1122,32 +1184,48 @@ where
 // staged relation projection has deterministic cross-store ordering identity.
 fn relation_target_store_binding<C>(
     db: &Db<C>,
-    source: ReverseRelationSourceInfo,
+    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
 ) -> Result<(&'static str, StoreHandle), InternalError>
 where
     C: CanisterKind,
 {
     let target = relation.target();
-    db.with_store_registry(|registry| {
+    let (target_store_path, target_store) = db.with_store_registry(|registry| {
         registry
             .iter()
             .find(|(path, _)| *path == target.store_path())
             .ok_or_else(|| {
                 InternalError::relation_target_store_missing(
-                    source.path,
+                    source.path(),
                     relation.field_name(),
                     target.path(),
                     target.store_path(),
                     "accepted relation target store is not registered",
                 )
             })
-    })
+    })?;
+    let source_runtime = db.accepted_runtime_entity_for_tag(source.entity_tag())?;
+    let source_store = db.store_handle(source_runtime.store_path())?;
+    if matches!(
+        (
+            source_store.storage_capabilities().relation_source(),
+            target_store.storage_capabilities().relation_target(),
+        ),
+        (
+            StoreRelationSourceCapability::DurableSource,
+            StoreRelationTargetCapability::VolatileTarget,
+        )
+    ) {
+        return Err(InternalError::executor_unsupported());
+    }
+
+    Ok((target_store_path, target_store))
 }
 
 /// Decode one raw relation target key and enforce reverse-index target invariants.
 pub(in crate::db::relation) fn decode_relation_target_data_key(
-    source: ReverseRelationSourceInfo,
+    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
     target_raw_key: &RawDataStoreKey,
     context: RelationTargetDecodeContext,
@@ -1156,7 +1234,7 @@ pub(in crate::db::relation) fn decode_relation_target_data_key(
     let target_data_key = DecodedDataStoreKey::try_from_raw(target_raw_key).map_err(|err| {
         InternalError::relation_target_key_decode_failed(
             relation_target_key_decode_context_label(context),
-            source.path,
+            source.path(),
             relation.field_name(),
             relation.target().path(),
             err,
@@ -1171,7 +1249,7 @@ pub(in crate::db::relation) fn decode_relation_target_data_key(
 
         return Err(InternalError::relation_target_entity_mismatch(
             relation_target_entity_mismatch_context_label(context),
-            source.path,
+            source.path(),
             relation.field_name(),
             target.path(),
             target.entity_name().as_str(),
@@ -1185,7 +1263,7 @@ pub(in crate::db::relation) fn decode_relation_target_data_key(
 
 // Convert decoded relation target keys into canonical sorted raw keys.
 fn relation_target_raw_keys_from_relation_target_keys(
-    source: ReverseRelationSourceInfo,
+    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
     keys: RelationTargetKeys,
 ) -> Result<Vec<RawDataStoreKey>, InternalError> {
@@ -1204,7 +1282,7 @@ fn relation_target_raw_keys_from_relation_target_keys(
 // reverse-index mutation preparation.
 fn relation_target_keys_for_source_slots(
     row_fields: &StructuralSlotReader<'_>,
-    source: ReverseRelationSourceInfo,
+    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
 ) -> Result<RelationTargetKeys, InternalError> {
     if relation
@@ -1228,7 +1306,7 @@ fn relation_target_keys_for_source_slots(
 
 fn relation_target_keys_from_component_slots(
     row_fields: &StructuralSlotReader<'_>,
-    source: ReverseRelationSourceInfo,
+    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
 ) -> Result<RelationTargetKeys, InternalError> {
     let mut components = Vec::with_capacity(relation.local_components().component_count());
@@ -1243,7 +1321,7 @@ fn relation_target_keys_from_component_slots(
         )
         .map_err(|err| {
             InternalError::relation_source_row_decode_failed(
-                source.path,
+                source.path(),
                 relation.field_name(),
                 relation.target().path(),
                 err,
@@ -1255,7 +1333,7 @@ fn relation_target_keys_from_component_slots(
         }
         let Some(component) = PrimaryKeyComponent::from_runtime_value(&value) else {
             return Err(InternalError::relation_source_row_decode_failed(
-                source.path,
+                source.path(),
                 relation.field_name(),
                 relation.target().path(),
                 "unsupported composite relation target component",
@@ -1269,7 +1347,7 @@ fn relation_target_keys_from_component_slots(
     }
     if null_count != 0 {
         return Err(InternalError::relation_source_row_decode_failed(
-            source.path,
+            source.path(),
             relation.field_name(),
             relation.target().path(),
             "partial composite relation target tuple",
@@ -1297,7 +1375,7 @@ fn relation_target_primary_key_value_from_components(
 // validation directly into relation target keys from the encoded field bytes.
 fn relation_target_keys_from_field_bytes(
     row_fields: &StructuralSlotReader<'_>,
-    source: ReverseRelationSourceInfo,
+    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
 ) -> Result<RelationTargetKeys, InternalError> {
     validate_relation_field_kind(relation)?;
@@ -1312,7 +1390,7 @@ fn relation_target_keys_from_field_bytes(
         decode_accepted_relation_target_primary_key_components_bytes(bytes, component.field_kind())
             .map_err(|err| {
                 InternalError::relation_source_row_decode_failed(
-                    source.path,
+                    source.path(),
                     relation.field_name(),
                     relation.target().path(),
                     err,
@@ -1326,7 +1404,7 @@ fn relation_target_keys_from_field_bytes(
 // the relation key kind is already primary-key-compatible on the persisted row.
 fn relation_target_keys_from_scalar_slot(
     row_fields: &StructuralSlotReader<'_>,
-    source: ReverseRelationSourceInfo,
+    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
 ) -> Result<Option<RelationTargetKeys>, InternalError> {
     let Some(field_kind) = relation.scalar_relation_field_kind() else {
@@ -1356,7 +1434,7 @@ fn relation_target_keys_from_scalar_slot(
                 let component =
                     PrimaryKeyComponent::from_runtime_value(&value).ok_or_else(|| {
                         InternalError::relation_source_row_unsupported_scalar_relation_key(
-                            source.path,
+                            source.path(),
                             relation.field_name(),
                             relation.target().path(),
                         )
@@ -1374,7 +1452,7 @@ fn relation_target_keys_from_scalar_slot(
             let primary_key_value =
                 primary_key_value_from_relation_scalar(value).ok_or_else(|| {
                     InternalError::relation_source_row_unsupported_scalar_relation_key(
-                        source.path,
+                        source.path(),
                         relation.field_name(),
                         relation.target().path(),
                     )
@@ -1436,7 +1514,7 @@ const fn primary_key_value_from_relation_scalar(
 // Encode one decoded relation primary-key value directly into the target raw-key
 // shape without materializing an intermediate runtime `Value`.
 fn raw_relation_target_key_from_primary_key_value(
-    source: ReverseRelationSourceInfo,
+    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
     value: &PrimaryKeyValue,
 ) -> Result<RawDataStoreKey, InternalError> {
@@ -1444,7 +1522,7 @@ fn raw_relation_target_key_from_primary_key_value(
         .to_raw()
         .map_err(|err| {
             InternalError::relation_source_row_decode_failed(
-                source.path,
+                source.path(),
                 relation.field_name(),
                 relation.target().path(),
                 err,
@@ -1484,185 +1562,6 @@ fn validate_scalar_relation_target_primary_key_kind(
     };
 
     validate_relation_primary_key_component_kind(key_kind)
-}
-
-/// Build one reverse-index mutation for one touched target key.
-fn prepare_reverse_relation_index_mutation_for_target(
-    target: ReverseRelationMutationTarget,
-) -> Option<PreparedIndexMutation> {
-    if target.old_contains == target.new_contains {
-        return None;
-    }
-
-    // Each reverse-index raw key now includes both target and source keys, so
-    // the value is just the one-byte existence witness for that edge.
-    let next_value = target.new_contains.then(IndexEntryValue::presence);
-
-    Some(PreparedIndexMutation::from_reverse_index_membership(
-        target.target_store,
-        target.reverse_key,
-        next_value,
-        target.old_contains,
-        target.new_contains,
-    ))
-}
-
-/// Prepare reverse-index mutations for one source entity transition using
-/// already-decoded structural slot readers from commit preflight.
-pub(crate) fn prepare_reverse_relation_index_mutations_for_source_slot_readers<C>(
-    db: &Db<C>,
-    source: ReverseRelationSourceInfo,
-    source_row_contract: StructuralRowContract,
-    source_primary_key: &PrimaryKeyValue,
-    old_row_fields: Option<&StructuralSlotReader<'_>>,
-    new_row_fields: Option<&StructuralSlotReader<'_>>,
-) -> Result<Vec<PreparedIndexMutation>, InternalError>
-where
-    C: CanisterKind,
-{
-    let source_rows = ReverseRelationSourceTransition {
-        source_row_contract,
-        old_row_fields,
-        new_row_fields,
-    };
-
-    prepare_reverse_relation_index_mutations_for_source_rows_impl(
-        db,
-        source,
-        source_primary_key,
-        source_rows,
-    )
-}
-
-// Keep the reverse-index mutation loop structural once the source entity has
-// already been lowered onto accepted row contracts and source identity.
-fn prepare_reverse_relation_index_mutations_for_source_rows_impl<C>(
-    db: &Db<C>,
-    source: ReverseRelationSourceInfo,
-    source_primary_key: &PrimaryKeyValue,
-    source_rows: ReverseRelationSourceTransition<'_, '_>,
-) -> Result<Vec<PreparedIndexMutation>, InternalError>
-where
-    C: CanisterKind,
-{
-    // Phase 1: reuse the already-validated commit marker key instead of
-    // recomputing it through typed entity ids.
-    let mut ops = Vec::new();
-
-    let relations = accepted_relations_for_row_contract(
-        db,
-        source.path,
-        &source_rows.source_row_contract,
-        None,
-    )?;
-    if relations.is_empty() {
-        return Ok(ops);
-    }
-
-    // Phase 2: evaluate each relation independently and derive index deltas
-    // directly from persisted row payloads.
-    for relation in relations {
-        let old_targets = relation_target_keys_for_transition_side(
-            source_rows.old_row_fields,
-            source,
-            &relation,
-        )?;
-        let new_targets = relation_target_keys_for_transition_side(
-            source_rows.new_row_fields,
-            source,
-            &relation,
-        )?;
-        let target_store = relation_target_store(db, source, &relation)?;
-        let mut old_index = 0usize;
-        let mut new_index = 0usize;
-
-        // Phase 3: walk the canonical union of old/new targets directly
-        // instead of cloning, re-sorting, and then binary-searching both
-        // source vectors again for each touched target.
-        while old_index < old_targets.len() || new_index < new_targets.len() {
-            let (target_raw_key, old_contains, new_contains) =
-                match (old_targets.get(old_index), new_targets.get(new_index)) {
-                    (Some(old_key), Some(new_key)) => match old_key.cmp(new_key) {
-                        std::cmp::Ordering::Less => {
-                            old_index += 1;
-                            (old_key.clone(), true, false)
-                        }
-                        std::cmp::Ordering::Greater => {
-                            new_index += 1;
-                            (new_key.clone(), false, true)
-                        }
-                        std::cmp::Ordering::Equal => {
-                            old_index += 1;
-                            new_index += 1;
-                            (old_key.clone(), true, true)
-                        }
-                    },
-                    (Some(old_key), None) => {
-                        old_index += 1;
-                        (old_key.clone(), true, false)
-                    }
-                    (None, Some(new_key)) => {
-                        new_index += 1;
-                        (new_key.clone(), false, true)
-                    }
-                    (None, None) => break,
-                };
-
-            let Some(target_data_key) = decode_relation_target_data_key(
-                source,
-                &relation,
-                &target_raw_key,
-                RelationTargetDecodeContext::ReverseIndexPrepare,
-                RelationTargetMismatchPolicy::Reject,
-            )?
-            else {
-                return Err(
-                    InternalError::reverse_index_relation_target_decode_invariant_violated(
-                        source.path,
-                        relation.field_name(),
-                        relation.target().path(),
-                    ),
-                );
-            };
-
-            let Some(reverse_key) = reverse_index_key_for_target_and_source_primary_key_value(
-                source,
-                &relation,
-                &target_data_key.primary_key_value(),
-                source_primary_key,
-            )?
-            else {
-                continue;
-            };
-
-            let target = ReverseRelationMutationTarget {
-                target_store,
-                reverse_key,
-                old_contains,
-                new_contains,
-            };
-            let Some(op) = prepare_reverse_relation_index_mutation_for_target(target) else {
-                continue;
-            };
-
-            ops.push(op);
-        }
-    }
-
-    Ok(ops)
-}
-
-// Resolve relation targets for one old/new source-row side from the decoded
-// slot-reader view prepared by commit preflight.
-fn relation_target_keys_for_transition_side(
-    row_fields: Option<&StructuralSlotReader<'_>>,
-    source: ReverseRelationSourceInfo,
-    relation: &AcceptedRelationInfo,
-) -> Result<Vec<RawDataStoreKey>, InternalError> {
-    match row_fields {
-        Some(row_fields) => relation_target_raw_keys_for_source_slots(row_fields, source, relation),
-        None => Ok(Vec::new()),
-    }
 }
 
 #[cfg(test)]

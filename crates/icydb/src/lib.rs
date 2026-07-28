@@ -132,11 +132,10 @@ pub mod __macro {
     };
     pub use icydb_core::db::{
         CompositePrimaryKeyValue, CompositePrimaryKeyValueError, DataStore,
-        DbSession as CoreDbSession, EntityKeyBytes, EntityKeyBytesError, EntityRegistration,
-        IndexStore, JournalTailStore, KeyValueCodec, PrimaryKeyDecode, PrimaryKeyEncode,
-        PrimaryKeyEncodeError, PrimaryKeyValue, SchemaStore, StoreAllocationIdentities,
-        StoreAllocationIdentity, StoreRegistry, StoreRuntimeStorageCapabilities,
-        validate_entity_key_bytes_buffer,
+        DbSession as CoreDbSession, EntityKeyBytes, EntityKeyBytesError, IndexStore,
+        JournalTailStore, KeyValueCodec, PrimaryKeyDecode, PrimaryKeyEncode, PrimaryKeyEncodeError,
+        PrimaryKeyValue, SchemaStore, StoreAllocationIdentities, StoreAllocationIdentity,
+        StoreRegistry, StoreRuntimeStorageCapabilities, validate_entity_key_bytes_buffer,
     };
     #[cfg(feature = "sql")]
     pub use icydb_core::db::{
@@ -170,7 +169,7 @@ pub mod __reexports {
 //
 
 pub mod prelude {
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub use crate::db::{
         query,
         query::{

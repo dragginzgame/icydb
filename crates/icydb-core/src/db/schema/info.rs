@@ -3,21 +3,22 @@
 //! Does not own: query planning policy or runtime predicate evaluation.
 //! Boundary: validates entity/index model consistency for predicate schema metadata.
 
+#[cfg(feature = "sql")]
+use crate::db::schema::canonicalize_strict_sql_literal_for_persisted_kind;
 use crate::db::schema::{
-    AcceptedEnumCatalog, AcceptedFieldKind, AcceptedSchemaSnapshot, AcceptedValueAdmissionContract,
-    AcceptedValueCatalogHandle, FieldId, FieldStorageDecode, FieldType, LeafCodec,
-    PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexFieldPathSnapshot,
-    PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-    PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
+    AcceptedConstraintIdentity, AcceptedEnumCatalog, AcceptedFieldKind, AcceptedSchemaSnapshot,
+    AcceptedValueAdmissionContract, AcceptedValueCatalogHandle, FieldId, FieldStorageDecode,
+    FieldType, LeafCodec, PersistedFieldSnapshot, PersistedIndexExpressionOp,
+    PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
+    PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
     enum_catalog::AcceptedValueContract, field_type_from_persisted_kind,
 };
 #[cfg(feature = "sql")]
 use crate::db::schema::{SqlCapabilities, sql_capabilities_with_enum_catalog};
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use crate::{
     db::schema::{
-        canonicalize_filter_literal_for_persisted_kind,
-        canonicalize_strict_sql_literal_for_persisted_kind, enum_catalog::ValueAdmissionBudget,
+        canonicalize_filter_literal_for_persisted_kind, enum_catalog::ValueAdmissionBudget,
     },
     value::Value,
 };
@@ -32,7 +33,7 @@ fn accepted_sql_capabilities(
 }
 
 #[cfg_attr(
-    not(any(test, feature = "sql")),
+    not(any(test, feature = "query")),
     expect(dead_code, reason = "field lookup is query-owned")
 )]
 fn schema_field_info<'a>(
@@ -92,7 +93,7 @@ fn accepted_slot_index(slot: SchemaFieldSlot) -> usize {
 
 #[derive(Clone, Debug)]
 #[cfg_attr(
-    not(any(test, feature = "sql")),
+    not(any(test, feature = "query")),
     expect(
         dead_code,
         reason = "field metadata is retained by the shared commit schema view"
@@ -105,7 +106,7 @@ struct SchemaFieldInfo {
     leaf_codec: LeafCodec,
     #[cfg(feature = "sql")]
     sql_capabilities: SqlCapabilities,
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     persisted_kind: AcceptedFieldKind,
     accepted_value_contract: Option<AcceptedValueContract>,
     indexed: bool,
@@ -125,18 +126,14 @@ pub(in crate::db) struct SchemaIndexInfo {
     name: String,
     store: String,
     unique: bool,
-    #[cfg_attr(
-        not(any(test, feature = "sql")),
-        expect(dead_code, reason = "generated provenance is query-owned")
-    )]
-    generated: bool,
+    unique_constraint: Option<AcceptedConstraintIdentity>,
     fields: Vec<SchemaIndexFieldPathInfo>,
     predicate_sql: Option<String>,
     value_catalog: AcceptedValueCatalogHandle,
 }
 
 impl SchemaIndexInfo {
-    /// Return the accepted or generated dense physical index ordinal.
+    /// Return the accepted dense physical index ordinal.
     #[must_use]
     pub(in crate::db) const fn ordinal(&self) -> u16 {
         self.ordinal
@@ -166,14 +163,13 @@ impl SchemaIndexInfo {
         self.unique
     }
 
-    /// Return whether this index is declared by the generated entity model.
+    /// Borrow accepted unique-constraint identity for this index.
+    ///
+    /// A unique index without this identity is corrupt accepted authority and
+    /// must fail closed before reporting a runtime collision.
     #[must_use]
-    #[cfg_attr(
-        not(any(test, feature = "sql")),
-        expect(dead_code, reason = "generated provenance is query-owned")
-    )]
-    pub(in crate::db) const fn generated(&self) -> bool {
-        self.generated
+    pub(in crate::db) const fn unique_constraint(&self) -> Option<&AcceptedConstraintIdentity> {
+        self.unique_constraint.as_ref()
     }
 
     /// Borrow accepted field-path key item metadata for this index.
@@ -222,11 +218,7 @@ pub(in crate::db) struct SchemaExpressionIndexInfo {
     name: String,
     store: String,
     unique: bool,
-    #[cfg_attr(
-        not(any(test, feature = "sql")),
-        expect(dead_code, reason = "generated provenance is query-owned")
-    )]
-    generated: bool,
+    unique_constraint: Option<AcceptedConstraintIdentity>,
     key_items: Vec<SchemaExpressionIndexKeyItemInfo>,
     predicate_sql: Option<String>,
     value_catalog: AcceptedValueCatalogHandle,
@@ -263,14 +255,13 @@ impl SchemaExpressionIndexInfo {
         self.unique
     }
 
-    /// Return whether this expression index came from generated entity metadata.
+    /// Borrow accepted unique-constraint identity for this index.
+    ///
+    /// A unique index without this identity is corrupt accepted authority and
+    /// must fail closed before reporting a runtime collision.
     #[must_use]
-    #[cfg_attr(
-        not(any(test, feature = "sql")),
-        expect(dead_code, reason = "generated provenance is query-owned")
-    )]
-    pub(in crate::db) const fn generated(&self) -> bool {
-        self.generated
+    pub(in crate::db) const fn unique_constraint(&self) -> Option<&AcceptedConstraintIdentity> {
+        self.unique_constraint.as_ref()
     }
 
     /// Borrow accepted key-item contracts in index key order.
@@ -409,7 +400,7 @@ impl SchemaIndexFieldPathInfo {
 
 #[derive(Clone, Debug)]
 #[cfg_attr(
-    not(any(test, feature = "sql")),
+    not(any(test, feature = "query")),
     expect(
         dead_code,
         reason = "field and identity metadata share the commit schema view with query planning"
@@ -425,7 +416,7 @@ pub(crate) struct SchemaInfo {
 }
 
 #[cfg_attr(
-    not(any(test, feature = "sql")),
+    not(any(test, feature = "query")),
     expect(
         dead_code,
         reason = "query-only accessors share the commit schema view"
@@ -490,7 +481,7 @@ impl SchemaInfo {
 
     /// Borrow the accepted entity name.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn entity_name(&self) -> Option<&str> {
         self.entity_name.as_deref()
     }
@@ -635,7 +626,7 @@ impl SchemaInfo {
     /// Canonicalize one string-backed public filter literal against this
     /// schema's accepted field authority.
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) fn canonicalize_filter_literal(
         &self,
         field_name: &str,
@@ -704,7 +695,7 @@ impl SchemaInfo {
                         leaf_codec: field.leaf_codec(),
                         #[cfg(feature = "sql")]
                         sql_capabilities: accepted_sql_capabilities(field.kind(), &value_catalog),
-                        #[cfg(feature = "sql")]
+                        #[cfg(feature = "query")]
                         persisted_kind: field.kind().clone(),
                         accepted_value_contract,
                         indexed: indexed_field_ids.contains(&field.id()),
@@ -774,7 +765,10 @@ pub(in crate::db) fn schema_index_info_from_accepted_index(
         name: index.name().to_string(),
         store: index.store().to_string(),
         unique: index.unique(),
-        generated: index.generated(),
+        unique_constraint: index
+            .unique()
+            .then(|| snapshot.unique_constraint_identity(index.schema_id()))
+            .flatten(),
         fields: index
             .key()
             .field_paths()
@@ -808,7 +802,10 @@ pub(in crate::db) fn schema_expression_index_info_from_accepted_index(
         name: index.name().to_string(),
         store: index.store().to_string(),
         unique: index.unique(),
-        generated: index.generated(),
+        unique_constraint: index
+            .unique()
+            .then(|| snapshot.unique_constraint_identity(index.schema_id()))
+            .flatten(),
         key_items: items
             .iter()
             .map(|item| schema_expression_index_key_item_info(item, snapshot, value_catalog))

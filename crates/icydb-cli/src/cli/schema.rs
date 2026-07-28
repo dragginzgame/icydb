@@ -10,15 +10,11 @@ use crate::cli::CanisterTarget;
 ///
 /// SchemaCommand
 ///
-/// SchemaCommand owns live schema observability. `show` reads the accepted
-/// schema report; `check` compares the generated proposal compiled into the
-/// deployed canister with the accepted runtime catalog.
+/// SchemaCommand owns accepted live-schema observability.
 ///
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum SchemaCommand {
     /// Read accepted schema metadata from an IcyDB canister.
     Show(CanisterTarget),
-    /// Compare generated schema metadata with accepted live schema metadata.
-    Check(CanisterTarget),
 }

@@ -108,8 +108,13 @@ where
     pub fn execute_rows(self) -> Result<Vec<E::Row>, TypedQueryError> {
         let result = self
             .session
-            .execute_public_dynamic_query(&self.request)
-            .map_err(TypedQueryError::Database)?;
+            .execute_public_typed_dynamic_query(&self.binding, &self.request)
+            .map_err(TypedQueryError::Database)?
+            .ok_or({
+                TypedQueryError::Row(TypedRowError::Adapter(
+                    crate::db::TypedAdapterError::StaleBinding,
+                ))
+            })?;
         let mut rows = Vec::with_capacity(result.rows.len());
         for row_index in 0..result.rows.len() {
             let row = self

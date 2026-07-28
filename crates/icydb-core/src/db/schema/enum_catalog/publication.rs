@@ -1044,7 +1044,46 @@ pub(in crate::db) fn empty_accepted_schema_candidate_for_tests(
     store_path: &str,
     revision: AcceptedSchemaRevision,
 ) -> CandidateSchemaRevision {
-    let bundle = AcceptedSchemaRevisionBundle::new(
+    accepted_schema_candidate_for_tests(store_path, revision, BTreeMap::new())
+}
+
+#[cfg(test)]
+pub(in crate::db) fn accepted_schema_candidate_for_tests(
+    store_path: &str,
+    revision: AcceptedSchemaRevision,
+    entity_snapshots: BTreeMap<EntityTag, PersistedSchemaSnapshot>,
+) -> CandidateSchemaRevision {
+    accepted_schema_candidate_with_field_bindings_for_tests(
+        store_path,
+        revision,
+        entity_snapshots,
+        BTreeMap::new(),
+    )
+}
+
+#[cfg(test)]
+pub(in crate::db) fn accepted_schema_candidate_with_field_bindings_for_tests(
+    store_path: &str,
+    revision: AcceptedSchemaRevision,
+    entity_snapshots: BTreeMap<EntityTag, PersistedSchemaSnapshot>,
+    fields: BTreeMap<(EntityTag, icydb_schema::FieldSourceKey), crate::db::schema::FieldId>,
+) -> CandidateSchemaRevision {
+    let entity_bindings = entity_snapshots
+        .iter()
+        .map(|(entity_tag, snapshot)| {
+            let source = icydb_schema::EntitySourceKey::try_new(snapshot.entity_path())
+                .expect("accepted entity fixture source should admit");
+            (source, *entity_tag)
+        })
+        .collect();
+    let source_bindings = AcceptedSourceBindingCatalog::initial(
+        entity_bindings,
+        fields,
+        BTreeMap::new(),
+        BTreeMap::new(),
+        BTreeMap::new(),
+    );
+    let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
         revision,
         store_path,
         AcceptedEnumCatalog {
@@ -1052,9 +1091,9 @@ pub(in crate::db) fn empty_accepted_schema_candidate_for_tests(
             id_by_path: BTreeMap::new(),
         },
         AcceptedCompositeCatalog::empty(),
-        BTreeMap::new(),
+        source_bindings,
+        entity_snapshots,
     )
-    .expect("empty accepted schema candidate fixture should build");
-    CandidateSchemaRevision::new(bundle)
-        .expect("empty accepted schema candidate fixture should encode")
+    .expect("accepted schema candidate fixture should build");
+    CandidateSchemaRevision::new(bundle).expect("accepted schema candidate fixture should encode")
 }

@@ -46,7 +46,7 @@ pub(in crate::db) use memory::{
     CommitMemoryAllocation, commit_memory_handle, current_commit_memory_allocation,
 };
 pub(in crate::db) use prepare::{
-    CommitPrepareContext, prepare_commit_context_for_runtime_registration,
+    CommitPrepareContext, CommitPrepareMode, prepare_commit_context_for_runtime_entity,
     prepare_row_commit_with_context,
 };
 pub(in crate::db) use prepared_op::{PreparedIndexMutation, PreparedRowCommitOp};
@@ -54,11 +54,11 @@ pub(in crate::db) use recovery::ensure_recovered;
 #[cfg(test)]
 pub(in crate::db) use recovery::forget_recovered_domain_for_tests;
 pub(in crate::db) use rollback::rollback_prepared_row_ops_reverse;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate;
 #[cfg(feature = "sql")]
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate_with_user_index_domains;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use schema_publication::publish_constraint_validation_job_with_candidate_index_entries;
 pub(in crate::db) use schema_publication::{
     AcceptedSchemaPublication, publish_accepted_schema_candidates_with_application_record,

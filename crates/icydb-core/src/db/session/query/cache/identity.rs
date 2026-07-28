@@ -5,7 +5,7 @@
 //! Boundary: defines stable in-heap cache key dimensions and measurement
 //! buckets consumed by the session query cache owner.
 
-#[cfg(any(feature = "diagnostics", feature = "sql"))]
+#[cfg(any(feature = "diagnostics", feature = "query"))]
 use crate::db::diagnostics::measure_local_instruction_delta as measure_query_plan_compile_stage;
 use crate::db::{
     commit::CommitSchemaFingerprint,
@@ -14,8 +14,9 @@ use crate::db::{
     schema::{AcceptedSchemaRevision, AcceptedSchemaSnapshot, SchemaVersion},
     session::AcceptedSchemaCatalogContext,
 };
+use std::rc::Rc;
 
-#[cfg(not(any(feature = "diagnostics", feature = "sql")))]
+#[cfg(not(any(feature = "diagnostics", feature = "query")))]
 fn measure_query_plan_compile_stage<T>(run: impl FnOnce() -> T) -> (u64, T) {
     (0, run())
 }
@@ -46,7 +47,7 @@ pub(in crate::db) enum QueryPlanVisibility {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(in crate::db) struct QueryPlanCacheKey {
-    entity_path: &'static str,
+    entity_path: Rc<str>,
     schema_identity: SchemaCacheIdentity,
     visibility: QueryPlanVisibility,
     structural_query: StructuralQueryCacheKey,
@@ -75,7 +76,7 @@ impl SchemaCacheIdentity {
         }
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(super) const fn from_accepted_schema_with_fingerprint(
         accepted_schema: &AcceptedSchemaSnapshot,
         fingerprint: CommitSchemaFingerprint,
@@ -118,7 +119,7 @@ pub(super) struct QueryPlanAcceptedSchema<'schema> {
 }
 
 impl<'schema> QueryPlanAcceptedSchema<'schema> {
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(super) const fn from_accepted_schema_with_fingerprint(
         accepted_schema: &'schema AcceptedSchemaSnapshot,
         fingerprint: CommitSchemaFingerprint,
@@ -277,8 +278,8 @@ impl QueryPlanCompilePhaseRecorder<'_> {
 }
 
 impl QueryPlanCacheKey {
-    pub(super) const fn entity_path(&self) -> &'static str {
-        self.entity_path
+    pub(super) fn entity_path(&self) -> &str {
+        &self.entity_path
     }
 
     pub(super) const fn visibility(&self) -> QueryPlanVisibility {
@@ -303,21 +304,21 @@ impl QueryPlanCacheKey {
         structural_query: StructuralQueryCacheKey,
     ) -> Self {
         Self::from_entity_path_cache_inputs(
-            authority.entity_path(),
+            authority.entity_path_handle(),
             schema_identity,
             visibility,
             structural_query,
         )
     }
 
-    const fn from_entity_path_cache_inputs(
-        entity_path: &'static str,
+    fn from_entity_path_cache_inputs(
+        entity_path: impl Into<Rc<str>>,
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         structural_query: StructuralQueryCacheKey,
     ) -> Self {
         Self {
-            entity_path,
+            entity_path: entity_path.into(),
             schema_identity,
             visibility,
             structural_query,
@@ -342,7 +343,7 @@ impl QueryPlanCacheKey {
     }
 
     pub(super) fn for_entity_path_with_normalized_predicate_fingerprint(
-        entity_path: &'static str,
+        entity_path: &str,
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,

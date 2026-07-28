@@ -16,17 +16,15 @@ use crate::{
             EntityAuthority, SharedPreparedExecutionPlan, StructuralGroupedProjectionResult,
             StructuralProjectionScanBudget,
         },
-        query::{
-            admission::{QueryAdmissionPolicy, QueryAdmissionSummary},
-            intent::StructuralQuery,
-        },
+        query::intent::StructuralQuery,
         schema::AcceptedSchemaSnapshot,
         session::{
             finalize_structural_grouped_projection_result,
-            sql::SqlProjectionContract,
+            query::{StructuralProjectionContract, StructuralProjectionPayload},
             sql::projection::{
-                SqlProjectionPayload, execute_sql_projection_rows_for_canister,
+                execute_sql_projection_rows_for_canister,
                 execute_sql_projection_rows_for_canister_with_scan_budget,
+                sql_statement_result_from_structural_projection_payload,
             },
             sql::{SqlCacheAttribution, SqlCompiledCommandExecutionContext, SqlStatementResult},
             sql_grouped_cursor_from_bytes,
@@ -71,11 +69,11 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_sql_projection_from_structural_prepared_plan(
         &self,
         prepared_plan: SharedPreparedExecutionPlan,
-        projection: SqlProjectionContract,
+        projection: StructuralProjectionContract,
         cache_attribution: SqlCacheAttribution,
         scan_budget: Option<StructuralProjectionScanBudget>,
-    ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
-        let enum_catalog = prepared_plan
+    ) -> Result<(StructuralProjectionPayload, SqlCacheAttribution), QueryError> {
+        let value_catalog = prepared_plan
             .authority_ref()
             .accepted_schema_info()
             .map(crate::db::schema::SchemaInfo::value_catalog_handle)
@@ -94,7 +92,7 @@ impl<C: CanisterKind> DbSession<C> {
         .map_err(QueryError::execute)?;
 
         Ok((
-            SqlProjectionPayload::new(columns, fixed_scales, rows, row_count, enum_catalog),
+            StructuralProjectionPayload::new(columns, fixed_scales, rows, row_count, value_catalog),
             cache_attribution,
         ))
     }
@@ -105,7 +103,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_sql_statement_from_structural_prepared_plan(
         &self,
         prepared_plan: SharedPreparedExecutionPlan,
-        projection: SqlProjectionContract,
+        projection: StructuralProjectionContract,
         cache_attribution: SqlCacheAttribution,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
         let (payload, cache_attribution) = self
@@ -116,7 +114,10 @@ impl<C: CanisterKind> DbSession<C> {
                 None,
             )?;
 
-        Ok((payload.into_statement_result()?, cache_attribution))
+        Ok((
+            sql_statement_result_from_structural_projection_payload(payload)?,
+            cache_attribution,
+        ))
     }
 
     // Execute one grouped SQL statement from one shared lowered prepared plan
@@ -126,7 +127,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_grouped_sql_core<T>(
         &self,
         prepared_plan: SharedPreparedExecutionPlan,
-        projection: SqlProjectionContract,
+        projection: StructuralProjectionContract,
         diagnostics: Option<GroupedSqlDiagnosticsCollector<'_>>,
         execute_grouped: impl FnOnce(
             &Self,
@@ -150,7 +151,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_grouped_sql_statement_from_prepared_plan<T>(
         &self,
         prepared_plan: SharedPreparedExecutionPlan,
-        projection: SqlProjectionContract,
+        projection: StructuralProjectionContract,
         execute_grouped: impl FnOnce(
             &Self,
             SharedPreparedExecutionPlan,
@@ -167,7 +168,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_grouped_sql_statement_with_response_attribution<T>(
         &self,
         prepared_plan: SharedPreparedExecutionPlan,
-        projection: SqlProjectionContract,
+        projection: StructuralProjectionContract,
         execute_grouped: impl FnOnce(
             &Self,
             SharedPreparedExecutionPlan,
@@ -199,44 +200,9 @@ impl<C: CanisterKind> DbSession<C> {
         query: StructuralQuery,
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
-    ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
-        self.execute_projection_from_structural_query(query, authority, accepted_schema, None)
-    }
-
-    /// Execute one structural projection after applying ordinary public-read
-    /// admission to the selected accepted plan.
-    pub(in crate::db::session) fn execute_public_projection_from_structural_query(
-        &self,
-        query: StructuralQuery,
-        authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
-    ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
-        self.execute_projection_from_structural_query(
-            query,
-            authority,
-            accepted_schema,
-            Some(&QueryAdmissionPolicy::default_bounded_read()),
-        )
-    }
-
-    fn execute_projection_from_structural_query(
-        &self,
-        query: StructuralQuery,
-        authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
-        admission: Option<&QueryAdmissionPolicy>,
-    ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
+    ) -> Result<(StructuralProjectionPayload, SqlCacheAttribution), QueryError> {
         let (prepared_plan, projection, cache_attribution) = self
             .sql_select_prepared_plan_for_accepted_authority(&query, authority, accepted_schema)?;
-        if let Some(policy) = admission {
-            let summary = policy.evaluate(QueryAdmissionSummary::from_plan(
-                policy.lane(),
-                prepared_plan.logical_plan(),
-            ));
-            if let Some(rejection) = summary.rejection() {
-                return Err(QueryError::from(rejection.code()));
-            }
-        }
 
         self.execute_sql_projection_from_structural_prepared_plan(
             prepared_plan,
@@ -254,7 +220,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
         scan_budget: StructuralProjectionScanBudget,
-    ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
+    ) -> Result<(StructuralProjectionPayload, SqlCacheAttribution), QueryError> {
         let (prepared_plan, projection, cache_attribution) = self
             .sql_primary_only_select_prepared_plan_for_accepted_authority(
                 &query,
@@ -348,7 +314,7 @@ impl<C: CanisterKind> DbSession<C> {
                 )
                 .map(|((rows, row_count), direct_data_row, kernel_row)| {
                     (
-                        SqlProjectionPayload::new(
+                        StructuralProjectionPayload::new(
                             columns,
                             fixed_scales,
                             rows,
@@ -363,7 +329,7 @@ impl<C: CanisterKind> DbSession<C> {
             });
         let (payload, direct_data_row, kernel_row) = payload?;
         let (response_finalization_local_instructions, statement_result) =
-            measure_sql_stage(|| payload.into_statement_result());
+            measure_sql_stage(|| sql_statement_result_from_structural_projection_payload(payload));
         let statement_result = statement_result?;
 
         Ok((
@@ -421,7 +387,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: &StructuralQuery,
         prepared_plan: SharedPreparedExecutionPlan,
-        projection: SqlProjectionContract,
+        projection: StructuralProjectionContract,
         cache_attribution: SqlCacheAttribution,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
         if query.has_grouping() {

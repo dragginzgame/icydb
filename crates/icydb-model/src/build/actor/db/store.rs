@@ -35,10 +35,10 @@ struct CanisterMemoryWiring<'a> {
     integrity_progress_stable_key: &'a str,
 }
 
-/// Emit generated stores, entity registrations, and session accessors.
+/// Emit generated stores, optional frontends, and session accessors.
 pub(super) fn generate_store_wiring(
     builder: &ActorBuilder,
-    entity_registrations: TokenStream,
+    frontend_surfaces: TokenStream,
 ) -> TokenStream {
     let canister = &builder.canister;
     let memory_namespace = canister.memory_namespace();
@@ -54,7 +54,7 @@ pub(super) fn generate_store_wiring(
 
     store_wiring_tokens(
         store_registry,
-        entity_registrations,
+        frontend_surfaces,
         schema_bootstrap,
         CanisterMemoryWiring {
             memory_min,
@@ -368,7 +368,7 @@ fn journaled_store_registry_entry_tokens(
 )]
 fn store_wiring_tokens(
     store_registry: StoreRegistryTokens,
-    entity_registrations: TokenStream,
+    frontend_surfaces: TokenStream,
     schema_bootstrap: TokenStream,
     memory: CanisterMemoryWiring<'_>,
 ) -> TokenStream {
@@ -459,7 +459,7 @@ fn store_wiring_tokens(
         #data_defs
         #index_defs
         #schema_defs
-        #entity_registrations
+        #frontend_surfaces
         #schema_bootstrap
         thread_local! {
             static STORE_REGISTRY:
@@ -474,9 +474,8 @@ fn store_wiring_tokens(
         > {
             ensure_memory_bootstrap()?;
 
-            Ok(::icydb::__macro::CoreDbSession::<__IcydbGeneratedCanister>::new_with_registrations(
-                &STORE_REGISTRY,
-                ENTITY_REGISTRATIONS
+            Ok(::icydb::__macro::CoreDbSession::<__IcydbGeneratedCanister>::new(
+                &STORE_REGISTRY
             ))
         }
 
@@ -638,6 +637,9 @@ mod tests {
         assert!(rendered.contains("Result<(),::icydb::db::DatabaseBootstrapError>"));
         assert!(rendered.contains("map_err(::icydb::db::DatabaseBootstrapError::from)"));
         assert!(rendered.contains("ensure_memory_bootstrap()?"));
+        assert!(
+            rendered.contains("CoreDbSession::<__IcydbGeneratedCanister>::new(&STORE_REGISTRY)")
+        );
         assert!(rendered.contains("pubfndb()->::std::result::Result<"));
         assert!(!rendered.contains("must_use"));
         assert!(

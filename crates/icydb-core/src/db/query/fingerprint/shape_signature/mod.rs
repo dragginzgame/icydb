@@ -20,10 +20,7 @@ impl AccessPlannedQuery {
     /// This is used to validate that a continuation token belongs to the
     /// same canonical query shape.
     #[must_use]
-    pub(in crate::db) fn continuation_signature(
-        &self,
-        entity_path: &'static str,
-    ) -> ContinuationSignature {
+    pub(in crate::db) fn continuation_signature(&self, entity_path: &str) -> ContinuationSignature {
         let projection = self.projection_spec_for_identity();
 
         continuation_signature_for_plan_with_projection(self, entity_path, &projection)
@@ -32,7 +29,7 @@ impl AccessPlannedQuery {
 
 fn continuation_signature_for_plan_with_projection(
     plan: &AccessPlannedQuery,
-    entity_path: &'static str,
+    entity_path: &str,
     projection: &crate::db::query::plan::expr::ProjectionSpec,
 ) -> ContinuationSignature {
     let mut hasher = new_continuation_signature_hasher();
@@ -63,7 +60,7 @@ impl ExplainPlan {
     /// - delete limits
     /// - cursor boundary/token state
     #[must_use]
-    pub fn continuation_signature(&self, entity_path: &'static str) -> ContinuationSignature {
+    pub fn continuation_signature(&self, entity_path: &str) -> ContinuationSignature {
         let mut hasher = new_continuation_signature_hasher();
         hash_sections::hash_explain_plan_profile(
             &mut hasher,

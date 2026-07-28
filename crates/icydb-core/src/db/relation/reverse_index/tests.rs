@@ -18,8 +18,9 @@ use crate::db::{
     },
     registry::StoreRegistry,
     schema::{
-        AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedRowLayoutRuntimeContract,
-        AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, FieldId,
+        AcceptedConstraintCatalog, AcceptedConstraintIdentity, AcceptedFieldDecodeContract,
+        AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, AcceptedSchemaRevision,
+        AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, ConstraintId, FieldId,
         PersistedFieldSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId,
         SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
         empty_accepted_enum_catalog_for_tests,
@@ -64,6 +65,10 @@ fn relation(field_index: usize, key_kind: AcceptedFieldKind) -> AcceptedRelation
     };
 
     AcceptedRelationInfo {
+        constraint: AcceptedConstraintIdentity::new(
+            ConstraintId::new(3).expect("test constraint identity should be non-zero"),
+            "target_relation".to_string(),
+        ),
         relation_name: "target_id".to_string(),
         relation_ordinal: field_index,
         physical_generation: 0,
@@ -163,7 +168,26 @@ fn accepted_relation_info_carries_ordered_local_component_metadata() {
 }
 
 #[test]
-fn accepted_relations_require_registered_target_authority() {
+fn accepted_relation_violation_preserves_catalog_identity() {
+    let relation = relation(3, AcceptedFieldKind::Nat64);
+    let error = relation.write_violation("Source", Some(vec![1, 2, 3]));
+    let diagnostic = error
+        .constraint_diagnostic()
+        .expect("relation violation should retain accepted diagnostic");
+
+    assert_eq!(diagnostic.constraint_id(), 3);
+    assert_eq!(diagnostic.constraint_name(), "target_relation");
+    assert_eq!(
+        diagnostic.constraint_kind(),
+        crate::error::ConstraintDiagnosticKind::Relation,
+    );
+    assert_eq!(diagnostic.entity(), "Source");
+    assert_eq!(diagnostic.primary_key(), Some([1, 2, 3].as_slice()));
+    assert_eq!(diagnostic.field_paths(), &["target_id".to_string()]);
+}
+
+#[test]
+fn accepted_relations_require_accepted_target_authority() {
     let relation_kind = AcceptedFieldKind::Relation {
         target_path: "Target".to_string(),
         target_entity_name: "Target".to_string(),
@@ -171,6 +195,12 @@ fn accepted_relations_require_registered_target_authority() {
         target_store_path: "TargetStore".to_string(),
         key_kind: Box::new(AcceptedFieldKind::Ulid),
     };
+    let relation = PersistedRelationEdgeSnapshot::new(
+        RelationId::new(1).expect("test relation identity should be non-zero"),
+        "target".to_string(),
+        "Target".to_string(),
+        vec![FieldId::new(2)],
+    );
     let snapshot = PersistedSchemaSnapshot::new(
         SchemaVersion::initial(),
         "Source".to_string(),
@@ -204,14 +234,18 @@ fn accepted_relations_require_registered_target_authority() {
                 LeafCodec::Structural,
             ),
         ],
+    );
+    let constraint_catalog = AcceptedConstraintCatalog::initial(
+        snapshot.fields(),
+        snapshot.indexes(),
+        std::slice::from_ref(&relation),
     )
-    .with_relations(vec![PersistedRelationEdgeSnapshot::new(
-        RelationId::new(1).expect("test relation identity should be non-zero"),
-        "target".to_string(),
-        "Target".to_string(),
-        vec![FieldId::new(2)],
-    )]);
-    let accepted = AcceptedSchemaSnapshot::new(snapshot);
+    .expect("test relation constraint should close");
+    let accepted = AcceptedSchemaSnapshot::new(
+        snapshot
+            .with_relations(vec![relation])
+            .with_constraint_catalog(constraint_catalog),
+    );
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted relation runtime contract should build");
     let catalog = empty_accepted_enum_catalog_for_tests();
@@ -225,9 +259,9 @@ fn accepted_relations_require_registered_target_authority() {
         descriptor.row_decode_contract(catalog),
     );
 
-    let db: Db<RelationTestCanister> = Db::new_with_registrations(&TEST_REGISTRY, &[]);
+    let db: Db<RelationTestCanister> = Db::new(&TEST_REGISTRY);
     super::accepted_relations_for_row_contract(&db, "Source", &row_contract, None)
-        .expect_err("accepted relation targets must have registered runtime authority");
+        .expect_err("accepted relation targets must exist in the current accepted catalog");
 }
 
 #[test]
@@ -282,6 +316,10 @@ fn relation_validation_rejects_local_target_component_arity_mismatch() {
         key_kind: Box::new(AcceptedFieldKind::Nat64),
     };
     let relation = AcceptedRelationInfo {
+        constraint: AcceptedConstraintIdentity::new(
+            ConstraintId::new(3).expect("test constraint identity should be non-zero"),
+            "target_relation".to_string(),
+        ),
         relation_name: "target_id".to_string(),
         relation_ordinal: 3,
         physical_generation: 0,
@@ -351,7 +389,7 @@ fn relation_scalar_slot_fast_path_excludes_structural_128_bit_lanes() {
 #[test]
 fn reverse_relation_keys_accept_128_bit_target_primary_key_components() {
     let source = ReverseRelationSourceInfo {
-        path: "Source",
+        path: "Source".into(),
         entity_tag: EntityTag::new(9),
     };
     let source_primary_key = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(44));
@@ -371,7 +409,7 @@ fn reverse_relation_keys_accept_128_bit_target_primary_key_components() {
         let relation = relation(ordinal, key_kind);
         let target_key = PrimaryKeyValue::Scalar(target_component);
         let raw = reverse_index_key_for_target_and_source_primary_key_value(
-            source,
+            &source,
             &relation,
             &target_key,
             &source_primary_key,
@@ -405,7 +443,7 @@ fn reverse_relation_keys_accept_128_bit_target_primary_key_components() {
         );
 
         let bounds =
-            reverse_index_key_bounds_for_target_primary_key_value(source, &relation, &target_key)
+            reverse_index_key_bounds_for_target_primary_key_value(&source, &relation, &target_key)
                 .expect("reverse bounds should build");
         assert!(
             bounds.is_some(),
@@ -417,7 +455,7 @@ fn reverse_relation_keys_accept_128_bit_target_primary_key_components() {
 #[test]
 fn reverse_relation_keys_encode_full_composite_target_primary_key_identity() {
     let source = ReverseRelationSourceInfo {
-        path: "Source",
+        path: "Source".into(),
         entity_tag: EntityTag::new(9),
     };
     let relation = relation(5, AcceptedFieldKind::Nat64);
@@ -431,7 +469,7 @@ fn reverse_relation_keys_encode_full_composite_target_primary_key_identity() {
     );
 
     let raw = reverse_index_key_for_target_and_source_primary_key_value(
-        source,
+        &source,
         &relation,
         &target_key,
         &source_primary_key,
@@ -453,7 +491,7 @@ fn reverse_relation_keys_encode_full_composite_target_primary_key_identity() {
     );
 
     let bounds =
-        reverse_index_key_bounds_for_target_primary_key_value(source, &relation, &target_key)
+        reverse_index_key_bounds_for_target_primary_key_value(&source, &relation, &target_key)
             .expect("reverse bounds should build")
             .expect("composite target identity should produce reverse index bounds");
 
@@ -466,7 +504,7 @@ fn reverse_relation_keys_encode_full_composite_target_primary_key_identity() {
 #[test]
 fn reverse_relation_key_size_evidence_is_linear_in_source_and_target_identity() {
     let source = ReverseRelationSourceInfo {
-        path: "Source",
+        path: "Source".into(),
         entity_tag: EntityTag::new(9),
     };
     let relation = relation(5, AcceptedFieldKind::Nat64);
@@ -490,7 +528,7 @@ fn reverse_relation_key_size_evidence_is_linear_in_source_and_target_identity() 
 
     let raw_len = |target: &PrimaryKeyValue, source_key: &PrimaryKeyValue| {
         reverse_index_key_for_target_and_source_primary_key_value(
-            source, &relation, target, source_key,
+            &source, &relation, target, source_key,
         )
         .expect("reverse key should build")
         .expect("relation target key should encode")

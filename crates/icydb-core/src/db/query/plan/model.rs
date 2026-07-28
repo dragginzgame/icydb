@@ -688,8 +688,7 @@ impl GroupedPlanAggregateFamily {
 /// Canonical resolved field reference used by logical planning.
 /// `index` is the stable accepted field slot; `field` is retained
 /// for diagnostics and explain surfaces.
-/// `authority` freezes exactly one planner metadata source so accepted runtime
-/// slots cannot also carry generated fallback metadata.
+/// `authority` freezes exactly one planner metadata source.
 ///
 
 #[derive(Clone, Debug)]

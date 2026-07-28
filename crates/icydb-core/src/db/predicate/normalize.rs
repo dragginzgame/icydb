@@ -11,7 +11,7 @@ use crate::{
     },
     value::Value,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 use crate::{
     db::{
         predicate::{CoercionSpec, ComparePredicate, canonical_membership_value_list},
@@ -116,7 +116,7 @@ fn normalize_owned(predicate: Predicate) -> Predicate {
 /// - loose enum literals (`path = None`) are resolved once at filter construction
 /// - predicate semantics stay strict at runtime (`Eq` is unchanged)
 ///
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn normalize_enum_literals(
     schema: &SchemaInfo,
     predicate: &Predicate,
@@ -176,7 +176,7 @@ pub(in crate::db) fn normalize_enum_literals(
     }
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn normalize_compare_with_schema(
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
@@ -206,7 +206,7 @@ fn normalize_compare_with_schema(
     Ok(cmp.clone())
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn normalize_compare_value_for_accepted_contract(
     field: &str,
     op: CompareOp,
@@ -240,7 +240,7 @@ fn normalize_compare_value_for_accepted_contract(
     }
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn normalize_accepted_predicate_value(
     field: &str,
     value: &Value,
@@ -269,7 +269,7 @@ fn normalize_accepted_predicate_value(
         .map_err(|error| predicate_admission_error(field, error))
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn predicate_admission_error(field: &str, error: ValueAdmissionError) -> ValidateError {
     let reason = match error {
         ValueAdmissionError::EnumPathMismatch => SchemaLiteralValidationReason::EnumPathMismatch,
@@ -296,7 +296,7 @@ fn predicate_admission_error(field: &str, error: ValueAdmissionError) -> Validat
     ValidateError::invalid_literal(field, reason)
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn normalize_compare_fields_with_schema(
     schema: &SchemaInfo,
     cmp: &crate::db::predicate::CompareFieldsPredicate,
@@ -321,7 +321,7 @@ fn normalize_compare_fields_with_schema(
     cmp.clone()
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 const fn normalize_accepted_compare_fields_coercion(
     op: CompareOp,
     left_kind: &AcceptedFieldKind,
@@ -349,7 +349,7 @@ const fn normalize_accepted_compare_fields_coercion(
     }
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn normalize_compare_value_for_accepted_kind(
     field: &str,
     op: CompareOp,
@@ -382,7 +382,7 @@ fn normalize_compare_value_for_accepted_kind(
     }
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn normalize_value_for_accepted_kind(
     field: &str,
     value: &Value,
@@ -467,7 +467,7 @@ fn normalize_value_for_accepted_kind(
     }
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn normalize_accepted_list_value_for_kind(
     field: &str,
     values: &[Value],
@@ -492,7 +492,7 @@ fn normalize_accepted_list_value_for_kind(
 // planner identity does not depend on parser-chosen integer wrappers. Ordered
 // NumericWiden comparisons keep their original transport shape because their
 // literal wrapper is still part of the current planner contract.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn normalize_numeric_value_for_accepted_kind(
     value: &Value,
     expected_kind: &AcceptedFieldKind,
@@ -512,7 +512,7 @@ fn normalize_numeric_value_for_accepted_kind(
 }
 
 #[derive(Clone, Copy)]
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 enum PredicateNumericTarget {
     Int64,
     Int128,
@@ -522,7 +522,7 @@ enum PredicateNumericTarget {
     NatBig,
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn normalize_numeric_value_for_target(
     value: &Value,
     target: Option<PredicateNumericTarget>,

@@ -10,6 +10,7 @@ use crate::{
 use candid::CandidType;
 use icydb_schema::ScalarType;
 use serde::Deserialize;
+use std::collections::BTreeSet;
 
 ///
 /// DynamicWriteCell
@@ -197,6 +198,74 @@ impl From<InternalError> for DynamicTypedBindingError {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DynamicTypedFieldBinding {
+    source_key: String,
+    field_id: u32,
+    slot: u16,
+    label: String,
+}
+
+///
+/// DynamicTypedStructuralPatch
+///
+/// Opaque accepted-ID/slot patch produced by a current typed binding.
+///
+
+#[doc(hidden)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct DynamicTypedStructuralPatch {
+    entity_source: String,
+    entity_tag: u64,
+    accepted_fingerprint: [u8; 16],
+    fields: Vec<(u32, u16, DynamicWriteCell)>,
+}
+
+impl DynamicTypedStructuralPatch {
+    /// Borrow accepted field ID/slot intents for core mutation lowering.
+    #[must_use]
+    pub(crate) const fn fields(&self) -> &[(u32, u16, DynamicWriteCell)] {
+        self.fields.as_slice()
+    }
+
+    pub(crate) fn is_bound_to(&self, binding: &DynamicTypedEntityBinding) -> bool {
+        self.entity_source == binding.entity_source
+            && self.entity_tag == binding.entity_tag
+            && self.accepted_fingerprint == binding.accepted_fingerprint
+    }
+}
+
+///
+/// DynamicTypedMutation
+///
+/// One source-bound generated mutation whose fields already carry accepted
+/// field IDs and slots. Entity and field names are not routing authority.
+///
+
+#[doc(hidden)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DynamicTypedMutation {
+    /// Insert one accepted row.
+    Insert {
+        /// Bound authored field intents.
+        patch: DynamicTypedStructuralPatch,
+    },
+    /// Patch one accepted row.
+    Update {
+        /// Scalar or composite public primary key.
+        key: InputValue,
+        /// Bound authored field intents.
+        patch: DynamicTypedStructuralPatch,
+    },
+    /// Replace one accepted row, inserting it when absent.
+    Replace {
+        /// Scalar or composite public primary key.
+        key: InputValue,
+        /// Bound authored field intents.
+        patch: DynamicTypedStructuralPatch,
+    },
+}
+
 /// Opaque accepted-schema identity issued for one generated typed adapter.
 ///
 /// Public facade code may retain and return this value, but its accepted field
@@ -205,30 +274,131 @@ impl From<InternalError> for DynamicTypedBindingError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DynamicTypedEntityBinding {
     pub(crate) database_incarnation: [u8; 16],
-    pub(crate) entity: String,
+    pub(crate) entity_source: String,
+    pub(crate) entity_label: String,
     pub(crate) entity_tag: u64,
     pub(crate) accepted_revision: u64,
     pub(crate) accepted_fingerprint: [u8; 16],
     pub(crate) entity_generation: u32,
-    pub(crate) fields: Vec<(String, String)>,
+    fields: Vec<DynamicTypedFieldBinding>,
     pub(crate) named_types: Vec<(String, String)>,
     pub(crate) enum_variants: Vec<(String, String, String)>,
     pub(crate) composite_fields: Vec<(String, String, String)>,
 }
 
 impl DynamicTypedEntityBinding {
-    /// Borrow the accepted entity display name without exposing physical identity.
-    #[must_use]
-    pub const fn entity(&self) -> &str {
-        self.entity.as_str()
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the opaque binding keeps every accepted authority component explicit"
+    )]
+    pub(crate) fn new(
+        database_incarnation: [u8; 16],
+        entity_source: String,
+        entity_label: String,
+        entity_tag: u64,
+        accepted_revision: u64,
+        accepted_fingerprint: [u8; 16],
+        entity_generation: u32,
+        fields: Vec<(String, u32, u16, String)>,
+        named_types: Vec<(String, String)>,
+        enum_variants: Vec<(String, String, String)>,
+        composite_fields: Vec<(String, String, String)>,
+    ) -> Result<Self, InternalError> {
+        let mut sources = BTreeSet::new();
+        let mut ids = BTreeSet::new();
+        let mut slots = BTreeSet::new();
+        let fields = fields
+            .into_iter()
+            .map(|(source_key, field_id, slot, label)| {
+                if !sources.insert(source_key.clone())
+                    || !ids.insert(field_id)
+                    || !slots.insert(slot)
+                {
+                    return Err(InternalError::store_invariant());
+                }
+                Ok(DynamicTypedFieldBinding {
+                    source_key,
+                    field_id,
+                    slot,
+                    label,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Self {
+            database_incarnation,
+            entity_source,
+            entity_label,
+            entity_tag,
+            accepted_revision,
+            accepted_fingerprint,
+            entity_generation,
+            fields,
+            named_types,
+            enum_variants,
+            composite_fields,
+        })
     }
 
-    /// Resolve one immutable source key to its current accepted display name.
+    /// Borrow the accepted entity display label.
     #[must_use]
-    pub fn field_name(&self, source_key: &str) -> Option<&str> {
+    pub const fn entity(&self) -> &str {
+        self.entity_label.as_str()
+    }
+
+    /// Borrow the immutable entity source identity.
+    #[must_use]
+    pub const fn entity_source(&self) -> &str {
+        self.entity_source.as_str()
+    }
+
+    /// Resolve one immutable field source key directly to its accepted slot.
+    #[must_use]
+    pub fn field_slot(&self, source_key: &str) -> Option<u16> {
         self.fields
             .iter()
-            .find_map(|(source, name)| (source == source_key).then_some(name.as_str()))
+            .find_map(|field| (field.source_key == source_key).then_some(field.slot))
+    }
+
+    /// Resolve one accepted output label to its binding-owned accepted slot.
+    #[must_use]
+    pub fn output_field_slot(&self, label: &str) -> Option<u16> {
+        self.fields
+            .iter()
+            .find_map(|field| (field.label == label).then_some(field.slot))
+    }
+
+    pub(crate) fn field_identity_bindings(&self) -> impl Iterator<Item = (&str, u32, u16)> {
+        self.fields
+            .iter()
+            .map(|field| (field.source_key.as_str(), field.field_id, field.slot))
+    }
+
+    /// Bind generated source-key write intent to accepted field IDs and slots.
+    #[must_use]
+    pub fn bind_write_fields(
+        &self,
+        fields: Vec<(String, DynamicWriteCell)>,
+    ) -> Option<DynamicTypedStructuralPatch> {
+        let mut seen_ids = BTreeSet::new();
+        let mut seen_slots = BTreeSet::new();
+        let mut bound = Vec::with_capacity(fields.len());
+        for (source_key, cell) in fields {
+            let field = self
+                .fields
+                .iter()
+                .find(|field| field.source_key == source_key)?;
+            if !seen_ids.insert(field.field_id) || !seen_slots.insert(field.slot) {
+                return None;
+            }
+            bound.push((field.field_id, field.slot, cell));
+        }
+        Some(DynamicTypedStructuralPatch {
+            entity_source: self.entity_source.clone(),
+            entity_tag: self.entity_tag,
+            accepted_fingerprint: self.accepted_fingerprint,
+            fields: bound,
+        })
     }
 
     /// Resolve one immutable named-type source key to its accepted display path.

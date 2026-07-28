@@ -316,11 +316,11 @@ pub struct IntegrityEntityIdentity {
 
 impl IntegrityEntityIdentity {
     fn from_plan(plan: &AcceptedInspectionPlan) -> Self {
-        Self::from_accepted_identity(plan.identity())
+        Self::from_accepted_identity(plan.identity_ref())
     }
 
     pub(in crate::db) fn from_accepted_identity(
-        identity: crate::db::schema::AcceptedCatalogIdentity,
+        identity: &crate::db::schema::AcceptedCatalogIdentity,
     ) -> Self {
         Self {
             entity_tag: identity.entity_tag().value(),
@@ -869,7 +869,7 @@ pub(in crate::db) fn uninspectable_quick_integrity(
     error: &InternalError,
 ) -> QuickIntegrityResult {
     QuickIntegrityResult {
-        entity: IntegrityEntityIdentity::from_accepted_identity(identity),
+        entity: IntegrityEntityIdentity::from_accepted_identity(&identity),
         database_incarnation_id: incarnation,
         accepted_schema_version: identity.accepted_schema_version().get(),
         accepted_schema_fingerprint: identity.accepted_schema_fingerprint(),

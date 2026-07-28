@@ -25,7 +25,7 @@ use crate::{
 pub(in crate::db) fn execute_admin_sql_ddl_check_addition(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     request: &BoundSqlAddCheckConstraintRequest,
@@ -36,7 +36,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_check_addition(
         entity_tag,
         entity_path,
         accepted_before,
-        accepted_before_identity,
+        &accepted_before_identity,
     )?;
     let activation_epoch = current_revision
         .checked_next()
@@ -109,7 +109,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_check_addition(
 pub(in crate::db) fn execute_admin_sql_ddl_unique_index_activation(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     request: &BoundSqlCreateIndexRequest,
@@ -123,7 +123,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_unique_index_activation(
         entity_tag,
         entity_path,
         accepted_before,
-        accepted_before_identity,
+        &accepted_before_identity,
     )?;
     let activation_epoch = current_revision
         .checked_next()
@@ -164,7 +164,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_unique_index_activation(
 pub(in crate::db) fn execute_admin_sql_ddl_unique_index_activation_abort(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     request: &BoundSqlDropIndexRequest,
@@ -178,7 +178,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_unique_index_activation_abort(
         entity_tag,
         entity_path,
         accepted_before,
-        accepted_before_identity,
+        &accepted_before_identity,
     )?;
     let before = current
         .entity_snapshots()
@@ -220,7 +220,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_unique_index_activation_abort(
 pub(in crate::db) fn execute_admin_sql_ddl_check_drop(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     request: &BoundSqlDropConstraintRequest,
@@ -231,7 +231,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_check_drop(
         entity_tag,
         entity_path,
         accepted_before,
-        accepted_before_identity,
+        &accepted_before_identity,
     )?;
     let before = current
         .entity_snapshots()
@@ -283,9 +283,9 @@ pub(in crate::db) fn execute_admin_sql_ddl_check_drop(
 pub(super) fn current_sql_ddl_bundle(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
-    expected_identity: AcceptedCatalogIdentity,
+    expected_identity: &AcceptedCatalogIdentity,
 ) -> Result<
     (
         AcceptedSchemaRevision,
@@ -311,7 +311,7 @@ pub(super) fn current_sql_ddl_bundle(
                 .ok_or_else(InternalError::store_corruption)?,
         ))
     })?;
-    if selection.identity() != expected_identity
+    if selection.identity() != *expected_identity
         || bundle.store_path() != expected_identity.store_path()
         || bundle.entity_snapshots().get(&entity_tag) != Some(accepted_before.persisted_snapshot())
     {

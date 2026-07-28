@@ -10,7 +10,7 @@ use crate::db::sql::lowering::LoweredSqlCommand;
 use crate::db::{
     executor::SharedPreparedExecutionPlan,
     query::intent::StructuralQuery,
-    session::sql::projection::SqlProjectionContract,
+    session::query::StructuralProjectionContract,
     sql::{
         lowering::SqlGlobalAggregateCommand,
         parser::{SqlInsertStatement, SqlReturningProjection, SqlUpdateStatement},
@@ -163,7 +163,7 @@ impl CompiledSqlCommand {
     pub(in crate::db) fn cached_select_plan(
         &self,
         schema_fingerprint: SqlCompiledSchemaFingerprint,
-    ) -> Option<(SharedPreparedExecutionPlan, SqlProjectionContract)> {
+    ) -> Option<(SharedPreparedExecutionPlan, StructuralProjectionContract)> {
         let Self::Select { plan_cache, .. } = self else {
             return None;
         };
@@ -179,7 +179,7 @@ impl CompiledSqlCommand {
         &self,
         schema_fingerprint: SqlCompiledSchemaFingerprint,
         prepared_plan: SharedPreparedExecutionPlan,
-        projection: SqlProjectionContract,
+        projection: StructuralProjectionContract,
     ) {
         if let Self::Select { plan_cache, .. } = self {
             let _ = plan_cache.set(Rc::new(SqlSelectPlanCacheEntry::new(

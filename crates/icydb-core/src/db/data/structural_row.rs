@@ -44,7 +44,7 @@ pub(in crate::db) struct AcceptedStructuralRowAuthority {
 impl AcceptedStructuralRowAuthority {
     /// Build accepted-only row authority without separating snapshot and catalog.
     pub(in crate::db) fn from_catalog_selection(
-        entity_path: &'static str,
+        entity_path: &str,
         selection: &AcceptedCatalogSnapshotSelection,
     ) -> Result<Self, InternalError> {
         let accepted_schema = selection.decode_verified()?;
@@ -78,7 +78,7 @@ impl AcceptedStructuralRowAuthority {
     }
 
     fn catalog_backed_row_contract(
-        entity_path: &'static str,
+        entity_path: &str,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         selection: &AcceptedCatalogSnapshotSelection,
     ) -> StructuralRowContract {
@@ -93,7 +93,10 @@ impl AcceptedStructuralRowAuthority {
             row_decode_contract.enum_catalog(),
             selection.value_catalog_handle().enum_catalog(),
         ));
-        StructuralRowContract::from_accepted_decode_contract(entity_path, row_decode_contract)
+        StructuralRowContract::from_owned_accepted_decode_contract(
+            entity_path.to_string(),
+            row_decode_contract,
+        )
     }
 
     /// Borrow the accepted snapshot selected with this row contract.
@@ -127,7 +130,7 @@ impl AcceptedStructuralRowAuthority {
 
 #[derive(Clone, Debug)]
 pub(in crate::db) struct StructuralRowContract {
-    entity_path: Cow<'static, str>,
+    entity_path: Rc<str>,
     field_count: usize,
     primary_key_slot: usize,
     accepted_decode_contract: Rc<AcceptedRowDecodeContract>,
@@ -137,33 +140,28 @@ impl StructuralRowContract {
     /// Build one structural row contract from accepted persisted schema only.
     #[must_use]
     pub(in crate::db) fn from_accepted_decode_contract(
-        entity_path: &'static str,
+        entity_path: impl Into<Rc<str>>,
         accepted_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {
         Self {
-            entity_path: Cow::Borrowed(entity_path),
+            entity_path: entity_path.into(),
             field_count: accepted_decode_contract.required_slot_count(),
             primary_key_slot: accepted_decode_contract.first_primary_key_slot_index(),
             accepted_decode_contract: Rc::new(accepted_decode_contract),
         }
     }
 
-    fn from_owned_accepted_decode_contract(
+    pub(in crate::db) fn from_owned_accepted_decode_contract(
         entity_path: String,
         accepted_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {
-        Self {
-            entity_path: Cow::Owned(entity_path),
-            field_count: accepted_decode_contract.required_slot_count(),
-            primary_key_slot: accepted_decode_contract.first_primary_key_slot_index(),
-            accepted_decode_contract: Rc::new(accepted_decode_contract),
-        }
+        Self::from_accepted_decode_contract(entity_path, accepted_decode_contract)
     }
 
     /// Borrow the owning entity path for diagnostics.
     #[must_use]
     pub(in crate::db) fn entity_path(&self) -> &str {
-        self.entity_path.as_ref()
+        &self.entity_path
     }
 
     /// Return the declared structural field count.
@@ -220,7 +218,7 @@ impl StructuralRowContract {
 
     /// Borrow the catalog authority carried by this accepted row contract.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn accepted_value_catalog_handle(
         &self,
     ) -> &crate::db::schema::AcceptedValueCatalogHandle {
@@ -419,7 +417,7 @@ impl<'a> StructuralRowFieldBytes<'a> {
 ///
 
 #[derive(Clone, Debug)]
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db::data) struct SparseRequiredRowFieldBytes<'a> {
     layout_version: RowLayoutVersion,
     payload: Cow<'a, [u8]>,
@@ -427,7 +425,7 @@ pub(in crate::db::data) struct SparseRequiredRowFieldBytes<'a> {
     primary_key_span: (usize, usize),
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 impl<'a> SparseRequiredRowFieldBytes<'a> {
     /// Decode one raw row into the selected and primary-key field spans needed
     /// by sparse direct slot reads.
@@ -523,13 +521,13 @@ fn decode_row_field_spans<'payload>(
     Ok((payload, spans))
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 type SparseRequiredRowFieldSpans<'a> =
     Result<(Cow<'a, [u8]>, Option<(usize, usize)>, (usize, usize)), InternalError>;
 
 // Decode the canonical slot-container header while retaining only one required
 // slot span plus the primary-key span for sparse direct slot reads.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn decode_sparse_required_row_field_spans<'payload>(
     payload: Cow<'payload, [u8]>,
     layout_version: RowLayoutVersion,

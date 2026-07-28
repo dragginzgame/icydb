@@ -25,10 +25,9 @@ use crate::db::{
 ///
 /// LoweredSqlGlobalAggregateCommand
 ///
-/// Generic-free global aggregate command shape prepared before typed query
-/// binding.
-/// This keeps aggregate SQL lowering shared across entities until the final
-/// execution boundary converts the base query shape into `Query<E>`.
+/// Generic-free global aggregate command shape prepared before
+/// accepted-schema structural binding. This keeps aggregate SQL lowering
+/// shared across entities through the final execution boundary.
 ///
 #[derive(Clone, Debug)]
 pub(in crate::db::sql::lowering) struct LoweredSqlGlobalAggregateCommand {

@@ -9,13 +9,13 @@ pub(super) mod grouped_runtime;
 pub(super) mod operators;
 pub(super) mod runtime;
 pub(super) mod timing;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db::executor) use entrypoints::execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db) use entrypoints::execute_shared_grouped_plan_for_canister;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(all(feature = "query", feature = "diagnostics"))]
 pub(in crate::db) use entrypoints::execute_shared_grouped_plan_for_canister_with_phase_attribution;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(all(feature = "query", feature = "diagnostics"))]
 pub(in crate::db) use entrypoints::{
     GroupedCountAttribution, GroupedExecutePhaseAttribution, GroupedRuntimeAttribution,
 };

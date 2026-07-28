@@ -33,7 +33,7 @@ use crate::{
 };
 
 /// Normalize and encode one authored input through an accepted field contract.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn encode_input_value_for_accepted_field_contract(
     encoding: AcceptedFieldPersistenceContract<'_>,
     input: InputValue,

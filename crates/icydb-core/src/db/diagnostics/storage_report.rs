@@ -13,9 +13,9 @@ use crate::{
             SchemaStoreSnapshot, StorageReport, StoreSnapshotAllocationIdentity,
             StoreSnapshotSchemaMetadata, StoreSnapshotStorageMode,
         },
-        entity_registration::EntityRuntimeRegistration,
         index::{IndexKey, IndexStoreVisit},
         registry::{StoreAllocationIdentity, StoreRuntimeStorageMode},
+        runtime_entity_catalog::AcceptedRuntimeEntity,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -65,16 +65,16 @@ fn update_default_entity_stats(
     entity_stats.push((entity_tag, stats));
 }
 
-fn storage_report_name_for_registration<'a, C: CanisterKind>(
-    name_map: &BTreeMap<&'static str, &'a str>,
-    registration: EntityRuntimeRegistration<C>,
-    accepted_entity_name: &str,
-) -> &'a str {
+fn storage_report_name_for_runtime_entity(
+    name_map: &BTreeMap<&'static str, &str>,
+    runtime_entity: &AcceptedRuntimeEntity,
+) -> String {
     name_map
-        .get(registration.entity_path)
+        .get(runtime_entity.entity_path())
         .copied()
-        .or_else(|| name_map.get(accepted_entity_name).copied())
-        .unwrap_or(registration.entity_path)
+        .or_else(|| name_map.get(runtime_entity.entity_name()).copied())
+        .unwrap_or_else(|| runtime_entity.entity_path())
+        .to_string()
 }
 
 // Resolve one default entity path label for storage snapshots without pulling
@@ -83,11 +83,11 @@ fn storage_report_default_name_for_entity_tag<C: CanisterKind>(
     db: &Db<C>,
     entity_tag: EntityTag,
 ) -> String {
-    db.runtime_registration_for_entity_tag(entity_tag)
+    db.accepted_runtime_entity_for_tag(entity_tag)
         .ok()
         .map_or_else(
             || format!("#{}", entity_tag.value()),
-            |registration| registration.entity_path.to_string(),
+            |runtime_entity| runtime_entity.entity_path().to_string(),
         )
 }
 
@@ -159,7 +159,7 @@ enum StorageReportMode<'a> {
     Default,
     Explicit {
         name_map: BTreeMap<&'static str, &'a str>,
-        tag_name_map: BTreeMap<EntityTag, &'a str>,
+        tag_name_map: BTreeMap<EntityTag, String>,
     },
 }
 
@@ -173,16 +173,15 @@ impl StorageReportMode<'_> {
                 tag_name_map,
             } => tag_name_map
                 .get(&entity_tag)
-                .copied()
-                .map(str::to_string)
+                .cloned()
                 .or_else(|| {
-                    db.runtime_registration_for_entity_tag(entity_tag)
+                    db.accepted_runtime_entity_for_tag(entity_tag)
                         .ok()
-                        .map(|registration| {
+                        .map(|runtime_entity| {
                             name_map
-                                .get(registration.entity_path)
+                                .get(runtime_entity.entity_path())
                                 .copied()
-                                .unwrap_or(registration.entity_path)
+                                .unwrap_or_else(|| runtime_entity.entity_path())
                                 .to_string()
                         })
                 })
@@ -298,32 +297,14 @@ pub(in crate::db) fn storage_report<C: CanisterKind>(
 ) -> Result<StorageReport, InternalError> {
     db.ensure_recovered_state()?;
     // Build one optional alias map once, then resolve report names from the
-    // model-free registration table so entity tags keep distinct path identity
+    // accepted runtime catalog so entity tags keep distinct path identity
     // even when multiple accepted entities share the same display name.
     let name_map: BTreeMap<&'static str, &str> = name_to_path.iter().copied().collect();
-    let mut tag_name_map = BTreeMap::<EntityTag, &str>::new();
-    for entity_registration in db.entity_registrations {
-        let registration = entity_registration.runtime().resolve(db)?;
-        let store = db.recovered_store(registration.store_path)?;
-        let accepted = store
-            .with_schema(|schema_store| {
-                schema_store.current_accepted_catalog_selection(
-                    registration.entity_tag,
-                    registration.entity_path,
-                    registration.store_path,
-                )
-            })?
-            .ok_or_else(InternalError::store_corruption)?
-            .decode_verified()?;
+    let mut tag_name_map = BTreeMap::<EntityTag, String>::new();
+    for runtime_entity in db.accepted_runtime_entities()? {
         tag_name_map
-            .entry(registration.entity_tag)
-            .or_insert_with(|| {
-                storage_report_name_for_registration(
-                    &name_map,
-                    registration,
-                    accepted.entity_name(),
-                )
-            });
+            .entry(runtime_entity.entity_tag())
+            .or_insert_with(|| storage_report_name_for_runtime_entity(&name_map, &runtime_entity));
     }
 
     Ok(build_storage_report(

@@ -12,6 +12,7 @@ use crate::{
         commit::CommitSchemaFingerprint,
         direction::Direction,
         ordered_overlay::{OrderedOverlayEntry, OrderedOverlayVisit, visit_ordered_overlay},
+        runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::{
             AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
             ConstraintActivationKind, ConstraintActivationState, ConstraintId, ConstraintOrigin,
@@ -39,7 +40,6 @@ use ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, memory_manager::VirtualMemory,
     storable::Bound as StorableBound,
 };
-use icydb_schema::EntitySourceKey;
 use sha2::Digest;
 use std::borrow::Cow;
 #[cfg(test)]
@@ -79,7 +79,7 @@ const RAW_SCHEMA_SNAPSHOT_HEADER_BYTES: usize = 25;
 pub(in crate::db) fn load_accepted_schema_snapshot(
     schema_store: &SchemaStore,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
 ) -> Result<AcceptedSchemaSnapshot, InternalError> {
     let bundle = schema_store
         .current_accepted_schema_bundle()?
@@ -349,10 +349,10 @@ pub(in crate::db::schema) fn validate_raw_schema_snapshot_bytes_for_tests(
     raw.decode_persisted_snapshot().map(drop)
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AcceptedCatalogIdentity {
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: Rc<str>,
     store_path: &'static str,
     accepted_schema_revision: AcceptedSchemaRevision,
     accepted_schema_version: SchemaVersion,
@@ -362,9 +362,9 @@ pub(in crate::db) struct AcceptedCatalogIdentity {
 
 impl AcceptedCatalogIdentity {
     #[must_use]
-    pub(in crate::db) const fn new(
+    pub(in crate::db) fn new(
         entity_tag: EntityTag,
-        entity_path: &'static str,
+        entity_path: impl Into<Rc<str>>,
         store_path: &'static str,
         accepted_schema_revision: AcceptedSchemaRevision,
         accepted_schema_version: SchemaVersion,
@@ -372,7 +372,7 @@ impl AcceptedCatalogIdentity {
     ) -> Self {
         Self {
             entity_tag,
-            entity_path,
+            entity_path: entity_path.into(),
             store_path,
             accepted_schema_revision,
             accepted_schema_version,
@@ -382,37 +382,42 @@ impl AcceptedCatalogIdentity {
     }
 
     #[must_use]
-    pub(in crate::db) const fn entity_tag(self) -> EntityTag {
+    pub(in crate::db) const fn entity_tag(&self) -> EntityTag {
         self.entity_tag
     }
 
     #[must_use]
-    pub(in crate::db) const fn entity_path(self) -> &'static str {
-        self.entity_path
+    pub(in crate::db) fn entity_path(&self) -> &str {
+        self.entity_path.as_ref()
     }
 
     #[must_use]
-    pub(in crate::db) const fn store_path(self) -> &'static str {
+    pub(in crate::db) fn entity_path_handle(&self) -> Rc<str> {
+        self.entity_path.clone()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn store_path(&self) -> &'static str {
         self.store_path
     }
 
     #[must_use]
-    pub(in crate::db) const fn accepted_schema_revision(self) -> AcceptedSchemaRevision {
+    pub(in crate::db) const fn accepted_schema_revision(&self) -> AcceptedSchemaRevision {
         self.accepted_schema_revision
     }
 
     #[must_use]
-    pub(in crate::db) const fn accepted_schema_version(self) -> SchemaVersion {
+    pub(in crate::db) const fn accepted_schema_version(&self) -> SchemaVersion {
         self.accepted_schema_version
     }
 
     #[must_use]
-    pub(in crate::db) const fn fingerprint_method_version(self) -> u8 {
+    pub(in crate::db) const fn fingerprint_method_version(&self) -> u8 {
         self.fingerprint_method_version
     }
 
     #[must_use]
-    pub(in crate::db) const fn accepted_schema_fingerprint(self) -> CommitSchemaFingerprint {
+    pub(in crate::db) const fn accepted_schema_fingerprint(&self) -> CommitSchemaFingerprint {
         self.accepted_schema_fingerprint
     }
 }
@@ -439,8 +444,8 @@ impl AcceptedCatalogSnapshotSelection {
     }
 
     #[must_use]
-    pub(in crate::db) const fn identity(&self) -> AcceptedCatalogIdentity {
-        self.identity
+    pub(in crate::db) fn identity(&self) -> AcceptedCatalogIdentity {
+        self.identity.clone()
     }
 
     #[must_use]
@@ -453,7 +458,7 @@ impl AcceptedCatalogSnapshotSelection {
     pub(in crate::db) fn from_candidate(
         candidate: &CandidateSchemaRevision,
         entity_tag: EntityTag,
-        entity_path: &'static str,
+        entity_path: &str,
         store_path: &'static str,
     ) -> Result<Option<Self>, InternalError> {
         if candidate.store_path() != store_path {
@@ -961,39 +966,112 @@ impl SchemaStore {
         Ok(Some(bundle.clone()))
     }
 
-    /// Resolve one generated entity source through the cached current accepted
-    /// bundle without cloning or independently decoding that bundle.
-    pub(in crate::db) fn current_accepted_entity_tag_for_source(
+    /// Project current accepted entity identity onto one registry-owned store path.
+    pub(in crate::db) fn current_accepted_runtime_entities(
         &self,
-        source: &EntitySourceKey,
-    ) -> Result<EntityTag, InternalError> {
-        self.current_accepted_schema_bundle_ref()?
-            .and_then(|bundle| bundle.source_bindings().entity(source))
-            .ok_or_else(InternalError::store_corruption)
-    }
+        registered_store_path: &'static str,
+    ) -> Result<Vec<AcceptedRuntimeEntity>, InternalError> {
+        let Some(bundle) = self.current_accepted_schema_bundle_ref()? else {
+            return Ok(Vec::new());
+        };
+        if bundle.store_path() != registered_store_path {
+            return Err(InternalError::store_corruption());
+        }
 
-    /// Resolve one generated entity source to its current accepted display
-    /// name without compiling its runtime inspection plan.
-    pub(in crate::db) fn current_accepted_entity_name_for_source(
-        &self,
-        source: &EntitySourceKey,
-    ) -> Result<String, InternalError> {
-        let bundle = self
-            .current_accepted_schema_bundle_ref()?
-            .ok_or_else(InternalError::store_corruption)?;
-        let entity_tag = bundle
-            .source_bindings()
-            .entity(source)
-            .ok_or_else(InternalError::store_corruption)?;
         bundle
             .entity_snapshots()
-            .get(&entity_tag)
-            .map(|snapshot| snapshot.entity_name().to_string())
-            .ok_or_else(InternalError::store_corruption)
+            .iter()
+            .map(|(entity_tag, snapshot)| {
+                AcceptedRuntimeEntity::from_accepted_snapshot(
+                    &bundle,
+                    *entity_tag,
+                    snapshot,
+                    registered_store_path,
+                )
+            })
+            .collect()
+    }
+
+    /// Resolve one accepted entity tag without materializing the full store catalog.
+    pub(in crate::db) fn current_accepted_runtime_entity_for_tag(
+        &self,
+        registered_store_path: &'static str,
+        entity_tag: EntityTag,
+    ) -> Result<Option<AcceptedRuntimeEntity>, InternalError> {
+        let Some(bundle) = self.current_accepted_schema_bundle_ref()? else {
+            return Ok(None);
+        };
+        if bundle.store_path() != registered_store_path {
+            return Err(InternalError::store_corruption());
+        }
+        let Some(snapshot) = bundle.entity_snapshots().get(&entity_tag) else {
+            return Ok(None);
+        };
+
+        AcceptedRuntimeEntity::from_accepted_snapshot(
+            &bundle,
+            entity_tag,
+            snapshot,
+            registered_store_path,
+        )
+        .map(Some)
+    }
+
+    /// Resolve one accepted entity source path without materializing the full store catalog.
+    pub(in crate::db) fn current_accepted_runtime_entity_for_path(
+        &self,
+        registered_store_path: &'static str,
+        entity_path: &str,
+    ) -> Result<Option<AcceptedRuntimeEntity>, InternalError> {
+        self.current_accepted_runtime_entity_matching(registered_store_path, |snapshot_path, _| {
+            snapshot_path == entity_path
+        })
+    }
+
+    /// Resolve one accepted entity display name without materializing the full store catalog.
+    pub(in crate::db) fn current_accepted_runtime_entity_for_name(
+        &self,
+        registered_store_path: &'static str,
+        entity_name: &str,
+    ) -> Result<Option<AcceptedRuntimeEntity>, InternalError> {
+        self.current_accepted_runtime_entity_matching(registered_store_path, |_, snapshot_name| {
+            snapshot_name == entity_name
+        })
+    }
+
+    fn current_accepted_runtime_entity_matching(
+        &self,
+        registered_store_path: &'static str,
+        mut predicate: impl FnMut(&str, &str) -> bool,
+    ) -> Result<Option<AcceptedRuntimeEntity>, InternalError> {
+        let Some(bundle) = self.current_accepted_schema_bundle_ref()? else {
+            return Ok(None);
+        };
+        if bundle.store_path() != registered_store_path {
+            return Err(InternalError::store_corruption());
+        }
+
+        let mut matched = None;
+        for (entity_tag, snapshot) in bundle.entity_snapshots() {
+            if !predicate(snapshot.entity_path(), snapshot.entity_name()) {
+                continue;
+            }
+            let entity = AcceptedRuntimeEntity::from_accepted_snapshot(
+                &bundle,
+                *entity_tag,
+                snapshot,
+                registered_store_path,
+            )?;
+            if matched.replace(entity).is_some() {
+                return Err(InternalError::store_corruption());
+            }
+        }
+
+        Ok(matched)
     }
 
     /// Return the current accepted revision without decoding its bundle.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn current_accepted_schema_revision(
         &self,
     ) -> Result<Option<AcceptedSchemaRevision>, InternalError> {
@@ -1572,7 +1650,7 @@ impl SchemaStore {
 
     /// Load one entity snapshot from the immutable bundle selected by the
     /// current accepted root.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn current_accepted_persisted_snapshot(
         &self,
         entity: EntityTag,
@@ -1588,7 +1666,7 @@ impl SchemaStore {
     pub(in crate::db) fn current_accepted_catalog_selection(
         &self,
         entity: EntityTag,
-        entity_path: &'static str,
+        entity_path: &str,
         store_path: &'static str,
     ) -> Result<Option<AcceptedCatalogSnapshotSelection>, InternalError> {
         let Some(bundle) = self.current_accepted_schema_bundle_ref()? else {
@@ -1650,7 +1728,7 @@ impl SchemaStore {
     pub(in crate::db) fn current_canonical_accepted_catalog_selection(
         &self,
         entity: EntityTag,
-        entity_path: &'static str,
+        entity_path: &str,
         store_path: &'static str,
     ) -> Result<Option<AcceptedCatalogSnapshotSelection>, InternalError> {
         let first = self.canonical_root_slot_bytes(0)?;

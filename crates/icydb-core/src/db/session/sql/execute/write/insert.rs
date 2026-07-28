@@ -340,8 +340,7 @@ impl<C: CanisterKind> DbSession<C> {
                 if !matches!(statement.source, SqlInsertSource::DefaultValues) {
                     ensure_sql_insert_required_fields(&descriptor, columns.as_slice())?;
                 }
-                let write_context =
-                    AcceptedWriteContext::new(MutationMode::Insert, Timestamp::now());
+                let write_context = AcceptedWriteContext::new(Timestamp::now());
                 let candidate_bounds =
                     sql_insert_candidate_bounds(execution_bounds, statement.returning.is_some());
                 let mut collection = SqlWriteCandidateCollection::new();

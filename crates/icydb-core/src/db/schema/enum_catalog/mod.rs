@@ -23,7 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 pub(in crate::db) use crate::value::{EnumTypeId, EnumVariantId};
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db::schema) use admission::normalize_and_admit_nullable_value;
 pub(in crate::db) use admission::normalize_candidate_value;
 pub(in crate::db) use admission::validate_decoded_persisted_field_value_in_catalog;
@@ -41,8 +41,6 @@ pub(in crate::db) use output::output_value_from_runtime;
 pub(in crate::db) use publication::AcceptedSchemaRevisionBundle;
 #[cfg(test)]
 pub(in crate::db::schema) use publication::decode_accepted_schema_revision_bundle;
-#[cfg(test)]
-pub(in crate::db) use publication::empty_accepted_schema_candidate_for_tests;
 pub(in crate::db::schema) use publication::{
     ACCEPTED_SCHEMA_ROOT_BYTES, AcceptedSchemaBundleKey, AcceptedSchemaPublicationError,
     AcceptedSchemaRootSelection, MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES, MAX_SCHEMA_STORE_PATH_BYTES,
@@ -51,6 +49,11 @@ pub(in crate::db::schema) use publication::{
 };
 pub(in crate::db) use publication::{
     AcceptedSchemaFingerprint, AcceptedSchemaRevision, CandidateSchemaRevision,
+};
+#[cfg(test)]
+pub(in crate::db) use publication::{
+    accepted_schema_candidate_for_tests, accepted_schema_candidate_with_field_bindings_for_tests,
+    empty_accepted_schema_candidate_for_tests,
 };
 pub(in crate::db) use value_wire::{
     CanonicalEnumWireError, decode_canonical_enum_value, encode_canonical_enum_value,
@@ -631,7 +634,7 @@ impl AcceptedValueContract {
 
     /// Derive the accepted element contract for a list or set value.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn collection_element_contract(&self) -> Option<Self> {
         match &self.kind {
             AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => Some(Self {

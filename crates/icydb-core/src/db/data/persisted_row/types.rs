@@ -203,7 +203,7 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
     fn field_leaf_codec(&self, slot: usize) -> Result<LeafCodec, InternalError>;
 
     /// Borrow one declared slot payload, erroring when the persisted row is not canonical.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     fn required_bytes(&self, slot: usize) -> Result<&[u8], InternalError> {
         let field_name = self.field_name(slot)?;
 

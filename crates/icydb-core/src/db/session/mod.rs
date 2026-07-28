@@ -4,11 +4,11 @@
 //! Boundary: converts fluent/query intent calls into executor operations and response DTOs.
 
 mod accepted_schema;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 mod bounded_cache;
 mod catalog;
 mod integrity;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 mod query;
 #[cfg(feature = "sql")]
 mod response;
@@ -16,10 +16,10 @@ mod response;
 mod sql;
 mod write;
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use crate::metrics::sink::with_metrics_sink;
 use crate::{
-    db::{Db, EntityRegistration, StoreRegistry},
+    db::{Db, StoreRegistry},
     metrics::sink::MetricsSink,
     traits::CanisterKind,
     value::Value,
@@ -73,23 +73,14 @@ pub struct DbSession<C: CanisterKind> {
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    /// Construct one session facade for a database handle.
+    /// Construct one session facade over a sealed runtime store registry.
     #[must_use]
-    pub(crate) const fn new(db: Db<C>) -> Self {
+    pub const fn new(store: &'static LocalKey<StoreRegistry>) -> Self {
         Self {
-            db,
+            db: Db::new(store),
             debug: false,
             metrics: None,
         }
-    }
-
-    /// Construct one session facade from store and entity registrations.
-    #[must_use]
-    pub const fn new_with_registrations(
-        store: &'static LocalKey<StoreRegistry>,
-        entity_registrations: &'static [EntityRegistration<C>],
-    ) -> Self {
-        Self::new(Db::new_with_registrations(store, entity_registrations))
     }
 
     /// Enable debug execution behavior where supported by executors.
@@ -106,7 +97,7 @@ impl<C: CanisterKind> DbSession<C> {
         self
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     fn with_metrics<T>(&self, f: impl FnOnce() -> T) -> T {
         if let Some(sink) = self.metrics {
             with_metrics_sink(sink, f)

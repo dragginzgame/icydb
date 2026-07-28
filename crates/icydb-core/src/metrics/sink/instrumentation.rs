@@ -8,6 +8,7 @@ use super::SqlCompileRejectPhase;
 use super::{
     CacheKind, CacheMissReason, CacheOutcome, ExecKind, ExecOutcome, MetricsEvent, record,
 };
+use std::rc::Rc;
 
 ///
 /// PathSpan
@@ -19,7 +20,7 @@ use super::{
 
 pub(crate) struct PathSpan {
     kind: ExecKind,
-    entity_path: &'static str,
+    entity_path: Rc<str>,
     start: u64,
     rows: u64,
     outcome: ExecOutcome,
@@ -48,10 +49,10 @@ fn read_perf_counter() -> u64 {
 pub(crate) fn record_cache_event_for_path(
     kind: CacheKind,
     outcome: CacheOutcome,
-    entity_path: &'static str,
+    entity_path: &str,
 ) {
     record(MetricsEvent::Cache {
-        entity_path,
+        entity_path: entity_path.into(),
         kind,
         outcome,
     });
@@ -61,10 +62,10 @@ pub(crate) fn record_cache_event_for_path(
 pub(crate) fn record_cache_miss_reason_for_path(
     kind: CacheKind,
     reason: CacheMissReason,
-    entity_path: &'static str,
+    entity_path: &str,
 ) {
     record(MetricsEvent::CacheMissReason {
-        entity_path,
+        entity_path: entity_path.into(),
         kind,
         reason,
     });
@@ -72,16 +73,18 @@ pub(crate) fn record_cache_miss_reason_for_path(
 
 /// Record one SQL compile rejection for a command already scoped to an entity.
 #[cfg(feature = "sql")]
-pub(crate) fn record_sql_compile_reject_for_path(
-    phase: SqlCompileRejectPhase,
-    entity_path: &'static str,
-) {
-    record(MetricsEvent::SqlCompileReject { entity_path, phase });
+pub(crate) fn record_sql_compile_reject_for_path(phase: SqlCompileRejectPhase, entity_path: &str) {
+    record(MetricsEvent::SqlCompileReject {
+        entity_path: entity_path.into(),
+        phase,
+    });
 }
 
 /// Record that executor authority received an already-finalized prepared shape.
-pub(crate) fn record_prepared_shape_already_finalized_for_path(entity_path: &'static str) {
-    record(MetricsEvent::PreparedShapeAlreadyFinalized { entity_path });
+pub(crate) fn record_prepared_shape_already_finalized_for_path(entity_path: &str) {
+    record(MetricsEvent::PreparedShapeAlreadyFinalized {
+        entity_path: entity_path.into(),
+    });
 }
 
 /// Record the latest observed entry count for one cache family.
@@ -94,12 +97,15 @@ pub(crate) fn record_cache_entries(kind: CacheKind, entries: usize) {
 impl PathSpan {
     /// Start a metrics span for one structural entity path and executor kind.
     #[must_use]
-    pub(crate) fn new(kind: ExecKind, entity_path: &'static str) -> Self {
-        record(MetricsEvent::ExecStart { kind, entity_path });
+    pub(crate) fn new(kind: ExecKind, entity_path: &str) -> Self {
+        record(MetricsEvent::ExecStart {
+            kind,
+            entity_path: entity_path.into(),
+        });
 
         Self {
             kind,
-            entity_path,
+            entity_path: entity_path.into(),
             start: read_perf_counter(),
             rows: 0,
             outcome: ExecOutcome::Aborted,
@@ -118,7 +124,7 @@ impl PathSpan {
 
         record(MetricsEvent::ExecFinish {
             kind: self.kind,
-            entity_path: self.entity_path,
+            entity_path: self.entity_path.clone(),
             rows_touched: self.rows,
             inst_delta: delta,
             outcome: self.outcome,

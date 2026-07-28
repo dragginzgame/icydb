@@ -46,7 +46,7 @@ pub(in crate::db) use reader::StructuralSlotReader;
 pub use reader::{StructuralReadMetrics, with_structural_read_metrics};
 #[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use reader::{StructuralReadMetrics, with_structural_read_metrics};
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use reader::{
     decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
     decode_sparse_required_slot_with_contract,

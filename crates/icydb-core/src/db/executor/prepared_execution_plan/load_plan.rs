@@ -17,8 +17,7 @@ use crate::{
 /// PreparedLoadPlan
 ///
 /// Generic-free load-plan boundary consumed by continuation resolution and
-/// load pipeline preparation after the typed `PreparedExecutionPlan<E>` shell is no
-/// longer needed.
+/// load pipeline preparation after frontend binding is complete.
 ///
 
 #[derive(Debug)]
@@ -63,7 +62,7 @@ impl PreparedLoadPlan {
 
     /// Consume one typed prepared execution plan into scalar runtime handoff
     /// while using a caller-owned retained-slot layout for this execution only.
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db::executor) fn into_scalar_runtime_handoff_with_retained_slot_layout(
         self,
         projection_materialization: ProjectionMaterializationMode,

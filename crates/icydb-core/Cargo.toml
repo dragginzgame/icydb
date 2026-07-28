@@ -13,7 +13,8 @@ doctest = false
 
 [features]
 default = []
-sql = []
+query = []
+sql = ["query"]
 sql-explain = ["sql"]
 diagnostics = []
 

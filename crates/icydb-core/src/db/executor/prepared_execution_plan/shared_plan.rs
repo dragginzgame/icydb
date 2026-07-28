@@ -1,9 +1,9 @@
 use super::contracts::AccessPlannedQuery;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use super::contracts::{CoveringHybridReadExecutionPlan, CoveringReadExecutionPlan};
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use crate::db::executor::PreparedLoadPlan;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use crate::db::executor::{
     PreparedScalarPlanCore, PreparedScalarRuntimeHandoff, SharedPreparedProjectionRuntimeHandoff,
     pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
@@ -21,7 +21,7 @@ use crate::{
     },
     error::InternalError,
 };
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use std::rc::Rc;
 
 ///
@@ -67,7 +67,7 @@ impl SharedPreparedExecutionPlan {
     }
 
     /// Borrow the accepted schema authority frozen into this shared plan.
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) fn accepted_schema_authority(
         &self,
     ) -> Result<&crate::db::schema::AcceptedSchemaAuthority, InternalError> {
@@ -75,7 +75,7 @@ impl SharedPreparedExecutionPlan {
     }
 
     /// Validate an already-decoded grouped continuation token.
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) fn prepare_grouped_cursor_token(
         &self,
         cursor: Option<crate::db::cursor::GroupedContinuationToken>,
@@ -92,7 +92,7 @@ impl SharedPreparedExecutionPlan {
 
     /// Consume this generic-free shared plan into grouped/scalar load runtime.
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db::executor) fn into_prepared_load_plan(self) -> PreparedLoadPlan {
         let Self { authority, core } = self;
 
@@ -109,14 +109,14 @@ impl SharedPreparedExecutionPlan {
         self.authority.clone()
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) fn index_prefix_specs(
         &self,
     ) -> &[crate::db::executor::LoweredIndexPrefixSpec] {
         self.core.residents.index_prefix_specs.as_ref()
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db::executor) fn index_range_specs(
         &self,
     ) -> &[crate::db::executor::LoweredIndexRangeSpec] {
@@ -124,7 +124,7 @@ impl SharedPreparedExecutionPlan {
     }
 
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db::executor) fn projection_covering_read_execution_plan(
         &self,
     ) -> Option<Rc<CoveringReadExecutionPlan>> {
@@ -133,7 +133,7 @@ impl SharedPreparedExecutionPlan {
     }
 
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db::executor) fn hybrid_covering_read_plan(
         &self,
     ) -> Option<Rc<CoveringHybridReadExecutionPlan>> {
@@ -144,7 +144,7 @@ impl SharedPreparedExecutionPlan {
     // Projection runtime adapters consume these three shared prepared residents
     // together, so hand them off as one bundle instead of re-reading the same
     // plan shell through parallel field-level accessors.
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db::executor) fn into_projection_runtime_handoff(
         self,
     ) -> Result<SharedPreparedProjectionRuntimeHandoff, InternalError> {

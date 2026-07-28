@@ -35,7 +35,7 @@ impl SemanticIndexExpression {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) const fn supports_text_casefold_lookup(&self) -> bool {
         matches!(
             self.op,

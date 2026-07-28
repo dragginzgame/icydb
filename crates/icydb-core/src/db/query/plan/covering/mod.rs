@@ -7,9 +7,7 @@
 /// TESTS
 ///
 use crate::db::{
-    access::{
-        AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemRef, SemanticIndexKeyItemsRef,
-    },
+    access::{AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemRef},
     direction::Direction,
     predicate::IndexPredicateCapability,
     query::plan::{
@@ -230,7 +228,7 @@ pub(in crate::db) fn covering_read_plan_with_schema_info(
 /// Derive one planner-owned hybrid direct-field projection plan from accepted
 /// schema authority.
 #[must_use]
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn covering_hybrid_projection_plan_with_schema_info(
     schema: &SchemaInfo,
     plan: &AccessPlannedQuery,
@@ -250,7 +248,7 @@ pub(in crate::db) fn covering_hybrid_projection_plan_with_schema_info(
 /// Derive one execution-grade hybrid direct-field projection plan from
 /// accepted schema authority.
 #[must_use]
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn covering_hybrid_projection_execution_plan_with_schema_info(
     schema: &SchemaInfo,
     plan: &AccessPlannedQuery,
@@ -353,7 +351,7 @@ fn covering_read_execution_plan(
 
 // Freeze one execution-grade hybrid covering-read plan from one planner-owned
 // projection plan plus its row-presence contract.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn covering_hybrid_read_execution_plan(
     covering: CoveringReadPlan,
     existing_row_mode: CoveringExistingRowMode,
@@ -713,10 +711,10 @@ fn primary_store_covering_access_facts<K>(
 /// covering explicit at the source-classification seam.
 ///
 #[cfg_attr(
-    all(not(test), not(feature = "sql")),
+    all(not(test), not(feature = "query")),
     expect(
         dead_code,
-        reason = "SQL projection planning constructs hybrid row fallback; no-default fluent projections stay strict-covering only"
+        reason = "query frontends construct hybrid row fallback; non-query builds retain only strict covering helpers"
     )
 )]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -858,18 +856,14 @@ fn primary_key_names_from_schema(schema: &SchemaInfo) -> Option<Vec<&str>> {
 fn coverable_component_fields_for_contract(
     index: &SemanticIndexAccessContract,
 ) -> Vec<Option<String>> {
-    match index.key_items() {
-        SemanticIndexKeyItemsRef::Fields(fields) => {
-            fields.iter().map(|field| Some(field.clone())).collect()
-        }
-        SemanticIndexKeyItemsRef::Accepted(items) => items
-            .iter()
-            .map(|item| match item.as_ref() {
-                SemanticIndexKeyItemRef::Field(field) => Some(field.to_string()),
-                SemanticIndexKeyItemRef::AcceptedExpression(_) => None,
-            })
-            .collect(),
-    }
+    index
+        .key_items()
+        .iter()
+        .map(|item| match item.as_ref() {
+            SemanticIndexKeyItemRef::Field(field) => Some(field.to_string()),
+            SemanticIndexKeyItemRef::AcceptedExpression(_) => None,
+        })
+        .collect()
 }
 
 // Project one component-expression layout for derived index outputs. This is
@@ -878,18 +872,16 @@ fn coverable_component_fields_for_contract(
 fn coverable_component_exprs_for_contract(
     index: &SemanticIndexAccessContract,
 ) -> Vec<Option<Expr>> {
-    match index.key_items() {
-        SemanticIndexKeyItemsRef::Fields(fields) => fields.iter().map(|_| None).collect(),
-        SemanticIndexKeyItemsRef::Accepted(items) => items
-            .iter()
-            .map(|item| match item.as_ref() {
-                SemanticIndexKeyItemRef::Field(_) => None,
-                SemanticIndexKeyItemRef::AcceptedExpression(expression) => {
-                    expression_projection_expr_for_accepted_index_expression(expression)
-                }
-            })
-            .collect(),
-    }
+    index
+        .key_items()
+        .iter()
+        .map(|item| match item.as_ref() {
+            SemanticIndexKeyItemRef::Field(_) => None,
+            SemanticIndexKeyItemRef::AcceptedExpression(expression) => {
+                expression_projection_expr_for_accepted_index_expression(expression)
+            }
+        })
+        .collect()
 }
 
 fn expression_projection_expr_for_accepted_index_expression(

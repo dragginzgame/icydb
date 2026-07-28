@@ -13,11 +13,8 @@ use crate::{
         schema::{AcceptedSchemaSnapshot, accepted_schema_cache_fingerprint},
         session::{
             AcceptedSchemaCatalogContext,
-            query::QueryPlanCacheAttribution,
-            sql::{
-                SqlCacheAttribution, SqlCompiledCommandExecutionContext, SqlProjectionContract,
-                projection::projection_contract_from_projection_spec,
-            },
+            query::{QueryPlanCacheAttribution, StructuralProjectionContract},
+            sql::{SqlCacheAttribution, SqlCompiledCommandExecutionContext},
         },
     },
     traits::CanisterKind,
@@ -25,14 +22,14 @@ use crate::{
 
 pub(super) struct ResolvedSelectPreparedPlan {
     prepared_plan: SharedPreparedExecutionPlan,
-    projection: SqlProjectionContract,
+    projection: StructuralProjectionContract,
     cache_attribution: SqlCacheAttribution,
 }
 
 impl ResolvedSelectPreparedPlan {
     const fn new(
         prepared_plan: SharedPreparedExecutionPlan,
-        projection: SqlProjectionContract,
+        projection: StructuralProjectionContract,
         cache_attribution: SqlCacheAttribution,
     ) -> Self {
         Self {
@@ -44,7 +41,7 @@ impl ResolvedSelectPreparedPlan {
 
     const fn from_compiled_cache_hit(
         prepared_plan: SharedPreparedExecutionPlan,
-        projection: SqlProjectionContract,
+        projection: StructuralProjectionContract,
     ) -> Self {
         Self::new(
             prepared_plan,
@@ -55,7 +52,7 @@ impl ResolvedSelectPreparedPlan {
 
     const fn from_shared_query_plan(
         prepared_plan: SharedPreparedExecutionPlan,
-        projection: SqlProjectionContract,
+        projection: StructuralProjectionContract,
         cache_attribution: SqlCacheAttribution,
     ) -> Self {
         Self::new(prepared_plan, projection, cache_attribution)
@@ -65,7 +62,7 @@ impl ResolvedSelectPreparedPlan {
         self,
     ) -> (
         SharedPreparedExecutionPlan,
-        SqlProjectionContract,
+        StructuralProjectionContract,
         SqlCacheAttribution,
     ) {
         (self.prepared_plan, self.projection, self.cache_attribution)
@@ -75,14 +72,14 @@ impl ResolvedSelectPreparedPlan {
         &self.prepared_plan
     }
 
-    const fn projection(&self) -> &SqlProjectionContract {
+    const fn projection(&self) -> &StructuralProjectionContract {
         &self.projection
     }
 }
 
 fn cached_compiled_select_prepared_plan(
     context: &SqlCompiledCommandExecutionContext,
-) -> Option<(SharedPreparedExecutionPlan, SqlProjectionContract)> {
+) -> Option<(SharedPreparedExecutionPlan, StructuralProjectionContract)> {
     context
         .command()
         .cached_select_plan(context.compiled_schema_fingerprint())
@@ -91,7 +88,7 @@ fn cached_compiled_select_prepared_plan(
 fn cache_compiled_select_prepared_plan(
     context: &SqlCompiledCommandExecutionContext,
     prepared_plan: &SharedPreparedExecutionPlan,
-    projection: &SqlProjectionContract,
+    projection: &StructuralProjectionContract,
 ) {
     context.command().set_cached_select_plan(
         context.compiled_schema_fingerprint(),
@@ -112,20 +109,23 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<
         (
             SharedPreparedExecutionPlan,
-            SqlProjectionContract,
+            StructuralProjectionContract,
             SqlCacheAttribution,
         ),
         QueryError,
     > {
-        let schema_fingerprint =
-            accepted_schema_cache_fingerprint(accepted_schema).map_err(QueryError::execute)?;
+        let (prepared_plan, projection, cache_attribution) = self
+            .structural_projection_prepared_plan_for_accepted_authority(
+                query,
+                authority,
+                accepted_schema,
+            )?;
 
-        self.sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
-            query,
-            authority,
-            accepted_schema,
-            schema_fingerprint,
-        )
+        Ok((
+            prepared_plan,
+            projection,
+            SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
+        ))
     }
 
     // Resolve one SQL selector through accepted authority while excluding
@@ -139,7 +139,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<
         (
             SharedPreparedExecutionPlan,
-            SqlProjectionContract,
+            StructuralProjectionContract,
             SqlCacheAttribution,
         ),
         QueryError,
@@ -154,30 +154,6 @@ impl<C: CanisterKind> DbSession<C> {
                 query,
             )?;
 
-        Self::sql_select_projection_from_prepared_plan(prepared_plan, authority, cache_attribution)
-    }
-
-    fn sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
-        &self,
-        query: &StructuralQuery,
-        authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
-        schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
-    ) -> Result<
-        (
-            SharedPreparedExecutionPlan,
-            SqlProjectionContract,
-            SqlCacheAttribution,
-        ),
-        QueryError,
-    > {
-        let (prepared_plan, cache_attribution) = self
-            .cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint(
-                authority.clone(),
-                accepted_schema,
-                schema_fingerprint,
-                query,
-            )?;
         Self::sql_select_projection_from_prepared_plan(prepared_plan, authority, cache_attribution)
     }
 
@@ -201,7 +177,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<
         (
             SharedPreparedExecutionPlan,
-            SqlProjectionContract,
+            StructuralProjectionContract,
             SqlCacheAttribution,
         ),
         QueryError,
@@ -224,7 +200,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<
         (
             SharedPreparedExecutionPlan,
-            SqlProjectionContract,
+            StructuralProjectionContract,
             SqlCacheAttribution,
             QueryPlanCompilePhaseAttribution,
         ),
@@ -258,7 +234,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<
         (
             SharedPreparedExecutionPlan,
-            SqlProjectionContract,
+            StructuralProjectionContract,
             SqlCacheAttribution,
         ),
         QueryError,
@@ -268,7 +244,7 @@ impl<C: CanisterKind> DbSession<C> {
                 .accepted_schema_info()
                 .ok_or_else(QueryError::invariant)?,
         );
-        let projection = projection_contract_from_projection_spec(&projection_spec);
+        let projection = StructuralProjectionContract::from_projection_spec(&projection_spec);
 
         Ok((
             prepared_plan,

@@ -3,7 +3,7 @@
 //! Does not own: execution-input construction or route planning.
 //! Boundary: executes one already-assembled `ExecutionInputs` snapshot.
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use crate::db::executor::pipeline::contracts::KernelRowsExecutionAttempt;
 use crate::{
     db::{
@@ -131,7 +131,7 @@ impl<'a> ExecutionAttemptKernel<'a> {
     }
 
     /// Materialize one route-plan candidate into post-access scalar kernel rows.
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db::executor) fn materialize_route_attempt_kernel_rows(
         &self,
         route_plan: &ExecutionRoutePlan,

@@ -107,7 +107,7 @@ impl<C: CanisterKind> DbSession<C> {
             .abort_schema_application(job_id, acknowledged_receipt)?)
     }
 
-    /// Return one stable list of runtime-registered entity catalog entries.
+    /// Return one stable list of accepted runtime entity catalog entries.
     pub fn show_entities(&self) -> Result<Vec<EntityCatalogDescription>, Error> {
         Ok(self.inner.show_entities()?)
     }

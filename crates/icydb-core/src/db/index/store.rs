@@ -3,7 +3,7 @@
 //! Does not own: range-scan resolution, continuation semantics, or predicate execution.
 //! Boundary: scan/executor layers depend on this storage boundary.
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 use crate::db::index::{IndexId, IndexKeyKind};
 use crate::db::{
     direction::Direction,
@@ -31,7 +31,7 @@ thread_local! {
     static INDEX_STORE_GET_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
 }
 
-#[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+#[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
 thread_local! {
     static INDEX_STORE_RANGE_SCAN_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
     static INDEX_STORE_ENTRY_READ_COUNT: Cell<u64> = const { Cell::new(0) };
@@ -45,21 +45,21 @@ fn record_index_store_get_call() {
     });
 }
 
-#[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+#[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
 fn record_index_store_range_scan_call() {
     INDEX_STORE_RANGE_SCAN_CALL_COUNT.with(|count| {
         count.set(count.get().saturating_add(1));
     });
 }
 
-#[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+#[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
 fn record_index_store_entry_read() {
     INDEX_STORE_ENTRY_READ_COUNT.with(|count| {
         count.set(count.get().saturating_add(1));
     });
 }
 
-#[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+#[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
 fn record_index_store_prefix_cardinality_lookup() {
     INDEX_STORE_PREFIX_CARDINALITY_LOOKUP_COUNT.with(|count| {
         count.set(count.get().saturating_add(1));
@@ -71,7 +71,7 @@ fn visit_index_store_entry<E>(
     value: &IndexEntryValue,
     visit: &mut impl FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E>,
 ) -> Result<bool, E> {
-    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+    #[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
     record_index_store_entry_read();
 
     visit(key, value)
@@ -198,7 +198,7 @@ impl IndexStore {
         match &self.backend {
             IndexStoreBackend::Heap(map) => {
                 for (key, value) in map {
-                    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+                    #[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
                     record_index_store_entry_read();
 
                     if visitor(key, value)?.should_stop() {
@@ -272,7 +272,7 @@ impl IndexStore {
     /// Return an exact user-index prefix count when the index metadata is
     /// synchronized with the caller's authoritative row-store generation.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn exact_prefix_cardinality(
         &self,
         data_generation: u64,
@@ -290,7 +290,7 @@ impl IndexStore {
     /// Return the sum of exact prefix counts for prefixes on the same index
     /// when synchronized metadata can prove all requested counts.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn exact_prefix_cardinality_sum<'a>(
         &self,
         data_generation: u64,
@@ -314,7 +314,7 @@ impl IndexStore {
     /// Return non-empty exact child prefixes under a sparse set of already-encoded
     /// parent prefixes when synchronized metadata can prove the bounded child set.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn exact_child_prefixes_for_parent_set<'a>(
         &self,
         data_generation: u64,
@@ -458,13 +458,13 @@ impl IndexStore {
     }
 
     /// Return the monotonic perf-only count of index-entry fetches seen by this process.
-    #[cfg(all(feature = "diagnostics", any(test, feature = "sql")))]
+    #[cfg(all(feature = "diagnostics", any(test, feature = "query")))]
     pub(in crate::db) fn current_get_call_count() -> u64 {
         INDEX_STORE_GET_CALL_COUNT.with(Cell::get)
     }
 
     /// Return the monotonic perf-only count of index range traversal probes seen by this process.
-    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+    #[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
     #[cfg_attr(
         all(test, not(feature = "diagnostics")),
         expect(dead_code, reason = "counter is consumed by diagnostics-shaped tests")
@@ -474,7 +474,7 @@ impl IndexStore {
     }
 
     /// Return the monotonic perf-only count of index entries yielded by traversal.
-    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+    #[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
     #[cfg_attr(
         all(test, not(feature = "diagnostics")),
         expect(dead_code, reason = "counter is consumed by diagnostics-shaped tests")
@@ -483,7 +483,7 @@ impl IndexStore {
         INDEX_STORE_ENTRY_READ_COUNT.with(Cell::get)
     }
 
-    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+    #[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
     pub(in crate::db::index) fn record_range_scan_call() {
         record_index_store_range_scan_call();
     }

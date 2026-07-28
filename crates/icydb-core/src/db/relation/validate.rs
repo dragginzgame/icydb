@@ -30,12 +30,12 @@ use crate::{
 };
 use std::{collections::BTreeSet, ops::Bound};
 
-/// Validate that one registered source has no accepted relation reference to
+/// Validate that one accepted source has no accepted relation reference to
 /// target keys selected for deletion.
-pub(in crate::db) fn validate_delete_relations_for_registered_source<C>(
+pub(in crate::db) fn validate_delete_relations_for_accepted_source<C>(
     db: &Db<C>,
     source_tag: EntityTag,
-    source_path: &'static str,
+    source_path: &str,
     source_store_path: &'static str,
     target_path: &str,
     deleted_target_keys: &BTreeSet<RawDataStoreKey>,
@@ -43,7 +43,7 @@ pub(in crate::db) fn validate_delete_relations_for_registered_source<C>(
 where
     C: CanisterKind,
 {
-    let source_info = ReverseRelationSourceInfo::new(source_path, source_tag);
+    let source_info = ReverseRelationSourceInfo::new(source_path.to_string(), source_tag);
 
     if deleted_target_keys.is_empty() {
         return Ok(());
@@ -62,7 +62,7 @@ where
         return Ok(());
     }
 
-    if validate_delete_relations_structural(
+    validate_delete_relations_structural(
         db,
         source_info,
         source_path,
@@ -70,11 +70,7 @@ where
         relations,
         source_store,
         deleted_target_keys,
-    )? {
-        return Err(InternalError::executor_unsupported());
-    }
-
-    Ok(())
+    )
 }
 
 /// Block target deletion while any matching candidate reverse generation is incomplete.
@@ -111,22 +107,22 @@ pub(in crate::db) fn validate_candidate_relation_target_delete_barrier<C: Canist
 fn validate_delete_relations_structural<C>(
     db: &Db<C>,
     source_info: ReverseRelationSourceInfo,
-    source_path: &'static str,
+    source_path: &str,
     source_row_contract: StructuralRowContract,
     relations: Vec<AcceptedRelationInfo>,
     source_store: StoreHandle,
     deleted_target_keys: &BTreeSet<RawDataStoreKey>,
-) -> Result<bool, InternalError>
+) -> Result<(), InternalError>
 where
     C: CanisterKind,
 {
     // Phase 1: resolve reverse-index candidates for each relevant relation field.
     for relation in relations {
-        let target_index_store = relation_target_store(db, source_info, &relation)?;
+        let target_index_store = relation_target_store(db, &source_info, &relation)?;
 
         for target_raw_key in deleted_target_keys {
             let Some(target_data_key) = decode_relation_target_data_key(
-                source_info,
+                &source_info,
                 &relation,
                 target_raw_key,
                 RelationTargetDecodeContext::DeleteValidation,
@@ -139,7 +135,7 @@ where
 
             let Some((reverse_start, reverse_end)) =
                 reverse_index_key_bounds_for_target_primary_key_value(
-                    source_info,
+                    &source_info,
                     &relation,
                     &target_primary_key,
                 )?
@@ -150,20 +146,19 @@ where
             // Relation metrics are emitted as operation deltas so sink aggregation
             // always reflects the exact lookup/block operations performed.
             record(MetricsEvent::RelationValidation {
-                entity_path: source_path,
+                entity_path: source_path.into(),
                 reverse_lookups: 1,
                 blocked_deletes: 0,
             });
 
             let bounds = (Bound::Included(reverse_start), Bound::Excluded(reverse_end));
-            let mut blocked = false;
             target_index_store.with_borrow(|store| {
                 store.visit_raw_entries_in_range(
                     (&bounds.0, &bounds.1),
                     Direction::Asc,
                     |reverse_key, raw_entry| {
                         let entry =
-                            decode_reverse_entry(source_info, &relation, reverse_key, raw_entry)?;
+                            decode_reverse_entry(&source_info, &relation, reverse_key, raw_entry)?;
 
                         // Phase 2: verify the key-owned source row before rejecting delete.
                         let source_key = *entry.primary_key_value();
@@ -171,6 +166,14 @@ where
                             let source_data_key =
                                 DecodedDataStoreKey::new(source_info.entity_tag(), &source_key);
                             let source_raw_key = source_data_key.to_raw()?;
+                            if source_is_deleted_in_same_batch(
+                                source_path,
+                                relation.target().path(),
+                                deleted_target_keys,
+                                &source_raw_key,
+                            ) {
+                                return Ok(false);
+                            }
                             let source_raw_row =
                                 source_store.with_data(|store| store.get(&source_raw_key));
 
@@ -191,19 +194,23 @@ where
                                 source_row_references_relation_target_primary_key_value(
                                     &source_raw_row,
                                     source_row_contract.clone(),
-                                    source_info,
+                                    source_info.clone(),
                                     &relation,
                                     &target_primary_key,
                                 )?;
                             if still_references_target {
                                 record(MetricsEvent::RelationValidation {
-                                    entity_path: source_path,
+                                    entity_path: source_path.into(),
                                     reverse_lookups: 0,
                                     blocked_deletes: 1,
                                 });
 
-                                blocked = true;
-                                return Ok(true);
+                                let source_primary_key = source_raw_key
+                                    .encoded_primary_key_bytes()
+                                    .ok_or_else(InternalError::store_invariant)?
+                                    .to_vec();
+                                return Err(relation
+                                    .write_violation(source_path, Some(source_primary_key)));
                             }
                         }
 
@@ -211,14 +218,19 @@ where
                     },
                 )
             })?;
-
-            if blocked {
-                return Ok(true);
-            }
         }
     }
 
-    Ok(false)
+    Ok(())
+}
+
+fn source_is_deleted_in_same_batch(
+    source_path: &str,
+    target_path: &str,
+    deleted_target_keys: &BTreeSet<RawDataStoreKey>,
+    source_key: &RawDataStoreKey,
+) -> bool {
+    source_path == target_path && deleted_target_keys.contains(source_key)
 }
 
 // Build the accepted-schema row contract used by delete relation validation.
@@ -230,7 +242,7 @@ where
 fn accepted_source_row_contract(
     source_store: StoreHandle,
     source_tag: EntityTag,
-    source_path: &'static str,
+    source_path: &str,
     source_store_path: &'static str,
 ) -> Result<StructuralRowContract, InternalError> {
     let selection = source_store
@@ -244,4 +256,38 @@ fn accepted_source_row_contract(
         .ok_or_else(InternalError::store_corruption)?;
     AcceptedStructuralRowAuthority::from_catalog_selection(source_path, &selection)
         .map(AcceptedStructuralRowAuthority::into_row_contract)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue};
+
+    fn raw_key(tag: EntityTag, value: u64) -> RawDataStoreKey {
+        DecodedDataStoreKey::new(
+            tag,
+            &PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(value)),
+        )
+        .to_raw()
+        .expect("test key should encode")
+    }
+
+    #[test]
+    fn self_relation_delete_batch_ignores_sources_deleted_by_same_batch() {
+        let source_key = raw_key(EntityTag::new(11), 7);
+        let deleted = BTreeSet::from([source_key.clone()]);
+
+        assert!(source_is_deleted_in_same_batch(
+            "tests::Node",
+            "tests::Node",
+            &deleted,
+            &source_key,
+        ));
+        assert!(!source_is_deleted_in_same_batch(
+            "tests::Edge",
+            "tests::Node",
+            &deleted,
+            &source_key,
+        ));
+    }
 }

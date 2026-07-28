@@ -2,7 +2,7 @@ use crate::{
     db::{
         access::{
             AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemRef,
-            SemanticIndexKeyItemsRef, SemanticIndexRangeSpec,
+            SemanticIndexRangeSpec,
         },
         index::{TextPrefixBoundMode, starts_with_component_bounds},
         predicate::{CoercionId, CompareOp, Predicate, canonical_cmp},
@@ -187,40 +187,26 @@ fn index_range_candidate_for_index(
     schema: &SchemaInfo,
     compares: &[CachedCompare<'_>],
 ) -> Option<(usize, Vec<Value>, RangeConstraint)> {
-    match index_contract.key_items() {
-        SemanticIndexKeyItemsRef::Fields(fields) => index_range_candidate_for_key_items(
-            index_contract,
-            schema,
-            fields
-                .iter()
-                .map(|field| SemanticIndexKeyItemRef::Field(field.as_str())),
-            compares,
-        ),
-        SemanticIndexKeyItemsRef::Accepted(items) => index_range_candidate_for_key_items(
-            index_contract,
-            schema,
-            items.iter().map(|item| item.as_ref()),
-            compares,
-        ),
-    }
+    index_range_candidate_for_key_items(
+        index_contract,
+        schema,
+        index_contract.key_items(),
+        compares,
+    )
 }
 
-// Field-only and mixed key-item indexes share the same prefix/range slot walk;
-// only the source iterator for canonical key items differs.
-fn index_range_candidate_for_key_items<'a, I>(
+fn index_range_candidate_for_key_items(
     index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
-    key_items: I,
+    key_items: &[crate::db::access::SemanticIndexKeyItem],
     compares: &[CachedCompare<'_>],
-) -> Option<(usize, Vec<Value>, RangeConstraint)>
-where
-    I: IntoIterator<Item = SemanticIndexKeyItemRef<'a>>,
-{
+) -> Option<(usize, Vec<Value>, RangeConstraint)> {
     let mut prefix = Vec::new();
     let mut range: Option<RangeConstraint> = None;
     let mut range_position = None;
 
-    for (position, key_item) in key_items.into_iter().enumerate() {
+    for (position, key_item) in key_items.iter().enumerate() {
+        let key_item = key_item.as_ref();
         let constraint =
             key_item_constraint_for_index_slot(index_contract, schema, key_item, compares)?;
         if !consume_index_slot_constraint(

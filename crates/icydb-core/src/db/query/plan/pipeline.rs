@@ -26,7 +26,7 @@ use crate::{
     value::Value,
 };
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use crate::db::{
     access::SemanticIndexAccessContract,
     predicate::{CoercionId, ComparePredicate},
@@ -72,20 +72,20 @@ impl<'a> PreparedScalarPlanningState<'a> {
     }
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db) struct CountCardinalityPrefixAccess<'a> {
     index: SemanticIndexAccessContract,
     values: CountCardinalityPrefixValues<'a>,
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 #[derive(Clone, Copy)]
 pub(in crate::db) enum CountCardinalityPrefixValues<'a> {
     One(&'a Value),
     Many(&'a [Value]),
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 impl CountCardinalityPrefixValues<'_> {
     #[must_use]
     pub(in crate::db) const fn is_empty(&self) -> bool {
@@ -96,7 +96,7 @@ impl CountCardinalityPrefixValues<'_> {
     }
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 impl<'a> CountCardinalityPrefixAccess<'a> {
     const fn new(
         index: SemanticIndexAccessContract,
@@ -207,7 +207,7 @@ pub(in crate::db::query) fn build_query_model_plan_with_indexes_from_scalar_plan
 
 /// Build the exact-prefix COUNT metadata access proof directly from query
 /// intent that already carries a normalized SQL predicate subset.
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db::query) fn try_build_count_cardinality_prefix_access_from_query_model<'query>(
     query: &'query QueryModel,
     visible_indexes: &VisibleIndexes,
@@ -224,7 +224,7 @@ pub(in crate::db::query) fn try_build_count_cardinality_prefix_access_from_query
     ))
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 fn direct_count_cardinality_prefix_access_from_predicate<'predicate>(
     visible_indexes: &VisibleIndexes,
     schema_info: &SchemaInfo,
@@ -238,7 +238,7 @@ fn direct_count_cardinality_prefix_access_from_predicate<'predicate>(
     Some(CountCardinalityPrefixAccess::new(index, values))
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 fn direct_count_exact_prefix_compare(predicate: &Predicate) -> Option<&ComparePredicate> {
     let Predicate::Compare(cmp) = predicate else {
         return None;
@@ -250,7 +250,7 @@ fn direct_count_exact_prefix_compare(predicate: &Predicate) -> Option<&ComparePr
     Some(cmp)
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 fn direct_count_exact_prefix_values<'predicate>(
     schema_info: &SchemaInfo,
     cmp: &'predicate ComparePredicate,
@@ -280,7 +280,7 @@ fn direct_count_exact_prefix_values<'predicate>(
     (!values.is_empty()).then_some(values)
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 fn direct_count_exact_prefix_values_mismatch(
     schema_info: &SchemaInfo,
     cmp: &ComparePredicate,
@@ -295,7 +295,7 @@ fn direct_count_exact_prefix_values_mismatch(
     }
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 fn direct_count_exact_prefix_index(
     visible_indexes: &VisibleIndexes,
     field: &str,
@@ -316,7 +316,7 @@ fn direct_count_exact_prefix_index(
     best
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 fn direct_count_index_supports_exact_prefix(
     index: &SemanticIndexAccessContract,
     field: &str,

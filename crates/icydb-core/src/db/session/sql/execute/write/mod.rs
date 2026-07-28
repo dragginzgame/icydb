@@ -70,13 +70,13 @@ const fn sql_insert_write_kind(statement: &SqlInsertStatement) -> SqlWriteKind {
 // Record only rejected SQL writes at the statement boundary. Successful writes
 // are counted by the write executors after they know row cardinalities.
 fn record_sql_write_error(
-    entity_path: &'static str,
+    entity_path: &str,
     kind: SqlWriteKind,
     result: &Result<SqlStatementResult, QueryError>,
 ) {
     if let Err(error) = result {
         record(MetricsEvent::SqlWriteError {
-            entity_path,
+            entity_path: entity_path.into(),
             kind,
             class: sql_write_error_class(error),
         });
@@ -84,7 +84,7 @@ fn record_sql_write_error(
 }
 
 fn sql_write_statement_result_with_default_cache(
-    entity_path: &'static str,
+    entity_path: &str,
     kind: SqlWriteKind,
     result: Result<SqlStatementResult, QueryError>,
 ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
@@ -101,9 +101,10 @@ pub(super) fn execute_compiled_sql_write_with_default_cache<C>(
 where
     C: CanisterKind,
 {
-    let entity_path = catalog.map_or("<unresolved-sql-entity>", |catalog| {
-        catalog.identity().entity_path()
-    });
+    let entity_path = catalog.map_or_else(
+        || std::rc::Rc::<str>::from("<unresolved-sql-entity>"),
+        |catalog| catalog.identity().entity_path_handle(),
+    );
     match compiled {
         CompiledSqlCommand::Delete { query, returning } => {
             let result = session.execute_sql_delete_statement(
@@ -112,7 +113,7 @@ where
                 catalog,
             );
             Some(sql_write_statement_result_with_default_cache(
-                entity_path,
+                entity_path.as_ref(),
                 SqlWriteKind::Delete,
                 result,
             ))
@@ -132,14 +133,14 @@ where
                 )
             };
             Some(sql_write_statement_result_with_default_cache(
-                entity_path,
+                entity_path.as_ref(),
                 sql_insert_write_kind(command.statement()),
                 result,
             ))
         }
         CompiledSqlCommand::Update(_statement) => {
             Some(sql_write_statement_result_with_default_cache(
-                entity_path,
+                entity_path.as_ref(),
                 SqlWriteKind::Update,
                 Err(QueryError::sql_surface_mismatch(
                     icydb_diagnostic_code::SqlSurfaceMismatchCode::MutationRequiresExplicitUpdateIntent,
@@ -161,12 +162,12 @@ where
 }
 
 fn record_sql_write_metrics(
-    entity_path: &'static str,
+    entity_path: &str,
     kind: SqlWriteKind,
     accounting: SqlWriteCandidateAccounting,
 ) {
     record(MetricsEvent::SqlWrite {
-        entity_path,
+        entity_path: entity_path.into(),
         kind,
         staged_rows: accounting.staged_metric(),
         matched_rows: accounting.matched_metric(),
@@ -176,7 +177,7 @@ fn record_sql_write_metrics(
 }
 
 fn record_sql_write_mutation_metrics(
-    entity_path: &'static str,
+    entity_path: &str,
     kind: SqlWriteKind,
     staged_rows: SqlWriteCandidateRows,
     mutated_rows: usize,
@@ -190,7 +191,7 @@ fn record_sql_write_mutation_metrics(
 }
 
 fn sql_write_mutation_statement_result(
-    entity_path: &'static str,
+    entity_path: &str,
     kind: SqlWriteKind,
     staged_rows: SqlWriteCandidateRows,
     rows: Vec<Vec<Value>>,
@@ -288,7 +289,7 @@ impl<C: CanisterKind> DbSession<C> {
                 schema,
             ),
         }?;
-        let (_, _, projected_rows, _) = payload.into_components();
+        let (_, _, projected_rows, _) = payload.into_runtime_components();
         let mut rows = SqlWriteCandidateCollection::with_capacity(
             sql_write_candidate_collection_capacity(projected_rows.as_slice()),
         );
@@ -311,7 +312,7 @@ impl<C: CanisterKind> DbSession<C> {
         execution: SqlWriteMutationExecution,
         returning: Option<&SqlReturningProjection>,
     ) -> Result<SqlStatementResult, QueryError> {
-        let entity_path = catalog.identity().entity_path();
+        let entity_path = catalog.identity().entity_path_handle();
         let rows = execution
             .rows
             .into_rows()
@@ -349,7 +350,7 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::execute)?;
 
         sql_write_mutation_statement_result(
-            entity_path,
+            entity_path.as_ref(),
             execution.kind,
             execution.staged_rows,
             rows,

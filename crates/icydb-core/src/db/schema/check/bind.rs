@@ -1,6 +1,6 @@
 //! Structured proposal binding and canonicalization for `CheckExprV1`.
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 use crate::db::schema::check::MAX_CHECK_EXPR_V1_MEMBERSHIP_ITEMS;
 use crate::{
     db::schema::{FieldStorageDecode, LeafCodec},
@@ -48,7 +48,7 @@ pub(in crate::db) enum CheckExprV1Input {
         lower: InputValue,
         upper: InputValue,
     },
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     EnumIn {
         field: String,
         members: Vec<InputValue>,
@@ -625,7 +625,7 @@ fn bind_expression(
             )?;
             AcceptedCheckExprV1::canonicalized_and(vec![lower, upper])
         }
-        #[cfg(any(test, feature = "sql"))]
+        #[cfg(any(test, feature = "query"))]
         CheckExprV1Input::EnumIn { field, members } => {
             bind_enum_membership(field, members, snapshot, enum_catalog, composite_catalog)
         }
@@ -796,7 +796,7 @@ fn bind_literal(
     ))
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn bind_enum_membership(
     field_name: String,
     members: Vec<InputValue>,

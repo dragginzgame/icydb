@@ -8,7 +8,7 @@ mod hybrid;
 mod pure;
 mod shared;
 
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(all(feature = "query", feature = "diagnostics"))]
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -80,6 +80,9 @@ pub(in crate::db) struct CoveringProjectionMetricsRecorder {
 }
 
 #[cfg(any(test, feature = "diagnostics"))]
+const fn ignore_covering_projection_event() {}
+
+#[cfg(any(test, feature = "diagnostics"))]
 impl CoveringProjectionMetricsRecorder {
     /// Construct one observer from projection materialization counter
     /// callbacks supplied by the response-shaping layer.
@@ -93,6 +96,15 @@ impl CoveringProjectionMetricsRecorder {
             index_field_access: hybrid_index_field_access,
             row_field_access: hybrid_row_field_access,
         }
+    }
+
+    /// Construct one observer that intentionally records no adapter metrics.
+    pub(in crate::db) const fn none() -> Self {
+        Self::new(
+            ignore_covering_projection_event,
+            ignore_covering_projection_event,
+            ignore_covering_projection_event,
+        )
     }
 
     pub(super) fn record_hybrid_path_hit(self) {
@@ -159,6 +171,10 @@ impl CoveringProjectionMetricsRecorder {
         Self
     }
 
+    pub(in crate::db) const fn none() -> Self {
+        Self::new()
+    }
+
     pub(super) const fn record_hybrid_path_hit(self) {
         let _ = self;
     }
@@ -172,13 +188,13 @@ impl CoveringProjectionMetricsRecorder {
     }
 }
 
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(all(feature = "query", feature = "diagnostics"))]
 std::thread_local! {
     static PURE_COVERING_DECODE_LOCAL_INSTRUCTIONS: Cell<u64> = const { Cell::new(0) };
     static PURE_COVERING_ROW_ASSEMBLY_LOCAL_INSTRUCTIONS: Cell<u64> = const { Cell::new(0) };
 }
 
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(all(feature = "query", feature = "diagnostics"))]
 pub(super) fn record_pure_covering_decode_local_instructions(delta: u64) {
     if delta == 0 {
         return;
@@ -189,7 +205,7 @@ pub(super) fn record_pure_covering_decode_local_instructions(delta: u64) {
     });
 }
 
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(all(feature = "query", feature = "diagnostics"))]
 pub(super) fn record_pure_covering_row_assembly_local_instructions(delta: u64) {
     if delta == 0 {
         return;
@@ -200,12 +216,12 @@ pub(super) fn record_pure_covering_row_assembly_local_instructions(delta: u64) {
     });
 }
 
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(all(feature = "query", feature = "diagnostics"))]
 pub(in crate::db) fn current_pure_covering_decode_local_instructions() -> u64 {
     PURE_COVERING_DECODE_LOCAL_INSTRUCTIONS.with(Cell::get)
 }
 
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(all(feature = "query", feature = "diagnostics"))]
 pub(in crate::db) fn current_pure_covering_row_assembly_local_instructions() -> u64 {
     PURE_COVERING_ROW_ASSEMBLY_LOCAL_INSTRUCTIONS.with(Cell::get)
 }

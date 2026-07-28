@@ -3,7 +3,7 @@
 //! Does not own: logical planning or physical access path lowering policies.
 //! Boundary: key-stream decoration, materialization, and residual retry behavior.
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use crate::db::executor::{pipeline::contracts::KernelRowsExecutionAttempt, terminal::KernelRow};
 use crate::{
     db::{
@@ -49,7 +49,7 @@ impl ExecutionKernel {
     }
 
     /// Materialize one load execution attempt into post-access kernel rows.
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db::executor) fn materialize_kernel_rows_with_optional_residual_retry(
         inputs: &ExecutionInputs<'_>,
         route_plan: &ExecutionRoutePlan,
@@ -299,7 +299,7 @@ trait ResidualRetryAttempt: Sized {
     }
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 impl ResidualRetryAttempt for KernelRowsExecutionAttempt {
     type Payload = Vec<KernelRow>;
 
@@ -376,7 +376,7 @@ impl<'a> RouteAttemptMaterializer<'a> {
     }
 
     // Materialize one kernel-row attempt for a specific route-plan candidate.
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     fn materialize_route_attempt_kernel_rows(
         &self,
         route_plan: &ExecutionRoutePlan,

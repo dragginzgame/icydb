@@ -4,7 +4,7 @@
 //! Boundary: exposes immutable order contracts consumed across planner/executor boundaries.
 
 use crate::db::{
-    access::{AccessPathKind, AccessShapeFacts, SemanticIndexKeyItemsRef},
+    access::{AccessPathKind, AccessShapeFacts, SemanticIndexKeyItem},
     direction::Direction,
     query::plan::{OrderDirection, OrderSpec, order_term::index_key_item_order_terms},
 };
@@ -55,7 +55,7 @@ impl DeterministicSecondaryIndexOrderCompatibility {
     #[must_use]
     fn new(
         order_contract: &DeterministicSecondaryOrderContract,
-        key_items: SemanticIndexKeyItemsRef<'_>,
+        key_items: &[SemanticIndexKeyItem],
         prefix_len: usize,
     ) -> Self {
         let index_terms = index_key_item_order_terms(key_items);
@@ -271,7 +271,7 @@ impl DeterministicSecondaryOrderContract {
 #[must_use]
 pub(in crate::db) fn deterministic_secondary_index_key_items_order_compatibility(
     order_contract: &DeterministicSecondaryOrderContract,
-    key_items: SemanticIndexKeyItemsRef<'_>,
+    key_items: &[SemanticIndexKeyItem],
     prefix_len: usize,
 ) -> DeterministicSecondaryIndexOrderCompatibility {
     DeterministicSecondaryIndexOrderCompatibility::new(order_contract, key_items, prefix_len)
@@ -320,7 +320,7 @@ fn variable_prefix_shape_requires_full_secondary_order(
 fn deterministic_secondary_index_key_items_order_satisfied_for_access_shape(
     access_shape_facts: &AccessShapeFacts,
     order_contract: &DeterministicSecondaryOrderContract,
-    key_items: SemanticIndexKeyItemsRef<'_>,
+    key_items: &[SemanticIndexKeyItem],
     prefix_len: usize,
 ) -> bool {
     let compatibility = deterministic_secondary_index_key_items_order_compatibility(

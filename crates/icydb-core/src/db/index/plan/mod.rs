@@ -177,7 +177,7 @@ fn load_structural_accepted_expression_index_key(
 // Prove that the pre-existing old index entry still contains the expected row
 // membership before commit planning becomes purely mechanical.
 fn validate_existing_old_index_membership(
-    _entity_path: &'static str,
+    _entity_path: &str,
     _index_is_unique: bool,
     old_primary_key: Option<&PrimaryKeyValue>,
     old_key: Option<&IndexKey>,
@@ -206,7 +206,7 @@ fn validate_existing_old_index_membership(
 /// entity authority only.
 #[expect(clippy::too_many_arguments)]
 pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
-    entity_path: &'static str,
+    entity_path: &str,
     entity_tag: EntityTag,
     schema_info: &SchemaInfo,
     read_view: &dyn IndexPlanReadView,
@@ -233,7 +233,7 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
 // been lowered onto one index-store callback.
 #[expect(clippy::too_many_arguments)]
 fn plan_index_mutation_for_slot_reader_structural_impl(
-    entity_path: &'static str,
+    entity_path: &str,
     entity_tag: EntityTag,
     schema_info: &SchemaInfo,
     read_view: &dyn IndexPlanReadView,
@@ -298,7 +298,7 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
 #[expect(clippy::too_many_arguments)]
 fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
     groups: &mut Vec<IndexDeltaGroup>,
-    entity_path: &'static str,
+    entity_path: &str,
     entity_tag: EntityTag,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
@@ -372,7 +372,7 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
 #[expect(clippy::too_many_arguments)]
 fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
     groups: &mut Vec<IndexDeltaGroup>,
-    entity_path: &'static str,
+    entity_path: &str,
     entity_tag: EntityTag,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
@@ -482,7 +482,7 @@ pub(super) fn load_existing_entry_structural(
     read_view: &dyn IndexPlanReadView,
     index: IndexReadContract<'_>,
     key: Option<&IndexKey>,
-    _entity_path: &'static str,
+    _entity_path: &str,
 ) -> Result<Option<IndexRowIdentity>, InternalError> {
     // No indexed key means no index entry to load.
     let Some(key) = key else {

@@ -170,8 +170,8 @@ impl LoweredSqlFilter {
 ///
 /// LoweredSelectShape
 ///
-/// Entity-agnostic lowered SQL SELECT shape prepared for typed `Query<E>`
-/// binding.
+/// Entity-agnostic lowered SQL SELECT shape prepared for accepted-schema
+/// structural binding.
 ///
 #[derive(Clone, Debug)]
 pub(crate) struct LoweredSelectShape {
@@ -593,7 +593,8 @@ pub(in crate::db) fn bind_lowered_sql_query_structural_with_schema(
 ///
 /// Session SQL compile paths use this accepted-schema-aware boundary so
 /// top-level predicate/filter literal canonicalization follows live schema
-/// reconciliation, while direct lowering tests keep the generated fallback.
+/// reconciliation. Direct lowering tests use the explicit schema-free test
+/// boundary.
 pub(in crate::db) fn bind_lowered_sql_select_query_structural_with_schema(
     select: LoweredSelectShape,
     consistency: MissingRowPolicy,

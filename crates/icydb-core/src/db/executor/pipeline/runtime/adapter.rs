@@ -3,7 +3,7 @@
 //! Does not own: execution-input DTO construction or planning semantics.
 //! Boundary: executes already-assembled execution contracts through runtime owners.
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use crate::db::executor::{
     pipeline::contracts::KernelRowsExecutionAttempt,
     terminal::page::materialize_key_stream_into_kernel_rows,
@@ -102,7 +102,7 @@ impl<'a> ExecutionMaterializationContract<'a> {
 
     // Materialize one resolved scalar key stream through post-access/window
     // processing while stopping before structural page payload construction.
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db::executor) fn materialize_resolved_execution_stream_to_kernel_rows(
         &self,
         runtime: &'a ExecutionRuntimeAdapter,
@@ -226,7 +226,7 @@ impl ExecutionRuntimeAdapter {
 
     // Materialize one ordered key stream into post-access scalar kernel rows for
     // aggregate sinks that do not need an outward cursor page.
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     fn materialize_resolved_execution_stream_to_kernel_rows<'a>(
         &'a self,
         contract: &ExecutionMaterializationContract<'a>,
@@ -368,7 +368,7 @@ impl ExecutionRuntimeAdapter {
     }
 
     /// Materialize one ordered key stream into post-access kernel rows.
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     fn materialize_key_stream_into_kernel_rows<'a>(
         &'a self,
         contract: &ExecutionMaterializationContract<'a>,

@@ -14,7 +14,7 @@ pub(in crate::db::executor) use inputs::{
     CursorEmissionMode, ExecutionInputs, PreparedExecutionInputContext,
     PreparedExecutionProjection, ProjectionMaterializationMode, RowCollectorMaterializationRequest,
 };
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db::executor) use outcomes::KernelRowsExecutionAttempt;
 pub(in crate::db::executor) use outcomes::{ExecutionOutcomeMetrics, MaterializedExecutionAttempt};
 pub(in crate::db::executor) use stream::ResolvedExecutionKeyStream;

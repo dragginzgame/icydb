@@ -30,7 +30,7 @@ use super::{
 pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
@@ -40,7 +40,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
         entity_tag,
         entity_path,
         accepted_before,
-        accepted_before_identity,
+        &accepted_before_identity,
         derivation,
     );
     let Some(target) = derivation.admission().field_drop_target() else {
@@ -66,7 +66,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
 }
 
 fn validate_sql_ddl_field_drop_metadata_change(
-    _entity_path: &'static str,
+    _entity_path: &str,
     before: &PersistedSchemaSnapshot,
     after: &PersistedSchemaSnapshot,
     target: &SchemaFieldDropTarget,
@@ -169,7 +169,7 @@ fn validate_sql_ddl_field_drop_metadata_change(
 pub(in crate::db) fn execute_admin_sql_ddl_field_default_change(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
@@ -179,7 +179,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_default_change(
         entity_tag,
         entity_path,
         accepted_before,
-        accepted_before_identity,
+        &accepted_before_identity,
         derivation,
     );
     execute_admin_sql_ddl_checked_field_metadata_publication(
@@ -190,7 +190,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_default_change(
 }
 
 fn validate_sql_ddl_field_default_metadata_change(
-    entity_path: &'static str,
+    entity_path: &str,
     before: &PersistedSchemaSnapshot,
     after: &PersistedSchemaSnapshot,
     target: &SchemaInsertDefaultTarget,
@@ -221,7 +221,7 @@ pub(in crate::db) enum SqlDdlFieldNullabilityOutcome {
 pub(in crate::db) fn execute_admin_sql_ddl_field_nullability_change(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
@@ -231,7 +231,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_nullability_change(
         entity_tag,
         entity_path,
         accepted_before,
-        accepted_before_identity,
+        &accepted_before_identity,
         derivation,
     );
     let Some(target) = derivation.admission().field_nullability_target() else {
@@ -264,7 +264,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_nullability_change(
 fn publish_sql_ddl_not_null_activation(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     next_schema_version: crate::db::schema::SchemaVersion,
@@ -275,7 +275,7 @@ fn publish_sql_ddl_not_null_activation(
         entity_tag,
         entity_path,
         accepted_before,
-        accepted_before_identity,
+        &accepted_before_identity,
     )?;
     let activation_epoch = current_revision
         .checked_next()
@@ -328,7 +328,7 @@ fn publish_sql_ddl_not_null_activation(
 pub(in crate::db) fn execute_admin_sql_ddl_not_null_activation_abort(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     next_schema_version: crate::db::schema::SchemaVersion,
@@ -340,7 +340,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_not_null_activation_abort(
         entity_tag,
         entity_path,
         accepted_before,
-        accepted_before_identity,
+        &accepted_before_identity,
     )?;
     let before = current
         .entity_snapshots()
@@ -390,7 +390,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_not_null_activation_abort(
 }
 
 fn validate_sql_ddl_field_nullability_metadata_change(
-    _entity_path: &'static str,
+    _entity_path: &str,
     before: &PersistedSchemaSnapshot,
     after: &PersistedSchemaSnapshot,
     target: &SchemaFieldNullabilityTarget,
@@ -433,7 +433,7 @@ fn target_field_is_required(
 pub(in crate::db) fn execute_admin_sql_ddl_field_rename(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
@@ -443,7 +443,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_rename(
         entity_tag,
         entity_path,
         accepted_before,
-        accepted_before_identity,
+        &accepted_before_identity,
         derivation,
     );
     execute_admin_sql_ddl_checked_field_metadata_publication(
@@ -454,7 +454,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_rename(
 }
 
 fn validate_sql_ddl_field_rename_metadata_change(
-    entity_path: &'static str,
+    entity_path: &str,
     before: &PersistedSchemaSnapshot,
     after: &PersistedSchemaSnapshot,
     target: &SchemaFieldRenameTarget,
@@ -536,7 +536,7 @@ impl SqlDdlSingleFieldMetadataChange {
 }
 
 fn validate_sql_ddl_single_field_metadata_change(
-    _entity_path: &'static str,
+    _entity_path: &str,
     before: &PersistedSchemaSnapshot,
     after: &PersistedSchemaSnapshot,
     target: SqlDdlSingleFieldMetadataTarget<'_>,
@@ -590,7 +590,7 @@ fn execute_admin_sql_ddl_checked_field_metadata_publication<T>(
     envelope: SqlDdlPublicationEnvelope<'_>,
     target: Option<&T>,
     validate: impl FnOnce(
-        &'static str,
+        &str,
         &PersistedSchemaSnapshot,
         &PersistedSchemaSnapshot,
         &T,

@@ -4,6 +4,7 @@
 //! Boundary: exposes event enums consumed by metrics sinks and runtime instrumentation.
 
 use crate::error::ErrorClass;
+use std::rc::Rc;
 
 ///
 /// ExecKind
@@ -245,16 +246,16 @@ pub enum GroupedPlanExecutionMode {
 /// MetricsEvent
 ///
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 #[remain::sorted]
 pub enum MetricsEvent {
     AcceptedSchemaFootprint {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         fields: u64,
         nested_leaf_facts: u64,
     },
     Cache {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         kind: CacheKind,
         outcome: CacheOutcome,
     },
@@ -263,108 +264,108 @@ pub enum MetricsEvent {
         entries: u64,
     },
     CacheMissReason {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         kind: CacheKind,
         reason: CacheMissReason,
     },
     ExecError {
         kind: ExecKind,
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         outcome: ExecOutcome,
     },
     ExecFinish {
         kind: ExecKind,
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         rows_touched: u64,
         inst_delta: u64,
         outcome: ExecOutcome,
     },
     ExecStart {
         kind: ExecKind,
-        entity_path: &'static str,
+        entity_path: Rc<str>,
     },
     IndexDelta {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         inserts: u64,
         removes: u64,
     },
     LoadRowEfficiency {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         candidate_rows_scanned: u64,
         candidate_rows_filtered: u64,
         result_rows_emitted: u64,
     },
     MutationCommitPlan {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         class: MutationCommitClass,
     },
     NonAtomicPartialCommit {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         committed_rows: u64,
     },
     Plan {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         kind: PlanKind,
         grouped_execution_mode: Option<GroupedPlanExecutionMode>,
     },
     PlanChoice {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         reason: PlanChoiceReason,
     },
     PreparedShapeAlreadyFinalized {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
     },
     RelationValidation {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         reverse_lookups: u64,
         blocked_deletes: u64,
     },
     ReverseIndexDelta {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         inserts: u64,
         removes: u64,
     },
     RowsAggregated {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         rows_aggregated: u64,
     },
     RowsEmitted {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         rows_emitted: u64,
     },
     RowsFiltered {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         rows_filtered: u64,
     },
     RowsScanned {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         rows_scanned: u64,
     },
     SaveMutation {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         kind: SaveMutationKind,
         rows_touched: u64,
     },
     SchemaReconcile {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         outcome: SchemaReconcileOutcome,
     },
     SchemaStoreFootprint {
         encoded_bytes: u64,
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         latest_snapshot_bytes: u64,
         snapshots: u64,
     },
     SchemaTransition {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         outcome: SchemaTransitionOutcome,
     },
     SqlCompileReject {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         phase: SqlCompileRejectPhase,
     },
     SqlWrite {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         kind: SqlWriteKind,
         staged_rows: u64,
         matched_rows: u64,
@@ -372,11 +373,11 @@ pub enum MetricsEvent {
         returning_rows: u64,
     },
     SqlWriteError {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
         kind: SqlWriteKind,
         class: ErrorClass,
     },
     UniqueViolation {
-        entity_path: &'static str,
+        entity_path: Rc<str>,
     },
 }

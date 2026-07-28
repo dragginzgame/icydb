@@ -64,7 +64,6 @@ pub(in crate::db) use delete_policy::{
     SqlPublicPrimaryKeyDeletePlan, SqlValidatedDeletePlan, classify_sql_delete_policy,
 };
 pub use integrity::SqlIntegrityError;
-pub(in crate::db) use projection::SqlProjectionContract;
 pub use result::SqlStatementResult;
 pub use resumable_update::{
     TrustedResumableUpdateContinuation, TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,

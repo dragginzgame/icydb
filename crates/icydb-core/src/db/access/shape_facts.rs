@@ -5,7 +5,7 @@
 
 use crate::db::access::{
     AccessPath, AccessPathKind, AccessPlan, ExecutableAccessNode, ExecutableAccessPlan,
-    ExecutionPathPayload, SemanticIndexAccessContract, SemanticIndexKeyItemsRef,
+    ExecutionPathPayload, SemanticIndexAccessContract, SemanticIndexKeyItem,
 };
 
 // Project whether traversal can safely reverse the underlying access shape.
@@ -120,7 +120,7 @@ impl IndexShapeDetails {
     }
 
     #[must_use]
-    pub(in crate::db) fn key_items(&self) -> SemanticIndexKeyItemsRef<'_> {
+    pub(in crate::db) fn key_items(&self) -> &[SemanticIndexKeyItem] {
         self.index.key_items()
     }
 

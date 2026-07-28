@@ -16,14 +16,13 @@ use quote::quote;
 /// Render the generated store/session wiring for one canister actor.
 #[must_use]
 pub fn generate(builder: &ActorBuilder) -> TokenStream {
-    let entity_registrations = entity_registrations(builder);
+    let frontend_surfaces = frontend_surfaces(builder);
 
-    store::generate_store_wiring(builder, entity_registrations)
+    store::generate_store_wiring(builder, frontend_surfaces)
 }
 
-/// Emit proposal/runtime registration pairs for entities bound to this canister.
-fn entity_registrations(builder: &ActorBuilder) -> TokenStream {
-    let mut registration_inits = quote!();
+/// Emit optional SQL and accepted-schema frontend surfaces.
+fn frontend_surfaces(builder: &ActorBuilder) -> TokenStream {
     let mut sql_surface = builder.options.sql_enabled().then(|| {
         SqlSurfaceTokens::empty(
             builder.options.sql_surface_flags(),
@@ -38,14 +37,7 @@ fn entity_registrations(builder: &ActorBuilder) -> TokenStream {
 
     for (_, entity) in entities {
         let entity_source_key = entity.source_key();
-        let store_path = entity.store();
         let entity_name = entity.resolved_name();
-        registration_inits.extend(quote! {
-            ::icydb::__macro::EntityRegistration::<__IcydbGeneratedCanister>::new(
-                #entity_source_key,
-                #store_path,
-            ),
-        });
         if let Some(sql_surface) = sql_surface.as_mut() {
             sql_surface.push_entity(entity_name);
         }
@@ -58,12 +50,6 @@ fn entity_registrations(builder: &ActorBuilder) -> TokenStream {
         schema_surface.map_or_else(TokenStream::new, |schema_surface| quote!(#schema_surface));
 
     quote! {
-        static ENTITY_REGISTRATIONS: &[
-            ::icydb::__macro::EntityRegistration<__IcydbGeneratedCanister>
-        ] = &[
-            #registration_inits
-        ];
-
         #sql_surface
         #schema_surface
     }

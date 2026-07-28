@@ -683,7 +683,7 @@ pub enum ExprPlanError {
 
 impl ExprPlanError {
     /// Construct one unknown-field planner error.
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db::query) fn unknown_field(field: impl Into<String>) -> Self {
         Self::UnknownField {
             field: field.into(),

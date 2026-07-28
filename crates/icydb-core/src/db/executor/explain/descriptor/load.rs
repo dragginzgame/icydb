@@ -601,14 +601,14 @@ pub(in crate::db) fn freeze_load_execution_route_facts_for_authority(
     };
     let hybrid_covering_read_plan =
         if plan.scalar_plan().mode.is_load() && load_terminal_fast_path.is_none() {
-            #[cfg(any(test, feature = "sql"))]
+            #[cfg(any(test, feature = "query"))]
             {
                 authority.covering_hybrid_projection_plan(
                     plan,
                     explain_preparation.strict_predicate_compatible,
                 )
             }
-            #[cfg(not(any(test, feature = "sql")))]
+            #[cfg(not(any(test, feature = "query")))]
             {
                 None
             }

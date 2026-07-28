@@ -23,10 +23,10 @@ use crate::{
         schema::SchemaInfo,
         session::{
             AcceptedSchemaCatalogContext,
+            query::StructuralProjectionContract,
             sql::{
                 CompiledSqlCommand, SqlCacheAttribution, SqlCompiledSchemaFingerprint,
                 SqlGlobalAggregateCountPlanCacheEntry, SqlStatementResult,
-                projection::projection_contract_from_projection_spec,
             },
         },
         sql::lowering::SqlGlobalAggregateCommand,
@@ -80,7 +80,7 @@ pub(super) fn direct_count_rows_statement_result(
     cache_attribution: SqlCacheAttribution,
 ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
     let (columns, fixed_scales) =
-        projection_contract_from_projection_spec(projection).into_components();
+        StructuralProjectionContract::from_projection_spec(projection).into_components();
 
     let Value::Nat64(value) = value else {
         return Err(QueryError::invariant());

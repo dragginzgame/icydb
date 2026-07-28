@@ -24,7 +24,7 @@ use crate::{
 /// without changing schema or physical index state.
 pub(super) fn stage_sql_ddl_user_index_domain_replacement(
     store: StoreHandle,
-    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_before_identity: &AcceptedCatalogIdentity,
     accepted_before: &PersistedSchemaSnapshot,
     accepted_after: &PersistedSchemaSnapshot,
 ) -> Result<StagedUserIndexDomainReplacement, InternalError> {
@@ -55,7 +55,7 @@ pub(super) fn stage_sql_ddl_user_index_domain_replacement(
 
     stage_user_index_domain_replacement(
         store,
-        accepted_before_identity,
+        accepted_before_identity.clone(),
         accepted_before,
         accepted_after,
         accepted_before_row_contract,
@@ -67,7 +67,7 @@ fn catalog_backed_row_authority(
     store: StoreHandle,
     entity_tag: EntityTag,
     store_path: &'static str,
-    entity_path: &'static str,
+    entity_path: &str,
     accepted_before: &PersistedSchemaSnapshot,
 ) -> Result<StructuralRowContract, InternalError> {
     let selection = store
@@ -93,7 +93,7 @@ fn stage_user_index_domain_replacement(
     accepted_after_row_contract: StructuralRowContract,
 ) -> Result<StagedUserIndexDomainReplacement, InternalError> {
     let entity_tag = accepted_before_identity.entity_tag();
-    let entity_path = accepted_before_identity.entity_path();
+    let entity_path = accepted_before_identity.entity_path_handle();
     let mut builder = store.with_index(|index_store| {
         StagedUserIndexDomainReplacementBuilder::new(
             accepted_before_identity,
@@ -108,7 +108,7 @@ fn stage_user_index_domain_replacement(
     store.with_data(|data_store| {
         data_store.visit_entries(|raw_key, raw_row| {
             let data_key = DecodedDataStoreKey::try_from_raw(raw_key).map_err(|error| {
-                let _ = (&error, entity_path);
+                let _ = (&error, entity_path.as_ref());
                 InternalError::store_corruption()
             })?;
             if data_key.entity_tag() != entity_tag {

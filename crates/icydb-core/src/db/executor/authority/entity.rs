@@ -1,6 +1,6 @@
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 use crate::db::query::plan::CoveringHybridReadExecutionPlan;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 use crate::db::query::plan::covering_hybrid_projection_execution_plan_with_schema_info;
 #[cfg(feature = "sql-explain")]
 use crate::db::{executor::planning::route::AggregateRouteShape, query::plan::AggregateKind};
@@ -18,7 +18,7 @@ use crate::{
     metrics::sink::record_prepared_shape_already_finalized_for_path,
     types::EntityTag,
 };
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
 
 ///
 /// EntityAuthority
@@ -30,7 +30,7 @@ use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub(in crate::db) struct EntityAuthority {
-    entity_path: &'static str,
+    entity_path: Rc<str>,
     row_layout: Option<RowLayout>,
     entity_tag: EntityTag,
     store_path: &'static str,
@@ -41,14 +41,15 @@ impl EntityAuthority {
     /// Build complete runtime authority from accepted schema contracts.
     #[must_use]
     pub(in crate::db) fn from_accepted_row_decode_contract(
-        entity_path: &'static str,
+        entity_path: impl Into<Rc<str>>,
         entity_tag: EntityTag,
         store_path: &'static str,
         accepted_decode_contract: AcceptedRowDecodeContract,
         accepted_schema_info: SchemaInfo,
     ) -> Self {
+        let entity_path = entity_path.into();
         let row_layout =
-            RowLayout::from_accepted_decode_contract(entity_path, accepted_decode_contract);
+            RowLayout::from_accepted_decode_contract(entity_path.clone(), accepted_decode_contract);
 
         Self {
             entity_path,
@@ -106,8 +107,14 @@ impl EntityAuthority {
 
     /// Borrow structural entity-path authority.
     #[must_use]
-    pub(in crate::db) const fn entity_path(&self) -> &'static str {
-        self.entity_path
+    pub(in crate::db) fn entity_path(&self) -> &str {
+        &self.entity_path
+    }
+
+    /// Clone the shared accepted entity-path identity.
+    #[must_use]
+    pub(in crate::db) fn entity_path_handle(&self) -> Rc<str> {
+        self.entity_path.clone()
     }
 
     /// Borrow structural store-path authority.
@@ -208,7 +215,7 @@ impl EntityAuthority {
 
     /// Derive one hybrid covering projection contract through authority-owned schema metadata.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db::executor) fn covering_hybrid_projection_plan(
         &self,
         plan: &AccessPlannedQuery,

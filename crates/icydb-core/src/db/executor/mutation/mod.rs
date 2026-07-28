@@ -4,9 +4,9 @@
 //! Boundary: write-path setup shared by save/delete executors.
 
 pub(super) mod commit_window;
-mod save_validation;
+mod constraint_scheduler;
 
 pub(in crate::db) use commit_window::{
     commit_delete_row_ops_with_window_for_path, commit_structural_save_row_ops_with_window_for_path,
 };
-pub(in crate::db) use save_validation::validate_structural_accepted_after_image;
+pub(in crate::db) use constraint_scheduler::AcceptedMutationConstraintScheduler;

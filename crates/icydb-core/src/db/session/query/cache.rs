@@ -7,7 +7,7 @@ mod identity;
 
 #[cfg(feature = "sql-explain")]
 use crate::db::TraceReuseEvent;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 use crate::db::commit::CommitSchemaFingerprint;
 use crate::{
     db::{
@@ -295,7 +295,7 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(visibility)
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) fn cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint(
         &self,
         authority: EntityAuthority,
@@ -337,7 +337,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) fn cached_shared_query_plan_for_accepted_authority_with_catalog(
         &self,
         authority: EntityAuthority,
@@ -352,7 +352,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(all(feature = "query", feature = "diagnostics"))]
     pub(in crate::db) fn cached_shared_query_plan_for_accepted_authority_with_catalog_and_compile_phase_attribution(
         &self,
         authority: EntityAuthority,
@@ -382,7 +382,7 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((prepared_plan, cache_attribution, compile_attribution))
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     fn cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
         &self,
         authority: EntityAuthority,
@@ -494,7 +494,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     fn try_cached_filterless_query_plan_for_entity_path_recording(
         &self,
-        entity_path: &'static str,
+        entity_path: &str,
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,

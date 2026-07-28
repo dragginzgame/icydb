@@ -20,7 +20,6 @@ fn clap_help_exposes_target_environment_flags() {
         ["icydb", "snapshot", "--help"].as_slice(),
         ["icydb", "metrics", "--help"].as_slice(),
         ["icydb", "schema", "show", "--help"].as_slice(),
-        ["icydb", "schema", "check", "--help"].as_slice(),
         ["icydb", "canister", "refresh", "--help"].as_slice(),
     ] {
         let help = clap_help_text(args);
@@ -262,25 +261,6 @@ fn cli_args_group_schema_under_top_level_keyword() {
     .expect("schema show command should parse");
     let CliCommand::Schema(SchemaCommand::Show(target)) = args.into_command() else {
         panic!("expected schema command");
-    };
-
-    assert_eq!(target.canister_name(), "demo_rpg");
-    assert_eq!(target.environment(), "test");
-}
-
-#[test]
-fn cli_args_group_schema_check_under_schema_keyword() {
-    let args = CliArgs::try_parse_from([
-        "icydb",
-        "schema",
-        "check",
-        "demo_rpg",
-        "--environment",
-        "test",
-    ])
-    .expect("schema check command should parse");
-    let CliCommand::Schema(SchemaCommand::Check(target)) = args.into_command() else {
-        panic!("expected schema check command");
     };
 
     assert_eq!(target.canister_name(), "demo_rpg");

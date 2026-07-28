@@ -468,7 +468,7 @@ fn compiled_expr_evaluation_reads_are_subset_of_referenced_slots() {
     }
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 #[test]
 fn compiled_expr_contains_field_path_matrix_reaches_child_expressions() {
     let cases = [

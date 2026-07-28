@@ -23,6 +23,7 @@ use std::{
     borrow::Cow,
     cell::RefCell,
     collections::BTreeSet,
+    rc::Rc,
     sync::atomic::{AtomicU64, Ordering},
     thread::LocalKey,
 };
@@ -59,7 +60,7 @@ pub(crate) const MAX_COMMIT_BYTES: u32 = 16 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
 pub(in crate::db) struct CommitRowOp {
-    pub(crate) entity_path: Cow<'static, str>,
+    pub(crate) entity_path: Rc<str>,
     pub(crate) key: RawDataStoreKey,
     pub(crate) before: Option<Vec<u8>>,
     pub(crate) after: Option<Vec<u8>>,
@@ -70,7 +71,7 @@ impl CommitRowOp {
     /// Construct a row-level commit operation.
     #[must_use]
     pub(crate) fn new(
-        entity_path: impl Into<Cow<'static, str>>,
+        entity_path: impl Into<Rc<str>>,
         key: RawDataStoreKey,
         before: Option<Vec<u8>>,
         after: Option<Vec<u8>>,
@@ -90,7 +91,7 @@ impl CommitRowOp {
     /// This is the raw-key decode boundary for callers that still own opaque
     /// key bytes rather than a typed `RawDataStoreKey`.
     pub(crate) fn try_new_bytes(
-        entity_path: impl Into<Cow<'static, str>>,
+        entity_path: impl Into<Rc<str>>,
         key: &[u8],
         before: Option<Vec<u8>>,
         after: Option<Vec<u8>>,

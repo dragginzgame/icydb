@@ -562,7 +562,7 @@ impl<C: CanisterKind> DbSession<C> {
                     accepted_before_identity.entity_tag(),
                     accepted_before_identity.entity_path(),
                     accepted_before,
-                    accepted_before_identity,
+                    accepted_before_identity.clone(),
                     derivation,
                 )
                 .map_err(QueryError::from_sql_ddl_execution_error)?;
@@ -575,7 +575,7 @@ impl<C: CanisterKind> DbSession<C> {
                     accepted_before_identity.entity_tag(),
                     accepted_before_identity.entity_path(),
                     accepted_before,
-                    accepted_before_identity,
+                    accepted_before_identity.clone(),
                     derivation,
                 )
                 .map_err(QueryError::from_sql_ddl_execution_error)?;
@@ -588,7 +588,7 @@ impl<C: CanisterKind> DbSession<C> {
                     accepted_before_identity.entity_tag(),
                     accepted_before_identity.entity_path(),
                     accepted_before,
-                    accepted_before_identity,
+                    accepted_before_identity.clone(),
                     derivation,
                 )
                 .map_err(QueryError::from_sql_ddl_execution_error)?;
@@ -601,7 +601,7 @@ impl<C: CanisterKind> DbSession<C> {
                     accepted_before_identity.entity_tag(),
                     accepted_before_identity.entity_path(),
                     accepted_before,
-                    accepted_before_identity,
+                    accepted_before_identity.clone(),
                     derivation,
                 )
                 .map_err(QueryError::from_sql_ddl_execution_error)?;
@@ -624,7 +624,7 @@ impl<C: CanisterKind> DbSession<C> {
                     accepted_before_identity.entity_tag(),
                     accepted_before_identity.entity_path(),
                     accepted_before,
-                    accepted_before_identity,
+                    accepted_before_identity.clone(),
                     derivation,
                 )
                 .map_err(QueryError::from_sql_ddl_execution_error)?;
@@ -664,7 +664,7 @@ impl<C: CanisterKind> DbSession<C> {
             accepted_before_identity.entity_tag(),
             accepted_before_identity.entity_path(),
             accepted_before,
-            accepted_before_identity,
+            accepted_before_identity.clone(),
             derivation,
         )
         .map_err(QueryError::from_sql_ddl_execution_error)

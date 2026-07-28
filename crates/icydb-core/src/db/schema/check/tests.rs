@@ -159,10 +159,11 @@ fn accepted_with_check(
 
 fn values(score: i64, nickname: Value, tags: Vec<Value>) -> Vec<Option<Value>> {
     vec![
-        None,
+        Some(Value::Ulid(crate::types::Ulid::from_u128(1))),
         Some(Value::Int64(score)),
         Some(nickname),
         Some(Value::List(tags)),
+        Some(Value::Blob(Vec::new())),
     ]
 }
 
@@ -465,7 +466,7 @@ fn compiled_row_constraints_include_pending_not_null_activation_gates() {
     let program = CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT)
         .expect("pending not-null gate should compile");
 
-    assert_eq!(program.required_slots(), &[2]);
+    assert_eq!(program.required_slots(), &[0, 1, 2, 3, 4]);
     assert_eq!(
         program.evaluate(FINGERPRINT, &values(1, Value::Null, Vec::new())),
         Err(AcceptedRowConstraintEvaluationError::Violation {
@@ -481,6 +482,42 @@ fn compiled_row_constraints_include_pending_not_null_activation_gates() {
             &values(1, Value::Text("Ada".to_string()), Vec::new()),
         )
         .expect("non-null final value should pass the pending gate");
+}
+
+#[test]
+fn compiled_row_constraints_include_accepted_not_null_identity_before_encoding() {
+    let snapshot = snapshot();
+    let accepted = AcceptedSchemaSnapshot::try_new(snapshot.clone())
+        .expect("accepted not-null constraints should close");
+    let program = CompiledAcceptedRowConstraints::compile(&accepted, &value_catalog(), FINGERPRINT)
+        .expect("accepted not-null constraints should compile");
+    let score_constraint = snapshot
+        .constraints()
+        .iter()
+        .find(|constraint| {
+            matches!(
+                constraint.kind(),
+                AcceptedConstraintKind::NotNull { field_id }
+                    if *field_id == FieldId::new(2)
+            )
+        })
+        .expect("score not-null identity should exist");
+
+    assert_eq!(
+        program.evaluate_accepted_not_null_before_encoding(FINGERPRINT, 1),
+        Err(AcceptedRowConstraintEvaluationError::Violation {
+            constraint_id: score_constraint.id(),
+            constraint_name: score_constraint.name().to_string(),
+            kind: AcceptedRowConstraintViolationKind::NotNull,
+            field_paths: vec!["score".to_string()],
+        }),
+    );
+    program
+        .evaluate(
+            FINGERPRINT,
+            &values(1, Value::Null, vec![Value::Text("tag".to_string())]),
+        )
+        .expect("non-null accepted fields and nullable nickname should pass");
 }
 
 #[test]
@@ -567,7 +604,7 @@ fn length_and_cardinality_use_one_prebound_slot_set() {
     let program = CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT)
         .expect("accepted checks should compile");
 
-    assert_eq!(program.required_slots(), &[2, 3]);
+    assert_eq!(program.required_slots(), &[0, 1, 2, 3, 4]);
     program
         .evaluate(
             FINGERPRINT,
@@ -829,7 +866,7 @@ fn accepted_checks_resolve_nominal_newtype_values_through_catalog_authority() {
         .evaluate(
             FINGERPRINT,
             &[
-                None,
+                Some(Value::Ulid(crate::types::Ulid::from_u128(1))),
                 Some(Value::Nat64(360)),
                 Some(Value::Text("ok".to_string())),
                 Some(Value::Decimal(Decimal::from_i128_with_scale(1, 8))),
@@ -840,7 +877,7 @@ fn accepted_checks_resolve_nominal_newtype_values_through_catalog_authority() {
         program.evaluate(
             FINGERPRINT,
             &[
-                None,
+                Some(Value::Ulid(crate::types::Ulid::from_u128(1))),
                 Some(Value::Nat64(361)),
                 Some(Value::Text("ok".to_string())),
                 Some(Value::Decimal(Decimal::from_i128_with_scale(1, 8))),
@@ -852,7 +889,7 @@ fn accepted_checks_resolve_nominal_newtype_values_through_catalog_authority() {
         program.evaluate(
             FINGERPRINT,
             &[
-                None,
+                Some(Value::Ulid(crate::types::Ulid::from_u128(1))),
                 Some(Value::Nat64(360)),
                 Some(Value::Text("x".to_string())),
                 Some(Value::Decimal(Decimal::from_i128_with_scale(1, 8))),
@@ -864,7 +901,7 @@ fn accepted_checks_resolve_nominal_newtype_values_through_catalog_authority() {
         program.evaluate(
             FINGERPRINT,
             &[
-                None,
+                Some(Value::Ulid(crate::types::Ulid::from_u128(1))),
                 Some(Value::Nat64(360)),
                 Some(Value::Text("ok".to_string())),
                 Some(Value::Decimal(Decimal::from_i128_with_scale(-1, 8))),

@@ -3,7 +3,7 @@
 //! Does not own: count planning or index metadata maintenance.
 //! Boundary: fail-open helpers for runtime branch pruning.
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use crate::db::access::LoweredIndexPrefixCardinalitySpec;
 use crate::{
     db::{
@@ -90,7 +90,7 @@ impl ExpandedIndexPrefixFamily {
     }
 
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db::executor) fn into_specs(self) -> Vec<LoweredIndexPrefixSpec> {
         self.specs
     }
@@ -199,7 +199,7 @@ pub(in crate::db::executor) fn expand_index_prefix_family_with_exact_child_prefi
     )))
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db) fn lowered_index_prefix_cardinality_specs_from_plan(
     plan: LoweredIndexPrefixCardinalityPlan<'_>,
 ) -> Option<Vec<LoweredIndexPrefixCardinalitySpec>> {

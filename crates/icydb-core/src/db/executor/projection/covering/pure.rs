@@ -1,4 +1,4 @@
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(all(feature = "query", feature = "diagnostics"))]
 use crate::db::{
     diagnostics::measure_local_instruction_delta as measure_structural_result,
     executor::projection::covering::{
@@ -104,7 +104,7 @@ where
     let order_contract = covering.order_contract;
 
     if component_indices.is_empty() {
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
+        #[cfg(all(feature = "query", feature = "diagnostics"))]
         let (decode_local_instructions, projected_keys) = measure_structural_result(|| {
             map_covering_projection_pairs(
                 raw_pairs,
@@ -114,14 +114,14 @@ where
                 |_components| Ok::<Option<()>, InternalError>(Some(())),
             )
         });
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
+        #[cfg(all(feature = "query", feature = "diagnostics"))]
         record_pure_covering_decode_local_instructions(decode_local_instructions);
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
+        #[cfg(all(feature = "query", feature = "diagnostics"))]
         let Some(projected_keys): Option<Vec<(DecodedDataStoreKey, ())>> = projected_keys? else {
             return Ok(None);
         };
 
-        #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
+        #[cfg(not(all(feature = "query", feature = "diagnostics")))]
         let Some(projected_keys) = map_covering_projection_pairs(
             raw_pairs,
             store,
@@ -193,7 +193,7 @@ where
         };
         let raw_pairs = drop_scan_time_covering_offset(raw_pairs, decoded_scan_time_skip_count);
 
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
+        #[cfg(all(feature = "query", feature = "diagnostics"))]
         let (decode_local_instructions, decoded_rows) = measure_structural_result(|| {
             decode_single_covering_projection_pairs(
                 raw_pairs,
@@ -203,14 +203,14 @@ where
                 Ok::<Value, InternalError>,
             )
         });
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
+        #[cfg(all(feature = "query", feature = "diagnostics"))]
         record_pure_covering_decode_local_instructions(decode_local_instructions);
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
+        #[cfg(all(feature = "query", feature = "diagnostics"))]
         let Some(decoded_rows): Option<Vec<(DecodedDataStoreKey, Value)>> = decoded_rows? else {
             return Ok(None);
         };
 
-        #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
+        #[cfg(not(all(feature = "query", feature = "diagnostics")))]
         let Some(decoded_rows) = decode_single_covering_projection_pairs(
             raw_pairs,
             store,
@@ -279,7 +279,7 @@ where
     };
     let raw_pairs = drop_scan_time_covering_offset(raw_pairs, decoded_scan_time_skip_count);
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(all(feature = "query", feature = "diagnostics"))]
     let (decode_local_instructions, decoded_rows) = measure_structural_result(|| {
         decode_covering_projection_pairs(
             raw_pairs,
@@ -289,14 +289,14 @@ where
             Ok::<Vec<Value>, InternalError>,
         )
     });
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(all(feature = "query", feature = "diagnostics"))]
     record_pure_covering_decode_local_instructions(decode_local_instructions);
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(all(feature = "query", feature = "diagnostics"))]
     let Some(decoded_rows) = decoded_rows? else {
         return Ok(None);
     };
 
-    #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
+    #[cfg(not(all(feature = "query", feature = "diagnostics")))]
     let Some(decoded_rows) = decode_covering_projection_pairs(
         raw_pairs,
         store,
@@ -419,7 +419,7 @@ fn assemble_primary_store_covering_rows_in_stream_order(
     output_capacity_hint: usize,
     covering: &CoveringReadExecutionPlan,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(all(feature = "query", feature = "diagnostics"))]
     let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
         collect_primary_store_covering_rows_in_stream_order(
             stream,
@@ -428,12 +428,12 @@ fn assemble_primary_store_covering_rows_in_stream_order(
             covering,
         )
     });
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(all(feature = "query", feature = "diagnostics"))]
     record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(all(feature = "query", feature = "diagnostics"))]
     let projected_rows = projected_rows?;
 
-    #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
+    #[cfg(not(all(feature = "query", feature = "diagnostics")))]
     let projected_rows = collect_primary_store_covering_rows_in_stream_order(
         stream,
         skip_count,
@@ -539,18 +539,18 @@ fn assemble_covering_rows_in_index_order<I>(
     skip_count: usize,
     build_row: impl FnMut(I) -> Result<Vec<Value>, InternalError>,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(all(feature = "query", feature = "diagnostics"))]
     let mut build_row = build_row;
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(all(feature = "query", feature = "diagnostics"))]
     let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
         collect_covering_rows_in_index_order(items, skip_count, &mut build_row)
     });
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(all(feature = "query", feature = "diagnostics"))]
     record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(all(feature = "query", feature = "diagnostics"))]
     let projected_rows = projected_rows?;
 
-    #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
+    #[cfg(not(all(feature = "query", feature = "diagnostics")))]
     let projected_rows = collect_covering_rows_in_index_order(items, skip_count, build_row)?;
 
     Ok(projected_rows)
@@ -561,17 +561,17 @@ fn assemble_covering_rows_with_reorder<I>(
     order_contract: CoveringProjectionOrder,
     build_row: impl FnMut(I) -> Result<(DecodedDataStoreKey, Vec<Value>), InternalError>,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(all(feature = "query", feature = "diagnostics"))]
     let mut build_row = build_row;
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(all(feature = "query", feature = "diagnostics"))]
     let (row_assembly_local_instructions, projected_rows) =
         measure_structural_result(|| collect_covering_row_pairs_for_reorder(items, &mut build_row));
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(all(feature = "query", feature = "diagnostics"))]
     record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(all(feature = "query", feature = "diagnostics"))]
     let mut projected_rows = projected_rows?;
 
-    #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
+    #[cfg(not(all(feature = "query", feature = "diagnostics")))]
     let mut projected_rows = collect_covering_row_pairs_for_reorder(items, build_row)?;
 
     reorder_covering_projection_pairs(order_contract, projected_rows.as_mut_slice());

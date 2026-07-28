@@ -201,7 +201,7 @@ IcyDB explicitly does **not** enforce:
 
 Write admission remains the sole authority that permits a new relation
 after-image. Quick checks the bounded accepted relation declaration and its
-registered source/target control closure. Deep verifies each selected source
+accepted source/target control closure. Deep verifies each selected source
 row's target and expected reverse witness, then scans the active source-owned
 reverse generation for orphaned or divergent entries.
 

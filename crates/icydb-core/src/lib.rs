@@ -9,7 +9,20 @@
 // The no-default test target intentionally type-checks shared test/helper
 // surfaces whose consuming tests live behind SQL, SQL-explain, or diagnostics
 // features. Keep production and all-features dead-code linting strict.
-#![cfg_attr(all(test, not(feature = "sql")), allow(dead_code))]
+#![cfg_attr(all(test, not(feature = "sql")), allow(dead_code, unused_imports))]
+// The query-only build owns the complete engine-neutral planner/executor
+// substrate. SQL is an optional frontend over that substrate and is currently
+// the only consumer of some grouped, aggregate, cursor, and diagnostic
+// capabilities, so those internal extension points are intentionally dormant
+// when `query` is enabled without `sql`.
+#![cfg_attr(
+    all(not(test), feature = "query", not(feature = "sql")),
+    expect(
+        dead_code,
+        unused_imports,
+        reason = "SQL is an optional frontend and currently consumes engine-neutral grouped, aggregate, cursor, and diagnostic capabilities not exposed by the query-only facade"
+    )
+)]
 
 extern crate self as icydb;
 

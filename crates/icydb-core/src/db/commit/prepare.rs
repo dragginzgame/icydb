@@ -22,10 +22,7 @@ use crate::{
             plan_index_mutation_for_slot_reader_structural,
         },
         key_taxonomy::PrimaryKeyValue,
-        relation::{
-            RelationConstraintProjection, ReverseRelationSourceInfo,
-            prepare_reverse_relation_index_mutations_for_source_slot_readers,
-        },
+        relation::{RelationConstraintProjection, ReverseRelationSourceInfo},
         schema::{ConstraintActivationKind, ConstraintId, SchemaInfo, UniqueConstraintProjection},
     },
     error::{ConstraintDiagnostic, ConstraintDiagnosticKind, ErrorClass, InternalError},
@@ -33,7 +30,7 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
-use std::{cell::RefCell, ops::Bound, thread::LocalKey};
+use std::{cell::RefCell, ops::Bound, rc::Rc, thread::LocalKey};
 
 ///
 /// CommitPrepareAuthority
@@ -41,22 +38,22 @@ use std::{cell::RefCell, ops::Bound, thread::LocalKey};
 /// Resolved authority needed by nongeneric commit-preparation stages.
 ///
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct CommitPrepareAuthority {
-    entity_path: &'static str,
+    entity_path: Rc<str>,
     entity_tag: EntityTag,
     schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
     data_store_path: &'static str,
     relation_source: ReverseRelationSourceInfo,
 }
 
-/// Accepted row, live-index, and candidate-index contracts shared by one batch.
+/// Accepted storage-backed constraint schedule shared by one commit batch.
 
-struct AcceptedCommitSchemaContracts {
+struct AcceptedStorageConstraintSchedule {
     row_contract: StructuralRowContract,
     schema_info: Option<SchemaInfo>,
     candidate_unique: Option<CandidateUniqueCommitContract>,
-    candidate_relation: Option<CandidateRelationCommitContract>,
+    relations: Vec<RelationConstraintProjection>,
 }
 
 /// One pending unique owner whose staged generation must track safe deletes.
@@ -69,31 +66,44 @@ struct CandidateUniqueCommitContract {
     index_store: &'static LocalKey<RefCell<IndexStore>>,
 }
 
-/// One pending relation owner whose reverse generation tracks live source writes.
-
-struct CandidateRelationCommitContract {
-    projection: RelationConstraintProjection,
-}
-
 /// Immutable accepted-schema authority shared by every row in one commit batch.
 pub(in crate::db) struct CommitPrepareContext {
     authority: CommitPrepareAuthority,
-    schema_contracts: AcceptedCommitSchemaContracts,
+    constraint_schedule: AcceptedStorageConstraintSchedule,
+    mode: CommitPrepareMode,
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::db) enum CommitPrepareMode {
+    NormalWrite,
+    RecoveryReplay,
+    DerivedRebuild,
+}
+
+impl CommitPrepareMode {
+    const fn include_candidate_relation_effects(self) -> bool {
+        matches!(self, Self::NormalWrite | Self::RecoveryReplay)
+    }
+
+    const fn validate_relation_targets(self) -> bool {
+        matches!(self, Self::NormalWrite)
+    }
 }
 
 impl CommitPrepareAuthority {
-    const fn from_runtime_parts(
-        entity_path: &'static str,
+    fn from_runtime_parts(
+        entity_path: impl Into<Rc<str>>,
         entity_tag: EntityTag,
         schema_fingerprint: CommitSchemaFingerprint,
         data_store_path: &'static str,
     ) -> Self {
+        let entity_path = entity_path.into();
         Self {
+            relation_source: ReverseRelationSourceInfo::new(entity_path.clone(), entity_tag),
             entity_path,
             entity_tag,
             schema_fingerprint,
             data_store_path,
-            relation_source: ReverseRelationSourceInfo::new(entity_path, entity_tag),
         }
     }
 }
@@ -173,6 +183,10 @@ where
         self.row_reader.read_primary_row(key)
     }
 
+    fn has_primary_row_override(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
+        self.row_reader.has_primary_row_override(key)
+    }
+
     fn read_index_entry(
         &self,
         index: IndexReadContract<'_>,
@@ -185,7 +199,7 @@ where
 
     fn read_index_keys_in_raw_range(
         &self,
-        entity_path: &'static str,
+        entity_path: &str,
         entity_tag: EntityTag,
         index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
@@ -204,15 +218,15 @@ where
     }
 }
 
-/// Resolve immutable accepted-schema commit authority from model-free runtime
-/// registration.
-pub(in crate::db) fn prepare_commit_context_for_runtime_registration<C: CanisterKind>(
+/// Resolve immutable accepted-schema commit authority from one accepted
+/// runtime entity.
+pub(in crate::db) fn prepare_commit_context_for_runtime_entity<C: CanisterKind>(
     db: &Db<C>,
-    entity_path: &'static str,
+    entity_path: impl Into<Rc<str>>,
     entity_tag: EntityTag,
     data_store_path: &'static str,
     schema_fingerprint: CommitSchemaFingerprint,
-    include_candidate_relation_effects: bool,
+    mode: CommitPrepareMode,
 ) -> Result<CommitPrepareContext, InternalError> {
     prepare_commit_context(
         db,
@@ -222,21 +236,25 @@ pub(in crate::db) fn prepare_commit_context_for_runtime_registration<C: Canister
             schema_fingerprint,
             data_store_path,
         ),
-        include_candidate_relation_effects,
+        mode,
     )
 }
 
 fn prepare_commit_context<C: CanisterKind>(
     db: &Db<C>,
     authority: CommitPrepareAuthority,
-    include_candidate_relation_effects: bool,
+    mode: CommitPrepareMode,
 ) -> Result<CommitPrepareContext, InternalError> {
-    let schema_contracts =
-        accepted_commit_schema_contracts(db, &authority, include_candidate_relation_effects)?;
+    let constraint_schedule = accepted_storage_constraint_schedule(
+        db,
+        &authority,
+        mode.include_candidate_relation_effects(),
+    )?;
 
     Ok(CommitPrepareContext {
         authority,
-        schema_contracts,
+        constraint_schedule,
+        mode,
     })
 }
 
@@ -283,10 +301,10 @@ fn prepare_row_commit_for_entity_impl<C>(
 where
     C: crate::traits::CanisterKind,
 {
-    // Phase 1: resolve nongeneric marker authority before any model-driven row
-    // decode runs so miswired hooks fail on path/schema mismatch first.
+    // Phase 1: resolve accepted marker authority before structural row decode
+    // so path/schema mismatches fail before constraint or maintenance work.
     let authority = &context.authority;
-    let schema_contracts = &context.schema_contracts;
+    let constraint_schedule = &context.constraint_schedule;
     let structural = prepare_row_commit_structural_inputs(op, authority)?;
 
     // Phase 2: decode the persisted row images once through the structural
@@ -296,18 +314,18 @@ where
             &structural.data_key,
             structural.old_row.as_ref(),
             structural.new_row.as_ref(),
-            schema_contracts.row_contract.clone(),
+            constraint_schedule.row_contract.clone(),
         )?;
 
         // Phase 3: derive forward index work from the already validated
         // structural rows when the entity owns secondary indexes.
-        let index_plan = if schema_contracts.schema_info.is_some() {
+        let index_plan = if constraint_schedule.schema_info.is_some() {
             prepare_forward_index_commit_leaf(
                 db,
                 authority,
                 row_reader,
                 index_reader,
-                schema_contracts,
+                constraint_schedule,
                 &structural.data_key,
                 &mut decoded,
             )?
@@ -316,8 +334,8 @@ where
         };
         let mut forward_index_ops = materialize_forward_index_commit_ops(db, index_plan)?;
         forward_index_ops.extend(prepare_candidate_unique_index_commit_ops(
-            schema_contracts.candidate_unique.as_ref(),
-            authority.entity_path,
+            constraint_schedule.candidate_unique.as_ref(),
+            authority.entity_path.as_ref(),
             &structural.data_key,
             decoded.old_slots.as_ref(),
             decoded.new_slots.as_ref(),
@@ -327,16 +345,11 @@ where
     };
 
     let source_primary_key = structural.data_key.primary_key_value();
-    let mut reverse_index_ops = prepare_reverse_relation_index_mutations_for_source_slot_readers(
-        db,
-        authority.relation_source,
-        schema_contracts.row_contract.clone(),
-        &source_primary_key,
-        decoded.old_slots.as_ref(),
-        decoded.new_slots.as_ref(),
-    )?;
-    if let Some(candidate) = schema_contracts.candidate_relation.as_ref() {
-        reverse_index_ops.extend(candidate.projection.prepare_source_transition(
+    let mut reverse_index_ops = Vec::new();
+    for relation in &constraint_schedule.relations {
+        reverse_index_ops.extend(relation.prepare_source_transition(
+            row_reader,
+            context.mode.validate_relation_targets(),
             &source_primary_key,
             decoded.old_slots.as_ref(),
             decoded.new_slots.as_ref(),
@@ -350,7 +363,7 @@ where
 
     finalize_row_commit_structural(
         db,
-        *authority,
+        authority.clone(),
         structural.raw_key,
         forward_index_ops,
         reverse_index_ops,
@@ -370,14 +383,14 @@ fn prepare_forward_index_commit_leaf<C>(
     authority: &CommitPrepareAuthority,
     row_reader: &dyn StructuralPrimaryRowReader,
     index_reader: &dyn StructuralIndexEntryReader,
-    schema_contracts: &AcceptedCommitSchemaContracts,
+    constraint_schedule: &AcceptedStorageConstraintSchedule,
     data_key: &DecodedDataStoreKey,
     decoded: &mut DecodedCommitRows<'_>,
 ) -> Result<IndexMutationPlan, InternalError>
 where
     C: crate::traits::CanisterKind,
 {
-    let Some(schema_info) = schema_contracts.schema_info.as_ref() else {
+    let Some(schema_info) = constraint_schedule.schema_info.as_ref() else {
         return Ok(empty_forward_index_plan());
     };
     let primary_key = data_key.primary_key_value();
@@ -389,11 +402,11 @@ where
     };
 
     match plan_index_mutation_for_slot_reader_structural(
-        authority.entity_path,
+        authority.entity_path.as_ref(),
         authority.entity_tag,
         schema_info,
         &read_view,
-        &schema_contracts.row_contract,
+        &constraint_schedule.row_contract,
         decoded.old_slots.as_ref().map(|_| &primary_key),
         decoded
             .old_slots
@@ -408,7 +421,9 @@ where
         Ok(index_plan) => Ok(index_plan),
         Err(err) => {
             if let Some(entity_path) = err.unique_violation_entity_path() {
-                record(MetricsEvent::UniqueViolation { entity_path });
+                record(MetricsEvent::UniqueViolation {
+                    entity_path: entity_path.into(),
+                });
             }
 
             Err(err.into_internal_error())
@@ -458,11 +473,11 @@ fn decode_commit_marker_structural_slots<'a>(
 // the same accepted row and index contracts as mutation staging so rows from
 // an earlier accepted append-only layout revision remain valid when nullable
 // fields have since been appended.
-fn accepted_commit_schema_contracts<C>(
+fn accepted_storage_constraint_schedule<C>(
     db: &Db<C>,
     authority: &CommitPrepareAuthority,
     include_candidate_relation_effects: bool,
-) -> Result<AcceptedCommitSchemaContracts, InternalError>
+) -> Result<AcceptedStorageConstraintSchedule, InternalError>
 where
     C: CanisterKind,
 {
@@ -471,13 +486,15 @@ where
         .with_schema(|schema_store| {
             schema_store.current_accepted_catalog_selection(
                 authority.entity_tag,
-                authority.entity_path,
+                authority.entity_path.as_ref(),
                 authority.data_store_path,
             )
         })?
         .ok_or_else(InternalError::store_corruption)?;
-    let accepted_authority =
-        AcceptedStructuralRowAuthority::from_catalog_selection(authority.entity_path, &selection)?;
+    let accepted_authority = AcceptedStructuralRowAuthority::from_catalog_selection(
+        authority.entity_path.as_ref(),
+        &selection,
+    )?;
     let value_catalog = selection.value_catalog_handle().clone();
     let (accepted, row_contract) = accepted_authority.into_parts();
     let candidate_unique = candidate_unique_commit_contract(
@@ -486,36 +503,52 @@ where
         accepted.persisted_snapshot(),
         &row_contract,
     )?;
-    let candidate_relation = include_candidate_relation_effects
-        .then(|| {
-            candidate_relation_commit_contract(
-                db,
-                authority.relation_source,
-                accepted.persisted_snapshot(),
-                &row_contract,
-            )
-        })
-        .transpose()?
-        .flatten();
-    Ok(AcceptedCommitSchemaContracts {
+    let relations = mutation_relation_constraint_schedule(
+        db,
+        authority.relation_source.clone(),
+        accepted.persisted_snapshot(),
+        &row_contract,
+        include_candidate_relation_effects,
+    )?;
+    Ok(AcceptedStorageConstraintSchedule {
         row_contract,
         schema_info: (!accepted.persisted_snapshot().indexes().is_empty()).then(|| {
             SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, value_catalog, true)
         }),
         candidate_unique,
-        candidate_relation,
+        relations,
     })
 }
 
-fn candidate_relation_commit_contract<C: CanisterKind>(
+fn mutation_relation_constraint_schedule<C: CanisterKind>(
     db: &Db<C>,
     source: ReverseRelationSourceInfo,
     snapshot: &crate::db::schema::PersistedSchemaSnapshot,
     row_contract: &StructuralRowContract,
-) -> Result<Option<CandidateRelationCommitContract>, InternalError> {
+    include_candidate_relation: bool,
+) -> Result<Vec<RelationConstraintProjection>, InternalError> {
+    let mut projections = Vec::with_capacity(
+        snapshot
+            .relations()
+            .len()
+            .saturating_add(usize::from(include_candidate_relation)),
+    );
+    for relation in snapshot.relations() {
+        projections.push(RelationConstraintProjection::new_active(
+            db,
+            source.clone(),
+            snapshot,
+            row_contract,
+            relation,
+        )?);
+    }
+    if !include_candidate_relation {
+        return Ok(projections);
+    }
+
     let [candidate] = snapshot.candidate_relations() else {
         if snapshot.candidate_relations().is_empty() {
-            return Ok(None);
+            return Ok(projections);
         }
         return Err(InternalError::store_corruption());
     };
@@ -533,15 +566,14 @@ fn candidate_relation_commit_contract<C: CanisterKind>(
     if candidate.physical_generation() != activation.activation_epoch() {
         return Err(InternalError::store_corruption());
     }
-    Ok(Some(CandidateRelationCommitContract {
-        projection: RelationConstraintProjection::new(
-            db,
-            source,
-            snapshot,
-            row_contract,
-            candidate,
-        )?,
-    }))
+    projections.push(RelationConstraintProjection::new(
+        db,
+        source,
+        snapshot,
+        row_contract,
+        candidate,
+    )?);
+    Ok(projections)
 }
 
 fn candidate_unique_commit_contract<C: CanisterKind>(
@@ -639,12 +671,12 @@ fn prepare_row_commit_structural_inputs(
     op: &CommitRowOp,
     authority: &CommitPrepareAuthority,
 ) -> Result<CommitInputs, InternalError> {
-    if op.entity_path != authority.entity_path {
+    if op.entity_path.as_ref() != authority.entity_path.as_ref() {
         return Err(InternalError::store_corruption());
     }
     if op.schema_fingerprint != authority.schema_fingerprint {
         return Err(CommitInputs::schema_fingerprint_mismatch(
-            authority.entity_path,
+            authority.entity_path.as_ref(),
             op.schema_fingerprint,
             authority.schema_fingerprint,
         ));
@@ -890,4 +922,21 @@ fn push_commit_op_for_index_entry(
     let value = entry.map(|_| IndexEntryValue::presence());
 
     commit_ops.push(build_commit_op(store, raw_key, value));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CommitPrepareMode;
+
+    #[test]
+    fn commit_prepare_modes_separate_normal_admission_from_replay_and_rebuild() {
+        assert!(CommitPrepareMode::NormalWrite.validate_relation_targets());
+        assert!(CommitPrepareMode::NormalWrite.include_candidate_relation_effects());
+
+        assert!(!CommitPrepareMode::RecoveryReplay.validate_relation_targets());
+        assert!(CommitPrepareMode::RecoveryReplay.include_candidate_relation_effects());
+
+        assert!(!CommitPrepareMode::DerivedRebuild.validate_relation_targets());
+        assert!(!CommitPrepareMode::DerivedRebuild.include_candidate_relation_effects());
+    }
 }

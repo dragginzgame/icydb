@@ -510,6 +510,8 @@ impl<C: CanisterKind> DbSession<C> {
         let fixed_patch = AcceptedFixedUpdatePatch::from_update_intent(
             identity.entity_path(),
             descriptor.row_decode_contract(catalog.value_catalog_handle().clone()),
+            catalog.fingerprint(),
+            catalog.accepted_row_constraints(),
             &patch,
         )
         .map_err(QueryError::execute)?;
@@ -614,6 +616,8 @@ where
     let fixed_patch = AcceptedFixedUpdatePatch::from_update_intent(
         identity.entity_path(),
         descriptor.row_decode_contract(catalog.value_catalog_handle().clone()),
+        catalog.fingerprint(),
+        catalog.accepted_row_constraints(),
         &patch,
     )
     .map_err(QueryError::execute)?;
@@ -886,7 +890,7 @@ struct ResumableVerifyScan {
 fn resume_resumable_update_verify(
     store: &StoreHandle,
     continuation: &mut DecodedResumableUpdateContinuation,
-    entity_path: &'static str,
+    entity_path: &str,
     entity_tag: EntityTag,
     compiled_scope: &CompiledExpr,
     row_contract: &StructuralRowContract,
@@ -1011,9 +1015,9 @@ fn resumable_row_needs_patch(
     )
 }
 
-fn record_resumable_rows_scanned(entity_path: &'static str, keys_scanned: usize) {
+fn record_resumable_rows_scanned(entity_path: &str, keys_scanned: usize) {
     record(MetricsEvent::RowsScanned {
-        entity_path,
+        entity_path: entity_path.into(),
         rows_scanned: u64::try_from(keys_scanned).unwrap_or(u64::MAX),
     });
 }

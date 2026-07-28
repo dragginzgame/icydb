@@ -3,7 +3,7 @@
 //! Does not own: candidate construction, schema compatibility, or root codecs.
 //! Boundary: schema reconciliation -> commit marker/journal -> schema live projection.
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 use crate::db::index::{IndexEntryValue, IndexKey, RawIndexStoreKey};
 #[cfg(feature = "sql")]
 use crate::db::{
@@ -83,7 +83,7 @@ impl<'a> AcceptedSchemaPublication<'a> {
     }
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn publish_accepted_schema_candidate(
     store_path: &'static str,
     store: StoreHandle,
@@ -105,7 +105,7 @@ pub(in crate::db) fn publish_accepted_schema_candidate(
 /// candidate in database-control memory under the same marker. Recovery can
 /// therefore restore accepted catalog authority without consulting authored
 /// or generated proposal material.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn publish_accepted_schema_candidates_atomically(
     publications: Vec<AcceptedSchemaPublication<'_>>,
 ) -> Result<(), InternalError> {
@@ -288,7 +288,7 @@ pub(in crate::db) fn publish_constraint_validation_job(
 
 /// Advance one unique-index validation page and its isolated candidate writes
 /// through the same marker-owned checkpoint boundary.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn publish_constraint_validation_job_with_candidate_index_entries(
     store_path: &'static str,
     store: StoreHandle,
@@ -587,7 +587,7 @@ fn publish_journaled_constraint_validation_job(
     })
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn publish_journaled_constraint_validation_job_with_candidate_index_entries(
     store_path: &'static str,
     store: StoreHandle,
@@ -616,7 +616,7 @@ fn publish_journaled_constraint_validation_job_with_candidate_index_entries(
     })
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn validate_candidate_index_entries(
     bundle: &crate::db::schema::AcceptedSchemaRevisionBundle,
     job: &ConstraintValidationJob,
@@ -853,7 +853,7 @@ mod tests {
     };
     use crate::{
         db::{
-            Db, EntityRegistration,
+            Db,
             commit::recovery::forget_recovered_domain_for_tests,
             commit::{
                 CommitMarker, begin_commit, ensure_recovered, generate_commit_id,
@@ -864,13 +864,17 @@ mod tests {
             journal::{JournalBatch, JournalRecord, JournalSequence},
             registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
             schema::{
-                AcceptedSchemaRevision, CandidateSchemaRevision, SchemaApplicationRecord,
-                SchemaApplicationRecordOp, SchemaChangeOutcome, SchemaChangeReceipt, SchemaStore,
+                AcceptedFieldKind, AcceptedSchemaRevision, CandidateSchemaRevision, FieldId,
+                FieldStorageDecode, LeafCodec, PersistedFieldSnapshot, PersistedSchemaSnapshot,
+                ScalarCodec, SchemaApplicationRecord, SchemaApplicationRecordOp,
+                SchemaChangeOutcome, SchemaChangeReceipt, SchemaFieldSlot, SchemaInsertDefault,
+                SchemaRowLayout, SchemaStore, SchemaVersion, accepted_schema_candidate_for_tests,
                 empty_accepted_schema_candidate_for_tests, load_live_schema_checkpoint,
                 with_schema_application_store,
             },
         },
         traits::{CanisterKind, Path},
+        types::EntityTag,
     };
     use icydb_schema::{
         ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaProposalDigest, SchemaSubmissionKey,
@@ -880,6 +884,7 @@ mod tests {
 
     const COMPLETION_STORE_PATH: &str = "schema_publication_tests::CompletionHeap";
     const RECOVERY_STORE_PATH: &str = "schema_publication_tests::RecoveryHeap";
+    const RECOVERY_ENTITY_PATH: &str = "schema_publication_tests::RecoveredEntity";
 
     thread_local! {
         static COMPLETION_DATA: RefCell<DataStore> =
@@ -918,6 +923,37 @@ mod tests {
             ).expect("recovery heap store should register");
             registry
         };
+    }
+
+    fn candidate_with_entity(
+        store_path: &str,
+        revision: AcceptedSchemaRevision,
+        entity_tag: EntityTag,
+        entity_path: &str,
+    ) -> CandidateSchemaRevision {
+        let snapshot = PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            entity_path.to_string(),
+            "RecoveredEntity".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
+            vec![PersistedFieldSnapshot::new_initial(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                AcceptedFieldKind::Ulid,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Ulid),
+            )],
+        );
+        accepted_schema_candidate_for_tests(
+            store_path,
+            revision,
+            std::collections::BTreeMap::from([(entity_tag, snapshot)]),
+        )
     }
 
     struct CompletionCanister;
@@ -1006,10 +1042,7 @@ mod tests {
 
     #[test]
     fn marker_owned_application_publishes_one_live_only_store_and_receipt() {
-        let db = Db::<CompletionCanister>::new_with_registrations(
-            &COMPLETION_REGISTRY,
-            &[] as &[EntityRegistration<CompletionCanister>],
-        );
+        let db = Db::<CompletionCanister>::new(&COMPLETION_REGISTRY);
         ensure_recovered(&db).expect("test database format should initialize");
         let store = db
             .store_handle(COMPLETION_STORE_PATH)
@@ -1065,10 +1098,7 @@ mod tests {
 
     #[test]
     fn interrupted_live_only_application_recovers_candidate_and_receipt_from_marker() {
-        let db = Db::<RecoveryCanister>::new_with_registrations(
-            &RECOVERY_REGISTRY,
-            &[] as &[EntityRegistration<RecoveryCanister>],
-        );
+        let db = Db::<RecoveryCanister>::new(&RECOVERY_REGISTRY);
         ensure_recovered(&db).expect("test database format should initialize");
         let store = db
             .store_handle(RECOVERY_STORE_PATH)
@@ -1092,9 +1122,12 @@ mod tests {
         .expect("initial live-only application should publish");
         assert_candidate_and_record_published(store, &initial, &initial_record);
 
-        let candidate = empty_accepted_schema_candidate_for_tests(
+        let entity_tag = EntityTag::new(71);
+        let candidate = candidate_with_entity(
             RECOVERY_STORE_PATH,
             AcceptedSchemaRevision::new(2),
+            entity_tag,
+            RECOVERY_ENTITY_PATH,
         );
         let record = applied_record(&candidate, 0x61, "single-live-recovery");
         let operation =
@@ -1136,6 +1169,11 @@ mod tests {
         ensure_recovered(&db).expect("marker recovery should complete the application");
 
         assert_candidate_and_record_published(store, &candidate, &record);
+        let recovered_entity = db
+            .accepted_runtime_entity_for_path(RECOVERY_ENTITY_PATH)
+            .expect("recovered accepted entity should supply its runtime route");
+        assert_eq!(recovered_entity.entity_tag(), entity_tag);
+        assert_eq!(recovered_entity.store_path(), RECOVERY_STORE_PATH);
         ensure_recovered(&db).expect("completed recovery should remain idempotent");
         assert_candidate_and_record_published(store, &candidate, &record);
     }

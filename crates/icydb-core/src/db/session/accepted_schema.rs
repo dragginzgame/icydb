@@ -7,9 +7,9 @@
 //! typed session helpers for query, SQL, catalog, and write adapters.
 
 use super::DbSession;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use crate::db::executor::EntityAuthority;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use crate::db::schema::{
     AcceptedRowLayoutRuntimeContract, AcceptedSchemaAuthority, SchemaInfo, SchemaStore,
     SchemaVersion,
@@ -17,7 +17,7 @@ use crate::db::schema::{
 use crate::{
     db::{
         commit::CommitSchemaFingerprint,
-        entity_registration::EntityRuntimeRegistration,
+        runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::{
             AcceptedCatalogIdentity, AcceptedEnumCatalog, AcceptedInspectionPlan,
             AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
@@ -27,22 +27,21 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
-use icydb_schema::EntitySourceKey;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use std::cell::OnceCell;
-use std::{cell::RefCell, collections::HashMap};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 #[derive(Clone, Debug)]
 struct AcceptedSchemaQueryCacheEntry {
     inspection_plan: AcceptedInspectionPlan,
 }
 
-type AcceptedSchemaQueryCacheKey = (usize, &'static str);
+type AcceptedSchemaQueryCacheKey = (usize, Rc<str>);
 
 #[derive(Clone, Debug)]
 pub(in crate::db) struct AcceptedSchemaCatalogContext {
     inspection_plan: AcceptedInspectionPlan,
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     schema_info: OnceCell<SchemaInfo>,
 }
 
@@ -66,7 +65,7 @@ impl AcceptedSchemaCatalogContext {
     const fn new(inspection_plan: AcceptedInspectionPlan) -> Self {
         Self {
             inspection_plan,
-            #[cfg(feature = "sql")]
+            #[cfg(feature = "query")]
             schema_info: OnceCell::new(),
         }
     }
@@ -87,24 +86,28 @@ impl AcceptedSchemaCatalogContext {
     }
 
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) const fn schema_version(&self) -> SchemaVersion {
-        self.inspection_plan.identity().accepted_schema_version()
+        self.inspection_plan
+            .identity_ref()
+            .accepted_schema_version()
     }
 
     #[must_use]
     pub(in crate::db) const fn revision(&self) -> AcceptedSchemaRevision {
-        self.inspection_plan.identity().accepted_schema_revision()
+        self.inspection_plan
+            .identity_ref()
+            .accepted_schema_revision()
     }
 
     #[must_use]
     pub(in crate::db) const fn fingerprint(&self) -> CommitSchemaFingerprint {
         self.inspection_plan
-            .identity()
+            .identity_ref()
             .accepted_schema_fingerprint()
     }
 
-    /// Borrow the accepted check program compiled for this exact fingerprint.
+    /// Borrow the accepted row-constraint program compiled for this fingerprint.
     #[must_use]
     pub(in crate::db) const fn accepted_row_constraints(&self) -> &CompiledAcceptedRowConstraints {
         self.inspection_plan.write_constraints()
@@ -117,18 +120,20 @@ impl AcceptedSchemaCatalogContext {
     }
 
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) const fn fingerprint_method_version(&self) -> u8 {
-        self.inspection_plan.identity().fingerprint_method_version()
+        self.inspection_plan
+            .identity_ref()
+            .fingerprint_method_version()
     }
 
     #[must_use]
-    pub(in crate::db) const fn identity(&self) -> AcceptedCatalogIdentity {
+    pub(in crate::db) fn identity(&self) -> AcceptedCatalogIdentity {
         self.inspection_plan.identity()
     }
 
     /// Build executor authority directly from accepted catalog state.
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) fn accepted_entity_authority(
         &self,
     ) -> Result<EntityAuthority, InternalError> {
@@ -146,7 +151,7 @@ impl AcceptedSchemaCatalogContext {
         ));
 
         Ok(EntityAuthority::from_accepted_row_decode_contract(
-            self.inspection_plan.identity().entity_path(),
+            self.inspection_plan.identity().entity_path_handle(),
             self.inspection_plan.identity().entity_tag(),
             self.inspection_plan.identity().store_path(),
             row_decode_contract,
@@ -154,7 +159,7 @@ impl AcceptedSchemaCatalogContext {
         ))
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) fn accepted_or_provided_entity_authority(
         &self,
         accepted_authority: Option<&EntityAuthority>,
@@ -167,7 +172,7 @@ impl AcceptedSchemaCatalogContext {
 
     /// Project schema metadata from the accepted snapshot only.
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) fn accepted_schema_info(&self) -> SchemaInfo {
         self.schema_info
             .get_or_init(|| {
@@ -191,17 +196,17 @@ thread_local! {
     // but repeated read calls should not reload the stable schema snapshot just
     // to prove an already-warmed cache key. SQL DDL publication invalidates this
     // heap cache before the next query observes the new accepted schema.
-    static ACCEPTED_SCHEMA_QUERY_CACHES: RefCell<HashMap<(usize, &'static str), AcceptedSchemaQueryCacheEntry>> =
+    static ACCEPTED_SCHEMA_QUERY_CACHES: RefCell<HashMap<AcceptedSchemaQueryCacheKey, AcceptedSchemaQueryCacheEntry>> =
         RefCell::new(HashMap::default());
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    pub(in crate::db::session) fn accepted_schema_catalog_context_for_runtime_registration(
+    pub(in crate::db::session) fn accepted_schema_catalog_context_for_runtime_entity(
         &self,
-        registration: EntityRuntimeRegistration<C>,
+        runtime_entity: AcceptedRuntimeEntity,
         store: crate::db::registry::StoreHandle,
     ) -> Result<AcceptedSchemaCatalogContext, InternalError> {
-        self.accepted_inspection_plan_for_runtime_registration(registration, store)
+        self.accepted_inspection_plan_for_runtime_entity(runtime_entity, store)
             .map(AcceptedSchemaCatalogContext::new)
             .map_err(AcceptedInspectionPlanLoadError::into_internal)
     }
@@ -211,13 +216,28 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         entity_source: &str,
     ) -> Result<AcceptedSchemaCatalogContext, InternalError> {
+        self.find_accepted_schema_catalog_context_for_entity_source_key(entity_source)?
+            .ok_or_else(|| InternalError::unsupported_entity_path(entity_source))
+    }
+
+    /// Find one accepted catalog through immutable source identity without
+    /// translating source absence into a dynamic-name lookup failure.
+    pub(in crate::db::session) fn find_accepted_schema_catalog_context_for_entity_source_key(
+        &self,
+        entity_source: &str,
+    ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
         self.db.ensure_recovered_state()?;
-        let source = EntitySourceKey::try_new(entity_source)
-            .map_err(|_| InternalError::unsupported_entity_path(entity_source))?;
-        let route = self.db.generated_route_for_entity_path(source.as_str())?;
-        let store = self.db.store_handle(route.store_path)?;
-        let registration = route.resolve(&self.db)?;
-        self.accepted_schema_catalog_context_for_runtime_registration(registration, store)
+        let Some(runtime_entity) =
+            crate::db::runtime_entity_catalog::find_accepted_runtime_entity_for_path(
+                &self.db,
+                entity_source,
+            )?
+        else {
+            return Ok(None);
+        };
+        let store = runtime_entity.store(&self.db)?;
+        self.accepted_schema_catalog_context_for_runtime_entity(runtime_entity, store)
+            .map(Some)
     }
 
     /// Resolve one accepted catalog by its editable SQL/display entity name.
@@ -233,16 +253,15 @@ impl<C: CanisterKind> DbSession<C> {
 
         self.db.ensure_recovered_state()?;
 
-        let route = self
+        let runtime_entity = self
             .db
-            .entity_registrations
-            .first()
-            .ok_or_else(|| InternalError::unsupported_entity_path(entity_name))?
-            .runtime();
-        let store = self.db.store_handle(route.store_path)?;
-        let registration = route.resolve(&self.db)?;
+            .accepted_runtime_entities()?
+            .into_iter()
+            .next()
+            .ok_or_else(|| InternalError::unsupported_entity_path(entity_name))?;
+        let store = runtime_entity.store(&self.db)?;
 
-        self.accepted_schema_catalog_context_for_runtime_registration(registration, store)
+        self.accepted_schema_catalog_context_for_runtime_entity(runtime_entity, store)
     }
 
     /// Resolve an exact accepted SQL/display entity name without compiling
@@ -258,26 +277,10 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(Some(context));
         }
 
-        let mut matched = None;
-        for entity_registration in self.db.entity_registrations {
-            let route = entity_registration.runtime();
-            let store = self.db.store_handle(route.store_path)?;
-            let source = EntitySourceKey::try_new(route.source_key)
-                .map_err(|_| InternalError::store_invariant())?;
-            let accepted_name = store
-                .with_schema(|schema| schema.current_accepted_entity_name_for_source(&source))?;
-            if accepted_name != entity_name {
-                continue;
-            }
-            let registration = route.resolve(&self.db)?;
-            if matched.replace((registration, store)).is_some() {
-                return Err(InternalError::store_corruption());
-            }
-        }
-
-        matched
-            .map(|(registration, store)| {
-                self.accepted_schema_catalog_context_for_runtime_registration(registration, store)
+        crate::db::runtime_entity_catalog::accepted_runtime_entity_for_name(&self.db, entity_name)?
+            .map(|runtime_entity| {
+                let store = runtime_entity.store(&self.db)?;
+                self.accepted_schema_catalog_context_for_runtime_entity(runtime_entity, store)
             })
             .transpose()
     }
@@ -294,7 +297,10 @@ impl<C: CanisterKind> DbSession<C> {
                 .filter_map(|(cache_key, entry)| {
                     (cache_key.0 == scope_id
                         && entry.inspection_plan.snapshot().entity_name() == entity_name)
-                        .then_some((*cache_key, entry.inspection_plan.identity().store_path()))
+                        .then_some((
+                            cache_key.clone(),
+                            entry.inspection_plan.identity().store_path(),
+                        ))
                 })
                 .collect::<Vec<_>>()
         });
@@ -317,19 +323,18 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(matched)
     }
 
-    pub(in crate::db::session) fn accepted_inspection_plan_for_runtime_registration(
+    pub(in crate::db::session) fn accepted_inspection_plan_for_runtime_entity(
         &self,
-        registration: EntityRuntimeRegistration<C>,
+        runtime_entity: AcceptedRuntimeEntity,
         store: crate::db::registry::StoreHandle,
     ) -> Result<AcceptedInspectionPlan, AcceptedInspectionPlanLoadError> {
-        let cache_key = self.accepted_schema_query_cache_key(registration.entity_path);
-        if let Some(context) =
-            Self::accepted_schema_catalog_context_from_runtime_registration_cache(
-                cache_key,
-                registration,
-                store,
-            )
-            .map_err(AcceptedInspectionPlanLoadError::Unselected)?
+        let cache_key = self.accepted_schema_query_cache_key(runtime_entity.entity_path_handle());
+        if let Some(context) = Self::accepted_schema_catalog_context_from_runtime_entity_cache(
+            cache_key.clone(),
+            runtime_entity.clone(),
+            store,
+        )
+        .map_err(AcceptedInspectionPlanLoadError::Unselected)?
         {
             return Ok(context.inspection_plan);
         }
@@ -337,9 +342,9 @@ impl<C: CanisterKind> DbSession<C> {
         let selection = store
             .with_schema(|schema_store| {
                 schema_store.current_accepted_catalog_selection(
-                    registration.entity_tag,
-                    registration.entity_path,
-                    registration.store_path,
+                    runtime_entity.entity_tag(),
+                    runtime_entity.entity_path(),
+                    runtime_entity.store_path(),
                 )
             })
             .map_err(AcceptedInspectionPlanLoadError::Unselected)?
@@ -347,12 +352,15 @@ impl<C: CanisterKind> DbSession<C> {
                 AcceptedInspectionPlanLoadError::Unselected(InternalError::store_corruption())
             })?;
         let identity = selection.identity();
-        let snapshot = selection
-            .decode_verified()
-            .map_err(|error| AcceptedInspectionPlanLoadError::Selected { identity, error })?;
+        let snapshot = selection.decode_verified().map_err(|error| {
+            AcceptedInspectionPlanLoadError::Selected {
+                identity: identity.clone(),
+                error,
+            }
+        })?;
         let inspection_plan = AcceptedInspectionPlan::compile(
             &self.db,
-            identity,
+            identity.clone(),
             snapshot,
             selection.value_catalog_handle().clone(),
         )
@@ -362,9 +370,9 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(inspection_plan)
     }
 
-    fn accepted_schema_catalog_context_from_runtime_registration_cache(
+    fn accepted_schema_catalog_context_from_runtime_entity_cache(
         cache_key: AcceptedSchemaQueryCacheKey,
-        registration: EntityRuntimeRegistration<C>,
+        runtime_entity: AcceptedRuntimeEntity,
         store: crate::db::registry::StoreHandle,
     ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
         let context =
@@ -372,15 +380,15 @@ impl<C: CanisterKind> DbSession<C> {
         if let Some(context) = &context {
             debug_assert_eq!(
                 context.inspection_plan.identity().entity_tag(),
-                registration.entity_tag
+                runtime_entity.entity_tag()
             );
             debug_assert_eq!(
                 context.inspection_plan.identity().entity_path(),
-                registration.entity_path
+                runtime_entity.entity_path()
             );
             debug_assert_eq!(
                 context.inspection_plan.identity().store_path(),
-                registration.store_path
+                runtime_entity.store_path()
             );
         }
         Ok(context)
@@ -388,9 +396,9 @@ impl<C: CanisterKind> DbSession<C> {
 
     fn accepted_schema_query_cache_key(
         &self,
-        entity_path: &'static str,
+        entity_path: impl Into<Rc<str>>,
     ) -> AcceptedSchemaQueryCacheKey {
-        (self.db.cache_scope_id(), entity_path)
+        (self.db.cache_scope_id(), entity_path.into())
     }
 
     fn accepted_schema_catalog_context_from_current_authority_cache(
@@ -427,7 +435,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Verify accepted authority for a schema-resolved structural operation.
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db::session) fn ensure_accepted_schema_authority_is_current_for_store_path(
         &self,
         store_path: &'static str,
@@ -448,11 +456,8 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    #[cfg(feature = "sql")]
-    pub(in crate::db::session) fn invalidate_accepted_schema_query_cache(
-        &self,
-        entity_path: &'static str,
-    ) {
+    #[cfg(feature = "query")]
+    pub(in crate::db::session) fn invalidate_accepted_schema_query_cache(&self, entity_path: &str) {
         let cache_key = self.accepted_schema_query_cache_key(entity_path);
         ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
             cache.borrow_mut().remove(&cache_key);

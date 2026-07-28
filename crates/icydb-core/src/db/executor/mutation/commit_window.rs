@@ -34,6 +34,8 @@ use std::{
     thread::LocalKey,
 };
 
+use super::constraint_scheduler::AcceptedMutationConstraintBatch;
+
 const MUTATION_COMMIT_INITIAL_RESERVE_ROWS: usize = 64;
 
 ///
@@ -250,8 +252,9 @@ struct SingleRowApplyPrep {
 /// PreflightStoreOverlay
 ///
 /// In-memory simulation overlay for commit-window preflight.
-/// Reads first consult staged row/index overrides from earlier row ops and
-/// fall back to committed stores when no staged value exists.
+/// Data reads first consult the complete final-row batch overlay. Index reads
+/// consult staged earlier row operations before falling back to committed
+/// stores.
 ///
 
 struct PreflightStoreOverlay<'a, C: CanisterKind> {
@@ -261,15 +264,30 @@ struct PreflightStoreOverlay<'a, C: CanisterKind> {
 }
 
 impl<'a, C: CanisterKind> PreflightStoreOverlay<'a, C> {
-    /// Construct one empty preflight overlay for staged mutation simulation.
-    fn with_row_capacity(db: &'a Db<C>, row_count: usize) -> Self {
-        let reserve_rows = row_count.min(MUTATION_COMMIT_INITIAL_RESERVE_ROWS);
-
-        Self {
+    /// Construct one preflight overlay with every submitted final data image
+    /// visible before storage-backed constraint scheduling begins.
+    fn from_row_ops(db: &'a Db<C>, row_ops: &[CommitRowOp]) -> Result<Self, InternalError> {
+        let reserve_rows = row_ops.len().min(MUTATION_COMMIT_INITIAL_RESERVE_ROWS);
+        let mut overlay = Self {
             db,
             data_overrides: HashMap::with_capacity(reserve_rows),
             index_overrides: HashMap::with_capacity(reserve_rows),
+        };
+        for row_op in row_ops {
+            let after = row_op
+                .after
+                .as_ref()
+                .map(|bytes| RawRow::from_untrusted_bytes(bytes.clone()))
+                .transpose()?;
+            if overlay
+                .data_overrides
+                .insert(row_op.key.clone(), after)
+                .is_some()
+            {
+                return Err(InternalError::query_executor_invariant());
+            }
         }
+        Ok(overlay)
     }
 
     // Stage one prepared row-op into overlay data/index maps.
@@ -298,12 +316,14 @@ impl<C: CanisterKind> StructuralPrimaryRowReader for PreflightStoreOverlay<'_, C
             return Ok(override_row.clone());
         }
 
-        let registration = self
-            .db
-            .runtime_registration_for_entity_tag(key.entity_tag())?;
-        let store = self.db.recovered_store(registration.store_path)?;
+        let runtime_entity = self.db.accepted_runtime_entity_for_tag(key.entity_tag())?;
+        let store = self.db.recovered_store(runtime_entity.store_path())?;
 
         Ok(store.with_data(|data_store| data_store.get(&raw_key)))
+    }
+
+    fn has_primary_row_override(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
+        Ok(self.data_overrides.contains_key(&key.to_raw()?))
     }
 }
 
@@ -325,7 +345,7 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
 
     fn read_index_keys_in_raw_range(
         &self,
-        entity_path: &'static str,
+        entity_path: &str,
         _entity_tag: crate::types::EntityTag,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
         index: IndexReadContract<'_>,
@@ -449,7 +469,7 @@ fn push_optional_index_entry_primary_key_values(
     raw_entry: Option<&IndexEntryValue>,
     out: &mut Vec<PrimaryKeyValue>,
     limit: usize,
-    entity_path: &'static str,
+    entity_path: &str,
 ) -> Result<bool, InternalError> {
     let Some(raw_entry) = raw_entry else {
         return Ok(false);
@@ -466,7 +486,7 @@ fn push_index_entry_primary_key_values(
     raw_entry: &IndexEntryValue,
     out: &mut Vec<PrimaryKeyValue>,
     limit: usize,
-    _entity_path: &'static str,
+    _entity_path: &str,
 ) -> Result<bool, InternalError> {
     raw_entry.push_row_identity_primary_key_values_limited(raw_key, out, limit, |_err| {
         InternalError::index_plan_index_corruption()
@@ -516,21 +536,22 @@ fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
     let Some(first_row_op) = row_ops.first() else {
         return Ok(PreparedRowOpBatch::with_row_capacity(0));
     };
-    let registration =
-        db.runtime_registration_for_entity_path(first_row_op.entity_path.as_ref())?;
-    let context = registration.prepare_commit_context(db, first_row_op.schema_fingerprint, true)?;
+    let runtime_entity = db.accepted_runtime_entity_for_path(first_row_op.entity_path.as_ref())?;
+    let context = runtime_entity.prepare_commit_context(
+        db,
+        first_row_op.schema_fingerprint,
+        crate::db::commit::CommitPrepareMode::NormalWrite,
+    )?;
 
-    // The structural registration path can also bypass overlay simulation for
+    // The structural accepted-entity path can also bypass overlay simulation for
     // one-row commits because there is no staged cross-row state to read.
     if let [row_op] = row_ops {
-        let store = db.store_handle(registration.store_path)?;
-        return prepare_row_commit_with_context(db, row_op, &context, &store, &store).map(
-            |prepared| {
-                let mut batch = PreparedRowOpBatch::with_row_capacity(1);
-                batch.push(prepared);
-                batch
-            },
-        );
+        let store = db.store_handle(runtime_entity.store_path())?;
+        return prepare_row_commit_with_context(db, row_op, &context, db, &store).map(|prepared| {
+            let mut batch = PreparedRowOpBatch::with_row_capacity(1);
+            batch.push(prepared);
+            batch
+        });
     }
 
     preflight_prepare_row_ops_with_overlay(db, row_ops, |overlay, row_op| {
@@ -549,7 +570,7 @@ fn preflight_prepare_row_ops_with_overlay<C: CanisterKind>(
     ) -> Result<PreparedRowCommitOp, InternalError>,
 ) -> Result<PreparedRowOpBatch, InternalError> {
     let mut batch = PreparedRowOpBatch::with_row_capacity(row_ops.len());
-    let mut overlay = PreflightStoreOverlay::<C>::with_row_capacity(db, row_ops.len());
+    let mut overlay = PreflightStoreOverlay::<C>::from_row_ops(db, row_ops)?;
 
     for row_op in row_ops {
         let row = prepare_one(&overlay, row_op)?;
@@ -676,10 +697,11 @@ fn apply_prepared_single_row_op(
 /// Commit delete-mode row operations through one nongeneric commit window.
 pub(in crate::db) fn commit_delete_row_ops_with_window_for_path<C: CanisterKind>(
     db: &Db<C>,
-    entity_path: &'static str,
-    row_ops: Vec<CommitRowOp>,
+    entity_path: &str,
+    batch: AcceptedMutationConstraintBatch,
     apply_phase: &'static str,
 ) -> Result<(), InternalError> {
+    let row_ops = batch.into_delete_rows()?;
     if row_ops.len() == 1 {
         let Some(row_op) = row_ops.into_iter().next() else {
             return Err(InternalError::query_executor_invariant());
@@ -721,10 +743,11 @@ pub(in crate::db) fn commit_delete_row_ops_with_window_for_path<C: CanisterKind>
 /// Commit save-mode row operations through the nongeneric structural window.
 pub(in crate::db) fn commit_structural_save_row_ops_with_window_for_path<C: CanisterKind>(
     db: &Db<C>,
-    entity_path: &'static str,
-    row_ops: Vec<CommitRowOp>,
+    entity_path: &str,
+    batch: AcceptedMutationConstraintBatch,
     apply_phase: &'static str,
 ) -> Result<(), InternalError> {
+    let row_ops = batch.into_save_rows()?;
     let OpenCommitWindow {
         commit,
         prepared_row_ops,
@@ -791,7 +814,7 @@ fn commit_prepared_single_row_op_with_window(
 // structural commit-window fast path.
 fn commit_single_delete_row_op_with_window_for_path<C: CanisterKind>(
     db: &Db<C>,
-    entity_path: &'static str,
+    entity_path: &str,
     row_op: CommitRowOp,
     apply_phase: &'static str,
 ) -> Result<(), InternalError> {
@@ -827,6 +850,93 @@ fn prepare_single_row_apply(prepared_row_op: &PreparedRowCommitOp) -> SingleRowA
     }
 
     SingleRowApplyPrep { guards, delta }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        db::{
+            data::DecodedDataStoreKey,
+            key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
+            registry::StoreRegistry,
+        },
+        traits::Path,
+        types::EntityTag,
+    };
+
+    struct SchedulerOverlayTestCanister;
+
+    impl Path for SchedulerOverlayTestCanister {
+        const PATH: &'static str = "executor::mutation::tests::SchedulerOverlayTestCanister";
+    }
+
+    impl CanisterKind for SchedulerOverlayTestCanister {
+        const COMMIT_MEMORY_ID: u8 = 1;
+        const COMMIT_STABLE_KEY: &'static str = "icydb.scheduler_overlay.commit.v1";
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 2;
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+            "icydb.scheduler_overlay.integrity.progress.v1";
+    }
+
+    thread_local! {
+        static TEST_REGISTRY: StoreRegistry = StoreRegistry::new();
+    }
+
+    fn test_key(value: u64) -> DecodedDataStoreKey {
+        DecodedDataStoreKey::new(
+            EntityTag::new(41),
+            &PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(value)),
+        )
+    }
+
+    fn test_row_op(key: &DecodedDataStoreKey, after: Option<Vec<u8>>) -> CommitRowOp {
+        CommitRowOp::new(
+            "tests::SelfRelation",
+            key.to_raw().expect("test key should encode"),
+            None,
+            after,
+            [7; 16],
+        )
+    }
+
+    #[test]
+    fn scheduler_overlay_seeds_later_final_after_images_before_preflight() {
+        let db: Db<SchedulerOverlayTestCanister> = Db::new(&TEST_REGISTRY);
+        let first = test_key(1);
+        let later = test_key(2);
+        let row_ops = vec![
+            test_row_op(&first, Some(vec![1])),
+            test_row_op(&later, Some(vec![2])),
+        ];
+
+        let overlay = PreflightStoreOverlay::from_row_ops(&db, row_ops.as_slice())
+            .expect("complete batch overlay should build");
+        let visible = overlay
+            .read_primary_row(&later)
+            .expect("later batch target lookup should succeed")
+            .expect("later batch target must be visible before row-order preflight");
+
+        assert_eq!(visible.as_bytes(), &[2]);
+    }
+
+    #[test]
+    fn scheduler_overlay_seeds_delete_absence_before_preflight() {
+        let db: Db<SchedulerOverlayTestCanister> = Db::new(&TEST_REGISTRY);
+        let deleted = test_key(3);
+        let row_ops = vec![test_row_op(&deleted, None)];
+
+        let overlay = PreflightStoreOverlay::from_row_ops(&db, row_ops.as_slice())
+            .expect("delete overlay should build");
+
+        assert!(
+            overlay
+                .read_primary_row(&deleted)
+                .expect("delete target lookup should succeed")
+                .is_none(),
+            "the complete batch must mask deleted rows before storage-backed proofs",
+        );
+    }
 }
 
 /// Resolve the exact registered store pairs that one prepared-op batch
@@ -1019,10 +1129,13 @@ pub(in crate::db::executor) fn classify_mutation_commit_plan(
 }
 
 pub(in crate::db::executor) fn record_mutation_commit_plan(
-    entity_path: &'static str,
+    entity_path: &str,
     class: MutationCommitClass,
 ) {
-    record(MetricsEvent::MutationCommitPlan { entity_path, class });
+    record(MetricsEvent::MutationCommitPlan {
+        entity_path: entity_path.into(),
+        class,
+    });
 }
 
 // Mark one batch of synchronized index stores as `Ready` after commit apply
@@ -1037,22 +1150,22 @@ fn index_store_id(index_store: &'static LocalKey<RefCell<IndexStore>>) -> usize 
     std::ptr::from_ref::<LocalKey<RefCell<IndexStore>>>(index_store) as usize
 }
 
-fn emit_index_delta_metrics_for_path(entity_path: &'static str, delta: &PreparedRowOpDelta) {
+fn emit_index_delta_metrics_for_path(entity_path: &str, delta: &PreparedRowOpDelta) {
     record(MetricsEvent::IndexDelta {
-        entity_path,
+        entity_path: entity_path.into(),
         inserts: u64::try_from(delta.index_inserts).unwrap_or(u64::MAX),
         removes: u64::try_from(delta.index_removes).unwrap_or(u64::MAX),
     });
 
     record(MetricsEvent::ReverseIndexDelta {
-        entity_path,
+        entity_path: entity_path.into(),
         inserts: u64::try_from(delta.reverse_index_inserts).unwrap_or(u64::MAX),
         removes: u64::try_from(delta.reverse_index_removes).unwrap_or(u64::MAX),
     });
 }
 
 // Emit delete-only index metrics through the shared path-shaped sink contract.
-fn emit_delete_index_delta_metrics_for_path(entity_path: &'static str, delta: &PreparedRowOpDelta) {
+fn emit_delete_index_delta_metrics_for_path(entity_path: &str, delta: &PreparedRowOpDelta) {
     emit_index_delta_metrics_for_path(entity_path, &delta.delete_only());
 }
 

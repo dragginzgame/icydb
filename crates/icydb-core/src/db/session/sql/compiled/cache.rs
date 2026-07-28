@@ -5,7 +5,7 @@ use crate::db::{
     access::LoweredIndexPrefixCardinalitySpec,
     commit::CommitSchemaFingerprint,
     executor::SharedPreparedExecutionPlan,
-    session::{AcceptedSchemaCatalogContext, sql::projection::SqlProjectionContract},
+    session::{AcceptedSchemaCatalogContext, query::StructuralProjectionContract},
 };
 use std::rc::Rc;
 
@@ -42,7 +42,7 @@ impl SqlCompiledSchemaFingerprint {
 pub(in crate::db) struct SqlSelectPlanCacheEntry {
     pub(super) schema_fingerprint: SqlCompiledSchemaFingerprint,
     prepared_plan: SharedPreparedExecutionPlan,
-    projection: SqlProjectionContract,
+    projection: StructuralProjectionContract,
 }
 
 impl SqlSelectPlanCacheEntry {
@@ -50,7 +50,7 @@ impl SqlSelectPlanCacheEntry {
     pub(in crate::db) const fn new(
         schema_fingerprint: SqlCompiledSchemaFingerprint,
         prepared_plan: SharedPreparedExecutionPlan,
-        projection: SqlProjectionContract,
+        projection: StructuralProjectionContract,
     ) -> Self {
         Self {
             schema_fingerprint,
@@ -65,7 +65,7 @@ impl SqlSelectPlanCacheEntry {
     }
 
     #[must_use]
-    pub(in crate::db) fn projection(&self) -> SqlProjectionContract {
+    pub(in crate::db) fn projection(&self) -> StructuralProjectionContract {
         self.projection.clone()
     }
 }

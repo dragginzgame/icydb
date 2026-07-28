@@ -59,7 +59,7 @@ pub(in crate::db) struct DirectDataRowPhaseAttribution {
     pub(in crate::db) page_window_local_instructions: u64,
 }
 
-#[cfg(all(feature = "diagnostics", any(test, feature = "sql")))]
+#[cfg(all(feature = "diagnostics", any(test, feature = "query")))]
 impl DirectDataRowPhaseAttribution {
     pub(in crate::db) const fn has_work(self) -> bool {
         self.scan_local_instructions != 0

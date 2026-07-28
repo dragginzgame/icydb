@@ -4,33 +4,28 @@
 //! Boundary: executor/commit paths delegate relation semantics to this module.
 
 mod reverse_index;
-mod save_validate;
 mod validate;
 
 use crate::{
     db::{
         Db,
-        entity_registration::EntityRuntimeRegistration,
         identity::EntityName,
+        runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::{AcceptedFieldKind, classify_accepted_field_kind},
     },
     error::InternalError,
     traits::CanisterKind,
     types::EntityTag,
-    value::Value,
 };
 use std::fmt::{Debug, Display};
 
+pub(crate) use reverse_index::ReverseRelationSourceInfo;
 pub(in crate::db) use reverse_index::{
     RelationConstraintProjection, prove_empty_reverse_relation_domain,
 };
-pub(crate) use reverse_index::{
-    ReverseRelationSourceInfo, prepare_reverse_relation_index_mutations_for_source_slot_readers,
-};
-pub(in crate::db) use save_validate::validate_save_relations_for_structural_row;
 pub(in crate::db) use validate::{
     validate_candidate_relation_target_delete_barrier,
-    validate_delete_relations_for_registered_source,
+    validate_delete_relations_for_accepted_source,
 };
 
 ///
@@ -210,7 +205,7 @@ where
     )?;
     let target_registration =
         declared_target.validate_against_db(db, source_path, diagnostic_relation_name)?;
-    let target_contract = accepted_relation_target_contract_for_registration(
+    let target_contract = accepted_relation_target_contract_for_runtime_entity(
         db,
         source_path,
         diagnostic_relation_name,
@@ -239,26 +234,26 @@ fn accepted_relation_target_contract<C>(
 where
     C: CanisterKind,
 {
-    let target = db.runtime_registration_for_entity_path(target_path)?;
-    accepted_relation_target_contract_for_registration(db, source_path, relation_name, target)
+    let target = db.accepted_runtime_entity_for_path(target_path)?;
+    accepted_relation_target_contract_for_runtime_entity(db, source_path, relation_name, target)
 }
 
-fn accepted_relation_target_contract_for_registration<C>(
+fn accepted_relation_target_contract_for_runtime_entity<C>(
     db: &Db<C>,
     source_path: &str,
     relation_name: &str,
-    target: EntityRuntimeRegistration<C>,
+    target: AcceptedRuntimeEntity,
 ) -> Result<AcceptedRelationTargetContract, InternalError>
 where
     C: CanisterKind,
 {
-    let target_store = db.store_handle(target.store_path)?;
+    let target_store = db.store_handle(target.store_path())?;
     let selection = target_store
         .with_schema(|schema_store| {
             schema_store.current_accepted_catalog_selection(
-                target.entity_tag,
-                target.entity_path,
-                target.store_path,
+                target.entity_tag(),
+                target.entity_path(),
+                target.store_path(),
             )
         })?
         .ok_or_else(InternalError::store_corruption)?;
@@ -271,10 +266,10 @@ where
     let target = AcceptedRelationTargetAuthority::try_new(
         source_path,
         relation_name,
-        target.entity_path,
+        target.entity_path(),
         accepted.entity_name(),
-        target.entity_tag,
-        target.store_path,
+        target.entity_tag(),
+        target.store_path(),
     )?;
 
     Ok(AcceptedRelationTargetContract {
@@ -445,12 +440,12 @@ impl AcceptedRelationTargetAuthority {
         db: &Db<C>,
         source_path: &str,
         field_name: &str,
-    ) -> Result<EntityRuntimeRegistration<C>, InternalError>
+    ) -> Result<AcceptedRuntimeEntity, InternalError>
     where
         C: CanisterKind,
     {
         let runtime = db
-            .runtime_registration_for_entity_tag(self.entity_tag)
+            .accepted_runtime_entity_for_tag(self.entity_tag)
             .map_err(|err| {
                 InternalError::relation_target_identity_mismatch(
                     source_path,
@@ -463,7 +458,7 @@ impl AcceptedRelationTargetAuthority {
                 )
             })?;
 
-        if runtime.entity_path != self.path {
+        if runtime.entity_path() != self.path {
             return Err(InternalError::relation_target_identity_mismatch(
                 source_path,
                 field_name,
@@ -471,13 +466,13 @@ impl AcceptedRelationTargetAuthority {
                 format!(
                     "target_entity_tag={} resolves to entity_path={} but relation declares {}",
                     self.entity_tag.value(),
-                    runtime.entity_path,
+                    runtime.entity_path(),
                     self.path
                 ),
             ));
         }
 
-        if runtime.store_path != self.store_path {
+        if runtime.store_path() != self.store_path {
             return Err(InternalError::relation_target_identity_mismatch(
                 source_path,
                 field_name,
@@ -485,19 +480,19 @@ impl AcceptedRelationTargetAuthority {
                 format!(
                     "target_store_path={} does not match runtime store {} for target_entity_tag={}",
                     self.store_path,
-                    runtime.store_path,
+                    runtime.store_path(),
                     self.entity_tag.value(),
                 ),
             ));
         }
 
-        let store = db.store_handle(runtime.store_path)?;
+        let store = db.store_handle(runtime.store_path())?;
         let selection = store
             .with_schema(|schema_store| {
                 schema_store.current_accepted_catalog_selection(
-                    runtime.entity_tag,
-                    runtime.entity_path,
-                    runtime.store_path,
+                    runtime.entity_tag(),
+                    runtime.entity_path(),
+                    runtime.store_path(),
                 )
             })?
             .ok_or_else(InternalError::store_corruption)?;
@@ -521,17 +516,6 @@ impl AcceptedRelationTargetAuthority {
 }
 
 impl InternalError {
-    /// Map a relation-target key normalization failure into a typed `InternalError`.
-    pub(in crate::db::relation) fn relation_target_raw_key_error(
-        _source_path: &'static str,
-        _field_name: &str,
-        _target_path: &str,
-        _value: &Value,
-        _message: &'static str,
-    ) -> Self {
-        Self::executor_unsupported()
-    }
-
     /// Construct the canonical relation invalid target-name error.
     pub(in crate::db::relation) fn relation_target_name_invalid(
         _source_path: &str,
@@ -552,51 +536,6 @@ impl InternalError {
     ) -> Self {
         Self::executor_internal()
     }
-
-    /// Construct the canonical save-time relation missing-target error.
-    pub(in crate::db::relation) fn relation_target_missing(
-        _source_path: &'static str,
-        _field_name: &str,
-        _target_path: &str,
-        _value: &Value,
-    ) -> Self {
-        Self::executor_unsupported()
-    }
-
-    /// Construct the canonical capability-based relation target policy error.
-    pub(in crate::db::relation) fn relation_volatile_target_unsupported(
-        _source_path: &'static str,
-        _field_name: &str,
-        _target_path: &str,
-        _source_store_path: &'static str,
-        _target_store_path: &str,
-    ) -> Self {
-        Self::executor_unsupported()
-    }
-}
-
-/// Visit concrete relation target values for one relation field payload.
-///
-/// Runtime relation List/Set shapes are represented as `Value::List`, and
-/// optional relation slots may be explicit `Value::Null`.
-pub(super) fn for_each_relation_target_value(
-    value: &Value,
-    mut visit: impl FnMut(&Value) -> Result<(), InternalError>,
-) -> Result<(), InternalError> {
-    match value {
-        Value::List(items) => {
-            for item in items {
-                if matches!(item, Value::Null) {
-                    continue;
-                }
-                visit(item)?;
-            }
-        }
-        Value::Null => {}
-        _ => visit(value)?,
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]

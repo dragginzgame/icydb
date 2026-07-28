@@ -1,28 +1,28 @@
 //! Module: db
 //!
-//! Responsibility: root subsystem wiring, façade re-exports, and entity
-//! registration contracts.
+//! Responsibility: root subsystem wiring, façade re-exports, and accepted
+//! runtime entity routing.
 //! Does not own: feature semantics delegated to child modules (`query`, `executor`, etc.).
 //! Boundary: top-level db API and internal orchestration entrypoints.
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(crate) mod access;
 pub(crate) mod catalog;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(crate) mod cursor;
 pub(crate) mod diagnostics;
 mod dynamic_write;
-pub(crate) mod entity_registration;
 pub(crate) mod identity;
 pub(crate) mod integrity;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) mod physical_access;
 pub(crate) mod predicate;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(crate) mod query;
 pub(crate) mod registry;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(crate) mod response;
+pub(crate) mod runtime_entity_catalog;
 pub(crate) mod scalar_expr;
 pub(crate) mod schema;
 pub(crate) mod session;
@@ -77,27 +77,29 @@ pub use diagnostics::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, SchemaStoreSnapshot, StorageReport,
     StoreSnapshotStorageMode,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub use diagnostics::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionStats,
     ExecutionTrace,
 };
 #[doc(hidden)]
-pub use dynamic_write::{DynamicMutation, DynamicStructuralPatch, DynamicWriteCell};
+pub use dynamic_write::{
+    DynamicMutation, DynamicStructuralPatch, DynamicTypedMutation, DynamicTypedStructuralPatch,
+    DynamicWriteCell,
+};
 pub use dynamic_write::{
     DynamicMutationResult, DynamicTypedBindingError, DynamicTypedEntityBinding,
     DynamicTypedFieldBindingRequest, DynamicTypedFieldType,
 };
-pub use entity_registration::EntityRegistration;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub use executor::{ExecutionFamily, RouteExecutionMode};
-#[cfg(all(feature = "diagnostics", any(test, feature = "sql")))]
+#[cfg(all(feature = "diagnostics", any(test, feature = "query")))]
 #[doc(hidden)]
 pub use executor::{RowCheckMetrics, with_row_check_metrics};
 #[cfg(all(test, not(feature = "diagnostics")))]
 #[expect(unused_imports)]
 pub(crate) use executor::{RowCheckMetrics, with_row_check_metrics};
-#[cfg(all(feature = "diagnostics", any(test, feature = "sql")))]
+#[cfg(all(feature = "diagnostics", any(test, feature = "query")))]
 #[doc(hidden)]
 pub use executor::{ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics};
 #[cfg(all(test, not(feature = "diagnostics")))]
@@ -128,7 +130,7 @@ pub use key_taxonomy::{
 pub use predicate::{
     CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub use query::builder::numeric_projection::{
     NumericProjectionExpr, RoundProjectionExpr, add, div, mul, round, round_expr, sub,
 };
@@ -137,11 +139,11 @@ pub use query::explain::{
     ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
     ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub use query::plan::validate::PlanError;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub use query::{DynamicQuery, DynamicQueryResult};
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub use query::{
     builder::{
         AggregateExpr, FieldRef, TextProjectionExpr, ValueProjectionExpr, avg, contains, count,
@@ -169,33 +171,22 @@ pub use registry::{
     StoreRelationSourceCapability, StoreRelationTargetCapability, StoreRuntimeStorageCapabilities,
     StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub use response::GroupedRow;
 #[doc(hidden)]
 pub use schema::validate_generated_constraint_name;
 pub use schema::{
     ConstraintValidationProgressDescription, EntityConstraintDescription, EntityFieldDescription,
     EntityIndexDescription, EntityRelationCardinality, EntityRelationDescription,
-    EntitySchemaCheckDescription, EntitySchemaDescription, SchemaLiteralValidationReason,
-    SchemaStore, SchemaValidationOperator, ValidateError,
+    EntitySchemaDescription, SchemaLiteralValidationReason, SchemaStore, SchemaValidationOperator,
+    ValidateError,
 };
 pub use schema::{
     SchemaApplicationStore, SchemaApplicationTarget, SchemaChangeJob, SchemaChangeJobId,
     SchemaChangeOutcome, SchemaChangeProgress, SchemaChangeProgressStatus, SchemaChangeReceipt,
     SchemaChangeValidationPhase,
 };
-#[cfg(not(feature = "sql"))]
 pub use session::DbSession;
-#[cfg(feature = "sql")]
-pub use session::{
-    DbSession, SqlConstraintValidationPage, SqlConstraintValidationRevisionStatus,
-    SqlConstraintValidationState, SqlDdlExecutionStatus, SqlDdlMutationKind,
-    SqlDdlPreparationReport, SqlIntegrityError, SqlStatementDispatch, SqlStatementResult,
-    SqlStatementShellSurface, SqlStatementSurface, TrustedResumableUpdateContinuation,
-    TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,
-    TrustedResumableUpdateRestartReason, sql_statement_dispatch, sql_statement_entity_name,
-    sql_statement_shell_surface, sql_statement_surface,
-};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use session::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
@@ -206,6 +197,16 @@ pub use session::{
     SqlCompileAttribution, SqlExecutionAttribution, SqlHybridCoveringAttribution,
     SqlOutputBlobAttribution, SqlPureCoveringAttribution, SqlQueryCacheAttribution,
     SqlQueryExecutionAttribution,
+};
+#[cfg(feature = "sql")]
+pub use session::{
+    SqlConstraintValidationPage, SqlConstraintValidationRevisionStatus,
+    SqlConstraintValidationState, SqlDdlExecutionStatus, SqlDdlMutationKind,
+    SqlDdlPreparationReport, SqlIntegrityError, SqlStatementDispatch, SqlStatementResult,
+    SqlStatementShellSurface, SqlStatementSurface, TrustedResumableUpdateContinuation,
+    TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,
+    TrustedResumableUpdateRestartReason, sql_statement_dispatch, sql_statement_entity_name,
+    sql_statement_shell_surface, sql_statement_surface,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]
@@ -227,20 +228,15 @@ pub use write_context::MutationMode;
 
 pub(crate) struct Db<C: CanisterKind> {
     store: &'static LocalKey<StoreRegistry>,
-    entity_registrations: &'static [EntityRegistration<C>],
     _marker: PhantomData<C>,
 }
 
 impl<C: CanisterKind> Db<C> {
-    /// Construct a database handle with explicit generated entity registrations.
+    /// Construct a database handle over one sealed runtime store registry.
     #[must_use]
-    pub(crate) const fn new_with_registrations(
-        store: &'static LocalKey<StoreRegistry>,
-        entity_registrations: &'static [EntityRegistration<C>],
-    ) -> Self {
+    pub(crate) const fn new(store: &'static LocalKey<StoreRegistry>) -> Self {
         Self {
             store,
-            entity_registrations,
             _marker: PhantomData,
         }
     }
@@ -311,10 +307,19 @@ impl<C: CanisterKind> Db<C> {
         &self,
         op: &CommitRowOp,
     ) -> Result<PreparedRowCommitOp, InternalError> {
-        entity_registration::prepare_row_commit_with_registration(
+        runtime_entity_catalog::prepare_row_commit(self, op, commit::CommitPrepareMode::NormalWrite)
+    }
+
+    // Rebuild one already-authorized marker effect without re-running current
+    // accepted relation-target admission.
+    pub(in crate::db) fn prepare_row_commit_op_for_replay(
+        &self,
+        op: &CommitRowOp,
+    ) -> Result<PreparedRowCommitOp, InternalError> {
+        runtime_entity_catalog::prepare_row_commit(
             self,
-            self.entity_registrations,
             op,
+            commit::CommitPrepareMode::RecoveryReplay,
         )
     }
 
@@ -324,10 +329,10 @@ impl<C: CanisterKind> Db<C> {
         &self,
         op: &CommitRowOp,
     ) -> Result<PreparedRowCommitOp, InternalError> {
-        entity_registration::prepare_row_commit_with_registration_for_rebuild(
+        runtime_entity_catalog::prepare_row_commit(
             self,
-            self.entity_registrations,
             op,
+            commit::CommitPrepareMode::DerivedRebuild,
         )
     }
 
@@ -337,12 +342,7 @@ impl<C: CanisterKind> Db<C> {
         target_path: &str,
         deleted_target_keys: &BTreeSet<RawDataStoreKey>,
     ) -> Result<(), InternalError> {
-        entity_registration::validate_delete_relations_with_registrations(
-            self,
-            self.entity_registrations,
-            target_path,
-            deleted_target_keys,
-        )
+        runtime_entity_catalog::validate_delete_relations(self, target_path, deleted_target_keys)
     }
 }
 
@@ -403,44 +403,32 @@ impl<C: CanisterKind> Db<C> {
         memory
     }
 
-    // Resolve exactly one model-free runtime registration for a persisted tag.
-    pub(in crate::db) fn runtime_registration_for_entity_tag(
+    // Resolve exactly one accepted runtime entity for a persisted tag.
+    pub(in crate::db) fn accepted_runtime_entity_for_tag(
         &self,
         entity_tag: EntityTag,
-    ) -> Result<entity_registration::EntityRuntimeRegistration<C>, InternalError> {
-        entity_registration::resolve_runtime_registration_by_tag(
-            self,
-            self.entity_registrations,
-            entity_tag,
-        )
+    ) -> Result<runtime_entity_catalog::AcceptedRuntimeEntity, InternalError> {
+        runtime_entity_catalog::accepted_runtime_entity_for_tag(self, entity_tag)
     }
 
-    // Resolve exactly one model-free runtime registration for an entity path.
-    pub(in crate::db) fn runtime_registration_for_entity_path(
+    // Resolve exactly one accepted runtime entity for an immutable entity path.
+    pub(in crate::db) fn accepted_runtime_entity_for_path(
         &self,
         entity_path: &str,
-    ) -> Result<entity_registration::EntityRuntimeRegistration<C>, InternalError> {
-        entity_registration::resolve_runtime_registration_by_path(
-            self,
-            self.entity_registrations,
-            entity_path,
-        )
+    ) -> Result<runtime_entity_catalog::AcceptedRuntimeEntity, InternalError> {
+        runtime_entity_catalog::accepted_runtime_entity_for_path(self, entity_path)
     }
 
-    // Resolve generated source routing while an accepted candidate is still
-    // unpublished and therefore cannot yet supply runtime identity.
-    pub(in crate::db) fn generated_route_for_entity_path(
+    // Enumerate deterministic accepted runtime entities across registered stores.
+    pub(in crate::db) fn accepted_runtime_entities(
         &self,
-        entity_path: &str,
-    ) -> Result<entity_registration::GeneratedEntityRoute<C>, InternalError> {
-        entity_registration::resolve_generated_route_by_path(self.entity_registrations, entity_path)
+    ) -> Result<Vec<runtime_entity_catalog::AcceptedRuntimeEntity>, InternalError> {
+        runtime_entity_catalog::accepted_runtime_entities(self)
     }
 }
 
-impl<C: CanisterKind> Copy for Db<C> {}
-
 impl<C: CanisterKind> Clone for Db<C> {
     fn clone(&self) -> Self {
-        *self
+        Self::new(self.store)
     }
 }

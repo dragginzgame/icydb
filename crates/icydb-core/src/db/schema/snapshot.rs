@@ -3,13 +3,14 @@
 //! Does not own: startup reconciliation, stable-memory storage, or generated model metadata.
 //! Boundary: schema-owned DTOs that can become the `icydb_schema` payload.
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 use crate::db::predicate::{relabel_sql_predicate_field_root, sql_predicate_references_field_root};
 use crate::{
     db::schema::{
-        AcceptedConstraintCatalog, AcceptedConstraintSnapshot, AcceptedFieldKind,
-        ConstraintActivationKind, ConstraintActivationSnapshot, ConstraintActivationState,
-        ConstraintId, ConstraintIdAllocator, FieldId, FieldInsertGeneration, FieldStorageDecode,
+        AcceptedConstraintCatalog, AcceptedConstraintIdentity, AcceptedConstraintKind,
+        AcceptedConstraintSnapshot, AcceptedFieldKind, ConstraintActivationKind,
+        ConstraintActivationSnapshot, ConstraintActivationState, ConstraintId,
+        ConstraintIdAllocator, FieldId, FieldInsertGeneration, FieldStorageDecode,
         FieldWriteManagement, LeafCodec, RelationId, RowLayoutVersion, SchemaFieldSlot,
         SchemaIndexId, SchemaRowLayout, SchemaVersion, constraint::AcceptedConstraintCatalogError,
         schema_snapshot_constraint_integrity_detail, schema_snapshot_index_integrity_detail,
@@ -333,7 +334,7 @@ impl PersistedSchemaSnapshot {
     }
 
     /// Reserve one planner-invisible unique-index owner and its activation.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn with_added_unique_activation(
         mut self,
         candidate: PersistedIndexSnapshot,
@@ -689,6 +690,93 @@ impl PersistedSchemaSnapshot {
         self.constraint_catalog.constraints()
     }
 
+    /// Project the sole accepted unique-constraint identity for one index.
+    ///
+    /// `None` means the accepted owner is absent or ambiguous. Runtime
+    /// consumers fail closed because either case contradicts catalog closure.
+    #[must_use]
+    pub(in crate::db) fn unique_constraint_identity(
+        &self,
+        index_id: SchemaIndexId,
+    ) -> Option<AcceptedConstraintIdentity> {
+        self.constraint_identity_matching(|kind| {
+            matches!(
+                kind,
+                AcceptedConstraintKind::Unique {
+                    index_id: accepted
+                } if *accepted == index_id
+            )
+        })
+    }
+
+    /// Project the sole accepted relation-constraint identity for one edge.
+    ///
+    /// `None` means the accepted owner is absent or ambiguous. Runtime
+    /// consumers fail closed because either case contradicts catalog closure.
+    #[must_use]
+    pub(in crate::db) fn relation_constraint_identity(
+        &self,
+        relation_id: RelationId,
+    ) -> Option<AcceptedConstraintIdentity> {
+        self.constraint_identity_matching(|kind| {
+            matches!(
+                kind,
+                AcceptedConstraintKind::Relation {
+                    relation_id: accepted
+                } if *accepted == relation_id
+            )
+        })
+    }
+
+    /// Project the sole active or activating relation enforcement identity.
+    ///
+    /// Active row contracts use [`Self::relation_constraint_identity`].
+    /// Candidate activation projections use this wider helper because their
+    /// physical relation owner is intentionally not accepted yet, while the
+    /// activation already reserves the final constraint identity.
+    #[must_use]
+    pub(in crate::db) fn relation_enforcement_identity(
+        &self,
+        relation_id: RelationId,
+    ) -> Option<AcceptedConstraintIdentity> {
+        let accepted = self.relation_constraint_identity(relation_id);
+        let mut activations = self.constraint_activations().iter().filter(|activation| {
+            matches!(
+                activation.kind(),
+                ConstraintActivationKind::Relation {
+                    relation_id: activating
+                } if *activating == relation_id
+            )
+        });
+        let activating = activations.next().map(|activation| {
+            AcceptedConstraintIdentity::new(activation.id(), activation.name().to_string())
+        });
+        if activations.next().is_some() {
+            return None;
+        }
+        match (accepted, activating) {
+            (Some(identity), None) | (None, Some(identity)) => Some(identity),
+            (Some(_), Some(_)) | (None, None) => None,
+        }
+    }
+
+    fn constraint_identity_matching(
+        &self,
+        predicate: impl Fn(&AcceptedConstraintKind) -> bool,
+    ) -> Option<AcceptedConstraintIdentity> {
+        let mut matching = self
+            .constraints()
+            .iter()
+            .filter(|constraint| predicate(constraint.kind()));
+        let identity = matching
+            .next()
+            .map(AcceptedConstraintIdentity::from_constraint);
+        if matching.next().is_some() {
+            return None;
+        }
+        identity
+    }
+
     /// Borrow live constraint activations ordered by reserved identity.
     #[must_use]
     pub(in crate::db) const fn constraint_activations(&self) -> &[ConstraintActivationSnapshot] {
@@ -735,7 +823,7 @@ impl PersistedSchemaSnapshot {
     /// DDL callers supply the version from source intent; storage must never
     /// synthesize it.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn clone_with_version(&self, version: SchemaVersion) -> Self {
         Self::new_with_primary_key_fields_and_indexes(
             version,
@@ -1010,7 +1098,7 @@ impl PersistedIndexSnapshot {
     /// Both key components and filtered-index predicates participate. A
     /// malformed accepted predicate fails closed as a dependency because a
     /// metadata-only field mutation must not risk stale physical index state.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn references_field(&self, field_id: FieldId, field_name: &str) -> bool {
         self.key.references_field(field_id)
             || self.predicate_sql().is_some_and(|predicate_sql| {
@@ -1020,7 +1108,7 @@ impl PersistedIndexSnapshot {
 
     /// Clone this accepted index with display metadata updated for a renamed
     /// accepted field. Physical index identity and key shape remain unchanged.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     #[must_use]
     pub(in crate::db) fn clone_with_renamed_field_path_root(
         &self,
@@ -1118,7 +1206,7 @@ impl PersistedIndexKeySnapshot {
     /// Clone this key with direct field-path root labels renamed for the
     /// supplied durable field ID.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn clone_with_renamed_field_path_root(
         &self,
         field_id: FieldId,
@@ -1185,7 +1273,7 @@ impl PersistedIndexKeyItemSnapshot {
 
     /// Clone this item with direct field-path root labels renamed.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn clone_with_renamed_field_path_root(
         &self,
         field_id: FieldId,
@@ -1286,7 +1374,7 @@ impl PersistedIndexFieldPathSnapshot {
     /// Clone this key item with a renamed top-level accepted field label when
     /// it targets the supplied durable field ID.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn clone_with_renamed_root(&self, field_id: FieldId, new_name: &str) -> Self {
         let mut path = self.path.clone();
         if self.field_id == field_id
@@ -1388,7 +1476,7 @@ impl PersistedIndexExpressionSnapshot {
     /// Clone this expression with its accepted source field-path root label
     /// renamed and canonical expression text regenerated from the new path.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn clone_with_renamed_source_root(
         &self,
         field_id: FieldId,
@@ -1420,7 +1508,7 @@ impl PersistedIndexExpressionSnapshot {
     }
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn canonical_expression_text_for_path(op: PersistedIndexExpressionOp, path: &[String]) -> String {
     let path = path.join(".");
     match op {
@@ -1696,7 +1784,7 @@ impl PersistedFieldSnapshot {
 
     /// Return a copy of this field with an updated future insertion default.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn clone_with_insert_default(
         &self,
         insert_default: SchemaInsertDefault,
@@ -1720,7 +1808,7 @@ impl PersistedFieldSnapshot {
 
     /// Return a copy of this field with an updated accepted SQL/catalog name.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn clone_with_name(&self, name: String) -> Self {
         Self {
             id: self.id,
@@ -1872,7 +1960,7 @@ pub(in crate::db) enum SchemaInsertDefault {
 impl SchemaInsertDefault {
     /// Return whether this field declares no future insertion default.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) const fn is_none(&self) -> bool {
         matches!(self, Self::None)
     }

@@ -76,7 +76,7 @@ impl<C: CanisterKind> DbSession<C> {
         ),
         QueryError,
     > {
-        let entity_path = catalog.identity().entity_path();
+        let entity_path = catalog.identity().entity_path_handle();
         let (cache_key_local_instructions, context) = measured(|| {
             Ok(SqlCompiledCommandCacheContext::from_catalog(
                 surface, sql, catalog,
@@ -92,7 +92,7 @@ impl<C: CanisterKind> DbSession<C> {
                 attribution,
                 sql,
                 surface,
-                entity_path,
+                entity_path.as_ref(),
             )?;
         let context =
             SqlCompiledCommandExecutionContext::new(compiled, catalog, accepted_authority, surface);
@@ -109,7 +109,7 @@ impl<C: CanisterKind> DbSession<C> {
         mut attribution: SqlCompileAttributionBuilder,
         sql: &str,
         surface: SqlCompiledCommandSurface,
-        entity_path: &'static str,
+        entity_path: &str,
     ) -> Result<
         (
             CompiledSqlCommand,

@@ -36,10 +36,10 @@ use crate::{
             RawRow, StructuralSlotReader,
         },
         database_format::ensure_database_format_admitted,
-        entity_registration::EntityRuntimeRegistration,
         index::IndexStore,
         journal::{FoldWatermark, JournalBatch, JournalRecord, JournalSequence, JournalTailStore},
         registry::{StoreHandle, StoreRecoveryCapability, StoreSchemaMetadataCapability},
+        runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::{
             AcceptedCatalogSnapshotSelection, AcceptedSchemaRevision, CandidateSchemaRevision,
             ConstraintId, SchemaStore, accepted_commit_schema_fingerprint,
@@ -76,15 +76,14 @@ thread_local! {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct RuntimeRegistrationDomainKey {
+struct RuntimeStoreDomainKey {
     store_registry: usize,
-    entity_registrations: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct RecoveryDomainKey {
     commit_allocation: CommitMemoryAllocation,
-    runtime_registration: RuntimeRegistrationDomainKey,
+    runtime_stores: RuntimeStoreDomainKey,
 }
 
 /// Ensure global database invariants are restored before proceeding.
@@ -290,7 +289,7 @@ fn apply_marker_live_schema_checkpoints<C: CanisterKind>(
         {
             continue;
         }
-        let Some(candidate) = journal_batch_schema_candidate(db, store_path, batch)? else {
+        let Some(candidate) = journal_batch_schema_candidate(store_path, batch)? else {
             continue;
         };
         let expected_revision = match batch.records().first() {
@@ -549,16 +548,16 @@ fn apply_journal_record<C: CanisterKind>(
                 return Err(InternalError::store_corruption());
             }
             let snapshot = decode_persisted_schema_snapshot(schema_snapshot_bytes)?;
-            let registration = db.runtime_registration_for_entity_path(snapshot.entity_path())?;
-            if registration.store_path != expected_store_path {
+            let runtime_entity = db.accepted_runtime_entity_for_path(snapshot.entity_path())?;
+            if runtime_entity.store_path() != expected_store_path {
                 return Err(InternalError::store_corruption());
             }
             expected_handle.with_schema_mut(|schema_store| match mode {
                 JournalRecordApplyMode::Replay => {
-                    schema_store.insert_persisted_snapshot(registration.entity_tag, &snapshot)
+                    schema_store.insert_persisted_snapshot(runtime_entity.entity_tag(), &snapshot)
                 }
                 JournalRecordApplyMode::Fold => {
-                    schema_store.fold_persisted_snapshot(registration.entity_tag, &snapshot)
+                    schema_store.fold_persisted_snapshot(runtime_entity.entity_tag(), &snapshot)
                 }
             })
         }
@@ -655,7 +654,7 @@ fn validate_journal_batch_records<C: CanisterKind>(
     batch: &JournalBatch,
     mode: JournalRecordApplyMode,
 ) -> Result<Option<CandidateSchemaRevision>, InternalError> {
-    let candidate = journal_batch_schema_candidate(db, expected_store_path, batch)?;
+    let candidate = journal_batch_schema_candidate(expected_store_path, batch)?;
     validate_journal_batch_constraint_validation_job_change(
         db,
         expected_store_path,
@@ -697,9 +696,8 @@ fn validate_journal_batch_records<C: CanisterKind>(
                     return Err(InternalError::store_corruption());
                 }
                 let snapshot = decode_persisted_schema_snapshot(schema_snapshot_bytes)?;
-                let registration =
-                    db.runtime_registration_for_entity_path(snapshot.entity_path())?;
-                if registration.store_path != expected_store_path {
+                let runtime_entity = db.accepted_runtime_entity_for_path(snapshot.entity_path())?;
+                if runtime_entity.store_path() != expected_store_path {
                     return Err(InternalError::store_corruption());
                 }
             }
@@ -735,7 +733,6 @@ fn validate_journal_batch_row_put<C: CanisterKind>(
     };
     if let Some(candidate) = candidate {
         return validate_candidate_journal_row_put(
-            db,
             expected_store_path,
             candidate,
             entity_path,
@@ -816,8 +813,7 @@ fn validate_journal_batch_row_delete<C: CanisterKind>(
     }
 }
 
-fn journal_batch_schema_candidate<C: CanisterKind>(
-    db: &Db<C>,
+fn journal_batch_schema_candidate(
     expected_store_path: &'static str,
     batch: &JournalBatch,
 ) -> Result<Option<CandidateSchemaRevision>, InternalError> {
@@ -845,12 +841,7 @@ fn journal_batch_schema_candidate<C: CanisterKind>(
                 for (entity_tag, snapshot) in decoded.bundle().entity_snapshots() {
                     let source = icydb_schema::EntitySourceKey::try_new(snapshot.entity_path())
                         .map_err(|_| InternalError::store_corruption())?;
-                    let route = db
-                        .generated_route_for_entity_path(snapshot.entity_path())
-                        .map_err(|_| InternalError::store_corruption())?;
-                    if route.store_path != expected_store_path
-                        || decoded.bundle().source_bindings().entity(&source) != Some(*entity_tag)
-                    {
+                    if decoded.bundle().source_bindings().entity(&source) != Some(*entity_tag) {
                         return Err(InternalError::store_corruption());
                     }
                 }
@@ -961,17 +952,16 @@ fn validate_constraint_validation_job_record_identity<C: CanisterKind>(
     if record_store_path != expected_store_path {
         return Err(InternalError::store_corruption());
     }
-    let registration = db
-        .runtime_registration_for_entity_tag(entity_tag)
+    let runtime_entity = db
+        .accepted_runtime_entity_for_tag(entity_tag)
         .map_err(|_| InternalError::store_corruption())?;
-    if registration.store_path != expected_store_path {
+    if runtime_entity.store_path() != expected_store_path {
         return Err(InternalError::store_corruption());
     }
     Ok(())
 }
 
-fn validate_candidate_journal_row_put<C: CanisterKind>(
-    db: &Db<C>,
+fn validate_candidate_journal_row_put(
     expected_store_path: &'static str,
     candidate: &CandidateSchemaRevision,
     entity_path: &str,
@@ -981,17 +971,21 @@ fn validate_candidate_journal_row_put<C: CanisterKind>(
 ) -> Result<(), InternalError> {
     let decoded_key = DecodedDataStoreKey::try_from_raw(primary_key)
         .map_err(|_| InternalError::store_corruption())?;
-    let registration = recovery_runtime_registration_for_entity_path(db, entity_path)?;
-    if registration.store_path != expected_store_path
-        || decoded_key.entity_tag() != registration.entity_tag
+    let runtime_entity = crate::db::runtime_entity_catalog::candidate_runtime_entity_for_path(
+        candidate,
+        expected_store_path,
+        entity_path,
+    )?;
+    if runtime_entity.store_path() != expected_store_path
+        || decoded_key.entity_tag() != runtime_entity.entity_tag()
     {
         return Err(InternalError::store_corruption());
     }
     let selection = crate::db::schema::AcceptedCatalogSnapshotSelection::from_candidate(
         candidate,
-        registration.entity_tag,
-        registration.entity_path,
-        registration.store_path,
+        runtime_entity.entity_tag(),
+        runtime_entity.entity_path(),
+        runtime_entity.store_path(),
     )?
     .ok_or_else(InternalError::store_corruption)?;
     if selection.identity().accepted_schema_fingerprint() != schema_fingerprint {
@@ -999,7 +993,7 @@ fn validate_candidate_journal_row_put<C: CanisterKind>(
     }
     let row = RawRow::from_untrusted_bytes(row_bytes.to_vec()).map_err(InternalError::from)?;
     let contract = AcceptedStructuralRowAuthority::from_catalog_selection(
-        registration.entity_path,
+        runtime_entity.entity_path(),
         &selection,
     )?
     .into_row_contract();
@@ -1044,18 +1038,18 @@ fn canonical_journal_row_selection<C: CanisterKind>(
 ) -> Result<(DecodedDataStoreKey, AcceptedCatalogSnapshotSelection), InternalError> {
     let decoded_key = DecodedDataStoreKey::try_from_raw(primary_key)
         .map_err(|_| InternalError::store_corruption())?;
-    let registration = recovery_runtime_registration_for_entity_path(db, entity_path)?;
-    if registration.store_path != expected_store_path
-        || decoded_key.entity_tag() != registration.entity_tag
+    let runtime_entity = recovery_accepted_runtime_entity_for_path(db, entity_path)?;
+    if runtime_entity.store_path() != expected_store_path
+        || decoded_key.entity_tag() != runtime_entity.entity_tag()
     {
         return Err(InternalError::store_corruption());
     }
     let selection = expected_handle
         .with_schema(|schema_store| {
             schema_store.current_canonical_accepted_catalog_selection(
-                registration.entity_tag,
-                registration.entity_path,
-                registration.store_path,
+                runtime_entity.entity_tag(),
+                runtime_entity.entity_path(),
+                runtime_entity.store_path(),
             )
         })?
         .ok_or_else(InternalError::store_corruption)?;
@@ -1076,17 +1070,17 @@ fn validate_journal_row_record<C: CanisterKind>(
 ) -> Result<(), InternalError> {
     let decoded_key = DecodedDataStoreKey::try_from_raw(primary_key)
         .map_err(|_| InternalError::store_corruption())?;
-    let registration = recovery_runtime_registration_for_entity_path(db, entity_path)?;
-    if registration.store_path != expected_store_path
-        || decoded_key.entity_tag() != registration.entity_tag
+    let runtime_entity = recovery_accepted_runtime_entity_for_path(db, entity_path)?;
+    if runtime_entity.store_path() != expected_store_path
+        || decoded_key.entity_tag() != runtime_entity.entity_tag()
     {
         return Err(InternalError::store_corruption());
     }
     let accepted = expected_handle.with_schema(|schema_store| {
         load_accepted_schema_snapshot(
             schema_store,
-            registration.entity_tag,
-            registration.entity_path,
+            runtime_entity.entity_tag(),
+            runtime_entity.entity_path(),
         )
     })?;
     let expected_fingerprint = accepted_commit_schema_fingerprint(&accepted)?;
@@ -1097,7 +1091,7 @@ fn validate_journal_row_record<C: CanisterKind>(
     Ok(())
 }
 
-// Accepted-registration recovery can validate unapplied journal row effects through
+// Accepted-entity recovery can validate unapplied journal row effects through
 // normal commit preflight. Already-reflected effects must skip that path because
 // commit preflight is stateful against the current live projection.
 fn validate_journal_row_put_preflight_if_needed<C: CanisterKind>(
@@ -1116,17 +1110,17 @@ fn validate_journal_row_put_preflight_if_needed<C: CanisterKind>(
         return Ok(());
     }
 
-    let registration = recovery_runtime_registration_for_entity_path(db, entity_path)?;
+    let runtime_entity = recovery_accepted_runtime_entity_for_path(db, entity_path)?;
     let before = expected_handle
         .with_data(|store| store.get(primary_key).map(|row| row.as_bytes().to_vec()));
     let op = CommitRowOp::try_new_bytes(
-        registration.entity_path,
+        runtime_entity.entity_path(),
         primary_key.as_bytes(),
         before,
         Some(row_bytes.to_vec()),
         schema_fingerprint,
     )?;
-    db.prepare_row_commit_op(&op)?;
+    db.prepare_row_commit_op_for_replay(&op)?;
 
     Ok(())
 }
@@ -1142,17 +1136,17 @@ fn validate_journal_row_delete_preflight_if_needed<C: CanisterKind>(
         return Ok(());
     }
 
-    let registration = recovery_runtime_registration_for_entity_path(db, entity_path)?;
+    let runtime_entity = recovery_accepted_runtime_entity_for_path(db, entity_path)?;
     let before = expected_handle
         .with_data(|store| store.get(primary_key).map(|row| row.as_bytes().to_vec()));
     let op = CommitRowOp::try_new_bytes(
-        registration.entity_path,
+        runtime_entity.entity_path(),
         primary_key.as_bytes(),
         before,
         None,
         schema_fingerprint,
     )?;
-    db.prepare_row_commit_op(&op)?;
+    db.prepare_row_commit_op_for_replay(&op)?;
 
     Ok(())
 }
@@ -1228,29 +1222,28 @@ fn journal_row_record_store_handle<C: CanisterKind>(
     entity_path: &str,
     _record: &JournalRecord,
 ) -> Result<(&'static str, StoreHandle), InternalError> {
-    let registration = recovery_runtime_registration_for_entity_path(db, entity_path)?;
-    registry_store_handle_for_path(db, registration.store_path)
+    let runtime_entity = recovery_accepted_runtime_entity_for_path(db, entity_path)?;
+    registry_store_handle_for_path(db, runtime_entity.store_path())
 }
 
-fn recovery_runtime_registration_for_entity_path<C: CanisterKind>(
+fn recovery_accepted_runtime_entity_for_path<C: CanisterKind>(
     db: &Db<C>,
     entity_path: &str,
-) -> Result<EntityRuntimeRegistration<C>, InternalError> {
-    db.runtime_registration_for_entity_path(entity_path)
+) -> Result<AcceptedRuntimeEntity, InternalError> {
+    db.accepted_runtime_entity_for_path(entity_path)
         .map_err(|_| InternalError::store_corruption())
 }
 
-fn runtime_registration_domain_key<C: CanisterKind>(db: &Db<C>) -> RuntimeRegistrationDomainKey {
-    RuntimeRegistrationDomainKey {
+fn runtime_store_domain_key<C: CanisterKind>(db: &Db<C>) -> RuntimeStoreDomainKey {
+    RuntimeStoreDomainKey {
         store_registry: std::ptr::from_ref(db.store).cast::<()>() as usize,
-        entity_registrations: db.entity_registrations.as_ptr().cast::<()>() as usize,
     }
 }
 
 fn recovery_domain_key<C: CanisterKind>(db: &Db<C>) -> Result<RecoveryDomainKey, InternalError> {
     Ok(RecoveryDomainKey {
         commit_allocation: current_commit_memory_allocation()?,
-        runtime_registration: runtime_registration_domain_key(db),
+        runtime_stores: runtime_store_domain_key(db),
     })
 }
 
@@ -1523,8 +1516,8 @@ fn verify_recovered_row_put<C: CanisterKind>(
         return Ok(());
     }
 
-    let registration = recovery_runtime_registration_for_entity_path(db, entity_path)?;
-    let (_, handle) = registry_store_handle_for_path(db, registration.store_path)?;
+    let runtime_entity = recovery_accepted_runtime_entity_for_path(db, entity_path)?;
+    let (_, handle) = registry_store_handle_for_path(db, runtime_entity.store_path())?;
     let row_matches = handle
         .with_data(|store| store.get(primary_key))
         .is_some_and(|row| row.as_bytes() == row_bytes);
@@ -1575,8 +1568,8 @@ fn verify_recovered_row_delete<C: CanisterKind>(
         return Ok(());
     }
 
-    let registration = recovery_runtime_registration_for_entity_path(db, entity_path)?;
-    let (_, handle) = registry_store_handle_for_path(db, registration.store_path)?;
+    let runtime_entity = recovery_accepted_runtime_entity_for_path(db, entity_path)?;
+    let (_, handle) = registry_store_handle_for_path(db, runtime_entity.store_path())?;
     if handle.with_data(|store| store.contains(primary_key)) {
         return Err(InternalError::recovery_effect_verification_failed());
     }
@@ -1591,13 +1584,13 @@ fn verify_recovered_schema_put<C: CanisterKind>(
     verified: &mut BTreeSet<RecoveredEffectIdentity>,
 ) -> Result<(), InternalError> {
     let snapshot = decode_persisted_schema_snapshot(schema_snapshot_bytes)?;
-    let registration = db.runtime_registration_for_entity_path(snapshot.entity_path())?;
-    if registration.store_path != store_path {
+    let runtime_entity = db.accepted_runtime_entity_for_path(snapshot.entity_path())?;
+    if runtime_entity.store_path() != store_path {
         return Err(InternalError::recovery_effect_verification_failed());
     }
     let identity = RecoveredEffectIdentity::Schema {
         store_path: store_path.to_string(),
-        entity_tag: registration.entity_tag.value(),
+        entity_tag: runtime_entity.entity_tag().value(),
         schema_version: snapshot.version().get(),
     };
     if !verified.insert(identity) {
@@ -1606,7 +1599,7 @@ fn verify_recovered_schema_put<C: CanisterKind>(
 
     let (_, handle) = registry_store_handle_for_path(db, store_path)?;
     let persisted = handle.with_schema(|store| {
-        store.get_persisted_snapshot(registration.entity_tag, snapshot.version())
+        store.get_persisted_snapshot(runtime_entity.entity_tag(), snapshot.version())
     })?;
     if persisted.as_ref() != Some(&snapshot) {
         return Err(InternalError::recovery_effect_verification_failed());

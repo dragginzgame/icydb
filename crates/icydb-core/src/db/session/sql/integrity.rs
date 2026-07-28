@@ -111,7 +111,7 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(IntegrityDeepError::from)?
             .ok_or_else(|| QueryError::sql_lowering(SqlLoweringCode::EntityMismatch))?;
         Ok(IntegrityEntityIdentity::from_accepted_identity(
-            catalog.identity(),
+            catalog.inspection_plan().identity_ref(),
         ))
     }
 }

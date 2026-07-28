@@ -130,7 +130,7 @@ impl AcceptedFieldKind {
 
     /// Return whether this accepted kind contains catalog enum identity.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn contains_enum(&self) -> bool {
         match self {
             Self::Enum { .. } => true,
@@ -170,7 +170,7 @@ impl AcceptedFieldKind {
 
     /// Return whether this accepted kind contains relation identity.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn contains_relation(&self) -> bool {
         match self {
             Self::Relation { .. } => true,

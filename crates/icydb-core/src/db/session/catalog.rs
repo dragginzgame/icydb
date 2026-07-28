@@ -98,35 +98,38 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         store_path: &str,
         schema: &SchemaInfo,
+        snapshot: &crate::db::schema::PersistedSchemaSnapshot,
     ) -> Vec<String> {
         let runtime_state = self
             .db
             .with_store_registry(|registry| registry.try_get_store(store_path).ok())
             .map(|store| store.index_state());
 
-        show_indexes_for_schema_info_with_runtime_state(schema, runtime_state)
+        show_indexes_for_schema_info_with_runtime_state(schema, snapshot, runtime_state)
     }
 
-    /// Return one stable list of runtime-registered entity catalog entries.
+    /// Return one stable list of accepted runtime entity catalog entries.
     pub fn show_entities(&self) -> Result<Vec<EntityCatalogDescription>, InternalError> {
-        let mut entities = Vec::with_capacity(self.db.entity_registrations.len());
+        let runtime_entities = self.db.accepted_runtime_entities()?;
+        let mut entities = Vec::with_capacity(runtime_entities.len());
 
-        for entity_registration in self.db.entity_registrations {
-            let registration = entity_registration.runtime().resolve(&self.db)?;
-            let store = self.db.recovered_store(registration.store_path)?;
+        for runtime_entity in runtime_entities {
+            let store = self.db.recovered_store(runtime_entity.store_path())?;
             let storage = store
                 .storage_capabilities()
                 .storage_mode()
                 .as_str()
                 .to_string();
-            let accepted =
-                self.accepted_schema_catalog_context_for_runtime_registration(registration, store)?;
+            let accepted = self.accepted_schema_catalog_context_for_runtime_entity(
+                runtime_entity.clone(),
+                store,
+            )?;
             let snapshot = accepted.snapshot().persisted_snapshot();
 
             entities.push(EntityCatalogDescription::new(
                 snapshot.entity_name().to_string(),
                 snapshot.entity_path().to_string(),
-                registration.store_path.to_string(),
+                runtime_entity.store_path().to_string(),
                 storage,
                 EntityCatalogCounts::new(
                     u32::try_from(snapshot.fields().len()).unwrap_or(u32::MAX),

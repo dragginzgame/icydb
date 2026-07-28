@@ -12,7 +12,7 @@ use crate::db::schema::{
     SchemaMutationRequest, schema_mutation_request_for_snapshots,
 };
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 use crate::db::schema::SchemaExpressionIndexRebuildTarget;
 
 #[cfg(test)]
@@ -127,7 +127,7 @@ impl SchemaTransitionPlan {
         self.mutation_plan.field_path_index_target()
     }
 
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db::schema) const fn expression_index_target(
         &self,
     ) -> Option<&SchemaExpressionIndexRebuildTarget> {
@@ -246,7 +246,7 @@ impl SchemaTransitionRejection {
 
     // Return the structured schema-version admission decision when this
     // rejection came from the version/method/fingerprint gate.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db::schema) const fn admission(
         &self,
     ) -> Option<SchemaAdmissionRejectionClassification> {

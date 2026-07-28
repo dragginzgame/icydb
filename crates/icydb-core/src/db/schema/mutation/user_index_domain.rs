@@ -3,7 +3,7 @@
 //! Does not own: accepted-schema marker persistence or physical index apply.
 //! Boundary: accepted schema + authoritative rows + current index view -> staged raw replacement.
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 use crate::db::{
     commit::CommitSchemaFingerprint,
     index::IndexId,
@@ -31,7 +31,7 @@ use crate::{
     error::{InternalError, SchemaTransitionBudgetResource},
     types::EntityTag,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 use std::collections::BTreeSet;
 use std::mem::size_of;
 
@@ -48,17 +48,17 @@ const MAX_DELETION_KEYS: usize = 65_536;
 pub(in crate::db) struct SchemaUserIndexDomainRow<'a> {
     primary_key_value: PrimaryKeyValue,
     #[cfg_attr(
-        not(any(test, feature = "sql")),
+        not(any(test, feature = "query")),
         expect(dead_code, reason = "complete-domain staging is SQL-owned")
     )]
     accepted_before_slots: &'a dyn CanonicalSlotReader,
     #[cfg_attr(
-        not(any(test, feature = "sql")),
+        not(any(test, feature = "query")),
         expect(dead_code, reason = "complete-domain staging is SQL-owned")
     )]
     accepted_after_slots: &'a dyn CanonicalSlotReader,
     #[cfg_attr(
-        not(any(test, feature = "sql")),
+        not(any(test, feature = "query")),
         expect(dead_code, reason = "complete-domain staging is SQL-owned")
     )]
     encoded_row_bytes: usize,
@@ -97,7 +97,7 @@ pub(in crate::db) struct StagedUserIndexDomainEntry {
 
 impl StagedUserIndexDomainEntry {
     /// Borrow the prevalidated raw store key.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     #[must_use]
     pub(in crate::db) const fn key(&self) -> &RawIndexStoreKey {
         &self.key
@@ -111,7 +111,7 @@ impl StagedUserIndexDomainEntry {
     }
 
     /// Consume this staged entry into its allocation-complete raw parts.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn into_parts(self) -> (RawIndexStoreKey, IndexEntryValue) {
         (self.key, self.value)
     }
@@ -138,21 +138,21 @@ pub(in crate::db) struct StagedUserIndexDomainUsage {
 
 impl StagedUserIndexDomainUsage {
     /// Return the number of authoritative rows scanned once by the builder.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     #[must_use]
     pub(in crate::db) const fn source_rows(self) -> usize {
         self.source_rows
     }
 
     /// Return the number of entries in the row-derived accepted-before domain.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     #[must_use]
     pub(in crate::db) const fn accepted_before_entries(self) -> usize {
         self.accepted_before_entries
     }
 
     /// Return the number of entries in the row-derived accepted-after domain.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     #[must_use]
     pub(in crate::db) const fn accepted_after_entries(self) -> usize {
         self.accepted_after_entries
@@ -171,7 +171,7 @@ impl StagedUserIndexDomainUsage {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) struct StagedUserIndexDomainReplacement {
     store_path: &'static str,
     entity_tag: EntityTag,
@@ -183,7 +183,7 @@ pub(in crate::db) struct StagedUserIndexDomainReplacement {
     usage: StagedUserIndexDomainUsage,
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 impl StagedUserIndexDomainReplacement {
     /// Borrow the backing store path captured from accepted-before authority.
     #[must_use]
@@ -199,8 +199,8 @@ impl StagedUserIndexDomainReplacement {
 
     /// Return the exact accepted-before catalog identity used for derivation.
     #[must_use]
-    pub(in crate::db) const fn accepted_before_identity(&self) -> AcceptedCatalogIdentity {
-        self.accepted_before_identity
+    pub(in crate::db) fn accepted_before_identity(&self) -> AcceptedCatalogIdentity {
+        self.accepted_before_identity.clone()
     }
 
     /// Return the accepted-after declared schema version used for derivation.
@@ -251,7 +251,7 @@ impl StagedUserIndexDomainReplacement {
 /// aggregate bounds are enforced before projection state is retained.
 ///
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) struct StagedUserIndexDomainReplacementBuilder {
     store_path: &'static str,
     entity_tag: EntityTag,
@@ -265,7 +265,7 @@ pub(in crate::db) struct StagedUserIndexDomainReplacementBuilder {
     budget: StagedUserIndexDomainBudget,
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 impl StagedUserIndexDomainReplacementBuilder {
     /// Begin one stage from accepted schema authority and a Ready physical view.
     pub(in crate::db) fn new(
@@ -277,7 +277,7 @@ impl StagedUserIndexDomainReplacementBuilder {
         index_store: &IndexStore,
     ) -> Result<Self, StagedUserIndexDomainError> {
         validate_stage_authority(
-            accepted_before_identity,
+            &accepted_before_identity,
             accepted_before,
             accepted_after,
             accepted_before_row_contract,
@@ -349,13 +349,11 @@ impl StagedUserIndexDomainReplacementBuilder {
             &mut self.expected_before,
             &self.before_projection.unique_index_ids,
             ProjectionAuthority::AcceptedBefore,
-            self.accepted_before_identity.entity_path(),
         )?;
         validate_projection(
             &mut self.final_entries,
             &self.after_projection.unique_index_ids,
             ProjectionAuthority::CandidateAfter,
-            self.accepted_before_identity.entity_path(),
         )?;
         let observed_before =
             observe_current_user_index_domain(index_store, self.entity_tag, &mut self.budget)?;
@@ -397,7 +395,7 @@ impl StagedUserIndexDomainReplacementBuilder {
 ///
 
 #[cfg_attr(
-    not(any(test, feature = "sql")),
+    not(any(test, feature = "query")),
     expect(dead_code, reason = "the complete staging vocabulary is SQL-owned")
 )]
 pub(in crate::db) enum StagedUserIndexDomainError {
@@ -423,7 +421,7 @@ pub(in crate::db) enum StagedUserIndexDomainError {
     DuplicateUniqueKey,
 
     /// The accepted-after candidate would violate one unique index.
-    CandidateUniqueConflict { entity_path: &'static str },
+    CandidateUniqueConflict,
 
     /// Accepted-schema fingerprint construction failed.
     Fingerprint(InternalError),
@@ -467,9 +465,7 @@ impl StagedUserIndexDomainError {
             Self::Fingerprint(error)
             | Self::KeyDerivation(error)
             | Self::PredicateEvaluation(error) => error,
-            Self::CandidateUniqueConflict { entity_path } => {
-                InternalError::index_violation(entity_path, &[])
-            }
+            Self::CandidateUniqueConflict => InternalError::index_conflict(),
             Self::CurrentDomainMismatch
             | Self::DuplicateRawKey
             | Self::DuplicateUniqueKey
@@ -642,7 +638,7 @@ impl UniqueConstraintProjection {
 ///
 
 #[derive(Clone, Copy)]
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 enum ProjectionAuthority {
     /// Already accepted physical truth; violations indicate corruption.
     AcceptedBefore,
@@ -656,13 +652,13 @@ enum ProjectionAuthority {
 /// Complete accepted index set prepared for one authoritative row traversal.
 ///
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 struct PreparedUserIndexProjection {
     indexes: Vec<PreparedUserIndex>,
     unique_index_ids: BTreeSet<IndexId>,
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 impl PreparedUserIndexProjection {
     fn from_snapshot(
         entity_tag: EntityTag,
@@ -715,9 +711,9 @@ impl PreparedUserIndexProjection {
     }
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn validate_stage_authority(
-    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_before_identity: &AcceptedCatalogIdentity,
     accepted_before: &PersistedSchemaSnapshot,
     accepted_after: &PersistedSchemaSnapshot,
     accepted_before_row_contract: Option<&StructuralRowContract>,
@@ -762,12 +758,11 @@ fn validate_stage_authority(
     Ok(())
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn validate_projection(
     entries: &mut [StagedUserIndexDomainEntry],
     unique_index_ids: &BTreeSet<IndexId>,
     authority: ProjectionAuthority,
-    entity_path: &'static str,
 ) -> Result<(), StagedUserIndexDomainError> {
     entries.sort_unstable_by(|left, right| left.key.cmp(&right.key));
     for pair in entries.windows(2) {
@@ -787,7 +782,7 @@ fn validate_projection(
                     StagedUserIndexDomainError::DuplicateUniqueKey
                 }
                 ProjectionAuthority::CandidateAfter => {
-                    StagedUserIndexDomainError::CandidateUniqueConflict { entity_path }
+                    StagedUserIndexDomainError::CandidateUniqueConflict
                 }
             });
         }
@@ -840,7 +835,7 @@ pub(in crate::db::schema) fn prove_empty_user_index_domain(
     }
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 fn validate_insertion_collisions(
     index_store: &IndexStore,
     deletion_keys: &[RawIndexStoreKey],
@@ -864,7 +859,7 @@ fn validate_insertion_collisions(
 ///
 
 struct StagedUserIndexDomainBudget {
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     source: SchemaTransitionSourceBudget,
     usage: StagedUserIndexDomainUsage,
 }
@@ -872,7 +867,7 @@ struct StagedUserIndexDomainBudget {
 impl StagedUserIndexDomainBudget {
     const fn standard() -> Self {
         Self {
-            #[cfg(any(test, feature = "sql"))]
+            #[cfg(any(test, feature = "query"))]
             source: SchemaTransitionSourceBudget::standard(),
             usage: StagedUserIndexDomainUsage {
                 source_rows: 0,
@@ -887,7 +882,7 @@ impl StagedUserIndexDomainBudget {
         }
     }
 
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     fn consume_source_row(
         &mut self,
         encoded_row_bytes: usize,
@@ -912,7 +907,7 @@ impl StagedUserIndexDomainBudget {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     fn consume_projection_entry(
         &mut self,
         key_bytes: usize,
@@ -958,7 +953,7 @@ impl StagedUserIndexDomainBudget {
         )
     }
 
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     fn finish_sort_workspace(
         &mut self,
         before_entries: usize,
@@ -998,7 +993,7 @@ impl StagedUserIndexDomainBudget {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     const fn record_projection_counts(
         &mut self,
         accepted_before_entries: usize,
@@ -1008,7 +1003,7 @@ impl StagedUserIndexDomainBudget {
         self.usage.accepted_after_entries = accepted_after_entries;
     }
 
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     const fn usage(&self) -> StagedUserIndexDomainUsage {
         StagedUserIndexDomainUsage {
             source_rows: self.source.source_rows(),

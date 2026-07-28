@@ -27,6 +27,10 @@ pub(in crate::db) trait IndexPlanReadView {
     /// Return the primary row for `key`, or `None` when no row exists.
     fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError>;
 
+    /// Return whether the current mutation batch overrides committed row state
+    /// for `key`.
+    fn has_primary_row_override(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError>;
+
     /// Return the raw entry for one index key, or `None` when no entry exists.
     fn read_index_entry(
         &self,
@@ -38,7 +42,7 @@ pub(in crate::db) trait IndexPlanReadView {
     /// index-key range.
     fn read_index_keys_in_raw_range(
         &self,
-        entity_path: &'static str,
+        entity_path: &str,
         entity_tag: EntityTag,
         index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),

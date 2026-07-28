@@ -1,71 +1,32 @@
 //! Module: db::session::sql::projection::payload
-//! Responsibility: own the outward SQL projection payload types returned by
-//! session SQL statement surfaces.
+//! Responsibility: adapt structural projection payloads and runtime value
+//! rows into outward SQL statement results.
 //! Does not own: projection execution, labeling, or textual rendering policy.
-//! Boundary: keeps SQL projection DTOs stable and separate from executor internals.
+//! Boundary: SQL response shaping begins only after the query-owned structural
+//! payload boundary.
 
 use crate::{
     db::{
         QueryError,
-        schema::{AcceptedEnumCatalog, AcceptedValueCatalogHandle, output_value_from_runtime},
-        session::sql::SqlStatementResult,
+        schema::{AcceptedEnumCatalog, output_value_from_runtime},
+        session::{query::StructuralProjectionPayload, sql::SqlStatementResult},
     },
     value::{OutputValue, Value},
 };
 
-type SqlProjectionPayloadComponents = (Vec<String>, Vec<Option<u32>>, Vec<Vec<Value>>, u32);
+/// Adapt one query-owned structural projection payload into the public SQL
+/// statement envelope.
+pub(in crate::db::session::sql) fn sql_statement_result_from_structural_projection_payload(
+    payload: StructuralProjectionPayload,
+) -> Result<SqlStatementResult, QueryError> {
+    let (columns, fixed_scales, rows, row_count) = payload.into_output_components()?;
 
-///
-/// SqlProjectionPayload
-///
-/// Generic-free row-oriented SQL projection payload carried across the shared
-/// SQL statement surface. This keeps SQL `SELECT` results structural so the
-/// query lane does not rebuild typed response rows before rendering values.
-///
-
-#[derive(Debug)]
-pub(in crate::db::session) struct SqlProjectionPayload {
-    columns: Vec<String>,
-    fixed_scales: Vec<Option<u32>>,
-    rows: Vec<Vec<Value>>,
-    row_count: u32,
-    value_catalog: AcceptedValueCatalogHandle,
-}
-
-impl SqlProjectionPayload {
-    #[must_use]
-    pub(in crate::db::session::sql) const fn new(
-        columns: Vec<String>,
-        fixed_scales: Vec<Option<u32>>,
-        rows: Vec<Vec<Value>>,
-        row_count: u32,
-        value_catalog: AcceptedValueCatalogHandle,
-    ) -> Self {
-        Self {
-            columns,
-            fixed_scales,
-            rows,
-            row_count,
-            value_catalog,
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db::session::sql) fn into_components(self) -> SqlProjectionPayloadComponents {
-        (self.columns, self.fixed_scales, self.rows, self.row_count)
-    }
-
-    pub(in crate::db::session) fn into_statement_result(
-        self,
-    ) -> Result<SqlStatementResult, QueryError> {
-        sql_projection_statement_result_from_value_rows(
-            self.value_catalog.enum_catalog(),
-            self.columns,
-            self.fixed_scales,
-            self.rows,
-            self.row_count,
-        )
-    }
+    Ok(SqlStatementResult::Projection {
+        columns,
+        fixed_scales,
+        rows,
+        row_count,
+    })
 }
 
 /// Convert already-projected value rows into the public SQL statement shape.

@@ -38,7 +38,7 @@ impl StructuralIndexEntryReader for StoreHandle {
 
     fn read_index_keys_in_raw_range(
         &self,
-        _entity_path: &'static str,
+        _entity_path: &str,
         _entity_tag: EntityTag,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
         index: IndexReadContract<'_>,

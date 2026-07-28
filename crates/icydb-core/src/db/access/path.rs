@@ -55,21 +55,9 @@ pub(in crate::db::access) struct SemanticIndexAccessContractInner {
     pub(in crate::db::access) physical_generation: u64,
     pub(in crate::db::access) name: String,
     pub(in crate::db::access) store_path: String,
-    pub(in crate::db::access) key_items: SemanticIndexKeyItems,
+    pub(in crate::db::access) key_items: Vec<SemanticIndexKeyItem>,
     pub(in crate::db::access) unique: bool,
     pub(in crate::db::access) predicate_semantics: Option<Predicate>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::access) enum SemanticIndexKeyItems {
-    Fields(Vec<String>),
-    Accepted(Vec<SemanticIndexKeyItem>),
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum SemanticIndexKeyItemsRef<'a> {
-    Fields(&'a [String]),
-    Accepted(&'a [SemanticIndexKeyItem]),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -141,19 +129,16 @@ impl SemanticIndexAccessContract {
                 physical_generation: accepted.physical_generation(),
                 name: accepted.name().to_string(),
                 store_path: accepted.store().to_string(),
-                key_items: SemanticIndexKeyItems::Fields(
-                    accepted
-                        .fields()
-                        .iter()
-                        .map(|field| {
-                            if field.path().len() <= 1 {
-                                field.field_name().to_string()
-                            } else {
-                                field.path().join(".")
-                            }
-                        })
-                        .collect(),
-                ),
+                key_items: accepted
+                    .fields()
+                    .iter()
+                    .map(|field| {
+                        SemanticIndexKeyItem::Field(accepted_field_path_term(
+                            field.field_name(),
+                            field.path(),
+                        ))
+                    })
+                    .collect(),
                 unique: accepted.unique(),
                 predicate_semantics: accepted_index_predicate_semantics(accepted),
             }),
@@ -170,13 +155,11 @@ impl SemanticIndexAccessContract {
                 physical_generation: accepted.physical_generation(),
                 name: accepted.name().to_string(),
                 store_path: accepted.store().to_string(),
-                key_items: SemanticIndexKeyItems::Accepted(
-                    accepted
-                        .key_items()
-                        .iter()
-                        .map(accepted_expression_key_item)
-                        .collect(),
-                ),
+                key_items: accepted
+                    .key_items()
+                    .iter()
+                    .map(accepted_expression_key_item)
+                    .collect(),
                 unique: accepted.unique(),
                 predicate_semantics: accepted_index_predicate_semantics_from_sql(
                     accepted.predicate_sql(),
@@ -207,35 +190,21 @@ impl SemanticIndexAccessContract {
     }
 
     #[must_use]
-    pub(in crate::db) fn key_items(&self) -> SemanticIndexKeyItemsRef<'_> {
-        match &self.inner.key_items {
-            SemanticIndexKeyItems::Fields(fields) => SemanticIndexKeyItemsRef::Fields(fields),
-            SemanticIndexKeyItems::Accepted(items) => SemanticIndexKeyItemsRef::Accepted(items),
-        }
+    pub(in crate::db) fn key_items(&self) -> &[SemanticIndexKeyItem] {
+        self.inner.key_items.as_slice()
     }
 
     #[must_use]
     pub(in crate::db) fn key_arity(&self) -> usize {
-        match &self.inner.key_items {
-            SemanticIndexKeyItems::Fields(fields) => fields.len(),
-            SemanticIndexKeyItems::Accepted(items) => items.len(),
-        }
+        self.inner.key_items.len()
     }
 
     #[must_use]
     pub(in crate::db) fn key_item_at(&self, slot: usize) -> Option<SemanticIndexKeyItemRef<'_>> {
-        match &self.inner.key_items {
-            SemanticIndexKeyItems::Fields(fields) => {
-                if slot < fields.len() {
-                    Some(SemanticIndexKeyItemRef::Field(fields[slot].as_str()))
-                } else {
-                    None
-                }
-            }
-            SemanticIndexKeyItems::Accepted(items) => {
-                items.get(slot).map(SemanticIndexKeyItem::as_ref)
-            }
-        }
+        self.inner
+            .key_items
+            .get(slot)
+            .map(SemanticIndexKeyItem::as_ref)
     }
 
     #[must_use]
@@ -258,12 +227,10 @@ impl SemanticIndexAccessContract {
 
     #[must_use]
     pub(in crate::db) fn has_expression_key_items(&self) -> bool {
-        match &self.inner.key_items {
-            SemanticIndexKeyItems::Fields(_) => false,
-            SemanticIndexKeyItems::Accepted(items) => items
-                .iter()
-                .any(|item| matches!(item, SemanticIndexKeyItem::Expression(_))),
-        }
+        self.inner
+            .key_items
+            .iter()
+            .any(|item| matches!(item, SemanticIndexKeyItem::Expression(_)))
     }
 
     #[must_use]
@@ -721,5 +688,48 @@ impl<K> AccessPath<K> {
             Self::IndexRange { spec } => Ok(AccessPath::IndexRange { spec }),
             Self::FullScan => Ok(AccessPath::FullScan),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        SemanticIndexAccessContract, SemanticIndexAccessContractInner, SemanticIndexKeyItem,
+        SemanticIndexKeyItemRef,
+    };
+    use crate::db::{index::SemanticIndexExpression, schema::PersistedIndexExpressionOp};
+    use std::sync::Arc;
+
+    #[test]
+    fn semantic_index_key_items_preserve_one_ordered_field_expression_contract() {
+        let contract = SemanticIndexAccessContract {
+            inner: Arc::new(SemanticIndexAccessContractInner {
+                ordinal: 4,
+                physical_generation: 7,
+                name: "by_tenant_lower_email".to_string(),
+                store_path: "ByTenantLowerEmail".to_string(),
+                key_items: vec![
+                    SemanticIndexKeyItem::Field("tenant".to_string()),
+                    SemanticIndexKeyItem::Expression(SemanticIndexExpression::new(
+                        PersistedIndexExpressionOp::Lower,
+                        "email".to_string(),
+                    )),
+                ],
+                unique: false,
+                predicate_semantics: None,
+            }),
+        };
+
+        assert_eq!(contract.key_arity(), 2);
+        assert_eq!(
+            contract.key_item_at(0),
+            Some(SemanticIndexKeyItemRef::Field("tenant"))
+        );
+        let Some(SemanticIndexKeyItemRef::AcceptedExpression(expression)) = contract.key_item_at(1)
+        else {
+            panic!("second semantic key item should remain an expression");
+        };
+        assert_eq!(expression.canonical_order_text(), "LOWER(email)");
+        assert!(contract.has_expression_key_items());
     }
 }

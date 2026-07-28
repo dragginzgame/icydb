@@ -6,7 +6,7 @@
 //! Boundary: keeps public write semantics and row-returning projection payloads
 //! above the core save pipeline.
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use crate::db::DynamicQueryResult;
 use crate::{
     db::{DynamicMutationResult, session::DbSession},
@@ -68,7 +68,7 @@ impl<T> WriteCell<T> {
 pub struct OutputRow {
     binding: core::db::DynamicTypedEntityBinding,
     entity: String,
-    columns: Vec<String>,
+    accepted_slots: Vec<(u16, usize)>,
     values: Vec<OutputValue>,
 }
 
@@ -82,10 +82,21 @@ impl OutputRow {
         if columns.len() != values.len() {
             return Err(TypedAdapterError::RowShapeMismatch);
         }
+        let mut seen_slots = BTreeSet::new();
+        let mut accepted_slots = Vec::with_capacity(columns.len());
+        for (value_index, column) in columns.iter().enumerate() {
+            let Some(slot) = binding.inner.output_field_slot(column) else {
+                continue;
+            };
+            if !seen_slots.insert(slot) {
+                return Err(TypedAdapterError::RowShapeMismatch);
+            }
+            accepted_slots.push((slot, value_index));
+        }
         Ok(Self {
             binding: binding.inner.clone(),
             entity: entity.into(),
-            columns,
+            accepted_slots,
             values,
         })
     }
@@ -215,7 +226,12 @@ impl TypedEntityBinding {
         Self { inner }
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
+    pub(crate) const fn inner(&self) -> &core::db::DynamicTypedEntityBinding {
+        &self.inner
+    }
+
+    #[cfg(feature = "query")]
     pub(crate) const fn entity(&self) -> &str {
         self.inner.entity()
     }
@@ -232,14 +248,14 @@ impl TypedEntityBinding {
         if row.entity != self.inner.entity() {
             return Err(TypedAdapterError::EntityMismatch);
         }
-        let field = self
+        let slot = self
             .inner
-            .field_name(field_source_key)
+            .field_slot(field_source_key)
             .ok_or(TypedAdapterError::FieldUnavailable)?;
         let index = row
-            .columns
+            .accepted_slots
             .iter()
-            .position(|column| column == field)
+            .find_map(|(bound_slot, index)| (*bound_slot == slot).then_some(*index))
             .ok_or(TypedAdapterError::RowFieldUnavailable)?;
         row.values
             .get(index)
@@ -670,7 +686,7 @@ where
 #[derive(Clone, Debug)]
 pub struct TypedWrite {
     binding: TypedEntityBinding,
-    mutation: StructuralMutation,
+    mutation: core::db::DynamicTypedMutation,
 }
 
 impl TypedWrite {
@@ -680,13 +696,10 @@ impl TypedWrite {
         I: IntoIterator<Item = (S, WriteCell<InputValue>)>,
         S: AsRef<str>,
     {
-        let patch = structural_patch_from_binding(binding, fields)?;
+        let patch = typed_patch_from_binding(binding, fields)?;
         Ok(Self {
             binding: binding.clone(),
-            mutation: StructuralMutation::Insert {
-                entity: binding.inner.entity().to_string(),
-                patch,
-            },
+            mutation: core::db::DynamicTypedMutation::Insert { patch },
         })
     }
 
@@ -700,14 +713,10 @@ impl TypedWrite {
         I: IntoIterator<Item = (S, WriteCell<InputValue>)>,
         S: AsRef<str>,
     {
-        let patch = structural_patch_from_binding(binding, fields)?;
+        let patch = typed_patch_from_binding(binding, fields)?;
         Ok(Self {
             binding: binding.clone(),
-            mutation: StructuralMutation::Update {
-                entity: binding.inner.entity().to_string(),
-                key,
-                patch,
-            },
+            mutation: core::db::DynamicTypedMutation::Update { key, patch },
         })
     }
 
@@ -721,35 +730,30 @@ impl TypedWrite {
         I: IntoIterator<Item = (S, WriteCell<InputValue>)>,
         S: AsRef<str>,
     {
-        let patch = structural_patch_from_binding(binding, fields)?;
+        let patch = typed_patch_from_binding(binding, fields)?;
         Ok(Self {
             binding: binding.clone(),
-            mutation: StructuralMutation::Replace {
-                entity: binding.inner.entity().to_string(),
-                key,
-                patch,
-            },
+            mutation: core::db::DynamicTypedMutation::Replace { key, patch },
         })
     }
 }
 
-fn structural_patch_from_binding<I, S>(
+fn typed_patch_from_binding<I, S>(
     binding: &TypedEntityBinding,
     fields: I,
-) -> Result<StructuralPatch, TypedAdapterError>
+) -> Result<core::db::DynamicTypedStructuralPatch, TypedAdapterError>
 where
     I: IntoIterator<Item = (S, WriteCell<InputValue>)>,
     S: AsRef<str>,
 {
-    let mut patch = StructuralPatch::new();
-    for (source, cell) in fields {
-        let field = binding
-            .inner
-            .field_name(source.as_ref())
-            .ok_or(TypedAdapterError::FieldUnavailable)?;
-        patch = patch.field(field, cell);
-    }
-    Ok(patch)
+    let fields = fields
+        .into_iter()
+        .map(|(source, cell)| (source.as_ref().to_string(), cell.into_core()))
+        .collect();
+    binding
+        .inner
+        .bind_write_fields(fields)
+        .ok_or(TypedAdapterError::FieldUnavailable)
 }
 
 impl WriteCell<InputValue> {
@@ -925,7 +929,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Project one accepted dynamic-query row through a current opaque binding.
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub fn typed_query_row(
         &self,
         binding: &TypedEntityBinding,
@@ -992,15 +996,10 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         write: TypedWrite,
     ) -> Result<DynamicMutationResult, TypedWriteError> {
-        if !self
-            .inner
-            .typed_entity_binding_is_current(&write.binding.inner)
-            .map_err(Error::from)?
-        {
-            return Err(TypedWriteError::Adapter(TypedAdapterError::StaleBinding));
-        }
-        self.execute_trusted_structural_mutation(write.mutation)
-            .map_err(TypedWriteError::Database)
+        self.inner
+            .execute_trusted_typed_mutation(&write.binding.inner, &write.mutation)
+            .map_err(|error| TypedWriteError::Database(Error::from(error)))?
+            .ok_or(TypedWriteError::Adapter(TypedAdapterError::StaleBinding))
     }
 
     /// Build one field-name-driven structural patch.

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.38` completes the independent current-state remediation, leaving one
+  accepted-catalog authority, one atomic constraint schedule, and an
+  engine-neutral query boundary.
+
 - `0.213.37` completes the architectural closeout by removing duplicate
   application/model/codec authority and making runtime feature and failure
   boundaries deterministic, fallible, and accepted-schema-driven.

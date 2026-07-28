@@ -8,7 +8,7 @@
 #[cfg(test)]
 mod tests;
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 use crate::error::InternalError;
 use crate::{types::Decimal, value::Value};
 use std::cmp::Ordering;
@@ -23,7 +23,7 @@ use std::cmp::Ordering;
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) enum NumericArithmeticOp {
     Add,
     Sub,
@@ -42,14 +42,14 @@ pub(in crate::db) enum NumericArithmeticOp {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(crate) enum NumericEvalError {
     Overflow,
 
     NotRepresentable,
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 impl NumericEvalError {
     /// Convert this numeric evaluation failure into the query execution error
     /// taxonomy used by executor paths that cannot return `QueryError`
@@ -66,7 +66,7 @@ impl NumericEvalError {
 ///
 /// This reports overflow and non-representable results instead of inheriting
 /// the primitive decimal type's saturating operators.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn apply_decimal_arithmetic_checked(
     op: NumericArithmeticOp,
     left: Decimal,
@@ -94,7 +94,7 @@ pub(in crate::db) fn apply_decimal_arithmetic_checked(
 }
 
 /// Add two decimal numeric terms under checked SQL numeric evaluation semantics.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn add_decimal_terms_checked(
     left: Decimal,
     right: Decimal,
@@ -103,7 +103,7 @@ pub(in crate::db) fn add_decimal_terms_checked(
 }
 
 /// Divide one decimal term by another under checked SQL numeric evaluation semantics.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn divide_decimal_terms_checked(
     left: Decimal,
     right: Decimal,
@@ -113,7 +113,7 @@ pub(in crate::db) fn divide_decimal_terms_checked(
 
 /// Compute decimal AVG from one `(sum, count)` pair under checked SQL numeric
 /// evaluation semantics.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn average_decimal_terms_checked(
     sum: Decimal,
     count: u64,
@@ -137,7 +137,7 @@ pub(in crate::db) fn coerce_numeric_decimal(value: &Value) -> Option<Decimal> {
 
 /// Return the SQL-style sign of one decimal as `-1`, `0`, or `1`.
 #[must_use]
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn decimal_sign(decimal: Decimal) -> Decimal {
     let sign = match decimal.cmp(&Decimal::ZERO) {
         Ordering::Less => -1,
@@ -149,7 +149,7 @@ pub(in crate::db) fn decimal_sign(decimal: Decimal) -> Decimal {
 }
 
 /// Compute decimal square root under checked SQL numeric evaluation semantics.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn decimal_sqrt_checked(decimal: Decimal) -> Result<Decimal, NumericEvalError> {
     if decimal.is_sign_negative() {
         return Err(NumericEvalError::NotRepresentable);
@@ -165,7 +165,7 @@ pub(in crate::db) fn decimal_sqrt_checked(decimal: Decimal) -> Result<Decimal, N
 }
 
 /// Compute decimal cube root under checked SQL numeric evaluation semantics.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn decimal_cbrt_checked(decimal: Decimal) -> Result<Decimal, NumericEvalError> {
     Decimal::from_f64_lossy(
         decimal
@@ -177,7 +177,7 @@ pub(in crate::db) fn decimal_cbrt_checked(decimal: Decimal) -> Result<Decimal, N
 }
 
 /// Compute decimal exponent under checked SQL numeric evaluation semantics.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn decimal_exp_checked(decimal: Decimal) -> Result<Decimal, NumericEvalError> {
     Decimal::from_f64_lossy(
         decimal
@@ -189,7 +189,7 @@ pub(in crate::db) fn decimal_exp_checked(decimal: Decimal) -> Result<Decimal, Nu
 }
 
 /// Compute decimal natural logarithm under checked SQL numeric evaluation semantics.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn decimal_ln_checked(decimal: Decimal) -> Result<Decimal, NumericEvalError> {
     if decimal <= Decimal::ZERO {
         return Err(NumericEvalError::NotRepresentable);
@@ -205,7 +205,7 @@ pub(in crate::db) fn decimal_ln_checked(decimal: Decimal) -> Result<Decimal, Num
 }
 
 /// Compute decimal base-2 logarithm under checked SQL numeric evaluation semantics.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn decimal_log2_checked(decimal: Decimal) -> Result<Decimal, NumericEvalError> {
     if decimal <= Decimal::ZERO {
         return Err(NumericEvalError::NotRepresentable);
@@ -221,7 +221,7 @@ pub(in crate::db) fn decimal_log2_checked(decimal: Decimal) -> Result<Decimal, N
 }
 
 /// Compute decimal base-10 logarithm under checked SQL numeric evaluation semantics.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn decimal_log10_checked(decimal: Decimal) -> Result<Decimal, NumericEvalError> {
     if decimal <= Decimal::ZERO {
         return Err(NumericEvalError::NotRepresentable);
@@ -238,7 +238,7 @@ pub(in crate::db) fn decimal_log10_checked(decimal: Decimal) -> Result<Decimal, 
 
 /// Compute decimal logarithm with an explicit base under checked SQL numeric
 /// evaluation semantics.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn decimal_log_base_checked(
     base: Decimal,
     value: Decimal,
@@ -260,7 +260,7 @@ pub(in crate::db) fn decimal_log_base_checked(
 }
 
 /// Compute decimal power under checked SQL numeric evaluation semantics.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn decimal_power_checked(
     base: Decimal,
     exponent: Decimal,
@@ -286,7 +286,7 @@ pub(in crate::db) fn decimal_power_checked(
 /// `Ok(None)` means the operands are outside the numeric coercion domain.
 /// `Err(_)` means the operands were numeric but the exact numeric result failed
 /// the checked SQL evaluation contract.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn apply_numeric_arithmetic_checked(
     op: NumericArithmeticOp,
     left: &Value,
@@ -318,7 +318,7 @@ pub(in crate::db) fn compare_numeric_order(left: &Value, right: &Value) -> Optio
 /// This helper centralizes common "numeric if possible, strict otherwise"
 /// comparator behavior used across planner/executor boundaries.
 #[must_use]
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn compare_numeric_or_strict_order(
     left: &Value,
     right: &Value,
@@ -332,7 +332,7 @@ pub(in crate::db) fn compare_numeric_or_strict_order(
 /// first. Callers must not reuse this ordering surface for deduplication
 /// equality.
 #[must_use]
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn canonical_value_compare(left: &Value, right: &Value) -> Ordering {
     compare_numeric_or_strict_order(left, right)
         .unwrap_or_else(|| Value::canonical_cmp(left, right))

@@ -5,11 +5,13 @@
 
 use crate::{
     db::{
+        Db,
         data::{DecodedDataStoreKey, RawRow},
         index::{IndexEntryValue, IndexStore, RawIndexStoreKey},
         key_taxonomy::PrimaryKeyValue,
     },
     error::InternalError,
+    traits::CanisterKind,
     types::EntityTag,
 };
 use std::{cell::RefCell, ops::Bound, thread::LocalKey};
@@ -57,6 +59,25 @@ impl<'a> IndexReadContract<'a> {
 pub(in crate::db) trait StructuralPrimaryRowReader {
     /// Return the primary row for `key`, or `None` when no row exists.
     fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError>;
+
+    /// Return whether this reader overrides committed state for `key`.
+    ///
+    /// Commit-batch overlays use this to distinguish an intentional final
+    /// update/delete from a corrupt index entry whose committed row is absent
+    /// or no longer belongs to the indexed key.
+    fn has_primary_row_override(&self, _key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
+        Ok(false)
+    }
+}
+
+impl<C: CanisterKind> StructuralPrimaryRowReader for Db<C> {
+    fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError> {
+        let runtime_entity = self.accepted_runtime_entity_for_tag(key.entity_tag())?;
+        let store = self.recovered_store(runtime_entity.store_path())?;
+        let raw_key = key.to_raw()?;
+
+        Ok(store.with_data(|data_store| data_store.get(&raw_key)))
+    }
 }
 
 ///
@@ -78,7 +99,7 @@ pub(in crate::db) trait StructuralIndexEntryReader {
     /// `index_store` in raw key range.
     fn read_index_keys_in_raw_range(
         &self,
-        entity_path: &'static str,
+        entity_path: &str,
         entity_tag: EntityTag,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
         index: IndexReadContract<'_>,

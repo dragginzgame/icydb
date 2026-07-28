@@ -3,7 +3,7 @@
 //! Does not own: query route planning or executor predicate evaluation.
 //! Boundary: converts serialized filter input into planner-owned boolean expressions.
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use crate::db::schema::SchemaInfo;
 use crate::{
     db::query::plan::expr::{BinaryOp, Expr, FieldId, Function, UnaryOp},
@@ -198,7 +198,7 @@ pub enum FilterExpr {
 impl FilterExpr {
     /// Lower this dynamic filter expression against accepted schema authority.
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db::query) fn lower_bool_expr_for_schema(&self, schema: &SchemaInfo) -> Expr {
         self.lower_bool_expr_with(&SchemaFilterLiteralResolver(schema))
     }
@@ -593,10 +593,10 @@ trait FilterLiteralResolver {
     }
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 struct SchemaFilterLiteralResolver<'a>(&'a SchemaInfo);
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 impl FilterLiteralResolver for SchemaFilterLiteralResolver<'_> {
     fn lower_compare(&self, field: &str, value: &FilterValue) -> Value {
         let raw = value.lower_value();

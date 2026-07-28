@@ -46,11 +46,11 @@ pub(in crate::db) use continuation::{
     AcceptedContinuationIdentity, PlannedContinuationContract, ScalarAccessWindowPlan,
     effective_offset_for_cursor_window,
 };
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db) use covering::CoveringReadField;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db) use covering::CoveringReadFieldSource;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use covering::covering_hybrid_projection_execution_plan_with_schema_info;
 pub(in crate::db) use covering::{
     CoveringExistingRowMode, CoveringHybridReadExecutionPlan, CoveringProjectionOrder,
@@ -62,7 +62,7 @@ pub(in crate::db) use covering::{
     covering_read_reason_code_for_load_plan, index_covering_existing_rows_terminal_eligible,
 };
 pub(in crate::db::query::plan) use group::extend_unique_grouped_aggregate_specs_from_expr;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db) use group::grouped_executor_handoff;
 pub(in crate::db) use group::{
     GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedExecutionRoute,
@@ -97,9 +97,9 @@ pub(in crate::db) use order_contract::{
 };
 pub(in crate::db) use order_term::index_key_item_order_terms;
 pub(in crate::db) use pipeline::PreparedScalarPlanningState;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db::query) use pipeline::try_build_count_cardinality_prefix_access_from_query_model;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db) use pipeline::{CountCardinalityPrefixAccess, CountCardinalityPrefixValues};
 pub(in crate::db::query) use pipeline::{
     build_query_model_plan_with_indexes_from_scalar_planning_state,
@@ -468,7 +468,7 @@ impl VisibleIndexes {
     /// Exact mutation selection uses this view to retain accepted field and
     /// codec authority while forcing authoritative primary-store traversal.
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) fn accepted_schema_primary_only(schema_info: &SchemaInfo) -> Self {
         Self {
             accepted_field_path_indexes: Vec::new(),

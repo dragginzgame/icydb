@@ -69,24 +69,32 @@ impl AcceptedInspectionPlan {
         snapshot: AcceptedSchemaSnapshot,
         value_catalog: AcceptedValueCatalogHandle,
     ) -> Result<Self, InternalError> {
-        Self::compile_with_relation_builder(identity, snapshot, value_catalog, |snapshot, row| {
-            let source =
-                ReverseRelationSourceInfo::new(identity.entity_path(), identity.entity_tag());
-            snapshot
-                .persisted_snapshot()
-                .relations()
-                .iter()
-                .map(|edge| {
-                    RelationConstraintProjection::new_active(
-                        db,
-                        source,
-                        snapshot.persisted_snapshot(),
-                        row,
-                        edge,
-                    )
-                })
-                .collect()
-        })
+        let relation_identity = identity.clone();
+        Self::compile_with_relation_builder(
+            identity,
+            snapshot,
+            value_catalog,
+            move |snapshot, row| {
+                let source = ReverseRelationSourceInfo::new(
+                    relation_identity.entity_path_handle(),
+                    relation_identity.entity_tag(),
+                );
+                snapshot
+                    .persisted_snapshot()
+                    .relations()
+                    .iter()
+                    .map(|edge| {
+                        RelationConstraintProjection::new_active(
+                            db,
+                            source.clone(),
+                            snapshot.persisted_snapshot(),
+                            row,
+                            edge,
+                        )
+                    })
+                    .collect()
+            },
+        )
     }
 
     #[cfg(test)]
@@ -124,7 +132,7 @@ impl AcceptedInspectionPlan {
         let accepted_schema_fingerprint = identity.accepted_schema_fingerprint();
         let row_layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&snapshot)?;
         let row_contract = StructuralRowContract::from_accepted_decode_contract(
-            identity.entity_path(),
+            identity.entity_path_handle(),
             row_layout.row_decode_contract(value_catalog.clone()),
         );
         let write_constraints = CompiledAcceptedRowConstraints::compile(
@@ -136,8 +144,10 @@ impl AcceptedInspectionPlan {
         let index_inspection =
             AcceptedIndexInspectionPlan::compile(&snapshot, value_catalog.clone(), &row_contract)?;
         let relation_inspection = build_relations(&snapshot, &row_contract)?;
-        let fingerprint =
-            accepted_inspection_plan_fingerprint(identity, value_catalog.authority().fingerprint());
+        let fingerprint = accepted_inspection_plan_fingerprint(
+            &identity,
+            value_catalog.authority().fingerprint(),
+        );
 
         Ok(Self {
             identity,
@@ -153,8 +163,14 @@ impl AcceptedInspectionPlan {
 
     /// Return the selected accepted catalog identity.
     #[must_use]
-    pub(in crate::db) const fn identity(&self) -> AcceptedCatalogIdentity {
-        self.identity
+    pub(in crate::db) fn identity(&self) -> AcceptedCatalogIdentity {
+        self.identity.clone()
+    }
+
+    /// Borrow the selected accepted catalog identity without cloning its path.
+    #[must_use]
+    pub(in crate::db) const fn identity_ref(&self) -> &AcceptedCatalogIdentity {
+        &self.identity
     }
 
     /// Borrow the selected accepted entity snapshot.
@@ -201,7 +217,7 @@ impl AcceptedInspectionPlan {
 }
 
 fn accepted_inspection_plan_fingerprint(
-    identity: AcceptedCatalogIdentity,
+    identity: &AcceptedCatalogIdentity,
     accepted_root_fingerprint: AcceptedSchemaFingerprint,
 ) -> AcceptedInspectionPlanFingerprint {
     let mut hasher = new_hash_sha256_prefixed(ACCEPTED_INSPECTION_PLAN_FINGERPRINT_DOMAIN);
@@ -283,7 +299,7 @@ mod tests {
         let identity = identity(revision, [0x11; 16]);
 
         let plan = AcceptedInspectionPlan::compile_relation_free_for_tests(
-            identity,
+            identity.clone(),
             snapshot(),
             value_catalog(revision),
         )
@@ -297,25 +313,25 @@ mod tests {
     #[test]
     fn accepted_inspection_plan_fingerprint_binds_schema_and_root_identity() {
         let revision = AcceptedSchemaRevision::INITIAL;
-        let baseline = accepted_inspection_plan_fingerprint(identity(revision, [0x11; 16]), {
+        let baseline = accepted_inspection_plan_fingerprint(&identity(revision, [0x11; 16]), {
             AcceptedSchemaFingerprint::new([0x22; 32])
         });
 
         assert_eq!(
             baseline,
-            accepted_inspection_plan_fingerprint(identity(revision, [0x11; 16]), {
+            accepted_inspection_plan_fingerprint(&identity(revision, [0x11; 16]), {
                 AcceptedSchemaFingerprint::new([0x22; 32])
             }),
         );
         assert_ne!(
             baseline,
-            accepted_inspection_plan_fingerprint(identity(revision, [0x33; 16]), {
+            accepted_inspection_plan_fingerprint(&identity(revision, [0x33; 16]), {
                 AcceptedSchemaFingerprint::new([0x22; 32])
             }),
         );
         assert_ne!(
             baseline,
-            accepted_inspection_plan_fingerprint(identity(revision, [0x11; 16]), {
+            accepted_inspection_plan_fingerprint(&identity(revision, [0x11; 16]), {
                 AcceptedSchemaFingerprint::new([0x44; 32])
             }),
         );

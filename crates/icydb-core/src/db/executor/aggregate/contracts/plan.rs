@@ -3,9 +3,9 @@
 //! Does not own: logical aggregate planning or query-plan construction.
 //! Boundary: centralizes query-plan DTOs consumed by aggregate execution.
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db::executor) use crate::db::query::plan::PageSpec;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db::executor) use crate::db::query::plan::expr::{
     Expr, FieldId, ProjectionField, admit_true_only_boolean_value,
     compile_scalar_projection_expr_from_schema,
@@ -17,5 +17,5 @@ pub(in crate::db::executor) use crate::db::query::plan::{
     expr::{CompiledExpr, ProjectionSpec, collapse_true_only_boolean_admission},
 };
 
-#[cfg(all(test, feature = "sql"))]
+#[cfg(all(test, feature = "query"))]
 pub(in crate::db::executor) use crate::db::query::plan::expr::BinaryOp;

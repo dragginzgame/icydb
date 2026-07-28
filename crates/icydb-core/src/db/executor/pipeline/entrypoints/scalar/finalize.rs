@@ -13,7 +13,7 @@ use crate::db::executor::{
 
 // Finalize one scalar runtime tuple when the payload must be a structural page.
 pub(super) fn finalize_scalar_structural_path_execution(
-    entity_path: &'static str,
+    entity_path: &str,
     execution: ScalarPathExecution,
 ) -> (StructuralCursorPage, Option<ExecutionTrace>) {
     let (payload, metrics, mut trace, execution_time_micros) = execution;

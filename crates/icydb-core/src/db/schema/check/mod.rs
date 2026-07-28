@@ -23,10 +23,12 @@ pub(in crate::db) use bind::bind_sql_check_expr;
 #[cfg(test)]
 pub(in crate::db) use bind::{CheckExprV1Input, CheckValueExprV1Input, bind_check_expr_v1};
 pub(in crate::db::schema) use bind::{bind_source_check_expr, source_literal_input};
+#[cfg(test)]
 pub(in crate::db) use compile::AcceptedRowConstraintViolationKind;
 pub(in crate::db::schema) use compile::validate_accepted_check_literals;
 pub(in crate::db) use compile::{
     AcceptedRowConstraintEvaluationError, CompiledAcceptedRowConstraints,
+    accepted_row_constraint_write_error,
 };
 pub(in crate::db) use render::render_accepted_check_expr_sql;
 
@@ -41,7 +43,7 @@ pub(in crate::db) const MAX_CHECK_EXPR_V1_LITERAL_BYTES: usize = 4 * 1024;
 /// Maximum deterministic canonical-key bytes retained by one expression.
 pub(in crate::db) const MAX_CHECK_EXPR_V1_BYTES: usize = 16 * 1024;
 /// Maximum enum members accepted by frontend `IN` sugar before lowering.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) const MAX_CHECK_EXPR_V1_MEMBERSHIP_ITEMS: usize = 64;
 
 /// Exact comparison operation admitted by `CheckExprV1`.
@@ -160,11 +162,11 @@ pub(in crate::db) enum AcceptedCheckExprV1Error {
     NullLiteralUnsupported,
     LengthOperationKindMismatch,
     EmptyBoolean,
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     MembershipEmpty,
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     MembershipTooWide,
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     MembershipRequiresEnumField,
     DepthExceeded,
     NodeCountExceeded,

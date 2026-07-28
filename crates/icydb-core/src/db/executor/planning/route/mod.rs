@@ -37,7 +37,7 @@ pub(in crate::db::executor) use capability_facts::{
     branch_set_page_keep_cap_shape_supported, count_pushdown_shape_supported,
     primary_key_stream_window_shape_supported, primary_scan_fetch_hint_shape_supported,
 };
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db::executor) use capability_facts::{
     index_prefix_set_page_fetch_hint_shape_supported, top_n_seek_lookahead_required_for_shape,
 };
@@ -51,7 +51,7 @@ pub(in crate::db::executor) use hints::widened_residual_filter_predicate_pushdow
 pub(in crate::db) use order_pushdown::{PushdownApplicability, SecondaryOrderPushdownRejection};
 pub(in crate::db::executor) use planner::{RoutePlanRequest, build_execution_route_plan};
 pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_mode;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db::executor) use pushdown::access_preserves_primary_key_order_without_child_expansion;
 pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_contract;
 pub(in crate::db::executor) use pushdown::index_prefix_child_expansion_hint_for_access_window;

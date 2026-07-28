@@ -12,11 +12,11 @@ use crate::{
 
 /// Records metrics for the chosen execution plan.
 /// Must be called exactly once per execution.
-pub(super) fn record_plan_metrics(entity_path: &'static str, plan: &AccessPlannedQuery) {
+pub(super) fn record_plan_metrics(entity_path: &str, plan: &AccessPlannedQuery) {
     let kind = access_plan_kind(&plan.access);
 
     record(MetricsEvent::Plan {
-        entity_path,
+        entity_path: entity_path.into(),
         kind,
         grouped_execution_mode: None,
     });
@@ -26,7 +26,7 @@ pub(super) fn record_plan_metrics(entity_path: &'static str, plan: &AccessPlanne
 /// Records metrics for one grouped execution plan with explicit grouped execution mode.
 /// Must be called exactly once per grouped execution.
 pub(super) fn record_grouped_plan_metrics(
-    entity_path: &'static str,
+    entity_path: &str,
     plan: &AccessPlannedQuery,
     grouped_execution_mode: GroupedExecutionMode,
 ) {
@@ -37,7 +37,7 @@ pub(super) fn record_grouped_plan_metrics(
     };
 
     record(MetricsEvent::Plan {
-        entity_path,
+        entity_path: entity_path.into(),
         kind,
         grouped_execution_mode: Some(grouped_execution_mode),
     });
@@ -64,13 +64,13 @@ fn access_plan_kind<K>(access: &AccessPlan<K>) -> PlanKind {
 
 // Record selected non-index and primary-key route explanations without
 // emitting one metric for normal secondary-index winner ranking.
-fn record_plan_choice_reason(entity_path: &'static str, plan: &AccessPlannedQuery) {
+fn record_plan_choice_reason(entity_path: &str, plan: &AccessPlannedQuery) {
     let Some(reason) = plan_choice_reason(plan.access_choice().chosen_reason()) else {
         return;
     };
 
     record(MetricsEvent::PlanChoice {
-        entity_path,
+        entity_path: entity_path.into(),
         reason,
     });
 }
@@ -126,46 +126,46 @@ const fn plan_choice_reason(reason: AccessChoiceSelectedReason) -> Option<PlanCh
 }
 
 /// Record per-request rows scanned metrics for one structural entity path.
-pub(super) fn record_rows_scanned_for_path(entity_path: &'static str, rows_scanned: usize) {
+pub(super) fn record_rows_scanned_for_path(entity_path: &str, rows_scanned: usize) {
     record(MetricsEvent::RowsScanned {
-        entity_path,
+        entity_path: entity_path.into(),
         rows_scanned: u64::try_from(rows_scanned).unwrap_or(u64::MAX),
     });
 }
 
 /// Record per-request rows filtered metrics for one structural entity path.
-pub(super) fn record_rows_filtered_for_path(entity_path: &'static str, rows_filtered: usize) {
+pub(super) fn record_rows_filtered_for_path(entity_path: &str, rows_filtered: usize) {
     record(MetricsEvent::RowsFiltered {
-        entity_path,
+        entity_path: entity_path.into(),
         rows_filtered: u64::try_from(rows_filtered).unwrap_or(u64::MAX),
     });
 }
 
 /// Record per-request rows aggregated metrics for one structural entity path.
-pub(super) fn record_rows_aggregated_for_path(entity_path: &'static str, rows_aggregated: usize) {
+pub(super) fn record_rows_aggregated_for_path(entity_path: &str, rows_aggregated: usize) {
     record(MetricsEvent::RowsAggregated {
-        entity_path,
+        entity_path: entity_path.into(),
         rows_aggregated: u64::try_from(rows_aggregated).unwrap_or(u64::MAX),
     });
 }
 
 /// Record per-request rows emitted metrics for one structural entity path.
-pub(super) fn record_rows_emitted_for_path(entity_path: &'static str, rows_emitted: usize) {
+pub(super) fn record_rows_emitted_for_path(entity_path: &str, rows_emitted: usize) {
     record(MetricsEvent::RowsEmitted {
-        entity_path,
+        entity_path: entity_path.into(),
         rows_emitted: u64::try_from(rows_emitted).unwrap_or(u64::MAX),
     });
 }
 
 /// Record read-efficiency totals for one finalized load path.
 pub(super) fn record_load_row_efficiency_for_path(
-    entity_path: &'static str,
+    entity_path: &str,
     candidate_rows_scanned: usize,
     candidate_rows_filtered: usize,
     result_rows_emitted: usize,
 ) {
     record(MetricsEvent::LoadRowEfficiency {
-        entity_path,
+        entity_path: entity_path.into(),
         candidate_rows_scanned: u64::try_from(candidate_rows_scanned).unwrap_or(u64::MAX),
         candidate_rows_filtered: u64::try_from(candidate_rows_filtered).unwrap_or(u64::MAX),
         result_rows_emitted: u64::try_from(result_rows_emitted).unwrap_or(u64::MAX),

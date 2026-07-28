@@ -12,14 +12,14 @@ mod ordered;
 #[cfg(test)]
 mod tests;
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use build::encode_accepted_index_literal_component;
 pub(in crate::db) use codec::IndexKeyEncodeError;
 pub(crate) use codec::{IndexKey, IndexKeyKind, RawIndexStoreKey};
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use expression::IndexExpressionSourceClass;
 pub(in crate::db) use expression::derive_index_expression_value;
 pub(crate) use id::IndexId;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(crate) use ordered::EncodedValue;
 pub(crate) use ordered::OrderedValueEncodeError;

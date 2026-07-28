@@ -1548,7 +1548,7 @@ mod tests {
     };
     use crate::{
         db::{
-            Db, EntityRegistration,
+            Db,
             commit::forget_recovered_domain_for_tests,
             data::DataStore,
             index::IndexStore,
@@ -1882,10 +1882,7 @@ mod tests {
         reason = "the journaled abort, replay, and recovery assertions form one scenario"
     )]
     fn pending_generated_check_abort_is_atomic_terminal_and_replayable() {
-        let db = Db::<AbortCanister>::new_with_registrations(
-            &ABORT_REGISTRY,
-            &[] as &[EntityRegistration<AbortCanister>],
-        );
+        let db = Db::<AbortCanister>::new(&ABORT_REGISTRY);
         let empty_target =
             schema_application_target(&db).expect("empty application target should issue");
         let store_identity = empty_target

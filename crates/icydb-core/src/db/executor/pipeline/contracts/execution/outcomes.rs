@@ -3,7 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use crate::db::executor::terminal::KernelRow;
 use crate::db::executor::{ExecutionOptimization, pipeline::contracts::StructuralCursorPage};
 
@@ -37,7 +37,7 @@ impl MaterializedExecutionAttempt {
 /// retained-slot page materialization would otherwise run.
 ///
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db::executor) struct KernelRowsExecutionAttempt {
     pub(in crate::db::executor) rows: Vec<KernelRow>,
     pub(in crate::db::executor) metrics: ExecutionOutcomeMetrics,

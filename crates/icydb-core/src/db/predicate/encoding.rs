@@ -45,7 +45,7 @@ pub(in crate::db::predicate) fn encode_predicate_sort_key(predicate: &Predicate)
 /// canonicalized during schema-aware normalization.
 ///
 #[must_use]
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db::predicate) fn encode_normalized_predicate_sort_key(
     predicate: &Predicate,
 ) -> Vec<u8> {

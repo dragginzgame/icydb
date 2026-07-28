@@ -3,7 +3,7 @@
 //! Does not own: row-key encoding, commit-window ordering, or index updates.
 //! Boundary: data::store persists RawRow values produced by higher layers.
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 use crate::db::data::DecodedDataStoreKey;
 use crate::{db::codec::MAX_ROW_BYTES, error::InternalError};
 use ic_stable_structures::{Storable, storable::Bound};
@@ -13,7 +13,7 @@ use std::borrow::Cow;
 /// DataRow
 ///
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) type DataRow = (DecodedDataStoreKey, RawRow);
 
 ///

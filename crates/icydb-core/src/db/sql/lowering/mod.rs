@@ -377,8 +377,8 @@ impl From<SqlParseError> for SqlLoweringError {
 /// SQL statement envelope after entity-scope normalization and
 /// entity-match validation for one target entity descriptor.
 ///
-/// This pre-lowering contract is entity-agnostic and reusable across
-/// dynamic SQL route branches before typed `Query<E>` binding.
+/// This pre-lowering contract is entity-agnostic and reusable across dynamic
+/// SQL route branches before accepted-schema structural binding.
 ///
 #[derive(Clone, Debug)]
 pub(crate) struct PreparedSqlStatement {

@@ -9,7 +9,7 @@ use crate::{
     db::{
         DbSession, DynamicMutation, DynamicMutationResult, DynamicStructuralPatch,
         DynamicTypedBindingError, DynamicTypedEntityBinding, DynamicTypedFieldBindingRequest,
-        DynamicTypedFieldType, DynamicWriteCell,
+        DynamicTypedFieldType, DynamicTypedMutation, DynamicTypedStructuralPatch, DynamicWriteCell,
         commit::{CommitRowOp, database_incarnation_id},
         data::{
             AcceptedMutationIntentPatch, DecodedDataStoreKey, FieldSlot, RawRow,
@@ -20,14 +20,12 @@ use crate::{
             resolve_update_structural_patch_with_accepted_contract,
         },
         executor::{
-            commit_delete_row_ops_with_window_for_path,
+            AcceptedMutationConstraintScheduler, commit_delete_row_ops_with_window_for_path,
             commit_structural_save_row_ops_with_window_for_path, mutation_key_exists_error,
-            validate_structural_accepted_after_image,
         },
-        relation::validate_save_relations_for_structural_row,
         schema::{
-            AcceptedFieldKind, AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract,
-            CompiledAcceptedRowConstraints, lower_field_type, output_value_from_runtime,
+            AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, lower_field_type,
+            output_value_from_runtime,
         },
         write_context::{AcceptedWriteContext, MutationMode},
     },
@@ -94,11 +92,16 @@ const fn dynamic_mutation_mode(request: &DynamicMutation) -> Option<MutationMode
     }
 }
 
-const fn dynamic_write_context(
-    mode: MutationMode,
-    operation_timestamp: Timestamp,
-) -> AcceptedWriteContext {
-    AcceptedWriteContext::new(mode, operation_timestamp)
+const fn dynamic_typed_mutation_mode(request: &DynamicTypedMutation) -> MutationMode {
+    match request {
+        DynamicTypedMutation::Insert { .. } => MutationMode::Insert,
+        DynamicTypedMutation::Update { .. } => MutationMode::Update,
+        DynamicTypedMutation::Replace { .. } => MutationMode::Replace,
+    }
+}
+
+const fn dynamic_write_context(operation_timestamp: Timestamp) -> AcceptedWriteContext {
+    AcceptedWriteContext::new(operation_timestamp)
 }
 
 fn dynamic_key(
@@ -113,7 +116,7 @@ fn dynamic_key(
 }
 
 fn lower_dynamic_patch(
-    entity_path: &'static str,
+    entity_path: &str,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     patch: &DynamicStructuralPatch,
     mode: MutationMode,
@@ -138,6 +141,46 @@ fn lower_dynamic_patch(
             ));
         }
         let slot = FieldSlot::from_validated_index(slot);
+        lowered = match cell {
+            DynamicWriteCell::Omitted => lowered,
+            DynamicWriteCell::Default => match mode {
+                MutationMode::Insert | MutationMode::Replace => {
+                    lowered.set_explicit_insert_default(slot)
+                }
+                MutationMode::Update => lowered.set_explicit_update_default(slot),
+            },
+            DynamicWriteCell::Null => lowered.set_authored(slot, InputValue::Null),
+            DynamicWriteCell::Value(value) => lowered.set_authored(slot, value.clone()),
+        };
+    }
+    Ok(lowered)
+}
+
+fn lower_typed_patch(
+    entity_path: &str,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    patch: &DynamicTypedStructuralPatch,
+    mode: MutationMode,
+) -> Result<AcceptedMutationIntentPatch, InternalError> {
+    let mut lowered = AcceptedMutationIntentPatch::new();
+    for (field_id, slot, cell) in patch.fields() {
+        let slot_index = usize::from(*slot);
+        let field = descriptor
+            .field_for_slot_index(slot_index)
+            .ok_or_else(InternalError::store_invariant)?;
+        if field.field_id().get() != *field_id {
+            return Err(InternalError::store_invariant());
+        }
+        if !matches!(cell, DynamicWriteCell::Omitted)
+            && (field.write_policy().insert_generation().is_some()
+                || field.write_policy().write_management().is_some())
+        {
+            return Err(InternalError::mutation_database_owned_field_explicit(
+                entity_path,
+                field.name(),
+            ));
+        }
+        let slot = FieldSlot::from_validated_index(slot_index);
         lowered = match cell {
             DynamicWriteCell::Omitted => lowered,
             DynamicWriteCell::Default => match mode {
@@ -256,48 +299,6 @@ fn project_dynamic_mutation_row(
     Ok((columns, values))
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "one accepted structural after-image keeps identity, row contracts, constraints, provenance, and operation context explicit"
-)]
-fn validate_dynamic_after_image<C: CanisterKind>(
-    session: &DbSession<C>,
-    entity_path: &'static str,
-    store_path: &'static str,
-    data_key: &DecodedDataStoreKey,
-    row: &RawRow,
-    provenance: &[Option<crate::db::data::AcceptedFieldWriteProvenance>],
-    write_context: AcceptedWriteContext,
-    row_decode_contract: AcceptedRowDecodeContract,
-    schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
-    constraints: &CompiledAcceptedRowConstraints,
-) -> Result<(), InternalError> {
-    let raw_key = data_key.to_raw()?;
-    validate_structural_accepted_after_image(
-        entity_path,
-        write_context.mode(),
-        &raw_key,
-        row,
-        provenance,
-        row_decode_contract.clone(),
-        schema_fingerprint,
-        constraints,
-    )?;
-    let contract = StructuralRowContract::from_accepted_decode_contract(
-        entity_path,
-        row_decode_contract.clone(),
-    );
-    let reader =
-        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(row, &contract)?;
-    validate_save_relations_for_structural_row(
-        &session.db,
-        entity_path,
-        store_path,
-        &row_decode_contract,
-        &reader,
-    )
-}
-
 fn dynamic_typed_field_type(
     field_type: DynamicTypedFieldType,
 ) -> Result<FieldType, DynamicTypedBindingError> {
@@ -350,72 +351,140 @@ impl<C: CanisterKind> DbSession<C> {
                 ))
             })
             .collect::<Result<Vec<_>, DynamicTypedBindingError>>()?;
-        let mut binding = None;
-        let mut visited_stores = BTreeSet::new();
-
-        for entity_registration in self.db.entity_registrations {
-            let registration = entity_registration.runtime();
-            if !visited_stores.insert(registration.store_path) {
-                continue;
-            }
-            let store = self.db.recovered_store(registration.store_path)?;
-            let Some(bundle) = store
-                .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
-            else {
-                continue;
-            };
-            let Some(entity_tag) = bundle.source_bindings().entity(&entity_source) else {
-                continue;
-            };
-            if binding.is_some() {
+        let catalog = self
+            .find_accepted_schema_catalog_context_for_entity_source_key(entity_source.as_str())?
+            .ok_or(DynamicTypedBindingError::FieldUnavailable)?;
+        let identity = catalog.identity();
+        if identity.entity_path() != entity_source.as_str() {
+            return Err(InternalError::store_invariant().into());
+        }
+        let store = self.db.recovered_store(identity.store_path())?;
+        let bundle = store
+            .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
+            .ok_or_else(InternalError::store_invariant)?;
+        let entity_tag = identity.entity_tag();
+        if bundle.source_bindings().entity(&entity_source) != Some(entity_tag)
+            || bundle.revision() != catalog.revision()
+        {
+            return Err(InternalError::store_invariant().into());
+        }
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&entity_tag)
+            .ok_or_else(InternalError::store_invariant)?;
+        let descriptor =
+            AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
+        let mut fields = Vec::with_capacity(field_requests.len());
+        for (source, field_type, nullable) in &field_requests {
+            let field_id = bundle
+                .source_bindings()
+                .field(entity_tag, source)
+                .ok_or(DynamicTypedBindingError::FieldUnavailable)?;
+            let field = snapshot
+                .fields()
+                .iter()
+                .find(|field| field.id() == field_id)
+                .ok_or_else(InternalError::store_invariant)?;
+            let runtime_field = descriptor
+                .field_for_slot_index(usize::from(field.slot().get()))
+                .ok_or_else(InternalError::store_invariant)?;
+            if runtime_field.field_id() != field_id {
                 return Err(InternalError::store_invariant().into());
             }
-            let snapshot = bundle
-                .entity_snapshots()
-                .get(&entity_tag)
-                .ok_or_else(InternalError::store_invariant)?;
-            let mut fields = Vec::with_capacity(field_requests.len());
-            for (source, field_type, nullable) in &field_requests {
-                let field_id = bundle
-                    .source_bindings()
-                    .field(entity_tag, source)
-                    .ok_or(DynamicTypedBindingError::FieldUnavailable)?;
-                let field = snapshot
-                    .fields()
-                    .iter()
-                    .find(|field| field.id() == field_id)
-                    .ok_or_else(InternalError::store_invariant)?;
-                let expected_kind = lower_field_type(field_type, |source| {
-                    bundle.source_bindings().named_type(source)
-                })
-                .map_err(|_| DynamicTypedBindingError::IncompatibleField)?;
-                if field.nullable() != *nullable
-                    || !typed_adapter_field_kind_matches(field.kind(), &expected_kind)
-                {
-                    return Err(DynamicTypedBindingError::IncompatibleField);
-                }
-                fields.push((source.as_str().to_string(), field.name().to_string()));
+            let expected_kind = lower_field_type(field_type, |source| {
+                bundle.source_bindings().named_type(source)
+            })
+            .map_err(|_| DynamicTypedBindingError::IncompatibleField)?;
+            if field.nullable() != *nullable
+                || !typed_adapter_field_kind_matches(field.kind(), &expected_kind)
+            {
+                return Err(DynamicTypedBindingError::IncompatibleField);
             }
-            let catalog =
-                self.accepted_schema_catalog_context_for_entity_name(Some(snapshot.entity_name()))?;
-            let descriptor =
-                AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
-            let adapter_names = bundle.typed_adapter_names()?;
-            binding = Some(DynamicTypedEntityBinding {
-                database_incarnation: database_incarnation_id()?.to_bytes(),
-                entity: snapshot.entity_name().to_string(),
-                entity_tag: entity_tag.value(),
-                accepted_revision: catalog.revision().get(),
-                accepted_fingerprint: catalog.fingerprint(),
-                entity_generation: descriptor.current_layout_version().get(),
-                fields,
-                named_types: adapter_names.named_types,
-                enum_variants: adapter_names.enum_variants,
-                composite_fields: adapter_names.composite_fields,
-            });
+            fields.push((
+                source.as_str().to_string(),
+                field_id.get(),
+                field.slot().get(),
+                field.name().to_string(),
+            ));
         }
+        let adapter_names = bundle.typed_adapter_names()?;
 
-        binding.ok_or(DynamicTypedBindingError::FieldUnavailable)
+        DynamicTypedEntityBinding::new(
+            database_incarnation_id()?.to_bytes(),
+            entity_source.as_str().to_string(),
+            snapshot.entity_name().to_string(),
+            entity_tag.value(),
+            catalog.revision().get(),
+            catalog.fingerprint(),
+            descriptor.current_layout_version().get(),
+            fields,
+            adapter_names.named_types,
+            adapter_names.enum_variants,
+            adapter_names.composite_fields,
+        )
+        .map_err(Into::into)
+    }
+
+    pub(in crate::db::session) fn current_typed_entity_binding_catalog(
+        &self,
+        binding: &DynamicTypedEntityBinding,
+    ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
+        if database_incarnation_id()?.to_bytes() != binding.database_incarnation {
+            return Ok(None);
+        }
+        let Some(catalog) = self.find_accepted_schema_catalog_context_for_entity_source_key(
+            binding.entity_source.as_str(),
+        )?
+        else {
+            return Ok(None);
+        };
+        let descriptor =
+            AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
+        let identity = catalog.identity();
+        if identity.entity_path() != binding.entity_source.as_str()
+            || identity.entity_tag().value() != binding.entity_tag
+            || catalog.revision().get() != binding.accepted_revision
+            || catalog.fingerprint() != binding.accepted_fingerprint
+            || descriptor.current_layout_version().get() != binding.entity_generation
+        {
+            return Ok(None);
+        }
+        let entity_source = EntitySourceKey::try_new(binding.entity_source.clone())
+            .map_err(|_| InternalError::store_invariant())?;
+        let store = self.db.recovered_store(identity.store_path())?;
+        let bundle = store
+            .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
+            .ok_or_else(InternalError::store_invariant)?;
+        if bundle.revision() != catalog.revision()
+            || bundle.source_bindings().entity(&entity_source) != Some(identity.entity_tag())
+        {
+            return Ok(None);
+        }
+        let snapshot = bundle
+            .entity_snapshots()
+            .get(&identity.entity_tag())
+            .ok_or_else(InternalError::store_invariant)?;
+        for (source_key, expected_field_id, expected_slot) in binding.field_identity_bindings() {
+            let source = FieldSourceKey::try_new(source_key)
+                .map_err(|_| InternalError::store_invariant())?;
+            let Some(field_id) = bundle
+                .source_bindings()
+                .field(identity.entity_tag(), &source)
+            else {
+                return Ok(None);
+            };
+            let Some(field) = snapshot
+                .fields()
+                .iter()
+                .find(|field| field.id() == field_id)
+            else {
+                return Err(InternalError::store_invariant());
+            };
+            if field_id.get() != expected_field_id || field.slot().get() != expected_slot {
+                return Ok(None);
+            }
+        }
+        Ok(Some(catalog))
     }
 
     /// Verify that an opaque typed binding still names the exact accepted authority.
@@ -423,19 +492,8 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         binding: &DynamicTypedEntityBinding,
     ) -> Result<bool, InternalError> {
-        if database_incarnation_id()?.to_bytes() != binding.database_incarnation {
-            return Ok(false);
-        }
-        let catalog =
-            self.accepted_schema_catalog_context_for_entity_name(Some(binding.entity.as_str()))?;
-        let descriptor =
-            AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
-        Ok(
-            catalog.identity().entity_tag().value() == binding.entity_tag
-                && catalog.revision().get() == binding.accepted_revision
-                && catalog.fingerprint() == binding.accepted_fingerprint
-                && descriptor.current_layout_version().get() == binding.entity_generation,
-        )
+        self.current_typed_entity_binding_catalog(binding)
+            .map(|catalog| catalog.is_some())
     }
 
     /// Materialize one accepted delete batch, run bounded frontend validation,
@@ -457,25 +515,26 @@ impl<C: CanisterKind> DbSession<C> {
             row_decode_contract.clone(),
         );
         let store = self.db.recovered_store(identity.store_path())?;
-        let mut raw_keys = BTreeSet::new();
         let mut rows = Vec::with_capacity(keys.len());
-        let mut row_ops = Vec::with_capacity(keys.len());
+        let mut scheduler =
+            AcceptedMutationConstraintScheduler::for_delete(&self.db, entity_path, keys.len());
 
         for key in keys {
             let before = validated_existing_row(store, &key, &row_contract)?
                 .ok_or_else(|| InternalError::store_not_found(&key))?;
             let raw_key = key.to_raw()?;
-            if !raw_keys.insert(raw_key.clone()) {
-                return Err(InternalError::mutation_atomic_save_duplicate_key(
-                    entity_path,
-                    key,
-                ));
-            }
             let canonical_before = canonical_row_from_raw_row_with_accepted_decode_contract(
                 entity_path,
                 row_decode_contract.clone(),
                 &before,
             )?;
+            scheduler.schedule_delete(CommitRowOp::new(
+                entity_path,
+                raw_key,
+                Some(canonical_before.as_raw_row().as_bytes().to_vec()),
+                None,
+                catalog.fingerprint(),
+            ))?;
             let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
                 canonical_before.as_raw_row(),
                 &row_contract,
@@ -489,22 +548,15 @@ impl<C: CanisterKind> DbSession<C> {
                 );
             }
             rows.push(values);
-            row_ops.push(CommitRowOp::new(
-                entity_path,
-                raw_key,
-                Some(canonical_before.as_raw_row().as_bytes().to_vec()),
-                None,
-                catalog.fingerprint(),
-            ));
         }
 
-        self.db.validate_delete_relations(entity_path, &raw_keys)?;
+        let batch = scheduler.finish()?;
         precommit_validation(rows.as_slice())?;
-        if !row_ops.is_empty() {
+        if !batch.is_empty() {
             commit_delete_row_ops_with_window_for_path(
                 &self.db,
                 entity_path,
-                row_ops,
+                batch,
                 "accepted_structural_delete_batch_apply",
             )?;
         }
@@ -587,8 +639,16 @@ impl<C: CanisterKind> DbSession<C> {
             row_decode_contract.clone(),
         );
         let store = self.db.recovered_store(store_path)?;
-        let write_context = dynamic_write_context(mode, operation_timestamp);
-        let mut row_ops = Vec::with_capacity(mutations.len());
+        let write_context = dynamic_write_context(operation_timestamp);
+        let mut scheduler = AcceptedMutationConstraintScheduler::for_save(
+            &self.db,
+            entity_path,
+            mode,
+            row_decode_contract.clone(),
+            catalog.fingerprint(),
+            catalog.accepted_row_constraints(),
+            mutations.len(),
+        );
         let mut output = Vec::with_capacity(mutations.len());
         let mut seen_keys = BTreeSet::new();
 
@@ -626,6 +686,8 @@ impl<C: CanisterKind> DbSession<C> {
                     resolve_insert_structural_patch_with_accepted_contract(
                         entity_path,
                         row_decode_contract.clone(),
+                        catalog.fingerprint(),
+                        catalog.accepted_row_constraints(),
                         &patch,
                         write_context,
                     )?
@@ -634,6 +696,8 @@ impl<C: CanisterKind> DbSession<C> {
                     resolve_update_structural_patch_with_accepted_contract(
                         entity_path,
                         row_decode_contract.clone(),
+                        catalog.fingerprint(),
+                        catalog.accepted_row_constraints(),
                         before,
                         &patch,
                         write_context,
@@ -643,6 +707,8 @@ impl<C: CanisterKind> DbSession<C> {
                     resolve_existing_replace_structural_patch_with_accepted_contract(
                         entity_path,
                         row_decode_contract.clone(),
+                        catalog.fingerprint(),
+                        catalog.accepted_row_constraints(),
                         before,
                         &patch,
                         write_context,
@@ -679,19 +745,6 @@ impl<C: CanisterKind> DbSession<C> {
                     data_key,
                 ));
             }
-            validate_dynamic_after_image(
-                self,
-                entity_path,
-                store_path,
-                &data_key,
-                after.as_raw_row(),
-                provenance.as_slice(),
-                write_context,
-                row_decode_contract.clone(),
-                catalog.fingerprint(),
-                catalog.accepted_row_constraints(),
-            )?;
-
             let canonical_before = before
                 .as_ref()
                 .map(|before| {
@@ -708,21 +761,31 @@ impl<C: CanisterKind> DbSession<C> {
             let physical_changed = before
                 .as_ref()
                 .is_none_or(|before| before.as_bytes() != after.as_raw_row().as_bytes());
-            if physical_changed {
-                row_ops.push(CommitRowOp::new(
+            let row_op = physical_changed.then(|| {
+                CommitRowOp::new(
                     entity_path,
-                    raw_key,
+                    raw_key.clone(),
                     canonical_before
                         .as_ref()
                         .map(|before| before.as_raw_row().as_bytes().to_vec()),
                     Some(after.as_raw_row().as_bytes().to_vec()),
                     catalog.fingerprint(),
-                ));
+                )
+            });
+            scheduler.schedule_save_after_image(
+                &data_key,
+                after.as_raw_row(),
+                provenance.as_slice(),
+                row_op,
+            )?;
+            if physical_changed {
                 #[cfg(feature = "sql")]
                 if largest_journaled_prefix
-                    && !crate::db::commit::journaled_row_ops_fit_commit_window(row_ops.as_slice())
+                    && !crate::db::commit::journaled_row_ops_fit_commit_window(
+                        scheduler.save_rows()?,
+                    )
                 {
-                    let _ = row_ops.pop();
+                    scheduler.pop_last_save_row()?;
                     if output.is_empty() {
                         return Err(InternalError::query_sql_write_boundary(
                             icydb_diagnostic_code::SqlWriteBoundaryCode::ResumableUpdateSingleRowResourceExceeded,
@@ -753,16 +816,66 @@ impl<C: CanisterKind> DbSession<C> {
         #[cfg(not(feature = "sql"))]
         let _ = largest_journaled_prefix;
 
+        let batch = scheduler.finish()?;
         let prepared = precommit_preparation(output)?;
-        if !row_ops.is_empty() {
+        if !batch.is_empty() {
             commit_structural_save_row_ops_with_window_for_path(
                 &self.db,
                 entity_path,
-                row_ops,
+                batch,
                 "accepted_structural_batch_apply",
             )?;
         }
         Ok(prepared)
+    }
+
+    fn execute_one_accepted_save_mutation(
+        &self,
+        catalog: &AcceptedSchemaCatalogContext,
+        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+        mode: MutationMode,
+        target: AcceptedStructuralMutationTarget,
+        patch: AcceptedMutationIntentPatch,
+    ) -> Result<DynamicMutationResult, InternalError> {
+        let identity = catalog.identity();
+        let entity_path = identity.entity_path();
+        let mut rows = self.execute_accepted_structural_save_batch(
+            catalog,
+            descriptor,
+            mode,
+            vec![AcceptedStructuralMutation::new(target, patch)],
+            Timestamp::now(),
+            Ok,
+        )?;
+        let result = rows.pop().ok_or_else(InternalError::executor_invariant)?;
+        record(MetricsEvent::SaveMutation {
+            entity_path: entity_path.into(),
+            kind: match mode {
+                MutationMode::Insert => SaveMutationKind::Insert,
+                MutationMode::Replace => SaveMutationKind::Replace,
+                MutationMode::Update => SaveMutationKind::Update,
+            },
+            rows_touched: u64::from(result.logical_changed()),
+        });
+        let columns = descriptor
+            .fields()
+            .iter()
+            .map(|field| field.name().to_string())
+            .collect();
+        let row = result
+            .values
+            .iter()
+            .map(|value| {
+                output_value_from_runtime(catalog.enum_catalog(), value)
+                    .map_err(|_| InternalError::store_invariant())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(DynamicMutationResult {
+            entity: catalog.snapshot().entity_name().to_string(),
+            columns,
+            rows: vec![row],
+            affected_rows: u32::from(result.logical_changed()),
+        })
     }
 
     /// Execute one trusted entity-name-driven structural mutation.
@@ -771,10 +884,6 @@ impl<C: CanisterKind> DbSession<C> {
     /// constraints, relations, and commit preparation from accepted schema.
     /// It never materializes a generated entity or invokes application
     /// validators/normalizers.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "the four public mutation variants converge here before entering the accepted batch owner"
-    )]
     pub fn execute_trusted_dynamic_mutation(
         &self,
         request: &DynamicMutation,
@@ -797,31 +906,31 @@ impl<C: CanisterKind> DbSession<C> {
             row_decode_contract.clone(),
         );
         let store = self.db.recovered_store(store_path)?;
-        let operation_timestamp = Timestamp::now();
 
         if let DynamicMutation::Delete { key, .. } = request {
             let data_key = dynamic_key(identity.entity_tag(), key)?;
             let before = validated_existing_row(store, &data_key, &row_contract)?
                 .ok_or_else(|| InternalError::store_not_found(&data_key))?;
             let raw_key = data_key.to_raw()?;
-            self.db
-                .validate_delete_relations(entity_path, &BTreeSet::from([raw_key.clone()]))?;
             let canonical_before = canonical_row_from_raw_row_with_accepted_decode_contract(
                 entity_path,
                 row_decode_contract,
                 &before,
             )?;
-            let marker = CommitRowOp::new(
+            let mut scheduler =
+                AcceptedMutationConstraintScheduler::for_delete(&self.db, entity_path, 1);
+            scheduler.schedule_delete(CommitRowOp::new(
                 entity_path,
                 raw_key,
                 Some(canonical_before.as_raw_row().as_bytes().to_vec()),
                 None,
                 catalog.fingerprint(),
-            );
+            ))?;
+            let batch = scheduler.finish()?;
             commit_delete_row_ops_with_window_for_path(
                 &self.db,
                 entity_path,
-                vec![marker],
+                batch,
                 "dynamic_delete_row_apply",
             )?;
             let (columns, row) = project_dynamic_mutation_row(
@@ -856,43 +965,44 @@ impl<C: CanisterKind> DbSession<C> {
             DynamicMutation::Delete { .. } => return Err(InternalError::executor_invariant()),
         };
         let patch = lower_dynamic_patch(entity_path, &descriptor, patch, mode)?;
-        let mut rows = self.execute_accepted_structural_save_batch(
-            &catalog,
-            &descriptor,
-            mode,
-            vec![AcceptedStructuralMutation::new(target, patch)],
-            operation_timestamp,
-            Ok,
-        )?;
-        let result = rows.pop().ok_or_else(InternalError::executor_invariant)?;
-        record(MetricsEvent::SaveMutation {
-            entity_path,
-            kind: match mode {
-                MutationMode::Insert => SaveMutationKind::Insert,
-                MutationMode::Replace => SaveMutationKind::Replace,
-                MutationMode::Update => SaveMutationKind::Update,
-            },
-            rows_touched: u64::from(result.logical_changed()),
-        });
-        let columns = descriptor
-            .fields()
-            .iter()
-            .map(|field| field.name().to_string())
-            .collect();
-        let row = result
-            .values
-            .iter()
-            .map(|value| {
-                output_value_from_runtime(catalog.enum_catalog(), value)
-                    .map_err(|_| InternalError::store_invariant())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(DynamicMutationResult {
-            entity: request.entity().to_string(),
-            columns,
-            rows: vec![row],
-            affected_rows: u32::from(result.logical_changed()),
-        })
+        self.execute_one_accepted_save_mutation(&catalog, &descriptor, mode, target, patch)
+    }
+
+    /// Execute one generated typed write through immutable accepted entity and
+    /// field identities. `None` means the opaque binding is stale.
+    #[doc(hidden)]
+    pub fn execute_trusted_typed_mutation(
+        &self,
+        binding: &DynamicTypedEntityBinding,
+        request: &DynamicTypedMutation,
+    ) -> Result<Option<DynamicMutationResult>, InternalError> {
+        let Some(catalog) = self.current_typed_entity_binding_catalog(binding)? else {
+            return Ok(None);
+        };
+        let identity = catalog.identity();
+        let descriptor =
+            AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
+        let mode = dynamic_typed_mutation_mode(request);
+        let (target, patch) = match request {
+            DynamicTypedMutation::Insert { patch } => (
+                AcceptedStructuralMutationTarget::ResolveFromAfterImage,
+                patch,
+            ),
+            DynamicTypedMutation::Update { key, patch }
+            | DynamicTypedMutation::Replace { key, patch } => (
+                AcceptedStructuralMutationTarget::expected(dynamic_key(
+                    identity.entity_tag(),
+                    key,
+                )?),
+                patch,
+            ),
+        };
+        if !patch.is_bound_to(binding) {
+            return Ok(None);
+        }
+        let patch = lower_typed_patch(identity.entity_path(), &descriptor, patch, mode)?;
+        self.execute_one_accepted_save_mutation(&catalog, &descriptor, mode, target, patch)
+            .map(Some)
     }
 
     /// Execute one trusted atomic insert batch from entity-name-driven patches.
@@ -941,7 +1051,7 @@ impl<C: CanisterKind> DbSession<C> {
                 .ok_or_else(InternalError::executor_invariant)
         })?;
         record(MetricsEvent::SaveMutation {
-            entity_path,
+            entity_path: entity_path.into(),
             kind: SaveMutationKind::Insert,
             rows_touched: u64::from(affected_rows),
         });
@@ -977,11 +1087,141 @@ impl<C: CanisterKind> DbSession<C> {
 #[cfg(test)]
 mod typed_adapter_tests {
     use super::{
-        AcceptedFieldKind, DynamicTypedBindingError, DynamicTypedFieldType,
-        dynamic_typed_field_type, typed_adapter_field_kind_matches,
+        AcceptedFieldKind, DbSession, DynamicTypedBindingError, DynamicTypedFieldBindingRequest,
+        DynamicTypedFieldType, DynamicTypedMutation, DynamicWriteCell, dynamic_typed_field_type,
+        typed_adapter_field_kind_matches,
     };
-    use crate::types::EntityTag;
-    use icydb_schema::ScalarType;
+    use crate::{
+        db::{
+            data::DataStore,
+            index::IndexStore,
+            registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
+            schema::{
+                AcceptedSchemaRevision, FieldId, FieldStorageDecode, LeafCodec,
+                PersistedFieldSnapshot, PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot,
+                SchemaInsertDefault, SchemaRowLayout, SchemaStore, SchemaVersion,
+                accepted_schema_candidate_with_field_bindings_for_tests,
+            },
+        },
+        traits::{CanisterKind, Path},
+        types::EntityTag,
+        value::InputValue,
+    };
+    use icydb_schema::{EntitySourceKey, FieldSourceKey, ScalarType};
+    use std::{cell::RefCell, collections::BTreeMap};
+
+    const STORE_PATH: &str = "session::write::typed_adapter_tests::Store";
+    const ENTITY_SOURCE: &str = "session::write::typed_adapter_tests::Entity";
+    const OTHER_ENTITY_SOURCE: &str = "session::write::typed_adapter_tests::OtherEntity";
+    const ID_SOURCE: &str = "session::write::typed_adapter_tests::Entity::id";
+    const VALUE_SOURCE: &str = "session::write::typed_adapter_tests::Entity::value";
+    const REPLACEMENT_SOURCE: &str =
+        "session::write::typed_adapter_tests::Entity::replacement_value";
+    const OTHER_ID_SOURCE: &str = "session::write::typed_adapter_tests::OtherEntity::id";
+
+    struct TestCanister;
+
+    impl Path for TestCanister {
+        const PATH: &'static str = "session::write::typed_adapter_tests::Canister";
+    }
+
+    impl CanisterKind for TestCanister {
+        const COMMIT_MEMORY_ID: u8 = 41;
+        const COMMIT_STABLE_KEY: &'static str = "icydb.typed_adapter_tests.commit.v1";
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 42;
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+            "icydb.typed_adapter_tests.integrity.progress.v1";
+    }
+
+    thread_local! {
+        static DATA_STORE: RefCell<DataStore> = const { RefCell::new(DataStore::init_heap()) };
+        static INDEX_STORE: RefCell<IndexStore> = const { RefCell::new(IndexStore::init_heap()) };
+        static SCHEMA_STORE: RefCell<SchemaStore> =
+            const { RefCell::new(SchemaStore::init_heap()) };
+        static STORE_REGISTRY: StoreRegistry = {
+            let mut registry = StoreRegistry::new();
+            registry.register_store(
+                STORE_PATH,
+                &DATA_STORE,
+                &INDEX_STORE,
+                &SCHEMA_STORE,
+                StoreAllocationIdentities::absent(),
+                StoreRuntimeStorageCapabilities::heap(),
+            ).expect("typed adapter test store should register");
+            registry
+        };
+    }
+
+    fn nat64_field(id: u32, name: &str, slot: u16) -> PersistedFieldSnapshot {
+        PersistedFieldSnapshot::new_initial(
+            FieldId::new(id),
+            name.to_string(),
+            SchemaFieldSlot::new(slot),
+            AcceptedFieldKind::Nat64,
+            Vec::new(),
+            false,
+            SchemaInsertDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Nat64),
+        )
+    }
+
+    fn snapshot(
+        entity_source: &str,
+        entity_name: &str,
+        fields: Vec<PersistedFieldSnapshot>,
+    ) -> PersistedSchemaSnapshot {
+        let layout = SchemaRowLayout::initial(
+            fields
+                .iter()
+                .map(|field| (field.id(), field.slot()))
+                .collect(),
+        );
+        PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            entity_source.to_string(),
+            entity_name.to_string(),
+            FieldId::new(1),
+            layout,
+            fields,
+        )
+    }
+
+    fn field_source(source: &str) -> FieldSourceKey {
+        FieldSourceKey::try_new(source).expect("typed field source should admit")
+    }
+
+    fn entity_source(source: &str) -> EntitySourceKey {
+        EntitySourceKey::try_new(source).expect("typed entity source should admit")
+    }
+
+    fn publish(
+        session: &DbSession<TestCanister>,
+        expected: AcceptedSchemaRevision,
+        revision: AcceptedSchemaRevision,
+        snapshots: BTreeMap<EntityTag, PersistedSchemaSnapshot>,
+        fields: BTreeMap<(EntityTag, FieldSourceKey), FieldId>,
+    ) {
+        let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
+            STORE_PATH, revision, snapshots, fields,
+        );
+        let store = session
+            .db
+            .store_handle(STORE_PATH)
+            .expect("typed adapter test store should resolve");
+        crate::db::commit::publish_accepted_schema_candidate(
+            STORE_PATH, store, expected, &candidate,
+        )
+        .expect("typed binding candidate should publish");
+    }
+
+    fn request(source: &str) -> DynamicTypedFieldBindingRequest {
+        DynamicTypedFieldBindingRequest::new(
+            source.to_string(),
+            DynamicTypedFieldType::Scalar(ScalarType::Nat64),
+            false,
+        )
+    }
 
     #[test]
     fn typed_adapter_kind_matching_is_exact_but_accepts_relation_key_wrappers() {
@@ -1017,5 +1257,220 @@ mod typed_adapter_tests {
             dynamic_typed_field_type(DynamicTypedFieldType::Scalar(ScalarType::Nat16)),
             Ok(icydb_schema::FieldType::Scalar(ScalarType::Nat16)),
         ));
+    }
+
+    #[test]
+    fn typed_binding_uses_accepted_ids_and_slots_across_renames_and_name_reuse() {
+        let entity_tag = EntityTag::new(91);
+        let other_entity_tag = EntityTag::new(92);
+        DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
+        INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
+        SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
+
+        let session = DbSession::<TestCanister>::new(&STORE_REGISTRY);
+        session
+            .db
+            .ensure_recovered_state()
+            .expect("typed adapter test database should initialize");
+        publish(
+            &session,
+            AcceptedSchemaRevision::NONE,
+            AcceptedSchemaRevision::INITIAL,
+            BTreeMap::from([(
+                entity_tag,
+                snapshot(
+                    ENTITY_SOURCE,
+                    "Entity",
+                    vec![nat64_field(1, "id", 0), nat64_field(2, "value", 1)],
+                ),
+            )]),
+            BTreeMap::from([
+                ((entity_tag, field_source(ID_SOURCE)), FieldId::new(1)),
+                ((entity_tag, field_source(VALUE_SOURCE)), FieldId::new(2)),
+            ]),
+        );
+
+        let initial_catalog = session
+            .find_accepted_schema_catalog_context_for_entity_source_key(ENTITY_SOURCE)
+            .expect("initial source catalog lookup should inspect")
+            .expect("initial source catalog should exist");
+        assert_eq!(initial_catalog.identity().entity_tag(), entity_tag);
+        let initial = session
+            .issue_typed_entity_binding(
+                entity_source(ENTITY_SOURCE).as_str(),
+                &[request(ID_SOURCE), request(VALUE_SOURCE)],
+            )
+            .expect("initial typed binding should issue");
+        assert_eq!(initial.field_slot(ID_SOURCE), Some(0));
+        assert_eq!(initial.field_slot(VALUE_SOURCE), Some(1));
+        assert_eq!(initial.output_field_slot("value"), Some(1));
+        let initial_patch = initial
+            .bind_write_fields(vec![(
+                VALUE_SOURCE.to_string(),
+                DynamicWriteCell::Value(InputValue::Nat64(7)),
+            )])
+            .expect("source-bound patch should lower");
+        assert_eq!(
+            initial_patch.fields(),
+            &[(2, 1, DynamicWriteCell::Value(InputValue::Nat64(7)))]
+        );
+
+        publish(
+            &session,
+            AcceptedSchemaRevision::INITIAL,
+            AcceptedSchemaRevision::new(2),
+            BTreeMap::from([
+                (
+                    entity_tag,
+                    snapshot(
+                        ENTITY_SOURCE,
+                        "RenamedEntity",
+                        vec![
+                            nat64_field(1, "id", 0),
+                            nat64_field(2, "renamed_value", 1),
+                            nat64_field(3, "value", 2),
+                        ],
+                    ),
+                ),
+                (
+                    other_entity_tag,
+                    snapshot(OTHER_ENTITY_SOURCE, "Entity", vec![nat64_field(1, "id", 0)]),
+                ),
+            ]),
+            BTreeMap::from([
+                ((entity_tag, field_source(ID_SOURCE)), FieldId::new(1)),
+                ((entity_tag, field_source(VALUE_SOURCE)), FieldId::new(2)),
+                (
+                    (entity_tag, field_source(REPLACEMENT_SOURCE)),
+                    FieldId::new(3),
+                ),
+                (
+                    (other_entity_tag, field_source(OTHER_ID_SOURCE)),
+                    FieldId::new(1),
+                ),
+            ]),
+        );
+
+        assert!(
+            !session
+                .typed_entity_binding_is_current(&initial)
+                .expect("renamed binding currentness should inspect")
+        );
+        let renamed = session
+            .issue_typed_entity_binding(ENTITY_SOURCE, &[request(ID_SOURCE), request(VALUE_SOURCE)])
+            .expect("renamed source-bound adapter should rebind");
+        assert_eq!(renamed.entity(), "RenamedEntity");
+        assert_eq!(renamed.field_slot(VALUE_SOURCE), Some(1));
+        assert_eq!(renamed.output_field_slot("renamed_value"), Some(1));
+        assert_eq!(renamed.output_field_slot("value"), None);
+
+        publish(
+            &session,
+            AcceptedSchemaRevision::new(2),
+            AcceptedSchemaRevision::new(3),
+            BTreeMap::from([
+                (
+                    entity_tag,
+                    snapshot(
+                        ENTITY_SOURCE,
+                        "RenamedEntity",
+                        vec![nat64_field(1, "id", 0), nat64_field(2, "value", 1)],
+                    ),
+                ),
+                (
+                    other_entity_tag,
+                    snapshot(OTHER_ENTITY_SOURCE, "Entity", vec![nat64_field(1, "id", 0)]),
+                ),
+            ]),
+            BTreeMap::from([
+                ((entity_tag, field_source(ID_SOURCE)), FieldId::new(1)),
+                (
+                    (entity_tag, field_source(REPLACEMENT_SOURCE)),
+                    FieldId::new(2),
+                ),
+                (
+                    (other_entity_tag, field_source(OTHER_ID_SOURCE)),
+                    FieldId::new(1),
+                ),
+            ]),
+        );
+
+        assert!(matches!(
+            session.issue_typed_entity_binding(
+                ENTITY_SOURCE,
+                &[request(ID_SOURCE), request(VALUE_SOURCE)],
+            ),
+            Err(DynamicTypedBindingError::FieldUnavailable),
+        ));
+        assert!(
+            !session
+                .typed_entity_binding_is_current(&renamed)
+                .expect("removed source binding should become stale")
+        );
+
+        let replacement = session
+            .issue_typed_entity_binding(
+                ENTITY_SOURCE,
+                &[request(ID_SOURCE), request(REPLACEMENT_SOURCE)],
+            )
+            .expect("explicit replacement source should bind");
+        assert!(
+            session
+                .execute_trusted_typed_mutation(
+                    &replacement,
+                    &DynamicTypedMutation::Insert {
+                        patch: initial_patch
+                    },
+                )
+                .expect("cross-binding patch should fail closed")
+                .is_none()
+        );
+        let patch = replacement
+            .bind_write_fields(vec![
+                (
+                    ID_SOURCE.to_string(),
+                    DynamicWriteCell::Value(InputValue::Nat64(1)),
+                ),
+                (
+                    REPLACEMENT_SOURCE.to_string(),
+                    DynamicWriteCell::Value(InputValue::Nat64(9)),
+                ),
+            ])
+            .expect("replacement source write should bind by accepted IDs and slots");
+        let result = session
+            .execute_trusted_typed_mutation(&replacement, &DynamicTypedMutation::Insert { patch })
+            .expect("typed insert should use the accepted mutation pipeline")
+            .expect("replacement binding should remain current");
+        assert_eq!(result.entity, "RenamedEntity");
+        assert_eq!(result.columns, vec!["id".to_string(), "value".to_string()]);
+        assert_eq!(
+            result.rows,
+            vec![vec![
+                crate::value::OutputValue::Nat64(1),
+                crate::value::OutputValue::Nat64(9)
+            ]]
+        );
+        assert_eq!(result.affected_rows, 1);
+
+        #[cfg(feature = "query")]
+        {
+            let query = crate::db::DynamicQuery::new("RenamedEntity")
+                .select(["id", "value"])
+                .order_by(crate::db::asc("id"))
+                .limit(1);
+            let result = session
+                .execute_trusted_dynamic_query(&query)
+                .expect("query-only dynamic execution should use accepted authority");
+            assert_eq!(result.entity, "RenamedEntity");
+            assert_eq!(result.columns, vec!["id".to_string(), "value".to_string()]);
+            assert_eq!(
+                result.rows,
+                vec![vec![
+                    crate::value::OutputValue::Nat64(1),
+                    crate::value::OutputValue::Nat64(9)
+                ]]
+            );
+            assert_eq!(result.row_count, 1);
+        }
     }
 }

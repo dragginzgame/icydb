@@ -31,7 +31,7 @@ use crate::{
     traits::CanisterKind,
 };
 
-fn record_sql_write_delete_metrics(entity_path: &'static str, row_count: u32, returning: bool) {
+fn record_sql_write_delete_metrics(entity_path: &str, row_count: u32, returning: bool) {
     record_sql_write_metrics(
         entity_path,
         SqlWriteKind::Delete,

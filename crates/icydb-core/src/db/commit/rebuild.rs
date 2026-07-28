@@ -24,7 +24,10 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
-use std::collections::{BTreeMap, btree_map::Entry};
+use std::{
+    collections::{BTreeMap, btree_map::Entry},
+    rc::Rc,
+};
 
 ///
 /// RebuildEntityAuthority
@@ -34,7 +37,7 @@ use std::collections::{BTreeMap, btree_map::Entry};
 ///
 
 struct RebuildEntityAuthority {
-    entity_path: &'static str,
+    entity_path: Rc<str>,
     schema_fingerprint: CommitSchemaFingerprint,
     candidate_unique: Option<RebuildCandidateUniqueAuthority>,
     candidate_relation: Option<RebuildCandidateRelationAuthority>,
@@ -127,31 +130,31 @@ fn rebuild_secondary_indexes_in_place(
                 let authority = match authorities.entry(entity_tag) {
                     Entry::Occupied(entry) => entry.into_mut(),
                     Entry::Vacant(entry) => {
-                        let registration = db.runtime_registration_for_entity_tag(entity_tag)?;
+                        let runtime_entity = db.accepted_runtime_entity_for_tag(entity_tag)?;
                         let accepted_schema = handle.with_schema(|schema_store| {
                             load_accepted_schema_snapshot(
                                 schema_store,
-                                registration.entity_tag,
-                                registration.entity_path,
+                                runtime_entity.entity_tag(),
+                                runtime_entity.entity_path(),
                             )
                         })?;
                         let candidate_unique = rebuild_candidate_unique_authority(
                             *handle,
-                            registration.entity_tag,
-                            registration.entity_path,
-                            registration.store_path,
+                            runtime_entity.entity_tag(),
+                            runtime_entity.entity_path(),
+                            runtime_entity.store_path(),
                             &accepted_schema,
                         )?;
                         let candidate_relation = rebuild_candidate_relation_authority(
                             db,
                             *handle,
-                            registration.entity_tag,
-                            registration.entity_path,
-                            registration.store_path,
+                            runtime_entity.entity_tag(),
+                            runtime_entity.entity_path(),
+                            runtime_entity.store_path(),
                             &accepted_schema,
                         )?;
                         entry.insert(RebuildEntityAuthority {
-                            entity_path: registration.entity_path,
+                            entity_path: runtime_entity.entity_path_handle(),
                             schema_fingerprint: accepted_commit_schema_fingerprint(
                                 &accepted_schema,
                             )?,
@@ -161,7 +164,7 @@ fn rebuild_secondary_indexes_in_place(
                     }
                 };
                 let row_op = CommitRowOp::new(
-                    authority.entity_path,
+                    authority.entity_path.clone(),
                     raw_key.clone(),
                     None,
                     Some(raw_row.as_bytes().to_vec()),
@@ -236,7 +239,7 @@ fn rebuild_candidate_generations(
 fn rebuild_candidate_unique_authority(
     handle: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     store_path: &'static str,
     accepted: &AcceptedSchemaSnapshot,
 ) -> Result<Option<RebuildCandidateUniqueAuthority>, InternalError> {
@@ -292,7 +295,7 @@ fn rebuild_candidate_relation_authority(
     db: &Db<impl CanisterKind>,
     handle: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     store_path: &'static str,
     accepted: &AcceptedSchemaSnapshot,
 ) -> Result<Option<RebuildCandidateRelationAuthority>, InternalError> {

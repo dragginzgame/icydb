@@ -3,7 +3,9 @@
 //! Does not own: schema DTO construction or query/session orchestration.
 //! Boundary: converts schema index contracts into user-readable lines.
 
-use super::{SchemaExpressionIndexKeyItemInfo, SchemaInfo};
+use super::{
+    PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaExpressionIndexKeyItemInfo, SchemaInfo,
+};
 use crate::db::IndexState;
 use std::fmt::Write;
 
@@ -12,6 +14,7 @@ use std::fmt::Write;
 #[must_use]
 pub(in crate::db) fn show_indexes_for_schema_info_with_runtime_state(
     schema: &SchemaInfo,
+    snapshot: &PersistedSchemaSnapshot,
     runtime_state: Option<IndexState>,
 ) -> Vec<String> {
     let mut indexes = Vec::with_capacity(
@@ -51,11 +54,7 @@ pub(in crate::db) fn show_indexes_for_schema_info_with_runtime_state(
             &field_refs,
             index.predicate_sql(),
             runtime_state,
-            Some(if index.generated() {
-                "generated"
-            } else {
-                "ddl"
-            }),
+            index_origin(snapshot.indexes(), index.ordinal()),
         ));
     }
 
@@ -81,15 +80,57 @@ pub(in crate::db) fn show_indexes_for_schema_info_with_runtime_state(
             &field_refs,
             index.predicate_sql(),
             runtime_state,
-            Some(if index.generated() {
-                "generated"
-            } else {
-                "ddl"
-            }),
+            index_origin(snapshot.indexes(), index.ordinal()),
         ));
     }
 
     indexes
+}
+
+fn index_origin(indexes: &[PersistedIndexSnapshot], ordinal: u16) -> Option<&'static str> {
+    indexes
+        .iter()
+        .find(|index| index.ordinal() == ordinal)
+        .map(|index| {
+            if index.generated() {
+                "generated"
+            } else {
+                "ddl"
+            }
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::index_origin;
+    use crate::db::schema::{PersistedIndexKeySnapshot, PersistedIndexSnapshot, SchemaIndexId};
+
+    #[test]
+    fn index_origin_reads_accepted_snapshot_instead_of_query_projection() {
+        let generated = PersistedIndexSnapshot::new(
+            SchemaIndexId::new(1).expect("test index ID should be non-zero"),
+            2,
+            "generated_index".to_string(),
+            "GeneratedIndex".to_string(),
+            false,
+            PersistedIndexKeySnapshot::FieldPath(Vec::new()),
+            None,
+        );
+        let ddl = PersistedIndexSnapshot::new_sql_ddl(
+            SchemaIndexId::new(2).expect("test index ID should be non-zero"),
+            3,
+            "ddl_index".to_string(),
+            "DdlIndex".to_string(),
+            false,
+            PersistedIndexKeySnapshot::FieldPath(Vec::new()),
+            None,
+        );
+        let indexes = [generated, ddl];
+
+        assert_eq!(index_origin(&indexes, 2), Some("generated"));
+        assert_eq!(index_origin(&indexes, 3), Some("ddl"));
+        assert_eq!(index_origin(&indexes, 4), None);
+    }
 }
 
 fn primary_key_fields_from_schema(schema: &SchemaInfo) -> Vec<&str> {

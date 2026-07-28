@@ -14,7 +14,7 @@
 use crate::{
     db::access::{
         AccessPath, AccessPlan, IndexBranchSetSpec, SemanticIndexAccessContract,
-        SemanticIndexKeyItemsRef, SemanticIndexRangeSpec,
+        SemanticIndexKeyItem, SemanticIndexRangeSpec,
     },
     value::{Value, canonicalize_value_set},
 };
@@ -469,8 +469,8 @@ fn canonical_cmp_index_identity(
 }
 
 fn canonical_cmp_index_key_items(
-    left: SemanticIndexKeyItemsRef<'_>,
-    right: SemanticIndexKeyItemsRef<'_>,
+    left: &[SemanticIndexKeyItem],
+    right: &[SemanticIndexKeyItem],
 ) -> Ordering {
     let left = canonical_index_key_items(left);
     let right = canonical_index_key_items(right);
@@ -478,14 +478,11 @@ fn canonical_cmp_index_key_items(
     left.cmp(&right)
 }
 
-fn canonical_index_key_items(key_items: SemanticIndexKeyItemsRef<'_>) -> Vec<String> {
-    match key_items {
-        SemanticIndexKeyItemsRef::Fields(fields) => fields.to_vec(),
-        SemanticIndexKeyItemsRef::Accepted(items) => items
-            .iter()
-            .map(|item| item.as_ref().canonical_text())
-            .collect(),
-    }
+fn canonical_index_key_items(key_items: &[SemanticIndexKeyItem]) -> Vec<String> {
+    key_items
+        .iter()
+        .map(|item| item.as_ref().canonical_text())
+        .collect()
 }
 
 /// Lexicographic comparison of value lists.

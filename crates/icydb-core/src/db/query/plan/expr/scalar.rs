@@ -171,7 +171,7 @@ pub(in crate::db) fn compile_scalar_projection_expr_with_schema(
 /// site wants to document that generated model metadata is outside the
 /// projection compiler boundary.
 #[must_use]
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db) fn compile_scalar_projection_expr_from_schema(
     schema: &SchemaInfo,
     expr: &Expr,

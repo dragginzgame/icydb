@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        access::{SemanticIndexAccessContract, SemanticIndexKeyItemRef, SemanticIndexKeyItemsRef},
+        access::{SemanticIndexAccessContract, SemanticIndexKeyItemRef},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::plan::{
             access_choice::model::{
@@ -130,27 +130,11 @@ fn evaluate_prefix_len_for_key_items(
     eq_constraints: &[(&str, &Value, CoercionId, bool)],
 ) -> Result<usize, AccessChoiceRejectedReason> {
     let mut prefix_len = 0usize;
-    match index_contract.key_items() {
-        SemanticIndexKeyItemsRef::Fields(fields) => {
-            for field in fields {
-                match match_eq_constraint_value_for_key_item(
-                    SemanticIndexKeyItemRef::Field(field.as_str()),
-                    eq_constraints,
-                ) {
-                    Ok(Some(_)) => prefix_len = prefix_len.saturating_add(1),
-                    Ok(None) => break,
-                    Err(reason) => return Err(reason),
-                }
-            }
-        }
-        SemanticIndexKeyItemsRef::Accepted(items) => {
-            for item in items {
-                match match_eq_constraint_value_for_key_item(item.as_ref(), eq_constraints) {
-                    Ok(Some(_)) => prefix_len = prefix_len.saturating_add(1),
-                    Ok(None) => break,
-                    Err(reason) => return Err(reason),
-                }
-            }
+    for item in index_contract.key_items() {
+        match match_eq_constraint_value_for_key_item(item.as_ref(), eq_constraints) {
+            Ok(Some(_)) => prefix_len = prefix_len.saturating_add(1),
+            Ok(None) => break,
+            Err(reason) => return Err(reason),
         }
     }
 

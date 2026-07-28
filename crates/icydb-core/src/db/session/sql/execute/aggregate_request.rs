@@ -10,7 +10,7 @@ use crate::db::{
     },
     query::plan::AggregateKind,
     schema::SchemaInfo,
-    session::sql::{SqlProjectionContract, projection::projection_contract_from_projection_spec},
+    session::query::StructuralProjectionContract,
     sql::lowering::{
         PreparedSqlScalarAggregatePlanFragment, PreparedSqlScalarAggregateStrategy,
         SqlGlobalAggregateCommand,
@@ -19,7 +19,7 @@ use crate::db::{
 
 pub(super) struct PreparedAggregateRequestBundle {
     request: StructuralAggregateRequest,
-    projection: SqlProjectionContract,
+    projection: StructuralProjectionContract,
 }
 
 impl PreparedAggregateRequestBundle {
@@ -43,11 +43,11 @@ impl PreparedAggregateRequestBundle {
 
         Ok(Self {
             request,
-            projection: projection_contract_from_projection_spec(projection),
+            projection: StructuralProjectionContract::from_projection_spec(projection),
         })
     }
 
-    pub(super) fn into_parts(self) -> (StructuralAggregateRequest, SqlProjectionContract) {
+    pub(super) fn into_parts(self) -> (StructuralAggregateRequest, StructuralProjectionContract) {
         let Self {
             request,
             projection,

@@ -7,7 +7,7 @@ use crate::{
     db::{
         access::{
             AccessPlan, MAX_INDEX_BRANCH_SET_VALUES, SemanticIndexAccessContract,
-            SemanticIndexKeyItemRef, SemanticIndexKeyItemsRef,
+            SemanticIndexKeyItemRef,
         },
         predicate::{CoercionId, CompareOp, Predicate},
         query::plan::{
@@ -491,30 +491,16 @@ fn build_index_eq_prefix(
     index_contract: &SemanticIndexAccessContract,
     field_values: &[CachedEqLiteral<'_>],
 ) -> Option<Vec<Value>> {
-    match index_contract.key_items() {
-        SemanticIndexKeyItemsRef::Fields(fields) => build_index_eq_prefix_for_items(
-            fields
-                .iter()
-                .map(|field| SemanticIndexKeyItemRef::Field(field.as_str())),
-            field_values,
-        ),
-        SemanticIndexKeyItemsRef::Accepted(items) => {
-            build_index_eq_prefix_for_items(items.iter().map(|item| item.as_ref()), field_values)
-        }
-    }
+    build_index_eq_prefix_for_items(index_contract.key_items(), field_values)
 }
 
-// Field-only indexes and mixed field/expression indexes both use the same
-// equality-prefix assembly contract; only the key-item iterator differs.
-fn build_index_eq_prefix_for_items<'a, I>(
-    key_items: I,
+fn build_index_eq_prefix_for_items(
+    key_items: &[crate::db::access::SemanticIndexKeyItem],
     field_values: &[CachedEqLiteral<'_>],
-) -> Option<Vec<Value>>
-where
-    I: IntoIterator<Item = SemanticIndexKeyItemRef<'a>>,
-{
+) -> Option<Vec<Value>> {
     let mut prefix = Vec::new();
     for key_item in key_items {
+        let key_item = key_item.as_ref();
         let mut matched: Option<Value> = None;
         for cached in field_values {
             let Some(candidate) = eq_lookup_value_for_key_item(

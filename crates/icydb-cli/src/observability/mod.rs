@@ -1,12 +1,11 @@
 //! Module: observability command integration.
-//! Responsibility: dispatch metrics, schema, schema-check, and snapshot canister calls.
+//! Responsibility: dispatch metrics, schema, and snapshot canister calls.
 //! Does not own: endpoint configuration, ICP process construction, or CLI argument parsing.
 //! Boundary: decodes raw canister responses and delegates report rendering to submodules.
 
 mod metrics;
 mod render;
 mod schema;
-mod schema_check;
 mod snapshot;
 
 use crate::cli::{CanisterTarget, MetricsArgs};
@@ -18,10 +17,6 @@ pub(crate) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
 
 pub(crate) fn run_schema_show_command(target: CanisterTarget) -> Result<(), String> {
     schema::run_schema_show_command(target)
-}
-
-pub(crate) fn run_schema_check_command(target: CanisterTarget) -> Result<(), String> {
-    schema_check::run_schema_check_command(target)
 }
 
 pub(crate) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String> {
@@ -99,7 +94,7 @@ fn method_error(
 #[cfg(test)]
 pub(crate) mod test_support {
     use crate::observability::{
-        method_error as base_method_error, metrics, render, schema, schema_check, snapshot,
+        method_error as base_method_error, metrics, render, schema, snapshot,
     };
 
     pub(crate) fn method_error(
@@ -140,12 +135,6 @@ pub(crate) mod test_support {
         schema::decode_schema_report(candid_bytes)
     }
 
-    pub(crate) fn decode_schema_check_report(
-        candid_bytes: &[u8],
-    ) -> Result<Result<Vec<icydb::db::EntitySchemaCheckDescription>, icydb::Error>, String> {
-        schema_check::decode_schema_check_report(candid_bytes)
-    }
-
     pub(crate) fn decode_snapshot_report(
         candid_bytes: &[u8],
     ) -> Result<Result<icydb::db::StorageReport, icydb::Error>, String> {
@@ -166,12 +155,6 @@ pub(crate) mod test_support {
 
     pub(crate) fn render_schema_report(report: &[icydb::db::EntitySchemaDescription]) -> String {
         schema::render_schema_report(report)
-    }
-
-    pub(crate) fn render_schema_check_report(
-        report: &[icydb::db::EntitySchemaCheckDescription],
-    ) -> String {
-        schema_check::render_schema_check_report(report)
     }
 
     pub(crate) fn render_snapshot_report(report: &icydb::db::StorageReport) -> String {

@@ -3,7 +3,7 @@
 //! Does not own: predicate AST evaluation or schema literal validation.
 //! Boundary: consumed by predicate schema/semantics/runtime layers.
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 use crate::value::CoercionFamily;
 use std::fmt;
 
@@ -90,7 +90,7 @@ impl fmt::Debug for CoercionParamsDebug<'_> {
 
 /// Returns whether a coercion rule exists for the provided routing families.
 #[must_use]
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn supports_coercion(
     left: CoercionFamily,
     right: CoercionFamily,

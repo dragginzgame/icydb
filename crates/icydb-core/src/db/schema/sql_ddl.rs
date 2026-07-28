@@ -36,7 +36,7 @@ fn publish_accepted_entity_snapshot_revision(
     accepted_after: &PersistedSchemaSnapshot,
 ) -> Result<(), InternalError> {
     let Some((expected_revision, candidate)) =
-        prepare_accepted_entity_snapshot_revision(store, expected_identity, accepted_after)?
+        prepare_accepted_entity_snapshot_revision(store, &expected_identity, accepted_after)?
     else {
         return Ok(());
     };
@@ -55,7 +55,7 @@ fn publish_accepted_entity_snapshot_revision_with_user_index_domain(
     replacement: StagedUserIndexDomainReplacement,
 ) -> Result<(), InternalError> {
     let Some((expected_revision, candidate)) =
-        prepare_accepted_entity_snapshot_revision(store, expected_identity, accepted_after)?
+        prepare_accepted_entity_snapshot_revision(store, &expected_identity, accepted_after)?
     else {
         return Err(InternalError::store_invariant());
     };
@@ -70,7 +70,7 @@ fn publish_accepted_entity_snapshot_revision_with_user_index_domain(
 
 fn prepare_accepted_entity_snapshot_revision(
     store: StoreHandle,
-    expected_identity: AcceptedCatalogIdentity,
+    expected_identity: &AcceptedCatalogIdentity,
     accepted_after: &PersistedSchemaSnapshot,
 ) -> Result<Option<(AcceptedSchemaRevision, CandidateSchemaRevision)>, InternalError> {
     let current_selection = store
@@ -82,7 +82,7 @@ fn prepare_accepted_entity_snapshot_revision(
             )
         })?
         .ok_or_else(InternalError::store_corruption)?;
-    if current_selection.identity() != expected_identity {
+    if current_selection.identity() != *expected_identity {
         return Err(InternalError::schema_ddl_publication_race_lost(
             expected_identity.entity_path(),
         ));
@@ -140,7 +140,7 @@ fn prepare_accepted_entity_snapshot_revision(
 }
 
 fn validate_publishable_transition_plan(
-    _entity_path: &'static str,
+    _entity_path: &str,
     plan: &SchemaTransitionPlan,
 ) -> Result<(), InternalError> {
     match plan.publication_preflight() {
@@ -154,7 +154,7 @@ fn validate_publishable_transition_plan(
 pub(in crate::db) fn execute_admin_sql_ddl_field_path_index_addition(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
@@ -164,7 +164,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_path_index_addition(
         entity_tag,
         entity_path,
         accepted_before,
-        accepted_before_identity,
+        &accepted_before_identity,
         derivation,
     );
     let plan = envelope.require_transition_plan(
@@ -181,7 +181,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_path_index_addition(
 
     let replacement = stage_sql_ddl_user_index_domain_replacement(
         envelope.store(),
-        accepted_before_identity,
+        &accepted_before_identity,
         envelope.before(),
         envelope.after(),
     )?;
@@ -202,7 +202,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_path_index_addition(
 pub(in crate::db) fn execute_admin_sql_ddl_expression_index_addition(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
@@ -212,7 +212,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_expression_index_addition(
         entity_tag,
         entity_path,
         accepted_before,
-        accepted_before_identity,
+        &accepted_before_identity,
         derivation,
     );
     let plan = envelope.require_transition_plan(
@@ -228,7 +228,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_expression_index_addition(
     }
     let replacement = stage_sql_ddl_user_index_domain_replacement(
         envelope.store(),
-        accepted_before_identity,
+        &accepted_before_identity,
         envelope.before(),
         envelope.after(),
     )?;
@@ -258,7 +258,7 @@ fn staged_added_entry_count(
 pub(in crate::db) fn execute_admin_sql_ddl_field_addition(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
@@ -268,7 +268,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_addition(
         entity_tag,
         entity_path,
         accepted_before,
-        accepted_before_identity,
+        &accepted_before_identity,
         derivation,
     );
     let Some(target) = derivation.admission().field_addition_target() else {
@@ -312,7 +312,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_addition(
 pub(super) fn require_exact_empty_sql_ddl_entity(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
 ) -> Result<(), InternalError> {
     if store.with_data(|data_store| data_store.exact_entity_count(entity_tag)) == Some(0) {
         return Ok(());
@@ -326,26 +326,26 @@ pub(super) fn require_exact_empty_sql_ddl_entity(
 pub(super) struct SqlDdlPublicationEnvelope<'a> {
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &'a str,
     accepted_before_identity: AcceptedCatalogIdentity,
     before: &'a PersistedSchemaSnapshot,
     after: &'a PersistedSchemaSnapshot,
 }
 
 impl<'a> SqlDdlPublicationEnvelope<'a> {
-    pub(super) const fn new(
+    pub(super) fn new(
         store: StoreHandle,
         entity_tag: EntityTag,
-        entity_path: &'static str,
+        entity_path: &'a str,
         accepted_before: &'a AcceptedSchemaSnapshot,
-        accepted_before_identity: AcceptedCatalogIdentity,
+        accepted_before_identity: &AcceptedCatalogIdentity,
         derivation: &'a SchemaDdlAcceptedSnapshotDerivation,
     ) -> Self {
         Self {
             store,
             entity_tag,
             entity_path,
-            accepted_before_identity,
+            accepted_before_identity: accepted_before_identity.clone(),
             before: accepted_before.persisted_snapshot(),
             after: derivation.accepted_after().persisted_snapshot(),
         }
@@ -363,7 +363,7 @@ impl<'a> SqlDdlPublicationEnvelope<'a> {
         self.after
     }
 
-    pub(super) const fn entity_path(&self) -> &'static str {
+    pub(super) const fn entity_path(&self) -> &str {
         self.entity_path
     }
 
@@ -387,14 +387,14 @@ impl<'a> SqlDdlPublicationEnvelope<'a> {
         publish_sql_ddl_accepted_snapshot(
             self.store,
             self.entity_tag,
-            self.accepted_before_identity,
+            self.accepted_before_identity.clone(),
             self.after,
         )
     }
 }
 
 fn require_sql_ddl_transition_plan(
-    entity_path: &'static str,
+    entity_path: &str,
     operation: &'static str,
     before: &PersistedSchemaSnapshot,
     after: &PersistedSchemaSnapshot,
@@ -431,7 +431,7 @@ fn publish_sql_ddl_accepted_snapshot(
 pub(in crate::db) fn execute_admin_sql_ddl_secondary_index_drop(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
@@ -441,7 +441,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_secondary_index_drop(
         entity_tag,
         entity_path,
         accepted_before,
-        accepted_before_identity,
+        &accepted_before_identity,
         derivation,
     );
     if !derivation.admission().is_secondary_drop() {
@@ -449,7 +449,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_secondary_index_drop(
     }
     let replacement = stage_sql_ddl_user_index_domain_replacement(
         envelope.store(),
-        accepted_before_identity,
+        &accepted_before_identity,
         envelope.before(),
         envelope.after(),
     )?;
@@ -466,7 +466,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_secondary_index_drop(
 fn validate_sql_ddl_drop_schema_gate(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    entity_path: &str,
     accepted_before: &PersistedSchemaSnapshot,
     boundary: &'static str,
 ) -> Result<(), InternalError> {

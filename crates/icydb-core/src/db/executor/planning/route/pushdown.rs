@@ -4,7 +4,7 @@
 //! Boundary: route-owned access-shape assessment over validated logical+access plans.
 
 use crate::db::{
-    access::{AccessPathKind, AccessShapeFacts, IndexShapeDetails, SemanticIndexKeyItemsRef},
+    access::{AccessPathKind, AccessShapeFacts, IndexShapeDetails, SemanticIndexKeyItem},
     direction::Direction,
     executor::route::{
         AccessWindow, IndexPrefixChildExpansionBudget, IndexPrefixChildExpansionHint,
@@ -47,7 +47,7 @@ pub(in crate::db) fn derive_secondary_pushdown_applicability_from_contract(
 fn match_secondary_order_pushdown_core(
     order_contract: &DeterministicSecondaryOrderContract,
     index_name: &str,
-    key_items: SemanticIndexKeyItemsRef<'_>,
+    key_items: &[SemanticIndexKeyItem],
     prefix_len: usize,
     variable_prefix_requires_full_order: bool,
 ) -> PushdownApplicability {
@@ -281,7 +281,7 @@ pub(super) fn access_order_satisfied_by_route_mode_with_access_shape_facts(
 
 /// Return whether the selected access route can produce primary-key order
 /// without relying on metadata-backed child-prefix expansion.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 #[must_use]
 pub(in crate::db::executor) fn access_preserves_primary_key_order_without_child_expansion(
     plan: &AccessPlannedQuery,

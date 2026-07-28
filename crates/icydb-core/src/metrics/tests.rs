@@ -420,7 +420,7 @@ fn schema_reconcile_metrics_accumulate_by_outcome_and_entity() {
         SchemaReconcileOutcome::StoreWriteError,
     ] {
         record(MetricsEvent::SchemaReconcile {
-            entity_path: "metrics::tests::SchemaEntity",
+            entity_path: "metrics::tests::SchemaEntity".into(),
             outcome,
         });
     }
@@ -501,7 +501,7 @@ fn schema_transition_metrics_accumulate_by_outcome_and_entity() {
         SchemaTransitionOutcome::RejectedSnapshot,
     ] {
         record(MetricsEvent::SchemaTransition {
-            entity_path: "metrics::tests::SchemaEntity",
+            entity_path: "metrics::tests::SchemaEntity".into(),
             outcome,
         });
     }
@@ -587,19 +587,19 @@ fn schema_store_footprint_metrics_replace_entity_gauge_contributions() {
     reset_all();
 
     record(MetricsEvent::SchemaStoreFootprint {
-        entity_path: "metrics::tests::SchemaStoreEntity",
+        entity_path: "metrics::tests::SchemaStoreEntity".into(),
         snapshots: 1,
         encoded_bytes: 100,
         latest_snapshot_bytes: 100,
     });
     record(MetricsEvent::SchemaStoreFootprint {
-        entity_path: "metrics::tests::OtherSchemaStoreEntity",
+        entity_path: "metrics::tests::OtherSchemaStoreEntity".into(),
         snapshots: 2,
         encoded_bytes: 300,
         latest_snapshot_bytes: 180,
     });
     record(MetricsEvent::SchemaStoreFootprint {
-        entity_path: "metrics::tests::SchemaStoreEntity",
+        entity_path: "metrics::tests::SchemaStoreEntity".into(),
         snapshots: 3,
         encoded_bytes: 500,
         latest_snapshot_bytes: 220,
@@ -629,17 +629,17 @@ fn accepted_schema_footprint_metrics_replace_entity_gauge_contributions() {
     reset_all();
 
     record(MetricsEvent::AcceptedSchemaFootprint {
-        entity_path: "metrics::tests::AcceptedSchemaEntity",
+        entity_path: "metrics::tests::AcceptedSchemaEntity".into(),
         fields: 2,
         nested_leaf_facts: 1,
     });
     record(MetricsEvent::AcceptedSchemaFootprint {
-        entity_path: "metrics::tests::OtherAcceptedSchemaEntity",
+        entity_path: "metrics::tests::OtherAcceptedSchemaEntity".into(),
         fields: 4,
         nested_leaf_facts: 3,
     });
     record(MetricsEvent::AcceptedSchemaFootprint {
-        entity_path: "metrics::tests::AcceptedSchemaEntity",
+        entity_path: "metrics::tests::AcceptedSchemaEntity".into(),
         fields: 5,
         nested_leaf_facts: 8,
     });
@@ -671,7 +671,7 @@ fn sql_compile_reject_metrics_accumulate_by_phase_and_entity() {
         SqlCompileRejectPhase::Semantic,
     ] {
         record(MetricsEvent::SqlCompileReject {
-            entity_path: "metrics::tests::SqlCompileEntity",
+            entity_path: "metrics::tests::SqlCompileEntity".into(),
             phase,
         });
     }
@@ -725,7 +725,7 @@ fn cache_metrics_accumulate_by_cache_kind_and_entity() {
         (CacheKind::SqlCompiledCommand, CacheOutcome::Insert),
     ] {
         record(MetricsEvent::Cache {
-            entity_path: "metrics::tests::CacheEntity",
+            entity_path: "metrics::tests::CacheEntity".into(),
             kind,
             outcome,
         });
@@ -792,7 +792,7 @@ fn cache_miss_reason_metrics_accumulate_by_cache_kind_and_entity() {
         (CacheKind::SqlCompiledCommand, CacheMissReason::Surface),
     ] {
         record(MetricsEvent::CacheMissReason {
-            entity_path: "metrics::tests::CacheReasonEntity",
+            entity_path: "metrics::tests::CacheReasonEntity".into(),
             kind,
             reason,
         });
@@ -851,7 +851,7 @@ fn plan_choice_reason_metrics_accumulate_by_reason_and_entity() {
         PlanChoiceReason::SingletonPrimaryKeyChildAccessPreferred,
     ] {
         record(MetricsEvent::PlanChoice {
-            entity_path: "metrics::tests::PlanChoiceEntity",
+            entity_path: "metrics::tests::PlanChoiceEntity".into(),
             reason,
         });
     }
@@ -920,7 +920,7 @@ fn prepared_shape_already_finalized_metrics_accumulate_by_entity() {
     reset_all();
 
     record(MetricsEvent::PreparedShapeAlreadyFinalized {
-        entity_path: "metrics::tests::PreparedShapeEntity",
+        entity_path: "metrics::tests::PreparedShapeEntity".into(),
     });
 
     let report = report_window_start(None);

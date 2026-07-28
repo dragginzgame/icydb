@@ -9,10 +9,10 @@ mod finalize;
 mod hints;
 mod materialized;
 mod runtime;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 mod streaming;
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db::executor) use entrypoints::execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db::executor) use entrypoints::execute_prepared_scalar_aggregate_kernel_row_sink_for_canister;

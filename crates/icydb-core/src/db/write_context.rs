@@ -33,24 +33,16 @@ pub enum MutationMode {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AcceptedWriteContext {
-    mode: MutationMode,
     operation_timestamp: Timestamp,
 }
 
 impl AcceptedWriteContext {
     /// Build one accepted write context from frontend-frozen operation facts.
     #[must_use]
-    pub(in crate::db) const fn new(mode: MutationMode, operation_timestamp: Timestamp) -> Self {
+    pub(in crate::db) const fn new(operation_timestamp: Timestamp) -> Self {
         Self {
-            mode,
             operation_timestamp,
         }
-    }
-
-    /// Return the exact database mutation mode.
-    #[must_use]
-    pub(in crate::db) const fn mode(self) -> MutationMode {
-        self.mode
     }
 
     /// Return the durable timestamp shared by the logical operation.

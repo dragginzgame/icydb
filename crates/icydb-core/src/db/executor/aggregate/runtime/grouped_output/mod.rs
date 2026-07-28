@@ -25,7 +25,7 @@ use crate::{
     metrics::sink::{ExecKind, PathSpan},
     value::Value,
 };
-use std::borrow::Cow;
+use std::{borrow::Cow, rc::Rc};
 
 ///
 /// GroupedOutputRuntimeObserverBindings
@@ -37,14 +37,16 @@ use std::borrow::Cow;
 ///
 
 pub(in crate::db::executor) struct GroupedOutputRuntimeObserverBindings {
-    entity_path: &'static str,
+    entity_path: Rc<str>,
 }
 
 impl GroupedOutputRuntimeObserverBindings {
     /// Build one grouped output observer bundle from one structural entity path.
     #[must_use]
-    pub(in crate::db::executor) const fn for_path(entity_path: &'static str) -> Self {
-        Self { entity_path }
+    pub(in crate::db::executor) fn for_path(entity_path: impl Into<Rc<str>>) -> Self {
+        Self {
+            entity_path: entity_path.into(),
+        }
     }
 
     /// Record grouped output metrics and execution-trace outcome for one completed page.
@@ -57,7 +59,7 @@ impl GroupedOutputRuntimeObserverBindings {
         execution_time_micros: u64,
     ) {
         finalize_grouped_observability_for_path(
-            self.entity_path,
+            self.entity_path.as_ref(),
             execution_trace,
             metrics,
             rows_aggregated,
@@ -142,7 +144,7 @@ pub(in crate::db::executor) fn finalize_grouped_output_with_observer(
 
 // Record shared observability outcome for scalar/grouped execution paths.
 pub(in crate::db::executor) fn finalize_path_outcome_for_path(
-    entity_path: &'static str,
+    entity_path: &str,
     execution_trace: &mut Option<ExecutionTrace>,
     metrics: ExecutionOutcomeMetrics,
     rows_emitted: usize,
@@ -174,7 +176,7 @@ pub(in crate::db::executor) fn finalize_path_outcome_for_path(
 }
 
 fn finalize_grouped_observability_for_path(
-    entity_path: &'static str,
+    entity_path: &str,
     execution_trace: &mut Option<ExecutionTrace>,
     metrics: ExecutionOutcomeMetrics,
     rows_aggregated: usize,
@@ -213,7 +215,7 @@ fn finalize_grouped_observability_for_path(
 // once the caller has decided which row count should be treated as emitted.
 #[expect(clippy::too_many_arguments)]
 fn finalize_path_observability_for_path(
-    entity_path: &'static str,
+    entity_path: &str,
     execution_trace: &mut Option<ExecutionTrace>,
     optimization: Option<ExecutionOptimization>,
     rows_scanned: usize,
@@ -242,7 +244,7 @@ fn finalize_path_observability_for_path(
 // Record the shared rows-scanned / rows-filtered / rows-emitted counters used
 // by both scalar and grouped aggregate outcome finalization.
 fn record_path_outcome_counts_for_path(
-    entity_path: &'static str,
+    entity_path: &str,
     rows_scanned: usize,
     rows_filtered: usize,
     rows_emitted: usize,

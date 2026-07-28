@@ -1,7 +1,7 @@
 //! Module: db::catalog
 //! Responsibility: catalog-level metadata DTOs for SHOW-style introspection.
 //! Does not own: schema validation, query planning, or runtime store policy.
-//! Boundary: projects runtime entity/store registration metadata for callers.
+//! Boundary: projects accepted entity and registered-store metadata for callers.
 
 use candid::CandidType;
 use serde::Deserialize;
@@ -39,7 +39,7 @@ impl EntityCatalogCounts {
 
 #[cfg_attr(
     doc,
-    doc = "EntityCatalogDescription\n\nRuntime catalog entry for one registered entity."
+    doc = "EntityCatalogDescription\n\nRuntime catalog entry for one accepted entity."
 )]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct EntityCatalogDescription {

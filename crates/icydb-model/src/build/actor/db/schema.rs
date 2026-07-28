@@ -83,7 +83,6 @@ mod tests {
 
         assert!(surface.contains("name=\"icydb_schema\""));
         assert!(surface.contains("fn__icydb_schema("));
-        assert!(!surface.contains("icydb_schema_check"));
         assert!(surface.contains("try_describe_entity_by_source_key(\"demo:entity:character\")"));
         assert!(!surface.contains("crate::Character"));
     }

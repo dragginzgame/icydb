@@ -76,6 +76,44 @@ pub(in crate::db) enum AcceptedConstraintKind {
     },
 }
 
+/// Stable accepted identity projected into one runtime enforcement contract.
+///
+/// This compact value deliberately excludes constraint semantics. The
+/// accepted field, index, relation, or row program remains the evaluator;
+/// specialized runtime paths carry this value only so every violation reaches
+/// the public boundary with the catalog-owned identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedConstraintIdentity {
+    id: ConstraintId,
+    name: String,
+}
+
+impl AcceptedConstraintIdentity {
+    /// Build one identity already proven by accepted catalog closure.
+    #[must_use]
+    pub(in crate::db) const fn new(id: ConstraintId, name: String) -> Self {
+        Self { id, name }
+    }
+
+    /// Project stable identity from one accepted constraint catalog entry.
+    #[must_use]
+    pub(in crate::db::schema) fn from_constraint(constraint: &AcceptedConstraintSnapshot) -> Self {
+        Self::new(constraint.id(), constraint.name().to_string())
+    }
+
+    /// Return the stable entity-local constraint identity.
+    #[must_use]
+    pub(in crate::db) const fn id(&self) -> ConstraintId {
+        self.id
+    }
+
+    /// Borrow the stable accepted constraint name.
+    #[must_use]
+    pub(in crate::db) const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+}
+
 /// Current lifecycle state of one accepted constraint activation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum ConstraintActivationState {
@@ -535,7 +573,7 @@ impl AcceptedConstraintCatalog {
     }
 
     /// Reserve one not-null activation while the accepted field remains nullable.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn with_added_not_null_activation(
         self,
         field: &PersistedFieldSnapshot,
@@ -557,7 +595,7 @@ impl AcceptedConstraintCatalog {
     }
 
     /// Reserve one unique-index activation beside its planner-invisible owner.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn with_added_unique_activation(
         self,
         index: &PersistedIndexSnapshot,

@@ -3,11 +3,11 @@
 //! Does not own: access-path index selection internals or runtime execution behavior.
 //! Boundary: derives planner-owned execution semantics, shape signatures, and continuation policy.
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 use crate::db::predicate::MissingRowPolicy;
 use crate::{
     db::{
-        access::{AccessPlan, ExecutableAccessPlan, SemanticIndexKeyItemsRef},
+        access::{AccessPlan, ExecutableAccessPlan, SemanticIndexKeyItemRef},
         predicate::{IndexCompileTarget, IndexCompileTargetKind, Predicate, PredicateProgram},
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
@@ -75,7 +75,7 @@ impl AccessPlannedQuery {
     /// Borrow scalar missing-row consistency without exposing the full scalar
     /// plan to executor owners that only need row-presence policy.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) const fn scalar_consistency(&self) -> MissingRowPolicy {
         self.scalar_plan().consistency
     }
@@ -307,7 +307,7 @@ impl AccessPlannedQuery {
     #[must_use]
     pub(in crate::db) fn execution_shape_signature(
         &self,
-        entity_path: &'static str,
+        entity_path: &str,
     ) -> ExecutionShapeSignature {
         ExecutionShapeSignature::new(self.continuation_signature(entity_path))
     }
@@ -359,7 +359,7 @@ impl AccessPlannedQuery {
     }
 
     /// Borrow the planner-frozen mask for direct projected output slots.
-    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+    #[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
     pub(in crate::db) fn projected_slot_mask(&self) -> Result<&[bool], InternalError> {
         Ok(self
             .require_static_execution_planning_contract()?
@@ -427,7 +427,7 @@ impl AccessPlannedQuery {
 
     /// Borrow the frozen direct projection slots without reopening model ownership.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn frozen_direct_projection_slots(&self) -> Option<&[usize]> {
         self.static_execution_planning_contract()?
             .projection_direct_slots
@@ -436,7 +436,7 @@ impl AccessPlannedQuery {
 
     /// Borrow duplicate-preserving direct projection slots for raw data-row readers.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn frozen_data_row_direct_projection_slots(&self) -> Option<&[usize]> {
         self.static_execution_planning_contract()?
             .projection_data_row_direct_slots
@@ -945,23 +945,10 @@ fn resolved_index_slots_for_access_path(
     let path = access.as_path()?;
     let path_facts = path.shape_facts();
     let key_items = path_facts.index_key_items_for_slot_map()?;
-    let mut slots = Vec::new();
-
-    match key_items.key_items() {
-        SemanticIndexKeyItemsRef::Fields(fields) => {
-            slots.reserve(fields.len());
-            for field_name in fields {
-                let slot = schema_info.field_slot_index(field_name)?;
-                slots.push(slot);
-            }
-        }
-        SemanticIndexKeyItemsRef::Accepted(items) => {
-            slots.reserve(items.len());
-            for key_item in items {
-                let slot = schema_info.field_slot_index(key_item.as_ref().field())?;
-                slots.push(slot);
-            }
-        }
+    let mut slots = Vec::with_capacity(key_items.key_arity());
+    for key_item in key_items.key_items() {
+        let slot = schema_info.field_slot_index(key_item.as_ref().field())?;
+        slots.push(slot);
     }
 
     Some(slots)
@@ -976,35 +963,19 @@ fn index_compile_targets_for_schema_plan(
     let key_items = path.shape_facts().index_key_items_for_slot_map()?;
     let mut targets = Vec::new();
 
-    match key_items.key_items() {
-        SemanticIndexKeyItemsRef::Fields(fields) => {
-            for (component_index, field_name) in fields.iter().enumerate() {
-                let field_slot = schema_info.field_slot_index(field_name)?;
-                targets.push(IndexCompileTarget {
-                    component_index,
-                    field_slot,
-                    kind: IndexCompileTargetKind::Field,
-                });
-            }
-        }
-        SemanticIndexKeyItemsRef::Accepted(items) => {
-            for (component_index, key_item) in items.iter().enumerate() {
-                let key_item = key_item.as_ref();
-                let field_slot = schema_info.field_slot_index(key_item.field())?;
-                targets.push(IndexCompileTarget {
-                    component_index,
-                    field_slot,
-                    kind: match key_item {
-                        crate::db::access::SemanticIndexKeyItemRef::Field(_) => {
-                            IndexCompileTargetKind::Field
-                        }
-                        crate::db::access::SemanticIndexKeyItemRef::AcceptedExpression(
-                            expression,
-                        ) => IndexCompileTargetKind::Expression(expression.op()),
-                    },
-                });
-            }
-        }
+    for (component_index, key_item) in key_items.key_items().iter().enumerate() {
+        let key_item = key_item.as_ref();
+        let field_slot = schema_info.field_slot_index(key_item.field())?;
+        targets.push(IndexCompileTarget {
+            component_index,
+            field_slot,
+            kind: match key_item {
+                SemanticIndexKeyItemRef::Field(_) => IndexCompileTargetKind::Field,
+                SemanticIndexKeyItemRef::AcceptedExpression(expression) => {
+                    IndexCompileTargetKind::Expression(expression.op())
+                }
+            },
+        });
     }
 
     Some(targets)

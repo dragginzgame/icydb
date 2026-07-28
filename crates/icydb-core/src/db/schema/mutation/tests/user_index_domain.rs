@@ -308,7 +308,7 @@ fn complete_domain_stage_rejects_unique_collision_from_candidate_logical_fill() 
 
     assert!(matches!(
         result,
-        Err(super::StagedUserIndexDomainError::CandidateUniqueConflict { .. }),
+        Err(super::StagedUserIndexDomainError::CandidateUniqueConflict),
     ));
     assert!(store.is_empty());
 }
@@ -374,7 +374,7 @@ fn complete_domain_stage_rejects_duplicate_unique_expression_components() {
 
     assert!(matches!(
         result,
-        Err(super::StagedUserIndexDomainError::CandidateUniqueConflict { .. }),
+        Err(super::StagedUserIndexDomainError::CandidateUniqueConflict),
     ));
     assert!(store.is_empty());
     assert_eq!(store.state(), IndexState::Ready);

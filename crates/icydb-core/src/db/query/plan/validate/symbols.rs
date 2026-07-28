@@ -26,9 +26,8 @@ pub(in crate::db) fn resolve_group_field_slot_with_schema(
 
 /// Resolve one aggregate target field through schema slot authority.
 ///
-/// Accepted-schema planning paths use this helper so the physical slot comes
-/// from the selected `SchemaInfo`; the generated model is retained only for
-/// field labels and type metadata used by diagnostics and explain surfaces.
+/// The physical slot, field label, and type metadata all come from the
+/// selected accepted `SchemaInfo`.
 pub(in crate::db) fn resolve_aggregate_target_field_slot_with_schema(
     schema: &SchemaInfo,
     field: &str,

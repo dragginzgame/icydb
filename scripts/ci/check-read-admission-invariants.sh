@@ -99,8 +99,8 @@ done <<< "$public_variants"
 
 require_literal \
   "$TYPED_QUERY" \
-  "typed query public-admission handoff" \
-  '.execute_public_dynamic_query(&self.request)'
+  "identity-bound typed query public-admission handoff" \
+  '.execute_public_typed_dynamic_query(&self.binding, &self.request)'
 require_literal \
   "$FACADE_SQL" \
   "trusted SQL caller-control warning" \

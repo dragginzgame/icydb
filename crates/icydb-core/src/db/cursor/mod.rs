@@ -38,7 +38,7 @@ pub(in crate::db) use runtime::{ContinuationKeyRef, ContinuationRuntime};
 pub use signature::ContinuationSignature;
 pub(crate) use string::CursorDecodeError;
 use string::decode_cursor;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use string::encode_cursor;
 #[cfg(test)]
 pub(in crate::db) use string::encode_grouped_cursor_token;
@@ -71,7 +71,7 @@ pub(in crate::db) fn decode_optional_grouped_cursor_token(
 /// Validate and decode a grouped continuation cursor into grouped cursor state.
 #[cfg(test)]
 pub(in crate::db) fn prepare_grouped_cursor(
-    entity_path: &'static str,
+    entity_path: &str,
     order: Option<&OrderSpec>,
     direction: Direction,
     continuation_signature: ContinuationSignature,
@@ -92,7 +92,7 @@ pub(in crate::db) fn prepare_grouped_cursor(
 /// Validate one already-decoded grouped continuation token into grouped
 /// executor cursor state.
 pub(in crate::db) fn prepare_grouped_cursor_token(
-    entity_path: &'static str,
+    entity_path: &str,
     order: Option<&OrderSpec>,
     direction: Direction,
     continuation_signature: ContinuationSignature,

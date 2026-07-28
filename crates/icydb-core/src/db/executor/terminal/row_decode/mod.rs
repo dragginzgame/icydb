@@ -3,7 +3,7 @@
 //! Does not own: typed response reconstruction or access-path iteration policy.
 //! Boundary: scalar runtime row production consumes this structural decode contract.
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 use crate::db::data::SlotReader;
 use crate::{
     db::{
@@ -19,6 +19,7 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+use std::rc::Rc;
 
 ///
 /// RowLayout
@@ -38,7 +39,7 @@ impl RowLayout {
     /// Build one row layout directly from accepted runtime authority.
     #[must_use]
     pub(in crate::db) fn from_accepted_decode_contract(
-        entity_path: &'static str,
+        entity_path: impl Into<Rc<str>>,
         accepted_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {
         let contract = StructuralRowContract::from_accepted_decode_contract(
@@ -119,7 +120,7 @@ impl RowLayout {
     /// boundary. Composite-key callers use this path so row validation and
     /// primary-key component materialization do not reopen the scalar
     /// scalar-key accessor.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn decode_full_value_row_from_data_key_into(
         &self,
         data_key: &DecodedDataStoreKey,

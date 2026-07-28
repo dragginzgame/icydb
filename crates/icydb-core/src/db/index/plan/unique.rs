@@ -24,6 +24,13 @@ enum UniqueKeyAuthority<'a> {
     AcceptedExpression(&'a SchemaExpressionIndexInfo),
 }
 
+const fn batch_override_releases_unique_membership(
+    batch_overrides_existing: bool,
+    final_row_still_matches: bool,
+) -> bool {
+    batch_overrides_existing && !final_row_still_matches
+}
+
 impl UniqueKeyAuthority<'_> {
     const fn index_id(&self, entity_tag: EntityTag) -> IndexId {
         match self {
@@ -66,33 +73,52 @@ impl UniqueKeyAuthority<'_> {
         }
     }
 
-    fn unique_violation(&self, entity_path: &'static str) -> IndexPlanError {
-        match self {
-            Self::AcceptedFieldPath(index) => {
-                let fields = index
+    fn unique_violation(
+        &self,
+        entity_path: &str,
+        entity_tag: EntityTag,
+        primary_key: &PrimaryKeyValue,
+    ) -> Result<IndexPlanError, InternalError> {
+        let (identity, fields) = match self {
+            Self::AcceptedFieldPath(index) => (
+                index.unique_constraint(),
+                index
                     .fields()
                     .iter()
                     .map(SchemaIndexFieldPathInfo::field_name)
-                    .collect::<Vec<_>>();
-                IndexPlanError::unique_violation(entity_path, &fields)
-            }
-            Self::AcceptedExpression(index) => {
-                let labels = index
+                    .map(str::to_string)
+                    .collect::<Vec<_>>(),
+            ),
+            Self::AcceptedExpression(index) => (
+                index.unique_constraint(),
+                index
                     .key_items()
                     .iter()
                     .map(accepted_expression_key_item_label)
-                    .collect::<Vec<_>>();
-                let fields = labels.iter().map(String::as_str).collect::<Vec<_>>();
-                IndexPlanError::unique_violation(entity_path, &fields)
-            }
-        }
+                    .collect::<Vec<_>>(),
+            ),
+        };
+        let identity = identity.ok_or_else(InternalError::index_unique_validation_corruption)?;
+        let data_key = DecodedDataStoreKey::new_primary_key_value(entity_tag, primary_key);
+        let raw_data_key = data_key.to_raw()?;
+        let primary_key = raw_data_key
+            .encoded_primary_key_bytes()
+            .ok_or_else(InternalError::index_unique_validation_corruption)?
+            .to_vec();
+        Ok(IndexPlanError::unique_violation(
+            identity.id().get(),
+            identity.name(),
+            entity_path,
+            primary_key,
+            fields,
+        ))
     }
 }
 
 /// Validate one accepted field-path unique index constraint.
 #[expect(clippy::too_many_arguments)]
 pub(super) fn validate_unique_constraint_accepted_field_path_structural(
-    entity_path: &'static str,
+    entity_path: &str,
     entity_tag: EntityTag,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
@@ -116,7 +142,7 @@ pub(super) fn validate_unique_constraint_accepted_field_path_structural(
 /// Validate one accepted expression unique index constraint.
 #[expect(clippy::too_many_arguments)]
 pub(super) fn validate_unique_constraint_accepted_expression_structural(
-    entity_path: &'static str,
+    entity_path: &str,
     entity_tag: EntityTag,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
@@ -139,7 +165,7 @@ pub(super) fn validate_unique_constraint_accepted_expression_structural(
 
 #[expect(clippy::too_many_arguments)]
 fn validate_unique_constraint_structural_impl(
-    entity_path: &'static str,
+    entity_path: &str,
     entity_tag: EntityTag,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
@@ -197,27 +223,39 @@ fn validate_unique_constraint_structural_impl(
     }
 
     // Phase 3: prove that the stored row still belongs to this key and value
-    // through the structural persisted-row decode path only.
+    // through the structural persisted-row decode path only. A complete batch
+    // overlay may intentionally move or delete that row; in that case the
+    // committed index membership does not conflict with the final batch.
     let data_key = DecodedDataStoreKey::new_primary_key_value(entity_tag, &existing_key);
-    let row = read_view
-        .read_primary_row(&data_key)?
-        .ok_or_else(InternalError::index_unique_validation_row_required)?;
+    let batch_overrides_existing = read_view.has_primary_row_override(&data_key)?;
+    let Some(row) = read_view.read_primary_row(&data_key)? else {
+        if batch_override_releases_unique_membership(batch_overrides_existing, false) {
+            return Ok(());
+        }
+        return Err(InternalError::index_unique_validation_row_required().into());
+    };
     let row_fields = decode_unique_row_slots(&data_key, &row, row_contract)?;
 
-    let Some(stored_index_key) = build_unique_index_key_from_row_slots(
+    let Some(current_index_key) = build_unique_index_key_from_row_slots(
         entity_tag,
         &existing_key,
         &row_fields,
         &key_authority,
     )?
     else {
+        if batch_override_releases_unique_membership(batch_overrides_existing, false) {
+            return Ok(());
+        }
         return Err(InternalError::index_unique_validation_corruption().into());
     };
-    if !stored_index_key.has_same_components(new_index_key) {
+    if !current_index_key.has_same_components(new_index_key) {
+        if batch_override_releases_unique_membership(batch_overrides_existing, false) {
+            return Ok(());
+        }
         return Err(InternalError::index_unique_validation_corruption().into());
     }
 
-    Err(key_authority.unique_violation(entity_path))
+    Err(key_authority.unique_violation(entity_path, entity_tag, new_primary_key)?)
 }
 
 // Decode one stored row through the canonical structural persisted-row scanner
@@ -248,4 +286,24 @@ fn build_unique_index_key_from_row_slots(
     let key = key_authority.build_index_key_from_row_slots(entity_tag, primary_key, row_fields);
 
     key.map_err(|_| InternalError::index_unique_validation_key_rebuild_failed())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::batch_override_releases_unique_membership;
+
+    #[test]
+    fn complete_batch_override_releases_moved_or_deleted_unique_membership() {
+        assert!(batch_override_releases_unique_membership(true, false));
+    }
+
+    #[test]
+    fn complete_batch_override_preserves_final_unique_collision() {
+        assert!(!batch_override_releases_unique_membership(true, true));
+    }
+
+    #[test]
+    fn committed_unique_membership_mismatch_is_not_silently_released() {
+        assert!(!batch_override_releases_unique_membership(false, false));
+    }
 }

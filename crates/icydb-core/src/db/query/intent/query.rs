@@ -3,7 +3,7 @@
 //! Does not own: runtime execution semantics or access-path execution behavior.
 //! Boundary: exposes query APIs and emits planner-owned compiled query contracts.
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 use crate::db::query::{expr::FilterExpr, plan::expr::ProjectionSelection};
 use crate::db::{
     predicate::MissingRowPolicy,
@@ -15,7 +15,7 @@ use crate::db::{
     },
     schema::SchemaInfo,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 use crate::db::{
     predicate::Predicate,
     query::plan::{OrderSpec, expr::Expr},
@@ -25,9 +25,8 @@ use std::sync::OnceLock;
 ///
 /// StructuralQuery
 ///
-/// Generic-free query-intent core shared by typed `Query<E>` wrappers.
-/// Stores the generic-free query semantics consumed by the accepted-schema
-/// planner.
+/// Generic-free query intent shared by SQL, structural, and typed frontends.
+/// Stores the query semantics consumed by the accepted-schema planner.
 ///
 
 #[derive(Clone, Debug)]
@@ -100,7 +99,7 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn scalar_filter_expr(&self) -> Option<&Expr> {
         self.intent
             .scalar_intent_for_cache_key()
@@ -110,7 +109,7 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) fn direct_count_cardinality_prefix_candidate(&self) -> bool {
         matches!(
             self.intent.direct_count_cardinality_prefix_predicate(),
@@ -120,14 +119,14 @@ impl StructuralQuery {
 
     /// Append one predicate that has already been normalized by the caller.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn filter_normalized_predicate(mut self, predicate: Predicate) -> Self {
         self.intent = self.intent.filter_normalized_predicate(predicate);
         self
     }
 
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) fn filter_for_schema(
         mut self,
         schema: &SchemaInfo,
@@ -138,7 +137,7 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) fn filter_expr_with_normalized_predicate(
         mut self,
         expr: Expr,
@@ -158,14 +157,14 @@ impl StructuralQuery {
     // internal SQL lowering and parity callers that must preserve one planner
     // expression without routing through the public typed `FilterExpr` surface.
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) fn filter_expr(mut self, expr: Expr) -> Self {
         self.intent = self.intent.filter_expr(expr);
         self
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn order_spec(mut self, order: OrderSpec) -> Self {
         self.intent = self.intent.order_spec(order);
         self
@@ -177,7 +176,7 @@ impl StructuralQuery {
         self
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     #[must_use]
     pub(in crate::db) fn select_fields<I, S>(mut self, fields: I) -> Self
     where
@@ -188,7 +187,7 @@ impl StructuralQuery {
         self
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     #[must_use]
     pub(in crate::db) fn projection_selection(mut self, selection: ProjectionSelection) -> Self {
         self.intent = self.intent.projection_selection(selection);
@@ -209,7 +208,7 @@ impl StructuralQuery {
         self
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) fn having_expr_preserving_shape(
         self,
         expr: Expr,
@@ -225,7 +224,7 @@ impl StructuralQuery {
 
     /// Re-express a delete target as a load selection for structural mutation staging.
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) fn into_load_selection(self) -> Self {
         self.map_intent(QueryModel::into_load_selection)
     }
@@ -266,7 +265,7 @@ impl StructuralQuery {
         Ok(plan)
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(in crate::db) fn try_build_count_cardinality_prefix_access_with_schema_info(
         &self,
         visible_indexes: &VisibleIndexes,

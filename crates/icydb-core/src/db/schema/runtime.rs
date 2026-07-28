@@ -5,11 +5,11 @@
 
 use crate::{
     db::schema::{
-        AcceptedEnumCatalog, AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
-        AcceptedValueAdmissionContract, AcceptedValueCatalogHandle, AcceptedValueContract, FieldId,
-        PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot, RowLayoutVersion,
-        SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaInsertDefault,
-        enum_catalog::EnumCatalogBuildError,
+        AcceptedConstraintIdentity, AcceptedEnumCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
+        AcceptedSchemaSnapshot, AcceptedValueAdmissionContract, AcceptedValueCatalogHandle,
+        AcceptedValueContract, FieldId, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
+        RowLayoutVersion, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill,
+        SchemaInsertDefault, enum_catalog::EnumCatalogBuildError,
     },
     db::schema::{FieldStorageDecode, LeafCodec},
     error::InternalError,
@@ -34,7 +34,7 @@ pub(in crate::db) enum AcceptedInsertOmissionPolicy {
 /// Accepted null/default policy and database-owned generation are the only
 /// omission authorities. Rust `Default` and generated construction values do
 /// not participate.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) const fn accepted_insert_field_is_omittable(
     omission_policy: AcceptedInsertOmissionPolicy,
     write_policy: SchemaFieldWritePolicy,
@@ -91,7 +91,7 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
     }
 
     /// Borrow the accepted persisted field kind.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     #[must_use]
     pub(in crate::db) const fn kind(&self) -> &'a AcceptedFieldKind {
         self.kind
@@ -370,12 +370,6 @@ impl OwnedAcceptedFieldDecodeContract {
     pub(in crate::db) const fn field_name(&self) -> &str {
         self.field_name.as_str()
     }
-
-    /// Borrow the owned accepted persisted field kind.
-    #[must_use]
-    pub(in crate::db) const fn kind(&self) -> &AcceptedFieldKind {
-        &self.kind
-    }
 }
 
 ///
@@ -388,6 +382,7 @@ impl OwnedAcceptedFieldDecodeContract {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct OwnedAcceptedRelationEdgeContract {
+    constraint: AcceptedConstraintIdentity,
     name: String,
     physical_generation: u64,
     target_path: String,
@@ -397,6 +392,7 @@ pub(in crate::db) struct OwnedAcceptedRelationEdgeContract {
 impl OwnedAcceptedRelationEdgeContract {
     fn from_runtime_relation_edge(
         relation: &PersistedRelationEdgeSnapshot,
+        constraint: AcceptedConstraintIdentity,
         fields: &[AcceptedRowLayoutRuntimeField<'_>],
     ) -> Result<Self, InternalError> {
         let mut local_field_slots = Vec::with_capacity(relation.local_field_ids().len());
@@ -408,11 +404,18 @@ impl OwnedAcceptedRelationEdgeContract {
         }
 
         Ok(Self {
+            constraint,
             name: relation.name().to_string(),
             physical_generation: relation.physical_generation(),
             target_path: relation.target_path().to_string(),
             local_field_slots,
         })
+    }
+
+    /// Borrow the stable accepted constraint identity for this relation.
+    #[must_use]
+    pub(in crate::db) const fn constraint(&self) -> &AcceptedConstraintIdentity {
+        &self.constraint
     }
 
     /// Borrow the accepted relation-edge name.
@@ -669,7 +672,12 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
             .relations()
             .iter()
             .map(|relation| {
-                OwnedAcceptedRelationEdgeContract::from_runtime_relation_edge(relation, &fields)
+                let constraint = snapshot
+                    .relation_constraint_identity(relation.id())
+                    .ok_or_else(InternalError::store_invariant)?;
+                OwnedAcceptedRelationEdgeContract::from_runtime_relation_edge(
+                    relation, constraint, &fields,
+                )
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -704,14 +712,14 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
 
     /// Borrow accepted primary-key field names in key order.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) const fn primary_key_names(&self) -> &[&'a str] {
         self.primary_key_names.as_slice()
     }
 
     /// Return whether one accepted field name belongs to the primary key.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn is_primary_key_field_name(&self, field_name: &str) -> bool {
         self.primary_key_names.contains(&field_name)
     }

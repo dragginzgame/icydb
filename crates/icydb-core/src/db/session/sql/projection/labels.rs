@@ -4,10 +4,9 @@
 //! Does not own: projection execution or projection payload storage.
 //! Boundary: keeps SQL projection naming policy at the session boundary.
 
-use super::SqlProjectionContract;
+#[cfg(feature = "sql-explain")]
 use crate::db::{
-    query::builder::scalar_projection::render_scalar_projection_expr_plan_label,
-    query::plan::expr::{Expr, ProjectionField, ProjectionSpec},
+    query::plan::expr::ProjectionSpec, session::query::projection_labels_from_projection_spec,
 };
 #[cfg(feature = "sql-explain")]
 use crate::{
@@ -17,90 +16,6 @@ use crate::{
     },
     value::Value,
 };
-
-// Render canonical projection labels from one projection spec regardless of
-// whether the caller arrived from a typed or structural query shell.
-pub(in crate::db::session::sql) fn projection_labels_from_projection_spec(
-    projection: &ProjectionSpec,
-) -> Vec<String> {
-    let mut labels = Vec::with_capacity(projection.len());
-
-    // Derive outward labels directly from the frozen projection spec so the
-    // session boundary does not bounce through one-expression helper wrappers.
-    for field in projection.fields() {
-        match field {
-            ProjectionField::Scalar {
-                expr: _,
-                alias: Some(alias),
-            } => labels.push(alias.as_str().to_string()),
-            ProjectionField::Scalar { expr, alias: None } => {
-                labels.push(match expr {
-                    Expr::Field(field) => field.as_str().to_string(),
-                    Expr::Aggregate(aggregate) => {
-                        let kind = aggregate.kind().canonical_label();
-                        let distinct = if aggregate.is_distinct() {
-                            "DISTINCT "
-                        } else {
-                            ""
-                        };
-                        if let Some(input_expr) = aggregate.input_expr() {
-                            let input = render_scalar_projection_expr_plan_label(input_expr);
-
-                            format!("{kind}({distinct}{input})")
-                        } else {
-                            format!("{kind}({distinct}*)")
-                        }
-                    }
-                    #[cfg(test)]
-                    Expr::Alias { name, .. } => name.as_str().to_string(),
-                    Expr::FieldPath(_)
-                    | Expr::Literal(_)
-                    | Expr::FunctionCall { .. }
-                    | Expr::Case { .. }
-                    | Expr::Binary { .. }
-                    | Expr::Unary { .. } => render_scalar_projection_expr_plan_label(expr),
-                });
-            }
-        }
-    }
-
-    labels
-}
-
-// Derive fixed decimal display scales for outward SQL projection columns.
-// This preserves `ROUND(..., scale)` display semantics even when the outward
-// SQL column label is aliased and no longer exposes the original function
-// text to downstream renderers.
-pub(in crate::db::session::sql) fn projection_fixed_scales_from_projection_spec(
-    projection: &ProjectionSpec,
-) -> Vec<Option<u32>> {
-    projection
-        .fields()
-        .map(|field| match field {
-            // Recover fixed ROUND(...) display scales directly from the frozen
-            // projection expression instead of bouncing through a one-call
-            // extractor helper.
-            ProjectionField::Scalar { expr, .. } => {
-                let Expr::FunctionCall { function, args } = expr else {
-                    return None;
-                };
-                function.fixed_decimal_scale(args)
-            }
-        })
-        .collect()
-}
-
-// Build the outward SQL projection contract from one frozen projection spec in
-// one owner-local place so SELECT and aggregate execution do not duplicate the
-// label/fixed-scale pairing.
-pub(in crate::db::session::sql) fn projection_contract_from_projection_spec(
-    projection: &ProjectionSpec,
-) -> SqlProjectionContract {
-    SqlProjectionContract::new(
-        projection_labels_from_projection_spec(projection),
-        projection_fixed_scales_from_projection_spec(projection),
-    )
-}
 
 // Attach SQL-facing projection labels and shell-facing projection runtime hints
 // only at the session SQL boundary so executor-owned EXPLAIN assembly stays

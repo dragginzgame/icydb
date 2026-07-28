@@ -11,10 +11,7 @@ use crate::{
     config::{check_config, init_config, show_config},
     diagnostic::render_error_code_report,
     icp::{deploy_canister, list_canisters, refresh_canister, status_canister, upgrade_canister},
-    observability::{
-        run_metrics_command, run_schema_check_command, run_schema_show_command,
-        run_snapshot_command,
-    },
+    observability::{run_metrics_command, run_schema_show_command, run_snapshot_command},
     shell::run_sql_command,
 };
 
@@ -39,7 +36,6 @@ fn run_diagnostic_command(args: DiagnosticArgs) -> Result<(), String> {
 fn run_schema_command(command: SchemaCommand) -> Result<(), String> {
     match command {
         SchemaCommand::Show(target) => run_schema_show_command(target),
-        SchemaCommand::Check(target) => run_schema_check_command(target),
     }
 }
 

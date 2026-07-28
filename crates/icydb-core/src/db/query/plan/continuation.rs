@@ -357,7 +357,7 @@ impl PlannedContinuationContract {
     /// Validate one already-decoded grouped cursor token against this immutable continuation contract.
     pub(in crate::db) fn prepare_grouped_cursor_token(
         &self,
-        entity_path: &'static str,
+        entity_path: &str,
         cursor: Option<crate::db::cursor::GroupedContinuationToken>,
     ) -> Result<ValidatedGroupedCursor, CursorPlanError> {
         self.validate_grouped_cursor_contract(cursor.is_some())?;
@@ -434,7 +434,7 @@ impl AccessPlannedQuery {
     #[must_use]
     pub(in crate::db) fn planned_continuation_contract_with_accepted_identity(
         &self,
-        entity_path: &'static str,
+        entity_path: &str,
         accepted_identity: Option<AcceptedContinuationIdentity>,
     ) -> Option<PlannedContinuationContract> {
         if !self.scalar_plan().mode.is_load() {

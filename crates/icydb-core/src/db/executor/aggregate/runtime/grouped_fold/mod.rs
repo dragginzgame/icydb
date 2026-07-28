@@ -47,7 +47,7 @@ pub(in crate::db::executor) use metrics::{
 // Build one grouped key stream from route-owned grouped execution metadata
 // using already-resolved runtime and row-decode boundaries.
 pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
-    entity_path: &'static str,
+    entity_path: &str,
     route: &GroupedRouteStage,
     runtime: &ExecutionRuntimeAdapter,
     execution_preparation: ExecutionPreparation,

@@ -16,7 +16,7 @@ use crate::{
     metrics::sink::CacheMissReason,
     traits::CanisterKind,
 };
-use std::{cell::RefCell, collections::HashMap};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 // This cache deliberately stays on syntax-bound SQL statement identity for the
 // front-end prepared/template lane. Grouped semantic canonicalization and
@@ -67,7 +67,7 @@ pub(in crate::db::session::sql) enum SqlCompiledCommandSurface {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(in crate::db) struct SqlCompiledCommandCacheKey {
     surface: SqlCompiledCommandSurface,
-    entity_path: &'static str,
+    entity_path: Rc<str>,
     accepted_schema_revision: AcceptedSchemaRevision,
     schema_version: SchemaVersion,
     schema_fingerprint: SqlCompiledSchemaFingerprint,
@@ -250,7 +250,7 @@ impl SqlCacheAttribution {
 impl SqlCompiledCommandCacheKey {
     fn new(
         surface: SqlCompiledCommandSurface,
-        entity_path: &'static str,
+        entity_path: impl Into<Rc<str>>,
         accepted_schema_revision: AcceptedSchemaRevision,
         schema_version: SchemaVersion,
         schema_fingerprint: SqlCompiledSchemaFingerprint,
@@ -258,7 +258,7 @@ impl SqlCompiledCommandCacheKey {
     ) -> Self {
         Self {
             surface,
-            entity_path,
+            entity_path: entity_path.into(),
             accepted_schema_revision,
             schema_version,
             schema_fingerprint,

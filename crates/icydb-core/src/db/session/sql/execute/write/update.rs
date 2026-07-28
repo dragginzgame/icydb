@@ -228,8 +228,7 @@ impl<C: CanisterKind> DbSession<C> {
                 let selector = execution_contract
                     .selector(Self::sql_update_selector_query(&schema_info, statement)?);
                 let patch = Self::sql_structural_patch(&descriptor, statement)?;
-                let write_context =
-                    AcceptedWriteContext::new(MutationMode::Update, Timestamp::now());
+                let write_context = AcceptedWriteContext::new(Timestamp::now());
                 let candidate_bounds = execution_contract.candidate_bounds();
                 let scan_budget = execution_contract.scan_budget()?;
                 let collection = self

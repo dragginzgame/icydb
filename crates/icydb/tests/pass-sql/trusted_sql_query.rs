@@ -1,5 +1,5 @@
 use icydb::{
-    db::{DbSession, DynamicQuery, StructuralMutation, StructuralPatch, WriteCell},
+    db::{DbSession, StructuralMutation, StructuralPatch, WriteCell},
     traits::CanisterKind,
     value::InputValue,
 };
@@ -9,16 +9,6 @@ where
     C: CanisterKind,
 {
     let _ = db.execute_trusted_sql_query(sql);
-}
-
-fn trusted_dynamic_query_compiles<C>(db: &DbSession<C>)
-where
-    C: CanisterKind,
-{
-    let request = DynamicQuery::new("app::User")
-        .select(["name", "age"])
-        .limit(25);
-    let _ = db.execute_trusted_dynamic_query(&request);
 }
 
 fn trusted_sql_mutation_compiles<C>(db: &DbSession<C>, sql: &str)

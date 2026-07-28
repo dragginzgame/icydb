@@ -31,7 +31,7 @@ fn with_metrics_sink_routes_and_restores_nested_overrides() {
 
     // No override installed yet.
     record(MetricsEvent::Plan {
-        entity_path: "metrics::tests::Entity",
+        entity_path: "metrics::tests::Entity".into(),
         kind: PlanKind::ByKey,
         grouped_execution_mode: None,
     });
@@ -40,7 +40,7 @@ fn with_metrics_sink_routes_and_restores_nested_overrides() {
 
     with_shared_metrics_sink(outer, || {
         record(MetricsEvent::Plan {
-            entity_path: "metrics::tests::Entity",
+            entity_path: "metrics::tests::Entity".into(),
             kind: PlanKind::IndexPrefix,
             grouped_execution_mode: None,
         });
@@ -49,7 +49,7 @@ fn with_metrics_sink_routes_and_restores_nested_overrides() {
 
         with_shared_metrics_sink(inner, || {
             record(MetricsEvent::Plan {
-                entity_path: "metrics::tests::Entity",
+                entity_path: "metrics::tests::Entity".into(),
                 kind: PlanKind::KeyRange,
                 grouped_execution_mode: None,
             });
@@ -57,7 +57,7 @@ fn with_metrics_sink_routes_and_restores_nested_overrides() {
 
         // Inner override was restored to outer override.
         record(MetricsEvent::Plan {
-            entity_path: "metrics::tests::Entity",
+            entity_path: "metrics::tests::Entity".into(),
             kind: PlanKind::FullScan,
             grouped_execution_mode: None,
         });
@@ -72,7 +72,7 @@ fn with_metrics_sink_routes_and_restores_nested_overrides() {
     });
 
     record(MetricsEvent::Plan {
-        entity_path: "metrics::tests::Entity",
+        entity_path: "metrics::tests::Entity".into(),
         kind: PlanKind::ByKey,
         grouped_execution_mode: None,
     });
@@ -94,7 +94,7 @@ fn with_metrics_sink_restores_override_on_panic() {
     let panicked = catch_unwind(AssertUnwindSafe(|| {
         with_shared_metrics_sink(sink, || {
             record(MetricsEvent::Plan {
-                entity_path: "metrics::tests::Entity",
+                entity_path: "metrics::tests::Entity".into(),
                 kind: PlanKind::IndexPrefix,
                 grouped_execution_mode: None,
             });
@@ -111,7 +111,7 @@ fn with_metrics_sink_restores_override_on_panic() {
     });
 
     record(MetricsEvent::Plan {
-        entity_path: "metrics::tests::Entity",
+        entity_path: "metrics::tests::Entity".into(),
         kind: PlanKind::KeyRange,
         grouped_execution_mode: None,
     });
@@ -126,7 +126,7 @@ impl MetricsSink for ReentrantSink {
     fn record(&self, _: MetricsEvent) {
         if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
             record(MetricsEvent::Plan {
-                entity_path: "metrics::tests::Entity",
+                entity_path: "metrics::tests::Entity".into(),
                 kind: PlanKind::FullScan,
                 grouped_execution_mode: None,
             });
@@ -147,7 +147,7 @@ fn with_metrics_sink_allows_reentrant_recording() {
 
     with_shared_metrics_sink(sink, || {
         record(MetricsEvent::Plan {
-            entity_path: "metrics::tests::Entity",
+            entity_path: "metrics::tests::Entity".into(),
             kind: PlanKind::IndexPrefix,
             grouped_execution_mode: None,
         });
@@ -163,7 +163,7 @@ fn with_metrics_sink_allows_reentrant_recording() {
 fn metrics_report_without_window_start_returns_counters() {
     metrics_reset_all();
     record(MetricsEvent::Plan {
-        entity_path: "metrics::tests::Entity",
+        entity_path: "metrics::tests::Entity".into(),
         kind: PlanKind::IndexPrefix,
         grouped_execution_mode: None,
     });
@@ -181,7 +181,7 @@ fn metrics_report_window_start_before_window_returns_counters() {
     metrics_reset_all();
     let window_start = metrics::with_state(|m| m.window_start_ms);
     record(MetricsEvent::Plan {
-        entity_path: "metrics::tests::Entity",
+        entity_path: "metrics::tests::Entity".into(),
         kind: PlanKind::ByKey,
         grouped_execution_mode: None,
     });
@@ -204,7 +204,7 @@ fn metrics_report_window_start_after_window_returns_empty() {
     metrics_reset_all();
     let window_start = metrics::with_state(|m| m.window_start_ms);
     record(MetricsEvent::Plan {
-        entity_path: "metrics::tests::Entity",
+        entity_path: "metrics::tests::Entity".into(),
         kind: PlanKind::FullScan,
         grouped_execution_mode: None,
     });
@@ -224,12 +224,12 @@ fn metrics_report_window_start_after_window_returns_empty() {
 fn metrics_report_grouped_execution_mode_counters_accumulate() {
     metrics_reset_all();
     record(MetricsEvent::Plan {
-        entity_path: "metrics::tests::Entity",
+        entity_path: "metrics::tests::Entity".into(),
         kind: PlanKind::IndexPrefix,
         grouped_execution_mode: Some(GroupedPlanExecutionMode::HashMaterialized),
     });
     record(MetricsEvent::Plan {
-        entity_path: "metrics::tests::Entity",
+        entity_path: "metrics::tests::Entity".into(),
         kind: PlanKind::KeyRange,
         grouped_execution_mode: Some(GroupedPlanExecutionMode::OrderedStreaming),
     });
@@ -268,7 +268,7 @@ fn detailed_plan_metrics_accumulate_by_exact_route() {
         PlanKind::Intersection,
     ] {
         record(MetricsEvent::Plan {
-            entity_path: "metrics::tests::Entity",
+            entity_path: "metrics::tests::Entity".into(),
             kind,
             grouped_execution_mode: None,
         });
@@ -312,7 +312,7 @@ fn save_finish_metrics_accumulate_saved_rows() {
 
     record(MetricsEvent::ExecFinish {
         kind: ExecKind::Save,
-        entity_path: "metrics::tests::Entity",
+        entity_path: "metrics::tests::Entity".into(),
         rows_touched: 4,
         inst_delta: 11,
         outcome: ExecOutcome::Success,
@@ -346,7 +346,7 @@ fn exec_finish_metrics_accumulate_outcomes_by_entity() {
     ] {
         record(MetricsEvent::ExecFinish {
             kind: ExecKind::Load,
-            entity_path: "metrics::tests::Entity",
+            entity_path: "metrics::tests::Entity".into(),
             rows_touched: 0,
             inst_delta: 0,
             outcome,
@@ -378,7 +378,7 @@ fn exec_error_metrics_count_attempt_and_outcome_without_rows() {
 
     record(MetricsEvent::ExecError {
         kind: ExecKind::Load,
-        entity_path: "metrics::tests::Entity",
+        entity_path: "metrics::tests::Entity".into(),
         outcome: ExecOutcome::ErrorInternal,
     });
 
@@ -409,7 +409,7 @@ fn save_mutation_metrics_accumulate_by_mode() {
         (SaveMutationKind::Replace, 4),
     ] {
         record(MetricsEvent::SaveMutation {
-            entity_path: "metrics::tests::Entity",
+            entity_path: "metrics::tests::Entity".into(),
             kind,
             rows_touched,
         });
@@ -449,7 +449,7 @@ fn sql_write_metrics_accumulate_by_command_shape() {
         (SqlWriteKind::Delete, 2, 2, 2, 1),
     ] {
         record(MetricsEvent::SqlWrite {
-            entity_path: "metrics::tests::Entity",
+            entity_path: "metrics::tests::Entity".into(),
             kind,
             staged_rows,
             matched_rows,
@@ -502,7 +502,7 @@ fn sql_write_error_metrics_accumulate_by_command_shape_and_class() {
         (SqlWriteKind::Insert, ErrorClass::NotFound),
     ] {
         record(MetricsEvent::SqlWriteError {
-            entity_path: "metrics::tests::Entity",
+            entity_path: "metrics::tests::Entity".into(),
             kind,
             class,
         });
@@ -549,17 +549,17 @@ fn reverse_and_relation_metrics_events_accumulate() {
     metrics_reset_all();
 
     record(MetricsEvent::IndexDelta {
-        entity_path: "metrics::tests::Entity",
+        entity_path: "metrics::tests::Entity".into(),
         inserts: 4,
         removes: 1,
     });
     record(MetricsEvent::ReverseIndexDelta {
-        entity_path: "metrics::tests::Entity",
+        entity_path: "metrics::tests::Entity".into(),
         inserts: 3,
         removes: 2,
     });
     record(MetricsEvent::RelationValidation {
-        entity_path: "metrics::tests::Entity",
+        entity_path: "metrics::tests::Entity".into(),
         reverse_lookups: 5,
         blocked_deletes: 1,
     });
@@ -598,19 +598,19 @@ fn row_flow_metrics_events_accumulate() {
     metrics_reset_all();
 
     record(MetricsEvent::RowsFiltered {
-        entity_path: "metrics::tests::Entity",
+        entity_path: "metrics::tests::Entity".into(),
         rows_filtered: 9,
     });
     record(MetricsEvent::RowsAggregated {
-        entity_path: "metrics::tests::Entity",
+        entity_path: "metrics::tests::Entity".into(),
         rows_aggregated: 4,
     });
     record(MetricsEvent::RowsEmitted {
-        entity_path: "metrics::tests::Entity",
+        entity_path: "metrics::tests::Entity".into(),
         rows_emitted: 3,
     });
     record(MetricsEvent::LoadRowEfficiency {
-        entity_path: "metrics::tests::Entity",
+        entity_path: "metrics::tests::Entity".into(),
         candidate_rows_scanned: 11,
         candidate_rows_filtered: 8,
         result_rows_emitted: 3,

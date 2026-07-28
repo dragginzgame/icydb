@@ -31,7 +31,7 @@ use crate::{
 /// once the typed boundary resolves store authority, route planning, lowered
 /// specs, and continuation inputs.
 /// Kernel dispatch consumes this bundle directly so the scalar lane no longer
-/// carries `LoadExecutor<E>` or `PreparedExecutionPlan<E>` behind a runtime adapter.
+/// carries frontend-specific state behind a runtime adapter.
 /// Runtime construction is intentionally centralized in this module:
 /// entrypoint adapters build this bundle through `prepare_scalar_route_runtime_from_inputs`,
 /// while execution and sink modules only consume an already-prepared bundle.
@@ -54,15 +54,14 @@ pub(in crate::db::executor) struct PreparedScalarRouteRuntime {
 }
 
 impl PreparedScalarRouteRuntime {
-    // Return the entity path needed by finalization before the runtime bundle is
-    // consumed by execution.
-    pub(super) const fn entity_path(&self) -> &'static str {
-        self.authority.entity_path()
+    // Clone the entity path needed after the runtime bundle is consumed.
+    pub(super) fn entity_path_handle(&self) -> std::rc::Rc<str> {
+        self.authority.entity_path_handle()
     }
 
     /// Attach one execution-only cap-plus-one scan probe.
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub(super) const fn with_enforced_scan_probe_limit(mut self, probe_limit: usize) -> Self {
         self.enforced_scan_probe_limit = Some(probe_limit);
         self
@@ -110,7 +109,7 @@ impl InitialScalarPlanRuntimeOptions {
 
 // Prepare an initial no-cursor scalar runtime from a prepared load plan while
 // replacing the retained-slot layout for this execution only.
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(super) fn prepare_initial_scalar_route_runtime_from_plan_with_retained_slot_layout<C>(
     db: &Db<C>,
     debug: bool,
@@ -143,7 +142,7 @@ where
 // Prepare the SQL retained-slot initial page runtime from a shared prepared
 // scalar handoff. This owns the projection materialization decision so the SQL
 // entrypoint does not repeat runtime layout policy beside runtime setup.
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(super) fn prepare_initial_scalar_retained_slot_page_runtime_from_handoff<C>(
     db: &Db<C>,
     debug: bool,
@@ -174,7 +173,7 @@ where
     )
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 fn initial_retained_slot_projection_runtime_mode(
     prepared: &PreparedScalarRuntimeHandoff,
     suppress_route_scan_hints: bool,
@@ -200,7 +199,7 @@ fn initial_retained_slot_projection_runtime_mode(
     }
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 fn initial_retained_slot_layout(
     prepared: &PreparedScalarRuntimeHandoff,
     projection_runtime_mode: ProjectionMaterializationMode,
@@ -221,7 +220,7 @@ fn initial_retained_slot_layout(
     }
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 fn projection_contract_requires_data_rows(shape: &PreparedProjectionContract) -> bool {
     shape.scalar_projection_contains_field_path()
 }

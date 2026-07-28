@@ -16,7 +16,7 @@ pub(in crate::db) use crate::db::index::SemanticIndexExpression;
 pub(in crate::db) use canonical::normalize_access_plan_value;
 pub(in crate::db) use path::{
     AccessPath, IndexBranchSetSpec, MAX_INDEX_BRANCH_SET_VALUES, SemanticIndexAccessContract,
-    SemanticIndexKeyItemRef, SemanticIndexKeyItemsRef, SemanticIndexRangeSpec,
+    SemanticIndexKeyItem, SemanticIndexKeyItemRef, SemanticIndexRangeSpec,
 };
 pub(in crate::db) use plan::AccessPlan;
 pub(crate) use validate::AccessPlanError;
@@ -36,7 +36,7 @@ pub(in crate::db) use lowering::{
     LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract,
     LoweredKey, lower_access_with_schema_info,
 };
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db) use lowering::{
     LoweredIndexPrefixCardinalitySpec, lower_exact_index_prefix_cardinality_specs_for_prefix_access,
 };

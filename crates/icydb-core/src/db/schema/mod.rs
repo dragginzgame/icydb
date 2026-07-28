@@ -9,7 +9,7 @@ mod application;
 mod application_lowering;
 mod application_receipt;
 mod application_store;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 mod capabilities;
 mod check;
 mod codec;
@@ -22,7 +22,7 @@ pub(in crate::db) mod enum_catalog;
 mod errors;
 mod field_kind_semantics;
 mod fingerprint;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 mod format;
 mod identity;
 mod info;
@@ -38,7 +38,7 @@ mod source_binding;
 mod sql_ddl;
 mod storage;
 mod store;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 mod transition;
 mod types;
 mod wire;
@@ -56,7 +56,7 @@ pub(in crate::db) const MAX_ACCEPTED_RECURSIVE_DEPTH: usize =
 pub use describe::{
     ConstraintValidationProgressDescription, EntityConstraintDescription, EntityFieldDescription,
     EntityIndexDescription, EntityRelationCardinality, EntityRelationDescription,
-    EntitySchemaCheckDescription, EntitySchemaDescription,
+    EntitySchemaDescription,
 };
 pub use errors::{SchemaLiteralValidationReason, SchemaValidationOperator, ValidateError};
 
@@ -87,9 +87,8 @@ pub(in crate::db) use application_store::{
 pub(in crate::db) use capabilities::{SqlCapabilities, sql_capabilities_with_enum_catalog};
 pub(in crate::db) use check::{
     AcceptedCheckCompareOpV1, AcceptedCheckExprV1, AcceptedCheckLiteralV1,
-    AcceptedCheckValueExprV1, AcceptedRowConstraintEvaluationError,
-    AcceptedRowConstraintViolationKind, CompiledAcceptedRowConstraints,
-    render_accepted_check_expr_sql,
+    AcceptedCheckValueExprV1, AcceptedRowConstraintEvaluationError, CompiledAcceptedRowConstraints,
+    accepted_row_constraint_write_error, render_accepted_check_expr_sql,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use check::{AcceptedCheckExprV1Error, bind_sql_check_expr};
@@ -109,9 +108,9 @@ pub(in crate::db) use constraint::validate_constraint_name;
 #[doc(hidden)]
 pub use constraint::validate_generated_constraint_name;
 pub(in crate::db) use constraint::{
-    AcceptedConstraintCatalog, AcceptedConstraintKind, AcceptedConstraintSnapshot,
-    ConstraintActivationFingerprint, ConstraintActivationKind, ConstraintActivationSnapshot,
-    ConstraintActivationState, ConstraintOrigin,
+    AcceptedConstraintCatalog, AcceptedConstraintIdentity, AcceptedConstraintKind,
+    AcceptedConstraintSnapshot, ConstraintActivationFingerprint, ConstraintActivationKind,
+    ConstraintActivationSnapshot, ConstraintActivationState, ConstraintOrigin,
 };
 pub(in crate::db) use constraint_activation_runner::ConstraintValidationProgress;
 #[cfg(feature = "sql")]
@@ -134,7 +133,7 @@ pub(in crate::db) use constraint_validation::{
 pub(in crate::db) use describe::describe_accepted_entity_with_persisted_schema;
 #[cfg(feature = "sql")]
 pub(in crate::db) use describe::describe_entity_fields_with_persisted_schema;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use enum_catalog::AcceptedSchemaAuthority;
 pub(in crate::db::schema) use enum_catalog::AcceptedStoreCatalogScope;
 pub(in crate::db) use enum_catalog::{
@@ -145,12 +144,13 @@ pub(in crate::db) use enum_catalog::{
 };
 #[cfg(test)]
 pub(in crate::db) use enum_catalog::{
-    TestEnumDefinition, TestEnumVariant, build_accepted_enum_catalog_for_tests,
+    TestEnumDefinition, TestEnumVariant, accepted_schema_candidate_for_tests,
+    accepted_schema_candidate_with_field_bindings_for_tests, build_accepted_enum_catalog_for_tests,
     empty_accepted_enum_catalog_for_tests, empty_accepted_schema_candidate_for_tests,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use field_kind_semantics::AcceptedFieldKindSemantics;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use field_kind_semantics::AcceptedScalarClass;
 pub(in crate::db) use field_kind_semantics::{
     AcceptedFieldKindCategory, classify_accepted_field_kind,
@@ -160,7 +160,7 @@ pub(in crate::db) use fingerprint::{
     accepted_schema_cache_fingerprint_for_persisted_snapshot,
     accepted_schema_cache_fingerprint_method_version,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db::schema) use fingerprint::{
     accepted_schema_admission_fingerprint, accepted_schema_admission_fingerprint_method_version,
 };
@@ -184,7 +184,7 @@ pub(in crate::db) use live_schema_checkpoint::{
     apply_live_schema_checkpoint, load_live_schema_checkpoint, preflight_live_schema_checkpoint,
     verify_live_schema_checkpoint,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db::schema) use mutation::{
     MAX_SCHEMA_PROJECTION_ENTRIES, MutationPlan, MutationPublicationPreflight,
     SchemaMutationRequest, SchemaTransitionSourceBudget, schema_mutation_request_for_snapshots,
@@ -302,12 +302,12 @@ pub(in crate::db::schema) use transition::{
     SchemaTransitionDecision, SchemaTransitionPlanKind, decide_schema_transition,
 };
 pub(crate) use types::FieldType;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use types::canonicalize_filter_literal_for_persisted_kind;
 #[cfg(feature = "sql")]
 pub(in crate::db) use types::canonicalize_strict_sql_literal_for_persisted_kind;
 pub(in crate::db) use types::field_type_from_persisted_kind;
 #[cfg(feature = "sql")]
 pub(in crate::db) use types::input_value_from_strict_sql_literal_for_persisted_kind;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "query"))]
 pub(crate) use types::{ScalarType, literal_matches_type};

@@ -21,10 +21,10 @@ use crate::{
 /// through executor/materialization boundaries.
 ///
 #[cfg_attr(
-    all(not(test), not(feature = "sql")),
+    all(not(test), not(feature = "query")),
     expect(
         dead_code,
-        reason = "SQL lowering constructs explicit field and expression projections; no-default fluent queries use full-model projection"
+        reason = "query frontends construct explicit projections; non-query builds retain only shared schema helpers"
     )
 )]
 #[derive(Clone, Debug, Eq, PartialEq)]

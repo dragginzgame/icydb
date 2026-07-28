@@ -36,8 +36,8 @@ pub use write::{
 ///
 /// DbSession
 ///
-/// Public facade for session-scoped query execution, typed SQL lowering, and
-/// structural mutation policy.
+/// Public facade for typed/dynamic query adaptation, optional SQL execution,
+/// and structural mutation policy.
 /// Wraps the core session and converts core results and errors into the
 /// outward-facing `icydb` response surface.
 ///
@@ -69,7 +69,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one trusted entity-name-driven dynamic read.
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub fn execute_trusted_dynamic_query(
         &self,
         request: &crate::db::DynamicQuery,
@@ -80,13 +80,24 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one ordinary entity-name-driven bounded read.
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "query")]
     pub fn execute_public_dynamic_query(
         &self,
         request: &crate::db::DynamicQuery,
     ) -> Result<crate::db::DynamicQueryResult, crate::Error> {
         self.inner
             .execute_public_dynamic_query(request)
+            .map_err(Into::into)
+    }
+
+    #[cfg(feature = "query")]
+    pub(crate) fn execute_public_typed_dynamic_query(
+        &self,
+        binding: &TypedEntityBinding,
+        request: &crate::db::DynamicQuery,
+    ) -> Result<Option<crate::db::DynamicQueryResult>, crate::Error> {
+        self.inner
+            .execute_public_dynamic_query_for_typed_binding(binding.inner(), request)
             .map_err(Into::into)
     }
 }

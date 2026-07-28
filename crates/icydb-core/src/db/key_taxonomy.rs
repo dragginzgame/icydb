@@ -343,7 +343,7 @@ impl PrimaryKeyValue {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn component_runtime_value(&self, component_index: usize) -> Option<Value> {
         match self {
             Self::Scalar(component) => (component_index == 0).then(|| component.as_runtime_value()),
@@ -740,7 +740,7 @@ pub(crate) struct RawDataStoreKey {
 
 impl RawDataStoreKey {
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn from_entity_and_primary_key_bytes(
         entity_tag: EntityTag,
         primary_key: &[u8],
