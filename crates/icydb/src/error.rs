@@ -19,6 +19,7 @@ use crate::db::DatabaseBootstrapError;
 
 pub use icydb_core::error::{
     ConstraintDiagnostic, ConstraintDiagnosticContext, ConstraintDiagnosticKind,
+    ConstraintValuePath, ConstraintValuePathComponent,
 };
 
 //

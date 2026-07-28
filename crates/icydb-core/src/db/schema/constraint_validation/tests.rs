@@ -3,7 +3,12 @@ use crate::{
     db::{
         data::DecodedDataStoreKey,
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
-        schema::{AcceptedCheckExprV1, ConstraintActivationKind, ConstraintOrigin},
+        schema::{
+            AcceptedCheckExprV1, AcceptedNamedTypeIdentity, AcceptedRuleOperation,
+            AcceptedRuleTarget, AcceptedTargetPath, AcceptedTargetPathComponent,
+            ConstraintActivationKind, ConstraintOrigin, MAX_ACCEPTED_TARGET_PATH_COMPONENTS,
+            composite_catalog::CompositeTypeId,
+        },
     },
     types::EntityTag,
 };
@@ -20,6 +25,27 @@ fn activation(state: ConstraintActivationState) -> ConstraintActivationSnapshot 
         state,
         AcceptedSchemaFingerprint::new([0xA5; 32]),
         11,
+    )
+}
+
+fn targeted_activation(root_field_id: FieldId) -> ConstraintActivationSnapshot {
+    let id = ConstraintId::new(8).expect("test activation ID should be non-zero");
+    ConstraintActivationSnapshot::new(
+        id,
+        "pending_targeted_policy".to_string(),
+        ConstraintOrigin::Generated,
+        ConstraintActivationKind::TargetedRule {
+            target: AcceptedRuleTarget::new(
+                root_field_id,
+                AcceptedNamedTypeIdentity::Composite(
+                    CompositeTypeId::new(3).expect("test composite ID should be non-zero"),
+                ),
+            ),
+            operation: Box::new(AcceptedRuleOperation::LengthRangeInclusive { min: 1, max: 8 }),
+        },
+        ConstraintActivationState::Validating,
+        AcceptedSchemaFingerprint::new([0xB6; 32]),
+        12,
     )
 }
 
@@ -106,6 +132,91 @@ fn validation_job_decode_rejects_noncurrent_profile_and_oversized_bytes() {
         decode_constraint_validation_job(&vec![0; MAX_CONSTRAINT_VALIDATION_JOB_BYTES + 1])
             .is_err(),
         "oversized job bytes must reject before decoding",
+    );
+}
+
+#[test]
+fn targeted_finding_path_round_trips_and_remains_activation_bound() {
+    let entity = EntityTag::new(47);
+    let root_field_id = FieldId::new(2);
+    let activation = targeted_activation(root_field_id);
+    let mut job =
+        ConstraintValidationJob::start(entity, "tests::Targeted".to_string(), &activation, None)
+            .expect("targeted activation should start a job");
+    let path = AcceptedTargetPath::new(vec![
+        AcceptedTargetPathComponent::RootField(root_field_id),
+        AcceptedTargetPathComponent::Newtype {
+            composite_type_id: CompositeTypeId::new(3)
+                .expect("test composite ID should be non-zero"),
+        },
+    ]);
+    job.record_forward_page(
+        Some(raw_key(entity, 1)),
+        1,
+        vec![ConstraintValidationFinding::new_targeted(
+            raw_key(entity, 1),
+            vec![root_field_id],
+            path.clone(),
+            1,
+        )],
+        true,
+        Some(vec![ConstraintStoreRevision::new(
+            "tests::Store".to_string(),
+            1,
+        )]),
+    )
+    .expect("targeted finding page should retain its evidence");
+
+    let bytes = encode_constraint_validation_job(&job).expect("targeted job should encode");
+    let decoded = decode_constraint_validation_job(&bytes).expect("targeted job should decode");
+    decoded
+        .validate(Some(&activation))
+        .expect("decoded path should remain bound to its activation");
+    assert_eq!(
+        decoded
+            .last_receipt()
+            .expect("finding receipt should remain")
+            .findings()[0]
+            .value_path(),
+        Some(&path),
+    );
+
+    let wrong_root = targeted_activation(FieldId::new(9));
+    assert!(
+        decoded.validate(Some(&wrong_root)).is_err(),
+        "recovery must reject finding evidence bound to another root",
+    );
+}
+
+#[test]
+fn targeted_finding_path_rejects_unbounded_durable_evidence() {
+    let entity = EntityTag::new(48);
+    let root_field_id = FieldId::new(2);
+    let activation = targeted_activation(root_field_id);
+    let mut job =
+        ConstraintValidationJob::start(entity, "tests::Targeted".to_string(), &activation, None)
+            .expect("targeted activation should start a job");
+    let path = AcceptedTargetPath::new(
+        (0..=MAX_ACCEPTED_TARGET_PATH_COMPONENTS)
+            .map(|_| AcceptedTargetPathComponent::RootField(root_field_id))
+            .collect(),
+    );
+
+    assert!(
+        job.record_forward_page(
+            Some(raw_key(entity, 1)),
+            1,
+            vec![ConstraintValidationFinding::new_targeted(
+                raw_key(entity, 1),
+                vec![root_field_id],
+                path,
+                1,
+            )],
+            false,
+            None,
+        )
+        .is_err(),
+        "unbounded concrete paths must reject before durable publication",
     );
 }
 

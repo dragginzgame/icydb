@@ -300,9 +300,12 @@ pub(in crate::db::sql) fn render_constraint_diagnostic_line(
     let primary_key = diagnostic
         .primary_key()
         .map_or_else(|| "-".to_string(), render_hex_bytes);
+    let value_path = diagnostic
+        .value_path()
+        .map_or_else(String::new, |path| format!(" value_path={path}"));
 
     format!(
-        "constraint_finding id={} name={} kind={} entity={} primary_key={} fields={} context={} class={} code=E{}",
+        "constraint_finding id={} name={} kind={} entity={} primary_key={} fields={} context={} class={} code=E{}{}",
         diagnostic.constraint_id(),
         diagnostic.constraint_name(),
         diagnostic.constraint_kind().as_str(),
@@ -312,6 +315,7 @@ pub(in crate::db::sql) fn render_constraint_diagnostic_line(
         diagnostic.context().as_str(),
         error_class_label(diagnostic.error_class()),
         diagnostic.error_code().raw(),
+        value_path,
     )
 }
 

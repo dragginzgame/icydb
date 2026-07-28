@@ -93,6 +93,14 @@ pub enum SchemaContractError {
     #[error("schema source check expression is malformed")]
     InvalidExpression,
 
+    /// A targeted durable-rule operation or its operand ordering is invalid.
+    #[error("schema targeted durable-rule operation is invalid")]
+    InvalidRuleOperation,
+
+    /// A targeted durable rule cannot select the declared nominal value.
+    #[error("schema targeted durable-rule target is invalid")]
+    InvalidRuleTarget,
+
     /// The proposal contract version is not the maintained current version.
     #[error("schema proposal contract version is unsupported")]
     UnsupportedVersion {

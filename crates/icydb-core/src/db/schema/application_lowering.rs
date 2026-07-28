@@ -8,8 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use icydb_schema::{
     ConstraintSourceKey, EntityFragment, EntitySourceKey, FieldInsertPolicy, FieldManagementPolicy,
     FieldSourceKey, FieldType, IndexKeyFragment, IndexSourceKey, NamedTypeFragment,
-    RelationSourceKey, ScalarType, SchemaProposal, SchemaRemoval, TargetStoreIdentity,
-    TypeSourceKey,
+    RelationSourceKey, ScalarType, SchemaProposal, SchemaRemoval, SourceRuleOperation,
+    TargetStoreIdentity, TargetedRuleFragment, TypeSourceKey,
 };
 
 use crate::{
@@ -18,9 +18,10 @@ use crate::{
         schema::{
             AcceptedConstraintCatalog, AcceptedConstraintKind, AcceptedEnumCatalog,
             AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedNamedTypeIdentity,
-            AcceptedSchemaFingerprint, AcceptedSchemaRevision, AcceptedSchemaRevisionBundle,
-            AcceptedSourceBindingCatalog, AcceptedStoreCatalogScope, AcceptedValueCatalogHandle,
-            CandidateSchemaRevision, ConstraintId, ConstraintOrigin, FieldId,
+            AcceptedRuleOperation, AcceptedRuleTarget, AcceptedSchemaFingerprint,
+            AcceptedSchemaRevision, AcceptedSchemaRevisionBundle, AcceptedSourceBindingCatalog,
+            AcceptedStoreCatalogScope, AcceptedValueCatalogHandle, CandidateSchemaRevision,
+            ConstraintActivationKind, ConstraintId, ConstraintOrigin, FieldId,
             FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec,
             MAX_ACCEPTED_RECURSIVE_DEPTH, PersistedFieldOrigin, PersistedFieldSnapshot,
             PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
@@ -29,7 +30,8 @@ use crate::{
             PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId, RowLayoutVersion,
             SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaIndexId,
             SchemaInsertDefault, SchemaRowLayout, SchemaVersion, ValueAdmissionBudget,
-            bind_source_check_expr,
+            accepted_rule_length_kind_is_supported, accepted_rule_numeric_kind_is_supported,
+            accepted_rule_target_is_reachable, bind_source_check_expr, bind_source_rule_literal,
             composite_catalog::{
                 AcceptedCompositeCatalog, AcceptedCompositeElement, AcceptedCompositeField,
                 AcceptedCompositeShape, CompositeFieldId, CompositeTypeId,
@@ -633,9 +635,9 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
     Ok(candidates)
 }
 
-/// One source-resolved generated check selected for exact removal.
+/// One source-resolved generated row-local constraint selected for exact removal.
 #[derive(Eq, Ord, PartialEq, PartialOrd)]
-struct ExistingCheckRemoval {
+struct ExistingConstraintRemoval {
     entity_tag: EntityTag,
     source: ConstraintSourceKey,
     id: ConstraintId,
@@ -682,7 +684,7 @@ struct ExistingTypeRemoval {
 /// Source-resolved removals grouped for one store-local candidate.
 #[derive(Default)]
 struct ExistingStoreRemovals {
-    checks: Vec<ExistingCheckRemoval>,
+    constraints: Vec<ExistingConstraintRemoval>,
     entities: Vec<ExistingEntityRemoval>,
     fields: Vec<ExistingFieldRemoval>,
     indexes: Vec<ExistingIndexRemoval>,
@@ -692,7 +694,7 @@ struct ExistingStoreRemovals {
 
 impl ExistingStoreRemovals {
     const fn is_empty(&self) -> bool {
-        self.checks.is_empty()
+        self.constraints.is_empty()
             && self.entities.is_empty()
             && self.fields.is_empty()
             && self.indexes.is_empty()
@@ -702,7 +704,7 @@ impl ExistingStoreRemovals {
 
     fn push(&mut self, removal: ExistingRemoval) {
         match removal {
-            ExistingRemoval::Check(removal) => self.checks.push(removal),
+            ExistingRemoval::Constraint(removal) => self.constraints.push(removal),
             ExistingRemoval::Entity(removal) => self.entities.push(removal),
             ExistingRemoval::Field(removal) => self.fields.push(removal),
             ExistingRemoval::Index(removal) => self.indexes.push(removal),
@@ -713,7 +715,7 @@ impl ExistingStoreRemovals {
 
 /// One source-resolved removal whose store owner is carried separately.
 enum ExistingRemoval {
-    Check(ExistingCheckRemoval),
+    Constraint(ExistingConstraintRemoval),
     Entity(ExistingEntityRemoval),
     Field(ExistingFieldRemoval),
     Index(ExistingIndexRemoval),
@@ -729,7 +731,7 @@ fn lower_existing_store_candidate(
     used_types: &mut BTreeSet<TypeSourceKey>,
 ) -> Result<Option<CandidateSchemaRevision>, InternalError> {
     entities.sort_by(|left, right| left.source_key().cmp(right.source_key()));
-    removals.checks.sort();
+    removals.constraints.sort();
     removals.entities.sort();
     removals.fields.sort();
     removals.indexes.sort();
@@ -739,10 +741,10 @@ fn lower_existing_store_candidate(
         lower_existing_named_catalogs(store.bundle, entities.as_slice(), types, used_types)?;
     let mut snapshots = store.bundle.entity_snapshots().clone();
     let mut source_bindings = store.bundle.source_bindings().clone();
-    let mut removal_entity_tags = apply_existing_check_removals(
+    let mut removal_entity_tags = apply_existing_constraint_removals(
         &mut snapshots,
         &mut source_bindings,
-        removals.checks.as_slice(),
+        removals.constraints.as_slice(),
     )?;
     removal_entity_tags.extend(apply_existing_index_removals(
         &mut snapshots,
@@ -837,8 +839,8 @@ fn resolve_existing_removal<'store, 'bundle>(
         }
         SchemaRemoval::Constraint { entity, constraint } => {
             let (store, removal) =
-                resolve_existing_generated_check_removal(stores, entity, constraint)?;
-            Ok((store, ExistingRemoval::Check(removal)))
+                resolve_existing_generated_constraint_removal(stores, entity, constraint)?;
+            Ok((store, ExistingRemoval::Constraint(removal)))
         }
         SchemaRemoval::Field { entity, field } => {
             let (store, removal) = resolve_existing_generated_field_removal(stores, entity, field)?;
@@ -1009,11 +1011,17 @@ fn apply_existing_entity_removals(
 ///
 /// A live activation or independently owned check remains outside this
 /// metadata-only transition and must fail before a candidate exists.
-fn resolve_existing_generated_check_removal<'store, 'bundle>(
+fn resolve_existing_generated_constraint_removal<'store, 'bundle>(
     stores: &'store [ExistingProposalStore<'bundle>],
     entity_source: &EntitySourceKey,
     constraint_source: &ConstraintSourceKey,
-) -> Result<(&'store ExistingProposalStore<'bundle>, ExistingCheckRemoval), InternalError> {
+) -> Result<
+    (
+        &'store ExistingProposalStore<'bundle>,
+        ExistingConstraintRemoval,
+    ),
+    InternalError,
+> {
     let mut resolved = None;
     for store in stores {
         let Some(entity_tag) = store.bundle.source_bindings().entity(entity_source) else {
@@ -1054,13 +1062,16 @@ fn resolve_existing_generated_check_removal<'store, 'bundle>(
             };
         };
         if constraint.origin() != ConstraintOrigin::Generated
-            || !matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
+            || !matches!(
+                constraint.kind(),
+                AcceptedConstraintKind::Check { .. } | AcceptedConstraintKind::TargetedRule { .. }
+            )
         {
             return Err(InternalError::store_unsupported());
         }
         resolved = Some((
             store,
-            ExistingCheckRemoval {
+            ExistingConstraintRemoval {
                 entity_tag,
                 source: constraint_source.clone(),
                 id: constraint_id,
@@ -1228,13 +1239,13 @@ fn resolve_existing_generated_relation_removal<'store, 'bundle>(
     resolved.ok_or_else(InternalError::store_unsupported)
 }
 
-/// Remove checks and source bindings as one candidate-local identity update.
-fn apply_existing_check_removals(
+/// Remove generated row-local constraints and source bindings atomically.
+fn apply_existing_constraint_removals(
     snapshots: &mut BTreeMap<EntityTag, PersistedSchemaSnapshot>,
     source_bindings: &mut AcceptedSourceBindingCatalog,
-    removals: &[ExistingCheckRemoval],
+    removals: &[ExistingConstraintRemoval],
 ) -> Result<BTreeSet<EntityTag>, InternalError> {
-    let mut removals_by_entity = BTreeMap::<EntityTag, Vec<&ExistingCheckRemoval>>::new();
+    let mut removals_by_entity = BTreeMap::<EntityTag, Vec<&ExistingConstraintRemoval>>::new();
     for removal in removals {
         removals_by_entity
             .entry(removal.entity_tag)
@@ -1251,7 +1262,7 @@ fn apply_existing_check_removals(
         let mut catalog = current.constraint_catalog().clone();
         for removal in entity_removals {
             catalog = catalog
-                .with_removed_generated_check(removal.id)
+                .with_removed_generated_constraint(removal.id)
                 .map_err(|_| InternalError::store_invariant())?;
             source_bindings.remove_constraint(entity_tag, &removal.source, removal.id)?;
         }
@@ -1804,7 +1815,7 @@ fn lower_existing_entity(
         bindings,
     )?;
     verify_existing_relations(stores, entity, entity_tag, current, bindings)?;
-    let constraint_catalog = lower_existing_checks(
+    let constraint_catalog = lower_existing_constraints(
         bundle,
         catalogs,
         entity,
@@ -2155,7 +2166,95 @@ fn resolve_existing_entity<'bundle>(
     resolved.ok_or_else(InternalError::store_unsupported)
 }
 
-fn lower_existing_checks(
+fn bind_targeted_rule(
+    proposed: &TargetedRuleFragment,
+    entity_tag: EntityTag,
+    bindings: &AcceptedSourceBindingCatalog,
+    candidate: &PersistedSchemaSnapshot,
+    enum_catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
+) -> Result<(AcceptedRuleTarget, AcceptedRuleOperation), InternalError> {
+    let root_field_id = bindings
+        .field(entity_tag, proposed.root())
+        .ok_or_else(InternalError::store_unsupported)?;
+    let root = candidate
+        .fields()
+        .iter()
+        .find(|field| field.id() == root_field_id)
+        .ok_or_else(InternalError::store_invariant)?;
+    let target_type = bindings
+        .named_type(proposed.target_type())
+        .ok_or_else(InternalError::store_unsupported)?;
+    if !accepted_rule_target_is_reachable(root.kind(), target_type, enum_catalog, composite_catalog)
+    {
+        return Err(InternalError::store_unsupported());
+    }
+
+    let target_kind = match target_type {
+        AcceptedNamedTypeIdentity::Enum(type_id) => AcceptedFieldKind::Enum { type_id },
+        AcceptedNamedTypeIdentity::Composite(type_id) => AcceptedFieldKind::Composite { type_id },
+    };
+    let resolved_kind = composite_catalog
+        .resolve_newtype_value_kind(&target_kind)
+        .ok_or_else(InternalError::store_unsupported)?;
+    let operation = match proposed.operation() {
+        SourceRuleOperation::LengthRangeInclusive { min, max }
+            if accepted_rule_length_kind_is_supported(&resolved_kind) =>
+        {
+            AcceptedRuleOperation::LengthRangeInclusive {
+                min: *min,
+                max: *max,
+            }
+        }
+        SourceRuleOperation::NumericMinimumInclusive { value }
+            if accepted_rule_numeric_kind_is_supported(&resolved_kind) =>
+        {
+            AcceptedRuleOperation::NumericMinimumInclusive {
+                value: bind_source_rule_literal(
+                    value,
+                    resolved_kind,
+                    bindings,
+                    enum_catalog,
+                    composite_catalog,
+                )
+                .map_err(|_| InternalError::store_unsupported())?,
+            }
+        }
+        SourceRuleOperation::NumericRangeInclusive { min, max }
+            if accepted_rule_numeric_kind_is_supported(&resolved_kind) =>
+        {
+            AcceptedRuleOperation::NumericRangeInclusive {
+                min: bind_source_rule_literal(
+                    min,
+                    resolved_kind.clone(),
+                    bindings,
+                    enum_catalog,
+                    composite_catalog,
+                )
+                .map_err(|_| InternalError::store_unsupported())?,
+                max: bind_source_rule_literal(
+                    max,
+                    resolved_kind,
+                    bindings,
+                    enum_catalog,
+                    composite_catalog,
+                )
+                .map_err(|_| InternalError::store_unsupported())?,
+            }
+        }
+        SourceRuleOperation::LengthRangeInclusive { .. }
+        | SourceRuleOperation::NumericMinimumInclusive { .. }
+        | SourceRuleOperation::NumericRangeInclusive { .. } => {
+            return Err(InternalError::store_unsupported());
+        }
+    };
+    Ok((
+        AcceptedRuleTarget::new(root_field_id, target_type),
+        operation,
+    ))
+}
+
+fn lower_existing_constraints(
     bundle: &AcceptedSchemaRevisionBundle,
     catalogs: &ExistingCatalogCandidate,
     entity: &EntityFragment,
@@ -2164,21 +2263,72 @@ fn lower_existing_checks(
     accepted_snapshot: &PersistedSchemaSnapshot,
     bindings: &mut AcceptedSourceBindingCatalog,
 ) -> Result<AcceptedConstraintCatalog, InternalError> {
-    let mut catalog = accepted_snapshot.constraint_catalog().clone();
-    let mut declared = BTreeSet::new();
-    for proposed in entity.constraints() {
+    ExistingConstraintLowering {
+        bundle,
+        catalogs,
+        entity_tag,
+        candidate,
+        accepted_snapshot,
+        bindings,
+    }
+    .lower(entity)
+}
+
+struct ExistingConstraintLowering<'a> {
+    bundle: &'a AcceptedSchemaRevisionBundle,
+    catalogs: &'a ExistingCatalogCandidate,
+    entity_tag: EntityTag,
+    candidate: &'a PersistedSchemaSnapshot,
+    accepted_snapshot: &'a PersistedSchemaSnapshot,
+    bindings: &'a mut AcceptedSourceBindingCatalog,
+}
+
+impl ExistingConstraintLowering<'_> {
+    fn lower(
+        &mut self,
+        entity: &EntityFragment,
+    ) -> Result<AcceptedConstraintCatalog, InternalError> {
+        let mut catalog = self.accepted_snapshot.constraint_catalog().clone();
+        let mut declared = BTreeSet::new();
+        for proposed in entity.constraints() {
+            let (next_catalog, constraint_id) = match proposed.kind() {
+                icydb_schema::ConstraintFragmentKind::Check(expression) => {
+                    self.lower_check(catalog, proposed, expression)?
+                }
+                icydb_schema::ConstraintFragmentKind::TargetedRule(rule) => {
+                    self.lower_targeted_rule(catalog, proposed, rule)?
+                }
+            };
+            catalog = next_catalog;
+            declared.insert(constraint_id);
+        }
+        if !all_existing_generated_row_constraints_are_declared(self.accepted_snapshot, &declared) {
+            return Err(InternalError::store_unsupported());
+        }
+        Ok(catalog)
+    }
+
+    fn lower_check(
+        &mut self,
+        catalog: AcceptedConstraintCatalog,
+        proposed: &icydb_schema::ConstraintFragment,
+        proposed_expression: &icydb_schema::SourceCheckExpr,
+    ) -> Result<(AcceptedConstraintCatalog, ConstraintId), InternalError> {
         let expression = bind_source_check_expr(
-            proposed.expression(),
-            entity_tag,
-            bindings,
-            candidate,
-            &catalogs.enum_catalog,
-            &catalogs.composite_catalog,
+            proposed_expression,
+            self.entity_tag,
+            self.bindings,
+            self.candidate,
+            &self.catalogs.enum_catalog,
+            &self.catalogs.composite_catalog,
         )
         .map_err(|_| InternalError::store_unsupported())?;
-
-        if let Some(constraint_id) = bindings.constraint(entity_tag, proposed.source_key()) {
-            let accepted = accepted_snapshot
+        if let Some(constraint_id) = self
+            .bindings
+            .constraint(self.entity_tag, proposed.source_key())
+        {
+            let accepted = self
+                .accepted_snapshot
                 .constraints()
                 .iter()
                 .find(|constraint| constraint.id() == constraint_id)
@@ -2194,42 +2344,135 @@ fn lower_existing_checks(
             {
                 return Err(InternalError::store_unsupported());
             }
-            declared.insert(constraint_id);
-            continue;
+            return Ok((catalog, constraint_id));
         }
 
-        let activation_epoch = bundle
-            .revision()
-            .checked_next()
-            .ok_or_else(InternalError::store_unsupported)?
-            .get();
-        catalog = catalog
+        let catalog = catalog
             .with_added_check_activation(
                 proposed.name().as_str().to_string(),
                 ConstraintOrigin::Generated,
                 expression,
-                bundle.semantic_fingerprint()?,
-                activation_epoch,
+                self.bundle.semantic_fingerprint()?,
+                self.activation_epoch()?,
             )
             .map_err(|_| InternalError::store_unsupported())?;
-        let constraint_id = ConstraintId::new(catalog.allocator().high_water())
-            .ok_or_else(InternalError::store_invariant)?;
-        bindings.insert_constraint(entity_tag, proposed.source_key().clone(), constraint_id)?;
-        declared.insert(constraint_id);
+        let constraint_id = self.bind_new_constraint(&catalog, proposed)?;
+        Ok((catalog, constraint_id))
     }
 
-    let all_existing_generated_checks_are_declared = accepted_snapshot
+    fn lower_targeted_rule(
+        &mut self,
+        catalog: AcceptedConstraintCatalog,
+        proposed: &icydb_schema::ConstraintFragment,
+        proposed_rule: &TargetedRuleFragment,
+    ) -> Result<(AcceptedConstraintCatalog, ConstraintId), InternalError> {
+        let (target, operation) = bind_targeted_rule(
+            proposed_rule,
+            self.entity_tag,
+            self.bindings,
+            self.candidate,
+            &self.catalogs.enum_catalog,
+            &self.catalogs.composite_catalog,
+        )?;
+        if let Some(constraint_id) = self
+            .bindings
+            .constraint(self.entity_tag, proposed.source_key())
+        {
+            let accepted_matches = self
+                .accepted_snapshot
+                .constraints()
+                .iter()
+                .find(|constraint| constraint.id() == constraint_id)
+                .is_some_and(|accepted| {
+                    accepted.origin() == ConstraintOrigin::Generated
+                        && accepted.name() == proposed.name().as_str()
+                        && matches!(
+                            accepted.kind(),
+                            AcceptedConstraintKind::TargetedRule {
+                                target: accepted_target,
+                                operation: accepted_operation,
+                            } if *accepted_target == target
+                                && accepted_operation.as_ref() == &operation
+                        )
+                });
+            let activation_matches = self
+                .accepted_snapshot
+                .constraint_activations()
+                .iter()
+                .find(|activation| activation.id() == constraint_id)
+                .is_some_and(|activation| {
+                    activation.origin() == ConstraintOrigin::Generated
+                        && activation.name() == proposed.name().as_str()
+                        && matches!(
+                            activation.kind(),
+                            ConstraintActivationKind::TargetedRule {
+                                target: accepted_target,
+                                operation: accepted_operation,
+                            } if *accepted_target == target
+                                && accepted_operation.as_ref() == &operation
+                        )
+                });
+            if !accepted_matches && !activation_matches {
+                return Err(InternalError::store_unsupported());
+            }
+            return Ok((catalog, constraint_id));
+        }
+
+        let catalog = catalog
+            .with_added_targeted_rule_activation(
+                proposed.name().as_str().to_string(),
+                ConstraintOrigin::Generated,
+                target,
+                operation,
+                self.bundle.semantic_fingerprint()?,
+                self.activation_epoch()?,
+            )
+            .map_err(|_| InternalError::store_unsupported())?;
+        let constraint_id = self.bind_new_constraint(&catalog, proposed)?;
+        Ok((catalog, constraint_id))
+    }
+
+    fn bind_new_constraint(
+        &mut self,
+        catalog: &AcceptedConstraintCatalog,
+        proposed: &icydb_schema::ConstraintFragment,
+    ) -> Result<ConstraintId, InternalError> {
+        let constraint_id = ConstraintId::new(catalog.allocator().high_water())
+            .ok_or_else(InternalError::store_invariant)?;
+        self.bindings.insert_constraint(
+            self.entity_tag,
+            proposed.source_key().clone(),
+            constraint_id,
+        )?;
+        Ok(constraint_id)
+    }
+
+    fn activation_epoch(&self) -> Result<u64, InternalError> {
+        Ok(self
+            .bundle
+            .revision()
+            .checked_next()
+            .ok_or_else(InternalError::store_unsupported)?
+            .get())
+    }
+}
+
+fn all_existing_generated_row_constraints_are_declared(
+    snapshot: &PersistedSchemaSnapshot,
+    declared: &BTreeSet<ConstraintId>,
+) -> bool {
+    snapshot
         .constraints()
         .iter()
         .filter(|constraint| {
             constraint.origin() == ConstraintOrigin::Generated
-                && matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
+                && matches!(
+                    constraint.kind(),
+                    AcceptedConstraintKind::Check { .. }
+                        | AcceptedConstraintKind::TargetedRule { .. }
+                )
         })
-        .all(|constraint| declared.contains(&constraint.id()));
-    if !all_existing_generated_checks_are_declared {
-        return Err(InternalError::store_unsupported());
-    }
-    Ok(catalog)
+        .all(|constraint| declared.contains(&constraint.id()))
 }
 
 fn allocate_entity_identities(
@@ -2391,30 +2634,45 @@ fn lower_initial_constraints(
     )
     .map_err(|_| InternalError::store_unsupported())?;
     for constraint in entity.constraints() {
-        let expression = bind_source_check_expr(
-            constraint.expression(),
-            entity_tag,
-            bindings,
-            &snapshot,
-            &context.enum_catalog,
-            &context.composite_catalog,
-        )
-        .map_err(|_| InternalError::store_unsupported())?;
-        catalog = catalog
-            .with_added_check(
-                constraint.name().as_str().to_string(),
-                ConstraintOrigin::Generated,
-                expression,
-            )
-            .map_err(|_| InternalError::store_unsupported())?;
-        let id = catalog
-            .constraints()
-            .iter()
-            .find_map(|accepted| {
-                (accepted.name() == constraint.name().as_str()
-                    && matches!(accepted.kind(), AcceptedConstraintKind::Check { .. }))
-                .then_some(accepted.id())
-            })
+        match constraint.kind() {
+            icydb_schema::ConstraintFragmentKind::Check(source_expression) => {
+                let expression = bind_source_check_expr(
+                    source_expression,
+                    entity_tag,
+                    bindings,
+                    &snapshot,
+                    &context.enum_catalog,
+                    &context.composite_catalog,
+                )
+                .map_err(|_| InternalError::store_unsupported())?;
+                catalog = catalog
+                    .with_added_check(
+                        constraint.name().as_str().to_string(),
+                        ConstraintOrigin::Generated,
+                        expression,
+                    )
+                    .map_err(|_| InternalError::store_unsupported())?;
+            }
+            icydb_schema::ConstraintFragmentKind::TargetedRule(source_rule) => {
+                let (target, operation) = bind_targeted_rule(
+                    source_rule,
+                    entity_tag,
+                    bindings,
+                    &snapshot,
+                    &context.enum_catalog,
+                    &context.composite_catalog,
+                )?;
+                catalog = catalog
+                    .with_added_targeted_rule(
+                        constraint.name().as_str().to_string(),
+                        ConstraintOrigin::Generated,
+                        target,
+                        operation,
+                    )
+                    .map_err(|_| InternalError::store_unsupported())?;
+            }
+        }
+        let id = ConstraintId::new(catalog.allocator().high_water())
             .ok_or_else(InternalError::store_invariant)?;
         accepted_bindings.insert((entity_tag, constraint.source_key().clone()), id);
     }
@@ -2928,8 +3186,11 @@ mod tests {
             validate_default_payload_for_accepted_field_contract,
         },
         schema::{
-            AcceptedConstraintKind, AcceptedFieldDecodeContract, AcceptedNamedTypeIdentity,
-            AcceptedSchemaRevision, AcceptedValueContract, ConstraintActivationKind,
+            AcceptedConstraintCatalog, AcceptedConstraintKind, AcceptedConstraintSnapshot,
+            AcceptedFieldDecodeContract, AcceptedNamedTypeIdentity, AcceptedRuleOperation,
+            AcceptedRuleTarget, AcceptedSchemaRevision, AcceptedSchemaRevisionBundle,
+            AcceptedSchemaSnapshot, AcceptedStoreCatalogScope, AcceptedValueCatalogHandle,
+            AcceptedValueContract, CompiledAcceptedRowConstraints, ConstraintActivationKind,
             ConstraintOrigin, PersistedFieldSnapshot, SchemaInsertDefault, ValueAdmissionBudget,
             composite_catalog::AcceptedCompositeShape,
             enum_catalog::{
@@ -2937,7 +3198,7 @@ mod tests {
             },
         },
     };
-    use crate::value::{InputValue, InputValueEnum};
+    use crate::value::{InputValue, InputValueEnum, Value};
     use icydb_schema::{
         ConstraintFragment, ConstraintSourceKey, EntityFragment, EntitySourceKey,
         EntityStoreAssignment, EnumTypeFragment, EnumVariantFragment, ExpectedAcceptedHead,
@@ -2945,11 +3206,139 @@ mod tests {
         IndexFragment, IndexKeyFragment, IndexSourceKey, NamedTypeFragment, RecordFieldFragment,
         RecordTypeFragment, ScalarLiteral, ScalarType, SchemaCapability, SchemaFragment,
         SchemaName, SchemaProposal, SchemaRemoval, SchemaSubmissionKey, SourceCheckExpr,
-        SourceCheckInstruction, TargetDatabaseIdentity, TargetStoreIdentity, TupleElementFragment,
-        TypeSourceKey,
+        SourceCheckInstruction, SourceRuleOperation, TargetDatabaseIdentity, TargetStoreIdentity,
+        TargetedRuleFragment, TupleElementFragment, TypeSourceKey,
     };
     fn name(value: &str) -> SchemaName {
         SchemaName::try_new(value).expect("test schema name should admit")
+    }
+
+    struct TargetedRuleProposalFixture {
+        proposal: SchemaProposal,
+        entity_source: EntitySourceKey,
+        value_source: FieldSourceKey,
+        value_type: TypeSourceKey,
+        other_type: TypeSourceKey,
+        constraint_source: ConstraintSourceKey,
+        store: TargetStoreIdentity,
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the fixture keeps one complete source graph and its immutable identities together"
+    )]
+    fn targeted_rule_proposal_fixture(
+        expected_head: ExpectedAcceptedHead,
+        submission_key: &str,
+        value_type_name: &str,
+        other_type_name: &str,
+        include_rule: bool,
+        removals: Vec<SchemaRemoval>,
+    ) -> TargetedRuleProposalFixture {
+        let entity_source =
+            EntitySourceKey::try_new("test:entity:targeted").expect("entity source should admit");
+        let id_source =
+            FieldSourceKey::try_new("test:field:id").expect("field source should admit");
+        let value_source =
+            FieldSourceKey::try_new("test:field:value").expect("field source should admit");
+        let other_source =
+            FieldSourceKey::try_new("test:field:other").expect("field source should admit");
+        let value_type =
+            TypeSourceKey::try_new("test:type:value").expect("type source should admit");
+        let other_type =
+            TypeSourceKey::try_new("test:type:z-other").expect("type source should admit");
+        let rule_source = icydb_schema::RuleSourceKey::try_new("test:rule:range")
+            .expect("rule source should admit");
+        let constraint_source =
+            ConstraintSourceKey::for_targeted_field_rule(&value_source, &value_type, &rule_source);
+        let constraints = include_rule
+            .then(|| {
+                ConstraintFragment::targeted_rule(
+                    constraint_source.clone(),
+                    name("value_range"),
+                    TargetedRuleFragment::new(
+                        value_source.clone(),
+                        value_type.clone(),
+                        SourceRuleOperation::NumericRangeInclusive {
+                            min: ScalarLiteral::Nat(0),
+                            max: ScalarLiteral::Nat(10),
+                        },
+                    ),
+                )
+            })
+            .into_iter()
+            .collect();
+        let entity = EntityFragment::try_new(
+            entity_source.clone(),
+            name("Targeted"),
+            vec![
+                FieldFragment::new(
+                    id_source.clone(),
+                    name("id"),
+                    FieldType::Scalar(ScalarType::Nat64),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+                FieldFragment::new(
+                    value_source.clone(),
+                    name("value"),
+                    FieldType::Named(value_type.clone()),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+                FieldFragment::new(
+                    other_source,
+                    name("other"),
+                    FieldType::Named(other_type.clone()),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+            ],
+            vec![id_source],
+            Vec::new(),
+            Vec::new(),
+            constraints,
+        )
+        .expect("targeted entity should admit");
+        let fragment = SchemaFragment::try_new(
+            vec![entity],
+            vec![
+                NamedTypeFragment::Newtype {
+                    source_key: value_type.clone(),
+                    name: name(value_type_name),
+                    inner: FieldType::Scalar(ScalarType::Nat8),
+                },
+                NamedTypeFragment::Newtype {
+                    source_key: other_type.clone(),
+                    name: name(other_type_name),
+                    inner: FieldType::Scalar(ScalarType::Nat16),
+                },
+            ],
+        )
+        .expect("targeted fragment should admit");
+        let store = TargetStoreIdentity::from_bytes([0x64; 32]);
+        let proposal = SchemaProposal::try_compose(
+            vec![SchemaCapability::ACCEPTED_CHECKS],
+            TargetDatabaseIdentity::from_bytes([0x63; 32]),
+            SchemaSubmissionKey::try_new(submission_key).expect("submission should admit"),
+            expected_head,
+            vec![fragment],
+            vec![EntityStoreAssignment::new(entity_source.clone(), store)],
+            removals,
+        )
+        .expect("targeted proposal should compose");
+        TargetedRuleProposalFixture {
+            proposal,
+            entity_source,
+            value_source,
+            value_type,
+            other_type,
+            constraint_source,
+            store,
+        }
     }
 
     fn scalar_proposal_fixture(
@@ -3025,7 +3414,7 @@ mod tests {
             Vec::new(),
             include_check
                 .then(|| {
-                    ConstraintFragment::new(
+                    ConstraintFragment::check(
                         ConstraintSourceKey::try_new("test:check:score")
                             .expect("test check source should admit"),
                         name("score_non_negative"),
@@ -3165,7 +3554,7 @@ mod tests {
             vec![id_source],
             Vec::new(),
             Vec::new(),
-            vec![ConstraintFragment::new(
+            vec![ConstraintFragment::check(
                 ConstraintSourceKey::try_new("test:constraint:degrees")
                     .expect("test constraint source should admit"),
                 name("degrees_range"),
@@ -3232,6 +3621,372 @@ mod tests {
                 .map(PersistedFieldSnapshot::kind),
             Some(crate::db::schema::AcceptedFieldKind::Composite { .. })
         ));
+    }
+
+    #[test]
+    fn initial_targeted_source_rule_binds_and_persists_accepted_identities() {
+        let fixture = targeted_rule_proposal_fixture(
+            ExpectedAcceptedHead::Empty,
+            "targeted-binding",
+            "Value",
+            "Other",
+            true,
+            Vec::new(),
+        );
+
+        let candidates = lower_initial_schema_proposal(
+            &fixture.proposal,
+            &[ProposalStoreTarget {
+                path: "test::Store",
+                identity: fixture.store,
+            }],
+        )
+        .expect("targeted rule should bind into the accepted candidate");
+        let bundle = candidates[0].bundle();
+        let entity_tag = bundle
+            .source_bindings_for_tests()
+            .entity(&fixture.entity_source)
+            .expect("entity source should bind");
+        let root_field_id = bundle
+            .source_bindings_for_tests()
+            .field(entity_tag, &fixture.value_source)
+            .expect("root field source should bind");
+        let target_type = bundle
+            .source_bindings_for_tests()
+            .named_type(&fixture.value_type)
+            .expect("target type source should bind");
+        let constraint_id = bundle
+            .source_bindings_for_tests()
+            .constraint(entity_tag, &fixture.constraint_source)
+            .expect("constraint source should bind");
+        let snapshot = &bundle.entity_snapshots()[&entity_tag];
+        let accepted = snapshot
+            .constraints()
+            .iter()
+            .find(|constraint| constraint.id() == constraint_id)
+            .expect("accepted targeted rule should persist");
+        let AcceptedConstraintKind::TargetedRule { target, operation } = accepted.kind() else {
+            panic!("source targeted rule must not lower through a general check");
+        };
+        assert_eq!(target.root_field_id(), root_field_id);
+        assert_eq!(target.target_type(), target_type);
+        let AcceptedRuleOperation::NumericRangeInclusive { min, max } = operation.as_ref() else {
+            panic!("numeric range operation should remain closed and exact");
+        };
+        assert_eq!(min.kind(), &crate::db::schema::AcceptedFieldKind::Nat8);
+        assert_eq!(max.kind(), &crate::db::schema::AcceptedFieldKind::Nat8);
+        assert!(!min.payload().is_empty());
+        assert!(!max.payload().is_empty());
+        let accepted_schema =
+            AcceptedSchemaSnapshot::try_new(snapshot.clone()).expect("snapshot should be accepted");
+        let value_catalog = AcceptedValueCatalogHandle::new(
+            bundle.enum_catalog().clone(),
+            bundle.composite_catalog().clone(),
+            AcceptedStoreCatalogScope::new(),
+            bundle.revision(),
+            bundle
+                .semantic_fingerprint()
+                .expect("bundle fingerprint should derive"),
+        );
+        let program =
+            CompiledAcceptedRowConstraints::compile(&accepted_schema, &value_catalog, [0xA3; 16])
+                .expect("N4 should compile the accepted targeted rule");
+        program
+            .evaluate(
+                [0xA3; 16],
+                &[
+                    Some(Value::Ulid(crate::types::Ulid::from_u128(1))),
+                    Some(Value::Nat64(5)),
+                    Some(Value::Nat64(0)),
+                ],
+            )
+            .expect("N5 should admit a compliant targeted value");
+        assert!(
+            bundle.semantic_fingerprint().is_ok(),
+            "accepted target and operation must participate in the bundle fingerprint",
+        );
+        let repeated = lower_initial_schema_proposal(
+            &fixture.proposal,
+            &[ProposalStoreTarget {
+                path: "test::Store",
+                identity: fixture.store,
+            }],
+        )
+        .expect("repeated targeted proposal should lower");
+        assert_eq!(
+            candidates[0].encoded_bundle(),
+            repeated[0].encoded_bundle(),
+            "accepted target encoding must be canonical",
+        );
+    }
+
+    #[test]
+    fn accepted_target_binding_rejects_retargeting_across_root_fields() {
+        let fixture = targeted_rule_proposal_fixture(
+            ExpectedAcceptedHead::Empty,
+            "targeted-retarget",
+            "Value",
+            "Other",
+            true,
+            Vec::new(),
+        );
+        let candidates = lower_initial_schema_proposal(
+            &fixture.proposal,
+            &[ProposalStoreTarget {
+                path: "test::Store",
+                identity: fixture.store,
+            }],
+        )
+        .expect("valid targeted proposal should lower");
+        let bundle = candidates[0].bundle();
+        let entity_tag = bundle
+            .source_bindings_for_tests()
+            .entity(&fixture.entity_source)
+            .expect("entity source should bind");
+        let other_type = bundle
+            .source_bindings_for_tests()
+            .named_type(&fixture.other_type)
+            .expect("other type source should bind");
+        let mut snapshots = bundle.entity_snapshots().clone();
+        let snapshot = snapshots
+            .get(&entity_tag)
+            .cloned()
+            .expect("entity snapshot should exist");
+        let constraints = snapshot
+            .constraints()
+            .iter()
+            .map(|constraint| {
+                let kind = match constraint.kind() {
+                    AcceptedConstraintKind::TargetedRule { target, operation } => {
+                        AcceptedConstraintKind::TargetedRule {
+                            target: AcceptedRuleTarget::new(target.root_field_id(), other_type),
+                            operation: operation.clone(),
+                        }
+                    }
+                    _ => constraint.kind().clone(),
+                };
+                AcceptedConstraintSnapshot::new(
+                    constraint.id(),
+                    constraint.name().to_string(),
+                    constraint.origin(),
+                    kind,
+                )
+            })
+            .collect();
+        let malformed_catalog = AcceptedConstraintCatalog::from_persisted_parts(
+            snapshot.constraint_id_allocator(),
+            constraints,
+            snapshot.constraint_activations().to_vec(),
+        );
+        snapshots.insert(
+            entity_tag,
+            snapshot.with_constraint_catalog(malformed_catalog),
+        );
+
+        assert!(
+            AcceptedSchemaRevisionBundle::new_with_source_bindings(
+                bundle.revision(),
+                bundle.store_path(),
+                bundle.enum_catalog().clone(),
+                bundle.composite_catalog().clone(),
+                bundle.source_bindings_for_tests().clone(),
+                snapshots,
+            )
+            .is_err(),
+            "accepted target must remain reachable below its bound root field",
+        );
+    }
+
+    #[test]
+    fn existing_targeted_rule_addition_reserves_source_bound_activation() {
+        let initial = targeted_rule_proposal_fixture(
+            ExpectedAcceptedHead::Empty,
+            "targeted-addition-initial",
+            "Value",
+            "Other",
+            false,
+            Vec::new(),
+        );
+        let initial_candidates = lower_initial_schema_proposal(
+            &initial.proposal,
+            &[ProposalStoreTarget {
+                path: "test::Store",
+                identity: initial.store,
+            }],
+        )
+        .expect("initial proposal without a targeted rule should lower");
+        let addition = targeted_rule_proposal_fixture(
+            ExpectedAcceptedHead::Exact {
+                revision: 1,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x33; 32]),
+            },
+            "targeted-addition-existing",
+            "Value",
+            "Other",
+            true,
+            Vec::new(),
+        );
+
+        let candidate = lower_existing_schema_proposal(
+            &addition.proposal,
+            &[ExistingProposalStore {
+                path: "test::Store",
+                identity: initial.store,
+                bundle: initial_candidates[0].bundle(),
+            }],
+        )
+        .expect("N6 should lower the targeted rule through accepted activation")
+        .pop()
+        .expect("targeted addition should produce one candidate");
+        let entity_tag = candidate
+            .bundle()
+            .source_bindings_for_tests()
+            .entity(&addition.entity_source)
+            .expect("entity source should remain bound");
+        let constraint_id = candidate
+            .bundle()
+            .source_bindings_for_tests()
+            .constraint(entity_tag, &addition.constraint_source)
+            .expect("targeted source should bind to its reserved activation");
+        assert!(
+            matches!(
+                candidate.bundle().entity_snapshots()[&entity_tag]
+                    .constraint_catalog()
+                    .activation(constraint_id)
+                    .map(crate::db::schema::ConstraintActivationSnapshot::kind),
+                Some(ConstraintActivationKind::TargetedRule { .. })
+            ),
+            "targeted addition must remain pending until historical proof",
+        );
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the identity regression keeps rename, old-name reuse, and exact removal in one accepted-history proof"
+    )]
+    fn targeted_rule_reconciliation_retains_source_identity_and_removes_exactly() {
+        let initial = targeted_rule_proposal_fixture(
+            ExpectedAcceptedHead::Empty,
+            "targeted-reconcile-initial",
+            "Value",
+            "Other",
+            true,
+            Vec::new(),
+        );
+        let initial_candidates = lower_initial_schema_proposal(
+            &initial.proposal,
+            &[ProposalStoreTarget {
+                path: "test::Store",
+                identity: initial.store,
+            }],
+        )
+        .expect("initial targeted proposal should lower");
+        let initial_bundle = initial_candidates[0].bundle();
+        let entity_tag = initial_bundle
+            .source_bindings_for_tests()
+            .entity(&initial.entity_source)
+            .expect("entity source should bind");
+        let initial_target_type = initial_bundle
+            .source_bindings_for_tests()
+            .named_type(&initial.value_type)
+            .expect("target type source should bind");
+        let initial_other_type = initial_bundle
+            .source_bindings_for_tests()
+            .named_type(&initial.other_type)
+            .expect("other type source should bind");
+        let constraint_id = initial_bundle
+            .source_bindings_for_tests()
+            .constraint(entity_tag, &initial.constraint_source)
+            .expect("constraint source should bind");
+
+        let renamed = targeted_rule_proposal_fixture(
+            ExpectedAcceptedHead::Exact {
+                revision: 1,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x31; 32]),
+            },
+            "targeted-reconcile-rename",
+            "RenamedValue",
+            "Value",
+            true,
+            Vec::new(),
+        );
+        let renamed_candidates = lower_existing_schema_proposal(
+            &renamed.proposal,
+            &[ExistingProposalStore {
+                path: "test::Store",
+                identity: initial.store,
+                bundle: initial_bundle,
+            }],
+        )
+        .expect("source-bound target should survive editable type renames");
+        let renamed_bundle = renamed_candidates[0].bundle();
+        assert_eq!(
+            renamed_bundle
+                .source_bindings_for_tests()
+                .named_type(&renamed.value_type),
+            Some(initial_target_type),
+        );
+        assert_eq!(
+            renamed_bundle
+                .source_bindings_for_tests()
+                .named_type(&renamed.other_type),
+            Some(initial_other_type),
+        );
+        assert_ne!(initial_target_type, initial_other_type);
+        let accepted = renamed_bundle.entity_snapshots()[&entity_tag]
+            .constraints()
+            .iter()
+            .find(|constraint| constraint.id() == constraint_id)
+            .expect("targeted constraint identity should remain accepted");
+        assert!(matches!(
+            accepted.kind(),
+            AcceptedConstraintKind::TargetedRule { target, .. }
+                if target.target_type() == initial_target_type
+        ));
+
+        let removal = targeted_rule_proposal_fixture(
+            ExpectedAcceptedHead::Exact {
+                revision: 2,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x32; 32]),
+            },
+            "targeted-reconcile-removal",
+            "RenamedValue",
+            "Value",
+            false,
+            vec![SchemaRemoval::Constraint {
+                entity: renamed.entity_source.clone(),
+                constraint: renamed.constraint_source,
+            }],
+        );
+        let removal_candidates = lower_existing_schema_proposal(
+            &removal.proposal,
+            &[ExistingProposalStore {
+                path: "test::Store",
+                identity: removal.store,
+                bundle: renamed_bundle,
+            }],
+        )
+        .expect("exact generated targeted-rule removal should lower");
+        let removed_bundle = removal_candidates[0].bundle();
+        assert_eq!(
+            removed_bundle
+                .source_bindings_for_tests()
+                .constraint(entity_tag, &removal.constraint_source),
+            None,
+        );
+        assert!(
+            removed_bundle.entity_snapshots()[&entity_tag]
+                .constraints()
+                .iter()
+                .all(|constraint| constraint.id() != constraint_id),
+        );
+        assert_eq!(
+            removed_bundle
+                .source_bindings_for_tests()
+                .named_type(&removal.value_type),
+            Some(initial_target_type),
+        );
     }
 
     #[test]
@@ -4096,7 +4851,7 @@ mod tests {
             NamedTypeFragment::Map {
                 source_key: values.clone(),
                 name: name("Values"),
-                key: FieldType::Named(field_key),
+                key: FieldType::Named(field_key.clone()),
                 value: FieldType::Named(field_value.clone()),
             },
             NamedTypeFragment::Enum(
@@ -4223,6 +4978,12 @@ mod tests {
             EntitySourceKey::try_new("toko:entity:collection").expect("entity source should admit");
         let id_source =
             FieldSourceKey::try_new("toko:field:collection:id").expect("field source should admit");
+        let policy_source = FieldSourceKey::try_new("toko:field:collection:policy")
+            .expect("field source should admit");
+        let rule_source = icydb_schema::RuleSourceKey::try_new("toko:rule:field-key-length")
+            .expect("rule source should admit");
+        let constraint_source =
+            ConstraintSourceKey::for_targeted_field_rule(&policy_source, &field_key, &rule_source);
         let entity = EntityFragment::try_new(
             entity_source.clone(),
             name("Collection"),
@@ -4236,8 +4997,7 @@ mod tests {
                     None,
                 ),
                 FieldFragment::new(
-                    FieldSourceKey::try_new("toko:field:collection:policy")
-                        .expect("field source should admit"),
+                    policy_source.clone(),
                     name("policy"),
                     FieldType::Named(policy),
                     false,
@@ -4248,14 +5008,25 @@ mod tests {
             vec![id_source],
             Vec::new(),
             Vec::new(),
-            Vec::new(),
+            vec![ConstraintFragment::targeted_rule(
+                constraint_source.clone(),
+                name("field_key_length"),
+                TargetedRuleFragment::new(
+                    policy_source,
+                    field_key.clone(),
+                    SourceRuleOperation::LengthRangeInclusive { min: 1, max: 64 },
+                ),
+            )],
         )
         .expect("collection entity should admit");
         let fragment =
             SchemaFragment::try_new(vec![entity], named_types).expect("cyclic graph should admit");
         let store = TargetStoreIdentity::from_bytes([0x72; 32]);
         let proposal = SchemaProposal::try_compose(
-            vec![SchemaCapability::EXACT_COMPOSITE_TYPES],
+            vec![
+                SchemaCapability::ACCEPTED_CHECKS,
+                SchemaCapability::EXACT_COMPOSITE_TYPES,
+            ],
             TargetDatabaseIdentity::from_bytes([0x71; 32]),
             SchemaSubmissionKey::try_new("toko-cyclic-named-types")
                 .expect("submission key should admit"),
@@ -4284,6 +5055,24 @@ mod tests {
         assert_eq!(recovered.bundle(), candidate.bundle());
         let bundle = candidate.bundle();
         let bindings = bundle.source_bindings_for_tests();
+        let entity_tag = bindings
+            .entity(&entity_source)
+            .expect("Collection should bind");
+        let field_key_identity = bindings
+            .named_type(&field_key)
+            .expect("FieldKey should bind");
+        let targeted_id = bindings
+            .constraint(entity_tag, &constraint_source)
+            .expect("cyclic targeted rule should bind");
+        assert!(matches!(
+            bundle.entity_snapshots()[&entity_tag]
+                .constraints()
+                .iter()
+                .find(|constraint| constraint.id() == targeted_id)
+                .map(AcceptedConstraintSnapshot::kind),
+            Some(AcceptedConstraintKind::TargetedRule { target, .. })
+                if target.target_type() == field_key_identity
+        ));
         let values_composite_id = match bindings.named_type(&values).expect("Values should bind") {
             AcceptedNamedTypeIdentity::Composite(type_id) => type_id,
             AcceptedNamedTypeIdentity::Enum(_) => panic!("Values should be composite"),

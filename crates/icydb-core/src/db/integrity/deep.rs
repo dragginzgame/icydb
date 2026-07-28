@@ -662,6 +662,7 @@ fn journal_integrity_finding(
         physical_key: sequence.to_be_bytes().to_vec(),
         primary_key: None,
         field_paths: Vec::new(),
+        value_path: None,
         constraint_id: None,
         constraint_name: None,
         schema_index_id: None,

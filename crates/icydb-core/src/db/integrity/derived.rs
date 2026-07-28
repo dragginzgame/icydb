@@ -803,6 +803,7 @@ fn derived_finding(
         field_paths: relation_id
             .map(|relation_id| relation_field_paths(plan, relation_id))
             .unwrap_or_default(),
+        value_path: None,
         constraint_id: None,
         constraint_name: None,
         schema_index_id,

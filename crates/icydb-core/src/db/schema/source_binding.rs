@@ -113,6 +113,19 @@ impl AcceptedSourceBindingCatalog {
         }
     }
 
+    /// Build exact source bindings in focused cross-boundary tests.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) const fn initial_for_tests(
+        entities: BTreeMap<EntitySourceKey, EntityTag>,
+        fields: BTreeMap<(EntityTag, FieldSourceKey), FieldId>,
+        constraints: BTreeMap<(EntityTag, ConstraintSourceKey), ConstraintId>,
+        indexes: BTreeMap<(EntityTag, IndexSourceKey), SchemaIndexId>,
+        relations: BTreeMap<(EntityTag, RelationSourceKey), RelationId>,
+    ) -> Self {
+        Self::initial(entities, fields, constraints, indexes, relations)
+    }
+
     /// Attach the exact named-type and enum-variant identities allocated for
     /// the same initial accepted candidate.
     #[must_use]
@@ -126,6 +139,18 @@ impl AcceptedSourceBindingCatalog {
         self.enum_variants = enum_variants;
         self.composite_fields = composite_fields;
         self
+    }
+
+    /// Attach exact named-type identities in focused cross-boundary tests.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) fn with_initial_named_types_for_tests(
+        self,
+        types: BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
+        enum_variants: BTreeMap<(EnumTypeId, TypeSourceKey), EnumVariantId>,
+        composite_fields: BTreeMap<(CompositeTypeId, FieldSourceKey), CompositeFieldId>,
+    ) -> Self {
+        self.with_initial_named_types(types, enum_variants, composite_fields)
     }
 
     /// Copy the named-type identity closure from the same staged initial
@@ -778,7 +803,11 @@ impl AcceptedSourceBindingCatalog {
                         .iter()
                         .any(|constraint| {
                             constraint.id() == *constraint_id
-                                && matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
+                                && matches!(
+                                    constraint.kind(),
+                                    AcceptedConstraintKind::Check { .. }
+                                        | AcceptedConstraintKind::TargetedRule { .. }
+                                )
                         })
                         || snapshot
                             .constraint_catalog()
@@ -789,6 +818,7 @@ impl AcceptedSourceBindingCatalog {
                                     && matches!(
                                         activation.kind(),
                                         ConstraintActivationKind::Check { .. }
+                                            | ConstraintActivationKind::TargetedRule { .. }
                                     )
                             })
                 })

@@ -19,7 +19,7 @@ use crate::{
         },
         schema::AcceptedInspectionPlan,
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::{ConstraintValuePath, ErrorClass, ErrorOrigin, InternalError},
     traits::CanisterKind,
 };
 use candid::CandidType;
@@ -198,6 +198,7 @@ fn quick_journal_control_finding(
         physical_key: Vec::new(),
         primary_key: None,
         field_paths: Vec::new(),
+        value_path: None,
         constraint_id: None,
         constraint_name: None,
         schema_index_id: None,
@@ -405,7 +406,7 @@ pub enum IntegrityFindingKind {
     /// The physical key and decoded primary-key field values disagree.
     PrimaryKeyMismatch,
 
-    /// One validated accepted check constraint evaluates to false.
+    /// One validated accepted row-local constraint is violated.
     ConstraintViolation,
 
     /// One row-derived active forward-index witness is absent.
@@ -490,7 +491,7 @@ pub enum IntegrityVerifierFamily {
     /// Physical key versus accepted row primary-key fields.
     PrimaryKey,
 
-    /// Validated accepted row-local checks.
+    /// Validated accepted row-local constraints.
     ValidatedConstraints,
 
     /// One expected active forward-index witness.
@@ -540,6 +541,7 @@ pub struct IntegrityFinding {
     physical_key: Vec<u8>,
     primary_key: Option<Vec<u8>>,
     field_paths: Vec<String>,
+    value_path: Option<Box<ConstraintValuePath>>,
     constraint_id: Option<u32>,
     constraint_name: Option<String>,
     schema_index_id: Option<u32>,
@@ -613,6 +615,12 @@ impl IntegrityFinding {
     #[must_use]
     pub const fn field_paths(&self) -> &[String] {
         self.field_paths.as_slice()
+    }
+
+    /// Borrow the concrete accepted value path for targeted-rule findings.
+    #[must_use]
+    pub fn value_path(&self) -> Option<&ConstraintValuePath> {
+        self.value_path.as_deref()
     }
 
     /// Return the accepted constraint identity when applicable.
@@ -981,6 +989,7 @@ mod tests {
             physical_key: vec![1],
             primary_key: None,
             field_paths: Vec::new(),
+            value_path: None,
             constraint_id: None,
             constraint_name: None,
             schema_index_id: None,
@@ -1000,6 +1009,27 @@ mod tests {
                 .expect("nonzero incarnation should decode"),
             identity,
         );
+    }
+
+    #[test]
+    fn integrity_finding_candid_preserves_targeted_constraint_path() {
+        let plan = plan();
+        let mut finding = finding(&plan);
+        let path = ConstraintValuePath::new(vec![
+            crate::error::ConstraintValuePathComponent::RootField { field_id: 1 },
+            crate::error::ConstraintValuePathComponent::ListElement { index: 2 },
+        ]);
+        finding.kind = IntegrityFindingKind::ConstraintViolation;
+        finding.value_path = Some(Box::new(path.clone()));
+        finding.constraint_id = Some(7);
+        finding.constraint_name = Some("nested_limit".to_string());
+
+        let bytes = candid::encode_one(&finding).expect("integrity finding should encode");
+        let decoded: IntegrityFinding =
+            candid::decode_one(&bytes).expect("integrity finding should decode");
+        assert_eq!(decoded.value_path(), Some(&path));
+        assert_eq!(decoded.constraint_id(), Some(7));
+        assert_eq!(decoded.constraint_name(), Some("nested_limit"));
     }
 
     #[test]

@@ -836,6 +836,23 @@ fn describe_accepted_constraint(
                 value_catalog,
             )?);
         }
+        AcceptedConstraintKind::TargetedRule { target, operation } => {
+            description.kind = "targeted_rule".to_string();
+            description.field_id = Some(target.root_field_id().get());
+            description.fields = vec![accepted_field_name(snapshot, target.root_field_id())?];
+            description.semantics = match operation.as_ref() {
+                crate::db::schema::AcceptedRuleOperation::LengthRangeInclusive { .. } => {
+                    "targeted_length_range_v1"
+                }
+                crate::db::schema::AcceptedRuleOperation::NumericMinimumInclusive { .. } => {
+                    "targeted_numeric_minimum_v1"
+                }
+                crate::db::schema::AcceptedRuleOperation::NumericRangeInclusive { .. } => {
+                    "targeted_numeric_range_v1"
+                }
+            }
+            .to_string();
+        }
     }
     Ok(description)
 }
@@ -916,6 +933,23 @@ fn describe_constraint_activation(
                 snapshot,
                 value_catalog,
             )?);
+        }
+        ConstraintActivationKind::TargetedRule { target, operation } => {
+            description.kind = "targeted_rule".to_string();
+            description.field_id = Some(target.root_field_id().get());
+            description.fields = vec![accepted_field_name(snapshot, target.root_field_id())?];
+            description.semantics = match operation.as_ref() {
+                crate::db::schema::AcceptedRuleOperation::LengthRangeInclusive { .. } => {
+                    "targeted_length_range_v1"
+                }
+                crate::db::schema::AcceptedRuleOperation::NumericMinimumInclusive { .. } => {
+                    "targeted_numeric_minimum_v1"
+                }
+                crate::db::schema::AcceptedRuleOperation::NumericRangeInclusive { .. } => {
+                    "targeted_numeric_range_v1"
+                }
+            }
+            .to_string();
         }
     }
     Ok(description)

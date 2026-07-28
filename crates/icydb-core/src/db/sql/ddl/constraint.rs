@@ -261,7 +261,8 @@ pub(super) fn bind_alter_table_validate_constraint_statement(
             ConstraintActivationKind::Check { .. } => BoundSqlValidationConstraintKind::Check,
             ConstraintActivationKind::NotNull { .. } => BoundSqlValidationConstraintKind::NotNull,
             ConstraintActivationKind::Unique { .. } => BoundSqlValidationConstraintKind::Unique,
-            ConstraintActivationKind::Relation { .. } => {
+            ConstraintActivationKind::Relation { .. }
+            | ConstraintActivationKind::TargetedRule { .. } => {
                 return Err(SqlDdlBindError::ConstraintOwnershipRejected {
                     constraint_name: statement.constraint_name.clone(),
                 });
@@ -287,7 +288,9 @@ pub(super) fn bind_alter_table_validate_constraint_statement(
             AcceptedConstraintKind::Check { .. } => BoundSqlValidationConstraintKind::Check,
             AcceptedConstraintKind::NotNull { .. } => BoundSqlValidationConstraintKind::NotNull,
             AcceptedConstraintKind::Unique { .. } => BoundSqlValidationConstraintKind::Unique,
-            AcceptedConstraintKind::PrimaryKey | AcceptedConstraintKind::Relation { .. } => {
+            AcceptedConstraintKind::PrimaryKey
+            | AcceptedConstraintKind::Relation { .. }
+            | AcceptedConstraintKind::TargetedRule { .. } => {
                 return Err(SqlDdlBindError::ConstraintOwnershipRejected {
                     constraint_name: statement.constraint_name.clone(),
                 });

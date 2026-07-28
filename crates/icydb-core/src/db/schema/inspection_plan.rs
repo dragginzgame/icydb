@@ -308,7 +308,7 @@ mod tests {
         assert_eq!(plan.identity(), identity);
         assert!(!plan.write_constraints().is_empty());
         assert_eq!(plan.write_constraints().required_slots(), &[0]);
-        assert_eq!(plan.write_constraints().integrity_check_count(), 0);
+        assert_eq!(plan.write_constraints().integrity_constraint_count(), 0);
         assert_ne!(plan.fingerprint().to_bytes(), [0; 32]);
     }
 

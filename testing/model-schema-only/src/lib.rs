@@ -68,6 +68,7 @@ pub struct FieldValue {}
         ident = "Text",
         value(item(prim = "Text", max_len = 128))
     ),
+    variant(source_key = "degrees", ident = "Degrees", value(item(is = "Degrees"))),
     variant(
         source_key = "record",
         ident = "Record",
@@ -173,12 +174,41 @@ pub struct SchemaOnlyEntity {}
 mod tests {
     use model_api::build::{BuildOptions, generate_with_options, get_schema};
     use model_api::schema::{
-        ConstraintSourceKey, FieldSourceKey, FieldType, NamedTypeFragment, RuleSourceKey,
-        decode_schema_fragment, encode_schema_fragment,
+        ConstraintFragmentKind, ConstraintSourceKey, FieldSourceKey, FieldType, NamedTypeFragment,
+        RuleSourceKey, SchemaFragment, SourceRuleOperation, TypeSourceKey, decode_schema_fragment,
+        encode_schema_fragment,
     };
 
     use super::SchemaOnlyCanister;
     use model_api::Path as _;
+
+    fn assert_targeted_degrees_rules(fragment: &SchemaFragment) {
+        let degrees_type = TypeSourceKey::try_new("crates/icydb/src/base/types/num.rs::newtype::1")
+            .expect("type source");
+        let rule_source = RuleSourceKey::try_new("icydb.base.rule.num.degrees.range.v1")
+            .expect("base rule source should admit");
+        for (root, source) in ["degrees", "policy"].map(|root| {
+            let field = FieldSourceKey::try_new(root).expect("fixture field source should admit");
+            let source =
+                ConstraintSourceKey::for_targeted_field_rule(&field, &degrees_type, &rule_source);
+            (root, source)
+        }) {
+            let constraint = fragment.entities()[0]
+                .constraints()
+                .iter()
+                .find(|constraint| constraint.source_key() == &source)
+                .expect("direct and recursively nested Degrees rules should both lower");
+            let ConstraintFragmentKind::TargetedRule(rule) = constraint.kind() else {
+                panic!("source rule should use the sole targeted-rule proposal path")
+            };
+            assert_eq!(rule.root().as_str(), root);
+            assert_eq!(rule.target_type(), &degrees_type);
+            assert!(matches!(
+                rule.operation(),
+                SourceRuleOperation::NumericRangeInclusive { .. }
+            ));
+        }
+    }
 
     #[test]
     fn renamed_schema_only_dependency_emits_fragment_and_actor_tokens() {
@@ -188,18 +218,7 @@ mod tests {
             .schema_fragment_for_canister(canister_path)
             .expect("schema-only fixture should lower one complete fragment");
         assert_eq!(fragment.entities().len(), 1);
-        let expected_rule_source = ConstraintSourceKey::for_field_rule(
-            &FieldSourceKey::try_new("degrees").expect("fixture field source should admit"),
-            &RuleSourceKey::try_new("icydb.base.rule.num.degrees.range.v1")
-                .expect("base rule source should admit"),
-        );
-        assert!(
-            fragment.entities()[0]
-                .constraints()
-                .iter()
-                .any(|constraint| constraint.source_key() == &expected_rule_source),
-            "the compiler-authored Degrees rule should lower into an ordinary field-bound constraint",
-        );
+        assert_targeted_degrees_rules(&fragment);
         let named_type = |source_key: &str| {
             fragment
                 .types()

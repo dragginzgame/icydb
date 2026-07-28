@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.39` adds bounded durable rules beneath nested and cyclic values while
+  keeping mutation, activation, integrity, and recovery under accepted-catalog
+  authority. This pre-1.0 format hard cut requires recreating incompatible
+  development stores.
+
 - `0.213.38` completes the independent current-state remediation, leaving one
   accepted-catalog authority, one atomic constraint schedule, and an
   engine-neutral query boundary.

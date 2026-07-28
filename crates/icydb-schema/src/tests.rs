@@ -1,16 +1,16 @@
 use crate::{
-    Account, Blob, ConstraintFragment, ConstraintSourceKey, Date, Decimal, Duration,
-    EntityFragment, EntitySourceKey, EntityStoreAssignment, EnumTypeFragment, EnumVariantFragment,
-    ExpectedAcceptedHead, ExpectedSchemaFingerprint, FieldFragment, FieldInsertPolicy,
-    FieldSourceKey, FieldType, Float32, Float64, IntBig, MAX_SCHEMA_FIELD_TYPE_DEPTH,
-    MAX_SCHEMA_PROPOSAL_BYTES, MAX_SOURCE_KEY_BYTES, NamedTypeFragment, NatBig,
-    ProposalContractVersion, RecordFieldFragment, RecordTypeFragment, RelationDeleteAction,
-    RelationFragment, RuleSourceKey, ScalarLiteral, ScalarType, SchemaCapability,
-    SchemaContractError, SchemaFragment, SchemaName, SchemaProposal, SchemaRemoval,
-    SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction, Subaccount,
-    TargetDatabaseIdentity, TargetStoreIdentity, Timestamp, TupleElementFragment, TypeSourceKey,
-    Ulid, Unit, decode_schema_fragment, decode_schema_proposal, encode_schema_fragment,
-    encode_schema_proposal,
+    Account, Blob, ConstraintFragment, ConstraintFragmentKind, ConstraintSourceKey, Date, Decimal,
+    Duration, EntityFragment, EntitySourceKey, EntityStoreAssignment, EnumTypeFragment,
+    EnumVariantFragment, ExpectedAcceptedHead, ExpectedSchemaFingerprint, FieldFragment,
+    FieldInsertPolicy, FieldSourceKey, FieldType, Float32, Float64, IntBig,
+    MAX_SCHEMA_FIELD_TYPE_DEPTH, MAX_SCHEMA_PROPOSAL_BYTES, MAX_SOURCE_KEY_BYTES,
+    NamedTypeFragment, NatBig, ProposalContractVersion, RecordFieldFragment, RecordTypeFragment,
+    RelationDeleteAction, RelationFragment, RuleSourceKey, ScalarLiteral, ScalarType,
+    SchemaCapability, SchemaContractError, SchemaFragment, SchemaName, SchemaProposal,
+    SchemaRemoval, SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction,
+    SourceRuleOperation, Subaccount, TargetDatabaseIdentity, TargetStoreIdentity,
+    TargetedRuleFragment, Timestamp, TupleElementFragment, TypeSourceKey, Ulid, Unit,
+    decode_schema_fragment, decode_schema_proposal, encode_schema_fragment, encode_schema_proposal,
 };
 
 fn source<T>(value: &str, constructor: impl FnOnce(String) -> Result<T, SchemaContractError>) -> T {
@@ -18,21 +18,39 @@ fn source<T>(value: &str, constructor: impl FnOnce(String) -> Result<T, SchemaCo
 }
 
 #[test]
-fn field_rule_constraint_source_is_deterministic_and_bounded() {
+fn targeted_field_rule_constraint_source_is_deterministic_bounded_and_frozen() {
     let field = FieldSourceKey::try_new("f".repeat(MAX_SOURCE_KEY_BYTES))
         .expect("maximum field source key should admit");
+    let target = TypeSourceKey::try_new("t".repeat(MAX_SOURCE_KEY_BYTES))
+        .expect("maximum type source key should admit");
     let rule = RuleSourceKey::try_new("r".repeat(MAX_SOURCE_KEY_BYTES))
         .expect("maximum rule source key should admit");
-    let first = ConstraintSourceKey::for_field_rule(&field, &rule);
-    let second = ConstraintSourceKey::for_field_rule(&field, &rule);
-    let other = ConstraintSourceKey::for_field_rule(
+    let first = ConstraintSourceKey::for_targeted_field_rule(&field, &target, &rule);
+    let second = ConstraintSourceKey::for_targeted_field_rule(&field, &target, &rule);
+    let other_field = ConstraintSourceKey::for_targeted_field_rule(
         &FieldSourceKey::try_new("other").expect("other field source should admit"),
+        &target,
         &rule,
+    );
+    let other_target = ConstraintSourceKey::for_targeted_field_rule(
+        &field,
+        &TypeSourceKey::try_new("other").expect("other type source should admit"),
+        &rule,
+    );
+    let golden = ConstraintSourceKey::for_targeted_field_rule(
+        &FieldSourceKey::try_new("field/user/age").expect("golden field source should admit"),
+        &TypeSourceKey::try_new("type/age").expect("golden type source should admit"),
+        &RuleSourceKey::try_new("rule/range").expect("golden rule source should admit"),
     );
 
     assert_eq!(first, second);
-    assert_ne!(first, other);
+    assert_ne!(first, other_field);
+    assert_ne!(first, other_target);
     assert!(first.as_str().len() <= MAX_SOURCE_KEY_BYTES);
+    assert_eq!(
+        golden.as_str(),
+        "rule:9ec7c7a93d5c6ee1f23f0310ee6b58113454a1e04c2eb0f34f3748e2c5c2e260",
+    );
 }
 
 fn proposal(entity_name: &str, reverse_input: bool) -> SchemaProposal {
@@ -65,7 +83,7 @@ fn proposal(entity_name: &str, reverse_input: bool) -> SchemaProposal {
         SourceCheckInstruction::GreaterThanOrEqual,
     ])
     .expect("fixture expression should admit");
-    let constraint = ConstraintFragment::new(
+    let constraint = ConstraintFragment::check(
         constraint_key,
         SchemaName::try_new("age_nonnegative").expect("fixture name should admit"),
         expression,
@@ -107,6 +125,68 @@ fn proposal(entity_name: &str, reverse_input: bool) -> SchemaProposal {
     .expect("fixture proposal should compose")
 }
 
+fn targeted_rule_fragment(target: TypeSourceKey) -> SchemaFragment {
+    let entity = source("entity/measurement", EntitySourceKey::try_new);
+    let id = source("field/measurement/id", FieldSourceKey::try_new);
+    let value = source("field/measurement/value", FieldSourceKey::try_new);
+    let value_type = source("type/measurement/value", TypeSourceKey::try_new);
+    let unrelated_type = source("type/measurement/unrelated", TypeSourceKey::try_new);
+    let rule = source("rule/measurement/range", RuleSourceKey::try_new);
+    let constraint_source = ConstraintSourceKey::for_targeted_field_rule(&value, &target, &rule);
+    let constraint = ConstraintFragment::targeted_rule(
+        constraint_source,
+        SchemaName::try_new("measurement_range").expect("fixture name should admit"),
+        TargetedRuleFragment::new(
+            value.clone(),
+            target,
+            SourceRuleOperation::NumericRangeInclusive {
+                min: ScalarLiteral::Nat(0),
+                max: ScalarLiteral::Nat(360),
+            },
+        ),
+    );
+    let entity = EntityFragment::try_new(
+        entity,
+        SchemaName::try_new("measurements").expect("fixture name should admit"),
+        vec![
+            FieldFragment::new(
+                id.clone(),
+                SchemaName::try_new("id").expect("fixture name should admit"),
+                FieldType::Scalar(ScalarType::Nat64),
+                false,
+                FieldInsertPolicy::Required,
+                None,
+            ),
+            FieldFragment::new(
+                value,
+                SchemaName::try_new("value").expect("fixture name should admit"),
+                FieldType::Named(value_type.clone()),
+                false,
+                FieldInsertPolicy::Required,
+                None,
+            ),
+        ],
+        vec![id],
+        vec![],
+        vec![],
+        vec![constraint],
+    )
+    .expect("targeted-rule entity should admit");
+    let types = vec![
+        NamedTypeFragment::Newtype {
+            source_key: value_type,
+            name: SchemaName::try_new("MeasurementValue").expect("fixture name should admit"),
+            inner: FieldType::Scalar(ScalarType::Nat16),
+        },
+        NamedTypeFragment::Newtype {
+            source_key: unrelated_type,
+            name: SchemaName::try_new("UnrelatedValue").expect("fixture name should admit"),
+            inner: FieldType::Scalar(ScalarType::Nat16),
+        },
+    ];
+    SchemaFragment::try_new(vec![entity], types).expect("targeted-rule fragment should admit")
+}
+
 #[test]
 fn source_keys_are_nonempty_bounded_and_canonical() {
     assert_eq!(
@@ -142,6 +222,57 @@ fn proposal_construction_is_order_independent_and_roundtrips_exactly() {
         reverse_input.digest().expect("proposal should hash"),
         canonical.digest().expect("proposal should hash"),
     );
+}
+
+#[test]
+fn targeted_rule_source_contract_roundtrips_in_the_current_v1_proposal() {
+    let entity = source("entity/measurement", EntitySourceKey::try_new);
+    let fragment = targeted_rule_fragment(source("type/measurement/value", TypeSourceKey::try_new));
+    let proposal = SchemaProposal::try_compose(
+        vec![SchemaCapability::ACCEPTED_CHECKS],
+        TargetDatabaseIdentity::from_bytes([0x31; 32]),
+        SchemaSubmissionKey::try_new("targeted-rule-v1").expect("fixture submission should admit"),
+        ExpectedAcceptedHead::Empty,
+        vec![fragment],
+        vec![EntityStoreAssignment::new(
+            entity,
+            TargetStoreIdentity::from_bytes([0x32; 32]),
+        )],
+        vec![],
+    )
+    .expect("reachable targeted rule should compose");
+    let bytes = encode_schema_proposal(&proposal).expect("targeted proposal should encode");
+    let decoded = decode_schema_proposal(&bytes).expect("targeted proposal should decode");
+    let ConstraintFragmentKind::TargetedRule(rule) =
+        decoded.fragments()[0].entities()[0].constraints()[0].kind()
+    else {
+        panic!("current proposal should retain the targeted-rule kind")
+    };
+    assert_eq!(rule.root().as_str(), "field/measurement/value");
+    assert_eq!(rule.target_type().as_str(), "type/measurement/value");
+}
+
+#[test]
+fn targeted_rule_rejects_an_unreachable_nominal_target() {
+    let entity = source("entity/measurement", EntitySourceKey::try_new);
+    let fragment =
+        targeted_rule_fragment(source("type/measurement/unrelated", TypeSourceKey::try_new));
+    let error = SchemaProposal::try_compose(
+        vec![SchemaCapability::ACCEPTED_CHECKS],
+        TargetDatabaseIdentity::from_bytes([0x41; 32]),
+        SchemaSubmissionKey::try_new("unreachable-target")
+            .expect("fixture submission should admit"),
+        ExpectedAcceptedHead::Empty,
+        vec![fragment],
+        vec![EntityStoreAssignment::new(
+            entity,
+            TargetStoreIdentity::from_bytes([0x42; 32]),
+        )],
+        vec![],
+    )
+    .expect_err("unreachable targeted rule must reject");
+
+    assert_eq!(error, SchemaContractError::InvalidRuleTarget);
 }
 
 #[test]
@@ -286,7 +417,7 @@ fn entity_local_references_and_editable_names_are_closed() {
         SourceCheckInstruction::GreaterThanOrEqual,
     ])
     .expect("expression stack should admit");
-    let constraint = ConstraintFragment::new(
+    let constraint = ConstraintFragment::check(
         source("constraint/local/check", ConstraintSourceKey::try_new),
         SchemaName::try_new("local_check").expect("name should admit"),
         expression,
@@ -946,8 +1077,8 @@ fn proposal_digest_has_a_fixed_current_form_vector() {
             .expect("proposal should hash")
             .to_bytes(),
         [
-            96, 104, 108, 119, 143, 39, 199, 119, 145, 113, 166, 202, 32, 36, 182, 190, 140, 29,
-            62, 78, 58, 40, 142, 250, 225, 44, 10, 222, 5, 66, 161, 164,
+            134, 76, 92, 254, 145, 166, 170, 182, 33, 164, 119, 141, 33, 196, 122, 98, 18, 183,
+            158, 59, 119, 13, 254, 237, 182, 81, 224, 136, 187, 243, 194, 138,
         ],
     );
 }

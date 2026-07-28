@@ -1,15 +1,17 @@
 use crate::{
     db::schema::{
         AcceptedCheckExprV1, AcceptedConstraintCatalog, AcceptedConstraintKind,
-        AcceptedConstraintSnapshot, AcceptedFieldKind, AcceptedSchemaFingerprint,
-        ConstraintIdAllocator, ConstraintOrigin, FieldId, FieldInsertGeneration,
-        FieldStorageDecode, FieldWriteManagement, LeafCodec, MAX_SCHEMA_SNAPSHOT_BYTES,
-        PersistedFieldOrigin, PersistedFieldSnapshot, PersistedIndexExpressionOp,
-        PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
-        PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-        PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId, RowLayoutVersion,
-        ScalarCodec, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaIndexId,
-        SchemaInsertDefault, SchemaRowLayout, SchemaVersion, decode_persisted_schema_snapshot,
+        AcceptedConstraintSnapshot, AcceptedFieldKind, AcceptedNamedTypeIdentity,
+        AcceptedRuleOperation, AcceptedRuleTarget, AcceptedSchemaFingerprint,
+        ConstraintActivationKind, ConstraintIdAllocator, ConstraintOrigin, FieldId,
+        FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec,
+        MAX_SCHEMA_SNAPSHOT_BYTES, PersistedFieldOrigin, PersistedFieldSnapshot,
+        PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+        PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
+        PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId,
+        RowLayoutVersion, ScalarCodec, SchemaFieldSlot, SchemaFieldWritePolicy,
+        SchemaHistoricalFill, SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+        composite_catalog::CompositeTypeId, decode_persisted_schema_snapshot,
         encode_persisted_schema_snapshot,
     },
     error::{ErrorClass, ErrorOrigin},
@@ -83,7 +85,7 @@ fn decode_persisted_schema_snapshot_rejects_future_codec_version() {
 }
 
 #[test]
-fn decode_persisted_schema_snapshot_rejects_wrong_contract_profile() {
+fn decode_persisted_schema_snapshot_rejects_retired_pre_target_contract_profile() {
     let snapshot = PersistedSchemaSnapshot::new(
         SchemaVersion::initial(),
         "entities::WrongProfile".to_string(),
@@ -93,11 +95,11 @@ fn decode_persisted_schema_snapshot_rejects_wrong_contract_profile() {
         Vec::new(),
     );
     let mut wire = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
-    wire.contract_profile ^= 1;
-    let encoded = candid::encode_one(&wire).expect("wrong schema profile fixture should encode");
+    wire.contract_profile = u32::from_be_bytes(*b"ICYZ");
+    let encoded = candid::encode_one(&wire).expect("retired schema profile fixture should encode");
 
     let error = decode_persisted_schema_snapshot(&encoded)
-        .expect_err("wrong schema contract profile must fail closed");
+        .expect_err("retired schema contract profile must fail closed");
 
     assert_eq!(error.class(), ErrorClass::IncompatiblePersistedFormat);
     assert_eq!(error.origin(), ErrorOrigin::Serialize);
@@ -296,6 +298,73 @@ fn persisted_schema_snapshot_round_trips_current_check_expression() {
     assert_eq!(decoded, snapshot);
 }
 
+fn snapshot_with_targeted_rule() -> PersistedSchemaSnapshot {
+    let snapshot = temporal_schema_snapshot();
+    let target_type =
+        CompositeTypeId::new(7).expect("test targeted type identity should be non-zero");
+    let catalog = snapshot
+        .constraint_catalog()
+        .clone()
+        .with_added_targeted_rule(
+            "nested_cardinality".to_string(),
+            ConstraintOrigin::Generated,
+            AcceptedRuleTarget::new(
+                FieldId::new(2),
+                AcceptedNamedTypeIdentity::Composite(target_type),
+            ),
+            AcceptedRuleOperation::LengthRangeInclusive { min: 1, max: 8 },
+        )
+        .expect("test targeted rule should allocate");
+    snapshot.with_constraint_catalog(catalog)
+}
+
+#[test]
+fn persisted_schema_snapshot_round_trips_current_targeted_rule() {
+    let snapshot = snapshot_with_targeted_rule();
+    let encoded =
+        encode_persisted_schema_snapshot(&snapshot).expect("current targeted rule should encode");
+    let decoded =
+        decode_persisted_schema_snapshot(&encoded).expect("current targeted rule should decode");
+
+    assert_eq!(decoded, snapshot);
+
+    let mut missing_root = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
+    let super::AcceptedConstraintKindWire::TargetedRule { target, .. } = &mut missing_root
+        .constraints
+        .last_mut()
+        .expect("rule should exist")
+        .kind
+    else {
+        panic!("targeted rule wire should retain its kind");
+    };
+    target.root_field_id = 999;
+    assert_structural_constraint_wire_rejects(missing_root);
+
+    let mut zero_target = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
+    let super::AcceptedConstraintKindWire::TargetedRule { target, .. } = &mut zero_target
+        .constraints
+        .last_mut()
+        .expect("rule should exist")
+        .kind
+    else {
+        panic!("targeted rule wire should retain its kind");
+    };
+    target.target_type = super::AcceptedNamedTypeIdentityWire::Composite(0);
+    assert_structural_constraint_wire_rejects(zero_target);
+
+    let mut reversed_range = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
+    let super::AcceptedConstraintKindWire::TargetedRule { operation, .. } = &mut reversed_range
+        .constraints
+        .last_mut()
+        .expect("rule should exist")
+        .kind
+    else {
+        panic!("targeted rule wire should retain its kind");
+    };
+    **operation = super::AcceptedRuleOperationWire::LengthRangeInclusive { min: 9, max: 8 };
+    assert_structural_constraint_wire_rejects(reversed_range);
+}
+
 fn snapshot_with_check_activation() -> PersistedSchemaSnapshot {
     let snapshot = temporal_schema_snapshot();
     let catalog = snapshot
@@ -322,6 +391,40 @@ fn persisted_schema_snapshot_round_trips_current_check_activation() {
 
     assert_eq!(decoded, snapshot);
     assert_eq!(decoded.constraint_activations().len(), 1);
+}
+
+#[test]
+fn persisted_schema_snapshot_round_trips_current_targeted_activation() {
+    let snapshot = temporal_schema_snapshot();
+    let target_type =
+        CompositeTypeId::new(7).expect("test targeted type identity should be non-zero");
+    let catalog = snapshot
+        .constraint_catalog()
+        .clone()
+        .with_added_targeted_rule_activation(
+            "pending_nested_cardinality".to_string(),
+            ConstraintOrigin::Generated,
+            AcceptedRuleTarget::new(
+                FieldId::new(2),
+                AcceptedNamedTypeIdentity::Composite(target_type),
+            ),
+            AcceptedRuleOperation::LengthRangeInclusive { min: 1, max: 8 },
+            AcceptedSchemaFingerprint::new([0xA6; 32]),
+            8,
+        )
+        .expect("targeted activation should reserve identity");
+    let snapshot = snapshot.with_constraint_catalog(catalog);
+
+    let encoded = encode_persisted_schema_snapshot(&snapshot)
+        .expect("current targeted activation should encode");
+    let decoded = decode_persisted_schema_snapshot(&encoded)
+        .expect("current targeted activation should decode");
+
+    assert_eq!(decoded, snapshot);
+    assert!(matches!(
+        decoded.constraint_activations()[0].kind(),
+        ConstraintActivationKind::TargetedRule { .. }
+    ));
 }
 
 #[test]

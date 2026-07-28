@@ -7,11 +7,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    ConstraintSourceKey, EntityFragment, EntitySourceKey, FieldFragment, FieldSourceKey, FieldType,
-    IndexSourceKey, MAX_SCHEMA_ASSIGNMENTS, MAX_SCHEMA_CAPABILITIES, MAX_SCHEMA_PROPOSAL_FRAGMENTS,
-    MAX_SCHEMA_REMOVALS, NamedTypeFragment, RelationSourceKey, ScalarLiteral, SchemaContractError,
-    SchemaFragment, SchemaProposalDigest, SchemaSubmissionKey, SourceCheckExpr,
-    SourceCheckInstruction, TargetDatabaseIdentity, TargetStoreIdentity, TypeSourceKey, check_len,
+    ConstraintFragmentKind, ConstraintSourceKey, EntityFragment, EntitySourceKey, FieldFragment,
+    FieldSourceKey, FieldType, IndexSourceKey, MAX_SCHEMA_ASSIGNMENTS, MAX_SCHEMA_CAPABILITIES,
+    MAX_SCHEMA_PROPOSAL_FRAGMENTS, MAX_SCHEMA_REMOVALS, NamedTypeFragment, RelationSourceKey,
+    ScalarLiteral, ScalarType, SchemaContractError, SchemaFragment, SchemaProposalDigest,
+    SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction, SourceRuleOperation,
+    TargetDatabaseIdentity, TargetStoreIdentity, TargetedRuleFragment, TypeSourceKey, check_len,
     encode_schema_fragment, encode_schema_proposal,
 };
 
@@ -51,7 +52,7 @@ pub struct SchemaCapability(u16);
 impl SchemaCapability {
     /// Exact composite record and enum contracts.
     pub const EXACT_COMPOSITE_TYPES: Self = Self(1);
-    /// Accepted check constraints.
+    /// Accepted row-local constraints.
     pub const ACCEPTED_CHECKS: Self = Self(2);
     /// Secondary indexes.
     pub const SECONDARY_INDEXES: Self = Self(3);
@@ -505,9 +506,183 @@ fn collect_entity_references(
         }
     }
     for constraint in entity.constraints() {
-        collect_expression_enum_references(constraint.expression(), types, references)?;
+        match constraint.kind() {
+            ConstraintFragmentKind::Check(expression) => {
+                collect_expression_enum_references(expression, types, references)?;
+            }
+            ConstraintFragmentKind::TargetedRule(rule) => {
+                references.types.insert(rule.target_type().clone());
+                validate_targeted_rule(entity, rule, types)?;
+            }
+        }
     }
     Ok(())
+}
+
+fn validate_targeted_rule(
+    entity: &EntityFragment,
+    rule: &TargetedRuleFragment,
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+) -> Result<(), SchemaContractError> {
+    let root = entity
+        .fields()
+        .iter()
+        .find(|field| field.source_key() == rule.root())
+        .ok_or(SchemaContractError::InvalidLocalReference)?;
+    if types.contains_key(rule.target_type())
+        && !field_type_reaches_target(root.field_type(), rule.target_type(), types)
+    {
+        return Err(SchemaContractError::InvalidRuleTarget);
+    }
+    let Some(target) = types.get(rule.target_type()) else {
+        return Ok(());
+    };
+    let shape = resolve_rule_target_shape(target, types)?;
+    if operation_matches_target(rule.operation(), shape) {
+        Ok(())
+    } else {
+        Err(SchemaContractError::InvalidRuleTarget)
+    }
+}
+
+fn field_type_reaches_target(
+    root: &FieldType,
+    target: &TypeSourceKey,
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+) -> bool {
+    let mut pending = vec![root];
+    let mut visited = BTreeSet::new();
+    while let Some(field_type) = pending.pop() {
+        match field_type {
+            FieldType::Scalar(_) => {}
+            FieldType::List(item) => pending.push(item),
+            FieldType::Named(source) => {
+                if source == target {
+                    return true;
+                }
+                if !visited.insert(source) {
+                    continue;
+                }
+                if let Some(definition) = types.get(source) {
+                    push_named_type_field_types(definition, &mut pending);
+                }
+            }
+        }
+    }
+    false
+}
+
+fn push_named_type_field_types<'types>(
+    r#type: &'types NamedTypeFragment,
+    pending: &mut Vec<&'types FieldType>,
+) {
+    match r#type {
+        NamedTypeFragment::Record(record) => {
+            pending.extend(
+                record
+                    .fields()
+                    .iter()
+                    .map(crate::RecordFieldFragment::field_type),
+            );
+        }
+        NamedTypeFragment::Enum(r#enum) => {
+            pending.extend(
+                r#enum
+                    .variants()
+                    .iter()
+                    .filter_map(|variant| variant.payload()),
+            );
+        }
+        NamedTypeFragment::Newtype { inner, .. }
+        | NamedTypeFragment::List { item: inner, .. }
+        | NamedTypeFragment::Set { item: inner, .. } => pending.push(inner),
+        NamedTypeFragment::Map { key, value, .. } => {
+            pending.push(key);
+            pending.push(value);
+        }
+        NamedTypeFragment::Tuple { members, .. } => {
+            pending.extend(members.iter().map(crate::TupleElementFragment::field_type));
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum RuleTargetShape {
+    Collection,
+    Scalar(ScalarType),
+}
+
+fn resolve_rule_target_shape(
+    target: &NamedTypeFragment,
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+) -> Result<RuleTargetShape, SchemaContractError> {
+    let mut current = target;
+    let mut visited = BTreeSet::new();
+    loop {
+        if !visited.insert(current.source_key()) {
+            return Err(SchemaContractError::InvalidRuleTarget);
+        }
+        match current {
+            NamedTypeFragment::List { .. }
+            | NamedTypeFragment::Set { .. }
+            | NamedTypeFragment::Map { .. } => return Ok(RuleTargetShape::Collection),
+            NamedTypeFragment::Newtype { inner, .. } => match inner {
+                FieldType::Scalar(scalar) => return Ok(RuleTargetShape::Scalar(*scalar)),
+                FieldType::List(_) => return Ok(RuleTargetShape::Collection),
+                FieldType::Named(source) => {
+                    current = types
+                        .get(source)
+                        .copied()
+                        .ok_or(SchemaContractError::InvalidRuleTarget)?;
+                }
+            },
+            NamedTypeFragment::Record(_)
+            | NamedTypeFragment::Enum(_)
+            | NamedTypeFragment::Tuple { .. } => {
+                return Err(SchemaContractError::InvalidRuleTarget);
+            }
+        }
+    }
+}
+
+fn operation_matches_target(operation: &SourceRuleOperation, shape: RuleTargetShape) -> bool {
+    match (operation, shape) {
+        (
+            SourceRuleOperation::LengthRangeInclusive { .. },
+            RuleTargetShape::Collection
+            | RuleTargetShape::Scalar(ScalarType::Blob { .. } | ScalarType::Text { .. }),
+        ) => true,
+        (
+            SourceRuleOperation::NumericMinimumInclusive { value },
+            RuleTargetShape::Scalar(scalar),
+        ) => numeric_scalar(scalar) && scalar.accepts_literal(value),
+        (
+            SourceRuleOperation::NumericRangeInclusive { min, max },
+            RuleTargetShape::Scalar(scalar),
+        ) => numeric_scalar(scalar) && scalar.accepts_literal(min) && scalar.accepts_literal(max),
+        _ => false,
+    }
+}
+
+const fn numeric_scalar(scalar: ScalarType) -> bool {
+    matches!(
+        scalar,
+        ScalarType::Decimal { .. }
+            | ScalarType::Float32
+            | ScalarType::Float64
+            | ScalarType::Int8
+            | ScalarType::Int16
+            | ScalarType::Int32
+            | ScalarType::Int64
+            | ScalarType::Int128
+            | ScalarType::IntBig { .. }
+            | ScalarType::Nat8
+            | ScalarType::Nat16
+            | ScalarType::Nat32
+            | ScalarType::Nat64
+            | ScalarType::Nat128
+            | ScalarType::NatBig { .. }
+    )
 }
 
 fn collect_named_type_references(r#type: &NamedTypeFragment, references: &mut ProposalReferences) {

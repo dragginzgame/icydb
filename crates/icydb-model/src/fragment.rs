@@ -18,7 +18,7 @@ use icydb_schema::{
     Float64, IndexFragment, IndexKeyFragment, IndexSourceKey, IntBig, NamedTypeFragment, NatBig,
     Principal, RecordFieldFragment, RecordTypeFragment, RelationDeleteAction, RelationFragment,
     RelationSourceKey, RuleSourceKey, ScalarLiteral, ScalarType, SchemaContractError,
-    SchemaFragment, SchemaName, SourceCheckExpr, SourceCheckInstruction, Subaccount, Timestamp,
+    SchemaFragment, SchemaName, SourceRuleOperation, Subaccount, TargetedRuleFragment, Timestamp,
     TupleElementFragment, TypeSourceKey, Ulid, Unit,
 };
 use thiserror::Error;
@@ -342,7 +342,7 @@ fn lower_constraint(
     schema: &Schema,
     constraint: &CheckConstraint,
 ) -> Result<ConstraintFragment, FragmentLoweringError> {
-    Ok(ConstraintFragment::new(
+    Ok(ConstraintFragment::check(
         ConstraintSourceKey::try_new(constraint.source_key())?,
         SchemaName::try_new(constraint.name())?,
         constraint.source_expression(schema)?,
@@ -353,174 +353,147 @@ fn lower_field_rules(
     schema: &Schema,
     field: &Field,
 ) -> Result<Vec<ConstraintFragment>, FragmentLoweringError> {
-    if field.value().cardinality() == Cardinality::Many {
-        let rules = source_rules_for_item(schema, field.value().item())?;
-        if !rules.is_empty() {
-            return Err(FragmentLoweringError::InvalidReference(format!(
-                "durable rules require one scalar persisted field: {}",
-                field.ident()
-            )));
-        }
-        return Ok(Vec::new());
-    }
-
     let field_source = FieldSourceKey::try_new(field.source_key())?;
-    source_rules_for_item(schema, field.value().item())?
+    reachable_source_rules(schema, field.value().item())?
         .into_iter()
-        .map(|(rule, primitive, item)| {
-            let source = ConstraintSourceKey::for_field_rule(
+        .map(|(target_type, rule, target)| {
+            let source = ConstraintSourceKey::for_targeted_field_rule(
                 &field_source,
+                &target_type,
                 &RuleSourceKey::try_new(rule.source_key())?,
             );
             let name =
                 SchemaName::try_new(format!("__icydb_{}", source.as_str().replace(':', "_")))?;
-            let expression = lower_source_rule(&field_source, primitive, item, rule)?;
-            Ok(ConstraintFragment::new(source, name, expression))
+            let operation = lower_source_rule_operation(schema, target, rule)?;
+            Ok(ConstraintFragment::targeted_rule(
+                source,
+                name,
+                TargetedRuleFragment::new(field_source.clone(), target_type, operation),
+            ))
         })
         .collect()
 }
 
-fn source_rules_for_item<'schema>(
+type ReachableSourceRule<'schema> = (
+    TypeSourceKey,
+    &'schema SourceRule,
+    &'schema crate::node::SchemaNode,
+);
+
+fn reachable_source_rules<'schema>(
     schema: &'schema Schema,
-    mut item: &'schema Item,
-) -> Result<Vec<(&'schema SourceRule, Primitive, &'schema Item)>, FragmentLoweringError> {
-    let mut pending_rules = Vec::new();
+    item: &Item,
+) -> Result<Vec<ReachableSourceRule<'schema>>, FragmentLoweringError> {
+    let mut pending = Vec::new();
+    push_item_reference(item, &mut pending);
     let mut visited = BTreeSet::new();
-    loop {
-        let ItemTarget::Is(path) = item.target() else {
-            return Ok(Vec::new());
-        };
-        let Some(node) = schema.get_node(path) else {
-            if !pending_rules.is_empty() {
-                return Err(FragmentLoweringError::InvalidReference(format!(
-                    "durable-rule target '{path}' is missing"
-                )));
-            }
-            return Ok(Vec::new());
-        };
-        let SchemaNode::Newtype(newtype) = node else {
-            let mut nested = BTreeSet::new();
-            if !pending_rules.is_empty()
-                || schema_node_contains_source_rules(schema, path, node, &mut nested)
-            {
-                return Err(FragmentLoweringError::InvalidReference(format!(
-                    "durable rules nested below structural field type '{path}' are unsupported"
-                )));
-            }
-            return Ok(Vec::new());
-        };
-        if !visited.insert(newtype.source_key()) {
-            return Err(FragmentLoweringError::InvalidReference(format!(
-                "durable-rule newtype cycle at {path}"
-            )));
-        }
-        pending_rules.extend(newtype.ty().rules());
-        let ItemTarget::Primitive(primitive) = newtype.item().target() else {
-            item = newtype.item();
+    let mut rules = BTreeMap::new();
+    while let Some(path) = pending.pop() {
+        let node = schema
+            .get_node(path.as_str())
+            .ok_or_else(|| FragmentLoweringError::InvalidReference(path.clone()))?;
+        let target_type = TypeSourceKey::try_new(
+            named_type_source_key(node)
+                .ok_or_else(|| FragmentLoweringError::InvalidReference(path.clone()))?,
+        )?;
+        if !visited.insert(target_type.clone()) {
             continue;
-        };
-        return Ok(pending_rules
-            .into_iter()
-            .map(|rule| (rule, *primitive, newtype.item()))
-            .collect());
+        }
+        for rule in schema_node_type(node)?.rules() {
+            let key = (
+                target_type.clone(),
+                RuleSourceKey::try_new(rule.source_key())?,
+            );
+            if rules.insert(key, (rule, node)).is_some() {
+                return Err(FragmentLoweringError::InvalidReference(format!(
+                    "duplicate durable rule '{}' on type '{}'",
+                    rule.source_key(),
+                    target_type
+                )));
+            }
+        }
+        push_schema_node_references(node, &mut pending);
+    }
+    Ok(rules
+        .into_iter()
+        .map(|((target_type, _), (rule, node))| (target_type, rule, node))
+        .collect())
+}
+
+fn schema_node_type(node: &SchemaNode) -> Result<&crate::node::Type, FragmentLoweringError> {
+    match node {
+        SchemaNode::Newtype(node) => Ok(node.ty()),
+        SchemaNode::Record(node) => Ok(node.ty()),
+        SchemaNode::Enum(node) => Ok(node.ty()),
+        SchemaNode::List(node) => Ok(node.ty()),
+        SchemaNode::Map(node) => Ok(node.ty()),
+        SchemaNode::Set(node) => Ok(node.ty()),
+        SchemaNode::Tuple(node) => Ok(node.ty()),
+        SchemaNode::Canister(_)
+        | SchemaNode::Entity(_)
+        | SchemaNode::Normalizer(_)
+        | SchemaNode::Store(_)
+        | SchemaNode::Validator(_) => Err(FragmentLoweringError::InvalidReference(
+            "durable-rule target is not a named type".to_string(),
+        )),
     }
 }
 
-fn schema_node_contains_source_rules(
-    schema: &Schema,
-    path: &str,
-    node: &SchemaNode,
-    visited: &mut BTreeSet<String>,
-) -> bool {
-    if !visited.insert(path.to_string()) {
-        return false;
-    }
-
+fn push_schema_node_references(node: &SchemaNode, pending: &mut Vec<String>) {
     match node {
-        SchemaNode::Newtype(newtype) => {
-            !newtype.ty().rules().is_empty()
-                || item_contains_source_rules(schema, newtype.item(), visited)
-        }
+        SchemaNode::Newtype(newtype) => push_item_reference(newtype.item(), pending),
         SchemaNode::Record(record) => {
-            !record.ty().rules().is_empty()
-                || record
-                    .fields()
-                    .fields()
-                    .iter()
-                    .any(|field| item_contains_source_rules(schema, field.value().item(), visited))
+            for field in record.fields().fields() {
+                push_item_reference(field.value().item(), pending);
+            }
         }
         SchemaNode::Enum(r#enum) => {
-            !r#enum.ty().rules().is_empty()
-                || r#enum.variants().iter().any(|variant| {
-                    variant.value().is_some_and(|value| {
-                        item_contains_source_rules(schema, value.item(), visited)
-                    })
-                })
+            for value in r#enum
+                .variants()
+                .iter()
+                .filter_map(crate::node::EnumVariant::value)
+            {
+                push_item_reference(value.item(), pending);
+            }
         }
-        SchemaNode::List(list) => {
-            !list.ty().rules().is_empty()
-                || item_contains_source_rules(schema, list.item(), visited)
-        }
+        SchemaNode::List(list) => push_item_reference(list.item(), pending),
         SchemaNode::Map(map) => {
-            !map.ty().rules().is_empty()
-                || item_contains_source_rules(schema, map.key(), visited)
-                || item_contains_source_rules(schema, map.value().item(), visited)
+            push_item_reference(map.key(), pending);
+            push_item_reference(map.value().item(), pending);
         }
-        SchemaNode::Set(set) => {
-            !set.ty().rules().is_empty() || item_contains_source_rules(schema, set.item(), visited)
-        }
+        SchemaNode::Set(set) => push_item_reference(set.item(), pending),
         SchemaNode::Tuple(tuple) => {
-            !tuple.ty().rules().is_empty()
-                || tuple
-                    .values()
-                    .iter()
-                    .any(|value| item_contains_source_rules(schema, value.item(), visited))
+            for value in tuple.values() {
+                push_item_reference(value.item(), pending);
+            }
         }
         SchemaNode::Canister(_)
         | SchemaNode::Entity(_)
         | SchemaNode::Normalizer(_)
         | SchemaNode::Store(_)
-        | SchemaNode::Validator(_) => false,
+        | SchemaNode::Validator(_) => {}
     }
 }
 
-fn item_contains_source_rules(
-    schema: &Schema,
-    item: &Item,
-    visited: &mut BTreeSet<String>,
-) -> bool {
-    let ItemTarget::Is(path) = item.target() else {
-        return false;
-    };
-    schema
-        .get_node(path)
-        .is_some_and(|node| schema_node_contains_source_rules(schema, path, node, visited))
+fn push_item_reference(item: &Item, pending: &mut Vec<String>) {
+    if let ItemTarget::Is(path) = item.target() {
+        pending.push((*path).to_string());
+    }
 }
 
-fn lower_source_rule(
-    field: &FieldSourceKey,
-    primitive: Primitive,
-    item: &Item,
+fn lower_source_rule_operation(
+    schema: &Schema,
+    target: &SchemaNode,
     rule: &SourceRule,
-) -> Result<SourceCheckExpr, FragmentLoweringError> {
+) -> Result<SourceRuleOperation, FragmentLoweringError> {
     let args = rule.args().0;
-    let literal = |index: usize| {
-        args.get(index)
-            .and_then(|arg| lower_scalar_default(primitive, item, arg))
-            .ok_or_else(|| {
-                FragmentLoweringError::InvalidReference(format!(
-                    "rule '{}' has an invalid operand",
-                    rule.source_key()
-                ))
-            })
-    };
     let length_bound = |index: usize| {
         args.get(index)
             .and_then(|arg| match arg {
                 Arg::Number(value) => arg_u128(value),
                 _ => None,
             })
-            .map(ScalarLiteral::Nat)
+            .and_then(|value| u64::try_from(value).ok())
             .ok_or_else(|| {
                 FragmentLoweringError::InvalidReference(format!(
                     "rule '{}' has an invalid length bound",
@@ -529,34 +502,107 @@ fn lower_source_rule(
             })
     };
 
-    let instructions = match rule.kind() {
-        SourceRuleKind::NumericMinimum => vec![
-            SourceCheckInstruction::Field(field.clone()),
-            SourceCheckInstruction::Literal(literal(0)?),
-            SourceCheckInstruction::GreaterThanOrEqual,
-        ],
-        SourceRuleKind::NumericRange => vec![
-            SourceCheckInstruction::Field(field.clone()),
-            SourceCheckInstruction::Literal(literal(0)?),
-            SourceCheckInstruction::GreaterThanOrEqual,
-            SourceCheckInstruction::Field(field.clone()),
-            SourceCheckInstruction::Literal(literal(1)?),
-            SourceCheckInstruction::LessThanOrEqual,
-            SourceCheckInstruction::And,
-        ],
-        SourceRuleKind::LengthRange => vec![
-            SourceCheckInstruction::Field(field.clone()),
-            SourceCheckInstruction::Length,
-            SourceCheckInstruction::Literal(length_bound(0)?),
-            SourceCheckInstruction::GreaterThanOrEqual,
-            SourceCheckInstruction::Field(field.clone()),
-            SourceCheckInstruction::Length,
-            SourceCheckInstruction::Literal(length_bound(1)?),
-            SourceCheckInstruction::LessThanOrEqual,
-            SourceCheckInstruction::And,
-        ],
+    let operation = match rule.kind() {
+        SourceRuleKind::NumericMinimum => {
+            let RuleValueShape::Scalar(primitive, item) = resolve_rule_value_shape(schema, target)?
+            else {
+                return Err(invalid_rule_target(rule));
+            };
+            let value = args
+                .first()
+                .and_then(|arg| lower_scalar_default(primitive, item, arg))
+                .ok_or_else(|| invalid_rule_target(rule))?;
+            SourceRuleOperation::NumericMinimumInclusive { value }
+        }
+        SourceRuleKind::NumericRange => {
+            let RuleValueShape::Scalar(primitive, item) = resolve_rule_value_shape(schema, target)?
+            else {
+                return Err(invalid_rule_target(rule));
+            };
+            let literal = |index: usize| {
+                args.get(index)
+                    .and_then(|arg| lower_scalar_default(primitive, item, arg))
+                    .ok_or_else(|| invalid_rule_target(rule))
+            };
+            SourceRuleOperation::NumericRangeInclusive {
+                min: literal(0)?,
+                max: literal(1)?,
+            }
+        }
+        SourceRuleKind::LengthRange => {
+            let shape = resolve_rule_value_shape(schema, target)?;
+            if !matches!(
+                shape,
+                RuleValueShape::Collection
+                    | RuleValueShape::Scalar(Primitive::Blob | Primitive::Text, _)
+            ) {
+                return Err(invalid_rule_target(rule));
+            }
+            SourceRuleOperation::LengthRangeInclusive {
+                min: length_bound(0)?,
+                max: length_bound(1)?,
+            }
+        }
     };
-    SourceCheckExpr::try_new(instructions).map_err(Into::into)
+    Ok(operation)
+}
+
+#[derive(Clone, Copy)]
+enum RuleValueShape<'schema> {
+    Collection,
+    Scalar(Primitive, &'schema Item),
+}
+
+fn resolve_rule_value_shape<'schema>(
+    schema: &'schema Schema,
+    mut target: &'schema SchemaNode,
+) -> Result<RuleValueShape<'schema>, FragmentLoweringError> {
+    let mut visited = BTreeSet::new();
+    loop {
+        let source = named_type_source_key(target)
+            .ok_or_else(|| FragmentLoweringError::InvalidReference("non-type rule".to_string()))?;
+        if !visited.insert(source) {
+            return Err(FragmentLoweringError::InvalidReference(format!(
+                "durable-rule target cycle at '{source}'"
+            )));
+        }
+        match target {
+            SchemaNode::List(_) | SchemaNode::Map(_) | SchemaNode::Set(_) => {
+                return Ok(RuleValueShape::Collection);
+            }
+            SchemaNode::Newtype(newtype) => match newtype.item().target() {
+                ItemTarget::Primitive(primitive) => {
+                    return Ok(RuleValueShape::Scalar(*primitive, newtype.item()));
+                }
+                ItemTarget::Is(path) => {
+                    target = schema
+                        .get_node(path)
+                        .ok_or_else(|| FragmentLoweringError::InvalidReference(path.to_string()))?;
+                }
+            },
+            SchemaNode::Record(_) | SchemaNode::Enum(_) | SchemaNode::Tuple(_) => {
+                return Err(FragmentLoweringError::InvalidReference(format!(
+                    "durable-rule target '{source}' has no supported scalar or collection value"
+                )));
+            }
+            SchemaNode::Canister(_)
+            | SchemaNode::Entity(_)
+            | SchemaNode::Normalizer(_)
+            | SchemaNode::Store(_)
+            | SchemaNode::Validator(_) => {
+                return Err(FragmentLoweringError::InvalidReference(
+                    "non-type durable-rule target".to_string(),
+                ));
+            }
+        }
+    }
+}
+
+fn invalid_rule_target(rule: &SourceRule) -> FragmentLoweringError {
+    FragmentLoweringError::InvalidReference(format!(
+        "durable rule '{}' does not match its nominal target",
+        rule.source_key()
+    ))
 }
 
 fn entity_field_source_key(
@@ -1078,11 +1124,11 @@ fn parse_subaccount(value: &str) -> Option<[u8; 32]> {
 #[cfg(test)]
 mod tests {
     use icydb_schema::{
-        ConstraintSourceKey, FieldSourceKey, FieldType, NamedTypeFragment, RuleSourceKey,
-        ScalarType, SourceCheckInstruction,
+        ConstraintFragmentKind, ConstraintSourceKey, FieldSourceKey, FieldType, NamedTypeFragment,
+        RuleSourceKey, ScalarType, SourceRuleOperation, TypeSourceKey,
     };
 
-    use super::{FragmentLoweringError, Schema, source_rules_for_item};
+    use super::{Schema, lower_field_rules};
     use crate::{
         node::{
             Arg, ArgNumber, Args, Canister, Def, Entity, Enum, EnumVariant, Field, FieldList, Item,
@@ -1155,7 +1201,7 @@ mod tests {
     ];
 
     #[test]
-    fn durable_rules_nested_below_structural_fields_fail_closed() {
+    fn durable_rules_nested_below_structural_fields_lower_to_nominal_targets() {
         let mut schema = Schema::new();
         schema.insert_node(SchemaNode::Newtype(Newtype::new(
             Def::new("test", "Degrees"),
@@ -1180,21 +1226,38 @@ mod tests {
             EMPTY_TYPE.clone(),
         )));
 
-        let outer = Item::new(
-            ItemTarget::Is("test::Nested"),
+        let outer = Field::new(
+            "field/root/nested",
+            "nested",
+            Value::new(
+                Cardinality::One,
+                Item::new(
+                    ItemTarget::Is("test::Nested"),
+                    None,
+                    None,
+                    None,
+                    None,
+                    &[],
+                    &[],
+                    false,
+                ),
+            ),
             None,
             None,
             None,
-            None,
-            &[],
-            &[],
-            false,
         );
-        let error = source_rules_for_item(&schema, &outer)
-            .expect_err("nested durable rule must not disappear during fragment lowering");
-        assert!(
-            matches!(error, FragmentLoweringError::InvalidReference(message) if message.contains("nested below structural field type"))
-        );
+        let constraints =
+            lower_field_rules(&schema, &outer).expect("nested durable rule should lower");
+        assert_eq!(constraints.len(), 1);
+        let ConstraintFragmentKind::TargetedRule(rule) = constraints[0].kind() else {
+            panic!("nested durable rule should use the targeted-rule contract")
+        };
+        assert_eq!(rule.root().as_str(), "field/root/nested");
+        assert_eq!(rule.target_type().as_str(), "type/degrees");
+        assert!(matches!(
+            rule.operation(),
+            SourceRuleOperation::NumericRangeInclusive { .. }
+        ));
     }
 
     static ENTITY_FIELDS: [Field; 5] = [
@@ -1419,38 +1482,35 @@ mod tests {
 
         let constraints = fragment.entities()[0].constraints();
         assert_eq!(constraints.len(), 2);
-        let degrees_source = ConstraintSourceKey::for_field_rule(
+        let degrees_source = ConstraintSourceKey::for_targeted_field_rule(
             &FieldSourceKey::try_new("field/task/degrees").expect("field source"),
+            &TypeSourceKey::try_new("type/degrees").expect("type source"),
             &RuleSourceKey::try_new("rule/degrees/range").expect("rule source"),
         );
         let degrees = constraints
             .iter()
             .find(|constraint| constraint.source_key() == &degrees_source)
             .expect("numeric rule should become one field-owned constraint");
+        let ConstraintFragmentKind::TargetedRule(degrees) = degrees.kind() else {
+            panic!("numeric rule should use the targeted-rule contract")
+        };
+        assert_eq!(degrees.root().as_str(), "field/task/degrees");
+        assert_eq!(degrees.target_type().as_str(), "type/degrees");
         assert!(matches!(
-            degrees.expression().instructions(),
-            [
-                SourceCheckInstruction::Field(_),
-                SourceCheckInstruction::Literal(_),
-                SourceCheckInstruction::GreaterThanOrEqual,
-                SourceCheckInstruction::Field(_),
-                SourceCheckInstruction::Literal(_),
-                SourceCheckInstruction::LessThanOrEqual,
-                SourceCheckInstruction::And,
-            ]
+            degrees.operation(),
+            SourceRuleOperation::NumericRangeInclusive { .. }
         ));
         let label = constraints
             .iter()
             .find(|constraint| constraint.source_key() != &degrees_source)
             .expect("length rule should become one field-owned constraint");
-        assert_eq!(
-            label
-                .expression()
-                .instructions()
-                .iter()
-                .filter(|instruction| matches!(instruction, SourceCheckInstruction::Length))
-                .count(),
-            2,
-        );
+        let ConstraintFragmentKind::TargetedRule(label) = label.kind() else {
+            panic!("length rule should use the targeted-rule contract")
+        };
+        assert_eq!(label.target_type().as_str(), "type/label");
+        assert!(matches!(
+            label.operation(),
+            SourceRuleOperation::LengthRangeInclusive { min: 2, max: 40 }
+        ));
     }
 }

@@ -13,7 +13,7 @@ use crate::{
         commit::{
             AcceptedSchemaPublication, database_incarnation_id, ensure_recovered,
             publish_accepted_schema_candidates_with_application_record,
-            publish_generated_check_abort_with_application_record,
+            publish_generated_row_local_abort_with_application_record,
         },
         data::DataStore,
         index::{IndexState, IndexStore},
@@ -30,14 +30,15 @@ use crate::{
             ProposalStoreTarget, SchemaApplicationRecord, SchemaApplicationRecordOp,
             SchemaChangeActivation, SchemaChangeJob, SchemaChangeJobId, SchemaChangeOutcome,
             SchemaChangeProgress, SchemaChangeProgressStatus, SchemaChangeReceipt,
-            SchemaChangeValidationPhase, StagedUserIndexDomainError, UnpublishedCheckValidation,
-            accepted_constraint_field_paths, advance_accepted_check_constraint_activation,
-            derive_schema_change_job_id, lower_existing_schema_proposal,
-            lower_initial_schema_proposal, prove_empty_user_index_domain,
-            validate_unpublished_check_candidate_bounded, with_schema_application_store,
+            SchemaChangeValidationPhase, StagedUserIndexDomainError, UnpublishedRowLocalValidation,
+            advance_accepted_row_local_constraint_activation,
+            constraint_validation_finding_diagnostic, derive_schema_change_job_id,
+            lower_existing_schema_proposal, lower_initial_schema_proposal,
+            prove_empty_user_index_domain, validate_unpublished_row_local_candidate_bounded,
+            with_schema_application_store,
         },
     },
-    error::{ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError},
+    error::InternalError,
     traits::CanisterKind,
     types::EntityTag,
 };
@@ -128,7 +129,7 @@ struct StoreApplicationAuthority {
     handle: StoreHandle,
 }
 
-/// Catalog authority resolved for one pending generated-check abort.
+/// Catalog authority resolved for one pending generated row-local abort.
 struct PendingApplicationAbort {
     authority: StoreApplicationAuthority,
     current: AcceptedSchemaRevisionBundle,
@@ -150,9 +151,9 @@ struct AcceptedStoreHead {
     fingerprint: [u8; 32],
 }
 
-/// One new generated-check activation awaiting direct bounded proof.
+/// One new generated row-local activation awaiting direct bounded proof.
 #[derive(Clone)]
-struct DirectGeneratedCheckProof {
+struct DirectGeneratedRowLocalProof {
     candidate_index: usize,
     store: StoreHandle,
     store_path: &'static str,
@@ -162,17 +163,17 @@ struct DirectGeneratedCheckProof {
     historical_rows: u64,
 }
 
-/// One generated check whose direct proof requires durable continuation.
+/// One generated row-local constraint whose proof requires durable continuation.
 #[derive(Clone)]
-struct PendingGeneratedCheck {
-    proof: DirectGeneratedCheckProof,
+struct PendingGeneratedRowLocalConstraint {
+    proof: DirectGeneratedRowLocalProof,
 }
 
 /// Catalog-native application staging retained until marker publication.
 struct LoweredApplication {
     current_bundles: Vec<Option<AcceptedSchemaRevisionBundle>>,
     candidates: Vec<CandidateSchemaRevision>,
-    pending: Option<PendingGeneratedCheck>,
+    pending: Option<PendingGeneratedRowLocalConstraint>,
 }
 
 /// Issue the current proposal-application target from recovered authority.
@@ -319,6 +320,7 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
                 && matches!(
                     constraint.kind(),
                     crate::db::schema::AcceptedConstraintKind::Check { .. }
+                        | crate::db::schema::AcceptedConstraintKind::TargetedRule { .. }
                 )
         })
     {
@@ -335,12 +337,15 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
         .activation(constraint_id)
         .ok_or_else(InternalError::store_corruption)?;
     if pending.origin() != ConstraintOrigin::Generated
-        || !matches!(pending.kind(), ConstraintActivationKind::Check { .. })
+        || !matches!(
+            pending.kind(),
+            ConstraintActivationKind::Check { .. } | ConstraintActivationKind::TargetedRule { .. }
+        )
     {
         return Err(InternalError::store_corruption());
     }
     let entity_path = snapshot.entity_path().to_string();
-    let progress = advance_accepted_check_constraint_activation(
+    let progress = advance_accepted_row_local_constraint_activation(
         authority.handle,
         authority.path,
         entity_tag,
@@ -348,7 +353,7 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
         constraint_id,
         acknowledged_receipt,
     )?;
-    let status = schema_change_progress_status(snapshot, constraint_id, pending.name(), progress)?;
+    let status = schema_change_progress_status(snapshot, constraint_id, progress)?;
     if status == SchemaChangeProgressStatus::Applied {
         finalize_schema_application(db, &record, candidate_head, status)
     } else {
@@ -356,7 +361,7 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
     }
 }
 
-/// Abort one pending generated-check application.
+/// Abort one pending generated row-local application.
 ///
 /// A retained finding page must be acknowledged by exact sequence before the
 /// activation and its validation job can be retired. Terminal outcomes replay
@@ -399,8 +404,11 @@ pub(in crate::db) fn abort_schema_application<C: CanisterKind>(
         authorities.as_slice(),
         acknowledged_receipt,
     )?;
-    let candidate =
-        aborted_generated_check_candidate(&abort.current, abort.entity_tag, abort.constraint_id)?;
+    let candidate = aborted_generated_row_local_candidate(
+        &abort.current,
+        abort.entity_tag,
+        abort.constraint_id,
+    )?;
     let accepted_head =
         accepted_head_after_candidates(authorities.as_slice(), std::slice::from_ref(&candidate))?;
     let receipt = SchemaChangeReceipt::new(
@@ -413,7 +421,7 @@ pub(in crate::db) fn abort_schema_application<C: CanisterKind>(
     let terminal = SchemaApplicationRecord::new(receipt.clone(), Vec::new())?;
     let operation = SchemaApplicationRecordOp::replace(&record, &terminal)?;
     if abort.remove_validation_job {
-        publish_generated_check_abort_with_application_record(
+        publish_generated_row_local_abort_with_application_record(
             abort.authority.path,
             abort.authority.handle,
             abort.current.revision(),
@@ -469,10 +477,14 @@ fn prepare_pending_application_abort(
         .and_then(|snapshot| snapshot.constraint_catalog().activation(constraint_id))
         .filter(|pending| {
             pending.origin() == ConstraintOrigin::Generated
-                && matches!(pending.kind(), ConstraintActivationKind::Check { .. })
+                && matches!(
+                    pending.kind(),
+                    ConstraintActivationKind::Check { .. }
+                        | ConstraintActivationKind::TargetedRule { .. }
+                )
         })
         .ok_or_else(InternalError::store_corruption)?;
-    let remove_validation_job = pending_generated_check_job_retirement(
+    let remove_validation_job = pending_generated_row_local_job_retirement(
         authority,
         entity_tag,
         constraint_id,
@@ -488,7 +500,7 @@ fn prepare_pending_application_abort(
     })
 }
 
-fn pending_generated_check_job_retirement(
+fn pending_generated_row_local_job_retirement(
     authority: StoreApplicationAuthority,
     entity_tag: EntityTag,
     constraint_id: ConstraintId,
@@ -515,7 +527,7 @@ fn pending_generated_check_job_retirement(
     }
 }
 
-fn aborted_generated_check_candidate(
+fn aborted_generated_row_local_candidate(
     current: &AcceptedSchemaRevisionBundle,
     entity_tag: EntityTag,
     constraint_id: ConstraintId,
@@ -530,7 +542,11 @@ fn aborted_generated_check_candidate(
         .activation(constraint_id)
         .filter(|activation| {
             activation.origin() == ConstraintOrigin::Generated
-                && matches!(activation.kind(), ConstraintActivationKind::Check { .. })
+                && matches!(
+                    activation.kind(),
+                    ConstraintActivationKind::Check { .. }
+                        | ConstraintActivationKind::TargetedRule { .. }
+                )
         })
         .ok_or_else(InternalError::store_corruption)?;
     let catalog = snapshot
@@ -585,7 +601,8 @@ pub(in crate::db) fn apply_schema<C: CanisterKind>(
         pending,
     } = lower_application_candidates(&target, proposal, authorities.as_slice())?;
     let accepted_head = if let Some(pending) = pending.as_ref() {
-        let final_candidates = final_candidates_for_pending_check(&candidates, pending)?;
+        let final_candidates =
+            final_candidates_for_pending_row_local_constraint(&candidates, pending)?;
         accepted_head_after_candidates(authorities.as_slice(), final_candidates.as_slice())?
     } else if candidates.is_empty() {
         target.accepted_head().clone()
@@ -714,7 +731,7 @@ fn preflight_initial_application(
     Ok(())
 }
 
-/// Complete generated-check additions only after a bounded exact proof.
+/// Complete generated row-local additions only after a bounded exact proof.
 ///
 /// Empty domains use maintained exact cardinality. At most one non-empty
 /// activation may consume the canonical 0.211 exact scan budget. A journaled
@@ -724,13 +741,13 @@ fn preflight_existing_application(
     authorities: &[StoreApplicationAuthority],
     current_bundles: &[Option<crate::db::schema::AcceptedSchemaRevisionBundle>],
     candidates: &mut [CandidateSchemaRevision],
-) -> Result<Option<PendingGeneratedCheck>, InternalError> {
+) -> Result<Option<PendingGeneratedRowLocalConstraint>, InternalError> {
     require_empty_record_member_renames(authorities, current_bundles, candidates)?;
     require_empty_physical_entity_removal(authorities, current_bundles, candidates)?;
     require_empty_physical_field_removals(authorities, current_bundles, candidates)?;
     require_empty_physical_index_removals(authorities, current_bundles, candidates)?;
     require_empty_physical_relation_removals(authorities, current_bundles, candidates)?;
-    let proofs = generated_check_proofs(authorities, current_bundles, candidates)?;
+    let proofs = generated_row_local_constraint_proofs(authorities, current_bundles, candidates)?;
     if proofs
         .iter()
         .filter(|proof| proof.historical_rows != 0)
@@ -758,7 +775,7 @@ fn preflight_existing_application(
         for proof in candidate_proofs {
             let mut promote = true;
             if proof.historical_rows != 0 {
-                match validate_unpublished_check_candidate_bounded(
+                match validate_unpublished_row_local_candidate_bounded(
                     proof.store,
                     proof.store_path,
                     proof.entity_tag,
@@ -766,15 +783,15 @@ fn preflight_existing_application(
                     &candidate,
                     proof.constraint_id,
                 )? {
-                    UnpublishedCheckValidation::Complete { .. } => {}
-                    UnpublishedCheckValidation::Incomplete => {
+                    UnpublishedRowLocalValidation::Complete { .. } => {}
+                    UnpublishedRowLocalValidation::Incomplete => {
                         if proof.store.storage_capabilities().recovery()
                             != StoreRecoveryCapability::StableBasePlusJournalReplay
                             || pending.is_some()
                         {
                             return Err(InternalError::store_unsupported());
                         }
-                        pending = Some(PendingGeneratedCheck {
+                        pending = Some(PendingGeneratedRowLocalConstraint {
                             proof: (*proof).clone(),
                         });
                         promote = false;
@@ -1137,11 +1154,11 @@ fn require_exact_empty_entity_count(count: Option<u64>) -> Result<(), InternalEr
     Ok(())
 }
 
-fn generated_check_proofs(
+fn generated_row_local_constraint_proofs(
     authorities: &[StoreApplicationAuthority],
     current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
     candidates: &[CandidateSchemaRevision],
-) -> Result<Vec<DirectGeneratedCheckProof>, InternalError> {
+) -> Result<Vec<DirectGeneratedRowLocalProof>, InternalError> {
     let mut proofs = Vec::new();
     for (candidate_index, candidate) in candidates.iter().enumerate() {
         let (position, authority) = authorities
@@ -1158,12 +1175,12 @@ fn generated_check_proofs(
                 .entity_snapshots()
                 .get(entity_tag)
                 .ok_or_else(InternalError::store_invariant)?;
-            for constraint_id in added_generated_check_activations(before, after) {
+            for constraint_id in added_generated_row_local_activations(before, after) {
                 let historical_rows = authority
                     .handle
                     .with_data(|store| store.exact_entity_count(*entity_tag))
                     .ok_or_else(InternalError::store_corruption)?;
-                proofs.push(DirectGeneratedCheckProof {
+                proofs.push(DirectGeneratedRowLocalProof {
                     candidate_index,
                     store: authority.handle,
                     store_path: authority.path,
@@ -1178,7 +1195,7 @@ fn generated_check_proofs(
     Ok(proofs)
 }
 
-fn added_generated_check_activations(
+fn added_generated_row_local_activations(
     before: &crate::db::schema::PersistedSchemaSnapshot,
     after: &crate::db::schema::PersistedSchemaSnapshot,
 ) -> Vec<ConstraintId> {
@@ -1187,7 +1204,11 @@ fn added_generated_check_activations(
         .iter()
         .filter(|candidate| {
             candidate.origin() == ConstraintOrigin::Generated
-                && matches!(candidate.kind(), ConstraintActivationKind::Check { .. })
+                && matches!(
+                    candidate.kind(),
+                    ConstraintActivationKind::Check { .. }
+                        | ConstraintActivationKind::TargetedRule { .. }
+                )
                 && !before
                     .constraints()
                     .iter()
@@ -1201,9 +1222,9 @@ fn added_generated_check_activations(
         .collect()
 }
 
-fn final_candidates_for_pending_check(
+fn final_candidates_for_pending_row_local_constraint(
     candidates: &[CandidateSchemaRevision],
-    pending: &PendingGeneratedCheck,
+    pending: &PendingGeneratedRowLocalConstraint,
 ) -> Result<Vec<CandidateSchemaRevision>, InternalError> {
     let mut final_candidates = candidates.to_vec();
     let candidate = final_candidates
@@ -1247,7 +1268,6 @@ fn final_candidates_for_pending_check(
 fn schema_change_progress_status(
     snapshot: &crate::db::schema::PersistedSchemaSnapshot,
     constraint_id: ConstraintId,
-    constraint_name: &str,
     progress: ConstraintValidationProgress,
 ) -> Result<SchemaChangeProgressStatus, InternalError> {
     match progress {
@@ -1264,6 +1284,10 @@ fn schema_change_progress_status(
             phase,
             rows_scanned,
         } => {
+            let activation = snapshot
+                .constraint_catalog()
+                .activation(constraint_id)
+                .ok_or_else(InternalError::store_corruption)?;
             let findings = receipt
                 .findings()
                 .iter()
@@ -1272,15 +1296,13 @@ fn schema_change_progress_status(
                         .primary_key()
                         .encoded_primary_key_bytes()
                         .ok_or_else(InternalError::store_invariant)?;
-                    Ok(ConstraintDiagnostic::migration_validation(
-                        constraint_id.get(),
-                        constraint_name.to_string(),
-                        ConstraintDiagnosticKind::Check,
-                        snapshot.entity_path().to_string(),
-                        primary_key.to_vec(),
-                        accepted_constraint_field_paths(snapshot, finding.field_ids())?,
-                        finding.error_code(),
-                    ))
+                    constraint_validation_finding_diagnostic(
+                        snapshot,
+                        activation,
+                        snapshot.entity_path(),
+                        primary_key,
+                        finding,
+                    )
                 })
                 .collect::<Result<Vec<_>, InternalError>>()?;
             Ok(SchemaChangeProgressStatus::Findings {
@@ -1540,7 +1562,7 @@ fn write_allocation_identity(
 mod tests {
     use super::{
         AcceptedSchemaPublication, AcceptedStoreHead, abort_schema_application,
-        aborted_generated_check_candidate, apply_schema, continue_schema_application,
+        aborted_generated_row_local_candidate, apply_schema, continue_schema_application,
         derive_accepted_head, derive_schema_change_job_id, ensure_recovered,
         lower_existing_schema_proposal, lower_initial_schema_proposal,
         publish_accepted_schema_candidates_with_application_record,
@@ -1659,7 +1681,7 @@ mod tests {
         .expect("check expression should admit");
         let constraints = include_check
             .then(|| {
-                ConstraintFragment::new(check_source.clone(), name("score_non_negative"), check)
+                ConstraintFragment::check(check_source.clone(), name("score_non_negative"), check)
             })
             .into_iter()
             .collect();
@@ -1828,7 +1850,7 @@ mod tests {
             .expect("generated check should remain an activation");
         assert_eq!(activation.origin(), ConstraintOrigin::Generated);
 
-        let aborted = aborted_generated_check_candidate(
+        let aborted = aborted_generated_row_local_candidate(
             pending_candidate.bundle(),
             entity_tag,
             constraint_id,

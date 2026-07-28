@@ -113,8 +113,9 @@ pub mod diagnostic {
 mod error;
 pub mod traits;
 pub use error::{
-    ConstraintDiagnostic, ConstraintDiagnosticContext, ConstraintDiagnosticKind, Error, ErrorKind,
-    ErrorOrigin, QueryErrorKind, RuntimeErrorKind,
+    ConstraintDiagnostic, ConstraintDiagnosticContext, ConstraintDiagnosticKind,
+    ConstraintValuePath, ConstraintValuePathComponent, Error, ErrorKind, ErrorOrigin,
+    QueryErrorKind, RuntimeErrorKind,
 };
 pub use icydb_diagnostic_code::ErrorCode;
 

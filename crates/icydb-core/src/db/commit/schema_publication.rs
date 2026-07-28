@@ -231,9 +231,9 @@ pub(in crate::db) fn publish_accepted_schema_candidate_with_constraint_validatio
     )
 }
 
-/// Publish one generated-check abort, validation-job removal, and terminal
+/// Publish one generated row-local abort, validation-job removal, and terminal
 /// application receipt through the same marker boundary.
-pub(in crate::db) fn publish_generated_check_abort_with_application_record(
+pub(in crate::db) fn publish_generated_row_local_abort_with_application_record(
     store_path: &'static str,
     store: StoreHandle,
     expected_revision: AcceptedSchemaRevision,

@@ -58,9 +58,9 @@ pub(super) fn generated_constraint_activations_only_changed(
             return false;
         }
         match activation.kind() {
-            ConstraintActivationKind::Check { .. } | ConstraintActivationKind::NotNull { .. } => {
-                true
-            }
+            ConstraintActivationKind::Check { .. }
+            | ConstraintActivationKind::NotNull { .. }
+            | ConstraintActivationKind::TargetedRule { .. } => true,
             ConstraintActivationKind::Unique { index_id } => {
                 let Some(candidate) = added_index_candidates.get(index_candidate_count) else {
                     return false;

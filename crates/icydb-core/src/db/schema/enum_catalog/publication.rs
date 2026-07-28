@@ -24,7 +24,7 @@ use crate::{
             PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedSchemaSnapshot,
             classify_accepted_field_kind, decode_accepted_source_bindings,
             decode_persisted_schema_snapshot, encode_accepted_source_bindings,
-            encode_persisted_schema_snapshot,
+            encode_persisted_schema_snapshot, validate_accepted_targeted_rules,
             wire::{SchemaWireReader, SchemaWireWriter},
         },
     },
@@ -312,6 +312,13 @@ impl AcceptedSchemaRevisionBundle {
                 &self.composite_catalog,
             )
             .map_err(|_| InternalError::store_invariant())?;
+            if !validate_accepted_targeted_rules(
+                snapshot,
+                &self.enum_catalog,
+                &self.composite_catalog,
+            ) {
+                return Err(InternalError::store_invariant());
+            }
         }
         Ok(())
     }
@@ -1083,14 +1090,33 @@ pub(in crate::db) fn accepted_schema_candidate_with_field_bindings_for_tests(
         BTreeMap::new(),
         BTreeMap::new(),
     );
-    let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
-        revision,
+    accepted_schema_candidate_with_catalogs_for_tests(
         store_path,
+        revision,
         AcceptedEnumCatalog {
             by_id: BTreeMap::new(),
             id_by_path: BTreeMap::new(),
         },
         AcceptedCompositeCatalog::empty(),
+        source_bindings,
+        entity_snapshots,
+    )
+}
+
+#[cfg(test)]
+pub(in crate::db) fn accepted_schema_candidate_with_catalogs_for_tests(
+    store_path: &str,
+    revision: AcceptedSchemaRevision,
+    enum_catalog: AcceptedEnumCatalog,
+    composite_catalog: AcceptedCompositeCatalog,
+    source_bindings: AcceptedSourceBindingCatalog,
+    entity_snapshots: BTreeMap<EntityTag, PersistedSchemaSnapshot>,
+) -> CandidateSchemaRevision {
+    let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
+        revision,
+        store_path,
+        enum_catalog,
+        composite_catalog,
         source_bindings,
         entity_snapshots,
     )

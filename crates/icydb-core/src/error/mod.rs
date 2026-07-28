@@ -1381,6 +1381,9 @@ pub enum ConstraintDiagnosticKind {
     /// One accepted or activating relation contract.
     Relation,
 
+    /// One accepted durable rule over a nominal value below a persisted root.
+    TargetedRule,
+
     /// One accepted or activating unique-index contract.
     Unique,
 }
@@ -1393,8 +1396,115 @@ impl ConstraintDiagnosticKind {
             Self::Check => "check",
             Self::NotNull => "not_null",
             Self::Relation => "relation",
+            Self::TargetedRule => "targeted_rule",
             Self::Unique => "unique",
         }
+    }
+}
+
+///
+/// ConstraintValuePathComponent
+///
+/// Stable accepted identity or finite-value coordinate in one targeted-rule
+/// violation. Display names are deliberately absent so renames cannot change
+/// the diagnostic identity.
+///
+
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub enum ConstraintValuePathComponent {
+    /// Persisted root field whose admitted value was traversed.
+    RootField { field_id: u32 },
+
+    /// Accepted record member selected by immutable composite/member identity.
+    RecordMember {
+        composite_type_id: u32,
+        member_id: u32,
+    },
+
+    /// Tuple element selected by accepted composite identity and ordinal.
+    TupleElement {
+        composite_type_id: u32,
+        ordinal: u32,
+    },
+
+    /// Transparent accepted newtype boundary.
+    Newtype { composite_type_id: u32 },
+
+    /// Selected accepted enum variant.
+    EnumVariant { enum_type_id: u32, variant_id: u32 },
+
+    /// List element in admitted order.
+    ListElement { index: u32 },
+
+    /// Set element in canonical admitted order.
+    SetElement { index: u32 },
+
+    /// Map key in canonical entry order.
+    MapEntryKey { index: u32 },
+
+    /// Map value in canonical entry order.
+    MapEntryValue { index: u32 },
+}
+
+impl fmt::Display for ConstraintValuePathComponent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::RootField { field_id } => write!(f, "field#{field_id}"),
+            Self::RecordMember {
+                composite_type_id,
+                member_id,
+            } => write!(f, "record#{composite_type_id}.member#{member_id}"),
+            Self::TupleElement {
+                composite_type_id,
+                ordinal,
+            } => write!(f, "tuple#{composite_type_id}[{ordinal}]"),
+            Self::Newtype { composite_type_id } => write!(f, "newtype#{composite_type_id}"),
+            Self::EnumVariant {
+                enum_type_id,
+                variant_id,
+            } => write!(f, "enum#{enum_type_id}.variant#{variant_id}"),
+            Self::ListElement { index } => write!(f, "list[{index}]"),
+            Self::SetElement { index } => write!(f, "set[{index}]"),
+            Self::MapEntryKey { index } => write!(f, "map[{index}].key"),
+            Self::MapEntryValue { index } => write!(f, "map[{index}].value"),
+        }
+    }
+}
+
+///
+/// ConstraintValuePath
+///
+/// Bounded typed path to the first deterministic failing value occurrence.
+///
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct ConstraintValuePath {
+    components: Vec<ConstraintValuePathComponent>,
+}
+
+impl ConstraintValuePath {
+    /// Build one already-bounded accepted occurrence path.
+    #[must_use]
+    pub(crate) const fn new(components: Vec<ConstraintValuePathComponent>) -> Self {
+        Self { components }
+    }
+
+    /// Borrow the stable accepted components.
+    #[must_use]
+    pub const fn components(&self) -> &[ConstraintValuePathComponent] {
+        self.components.as_slice()
+    }
+}
+
+impl fmt::Display for ConstraintValuePath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (ordinal, component) in self.components.iter().enumerate() {
+            if ordinal != 0 {
+                f.write_str("/")?;
+            }
+            component.fmt(f)?;
+        }
+        Ok(())
     }
 }
 
@@ -1445,6 +1555,7 @@ pub struct ConstraintDiagnostic {
     entity: String,
     primary_key: Option<Vec<u8>>,
     field_paths: Vec<String>,
+    value_path: Option<Box<ConstraintValuePath>>,
     context: ConstraintDiagnosticContext,
     error_code: u16,
 }
@@ -1467,6 +1578,30 @@ impl ConstraintDiagnostic {
             entity,
             primary_key,
             field_paths,
+            value_path: None,
+            context: ConstraintDiagnosticContext::WriteAdmission,
+            error_code: diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION.raw(),
+        }
+    }
+
+    /// Build one incoming-write targeted-rule violation.
+    #[must_use]
+    pub(crate) fn write_targeted_rule_violation(
+        constraint_id: u32,
+        constraint_name: String,
+        entity: String,
+        primary_key: Option<Vec<u8>>,
+        field_paths: Vec<String>,
+        value_path: ConstraintValuePath,
+    ) -> Self {
+        Self {
+            constraint_id,
+            constraint_name,
+            constraint_kind: ConstraintDiagnosticKind::TargetedRule,
+            entity,
+            primary_key,
+            field_paths,
+            value_path: Some(Box::new(value_path)),
             context: ConstraintDiagnosticContext::WriteAdmission,
             error_code: diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION.raw(),
         }
@@ -1489,6 +1624,7 @@ impl ConstraintDiagnostic {
             entity,
             primary_key,
             field_paths,
+            value_path: None,
             context: ConstraintDiagnosticContext::WriteAdmission,
             error_code:
                 diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_ACTIVATION_WRITE_BLOCKED
@@ -1514,6 +1650,31 @@ impl ConstraintDiagnostic {
             entity,
             primary_key: Some(primary_key),
             field_paths,
+            value_path: None,
+            context: ConstraintDiagnosticContext::MigrationValidation,
+            error_code,
+        }
+    }
+
+    /// Build one historical targeted-rule finding with durable path evidence.
+    #[must_use]
+    pub(crate) fn migration_targeted_rule_validation(
+        constraint_id: u32,
+        constraint_name: String,
+        entity: String,
+        primary_key: Vec<u8>,
+        field_paths: Vec<String>,
+        value_path: ConstraintValuePath,
+        error_code: u16,
+    ) -> Self {
+        Self {
+            constraint_id,
+            constraint_name,
+            constraint_kind: ConstraintDiagnosticKind::TargetedRule,
+            entity,
+            primary_key: Some(primary_key),
+            field_paths,
+            value_path: Some(Box::new(value_path)),
             context: ConstraintDiagnosticContext::MigrationValidation,
             error_code,
         }
@@ -1553,6 +1714,12 @@ impl ConstraintDiagnostic {
     #[must_use]
     pub const fn field_paths(&self) -> &[String] {
         self.field_paths.as_slice()
+    }
+
+    /// Borrow the typed concrete value path for a targeted-rule violation.
+    #[must_use]
+    pub fn value_path(&self) -> Option<&ConstraintValuePath> {
+        self.value_path.as_deref()
     }
 
     /// Return the boundary that observed the failure.

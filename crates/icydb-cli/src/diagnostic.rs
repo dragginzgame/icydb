@@ -76,8 +76,11 @@ pub(crate) fn render_error(err: &icydb::Error) -> String {
         return summary;
     };
 
+    let value_path = constraint
+        .value_path()
+        .map_or_else(String::new, |path| format!(" value_path={path}"));
     format!(
-        "{summary}; constraint id={} name={} kind={} entity={} primary_key={} fields={} context={} class={} code=E{}",
+        "{summary}; constraint id={} name={} kind={} entity={} primary_key={} fields={} context={} class={} code=E{}{}",
         constraint.constraint_id(),
         constraint.constraint_name(),
         constraint.constraint_kind().as_str(),
@@ -89,6 +92,7 @@ pub(crate) fn render_error(err: &icydb::Error) -> String {
         constraint.context().as_str(),
         class_text(constraint.error_class()),
         constraint.error_code().raw(),
+        value_path,
     )
 }
 

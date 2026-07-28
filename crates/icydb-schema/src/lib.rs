@@ -19,6 +19,7 @@ mod naming;
 mod nat_big;
 mod numeric_value;
 mod proposal;
+mod rule;
 #[macro_use]
 mod scalar_macros;
 mod scalar;
@@ -41,6 +42,7 @@ pub use naming::*;
 pub use nat_big::*;
 pub use numeric_value::*;
 pub use proposal::*;
+pub use rule::*;
 pub use scalar::*;
 pub use subaccount::*;
 pub use time_atoms::*;

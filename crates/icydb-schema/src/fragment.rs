@@ -9,7 +9,8 @@ use crate::{
     ConstraintSourceKey, Decimal, EntitySourceKey, FieldSourceKey, IndexSourceKey,
     MAX_FRAGMENT_CONSTRAINTS, MAX_FRAGMENT_ENTITIES, MAX_FRAGMENT_FIELDS, MAX_FRAGMENT_INDEXES,
     MAX_FRAGMENT_RELATIONS, MAX_FRAGMENT_TYPES, MAX_SCHEMA_FIELD_TYPE_DEPTH, RelationSourceKey,
-    ScalarKind, ScalarLiteral, SchemaContractError, SchemaName, SourceCheckExpr, TypeSourceKey,
+    ScalarKind, ScalarLiteral, SchemaContractError, SchemaName, SourceCheckExpr,
+    SourceRuleOperation, TypeSourceKey,
 };
 
 /// Logical type reference in a proposal fragment.
@@ -532,18 +533,82 @@ impl RelationFragment {
     }
 }
 
-/// One accepted-check declaration in source-key form.
+/// One source constraint kind.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ConstraintFragmentKind {
+    /// General row check over top-level source fields.
+    Check(SourceCheckExpr),
+    /// Closed durable operation over one nominal target below a persisted root.
+    TargetedRule(TargetedRuleFragment),
+}
+
+impl ConstraintFragmentKind {
+    fn validate(&self) -> Result<(), SchemaContractError> {
+        match self {
+            Self::Check(expression) => expression.validate(),
+            Self::TargetedRule(rule) => rule.validate(),
+        }
+    }
+}
+
+/// One source-bound nominal durable-rule target.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TargetedRuleFragment {
+    root: FieldSourceKey,
+    target_type: TypeSourceKey,
+    operation: SourceRuleOperation,
+}
+
+impl TargetedRuleFragment {
+    /// Construct one targeted rule below a persisted root field.
+    #[must_use]
+    pub const fn new(
+        root: FieldSourceKey,
+        target_type: TypeSourceKey,
+        operation: SourceRuleOperation,
+    ) -> Self {
+        Self {
+            root,
+            target_type,
+            operation,
+        }
+    }
+
+    /// Borrow the persisted root-field identity.
+    #[must_use]
+    pub const fn root(&self) -> &FieldSourceKey {
+        &self.root
+    }
+
+    /// Borrow the ruled nominal type identity.
+    #[must_use]
+    pub const fn target_type(&self) -> &TypeSourceKey {
+        &self.target_type
+    }
+
+    /// Borrow the closed durable operation.
+    #[must_use]
+    pub const fn operation(&self) -> &SourceRuleOperation {
+        &self.operation
+    }
+
+    fn validate(&self) -> Result<(), SchemaContractError> {
+        self.operation.validate()
+    }
+}
+
+/// One source constraint declaration.
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ConstraintFragment {
     source_key: ConstraintSourceKey,
     name: SchemaName,
-    expression: SourceCheckExpr,
+    kind: ConstraintFragmentKind,
 }
 
 impl ConstraintFragment {
-    /// Construct one source constraint.
+    /// Construct one general source check.
     #[must_use]
-    pub const fn new(
+    pub const fn check(
         source_key: ConstraintSourceKey,
         name: SchemaName,
         expression: SourceCheckExpr,
@@ -551,7 +616,21 @@ impl ConstraintFragment {
         Self {
             source_key,
             name,
-            expression,
+            kind: ConstraintFragmentKind::Check(expression),
+        }
+    }
+
+    /// Construct one source-bound targeted durable rule.
+    #[must_use]
+    pub const fn targeted_rule(
+        source_key: ConstraintSourceKey,
+        name: SchemaName,
+        rule: TargetedRuleFragment,
+    ) -> Self {
+        Self {
+            source_key,
+            name,
+            kind: ConstraintFragmentKind::TargetedRule(rule),
         }
     }
 
@@ -567,10 +646,10 @@ impl ConstraintFragment {
         &self.name
     }
 
-    /// Borrow the source expression.
+    /// Borrow the exact source constraint kind.
     #[must_use]
-    pub const fn expression(&self) -> &SourceCheckExpr {
-        &self.expression
+    pub const fn kind(&self) -> &ConstraintFragmentKind {
+        &self.kind
     }
 }
 
@@ -637,7 +716,7 @@ impl EntityFragment {
             relation.validate()?;
         }
         for constraint in &constraints {
-            constraint.expression.validate()?;
+            constraint.kind.validate()?;
         }
         let field_keys = fields
             .iter()
@@ -676,12 +755,14 @@ impl EntityFragment {
             }
         }
         for constraint in &constraints {
-            if constraint
-                .expression()
-                .dependencies()
-                .iter()
-                .any(|field| !field_keys.contains(field))
-            {
+            let invalid = match constraint.kind() {
+                ConstraintFragmentKind::Check(expression) => expression
+                    .dependencies()
+                    .iter()
+                    .any(|field| !field_keys.contains(field)),
+                ConstraintFragmentKind::TargetedRule(rule) => !field_keys.contains(rule.root()),
+            };
+            if invalid {
                 return Err(SchemaContractError::InvalidLocalReference);
             }
         }
@@ -732,7 +813,7 @@ impl EntityFragment {
         &self.relations
     }
 
-    /// Borrow canonical accepted-check definitions.
+    /// Borrow canonical source constraint definitions.
     #[must_use]
     pub fn constraints(&self) -> &[ConstraintFragment] {
         &self.constraints

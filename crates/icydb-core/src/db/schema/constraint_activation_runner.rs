@@ -83,7 +83,7 @@ pub(in crate::db) enum ConstraintValidationProgress {
 
 /// Result of one unpublished bounded check proof.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum UnpublishedCheckValidation {
+pub(in crate::db) enum UnpublishedRowLocalValidation {
     /// The complete historical domain satisfied the candidate check.
     Complete { rows_scanned: usize },
     /// More historical rows remain after the one-page direct-proof budget.
@@ -111,7 +111,7 @@ pub(in crate::db) fn advance_check_constraint_activation<C: CanisterKind>(
 ///
 /// Schema application resolves the exact store and accepted entity path from
 /// its durable activation identity before entering the shared 0.211 runner.
-pub(in crate::db) fn advance_accepted_check_constraint_activation(
+pub(in crate::db) fn advance_accepted_row_local_constraint_activation(
     store: StoreHandle,
     store_path: &'static str,
     entity_tag: EntityTag,
@@ -154,9 +154,7 @@ pub(in crate::db) fn advance_accepted_check_constraint_activation(
         .constraint_catalog()
         .activation(constraint_id)
         .ok_or_else(InternalError::store_invariant)?;
-    if !RowLocalActivationKind::Check.matches(activation.kind()) {
-        return Err(InternalError::store_unsupported());
-    }
+    let required_kind = RowLocalActivationKind::from_activation(activation.kind())?;
 
     match activation.state() {
         ConstraintActivationState::EnforcingNewWrites => start_journaled_row_local_validation(
@@ -177,7 +175,7 @@ pub(in crate::db) fn advance_accepted_check_constraint_activation(
             &contract,
             &value_catalog,
             fingerprint,
-            RowLocalActivationKind::Check,
+            required_kind,
         ),
     }
 }
@@ -275,8 +273,8 @@ pub(in crate::db) fn validate_unpublished_check_candidate_exact(
         candidate,
         constraint_id,
     )? {
-        UnpublishedCheckValidation::Complete { rows_scanned } => Ok(rows_scanned),
-        UnpublishedCheckValidation::Incomplete => {
+        UnpublishedRowLocalValidation::Complete { rows_scanned } => Ok(rows_scanned),
+        UnpublishedRowLocalValidation::Incomplete => {
             Err(InternalError::schema_transition_budget_exceeded(
                 SchemaTransitionBudgetResource::SourceRows,
             ))
@@ -286,14 +284,65 @@ pub(in crate::db) fn validate_unpublished_check_candidate_exact(
 
 /// Attempt one unpublished check proof without converting bounded
 /// incompleteness into an architectural failure.
-pub(in crate::db) fn validate_unpublished_check_candidate_bounded(
+#[cfg(feature = "sql")]
+fn validate_unpublished_check_candidate_bounded(
     store: StoreHandle,
     store_path: &'static str,
     entity_tag: EntityTag,
     entity_path: &str,
     candidate: &CandidateSchemaRevision,
     constraint_id: ConstraintId,
-) -> Result<UnpublishedCheckValidation, InternalError> {
+) -> Result<UnpublishedRowLocalValidation, InternalError> {
+    validate_unpublished_row_local_candidate_bounded_for_kind(
+        store,
+        store_path,
+        entity_tag,
+        entity_path,
+        candidate,
+        constraint_id,
+        RowLocalActivationKind::Check,
+    )
+}
+
+/// Attempt one unpublished generated row-local proof using its accepted kind.
+pub(in crate::db) fn validate_unpublished_row_local_candidate_bounded(
+    store: StoreHandle,
+    store_path: &'static str,
+    entity_tag: EntityTag,
+    entity_path: &str,
+    candidate: &CandidateSchemaRevision,
+    constraint_id: ConstraintId,
+) -> Result<UnpublishedRowLocalValidation, InternalError> {
+    let snapshot = candidate
+        .bundle()
+        .entity_snapshots()
+        .get(&entity_tag)
+        .ok_or_else(InternalError::store_corruption)?;
+    let activation = snapshot
+        .constraint_catalog()
+        .activation(constraint_id)
+        .ok_or_else(InternalError::store_corruption)?;
+    let required_kind = RowLocalActivationKind::from_activation(activation.kind())?;
+    validate_unpublished_row_local_candidate_bounded_for_kind(
+        store,
+        store_path,
+        entity_tag,
+        entity_path,
+        candidate,
+        constraint_id,
+        required_kind,
+    )
+}
+
+fn validate_unpublished_row_local_candidate_bounded_for_kind(
+    store: StoreHandle,
+    store_path: &'static str,
+    entity_tag: EntityTag,
+    entity_path: &str,
+    candidate: &CandidateSchemaRevision,
+    constraint_id: ConstraintId,
+    required_kind: RowLocalActivationKind,
+) -> Result<UnpublishedRowLocalValidation, InternalError> {
     if candidate.store_path() != store_path {
         return Err(InternalError::store_corruption());
     }
@@ -315,13 +364,13 @@ pub(in crate::db) fn validate_unpublished_check_candidate_bounded(
         candidate.root().fingerprint(),
     );
     let fingerprint = accepted_schema_cache_fingerprint(&accepted)?;
-    let constraints = CompiledAcceptedRowConstraints::compile_check_activation(
+    let constraints = compile_row_local_activation(
         &accepted,
         &value_catalog,
         fingerprint,
         constraint_id,
-    )
-    .map_err(map_row_constraint_program_error)?;
+        required_kind,
+    )?;
     let contract = AcceptedStructuralRowAuthority::from_candidate_snapshot(
         entity_path,
         accepted.clone(),
@@ -353,24 +402,19 @@ pub(in crate::db) fn validate_unpublished_check_candidate_bounded(
             .encoded_primary_key_bytes()
             .ok_or_else(InternalError::store_invariant)?;
         return Err(InternalError::mutation_constraint_violation(
-            ConstraintDiagnostic::migration_validation(
-                constraint_id.get(),
-                activation.name().to_string(),
-                ConstraintDiagnosticKind::Check,
-                entity_path.to_string(),
-                primary_key.to_vec(),
-                accepted_constraint_field_paths(
-                    accepted.persisted_snapshot(),
-                    finding.field_ids(),
-                )?,
-                finding.error_code(),
-            ),
+            constraint_validation_finding_diagnostic(
+                accepted.persisted_snapshot(),
+                activation,
+                entity_path,
+                primary_key,
+                finding,
+            )?,
         ));
     }
     if !scan.exhausted {
-        return Ok(UnpublishedCheckValidation::Incomplete);
+        return Ok(UnpublishedRowLocalValidation::Incomplete);
     }
-    Ok(UnpublishedCheckValidation::Complete {
+    Ok(UnpublishedRowLocalValidation::Complete {
         rows_scanned: scan.rows_scanned,
     })
 }
@@ -383,6 +427,24 @@ enum RowLocalActivationKind {
     /// Evaluate one accepted field's not-null contract.
     #[cfg(any(test, feature = "query"))]
     NotNull,
+    /// Evaluate one source-bound targeted durable rule.
+    TargetedRule,
+}
+
+impl RowLocalActivationKind {
+    fn from_activation(kind: &ConstraintActivationKind) -> Result<Self, InternalError> {
+        match kind {
+            ConstraintActivationKind::Check { .. } => Ok(Self::Check),
+            #[cfg(any(test, feature = "query"))]
+            ConstraintActivationKind::NotNull { .. } => Ok(Self::NotNull),
+            ConstraintActivationKind::TargetedRule { .. } => Ok(Self::TargetedRule),
+            #[cfg(not(any(test, feature = "query")))]
+            ConstraintActivationKind::NotNull { .. } => Err(InternalError::store_unsupported()),
+            ConstraintActivationKind::Unique { .. } | ConstraintActivationKind::Relation { .. } => {
+                Err(InternalError::store_unsupported())
+            }
+        }
+    }
 }
 
 #[cfg(any(test, feature = "query"))]
@@ -458,12 +520,14 @@ fn advance_row_local_constraint_activation<C: CanisterKind>(
     }
 }
 
+#[cfg(any(test, feature = "query"))]
 impl RowLocalActivationKind {
     const fn matches(self, kind: &ConstraintActivationKind) -> bool {
         match (self, kind) {
             (Self::Check, ConstraintActivationKind::Check { .. }) => true,
             #[cfg(any(test, feature = "query"))]
             (Self::NotNull, ConstraintActivationKind::NotNull { .. }) => true,
+            (Self::TargetedRule, ConstraintActivationKind::TargetedRule { .. }) => true,
             _ => false,
         }
     }
@@ -929,6 +993,14 @@ fn compile_row_local_activation(
                 constraint_id,
             )
         }
+        RowLocalActivationKind::TargetedRule => {
+            CompiledAcceptedRowConstraints::compile_targeted_rule_activation(
+                accepted,
+                value_catalog,
+                fingerprint,
+                constraint_id,
+            )
+        }
     }
     .map_err(map_row_constraint_program_error)
 }
@@ -948,6 +1020,20 @@ fn candidate_with_promoted_row_local_activation(
         .ok_or_else(InternalError::store_corruption)?;
     let after = match activation.kind() {
         ConstraintActivationKind::Check { .. } => {
+            let catalog = match activation.state() {
+                ConstraintActivationState::EnforcingNewWrites => before
+                    .constraint_catalog()
+                    .clone()
+                    .with_directly_validated_activation(constraint_id),
+                ConstraintActivationState::Validating => before
+                    .constraint_catalog()
+                    .clone()
+                    .with_promoted_activation(constraint_id),
+            }
+            .map_err(|_| InternalError::store_invariant())?;
+            before.clone().with_constraint_catalog(catalog)
+        }
+        ConstraintActivationKind::TargetedRule { .. } => {
             let catalog = match activation.state() {
                 ConstraintActivationState::EnforcingNewWrites => before
                     .constraint_catalog()
@@ -1088,6 +1174,20 @@ fn scan_row_local_validation_page(
                             .raw(),
                     ));
                 }
+                Err(AcceptedRowConstraintEvaluationError::TargetedRuleViolation {
+                    constraint_id: violated,
+                    constraint_name: _,
+                    field_path: _,
+                    path,
+                }) if violated == constraint_id => {
+                    findings.push(ConstraintValidationFinding::new_targeted(
+                        raw_key.clone(),
+                        dependency_fields.clone(),
+                        path,
+                        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION
+                            .raw(),
+                    ));
+                }
                 Err(error) => return Err(map_row_constraint_program_error(error)),
             }
             decoded_bytes = decoded_bytes.saturating_add(row_bytes);
@@ -1105,6 +1205,64 @@ fn scan_row_local_validation_page(
     })
 }
 
+pub(in crate::db) fn constraint_validation_finding_diagnostic(
+    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+    activation: &crate::db::schema::ConstraintActivationSnapshot,
+    entity_path: &str,
+    primary_key: &[u8],
+    finding: &ConstraintValidationFinding,
+) -> Result<ConstraintDiagnostic, InternalError> {
+    let field_paths = accepted_constraint_field_paths(snapshot, finding.field_ids())?;
+    match activation.kind() {
+        ConstraintActivationKind::TargetedRule { .. } => {
+            let value_path = finding
+                .value_path()
+                .ok_or_else(InternalError::store_corruption)?
+                .to_constraint_value_path();
+            Ok(ConstraintDiagnostic::migration_targeted_rule_validation(
+                activation.id().get(),
+                activation.name().to_string(),
+                entity_path.to_string(),
+                primary_key.to_vec(),
+                field_paths,
+                value_path,
+                finding.error_code(),
+            ))
+        }
+        ConstraintActivationKind::Check { .. } => {
+            if finding.value_path().is_some() {
+                return Err(InternalError::store_corruption());
+            }
+            Ok(ConstraintDiagnostic::migration_validation(
+                activation.id().get(),
+                activation.name().to_string(),
+                ConstraintDiagnosticKind::Check,
+                entity_path.to_string(),
+                primary_key.to_vec(),
+                field_paths,
+                finding.error_code(),
+            ))
+        }
+        ConstraintActivationKind::NotNull { .. } => {
+            if finding.value_path().is_some() {
+                return Err(InternalError::store_corruption());
+            }
+            Ok(ConstraintDiagnostic::migration_validation(
+                activation.id().get(),
+                activation.name().to_string(),
+                ConstraintDiagnosticKind::NotNull,
+                entity_path.to_string(),
+                primary_key.to_vec(),
+                field_paths,
+                finding.error_code(),
+            ))
+        }
+        ConstraintActivationKind::Unique { .. } | ConstraintActivationKind::Relation { .. } => {
+            Err(InternalError::store_corruption())
+        }
+    }
+}
+
 fn activation_dependency_fields(
     accepted: &AcceptedSchemaSnapshot,
     constraint_id: ConstraintId,
@@ -1117,6 +1275,7 @@ fn activation_dependency_fields(
     let mut fields = match activation.kind() {
         ConstraintActivationKind::Check { expression } => expression.dependencies(),
         ConstraintActivationKind::NotNull { field_id } => vec![*field_id],
+        ConstraintActivationKind::TargetedRule { target, .. } => vec![target.root_field_id()],
         ConstraintActivationKind::Unique { .. } | ConstraintActivationKind::Relation { .. } => {
             return Err(InternalError::store_corruption());
         }

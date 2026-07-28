@@ -87,13 +87,16 @@ pub(in crate::db) use application_store::{
 pub(in crate::db) use capabilities::{SqlCapabilities, sql_capabilities_with_enum_catalog};
 pub(in crate::db) use check::{
     AcceptedCheckCompareOpV1, AcceptedCheckExprV1, AcceptedCheckLiteralV1,
-    AcceptedCheckValueExprV1, AcceptedRowConstraintEvaluationError, CompiledAcceptedRowConstraints,
-    accepted_row_constraint_write_error, render_accepted_check_expr_sql,
+    AcceptedCheckValueExprV1, AcceptedRowConstraintEvaluationError, AcceptedTargetPath,
+    AcceptedTargetPathComponent, CompiledAcceptedRowConstraints,
+    MAX_ACCEPTED_TARGET_PATH_COMPONENTS, accepted_row_constraint_write_error,
+    render_accepted_check_expr_sql,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use check::{AcceptedCheckExprV1Error, bind_sql_check_expr};
 pub(in crate::db::schema) use check::{
-    bind_source_check_expr, source_literal_input, validate_accepted_check_literals,
+    bind_source_check_expr, bind_source_rule_literal, source_literal_input,
+    validate_accepted_check_literals,
 };
 #[cfg(test)]
 pub(in crate::db) use codec::encode_unchecked_persisted_schema_snapshot_for_tests;
@@ -101,6 +104,8 @@ pub(in crate::db) use codec::{
     MAX_SCHEMA_SNAPSHOT_BYTES, decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
 };
 pub(in crate::db) use composite_catalog::AcceptedCompositeCatalog;
+#[cfg(test)]
+pub(in crate::db) use composite_catalog::{CompositeFieldId, CompositeTypeId};
 #[cfg(feature = "sql")]
 pub(in crate::db) use constraint::AcceptedConstraintCatalogError;
 #[cfg(feature = "sql")]
@@ -109,15 +114,20 @@ pub(in crate::db) use constraint::validate_constraint_name;
 pub use constraint::validate_generated_constraint_name;
 pub(in crate::db) use constraint::{
     AcceptedConstraintCatalog, AcceptedConstraintIdentity, AcceptedConstraintKind,
-    AcceptedConstraintSnapshot, ConstraintActivationFingerprint, ConstraintActivationKind,
-    ConstraintActivationSnapshot, ConstraintActivationState, ConstraintOrigin,
+    AcceptedConstraintSnapshot, AcceptedRuleOperation, AcceptedRuleTarget,
+    ConstraintActivationFingerprint, ConstraintActivationKind, ConstraintActivationSnapshot,
+    ConstraintActivationState, ConstraintOrigin,
+};
+pub(in crate::db::schema) use constraint::{
+    accepted_rule_length_kind_is_supported, accepted_rule_numeric_kind_is_supported,
+    accepted_rule_target_is_reachable, validate_accepted_targeted_rules,
 };
 pub(in crate::db) use constraint_activation_runner::ConstraintValidationProgress;
 #[cfg(feature = "sql")]
 pub(in crate::db) use constraint_activation_runner::validate_unpublished_check_candidate_exact;
 pub(in crate::db) use constraint_activation_runner::{
-    UnpublishedCheckValidation, advance_accepted_check_constraint_activation,
-    validate_unpublished_check_candidate_bounded,
+    UnpublishedRowLocalValidation, advance_accepted_row_local_constraint_activation,
+    constraint_validation_finding_diagnostic, validate_unpublished_row_local_candidate_bounded,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use constraint_activation_runner::{
@@ -145,6 +155,7 @@ pub(in crate::db) use enum_catalog::{
 #[cfg(test)]
 pub(in crate::db) use enum_catalog::{
     TestEnumDefinition, TestEnumVariant, accepted_schema_candidate_for_tests,
+    accepted_schema_candidate_with_catalogs_for_tests,
     accepted_schema_candidate_with_field_bindings_for_tests, build_accepted_enum_catalog_for_tests,
     empty_accepted_enum_catalog_for_tests, empty_accepted_schema_candidate_for_tests,
 };
@@ -252,10 +263,14 @@ pub(in crate::db) use snapshot::{
     PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
     PersistedSchemaSnapshot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaInsertDefault,
 };
-pub(in crate::db::schema) use source_binding::{
-    AcceptedNamedTypeIdentity, decode_accepted_source_bindings, encode_accepted_source_bindings,
-};
+#[cfg(test)]
+pub(in crate::db) use source_binding::AcceptedNamedTypeIdentity;
+#[cfg(not(test))]
+pub(in crate::db::schema) use source_binding::AcceptedNamedTypeIdentity;
 pub(in crate::db) use source_binding::{AcceptedSourceBindingCatalog, AcceptedTypedAdapterNames};
+pub(in crate::db::schema) use source_binding::{
+    decode_accepted_source_bindings, encode_accepted_source_bindings,
+};
 #[cfg(feature = "sql")]
 pub(in crate::db) use sql_ddl::{
     SqlDdlFieldNullabilityOutcome, execute_admin_sql_ddl_check_addition,
@@ -276,6 +291,62 @@ pub(in crate::db) use store::{
     AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, SchemaStoreAllocationMetadata,
     SchemaStoreCatalogMetadata, load_accepted_schema_snapshot,
 };
+
+#[cfg(test)]
+pub(in crate::db) fn build_record_newtype_composite_catalog_for_tests(
+    record_path: String,
+    member_name: String,
+    newtype_path: String,
+    leaf_kind: AcceptedFieldKind,
+    enum_catalog: &AcceptedEnumCatalog,
+) -> Result<
+    (
+        AcceptedCompositeCatalog,
+        CompositeTypeId,
+        CompositeTypeId,
+        CompositeFieldId,
+    ),
+    crate::error::InternalError,
+> {
+    let record_type =
+        CompositeTypeId::new(1).expect("test record type identity should be non-zero");
+    let newtype_type = CompositeTypeId::new(2).expect("test newtype identity should be non-zero");
+    let member_id = CompositeFieldId::new(1).expect("test member identity should be non-zero");
+    let catalog = AcceptedCompositeCatalog::from_initial_definitions(
+        std::collections::BTreeMap::from([
+            (
+                record_type,
+                (
+                    record_path,
+                    composite_catalog::AcceptedCompositeShape::Record(vec![
+                        composite_catalog::AcceptedCompositeField::new(
+                            member_id,
+                            member_name,
+                            composite_catalog::AcceptedCompositeElement::new(
+                                AcceptedFieldKind::Composite {
+                                    type_id: newtype_type,
+                                },
+                                false,
+                            ),
+                        ),
+                    ]),
+                ),
+            ),
+            (
+                newtype_type,
+                (
+                    newtype_path,
+                    composite_catalog::AcceptedCompositeShape::Newtype(
+                        composite_catalog::AcceptedCompositeElement::new(leaf_kind, false),
+                    ),
+                ),
+            ),
+        ]),
+        enum_catalog,
+    )
+    .map_err(|_| crate::error::InternalError::store_invariant())?;
+    Ok((catalog, record_type, newtype_type, member_id))
+}
 
 #[cfg(test)]
 pub(in crate::db) fn validate_raw_schema_snapshot_format_for_tests(

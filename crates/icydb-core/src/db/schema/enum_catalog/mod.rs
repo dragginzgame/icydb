@@ -28,7 +28,8 @@ pub(in crate::db::schema) use admission::normalize_and_admit_nullable_value;
 pub(in crate::db) use admission::normalize_candidate_value;
 pub(in crate::db) use admission::validate_decoded_persisted_field_value_in_catalog;
 pub(in crate::db) use admission::{
-    AcceptedValueRef, AdmittedOwnedValue, CanonicalValue, ValueAdmissionBudget, ValueAdmissionError,
+    AcceptedValueRef, AdmittedOwnedValue, CanonicalValue, MAX_ACCEPTED_VALUE_BYTES,
+    ValueAdmissionBudget, ValueAdmissionError,
 };
 pub(in crate::db::schema) use admission::{
     admit_canonical_value, validate_nullable_canonical_value, with_normalized_accepted_value,
@@ -52,7 +53,8 @@ pub(in crate::db) use publication::{
 };
 #[cfg(test)]
 pub(in crate::db) use publication::{
-    accepted_schema_candidate_for_tests, accepted_schema_candidate_with_field_bindings_for_tests,
+    accepted_schema_candidate_for_tests, accepted_schema_candidate_with_catalogs_for_tests,
+    accepted_schema_candidate_with_field_bindings_for_tests,
     empty_accepted_schema_candidate_for_tests,
 };
 pub(in crate::db) use value_wire::{
@@ -534,6 +536,11 @@ impl AcceptedEnumType {
     #[must_use]
     pub(in crate::db::schema) fn variant_count(&self) -> usize {
         self.variants_by_id.len()
+    }
+
+    /// Iterate accepted variants in stable identity order.
+    pub(in crate::db::schema) fn variants(&self) -> impl Iterator<Item = &AcceptedEnumVariant> {
+        self.variants_by_id.values()
     }
 
     fn lookup_maps_are_bijective(&self) -> bool {

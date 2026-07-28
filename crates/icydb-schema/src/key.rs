@@ -100,16 +100,20 @@ source_key!(RelationSourceKey);
 source_key!(RuleSourceKey);
 
 impl ConstraintSourceKey {
-    /// Derive the immutable identity of one reusable rule instantiated on one
-    /// persisted field.
+    /// Derive one immutable targeted-rule identity under a persisted root.
     ///
     /// The domain-separated digest keeps the result within the frozen source
-    /// key bound even when both authored identities use their maximum length.
+    /// key bound even when every authored identity uses its maximum length.
     #[must_use]
-    pub fn for_field_rule(field: &FieldSourceKey, rule: &RuleSourceKey) -> Self {
+    pub fn for_targeted_field_rule(
+        field: &FieldSourceKey,
+        target_type: &TypeSourceKey,
+        rule: &RuleSourceKey,
+    ) -> Self {
         let mut hasher = Sha256::new();
-        hasher.update(b"icydb:constraint-source:field-rule:v1");
+        hasher.update(b"icydb:constraint-source:targeted-field-rule:v1");
         hash_bounded_part(&mut hasher, field.as_str());
+        hash_bounded_part(&mut hasher, target_type.as_str());
         hash_bounded_part(&mut hasher, rule.as_str());
         let digest = hasher.finalize();
         let mut value = String::with_capacity(5 + (digest.len() * 2));

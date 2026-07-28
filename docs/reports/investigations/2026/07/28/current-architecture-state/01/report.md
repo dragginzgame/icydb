@@ -1150,7 +1150,7 @@ required. No accepted, marker, cursor, row, or catalog format changed.
 
 #### E2. Future nested durable constraints
 
-Nested/member constraints need a separately versioned accepted path/access
+Nested/member constraints need a separately designed accepted target/access
 contract and bounded evaluator. Do not extend `SourceRule` or the row program
 incidentally until placement identity, diagnostics, activation, and integrity
 semantics are designed.
@@ -1158,6 +1158,20 @@ semantics are designed.
 - Persisted impact: likely yes.
 - Public impact: authoring and diagnostics.
 - Scope: large.
+
+Post-audit disposition: 0.213.39 N1 freezes that contract in
+[0.213.39-nested-durable-constraint-targets.md](../../../../../../../design/0.213-schema-authority-and-application-model-separation/0.213.39-nested-durable-constraint-targets.md).
+The design uses a persisted-root plus nominal accepted-type selector and a
+bounded finite-value traversal rather than an expanded path through a
+potentially cyclic schema graph. N2 now owns the source contract and N3 binds
+and persists the accepted field/type identities. N4 owns the shared iterative
+finite-value evaluator, accepted scalar semantics, typed concrete paths, and
+resource bounds. N5 integrates that artifact into the sole final-after-image
+mutation scheduler across dynamic, typed, SQL, defaulted, managed-timestamp,
+and batch writes. N6 now extends that same accepted artifact through
+historical activation and integrity, persists bounded typed finding paths, and
+reconstructs only from durable accepted/job authority during recovery. N7
+owns maintained-consumer closeout and final release evidence.
 
 ## 14. Corrections made during this audit
 

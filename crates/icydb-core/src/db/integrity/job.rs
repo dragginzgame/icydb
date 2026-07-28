@@ -7,11 +7,14 @@ use crate::db::{
     codec::hex::encode_hex_lower,
     integrity::{
         DatabaseIncarnationId, IntegrityAuthorityDiagnostic, IntegrityEntityIdentity,
-        IntegrityFinding, IntegrityPhase, IntegrityProofVector, IntegrityResourceDiagnostic,
-        IntegrityVerifierFamily, MAX_INTEGRITY_PATH_BYTES, PhysicalUnitCheckpoint,
+        IntegrityFinding, IntegrityFindingKind, IntegrityPhase, IntegrityProofVector,
+        IntegrityResourceDiagnostic, IntegrityVerifierFamily, MAX_INTEGRITY_PATH_BYTES,
+        PhysicalUnitCheckpoint,
     },
     journal::JournalInspectionCheckpoint,
+    schema::MAX_ACCEPTED_TARGET_PATH_COMPONENTS,
 };
+use crate::error::{ConstraintValuePath, ConstraintValuePathComponent};
 use candid::CandidType;
 use serde::Deserialize;
 
@@ -503,6 +506,14 @@ impl IntegrityJob {
             && page.findings_seen == self.findings_seen
             && page.findings.len() <= MAX_INTEGRITY_RECEIPT_FINDINGS
             && u64::try_from(page.findings.len()).is_ok_and(|count| count <= self.findings_seen)
+            && page.findings.iter().all(|finding| {
+                finding.value_path().is_none_or(|path| {
+                    finding.kind() == IntegrityFindingKind::ConstraintViolation
+                        && finding.constraint_id().is_some()
+                        && finding.constraint_name().is_some()
+                        && constraint_value_path_is_well_formed(path)
+                })
+            })
             && page.blocked_verifier_families == self.blocked_verifier_families
     }
 
@@ -577,6 +588,38 @@ impl IntegrityJob {
             IntegrityCheckpoint::QuickMetadata | IntegrityCheckpoint::FinalProof => true,
         }
     }
+}
+
+fn constraint_value_path_is_well_formed(path: &ConstraintValuePath) -> bool {
+    let Some((first, remaining)) = path.components().split_first() else {
+        return false;
+    };
+    path.components().len() <= MAX_ACCEPTED_TARGET_PATH_COMPONENTS
+        && matches!(
+            first,
+            ConstraintValuePathComponent::RootField { field_id } if *field_id != 0
+        )
+        && remaining.iter().all(|component| match component {
+            ConstraintValuePathComponent::RootField { .. } => false,
+            ConstraintValuePathComponent::RecordMember {
+                composite_type_id,
+                member_id,
+            } => *composite_type_id != 0 && *member_id != 0,
+            ConstraintValuePathComponent::TupleElement {
+                composite_type_id, ..
+            }
+            | ConstraintValuePathComponent::Newtype { composite_type_id } => {
+                *composite_type_id != 0
+            }
+            ConstraintValuePathComponent::EnumVariant {
+                enum_type_id,
+                variant_id,
+            } => *enum_type_id != 0 && *variant_id != 0,
+            ConstraintValuePathComponent::ListElement { .. }
+            | ConstraintValuePathComponent::SetElement { .. }
+            | ConstraintValuePathComponent::MapEntryKey { .. }
+            | ConstraintValuePathComponent::MapEntryValue { .. } => true,
+        })
 }
 
 fn row_checkpoint_is_well_formed(checkpoint: &PhysicalUnitCheckpoint) -> bool {
@@ -776,6 +819,38 @@ mod tests {
         let job_id: IntegrityJobId =
             candid::decode_one(&job_id_bytes).expect("job id should decode");
         assert_eq!(job_id.validate(), Err(IntegrityJobError::InvalidJobId),);
+    }
+
+    #[test]
+    fn persisted_constraint_value_paths_require_current_accepted_id_shape() {
+        let valid = ConstraintValuePath::new(vec![
+            ConstraintValuePathComponent::RootField { field_id: 1 },
+            ConstraintValuePathComponent::RecordMember {
+                composite_type_id: 2,
+                member_id: 3,
+            },
+            ConstraintValuePathComponent::ListElement { index: 0 },
+        ]);
+        assert!(constraint_value_path_is_well_formed(&valid));
+
+        for malformed in [
+            ConstraintValuePath::new(Vec::new()),
+            ConstraintValuePath::new(vec![ConstraintValuePathComponent::RootField {
+                field_id: 0,
+            }]),
+            ConstraintValuePath::new(vec![
+                ConstraintValuePathComponent::RootField { field_id: 1 },
+                ConstraintValuePathComponent::RootField { field_id: 2 },
+            ]),
+            ConstraintValuePath::new(vec![
+                ConstraintValuePathComponent::RootField { field_id: 1 },
+                ConstraintValuePathComponent::Newtype {
+                    composite_type_id: 0,
+                },
+            ]),
+        ] {
+            assert!(!constraint_value_path_is_well_formed(&malformed));
+        }
     }
 
     #[test]

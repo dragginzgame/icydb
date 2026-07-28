@@ -380,6 +380,24 @@ pub(in crate::db::schema) fn source_literal_input(
     Ok(value)
 }
 
+/// Bind one source numeric operand to the canonical accepted literal payload
+/// used by durable row constraints.
+pub(in crate::db::schema) fn bind_source_rule_literal(
+    literal: &ScalarLiteral,
+    resolved_kind: AcceptedFieldKind,
+    bindings: &AcceptedSourceBindingCatalog,
+    enum_catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
+) -> Result<AcceptedCheckLiteralV1, AcceptedCheckExprV1Error> {
+    let input = source_literal_input(literal, &resolved_kind, bindings, enum_catalog)?;
+    bind_literal(
+        input,
+        value_binding_for_resolved_kind(resolved_kind),
+        enum_catalog,
+        composite_catalog,
+    )
+}
+
 /// Bind one parser-owned SQL expression into the same accepted check AST used
 /// by generated declarations.
 #[cfg(feature = "sql")]

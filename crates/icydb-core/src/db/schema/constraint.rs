@@ -3,11 +3,17 @@
 //! Does not own: nullability, uniqueness, primary-key, or relation enforcement.
 //! Boundary: records stable catalog identity for existing structural owners.
 
+use std::collections::BTreeSet;
+
 use crate::db::codec::{finalize_hash_sha256, new_hash_sha256};
+use crate::db::schema::composite_catalog::AcceptedCompositeShape;
+use crate::db::schema::enum_catalog::AcceptedEnumVariantBody;
 use crate::db::schema::{
-    AcceptedCheckExprV1, AcceptedSchemaFingerprint, ConstraintId, ConstraintIdAllocator, FieldId,
-    PersistedFieldOrigin, PersistedFieldSnapshot, PersistedIndexOrigin, PersistedIndexSnapshot,
-    PersistedRelationEdgeSnapshot, RelationId, SchemaIndexId,
+    AcceptedCheckExprV1, AcceptedCheckLiteralV1, AcceptedCompositeCatalog, AcceptedEnumCatalog,
+    AcceptedFieldKind, AcceptedNamedTypeIdentity, AcceptedSchemaFingerprint, ConstraintId,
+    ConstraintIdAllocator, FieldId, PersistedFieldOrigin, PersistedFieldSnapshot,
+    PersistedIndexOrigin, PersistedIndexSnapshot, PersistedRelationEdgeSnapshot,
+    PersistedSchemaSnapshot, RelationId, SchemaIndexId,
 };
 use sha2::Digest;
 
@@ -56,6 +62,253 @@ impl ConstraintOrigin {
     }
 }
 
+/// Accepted identity of every ruled nominal value below one persisted root.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedRuleTarget {
+    root_field_id: FieldId,
+    target_type: AcceptedNamedTypeIdentity,
+}
+
+impl AcceptedRuleTarget {
+    /// Build one target already resolved through accepted source bindings.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        root_field_id: FieldId,
+        target_type: AcceptedNamedTypeIdentity,
+    ) -> Self {
+        Self {
+            root_field_id,
+            target_type,
+        }
+    }
+
+    /// Return the persisted root whose finite value is traversed.
+    #[must_use]
+    pub(in crate::db) const fn root_field_id(self) -> FieldId {
+        self.root_field_id
+    }
+
+    /// Return the accepted nominal identity selected during traversal.
+    #[must_use]
+    pub(in crate::db) const fn target_type(self) -> AcceptedNamedTypeIdentity {
+        self.target_type
+    }
+}
+
+/// Closed accepted operation owned by one targeted durable rule.
+///
+/// Numeric operands use the same canonical accepted literal payload as row
+/// checks. Length bounds are already exact Nat64 values and need no second
+/// encoded literal representation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[expect(
+    clippy::enum_variant_names,
+    reason = "the inclusive suffix is part of each closed operation's precise semantics"
+)]
+pub(in crate::db) enum AcceptedRuleOperation {
+    /// Inclusive Unicode-scalar, octet, or collection-cardinality range.
+    LengthRangeInclusive { min: u64, max: u64 },
+    /// Inclusive exact numeric minimum.
+    NumericMinimumInclusive { value: AcceptedCheckLiteralV1 },
+    /// Inclusive exact numeric range.
+    NumericRangeInclusive {
+        min: AcceptedCheckLiteralV1,
+        max: AcceptedCheckLiteralV1,
+    },
+}
+
+pub(in crate::db::schema) fn accepted_rule_target_is_reachable(
+    root: &AcceptedFieldKind,
+    target: AcceptedNamedTypeIdentity,
+    enum_catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
+) -> bool {
+    let mut pending = vec![root.clone()];
+    let mut visited = BTreeSet::new();
+    while let Some(kind) = pending.pop() {
+        match kind {
+            AcceptedFieldKind::Enum { type_id } => {
+                let identity = AcceptedNamedTypeIdentity::Enum(type_id);
+                if identity == target {
+                    return true;
+                }
+                if !visited.insert(identity) {
+                    continue;
+                }
+                let Some(definition) = enum_catalog.enum_type(type_id) else {
+                    return false;
+                };
+                pending.extend(definition.variants().filter_map(|variant| {
+                    let AcceptedEnumVariantBody::Payload { contract } = variant.body() else {
+                        return None;
+                    };
+                    Some(contract.kind().clone())
+                }));
+            }
+            AcceptedFieldKind::Composite { type_id } => {
+                let identity = AcceptedNamedTypeIdentity::Composite(type_id);
+                if identity == target {
+                    return true;
+                }
+                if !visited.insert(identity) {
+                    continue;
+                }
+                let Some(definition) = composite_catalog.composite_type(type_id) else {
+                    return false;
+                };
+                match definition.shape() {
+                    AcceptedCompositeShape::Record(fields) => {
+                        pending.extend(fields.iter().map(|field| field.contract().kind().clone()));
+                    }
+                    AcceptedCompositeShape::Tuple(elements) => {
+                        pending.extend(elements.iter().map(|element| element.kind().clone()));
+                    }
+                    AcceptedCompositeShape::Newtype(inner) => {
+                        pending.push(inner.kind().clone());
+                    }
+                }
+            }
+            AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
+                pending.push(*inner);
+            }
+            AcceptedFieldKind::Map { key, value } => {
+                pending.push(*value);
+                pending.push(*key);
+            }
+            AcceptedFieldKind::Account
+            | AcceptedFieldKind::Blob { .. }
+            | AcceptedFieldKind::Bool
+            | AcceptedFieldKind::Date
+            | AcceptedFieldKind::Decimal { .. }
+            | AcceptedFieldKind::Duration
+            | AcceptedFieldKind::Float32
+            | AcceptedFieldKind::Float64
+            | AcceptedFieldKind::Int8
+            | AcceptedFieldKind::Int16
+            | AcceptedFieldKind::Int32
+            | AcceptedFieldKind::Int64
+            | AcceptedFieldKind::Int128
+            | AcceptedFieldKind::IntBig { .. }
+            | AcceptedFieldKind::Principal
+            | AcceptedFieldKind::Subaccount
+            | AcceptedFieldKind::Text { .. }
+            | AcceptedFieldKind::Timestamp
+            | AcceptedFieldKind::Nat8
+            | AcceptedFieldKind::Nat16
+            | AcceptedFieldKind::Nat32
+            | AcceptedFieldKind::Nat64
+            | AcceptedFieldKind::Nat128
+            | AcceptedFieldKind::NatBig { .. }
+            | AcceptedFieldKind::Ulid
+            | AcceptedFieldKind::Unit
+            | AcceptedFieldKind::Relation { .. } => {}
+        }
+    }
+    false
+}
+
+pub(in crate::db::schema) fn validate_accepted_targeted_rules(
+    snapshot: &PersistedSchemaSnapshot,
+    enum_catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
+) -> bool {
+    let accepted = snapshot.constraints().iter().filter_map(|constraint| {
+        let AcceptedConstraintKind::TargetedRule { target, operation } = constraint.kind() else {
+            return None;
+        };
+        Some((*target, operation.as_ref()))
+    });
+    let activating = snapshot
+        .constraint_activations()
+        .iter()
+        .filter_map(|activation| {
+            let ConstraintActivationKind::TargetedRule { target, operation } = activation.kind()
+            else {
+                return None;
+            };
+            Some((*target, operation.as_ref()))
+        });
+    accepted.chain(activating).all(|(target, operation)| {
+        let Some(root) = snapshot
+            .fields()
+            .iter()
+            .find(|field| field.id() == target.root_field_id())
+        else {
+            return false;
+        };
+        if !accepted_rule_target_is_reachable(
+            root.kind(),
+            target.target_type(),
+            enum_catalog,
+            composite_catalog,
+        ) {
+            return false;
+        }
+        let target_kind = match target.target_type() {
+            AcceptedNamedTypeIdentity::Enum(type_id) => AcceptedFieldKind::Enum { type_id },
+            AcceptedNamedTypeIdentity::Composite(type_id) => {
+                AcceptedFieldKind::Composite { type_id }
+            }
+        };
+        let Some(resolved_kind) = composite_catalog.resolve_newtype_value_kind(&target_kind) else {
+            return false;
+        };
+        let kind_is_supported = match operation {
+            AcceptedRuleOperation::LengthRangeInclusive { .. } => {
+                accepted_rule_length_kind_is_supported(&resolved_kind)
+            }
+            AcceptedRuleOperation::NumericMinimumInclusive { .. }
+            | AcceptedRuleOperation::NumericRangeInclusive { .. } => {
+                accepted_rule_numeric_kind_is_supported(&resolved_kind)
+            }
+        };
+        kind_is_supported
+            && crate::db::schema::check::validate_accepted_rule_operation_literals(
+                operation,
+                &resolved_kind,
+                enum_catalog,
+                composite_catalog,
+            )
+            .is_ok()
+    })
+}
+
+pub(in crate::db::schema) const fn accepted_rule_numeric_kind_is_supported(
+    kind: &AcceptedFieldKind,
+) -> bool {
+    matches!(
+        kind,
+        AcceptedFieldKind::Decimal { .. }
+            | AcceptedFieldKind::Float32
+            | AcceptedFieldKind::Float64
+            | AcceptedFieldKind::Int8
+            | AcceptedFieldKind::Int16
+            | AcceptedFieldKind::Int32
+            | AcceptedFieldKind::Int64
+            | AcceptedFieldKind::Int128
+            | AcceptedFieldKind::IntBig { .. }
+            | AcceptedFieldKind::Nat8
+            | AcceptedFieldKind::Nat16
+            | AcceptedFieldKind::Nat32
+            | AcceptedFieldKind::Nat64
+            | AcceptedFieldKind::Nat128
+            | AcceptedFieldKind::NatBig { .. }
+    )
+}
+
+pub(in crate::db::schema) const fn accepted_rule_length_kind_is_supported(
+    kind: &AcceptedFieldKind,
+) -> bool {
+    matches!(
+        kind,
+        AcceptedFieldKind::Blob { .. }
+            | AcceptedFieldKind::Text { .. }
+            | AcceptedFieldKind::List(_)
+            | AcceptedFieldKind::Set(_)
+            | AcceptedFieldKind::Map { .. }
+    )
+}
+
 /// Structural owner referenced by one accepted constraint catalog entry.
 ///
 /// The referenced field, index, or relation remains the sole execution
@@ -73,6 +326,11 @@ pub(in crate::db) enum AcceptedConstraintKind {
     /// One accepted row-local expression that owns its complete semantics.
     Check {
         expression: Box<AcceptedCheckExprV1>,
+    },
+    /// One accepted root-plus-nominal target and its closed durable operation.
+    TargetedRule {
+        target: AcceptedRuleTarget,
+        operation: Box<AcceptedRuleOperation>,
     },
 }
 
@@ -144,6 +402,11 @@ pub(in crate::db) enum ConstraintActivationKind {
     /// One canonical row-local expression used by the new-write gate.
     Check {
         expression: Box<AcceptedCheckExprV1>,
+    },
+    /// One source-bound durable rule awaiting historical proof.
+    TargetedRule {
+        target: AcceptedRuleTarget,
+        operation: Box<AcceptedRuleOperation>,
     },
 }
 
@@ -552,6 +815,26 @@ impl AcceptedConstraintCatalog {
         Ok(self)
     }
 
+    /// Add one fully bound targeted durable rule during initial publication.
+    pub(in crate::db) fn with_added_targeted_rule(
+        mut self,
+        name: String,
+        origin: ConstraintOrigin,
+        target: AcceptedRuleTarget,
+        operation: AcceptedRuleOperation,
+    ) -> Result<Self, AcceptedConstraintCatalogError> {
+        self.reject_live_activation()?;
+        self.push(
+            name,
+            origin,
+            AcceptedConstraintKind::TargetedRule {
+                target,
+                operation: Box::new(operation),
+            },
+        )?;
+        Ok(self)
+    }
+
     /// Reserve one generated or SQL-DDL check activation in accepted schema.
     pub(in crate::db) fn with_added_check_activation(
         self,
@@ -566,6 +849,28 @@ impl AcceptedConstraintCatalog {
             origin,
             ConstraintActivationKind::Check {
                 expression: Box::new(expression),
+            },
+            base_schema_fingerprint,
+            activation_epoch,
+        )
+    }
+
+    /// Reserve one generated targeted-rule activation in accepted schema.
+    pub(in crate::db) fn with_added_targeted_rule_activation(
+        self,
+        name: String,
+        origin: ConstraintOrigin,
+        target: AcceptedRuleTarget,
+        operation: AcceptedRuleOperation,
+        base_schema_fingerprint: AcceptedSchemaFingerprint,
+        activation_epoch: u64,
+    ) -> Result<Self, AcceptedConstraintCatalogError> {
+        self.with_added_activation(
+            name,
+            origin,
+            ConstraintActivationKind::TargetedRule {
+                target,
+                operation: Box::new(operation),
             },
             base_schema_fingerprint,
             activation_epoch,
@@ -712,6 +1017,9 @@ impl AcceptedConstraintCatalog {
             ConstraintActivationKind::Check { expression } => {
                 AcceptedConstraintKind::Check { expression }
             }
+            ConstraintActivationKind::TargetedRule { target, operation } => {
+                AcceptedConstraintKind::TargetedRule { target, operation }
+            }
         };
         self.activations.remove(position);
         self.constraints.push(AcceptedConstraintSnapshot::new(
@@ -737,12 +1045,12 @@ impl AcceptedConstraintCatalog {
         Ok(self)
     }
 
-    /// Remove one accepted generated check while retiring its identity.
-    pub(in crate::db) fn with_removed_generated_check(
+    /// Remove one accepted generated row-local declaration while retiring its identity.
+    pub(in crate::db) fn with_removed_generated_constraint(
         self,
         id: ConstraintId,
     ) -> Result<Self, AcceptedConstraintCatalogError> {
-        self.with_removed_check(id, ConstraintOrigin::Generated)
+        self.with_removed_constraint(id, ConstraintOrigin::Generated, true)
     }
 
     /// Remove one accepted SQL-DDL-owned check while retiring its identity.
@@ -751,13 +1059,14 @@ impl AcceptedConstraintCatalog {
         self,
         id: ConstraintId,
     ) -> Result<Self, AcceptedConstraintCatalogError> {
-        self.with_removed_check(id, ConstraintOrigin::SqlDdl)
+        self.with_removed_constraint(id, ConstraintOrigin::SqlDdl, false)
     }
 
-    fn with_removed_check(
+    fn with_removed_constraint(
         mut self,
         id: ConstraintId,
         origin: ConstraintOrigin,
+        targeted_rule_allowed: bool,
     ) -> Result<Self, AcceptedConstraintCatalogError> {
         let position = self
             .constraints
@@ -768,9 +1077,13 @@ impl AcceptedConstraintCatalog {
             .constraints
             .get(position)
             .ok_or(AcceptedConstraintCatalogError::OwnerMismatch)?;
-        if constraint.origin() != origin
-            || !matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
-        {
+        let kind_matches = matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
+            || targeted_rule_allowed
+                && matches!(
+                    constraint.kind(),
+                    AcceptedConstraintKind::TargetedRule { .. }
+                );
+        if constraint.origin() != origin || !kind_matches {
             return Err(AcceptedConstraintCatalogError::OwnerMismatch);
         }
         self.constraints.remove(position);
@@ -873,6 +1186,19 @@ impl AcceptedConstraintCatalog {
                         })
                     })
                     .map_err(|_| AcceptedConstraintCatalogError::OwnerMismatch),
+                AcceptedConstraintKind::TargetedRule { target, operation } => {
+                    map(target.root_field_id())
+                        .map(|root_field_id| {
+                            constraint.clone_with_kind(AcceptedConstraintKind::TargetedRule {
+                                target: AcceptedRuleTarget::new(
+                                    root_field_id,
+                                    target.target_type(),
+                                ),
+                                operation: operation.clone(),
+                            })
+                        })
+                        .ok_or(AcceptedConstraintCatalogError::OwnerMismatch)
+                }
                 AcceptedConstraintKind::PrimaryKey
                 | AcceptedConstraintKind::Unique { .. }
                 | AcceptedConstraintKind::Relation { .. } => Ok(constraint.clone()),
@@ -980,11 +1306,52 @@ fn constraint_activation_fingerprint(
             );
             hasher.update(expression);
         }
+        ConstraintActivationKind::TargetedRule { target, operation } => {
+            hasher.update([5]);
+            hasher.update(target.root_field_id().get().to_be_bytes());
+            match target.target_type() {
+                AcceptedNamedTypeIdentity::Enum(type_id) => {
+                    hasher.update([1]);
+                    hasher.update(type_id.get().to_be_bytes());
+                }
+                AcceptedNamedTypeIdentity::Composite(type_id) => {
+                    hasher.update([2]);
+                    hasher.update(type_id.get().to_be_bytes());
+                }
+            }
+            update_targeted_rule_operation_fingerprint(&mut hasher, operation);
+        }
     }
     hasher.update([state.fingerprint_tag()]);
     hasher.update(base_schema_fingerprint.as_bytes());
     hasher.update(activation_epoch.to_be_bytes());
     ConstraintActivationFingerprint::new(finalize_hash_sha256(hasher))
+}
+
+fn update_targeted_rule_operation_fingerprint(
+    hasher: &mut sha2::Sha256,
+    operation: &AcceptedRuleOperation,
+) {
+    match operation {
+        AcceptedRuleOperation::LengthRangeInclusive { min, max } => {
+            hasher.update([1]);
+            hasher.update(min.to_be_bytes());
+            hasher.update(max.to_be_bytes());
+        }
+        AcceptedRuleOperation::NumericMinimumInclusive { value } => {
+            hasher.update([2]);
+            let value = value.canonical_key();
+            hasher.update(u64::try_from(value.len()).unwrap_or(u64::MAX).to_be_bytes());
+            hasher.update(value);
+        }
+        AcceptedRuleOperation::NumericRangeInclusive { min, max } => {
+            hasher.update([3]);
+            for value in [min.canonical_key(), max.canonical_key()] {
+                hasher.update(u64::try_from(value.len()).unwrap_or(u64::MAX).to_be_bytes());
+                hasher.update(value);
+            }
+        }
+    }
 }
 
 pub(in crate::db::schema) fn accepted_constraint_name_is_valid(name: &str) -> bool {
@@ -1131,7 +1498,7 @@ mod tests {
         let retired = catalog.constraints()[0].id();
         let allocator = catalog.allocator();
         let removed = catalog
-            .with_removed_generated_check(retired)
+            .with_removed_generated_constraint(retired)
             .expect("generated check should be removable");
 
         assert!(removed.constraints().is_empty());
@@ -1155,7 +1522,7 @@ mod tests {
             .expect("SQL-owned check should admit");
         let sql_owned_id = sql_owned.constraints()[0].id();
         assert_eq!(
-            sql_owned.with_removed_generated_check(sql_owned_id),
+            sql_owned.with_removed_generated_constraint(sql_owned_id),
             Err(AcceptedConstraintCatalogError::OwnerMismatch),
             "generated removal must not take ownership of SQL DDL state",
         );

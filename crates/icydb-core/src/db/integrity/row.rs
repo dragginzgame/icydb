@@ -517,7 +517,7 @@ fn inspect_row_atom<C: CanisterKind>(
             };
             let ordinal =
                 usize::try_from(atom.ordinal).map_err(|_| InternalError::store_invariant())?;
-            match plan.write_constraints().evaluate_integrity_check(
+            match plan.write_constraints().evaluate_integrity_constraint(
                 ordinal,
                 plan.identity().accepted_schema_fingerprint(),
                 values,
@@ -542,6 +542,7 @@ fn inspect_row_atom<C: CanisterKind>(
                     physical_key: bounded_physical_key(raw_key)?,
                     primary_key: primary_key_bytes(decoded_key.as_ref().ok(), raw_key),
                     field_paths,
+                    value_path: None,
                     constraint_id: Some(constraint_id.get()),
                     constraint_name: Some(constraint_name),
                     schema_index_id: None,
@@ -549,13 +550,44 @@ fn inspect_row_atom<C: CanisterKind>(
                     expected: Some("true_or_unknown".to_string()),
                     observed: Some("false".to_string()),
                 })),
+                Err(AcceptedRowConstraintEvaluationError::TargetedRuleViolation {
+                    constraint_id,
+                    constraint_name,
+                    field_path,
+                    path,
+                }) => Ok(RowAtomOutcome::Finding(IntegrityFinding {
+                    diagnostic_code:
+                        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION
+                            .raw(),
+                    class: IntegrityFindingClass::Corruption,
+                    severity: IntegritySeverity::Error,
+                    kind: IntegrityFindingKind::ConstraintViolation,
+                    entity: IntegrityEntityIdentity::from_plan(plan),
+                    store_path: plan.identity().store_path().to_string(),
+                    phase: IntegrityPhase::Rows,
+                    verifier_family: IntegrityVerifierFamily::ValidatedConstraints,
+                    physical_key: bounded_physical_key(raw_key)?,
+                    primary_key: primary_key_bytes(decoded_key.as_ref().ok(), raw_key),
+                    field_paths: vec![field_path],
+                    value_path: Some(Box::new(path.into_constraint_value_path())),
+                    constraint_id: Some(constraint_id.get()),
+                    constraint_name: Some(constraint_name),
+                    schema_index_id: None,
+                    relation_id: None,
+                    expected: Some("targeted_rule_satisfied".to_string()),
+                    observed: Some("targeted_rule_violated".to_string()),
+                })),
                 Err(
                     AcceptedRowConstraintEvaluationError::InvalidExpression(_)
                     | AcceptedRowConstraintEvaluationError::LiteralCorrupt
                     | AcceptedRowConstraintEvaluationError::FingerprintMismatch
                     | AcceptedRowConstraintEvaluationError::MissingSlot
                     | AcceptedRowConstraintEvaluationError::RuntimeValueMismatch
-                    | AcceptedRowConstraintEvaluationError::WorkBudgetExceeded,
+                    | AcceptedRowConstraintEvaluationError::WorkBudgetExceeded
+                    | AcceptedRowConstraintEvaluationError::ValueDepthExceeded
+                    | AcceptedRowConstraintEvaluationError::ValueNodeBudgetExceeded
+                    | AcceptedRowConstraintEvaluationError::OperationBudgetExceeded
+                    | AcceptedRowConstraintEvaluationError::PathBudgetExceeded,
                 ) => Err(InternalError::accepted_row_constraint_program_corrupt()),
             }
         }
@@ -778,7 +810,7 @@ fn next_row_atom(
             }
         }
         IntegrityVerifierFamily::PrimaryKey if atom.ordinal == 0 => RowAtom {
-            family: if plan.write_constraints().integrity_check_count() == 0 {
+            family: if plan.write_constraints().integrity_constraint_count() == 0 {
                 if plan.index_inspection().len() == 0 {
                     if relation_count == 0 {
                         return Ok(None);
@@ -798,7 +830,7 @@ fn next_row_atom(
                 .checked_add(1)
                 .ok_or_else(InternalError::store_invariant)?;
             if usize::try_from(next)
-                .is_ok_and(|next| next < plan.write_constraints().integrity_check_count())
+                .is_ok_and(|next| next < plan.write_constraints().integrity_constraint_count())
             {
                 RowAtom {
                     family: IntegrityVerifierFamily::ValidatedConstraints,
@@ -899,6 +931,7 @@ fn physical_error_finding(
         physical_key: bounded_physical_key(raw_key)?,
         primary_key: primary_key_bytes(decoded_key, raw_key),
         field_paths,
+        value_path: None,
         constraint_id: None,
         constraint_name: None,
         schema_index_id: None,
@@ -928,6 +961,7 @@ fn row_finding(
         physical_key: bounded_physical_key(raw_key)?,
         primary_key: primary_key_bytes(decoded_key, raw_key),
         field_paths: Vec::new(),
+        value_path: None,
         constraint_id: None,
         constraint_name: None,
         schema_index_id: None,
@@ -957,6 +991,7 @@ fn index_finding(
         physical_key: bounded_physical_key(raw_key)?,
         primary_key: primary_key_bytes(Some(decoded_key), raw_key),
         field_paths: Vec::new(),
+        value_path: None,
         constraint_id: None,
         constraint_name: None,
         schema_index_id: Some(schema_index_id),
@@ -987,6 +1022,7 @@ fn relation_finding(
         physical_key: bounded_physical_key(raw_key)?,
         primary_key: primary_key_bytes(Some(decoded_key), raw_key),
         field_paths,
+        value_path: None,
         constraint_id: None,
         constraint_name: None,
         schema_index_id: None,

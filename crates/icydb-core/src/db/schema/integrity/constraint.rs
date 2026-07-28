@@ -1,8 +1,9 @@
 //! Structural constraint registry closure validation.
 
 use crate::db::schema::{
-    AcceptedConstraintCatalog, AcceptedConstraintKind, ConstraintActivationKind, ConstraintOrigin,
-    FieldId, PersistedFieldSnapshot, PersistedIndexSnapshot, PersistedRelationEdgeSnapshot,
+    AcceptedConstraintCatalog, AcceptedConstraintKind, AcceptedFieldKind, AcceptedRuleOperation,
+    ConstraintActivationKind, ConstraintOrigin, FieldId, PersistedFieldSnapshot,
+    PersistedIndexSnapshot, PersistedRelationEdgeSnapshot,
     constraint::accepted_constraint_name_is_valid,
 };
 
@@ -30,6 +31,7 @@ pub(in crate::db::schema) fn schema_snapshot_constraint_integrity_detail(
             .iter()
             .any(|relation| relation_constraint_is_invalid(relation, constraints))
         || checks_are_invalid(fields, constraints)
+        || targeted_rules_are_invalid(fields, constraints)
         || activations_are_invalid(
             fields,
             indexes,
@@ -68,7 +70,11 @@ pub(in crate::db::schema) fn schema_snapshot_constraint_integrity_detail(
             constraints
                 .iter()
                 .filter(|constraint| {
-                    matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
+                    matches!(
+                        constraint.kind(),
+                        AcceptedConstraintKind::Check { .. }
+                            | AcceptedConstraintKind::TargetedRule { .. }
+                    )
                 })
                 .count(),
         )?;
@@ -191,6 +197,55 @@ fn checks_are_invalid(
     })
 }
 
+fn targeted_rules_are_invalid(
+    fields: &[PersistedFieldSnapshot],
+    constraints: &[crate::db::schema::AcceptedConstraintSnapshot],
+) -> bool {
+    constraints.iter().any(|constraint| {
+        let AcceptedConstraintKind::TargetedRule { target, operation } = constraint.kind() else {
+            return false;
+        };
+        constraint.origin() != ConstraintOrigin::Generated
+            || fields
+                .iter()
+                .all(|field| field.id() != target.root_field_id())
+            || !accepted_rule_operation_is_locally_valid(operation)
+    })
+}
+
+fn accepted_rule_operation_is_locally_valid(operation: &AcceptedRuleOperation) -> bool {
+    match operation {
+        AcceptedRuleOperation::LengthRangeInclusive { min, max } => min <= max,
+        AcceptedRuleOperation::NumericMinimumInclusive { value } => {
+            accepted_rule_numeric_kind_is_supported(value.kind())
+        }
+        AcceptedRuleOperation::NumericRangeInclusive { min, max } => {
+            min.kind() == max.kind() && accepted_rule_numeric_kind_is_supported(min.kind())
+        }
+    }
+}
+
+const fn accepted_rule_numeric_kind_is_supported(kind: &AcceptedFieldKind) -> bool {
+    matches!(
+        kind,
+        AcceptedFieldKind::Decimal { .. }
+            | AcceptedFieldKind::Float32
+            | AcceptedFieldKind::Float64
+            | AcceptedFieldKind::Int8
+            | AcceptedFieldKind::Int16
+            | AcceptedFieldKind::Int32
+            | AcceptedFieldKind::Int64
+            | AcceptedFieldKind::Int128
+            | AcceptedFieldKind::IntBig { .. }
+            | AcceptedFieldKind::Nat8
+            | AcceptedFieldKind::Nat16
+            | AcceptedFieldKind::Nat32
+            | AcceptedFieldKind::Nat64
+            | AcceptedFieldKind::Nat128
+            | AcceptedFieldKind::NatBig { .. }
+    )
+}
+
 fn activations_are_invalid(
     fields: &[PersistedFieldSnapshot],
     indexes: &[PersistedIndexSnapshot],
@@ -290,6 +345,13 @@ fn activations_are_invalid(
             }
             ConstraintActivationKind::Check { expression } => {
                 expression.validate_snapshot_local(fields).is_err()
+            }
+            ConstraintActivationKind::TargetedRule { target, operation } => {
+                activation.origin() != ConstraintOrigin::Generated
+                    || fields
+                        .iter()
+                        .all(|field| field.id() != target.root_field_id())
+                    || !accepted_rule_operation_is_locally_valid(operation)
             }
         })
 }

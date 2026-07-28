@@ -7,7 +7,8 @@ use crate::{
     db::schema::{
         AcceptedCheckCompareOpV1, AcceptedCheckExprV1, AcceptedCheckLiteralV1,
         AcceptedCheckValueExprV1, AcceptedConstraintCatalog, AcceptedConstraintKind,
-        AcceptedConstraintSnapshot, AcceptedFieldKind, AcceptedSchemaFingerprint,
+        AcceptedConstraintSnapshot, AcceptedFieldKind, AcceptedNamedTypeIdentity,
+        AcceptedRuleOperation, AcceptedRuleTarget, AcceptedSchemaFingerprint,
         ConstraintActivationFingerprint, ConstraintActivationKind, ConstraintActivationSnapshot,
         ConstraintActivationState, ConstraintId, ConstraintIdAllocator, ConstraintOrigin, FieldId,
         FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec,
@@ -44,7 +45,7 @@ use candid::{CandidType, Decode, Encode};
 use serde::Deserialize;
 
 const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 1;
-const SCHEMA_SNAPSHOT_CONTRACT_PROFILE: u32 = u32::from_be_bytes(*b"ICYZ");
+const SCHEMA_SNAPSHOT_CONTRACT_PROFILE: u32 = u32::from_be_bytes(*b"ICYT");
 /// Maximum canonical bytes for one persisted entity-schema snapshot.
 pub(in crate::db) const MAX_SCHEMA_SNAPSHOT_BYTES: u32 = 512 * 1024;
 
@@ -108,6 +109,10 @@ enum ConstraintActivationKindWire {
     Check {
         expression: Box<AcceptedCheckExprV1Wire>,
     },
+    TargetedRule {
+        target: AcceptedRuleTargetWire,
+        operation: Box<AcceptedRuleOperationWire>,
+    },
 }
 
 // Candid wire enum for the two live activation phases.
@@ -139,6 +144,41 @@ enum AcceptedConstraintKindWire {
     },
     Check {
         expression: Box<AcceptedCheckExprV1Wire>,
+    },
+    TargetedRule {
+        target: AcceptedRuleTargetWire,
+        operation: Box<AcceptedRuleOperationWire>,
+    },
+}
+
+#[derive(CandidType, Deserialize)]
+struct AcceptedRuleTargetWire {
+    root_field_id: u32,
+    target_type: AcceptedNamedTypeIdentityWire,
+}
+
+#[derive(CandidType, Deserialize)]
+enum AcceptedNamedTypeIdentityWire {
+    Enum(u32),
+    Composite(u32),
+}
+
+#[derive(CandidType, Deserialize)]
+#[expect(
+    clippy::enum_variant_names,
+    reason = "wire variants mirror the accepted operation vocabulary exactly"
+)]
+enum AcceptedRuleOperationWire {
+    LengthRangeInclusive {
+        min: u64,
+        max: u64,
+    },
+    NumericMinimumInclusive {
+        value: AcceptedCheckLiteralV1Wire,
+    },
+    NumericRangeInclusive {
+        min: AcceptedCheckLiteralV1Wire,
+        max: AcceptedCheckLiteralV1Wire,
     },
 }
 
@@ -659,6 +699,10 @@ impl ConstraintActivationKindWire {
             ConstraintActivationKind::Check { expression } => Self::Check {
                 expression: Box::new(AcceptedCheckExprV1Wire::from_expression(expression)),
             },
+            ConstraintActivationKind::TargetedRule { target, operation } => Self::TargetedRule {
+                target: AcceptedRuleTargetWire::from_target(*target),
+                operation: Box::new(AcceptedRuleOperationWire::from_operation(operation)),
+            },
         }
     }
 
@@ -678,6 +722,12 @@ impl ConstraintActivationKindWire {
             Self::Check { expression } => Ok(ConstraintActivationKind::Check {
                 expression: Box::new((*expression).into_expression()?),
             }),
+            Self::TargetedRule { target, operation } => {
+                Ok(ConstraintActivationKind::TargetedRule {
+                    target: target.into_target()?,
+                    operation: Box::new((*operation).into_operation()?),
+                })
+            }
         }
     }
 }
@@ -751,6 +801,10 @@ impl AcceptedConstraintKindWire {
             AcceptedConstraintKind::Check { expression } => Self::Check {
                 expression: Box::new(AcceptedCheckExprV1Wire::from_expression(expression)),
             },
+            AcceptedConstraintKind::TargetedRule { target, operation } => Self::TargetedRule {
+                target: AcceptedRuleTargetWire::from_target(*target),
+                operation: Box::new(AcceptedRuleOperationWire::from_operation(operation)),
+            },
         }
     }
 
@@ -771,6 +825,89 @@ impl AcceptedConstraintKindWire {
             Self::Check { expression } => Ok(AcceptedConstraintKind::Check {
                 expression: Box::new((*expression).into_expression()?),
             }),
+            Self::TargetedRule { target, operation } => Ok(AcceptedConstraintKind::TargetedRule {
+                target: target.into_target()?,
+                operation: Box::new((*operation).into_operation()?),
+            }),
+        }
+    }
+}
+
+impl AcceptedRuleTargetWire {
+    const fn from_target(target: AcceptedRuleTarget) -> Self {
+        Self {
+            root_field_id: target.root_field_id().get(),
+            target_type: AcceptedNamedTypeIdentityWire::from_identity(target.target_type()),
+        }
+    }
+
+    fn into_target(self) -> Result<AcceptedRuleTarget, InternalError> {
+        Ok(AcceptedRuleTarget::new(
+            FieldId::new(self.root_field_id),
+            self.target_type.into_identity()?,
+        ))
+    }
+}
+
+impl AcceptedNamedTypeIdentityWire {
+    const fn from_identity(identity: AcceptedNamedTypeIdentity) -> Self {
+        match identity {
+            AcceptedNamedTypeIdentity::Enum(type_id) => Self::Enum(type_id.get()),
+            AcceptedNamedTypeIdentity::Composite(type_id) => Self::Composite(type_id.get()),
+        }
+    }
+
+    fn into_identity(self) -> Result<AcceptedNamedTypeIdentity, InternalError> {
+        match self {
+            Self::Enum(type_id) => EnumTypeId::new(type_id)
+                .map(AcceptedNamedTypeIdentity::Enum)
+                .ok_or_else(InternalError::store_corruption),
+            Self::Composite(type_id) => CompositeTypeId::new(type_id)
+                .map(AcceptedNamedTypeIdentity::Composite)
+                .ok_or_else(InternalError::store_corruption),
+        }
+    }
+}
+
+impl AcceptedRuleOperationWire {
+    fn from_operation(operation: &AcceptedRuleOperation) -> Self {
+        match operation {
+            AcceptedRuleOperation::LengthRangeInclusive { min, max } => {
+                Self::LengthRangeInclusive {
+                    min: *min,
+                    max: *max,
+                }
+            }
+            AcceptedRuleOperation::NumericMinimumInclusive { value } => {
+                Self::NumericMinimumInclusive {
+                    value: AcceptedCheckLiteralV1Wire::from_literal(value),
+                }
+            }
+            AcceptedRuleOperation::NumericRangeInclusive { min, max } => {
+                Self::NumericRangeInclusive {
+                    min: AcceptedCheckLiteralV1Wire::from_literal(min),
+                    max: AcceptedCheckLiteralV1Wire::from_literal(max),
+                }
+            }
+        }
+    }
+
+    fn into_operation(self) -> Result<AcceptedRuleOperation, InternalError> {
+        match self {
+            Self::LengthRangeInclusive { min, max } => {
+                Ok(AcceptedRuleOperation::LengthRangeInclusive { min, max })
+            }
+            Self::NumericMinimumInclusive { value } => {
+                Ok(AcceptedRuleOperation::NumericMinimumInclusive {
+                    value: value.into_literal()?,
+                })
+            }
+            Self::NumericRangeInclusive { min, max } => {
+                Ok(AcceptedRuleOperation::NumericRangeInclusive {
+                    min: min.into_literal()?,
+                    max: max.into_literal()?,
+                })
+            }
         }
     }
 }

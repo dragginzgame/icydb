@@ -7,9 +7,12 @@ use crate::{
     db::{
         data::{DecodedDataStoreKey, RawDataStoreKey},
         schema::{
-            AcceptedSchemaFingerprint, ConstraintActivationFingerprint,
+            AcceptedSchemaFingerprint, AcceptedTargetPath, AcceptedTargetPathComponent,
+            ConstraintActivationFingerprint, ConstraintActivationKind,
             ConstraintActivationSnapshot, ConstraintActivationState, ConstraintId, FieldId,
-            PersistedSchemaSnapshot,
+            MAX_ACCEPTED_TARGET_PATH_COMPONENTS, PersistedSchemaSnapshot,
+            composite_catalog::{CompositeFieldId, CompositeTypeId},
+            enum_catalog::{EnumTypeId, EnumVariantId},
         },
     },
     error::InternalError,
@@ -21,7 +24,7 @@ use serde::Deserialize;
 use std::borrow::Cow;
 
 const CONSTRAINT_VALIDATION_JOB_CODEC_VERSION: u32 = 1;
-const CONSTRAINT_VALIDATION_JOB_PROFILE: u32 = u32::from_be_bytes(*b"ICJA");
+const CONSTRAINT_VALIDATION_JOB_PROFILE: u32 = u32::from_be_bytes(*b"ICJB");
 pub(in crate::db) const MAX_CONSTRAINT_VALIDATION_JOB_BYTES: usize = 64 * 1024;
 const MAX_CONSTRAINT_VALIDATION_ENTITY_PATH_BYTES: usize = 4 * 1024;
 const MAX_CONSTRAINT_VALIDATION_STORE_REVISIONS: usize = 16;
@@ -101,6 +104,7 @@ impl ConstraintStoreRevision {
 pub(in crate::db) struct ConstraintValidationFinding {
     primary_key: RawDataStoreKey,
     field_ids: Vec<FieldId>,
+    value_path: Option<AcceptedTargetPath>,
     error_code: u16,
 }
 
@@ -115,6 +119,23 @@ impl ConstraintValidationFinding {
         Self {
             primary_key,
             field_ids,
+            value_path: None,
+            error_code,
+        }
+    }
+
+    /// Build one targeted-rule finding with its bounded concrete occurrence.
+    #[must_use]
+    pub(in crate::db) const fn new_targeted(
+        primary_key: RawDataStoreKey,
+        field_ids: Vec<FieldId>,
+        value_path: AcceptedTargetPath,
+        error_code: u16,
+    ) -> Self {
+        Self {
+            primary_key,
+            field_ids,
+            value_path: Some(value_path),
             error_code,
         }
     }
@@ -129,6 +150,12 @@ impl ConstraintValidationFinding {
     #[must_use]
     pub(in crate::db) const fn field_ids(&self) -> &[FieldId] {
         self.field_ids.as_slice()
+    }
+
+    /// Borrow the targeted concrete value path, when this is a targeted rule.
+    #[must_use]
+    pub(in crate::db) const fn value_path(&self) -> Option<&AcceptedTargetPath> {
+        self.value_path.as_ref()
     }
 
     /// Return the stable public error-code identity.
@@ -502,12 +529,45 @@ impl ConstraintValidationJob {
                             Some(activation.activation_epoch())
                         }
                         crate::db::schema::ConstraintActivationKind::Check { .. }
-                        | crate::db::schema::ConstraintActivationKind::NotNull { .. } => None,
+                        | crate::db::schema::ConstraintActivationKind::NotNull { .. }
+                        | crate::db::schema::ConstraintActivationKind::TargetedRule { .. } => None,
                     })
         {
             return Err(InternalError::store_corruption());
         }
+        if let Some(activation) = activation
+            && self.last_receipt.as_ref().is_some_and(|receipt| {
+                receipt
+                    .findings()
+                    .iter()
+                    .any(|finding| !finding_matches_activation(finding, activation.kind()))
+            })
+        {
+            return Err(InternalError::store_corruption());
+        }
         Ok(())
+    }
+}
+
+fn finding_matches_activation(
+    finding: &ConstraintValidationFinding,
+    kind: &ConstraintActivationKind,
+) -> bool {
+    match kind {
+        ConstraintActivationKind::TargetedRule { target, .. } => {
+            finding.field_ids() == [target.root_field_id()]
+                && finding.value_path().is_some_and(|path| {
+                    matches!(
+                        path.components(),
+                        [AcceptedTargetPathComponent::RootField(field_id), ..]
+                            if *field_id == target.root_field_id()
+                    )
+                })
+        }
+        ConstraintActivationKind::Check { .. }
+        | ConstraintActivationKind::NotNull { .. }
+        | ConstraintActivationKind::Unique { .. }
+        | ConstraintActivationKind::Relation { .. } => finding.value_path().is_none(),
     }
 }
 
@@ -545,9 +605,22 @@ fn receipt_is_invalid(receipt: &ConstraintValidationReceipt, entity_tag: EntityT
         || receipt.findings.iter().any(|finding| {
             !raw_key_matches_entity(&finding.primary_key, entity_tag)
                 || finding.field_ids.len() > MAX_CONSTRAINT_VALIDATION_FINDING_FIELDS
+                || finding
+                    .value_path
+                    .as_ref()
+                    .is_some_and(accepted_target_path_is_invalid)
                 || finding.error_code == 0
                 || finding.field_ids.windows(2).any(|pair| pair[0] >= pair[1])
         })
+}
+
+fn accepted_target_path_is_invalid(path: &AcceptedTargetPath) -> bool {
+    path.components().is_empty()
+        || path.components().len() > MAX_ACCEPTED_TARGET_PATH_COMPONENTS
+        || !matches!(
+            path.components(),
+            [AcceptedTargetPathComponent::RootField(_), ..]
+        )
 }
 
 fn raw_key_matches_entity(key: &RawDataStoreKey, entity_tag: EntityTag) -> bool {
@@ -609,7 +682,42 @@ struct ConstraintValidationReceiptWire {
 struct ConstraintValidationFindingWire {
     primary_key: Vec<u8>,
     field_ids: Vec<u32>,
+    value_path: Option<Vec<ConstraintValidationPathComponentWire>>,
     error_code: u16,
+}
+
+#[derive(CandidType, Deserialize)]
+enum ConstraintValidationPathComponentWire {
+    RootField {
+        field_id: u32,
+    },
+    RecordMember {
+        composite_type_id: u32,
+        member_id: u32,
+    },
+    TupleElement {
+        composite_type_id: u32,
+        ordinal: u32,
+    },
+    Newtype {
+        composite_type_id: u32,
+    },
+    EnumVariant {
+        enum_type_id: u32,
+        variant_id: u32,
+    },
+    ListElement {
+        index: u32,
+    },
+    SetElement {
+        index: u32,
+    },
+    MapEntryKey {
+        index: u32,
+    },
+    MapEntryValue {
+        index: u32,
+    },
 }
 
 /// Encode one closed current validation job.
@@ -775,16 +883,124 @@ impl ConstraintValidationFindingWire {
                 .iter()
                 .map(|field| field.get())
                 .collect(),
+            value_path: finding.value_path().map(|path| {
+                path.components()
+                    .iter()
+                    .map(ConstraintValidationPathComponentWire::from_component)
+                    .collect()
+            }),
             error_code: finding.error_code(),
         }
     }
 
     fn into_finding(self) -> Result<ConstraintValidationFinding, InternalError> {
-        Ok(ConstraintValidationFinding::new(
-            raw_key_from_wire(self.primary_key)?,
-            self.field_ids.into_iter().map(FieldId::new).collect(),
-            self.error_code,
-        ))
+        let primary_key = raw_key_from_wire(self.primary_key)?;
+        let field_ids = self.field_ids.into_iter().map(FieldId::new).collect();
+        match self.value_path {
+            Some(path) => Ok(ConstraintValidationFinding::new_targeted(
+                primary_key,
+                field_ids,
+                AcceptedTargetPath::new(
+                    path.into_iter()
+                        .map(ConstraintValidationPathComponentWire::into_component)
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+                self.error_code,
+            )),
+            None => Ok(ConstraintValidationFinding::new(
+                primary_key,
+                field_ids,
+                self.error_code,
+            )),
+        }
+    }
+}
+
+impl ConstraintValidationPathComponentWire {
+    const fn from_component(component: &AcceptedTargetPathComponent) -> Self {
+        match component {
+            AcceptedTargetPathComponent::RootField(field_id) => Self::RootField {
+                field_id: field_id.get(),
+            },
+            AcceptedTargetPathComponent::RecordMember {
+                composite_type_id,
+                member_id,
+            } => Self::RecordMember {
+                composite_type_id: composite_type_id.get(),
+                member_id: member_id.get(),
+            },
+            AcceptedTargetPathComponent::TupleElement {
+                composite_type_id,
+                ordinal,
+            } => Self::TupleElement {
+                composite_type_id: composite_type_id.get(),
+                ordinal: *ordinal,
+            },
+            AcceptedTargetPathComponent::Newtype { composite_type_id } => Self::Newtype {
+                composite_type_id: composite_type_id.get(),
+            },
+            AcceptedTargetPathComponent::EnumVariant {
+                enum_type_id,
+                variant_id,
+            } => Self::EnumVariant {
+                enum_type_id: enum_type_id.get(),
+                variant_id: variant_id.get(),
+            },
+            AcceptedTargetPathComponent::ListElement { index } => {
+                Self::ListElement { index: *index }
+            }
+            AcceptedTargetPathComponent::SetElement { index } => Self::SetElement { index: *index },
+            AcceptedTargetPathComponent::MapEntryKey { index } => {
+                Self::MapEntryKey { index: *index }
+            }
+            AcceptedTargetPathComponent::MapEntryValue { index } => {
+                Self::MapEntryValue { index: *index }
+            }
+        }
+    }
+
+    fn into_component(self) -> Result<AcceptedTargetPathComponent, InternalError> {
+        match self {
+            Self::RootField { field_id } => Ok(AcceptedTargetPathComponent::RootField(
+                FieldId::new(field_id),
+            )),
+            Self::RecordMember {
+                composite_type_id,
+                member_id,
+            } => Ok(AcceptedTargetPathComponent::RecordMember {
+                composite_type_id: CompositeTypeId::new(composite_type_id)
+                    .ok_or_else(InternalError::store_corruption)?,
+                member_id: CompositeFieldId::new(member_id)
+                    .ok_or_else(InternalError::store_corruption)?,
+            }),
+            Self::TupleElement {
+                composite_type_id,
+                ordinal,
+            } => Ok(AcceptedTargetPathComponent::TupleElement {
+                composite_type_id: CompositeTypeId::new(composite_type_id)
+                    .ok_or_else(InternalError::store_corruption)?,
+                ordinal,
+            }),
+            Self::Newtype { composite_type_id } => Ok(AcceptedTargetPathComponent::Newtype {
+                composite_type_id: CompositeTypeId::new(composite_type_id)
+                    .ok_or_else(InternalError::store_corruption)?,
+            }),
+            Self::EnumVariant {
+                enum_type_id,
+                variant_id,
+            } => Ok(AcceptedTargetPathComponent::EnumVariant {
+                enum_type_id: EnumTypeId::new(enum_type_id)
+                    .ok_or_else(InternalError::store_corruption)?,
+                variant_id: EnumVariantId::new(variant_id)
+                    .ok_or_else(InternalError::store_corruption)?,
+            }),
+            Self::ListElement { index } => Ok(AcceptedTargetPathComponent::ListElement { index }),
+            Self::SetElement { index } => Ok(AcceptedTargetPathComponent::SetElement { index }),
+            Self::MapEntryKey { index } => Ok(AcceptedTargetPathComponent::MapEntryKey { index }),
+            Self::MapEntryValue { index } => {
+                Ok(AcceptedTargetPathComponent::MapEntryValue { index })
+            }
+        }
     }
 }
 

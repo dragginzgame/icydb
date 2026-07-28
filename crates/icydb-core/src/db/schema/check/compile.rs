@@ -3,6 +3,7 @@
 use super::{
     AcceptedCheckCompareOpV1, AcceptedCheckExprV1, AcceptedCheckExprV1Error,
     AcceptedCheckLiteralV1, AcceptedCheckValueExprV1, MAX_CHECK_EXPR_V1_NODES, slot_for_field,
+    targeted::{AcceptedTargetPath, CompiledAcceptedTargetedRules},
 };
 use crate::{
     db::write_context::MutationMode,
@@ -63,6 +64,16 @@ pub(in crate::db) enum AcceptedRowConstraintEvaluationError {
     MissingSlot,
     RuntimeValueMismatch,
     WorkBudgetExceeded,
+    ValueDepthExceeded,
+    ValueNodeBudgetExceeded,
+    OperationBudgetExceeded,
+    PathBudgetExceeded,
+    TargetedRuleViolation {
+        constraint_id: ConstraintId,
+        constraint_name: String,
+        field_path: String,
+        path: AcceptedTargetPath,
+    },
     Violation {
         constraint_id: ConstraintId,
         constraint_name: String,
@@ -151,6 +162,25 @@ enum CompiledAcceptedRowConstraint {
     },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CompiledIntegrityRowConstraint {
+    Check {
+        id: ConstraintId,
+        constraint_ordinal: usize,
+    },
+    TargetedRule {
+        id: ConstraintId,
+    },
+}
+
+impl CompiledIntegrityRowConstraint {
+    const fn id(self) -> ConstraintId {
+        match self {
+            Self::Check { id, .. } | Self::TargetedRule { id } => id,
+        }
+    }
+}
+
 impl CompiledAcceptedRowConstraint {
     const fn id(&self) -> ConstraintId {
         match self {
@@ -168,9 +198,10 @@ impl CompiledAcceptedRowConstraint {
 pub(in crate::db) struct CompiledAcceptedRowConstraints {
     fingerprint: CommitSchemaFingerprint,
     constraints: Vec<CompiledAcceptedRowConstraint>,
-    validated_check_ordinals: Vec<usize>,
+    integrity_constraints: Vec<CompiledIntegrityRowConstraint>,
     required_slots: Vec<usize>,
     unique_write_barriers: Vec<CompiledUniqueWriteBarrier>,
+    targeted_rules: CompiledAcceptedTargetedRules,
     field_count: usize,
 }
 
@@ -184,12 +215,14 @@ impl CompiledAcceptedRowConstraints {
         let snapshot = schema.persisted_snapshot();
         let check_sources = check_constraint_sources(snapshot);
         let not_null_sources = not_null_constraint_sources(snapshot);
+        let targeted_rules = compile_targeted_rules(schema, value_catalog)?;
         let mut compiled = Self::compile_sources(
             schema,
             value_catalog,
             fingerprint,
             check_sources,
             not_null_sources,
+            targeted_rules,
         )?;
         compiled.unique_write_barriers = snapshot
             .constraint_activations()
@@ -200,6 +233,7 @@ impl CompiledAcceptedRowConstraints {
                 }
                 ConstraintActivationKind::Check { .. }
                 | ConstraintActivationKind::NotNull { .. }
+                | ConstraintActivationKind::TargetedRule { .. }
                 | ConstraintActivationKind::Relation { .. } => None,
             })
             .map(|(id, name, index_id)| {
@@ -225,7 +259,7 @@ impl CompiledAcceptedRowConstraints {
                     dependency_slots,
                 })
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>, AcceptedRowConstraintEvaluationError>>()?;
         compiled
             .unique_write_barriers
             .sort_unstable_by_key(|barrier| barrier.id);
@@ -263,6 +297,7 @@ impl CompiledAcceptedRowConstraints {
                 false,
             )],
             Vec::new(),
+            CompiledAcceptedTargetedRules::empty(),
         )
     }
 
@@ -293,6 +328,27 @@ impl CompiledAcceptedRowConstraints {
             fingerprint,
             Vec::new(),
             vec![(activation.id(), activation.name(), *field_id, false)],
+            CompiledAcceptedTargetedRules::empty(),
+        )
+    }
+
+    /// Compile exactly one pending targeted rule for historical validation.
+    pub(in crate::db) fn compile_targeted_rule_activation(
+        schema: &AcceptedSchemaSnapshot,
+        value_catalog: &AcceptedValueCatalogHandle,
+        fingerprint: CommitSchemaFingerprint,
+        activation_id: ConstraintId,
+    ) -> Result<Self, AcceptedRowConstraintEvaluationError> {
+        let targeted_rules =
+            CompiledAcceptedTargetedRules::compile_activation(schema, value_catalog, activation_id)
+                .map_err(AcceptedRowConstraintEvaluationError::from)?;
+        Self::compile_sources(
+            schema,
+            value_catalog,
+            fingerprint,
+            Vec::new(),
+            Vec::new(),
+            targeted_rules,
         )
     }
 
@@ -302,103 +358,25 @@ impl CompiledAcceptedRowConstraints {
         fingerprint: CommitSchemaFingerprint,
         check_sources: Vec<CheckConstraintSource<'_>>,
         not_null_sources: Vec<NotNullConstraintSource<'_>>,
+        targeted_rules: CompiledAcceptedTargetedRules,
     ) -> Result<Self, AcceptedRowConstraintEvaluationError> {
         let snapshot = schema.persisted_snapshot();
-        let checks = check_sources
-            .iter()
-            .copied()
-            .map(|(id, name, expression, validated)| {
-                expression
-                    .validate(snapshot, value_catalog.composite_catalog())
-                    .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)?;
-                Ok(CompiledAcceptedRowConstraint::Check(
-                    CompiledAcceptedCheck {
-                        id,
-                        name: name.to_string(),
-                        field_paths: expression
-                            .dependencies()
-                            .into_iter()
-                            .map(|field_id| {
-                                snapshot
-                                    .fields()
-                                    .iter()
-                                    .find(|field| field.id() == field_id)
-                                    .map(|field| field.name().to_string())
-                                    .ok_or(AcceptedRowConstraintEvaluationError::InvalidExpression(
-                                        AcceptedCheckExprV1Error::UnknownField,
-                                    ))
-                            })
-                            .collect::<Result<Vec<_>, _>>()?,
-                        expression: compile_expr(expression, snapshot, value_catalog)?,
-                        validated,
-                    },
-                ))
-            })
-            .collect::<Result<Vec<_>, AcceptedRowConstraintEvaluationError>>()?;
-        let not_null_constraints = not_null_sources
-            .iter()
-            .map(|(id, name, field_id, accepted)| {
-                let slot = slot_for_field(snapshot, *field_id)
-                    .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)?;
-                let field_path = snapshot
-                    .fields()
-                    .iter()
-                    .find(|field| field.id() == *field_id)
-                    .map(|field| field.name().to_string())
-                    .ok_or(AcceptedRowConstraintEvaluationError::InvalidExpression(
-                        AcceptedCheckExprV1Error::UnknownField,
-                    ))?;
-                Ok(CompiledAcceptedRowConstraint::NotNull {
-                    id: *id,
-                    name: (*name).to_string(),
-                    slot: usize::from(slot.get()),
-                    field_path,
-                    accepted: *accepted,
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut constraints = checks
+        let mut constraints = compile_check_sources(snapshot, value_catalog, &check_sources)?
             .into_iter()
-            .chain(not_null_constraints)
+            .chain(compile_not_null_sources(snapshot, &not_null_sources)?)
             .collect::<Vec<_>>();
         constraints.sort_unstable_by_key(CompiledAcceptedRowConstraint::id);
-        let validated_check_ordinals = constraints
-            .iter()
-            .enumerate()
-            .filter_map(|(ordinal, constraint)| {
-                matches!(
-                    constraint,
-                    CompiledAcceptedRowConstraint::Check(CompiledAcceptedCheck {
-                        validated: true,
-                        ..
-                    })
-                )
-                .then_some(ordinal)
-            })
-            .collect();
-        let mut required_slots = check_sources
-            .iter()
-            .flat_map(|(_, _, expression, _)| expression.dependencies())
-            .map(|field_id| {
-                slot_for_field(snapshot, field_id)
-                    .map(|slot| usize::from(slot.get()))
-                    .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)
-            })
-            .chain(not_null_sources.iter().map(|(_, _, field_id, _)| {
-                slot_for_field(snapshot, *field_id)
-                    .map(|slot| usize::from(slot.get()))
-                    .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)
-            }))
-            .collect::<Result<Vec<_>, _>>()?;
-        required_slots.sort_unstable();
-        required_slots.dedup();
+        let integrity_constraints = compile_integrity_constraints(snapshot, &constraints);
+        let required_slots =
+            compile_required_slots(snapshot, &check_sources, &not_null_sources, &targeted_rules)?;
 
         Ok(Self {
             fingerprint,
             constraints,
-            validated_check_ordinals,
+            integrity_constraints,
             required_slots,
             unique_write_barriers: Vec::new(),
+            targeted_rules,
             field_count: snapshot.row_layout().allocated_slot_count(),
         })
     }
@@ -406,7 +384,9 @@ impl CompiledAcceptedRowConstraints {
     /// Return whether this schema has any row-local constraints or gates.
     #[must_use]
     pub(in crate::db) const fn is_empty(&self) -> bool {
-        self.constraints.is_empty() && self.unique_write_barriers.is_empty()
+        self.constraints.is_empty()
+            && self.unique_write_barriers.is_empty()
+            && self.targeted_rules.is_empty()
     }
 
     /// Borrow the sorted unique row slots read by this compiled program.
@@ -457,21 +437,21 @@ impl CompiledAcceptedRowConstraints {
         })
     }
 
-    /// Return validated accepted checks in stable constraint-ID order.
+    /// Return validated accepted row-local constraints in stable ID order.
     ///
     /// This is the row-integrity sub-unit count. Write admission continues to
     /// use [`Self::evaluate`] and reject the first violation.
     #[must_use]
-    pub(in crate::db) const fn integrity_check_count(&self) -> usize {
-        self.validated_check_ordinals.len()
+    pub(in crate::db) const fn integrity_constraint_count(&self) -> usize {
+        self.integrity_constraints.len()
     }
 
-    /// Evaluate exactly one validated accepted check by stable ordinal.
+    /// Evaluate exactly one validated accepted row-local constraint.
     ///
     /// Pending activation gates remain in the shared write program but are
     /// excluded from this accepted-corruption lane. An invalid ordinal is
     /// corrupt program state.
-    pub(in crate::db) fn evaluate_integrity_check(
+    pub(in crate::db) fn evaluate_integrity_constraint(
         &self,
         ordinal: usize,
         current_fingerprint: CommitSchemaFingerprint,
@@ -480,25 +460,43 @@ impl CompiledAcceptedRowConstraints {
         if current_fingerprint != self.fingerprint {
             return Err(AcceptedRowConstraintEvaluationError::FingerprintMismatch);
         }
-        let Some(CompiledAcceptedRowConstraint::Check(check)) = self
-            .validated_check_ordinals
-            .get(ordinal)
-            .and_then(|ordinal| self.constraints.get(*ordinal))
-        else {
+        let Some(constraint) = self.integrity_constraints.get(ordinal).copied() else {
             return Err(AcceptedRowConstraintEvaluationError::InvalidExpression(
                 AcceptedCheckExprV1Error::UnknownField,
             ));
         };
-        let mut remaining_work = u32::from(MAX_CHECK_EXPR_V1_NODES);
-        if evaluate_expr(&check.expression, values_by_slot, &mut remaining_work)?
-            == AcceptedCheckTruth::False
-        {
-            return Err(AcceptedRowConstraintEvaluationError::Violation {
-                constraint_id: check.id,
-                constraint_name: check.name.clone(),
-                kind: AcceptedRowConstraintViolationKind::Check,
-                field_paths: check.field_paths.clone(),
-            });
+        match constraint {
+            CompiledIntegrityRowConstraint::Check {
+                constraint_ordinal, ..
+            } => {
+                let Some(CompiledAcceptedRowConstraint::Check(check)) =
+                    self.constraints.get(constraint_ordinal)
+                else {
+                    return Err(AcceptedRowConstraintEvaluationError::InvalidExpression(
+                        AcceptedCheckExprV1Error::UnknownField,
+                    ));
+                };
+                let mut remaining_work = u32::from(MAX_CHECK_EXPR_V1_NODES);
+                if evaluate_expr(&check.expression, values_by_slot, &mut remaining_work)?
+                    == AcceptedCheckTruth::False
+                {
+                    return Err(AcceptedRowConstraintEvaluationError::Violation {
+                        constraint_id: check.id,
+                        constraint_name: check.name.clone(),
+                        kind: AcceptedRowConstraintViolationKind::Check,
+                        field_paths: check.field_paths.clone(),
+                    });
+                }
+            }
+            CompiledIntegrityRowConstraint::TargetedRule { id } => {
+                if let Some(violation) = self
+                    .targeted_rules
+                    .evaluate_constraint(id, values_by_slot)
+                    .map_err(AcceptedRowConstraintEvaluationError::from)?
+                {
+                    return Err(targeted_rule_violation_error(violation));
+                }
+            }
         }
 
         Ok(())
@@ -540,6 +538,14 @@ impl CompiledAcceptedRowConstraints {
         if current_fingerprint != self.fingerprint {
             return Err(AcceptedRowConstraintEvaluationError::FingerprintMismatch);
         }
+        // The targeted artifact shares one bounded walk per root. It is
+        // side-effect free, so evaluation may run once before the scalar
+        // schedule while violation selection still follows the sole stable
+        // accepted constraint-ID order below.
+        let mut targeted_violation = self
+            .targeted_rules
+            .evaluate(values_by_slot)
+            .map_err(AcceptedRowConstraintEvaluationError::from)?;
         let per_check = u32::from(MAX_CHECK_EXPR_V1_NODES);
         let check_count = u32::try_from(
             self.constraints
@@ -552,6 +558,15 @@ impl CompiledAcceptedRowConstraints {
             .checked_mul(check_count)
             .ok_or(AcceptedRowConstraintEvaluationError::WorkBudgetExceeded)?;
         for constraint in &self.constraints {
+            if targeted_violation
+                .as_ref()
+                .is_some_and(|violation| violation.constraint_id < constraint.id())
+            {
+                let violation = targeted_violation
+                    .take()
+                    .ok_or(AcceptedRowConstraintEvaluationError::RuntimeValueMismatch)?;
+                return Err(targeted_rule_violation_error(violation));
+            }
             match constraint {
                 CompiledAcceptedRowConstraint::Check(check) => {
                     let truth =
@@ -587,8 +602,177 @@ impl CompiledAcceptedRowConstraints {
                 }
             }
         }
+        if let Some(violation) = targeted_violation {
+            return Err(targeted_rule_violation_error(violation));
+        }
         Ok(())
     }
+
+    #[cfg(test)]
+    pub(in crate::db) fn evaluate_targeted_rules_with_limits(
+        &self,
+        current_fingerprint: CommitSchemaFingerprint,
+        values_by_slot: &[Option<Value>],
+        limits: super::targeted::TargetedEvaluationLimits,
+    ) -> Result<(), AcceptedRowConstraintEvaluationError> {
+        if current_fingerprint != self.fingerprint {
+            return Err(AcceptedRowConstraintEvaluationError::FingerprintMismatch);
+        }
+        let violation = self
+            .targeted_rules
+            .evaluate_with_limits_for_tests(values_by_slot, limits)
+            .map_err(AcceptedRowConstraintEvaluationError::from)?;
+        if let Some(violation) = violation {
+            return Err(targeted_rule_violation_error(violation));
+        }
+        Ok(())
+    }
+}
+
+fn compile_check_sources(
+    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+    value_catalog: &AcceptedValueCatalogHandle,
+    sources: &[CheckConstraintSource<'_>],
+) -> Result<Vec<CompiledAcceptedRowConstraint>, AcceptedRowConstraintEvaluationError> {
+    sources
+        .iter()
+        .copied()
+        .map(|(id, name, expression, validated)| {
+            expression
+                .validate(snapshot, value_catalog.composite_catalog())
+                .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)?;
+            Ok(CompiledAcceptedRowConstraint::Check(
+                CompiledAcceptedCheck {
+                    id,
+                    name: name.to_string(),
+                    field_paths: expression
+                        .dependencies()
+                        .into_iter()
+                        .map(|field_id| {
+                            snapshot
+                                .fields()
+                                .iter()
+                                .find(|field| field.id() == field_id)
+                                .map(|field| field.name().to_string())
+                                .ok_or(AcceptedRowConstraintEvaluationError::InvalidExpression(
+                                    AcceptedCheckExprV1Error::UnknownField,
+                                ))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                    expression: compile_expr(expression, snapshot, value_catalog)?,
+                    validated,
+                },
+            ))
+        })
+        .collect()
+}
+
+fn compile_not_null_sources(
+    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+    sources: &[NotNullConstraintSource<'_>],
+) -> Result<Vec<CompiledAcceptedRowConstraint>, AcceptedRowConstraintEvaluationError> {
+    sources
+        .iter()
+        .map(|(id, name, field_id, accepted)| {
+            let slot = slot_for_field(snapshot, *field_id)
+                .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)?;
+            let field_path = snapshot
+                .fields()
+                .iter()
+                .find(|field| field.id() == *field_id)
+                .map(|field| field.name().to_string())
+                .ok_or(AcceptedRowConstraintEvaluationError::InvalidExpression(
+                    AcceptedCheckExprV1Error::UnknownField,
+                ))?;
+            Ok(CompiledAcceptedRowConstraint::NotNull {
+                id: *id,
+                name: (*name).to_string(),
+                slot: usize::from(slot.get()),
+                field_path,
+                accepted: *accepted,
+            })
+        })
+        .collect()
+}
+
+fn compile_integrity_constraints(
+    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+    constraints: &[CompiledAcceptedRowConstraint],
+) -> Vec<CompiledIntegrityRowConstraint> {
+    let mut compiled = constraints
+        .iter()
+        .enumerate()
+        .filter_map(|(ordinal, constraint)| {
+            let CompiledAcceptedRowConstraint::Check(CompiledAcceptedCheck {
+                id,
+                validated: true,
+                ..
+            }) = constraint
+            else {
+                return None;
+            };
+            Some(CompiledIntegrityRowConstraint::Check {
+                id: *id,
+                constraint_ordinal: ordinal,
+            })
+        })
+        .chain(snapshot.constraints().iter().filter_map(|constraint| {
+            matches!(
+                constraint.kind(),
+                AcceptedConstraintKind::TargetedRule { .. }
+            )
+            .then_some(CompiledIntegrityRowConstraint::TargetedRule {
+                id: constraint.id(),
+            })
+        }))
+        .collect::<Vec<_>>();
+    compiled.sort_unstable_by_key(|constraint| constraint.id());
+    compiled
+}
+
+fn compile_required_slots(
+    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+    check_sources: &[CheckConstraintSource<'_>],
+    not_null_sources: &[NotNullConstraintSource<'_>],
+    targeted_rules: &CompiledAcceptedTargetedRules,
+) -> Result<Vec<usize>, AcceptedRowConstraintEvaluationError> {
+    let mut slots = check_sources
+        .iter()
+        .flat_map(|(_, _, expression, _)| expression.dependencies())
+        .map(|field_id| {
+            slot_for_field(snapshot, field_id)
+                .map(|slot| usize::from(slot.get()))
+                .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)
+        })
+        .chain(not_null_sources.iter().map(|(_, _, field_id, _)| {
+            slot_for_field(snapshot, *field_id)
+                .map(|slot| usize::from(slot.get()))
+                .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)
+        }))
+        .chain(targeted_rules.required_slots().map(Ok))
+        .collect::<Result<Vec<_>, _>>()?;
+    slots.sort_unstable();
+    slots.dedup();
+    Ok(slots)
+}
+
+fn targeted_rule_violation_error(
+    violation: super::targeted::AcceptedTargetedRuleViolation,
+) -> AcceptedRowConstraintEvaluationError {
+    AcceptedRowConstraintEvaluationError::TargetedRuleViolation {
+        constraint_id: violation.constraint_id,
+        constraint_name: violation.constraint_name,
+        field_path: violation.field_path,
+        path: violation.path,
+    }
+}
+
+fn compile_targeted_rules(
+    schema: &AcceptedSchemaSnapshot,
+    value_catalog: &AcceptedValueCatalogHandle,
+) -> Result<CompiledAcceptedTargetedRules, AcceptedRowConstraintEvaluationError> {
+    CompiledAcceptedTargetedRules::compile(schema, value_catalog)
+        .map_err(AcceptedRowConstraintEvaluationError::from)
 }
 
 fn check_constraint_sources(
@@ -607,7 +791,9 @@ fn check_constraint_sources(
             AcceptedConstraintKind::PrimaryKey
             | AcceptedConstraintKind::NotNull { .. }
             | AcceptedConstraintKind::Unique { .. }
-            | AcceptedConstraintKind::Relation { .. } => None,
+            | AcceptedConstraintKind::Relation { .. }
+            // Compiled once per root by `CompiledAcceptedTargetedRules`.
+            | AcceptedConstraintKind::TargetedRule { .. } => None,
         })
         .chain(
             snapshot
@@ -622,7 +808,8 @@ fn check_constraint_sources(
                     )),
                     ConstraintActivationKind::NotNull { .. }
                     | ConstraintActivationKind::Unique { .. }
-                    | ConstraintActivationKind::Relation { .. } => None,
+                    | ConstraintActivationKind::Relation { .. }
+                    | ConstraintActivationKind::TargetedRule { .. } => None,
                 }),
         )
         .collect()
@@ -641,7 +828,9 @@ fn not_null_constraint_sources(
             AcceptedConstraintKind::PrimaryKey
             | AcceptedConstraintKind::Unique { .. }
             | AcceptedConstraintKind::Relation { .. }
-            | AcceptedConstraintKind::Check { .. } => None,
+            | AcceptedConstraintKind::Check { .. }
+            // Compiled once per root by `CompiledAcceptedTargetedRules`.
+            | AcceptedConstraintKind::TargetedRule { .. } => None,
         })
         .chain(
             snapshot
@@ -653,7 +842,8 @@ fn not_null_constraint_sources(
                     }
                     ConstraintActivationKind::Unique { .. }
                     | ConstraintActivationKind::Relation { .. }
-                    | ConstraintActivationKind::Check { .. } => None,
+                    | ConstraintActivationKind::Check { .. }
+                    | ConstraintActivationKind::TargetedRule { .. } => None,
                 }),
         )
         .collect()
@@ -686,12 +876,31 @@ pub(in crate::db) fn accepted_row_constraint_write_error(
             primary_key,
             field_paths,
         )),
+        AcceptedRowConstraintEvaluationError::TargetedRuleViolation {
+            constraint_id,
+            constraint_name,
+            field_path,
+            path,
+        } => InternalError::mutation_constraint_violation(
+            ConstraintDiagnostic::write_targeted_rule_violation(
+                constraint_id.get(),
+                constraint_name,
+                entity_path.to_string(),
+                primary_key,
+                vec![field_path],
+                path.into_constraint_value_path(),
+            ),
+        ),
         AcceptedRowConstraintEvaluationError::InvalidExpression(_)
         | AcceptedRowConstraintEvaluationError::LiteralCorrupt
         | AcceptedRowConstraintEvaluationError::FingerprintMismatch
         | AcceptedRowConstraintEvaluationError::MissingSlot
         | AcceptedRowConstraintEvaluationError::RuntimeValueMismatch
-        | AcceptedRowConstraintEvaluationError::WorkBudgetExceeded => {
+        | AcceptedRowConstraintEvaluationError::WorkBudgetExceeded
+        | AcceptedRowConstraintEvaluationError::ValueDepthExceeded
+        | AcceptedRowConstraintEvaluationError::ValueNodeBudgetExceeded
+        | AcceptedRowConstraintEvaluationError::OperationBudgetExceeded
+        | AcceptedRowConstraintEvaluationError::PathBudgetExceeded => {
             InternalError::accepted_row_constraint_program_corrupt()
         }
     }
@@ -871,35 +1080,54 @@ fn evaluate_value<'a>(
     match expression {
         CompiledCheckValueExprV1::Field(slot) => value_at(*slot),
         CompiledCheckValueExprV1::Literal(value) => Ok(Cow::Borrowed(value)),
-        CompiledCheckValueExprV1::CharLength(slot) => match value_at(*slot)?.as_ref() {
-            Value::Null => Ok(Cow::Owned(Value::Null)),
-            Value::Text(value) => usize_to_nat64(value.chars().count()),
-            _ => Err(AcceptedRowConstraintEvaluationError::RuntimeValueMismatch),
-        },
-        CompiledCheckValueExprV1::OctetLength(slot) => match value_at(*slot)?.as_ref() {
-            Value::Null => Ok(Cow::Owned(Value::Null)),
-            Value::Blob(value) => usize_to_nat64(value.len()),
-            _ => Err(AcceptedRowConstraintEvaluationError::RuntimeValueMismatch),
-        },
-        CompiledCheckValueExprV1::Cardinality(slot) => match value_at(*slot)?.as_ref() {
-            Value::Null => Ok(Cow::Owned(Value::Null)),
-            Value::List(value) => usize_to_nat64(value.len()),
-            Value::Map(value) => usize_to_nat64(value.len()),
-            _ => Err(AcceptedRowConstraintEvaluationError::RuntimeValueMismatch),
-        },
+        CompiledCheckValueExprV1::CharLength(slot) => evaluate_length_value(
+            value_at(*slot)?.as_ref(),
+            AcceptedValueLengthKind::Characters,
+        ),
+        CompiledCheckValueExprV1::OctetLength(slot) => {
+            evaluate_length_value(value_at(*slot)?.as_ref(), AcceptedValueLengthKind::Octets)
+        }
+        CompiledCheckValueExprV1::Cardinality(slot) => evaluate_length_value(
+            value_at(*slot)?.as_ref(),
+            AcceptedValueLengthKind::Cardinality,
+        ),
     }
 }
 
-fn usize_to_nat64(
-    value: usize,
-) -> Result<Cow<'static, Value>, AcceptedRowConstraintEvaluationError> {
-    u64::try_from(value)
-        .map(Value::Nat64)
-        .map(Cow::Owned)
-        .map_err(|_| AcceptedRowConstraintEvaluationError::RuntimeValueMismatch)
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum AcceptedValueLengthKind {
+    Characters,
+    Octets,
+    Cardinality,
 }
 
-fn compare_values(
+fn evaluate_length_value(
+    value: &Value,
+    kind: AcceptedValueLengthKind,
+) -> Result<Cow<'static, Value>, AcceptedRowConstraintEvaluationError> {
+    if matches!(value, Value::Null) {
+        return Ok(Cow::Owned(Value::Null));
+    }
+    accepted_value_length(value, kind)
+        .map(Value::Nat64)
+        .map(Cow::Owned)
+}
+
+pub(super) fn accepted_value_length(
+    value: &Value,
+    kind: AcceptedValueLengthKind,
+) -> Result<u64, AcceptedRowConstraintEvaluationError> {
+    let length = match (kind, value) {
+        (AcceptedValueLengthKind::Characters, Value::Text(value)) => value.chars().count(),
+        (AcceptedValueLengthKind::Octets, Value::Blob(value)) => value.len(),
+        (AcceptedValueLengthKind::Cardinality, Value::List(value)) => value.len(),
+        (AcceptedValueLengthKind::Cardinality, Value::Map(value)) => value.len(),
+        _ => return Err(AcceptedRowConstraintEvaluationError::RuntimeValueMismatch),
+    };
+    u64::try_from(length).map_err(|_| AcceptedRowConstraintEvaluationError::RuntimeValueMismatch)
+}
+
+pub(super) fn compare_values(
     left: &Value,
     op: AcceptedCheckCompareOpV1,
     right: &Value,
@@ -1020,6 +1248,37 @@ pub(in crate::db::schema) fn validate_accepted_check_literals(
         }
     }
     Ok(())
+}
+
+pub(in crate::db::schema) fn validate_accepted_rule_operation_literals(
+    operation: &crate::db::schema::AcceptedRuleOperation,
+    resolved_kind: &crate::db::schema::AcceptedFieldKind,
+    enum_catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
+) -> Result<(), AcceptedRowConstraintEvaluationError> {
+    let decode = |literal: &AcceptedCheckLiteralV1| {
+        if literal.kind() != resolved_kind {
+            return Err(AcceptedRowConstraintEvaluationError::LiteralCorrupt);
+        }
+        decode_literal_from_catalogs(literal, enum_catalog, composite_catalog)
+    };
+    match operation {
+        crate::db::schema::AcceptedRuleOperation::LengthRangeInclusive { .. } => Ok(()),
+        crate::db::schema::AcceptedRuleOperation::NumericMinimumInclusive { value } => {
+            let _ = decode(value)?;
+            Ok(())
+        }
+        crate::db::schema::AcceptedRuleOperation::NumericRangeInclusive { min, max } => {
+            let min = decode(min)?;
+            let max = decode(max)?;
+            if Value::strict_order_cmp(&min, &max)
+                .is_none_or(|ordering| ordering == Ordering::Greater)
+            {
+                return Err(AcceptedRowConstraintEvaluationError::LiteralCorrupt);
+            }
+            Ok(())
+        }
+    }
 }
 
 fn validate_expression_literals(
