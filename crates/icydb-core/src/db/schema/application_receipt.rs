@@ -9,7 +9,6 @@ use crate::db::codec::{
 };
 use crate::error::{ConstraintDiagnostic, InternalError};
 use candid::CandidType;
-use icydb_diagnostic_code::{ErrorClass, ErrorCode, ErrorOrigin};
 use icydb_schema::{
     ExpectedAcceptedHead, SchemaProposalDigest, SchemaSubmissionKey, TargetDatabaseIdentity,
     TargetStoreIdentity,
@@ -124,9 +123,8 @@ pub enum SchemaChangeProgressStatus {
     },
     /// Every activation completed and the durable receipt became terminal.
     Applied,
-    /// The admitted activation ended with the typed failure retained by the
-    /// durable receipt.
-    Failed,
+    /// The authorized owner aborted the pending activation.
+    Aborted,
 }
 
 ///
@@ -163,61 +161,6 @@ impl SchemaChangeProgress {
 }
 
 ///
-/// SchemaChangeFailure
-///
-/// Compact typed failure retained after an admitted schema job terminates.
-///
-
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-pub struct SchemaChangeFailure {
-    code: u16,
-    class: u8,
-    origin: u8,
-}
-
-impl SchemaChangeFailure {
-    #[cfg(test)]
-    pub(in crate::db) const fn from_error_code(code: ErrorCode, origin: ErrorOrigin) -> Self {
-        Self {
-            code: code.raw(),
-            class: code.class().wire_code(),
-            origin: origin.wire_code(),
-        }
-    }
-
-    /// Return the stable compact diagnostic code.
-    #[must_use]
-    pub const fn code(self) -> ErrorCode {
-        ErrorCode::from_raw(self.code)
-    }
-
-    /// Return the compact diagnostic class.
-    #[must_use]
-    pub const fn class(self) -> ErrorClass {
-        match ErrorClass::from_wire_code(self.class) {
-            Some(class) => class,
-            None => self.code().class(),
-        }
-    }
-
-    /// Return the compact diagnostic origin.
-    #[must_use]
-    pub const fn origin(self) -> ErrorOrigin {
-        ErrorOrigin::from_wire_code(self.origin)
-    }
-
-    fn validate(self) -> Result<(), InternalError> {
-        if !self.code().is_known()
-            || ErrorClass::from_wire_code(self.class) != Some(self.code().class())
-            || ErrorOrigin::from_known_wire_code(self.origin).is_none()
-        {
-            return Err(InternalError::store_corruption());
-        }
-        Ok(())
-    }
-}
-
-///
 /// SchemaChangeOutcome
 ///
 /// Durable terminal or resumable outcome of one admitted proposal.
@@ -242,10 +185,10 @@ pub enum SchemaChangeOutcome {
         /// Candidate head reserved by the pending work.
         candidate_head: ExpectedAcceptedHead,
     },
-    /// An admitted job reached a durable typed failure.
-    Failed {
-        /// Compact terminal failure.
-        error: SchemaChangeFailure,
+    /// The authorized owner aborted a pending activation.
+    Aborted {
+        /// Accepted database-wide head after retiring the activation.
+        accepted_head: ExpectedAcceptedHead,
     },
 }
 
@@ -340,7 +283,8 @@ impl SchemaChangeReceipt {
                     return Err(InternalError::store_corruption());
                 }
             }
-            SchemaChangeOutcome::Applied { accepted_head } => {
+            SchemaChangeOutcome::Applied { accepted_head }
+            | SchemaChangeOutcome::Aborted { accepted_head } => {
                 validate_head(accepted_head, false)?;
                 if accepted_head == &self.prior_head {
                     return Err(InternalError::store_corruption());
@@ -364,30 +308,15 @@ impl SchemaChangeReceipt {
                     return Err(InternalError::store_corruption());
                 }
             }
-            SchemaChangeOutcome::Failed { error } => error.validate()?,
         }
         Ok(())
     }
 }
 
 ///
-/// SchemaChangeActivationKind
-///
-/// Accepted 0.211 activation family resumed by one schema-change job.
-///
-
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-pub(in crate::db) enum SchemaChangeActivationKind {
-    Check,
-    NotNull,
-    Relation,
-    UniqueIndex,
-}
-
-///
 /// SchemaChangeActivation
 ///
-/// Minimal accepted activation identity carried by a pending application job.
+/// Minimal generated-check identity carried by a pending application job.
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -395,7 +324,6 @@ pub(in crate::db) struct SchemaChangeActivation {
     store: TargetStoreIdentity,
     entity_tag: u64,
     constraint_id: u32,
-    kind: SchemaChangeActivationKind,
 }
 
 impl SchemaChangeActivation {
@@ -403,7 +331,6 @@ impl SchemaChangeActivation {
         store: TargetStoreIdentity,
         entity_tag: u64,
         constraint_id: u32,
-        kind: SchemaChangeActivationKind,
     ) -> Result<Self, InternalError> {
         if entity_tag == 0 || constraint_id == 0 {
             return Err(InternalError::store_invariant());
@@ -412,7 +339,6 @@ impl SchemaChangeActivation {
             store,
             entity_tag,
             constraint_id,
-            kind,
         })
     }
 
@@ -426,10 +352,6 @@ impl SchemaChangeActivation {
 
     pub(in crate::db) const fn constraint_id(&self) -> u32 {
         self.constraint_id
-    }
-
-    pub(in crate::db) const fn kind(&self) -> SchemaChangeActivationKind {
-        self.kind
     }
 
     fn validate(&self) -> Result<(), InternalError> {
@@ -542,9 +464,8 @@ fn write_head(hasher: &mut sha2::Sha256, head: &ExpectedAcceptedHead) {
 #[cfg(test)]
 mod tests {
     use super::{
-        SchemaApplicationRecord, SchemaChangeActivation, SchemaChangeActivationKind,
-        SchemaChangeFailure, SchemaChangeJob, SchemaChangeOutcome, SchemaChangeReceipt,
-        derive_schema_change_job_id,
+        SchemaApplicationRecord, SchemaChangeActivation, SchemaChangeJob, SchemaChangeOutcome,
+        SchemaChangeReceipt, derive_schema_change_job_id,
     };
     use icydb_schema::{
         ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaProposalDigest, SchemaSubmissionKey,
@@ -607,13 +528,9 @@ mod tests {
             SchemaApplicationRecord::new(pending.clone(), Vec::new()).is_err(),
             "pending records require exact activation ownership",
         );
-        let activation = SchemaChangeActivation::new(
-            TargetStoreIdentity::from_bytes([0x44; 32]),
-            1,
-            1,
-            SchemaChangeActivationKind::UniqueIndex,
-        )
-        .expect("activation should admit");
+        let activation =
+            SchemaChangeActivation::new(TargetStoreIdentity::from_bytes([0x44; 32]), 1, 1)
+                .expect("activation should admit");
         SchemaApplicationRecord::new(pending, vec![activation])
             .expect("pending record with activation should admit");
 
@@ -622,11 +539,11 @@ mod tests {
             submission,
             digest,
             head,
-            SchemaChangeOutcome::Failed {
-                error: SchemaChangeFailure::from_error_code(
-                    icydb_diagnostic_code::ErrorCode::RUNTIME_CONFLICT,
-                    icydb_diagnostic_code::ErrorOrigin::Runtime,
-                ),
+            SchemaChangeOutcome::Aborted {
+                accepted_head: ExpectedAcceptedHead::Exact {
+                    revision: 1,
+                    fingerprint: ExpectedSchemaFingerprint::from_bytes([0x55; 32]),
+                },
             },
         )
         .expect("terminal receipt should admit");
@@ -634,54 +551,12 @@ mod tests {
             SchemaApplicationRecord::new(
                 terminal,
                 vec![
-                    SchemaChangeActivation::new(
-                        TargetStoreIdentity::from_bytes([0x44; 32]),
-                        1,
-                        1,
-                        SchemaChangeActivationKind::Check,
-                    )
-                    .expect("activation should admit"),
+                    SchemaChangeActivation::new(TargetStoreIdentity::from_bytes([0x44; 32]), 1, 1,)
+                        .expect("activation should admit"),
                 ],
             )
             .is_err(),
             "terminal records cannot retain activation state",
-        );
-    }
-
-    #[test]
-    fn schema_change_failure_rejects_unknown_or_mismatched_diagnostic_identity() {
-        let valid = SchemaChangeFailure::from_error_code(
-            icydb_diagnostic_code::ErrorCode::RUNTIME_CONFLICT,
-            icydb_diagnostic_code::ErrorOrigin::Runtime,
-        );
-        valid.validate().expect("known diagnostic should admit");
-
-        assert!(
-            SchemaChangeFailure {
-                code: u16::MAX,
-                class: valid.class,
-                origin: valid.origin,
-            }
-            .validate()
-            .is_err(),
-        );
-        assert!(
-            SchemaChangeFailure {
-                code: valid.code,
-                class: icydb_diagnostic_code::ErrorClass::Query.wire_code(),
-                origin: valid.origin,
-            }
-            .validate()
-            .is_err(),
-        );
-        assert!(
-            SchemaChangeFailure {
-                code: valid.code,
-                class: valid.class,
-                origin: u8::MAX,
-            }
-            .validate()
-            .is_err(),
         );
     }
 
@@ -737,11 +612,33 @@ mod tests {
             database,
             SchemaSubmissionKey::try_new("applied").expect("submission key should admit"),
             digest,
-            prior,
+            prior.clone(),
             SchemaChangeOutcome::Applied {
-                accepted_head: changed,
+                accepted_head: changed.clone(),
             },
         )
         .expect("applied receipt must identify a different exact head");
+        assert!(
+            SchemaChangeReceipt::new(
+                database,
+                SchemaSubmissionKey::try_new("invalid-abort").expect("submission key should admit"),
+                digest,
+                prior.clone(),
+                SchemaChangeOutcome::Aborted {
+                    accepted_head: prior.clone(),
+                },
+            )
+            .is_err(),
+        );
+        SchemaChangeReceipt::new(
+            database,
+            SchemaSubmissionKey::try_new("aborted").expect("submission key should admit"),
+            digest,
+            prior,
+            SchemaChangeOutcome::Aborted {
+                accepted_head: changed,
+            },
+        )
+        .expect("aborted receipt must retain the post-abort accepted head");
     }
 }

@@ -362,6 +362,30 @@ impl AcceptedSourceBindingCatalog {
         }
     }
 
+    /// Remove the unique generated-check binding selected by accepted identity.
+    ///
+    /// Abort owns only the durable application record's accepted identity, so
+    /// it resolves the source key from this catalog rather than consulting the
+    /// authored proposal again.
+    pub(in crate::db::schema) fn remove_constraint_identity(
+        &mut self,
+        entity: EntityTag,
+        expected: ConstraintId,
+    ) -> Result<(), InternalError> {
+        let mut matching = self
+            .constraints
+            .iter()
+            .filter(|((bound_entity, _), constraint)| {
+                *bound_entity == entity && **constraint == expected
+            })
+            .map(|((_, source), _)| source.clone());
+        let source = matching.next().ok_or_else(InternalError::store_invariant)?;
+        if matching.next().is_some() {
+            return Err(InternalError::store_invariant());
+        }
+        self.remove_constraint(entity, &source, expected)
+    }
+
     /// Resolve one immutable secondary-index source identity.
     #[must_use]
     pub(in crate::db::schema) fn index(

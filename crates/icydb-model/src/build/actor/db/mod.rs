@@ -36,7 +36,7 @@ fn entity_registrations(builder: &ActorBuilder) -> TokenStream {
         .then(SchemaSurfaceTokens::empty);
     let entities = builder.get_entities();
 
-    for (entity_path, entity) in entities {
+    for (_, entity) in entities {
         let entity_source_key = entity.source_key();
         let store_path = entity.store();
         let entity_name = entity.resolved_name();
@@ -47,10 +47,10 @@ fn entity_registrations(builder: &ActorBuilder) -> TokenStream {
             ),
         });
         if let Some(sql_surface) = sql_surface.as_mut() {
-            sql_surface.push_entity(entity_path.as_str(), entity_name);
+            sql_surface.push_entity(entity_name);
         }
         if let Some(schema_surface) = schema_surface.as_mut() {
-            schema_surface.push_entity(entity_path.as_str(), entity_name);
+            schema_surface.push_entity(entity_source_key);
         }
     }
     let sql_surface = sql_surface.map_or_else(TokenStream::new, |sql_surface| quote!(#sql_surface));

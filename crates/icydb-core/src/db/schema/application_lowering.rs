@@ -460,31 +460,6 @@ pub(in crate::db::schema) fn lower_initial_schema_proposal(
     proposal: &SchemaProposal,
     stores: &[ProposalStoreTarget],
 ) -> Result<Vec<CandidateSchemaRevision>, InternalError> {
-    lower_initial_schema_proposal_with_entity_identities(proposal, stores, &BTreeMap::new(), None)
-}
-
-/// Lower current generated declarations for live-rebuilt stores while
-/// preserving accepted entity identities owned by durable stores.
-pub(in crate::db::schema) fn lower_live_rebuilt_schema_proposal(
-    proposal: &SchemaProposal,
-    stores: &[ProposalStoreTarget],
-    retained_entities: &BTreeMap<EntitySourceKey, EntityTag>,
-    live_store_paths: &BTreeSet<&'static str>,
-) -> Result<Vec<CandidateSchemaRevision>, InternalError> {
-    lower_initial_schema_proposal_with_entity_identities(
-        proposal,
-        stores,
-        retained_entities,
-        Some(live_store_paths),
-    )
-}
-
-fn lower_initial_schema_proposal_with_entity_identities(
-    proposal: &SchemaProposal,
-    stores: &[ProposalStoreTarget],
-    retained_entities: &BTreeMap<EntitySourceKey, EntityTag>,
-    selected_store_paths: Option<&BTreeSet<&'static str>>,
-) -> Result<Vec<CandidateSchemaRevision>, InternalError> {
     if !proposal.removals().is_empty() {
         return Err(InternalError::store_unsupported());
     }
@@ -536,12 +511,9 @@ fn lower_initial_schema_proposal_with_entity_identities(
         store_entities.sort_by(|left, right| left.source_key().cmp(right.source_key()));
     }
 
-    let accepted_entities = allocate_entity_identities(&entities_by_store, retained_entities)?;
+    let accepted_entities = allocate_entity_identities(&entities_by_store)?;
     let mut candidates = Vec::with_capacity(entities_by_store.len());
     for (store_path, store_entities) in entities_by_store {
-        if selected_store_paths.is_some_and(|selected| !selected.contains(store_path)) {
-            continue;
-        }
         candidates.push(lower_initial_store(
             store_path,
             store_entities.as_slice(),
@@ -763,9 +735,6 @@ fn lower_existing_store_candidate(
     removals.indexes.sort();
     removals.relations.sort();
     removals.types.sort();
-    if removals.types.len() > 1 {
-        return Err(InternalError::store_unsupported());
-    }
     let mut catalogs =
         lower_existing_named_catalogs(store.bundle, entities.as_slice(), types, used_types)?;
     let mut snapshots = store.bundle.entity_snapshots().clone();
@@ -968,29 +937,37 @@ fn apply_existing_type_removals(
     source_bindings: &mut AcceptedSourceBindingCatalog,
     removals: &[ExistingTypeRemoval],
 ) -> Result<(), InternalError> {
-    for removal in removals {
-        match removal.identity {
-            AcceptedNamedTypeIdentity::Enum(type_id) => {
-                catalogs.enum_catalog = catalogs
-                    .enum_catalog
-                    .clone()
-                    .with_removed_type(type_id)
-                    .map_err(|_| InternalError::store_unsupported())?;
-                if !catalogs.composite_catalog.validate(&catalogs.enum_catalog) {
-                    return Err(InternalError::store_unsupported());
-                }
-            }
-            AcceptedNamedTypeIdentity::Composite(type_id) => {
-                catalogs.composite_catalog = catalogs
-                    .composite_catalog
-                    .clone()
-                    .with_removed_type(type_id, &catalogs.enum_catalog)
-                    .map_err(|_| InternalError::store_unsupported())?;
-            }
-        }
-        source_bindings.remove_named_type(&removal.source, removal.identity)?;
-        catalogs.changed = true;
+    let enum_type_ids = removals
+        .iter()
+        .filter_map(|removal| match removal.identity {
+            AcceptedNamedTypeIdentity::Enum(type_id) => Some(type_id),
+            AcceptedNamedTypeIdentity::Composite(_) => None,
+        })
+        .collect::<BTreeSet<_>>();
+    let composite_type_ids = removals
+        .iter()
+        .filter_map(|removal| match removal.identity {
+            AcceptedNamedTypeIdentity::Composite(type_id) => Some(type_id),
+            AcceptedNamedTypeIdentity::Enum(_) => None,
+        })
+        .collect::<BTreeSet<_>>();
+    if enum_type_ids.len().saturating_add(composite_type_ids.len()) != removals.len() {
+        return Err(InternalError::store_unsupported());
     }
+    catalogs.enum_catalog = catalogs
+        .enum_catalog
+        .clone()
+        .with_removed_types(&enum_type_ids)
+        .map_err(|_| InternalError::store_unsupported())?;
+    catalogs.composite_catalog = catalogs
+        .composite_catalog
+        .clone()
+        .with_removed_types(&composite_type_ids, &catalogs.enum_catalog)
+        .map_err(|_| InternalError::store_unsupported())?;
+    for removal in removals {
+        source_bindings.remove_named_type(&removal.source, removal.identity)?;
+    }
+    catalogs.changed |= !removals.is_empty();
     if snapshots
         .values()
         .flat_map(PersistedSchemaSnapshot::fields)
@@ -2257,32 +2234,15 @@ fn lower_existing_checks(
 
 fn allocate_entity_identities(
     entities_by_store: &BTreeMap<&'static str, Vec<&EntityFragment>>,
-    retained_entities: &BTreeMap<EntitySourceKey, EntityTag>,
 ) -> Result<BTreeMap<EntitySourceKey, EntityTag>, InternalError> {
     let mut accepted = BTreeMap::new();
-    let mut used = retained_entities.values().copied().collect::<BTreeSet<_>>();
-    if used.len() != retained_entities.len() {
-        return Err(InternalError::store_corruption());
-    }
     let mut next = 1u64;
     for entities in entities_by_store.values() {
         for entity in entities {
-            let entity_tag =
-                if let Some(retained) = retained_entities.get(entity.source_key()).copied() {
-                    retained
-                } else {
-                    while used.contains(&EntityTag::new(next)) {
-                        next = next
-                            .checked_add(1)
-                            .ok_or_else(InternalError::store_unsupported)?;
-                    }
-                    let allocated = EntityTag::new(next);
-                    used.insert(allocated);
-                    next = next
-                        .checked_add(1)
-                        .ok_or_else(InternalError::store_unsupported)?;
-                    allocated
-                };
+            let entity_tag = EntityTag::new(next);
+            next = next
+                .checked_add(1)
+                .ok_or_else(InternalError::store_unsupported)?;
             if accepted
                 .insert(entity.source_key().clone(), entity_tag)
                 .is_some()
@@ -2959,8 +2919,8 @@ fn index_expression_text(op: PersistedIndexExpressionOp, field: &str) -> String 
 #[cfg(test)]
 mod tests {
     use super::{
-        ExistingProposalStore, ProposalStoreTarget, allocate_entity_identities,
-        lower_existing_schema_proposal, lower_initial_schema_proposal,
+        ExistingProposalStore, ProposalStoreTarget, lower_existing_schema_proposal,
+        lower_initial_schema_proposal,
     };
     use crate::db::{
         data::{
@@ -2977,8 +2937,6 @@ mod tests {
             },
         },
     };
-    use crate::error::ErrorClass;
-    use crate::types::EntityTag;
     use crate::value::{InputValue, InputValueEnum};
     use icydb_schema::{
         ConstraintFragment, ConstraintSourceKey, EntityFragment, EntitySourceKey,
@@ -2990,30 +2948,8 @@ mod tests {
         SourceCheckInstruction, TargetDatabaseIdentity, TargetStoreIdentity, TupleElementFragment,
         TypeSourceKey,
     };
-    use std::collections::BTreeMap;
-
     fn name(value: &str) -> SchemaName {
         SchemaName::try_new(value).expect("test schema name should admit")
-    }
-
-    #[test]
-    fn live_rebuild_rejects_duplicate_retained_entity_tags() {
-        let retained = BTreeMap::from([
-            (
-                EntitySourceKey::try_new("test:entity:first")
-                    .expect("first entity source should admit"),
-                EntityTag::new(1),
-            ),
-            (
-                EntitySourceKey::try_new("test:entity:second")
-                    .expect("second entity source should admit"),
-                EntityTag::new(1),
-            ),
-        ]);
-
-        let error = allocate_entity_identities(&BTreeMap::new(), &retained)
-            .expect_err("duplicate retained tags must fail closed");
-        assert_eq!(error.class(), ErrorClass::Corruption);
     }
 
     fn scalar_proposal_fixture(
@@ -5044,5 +4980,273 @@ mod tests {
                 .iter()
                 .any(|leaf| leaf.path() == ["display_label"])
         }));
+    }
+
+    fn recursive_type_removal_proposal(
+        submission_key: &str,
+        removals: Vec<SchemaRemoval>,
+    ) -> SchemaProposal {
+        SchemaProposal::try_compose(
+            vec![SchemaCapability::EXACT_COMPOSITE_TYPES],
+            TargetDatabaseIdentity::from_bytes([0x91; 32]),
+            SchemaSubmissionKey::try_new(submission_key)
+                .expect("recursive removal submission key should admit"),
+            ExpectedAcceptedHead::Exact {
+                revision: 1,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x92; 32]),
+            },
+            Vec::new(),
+            Vec::new(),
+            removals,
+        )
+        .expect("recursive removal proposal should compose")
+    }
+
+    fn recursive_holder_entity(
+        source: &str,
+        name_value: &str,
+        field_prefix: &str,
+        root_type: &TypeSourceKey,
+    ) -> (EntitySourceKey, EntityFragment) {
+        let entity_source = EntitySourceKey::try_new(source).expect("entity source should admit");
+        let id_source = FieldSourceKey::try_new(format!("{field_prefix}:id"))
+            .expect("id field source should admit");
+        let entity = EntityFragment::try_new(
+            entity_source.clone(),
+            name(name_value),
+            vec![
+                FieldFragment::new(
+                    id_source.clone(),
+                    name("id"),
+                    FieldType::Scalar(ScalarType::Nat64),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+                FieldFragment::new(
+                    FieldSourceKey::try_new(format!("{field_prefix}:root"))
+                        .expect("root field source should admit"),
+                    name("root"),
+                    FieldType::Named(root_type.clone()),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+            ],
+            vec![id_source],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .expect("recursive holder should admit");
+        (entity_source, entity)
+    }
+
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the regression proves external-reference rejection, partial-cycle rejection, and multi-store component removal together"
+    )]
+    fn existing_recursive_named_type_removal_is_closed_and_store_local() {
+        let node_type =
+            TypeSourceKey::try_new("cycle:type:node").expect("node type source should admit");
+        let record_type =
+            TypeSourceKey::try_new("cycle:type:record").expect("record type source should admit");
+        let named_types = vec![
+            NamedTypeFragment::Enum(
+                EnumTypeFragment::try_new(
+                    node_type.clone(),
+                    name("Node"),
+                    vec![
+                        EnumVariantFragment::new(
+                            TypeSourceKey::try_new("cycle:variant:end")
+                                .expect("unit variant source should admit"),
+                            name("End"),
+                        ),
+                        EnumVariantFragment::with_payload(
+                            TypeSourceKey::try_new("cycle:variant:record")
+                                .expect("payload variant source should admit"),
+                            name("Record"),
+                            FieldType::Named(record_type.clone()),
+                        ),
+                    ],
+                )
+                .expect("recursive enum should admit"),
+            ),
+            NamedTypeFragment::Record(
+                RecordTypeFragment::try_new(
+                    record_type.clone(),
+                    name("Record"),
+                    vec![RecordFieldFragment::new(
+                        FieldSourceKey::try_new("cycle:record:next")
+                            .expect("record member source should admit"),
+                        name("next"),
+                        FieldType::Named(node_type.clone()),
+                        false,
+                    )],
+                )
+                .expect("recursive record should admit"),
+            ),
+        ];
+        let (left_source, left) = recursive_holder_entity(
+            "cycle:entity:left",
+            "LeftHolder",
+            "cycle:field:left",
+            &record_type,
+        );
+        let (right_source, right) = recursive_holder_entity(
+            "cycle:entity:right",
+            "RightHolder",
+            "cycle:field:right",
+            &record_type,
+        );
+        let left_store = TargetStoreIdentity::from_bytes([0x93; 32]);
+        let right_store = TargetStoreIdentity::from_bytes([0x94; 32]);
+        let initial = SchemaProposal::try_compose(
+            vec![SchemaCapability::EXACT_COMPOSITE_TYPES],
+            TargetDatabaseIdentity::from_bytes([0x91; 32]),
+            SchemaSubmissionKey::try_new("recursive-component-initial")
+                .expect("initial submission key should admit"),
+            ExpectedAcceptedHead::Empty,
+            vec![
+                SchemaFragment::try_new(vec![left, right], named_types)
+                    .expect("recursive component fragment should admit"),
+            ],
+            vec![
+                EntityStoreAssignment::new(left_source.clone(), left_store),
+                EntityStoreAssignment::new(right_source.clone(), right_store),
+            ],
+            Vec::new(),
+        )
+        .expect("recursive component proposal should compose");
+        let targets = [
+            ProposalStoreTarget {
+                path: "cycle::LeftStore",
+                identity: left_store,
+            },
+            ProposalStoreTarget {
+                path: "cycle::RightStore",
+                identity: right_store,
+            },
+        ];
+        let initial_candidates =
+            lower_initial_schema_proposal(&initial, &targets).expect("cycle should lower");
+        let initial_left = initial_candidates
+            .iter()
+            .find(|candidate| candidate.store_path() == "cycle::LeftStore")
+            .expect("left candidate should exist");
+        let initial_right = initial_candidates
+            .iter()
+            .find(|candidate| candidate.store_path() == "cycle::RightStore")
+            .expect("right candidate should exist");
+        let remove_types = recursive_type_removal_proposal(
+            "remove-referenced-cycle",
+            vec![
+                SchemaRemoval::Type(node_type.clone()),
+                SchemaRemoval::Type(record_type.clone()),
+            ],
+        );
+        assert!(
+            lower_existing_schema_proposal(
+                &remove_types,
+                &[
+                    ExistingProposalStore {
+                        path: "cycle::LeftStore",
+                        identity: left_store,
+                        bundle: initial_left.bundle(),
+                    },
+                    ExistingProposalStore {
+                        path: "cycle::RightStore",
+                        identity: right_store,
+                        bundle: initial_right.bundle(),
+                    },
+                ],
+            )
+            .is_err(),
+            "entity fields must keep the recursive component live",
+        );
+
+        let remove_left = recursive_type_removal_proposal(
+            "remove-left-holder",
+            vec![SchemaRemoval::Entity(left_source)],
+        );
+        let left_without_entity = lower_existing_schema_proposal(
+            &remove_left,
+            &[
+                ExistingProposalStore {
+                    path: "cycle::LeftStore",
+                    identity: left_store,
+                    bundle: initial_left.bundle(),
+                },
+                ExistingProposalStore {
+                    path: "cycle::RightStore",
+                    identity: right_store,
+                    bundle: initial_right.bundle(),
+                },
+            ],
+        )
+        .expect("left entity removal should lower")
+        .pop()
+        .expect("left entity removal should produce one candidate");
+        let remove_right = recursive_type_removal_proposal(
+            "remove-right-holder",
+            vec![SchemaRemoval::Entity(right_source)],
+        );
+        let right_without_entity = lower_existing_schema_proposal(
+            &remove_right,
+            &[
+                ExistingProposalStore {
+                    path: "cycle::LeftStore",
+                    identity: left_store,
+                    bundle: left_without_entity.bundle(),
+                },
+                ExistingProposalStore {
+                    path: "cycle::RightStore",
+                    identity: right_store,
+                    bundle: initial_right.bundle(),
+                },
+            ],
+        )
+        .expect("right entity removal should lower")
+        .pop()
+        .expect("right entity removal should produce one candidate");
+        let stores_without_entities = [
+            ExistingProposalStore {
+                path: "cycle::LeftStore",
+                identity: left_store,
+                bundle: left_without_entity.bundle(),
+            },
+            ExistingProposalStore {
+                path: "cycle::RightStore",
+                identity: right_store,
+                bundle: right_without_entity.bundle(),
+            },
+        ];
+        for (submission_key, source) in [
+            ("remove-node-only", node_type),
+            ("remove-record-only", record_type),
+        ] {
+            let partial =
+                recursive_type_removal_proposal(submission_key, vec![SchemaRemoval::Type(source)]);
+            assert!(
+                lower_existing_schema_proposal(&partial, &stores_without_entities).is_err(),
+                "one retained cycle member must prevent partial removal",
+            );
+        }
+
+        let removed = lower_existing_schema_proposal(&remove_types, &stores_without_entities)
+            .expect("the complete unreferenced cycle should be removed");
+        assert_eq!(removed.len(), 2);
+        for candidate in removed {
+            let bundle = candidate.bundle();
+            assert_eq!(
+                bundle
+                    .source_bindings_for_tests()
+                    .named_type_binding_count_for_tests(),
+                0,
+            );
+            assert!(bundle.enum_catalog().type_id("Node").is_none());
+            assert!(bundle.composite_catalog().type_id("Record").is_none());
+        }
     }
 }

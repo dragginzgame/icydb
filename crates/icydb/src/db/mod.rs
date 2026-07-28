@@ -53,8 +53,8 @@ pub use icydb_core::db::{
     IntegrityJobReceipt, IntegrityPendingTerminal, IntegrityPhase, IntegrityResourceDiagnostic,
     IntegritySeverity, IntegritySubmissionKey, IntegrityTerminalOutcome, IntegrityVerifierFamily,
     MemoryCatalogDescription, QuickIntegrityResult, QuickIntegrityStatus, SchemaApplicationStore,
-    SchemaApplicationTarget, SchemaChangeFailure, SchemaChangeJob, SchemaChangeJobId,
-    SchemaChangeOutcome, SchemaChangeProgress, SchemaChangeProgressStatus, SchemaChangeReceipt,
+    SchemaApplicationTarget, SchemaChangeJob, SchemaChangeJobId, SchemaChangeOutcome,
+    SchemaChangeProgress, SchemaChangeProgressStatus, SchemaChangeReceipt,
     SchemaChangeValidationPhase, SchemaStoreSnapshot, StorageReport, StoreCatalogDescription,
 };
 #[cfg(feature = "sql-explain")]

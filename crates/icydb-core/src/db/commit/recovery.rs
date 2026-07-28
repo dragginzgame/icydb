@@ -39,13 +39,14 @@ use crate::{
         entity_registration::EntityRuntimeRegistration,
         index::IndexStore,
         journal::{FoldWatermark, JournalBatch, JournalRecord, JournalSequence, JournalTailStore},
-        registry::{StoreHandle, StoreRecoveryCapability},
+        registry::{StoreHandle, StoreRecoveryCapability, StoreSchemaMetadataCapability},
         schema::{
             AcceptedCatalogSnapshotSelection, AcceptedSchemaRevision, CandidateSchemaRevision,
             ConstraintId, SchemaStore, accepted_commit_schema_fingerprint,
-            apply_schema_application_record_op, decode_constraint_validation_job,
-            decode_persisted_schema_snapshot, load_accepted_schema_snapshot,
-            verify_schema_application_record_op,
+            apply_live_schema_checkpoint, apply_schema_application_record_op,
+            decode_constraint_validation_job, decode_persisted_schema_snapshot,
+            load_accepted_schema_snapshot, load_live_schema_checkpoint,
+            verify_live_schema_checkpoint, verify_schema_application_record_op,
         },
     },
     error::{ErrorOrigin, InternalError},
@@ -154,7 +155,11 @@ fn perform_recovery<C: CanisterKind>(
     marker: Option<CommitMarker>,
 ) -> Result<(), InternalError> {
     let had_marker = marker.is_some();
+    restore_live_schema_checkpoints(db, marker.as_ref())
+        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     if let Some(marker) = marker.as_ref() {
+        apply_marker_live_schema_checkpoints(db, marker)
+            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
         publish_marker_bound_journal_batches(db, marker)
             .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
         if let Some(operation) = marker.schema_application() {
@@ -204,6 +209,98 @@ fn perform_recovery<C: CanisterKind>(
     db.mark_all_registered_index_stores_ready();
     mark_commit_marker_verified_absent();
 
+    Ok(())
+}
+
+fn restore_live_schema_checkpoints<C: CanisterKind>(
+    db: &Db<C>,
+    marker: Option<&CommitMarker>,
+) -> Result<(), InternalError> {
+    db.with_store_registry(|registry| {
+        for (store_path, handle) in registry.iter() {
+            if handle.storage_capabilities().schema_metadata()
+                != StoreSchemaMetadataCapability::LiveRebuiltMetadata
+            {
+                continue;
+            }
+            let checkpoint = load_live_schema_checkpoint(store_path)?;
+            let current = handle.with_schema(SchemaStore::current_accepted_schema_root)?;
+            match (current, checkpoint) {
+                (None, Some(candidate)) => handle.with_schema_mut(|store| {
+                    store.restore_live_accepted_schema_checkpoint(&candidate)
+                })?,
+                (Some(current), Some(candidate)) if current.root() == candidate.root() => {
+                    handle.with_schema_mut(|store| {
+                        store.restore_live_accepted_schema_checkpoint(&candidate)
+                    })?;
+                }
+                (Some(current), Some(candidate))
+                    if marker.is_some_and(|marker| {
+                        marker_advances_live_checkpoint(
+                            marker,
+                            store_path,
+                            current.root().revision(),
+                            &candidate,
+                        )
+                    }) => {}
+                (Some(_), Some(_) | None) => {
+                    return Err(InternalError::store_corruption());
+                }
+                (None, None) => {}
+            }
+        }
+        Ok(())
+    })
+}
+
+fn marker_advances_live_checkpoint(
+    marker: &CommitMarker,
+    store_path: &str,
+    current_revision: AcceptedSchemaRevision,
+    checkpoint: &CandidateSchemaRevision,
+) -> bool {
+    marker.journal_batches().iter().any(|batch| {
+        let [
+            JournalRecord::AcceptedSchemaPublish {
+                store_path: record_store_path,
+                expected_revision,
+                schema_bundle_bytes,
+                schema_root_bytes,
+            },
+        ] = batch.records()
+        else {
+            return false;
+        };
+        let store_matches = record_store_path == store_path;
+        let revision_matches = *expected_revision == current_revision;
+        let bundle_matches = schema_bundle_bytes.as_slice() == checkpoint.encoded_bundle();
+        let root_matches = schema_root_bytes.as_slice() == checkpoint.encoded_root();
+        store_matches && revision_matches && bundle_matches && root_matches
+    })
+}
+
+fn apply_marker_live_schema_checkpoints<C: CanisterKind>(
+    db: &Db<C>,
+    marker: &CommitMarker,
+) -> Result<(), InternalError> {
+    for batch in marker.journal_batches() {
+        let (store_path, handle) = journal_batch_store_handle(db, batch)?;
+        if handle.storage_capabilities().schema_metadata()
+            != StoreSchemaMetadataCapability::LiveRebuiltMetadata
+        {
+            continue;
+        }
+        let Some(candidate) = journal_batch_schema_candidate(db, store_path, batch)? else {
+            continue;
+        };
+        let expected_revision = match batch.records().first() {
+            Some(JournalRecord::AcceptedSchemaPublish {
+                expected_revision, ..
+            }) => *expected_revision,
+            _ => return Err(InternalError::store_corruption()),
+        };
+        apply_live_schema_checkpoint(store_path, expected_revision, &candidate)?;
+    }
     Ok(())
 }
 
@@ -1092,10 +1189,7 @@ fn journal_batch_is_direct_schema_publication(batch: &JournalBatch) -> bool {
     batch.journal_sequence() == JournalSequence::new(0)
         && matches!(
             batch.records(),
-            [JournalRecord::AcceptedSchemaPublish {
-                expected_revision: AcceptedSchemaRevision::NONE,
-                ..
-            }]
+            [JournalRecord::AcceptedSchemaPublish { .. }]
         )
 }
 
@@ -1259,6 +1353,19 @@ fn clear_recovery_domain_in_progress(key: RecoveryDomainKey) {
     RECOVERY_IN_PROGRESS_KEYS.with(|keys| {
         keys.borrow_mut().retain(|existing| *existing != key);
     });
+}
+
+#[cfg(test)]
+pub(in crate::db) fn forget_recovered_domain_for_tests<C: CanisterKind>(
+    db: &Db<C>,
+) -> Result<(), InternalError> {
+    let key = recovery_domain_key(db)?;
+    RECOVERED_KEYS.with(|keys| {
+        keys.try_borrow_mut()
+            .map_err(|_| InternalError::store_invariant())?
+            .retain(|existing| *existing != key);
+        Ok(())
+    })
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -1541,6 +1648,11 @@ fn verify_recovered_accepted_schema<C: CanisterKind>(
     })?;
     if !accepted_matches {
         return Err(InternalError::recovery_effect_verification_failed());
+    }
+    if handle.storage_capabilities().schema_metadata()
+        == StoreSchemaMetadataCapability::LiveRebuiltMetadata
+    {
+        verify_live_schema_checkpoint(store_path, &candidate)?;
     }
 
     Ok(())

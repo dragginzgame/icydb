@@ -205,23 +205,27 @@ impl AcceptedCompositeCatalog {
         Ok(self)
     }
 
-    /// Remove one exact accepted composite definition.
+    /// Remove an exact set of accepted composite definitions.
     ///
     /// Validation rejects retained composite definitions that still refer to
-    /// the removed identity. Entity-field closure remains owned by the
-    /// accepted revision bundle.
-    pub(in crate::db::schema) fn with_removed_type(
+    /// a removed identity. Validating after the complete set is absent permits
+    /// an unreferenced recursive component to be removed atomically.
+    /// Entity-field closure remains owned by the accepted revision bundle.
+    pub(in crate::db::schema) fn with_removed_types(
         mut self,
-        type_id: CompositeTypeId,
+        type_ids: &BTreeSet<CompositeTypeId>,
         enum_catalog: &AcceptedEnumCatalog,
     ) -> Result<Self, CompositeCatalogBuildError> {
-        let definition = self
-            .by_id
-            .remove(&type_id)
-            .ok_or(CompositeCatalogBuildError::FieldKindResolution)?;
-        if self.id_by_path.remove(definition.path.as_str()) != Some(type_id)
-            || !self.validate(enum_catalog)
-        {
+        for type_id in type_ids {
+            let definition = self
+                .by_id
+                .remove(type_id)
+                .ok_or(CompositeCatalogBuildError::FieldKindResolution)?;
+            if self.id_by_path.remove(definition.path.as_str()) != Some(*type_id) {
+                return Err(CompositeCatalogBuildError::FieldKindResolution);
+            }
+        }
+        if !self.validate(enum_catalog) {
             return Err(CompositeCatalogBuildError::FieldKindResolution);
         }
         Ok(self)

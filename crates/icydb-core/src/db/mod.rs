@@ -180,9 +180,9 @@ pub use schema::{
     SchemaStore, SchemaValidationOperator, ValidateError,
 };
 pub use schema::{
-    SchemaApplicationStore, SchemaApplicationTarget, SchemaChangeFailure, SchemaChangeJob,
-    SchemaChangeJobId, SchemaChangeOutcome, SchemaChangeProgress, SchemaChangeProgressStatus,
-    SchemaChangeReceipt, SchemaChangeValidationPhase,
+    SchemaApplicationStore, SchemaApplicationTarget, SchemaChangeJob, SchemaChangeJobId,
+    SchemaChangeOutcome, SchemaChangeProgress, SchemaChangeProgressStatus, SchemaChangeReceipt,
+    SchemaChangeValidationPhase,
 };
 #[cfg(not(feature = "sql"))]
 pub use session::DbSession;
@@ -214,8 +214,7 @@ pub use session::{
 };
 #[cfg(feature = "sql")]
 pub use sql::identifier::{
-    identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
-    split_qualified_identifier,
+    identifier_last_segment, normalize_identifier_to_scope, split_qualified_identifier,
 };
 #[cfg(feature = "sql")]
 pub use sql::lowering::LoweredSqlCommand;

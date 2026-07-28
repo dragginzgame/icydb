@@ -13,6 +13,7 @@ use crate::{
         commit::{
             AcceptedSchemaPublication, database_incarnation_id, ensure_recovered,
             publish_accepted_schema_candidates_with_application_record,
+            publish_generated_check_abort_with_application_record,
         },
         data::DataStore,
         index::{IndexState, IndexStore},
@@ -24,17 +25,16 @@ use crate::{
         relation::prove_empty_reverse_relation_domain,
         schema::{
             AcceptedSchemaRevision, AcceptedSchemaRevisionBundle, CandidateSchemaRevision,
-            ConstraintActivationKind, ConstraintId, ConstraintOrigin, ConstraintValidationPhase,
-            ConstraintValidationProgress, ExistingProposalStore, ProposalStoreTarget,
-            SchemaApplicationRecord, SchemaApplicationRecordOp, SchemaChangeActivation,
-            SchemaChangeActivationKind, SchemaChangeJob, SchemaChangeJobId, SchemaChangeOutcome,
+            ConstraintActivationKind, ConstraintActivationState, ConstraintId, ConstraintOrigin,
+            ConstraintValidationPhase, ConstraintValidationProgress, ExistingProposalStore,
+            ProposalStoreTarget, SchemaApplicationRecord, SchemaApplicationRecordOp,
+            SchemaChangeActivation, SchemaChangeJob, SchemaChangeJobId, SchemaChangeOutcome,
             SchemaChangeProgress, SchemaChangeProgressStatus, SchemaChangeReceipt,
             SchemaChangeValidationPhase, StagedUserIndexDomainError, UnpublishedCheckValidation,
             accepted_constraint_field_paths, advance_accepted_check_constraint_activation,
             derive_schema_change_job_id, lower_existing_schema_proposal,
-            lower_initial_schema_proposal, lower_live_rebuilt_schema_proposal,
-            prove_empty_user_index_domain, validate_unpublished_check_candidate_bounded,
-            with_schema_application_store,
+            lower_initial_schema_proposal, prove_empty_user_index_domain,
+            validate_unpublished_check_candidate_bounded, with_schema_application_store,
         },
     },
     error::{ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError},
@@ -43,7 +43,7 @@ use crate::{
 };
 use candid::CandidType;
 use icydb_schema::{
-    EntitySourceKey, ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaProposal,
+    ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaProposal, SchemaProposalDigest,
     SchemaSubmissionKey, TargetDatabaseIdentity, TargetStoreIdentity,
 };
 use serde::Deserialize;
@@ -126,6 +126,15 @@ impl SchemaApplicationTarget {
 struct StoreApplicationAuthority {
     path: &'static str,
     handle: StoreHandle,
+}
+
+/// Catalog authority resolved for one pending generated-check abort.
+struct PendingApplicationAbort {
+    authority: StoreApplicationAuthority,
+    current: AcceptedSchemaRevisionBundle,
+    entity_tag: EntityTag,
+    constraint_id: ConstraintId,
+    remove_validation_job: bool,
 }
 
 ///
@@ -220,105 +229,26 @@ pub(in crate::db) fn schema_application_receipt<C: CanisterKind>(
     })
 }
 
-/// Rebuild absent live-only accepted metadata from one exact generated
-/// declaration before an existing durable catalog is reconciled.
-///
-/// Durable accepted identities seed cross-store references. Only empty stores
-/// whose schema metadata is explicitly live-rebuilt may be initialized here;
-/// ordinary accepted-schema application remains the sole durable publication
-/// authority.
-pub(in crate::db) fn rebuild_generated_live_schema<C: CanisterKind>(
-    db: &Db<C>,
+fn exact_schema_application_receipt(
     proposal: &SchemaProposal,
-) -> Result<(), InternalError> {
-    ensure_recovered(db)?;
-    let target = schema_application_target(db)?;
-    if target.database_identity() != proposal.target_database() {
+    proposal_digest: SchemaProposalDigest,
+) -> Result<Option<SchemaChangeReceipt>, InternalError> {
+    let Some(record) = with_schema_application_store(|store| {
+        store.load(proposal.target_database(), proposal.submission_key())
+    })?
+    else {
+        return Ok(None);
+    };
+    let receipt = record.receipt();
+    if !receipt.is_exact_submission(
+        proposal.target_database(),
+        proposal.submission_key(),
+        proposal_digest,
+        proposal.expected_head(),
+    ) {
         return Err(InternalError::schema_application_conflict());
     }
-
-    let authorities = application_authorities(db);
-    let current_bundles = authorities
-        .iter()
-        .map(|authority| {
-            authority
-                .handle
-                .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)
-        })
-        .collect::<Result<Vec<_>, InternalError>>()?;
-    let declared_entities = proposal
-        .fragments()
-        .iter()
-        .flat_map(icydb_schema::SchemaFragment::entities)
-        .map(icydb_schema::EntityFragment::source_key)
-        .collect::<Vec<_>>();
-    let mut retained_entities = std::collections::BTreeMap::<EntitySourceKey, EntityTag>::new();
-    for source in declared_entities {
-        let mut retained = None;
-        for bundle in current_bundles.iter().flatten() {
-            let Some(entity_tag) = bundle.source_bindings().entity(source) else {
-                continue;
-            };
-            if retained.replace(entity_tag).is_some() {
-                return Err(InternalError::store_corruption());
-            }
-        }
-        if let Some(entity_tag) = retained {
-            retained_entities.insert(source.clone(), entity_tag);
-        }
-    }
-    let stores = authorities
-        .iter()
-        .map(|authority| ProposalStoreTarget {
-            path: authority.path,
-            identity: derive_store_identity(target.database_identity(), authority),
-        })
-        .collect::<Vec<_>>();
-    let live_store_paths = authorities
-        .iter()
-        .filter_map(|authority| {
-            (authority.handle.storage_capabilities().schema_metadata()
-                == StoreSchemaMetadataCapability::LiveRebuiltMetadata)
-                .then_some(authority.path)
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    let candidates = lower_live_rebuilt_schema_proposal(
-        proposal,
-        stores.as_slice(),
-        &retained_entities,
-        &live_store_paths,
-    )?;
-
-    for candidate in &candidates {
-        let (position, authority) = authorities
-            .iter()
-            .enumerate()
-            .find(|(_, authority)| authority.path == candidate.store_path())
-            .ok_or_else(InternalError::store_unsupported)?;
-        if authority.handle.storage_capabilities().schema_metadata()
-            != StoreSchemaMetadataCapability::LiveRebuiltMetadata
-        {
-            continue;
-        }
-        if current_bundles
-            .get(position)
-            .and_then(Option::as_ref)
-            .is_some()
-        {
-            continue;
-        }
-        if authority.handle.with_data(DataStore::len) != 0
-            || authority.handle.index_state() != IndexState::Ready
-            || !authority.handle.with_index(IndexStore::is_empty)
-        {
-            return Err(InternalError::store_corruption());
-        }
-        authority.handle.with_schema_mut(|store| {
-            store.publish_accepted_schema_candidate(AcceptedSchemaRevision::NONE, candidate)
-        })?;
-    }
-
-    Ok(())
+    Ok(Some(receipt.clone()))
 }
 
 /// Advance one durable pending schema application by at most one canonical
@@ -346,10 +276,10 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
                 SchemaChangeProgressStatus::Applied,
             ));
         }
-        SchemaChangeOutcome::Failed { .. } => {
+        SchemaChangeOutcome::Aborted { .. } => {
             return Ok(SchemaChangeProgress::new(
                 record.receipt().clone(),
-                SchemaChangeProgressStatus::Failed,
+                SchemaChangeProgressStatus::Aborted,
             ));
         }
         _ => return Err(InternalError::store_corruption()),
@@ -357,10 +287,6 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
     let [activation] = record.activations() else {
         return Err(InternalError::store_corruption());
     };
-    if activation.kind() != SchemaChangeActivationKind::Check {
-        return Err(InternalError::store_unsupported());
-    }
-
     let authorities = application_authorities(db);
     let authority = authorities
         .iter()
@@ -430,6 +356,207 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
     }
 }
 
+/// Abort one pending generated-check application.
+///
+/// A retained finding page must be acknowledged by exact sequence before the
+/// activation and its validation job can be retired. Terminal outcomes replay
+/// without mutating accepted authority.
+pub(in crate::db) fn abort_schema_application<C: CanisterKind>(
+    db: &Db<C>,
+    job_id: SchemaChangeJobId,
+    acknowledged_receipt: Option<u64>,
+) -> Result<SchemaChangeProgress, InternalError> {
+    ensure_recovered(db)?;
+    let record = with_schema_application_store(|store| store.load_job(job_id))?
+        .ok_or_else(InternalError::schema_application_conflict)?;
+    let target = schema_application_target(db)?;
+    if target.database_identity() != record.receipt().database_identity() {
+        return Err(InternalError::schema_application_conflict());
+    }
+    match record.receipt().outcome() {
+        SchemaChangeOutcome::Applied { .. } => {
+            return Ok(SchemaChangeProgress::new(
+                record.receipt().clone(),
+                SchemaChangeProgressStatus::Applied,
+            ));
+        }
+        SchemaChangeOutcome::Aborted { .. } => {
+            return Ok(SchemaChangeProgress::new(
+                record.receipt().clone(),
+                SchemaChangeProgressStatus::Aborted,
+            ));
+        }
+        SchemaChangeOutcome::Pending { job, .. } if job.id() == job_id => {}
+        SchemaChangeOutcome::NoOp { .. } | SchemaChangeOutcome::Pending { .. } => {
+            return Err(InternalError::store_corruption());
+        }
+    }
+
+    let authorities = application_authorities(db);
+    let abort = prepare_pending_application_abort(
+        target.database_identity(),
+        &record,
+        authorities.as_slice(),
+        acknowledged_receipt,
+    )?;
+    let candidate =
+        aborted_generated_check_candidate(&abort.current, abort.entity_tag, abort.constraint_id)?;
+    let accepted_head =
+        accepted_head_after_candidates(authorities.as_slice(), std::slice::from_ref(&candidate))?;
+    let receipt = SchemaChangeReceipt::new(
+        record.receipt().database_identity(),
+        record.receipt().submission_key().clone(),
+        record.receipt().proposal_digest(),
+        record.receipt().prior_head().clone(),
+        SchemaChangeOutcome::Aborted { accepted_head },
+    )?;
+    let terminal = SchemaApplicationRecord::new(receipt.clone(), Vec::new())?;
+    let operation = SchemaApplicationRecordOp::replace(&record, &terminal)?;
+    if abort.remove_validation_job {
+        publish_generated_check_abort_with_application_record(
+            abort.authority.path,
+            abort.authority.handle,
+            abort.current.revision(),
+            &candidate,
+            abort.entity_tag,
+            abort.constraint_id,
+            operation,
+        )?;
+    } else {
+        publish_accepted_schema_candidates_with_application_record(
+            vec![AcceptedSchemaPublication::new(
+                abort.authority.path,
+                abort.authority.handle,
+                abort.current.revision(),
+                &candidate,
+            )],
+            operation,
+        )?;
+    }
+    Ok(SchemaChangeProgress::new(
+        receipt,
+        SchemaChangeProgressStatus::Aborted,
+    ))
+}
+
+fn prepare_pending_application_abort(
+    database_identity: TargetDatabaseIdentity,
+    record: &SchemaApplicationRecord,
+    authorities: &[StoreApplicationAuthority],
+    acknowledged_receipt: Option<u64>,
+) -> Result<PendingApplicationAbort, InternalError> {
+    let [activation] = record.activations() else {
+        return Err(InternalError::store_corruption());
+    };
+    let authority = authorities
+        .iter()
+        .copied()
+        .find(|authority| derive_store_identity(database_identity, authority) == activation.store())
+        .ok_or_else(InternalError::store_corruption)?;
+    let entity_tag = EntityTag::new(activation.entity_tag());
+    let constraint_id = ConstraintId::new(activation.constraint_id())
+        .ok_or_else(InternalError::store_corruption)?;
+    let current = authority
+        .handle
+        .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
+        .ok_or_else(InternalError::store_corruption)?;
+    if current.store_path() != authority.path {
+        return Err(InternalError::store_corruption());
+    }
+    let pending = current
+        .entity_snapshots()
+        .get(&entity_tag)
+        .and_then(|snapshot| snapshot.constraint_catalog().activation(constraint_id))
+        .filter(|pending| {
+            pending.origin() == ConstraintOrigin::Generated
+                && matches!(pending.kind(), ConstraintActivationKind::Check { .. })
+        })
+        .ok_or_else(InternalError::store_corruption)?;
+    let remove_validation_job = pending_generated_check_job_retirement(
+        authority,
+        entity_tag,
+        constraint_id,
+        pending.state(),
+        acknowledged_receipt,
+    )?;
+    Ok(PendingApplicationAbort {
+        authority,
+        current,
+        entity_tag,
+        constraint_id,
+        remove_validation_job,
+    })
+}
+
+fn pending_generated_check_job_retirement(
+    authority: StoreApplicationAuthority,
+    entity_tag: EntityTag,
+    constraint_id: ConstraintId,
+    state: ConstraintActivationState,
+    acknowledged_receipt: Option<u64>,
+) -> Result<bool, InternalError> {
+    let job = authority
+        .handle
+        .with_schema(|store| store.constraint_validation_job(entity_tag, constraint_id))?;
+    match state {
+        ConstraintActivationState::EnforcingNewWrites => {
+            if acknowledged_receipt.is_some() || job.is_some() {
+                return Err(InternalError::schema_application_conflict());
+            }
+            Ok(false)
+        }
+        ConstraintActivationState::Validating => {
+            let mut job = job.ok_or_else(InternalError::store_corruption)?;
+            if !job.acknowledge_receipt(acknowledged_receipt) {
+                return Err(InternalError::schema_application_conflict());
+            }
+            Ok(true)
+        }
+    }
+}
+
+fn aborted_generated_check_candidate(
+    current: &AcceptedSchemaRevisionBundle,
+    entity_tag: EntityTag,
+    constraint_id: ConstraintId,
+) -> Result<CandidateSchemaRevision, InternalError> {
+    let snapshot = current
+        .entity_snapshots()
+        .get(&entity_tag)
+        .cloned()
+        .ok_or_else(InternalError::store_corruption)?;
+    let _activation = snapshot
+        .constraint_catalog()
+        .activation(constraint_id)
+        .filter(|activation| {
+            activation.origin() == ConstraintOrigin::Generated
+                && matches!(activation.kind(), ConstraintActivationKind::Check { .. })
+        })
+        .ok_or_else(InternalError::store_corruption)?;
+    let catalog = snapshot
+        .constraint_catalog()
+        .clone()
+        .with_aborted_activation(constraint_id)
+        .map_err(|_| InternalError::store_invariant())?;
+    let mut snapshots = current.entity_snapshots().clone();
+    snapshots.insert(entity_tag, snapshot.with_constraint_catalog(catalog));
+    let mut source_bindings = current.source_bindings().clone();
+    source_bindings.remove_constraint_identity(entity_tag, constraint_id)?;
+    let revision = current
+        .revision()
+        .checked_next()
+        .ok_or_else(InternalError::store_unsupported)?;
+    let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
+        revision,
+        current.store_path(),
+        current.enum_catalog().clone(),
+        current.composite_catalog().clone(),
+        source_bindings,
+        snapshots,
+    )?;
+    CandidateSchemaRevision::new(bundle)
+}
+
 /// Apply one exact source-keyed schema proposal through catalog-native
 /// accepted candidates and the durable application-receipt boundary.
 pub(in crate::db) fn apply_schema<C: CanisterKind>(
@@ -440,19 +567,8 @@ pub(in crate::db) fn apply_schema<C: CanisterKind>(
     let proposal_digest = proposal
         .digest()
         .map_err(|_| InternalError::store_unsupported())?;
-    if let Some(record) = with_schema_application_store(|store| {
-        store.load(proposal.target_database(), proposal.submission_key())
-    })? {
-        let receipt = record.receipt();
-        if receipt.is_exact_submission(
-            proposal.target_database(),
-            proposal.submission_key(),
-            proposal_digest,
-            proposal.expected_head(),
-        ) {
-            return Ok(receipt.clone());
-        }
-        return Err(InternalError::schema_application_conflict());
+    if let Some(receipt) = exact_schema_application_receipt(proposal, proposal_digest)? {
+        return Ok(receipt);
     }
 
     let target = schema_application_target(db)?;
@@ -509,7 +625,6 @@ pub(in crate::db) fn apply_schema<C: CanisterKind>(
                 derive_store_identity(target.database_identity(), authority),
                 pending.proof.entity_tag.value(),
                 pending.proof.constraint_id.get(),
-                SchemaChangeActivationKind::Check,
             )?]
         }
         None => Vec::new(),
@@ -1426,8 +1541,159 @@ fn write_allocation_identity(
 
 #[cfg(test)]
 mod tests {
-    use super::{AcceptedStoreHead, derive_accepted_head};
-    use icydb_schema::ExpectedAcceptedHead;
+    use super::{
+        AcceptedSchemaPublication, AcceptedStoreHead, abort_schema_application,
+        aborted_generated_check_candidate, apply_schema, continue_schema_application,
+        derive_accepted_head, derive_schema_change_job_id, ensure_recovered,
+        lower_existing_schema_proposal, lower_initial_schema_proposal,
+        publish_accepted_schema_candidates_with_application_record, schema_application_target,
+    };
+    use crate::{
+        db::{
+            Db, EntityRegistration,
+            commit::forget_recovered_domain_for_tests,
+            data::DataStore,
+            index::IndexStore,
+            journal::JournalTailStore,
+            registry::{
+                StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
+                StoreRuntimeStorageCapabilities,
+            },
+            schema::{
+                ConstraintOrigin, ExistingProposalStore, ProposalStoreTarget,
+                SchemaApplicationRecord, SchemaApplicationRecordOp, SchemaChangeActivation,
+                SchemaChangeJob, SchemaChangeOutcome, SchemaChangeProgressStatus, SchemaStore,
+            },
+        },
+        testing::test_memory,
+        traits::{CanisterKind, Path},
+    };
+    use icydb_schema::{
+        ConstraintFragment, ConstraintSourceKey, EntityFragment, EntitySourceKey,
+        EntityStoreAssignment, ExpectedAcceptedHead, ExpectedSchemaFingerprint, FieldFragment,
+        FieldInsertPolicy, FieldSourceKey, FieldType, ScalarLiteral, ScalarType, SchemaCapability,
+        SchemaFragment, SchemaName, SchemaProposal, SchemaSubmissionKey, SourceCheckExpr,
+        SourceCheckInstruction, TargetDatabaseIdentity, TargetStoreIdentity,
+    };
+    use std::cell::RefCell;
+
+    const ABORT_STORE_PATH: &str = "schema_application_tests::AbortStore";
+
+    thread_local! {
+        static ABORT_DATA: RefCell<DataStore> =
+            RefCell::new(DataStore::init_journaled(test_memory(180)));
+        static ABORT_INDEX: RefCell<IndexStore> =
+            RefCell::new(IndexStore::init_journaled(test_memory(181)));
+        static ABORT_SCHEMA: RefCell<SchemaStore> =
+            RefCell::new(SchemaStore::init_journaled(test_memory(182)));
+        static ABORT_JOURNAL: RefCell<JournalTailStore> =
+            RefCell::new(JournalTailStore::init(test_memory(183)));
+        static ABORT_REGISTRY: StoreRegistry = {
+            let mut registry = StoreRegistry::new();
+            registry.register_journaled_store(
+                ABORT_STORE_PATH,
+                &ABORT_DATA,
+                &ABORT_INDEX,
+                &ABORT_SCHEMA,
+                &ABORT_JOURNAL,
+                StoreAllocationIdentities::new_journaled(
+                    StoreAllocationIdentity::new(180, "icydb.test.application-abort.data.v1"),
+                    StoreAllocationIdentity::new(181, "icydb.test.application-abort.index.v1"),
+                    StoreAllocationIdentity::new(182, "icydb.test.application-abort.schema.v1"),
+                    StoreAllocationIdentity::new(183, "icydb.test.application-abort.journal.v1"),
+                ),
+                StoreRuntimeStorageCapabilities::journaled(),
+            ).expect("abort journaled store should register");
+            registry
+        };
+    }
+
+    struct AbortCanister;
+
+    impl Path for AbortCanister {
+        const PATH: &'static str = "schema_application_tests::AbortCanister";
+    }
+
+    impl CanisterKind for AbortCanister {
+        const COMMIT_MEMORY_ID: u8 = 184;
+        const COMMIT_STABLE_KEY: &'static str = "icydb.test.application-abort.commit.v1";
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 185;
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+            "icydb.test.application-abort.integrity.v1";
+    }
+
+    fn name(value: &str) -> SchemaName {
+        SchemaName::try_new(value).expect("test schema name should admit")
+    }
+
+    fn generated_check_proposal(
+        expected_head: ExpectedAcceptedHead,
+        submission_key: &str,
+        include_check: bool,
+        database: TargetDatabaseIdentity,
+        store: TargetStoreIdentity,
+    ) -> (SchemaProposal, EntitySourceKey, ConstraintSourceKey) {
+        let entity_source =
+            EntitySourceKey::try_new("abort:entity:item").expect("entity source should admit");
+        let id_source = FieldSourceKey::try_new("abort:field:id").expect("id source should admit");
+        let score_source =
+            FieldSourceKey::try_new("abort:field:score").expect("score source should admit");
+        let check_source =
+            ConstraintSourceKey::try_new("abort:check:score").expect("check source should admit");
+        let check = SourceCheckExpr::try_new(vec![
+            SourceCheckInstruction::Field(score_source.clone()),
+            SourceCheckInstruction::Literal(ScalarLiteral::Int(0)),
+            SourceCheckInstruction::GreaterThanOrEqual,
+        ])
+        .expect("check expression should admit");
+        let constraints = include_check
+            .then(|| {
+                ConstraintFragment::new(check_source.clone(), name("score_non_negative"), check)
+            })
+            .into_iter()
+            .collect();
+        let entity = EntityFragment::try_new(
+            entity_source.clone(),
+            name("Item"),
+            vec![
+                FieldFragment::new(
+                    id_source.clone(),
+                    name("id"),
+                    FieldType::Scalar(ScalarType::Nat64),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+                FieldFragment::new(
+                    score_source,
+                    name("score"),
+                    FieldType::Scalar(ScalarType::Int64),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+            ],
+            vec![id_source],
+            Vec::new(),
+            Vec::new(),
+            constraints,
+        )
+        .expect("entity should admit");
+        let proposal = SchemaProposal::try_compose(
+            vec![SchemaCapability::ACCEPTED_CHECKS],
+            database,
+            SchemaSubmissionKey::try_new(submission_key).expect("submission key should admit"),
+            expected_head,
+            vec![
+                SchemaFragment::try_new(vec![entity], Vec::new())
+                    .expect("schema fragment should admit"),
+            ],
+            vec![EntityStoreAssignment::new(entity_source.clone(), store)],
+            Vec::new(),
+        )
+        .expect("schema proposal should compose");
+        (proposal, entity_source, check_source)
+    }
 
     #[test]
     fn database_head_is_empty_only_when_every_store_root_is_absent() {
@@ -1482,5 +1748,311 @@ mod tests {
             first,
             ExpectedAcceptedHead::Exact { revision: 3, .. }
         ));
+    }
+
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the end-to-end catalog assertion is clearer as one lifecycle test"
+    )]
+    fn generated_check_abort_retires_source_identity_and_allows_fresh_reproposal() {
+        let database = TargetDatabaseIdentity::from_bytes([0x71; 32]);
+        let store = TargetStoreIdentity::from_bytes([0x72; 32]);
+        let (initial, entity_source, _) = generated_check_proposal(
+            ExpectedAcceptedHead::Empty,
+            "abort-initial",
+            false,
+            database,
+            store,
+        );
+        let initial_candidate = lower_initial_schema_proposal(
+            &initial,
+            &[ProposalStoreTarget {
+                path: "abort::Store",
+                identity: store,
+            }],
+        )
+        .expect("initial proposal should lower")
+        .pop()
+        .expect("initial proposal should produce one candidate");
+        let (with_check, _, check_source) = generated_check_proposal(
+            ExpectedAcceptedHead::Exact {
+                revision: 1,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x73; 32]),
+            },
+            "abort-add-check",
+            true,
+            database,
+            store,
+        );
+        let pending_candidate = lower_existing_schema_proposal(
+            &with_check,
+            &[ExistingProposalStore {
+                path: "abort::Store",
+                identity: store,
+                bundle: initial_candidate.bundle(),
+            }],
+        )
+        .expect("generated check should lower")
+        .pop()
+        .expect("generated check should produce one candidate");
+        let entity_tag = pending_candidate
+            .bundle()
+            .source_bindings_for_tests()
+            .entity(&entity_source)
+            .expect("entity source should remain bound");
+        let constraint_id = pending_candidate
+            .bundle()
+            .source_bindings_for_tests()
+            .constraint(entity_tag, &check_source)
+            .expect("generated check source should bind");
+        let pending_snapshot = pending_candidate
+            .bundle()
+            .entity_snapshots()
+            .get(&entity_tag)
+            .expect("pending entity should exist");
+        let activation = pending_snapshot
+            .constraint_catalog()
+            .activation(constraint_id)
+            .expect("generated check should remain an activation");
+        assert_eq!(activation.origin(), ConstraintOrigin::Generated);
+
+        let aborted = aborted_generated_check_candidate(
+            pending_candidate.bundle(),
+            entity_tag,
+            constraint_id,
+        )
+        .expect("generated check abort should build one catalog-native candidate");
+        let aborted_snapshot = aborted
+            .bundle()
+            .entity_snapshots()
+            .get(&entity_tag)
+            .expect("aborted entity should remain");
+        assert!(
+            aborted_snapshot
+                .constraint_catalog()
+                .activation(constraint_id)
+                .is_none(),
+        );
+        assert_eq!(aborted_snapshot.row_layout(), pending_snapshot.row_layout());
+        assert!(
+            aborted
+                .bundle()
+                .source_bindings_for_tests()
+                .constraint(entity_tag, &check_source)
+                .is_none(),
+        );
+
+        let reproposed = lower_existing_schema_proposal(
+            &with_check,
+            &[ExistingProposalStore {
+                path: "abort::Store",
+                identity: store,
+                bundle: aborted.bundle(),
+            }],
+        )
+        .expect("aborted generated check should be independently reproposable")
+        .pop()
+        .expect("reproposal should produce one candidate");
+        let replacement_id = reproposed
+            .bundle()
+            .source_bindings_for_tests()
+            .constraint(entity_tag, &check_source)
+            .expect("reproposal should bind a fresh constraint identity");
+        assert!(
+            replacement_id > constraint_id,
+            "aborted accepted IDs must remain retired",
+        );
+    }
+
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the journaled abort, replay, and recovery assertions form one scenario"
+    )]
+    fn pending_generated_check_abort_is_atomic_terminal_and_replayable() {
+        let db = Db::<AbortCanister>::new_with_registrations(
+            &ABORT_REGISTRY,
+            &[] as &[EntityRegistration<AbortCanister>],
+        );
+        let empty_target =
+            schema_application_target(&db).expect("empty application target should issue");
+        let store_identity = empty_target
+            .stores()
+            .first()
+            .expect("abort store should be registered")
+            .identity();
+        let (initial, entity_source, _) = generated_check_proposal(
+            empty_target.accepted_head().clone(),
+            "abort-runtime-initial",
+            false,
+            empty_target.database_identity(),
+            store_identity,
+        );
+        assert!(matches!(
+            apply_schema(&db, &initial)
+                .expect("initial application should publish")
+                .outcome(),
+            SchemaChangeOutcome::Applied { .. },
+        ));
+
+        let target =
+            schema_application_target(&db).expect("existing application target should issue");
+        let (with_check, _, check_source) = generated_check_proposal(
+            target.accepted_head().clone(),
+            "abort-runtime-pending",
+            true,
+            target.database_identity(),
+            store_identity,
+        );
+        let store = db
+            .store_handle(ABORT_STORE_PATH)
+            .expect("abort store should resolve");
+        let current = store
+            .with_schema(SchemaStore::current_accepted_schema_bundle)
+            .expect("accepted bundle should remain readable")
+            .expect("initial accepted bundle should exist");
+        let pending_candidate = lower_existing_schema_proposal(
+            &with_check,
+            &[ExistingProposalStore {
+                path: ABORT_STORE_PATH,
+                identity: store_identity,
+                bundle: &current,
+            }],
+        )
+        .expect("pending generated check should lower")
+        .pop()
+        .expect("pending generated check should produce one candidate");
+        let entity_tag = pending_candidate
+            .bundle()
+            .source_bindings_for_tests()
+            .entity(&entity_source)
+            .expect("entity source should bind");
+        let constraint_id = pending_candidate
+            .bundle()
+            .source_bindings_for_tests()
+            .constraint(entity_tag, &check_source)
+            .expect("generated check source should bind");
+        let digest = with_check.digest().expect("proposal digest should derive");
+        let job_id = derive_schema_change_job_id(
+            target.database_identity(),
+            with_check.submission_key(),
+            digest,
+            target.accepted_head(),
+        )
+        .expect("job identity should derive");
+        let receipt = crate::db::schema::SchemaChangeReceipt::new(
+            target.database_identity(),
+            with_check.submission_key().clone(),
+            digest,
+            target.accepted_head().clone(),
+            SchemaChangeOutcome::Pending {
+                job: SchemaChangeJob::new(job_id),
+                candidate_head: ExpectedAcceptedHead::Exact {
+                    revision: pending_candidate.revision().get().saturating_add(2),
+                    fingerprint: ExpectedSchemaFingerprint::from_bytes([0x76; 32]),
+                },
+            },
+        )
+        .expect("pending receipt should admit");
+        let record = SchemaApplicationRecord::new(
+            receipt,
+            vec![
+                SchemaChangeActivation::new(
+                    store_identity,
+                    entity_tag.value(),
+                    constraint_id.get(),
+                )
+                .expect("application activation should admit"),
+            ],
+        )
+        .expect("pending application record should admit");
+        let operation =
+            SchemaApplicationRecordOp::insert(&record).expect("pending insert should prepare");
+        publish_accepted_schema_candidates_with_application_record(
+            vec![AcceptedSchemaPublication::new(
+                ABORT_STORE_PATH,
+                store,
+                current.revision(),
+                &pending_candidate,
+            )],
+            operation,
+        )
+        .expect("pending candidate and record should publish atomically");
+
+        let started = continue_schema_application(&db, job_id, None)
+            .expect("first continuation should durably start validation");
+        assert_eq!(started.status(), &SchemaChangeProgressStatus::Started);
+        let progress =
+            abort_schema_application(&db, job_id, None).expect("pending application should abort");
+        assert_eq!(progress.status(), &SchemaChangeProgressStatus::Aborted);
+        assert!(matches!(
+            progress.receipt().outcome(),
+            SchemaChangeOutcome::Aborted { .. },
+        ));
+        let replay =
+            abort_schema_application(&db, job_id, None).expect("terminal abort should replay");
+        assert_eq!(replay, progress);
+        assert_eq!(
+            continue_schema_application(&db, job_id, None)
+                .expect("continuation after abort should replay terminal state"),
+            progress,
+        );
+
+        let aborted = store
+            .with_schema(SchemaStore::current_accepted_schema_bundle)
+            .expect("accepted bundle should remain readable")
+            .expect("aborted accepted bundle should exist");
+        assert!(
+            aborted
+                .entity_snapshots()
+                .get(&entity_tag)
+                .expect("entity should remain after abort")
+                .constraint_catalog()
+                .activation(constraint_id)
+                .is_none(),
+        );
+        assert!(
+            aborted
+                .source_bindings_for_tests()
+                .constraint(entity_tag, &check_source)
+                .is_none(),
+        );
+        assert!(
+            store
+                .with_schema(|schema| {
+                    schema.constraint_validation_job(entity_tag, constraint_id)
+                })
+                .expect("validation-job storage should remain readable")
+                .is_none(),
+        );
+
+        ABORT_DATA.with(|store| {
+            *store.borrow_mut() = DataStore::init_journaled(test_memory(180));
+        });
+        ABORT_INDEX.with(|store| {
+            *store.borrow_mut() = IndexStore::init_journaled(test_memory(181));
+        });
+        ABORT_SCHEMA.with(|store| {
+            *store.borrow_mut() = SchemaStore::init_journaled(test_memory(182));
+        });
+        ABORT_JOURNAL.with(|store| {
+            *store.borrow_mut() = JournalTailStore::init(test_memory(183));
+        });
+        forget_recovered_domain_for_tests(&db).expect("upgrade should reset recovery ownership");
+        ensure_recovered(&db).expect("recovery should retain the terminal abort");
+        assert_eq!(
+            abort_schema_application(&db, job_id, None)
+                .expect("recovered terminal abort should replay"),
+            progress,
+        );
+        assert!(
+            store
+                .with_schema(|schema| {
+                    schema.constraint_validation_job(entity_tag, constraint_id)
+                })
+                .expect("recovered validation-job storage should remain readable")
+                .is_none(),
+        );
     }
 }

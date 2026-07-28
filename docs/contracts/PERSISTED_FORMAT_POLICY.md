@@ -36,6 +36,8 @@ The default posture is a pre-1.0 hard cut:
 
 - an incompatible format change replaces the current version-1 form instead
   of introducing a version 2 reader or writer;
+- the replacement receives a new magic or profile identity while its version
+  restarts at 1, so retired version-1 bytes fail before current-form decoding;
 - the current form either decodes exactly or fails closed; old internal forms
   do not receive compatibility decoders;
 - unknown future versions fail closed;

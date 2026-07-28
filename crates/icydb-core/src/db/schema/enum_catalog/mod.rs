@@ -19,15 +19,13 @@ use crate::{
     value::{CanonicalEnumBody, CanonicalEnumValue},
     value::{RuntimeEnumContext, RuntimeEnumSelection},
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 #[cfg(test)]
 use crate::db::schema::composite_catalog::CompositeTypeId;
 #[cfg(test)]
 use crate::model::field::{EnumVariantModel, FieldKind};
-#[cfg(test)]
-use std::collections::BTreeSet;
 
 pub(in crate::db) use crate::value::{EnumTypeId, EnumVariantId};
 #[cfg(any(test, feature = "sql"))]
@@ -51,7 +49,8 @@ pub(in crate::db::schema) use publication::decode_accepted_schema_revision_bundl
 #[cfg(test)]
 pub(in crate::db) use publication::empty_accepted_schema_candidate_for_tests;
 pub(in crate::db::schema) use publication::{
-    AcceptedSchemaBundleKey, AcceptedSchemaPublicationError, AcceptedSchemaRootSelection,
+    ACCEPTED_SCHEMA_ROOT_BYTES, AcceptedSchemaBundleKey, AcceptedSchemaPublicationError,
+    AcceptedSchemaRootSelection, MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES, MAX_SCHEMA_STORE_PATH_BYTES,
     decode_verified_accepted_schema_revision_bundle, prepare_accepted_schema_root_publication,
     select_current_accepted_schema_root,
 };
@@ -349,20 +348,27 @@ impl AcceptedEnumCatalog {
         Ok(self)
     }
 
-    /// Remove one exact accepted enum definition.
+    /// Remove an exact set of accepted enum definitions.
     ///
     /// The application lowerer resolves the immutable source identity and
     /// removes dependent source bindings separately. Catalog and bundle
-    /// validation reject any definition that still refers to this type.
-    pub(in crate::db::schema) fn with_removed_type(
+    /// validation reject any retained definition that still refers to a
+    /// removed type. Validating after the complete set is absent permits an
+    /// unreferenced recursive component to be removed atomically.
+    pub(in crate::db::schema) fn with_removed_types(
         mut self,
-        type_id: EnumTypeId,
+        type_ids: &BTreeSet<EnumTypeId>,
     ) -> Result<Self, EnumCatalogBuildError> {
-        let definition = self
-            .by_id
-            .remove(&type_id)
-            .ok_or(EnumCatalogBuildError::LookupMapInvariant)?;
-        if self.id_by_path.remove(definition.path.as_str()) != Some(type_id) || !self.validate() {
+        for type_id in type_ids {
+            let definition = self
+                .by_id
+                .remove(type_id)
+                .ok_or(EnumCatalogBuildError::LookupMapInvariant)?;
+            if self.id_by_path.remove(definition.path.as_str()) != Some(*type_id) {
+                return Err(EnumCatalogBuildError::LookupMapInvariant);
+            }
+        }
+        if !self.validate() {
             return Err(EnumCatalogBuildError::LookupMapInvariant);
         }
         Ok(self)

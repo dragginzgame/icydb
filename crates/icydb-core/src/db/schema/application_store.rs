@@ -24,10 +24,10 @@ use sha2::{Digest, Sha256};
 use std::borrow::Cow;
 
 const APPLICATION_HEADER_KEY: ApplicationRecordKey = ApplicationRecordKey([0; 32]);
-const APPLICATION_HEADER_MAGIC: &[u8; 8] = b"ICYSCAPP";
+const APPLICATION_HEADER_MAGIC: &[u8; 8] = b"ICYSAH01";
 const APPLICATION_HEADER_VERSION: u8 = 1;
 const APPLICATION_HEADER_BYTES: usize = 8 + 1 + 4;
-const APPLICATION_RECORD_MAGIC: &[u8; 8] = b"ICYSCREC";
+const APPLICATION_RECORD_MAGIC: &[u8; 8] = b"ICYSAR01";
 const APPLICATION_RECORD_VERSION: u8 = 1;
 const APPLICATION_RECORD_HEADER_BYTES: usize = 8 + 1 + 4 + 4;
 pub(in crate::db) const MAX_SCHEMA_APPLICATION_RECORD_BYTES: u32 = 64 * 1024;
@@ -163,8 +163,8 @@ fn valid_record_transition(
         ) => candidate_head == accepted_head,
         (
             crate::db::schema::SchemaChangeOutcome::Pending { .. },
-            crate::db::schema::SchemaChangeOutcome::Failed { .. },
-        ) => true,
+            crate::db::schema::SchemaChangeOutcome::Aborted { accepted_head },
+        ) => accepted_head != before.receipt().prior_head(),
         _ => false,
     }
 }
@@ -220,7 +220,9 @@ pub(in crate::db) struct SchemaApplicationStore {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SchemaApplicationRecordPreflight {
-    Ready,
+    Ready {
+        retired_terminal: Option<ApplicationRecordKey>,
+    },
     AlreadyApplied,
 }
 
@@ -301,7 +303,13 @@ impl SchemaApplicationStore {
     ) -> Result<(), InternalError> {
         match self.preflight(operation)? {
             SchemaApplicationRecordPreflight::AlreadyApplied => return Ok(()),
-            SchemaApplicationRecordPreflight::Ready => {}
+            SchemaApplicationRecordPreflight::Ready { retired_terminal } => {
+                if let Some(key) = retired_terminal
+                    && self.map.remove(&key).is_none()
+                {
+                    return Err(InternalError::store_corruption());
+                }
+            }
         }
 
         self.map.insert(
@@ -326,10 +334,16 @@ impl SchemaApplicationStore {
         if current.as_ref().map(|raw| raw.0.as_slice()) != operation.before_bytes() {
             return Err(InternalError::store_corruption());
         }
-        if current.is_none() && self.record_count()? >= MAX_SCHEMA_APPLICATION_RECORDS {
-            return Err(InternalError::store_invariant());
-        }
-        Ok(SchemaApplicationRecordPreflight::Ready)
+        let retired_terminal =
+            if current.is_none() && self.record_count()? >= MAX_SCHEMA_APPLICATION_RECORDS {
+                Some(
+                    self.terminal_retention_candidate()?
+                        .ok_or_else(InternalError::schema_application_conflict)?,
+                )
+            } else {
+                None
+            };
+        Ok(SchemaApplicationRecordPreflight::Ready { retired_terminal })
     }
 
     pub(in crate::db) fn record_matches(
@@ -349,6 +363,23 @@ impl SchemaApplicationStore {
             .len()
             .checked_sub(1)
             .ok_or_else(InternalError::store_corruption)
+    }
+
+    fn terminal_retention_candidate(&self) -> Result<Option<ApplicationRecordKey>, InternalError> {
+        for entry in self.map.iter() {
+            let key = *entry.key();
+            if key == APPLICATION_HEADER_KEY {
+                continue;
+            }
+            let record = decode_application_record(&entry.value().0, key)?;
+            if !matches!(
+                record.receipt().outcome(),
+                SchemaChangeOutcome::Pending { .. }
+            ) {
+                return Ok(Some(key));
+            }
+        }
+        Ok(None)
     }
 }
 
@@ -476,15 +507,15 @@ mod tests {
     use super::{
         APPLICATION_HEADER_KEY, APPLICATION_MEMORY_START_PAGE, ApplicationRecordBytes,
         ApplicationRecordKey, MAX_SCHEMA_APPLICATION_RECORDS, SchemaApplicationRecordOp,
-        SchemaApplicationStore, decode_application_record, encode_application_record,
+        SchemaApplicationStore, crc32c, decode_application_header, decode_application_record,
+        encode_application_header, encode_application_record,
     };
     use crate::{
         db::{
             commit::{CommitMarker, decode_commit_marker_payload, encode_commit_marker_payload},
             schema::{
-                SchemaApplicationRecord, SchemaChangeActivation, SchemaChangeActivationKind,
-                SchemaChangeJob, SchemaChangeOutcome, SchemaChangeReceipt,
-                derive_schema_change_job_id,
+                SchemaApplicationRecord, SchemaChangeActivation, SchemaChangeJob,
+                SchemaChangeOutcome, SchemaChangeReceipt, derive_schema_change_job_id,
             },
         },
         testing::test_memory,
@@ -528,13 +559,8 @@ mod tests {
         SchemaApplicationRecord::new(
             receipt,
             vec![
-                SchemaChangeActivation::new(
-                    TargetStoreIdentity::from_bytes([0x44; 32]),
-                    7,
-                    9,
-                    SchemaChangeActivationKind::Check,
-                )
-                .expect("activation should admit"),
+                SchemaChangeActivation::new(TargetStoreIdentity::from_bytes([0x44; 32]), 7, 9)
+                    .expect("activation should admit"),
             ],
         )
         .expect("pending record should admit")
@@ -561,6 +587,27 @@ mod tests {
         .expect("applied record should admit")
     }
 
+    fn aborted_record(pending: &SchemaApplicationRecord) -> SchemaApplicationRecord {
+        let receipt = pending.receipt();
+        SchemaApplicationRecord::new(
+            SchemaChangeReceipt::new(
+                receipt.database_identity(),
+                receipt.submission_key().clone(),
+                receipt.proposal_digest(),
+                receipt.prior_head().clone(),
+                SchemaChangeOutcome::Aborted {
+                    accepted_head: ExpectedAcceptedHead::Exact {
+                        revision: 2,
+                        fingerprint: ExpectedSchemaFingerprint::from_bytes([0x66; 32]),
+                    },
+                },
+            )
+            .expect("aborted receipt should admit"),
+            Vec::new(),
+        )
+        .expect("aborted record should admit")
+    }
+
     fn empty_store(memory_id: u8) -> SchemaApplicationStore {
         SchemaApplicationStore::open(RestrictedMemory::new(test_memory(memory_id), 0..2_048))
             .expect("application store should initialize")
@@ -574,6 +621,13 @@ mod tests {
         assert_eq!(
             decode_application_record(&encoded, key).expect("record should decode"),
             record,
+        );
+
+        let mut retired_identity = encoded.clone();
+        retired_identity[..8].copy_from_slice(b"ICYSCREC");
+        assert!(
+            decode_application_record(&retired_identity, key).is_err(),
+            "the retired development-format identity must fail closed",
         );
 
         let mut corrupted = encoded;
@@ -647,9 +701,16 @@ mod tests {
     fn application_record_replacement_rejects_terminal_rewrite_and_wrong_accepted_head() {
         let pending = pending_record("transition");
         let applied = applied_record(&pending);
+        let aborted = aborted_record(&pending);
+        SchemaApplicationRecordOp::replace(&pending, &aborted)
+            .expect("pending application should admit explicit abort");
         assert!(
             SchemaApplicationRecordOp::replace(&applied, &applied).is_err(),
             "terminal application records must be immutable",
+        );
+        assert!(
+            SchemaApplicationRecordOp::replace(&aborted, &applied).is_err(),
+            "an aborted application must remain terminal",
         );
 
         let receipt = pending.receipt();
@@ -709,10 +770,19 @@ mod tests {
         assert_eq!(APPLICATION_MEMORY_START_PAGE, 257);
         let store = empty_store(222);
         assert!(store.map.contains_key(&APPLICATION_HEADER_KEY));
+
+        let mut retired_identity = encode_application_header();
+        retired_identity[..8].copy_from_slice(b"ICYSCAPP");
+        let checksum = crc32c(&retired_identity[..9]);
+        retired_identity[9..].copy_from_slice(&checksum.to_le_bytes());
+        assert!(
+            decode_application_header(&retired_identity).is_err(),
+            "the retired application-header identity must fail closed",
+        );
     }
 
     #[test]
-    fn application_store_capacity_rejects_before_record_mutation() {
+    fn application_store_capacity_preserves_pending_evidence() {
         let mut store = empty_store(223);
         for ordinal in 0..MAX_SCHEMA_APPLICATION_RECORDS {
             let record = pending_record(&format!("capacity-{ordinal}"));
@@ -730,6 +800,58 @@ mod tests {
                 .record_count()
                 .expect("record count should remain readable"),
             MAX_SCHEMA_APPLICATION_RECORDS,
+        );
+    }
+
+    #[test]
+    fn application_store_capacity_recycles_one_deterministic_terminal_receipt() {
+        let mut store = empty_store(224);
+        let mut terminal_keys = Vec::new();
+        for ordinal in 0..MAX_SCHEMA_APPLICATION_RECORDS {
+            let pending = pending_record(&format!("terminal-{ordinal}"));
+            let terminal = if ordinal % 2 == 0 {
+                applied_record(&pending)
+            } else {
+                aborted_record(&pending)
+            };
+            terminal_keys.push(
+                ApplicationRecordKey::from_receipt(terminal.receipt())
+                    .expect("terminal key should derive"),
+            );
+            let operation = SchemaApplicationRecordOp::insert(&terminal)
+                .expect("terminal insert should prepare");
+            store.apply(&operation).expect("terminal record should fit");
+        }
+        terminal_keys.sort_unstable();
+        let retired = terminal_keys[0];
+        let next = pending_record("capacity-recycled");
+        let operation =
+            SchemaApplicationRecordOp::insert(&next).expect("pending insert should prepare");
+
+        store
+            .apply(&operation)
+            .expect("one terminal receipt should make bounded room");
+
+        assert_eq!(
+            store
+                .record_count()
+                .expect("record count should remain readable"),
+            MAX_SCHEMA_APPLICATION_RECORDS,
+        );
+        assert!(
+            store
+                .load_key(retired)
+                .expect("retired key should remain readable")
+                .is_none(),
+        );
+        assert_eq!(
+            store
+                .load(
+                    next.receipt().database_identity(),
+                    next.receipt().submission_key(),
+                )
+                .expect("new pending record should load"),
+            Some(next),
         );
     }
 }

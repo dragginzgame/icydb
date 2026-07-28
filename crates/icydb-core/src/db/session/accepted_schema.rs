@@ -207,6 +207,20 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(AcceptedInspectionPlanLoadError::into_internal)
     }
 
+    /// Resolve one accepted catalog through its immutable authored source key.
+    pub(in crate::db::session) fn accepted_schema_catalog_context_for_entity_source_key(
+        &self,
+        entity_source: &str,
+    ) -> Result<AcceptedSchemaCatalogContext, InternalError> {
+        self.db.ensure_recovered_state()?;
+        let source = EntitySourceKey::try_new(entity_source)
+            .map_err(|_| InternalError::unsupported_entity_path(entity_source))?;
+        let route = self.db.generated_route_for_entity_path(source.as_str())?;
+        let store = self.db.store_handle(route.store_path)?;
+        let registration = route.resolve(&self.db)?;
+        self.accepted_schema_catalog_context_for_runtime_registration(registration, store)
+    }
+
     /// Resolve one accepted catalog by its editable SQL/display entity name.
     pub(in crate::db::session) fn accepted_schema_catalog_context_for_entity_name(
         &self,

@@ -48,7 +48,7 @@ pub fn identifier_last_segment(identifier: &str) -> Option<&str> {
 
 /// Return whether two SQL identifiers resolve to the same entity tail segment.
 #[must_use]
-pub fn identifiers_tail_match(left: &str, right: &str) -> bool {
+pub(in crate::db) fn identifiers_tail_match(left: &str, right: &str) -> bool {
     if left.eq_ignore_ascii_case(right) {
         return true;
     }

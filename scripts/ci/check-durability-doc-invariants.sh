@@ -84,6 +84,10 @@ require_pattern \
   "persisted-format policy must retain the pre-1.0 hard-cut classification"
 require_pattern \
   "docs/contracts/PERSISTED_FORMAT_POLICY.md" \
+  "new magic or profile identity" \
+  "pre-1.0 hard cuts must change format identity while retaining version 1"
+require_pattern \
+  "docs/contracts/PERSISTED_FORMAT_POLICY.md" \
   "^### Backward-compatible reader extension$" \
   "persisted-format policy must retain the backward-compatible extension classification"
 require_pattern \
@@ -139,6 +143,15 @@ require_pattern \
   "docs/contracts/PERSISTED_FORMAT_INVENTORY.md" \
   "no persisted-format change" \
   "persisted-format inventory must retain the no-change documentation rule"
+
+if rg -n --no-heading --color=never --pcre2 \
+  'const\s+[A-Z0-9_]*(?:FORMAT_VERSION|CODEC_VERSION|HEADER_VERSION|RECORD_VERSION|WIRE_VERSION|VERSION_CURRENT|CURRENT_VERSION|VERSION)[A-Z0-9_]*\s*:[^=]+=[^;]*\b(?:[2-9]|[1-9][0-9]+)\b[^;]*;' \
+  crates \
+  --glob '*.rs'
+then
+  echo "[ERROR] Active pre-1.0 format/version constants must remain at version 1." >&2
+  status=1
+fi
 
 require_pattern \
   "docs/operations/DURABILITY_GUIDE.md" \

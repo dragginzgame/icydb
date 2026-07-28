@@ -41,40 +41,19 @@ impl<C: CanisterKind> DbSession<C> {
             decode_schema_fragment(fragment_bytes).map_err(|_| generated_schema_input_error())?;
         let submission_key = SchemaSubmissionKey::try_new(submission_key)
             .map_err(|_| generated_schema_input_error())?;
-        let mut target = self.schema_application_target()?;
-        if let Some(receipt) =
+        let target = self.schema_application_target()?;
+        let expected_head = if let Some(receipt) =
             self.schema_application_receipt(target.database_identity(), &submission_key)?
         {
-            let proposal = generated_schema_proposal(
-                &fragment,
-                &target,
-                submission_key,
-                receipt.prior_head().clone(),
-                entity_stores,
-            )?;
-            self.inner.rebuild_generated_live_schema(&proposal)?;
-            return self.apply_schema(&proposal);
-        }
-
-        if !matches!(
-            target.accepted_head(),
-            icydb_schema::ExpectedAcceptedHead::Empty
-        ) {
-            let rebuild = generated_schema_proposal(
-                &fragment,
-                &target,
-                submission_key.clone(),
-                target.accepted_head().clone(),
-                entity_stores,
-            )?;
-            self.inner.rebuild_generated_live_schema(&rebuild)?;
-            target = self.schema_application_target()?;
-        }
+            receipt.prior_head().clone()
+        } else {
+            target.accepted_head().clone()
+        };
         let proposal = generated_schema_proposal(
             &fragment,
             &target,
             submission_key,
-            target.accepted_head().clone(),
+            expected_head,
             entity_stores,
         )?;
 
@@ -117,6 +96,18 @@ impl<C: CanisterKind> DbSession<C> {
             .continue_schema_application(job_id, acknowledged_receipt)?)
     }
 
+    /// Abort one pending schema application after acknowledging any retained
+    /// finding page by exact sequence.
+    pub fn abort_schema_application(
+        &self,
+        job_id: SchemaChangeJobId,
+        acknowledged_receipt: Option<u64>,
+    ) -> Result<SchemaChangeProgress, Error> {
+        Ok(self
+            .inner
+            .abort_schema_application(job_id, acknowledged_receipt)?)
+    }
+
     /// Return one stable list of runtime-registered entity catalog entries.
     #[must_use]
     pub fn show_entities(&self) -> Vec<EntityCatalogDescription> {
@@ -142,8 +133,19 @@ impl<C: CanisterKind> DbSession<C> {
         self.inner.show_memory()
     }
 
-    /// Return one accepted live-schema description selected by authored path
-    /// or accepted entity name.
+    /// Return one accepted live-schema description selected by immutable
+    /// authored source identity.
+    pub fn try_describe_entity_by_source_key(
+        &self,
+        entity_source: &str,
+    ) -> Result<EntitySchemaDescription, Error> {
+        Ok(self
+            .inner
+            .try_describe_entity_by_source_key(entity_source)?)
+    }
+
+    /// Return one accepted live-schema description selected by accepted
+    /// display name.
     pub fn try_describe_entity_by_name(
         &self,
         entity: &str,

@@ -70,16 +70,6 @@ impl<C: CanisterKind> DbSession<C> {
         crate::db::schema::schema_application_receipt(&self.db, database_identity, submission_key)
     }
 
-    /// Rebuild absent live-only schema metadata from one exact generated
-    /// declaration before catalog reconciliation.
-    #[doc(hidden)]
-    pub fn rebuild_generated_live_schema(
-        &self,
-        proposal: &SchemaProposal,
-    ) -> Result<(), InternalError> {
-        crate::db::schema::rebuild_generated_live_schema(&self.db, proposal)
-    }
-
     /// Advance one pending schema application by at most one bounded
     /// activation step.
     pub fn continue_schema_application(
@@ -88,6 +78,16 @@ impl<C: CanisterKind> DbSession<C> {
         acknowledged_receipt: Option<u64>,
     ) -> Result<SchemaChangeProgress, InternalError> {
         crate::db::schema::continue_schema_application(&self.db, job_id, acknowledged_receipt)
+    }
+
+    /// Abort one pending schema application after acknowledging any retained
+    /// finding page by exact sequence.
+    pub fn abort_schema_application(
+        &self,
+        job_id: SchemaChangeJobId,
+        acknowledged_receipt: Option<u64>,
+    ) -> Result<SchemaChangeProgress, InternalError> {
+        crate::db::schema::abort_schema_application(&self.db, job_id, acknowledged_receipt)
     }
 
     // Return one stable, human-readable index listing for one resolved
@@ -196,14 +196,29 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(visible_indexes)
     }
 
-    /// Return one schema description from current accepted authority selected
-    /// by authored entity path or accepted entity name.
+    /// Return one schema description selected by an immutable authored source key.
+    pub fn try_describe_entity_by_source_key(
+        &self,
+        entity_source: &str,
+    ) -> Result<EntitySchemaDescription, InternalError> {
+        let catalog = self.accepted_schema_catalog_context_for_entity_source_key(entity_source)?;
+        self.describe_accepted_catalog(&catalog)
+    }
+
+    /// Return one schema description selected by its accepted display name.
     pub fn try_describe_entity_by_name(
         &self,
         entity: &str,
     ) -> Result<EntitySchemaDescription, InternalError> {
         let catalog = self.accepted_schema_catalog_context_for_entity_name(Some(entity))?;
-        let validation_jobs = self.constraint_validation_jobs_for_accepted_catalog(&catalog)?;
+        self.describe_accepted_catalog(&catalog)
+    }
+
+    fn describe_accepted_catalog(
+        &self,
+        catalog: &crate::db::session::AcceptedSchemaCatalogContext,
+    ) -> Result<EntitySchemaDescription, InternalError> {
+        let validation_jobs = self.constraint_validation_jobs_for_accepted_catalog(catalog)?;
 
         describe_accepted_entity_with_persisted_schema(
             catalog.snapshot(),

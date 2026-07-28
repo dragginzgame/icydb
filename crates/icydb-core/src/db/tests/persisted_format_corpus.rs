@@ -87,9 +87,13 @@ fn memory_with_prefix(bytes: &[u8]) -> VectorMemory {
     memory
 }
 
-fn database_boot_record(version: u16, state: u8) -> [u8; DATABASE_BOOT_RECORD_BYTES] {
+fn database_boot_record(
+    magic: [u8; 8],
+    version: u16,
+    state: u8,
+) -> [u8; DATABASE_BOOT_RECORD_BYTES] {
     let mut bytes = [0_u8; DATABASE_BOOT_RECORD_BYTES];
-    bytes[..8].copy_from_slice(b"ICYDBNOW");
+    bytes[..8].copy_from_slice(&magic);
     bytes[8..10].copy_from_slice(&version.to_be_bytes());
     bytes[10] = state;
     let checksum_offset = DATABASE_BOOT_RECORD_BYTES - size_of::<u32>();
@@ -151,13 +155,33 @@ fn database_boot_record_malformed_corpus_fails_closed() {
         validate_current_boot_record(&VectorMemory::default()),
     );
 
-    let mut corrupt_magic = database_boot_record(1, 1);
+    assert!(
+        validate_current_boot_record(&memory_with_prefix(&database_boot_record(
+            *b"ICYDB001",
+            1,
+            1,
+        )))
+        .is_ok(),
+        "current version-1 hard-cut identity should admit",
+    );
+
+    let mut corrupt_magic = database_boot_record(*b"ICYDB001", 1, 1);
     corrupt_magic[0] = b'X';
-    let mut corrupt_checksum = database_boot_record(1, 1);
+    let mut corrupt_checksum = database_boot_record(*b"ICYDB001", 1, 1);
     corrupt_checksum[DATABASE_BOOT_RECORD_BYTES - 1] ^= 0xff;
     let cases = [
-        ("future database version", database_boot_record(2, 1)),
-        ("unknown database boot state", database_boot_record(1, 0xff)),
+        (
+            "retired database format identity",
+            database_boot_record(*b"ICYDBNOW", 1, 1),
+        ),
+        (
+            "unsupported database version",
+            database_boot_record(*b"ICYDB001", 2, 1),
+        ),
+        (
+            "unknown database boot state",
+            database_boot_record(*b"ICYDB001", 1, 0xff),
+        ),
         ("corrupt database boot magic", corrupt_magic),
         ("corrupt database boot checksum", corrupt_checksum),
     ];

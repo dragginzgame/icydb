@@ -39,11 +39,11 @@ const ACCEPTED_SCHEMA_BUNDLE_CODEC_VERSION: u16 = 1;
 const ACCEPTED_SCHEMA_BUNDLE_HEADER_BYTES: usize = 101;
 const ACCEPTED_SCHEMA_ROOT_MAGIC: &[u8; 8] = b"ICYDBAER";
 const ACCEPTED_SCHEMA_ROOT_CODEC_VERSION: u16 = 1;
-const ACCEPTED_SCHEMA_ROOT_BYTES: usize = 94;
+pub(in crate::db::schema) const ACCEPTED_SCHEMA_ROOT_BYTES: usize = 94;
 const ACCEPTED_SCHEMA_ROOT_CHECKSUM_OFFSET: usize = ACCEPTED_SCHEMA_ROOT_BYTES - size_of::<u32>();
 const ACCEPTED_SCHEMA_FINGERPRINT_PROFILE: &[u8] = b"icydb.accepted-schema.semantic.v1";
-const MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES: usize = 16 * 1024 * 1024;
-const MAX_SCHEMA_STORE_PATH_BYTES: usize = 4 * 1024;
+pub(in crate::db::schema) const MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES: usize = 16 * 1024 * 1024;
+pub(in crate::db::schema) const MAX_SCHEMA_STORE_PATH_BYTES: usize = 4 * 1024;
 type BundleWriter = SchemaWireWriter<MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES>;
 type BundleReader<'a> = SchemaWireReader<'a>;
 

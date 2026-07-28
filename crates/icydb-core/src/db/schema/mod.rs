@@ -29,6 +29,7 @@ mod info;
 mod inspection_plan;
 mod integrity;
 mod layout;
+mod live_schema_checkpoint;
 mod mutation;
 mod runtime;
 mod snapshot;
@@ -62,22 +63,19 @@ pub(in crate::db) use accepted_field_kind::AcceptedFieldKind;
 pub(in crate::db) use accepted_value_admission::AcceptedValueAdmissionContract;
 pub use application::{SchemaApplicationStore, SchemaApplicationTarget};
 pub(in crate::db) use application::{
-    apply_schema, continue_schema_application, rebuild_generated_live_schema,
+    abort_schema_application, apply_schema, continue_schema_application,
     schema_application_receipt, schema_application_target,
 };
 pub(in crate::db) use application_lowering::lower_field_type;
 pub(in crate::db::schema) use application_lowering::{
     ExistingProposalStore, ProposalStoreTarget, lower_existing_schema_proposal,
-    lower_initial_schema_proposal, lower_live_rebuilt_schema_proposal,
+    lower_initial_schema_proposal,
 };
 pub(in crate::db) use application_receipt::SchemaApplicationRecord;
-pub(in crate::db) use application_receipt::{
-    SchemaChangeActivation, SchemaChangeActivationKind, derive_schema_change_job_id,
-};
+pub(in crate::db) use application_receipt::{SchemaChangeActivation, derive_schema_change_job_id};
 pub use application_receipt::{
-    SchemaChangeFailure, SchemaChangeJob, SchemaChangeJobId, SchemaChangeOutcome,
-    SchemaChangeProgress, SchemaChangeProgressStatus, SchemaChangeReceipt,
-    SchemaChangeValidationPhase,
+    SchemaChangeJob, SchemaChangeJobId, SchemaChangeOutcome, SchemaChangeProgress,
+    SchemaChangeProgressStatus, SchemaChangeReceipt, SchemaChangeValidationPhase,
 };
 pub(in crate::db) use application_store::{
     ApplicationRecordKey, SchemaApplicationRecordOp, apply_schema_application_record_op,
@@ -181,6 +179,10 @@ pub(in crate::db::schema) use integrity::{
     schema_snapshot_integrity_detail, schema_snapshot_relation_integrity_detail,
 };
 pub(in crate::db) use layout::{RowLayoutVersion, SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
+pub(in crate::db) use live_schema_checkpoint::{
+    apply_live_schema_checkpoint, load_live_schema_checkpoint, preflight_live_schema_checkpoint,
+    verify_live_schema_checkpoint,
+};
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db::schema) use mutation::{
     MAX_SCHEMA_PROJECTION_ENTRIES, MutationPlan, MutationPublicationPreflight,

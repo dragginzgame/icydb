@@ -1303,7 +1303,7 @@ impl SchemaStore {
     ///
     /// Journaled online revisions must use
     /// `apply_journaled_accepted_schema_candidate`; this path owns initial
-    /// bootstrap and live-rebuilt metadata.
+    /// bootstrap and marker-owned live-projection updates.
     pub(in crate::db) fn publish_accepted_schema_candidate(
         &mut self,
         expected_revision: AcceptedSchemaRevision,
@@ -1348,6 +1348,42 @@ impl SchemaStore {
         .map_err(map_schema_publication_error)?;
         let root_key = RawSchemaKey::from_accepted_root_slot(publication.target_slot())?;
         self.insert_durable_raw_value(root_key, publication.encoded_root().to_vec());
+
+        let selected = self
+            .current_accepted_schema_root()?
+            .ok_or_else(InternalError::store_corruption)?;
+        if selected.root() != candidate.root() {
+            return Err(InternalError::store_corruption());
+        }
+        self.retain_durable_candidate_entries(candidate, selected.slot())?;
+        Ok(())
+    }
+
+    /// Restore one current accepted candidate into an empty live-only schema
+    /// store from its durable database-control checkpoint.
+    pub(in crate::db) fn restore_live_accepted_schema_checkpoint(
+        &mut self,
+        candidate: &CandidateSchemaRevision,
+    ) -> Result<(), InternalError> {
+        if !matches!(self.backend, SchemaStoreBackend::Heap(_)) {
+            return Err(InternalError::store_invariant());
+        }
+        if self.current_root_matches_candidate(candidate)? {
+            let selection = self
+                .current_accepted_schema_root()?
+                .ok_or_else(InternalError::store_corruption)?;
+            self.retain_durable_candidate_entries(candidate, selection.slot())?;
+            return Ok(());
+        }
+        if self.current_accepted_schema_root()?.is_some() {
+            return Err(InternalError::store_corruption());
+        }
+
+        self.insert_durable_candidate_snapshots(candidate)?;
+        let bundle_key = RawSchemaKey::from_accepted_bundle(candidate.root().bundle_key());
+        self.insert_durable_raw_value(bundle_key, candidate.encoded_bundle().to_vec());
+        let root_key = RawSchemaKey::from_accepted_root_slot(0)?;
+        self.insert_durable_raw_value(root_key, candidate.encoded_root().to_vec());
 
         let selected = self
             .current_accepted_schema_root()?

@@ -19,10 +19,11 @@ use crate::{
             CommitMarker, begin_commit, finish_commit, generate_commit_id, generate_marker_batch_id,
         },
         journal::{JournalBatch, JournalRecord, JournalSequence},
-        registry::{StoreHandle, StoreRecoveryCapability},
+        registry::{StoreHandle, StoreRecoveryCapability, StoreSchemaMetadataCapability},
         schema::{
             AcceptedSchemaRevision, CandidateSchemaRevision, ConstraintId, ConstraintValidationJob,
-            SchemaApplicationRecordOp, apply_schema_application_record_op,
+            SchemaApplicationRecordOp, apply_live_schema_checkpoint,
+            apply_schema_application_record_op, preflight_live_schema_checkpoint,
         },
     },
     error::InternalError,
@@ -100,10 +101,10 @@ pub(in crate::db) fn publish_accepted_schema_candidate(
 /// Publish one or more catalog-native accepted candidates through one durable
 /// marker boundary.
 ///
-/// Multi-store publication currently requires journaled stores. A volatile
-/// heap store has no recovery authority capable of completing an interrupted
-/// database-scoped publication, so mixed or multi-heap input rejects before
-/// mutation.
+/// Stores with live-only schema allocations checkpoint the exact accepted
+/// candidate in database-control memory under the same marker. Recovery can
+/// therefore restore accepted catalog authority without consulting authored
+/// or generated proposal material.
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn publish_accepted_schema_candidates_atomically(
     publications: Vec<AcceptedSchemaPublication<'_>>,
@@ -171,26 +172,16 @@ fn publish_accepted_schema_candidates_with_optional_application_record(
         return Err(InternalError::store_invariant());
     }
 
-    if publications.len() == 1
-        && publications[0].store.storage_capabilities().recovery() == StoreRecoveryCapability::None
-    {
-        if application_record.is_some() {
-            return Err(InternalError::store_unsupported());
-        }
-        let publication = &publications[0];
-        return publication.store.with_schema_mut(|schema_store| {
-            schema_store.publish_accepted_schema_candidate(
+    for publication in &publications {
+        if publication.store.storage_capabilities().schema_metadata()
+            == StoreSchemaMetadataCapability::LiveRebuiltMetadata
+        {
+            preflight_live_schema_checkpoint(
+                publication.store_path,
                 publication.expected_revision,
                 publication.candidate,
-            )
-        });
-    }
-    if application_record.is_none()
-        && publications.iter().any(|publication| {
-            publication.store.storage_capabilities().recovery() == StoreRecoveryCapability::None
-        })
-    {
-        return Err(InternalError::store_unsupported());
+            )?;
+        }
     }
 
     publish_candidates_atomically(publications.as_slice(), application_record)
@@ -212,6 +203,7 @@ pub(in crate::db) fn publish_accepted_schema_candidate_with_constraint_validatio
         candidate,
         StagedSchemaDomains::None,
         ConstraintValidationJobChange::Put(job),
+        None,
     )
 }
 
@@ -235,6 +227,32 @@ pub(in crate::db) fn publish_accepted_schema_candidate_with_constraint_validatio
             entity_tag,
             constraint_id,
         },
+        None,
+    )
+}
+
+/// Publish one generated-check abort, validation-job removal, and terminal
+/// application receipt through the same marker boundary.
+pub(in crate::db) fn publish_generated_check_abort_with_application_record(
+    store_path: &'static str,
+    store: StoreHandle,
+    expected_revision: AcceptedSchemaRevision,
+    candidate: &CandidateSchemaRevision,
+    entity_tag: EntityTag,
+    constraint_id: ConstraintId,
+    application_record: SchemaApplicationRecordOp,
+) -> Result<(), InternalError> {
+    publish_accepted_schema_candidate_with_prepared_domains(
+        store_path,
+        store,
+        expected_revision,
+        candidate,
+        StagedSchemaDomains::None,
+        ConstraintValidationJobChange::Delete {
+            entity_tag,
+            constraint_id,
+        },
+        Some(application_record),
     )
 }
 
@@ -326,6 +344,7 @@ pub(in crate::db) fn publish_accepted_schema_candidate_with_user_index_domains(
         candidate,
         StagedSchemaDomains::UserIndexes(replacements),
         ConstraintValidationJobChange::None,
+        None,
     )
 }
 
@@ -336,19 +355,19 @@ fn publish_accepted_schema_candidate_with_prepared_domains(
     candidate: &CandidateSchemaRevision,
     domains: StagedSchemaDomains,
     job_change: ConstraintValidationJobChange<'_>,
+    application_record: Option<SchemaApplicationRecordOp>,
 ) -> Result<(), InternalError> {
     validate_constraint_validation_job_change(store, candidate, job_change)?;
     match store.storage_capabilities().recovery() {
-        StoreRecoveryCapability::None => {
-            publish_heap_candidate_with_constraint_validation_job_change(
-                store,
-                expected_revision,
-                candidate,
-                job_change,
-            )?;
-            apply_staged_schema_domains(store, domains);
-            Ok(())
-        }
+        StoreRecoveryCapability::None => publish_live_candidate_with_prepared_domains(
+            store_path,
+            store,
+            expected_revision,
+            candidate,
+            domains,
+            job_change,
+            application_record,
+        ),
         StoreRecoveryCapability::StableBasePlusJournalReplay => publish_journaled_candidate(
             store_path,
             store,
@@ -356,8 +375,50 @@ fn publish_accepted_schema_candidate_with_prepared_domains(
             candidate,
             domains,
             job_change,
+            application_record,
         ),
     }
+}
+
+fn publish_live_candidate_with_prepared_domains(
+    store_path: &'static str,
+    store: StoreHandle,
+    expected_revision: AcceptedSchemaRevision,
+    candidate: &CandidateSchemaRevision,
+    domains: StagedSchemaDomains,
+    job_change: ConstraintValidationJobChange<'_>,
+    application_record: Option<SchemaApplicationRecordOp>,
+) -> Result<(), InternalError> {
+    if !matches!(job_change, ConstraintValidationJobChange::None)
+        || application_record.is_some()
+        || store.storage_capabilities().schema_metadata()
+            != StoreSchemaMetadataCapability::LiveRebuiltMetadata
+    {
+        return Err(InternalError::store_unsupported());
+    }
+    store.with_schema(|schema_store| {
+        schema_store.preflight_accepted_schema_candidate(expected_revision, candidate)
+    })?;
+    preflight_live_schema_checkpoint(store_path, expected_revision, candidate)?;
+    let marker_id = generate_commit_id()?;
+    let record = JournalRecord::accepted_schema_publish(
+        store_path,
+        expected_revision,
+        candidate.encoded_bundle().to_vec(),
+        candidate.encoded_root().to_vec(),
+    )?;
+    let batch = JournalBatch::new(marker_id, marker_id, JournalSequence::new(0), vec![record])?;
+    let marker = CommitMarker::from_parts(marker_id, vec![batch])?;
+    let commit = begin_commit(marker)?;
+
+    finish_commit(commit, |_guard| {
+        apply_live_schema_checkpoint(store_path, expected_revision, candidate)?;
+        store.with_schema_mut(|schema_store| {
+            schema_store.publish_accepted_schema_candidate(expected_revision, candidate)
+        })?;
+        apply_staged_schema_domains(store, domains);
+        Ok(())
+    })
 }
 
 fn publish_journaled_candidate(
@@ -367,6 +428,7 @@ fn publish_journaled_candidate(
     candidate: &CandidateSchemaRevision,
     domains: StagedSchemaDomains,
     job_change: ConstraintValidationJobChange<'_>,
+    application_record: Option<SchemaApplicationRecordOp>,
 ) -> Result<(), InternalError> {
     let journal_store = store
         .journal_tail_store()
@@ -385,7 +447,11 @@ fn publish_journaled_candidate(
         records.push(record);
     }
     let batch = JournalBatch::new(marker_id, marker_id, sequence, records)?;
-    let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])?;
+    let marker = CommitMarker::from_parts_with_schema_application(
+        marker_id,
+        vec![batch.clone()],
+        application_record.clone(),
+    )?;
     let commit = begin_commit(marker)?;
 
     finish_commit(commit, |_guard| {
@@ -395,6 +461,9 @@ fn publish_journaled_candidate(
         })?;
         apply_constraint_validation_job_change(store, job_change)?;
         apply_staged_schema_domains(store, domains);
+        if let Some(operation) = application_record.as_ref() {
+            apply_schema_application_record_op(operation)?;
+        }
         Ok(())
     })
 }
@@ -441,6 +510,17 @@ fn publish_candidates_atomically(
                 && let Some(journal_store) = publication.store.journal_tail_store()
             {
                 journal_store.with_borrow_mut(|journal| journal.append_batch(batch))?;
+            }
+        }
+        for publication in publications {
+            if publication.store.storage_capabilities().schema_metadata()
+                == StoreSchemaMetadataCapability::LiveRebuiltMetadata
+            {
+                apply_live_schema_checkpoint(
+                    publication.store_path,
+                    publication.expected_revision,
+                    publication.candidate,
+                )?;
             }
         }
         for publication in publications {
@@ -606,39 +686,6 @@ fn validate_constraint_validation_job_change(
     })
 }
 
-fn publish_heap_candidate_with_constraint_validation_job_change(
-    store: StoreHandle,
-    expected_revision: AcceptedSchemaRevision,
-    candidate: &CandidateSchemaRevision,
-    change: ConstraintValidationJobChange<'_>,
-) -> Result<(), InternalError> {
-    store.with_schema_mut(|schema_store| match change {
-        ConstraintValidationJobChange::None => {
-            schema_store.publish_accepted_schema_candidate(expected_revision, candidate)
-        }
-        ConstraintValidationJobChange::Put(job) => {
-            schema_store.apply_constraint_validation_job(job)?;
-            if let Err(error) =
-                schema_store.publish_accepted_schema_candidate(expected_revision, candidate)
-            {
-                schema_store.apply_constraint_validation_job_removal(
-                    job.entity_tag(),
-                    job.constraint_id(),
-                )?;
-                return Err(error);
-            }
-            Ok(())
-        }
-        ConstraintValidationJobChange::Delete {
-            entity_tag,
-            constraint_id,
-        } => {
-            schema_store.publish_accepted_schema_candidate(expected_revision, candidate)?;
-            schema_store.apply_constraint_validation_job_removal(entity_tag, constraint_id)
-        }
-    })
-}
-
 fn constraint_validation_job_journal_record(
     store_path: &'static str,
     change: ConstraintValidationJobChange<'_>,
@@ -795,5 +842,301 @@ fn apply_user_index_domain_replacement(
     for entry in final_entries {
         let (key, value) = entry.into_parts();
         index_store.insert(key, value);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AcceptedSchemaPublication, publish_accepted_schema_candidate,
+        publish_accepted_schema_candidates_with_application_record,
+    };
+    use crate::{
+        db::{
+            Db, EntityRegistration,
+            commit::recovery::forget_recovered_domain_for_tests,
+            commit::{
+                CommitMarker, begin_commit, ensure_recovered, generate_commit_id,
+                generate_marker_batch_id,
+            },
+            data::DataStore,
+            index::IndexStore,
+            journal::{JournalBatch, JournalRecord, JournalSequence},
+            registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
+            schema::{
+                AcceptedSchemaRevision, CandidateSchemaRevision, SchemaApplicationRecord,
+                SchemaApplicationRecordOp, SchemaChangeOutcome, SchemaChangeReceipt, SchemaStore,
+                empty_accepted_schema_candidate_for_tests, load_live_schema_checkpoint,
+                with_schema_application_store,
+            },
+        },
+        traits::{CanisterKind, Path},
+    };
+    use icydb_schema::{
+        ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaProposalDigest, SchemaSubmissionKey,
+        TargetDatabaseIdentity,
+    };
+    use std::cell::RefCell;
+
+    const COMPLETION_STORE_PATH: &str = "schema_publication_tests::CompletionHeap";
+    const RECOVERY_STORE_PATH: &str = "schema_publication_tests::RecoveryHeap";
+
+    thread_local! {
+        static COMPLETION_DATA: RefCell<DataStore> =
+            const { RefCell::new(DataStore::init_heap()) };
+        static COMPLETION_INDEX: RefCell<IndexStore> =
+            const { RefCell::new(IndexStore::init_heap()) };
+        static COMPLETION_SCHEMA: RefCell<SchemaStore> =
+            const { RefCell::new(SchemaStore::init_heap()) };
+        static COMPLETION_REGISTRY: StoreRegistry = {
+            let mut registry = StoreRegistry::new();
+            registry.register_store(
+                COMPLETION_STORE_PATH,
+                &COMPLETION_DATA,
+                &COMPLETION_INDEX,
+                &COMPLETION_SCHEMA,
+                StoreAllocationIdentities::absent(),
+                StoreRuntimeStorageCapabilities::heap(),
+            ).expect("completion heap store should register");
+            registry
+        };
+        static RECOVERY_DATA: RefCell<DataStore> =
+            const { RefCell::new(DataStore::init_heap()) };
+        static RECOVERY_INDEX: RefCell<IndexStore> =
+            const { RefCell::new(IndexStore::init_heap()) };
+        static RECOVERY_SCHEMA: RefCell<SchemaStore> =
+            const { RefCell::new(SchemaStore::init_heap()) };
+        static RECOVERY_REGISTRY: StoreRegistry = {
+            let mut registry = StoreRegistry::new();
+            registry.register_store(
+                RECOVERY_STORE_PATH,
+                &RECOVERY_DATA,
+                &RECOVERY_INDEX,
+                &RECOVERY_SCHEMA,
+                StoreAllocationIdentities::absent(),
+                StoreRuntimeStorageCapabilities::heap(),
+            ).expect("recovery heap store should register");
+            registry
+        };
+    }
+
+    struct CompletionCanister;
+
+    impl Path for CompletionCanister {
+        const PATH: &'static str = "schema_publication_tests::CompletionCanister";
+    }
+
+    impl CanisterKind for CompletionCanister {
+        const COMMIT_MEMORY_ID: u8 = 240;
+        const COMMIT_STABLE_KEY: &'static str =
+            "icydb.test.schema-publication.completion.commit.v1";
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 243;
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+            "icydb.test.schema-publication.completion.integrity.v1";
+    }
+
+    struct RecoveryCanister;
+
+    impl Path for RecoveryCanister {
+        const PATH: &'static str = "schema_publication_tests::RecoveryCanister";
+    }
+
+    impl CanisterKind for RecoveryCanister {
+        const COMMIT_MEMORY_ID: u8 = 241;
+        const COMMIT_STABLE_KEY: &'static str = "icydb.test.schema-publication.recovery.commit.v1";
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 242;
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+            "icydb.test.schema-publication.recovery.integrity.v1";
+    }
+
+    fn applied_record(
+        candidate: &CandidateSchemaRevision,
+        discriminator: u8,
+        submission: &str,
+    ) -> SchemaApplicationRecord {
+        let accepted_head = ExpectedAcceptedHead::Exact {
+            revision: candidate.revision().get(),
+            fingerprint: ExpectedSchemaFingerprint::from_bytes(
+                candidate.root().fingerprint().as_bytes(),
+            ),
+        };
+        let receipt = SchemaChangeReceipt::new(
+            TargetDatabaseIdentity::from_bytes([discriminator; 32]),
+            SchemaSubmissionKey::try_new(submission).expect("submission key should admit"),
+            SchemaProposalDigest::from_bytes([discriminator.wrapping_add(1); 32]),
+            ExpectedAcceptedHead::Empty,
+            SchemaChangeOutcome::Applied { accepted_head },
+        )
+        .expect("applied receipt should admit");
+        SchemaApplicationRecord::new(receipt, Vec::new())
+            .expect("terminal application record should admit")
+    }
+
+    fn assert_candidate_and_record_published(
+        store: crate::db::registry::StoreHandle,
+        candidate: &CandidateSchemaRevision,
+        record: &SchemaApplicationRecord,
+    ) {
+        let current = store
+            .with_schema(SchemaStore::current_accepted_schema_bundle)
+            .expect("heap schema should remain readable");
+        assert_eq!(
+            current.as_ref(),
+            Some(candidate.bundle()),
+            "accepted heap candidate must publish before success",
+        );
+        let checkpoint = load_live_schema_checkpoint(candidate.store_path())
+            .expect("live accepted checkpoint should remain readable")
+            .expect("live accepted checkpoint should exist");
+        assert_eq!(checkpoint.encoded_bundle(), candidate.encoded_bundle());
+        assert_eq!(checkpoint.encoded_root(), candidate.encoded_root());
+        let loaded = with_schema_application_store(|store| {
+            store.load(
+                record.receipt().database_identity(),
+                record.receipt().submission_key(),
+            )
+        })
+        .expect("application record store should remain readable");
+        assert_eq!(
+            loaded.as_ref(),
+            Some(record),
+            "application receipt must describe the published candidate",
+        );
+    }
+
+    #[test]
+    fn marker_owned_application_publishes_one_live_only_store_and_receipt() {
+        let db = Db::<CompletionCanister>::new_with_registrations(
+            &COMPLETION_REGISTRY,
+            &[] as &[EntityRegistration<CompletionCanister>],
+        );
+        ensure_recovered(&db).expect("test database format should initialize");
+        let store = db
+            .store_handle(COMPLETION_STORE_PATH)
+            .expect("completion heap store should resolve");
+        let candidate = empty_accepted_schema_candidate_for_tests(
+            COMPLETION_STORE_PATH,
+            AcceptedSchemaRevision::new(1),
+        );
+        let record = applied_record(&candidate, 0x51, "single-live-completion");
+        let operation =
+            SchemaApplicationRecordOp::insert(&record).expect("record insertion should prepare");
+
+        publish_accepted_schema_candidates_with_application_record(
+            vec![AcceptedSchemaPublication::new(
+                COMPLETION_STORE_PATH,
+                store,
+                AcceptedSchemaRevision::NONE,
+                &candidate,
+            )],
+            operation,
+        )
+        .expect("marker-owned live-only application should publish");
+
+        assert_candidate_and_record_published(store, &candidate, &record);
+
+        COMPLETION_DATA.with(|store| *store.borrow_mut() = DataStore::init_heap());
+        COMPLETION_INDEX.with(|store| *store.borrow_mut() = IndexStore::init_heap());
+        COMPLETION_SCHEMA.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
+        forget_recovered_domain_for_tests(&db).expect("upgrade should reset recovery ownership");
+        ensure_recovered(&db).expect("checkpoint recovery should restore the live accepted schema");
+        assert_candidate_and_record_published(store, &candidate, &record);
+
+        let second = empty_accepted_schema_candidate_for_tests(
+            COMPLETION_STORE_PATH,
+            AcceptedSchemaRevision::new(2),
+        );
+        publish_accepted_schema_candidate(
+            COMPLETION_STORE_PATH,
+            store,
+            AcceptedSchemaRevision::new(1),
+            &second,
+        )
+        .expect("plain live-only publication should checkpoint");
+        assert_candidate_and_record_published(store, &second, &record);
+
+        COMPLETION_DATA.with(|store| *store.borrow_mut() = DataStore::init_heap());
+        COMPLETION_INDEX.with(|store| *store.borrow_mut() = IndexStore::init_heap());
+        COMPLETION_SCHEMA.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
+        forget_recovered_domain_for_tests(&db).expect("upgrade should reset recovery ownership");
+        ensure_recovered(&db).expect("latest plain checkpoint should restore after upgrade");
+        assert_candidate_and_record_published(store, &second, &record);
+    }
+
+    #[test]
+    fn interrupted_live_only_application_recovers_candidate_and_receipt_from_marker() {
+        let db = Db::<RecoveryCanister>::new_with_registrations(
+            &RECOVERY_REGISTRY,
+            &[] as &[EntityRegistration<RecoveryCanister>],
+        );
+        ensure_recovered(&db).expect("test database format should initialize");
+        let store = db
+            .store_handle(RECOVERY_STORE_PATH)
+            .expect("recovery heap store should resolve");
+        let initial = empty_accepted_schema_candidate_for_tests(
+            RECOVERY_STORE_PATH,
+            AcceptedSchemaRevision::new(1),
+        );
+        let initial_record = applied_record(&initial, 0x60, "single-live-initial");
+        let initial_operation = SchemaApplicationRecordOp::insert(&initial_record)
+            .expect("initial record insertion should prepare");
+        publish_accepted_schema_candidates_with_application_record(
+            vec![AcceptedSchemaPublication::new(
+                RECOVERY_STORE_PATH,
+                store,
+                AcceptedSchemaRevision::NONE,
+                &initial,
+            )],
+            initial_operation,
+        )
+        .expect("initial live-only application should publish");
+        assert_candidate_and_record_published(store, &initial, &initial_record);
+
+        let candidate = empty_accepted_schema_candidate_for_tests(
+            RECOVERY_STORE_PATH,
+            AcceptedSchemaRevision::new(2),
+        );
+        let record = applied_record(&candidate, 0x61, "single-live-recovery");
+        let operation =
+            SchemaApplicationRecordOp::insert(&record).expect("record insertion should prepare");
+        let marker_id = generate_commit_id().expect("marker id should generate");
+        let batch = JournalBatch::new(
+            generate_marker_batch_id(marker_id, 0).expect("batch id should derive"),
+            marker_id,
+            JournalSequence::new(0),
+            vec![
+                JournalRecord::accepted_schema_publish(
+                    RECOVERY_STORE_PATH,
+                    AcceptedSchemaRevision::new(1),
+                    candidate.encoded_bundle().to_vec(),
+                    candidate.encoded_root().to_vec(),
+                )
+                .expect("schema journal record should admit"),
+            ],
+        )
+        .expect("schema journal batch should admit");
+        let marker = CommitMarker::from_parts_with_schema_application(
+            marker_id,
+            vec![batch],
+            Some(operation),
+        )
+        .expect("application marker should admit");
+        let _interrupted = begin_commit(marker).expect("marker should persist before interruption");
+
+        RECOVERY_DATA.with(|store| *store.borrow_mut() = DataStore::init_heap());
+        RECOVERY_INDEX.with(|store| *store.borrow_mut() = IndexStore::init_heap());
+        RECOVERY_SCHEMA.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
+        assert!(
+            store
+                .with_schema(SchemaStore::current_accepted_schema_root)
+                .expect("heap schema root should remain readable")
+                .is_none(),
+            "simulated upgrade must clear the live schema projection",
+        );
+        ensure_recovered(&db).expect("marker recovery should complete the application");
+
+        assert_candidate_and_record_published(store, &candidate, &record);
+        ensure_recovered(&db).expect("completed recovery should remain idempotent");
+        assert_candidate_and_record_published(store, &candidate, &record);
     }
 }

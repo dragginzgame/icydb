@@ -51,6 +51,8 @@ pub(in crate::db) use prepare::{
 };
 pub(in crate::db) use prepared_op::{PreparedIndexMutation, PreparedRowCommitOp};
 pub(in crate::db) use recovery::ensure_recovered;
+#[cfg(test)]
+pub(in crate::db) use recovery::forget_recovered_domain_for_tests;
 pub(in crate::db) use rollback::rollback_prepared_row_ops_reverse;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate;
@@ -64,7 +66,7 @@ pub(in crate::db) use schema_publication::{
 pub(in crate::db) use schema_publication::{
     publish_accepted_schema_candidate_with_constraint_validation_job,
     publish_accepted_schema_candidate_with_constraint_validation_job_removal,
-    publish_constraint_validation_job,
+    publish_constraint_validation_job, publish_generated_check_abort_with_application_record,
 };
 #[cfg(test)]
 pub(in crate::db) use store::validate_commit_marker_envelope_for_tests;

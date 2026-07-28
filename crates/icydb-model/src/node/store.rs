@@ -112,7 +112,8 @@ pub enum CommitParticipation {
 /// Store schema metadata persistence class.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum SchemaMetadataCapability {
-    /// Schema metadata is rebuilt live and is not durable history.
+    /// The store-local projection is rebuilt from a durable accepted checkpoint
+    /// and does not retain its own schema history.
     LiveRebuiltMetadata,
     /// Schema metadata is canonical stable history plus committed journal tail.
     CanonicalStableHistoryPlusJournalTail,
