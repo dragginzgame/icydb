@@ -2,7 +2,7 @@
 //! Ten-entity typed-query canister used for wasm-footprint auditing.
 //!
 
-use icydb::db::query::asc;
+use icydb::db::query::FieldRef;
 use icydb_testing_audit_ten_simple_fixtures::ten_simple::TenSimpleEntity01;
 
 icydb::start!();
@@ -13,7 +13,7 @@ fn query_ten_entity_typed_rows() -> Result<u32, String> {
         .map_err(|error| error.to_string())?
         .query::<TenSimpleEntity01>()
         .map_err(|error| error.to_string())?
-        .order_by(asc("id"))
+        .filter(FieldRef::new("id").eq(icydb::types::Ulid::MIN))
         .limit(1)
         .execute_rows()
         .map_err(|error| error.to_string())?;
